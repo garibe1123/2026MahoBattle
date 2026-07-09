@@ -1,0 +1,25 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bee19e295ee257143aad2a41acca7035, type: 3}
+  m_Name: New Player Sprite SO01
+  m_EditorClassIdentifier: 
+  idleSprites:
+  - {fileID: 1695028234822903429, guid: 43ad039beb20d744c8f68a10c93b928d, type: 3}
+  - {fileID: -3031324828146101342, guid: 43ad039beb20d744c8f68a10c93b928d, type: 3}
+  moveSprites:
+  - {fileID: -8397447730208308198, guid: 43ad039beb20d744c8f68a10c93b928d, type: 3}
+  - {fileID: -4877926206208961645, guid: 43ad039beb20d744c8f68a10c93b928d, type: 3}
+  - {fileID: 8179231829615129235, guid: 43ad039beb20d744c8f68a10c93b928d, type: 3}
+  rollSprites:
+  - {fileID: -7400299932969342639, guid: 43ad039beb20d744c8f68a10c93b928d, type: 3}
+  - {fileID: -3300297048523664772, guid: 43ad039beb20d744c8f68a10c93b928d, type: 3}
+  fps: 12

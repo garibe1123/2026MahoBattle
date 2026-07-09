@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: edb8296ebf3e1b840bcdbe96c91f5107, type: 3}
+  m_Name: New Enemy SO01
+  m_EditorClassIdentifier: 
+  aiType: 0
+  maxHp: 50
+  baseMoveSpeed: 3.5
+  visual: {fileID: 11400000, guid: 27b11f2b68ed3e4408a3eff8fd0f7d29, type: 2}
+  stoppingDistance: 0.5
+  acceleration: 8
+  aggroRadius: 10
+  attackRange: 1.5
+  attackCooldown: 1
+  damage: 10
+  minKitingDistance: 3
+  maxKitingDistance: 7
+  projectileData: {fileID: 11400000, guid: a3bed3b4a208ee24aa2ebbec6dbf9b77, type: 2}
+  dashTriggerRange: 5
+  dashSpeed: 15
+  dashDuration: 1
+  wallLayer:
+    serializedVersion: 2
+    m_Bits: 0
+  enrageSpeedMult: 2.5
+  spawnEnemySO: {fileID: 0}
+  spawnInterval: 3
+  maxSpawnCount: 5

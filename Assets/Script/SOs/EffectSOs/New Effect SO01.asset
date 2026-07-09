@@ -1,0 +1,44 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 84c4e185228ee334cb686f8b0b7d8fe7, type: 3}
+  m_Name: New Effect SO01
+  m_EditorClassIdentifier: 
+  prefab: {fileID: 2445132761915097994, guid: f81c00c86a36043449f0720724158fc6, type: 3}
+  effectType: 0
+  visual: {fileID: 11400000, guid: 9ad041ef8866d2a49a44f471339f58e9, type: 2}
+  duration: 5
+  targetLayer:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  damage: 0
+  tickRate: 0.5
+  radius: 2
+  maxTargetsPerTick: 50
+  movementType: 0
+  moveSpeed: 5
+  rotationType: 0
+  spinSpeed: 180
+  scaleType: 0
+  startScale: 1
+  targetScale: 3
+  isAttached: 1
+  applySlow: 0
+  laserSize: {x: 10, y: 1}
+  blockingLayer:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  laserExtensionSpeed: 0
+  mineDelay: 0.5
+  mineExplosionRadius: 3
+  chainReaction: 1
+  spawnPrefab: {fileID: 1383973723675274911, guid: f81c00c86a36043449f0720724158fc6, type: 3}
+  spawnInterval: 1

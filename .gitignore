@@ -1,0 +1,56 @@
+# Unity generated
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+
+# Unity memory / recordings
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# IDE / editor
+.vs/
+.vscode/
+.idea/
+.plastic/
+
+# Unity generated solution files
+*.csproj
+*.sln
+*.slnx
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs / crash
+*.log
+sysinfo.txt
+mono_crash.*
+
+# Builds
+*.apk
+*.aab
+*.app
+
+# Addressables / generated server data
+/ServerData
+/[Aa]ssets/StreamingAssets/aa*
+/[Aa]ssets/AddressableAssetsData/*/*.bin*
+/[Aa]ssets/Addressables_Temp*
+
+# Visual Scripting generated
+/[Aa]ssets/Unity.VisualScripting.Generated/
