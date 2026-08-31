@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using NavMeshPlus.Components;
 using UnityEngine;
+using UnityEngine.AI;
 
 /// <summary>
 /// Room Lifecycle:
@@ -158,7 +159,6 @@ public class BattleRoomManager : MonoBehaviour
         if (obstacle == null || currentRoom == null)
             return;
 
-        // Collider enable/disable가 NavMesh source에 반영된 다음 프레임에 한 번만 재빌드합니다.
         if (navMeshRebuildRoutine != null)
             StopCoroutine(navMeshRebuildRoutine);
 
@@ -236,10 +236,6 @@ public class BattleRoomManager : MonoBehaviour
         RoomCombatCleared?.Invoke(currentRoom);
     }
 
-    /// <summary>
-    /// 보상 선택/정산이 끝난 뒤 BattleRunManager가 호출합니다.
-    /// Combat Clear 이전에는 열리지 않습니다.
-    /// </summary>
     public void OpenExit()
     {
         if (currentRoom == null)
@@ -338,8 +334,41 @@ public class BattleRoomManager : MonoBehaviour
             return;
         }
 
+        List<NavMeshAgent> agentsToRestore = new();
+
+        // RemoveData 중 활성 Agent가 기존 NavMesh를 잃어 Invalid 상태가 되는 것을 방지합니다.
+        for (int i = 0; i < activeMonsters.Count; i++)
+        {
+            MonsterController monster = activeMonsters[i];
+            if (monster == null || !monster.gameObject.activeInHierarchy) continue;
+
+            NavMeshAgent agent = monster.GetComponent<NavMeshAgent>();
+            if (agent == null || !agent.enabled) continue;
+
+            agentsToRestore.Add(agent);
+            agent.enabled = false;
+        }
+
         navSurface.RemoveData();
         navSurface.BuildNavMesh();
+
+        for (int i = 0; i < agentsToRestore.Count; i++)
+        {
+            NavMeshAgent agent = agentsToRestore[i];
+            if (agent == null || !agent.gameObject.activeInHierarchy) continue;
+
+            if (NavMesh.SamplePosition(agent.transform.position, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+            {
+                agent.transform.position = hit.position;
+                agent.enabled = true;
+                if (agent.isOnNavMesh)
+                    agent.isStopped = false;
+            }
+            else
+            {
+                Debug.LogWarning($"[BattleRoom] Could not restore NavMeshAgent after rebuild: {agent.name}");
+            }
+        }
     }
 
     private void ClearImmediate()
