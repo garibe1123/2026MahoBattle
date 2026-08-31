@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using UnityEngine;
 
 [Serializable]
@@ -24,7 +25,7 @@ public class MonsterSpawnEntry
     public MonsterDefinitionSO monster;
     public Vector2 localPosition;
     [Min(1)] public int count = 1;
-    public float scatterRadius;
+    [Min(0f)] public float scatterRadius;
 }
 
 /// <summary>
@@ -49,5 +50,99 @@ public class RoomDefinitionSO : ScriptableObject
 
     [Header("Clear Presentation")]
     public MapBlock highlightBlockPrefab;
-    public Vector2 highlightBlockOffset = Vector2.zero;
+    [Tooltip("현재 테스트 구현에서는 플레이어 위치 기준 Offset입니다. 0,0이면 발밑 생성 위험이 있으므로 기본값을 떨어뜨립니다.")]
+    public Vector2 highlightBlockOffset = new(4f, 0f);
+
+    public bool ValidateDefinition(out string report)
+    {
+        StringBuilder errors = new();
+        StringBuilder warnings = new();
+
+        if (string.IsNullOrWhiteSpace(roomId))
+            warnings.AppendLine("roomId is empty.");
+
+        if (recommendedGridSize.x < 1 || recommendedGridSize.y < 1)
+            errors.AppendLine("recommendedGridSize must be at least 1x1.");
+
+        if (blocks == null || blocks.Count == 0)
+        {
+            warnings.AppendLine("No MapBlock placements. The Room may have no generated walkable floor.");
+        }
+        else
+        {
+            HashSet<Vector2Int> occupied = new();
+            for (int i = 0; i < blocks.Count; i++)
+            {
+                MapBlockPlacement placement = blocks[i];
+                if (placement == null)
+                {
+                    errors.AppendLine($"blocks[{i}] is null.");
+                    continue;
+                }
+
+                if (placement.prefab == null)
+                    errors.AppendLine($"blocks[{i}] has no prefab.");
+
+                if (!occupied.Add(placement.gridPosition))
+                    warnings.AppendLine($"Duplicate MapBlock grid position: {placement.gridPosition}");
+            }
+        }
+
+        if (obstacles != null)
+        {
+            for (int i = 0; i < obstacles.Count; i++)
+            {
+                if (obstacles[i] == null)
+                {
+                    errors.AppendLine($"obstacles[{i}] is null.");
+                    continue;
+                }
+
+                if (obstacles[i].prefab == null)
+                    errors.AppendLine($"obstacles[{i}] has no prefab.");
+            }
+        }
+
+        if (monsterSpawns == null || monsterSpawns.Count == 0)
+        {
+            warnings.AppendLine("No monster spawns. A combat node using this Room will clear immediately.");
+        }
+        else
+        {
+            for (int i = 0; i < monsterSpawns.Count; i++)
+            {
+                MonsterSpawnEntry spawn = monsterSpawns[i];
+                if (spawn == null)
+                {
+                    errors.AppendLine($"monsterSpawns[{i}] is null.");
+                    continue;
+                }
+
+                if (spawn.monster == null)
+                    errors.AppendLine($"monsterSpawns[{i}] has no MonsterDefinitionSO.");
+
+                if (spawn.count < 1)
+                    errors.AppendLine($"monsterSpawns[{i}] count must be at least 1.");
+            }
+        }
+
+        if (highlightBlockPrefab != null && highlightBlockOffset.sqrMagnitude < 0.01f)
+            warnings.AppendLine("highlightBlockOffset is near zero. ExitPad may appear directly under the player.");
+
+        StringBuilder combined = new();
+        if (errors.Length > 0)
+        {
+            combined.AppendLine("[Errors]");
+            combined.Append(errors);
+        }
+
+        if (warnings.Length > 0)
+        {
+            combined.AppendLine("[Warnings]");
+            combined.Append(warnings);
+        }
+
+        report = combined.ToString().TrimEnd();
+        return errors.Length == 0;
+    }
 }
