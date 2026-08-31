@@ -74,6 +74,9 @@ public class MonsterDefinitionSO : ScriptableObject
     public float acceleration = 8f;
     public float detectionRange = 8f;
 
+    [Header("Run Reward")]
+    [Min(0)] public int killPointReward = 1;
+
     [Header("Movement")]
     public MonsterMoveType moveType = MonsterMoveType.Chase;
     public float stoppingDistance = 0.5f;
