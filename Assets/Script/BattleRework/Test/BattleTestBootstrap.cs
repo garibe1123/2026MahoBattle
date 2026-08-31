@@ -21,8 +21,17 @@ public class BattleTestBootstrap : MonoBehaviour
 
     private void Awake()
     {
-        if (ensureDummyUI && FindFirstObjectByType<BattleDummyUI>() == null)
+        if (!ensureDummyUI)
+            return;
+
+        if (FindFirstObjectByType<BattleDummyUI>() == null)
             gameObject.AddComponent<BattleDummyUI>();
+
+        if (FindFirstObjectByType<PlayerLoadout>() != null &&
+            FindFirstObjectByType<BattleDummyLoadoutUI>() == null)
+        {
+            gameObject.AddComponent<BattleDummyLoadoutUI>();
+        }
     }
 
     private void Start()
