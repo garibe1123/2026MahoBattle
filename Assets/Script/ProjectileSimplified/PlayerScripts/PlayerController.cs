@@ -30,7 +30,6 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     [Header("References")]
     public PlayerShootingSystem shootingSystem;
-    [SerializeField] private BattleRunManager battleRunManager;
 
     private Rigidbody2D rb;
     private PlayerAnimator anim;
@@ -220,9 +219,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         rb.linearVelocity = Vector2.zero;
 
         StopAllCoroutines();
-
         Died?.Invoke();
-        battleRunManager?.NotifyPlayerDeath();
     }
 
     /// <summary>
