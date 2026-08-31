@@ -18,6 +18,16 @@ public class BattleEquipmentSystem : MonoBehaviour
     [Header("Runtime Slots")]
     [SerializeField] private BattleEquipmentSlot[] slots = new BattleEquipmentSlot[MaxSlotCount];
 
+    [Header("Input")]
+    [SerializeField] private bool enableNumberKeyEquip = true;
+
+    private static readonly KeyCode[] SlotKeys =
+    {
+        KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3,
+        KeyCode.Alpha4, KeyCode.Alpha5, KeyCode.Alpha6,
+        KeyCode.Alpha7, KeyCode.Alpha8, KeyCode.Alpha9
+    };
+
     public IReadOnlyList<BattleEquipmentSlot> Slots => slots;
     public IReadOnlyList<BattleEquipmentSO> StartingEquipment => startingEquipment;
     public int UnlockedSlotCount => unlockedSlotCount;
@@ -28,6 +38,19 @@ public class BattleEquipmentSystem : MonoBehaviour
     private void Awake()
     {
         EnsureSlots();
+    }
+
+    private void Update()
+    {
+        if (!enableNumberKeyEquip)
+            return;
+
+        int count = Mathf.Min(unlockedSlotCount, SlotKeys.Length);
+        for (int i = 0; i < count; i++)
+        {
+            if (Input.GetKeyDown(SlotKeys[i]))
+                EquipSlot(i);
+        }
     }
 
     public bool ValidateConfiguration(out string report)
@@ -86,15 +109,10 @@ public class BattleEquipmentSystem : MonoBehaviour
     public void ResetForRun()
     {
         EnsureSlots();
+        shootingSystem?.ResetRuntimeWeapons();
 
         for (int i = 0; i < slots.Length; i++)
             slots[i].Clear();
-
-        if (shootingSystem != null)
-        {
-            shootingSystem.RuntimeDamageMultiplier = 1f;
-            shootingSystem.RuntimeFanMissionModifier = 0f;
-        }
 
         if (startingEquipment != null)
         {
@@ -106,7 +124,7 @@ public class BattleEquipmentSystem : MonoBehaviour
             }
         }
 
-        // 첫 번째 무기 장비를 기본 장착합니다.
+        // 첫 번째 수동 무기를 기본 장착합니다.
         for (int i = 0; i < unlockedSlotCount; i++)
         {
             if (slots[i].equipment != null && slots[i].equipment.shootingData != null)
@@ -177,9 +195,18 @@ public class BattleEquipmentSystem : MonoBehaviour
         if (!IsUnlockedIndex(index) || equipment == null)
             return false;
 
+        BattleEquipmentSO old = slots[index].equipment;
+        bool oldWasEquipped = IsSlotEquipped(index);
+
         slots[index].equipment = equipment;
         slots[index].grade = 1;
         slots[index].copies = 1;
+
+        UnregisterWeaponIfUnused(old);
+
+        if (oldWasEquipped && equipment.shootingData != null)
+            EquipSlot(index);
+
         InventoryChanged?.Invoke();
         return true;
     }
@@ -191,7 +218,14 @@ public class BattleEquipmentSystem : MonoBehaviour
         if (!IsUnlockedIndex(index))
             return false;
 
+        BattleEquipmentSO old = slots[index].equipment;
+        bool oldWasEquipped = IsSlotEquipped(index);
         slots[index].Clear();
+        UnregisterWeaponIfUnused(old);
+
+        if (oldWasEquipped)
+            EquipFirstAvailableWeapon();
+
         InventoryChanged?.Invoke();
         return true;
     }
@@ -215,6 +249,46 @@ public class BattleEquipmentSystem : MonoBehaviour
         // 여러 장비 동시 발동/Synergy 합산은 후속 Build 계산 계층에서 처리합니다.
         shootingSystem.RuntimeDamageMultiplier = Mathf.Max(0f, slot.equipment.damageMultiplier);
         return true;
+    }
+
+    public bool IsSlotEquipped(int index)
+    {
+        EnsureSlots();
+        if (!IsUnlockedIndex(index) || shootingSystem == null)
+            return false;
+
+        BattleEquipmentSO equipment = slots[index].equipment;
+        return equipment != null &&
+               equipment.shootingData != null &&
+               shootingSystem.currentWeaponSO == equipment.shootingData;
+    }
+
+    private void EquipFirstAvailableWeapon()
+    {
+        for (int i = 0; i < unlockedSlotCount; i++)
+        {
+            BattleEquipmentSO equipment = slots[i].equipment;
+            if (equipment != null && equipment.shootingData != null)
+            {
+                EquipSlot(i);
+                return;
+            }
+        }
+    }
+
+    private void UnregisterWeaponIfUnused(BattleEquipmentSO removed)
+    {
+        if (removed == null || removed.shootingData == null || shootingSystem == null)
+            return;
+
+        for (int i = 0; i < unlockedSlotCount; i++)
+        {
+            BattleEquipmentSO remaining = slots[i].equipment;
+            if (remaining != null && remaining.shootingData == removed.shootingData)
+                return;
+        }
+
+        shootingSystem.UnregisterWeapon(removed.shootingData);
     }
 
     public void SetUnlockedSlotCount(int count)
