@@ -24,7 +24,6 @@ public enum BattleRunState
 
 /// <summary>
 /// 한 런의 최상위 Flow를 관리합니다.
-///
 /// Node 진입 -> Room 생성 -> Combat -> Reward -> Exit -> 다음 Node 선택을
 /// 명시적인 상태 머신으로 관리하며, Room 내부 구현과 보상/진행 로직을 분리합니다.
 /// </summary>
@@ -40,6 +39,7 @@ public class BattleRunManager : MonoBehaviour
     [SerializeField] private RunProgressSystem progress;
     [SerializeField] private BattleRewardSystem rewardSystem;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [SerializeField] private PlayerController playerController;
 
     [Header("Depth Scaling - inspector driven")]
     [SerializeField] private AnimationCurve hpByDepth = AnimationCurve.Linear(0f, 1f, 10f, 1f);
@@ -110,6 +110,7 @@ public class BattleRunManager : MonoBehaviour
         if (progress == null) errors.Add("progress is null");
         if (rewardSystem == null) errors.Add("rewardSystem is null");
         if (equipmentSystem == null) errors.Add("equipmentSystem is null");
+        if (playerController == null) errors.Add("playerController is null");
 
         if (rewardSystem != null && !rewardSystem.ValidateConfiguration(out string rewardReport))
             errors.Add($"BattleRewardSystem invalid:\n{rewardReport}");
@@ -141,6 +142,7 @@ public class BattleRunManager : MonoBehaviour
         currentNode = null;
         currentContext = null;
 
+        playerController.ResetForRun();
         runActive = true;
         progress.BeginRun();
         EnterNode(start);
