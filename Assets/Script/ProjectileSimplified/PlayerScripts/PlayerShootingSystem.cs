@@ -1,6 +1,7 @@
-using UnityEngine;
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
 
 public class PlayerShootingSystem : MonoBehaviour
 {
@@ -8,160 +9,255 @@ public class PlayerShootingSystem : MonoBehaviour
     public ProjectilePooler playerProjectilePool;
     public WeaponDisplay weaponDisplay;
 
-    [Header("Weapon Inventory")]
-    public List<PlayerShootingSO> unlockedWeapons;
-
-    // ¡Ú Ãß°¡µÊ: °¢ ¹«±âº° ³²Àº ÃÑ¾ËÀ» ±â¾ïÇÒ ¸®½ºÆ®!
-    private List<int> ammoInventory = new List<int>();
+    [Header("Weapon Inventory - legacy runtime bridge")]
+    public List<PlayerShootingSO> unlockedWeapons = new();
 
     [HideInInspector] public PlayerShootingSO currentWeaponSO;
-    public int currentWeaponIndex = 0;
-    public int extraPierce = 0;
+    public int currentWeaponIndex;
+    public int extraPierce;
 
-    // UI¿¡¼­ ÀĞ¾î°¥ ¼ö ÀÖµµ·Ï public getÀ¸·Î ¿­¾îµÓ´Ï´Ù.
+    [Header("Runtime Modifiers")]
+    [SerializeField] private float runtimeDamageMultiplier = 1f;
+    [SerializeField] private float runtimeFanMissionModifier;
+
+    private readonly List<int> ammoInventory = new();
+
     public int currentAmmo { get; private set; }
+    public float RuntimeDamageMultiplier
+    {
+        get => runtimeDamageMultiplier;
+        set => runtimeDamageMultiplier = Mathf.Max(0f, value);
+    }
+
+    public float RuntimeFanMissionModifier
+    {
+        get => runtimeFanMissionModifier;
+        set => runtimeFanMissionModifier = value;
+    }
+
+    public event Action<PlayerShootingSO> WeaponChanged;
 
     private bool isReloading;
     private float nextFireTime;
-
     private Coroutine currentAnimCoroutine;
-    private Coroutine reloadCoroutine; // ¡Ú Ãß°¡µÊ: ÀåÀü Ãë¼Ò¸¦ À§ÇÑ ÃßÀû¿ë
+    private Coroutine reloadCoroutine;
 
-    void Start()
+    private void Start()
     {
-        // ¡Ú ½ÃÀÛÇÒ ¶§, °¡Áö°í ÀÖ´Â ¹«±â ¼ö¸¸Å­ ÅºÃ¢ ÁÖ¸Ó´Ï¸¦ ¸¸µé°í ²Ë Ã¤¿öµÓ´Ï´Ù.
-        for (int i = 0; i < unlockedWeapons.Count; i++)
+        EnsureWeaponInventoryInitialized();
+
+        if (unlockedWeapons.Count > 0)
+            EquipWeapon(Mathf.Clamp(currentWeaponIndex, 0, unlockedWeapons.Count - 1));
+    }
+
+    private void EnsureWeaponInventoryInitialized()
+    {
+        unlockedWeapons ??= new List<PlayerShootingSO>();
+
+        while (ammoInventory.Count < unlockedWeapons.Count)
         {
-            ammoInventory.Add(unlockedWeapons[i].maxAmmo);
+            PlayerShootingSO weapon = unlockedWeapons[ammoInventory.Count];
+            ammoInventory.Add(weapon != null ? Mathf.Max(0, weapon.maxAmmo) : 0);
         }
 
-        if (unlockedWeapons.Count > 0) EquipWeapon(0);
+        while (ammoInventory.Count > unlockedWeapons.Count)
+            ammoInventory.RemoveAt(ammoInventory.Count - 1);
+    }
+
+    /// <summary>
+    /// BattleEquipmentSystemì´ ëŸ° ì¤‘ íšë“í•œ ë¬´ê¸°ë¥¼ ì•ˆì „í•˜ê²Œ ShootingSystemì— ë“±ë¡í•  ë•Œ ì‚¬ìš©í•©ë‹ˆë‹¤.
+    /// Start ì´í›„ ë¬´ê¸°ê°€ ì¶”ê°€ë˜ì–´ë„ ammoInventory ê¸¸ì´ê°€ ì–´ê¸‹ë‚˜ì§€ ì•ŠìŠµë‹ˆë‹¤.
+    /// </summary>
+    public int RegisterWeapon(PlayerShootingSO weapon)
+    {
+        if (weapon == null)
+            return -1;
+
+        EnsureWeaponInventoryInitialized();
+
+        int index = unlockedWeapons.IndexOf(weapon);
+        if (index >= 0)
+            return index;
+
+        unlockedWeapons.Add(weapon);
+        ammoInventory.Add(Mathf.Max(0, weapon.maxAmmo));
+        return unlockedWeapons.Count - 1;
+    }
+
+    public bool RegisterWeaponAndEquip(PlayerShootingSO weapon)
+    {
+        int index = RegisterWeapon(weapon);
+        if (index < 0)
+            return false;
+
+        EquipWeapon(index);
+        return currentWeaponSO == weapon;
     }
 
     public void EquipWeapon(int index)
     {
+        EnsureWeaponInventoryInitialized();
         if (index < 0 || index >= unlockedWeapons.Count) return;
+        if (unlockedWeapons[index] == null) return;
 
-        // ¡Ú 1. ±âÁ¸¿¡ µé°í ÀÖ´ø ¹«±â°¡ ÀÖ´Ù¸é, ÇöÀç ÃÑ¾ËÀ» ÅºÃ¢ ÁÖ¸Ó´Ï¿¡ ÀúÀå!
-        if (currentWeaponSO != null)
+        if (currentWeaponSO != null &&
+            currentWeaponIndex >= 0 &&
+            currentWeaponIndex < ammoInventory.Count)
         {
             ammoInventory[currentWeaponIndex] = currentAmmo;
         }
 
-        // ¡Ú 2. ÀåÀü Áß¿¡ ¹«±â¸¦ ½º¿ÒÇÏ¸é ÀåÀü Ãë¼Ò!
-        if (isReloading && reloadCoroutine != null)
-        {
-            StopCoroutine(reloadCoroutine);
-            isReloading = false;
-        }
+        CancelReload();
 
-        // 3. ¹«±â ±³Ã¼
         currentWeaponIndex = index;
         currentWeaponSO = unlockedWeapons[index];
-
-        // ¡Ú 4. »õ·Î ²¨³½ ¹«±âÀÇ ¿¹Àü ÃÑ¾Ë ¼ö ºÒ·¯¿À±â!
         currentAmmo = ammoInventory[index];
 
         PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
+        WeaponChanged?.Invoke(currentWeaponSO);
     }
 
     public void TryShoot(Vector3 mousePos, Transform target = null)
     {
-        if (isReloading || Time.time < nextFireTime || currentAmmo <= 0 || currentWeaponSO == null) return;
+        if (isReloading || Time.time < nextFireTime || currentAmmo <= 0 || currentWeaponSO == null)
+            return;
+
+        if (playerProjectilePool == null)
+        {
+            Debug.LogError("[PlayerShooting] playerProjectilePool is null.");
+            return;
+        }
+
         Shoot(mousePos, target);
     }
 
     private void Shoot(Vector3 mousePos, Transform target)
     {
         currentAmmo--;
+        if (currentWeaponIndex >= 0 && currentWeaponIndex < ammoInventory.Count)
+            ammoInventory[currentWeaponIndex] = currentAmmo;
 
-        // ¡Ú ½ò ¶§¸¶´Ù ÅºÃ¢ ÁÖ¸Ó´Ïµµ ½Ç½Ã°£ ¾÷µ¥ÀÌÆ® (UI ¿¬µ¿ µî ´ëºñ)
-        ammoInventory[currentWeaponIndex] = currentAmmo;
-
-        nextFireTime = Time.time + currentWeaponSO.fireRate;
+        nextFireTime = Time.time + Mathf.Max(0f, currentWeaponSO.fireRate);
 
         Vector2 baseDir = (mousePos - transform.position).normalized;
-        int shotCount = currentWeaponSO.projectilesPerShot;
+        if (baseDir.sqrMagnitude <= 0.0001f)
+            baseDir = Vector2.right;
+
+        int shotCount = Mathf.Max(1, currentWeaponSO.projectilesPerShot);
         float spread = currentWeaponSO.spreadAngle;
 
         for (int i = 0; i < shotCount; i++)
         {
-            float angleOffset = shotCount == 1 ? 0f : Mathf.Lerp(-spread, spread, (float)i / (shotCount - 1));
-            Vector2 finalDir = Quaternion.Euler(0, 0, angleOffset) * baseDir;
+            float angleOffset = shotCount == 1
+                ? 0f
+                : Mathf.Lerp(-spread, spread, (float)i / (shotCount - 1));
 
-            var p = playerProjectilePool.Get();
-            p.transform.position = weaponDisplay.transform.position;
-            p.Setup(currentWeaponSO.projectileData, finalDir, playerProjectilePool, target, mousePos);
-            p.AddExtraPierce(Mathf.Max(0, extraPierce));
+            Vector2 finalDir = Quaternion.Euler(0f, 0f, angleOffset) * baseDir;
+            Projectile projectile = playerProjectilePool.Get();
+            if (projectile == null) continue;
+
+            Vector3 spawnPosition = weaponDisplay != null
+                ? weaponDisplay.transform.position
+                : transform.position;
+
+            projectile.transform.position = spawnPosition;
+            projectile.Setup(
+                currentWeaponSO.projectileData,
+                finalDir,
+                playerProjectilePool,
+                target,
+                mousePos,
+                gameObject,
+                runtimeDamageMultiplier,
+                runtimeFanMissionModifier);
+
+            projectile.AddExtraPierce(Mathf.Max(0, extraPierce));
         }
 
         if (currentAmmo <= 0)
         {
-            ReloadFuncCall(); // ¡Ú ÄÚ·çÆ¾ Á÷Á¢ È£Ãâ ´ë½Å ÇÔ¼ö¸¦ °ÅÄ¡°Ô ¼öÁ¤
+            ReloadFuncCall();
         }
         else
         {
             PlayWeaponAnimation(currentWeaponSO.shootSprites, false, () =>
             {
-                if (!isReloading) PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
+                if (!isReloading)
+                    PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
             });
         }
     }
 
     public void ReloadFuncCall()
     {
-        if (isReloading || currentWeaponSO == null) return; // ¹æ¾î ÄÚµå Ãß°¡
+        if (isReloading || currentWeaponSO == null)
+            return;
 
-        if (currentAmmo < currentWeaponSO.maxAmmo)
-        {
-            // ¡Ú ÀåÀü ÄÚ·çÆ¾À» ÃßÀû º¯¼ö¿¡ ´ã¾Æ¼­ ½ÇÇà (½º¿Ò ½Ã Ãë¼ÒÇÏ±â À§ÇØ)
-            reloadCoroutine = StartCoroutine(ReloadRoutine());
-        }
-        else
-        {
-            Debug.Log("ÃÑ¾Ë °¡µæ Â÷ ÀÖÀ½ ¸®·Îµå °ÅºÎ.");
-        }
+        if (currentAmmo >= currentWeaponSO.maxAmmo)
+            return;
+
+        reloadCoroutine = StartCoroutine(ReloadRoutine());
     }
 
-    IEnumerator ReloadRoutine()
+    private IEnumerator ReloadRoutine()
     {
-        Debug.Log("ÀçÀåÀü ½ÃÀÛ");
         isReloading = true;
-
         PlayWeaponAnimation(currentWeaponSO.reloadSprites, true);
 
-        yield return new WaitForSeconds(currentWeaponSO.reloadTime);
+        yield return new WaitForSeconds(Mathf.Max(0f, currentWeaponSO.reloadTime));
 
-        currentAmmo = currentWeaponSO.maxAmmo;
-        ammoInventory[currentWeaponIndex] = currentAmmo; // ¡Ú ÁÖ¸Ó´Ïµµ ¾÷µ¥ÀÌÆ®
+        if (currentWeaponSO != null)
+        {
+            currentAmmo = Mathf.Max(0, currentWeaponSO.maxAmmo);
+            if (currentWeaponIndex >= 0 && currentWeaponIndex < ammoInventory.Count)
+                ammoInventory[currentWeaponIndex] = currentAmmo;
+        }
+
         isReloading = false;
+        reloadCoroutine = null;
 
-        PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
+        if (currentWeaponSO != null)
+            PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
     }
 
-    // ==========================================
-    // ¡Ú Custom Weapon Animator ·ÎÁ÷ (±âÁ¸°ú µ¿ÀÏ)
-    // ==========================================
-    private void PlayWeaponAnimation(Sprite[] frames, bool loop, System.Action onComplete = null)
+    private void CancelReload()
     {
-        if (currentAnimCoroutine != null) StopCoroutine(currentAnimCoroutine);
+        if (reloadCoroutine != null)
+        {
+            StopCoroutine(reloadCoroutine);
+            reloadCoroutine = null;
+        }
+
+        isReloading = false;
+    }
+
+    private void PlayWeaponAnimation(Sprite[] frames, bool loop, Action onComplete = null)
+    {
+        if (currentAnimCoroutine != null)
+        {
+            StopCoroutine(currentAnimCoroutine);
+            currentAnimCoroutine = null;
+        }
 
         if (frames == null || frames.Length == 0)
         {
             if (weaponDisplay != null && currentWeaponSO != null)
                 weaponDisplay.UpdateWeaponSprite(currentWeaponSO.weaponSprite);
+
+            onComplete?.Invoke();
             return;
         }
 
         currentAnimCoroutine = StartCoroutine(AnimRoutine(frames, loop, onComplete));
     }
 
-    private IEnumerator AnimRoutine(Sprite[] frames, bool loop, System.Action onComplete)
+    private IEnumerator AnimRoutine(Sprite[] frames, bool loop, Action onComplete)
     {
-        float delay = 1f / currentWeaponSO.animFps;
+        float fps = currentWeaponSO != null ? Mathf.Max(1f, currentWeaponSO.animFps) : 12f;
+        float delay = 1f / fps;
         int index = 0;
 
-        while (true)
+        while (frames != null && frames.Length > 0)
         {
             if (weaponDisplay != null)
                 weaponDisplay.UpdateWeaponSprite(frames[index]);
@@ -169,13 +265,16 @@ public class PlayerShootingSystem : MonoBehaviour
             yield return new WaitForSeconds(delay);
             index++;
 
-            if (index >= frames.Length)
-            {
-                if (loop) index = 0;
-                else break;
-            }
+            if (index < frames.Length)
+                continue;
+
+            if (loop)
+                index = 0;
+            else
+                break;
         }
 
+        currentAnimCoroutine = null;
         onComplete?.Invoke();
     }
 }
