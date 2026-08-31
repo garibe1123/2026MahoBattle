@@ -4,7 +4,7 @@ using UnityEngine;
 /// <summary>
 /// BattleTestScene 전용 부트스트랩입니다.
 /// 정식 게임 진입 로직과 분리된 상태에서 필수 Reference / SO 데이터를 검사하고
-/// 수직 슬라이스 런을 자동 시작합니다.
+/// 기능성 더미 UI를 통해 수직 슬라이스를 시작할 수 있게 합니다.
 /// </summary>
 public class BattleTestBootstrap : MonoBehaviour
 {
@@ -13,7 +13,17 @@ public class BattleTestBootstrap : MonoBehaviour
     [SerializeField] private MonsterPool monsterPool;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleRewardSystem rewardSystem;
-    [SerializeField] private bool autoStartRun = true;
+
+    [Header("Test Startup")]
+    [SerializeField] private bool ensureDummyUI = true;
+    [Tooltip("false면 Dummy Run Setup 화면에서 START를 눌러 시작합니다.")]
+    [SerializeField] private bool autoStartRun = false;
+
+    private void Awake()
+    {
+        if (ensureDummyUI && FindFirstObjectByType<BattleDummyUI>() == null)
+            gameObject.AddComponent<BattleDummyUI>();
+    }
 
     private void Start()
     {
