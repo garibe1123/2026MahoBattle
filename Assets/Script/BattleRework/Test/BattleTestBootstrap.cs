@@ -13,14 +13,25 @@ public class BattleTestBootstrap : MonoBehaviour
     [SerializeField] private MonsterPool monsterPool;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleRewardSystem rewardSystem;
+    [SerializeField] private SynergyManager synergyManager;
 
     [Header("Test Startup")]
     [SerializeField] private bool ensureDummyUI = true;
+    [SerializeField] private bool ensureSynergyResolver = true;
     [Tooltip("false면 Dummy Run Setup 화면에서 START를 눌러 시작합니다.")]
     [SerializeField] private bool autoStartRun = false;
 
     private void Awake()
     {
+        if (ensureSynergyResolver)
+        {
+            if (synergyManager == null)
+                synergyManager = FindFirstObjectByType<SynergyManager>();
+
+            if (synergyManager == null)
+                synergyManager = gameObject.AddComponent<SynergyManager>();
+        }
+
         if (!ensureDummyUI)
             return;
 
@@ -32,6 +43,9 @@ public class BattleTestBootstrap : MonoBehaviour
         {
             gameObject.AddComponent<BattleDummyLoadoutUI>();
         }
+
+        if (FindFirstObjectByType<SynergyDummyUI>() == null)
+            gameObject.AddComponent<SynergyDummyUI>();
     }
 
     private void Start()
@@ -105,6 +119,18 @@ public class BattleTestBootstrap : MonoBehaviour
         else if (!rewardSystem.ValidateConfiguration(out string rewardReport))
         {
             errors.Add($"BattleRewardSystem invalid:\n{rewardReport}");
+        }
+
+        if (ensureSynergyResolver)
+        {
+            if (synergyManager == null)
+            {
+                errors.Add("synergyManager is null");
+            }
+            else if (!synergyManager.ValidateConfiguration(out string synergyReport))
+            {
+                errors.Add($"SynergyManager invalid:\n{synergyReport}");
+            }
         }
 
         report = string.Join("\n", errors);
