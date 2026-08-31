@@ -45,8 +45,8 @@ public interface IDamageable
 }
 
 /// <summary>
-/// 기획서의 공통 데미지 공식을 한 곳에서 처리합니다.
-/// Final = Base × Item/Runtime Multiplier × (1 + FanMission Modifier) - Defense
+/// 공통 데미지 계산과 IDamageable 탐색을 한 곳에서 처리합니다.
+/// Final = Base × Runtime Multiplier × (1 + FanMission Modifier) - Defense
 /// </summary>
 public static class CombatDamage
 {
@@ -65,22 +65,56 @@ public static class CombatDamage
     public static bool TryApply(Collider2D target, DamageContext context)
     {
         if (target == null) return false;
-        return TryApply(target.gameObject, context);
+        return TryApply(target.transform, context);
     }
 
     public static bool TryApply(GameObject target, DamageContext context)
     {
         if (target == null) return false;
+        return TryApply(target.transform, context);
+    }
 
-        MonoBehaviour[] behaviours = target.GetComponents<MonoBehaviour>();
-        for (int i = 0; i < behaviours.Length; i++)
+    public static bool TryApply(Component target, DamageContext context)
+    {
+        if (target == null) return false;
+        return TryApply(target.transform, context);
+    }
+
+    private static bool TryApply(Transform targetTransform, DamageContext context)
+    {
+        if (!TryFindDamageable(targetTransform, out IDamageable damageable))
+            return false;
+
+        if (!damageable.IsAlive)
+            return false;
+
+        float finalDamage = Calculate(context, damageable.Defense);
+        damageable.ReceiveDamage(context, finalDamage);
+        return true;
+    }
+
+    /// <summary>
+    /// Collider가 자식 오브젝트에 붙어 있어도 부모의 Player/Monster IDamageable을 찾습니다.
+    /// </summary>
+    public static bool TryFindDamageable(Transform start, out IDamageable damageable)
+    {
+        damageable = null;
+        if (start == null) return false;
+
+        Transform current = start;
+        while (current != null)
         {
-            if (behaviours[i] is not IDamageable damageable || !damageable.IsAlive)
-                continue;
+            MonoBehaviour[] behaviours = current.GetComponents<MonoBehaviour>();
+            for (int i = 0; i < behaviours.Length; i++)
+            {
+                if (behaviours[i] is IDamageable found)
+                {
+                    damageable = found;
+                    return true;
+                }
+            }
 
-            float finalDamage = Calculate(context, damageable.Defense);
-            damageable.ReceiveDamage(context, finalDamage);
-            return true;
+            current = current.parent;
         }
 
         return false;
