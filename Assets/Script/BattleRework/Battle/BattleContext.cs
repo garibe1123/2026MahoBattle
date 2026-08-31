@@ -11,7 +11,8 @@ public enum VillainGrade
 
 /// <summary>
 /// 현재 런/노드에서 전투 오브젝트가 공통으로 참조하는 런타임 문맥입니다.
-/// SO 자체를 변형하지 않고, 노드 깊이/빌런 등급에 따른 실제 전투 배율을 전달합니다.
+/// SO 자체를 변형하지 않고, 노드 깊이/노드 종류/빌런 등급에 따른 실제 전투 배율을 전달합니다.
+/// 빌런 등급 배율은 기획서 기준으로 Boss 카테고리에만 추가 적용합니다.
 /// </summary>
 [Serializable]
 public class BattleContext
@@ -31,11 +32,24 @@ public class BattleContext
     public ClanDefinitionSO Clan => clan;
     public ShootingThemeSO ShootingTheme => shootingTheme;
 
-    public float MonsterHpMultiplier =>
-        depthHpMultiplier * nodeTypeHpMultiplier * GetVillainGradeMultiplier(villainGrade);
+    public float BaseMonsterHpMultiplier => depthHpMultiplier * nodeTypeHpMultiplier;
+    public float BaseMonsterDamageMultiplier => depthDamageMultiplier * nodeTypeDamageMultiplier;
 
-    public float MonsterDamageMultiplier =>
-        depthDamageMultiplier * nodeTypeDamageMultiplier * GetVillainGradeMultiplier(villainGrade);
+    public float GetMonsterHpMultiplier(MonsterCategory category)
+    {
+        float multiplier = BaseMonsterHpMultiplier;
+        if (category == MonsterCategory.Boss)
+            multiplier *= GetVillainGradeMultiplier(villainGrade);
+        return multiplier;
+    }
+
+    public float GetMonsterDamageMultiplier(MonsterCategory category)
+    {
+        float multiplier = BaseMonsterDamageMultiplier;
+        if (category == MonsterCategory.Boss)
+            multiplier *= GetVillainGradeMultiplier(villainGrade);
+        return multiplier;
+    }
 
     public void Configure(
         int depth,
