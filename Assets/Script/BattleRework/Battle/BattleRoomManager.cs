@@ -6,7 +6,11 @@ using UnityEngine;
 
 /// <summary>
 /// Room Lifecycle:
-/// Build Blocks -> Build NavMesh -> Spawn Fixed Monsters -> Combat -> Highlight Pad -> Exit Blocks.
+/// Build Blocks -> Build NavMesh -> Spawn Fixed Monsters -> Combat -> Cleared
+/// -> (external reward flow) -> OpenExit -> Highlight Pad -> Exit Blocks.
+///
+/// 보상/팬미션/다음 Node 결정은 BattleRunManager의 책임이며,
+/// 이 클래스는 현재 Room의 생성/전투/철거만 담당합니다.
 /// </summary>
 public class BattleRoomManager : MonoBehaviour
 {
@@ -26,12 +30,20 @@ public class BattleRoomManager : MonoBehaviour
     private RoomDefinitionSO currentRoom;
     private BattleContext currentContext;
     private bool roomTransitioning;
+    private bool combatCleared;
+    private bool exitOpened;
+    private bool exitRoutineStarted;
 
     public event Action<RoomDefinitionSO> RoomCombatStarted;
     public event Action<RoomDefinitionSO> RoomCombatCleared;
     public event Action<RoomDefinitionSO> RoomExited;
+    public event Action<MonsterController> MonsterDefeated;
 
+    public RoomDefinitionSO CurrentRoom => currentRoom;
     public bool IsRoomActive => currentRoom != null;
+    public bool IsTransitioning => roomTransitioning;
+    public bool IsCombatCleared => combatCleared;
+    public bool IsExitOpen => exitOpened;
     public int AliveMonsterCount => activeMonsters.Count;
 
     private void Awake()
@@ -40,10 +52,32 @@ public class BattleRoomManager : MonoBehaviour
             roomOrigin = transform;
     }
 
+    public bool ValidateConfiguration(out string report)
+    {
+        List<string> errors = new();
+
+        if (roomOrigin == null) errors.Add("roomOrigin is null");
+        if (navSurface == null) errors.Add("navSurface is null");
+        if (monsterPool == null) errors.Add("monsterPool is null");
+        if (playerTarget == null) errors.Add("playerTarget is null");
+
+        report = string.Join("\n", errors);
+        return errors.Count == 0;
+    }
+
     public void EnterRoom(RoomDefinitionSO room, BattleContext context)
     {
-        if (room == null || roomTransitioning)
+        if (room == null)
+        {
+            Debug.LogError("[BattleRoom] EnterRoom called with null RoomDefinitionSO.");
             return;
+        }
+
+        if (roomTransitioning)
+        {
+            Debug.LogWarning("[BattleRoom] Room transition is already in progress.");
+            return;
+        }
 
         StartCoroutine(EnterRoomRoutine(room, context));
     }
@@ -52,9 +86,11 @@ public class BattleRoomManager : MonoBehaviour
     {
         roomTransitioning = true;
 
-        if (currentRoom != null)
+        if (currentRoom != null || activeBlocks.Count > 0 || activeMonsters.Count > 0)
             ClearImmediate();
 
+        ResetRoomFlags();
+        roomTransitioning = true;
         currentRoom = room;
         currentContext = context;
 
@@ -70,7 +106,7 @@ public class BattleRoomManager : MonoBehaviour
         roomTransitioning = false;
         RoomCombatStarted?.Invoke(room);
 
-        // 상점/이벤트 등 전투가 없는 RoomDefinition을 사용할 경우 즉시 클리어 처리 가능.
+        // 상점/이벤트용 빈 Room이나 테스트 Room은 전투 시작 직후 클리어 상태가 됩니다.
         if (activeMonsters.Count == 0)
             HandleCombatCleared();
     }
@@ -119,7 +155,10 @@ public class BattleRoomManager : MonoBehaviour
     private void SpawnFixedMonsters(RoomDefinitionSO room)
     {
         if (monsterPool == null || playerTarget == null)
+        {
+            Debug.LogError("[BattleRoom] Cannot spawn monsters: MonsterPool or playerTarget is missing.");
             return;
+        }
 
         for (int i = 0; i < room.monsterSpawns.Count; i++)
         {
@@ -141,7 +180,11 @@ public class BattleRoomManager : MonoBehaviour
                     playerTarget,
                     HandleMonsterDeath);
 
-                if (monster == null) continue;
+                if (monster == null)
+                {
+                    Debug.LogError($"[BattleRoom] Failed to spawn monster '{entry.monster.name}'.");
+                    continue;
+                }
 
                 Transform parent = monsterRoot != null ? monsterRoot : transform;
                 monster.transform.SetParent(parent);
@@ -153,9 +196,11 @@ public class BattleRoomManager : MonoBehaviour
     private void HandleMonsterDeath(MonsterController monster)
     {
         if (monster == null) return;
+        if (!activeMonsters.Remove(monster)) return;
 
-        activeMonsters.Remove(monster);
-        monsterPool.Return(monster);
+        // Pool 반환 전에 알립니다. 외부에서 Definition/보상값을 읽을 수 있어야 합니다.
+        MonsterDefeated?.Invoke(monster);
+        monsterPool?.Return(monster);
 
         if (activeMonsters.Count == 0)
             HandleCombatCleared();
@@ -163,11 +208,35 @@ public class BattleRoomManager : MonoBehaviour
 
     private void HandleCombatCleared()
     {
-        if (currentRoom == null || roomTransitioning)
+        if (currentRoom == null || combatCleared)
             return;
 
-        roomTransitioning = true;
+        combatCleared = true;
         RoomCombatCleared?.Invoke(currentRoom);
+    }
+
+    /// <summary>
+    /// 보상 선택/정산이 끝난 뒤 BattleRunManager가 호출합니다.
+    /// Combat Clear 이전에는 열리지 않습니다.
+    /// </summary>
+    public void OpenExit()
+    {
+        if (currentRoom == null)
+        {
+            Debug.LogWarning("[BattleRoom] OpenExit ignored because there is no active Room.");
+            return;
+        }
+
+        if (!combatCleared)
+        {
+            Debug.LogWarning("[BattleRoom] OpenExit ignored because combat is not cleared yet.");
+            return;
+        }
+
+        if (exitOpened || exitRoutineStarted)
+            return;
+
+        exitOpened = true;
         SpawnHighlightPad();
     }
 
@@ -175,7 +244,7 @@ public class BattleRoomManager : MonoBehaviour
     {
         if (currentRoom.highlightBlockPrefab == null)
         {
-            // 하이라이트 블록이 아직 준비되지 않은 테스트 Room은 즉시 퇴장 가능하게 처리.
+            // 테스트 Room은 Highlight Prefab 없이도 전체 Flow 검증이 가능해야 합니다.
             StartCoroutine(ExitRoomRoutine());
             return;
         }
@@ -196,7 +265,7 @@ public class BattleRoomManager : MonoBehaviour
         }
         else
         {
-            // ExitPad가 없는 프로토타입 프리팹은 연출 완료 후 자동 퇴장.
+            // ExitPad가 없는 프로토타입 프리팹은 등장 연출 후 자동 퇴장합니다.
             StartCoroutine(AutoExitAfterHighlight(highlight.EntryDuration));
         }
     }
@@ -209,6 +278,12 @@ public class BattleRoomManager : MonoBehaviour
 
     private IEnumerator ExitRoomRoutine()
     {
+        if (exitRoutineStarted)
+            yield break;
+
+        exitRoutineStarted = true;
+        roomTransitioning = true;
+
         float longestExit = 0f;
 
         for (int i = 0; i < activeBlocks.Count; i++)
@@ -226,13 +301,24 @@ public class BattleRoomManager : MonoBehaviour
 
         RoomDefinitionSO finishedRoom = currentRoom;
         ClearImmediate();
-        roomTransitioning = false;
+        ResetRoomFlags();
         RoomExited?.Invoke(finishedRoom);
+    }
+
+    public void AbortRoom()
+    {
+        StopAllCoroutines();
+        ClearImmediate();
+        ResetRoomFlags();
     }
 
     private void RebuildNavMesh()
     {
-        if (navSurface == null) return;
+        if (navSurface == null)
+        {
+            Debug.LogError("[BattleRoom] NavMeshSurface is missing.");
+            return;
+        }
 
         navSurface.RemoveData();
         navSurface.BuildNavMesh();
@@ -243,7 +329,7 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < activeMonsters.Count; i++)
         {
             if (activeMonsters[i] != null)
-                monsterPool.Return(activeMonsters[i]);
+                monsterPool?.Return(activeMonsters[i]);
         }
         activeMonsters.Clear();
 
@@ -263,5 +349,13 @@ public class BattleRoomManager : MonoBehaviour
 
         currentRoom = null;
         currentContext = null;
+    }
+
+    private void ResetRoomFlags()
+    {
+        roomTransitioning = false;
+        combatCleared = false;
+        exitOpened = false;
+        exitRoutineStarted = false;
     }
 }
