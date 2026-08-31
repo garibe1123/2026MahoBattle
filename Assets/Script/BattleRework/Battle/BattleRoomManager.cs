@@ -251,9 +251,10 @@ public class BattleRoomManager : MonoBehaviour
 
         Transform parent = mapRoot != null ? mapRoot : transform;
         MapBlock highlight = Instantiate(currentRoom.highlightBlockPrefab, parent);
-        Vector3 destination = playerTarget != null
-            ? playerTarget.position + (Vector3)currentRoom.highlightBlockOffset
-            : roomOrigin.position + (Vector3)currentRoom.highlightBlockOffset;
+
+        // Exit는 플레이어의 현재 위치가 아니라 레벨 디자이너가 Room 기준으로 지정합니다.
+        // 보상 선택 직후 플레이어 발밑에 ExitPad가 생성되어 즉시 퇴장하는 문제를 방지합니다.
+        Vector3 destination = roomOrigin.position + (Vector3)currentRoom.highlightBlockOffset;
 
         highlight.PlayEnter(destination, Vector2.down);
         activeBlocks.Add(highlight);
