@@ -148,7 +148,6 @@ public class Projectile : MonoBehaviour
     {
         if (dying || so == null) return;
 
-        // 위치 지정 Arc는 UpdateArc가 자체 진행 시간을 관리합니다.
         if (!so.useTargetPosition)
         {
             timer += Time.deltaTime;
@@ -260,9 +259,7 @@ public class Projectile : MonoBehaviour
 
         Vector2 toTarget = ((Vector2)homingTarget.position - (Vector2)transform.position).normalized;
         if (toTarget.sqrMagnitude > 0.0001f)
-        {
             baseDir = Vector2.Lerp(baseDir, toTarget, so.homingTurnSpeed * Time.deltaTime).normalized;
-        }
 
         float alignment = Vector2.Dot(baseDir, toTarget);
         float speedMultiplier = Mathf.Lerp(so.homingSlowFactor, 1f, alignment);
@@ -271,7 +268,7 @@ public class Projectile : MonoBehaviour
 
     private void UpdateBoomerang()
     {
-        // timer는 Update() 공통 경로에서 이미 증가합니다. 여기서 다시 증가시키지 않습니다.
+        // timer는 Update() 공통 경로에서 이미 증가합니다.
         float returnTime = so.boomerangReturnTime;
         const float slowDuration = 0.15f;
         const float accelDuration = 0.25f;
@@ -321,6 +318,12 @@ public class Projectile : MonoBehaviour
 
         if (other.gameObject.layer == LayerMask.NameToLayer("Wall"))
         {
+            BattleObstacle obstacle = other.GetComponentInParent<BattleObstacle>();
+
+            // LowWall 및 아직 활성화되지 않은 ConditionalWall은 이동만 막고 투사체는 통과합니다.
+            if (obstacle != null && !obstacle.BlocksProjectiles)
+                return;
+
             CombatDamage.TryApply(other, BuildDamageContext(DamageKind.Projectile));
 
             if (so.movement == MovementType.Bounce && bounceCount < so.maxBounceCount)
@@ -344,7 +347,6 @@ public class Projectile : MonoBehaviour
         DamageContext hitContext = BuildDamageContext(DamageKind.Projectile);
         bool applied = CombatDamage.TryApply(other, hitContext);
 
-        // 기존 Enemy 프리팹이 신 구조로 교체되기 전까지의 호환 경로입니다.
         if (!applied && other.TryGetComponent<Enemy>(out Enemy legacyEnemy))
         {
             legacyEnemy.TakeDamage(CombatDamage.Calculate(hitContext, 0f));
@@ -419,7 +421,6 @@ public class Projectile : MonoBehaviour
                 continue;
             }
 
-            // 신 Monster Prefab 전환이 끝나기 전까지의 구형 Enemy 호환 처리.
             Enemy legacyEnemy = hit.GetComponentInParent<Enemy>();
             if (legacyEnemy != null && damagedLegacyEnemies.Add(legacyEnemy))
                 legacyEnemy.TakeDamage(CombatDamage.Calculate(context, 0f));
