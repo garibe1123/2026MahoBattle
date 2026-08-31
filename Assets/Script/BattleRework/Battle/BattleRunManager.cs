@@ -75,22 +75,30 @@ public class BattleRunManager : MonoBehaviour
 
     private void OnEnable()
     {
-        if (roomManager == null) return;
+        if (roomManager != null)
+        {
+            roomManager.RoomCombatStarted += HandleRoomCombatStarted;
+            roomManager.RoomCombatCleared += HandleRoomCombatCleared;
+            roomManager.RoomExited += HandleRoomExited;
+            roomManager.MonsterDefeated += HandleMonsterDefeated;
+        }
 
-        roomManager.RoomCombatStarted += HandleRoomCombatStarted;
-        roomManager.RoomCombatCleared += HandleRoomCombatCleared;
-        roomManager.RoomExited += HandleRoomExited;
-        roomManager.MonsterDefeated += HandleMonsterDefeated;
+        if (playerController != null)
+            playerController.Died += HandlePlayerDeath;
     }
 
     private void OnDisable()
     {
-        if (roomManager == null) return;
+        if (roomManager != null)
+        {
+            roomManager.RoomCombatStarted -= HandleRoomCombatStarted;
+            roomManager.RoomCombatCleared -= HandleRoomCombatCleared;
+            roomManager.RoomExited -= HandleRoomExited;
+            roomManager.MonsterDefeated -= HandleMonsterDefeated;
+        }
 
-        roomManager.RoomCombatStarted -= HandleRoomCombatStarted;
-        roomManager.RoomCombatCleared -= HandleRoomCombatCleared;
-        roomManager.RoomExited -= HandleRoomExited;
-        roomManager.MonsterDefeated -= HandleMonsterDefeated;
+        if (playerController != null)
+            playerController.Died -= HandlePlayerDeath;
     }
 
     public bool ValidateConfiguration(out string report)
@@ -228,14 +236,19 @@ public class BattleRunManager : MonoBehaviour
 
     public void NotifyPlayerDeath()
     {
-        if (!runActive) return;
-        EndRun(RunEndReason.Death);
+        HandlePlayerDeath();
     }
 
     public void QuitRun()
     {
         if (!runActive) return;
         EndRun(RunEndReason.Quit);
+    }
+
+    private void HandlePlayerDeath()
+    {
+        if (!runActive) return;
+        EndRun(RunEndReason.Death);
     }
 
     private void EnterNode(BattleNodeData node)
