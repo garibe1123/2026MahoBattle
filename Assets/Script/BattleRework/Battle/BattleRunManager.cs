@@ -115,13 +115,21 @@ public class BattleRunManager : MonoBehaviour
         else if (!roomManager.ValidateConfiguration(out string roomReport))
             errors.Add($"BattleRoomManager invalid:\n{roomReport}");
 
-        if (progress == null) errors.Add("progress is null");
-        if (rewardSystem == null) errors.Add("rewardSystem is null");
-        if (equipmentSystem == null) errors.Add("equipmentSystem is null");
-        if (playerController == null) errors.Add("playerController is null");
+        if (progress == null)
+            errors.Add("progress is null");
 
-        if (rewardSystem != null && !rewardSystem.ValidateConfiguration(out string rewardReport))
+        if (rewardSystem == null)
+            errors.Add("rewardSystem is null");
+        else if (!rewardSystem.ValidateConfiguration(out string rewardReport))
             errors.Add($"BattleRewardSystem invalid:\n{rewardReport}");
+
+        if (equipmentSystem == null)
+            errors.Add("equipmentSystem is null");
+        else if (!equipmentSystem.ValidateConfiguration(out string equipmentReport))
+            errors.Add($"BattleEquipmentSystem invalid:\n{equipmentReport}");
+
+        if (playerController == null)
+            errors.Add("playerController is null");
 
         report = string.Join("\n", errors);
         return errors.Count == 0;
@@ -150,9 +158,12 @@ public class BattleRunManager : MonoBehaviour
         currentNode = null;
         currentContext = null;
 
+        // 영구 성장으로 열린 Capacity는 유지하고, 이전 런의 인런 장비/상태만 초기화합니다.
+        equipmentSystem.ResetForRun();
         playerController.ResetForRun();
-        runActive = true;
         progress.BeginRun();
+
+        runActive = true;
         EnterNode(start);
     }
 
