@@ -1,0 +1,1 @@
+This placeholder prevents empty-folder cleanup during the rework migration.
