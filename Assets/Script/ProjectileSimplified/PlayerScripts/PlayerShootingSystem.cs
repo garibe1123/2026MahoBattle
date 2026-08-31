@@ -23,6 +23,7 @@ public class PlayerShootingSystem : MonoBehaviour
     private readonly List<int> ammoInventory = new();
 
     public int currentAmmo { get; private set; }
+    public bool IsReloading => isReloading;
     public float RuntimeDamageMultiplier
     {
         get => runtimeDamageMultiplier;
@@ -62,6 +63,73 @@ public class PlayerShootingSystem : MonoBehaviour
 
         while (ammoInventory.Count > unlockedWeapons.Count)
             ammoInventory.RemoveAt(ammoInventory.Count - 1);
+    }
+
+    /// <summary>
+    /// 새 로그라이트 런이 시작될 때 BattleEquipmentSystem이 호출합니다.
+    /// 구형 unlockedWeapons 브리지를 비워 이전 런의 무기가 남지 않도록 합니다.
+    /// </summary>
+    public void ResetRuntimeWeapons()
+    {
+        CancelReload();
+
+        if (currentAnimCoroutine != null)
+        {
+            StopCoroutine(currentAnimCoroutine);
+            currentAnimCoroutine = null;
+        }
+
+        unlockedWeapons ??= new List<PlayerShootingSO>();
+        unlockedWeapons.Clear();
+        ammoInventory.Clear();
+
+        currentWeaponSO = null;
+        currentWeaponIndex = 0;
+        currentAmmo = 0;
+        nextFireTime = 0f;
+        runtimeDamageMultiplier = 1f;
+        runtimeFanMissionModifier = 0f;
+
+        WeaponChanged?.Invoke(null);
+    }
+
+    /// <summary>
+    /// 버리기/교체로 장비 슬롯에서 빠진 무기를 구형 Shooting 브리지에서도 제거합니다.
+    /// 현재 장착 중인 무기였다면 남은 첫 무기로 자동 전환합니다.
+    /// </summary>
+    public bool UnregisterWeapon(PlayerShootingSO weapon)
+    {
+        if (weapon == null)
+            return false;
+
+        EnsureWeaponInventoryInitialized();
+        int index = unlockedWeapons.IndexOf(weapon);
+        if (index < 0)
+            return false;
+
+        bool wasCurrent = currentWeaponSO == weapon || currentWeaponIndex == index;
+        unlockedWeapons.RemoveAt(index);
+        if (index >= 0 && index < ammoInventory.Count)
+            ammoInventory.RemoveAt(index);
+
+        if (unlockedWeapons.Count == 0)
+        {
+            CancelReload();
+            currentWeaponSO = null;
+            currentWeaponIndex = 0;
+            currentAmmo = 0;
+            runtimeDamageMultiplier = 1f;
+            WeaponChanged?.Invoke(null);
+            return true;
+        }
+
+        if (currentWeaponIndex > index)
+            currentWeaponIndex--;
+
+        if (wasCurrent)
+            EquipWeapon(Mathf.Clamp(index, 0, unlockedWeapons.Count - 1));
+
+        return true;
     }
 
     /// <summary>
