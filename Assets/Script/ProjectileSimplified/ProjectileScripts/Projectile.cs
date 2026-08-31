@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-[RequireComponent(typeof(Collider2D))]
+[RequireComponent(typeof(CircleCollider2D))]
 public class Projectile : MonoBehaviour
 {
     [SerializeField] private CircleCollider2D col;
@@ -35,9 +35,10 @@ public class Projectile : MonoBehaviour
 
     private void Awake()
     {
+        if (col == null)
+            col = GetComponent<CircleCollider2D>();
+
         anim = GetComponent<ProjectileAnimator>();
-        if (visual != null)
-            visual.gameObject.SetActive(false);
     }
 
     public void Setup(
@@ -50,6 +51,16 @@ public class Projectile : MonoBehaviour
         float runtimeDamageMultiplier = 1f,
         float runtimeFanMissionModifier = 0f)
     {
+        if (projectileData == null)
+        {
+            Debug.LogError("[Projectile] Setup failed: ProjectileSO is null.");
+            if (projectilePool != null)
+                projectilePool.Return(this);
+            else
+                gameObject.SetActive(false);
+            return;
+        }
+
         so = projectileData;
         pool = projectilePool;
         homingTarget = target;
@@ -58,15 +69,33 @@ public class Projectile : MonoBehaviour
         fanMissionModifier = runtimeFanMissionModifier;
 
         hasTurned = false;
-        currentPierce = so.basePierceCount;
+        currentPierce = Mathf.Max(0, so.basePierceCount);
         bounceCount = 0;
         timer = 0f;
         sineTime = 0f;
         dying = false;
+        velocity = Vector2.zero;
 
-        col.radius = so.colliderRadius;
+        if (col == null)
+            col = GetComponent<CircleCollider2D>();
+
+        if (col == null)
+        {
+            Debug.LogError("[Projectile] CircleCollider2D is missing.");
+            gameObject.SetActive(false);
+            return;
+        }
+
+        col.radius = Mathf.Max(0.001f, so.colliderRadius);
         col.enabled = true;
         gameObject.SetActive(true);
+
+        if (visual != null)
+        {
+            visual.gameObject.SetActive(true);
+            visual.localPosition = Vector3.zero;
+            visual.localScale = Vector3.one;
+        }
 
         startPos = transform.position;
         baseDir = dir.sqrMagnitude < 0.0001f ? Vector2.right : dir.normalized;
@@ -79,17 +108,10 @@ public class Projectile : MonoBehaviour
             float distance = Vector2.Distance(startPos, targetPos);
             travelTime = Mathf.Max(0.05f, distance / Mathf.Max(0.01f, so.speed));
 
-            if (visual != null)
-            {
-                visual.gameObject.SetActive(true);
-                visual.localPosition = Vector3.zero;
-                visual.localScale = Vector3.one;
-            }
-
             if (so.telegraphPrefab != null)
             {
                 GameObject telegraph = Instantiate(so.telegraphPrefab, targetPos, Quaternion.identity);
-                Destroy(telegraph, so.telegraphDuration);
+                Destroy(telegraph, Mathf.Max(0f, so.telegraphDuration));
             }
         }
         else if (so.movement == MovementType.Arc)
@@ -105,7 +127,7 @@ public class Projectile : MonoBehaviour
 
     private void StartVisual()
     {
-        if (anim == null || so.visual == null) return;
+        if (anim == null || so == null || so.visual == null) return;
 
         ProjectileVisualSO v = so.visual;
         if (v.startSprites != null && v.startSprites.Length > 0)
@@ -126,6 +148,7 @@ public class Projectile : MonoBehaviour
     {
         if (dying || so == null) return;
 
+        // 위치 지정 Arc는 UpdateArc가 자체 진행 시간을 관리합니다.
         if (!so.useTargetPosition)
         {
             timer += Time.deltaTime;
@@ -213,7 +236,10 @@ public class Projectile : MonoBehaviour
     {
         if (homingTarget != null)
         {
-            baseDir = ((Vector2)homingTarget.position - (Vector2)transform.position).normalized;
+            Vector2 toTarget = (Vector2)homingTarget.position - (Vector2)transform.position;
+            if (toTarget.sqrMagnitude > 0.0001f)
+                baseDir = toTarget.normalized;
+
             if (Vector2.Distance(transform.position, homingTarget.position) <= 0.1f)
             {
                 Impact();
@@ -233,7 +259,10 @@ public class Projectile : MonoBehaviour
         }
 
         Vector2 toTarget = ((Vector2)homingTarget.position - (Vector2)transform.position).normalized;
-        baseDir = Vector2.Lerp(baseDir, toTarget, so.homingTurnSpeed * Time.deltaTime).normalized;
+        if (toTarget.sqrMagnitude > 0.0001f)
+        {
+            baseDir = Vector2.Lerp(baseDir, toTarget, so.homingTurnSpeed * Time.deltaTime).normalized;
+        }
 
         float alignment = Vector2.Dot(baseDir, toTarget);
         float speedMultiplier = Mathf.Lerp(so.homingSlowFactor, 1f, alignment);
@@ -242,8 +271,7 @@ public class Projectile : MonoBehaviour
 
     private void UpdateBoomerang()
     {
-        timer += Time.deltaTime;
-
+        // timer는 Update() 공통 경로에서 이미 증가합니다. 여기서 다시 증가시키지 않습니다.
         float returnTime = so.boomerangReturnTime;
         const float slowDuration = 0.15f;
         const float accelDuration = 0.25f;
@@ -265,7 +293,11 @@ public class Projectile : MonoBehaviour
         {
             hasTurned = true;
             if (homingTarget != null)
-                baseDir = ((Vector2)homingTarget.position - (Vector2)transform.position).normalized;
+            {
+                Vector2 returnDir = (Vector2)homingTarget.position - (Vector2)transform.position;
+                if (returnDir.sqrMagnitude > 0.0001f)
+                    baseDir = returnDir.normalized;
+            }
         }
 
         if (timer < returnTime + slowDuration + accelDuration)
@@ -276,9 +308,6 @@ public class Projectile : MonoBehaviour
         }
 
         Move(baseDir, so.speed);
-
-        if (timer > so.lifetime)
-            Impact();
     }
 
     private void Move(Vector2 dir, float speed)
@@ -288,16 +317,18 @@ public class Projectile : MonoBehaviour
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (dying || other == null) return;
+        if (dying || so == null || other == null) return;
 
         if (other.gameObject.layer == LayerMask.NameToLayer("Wall"))
         {
-            // 파괴 가능한 벽이면 투사체 충돌도 공통 Damage 파이프라인으로 전달합니다.
             CombatDamage.TryApply(other, BuildDamageContext(DamageKind.Projectile));
 
             if (so.movement == MovementType.Bounce && bounceCount < so.maxBounceCount)
             {
                 Vector2 normal = ((Vector2)transform.position - (Vector2)other.transform.position).normalized;
+                if (normal.sqrMagnitude <= 0.001f)
+                    normal = -baseDir;
+
                 baseDir = Vector2.Reflect(baseDir, normal).normalized;
                 bounceCount++;
                 return;
@@ -310,18 +341,19 @@ public class Projectile : MonoBehaviour
         if (((1 << other.gameObject.layer) & HitLayer) == 0)
             return;
 
-        bool applied = CombatDamage.TryApply(other, BuildDamageContext(DamageKind.Projectile));
+        DamageContext hitContext = BuildDamageContext(DamageKind.Projectile);
+        bool applied = CombatDamage.TryApply(other, hitContext);
 
         // 기존 Enemy 프리팹이 신 구조로 교체되기 전까지의 호환 경로입니다.
         if (!applied && other.TryGetComponent<Enemy>(out Enemy legacyEnemy))
         {
-            legacyEnemy.TakeDamage(CombatDamage.Calculate(BuildDamageContext(DamageKind.Projectile), 0f));
+            legacyEnemy.TakeDamage(CombatDamage.Calculate(hitContext, 0f));
             applied = true;
         }
 
         if (!applied && other.TryGetComponent<PlayerController>(out PlayerController legacyPlayer))
         {
-            legacyPlayer.TakeDamage(CombatDamage.Calculate(BuildDamageContext(DamageKind.Projectile), legacyPlayer.Defense));
+            legacyPlayer.TakeDamage(CombatDamage.Calculate(hitContext, legacyPlayer.Defense));
             applied = true;
         }
 
@@ -345,10 +377,11 @@ public class Projectile : MonoBehaviour
 
     private void Impact()
     {
-        if (dying) return;
+        if (dying || so == null) return;
 
         dying = true;
-        col.enabled = false;
+        if (col != null)
+            col.enabled = false;
 
         ResolveExplosionDamage();
         ResolveSplit();
@@ -367,18 +400,28 @@ public class Projectile : MonoBehaviour
             so.explosionRadius,
             so.damageLayer);
 
-        HashSet<GameObject> damagedObjects = new();
+        HashSet<IDamageable> damagedTargets = new();
+        HashSet<Enemy> damagedLegacyEnemies = new();
         DamageContext context = BuildDamageContext(DamageKind.Area);
 
         for (int i = 0; i < hits.Length; i++)
         {
-            if (hits[i] == null || !damagedObjects.Add(hits[i].gameObject))
-                continue;
+            Collider2D hit = hits[i];
+            if (hit == null) continue;
 
-            if (CombatDamage.TryApply(hits[i], context))
-                continue;
+            if (CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable))
+            {
+                if (!damageable.IsAlive || !damagedTargets.Add(damageable))
+                    continue;
 
-            if (hits[i].TryGetComponent<Enemy>(out Enemy legacyEnemy))
+                float finalDamage = CombatDamage.Calculate(context, damageable.Defense);
+                damageable.ReceiveDamage(context, finalDamage);
+                continue;
+            }
+
+            // 신 Monster Prefab 전환이 끝나기 전까지의 구형 Enemy 호환 처리.
+            Enemy legacyEnemy = hit.GetComponentInParent<Enemy>();
+            if (legacyEnemy != null && damagedLegacyEnemies.Add(legacyEnemy))
                 legacyEnemy.TakeDamage(CombatDamage.Calculate(context, 0f));
         }
     }
