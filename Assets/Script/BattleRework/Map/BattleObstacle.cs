@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 
 public enum BattleObstacleType
@@ -33,6 +34,27 @@ public class BattleObstacle : MonoBehaviour, IDamageable
     public bool IsAlive => !destroyed;
     public float Defense => 0f;
     public bool IsConditionalActivated => conditionalActivated;
+    public float CurrentDurability => currentDurability;
+
+    public bool BlocksProjectiles
+    {
+        get
+        {
+            if (destroyed) return false;
+
+            return obstacleType switch
+            {
+                BattleObstacleType.HighWall => true,
+                BattleObstacleType.LowWall => false,
+                BattleObstacleType.BreakableWall => true,
+                BattleObstacleType.ConditionalWall => conditionalActivated,
+                _ => false
+            };
+        }
+    }
+
+    public event Action<BattleObstacle> Broken;
+    public event Action<BattleObstacle> BlockingChanged;
 
     private void Awake()
     {
@@ -53,16 +75,17 @@ public class BattleObstacle : MonoBehaviour, IDamageable
 
     public void ActivateConditionalBreakable()
     {
-        if (obstacleType != BattleObstacleType.ConditionalWall || destroyed)
+        if (obstacleType != BattleObstacleType.ConditionalWall || destroyed || conditionalActivated)
             return;
 
         conditionalActivated = true;
         RefreshProjectileBlocking();
+        BlockingChanged?.Invoke(this);
     }
 
     public void ReceiveDamage(DamageContext context, float finalDamage)
     {
-        if (destroyed) return;
+        if (destroyed || finalDamage <= 0f) return;
 
         if (obstacleType == BattleObstacleType.HighWall || obstacleType == BattleObstacleType.LowWall)
             return;
@@ -75,13 +98,15 @@ public class BattleObstacle : MonoBehaviour, IDamageable
             ActivateConditionalBreakable();
         }
 
-        currentDurability -= finalDamage;
+        currentDurability = Mathf.Max(0f, currentDurability - finalDamage);
         if (currentDurability <= 0f)
             Break();
     }
 
     private void Break()
     {
+        if (destroyed) return;
+
         destroyed = true;
 
         if (movementCollider != null)
@@ -90,20 +115,15 @@ public class BattleObstacle : MonoBehaviour, IDamageable
         if (projectileBlocker != null)
             projectileBlocker.enabled = false;
 
+        Broken?.Invoke(this);
+        BlockingChanged?.Invoke(this);
+
         // 파괴 애니메이션/파편은 비주얼 레이어에서 후속 연결합니다.
     }
 
     private void RefreshProjectileBlocking()
     {
         if (projectileBlocker == null) return;
-
-        projectileBlocker.enabled = obstacleType switch
-        {
-            BattleObstacleType.HighWall => true,
-            BattleObstacleType.LowWall => false,
-            BattleObstacleType.BreakableWall => true,
-            BattleObstacleType.ConditionalWall => conditionalActivated,
-            _ => false
-        };
+        projectileBlocker.enabled = BlocksProjectiles;
     }
 }
