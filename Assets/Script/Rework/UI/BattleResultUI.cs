@@ -7,22 +7,23 @@ public class BattleResultUI : MonoBehaviour
     [SerializeField] private TextMeshProUGUI titleText;
     [SerializeField] private TextMeshProUGUI settlementText;
 
-    public void Show(BattleRunEndReason reason, int popularity, int fanPoints, int income)
+    public void Show(RunEndReason reason, int popularity, int fanPoints, int income)
     {
         float multiplier = reason switch
         {
-            BattleRunEndReason.BroadcastAccident => 0.5f,
-            BattleRunEndReason.Quit => 0.7f,
+            RunEndReason.Death => 0.5f,
+            RunEndReason.Quit => 0.7f,
             _ => 1f
         };
 
         if (panel != null) panel.SetActive(true);
+
         if (titleText != null)
         {
             titleText.text = reason switch
             {
-                BattleRunEndReason.BroadcastAccident => "방송 사고",
-                BattleRunEndReason.Quit => "자진 하차",
+                RunEndReason.Death => "방송 사고",
+                RunEndReason.Quit => "자진 하차",
                 _ => "방종!"
             };
         }
