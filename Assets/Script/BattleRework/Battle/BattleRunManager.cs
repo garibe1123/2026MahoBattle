@@ -9,9 +9,24 @@ public enum RunEndReason
     Quit
 }
 
+public enum BattleRunState
+{
+    None,
+    EnteringNode,
+    BuildingRoom,
+    Combat,
+    Reward,
+    ExitingRoom,
+    SelectingNode,
+    NonCombat,
+    Ended
+}
+
 /// <summary>
-/// 한 런의 Branch/Node 진행을 관리합니다.
-/// 웨이브 개념은 사용하지 않습니다.
+/// 한 런의 최상위 Flow를 관리합니다.
+///
+/// Node 진입 -> Room 생성 -> Combat -> Reward -> Exit -> 다음 Node 선택을
+/// 명시적인 상태 머신으로 관리하며, Room 내부 구현과 보상/진행 로직을 분리합니다.
 /// </summary>
 public class BattleRunManager : MonoBehaviour
 {
@@ -23,8 +38,10 @@ public class BattleRunManager : MonoBehaviour
     [Header("Systems")]
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private RunProgressSystem progress;
+    [SerializeField] private BattleRewardSystem rewardSystem;
+    [SerializeField] private BattleEquipmentSystem equipmentSystem;
 
-    [Header("Depth Scaling - Open Issue, inspector driven")]
+    [Header("Depth Scaling - inspector driven")]
     [SerializeField] private AnimationCurve hpByDepth = AnimationCurve.Linear(0f, 1f, 10f, 1f);
     [SerializeField] private AnimationCurve damageByDepth = AnimationCurve.Linear(0f, 1f, 10f, 1f);
 
@@ -32,89 +49,179 @@ public class BattleRunManager : MonoBehaviour
     [SerializeField] private float eliteHpMultiplier = 1.5f;
     [SerializeField] private float eliteDamageMultiplier = 1.5f;
 
+    private readonly List<BattleNodeData> nextNodeChoices = new();
+    private readonly List<BattleEquipmentSO> currentRewardChoices = new();
+
     private BattleNodeData currentNode;
     private BattleContext currentContext;
+    private BattleRunState state = BattleRunState.None;
     private bool runActive;
-    private bool waitingForNodeSelection;
 
     public BattleNodeData CurrentNode => currentNode;
     public BattleContext CurrentContext => currentContext;
+    public BattleRunState State => state;
     public bool RunActive => runActive;
-    public bool WaitingForNodeSelection => waitingForNodeSelection;
+    public bool WaitingForNodeSelection => state == BattleRunState.SelectingNode;
+    public IReadOnlyList<BattleNodeData> NextNodeChoices => nextNodeChoices;
+    public IReadOnlyList<BattleEquipmentSO> CurrentRewardChoices => currentRewardChoices;
 
+    public event Action<BattleRunState> StateChanged;
     public event Action<BattleNodeData> NodeEntered;
     public event Action<IReadOnlyList<BattleNodeData>> NextNodeSelectionRequested;
     public event Action<BattleNodeData> NonCombatNodeEntered;
+    public event Action<IReadOnlyList<BattleEquipmentSO>> RewardSelectionRequested;
+    public event Action<BattleEquipmentSO> RewardSelected;
     public event Action<RunEndReason> RunEnded;
 
     private void OnEnable()
     {
-        if (roomManager != null)
-            roomManager.RoomExited += HandleRoomExited;
+        if (roomManager == null) return;
+
+        roomManager.RoomCombatStarted += HandleRoomCombatStarted;
+        roomManager.RoomCombatCleared += HandleRoomCombatCleared;
+        roomManager.RoomExited += HandleRoomExited;
+        roomManager.MonsterDefeated += HandleMonsterDefeated;
     }
 
     private void OnDisable()
     {
-        if (roomManager != null)
-            roomManager.RoomExited -= HandleRoomExited;
+        if (roomManager == null) return;
+
+        roomManager.RoomCombatStarted -= HandleRoomCombatStarted;
+        roomManager.RoomCombatCleared -= HandleRoomCombatCleared;
+        roomManager.RoomExited -= HandleRoomExited;
+        roomManager.MonsterDefeated -= HandleMonsterDefeated;
+    }
+
+    public bool ValidateConfiguration(out string report)
+    {
+        List<string> errors = new();
+
+        if (nodeGraph == null)
+            errors.Add("nodeGraph is null");
+        else if (!nodeGraph.ValidateGraph(out string graphReport))
+            errors.Add($"NodeGraph invalid:\n{graphReport}");
+
+        if (roomManager == null)
+            errors.Add("roomManager is null");
+        else if (!roomManager.ValidateConfiguration(out string roomReport))
+            errors.Add($"BattleRoomManager invalid:\n{roomReport}");
+
+        if (progress == null) errors.Add("progress is null");
+        if (rewardSystem == null) errors.Add("rewardSystem is null");
+        if (equipmentSystem == null) errors.Add("equipmentSystem is null");
+
+        if (rewardSystem != null && !rewardSystem.ValidateConfiguration(out string rewardReport))
+            errors.Add($"BattleRewardSystem invalid:\n{rewardReport}");
+
+        report = string.Join("\n", errors);
+        return errors.Count == 0;
     }
 
     public void StartRun()
     {
-        if (nodeGraph == null)
+        if (!ValidateConfiguration(out string report))
         {
-            Debug.LogError("[BattleRun] NodeGraphSO가 지정되지 않았습니다.");
+            Debug.LogError($"[BattleRun] Cannot start run.\n{report}");
             return;
         }
+
+        if (runActive || roomManager.IsRoomActive)
+            roomManager.AbortRoom();
 
         BattleNodeData start = nodeGraph.GetStartNode();
         if (start == null)
         {
-            Debug.LogError("[BattleRun] 시작 Node를 찾을 수 없습니다.");
+            Debug.LogError("[BattleRun] Start node could not be resolved.");
             return;
         }
 
+        currentRewardChoices.Clear();
+        nextNodeChoices.Clear();
+        currentNode = null;
+        currentContext = null;
+
         runActive = true;
-        waitingForNodeSelection = false;
-        progress?.BeginRun();
+        progress.BeginRun();
         EnterNode(start);
+    }
+
+    public void RestartRun()
+    {
+        roomManager?.AbortRoom();
+        runActive = false;
+        SetState(BattleRunState.None);
+        StartRun();
     }
 
     public void SelectNextNode(string nodeId)
     {
-        if (!runActive || !waitingForNodeSelection) return;
+        if (!runActive || state != BattleRunState.SelectingNode)
+            return;
 
-        List<BattleNodeData> available = nodeGraph.GetNextNodes(currentNode);
         BattleNodeData selected = null;
-
-        for (int i = 0; i < available.Count; i++)
+        for (int i = 0; i < nextNodeChoices.Count; i++)
         {
-            if (available[i].id == nodeId)
+            if (nextNodeChoices[i] != null && nextNodeChoices[i].id == nodeId)
             {
-                selected = available[i];
+                selected = nextNodeChoices[i];
                 break;
             }
         }
 
         if (selected == null)
         {
-            Debug.LogWarning($"[BattleRun] 현재 Branch에서 선택할 수 없는 Node입니다: {nodeId}");
+            Debug.LogWarning($"[BattleRun] Node '{nodeId}' is not selectable from the current branch.");
             return;
         }
 
-        waitingForNodeSelection = false;
+        nextNodeChoices.Clear();
         EnterNode(selected);
     }
 
-    /// <summary>
-    /// 상점/선택지 이벤트 노드가 외부 UI/시스템에서 해결되었을 때 호출합니다.
-    /// </summary>
     public void ResolveNonCombatNode()
     {
-        if (!runActive || currentNode == null) return;
-        if (currentNode.type == BattleNodeType.Combat || currentNode.type == BattleNodeType.Elite) return;
+        if (!runActive || currentNode == null || state != BattleRunState.NonCombat)
+            return;
 
         CompleteCurrentNode();
+    }
+
+    public bool SelectReward(int rewardIndex)
+    {
+        if (!runActive || state != BattleRunState.Reward)
+            return false;
+
+        if (rewardIndex < 0 || rewardIndex >= currentRewardChoices.Count)
+            return false;
+
+        BattleEquipmentSO selected = currentRewardChoices[rewardIndex];
+        if (selected == null)
+            return false;
+
+        if (!equipmentSystem.TryAcquire(selected))
+        {
+            Debug.LogWarning("[BattleRun] Reward could not be acquired. Inventory may be full. Replace/discard a slot before selecting again.");
+            return false;
+        }
+
+        currentRewardChoices.Clear();
+        RewardSelected?.Invoke(selected);
+        OpenRoomExitAfterReward();
+        return true;
+    }
+
+    /// <summary>
+    /// 테스트/특수 노드에서 보상 없이 진행해야 할 때 사용합니다.
+    /// 정식 Combat Reward UI에서는 SelectReward를 우선 사용합니다.
+    /// </summary>
+    public void SkipReward()
+    {
+        if (!runActive || state != BattleRunState.Reward)
+            return;
+
+        currentRewardChoices.Clear();
+        OpenRoomExitAfterReward();
     }
 
     public void NotifyPlayerDeath()
@@ -131,6 +238,14 @@ public class BattleRunManager : MonoBehaviour
 
     private void EnterNode(BattleNodeData node)
     {
+        if (node == null)
+        {
+            Debug.LogError("[BattleRun] Cannot enter a null node.");
+            EndRun(RunEndReason.Quit);
+            return;
+        }
+
+        SetState(BattleRunState.EnteringNode);
         currentNode = node;
         currentContext = BuildContext(node);
         NodeEntered?.Invoke(node);
@@ -141,15 +256,18 @@ public class BattleRunManager : MonoBehaviour
             case BattleNodeType.Elite:
                 if (node.room == null)
                 {
-                    Debug.LogError($"[BattleRun] Combat Node '{node.id}'에 RoomDefinitionSO가 없습니다.");
+                    Debug.LogError($"[BattleRun] Combat node '{node.id}' has no RoomDefinitionSO.");
+                    EndRun(RunEndReason.Quit);
                     return;
                 }
 
+                SetState(BattleRunState.BuildingRoom);
                 roomManager.EnterRoom(node.room, currentContext);
                 break;
 
             case BattleNodeType.Shop:
             case BattleNodeType.Event:
+                SetState(BattleRunState.NonCombat);
                 NonCombatNodeEntered?.Invoke(node);
                 break;
         }
@@ -187,16 +305,68 @@ public class BattleRunManager : MonoBehaviour
         return context;
     }
 
+    private void HandleRoomCombatStarted(RoomDefinitionSO room)
+    {
+        if (!runActive || currentNode == null || currentNode.room != room)
+            return;
+
+        SetState(BattleRunState.Combat);
+    }
+
+    private void HandleRoomCombatCleared(RoomDefinitionSO room)
+    {
+        if (!runActive || currentNode == null || currentNode.room != room)
+            return;
+
+        currentRewardChoices.Clear();
+        List<BattleEquipmentSO> generated = rewardSystem.GenerateChoices(shootingTheme);
+
+        if (generated.Count == 0)
+        {
+            Debug.LogWarning("[BattleRun] No reward choices were generated. Opening Room exit directly.");
+            OpenRoomExitAfterReward();
+            return;
+        }
+
+        currentRewardChoices.AddRange(generated);
+        SetState(BattleRunState.Reward);
+        RewardSelectionRequested?.Invoke(currentRewardChoices);
+    }
+
+    private void HandleMonsterDefeated(MonsterController monster)
+    {
+        if (!runActive || monster == null)
+            return;
+
+        int point = 1;
+        if (monster.Definition != null)
+            point = Mathf.Max(0, monster.Definition.killPointReward);
+
+        progress?.AddMonsterKillPoints(point);
+    }
+
+    private void OpenRoomExitAfterReward()
+    {
+        SetState(BattleRunState.ExitingRoom);
+        roomManager.OpenExit();
+    }
+
     private void HandleRoomExited(RoomDefinitionSO room)
     {
-        if (!runActive || currentNode == null) return;
-        if (currentNode.room != room) return;
+        if (!runActive || currentNode == null)
+            return;
+
+        if (currentNode.room != room)
+            return;
 
         CompleteCurrentNode();
     }
 
     private void CompleteCurrentNode()
     {
+        if (currentNode == null)
+            return;
+
         if (currentNode.isTerminal)
         {
             EndRun(RunEndReason.Clear);
@@ -206,21 +376,40 @@ public class BattleRunManager : MonoBehaviour
         List<BattleNodeData> next = nodeGraph.GetNextNodes(currentNode);
         if (next.Count == 0)
         {
-            // 그래프 데이터상 다음 노드가 없으면 terminal 누락으로 간주하고 안전하게 종료합니다.
-            Debug.LogWarning($"[BattleRun] Node '{currentNode.id}'는 terminal이 아니지만 다음 Node가 없습니다.");
+            Debug.LogWarning($"[BattleRun] Node '{currentNode.id}' is not terminal but has no next node. Treating it as run clear.");
             EndRun(RunEndReason.Clear);
             return;
         }
 
-        waitingForNodeSelection = true;
-        NextNodeSelectionRequested?.Invoke(next);
+        nextNodeChoices.Clear();
+        nextNodeChoices.AddRange(next);
+        SetState(BattleRunState.SelectingNode);
+        NextNodeSelectionRequested?.Invoke(nextNodeChoices);
     }
 
     private void EndRun(RunEndReason reason)
     {
+        if (!runActive && state == BattleRunState.Ended)
+            return;
+
         runActive = false;
-        waitingForNodeSelection = false;
+        currentRewardChoices.Clear();
+        nextNodeChoices.Clear();
+
+        if (reason != RunEndReason.Clear)
+            roomManager?.AbortRoom();
+
         progress?.EndRun();
+        SetState(BattleRunState.Ended);
         RunEnded?.Invoke(reason);
+    }
+
+    private void SetState(BattleRunState next)
+    {
+        if (state == next)
+            return;
+
+        state = next;
+        StateChanged?.Invoke(state);
     }
 }
