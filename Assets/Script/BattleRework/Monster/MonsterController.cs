@@ -25,6 +25,7 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private Vector2 facing = Vector2.right;
     private readonly List<float> skillCooldowns = new();
+    private float actionLockTimer;
 
     private bool isDashing;
     private float dashTimer;
@@ -38,6 +39,9 @@ public class MonsterController : MonoBehaviour, IDamageable
     public MonsterDefinitionSO Definition => definition;
     public bool IsAlive => !dying && currentHp > 0f;
     public float Defense => currentDefense;
+    public float CurrentHp => currentHp;
+    public bool ShieldEnabled => shieldEnabled;
+    public float ShieldDurability => shieldDurability;
 
     private void Awake()
     {
@@ -54,6 +58,13 @@ public class MonsterController : MonoBehaviour, IDamageable
         ProjectilePooler enemyProjectilePool,
         Action<MonsterController> deathCallback)
     {
+        if (monsterDefinition == null)
+        {
+            Debug.LogError("[Monster] Setup failed: MonsterDefinitionSO is null.");
+            dying = true;
+            return;
+        }
+
         definition = monsterDefinition;
         context = battleContext;
         target = playerTarget;
@@ -63,6 +74,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         dying = false;
         isDashing = false;
         dashCooldown = 0f;
+        actionLockTimer = 0f;
         runtimeDamageMultiplier = 1f;
         runtimeMoveMultiplier = 1f;
 
@@ -80,14 +92,20 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void ConfigureAgent()
     {
-        agent.enabled = true;
-        agent.speed = definition.moveSpeed;
-        agent.acceleration = definition.acceleration;
-        agent.stoppingDistance = definition.stoppingDistance;
-        agent.isStopped = false;
+        if (agent == null || definition == null)
+            return;
 
         if (definition.moveType == MonsterMoveType.Stationary)
+        {
             agent.enabled = false;
+            return;
+        }
+
+        agent.enabled = true;
+        agent.speed = Mathf.Max(0f, definition.moveSpeed);
+        agent.acceleration = Mathf.Max(0f, definition.acceleration);
+        agent.stoppingDistance = Mathf.Max(0f, definition.stoppingDistance);
+        agent.isStopped = false;
     }
 
     private void ConfigureSkills()
@@ -96,6 +114,9 @@ public class MonsterController : MonoBehaviour, IDamageable
         shieldEnabled = false;
         shieldDurability = 0f;
         shieldConfig = null;
+
+        if (definition.skills == null)
+            return;
 
         for (int i = 0; i < definition.skills.Count; i++)
         {
@@ -113,7 +134,8 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void ConfigureVisual()
     {
-        if (animator == null || definition.visual == null) return;
+        if (animator == null || definition == null || definition.visual == null)
+            return;
 
         animator.SetupVisual(definition.visual);
         PlayIdleAnimation();
@@ -121,8 +143,11 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void Update()
     {
-        if (!IsAlive || definition == null || target == null) return;
-        if (agent.enabled && !agent.isOnNavMesh) return;
+        if (!IsAlive || definition == null || target == null)
+            return;
+
+        if (agent.enabled && !agent.isOnNavMesh)
+            return;
 
         TickCooldowns();
         UpdateFacing();
@@ -136,7 +161,10 @@ public class MonsterController : MonoBehaviour, IDamageable
         }
 
         UpdateMovement(distance);
-        TryUseAvailableSkill(distance);
+
+        if (!isDashing)
+            TryUseAvailableSkill(distance);
+
         UpdateAnimation(IsMoving());
     }
 
@@ -146,6 +174,7 @@ public class MonsterController : MonoBehaviour, IDamageable
             skillCooldowns[i] = Mathf.Max(0f, skillCooldowns[i] - Time.deltaTime);
 
         dashCooldown = Mathf.Max(0f, dashCooldown - Time.deltaTime);
+        actionLockTimer = Mathf.Max(0f, actionLockTimer - Time.deltaTime);
     }
 
     private void UpdateFacing()
@@ -171,14 +200,17 @@ public class MonsterController : MonoBehaviour, IDamageable
         {
             case MonsterMoveType.Stationary:
                 break;
+
             case MonsterMoveType.Chase:
                 MoveTo(target.position);
                 break;
+
             case MonsterMoveType.KeepDistance:
                 UpdateKeepDistance(distance);
                 break;
+
             case MonsterMoveType.DashThenChase:
-                if (distance <= definition.dashTriggerRange && dashCooldown <= 0f)
+                if (distance <= definition.dashTriggerRange && dashCooldown <= 0f && actionLockTimer <= 0f)
                     BeginDash();
                 else
                     MoveTo(target.position);
@@ -208,7 +240,8 @@ public class MonsterController : MonoBehaviour, IDamageable
     private void MoveTo(Vector2 destination)
     {
         if (!agent.enabled || !agent.isOnNavMesh) return;
-        agent.speed = definition.moveSpeed * runtimeMoveMultiplier;
+
+        agent.speed = Mathf.Max(0f, definition.moveSpeed * runtimeMoveMultiplier);
         agent.SetDestination(destination);
     }
 
@@ -220,9 +253,13 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void BeginDash()
     {
+        Vector2 direction = ((Vector2)target.position - (Vector2)transform.position).normalized;
+        if (direction.sqrMagnitude <= 0.001f)
+            return;
+
         isDashing = true;
-        dashTimer = definition.dashDuration;
-        dashDirection = ((Vector2)target.position - (Vector2)transform.position).normalized;
+        dashTimer = Mathf.Max(0.01f, definition.dashDuration);
+        dashDirection = direction;
 
         if (agent.enabled)
             agent.enabled = false;
@@ -239,19 +276,29 @@ public class MonsterController : MonoBehaviour, IDamageable
             0.4f,
             definition.wallLayer);
 
-        if (dashTimer > 0f && !hitWall) return;
+        if (dashTimer > 0f && !hitWall)
+            return;
 
         isDashing = false;
         dashCooldown = 1f;
 
         if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 2f, NavMesh.AllAreas))
+        {
             transform.position = hit.position;
-
-        agent.enabled = true;
+            agent.enabled = true;
+        }
+        else
+        {
+            agent.enabled = false;
+            Debug.LogWarning($"[Monster] Dash ended off NavMesh: {name}");
+        }
     }
 
     private void TryUseAvailableSkill(float distance)
     {
+        if (actionLockTimer > 0f || definition.skills == null)
+            return;
+
         for (int i = 0; i < definition.skills.Count; i++)
         {
             MonsterSkillConfig skill = definition.skills[i];
@@ -259,9 +306,11 @@ public class MonsterController : MonoBehaviour, IDamageable
             if (skill.type == MonsterSkillType.Shield || skill.type == MonsterSkillType.ConditionalInvincible) continue;
             if (distance > skill.range) continue;
 
-            if (!ExecuteSkill(skill)) continue;
+            if (!ExecuteSkill(skill))
+                continue;
 
             skillCooldowns[i] = Mathf.Max(0.01f, skill.cooldown);
+            actionLockTimer = Mathf.Max(0.05f, skill.windup);
             break;
         }
     }
@@ -273,15 +322,19 @@ public class MonsterController : MonoBehaviour, IDamageable
             case MonsterSkillType.Melee:
                 StartCoroutine(MeleeRoutine(skill));
                 return true;
+
             case MonsterSkillType.Projectile:
                 return FireProjectile(skill);
+
             case MonsterSkillType.SelfBuff:
                 StartCoroutine(SelfBuffRoutine(skill));
                 return true;
+
             case MonsterSkillType.AreaBuff:
             case MonsterSkillType.AreaDebuff:
                 // StatModifier 공통 인터페이스는 Fan/Core/Equipment 패스에서 연결합니다.
                 return false;
+
             default:
                 return false;
         }
@@ -291,6 +344,9 @@ public class MonsterController : MonoBehaviour, IDamageable
     {
         PlayAttackAnimation();
         yield return new WaitForSeconds(Mathf.Max(0f, skill.windup));
+
+        if (!IsAlive || target == null || definition == null)
+            yield break;
 
         Collider2D[] hits = Physics2D.OverlapCircleAll(
             transform.position,
@@ -309,22 +365,35 @@ public class MonsterController : MonoBehaviour, IDamageable
             0f,
             DamageKind.Melee);
 
+        HashSet<IDamageable> damagedTargets = new();
         for (int i = 0; i < hits.Length; i++)
-            CombatDamage.TryApply(hits[i], damage);
+        {
+            if (hits[i] == null) continue;
+            if (!CombatDamage.TryFindDamageable(hits[i].transform, out IDamageable damageable)) continue;
+            if (!damageable.IsAlive || !damagedTargets.Add(damageable)) continue;
+
+            float finalDamage = CombatDamage.Calculate(damage, damageable.Defense);
+            damageable.ReceiveDamage(damage, finalDamage);
+        }
     }
 
     private bool FireProjectile(MonsterSkillConfig skill)
     {
-        if (projectilePool == null || skill.projectileData == null) return false;
+        if (projectilePool == null || skill.projectileData == null || target == null)
+            return false;
 
         Projectile projectile = projectilePool.Get();
-        if (projectile == null) return false;
+        if (projectile == null)
+            return false;
 
         float battleMultiplier = context != null
             ? context.GetMonsterDamageMultiplier(definition.category)
             : 1f;
 
         Vector2 dir = ((Vector2)target.position - (Vector2)transform.position).normalized;
+        if (dir.sqrMagnitude <= 0.001f)
+            dir = facing.sqrMagnitude > 0.001f ? facing : Vector2.right;
+
         projectile.transform.position = transform.position;
         projectile.Setup(
             skill.projectileData,
@@ -350,17 +419,25 @@ public class MonsterController : MonoBehaviour, IDamageable
 
         yield return new WaitForSeconds(Mathf.Max(0f, skill.duration));
 
+        if (!IsAlive)
+            yield break;
+
         runtimeMoveMultiplier = oldMove;
         runtimeDamageMultiplier = oldDamage;
     }
 
     public void ReceiveDamage(DamageContext damageContext, float finalDamage)
     {
-        if (!IsAlive) return;
-        if (HasConditionalInvincibility() && isDashing) return;
-        if (TryBlockWithShield(damageContext, finalDamage)) return;
+        if (!IsAlive || finalDamage <= 0f)
+            return;
 
-        currentHp -= finalDamage;
+        if (HasConditionalInvincibility() && isDashing)
+            return;
+
+        if (TryBlockWithShield(damageContext, finalDamage))
+            return;
+
+        currentHp = Mathf.Max(0f, currentHp - finalDamage);
         animator?.Flash();
 
         if (currentHp <= 0f)
@@ -393,6 +470,9 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private bool HasConditionalInvincibility()
     {
+        if (definition == null || definition.skills == null)
+            return false;
+
         for (int i = 0; i < definition.skills.Count; i++)
         {
             if (definition.skills[i] != null &&
@@ -407,14 +487,18 @@ public class MonsterController : MonoBehaviour, IDamageable
     {
         if (dying) return;
         dying = true;
+        actionLockTimer = 0f;
+        StopAllCoroutines();
 
         if (agent.enabled)
         {
-            if (agent.isOnNavMesh) agent.isStopped = true;
+            if (agent.isOnNavMesh)
+                agent.isStopped = true;
+
             agent.enabled = false;
         }
 
-        if (animator != null && definition.visual != null &&
+        if (animator != null && definition != null && definition.visual != null &&
             definition.visual.dieSprites != null &&
             definition.visual.dieSprites.Length > 0)
         {
@@ -445,8 +529,11 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void UpdateAnimation(bool moving)
     {
-        if (animator == null || definition.visual == null) return;
-        if (animator.currentState == EnemyAnimState.Attack || animator.currentState == EnemyAnimState.Die) return;
+        if (animator == null || definition == null || definition.visual == null)
+            return;
+
+        if (animator.currentState == EnemyAnimState.Attack || animator.currentState == EnemyAnimState.Die)
+            return;
 
         if (moving)
         {
@@ -464,7 +551,8 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void PlayAttackAnimation()
     {
-        if (animator == null || definition.visual == null) return;
+        if (animator == null || definition == null || definition.visual == null)
+            return;
 
         animator.Play(
             EnemyAnimState.Attack,
@@ -476,7 +564,8 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void PlayIdleAnimation()
     {
-        if (animator == null || definition == null || definition.visual == null) return;
+        if (animator == null || definition == null || definition.visual == null)
+            return;
 
         animator.Play(
             EnemyAnimState.Idle,
@@ -492,8 +581,14 @@ public class MonsterController : MonoBehaviour, IDamageable
         target = null;
         definition = null;
         context = null;
+        projectilePool = null;
         dying = true;
         shieldEnabled = false;
+        shieldDurability = 0f;
+        shieldConfig = null;
+        isDashing = false;
+        actionLockTimer = 0f;
+        skillCooldowns.Clear();
 
         if (agent != null)
             agent.enabled = false;
