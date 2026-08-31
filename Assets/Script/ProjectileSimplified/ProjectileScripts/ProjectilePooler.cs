@@ -4,33 +4,53 @@ using UnityEngine;
 public class ProjectilePooler : MonoBehaviour
 {
     public Projectile projectilePrefab;
-    public int initialSize = 200;
+    [Min(0)] public int initialSize = 100;
 
-    private readonly Queue<Projectile> q = new Queue<Projectile>();
+    private readonly Queue<Projectile> queue = new();
+    private readonly HashSet<Projectile> pooled = new();
 
-    void Awake()
+    private void Awake()
     {
+        if (projectilePrefab == null)
+        {
+            Debug.LogError($"[ProjectilePool] projectilePrefab is null on '{name}'.");
+            return;
+        }
+
         for (int i = 0; i < initialSize; i++)
             CreateOne();
     }
 
-    Projectile CreateOne()
+    private Projectile CreateOne()
     {
-        var p = Instantiate(projectilePrefab, transform);
-        p.gameObject.SetActive(false);
-        q.Enqueue(p);
-        return p;
+        if (projectilePrefab == null)
+            return null;
+
+        Projectile projectile = Instantiate(projectilePrefab, transform);
+        projectile.gameObject.SetActive(false);
+        queue.Enqueue(projectile);
+        pooled.Add(projectile);
+        return projectile;
     }
 
     public Projectile Get()
     {
-        if (q.Count == 0) CreateOne();
-        return q.Dequeue();
+        if (queue.Count == 0 && CreateOne() == null)
+            return null;
+
+        Projectile projectile = queue.Dequeue();
+        pooled.Remove(projectile);
+        return projectile;
     }
 
-    public void Return(Projectile p)
+    public void Return(Projectile projectile)
     {
-        p.gameObject.SetActive(false);
-        q.Enqueue(p);
+        if (projectile == null || pooled.Contains(projectile))
+            return;
+
+        projectile.gameObject.SetActive(false);
+        projectile.transform.SetParent(transform);
+        queue.Enqueue(projectile);
+        pooled.Add(projectile);
     }
 }
