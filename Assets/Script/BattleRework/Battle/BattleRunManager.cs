@@ -81,7 +81,6 @@ public class BattleRunManager : MonoBehaviour
 
     private void Awake()
     {
-        // FanMission은 수직 슬라이스 필수 의존성은 아니므로 Inspector가 비어 있으면 자동 탐색합니다.
         if (fanMissionSystem == null)
             fanMissionSystem = FindFirstObjectByType<FanMissionSystem>();
     }
@@ -148,6 +147,24 @@ public class BattleRunManager : MonoBehaviour
         return errors.Count == 0;
     }
 
+    public bool SetShootingThemeForNextRun(ShootingThemeSO nextTheme)
+    {
+        if (runActive)
+            return false;
+
+        shootingTheme = nextTheme;
+        return true;
+    }
+
+    public bool SetClanForNextRun(ClanDefinitionSO nextClan)
+    {
+        if (runActive)
+            return false;
+
+        clan = nextClan;
+        return true;
+    }
+
     public void StartRun()
     {
         if (!ValidateConfiguration(out string report))
@@ -172,7 +189,6 @@ public class BattleRunManager : MonoBehaviour
         currentContext = null;
         lastEndReason = null;
 
-        // 영구 성장으로 열린 Capacity는 유지하고, 이전 런의 인런 상태만 초기화합니다.
         equipmentSystem.ResetForRun();
         fanMissionSystem?.ResetForRun();
         playerController.ResetForRun();
@@ -238,9 +254,6 @@ public class BattleRunManager : MonoBehaviour
         return true;
     }
 
-    /// <summary>
-    /// 인벤토리가 꽉 찼을 때 Reward UI에서 특정 슬롯을 선택해 즉시 교체합니다.
-    /// </summary>
     public bool ReplaceRewardIntoSlot(int rewardIndex, int slotIndex)
     {
         if (!TryGetReward(rewardIndex, out BattleEquipmentSO selected))
@@ -274,10 +287,6 @@ public class BattleRunManager : MonoBehaviour
         OpenRoomExitAfterReward();
     }
 
-    /// <summary>
-    /// 테스트/특수 노드에서 보상 없이 진행해야 할 때 사용합니다.
-    /// 정식 Combat Reward UI에서는 SelectReward를 우선 사용합니다.
-    /// </summary>
     public void SkipReward()
     {
         if (!runActive || state != BattleRunState.Reward)
