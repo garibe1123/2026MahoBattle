@@ -9,6 +9,7 @@ public class PlayerLoadout : MonoBehaviour
 
     public CoreDefinitionSO MainCore => mainCore;
     public IReadOnlyList<CoreDefinitionSO> SubCores => subCores;
+    public int UnlockedSubCoreSlots => unlockedSubCoreSlots;
 
     public void SetMainCore(CoreDefinitionSO core)
     {
@@ -26,6 +27,25 @@ public class PlayerLoadout : MonoBehaviour
     public void RemoveSubCore(CoreDefinitionSO core)
     {
         subCores.Remove(core);
+    }
+
+    public void ClearSubCores()
+    {
+        subCores.Clear();
+    }
+
+    public void SetUnlockedSubCoreSlots(int count)
+    {
+        unlockedSubCoreSlots = Mathf.Clamp(count, 1, 6);
+
+        while (subCores.Count > unlockedSubCoreSlots)
+            subCores.RemoveAt(subCores.Count - 1);
+    }
+
+    public void UnlockSubCoreSlots(int amount = 1)
+    {
+        if (amount <= 0) return;
+        SetUnlockedSubCoreSlots(unlockedSubCoreSlots + amount);
     }
 
     public float GetDamageMultiplier()
