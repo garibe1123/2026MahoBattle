@@ -7,10 +7,19 @@ public class BattleEquipmentSystem : MonoBehaviour
     public const int MaxSlotCount = 9;
 
     [SerializeField] private PlayerShootingSystem shootingSystem;
+
+    [Header("Persistent Capacity")]
     [SerializeField, Range(1, MaxSlotCount)] private int unlockedSlotCount = 2;
+
+    [Header("Run Start")]
+    [Tooltip("런 시작 시 다시 지급되는 기본 장비입니다. 인런에서 얻은 장비는 다음 런으로 이월하지 않습니다.")]
+    [SerializeField] private List<BattleEquipmentSO> startingEquipment = new();
+
+    [Header("Runtime Slots")]
     [SerializeField] private BattleEquipmentSlot[] slots = new BattleEquipmentSlot[MaxSlotCount];
 
     public IReadOnlyList<BattleEquipmentSlot> Slots => slots;
+    public IReadOnlyList<BattleEquipmentSO> StartingEquipment => startingEquipment;
     public int UnlockedSlotCount => unlockedSlotCount;
 
     public event Action InventoryChanged;
@@ -19,6 +28,44 @@ public class BattleEquipmentSystem : MonoBehaviour
     private void Awake()
     {
         EnsureSlots();
+    }
+
+    public bool ValidateConfiguration(out string report)
+    {
+        List<string> errors = new();
+
+        if (shootingSystem == null)
+            errors.Add("shootingSystem is null");
+
+        if (startingEquipment == null || startingEquipment.Count == 0)
+        {
+            errors.Add("startingEquipment is empty. Add at least one starter weapon for the vertical slice test.");
+        }
+        else
+        {
+            if (startingEquipment.Count > unlockedSlotCount)
+                errors.Add("startingEquipment count is greater than unlockedSlotCount.");
+
+            bool hasWeapon = false;
+            for (int i = 0; i < startingEquipment.Count; i++)
+            {
+                BattleEquipmentSO equipment = startingEquipment[i];
+                if (equipment == null)
+                {
+                    errors.Add($"startingEquipment[{i}] is null");
+                    continue;
+                }
+
+                if (equipment.shootingData != null)
+                    hasWeapon = true;
+            }
+
+            if (!hasWeapon)
+                errors.Add("startingEquipment has no weapon with PlayerShootingSO.");
+        }
+
+        report = string.Join("\n", errors);
+        return errors.Count == 0;
     }
 
     private void EnsureSlots()
@@ -32,7 +79,52 @@ public class BattleEquipmentSystem : MonoBehaviour
         unlockedSlotCount = Mathf.Clamp(unlockedSlotCount, 1, MaxSlotCount);
     }
 
+    /// <summary>
+    /// 로그라이트 런 시작 처리.
+    /// 영구 성장으로 열린 슬롯 수는 유지하고, 이전 런의 인런 장비만 비운 뒤 시작 장비를 다시 지급합니다.
+    /// </summary>
+    public void ResetForRun()
+    {
+        EnsureSlots();
+
+        for (int i = 0; i < slots.Length; i++)
+            slots[i].Clear();
+
+        if (shootingSystem != null)
+        {
+            shootingSystem.RuntimeDamageMultiplier = 1f;
+            shootingSystem.RuntimeFanMissionModifier = 0f;
+        }
+
+        if (startingEquipment != null)
+        {
+            for (int i = 0; i < startingEquipment.Count; i++)
+            {
+                BattleEquipmentSO equipment = startingEquipment[i];
+                if (equipment == null) continue;
+                TryAcquireInternal(equipment, false);
+            }
+        }
+
+        // 첫 번째 무기 장비를 기본 장착합니다.
+        for (int i = 0; i < unlockedSlotCount; i++)
+        {
+            if (slots[i].equipment != null && slots[i].equipment.shootingData != null)
+            {
+                EquipSlot(i);
+                break;
+            }
+        }
+
+        InventoryChanged?.Invoke();
+    }
+
     public bool TryAcquire(BattleEquipmentSO equipment)
+    {
+        return TryAcquireInternal(equipment, true);
+    }
+
+    private bool TryAcquireInternal(BattleEquipmentSO equipment, bool notify)
     {
         if (equipment == null)
             return false;
@@ -41,7 +133,7 @@ public class BattleEquipmentSystem : MonoBehaviour
 
         if (TryMerge(equipment))
         {
-            InventoryChanged?.Invoke();
+            if (notify) InventoryChanged?.Invoke();
             return true;
         }
 
@@ -52,7 +144,8 @@ public class BattleEquipmentSystem : MonoBehaviour
         slots[empty].equipment = equipment;
         slots[empty].grade = 1;
         slots[empty].copies = 1;
-        InventoryChanged?.Invoke();
+
+        if (notify) InventoryChanged?.Invoke();
         return true;
     }
 
@@ -118,8 +211,8 @@ public class BattleEquipmentSystem : MonoBehaviour
         if (!equipped)
             return false;
 
-        // 1차 수직 슬라이스에서는 현재 장비의 Damage Multiplier만 실제 사격에 연결합니다.
-        // 여러 장비 동시 발동/Synergy 합산은 이후 패스에서 별도 Build 계산 계층으로 확장합니다.
+        // 1차 수직 슬라이스에서는 현재 수동 무기의 Damage Multiplier만 실제 사격에 연결합니다.
+        // 여러 장비 동시 발동/Synergy 합산은 후속 Build 계산 계층에서 처리합니다.
         shootingSystem.RuntimeDamageMultiplier = Mathf.Max(0f, slot.equipment.damageMultiplier);
         return true;
     }
