@@ -1,1 +1,0 @@
-Legacy scripts are intentionally retained until scene references are migrated.
