@@ -23,7 +23,7 @@ public class BattleDebugUI : MonoBehaviour
     {
         if (!visible) return;
 
-        GUILayout.BeginArea(new Rect(12f, 12f, 380f, Screen.height - 24f), GUI.skin.box);
+        GUILayout.BeginArea(new Rect(12f, 12f, 420f, Screen.height - 24f), GUI.skin.box);
         scroll = GUILayout.BeginScrollView(scroll);
 
         GUILayout.Label("BATTLE VERTICAL SLICE DEBUG");
@@ -74,6 +74,9 @@ public class BattleDebugUI : MonoBehaviour
                 if (GUILayout.Button($"[{i}] {label}", GUILayout.Height(28f)))
                     runManager.SelectReward(i);
             }
+
+            if (equipmentSystem != null && !equipmentSystem.HasFreeUnlockedSlot())
+                GUILayout.Label("Inventory full: discard an equipment below or choose a duplicate that can merge.");
 
             if (GUILayout.Button("SKIP REWARD (DEBUG)"))
                 runManager.SkipReward();
@@ -131,8 +134,15 @@ public class BattleDebugUI : MonoBehaviour
             GUILayout.BeginHorizontal();
             GUILayout.Label($"[{i + 1}] {slot.equipment.GetDisplayName()} G{slot.grade} ({slot.copies}/3)");
 
-            if (slot.equipment.shootingData != null && GUILayout.Button("Equip", GUILayout.Width(60f)))
+            if (slot.equipment.shootingData != null && GUILayout.Button("Equip", GUILayout.Width(58f)))
                 equipmentSystem.EquipSlot(i);
+
+            if (GUILayout.Button("Discard", GUILayout.Width(68f)))
+            {
+                equipmentSystem.DiscardSlot(i);
+                GUILayout.EndHorizontal();
+                break;
+            }
 
             GUILayout.EndHorizontal();
         }
