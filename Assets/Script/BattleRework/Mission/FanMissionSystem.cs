@@ -14,6 +14,33 @@ public class FanMissionSystem : MonoBehaviour
 
     public event Action MissionsChanged;
 
+    private void Update()
+    {
+        // duration <= 0인 미션은 시간 제한이 없는 미션입니다.
+        for (int i = activeMissions.Count - 1; i >= 0; i--)
+        {
+            FanMissionRuntime runtime = activeMissions[i];
+            if (runtime == null || runtime.Definition == null)
+            {
+                activeMissions.RemoveAt(i);
+                continue;
+            }
+
+            if (runtime.Definition.duration <= 0f)
+                continue;
+
+            runtime.RemainingTime = Mathf.Max(0f, runtime.RemainingTime - Time.deltaTime);
+            if (runtime.RemainingTime <= 0f)
+                FailMission(i);
+        }
+    }
+
+    public void ResetForRun()
+    {
+        activeMissions.Clear();
+        MissionsChanged?.Invoke();
+    }
+
     public bool TryAddMission(FanMissionSO mission)
     {
         if (mission == null || activeMissions.Count >= unlockedSlots) return false;
@@ -34,6 +61,7 @@ public class FanMissionSystem : MonoBehaviour
         for (int i = activeMissions.Count - 1; i >= 0; i--)
         {
             FanMissionRuntime runtime = activeMissions[i];
+            if (runtime == null || runtime.Definition == null) continue;
             if (runtime.Definition.type != type) continue;
 
             runtime.Progress += Mathf.Max(0, amount);
@@ -49,8 +77,12 @@ public class FanMissionSystem : MonoBehaviour
         if (index < 0 || index >= activeMissions.Count) return;
         FanMissionRuntime runtime = activeMissions[index];
 
-        runProgress?.AddPopularity(runtime.Definition.failPopularity);
-        runProgress?.AddFanPoints(runtime.Definition.failFanPoints);
+        if (runtime != null && runtime.Definition != null)
+        {
+            runProgress?.AddPopularity(runtime.Definition.failPopularity);
+            runProgress?.AddFanPoints(runtime.Definition.failFanPoints);
+        }
+
         activeMissions.RemoveAt(index);
         MissionsChanged?.Invoke();
     }
@@ -63,9 +95,15 @@ public class FanMissionSystem : MonoBehaviour
 
     private void ResolveSuccess(int index)
     {
+        if (index < 0 || index >= activeMissions.Count) return;
+
         FanMissionRuntime runtime = activeMissions[index];
-        runProgress?.AddPopularity(runtime.Definition.successPopularity);
-        runProgress?.AddFanPoints(runtime.Definition.successFanPoints);
+        if (runtime != null && runtime.Definition != null)
+        {
+            runProgress?.AddPopularity(runtime.Definition.successPopularity);
+            runProgress?.AddFanPoints(runtime.Definition.successFanPoints);
+        }
+
         activeMissions.RemoveAt(index);
     }
 }
