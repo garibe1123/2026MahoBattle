@@ -39,6 +39,7 @@ public class BattleRunManager : MonoBehaviour
     [SerializeField] private RunProgressSystem progress;
     [SerializeField] private BattleRewardSystem rewardSystem;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [SerializeField] private FanMissionSystem fanMissionSystem;
     [SerializeField] private PlayerController playerController;
 
     [Header("Depth Scaling - inspector driven")]
@@ -56,6 +57,7 @@ public class BattleRunManager : MonoBehaviour
     private BattleContext currentContext;
     private BattleRunState state = BattleRunState.None;
     private bool runActive;
+    private RunEndReason? lastEndReason;
 
     public BattleNodeData CurrentNode => currentNode;
     public BattleContext CurrentContext => currentContext;
@@ -64,6 +66,10 @@ public class BattleRunManager : MonoBehaviour
     public bool WaitingForNodeSelection => state == BattleRunState.SelectingNode;
     public IReadOnlyList<BattleNodeData> NextNodeChoices => nextNodeChoices;
     public IReadOnlyList<BattleEquipmentSO> CurrentRewardChoices => currentRewardChoices;
+    public ShootingThemeSO ShootingTheme => shootingTheme;
+    public ClanDefinitionSO Clan => clan;
+    public RunProgressSystem Progress => progress;
+    public RunEndReason? LastEndReason => lastEndReason;
 
     public event Action<BattleRunState> StateChanged;
     public event Action<BattleNodeData> NodeEntered;
@@ -72,6 +78,13 @@ public class BattleRunManager : MonoBehaviour
     public event Action<IReadOnlyList<BattleEquipmentSO>> RewardSelectionRequested;
     public event Action<BattleEquipmentSO> RewardSelected;
     public event Action<RunEndReason> RunEnded;
+
+    private void Awake()
+    {
+        // FanMission은 수직 슬라이스 필수 의존성은 아니므로 Inspector가 비어 있으면 자동 탐색합니다.
+        if (fanMissionSystem == null)
+            fanMissionSystem = FindFirstObjectByType<FanMissionSystem>();
+    }
 
     private void OnEnable()
     {
@@ -157,9 +170,11 @@ public class BattleRunManager : MonoBehaviour
         nextNodeChoices.Clear();
         currentNode = null;
         currentContext = null;
+        lastEndReason = null;
 
-        // 영구 성장으로 열린 Capacity는 유지하고, 이전 런의 인런 장비/상태만 초기화합니다.
+        // 영구 성장으로 열린 Capacity는 유지하고, 이전 런의 인런 상태만 초기화합니다.
         equipmentSystem.ResetForRun();
+        fanMissionSystem?.ResetForRun();
         playerController.ResetForRun();
         progress.BeginRun();
 
@@ -210,14 +225,7 @@ public class BattleRunManager : MonoBehaviour
 
     public bool SelectReward(int rewardIndex)
     {
-        if (!runActive || state != BattleRunState.Reward)
-            return false;
-
-        if (rewardIndex < 0 || rewardIndex >= currentRewardChoices.Count)
-            return false;
-
-        BattleEquipmentSO selected = currentRewardChoices[rewardIndex];
-        if (selected == null)
+        if (!TryGetReward(rewardIndex, out BattleEquipmentSO selected))
             return false;
 
         if (!equipmentSystem.TryAcquire(selected))
@@ -226,10 +234,44 @@ public class BattleRunManager : MonoBehaviour
             return false;
         }
 
+        CompleteRewardSelection(selected);
+        return true;
+    }
+
+    /// <summary>
+    /// 인벤토리가 꽉 찼을 때 Reward UI에서 특정 슬롯을 선택해 즉시 교체합니다.
+    /// </summary>
+    public bool ReplaceRewardIntoSlot(int rewardIndex, int slotIndex)
+    {
+        if (!TryGetReward(rewardIndex, out BattleEquipmentSO selected))
+            return false;
+
+        if (!equipmentSystem.ReplaceSlot(slotIndex, selected))
+            return false;
+
+        CompleteRewardSelection(selected);
+        return true;
+    }
+
+    private bool TryGetReward(int rewardIndex, out BattleEquipmentSO selected)
+    {
+        selected = null;
+
+        if (!runActive || state != BattleRunState.Reward)
+            return false;
+
+        if (rewardIndex < 0 || rewardIndex >= currentRewardChoices.Count)
+            return false;
+
+        selected = currentRewardChoices[rewardIndex];
+        return selected != null;
+    }
+
+    private void CompleteRewardSelection(BattleEquipmentSO selected)
+    {
         currentRewardChoices.Clear();
         RewardSelected?.Invoke(selected);
         OpenRoomExitAfterReward();
-        return true;
     }
 
     /// <summary>
@@ -419,6 +461,7 @@ public class BattleRunManager : MonoBehaviour
             return;
 
         runActive = false;
+        lastEndReason = reason;
         currentRewardChoices.Clear();
         nextNodeChoices.Clear();
 
