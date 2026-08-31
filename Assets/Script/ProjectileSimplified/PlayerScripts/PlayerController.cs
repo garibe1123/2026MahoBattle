@@ -4,6 +4,7 @@ using UnityEngine;
 
 public enum PlayerState { Idle, Move, Roll, Dead }
 
+[RequireComponent(typeof(Rigidbody2D))]
 public class PlayerController : MonoBehaviour, IDamageable
 {
     [Header("Data & Stats")]
@@ -58,9 +59,7 @@ public class PlayerController : MonoBehaviour, IDamageable
     {
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponent<PlayerAnimator>();
-
-        currentHp = maxHp;
-        currentStamina = maxStamina;
+        ResetForRun();
     }
 
     private void Update()
@@ -94,9 +93,13 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         if (Input.GetMouseButton(0) && shootingSystem != null)
         {
-            Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-            mousePos.z = 0f;
-            shootingSystem.TryShoot(mousePos);
+            Camera mainCamera = Camera.main;
+            if (mainCamera != null)
+            {
+                Vector3 mousePos = mainCamera.ScreenToWorldPoint(Input.mousePosition);
+                mousePos.z = 0f;
+                shootingSystem.TryShoot(mousePos);
+            }
         }
 
         bool canRoll =
@@ -142,10 +145,13 @@ public class PlayerController : MonoBehaviour, IDamageable
             ? new Vector2(Mathf.Sign(transform.localScale.x), 0f)
             : moveInput;
 
+        if (rollDir.sqrMagnitude <= 0.001f)
+            rollDir = Vector2.right;
+
         float timer = 0f;
         rollInvincible = true;
 
-        while (timer < rollDuration)
+        while (timer < rollDuration && currentState == PlayerState.Roll)
         {
             rb.linearVelocity = rollDir * rollSpeed;
             timer += Time.deltaTime;
@@ -158,7 +164,9 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         rollInvincible = false;
         rb.linearVelocity = Vector2.zero;
-        currentState = PlayerState.Idle;
+
+        if (currentState != PlayerState.Dead)
+            currentState = PlayerState.Idle;
 
         if (consecutiveRolls >= Mathf.Max(1, maxConsecutiveRolls))
         {
@@ -177,6 +185,8 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (!IsAlive || hitInvincible || rollInvincible) return;
 
         float applied = Mathf.Max(0f, damage);
+        if (applied <= 0f) return;
+
         currentHp = Mathf.Max(0f, currentHp - applied);
         HpChanged?.Invoke(currentHp, maxHp);
 
@@ -206,10 +216,40 @@ public class PlayerController : MonoBehaviour, IDamageable
         currentState = PlayerState.Dead;
         hitInvincible = false;
         rollInvincible = false;
+        moveInput = Vector2.zero;
         rb.linearVelocity = Vector2.zero;
+
+        StopAllCoroutines();
 
         Died?.Invoke();
         battleRunManager?.NotifyPlayerDeath();
+    }
+
+    /// <summary>
+    /// 새 런/테스트 재시작 시 플레이어 런타임 상태를 완전히 초기화합니다.
+    /// 장기 성장에서 계산된 maxHp/maxStamina 값 자체는 유지하고 현재값만 채웁니다.
+    /// </summary>
+    public void ResetForRun()
+    {
+        StopAllCoroutines();
+
+        currentState = PlayerState.Idle;
+        currentHp = Mathf.Max(1f, maxHp);
+        currentStamina = Mathf.Max(0f, maxStamina);
+        moveInput = Vector2.zero;
+        hitInvincible = false;
+        rollInvincible = false;
+        rollLockTimer = 0f;
+        consecutiveRolls = 0;
+
+        if (rb == null)
+            rb = GetComponent<Rigidbody2D>();
+
+        if (rb != null)
+            rb.linearVelocity = Vector2.zero;
+
+        HpChanged?.Invoke(currentHp, maxHp);
+        StaminaChanged?.Invoke(currentStamina, maxStamina);
     }
 
     public void Heal(float amount)
@@ -222,6 +262,8 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     public void RestoreStamina(float amount)
     {
+        if (!IsAlive) return;
+
         currentStamina = Mathf.Min(currentStamina + Mathf.Max(0f, amount), maxStamina);
         StaminaChanged?.Invoke(currentStamina, maxStamina);
     }
