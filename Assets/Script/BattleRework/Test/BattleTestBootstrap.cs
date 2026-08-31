@@ -17,6 +17,9 @@ public class BattleTestBootstrap : MonoBehaviour
 
     private void Start()
     {
+        // 이전 PlayMode/UI Bullet Time 상태가 테스트 결과에 영향을 주지 않게 초기화합니다.
+        Time.timeScale = 1f;
+
         if (!ValidateTestScene(out string report))
         {
             Debug.LogError($"[BattleTest] Scene validation failed.\n{report}");
@@ -42,6 +45,9 @@ public class BattleTestBootstrap : MonoBehaviour
     public bool ValidateTestScene(out string report)
     {
         List<string> errors = new();
+
+        if (Camera.main == null)
+            errors.Add("No Camera tagged MainCamera was found.");
 
         if (runManager == null)
         {
