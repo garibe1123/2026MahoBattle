@@ -70,7 +70,7 @@ public class NodeGraphSO : ScriptableObject
     }
 
     /// <summary>
-    /// 테스트 빌드 시작 전에 Graph의 치명적인 데이터 오류를 검사합니다.
+    /// 테스트 빌드 시작 전에 Graph와 연결된 RoomDefinition의 치명적인 데이터 오류를 검사합니다.
     /// 경고성 문제는 report에 포함되지만 시작을 막지는 않습니다.
     /// </summary>
     public bool ValidateGraph(out string report)
@@ -85,55 +85,77 @@ public class NodeGraphSO : ScriptableObject
         if (string.IsNullOrWhiteSpace(startNodeId))
             errors.AppendLine("startNodeId is empty.");
 
-        for (int i = 0; i < nodes.Count; i++)
+        if (nodes != null)
         {
-            BattleNodeData node = nodes[i];
-            if (node == null)
+            for (int i = 0; i < nodes.Count; i++)
             {
-                errors.AppendLine($"nodes[{i}] is null.");
-                continue;
+                BattleNodeData node = nodes[i];
+                if (node == null)
+                {
+                    errors.AppendLine($"nodes[{i}] is null.");
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(node.id))
+                {
+                    errors.AppendLine($"nodes[{i}] has an empty id.");
+                    continue;
+                }
+
+                if (!ids.Add(node.id))
+                    errors.AppendLine($"Duplicate node id: {node.id}");
+
+                bool combatNode = node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite;
+                if (combatNode && node.room == null)
+                {
+                    errors.AppendLine($"Combat node '{node.id}' has no RoomDefinitionSO.");
+                }
+                else if (combatNode)
+                {
+                    bool roomValid = node.room.ValidateDefinition(out string roomReport);
+                    if (!roomValid)
+                    {
+                        errors.AppendLine($"Room '{node.room.name}' used by node '{node.id}' is invalid:");
+                        errors.AppendLine(roomReport);
+                    }
+                    else if (!string.IsNullOrWhiteSpace(roomReport))
+                    {
+                        warnings.AppendLine($"Room '{node.room.name}' used by node '{node.id}':");
+                        warnings.AppendLine(roomReport);
+                    }
+                }
+
+                if (node.isTerminal && node.nextNodeIds != null && node.nextNodeIds.Count > 0)
+                    warnings.AppendLine($"Terminal node '{node.id}' still has nextNodeIds. They will be ignored.");
             }
-
-            if (string.IsNullOrWhiteSpace(node.id))
-            {
-                errors.AppendLine($"nodes[{i}] has an empty id.");
-                continue;
-            }
-
-            if (!ids.Add(node.id))
-                errors.AppendLine($"Duplicate node id: {node.id}");
-
-            bool combatNode = node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite;
-            if (combatNode && node.room == null)
-                errors.AppendLine($"Combat node '{node.id}' has no RoomDefinitionSO.");
-
-            if (node.isTerminal && node.nextNodeIds != null && node.nextNodeIds.Count > 0)
-                warnings.AppendLine($"Terminal node '{node.id}' still has nextNodeIds. They will be ignored.");
         }
 
         if (!string.IsNullOrWhiteSpace(startNodeId) && FindNode(startNodeId) == null)
             errors.AppendLine($"Start node '{startNodeId}' does not exist.");
 
-        for (int i = 0; i < nodes.Count; i++)
+        if (nodes != null)
         {
-            BattleNodeData node = nodes[i];
-            if (node == null || node.nextNodeIds == null) continue;
-
-            for (int n = 0; n < node.nextNodeIds.Count; n++)
+            for (int i = 0; i < nodes.Count; i++)
             {
-                string nextId = node.nextNodeIds[n];
-                if (string.IsNullOrWhiteSpace(nextId))
+                BattleNodeData node = nodes[i];
+                if (node == null || node.nextNodeIds == null) continue;
+
+                for (int n = 0; n < node.nextNodeIds.Count; n++)
                 {
-                    errors.AppendLine($"Node '{node.id}' has an empty next node id.");
-                    continue;
+                    string nextId = node.nextNodeIds[n];
+                    if (string.IsNullOrWhiteSpace(nextId))
+                    {
+                        errors.AppendLine($"Node '{node.id}' has an empty next node id.");
+                        continue;
+                    }
+
+                    if (FindNode(nextId) == null)
+                        errors.AppendLine($"Node '{node.id}' references missing next node '{nextId}'.");
                 }
 
-                if (FindNode(nextId) == null)
-                    errors.AppendLine($"Node '{node.id}' references missing next node '{nextId}'.");
+                if (!node.isTerminal && node.nextNodeIds.Count == 0)
+                    warnings.AppendLine($"Node '{node.id}' is not terminal but has no next node. Runtime will treat it as clear.");
             }
-
-            if (!node.isTerminal && node.nextNodeIds.Count == 0)
-                warnings.AppendLine($"Node '{node.id}' is not terminal but has no next node. Runtime will treat it as clear.");
         }
 
         StringBuilder combined = new();
