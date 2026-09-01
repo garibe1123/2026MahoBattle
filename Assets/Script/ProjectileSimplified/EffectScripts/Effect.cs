@@ -1,11 +1,10 @@
-﻿using UnityEngine;
 using System.Collections.Generic;
+using UnityEngine;
 
 [RequireComponent(typeof(EffectAnimator))]
 [RequireComponent(typeof(Collider2D))]
 public class Effect : MonoBehaviour
 {
-
     private EffectSO so;
     private EffectAnimator anim;
     private Collider2D myCollider;
@@ -16,72 +15,84 @@ public class Effect : MonoBehaviour
     private float lifeTimer;
     private float tickTimer;
     private float spawnTimer;
-
-    private static List<Effect> activeMines = new List<Effect>();
-    private bool mineTriggered = false;
     private float mineDelayTimer;
+
+    private static readonly List<Effect> activeMines = new();
+    private bool mineTriggered;
+    private bool isEnding;
 
     private Collider2D[] hitResults;
     private Transform lookTarget;
     private float scaleMultiplier = 1f;
+    private float currentLaserLength;
 
-    // ★ 레이저의 현재 길이를 저장하는 변수
-    private float currentLaserLength = 0f;
+    private GameObject damageSource;
+    private float runtimeDamageMultiplier = 1f;
+    private float runtimeFanMissionModifier;
 
-    private bool isEnding = false;
-
-    void Awake()
+    private void Awake()
     {
         anim = GetComponent<EffectAnimator>();
         myCollider = GetComponent<Collider2D>();
         myCollider.isTrigger = true;
 
         lr = GetComponent<LineRenderer>();
-        if (lr != null) lr.enabled = false;
+        if (lr != null)
+            lr.enabled = false;
     }
 
-    public void Setup(EffectSO effectSO, Transform target = null, float scaleMultiplier = 1f)
+    public void Setup(
+        EffectSO effectSO,
+        Transform target = null,
+        float scaleMultiplier = 1f,
+        GameObject damageSource = null,
+        float runtimeDamageMultiplier = 1f,
+        float runtimeFanMissionModifier = 0f)
     {
+        if (effectSO == null)
+        {
+            Debug.LogError($"[Effect] Setup failed on '{name}': EffectSO is null.");
+            Destroy(gameObject);
+            return;
+        }
+
         so = effectSO;
         attachTarget = so.isAttached ? target : null;
-        this.scaleMultiplier = scaleMultiplier;
+        this.scaleMultiplier = Mathf.Max(0.01f, scaleMultiplier);
+        this.damageSource = damageSource;
+        this.runtimeDamageMultiplier = Mathf.Max(0f, runtimeDamageMultiplier);
+        this.runtimeFanMissionModifier = runtimeFanMissionModifier;
 
         lifeTimer = 0f;
         tickTimer = 0f;
         spawnTimer = 0f;
+        mineDelayTimer = 0f;
         mineTriggered = false;
-        lookTarget = null;
-        currentLaserLength = 0f; // 레이저 길이 초기화
-        isEnding = false; // ★ 추가: 새로 태어날 때 다시 false로 초기화
-
-        // ★ 1. 총알이 넘겨준 타겟을 내 목표물(lookTarget)로 저장!
         lookTarget = target;
+        currentLaserLength = 0f;
+        isEnding = false;
 
-        // ★ 2. 만약 지정된 타겟이 있다면, 태어나자마자 그쪽을 바라보도록 멱살을 잡고 돌립니다!
         if (lookTarget != null)
-        {
-            Vector3 dir = lookTarget.position - transform.position;
-            float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
-            transform.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
-        }
+            FaceTarget(lookTarget.position);
 
-        // 애니메이터에 VisualSO(머티리얼 데이터) 넘겨주기
-        if (so.visual != null) anim.SetupVisual(so.visual);
+        if (so.visual != null)
+            anim.SetupVisual(so.visual);
 
         contactFilter.useTriggers = true;
         contactFilter.SetLayerMask(so.targetLayer);
         contactFilter.useLayerMask = true;
 
         hitResults = new Collider2D[Mathf.Max(1, so.maxTargetsPerTick)];
-        transform.localScale = Vector3.one * (so.startScale * scaleMultiplier);
+        transform.localScale = Vector3.one * (so.startScale * this.scaleMultiplier);
 
-        if (so.effectType == EffectTypeEnum.Mine)
+        if (so.effectType == EffectTypeEnum.Mine && !activeMines.Contains(this))
             activeMines.Add(this);
 
         if (so.visual != null && so.visual.startSprites != null && so.visual.startSprites.Length > 0)
         {
             anim.PlayOnce(AnimPhase.Start, so.visual.startSprites, so.visual.fps, () =>
             {
+                if (so == null || so.visual == null) return;
                 if (so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
                     anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.fps);
             });
@@ -92,156 +103,179 @@ public class Effect : MonoBehaviour
         }
     }
 
-    void Update()
+    private void Update()
     {
-        if (so == null) return;
+        if (so == null || isEnding)
+            return;
 
         HandleLifeAndModifiers();
+        if (isEnding) return;
+
         HandleMovement();
         HandleRotation();
         HandleScale();
 
-        // 레이저는 콜라이더(myCollider) 여부와 상관없이 독자적인 수학 연산을 하므로 무조건 돌림
         if (so.effectType == EffectTypeEnum.Laser)
         {
             HandleLaserDamage();
+            return;
         }
-        else if (myCollider != null && myCollider.enabled)
+
+        if (myCollider == null || !myCollider.enabled)
+            return;
+
+        switch (so.effectType)
         {
-            // 장판, 지뢰, 스포너는 애니메이터가 켜준 콜라이더 기반으로 동작
-            switch (so.effectType)
-            {
-                case EffectTypeEnum.Zone:
-                    HandleTickDamage();
-                    break;
-                case EffectTypeEnum.Mine:
-                    HandleMineLogic();
-                    break;
-                case EffectTypeEnum.Spawner:
-                    HandleSpawnerLogic();
-                    break;
-            }
+            case EffectTypeEnum.Zone:
+                HandleTickDamage();
+                break;
+
+            case EffectTypeEnum.Mine:
+                HandleMineLogic();
+                break;
+
+            case EffectTypeEnum.Spawner:
+                HandleSpawnerLogic();
+                break;
         }
     }
 
-    void HandleLifeAndModifiers()
+    private void HandleLifeAndModifiers()
     {
         if (so.isAttached && attachTarget != null)
-        {
             transform.position = attachTarget.position;
-        }
 
-        // ★ 수정: isEnding이 아닐 때만 수명 타이머 굴러가게 변경
-        if (!mineTriggered && !isEnding)
-        {
-            lifeTimer += Time.deltaTime;
-            if (lifeTimer >= so.duration)
-            {
-                EndEffect();
-            }
-        }
+        if (mineTriggered)
+            return;
+
+        lifeTimer += Time.deltaTime;
+        if (lifeTimer >= Mathf.Max(0f, so.duration))
+            EndEffect();
     }
 
-    void HandleMovement()
+    private void HandleMovement()
     {
         if (so.movementType == EffectMovementType.MoveForward)
             transform.position += transform.right * (so.moveSpeed * Time.deltaTime);
     }
 
-    void HandleRotation()
+    private void HandleRotation()
     {
         if (so.rotationType == EffectRotationType.ContinuousSpin)
-            transform.Rotate(0f, 0f, so.spinSpeed * Time.deltaTime);
-        else if (so.rotationType == EffectRotationType.LookAtTarget)
         {
-            if (lookTarget == null || !lookTarget.gameObject.activeInHierarchy) FindNearestTarget();
-            if (lookTarget != null)
-            {
-                Vector3 dir = lookTarget.position - transform.position;
-                float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
-                transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.AngleAxis(angle, Vector3.forward), so.spinSpeed * Time.deltaTime);
-            }
+            transform.Rotate(0f, 0f, so.spinSpeed * Time.deltaTime);
+            return;
         }
+
+        if (so.rotationType != EffectRotationType.LookAtTarget)
+            return;
+
+        if (lookTarget == null || !lookTarget.gameObject.activeInHierarchy)
+            FindNearestTarget();
+
+        if (lookTarget == null)
+            return;
+
+        Vector3 dir = lookTarget.position - transform.position;
+        float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        transform.rotation = Quaternion.RotateTowards(
+            transform.rotation,
+            Quaternion.AngleAxis(angle, Vector3.forward),
+            so.spinSpeed * Time.deltaTime);
     }
 
-    void FindNearestTarget()
+    private void FaceTarget(Vector3 worldPosition)
     {
-        // ★ 수정: 레이저면 탐색 반경을 크게(50f) 주고, 아니면 radius의 3배로 줍니다.
-        float searchRadius = (so.effectType == EffectTypeEnum.Laser) ? 50f : so.radius * 3f;
+        Vector3 dir = worldPosition - transform.position;
+        if (dir.sqrMagnitude <= 0.0001f)
+            return;
 
-        int hits = Physics2D.OverlapCircleNonAlloc(transform.position, searchRadius, hitResults, so.targetLayer);
+        float angle = Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg;
+        transform.rotation = Quaternion.AngleAxis(angle, Vector3.forward);
+    }
+
+    private void FindNearestTarget()
+    {
+        float searchRadius = so.effectType == EffectTypeEnum.Laser
+            ? 50f
+            : Mathf.Max(0.1f, so.radius * 3f);
+
+        int hits = Physics2D.OverlapCircleNonAlloc(
+            transform.position,
+            searchRadius,
+            hitResults,
+            so.targetLayer);
+
         float minDistance = float.MaxValue;
+        Transform nearest = null;
 
         for (int i = 0; i < hits; i++)
         {
-            float dist = Vector2.Distance(transform.position, hitResults[i].transform.position);
-            if (dist < minDistance)
-            {
-                minDistance = dist;
-                lookTarget = hitResults[i].transform;
-            }
+            Collider2D hit = hitResults[i];
+            if (hit == null) continue;
+
+            float dist = Vector2.SqrMagnitude((Vector2)transform.position - (Vector2)hit.transform.position);
+            if (dist >= minDistance) continue;
+
+            minDistance = dist;
+            nearest = hit.transform;
         }
+
+        lookTarget = nearest;
     }
 
-    void HandleScale()
+    private void HandleScale()
     {
-        if (so.scaleType == EffectScaleType.Fixed) return;
-        float t = Mathf.Clamp01(lifeTimer / so.duration);
+        if (so.scaleType == EffectScaleType.Fixed)
+            return;
+
+        float duration = Mathf.Max(0.0001f, so.duration);
+        float t = Mathf.Clamp01(lifeTimer / duration);
         float s = Mathf.Lerp(so.startScale, so.targetScale, t);
         transform.localScale = Vector3.one * (s * scaleMultiplier);
     }
 
-    void HandleTickDamage()
+    private void HandleTickDamage()
     {
         tickTimer += Time.deltaTime;
-        if (tickTimer >= so.tickRate)
-        {
-            int hits = myCollider.Overlap(contactFilter, hitResults);
-            ApplyDamageToHits(hits);
-            tickTimer -= so.tickRate;
-        }
+        float interval = Mathf.Max(0.01f, so.tickRate);
+        if (tickTimer < interval)
+            return;
+
+        int hits = myCollider.Overlap(contactFilter, hitResults);
+        ApplyDamageToHits(hits, DamageKind.Area);
+        tickTimer %= interval;
     }
 
-    void HandleLaserDamage()
+    private void HandleLaserDamage()
     {
         Vector2 origin = transform.position;
         Vector2 dir = transform.right;
 
-        // 1. 목표(Target) 도달 길이 계산 (벽에 막히는지 검사)
-        float targetMaxLength = so.laserSize.x * transform.localScale.x;
+        float targetMaxLength = Mathf.Max(0f, so.laserSize.x * transform.localScale.x);
         RaycastHit2D blockHit = Physics2D.Raycast(origin, dir, targetMaxLength, so.blockingLayer);
-
         if (blockHit.collider != null)
-        {
-            targetMaxLength = blockHit.distance; // 벽에 막히면 거기가 최대 길이
-        }
+            targetMaxLength = blockHit.distance;
 
-        // ★ 2. 애니메이션 상태에 따른 레이저 뻗어나감 처리 (유저님 아이디어 적용!)
-        // Start 상태이면서 첫 번째 그림(인덱스 0)일 때만 레이저 숨김
         if (anim.currentPhase == AnimPhase.Start && anim.currentFrameIndex == 0)
         {
-            currentLaserLength = 0f; // 1프레임(예열) 중에는 뻗지 않음
+            currentLaserLength = 0f;
+        }
+        else if (so.laserExtensionSpeed <= 0f)
+        {
+            currentLaserLength = targetMaxLength;
         }
         else
         {
-            // Start의 2프레임(인덱스 1)부터이거나, Idle, End, 혹은 애니메이션이 없는 경우 무조건 발사!
-            if (so.laserExtensionSpeed <= 0f)
-            {
-                currentLaserLength = targetMaxLength; // 즉시 끝까지 도달
-            }
-            else
-            {
-                // 서서히 자라남
-                currentLaserLength = Mathf.MoveTowards(currentLaserLength, targetMaxLength, so.laserExtensionSpeed * Time.deltaTime);
-            }
+            currentLaserLength = Mathf.MoveTowards(
+                currentLaserLength,
+                targetMaxLength,
+                so.laserExtensionSpeed * Time.deltaTime);
         }
 
-        // 3. LineRenderer에 점 찍기
         if (lr != null)
         {
-            if (!lr.enabled && currentLaserLength > 0.1f) lr.enabled = true;
-            else if (currentLaserLength <= 0.1f) lr.enabled = false;
-
+            lr.enabled = currentLaserLength > 0.1f;
             if (lr.enabled)
             {
                 Vector2 endPos = origin + dir * currentLaserLength;
@@ -251,100 +285,154 @@ public class Effect : MonoBehaviour
             }
         }
 
-        // 4. 데미지 판정 (길이가 조금이라도 자라났을 때만)
-        if (currentLaserLength > 0.1f)
-        {
-            tickTimer += Time.deltaTime;
-            if (tickTimer >= so.tickRate)
-            {
-                Vector2 centerPos = origin + dir * (currentLaserLength * 0.5f);
-                Vector2 currentSize = new Vector2(currentLaserLength, so.laserSize.y * transform.localScale.y);
+        if (currentLaserLength <= 0.1f)
+            return;
 
-                int hits = Physics2D.OverlapBoxNonAlloc(centerPos, currentSize, transform.eulerAngles.z, hitResults, so.targetLayer);
-                ApplyDamageToHits(hits);
-                tickTimer -= so.tickRate;
-            }
-        }
+        tickTimer += Time.deltaTime;
+        float interval = Mathf.Max(0.01f, so.tickRate);
+        if (tickTimer < interval)
+            return;
+
+        Vector2 centerPos = origin + dir * (currentLaserLength * 0.5f);
+        Vector2 currentSize = new(
+            currentLaserLength,
+            Mathf.Max(0.01f, so.laserSize.y * transform.localScale.y));
+
+        int hits = Physics2D.OverlapBoxNonAlloc(
+            centerPos,
+            currentSize,
+            transform.eulerAngles.z,
+            hitResults,
+            so.targetLayer);
+
+        ApplyDamageToHits(hits, DamageKind.Area);
+        tickTimer %= interval;
     }
 
-    void HandleMineLogic()
+    private void HandleMineLogic()
     {
         if (!mineTriggered)
         {
             int hits = myCollider.Overlap(contactFilter, hitResults);
-            if (hits > 0) TriggerMine();
+            if (hits > 0)
+                TriggerMine();
+            return;
         }
-        else
-        {
-            mineDelayTimer += Time.deltaTime;
-            if (mineDelayTimer >= so.mineDelay) ExplodeMine();
-        }
+
+        mineDelayTimer += Time.deltaTime;
+        if (mineDelayTimer >= Mathf.Max(0f, so.mineDelay))
+            ExplodeMine();
     }
 
     public void TriggerMine()
     {
-        if (mineTriggered) return;
+        if (mineTriggered || isEnding)
+            return;
+
         mineTriggered = true;
         mineDelayTimer = 0f;
     }
 
-    void ExplodeMine()
+    private void ExplodeMine()
     {
-        float currentExpRadius = so.mineExplosionRadius * transform.localScale.x;
-        int hits = Physics2D.OverlapCircleNonAlloc(transform.position, currentExpRadius, hitResults, so.targetLayer);
-        ApplyDamageToHits(hits);
+        float currentRadius = Mathf.Max(0f, so.mineExplosionRadius * transform.localScale.x);
+        int hits = Physics2D.OverlapCircleNonAlloc(
+            transform.position,
+            currentRadius,
+            hitResults,
+            so.targetLayer);
+
+        ApplyDamageToHits(hits, DamageKind.Area);
 
         if (so.chainReaction)
         {
-            foreach (var mine in activeMines)
+            // TriggerMine/EndEffect가 activeMines를 수정할 수 있으므로 snapshot을 사용합니다.
+            Effect[] snapshot = activeMines.ToArray();
+            for (int i = 0; i < snapshot.Length; i++)
             {
-                if (mine != this && !mine.mineTriggered)
-                {
-                    if (Vector2.Distance(transform.position, mine.transform.position) <= currentExpRadius)
-                        mine.TriggerMine();
-                }
+                Effect mine = snapshot[i];
+                if (mine == null || mine == this || mine.mineTriggered)
+                    continue;
+
+                if (Vector2.Distance(transform.position, mine.transform.position) <= currentRadius)
+                    mine.TriggerMine();
             }
         }
+
         EndEffect();
     }
 
-    void HandleSpawnerLogic()
+    private void HandleSpawnerLogic()
     {
         HandleTickDamage();
+
         spawnTimer += Time.deltaTime;
-        if (spawnTimer >= so.spawnInterval)
-        {
-            if (so.spawnPrefab != null) Instantiate(so.spawnPrefab, transform.position, transform.rotation);
-            spawnTimer -= so.spawnInterval;
-        }
+        float interval = Mathf.Max(0.01f, so.spawnInterval);
+        if (spawnTimer < interval)
+            return;
+
+        if (so.spawnPrefab != null)
+            Instantiate(so.spawnPrefab, transform.position, transform.rotation);
+
+        spawnTimer %= interval;
     }
 
-    void ApplyDamageToHits(int hitCount)
+    private void ApplyDamageToHits(int hitCount, DamageKind kind)
     {
+        if (so == null || so.damage <= 0f || hitCount <= 0)
+            return;
+
+        DamageContext context = new(
+            damageSource != null ? damageSource : gameObject,
+            transform.position,
+            so.damage,
+            runtimeDamageMultiplier,
+            runtimeFanMissionModifier,
+            kind);
+
+        HashSet<IDamageable> damagedTargets = new();
+        HashSet<Enemy> damagedLegacyEnemies = new();
+
         for (int i = 0; i < hitCount; i++)
         {
-            Collider2D enemy = hitResults[i];
-            if (so.damage > 0) Debug.Log($"[{so.effectType}] hit: {enemy.name} / Dmg: {so.damage}");
+            Collider2D hit = hitResults[i];
+            if (hit == null) continue;
+
+            if (CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable))
+            {
+                if (!damageable.IsAlive || !damagedTargets.Add(damageable))
+                    continue;
+
+                float finalDamage = CombatDamage.Calculate(context, damageable.Defense);
+                damageable.ReceiveDamage(context, finalDamage);
+                continue;
+            }
+
+            Enemy legacyEnemy = hit.GetComponentInParent<Enemy>();
+            if (legacyEnemy != null && damagedLegacyEnemies.Add(legacyEnemy))
+                legacyEnemy.TakeDamage(CombatDamage.Calculate(context, 0f));
         }
     }
 
-    void EndEffect()
+    private void EndEffect()
     {
-        // ★ 수정: 이미 끝나는 중이면 두 번 실행 안 되게 컷!
-        if (isEnding) return;
+        if (isEnding)
+            return;
+
         isEnding = true;
+        activeMines.Remove(this);
 
-        if (so != null && so.effectType == EffectTypeEnum.Mine)
-        {
-            activeMines.Remove(this);
-        }
+        if (lr != null)
+            lr.enabled = false;
 
-        if (so.visual != null && so.visual.endSprites != null && so.visual.endSprites.Length > 0)
+        if (so != null && so.visual != null &&
+            so.visual.endSprites != null && so.visual.endSprites.Length > 0)
         {
-            anim.PlayOnce(AnimPhase.End, so.visual.endSprites, so.visual.fps, () =>
-            {
-                Destroy(gameObject);
-            });
+            anim.PlayOnce(
+                AnimPhase.End,
+                so.visual.endSprites,
+                so.visual.fps,
+                () => Destroy(gameObject));
         }
         else
         {
@@ -352,19 +440,18 @@ public class Effect : MonoBehaviour
         }
     }
 
-    void OnDestroy()
+    private void OnDestroy()
     {
-        if (so != null && so.effectType == EffectTypeEnum.Mine) activeMines.Remove(this);
+        activeMines.Remove(this);
     }
 
-    void OnDrawGizmosSelected()
+    private void OnDrawGizmosSelected()
     {
-        if (so == null) return;
-        if (so.effectType == EffectTypeEnum.Mine)
-        {
-            float currentScaleX = Application.isPlaying ? transform.localScale.x : so.startScale;
-            Gizmos.color = new Color(1, 0.5f, 0, 0.3f);
-            Gizmos.DrawWireSphere(transform.position, so.mineExplosionRadius * currentScaleX);
-        }
+        if (so == null || so.effectType != EffectTypeEnum.Mine)
+            return;
+
+        float currentScaleX = Application.isPlaying ? transform.localScale.x : so.startScale;
+        Gizmos.color = new Color(1f, 0.5f, 0f, 0.3f);
+        Gizmos.DrawWireSphere(transform.position, so.mineExplosionRadius * currentScaleX);
     }
 }
