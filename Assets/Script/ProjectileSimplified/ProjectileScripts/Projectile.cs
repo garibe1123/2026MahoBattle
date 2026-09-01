@@ -134,6 +134,7 @@ public class Projectile : MonoBehaviour
         {
             anim.PlayOnce(v.startSprites, v.fps, () =>
             {
+                if (so == null || dying) return;
                 if (v.idleSprites != null && v.idleSprites.Length > 0)
                     anim.PlayLoop(v.idleSprites, v.fps);
             });
@@ -148,14 +149,13 @@ public class Projectile : MonoBehaviour
     {
         if (dying || so == null) return;
 
-        if (!so.useTargetPosition)
+        timer += Time.deltaTime;
+
+        bool targetArc = so.movement == MovementType.Arc && so.useTargetPosition;
+        if (!targetArc && timer >= Mathf.Max(0.01f, so.lifetime))
         {
-            timer += Time.deltaTime;
-            if (timer >= so.lifetime)
-            {
-                Impact();
-                return;
-            }
+            Impact();
+            return;
         }
 
         switch (so.movement)
@@ -199,9 +199,14 @@ public class Projectile : MonoBehaviour
 
     private void UpdateArc()
     {
-        if (!so.useTargetPosition) return;
+        if (!so.useTargetPosition)
+        {
+            // 기존 비타겟 Arc 데이터는 아직 별도 포물선 물리 구현이 없으므로
+            // 최소한 직선 이동 + lifetime으로 안전하게 종료시킵니다.
+            Move(baseDir, so.speed);
+            return;
+        }
 
-        timer += Time.deltaTime;
         float rawT = Mathf.Clamp01(timer / travelTime);
         float t = Mathf.Clamp01(Mathf.SmoothStep(0f, 1f, rawT));
 
@@ -268,7 +273,6 @@ public class Projectile : MonoBehaviour
 
     private void UpdateBoomerang()
     {
-        // timer는 Update() 공통 경로에서 이미 증가합니다.
         float returnTime = so.boomerangReturnTime;
         const float slowDuration = 0.15f;
         const float accelDuration = 0.25f;
@@ -309,18 +313,99 @@ public class Projectile : MonoBehaviour
 
     private void Move(Vector2 dir, float speed)
     {
-        transform.position += (Vector3)(dir * speed * Time.deltaTime);
+        if (dying || so == null)
+            return;
+
+        Vector2 normalizedDir = dir.sqrMagnitude > 0.0001f ? dir.normalized : baseDir;
+        float distance = Mathf.Max(0f, speed) * Time.deltaTime;
+        if (distance <= 0f)
+            return;
+
+        Collider2D sweptHit = FindFirstSweptCollision(normalizedDir, distance);
+        if (sweptHit != null)
+        {
+            Vector2 fromHit = (Vector2)transform.position - (Vector2)sweptHit.bounds.center;
+            Vector2 normal = fromHit.sqrMagnitude > 0.0001f ? fromHit.normalized : -normalizedDir;
+            float radius = GetWorldColliderRadius();
+            Vector2 closest = sweptHit.ClosestPoint(transform.position);
+            transform.position = closest + normal * (radius * 0.5f);
+            HandleCollision(sweptHit);
+            return;
+        }
+
+        transform.position += (Vector3)(normalizedDir * distance);
+    }
+
+    private Collider2D FindFirstSweptCollision(Vector2 dir, float distance)
+    {
+        int wallLayer = LayerMask.NameToLayer("Wall");
+        int mask = HitLayer.value;
+        if (wallLayer >= 0)
+            mask |= 1 << wallLayer;
+
+        if (mask == 0)
+            return null;
+
+        RaycastHit2D[] hits = Physics2D.CircleCastAll(
+            transform.position,
+            GetWorldColliderRadius(),
+            dir,
+            distance,
+            mask);
+
+        Collider2D best = null;
+        float bestDistance = float.MaxValue;
+
+        for (int i = 0; i < hits.Length; i++)
+        {
+            Collider2D candidate = hits[i].collider;
+            if (candidate == null || candidate == col)
+                continue;
+
+            if (damageSource != null &&
+                (candidate.transform == damageSource.transform || candidate.transform.IsChildOf(damageSource.transform)))
+            {
+                continue;
+            }
+
+            BattleObstacle obstacle = candidate.GetComponentInParent<BattleObstacle>();
+            if (obstacle != null && !obstacle.BlocksProjectiles)
+                continue;
+
+            if (hits[i].distance < bestDistance)
+            {
+                bestDistance = hits[i].distance;
+                best = candidate;
+            }
+        }
+
+        return best;
+    }
+
+    private float GetWorldColliderRadius()
+    {
+        if (col == null)
+            return 0.05f;
+
+        float scale = Mathf.Max(Mathf.Abs(transform.lossyScale.x), Mathf.Abs(transform.lossyScale.y));
+        return Mathf.Max(0.01f, col.radius * scale);
     }
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        if (dying || so == null || other == null) return;
+        HandleCollision(other);
+    }
 
-        if (other.gameObject.layer == LayerMask.NameToLayer("Wall"))
+    private void HandleCollision(Collider2D other)
+    {
+        if (dying || so == null || other == null)
+            return;
+
+        BattleObstacle obstacle = other.GetComponentInParent<BattleObstacle>();
+        bool wallLayer = other.gameObject.layer == LayerMask.NameToLayer("Wall");
+
+        if (obstacle != null || wallLayer)
         {
-            BattleObstacle obstacle = other.GetComponentInParent<BattleObstacle>();
-
-            // LowWall 및 아직 활성화되지 않은 ConditionalWall은 이동만 막고 투사체는 통과합니다.
             if (obstacle != null && !obstacle.BlocksProjectiles)
                 return;
 
@@ -328,7 +413,7 @@ public class Projectile : MonoBehaviour
 
             if (so.movement == MovementType.Bounce && bounceCount < so.maxBounceCount)
             {
-                Vector2 normal = ((Vector2)transform.position - (Vector2)other.transform.position).normalized;
+                Vector2 normal = ((Vector2)transform.position - (Vector2)other.bounds.center).normalized;
                 if (normal.sqrMagnitude <= 0.001f)
                     normal = -baseDir;
 
@@ -347,23 +432,23 @@ public class Projectile : MonoBehaviour
         DamageContext hitContext = BuildDamageContext(DamageKind.Projectile);
         bool applied = CombatDamage.TryApply(other, hitContext);
 
-        if (!applied && other.TryGetComponent<Enemy>(out Enemy legacyEnemy))
+        if (!applied)
         {
-            legacyEnemy.TakeDamage(CombatDamage.Calculate(hitContext, 0f));
-            applied = true;
-        }
-
-        if (!applied && other.TryGetComponent<PlayerController>(out PlayerController legacyPlayer))
-        {
-            legacyPlayer.TakeDamage(CombatDamage.Calculate(hitContext, legacyPlayer.Defense));
-            applied = true;
+            Enemy legacyEnemy = other.GetComponentInParent<Enemy>();
+            if (legacyEnemy != null)
+            {
+                legacyEnemy.TakeDamage(CombatDamage.Calculate(hitContext, 0f));
+                applied = true;
+            }
         }
 
         if (!applied)
             return;
 
-        string layerName = LayerMask.LayerToName(other.gameObject.layer);
-        if (layerName == "Enemy" && currentPierce > 0)
+        bool enemyTarget = other.GetComponentInParent<MonsterController>() != null ||
+                           other.GetComponentInParent<Enemy>() != null;
+
+        if (enemyTarget && currentPierce > 0)
         {
             currentPierce--;
             return;
@@ -465,7 +550,10 @@ public class Projectile : MonoBehaviour
                 transform.position,
                 baseDir,
                 homingTarget,
-                transform.localScale.x);
+                transform.localScale.x,
+                damageSource,
+                damageMultiplier,
+                fanMissionModifier);
         }
 
         if ((so.impact == ImpactType.SpawnGround || so.impact == ImpactType.ExplodeAndGround) &&
@@ -475,7 +563,10 @@ public class Projectile : MonoBehaviour
                 transform.position,
                 baseDir,
                 homingTarget,
-                transform.localScale.x);
+                transform.localScale.x,
+                damageSource,
+                damageMultiplier,
+                fanMissionModifier);
         }
     }
 
