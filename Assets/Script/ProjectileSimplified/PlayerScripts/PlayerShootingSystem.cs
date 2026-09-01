@@ -65,19 +65,10 @@ public class PlayerShootingSystem : MonoBehaviour
             ammoInventory.RemoveAt(ammoInventory.Count - 1);
     }
 
-    /// <summary>
-    /// 새 로그라이트 런이 시작될 때 BattleEquipmentSystem이 호출합니다.
-    /// 구형 unlockedWeapons 브리지를 비워 이전 런의 무기가 남지 않도록 합니다.
-    /// </summary>
     public void ResetRuntimeWeapons()
     {
         CancelReload();
-
-        if (currentAnimCoroutine != null)
-        {
-            StopCoroutine(currentAnimCoroutine);
-            currentAnimCoroutine = null;
-        }
+        StopWeaponAnimation();
 
         unlockedWeapons ??= new List<PlayerShootingSO>();
         unlockedWeapons.Clear();
@@ -94,8 +85,9 @@ public class PlayerShootingSystem : MonoBehaviour
     }
 
     /// <summary>
-    /// 버리기/교체로 장비 슬롯에서 빠진 무기를 구형 Shooting 브리지에서도 제거합니다.
-    /// 현재 장착 중인 무기였다면 남은 첫 무기로 자동 전환합니다.
+    /// 장비 슬롯에서 빠진 무기를 ShootingSystem에서도 제거합니다.
+    /// 현재 장착 무기를 제거할 때는 제거 전 탄약을 다른 무기 슬롯에 잘못 write-back하지 않도록
+    /// current weapon 상태를 먼저 비운 뒤 다음 무기를 장착합니다.
     /// </summary>
     public bool UnregisterWeapon(PlayerShootingSO weapon)
     {
@@ -108,13 +100,21 @@ public class PlayerShootingSystem : MonoBehaviour
             return false;
 
         bool wasCurrent = currentWeaponSO == weapon || currentWeaponIndex == index;
+
+        if (wasCurrent)
+        {
+            CancelReload();
+            StopWeaponAnimation();
+            currentWeaponSO = null;
+            currentAmmo = 0;
+        }
+
         unlockedWeapons.RemoveAt(index);
-        if (index >= 0 && index < ammoInventory.Count)
+        if (index < ammoInventory.Count)
             ammoInventory.RemoveAt(index);
 
         if (unlockedWeapons.Count == 0)
         {
-            CancelReload();
             currentWeaponSO = null;
             currentWeaponIndex = 0;
             currentAmmo = 0;
@@ -123,19 +123,18 @@ public class PlayerShootingSystem : MonoBehaviour
             return true;
         }
 
-        if (currentWeaponIndex > index)
-            currentWeaponIndex--;
+        if (!wasCurrent)
+        {
+            if (currentWeaponIndex > index)
+                currentWeaponIndex--;
+            return true;
+        }
 
-        if (wasCurrent)
-            EquipWeapon(Mathf.Clamp(index, 0, unlockedWeapons.Count - 1));
-
+        currentWeaponIndex = Mathf.Clamp(index, 0, unlockedWeapons.Count - 1);
+        EquipWeapon(currentWeaponIndex);
         return true;
     }
 
-    /// <summary>
-    /// BattleEquipmentSystem이 런 중 획득한 무기를 안전하게 ShootingSystem에 등록할 때 사용합니다.
-    /// Start 이후 무기가 추가되어도 ammoInventory 길이가 어긋나지 않습니다.
-    /// </summary>
     public int RegisterWeapon(PlayerShootingSO weapon)
     {
         if (weapon == null)
@@ -299,13 +298,18 @@ public class PlayerShootingSystem : MonoBehaviour
         isReloading = false;
     }
 
+    private void StopWeaponAnimation()
+    {
+        if (currentAnimCoroutine == null)
+            return;
+
+        StopCoroutine(currentAnimCoroutine);
+        currentAnimCoroutine = null;
+    }
+
     private void PlayWeaponAnimation(Sprite[] frames, bool loop, Action onComplete = null)
     {
-        if (currentAnimCoroutine != null)
-        {
-            StopCoroutine(currentAnimCoroutine);
-            currentAnimCoroutine = null;
-        }
+        StopWeaponAnimation();
 
         if (frames == null || frames.Length == 0)
         {
