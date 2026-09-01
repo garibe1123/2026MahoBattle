@@ -5,12 +5,18 @@ using UnityEngine.AI;
 /// <summary>
 /// 몬스터 풀은 생성/반환만 담당합니다.
 /// 언제/어디에/무엇을 스폰할지는 BattleRoomManager가 결정합니다.
+/// Spawn 시 NavMesh와 Player까지의 도달 가능성을 검사해 Room soft-lock을 방지합니다.
 /// </summary>
 public class MonsterPool : MonoBehaviour
 {
     [SerializeField] private MonsterController monsterPrefab;
     [SerializeField] private int initialPoolSize = 20;
     [SerializeField] private ProjectilePooler enemyProjectilePool;
+
+    [Header("Spawn Safety")]
+    [SerializeField, Min(0.1f)] private float navMeshSampleRadius = 2f;
+    [SerializeField, Min(0)] private int reachableSpawnRetryCount = 6;
+    [SerializeField, Min(0f)] private float retryScatterRadius = 1.5f;
 
     private readonly Queue<MonsterController> pool = new();
     private bool initialized;
@@ -80,6 +86,14 @@ public class MonsterPool : MonoBehaviour
             return null;
         }
 
+        if (!TryResolveSpawnPosition(requestedPosition, playerTarget.position, definition.moveType, out Vector3 spawnPosition))
+        {
+            Debug.LogError(
+                $"[MonsterPool] Spawn rejected for '{definition.displayName}' at {requestedPosition}. " +
+                "No reachable NavMesh position could be found. The monster will not be counted by the Room.");
+            return null;
+        }
+
         MonsterController monster = pool.Count > 0 ? pool.Dequeue() : CreateNew();
         if (monster == null)
             return null;
@@ -89,27 +103,82 @@ public class MonsterPool : MonoBehaviour
             agent.enabled = false;
 
         monster.gameObject.SetActive(false);
-
-        Vector3 spawnPosition = requestedPosition;
-        bool sampled = NavMesh.SamplePosition(requestedPosition, out NavMeshHit hit, 4f, NavMesh.AllAreas);
-        if (sampled)
-        {
-            spawnPosition = hit.position;
-        }
-        else
-        {
-            Debug.LogWarning($"[MonsterPool] NavMesh.SamplePosition failed for '{definition.displayName}' at {requestedPosition}. Spawn will use the requested position for diagnostics.");
-        }
-
         spawnPosition.z = 0f;
         monster.transform.position = spawnPosition;
         monster.gameObject.SetActive(true);
         monster.Setup(definition, context, playerTarget, enemyProjectilePool, onDeath);
 
         if (agent != null && agent.enabled && !agent.isOnNavMesh)
-            Debug.LogWarning($"[MonsterPool] '{definition.displayName}' spawned but its NavMeshAgent is not on NavMesh.");
+        {
+            Debug.LogError(
+                $"[MonsterPool] '{definition.displayName}' Setup enabled its NavMeshAgent off-mesh. " +
+                "Returning it to the pool to prevent a soft-lock.");
+            Return(monster);
+            return null;
+        }
 
         return monster;
+    }
+
+    private bool TryResolveSpawnPosition(
+        Vector3 requestedPosition,
+        Vector3 playerPosition,
+        MonsterMoveType moveType,
+        out Vector3 resolved)
+    {
+        resolved = requestedPosition;
+
+        bool movingMonster = moveType != MonsterMoveType.Stationary;
+        bool hasTargetSample = NavMesh.SamplePosition(
+            playerPosition,
+            out NavMeshHit targetHit,
+            Mathf.Max(navMeshSampleRadius, 0.1f) * 2f,
+            NavMesh.AllAreas);
+
+        if (movingMonster && !hasTargetSample)
+        {
+            Debug.LogError($"[MonsterPool] Player position {playerPosition} is not near a NavMesh. Moving monsters cannot be validated.");
+            return false;
+        }
+
+        int attempts = Mathf.Max(1, reachableSpawnRetryCount + 1);
+        for (int i = 0; i < attempts; i++)
+        {
+            Vector2 jitter = i == 0 || retryScatterRadius <= 0f
+                ? Vector2.zero
+                : Random.insideUnitCircle * retryScatterRadius;
+
+            Vector3 candidate = requestedPosition + (Vector3)jitter;
+            if (!NavMesh.SamplePosition(
+                    candidate,
+                    out NavMeshHit spawnHit,
+                    Mathf.Max(navMeshSampleRadius, 0.1f),
+                    NavMesh.AllAreas))
+            {
+                continue;
+            }
+
+            if (!movingMonster)
+            {
+                resolved = spawnHit.position;
+                return true;
+            }
+
+            NavMeshPath path = new();
+            bool pathCalculated = NavMesh.CalculatePath(
+                spawnHit.position,
+                targetHit.position,
+                NavMesh.AllAreas,
+                path);
+
+            if (!pathCalculated || path.status != NavMeshPathStatus.PathComplete)
+                continue;
+
+            resolved = spawnHit.position;
+            return true;
+        }
+
+        return false;
     }
 
     public void Return(MonsterController monster)
