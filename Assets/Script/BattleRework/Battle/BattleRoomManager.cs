@@ -9,9 +9,6 @@ using UnityEngine.AI;
 /// Room Lifecycle:
 /// Build Blocks -> Build NavMesh -> Spawn Fixed Monsters -> Combat -> Cleared
 /// -> (external reward flow) -> OpenExit -> Highlight Pad -> Exit Blocks.
-///
-/// 보상/팬미션/다음 Node 결정은 BattleRunManager의 책임이며,
-/// 이 클래스는 현재 Room의 생성/전투/철거만 담당합니다.
 /// </summary>
 public class BattleRoomManager : MonoBehaviour
 {
@@ -96,6 +93,8 @@ public class BattleRoomManager : MonoBehaviour
         currentRoom = room;
         currentContext = context;
 
+        RepositionPlayerForRoom(room);
+
         float longestEntry = BuildMapBlocks(room);
         BuildObstacles(room);
 
@@ -112,9 +111,32 @@ public class BattleRoomManager : MonoBehaviour
             HandleCombatCleared();
     }
 
+    private void RepositionPlayerForRoom(RoomDefinitionSO room)
+    {
+        if (room == null || playerTarget == null || !room.repositionPlayerOnEnter)
+            return;
+
+        Vector3 destination = roomOrigin.position + (Vector3)room.playerEntryOffset;
+        destination.z = playerTarget.position.z;
+        playerTarget.position = destination;
+
+        Rigidbody2D playerBody = playerTarget.GetComponent<Rigidbody2D>();
+        if (playerBody == null)
+            playerBody = playerTarget.GetComponentInChildren<Rigidbody2D>();
+
+        if (playerBody != null)
+        {
+            playerBody.linearVelocity = Vector2.zero;
+            playerBody.angularVelocity = 0f;
+        }
+    }
+
     private float BuildMapBlocks(RoomDefinitionSO room)
     {
         float longest = 0f;
+
+        if (room.blocks == null)
+            return longest;
 
         for (int i = 0; i < room.blocks.Count; i++)
         {
@@ -139,6 +161,9 @@ public class BattleRoomManager : MonoBehaviour
 
     private void BuildObstacles(RoomDefinitionSO room)
     {
+        if (room.obstacles == null)
+            return;
+
         for (int i = 0; i < room.obstacles.Count; i++)
         {
             ObstaclePlacement placement = room.obstacles[i];
@@ -182,12 +207,20 @@ public class BattleRoomManager : MonoBehaviour
             return;
         }
 
+        if (room.monsterSpawns == null)
+            return;
+
+        int requestedCount = 0;
+        int spawnedCount = 0;
+
         for (int i = 0; i < room.monsterSpawns.Count; i++)
         {
             MonsterSpawnEntry entry = room.monsterSpawns[i];
             if (entry == null || entry.monster == null) continue;
 
             int count = Mathf.Max(1, entry.count);
+            requestedCount += count;
+
             for (int c = 0; c < count; c++)
             {
                 Vector2 scatter = entry.scatterRadius > 0f
@@ -204,14 +237,22 @@ public class BattleRoomManager : MonoBehaviour
 
                 if (monster == null)
                 {
-                    Debug.LogError($"[BattleRoom] Failed to spawn monster '{entry.monster.name}'.");
+                    Debug.LogError($"[BattleRoom] Failed to spawn monster '{entry.monster.name}'. It will not be added to alive count.");
                     continue;
                 }
 
                 Transform parent = monsterRoot != null ? monsterRoot : transform;
                 monster.transform.SetParent(parent);
                 activeMonsters.Add(monster);
+                spawnedCount++;
             }
+        }
+
+        if (requestedCount > 0 && spawnedCount == 0)
+        {
+            Debug.LogError(
+                $"[BattleRoom] Room '{room.roomId}' requested {requestedCount} monsters but none could spawn. " +
+                "The Room will clear for diagnostic safety instead of soft-locking.");
         }
     }
 
@@ -261,6 +302,7 @@ public class BattleRoomManager : MonoBehaviour
     {
         if (currentRoom.highlightBlockPrefab == null)
         {
+            Debug.LogWarning($"[BattleRoom] Room '{currentRoom.roomId}' has no highlightBlockPrefab. Auto-exiting for test safety.");
             StartCoroutine(ExitRoomRoutine());
             return;
         }
@@ -279,6 +321,9 @@ public class BattleRoomManager : MonoBehaviour
         }
         else
         {
+            Debug.LogWarning(
+                $"[BattleRoom] Highlight prefab '{currentRoom.highlightBlockPrefab.name}' has no RoomExitPad. " +
+                "Auto-exiting after its entry animation so the test run does not soft-lock.");
             StartCoroutine(AutoExitAfterHighlight(highlight.EntryDuration));
         }
     }
@@ -336,7 +381,6 @@ public class BattleRoomManager : MonoBehaviour
 
         List<NavMeshAgent> agentsToRestore = new();
 
-        // RemoveData 중 활성 Agent가 기존 NavMesh를 잃어 Invalid 상태가 되는 것을 방지합니다.
         for (int i = 0; i < activeMonsters.Count; i++)
         {
             MonsterController monster = activeMonsters[i];
