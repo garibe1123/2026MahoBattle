@@ -39,6 +39,11 @@ public class RoomDefinitionSO : ScriptableObject
     public string roomId;
     public Vector2Int recommendedGridSize = new(4, 4);
 
+    [Header("Player Entry")]
+    [Tooltip("새 Room 진입 시 roomOrigin 기준 플레이어 시작 위치입니다. Room 전환 후 이전 Exit 위치에 남는 문제를 방지합니다.")]
+    public Vector2 playerEntryOffset = Vector2.zero;
+    public bool repositionPlayerOnEnter = true;
+
     [Header("Block Layout")]
     public List<MapBlockPlacement> blocks = new();
 
@@ -50,7 +55,7 @@ public class RoomDefinitionSO : ScriptableObject
 
     [Header("Clear Presentation")]
     public MapBlock highlightBlockPrefab;
-    [Tooltip("현재 테스트 구현에서는 플레이어 위치 기준 Offset입니다. 0,0이면 발밑 생성 위험이 있으므로 기본값을 떨어뜨립니다.")]
+    [Tooltip("roomOrigin 기준 Highlight Block Offset입니다.")]
     public Vector2 highlightBlockOffset = new(4f, 0f);
 
     public bool ValidateDefinition(out string report)
@@ -123,11 +128,14 @@ public class RoomDefinitionSO : ScriptableObject
 
                 if (spawn.count < 1)
                     errors.AppendLine($"monsterSpawns[{i}] count must be at least 1.");
+
+                if (spawn.scatterRadius > Mathf.Max(recommendedGridSize.x, recommendedGridSize.y) * 2f)
+                    warnings.AppendLine($"monsterSpawns[{i}] scatterRadius is very large for this Room and may push spawns outside the intended area.");
             }
         }
 
         if (highlightBlockPrefab != null && highlightBlockOffset.sqrMagnitude < 0.01f)
-            warnings.AppendLine("highlightBlockOffset is near zero. ExitPad may appear directly under the player.");
+            warnings.AppendLine("highlightBlockOffset is near zero. ExitPad may appear directly under the player entry area.");
 
         StringBuilder combined = new();
         if (errors.Length > 0)
