@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 public enum PlayerState { Idle, Move, Roll, Dead }
 
@@ -30,6 +31,11 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     [Header("References")]
     public PlayerShootingSystem shootingSystem;
+    [SerializeField] private BattleRunManager runManager;
+
+    [Header("Input Gate")]
+    [Tooltip("BattleRunManager가 있으면 Run State에 따라 이동/공격 입력을 잠급니다. 구형 테스트 씬에서는 RunManager가 없으면 항상 입력을 허용합니다.")]
+    [SerializeField] private bool useRunStateInputGate = true;
 
     private Rigidbody2D rb;
     private PlayerAnimator anim;
@@ -44,11 +50,17 @@ public class PlayerController : MonoBehaviour, IDamageable
     private float rollLockTimer;
     private int consecutiveRolls;
 
+    private bool movementInputEnabled = true;
+    private bool combatInputEnabled = true;
+    private bool rollInputEnabled = true;
+
     public bool IsAlive => currentState != PlayerState.Dead && currentHp > 0f;
     public float Defense => Mathf.Max(0f, baseDefense);
     public float CurrentHp => currentHp;
     public float CurrentStamina => currentStamina;
     public PlayerState CurrentState => currentState;
+    public bool MovementInputEnabled => movementInputEnabled;
+    public bool CombatInputEnabled => combatInputEnabled;
 
     public event Action Died;
     public event Action<float, float> HpChanged;
@@ -58,7 +70,28 @@ public class PlayerController : MonoBehaviour, IDamageable
     {
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponent<PlayerAnimator>();
+
+        if (runManager == null)
+            runManager = FindFirstObjectByType<BattleRunManager>();
+
         ResetForRun();
+    }
+
+    private void OnEnable()
+    {
+        if (runManager == null)
+            runManager = FindFirstObjectByType<BattleRunManager>();
+
+        if (runManager != null)
+            runManager.StateChanged += HandleRunStateChanged;
+
+        RefreshInputGate();
+    }
+
+    private void OnDisable()
+    {
+        if (runManager != null)
+            runManager.StateChanged -= HandleRunStateChanged;
     }
 
     private void Update()
@@ -80,17 +113,32 @@ public class PlayerController : MonoBehaviour, IDamageable
     {
         if (currentState == PlayerState.Dead) return;
 
+        if (!movementInputEnabled)
+        {
+            rb.linearVelocity = Vector2.zero;
+            return;
+        }
+
         if (currentState != PlayerState.Roll)
             rb.linearVelocity = moveInput * moveSpeed;
     }
 
     private void HandleInput()
     {
-        moveInput = new Vector2(
-            Input.GetAxisRaw("Horizontal"),
-            Input.GetAxisRaw("Vertical")).normalized;
+        if (movementInputEnabled)
+        {
+            moveInput = new Vector2(
+                Input.GetAxisRaw("Horizontal"),
+                Input.GetAxisRaw("Vertical")).normalized;
+        }
+        else
+        {
+            moveInput = Vector2.zero;
+        }
 
-        if (Input.GetMouseButton(0) && shootingSystem != null)
+        bool pointerOverUi = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+
+        if (combatInputEnabled && !pointerOverUi && Input.GetMouseButton(0) && shootingSystem != null)
         {
             Camera mainCamera = Camera.main;
             if (mainCamera != null)
@@ -102,6 +150,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         }
 
         bool canRoll =
+            rollInputEnabled &&
             currentState != PlayerState.Roll &&
             currentStamina >= rollStaminaCost &&
             rollLockTimer <= 0f;
@@ -109,14 +158,16 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (Input.GetKeyDown(KeyCode.Space) && canRoll)
             StartCoroutine(RollRoutine());
 
-        if (Input.GetKeyDown(KeyCode.R) && currentState != PlayerState.Roll && shootingSystem != null)
+        if (combatInputEnabled && Input.GetKeyDown(KeyCode.R) && currentState != PlayerState.Roll && shootingSystem != null)
             shootingSystem.ReloadFuncCall();
     }
 
     private void UpdateState()
     {
         if (currentState == PlayerState.Roll) return;
-        currentState = moveInput.sqrMagnitude > 0f ? PlayerState.Move : PlayerState.Idle;
+        currentState = movementInputEnabled && moveInput.sqrMagnitude > 0f
+            ? PlayerState.Move
+            : PlayerState.Idle;
     }
 
     private void HandleStamina()
@@ -150,7 +201,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         float timer = 0f;
         rollInvincible = true;
 
-        while (timer < rollDuration && currentState == PlayerState.Roll)
+        while (timer < rollDuration && currentState == PlayerState.Roll && movementInputEnabled)
         {
             rb.linearVelocity = rollDir * rollSpeed;
             timer += Time.deltaTime;
@@ -172,6 +223,66 @@ public class PlayerController : MonoBehaviour, IDamageable
             consecutiveRolls = 0;
             rollLockTimer = Mathf.Max(0f, rollChainCooldown);
         }
+    }
+
+    private void HandleRunStateChanged(BattleRunState nextState)
+    {
+        ApplyInputGate(nextState);
+    }
+
+    private void RefreshInputGate()
+    {
+        if (!useRunStateInputGate || runManager == null)
+        {
+            SetInputPermissions(true, true, true);
+            return;
+        }
+
+        ApplyInputGate(runManager.State);
+    }
+
+    private void ApplyInputGate(BattleRunState runState)
+    {
+        if (!useRunStateInputGate || runManager == null)
+        {
+            SetInputPermissions(true, true, true);
+            return;
+        }
+
+        switch (runState)
+        {
+            case BattleRunState.Combat:
+                SetInputPermissions(true, true, true);
+                break;
+
+            case BattleRunState.ExitingRoom:
+                // 보상 선택 후 Highlight Block까지 직접 걸어갈 수는 있지만 공격은 잠급니다.
+                SetInputPermissions(true, false, true);
+                break;
+
+            default:
+                SetInputPermissions(false, false, false);
+                break;
+        }
+    }
+
+    public void SetInputPermissions(bool allowMovement, bool allowCombat, bool allowRoll)
+    {
+        movementInputEnabled = allowMovement;
+        combatInputEnabled = allowCombat;
+        rollInputEnabled = allowRoll;
+
+        if (movementInputEnabled)
+            return;
+
+        moveInput = Vector2.zero;
+        rollInvincible = false;
+
+        if (currentState == PlayerState.Roll)
+            currentState = PlayerState.Idle;
+
+        if (rb != null)
+            rb.linearVelocity = Vector2.zero;
     }
 
     public void ReceiveDamage(DamageContext context, float finalDamage)
@@ -245,6 +356,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (rb != null)
             rb.linearVelocity = Vector2.zero;
 
+        RefreshInputGate();
         HpChanged?.Invoke(currentHp, maxHp);
         StaminaChanged?.Invoke(currentStamina, maxStamina);
     }
