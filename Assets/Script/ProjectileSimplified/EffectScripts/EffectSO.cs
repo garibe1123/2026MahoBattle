@@ -3,8 +3,8 @@ using UnityEngine;
 [CreateAssetMenu(menuName = "Game/Effect/Effect SO")]
 public class EffectSO : ScriptableObject
 {
-    [Header("ÇÁ¸®ÆÕ (²®µ¥±â)")]
-    public Effect prefab; // ¡Ú ÀÌ SO°¡ »ı¼ºÇÒ ½ÇÁ¦ ÇÁ¸®ÆÕ °´Ã¼
+    [Header("í”„ë¦¬íŒ¹ (ê»ë°ê¸°)")]
+    public Effect prefab;
 
     [Header("Base")]
     public EffectTypeEnum effectType;
@@ -47,22 +47,32 @@ public class EffectSO : ScriptableObject
     public GameObject spawnPrefab;
     public float spawnInterval = 1f;
 
-    public Effect Spawn(Vector3 position, Vector2 direction, Transform target = null, float scaleMultiplier = 1f)
+    public Effect Spawn(
+        Vector3 position,
+        Vector2 direction,
+        Transform target = null,
+        float scaleMultiplier = 1f,
+        GameObject damageSource = null,
+        float runtimeDamageMultiplier = 1f,
+        float runtimeFanMissionModifier = 0f)
     {
         if (prefab == null)
         {
-            Debug.LogWarning($"[{name}] EffectSO¿¡ ÇÁ¸®ÆÕÀÌ µî·ÏµÇÁö ¾Ê¾Ò½À´Ï´Ù!");
+            Debug.LogWarning($"[{name}] EffectSOì— í”„ë¦¬íŒ¹ì´ ë“±ë¡ë˜ì§€ ì•Šì•˜ìŠµë‹ˆë‹¤!");
             return null;
         }
 
-        // 1. ¹æÇâ º¤ÅÍ(x, y)¸¦ À¯´ÏÆ¼ÀÇ È¸Àü°ª(Quaternion)À¸·Î º¯È¯ÇÕ´Ï´Ù.
         float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
-        Quaternion startRotation = Quaternion.Euler(0, 0, angle);
+        Quaternion startRotation = Quaternion.Euler(0f, 0f, angle);
 
-        // 2. º¯È¯µÈ È¸Àü°ªÀ» Àû¿ëÇØ¼­ »ı¼º! (ÀÌÁ¦ ±âº»ÀûÀ¸·Î ÃÑ¾ËÀÌ ³¯¾Æ°¡´ø ¹æÇâÀ» º¾´Ï´Ù)
         Effect instance = Instantiate(prefab, position, startRotation);
-
-        instance.Setup(this, target, scaleMultiplier);
+        instance.Setup(
+            this,
+            target,
+            scaleMultiplier,
+            damageSource,
+            runtimeDamageMultiplier,
+            runtimeFanMissionModifier);
         return instance;
     }
 }
