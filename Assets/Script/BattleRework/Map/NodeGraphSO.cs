@@ -28,7 +28,7 @@ public class BattleNodeData
 
 /// <summary>
 /// 웨이브를 대체하는 가변 길이 Branch/Node 그래프 데이터입니다.
-/// 최하단 노드는 별도 Boss 타입이 아니라 isTerminal 속성으로 종료를 표현합니다.
+/// 테스트 시작 전에 ID/Room뿐 아니라 시작점 기준 cycle과 terminal 도달 가능성도 검사합니다.
 /// </summary>
 [CreateAssetMenu(fileName = "NodeGraph", menuName = "MahoBattle/Node Graph")]
 public class NodeGraphSO : ScriptableObject
@@ -38,7 +38,7 @@ public class NodeGraphSO : ScriptableObject
 
     public BattleNodeData FindNode(string nodeId)
     {
-        if (string.IsNullOrWhiteSpace(nodeId)) return null;
+        if (string.IsNullOrWhiteSpace(nodeId) || nodes == null) return null;
 
         for (int i = 0; i < nodes.Count; i++)
         {
@@ -57,7 +57,7 @@ public class NodeGraphSO : ScriptableObject
     public List<BattleNodeData> GetNextNodes(BattleNodeData current)
     {
         List<BattleNodeData> result = new();
-        if (current == null) return result;
+        if (current == null || current.nextNodeIds == null) return result;
 
         for (int i = 0; i < current.nextNodeIds.Count; i++)
         {
@@ -69,10 +69,6 @@ public class NodeGraphSO : ScriptableObject
         return result;
     }
 
-    /// <summary>
-    /// 테스트 빌드 시작 전에 Graph와 연결된 RoomDefinition의 치명적인 데이터 오류를 검사합니다.
-    /// 경고성 문제는 report에 포함되지만 시작을 막지는 않습니다.
-    /// </summary>
     public bool ValidateGraph(out string report)
     {
         StringBuilder errors = new();
@@ -125,12 +121,19 @@ public class NodeGraphSO : ScriptableObject
                     }
                 }
 
-                if (node.isTerminal && node.nextNodeIds != null && node.nextNodeIds.Count > 0)
+                if (node.nextNodeIds == null)
+                    node.nextNodeIds = new List<string>();
+
+                if (node.isTerminal && node.nextNodeIds.Count > 0)
                     warnings.AppendLine($"Terminal node '{node.id}' still has nextNodeIds. They will be ignored.");
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(startNodeId) && FindNode(startNodeId) == null)
+        BattleNodeData startNode = !string.IsNullOrWhiteSpace(startNodeId)
+            ? FindNode(startNodeId)
+            : null;
+
+        if (!string.IsNullOrWhiteSpace(startNodeId) && startNode == null)
             errors.AppendLine($"Start node '{startNodeId}' does not exist.");
 
         if (nodes != null)
@@ -158,6 +161,9 @@ public class NodeGraphSO : ScriptableObject
             }
         }
 
+        if (startNode != null)
+            ValidateReachability(startNode, errors, warnings);
+
         StringBuilder combined = new();
         if (errors.Length > 0)
         {
@@ -173,5 +179,72 @@ public class NodeGraphSO : ScriptableObject
 
         report = combined.ToString().TrimEnd();
         return errors.Length == 0;
+    }
+
+    private void ValidateReachability(
+        BattleNodeData startNode,
+        StringBuilder errors,
+        StringBuilder warnings)
+    {
+        HashSet<string> visited = new();
+        HashSet<string> visiting = new();
+        bool terminalReachable = false;
+        bool cycleDetected = false;
+
+        Traverse(startNode, visited, visiting, ref terminalReachable, ref cycleDetected);
+
+        if (!terminalReachable)
+            errors.AppendLine("No terminal node is reachable from startNodeId.");
+
+        if (cycleDetected)
+            errors.AppendLine("A reachable NodeGraph cycle was detected. Vertical-slice runs must be finite.");
+
+        if (nodes == null)
+            return;
+
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            BattleNodeData node = nodes[i];
+            if (node == null || string.IsNullOrWhiteSpace(node.id)) continue;
+            if (!visited.Contains(node.id))
+                warnings.AppendLine($"Node '{node.id}' is unreachable from startNodeId.");
+        }
+    }
+
+    private void Traverse(
+        BattleNodeData node,
+        HashSet<string> visited,
+        HashSet<string> visiting,
+        ref bool terminalReachable,
+        ref bool cycleDetected)
+    {
+        if (node == null || string.IsNullOrWhiteSpace(node.id))
+            return;
+
+        if (visiting.Contains(node.id))
+        {
+            cycleDetected = true;
+            return;
+        }
+
+        if (visited.Contains(node.id))
+            return;
+
+        visiting.Add(node.id);
+        visited.Add(node.id);
+
+        if (node.isTerminal)
+            terminalReachable = true;
+        else if (node.nextNodeIds != null)
+        {
+            for (int i = 0; i < node.nextNodeIds.Count; i++)
+            {
+                BattleNodeData next = FindNode(node.nextNodeIds[i]);
+                if (next != null)
+                    Traverse(next, visited, visiting, ref terminalReachable, ref cycleDetected);
+            }
+        }
+
+        visiting.Remove(node.id);
     }
 }
