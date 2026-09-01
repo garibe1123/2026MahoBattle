@@ -43,6 +43,10 @@ public class MonsterSkillConfig
     public float duration = 1f;
     public float value = 1f;
 
+    [Header("Melee")]
+    [Tooltip("공격 방향과 대상 방향의 Dot 최소값. 0이면 전방 180도, 0.5면 전방 약 120도 범위입니다.")]
+    [Range(-1f, 1f)] public float meleeFrontDot = 0f;
+
     [Header("Projectile")]
     public ProjectileSO projectileData;
 
