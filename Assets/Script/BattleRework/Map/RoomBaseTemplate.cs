@@ -40,7 +40,6 @@ public class RoomBaseTemplate : MonoBehaviour
 
     [Header("Dummy Base")]
     [SerializeField] private Color dummyBaseColor = new(0.16f, 0.18f, 0.22f, 1f);
-    [SerializeField] private Color dummyGridColor = new(0.42f, 0.45f, 0.50f, 1f);
 
     private GameObject activeBase;
     private RoomDefinitionSO activeRoom;
@@ -257,16 +256,15 @@ public class RoomBaseTemplate : MonoBehaviour
         activeBase.transform.position = center;
 
         SpriteRenderer renderer = activeBase.AddComponent<SpriteRenderer>();
-        renderer.sprite = baseSprite != null
-            ? baseSprite
-            : RuntimeRoomBaseSpriteCache.Grid;
+        bool dummy = baseSprite == null;
+        renderer.sprite = dummy
+            ? RuntimeRoomBaseSpriteCache.Grid
+            : baseSprite;
         renderer.sortingOrder = sortingOrder;
+        renderer.color = dummy ? dummyBaseColor : Color.white;
 
         if (baseMaterial != null)
             renderer.sharedMaterial = baseMaterial;
-
-        bool dummy = baseSprite == null;
-        renderer.color = dummy ? Color.white : Color.white;
 
         if (tileSpriteToTemplate)
         {
@@ -286,27 +284,6 @@ public class RoomBaseTemplate : MonoBehaviour
                 targetSize.y / height,
                 1f);
         }
-
-        if (dummy)
-            ApplyDummyColors(renderer);
-    }
-
-    private void ApplyDummyColors(SpriteRenderer renderer)
-    {
-        if (renderer == null)
-            return;
-
-        // Dummy Sprite 자체는 grayscale grid입니다. Renderer 색으로 Base tone을 결정합니다.
-        Color baseColor = dummyBaseColor;
-        float gridBoost = Mathf.Clamp01(
-            (dummyGridColor.r + dummyGridColor.g + dummyGridColor.b) / 3f);
-
-        float boost = Mathf.Lerp(0.85f, 1.25f, gridBoost);
-        renderer.color = new Color(
-            Mathf.Clamp01(baseColor.r * boost),
-            Mathf.Clamp01(baseColor.g * boost),
-            Mathf.Clamp01(baseColor.b * boost),
-            baseColor.a);
     }
 
     private static bool TryGetRendererBounds(GameObject root, out Bounds bounds)
@@ -376,7 +353,7 @@ public class RoomBaseTemplate : MonoBehaviour
                 }
             }
 
-            texture.Apply(false, true);
+            texture.Apply(false, false);
 
             // 16px / 8 PPU = 2 world unit. 즉 Dummy Grid 한 칸이 MapBlock 하나와 정확히 같은 크기입니다.
             Sprite sprite = Sprite.Create(
