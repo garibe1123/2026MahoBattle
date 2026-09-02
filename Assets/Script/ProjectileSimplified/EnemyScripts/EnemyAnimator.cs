@@ -36,7 +36,7 @@ public class EnemyAnimator : MonoBehaviour
 
     /// <summary>
     /// EnemyDefinitionSO 내부 Visual 설정을 직접 연결합니다.
-    /// 별도의 EnemyVisualSO Asset은 더 이상 필요하지 않습니다.
+    /// 별도의 EnemyVisualSO Asset은 새 BattleRework 경로에서는 필요하지 않습니다.
     /// </summary>
     public void SetupVisual(MonsterVisualConfig config)
     {
@@ -64,6 +64,35 @@ public class EnemyAnimator : MonoBehaviour
     }
 
     /// <summary>
+    /// 구형 Enemy.cs / EnemySO가 아직 같은 Prefab Animator를 사용하므로 남겨 둔 호환 오버로드입니다.
+    /// 새 전투 시스템에서는 사용하지 않고 MonsterDefinitionSO.visual을 직접 사용합니다.
+    /// </summary>
+    public void SetupVisual(EnemyVisualSO legacyVisual)
+    {
+        if (legacyVisual == null)
+        {
+            SetupVisual((MonsterVisualConfig)null);
+            return;
+        }
+
+        MonsterVisualConfig adapter = new()
+        {
+            idleSprites = legacyVisual.idleSprites,
+            moveSprites = legacyVisual.moveSprites,
+            attackSprites = legacyVisual.attackSprites,
+            dieSprites = legacyVisual.dieSprites,
+            fps = Mathf.Max(1f, legacyVisual.fps),
+            customMaterial = legacyVisual.customMaterial,
+            spriteColor = Color.white,
+            hitFlashColor = legacyVisual.hitFlashColor,
+            hitFlashDuration = 0.08f,
+            sourceFacesRight = true
+        };
+
+        SetupVisual(adapter);
+    }
+
+    /// <summary>
     /// 현재 EnemyDefinition에 등록된 상태 Sprite를 자동으로 찾아 재생합니다.
     /// </summary>
     public void Play(EnemyAnimState state, bool loop, Action complete = null, bool restart = false)
@@ -74,7 +103,7 @@ public class EnemyAnimator : MonoBehaviour
     }
 
     /// <summary>
-    /// 기존 MonsterController 호출과 호환되는 직접 Sprite 배열 재생 API입니다.
+    /// 기존 MonsterController/Legacy Enemy 호출과 호환되는 직접 Sprite 배열 재생 API입니다.
     /// 비어 있는 배열이 들어오면 해당 State의 Visual 배열 → Idle → Preview Sprite 순으로 fallback 합니다.
     /// </summary>
     public void Play(
