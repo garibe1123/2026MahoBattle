@@ -4,7 +4,7 @@ using UnityEngine;
 /// <summary>
 /// BattleTestScene 전용 부트스트랩입니다.
 /// 정식 게임 진입 로직과 분리된 상태에서 필수 Reference / SO 데이터를 검사하고
-/// 기능성 더미 UI를 통해 수직 슬라이스를 시작할 수 있게 합니다.
+/// 기능성 더미 UI 및 Runtime Room Base를 통해 수직 슬라이스를 시작할 수 있게 합니다.
 /// </summary>
 public class BattleTestBootstrap : MonoBehaviour
 {
@@ -14,10 +14,13 @@ public class BattleTestBootstrap : MonoBehaviour
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleRewardSystem rewardSystem;
     [SerializeField] private SynergyManager synergyManager;
+    [SerializeField] private RoomBaseTemplate roomBaseTemplate;
 
     [Header("Test Startup")]
     [SerializeField] private bool ensureDummyUI = true;
     [SerializeField] private bool ensureSynergyResolver = true;
+    [Tooltip("기존에 씬에 수동 배치한 테스트 Field Base를 지워도 Room 템플릿 기준 Base를 자동 생성합니다.")]
+    [SerializeField] private bool ensureRuntimeRoomBase = true;
     [Tooltip("false면 Dummy Run Setup 화면에서 START를 눌러 시작합니다.")]
     [SerializeField] private bool autoStartRun = false;
 
@@ -30,6 +33,15 @@ public class BattleTestBootstrap : MonoBehaviour
 
             if (synergyManager == null)
                 synergyManager = gameObject.AddComponent<SynergyManager>();
+        }
+
+        if (ensureRuntimeRoomBase)
+        {
+            if (roomBaseTemplate == null)
+                roomBaseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+
+            if (roomBaseTemplate == null)
+                roomBaseTemplate = gameObject.AddComponent<RoomBaseTemplate>();
         }
 
         if (!ensureDummyUI)
@@ -132,6 +144,9 @@ public class BattleTestBootstrap : MonoBehaviour
                 errors.Add($"SynergyManager invalid:\n{synergyReport}");
             }
         }
+
+        if (ensureRuntimeRoomBase && roomBaseTemplate == null)
+            errors.Add("roomBaseTemplate is null");
 
         report = string.Join("\n", errors);
         return errors.Count == 0;
