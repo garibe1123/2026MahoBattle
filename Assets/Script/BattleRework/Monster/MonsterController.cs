@@ -173,7 +173,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         }
         else if (actionLockTimer > 0f)
         {
-            // 공격 선딜/행동 중에는 NavMesh 이동을 멈춰 공격 애니메이션이 미끄러지지 않게 합니다.
+            // 공격/스킬 애니메이션 중에는 NavMesh 이동을 멈춰 Sprite가 미끄러지지 않게 합니다.
             StopMovement();
         }
         else
@@ -322,7 +322,6 @@ public class MonsterController : MonoBehaviour, IDamageable
             return;
         }
 
-        // 대시 종료점이 Mesh 밖이면 시작점으로 복구해 AI가 영구 정지하는 것을 막습니다.
         if (NavMesh.SamplePosition(dashStartPosition, out hit, 1.5f, NavMesh.AllAreas))
         {
             transform.position = hit.position;
@@ -356,7 +355,8 @@ public class MonsterController : MonoBehaviour, IDamageable
                 continue;
 
             skillCooldowns[i] = Mathf.Max(0.01f, skill.cooldown);
-            actionLockTimer = Mathf.Max(0.05f, skill.windup);
+            EnemyAnimState state = GetSkillAnimationState(skill.type);
+            actionLockTimer = GetActionLockDuration(skill, state);
             break;
         }
     }
@@ -381,8 +381,7 @@ public class MonsterController : MonoBehaviour, IDamageable
 
             case MonsterSkillType.AreaBuff:
             case MonsterSkillType.AreaDebuff:
-                // Area 계열의 실제 효과 로직은 별도 구현 대상이지만 Sprite 상태는 준비되어 있습니다.
-                PlaySkillAnimation();
+                // 실제 Area 효과 로직이 구현될 때 Skill Sprite 상태를 사용합니다.
                 return false;
 
             default:
@@ -392,8 +391,9 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private IEnumerator MeleeRoutine(MonsterSkillConfig skill, Vector2 attackFacing)
     {
-        PlayActionAnimation(EnemyAnimState.Attack);
-        yield return new WaitForSeconds(Mathf.Max(0f, skill.windup));
+        const EnemyAnimState state = EnemyAnimState.Attack;
+        PlayActionAnimation(state);
+        yield return WaitForSkillImpact(skill, state);
 
         if (!IsAlive || target == null || definition == null)
             yield break;
@@ -444,13 +444,38 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private IEnumerator ProjectileRoutine(MonsterSkillConfig skill, Vector2 attackFacing)
     {
-        PlayActionAnimation(EnemyAnimState.RangedAttack);
-        yield return new WaitForSeconds(Mathf.Max(0f, skill.windup));
+        const EnemyAnimState state = EnemyAnimState.RangedAttack;
+        PlayActionAnimation(state);
+        yield return WaitForSkillImpact(skill, state);
 
         if (!IsAlive || target == null || definition == null)
             yield break;
 
         FireProjectile(skill, attackFacing);
+    }
+
+    private IEnumerator WaitForSkillImpact(MonsterSkillConfig skill, EnemyAnimState state)
+    {
+        if (skill == null)
+            yield break;
+
+        bool useSpriteFrame = skill.impactFrame >= 0 && animator != null && HasAnimation(state);
+        if (!useSpriteFrame)
+        {
+            yield return new WaitForSeconds(Mathf.Max(0f, skill.windup));
+            yield break;
+        }
+
+        Sprite[] frames = definition.visual.GetFrames(state);
+        int targetFrame = Mathf.Clamp(skill.impactFrame, 0, frames.Length - 1);
+
+        while (IsAlive &&
+               animator != null &&
+               animator.currentState == state &&
+               animator.CurrentFrameIndex < targetFrame)
+        {
+            yield return null;
+        }
     }
 
     private bool FireProjectile(MonsterSkillConfig skill, Vector2 shotDirection)
@@ -711,6 +736,32 @@ public class MonsterController : MonoBehaviour, IDamageable
         }
 
         animator.Play(EnemyAnimState.Idle, true);
+    }
+
+    private EnemyAnimState GetSkillAnimationState(MonsterSkillType skillType)
+    {
+        return skillType switch
+        {
+            MonsterSkillType.Melee => EnemyAnimState.Attack,
+            MonsterSkillType.Projectile => EnemyAnimState.RangedAttack,
+            MonsterSkillType.SelfBuff => EnemyAnimState.Skill,
+            MonsterSkillType.AreaBuff => EnemyAnimState.Skill,
+            MonsterSkillType.AreaDebuff => EnemyAnimState.Skill,
+            MonsterSkillType.Shield => EnemyAnimState.Guard,
+            _ => EnemyAnimState.Idle
+        };
+    }
+
+    private float GetActionLockDuration(MonsterSkillConfig skill, EnemyAnimState state)
+    {
+        if (skill == null)
+            return 0.05f;
+
+        float animationDuration = animator != null
+            ? animator.GetStateDuration(state)
+            : 0f;
+
+        return Mathf.Max(0.05f, Mathf.Max(Mathf.Max(0f, skill.windup), animationDuration));
     }
 
     private bool HasAnimation(EnemyAnimState state)
