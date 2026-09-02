@@ -61,6 +61,10 @@ public class MonsterSkillConfig
     public float duration = 1f;
     public float value = 1f;
 
+    [Header("Sprite Action Timing")]
+    [Tooltip("-1이면 기존 windup 초를 사용합니다. 0 이상이면 해당 Sprite 프레임에 실제 근접 타격/Projectile 발사를 실행합니다. 프레임은 0부터 시작합니다.")]
+    [Min(-1)] public int impactFrame = -1;
+
     [Header("Melee")]
     [Tooltip("공격 방향과 대상 방향의 Dot 최소값. 0이면 전방 180도, 0.5면 전방 약 120도 범위입니다.")]
     [Range(-1f, 1f)] public float meleeFrontDot = 0f;
@@ -87,7 +91,7 @@ public class MonsterSkillConfig
 /// 행동 확장용:
 /// RangedAttack, Dash, Guard, Skill, Break
 ///
-/// 비어 있는 상태는 MonsterSprite Animator가 Idle / Preview Sprite 순으로 안전하게 fallback 합니다.
+/// 비어 있는 상태는 자체 Sprite Animator가 Idle / Preview Sprite 순으로 안전하게 fallback 합니다.
 /// </summary>
 [Serializable]
 public class MonsterVisualConfig
@@ -103,7 +107,7 @@ public class MonsterVisualConfig
     public Sprite[] moveSprites;
     [Tooltip("근접 공격. 현재 MonsterController의 Melee 공격에서 사용합니다.")]
     public Sprite[] attackSprites;
-    [Tooltip("피격. 짧은 2~4프레임 반응용입니다. 현재는 Flash와 함께 사용할 수 있도록 준비된 상태입니다.")]
+    [Tooltip("피격. 짧은 2~4프레임 반응용입니다. Flash와 함께 재생할 수 있습니다.")]
     public Sprite[] hitSprites;
     [Tooltip("사망. 마지막 프레임을 유지한 뒤 Pool로 반환됩니다.")]
     public Sprite[] dieSprites;
@@ -250,6 +254,15 @@ public class MonsterDefinitionSO : ScriptableObject
             errors.Add("visual is null.");
         else if (!visual.HasAnySprite())
             warnings.Add("No visual Sprite is assigned. Assign Preview Sprite or at least one animation frame array.");
+
+        if (skills != null)
+        {
+            for (int i = 0; i < skills.Count; i++)
+            {
+                if (skills[i] != null && skills[i].impactFrame < -1)
+                    errors.Add($"skills[{i}].impactFrame must be -1 or greater.");
+            }
+        }
 
         report = string.Empty;
         if (errors.Count > 0)
