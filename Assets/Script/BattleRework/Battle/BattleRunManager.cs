@@ -26,6 +26,9 @@ public enum BattleRunState
 /// 한 런의 최상위 Flow를 관리합니다.
 /// Node 진입 -> Room 생성 -> Combat -> Reward -> Exit -> 다음 Node 선택을
 /// 명시적인 상태 머신으로 관리하며, Room 내부 구현과 보상/진행 로직을 분리합니다.
+///
+/// BattleSceneManager가 존재하는 씬에서는 Scene 설치/필수 Prefab/SO 검증을 통과하지 못하면
+/// StartRun 자체가 실행되지 않습니다.
 /// </summary>
 public class BattleRunManager : MonoBehaviour
 {
@@ -35,6 +38,7 @@ public class BattleRunManager : MonoBehaviour
     [SerializeField] private ShootingThemeSO shootingTheme;
 
     [Header("Systems")]
+    [SerializeField] private BattleSceneManager sceneManager;
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private RunProgressSystem progress;
     [SerializeField] private BattleRewardSystem rewardSystem;
@@ -70,6 +74,7 @@ public class BattleRunManager : MonoBehaviour
     public ClanDefinitionSO Clan => clan;
     public RunProgressSystem Progress => progress;
     public RunEndReason? LastEndReason => lastEndReason;
+    public BattleSceneManager SceneManager => sceneManager;
 
     public event Action<BattleRunState> StateChanged;
     public event Action<BattleNodeData> NodeEntered;
@@ -81,6 +86,9 @@ public class BattleRunManager : MonoBehaviour
 
     private void Awake()
     {
+        if (sceneManager == null)
+            sceneManager = FindFirstObjectByType<BattleSceneManager>();
+
         if (fanMissionSystem == null)
             fanMissionSystem = FindFirstObjectByType<FanMissionSystem>();
     }
@@ -116,6 +124,12 @@ public class BattleRunManager : MonoBehaviour
     public bool ValidateConfiguration(out string report)
     {
         List<string> errors = new();
+
+        if (sceneManager == null)
+            sceneManager = FindFirstObjectByType<BattleSceneManager>();
+
+        if (sceneManager != null && !sceneManager.ValidateStartGate(out string sceneReport))
+            errors.Add($"BattleSceneManager start gate failed:\n{sceneReport}");
 
         if (nodeGraph == null)
             errors.Add("nodeGraph is null");
@@ -169,7 +183,7 @@ public class BattleRunManager : MonoBehaviour
     {
         if (!ValidateConfiguration(out string report))
         {
-            Debug.LogError($"[BattleRun] Cannot start run.\n{report}");
+            Debug.LogError($"[BattleRun] START BLOCKED. Required battle scene setup is incomplete.\n{report}");
             return;
         }
 
