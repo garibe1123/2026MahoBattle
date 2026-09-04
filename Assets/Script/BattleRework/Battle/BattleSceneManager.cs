@@ -10,17 +10,17 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// 전투 씬의 설치/배선/시작 전 검증을 한 곳에서 관리하는 최상위 Scene Manager입니다.
+/// 전투 씬의 설치 / 자동 배선 / 시작 전 검증을 담당하는 최상위 Manager.
 ///
-/// 원칙:
-/// - BattleSystems GameObject에는 이 컴포넌트 하나만 직접 추가하면 됩니다.
-/// - RequireComponent + Editor Installer가 필수 시스템 컴포넌트/기본 Scene Root를 자동 생성합니다.
-/// - NodeGraph/Starter Equipment/Reward Pool/Prefab 같은 실제 콘텐츠 데이터는 이 Manager가 중앙에서 보관합니다.
-/// - Play Mode에서는 누락된 핵심 오브젝트를 몰래 생성하지 않습니다. 누락 상태면 Start를 차단합니다.
-/// - 기존 시스템의 SerializedField는 호환을 위해 유지하고 이 Manager가 자동으로 동기화합니다.
+/// BattleSystems GameObject에 이 컴포넌트 하나를 추가하면:
+/// 1) Core System 컴포넌트는 RequireComponent로 자동 배치됩니다.
+/// 2) Edit Mode에서 RoomSystem / Navigation / Pool / Player / Camera 기본 구조를 자동 보수합니다.
+/// 3) 기존 씬에 이미 있는 시스템은 새로 만들지 않고 우선 재사용합니다.
+/// 4) NodeGraph / Starter Equipment / Reward Pool / Runtime Prefab은 이 Manager를 중앙 설정점으로 사용합니다.
+/// 5) Play Mode에서는 누락된 핵심 구조를 몰래 생성하지 않고 START BLOCKED 처리합니다.
 ///
-/// 현재 Player 무기 계층은 PlayerShootingSystem/WeaponDisplay legacy bridge를 유지합니다.
-/// WeaponSO 전환 시 이 Installer의 Player Weapon 부분만 교체하면 나머지 씬 구조는 유지할 수 있습니다.
+/// 현재 Player 무기 계층은 WeaponSO 마이그레이션 전까지
+/// PlayerShootingSystem + WeaponDisplay를 legacy runtime bridge로 유지합니다.
 /// </summary>
 [ExecuteAlways]
 [DefaultExecutionOrder(-10000)]
@@ -39,6 +39,7 @@ public class BattleSceneManager : MonoBehaviour
     [SerializeField] private bool autoInstallInEditor = true;
     [SerializeField] private bool createFallbackPlayer = true;
     [SerializeField] private bool createFallbackCamera = true;
+    [SerializeField, HideInInspector] private bool importedLegacyContent;
 
     [Header("Required Run Content - 중앙 설정")]
     [SerializeField] private NodeGraphSO nodeGraph;
@@ -46,11 +47,11 @@ public class BattleSceneManager : MonoBehaviour
     [SerializeField] private ShootingThemeSO shootingTheme;
     [SerializeField] private PlayerSpriteSO playerSprite;
 
-    [Header("Required Equipment Content")]
+    [Header("Required Equipment Content - 중앙 설정")]
     [SerializeField] private List<BattleEquipmentSO> startingEquipment = new();
     [SerializeField] private List<BattleEquipmentSO> rewardPool = new();
 
-    [Header("Required Runtime Prefabs")]
+    [Header("Required Runtime Prefabs - 중앙 설정")]
     [SerializeField] private MonsterController monsterPrefab;
     [SerializeField] private Projectile playerProjectilePrefab;
     [SerializeField] private Projectile enemyProjectilePrefab;
@@ -108,8 +109,9 @@ public class BattleSceneManager : MonoBehaviour
         if (Application.isPlaying)
         {
             Instance = this;
+            ResolveCoreComponents(false);
             ResolveExistingReferences();
-            PullExistingContentIfManagerIsEmpty();
+            ImportExistingContentOnce();
             ApplyBindings();
             ValidateStartGate(out _);
             return;
@@ -152,13 +154,18 @@ public class BattleSceneManager : MonoBehaviour
     [ContextMenu("Install / Repair Battle Scene")]
     public void InstallOrRepairScene()
     {
-        ResolveCoreComponents();
+        bool allowCreate = !Application.isPlaying;
 
-        if (!Application.isPlaying)
-            CreateMissingSceneInfrastructure();
-
+        ResolveCoreComponents(allowCreate);
         ResolveExistingReferences();
-        PullExistingContentIfManagerIsEmpty();
+
+        if (allowCreate)
+        {
+            CreateOnlyMissingSceneInfrastructure();
+            ResolveExistingReferences();
+        }
+
+        ImportExistingContentOnce();
         ApplyBindings();
         ValidateStartGate(out _);
         MarkSceneDirty();
@@ -167,8 +174,8 @@ public class BattleSceneManager : MonoBehaviour
     [ContextMenu("Validate Battle Start")]
     public void ValidateFromContextMenu()
     {
+        ResolveCoreComponents(false);
         ResolveExistingReferences();
-        PullExistingContentIfManagerIsEmpty();
         ApplyBindings();
 
         if (ValidateStartGate(out string report))
@@ -179,12 +186,13 @@ public class BattleSceneManager : MonoBehaviour
 
     public bool TryStartRun()
     {
+        ResolveCoreComponents(false);
         ResolveExistingReferences();
         ApplyBindings();
 
         if (!ValidateStartGate(out string report))
         {
-            Debug.LogError($"[BattleScene] Cannot start run. Fix the required setup first.\n{report}", this);
+            Debug.LogError($"[BattleScene] Cannot start run. Fix required setup first.\n{report}", this);
             return false;
         }
 
@@ -196,8 +204,8 @@ public class BattleSceneManager : MonoBehaviour
     }
 
     /// <summary>
-    /// BattleRunManager.StartRun()에서 호출하는 강제 시작 Gate입니다.
-    /// BattleRunManager.ValidateConfiguration()을 다시 호출하지 않아 재귀하지 않습니다.
+    /// BattleRunManager.StartRun()의 강제 Gate.
+    /// 이 메서드는 BattleRunManager.ValidateConfiguration()을 호출하지 않으므로 재귀하지 않습니다.
     /// </summary>
     public bool ValidateStartGate(out string report)
     {
@@ -224,14 +232,16 @@ public class BattleSceneManager : MonoBehaviour
         if (navSurface == null) errors.Add("NavMeshSurface is missing.");
         if (monsterPool == null) errors.Add("MonsterPool is missing.");
         if (playerController == null) errors.Add("PlayerController is missing.");
-        if (playerShootingSystem == null) errors.Add("PlayerShootingSystem is missing (legacy weapon bridge until WeaponSO migration).");
+        if (playerShootingSystem == null) errors.Add("PlayerShootingSystem is missing (legacy bridge until WeaponSO migration).");
         if (playerProjectilePool == null) errors.Add("Player ProjectilePooler is missing.");
         if (enemyProjectilePool == null) errors.Add("Enemy ProjectilePooler is missing.");
+        if (weaponDisplay == null) errors.Add("WeaponDisplay is missing (legacy bridge until WeaponSO migration).");
 
         if (roomOrigin == null) errors.Add("RoomOrigin is missing.");
         if (mapRoot == null) errors.Add("MapRoot is missing.");
         if (obstacleRoot == null) errors.Add("ObstacleRoot is missing.");
         if (monsterRoot == null) errors.Add("MonsterRoot is missing.");
+        if (impactVfxRoot == null) errors.Add("ImpactVFXRoot is missing.");
 
         if (Camera.main == null)
             errors.Add("No Camera tagged MainCamera exists.");
@@ -256,6 +266,18 @@ public class BattleSceneManager : MonoBehaviour
 
         if (enemyProjectilePrefab == null)
             errors.Add("Enemy Projectile prefab is not assigned.");
+
+        if (playerController != null)
+        {
+            if (playerController.GetComponent<Rigidbody2D>() == null)
+                errors.Add("Player Rigidbody2D is missing.");
+            if (playerController.GetComponent<Collider2D>() == null)
+                errors.Add("Player Collider2D is missing.");
+            if (playerController.GetComponent<SpriteRenderer>() == null)
+                errors.Add("Player SpriteRenderer is missing.");
+            if (playerController.GetComponent<PlayerAnimator>() == null)
+                errors.Add("PlayerAnimator is missing.");
+        }
 
         if (roomManager != null && !roomManager.ValidateConfiguration(out string roomReport))
             errors.Add($"BattleRoomManager invalid:\n{roomReport}");
@@ -283,22 +305,20 @@ public class BattleSceneManager : MonoBehaviour
         return errors.Count == 0;
     }
 
-    private void ResolveCoreComponents()
+    private void ResolveCoreComponents(bool allowCreate)
     {
-        runManager = GetOrAddComponent<BattleRunManager>(gameObject, !Application.isPlaying);
-        progressSystem = GetOrAddComponent<RunProgressSystem>(gameObject, !Application.isPlaying);
-        equipmentSystem = GetOrAddComponent<BattleEquipmentSystem>(gameObject, !Application.isPlaying);
-        rewardSystem = GetOrAddComponent<BattleRewardSystem>(gameObject, !Application.isPlaying);
-        fanMissionSystem = GetOrAddComponent<FanMissionSystem>(gameObject, !Application.isPlaying);
-        synergyManager = GetOrAddComponent<SynergyManager>(gameObject, !Application.isPlaying);
-        roomBaseTemplate = GetOrAddComponent<RoomBaseTemplate>(gameObject, !Application.isPlaying);
-        playerLoadout = GetOrAddComponent<PlayerLoadout>(gameObject, !Application.isPlaying);
+        runManager = GetOrAddComponent<BattleRunManager>(gameObject, allowCreate);
+        progressSystem = GetOrAddComponent<RunProgressSystem>(gameObject, allowCreate);
+        equipmentSystem = GetOrAddComponent<BattleEquipmentSystem>(gameObject, allowCreate);
+        rewardSystem = GetOrAddComponent<BattleRewardSystem>(gameObject, allowCreate);
+        fanMissionSystem = GetOrAddComponent<FanMissionSystem>(gameObject, allowCreate);
+        synergyManager = GetOrAddComponent<SynergyManager>(gameObject, allowCreate);
+        roomBaseTemplate = GetOrAddComponent<RoomBaseTemplate>(gameObject, allowCreate);
+        playerLoadout = GetOrAddComponent<PlayerLoadout>(gameObject, allowCreate);
     }
 
     private void ResolveExistingReferences()
     {
-        ResolveCoreComponents();
-
         if (roomManager == null)
             roomManager = FindFirstObjectByType<BattleRoomManager>();
         if (monsterPool == null)
@@ -307,21 +327,12 @@ public class BattleSceneManager : MonoBehaviour
             navSurface = FindFirstObjectByType<NavMeshSurface>();
         if (playerController == null)
             playerController = FindFirstObjectByType<PlayerController>();
+        if (playerShootingSystem == null && playerController != null)
+            playerShootingSystem = playerController.GetComponent<PlayerShootingSystem>();
         if (playerShootingSystem == null)
             playerShootingSystem = FindFirstObjectByType<PlayerShootingSystem>();
 
-        ProjectilePooler[] pools = FindObjectsByType<ProjectilePooler>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        for (int i = 0; i < pools.Length; i++)
-        {
-            ProjectilePooler pool = pools[i];
-            if (pool == null) continue;
-
-            string lower = pool.name.ToLowerInvariant();
-            if (playerProjectilePool == null && lower.Contains("player"))
-                playerProjectilePool = pool;
-            else if (enemyProjectilePool == null && (lower.Contains("enemy") || lower.Contains("monster")))
-                enemyProjectilePool = pool;
-        }
+        ResolveProjectilePools();
 
         if (weaponDisplay == null && playerController != null)
             weaponDisplay = playerController.GetComponentInChildren<WeaponDisplay>(true);
@@ -336,38 +347,99 @@ public class BattleSceneManager : MonoBehaviour
         }
 
         if (cameraShakeTarget == null && Camera.main != null)
-            cameraShakeTarget = Camera.main.transform;
+        {
+            Transform cameraTransform = Camera.main.transform;
+            cameraShakeTarget = cameraTransform.parent != null && cameraTransform.parent.name == "CameraShakePivot"
+                ? cameraTransform.parent
+                : cameraTransform;
+        }
     }
 
-    private void CreateMissingSceneInfrastructure()
+    private void ResolveProjectilePools()
     {
-        GameObject roomObject = GetOrCreateChildObject(gameObject, "RoomSystem");
-        roomManager = GetOrAddComponent<BattleRoomManager>(roomObject, true);
+        ProjectilePooler[] pools = FindObjectsByType<ProjectilePooler>(FindObjectsInactive.Include, FindObjectsSortMode.None);
 
-        roomOrigin = GetOrCreateChild(roomObject.transform, "RoomOrigin");
-        mapRoot = GetOrCreateChild(roomObject.transform, "MapRoot");
-        obstacleRoot = GetOrCreateChild(roomObject.transform, "ObstacleRoot");
-        monsterRoot = GetOrCreateChild(roomObject.transform, "MonsterRoot");
-        impactVfxRoot = GetOrCreateChild(roomObject.transform, "ImpactVFXRoot");
+        for (int i = 0; i < pools.Length; i++)
+        {
+            ProjectilePooler pool = pools[i];
+            if (pool == null) continue;
 
-        GameObject navigationObject = GetOrCreateChildObject(gameObject, "Navigation");
-        navSurface = GetOrAddComponent<NavMeshSurface>(navigationObject, true);
+            string lower = pool.name.ToLowerInvariant();
+            if (playerProjectilePool == null && lower.Contains("player"))
+            {
+                playerProjectilePool = pool;
+                continue;
+            }
 
-        GameObject projectilePoolsObject = GetOrCreateChildObject(gameObject, "ProjectilePools");
-        GameObject playerPoolObject = GetOrCreateChildObject(projectilePoolsObject, "PlayerProjectilePool");
-        GameObject enemyPoolObject = GetOrCreateChildObject(projectilePoolsObject, "EnemyProjectilePool");
-        playerProjectilePool = GetOrAddComponent<ProjectilePooler>(playerPoolObject, true);
-        enemyProjectilePool = GetOrAddComponent<ProjectilePooler>(enemyPoolObject, true);
-        playerProjectilePool.initialSize = Mathf.Max(16, playerProjectilePool.initialSize);
-        enemyProjectilePool.initialSize = Mathf.Max(16, enemyProjectilePool.initialSize);
+            if (enemyProjectilePool == null && (lower.Contains("enemy") || lower.Contains("monster")))
+                enemyProjectilePool = pool;
+        }
 
-        GameObject monsterPoolObject = GetOrCreateChildObject(gameObject, "MonsterPool");
-        monsterPool = GetOrAddComponent<MonsterPool>(monsterPoolObject, true);
+        if (playerProjectilePool == null && pools.Length > 0)
+            playerProjectilePool = pools[0];
+
+        if (enemyProjectilePool == null)
+        {
+            for (int i = 0; i < pools.Length; i++)
+            {
+                if (pools[i] != null && pools[i] != playerProjectilePool)
+                {
+                    enemyProjectilePool = pools[i];
+                    break;
+                }
+            }
+        }
+    }
+
+    private void CreateOnlyMissingSceneInfrastructure()
+    {
+        if (roomManager == null)
+        {
+            GameObject roomObject = GetOrCreateChildObject(gameObject, "RoomSystem");
+            roomManager = GetOrAddComponent<BattleRoomManager>(roomObject, true);
+        }
+
+        if (roomManager != null)
+        {
+            if (roomOrigin == null) roomOrigin = GetOrCreateChild(roomManager.transform, "RoomOrigin");
+            if (mapRoot == null) mapRoot = GetOrCreateChild(roomManager.transform, "MapRoot");
+            if (obstacleRoot == null) obstacleRoot = GetOrCreateChild(roomManager.transform, "ObstacleRoot");
+            if (monsterRoot == null) monsterRoot = GetOrCreateChild(roomManager.transform, "MonsterRoot");
+            if (impactVfxRoot == null) impactVfxRoot = GetOrCreateChild(roomManager.transform, "ImpactVFXRoot");
+        }
+
+        if (navSurface == null)
+        {
+            GameObject navigationObject = GetOrCreateChildObject(gameObject, "Navigation");
+            navSurface = GetOrAddComponent<NavMeshSurface>(navigationObject, true);
+        }
+
+        GameObject projectilePoolsObject = null;
+        if (playerProjectilePool == null || enemyProjectilePool == null)
+            projectilePoolsObject = GetOrCreateChildObject(gameObject, "ProjectilePools");
+
+        if (playerProjectilePool == null)
+        {
+            GameObject playerPoolObject = GetOrCreateChildObject(projectilePoolsObject, "PlayerProjectilePool");
+            playerProjectilePool = GetOrAddComponent<ProjectilePooler>(playerPoolObject, true);
+            playerProjectilePool.initialSize = Mathf.Max(16, playerProjectilePool.initialSize);
+        }
+
+        if (enemyProjectilePool == null)
+        {
+            GameObject enemyPoolObject = GetOrCreateChildObject(projectilePoolsObject, "EnemyProjectilePool");
+            enemyProjectilePool = GetOrAddComponent<ProjectilePooler>(enemyPoolObject, true);
+            enemyProjectilePool.initialSize = Mathf.Max(16, enemyProjectilePool.initialSize);
+        }
+
+        if (monsterPool == null)
+        {
+            GameObject monsterPoolObject = GetOrCreateChildObject(gameObject, "MonsterPool");
+            monsterPool = GetOrAddComponent<MonsterPool>(monsterPoolObject, true);
+        }
 
         if (createFallbackPlayer)
             CreateOrRepairPlayer();
-        else if (playerController == null)
-            playerController = FindFirstObjectByType<PlayerController>();
 
         if (createFallbackCamera && Camera.main == null)
             CreateFallbackMainCamera();
@@ -375,12 +447,10 @@ public class BattleSceneManager : MonoBehaviour
 
     private void CreateOrRepairPlayer()
     {
-        if (playerController != null)
-            return;
+        if (playerController == null)
+            playerController = FindFirstObjectByType<PlayerController>();
 
-        playerController = FindFirstObjectByType<PlayerController>();
         GameObject playerObject;
-
         if (playerController != null)
         {
             playerObject = playerController.gameObject;
@@ -404,18 +474,28 @@ public class BattleSceneManager : MonoBehaviour
             bodyRenderer.sortingOrder = Mathf.Max(bodyRenderer.sortingOrder, 20);
 
             GetOrAddComponent<PlayerAnimator>(playerObject, true);
-            playerShootingSystem = GetOrAddComponent<PlayerShootingSystem>(playerObject, true);
+            GetOrAddComponent<PlayerShootingSystem>(playerObject, true);
             playerController = GetOrAddComponent<PlayerController>(playerObject, true);
-
-            int playerLayer = LayerMask.NameToLayer("Player");
-            if (playerLayer >= 0)
-                playerObject.layer = playerLayer;
-            playerObject.tag = "Player";
         }
 
-        GetOrAddComponent<SpriteRenderer>(playerObject, true);
+        Rigidbody2D existingBody = GetOrAddComponent<Rigidbody2D>(playerObject, true);
+        existingBody.gravityScale = 0f;
+        existingBody.freezeRotation = true;
+
+        if (playerObject.GetComponent<Collider2D>() == null)
+            playerObject.AddComponent<CircleCollider2D>();
+
+        SpriteRenderer renderer = GetOrAddComponent<SpriteRenderer>(playerObject, true);
+        renderer.sortingOrder = Mathf.Max(renderer.sortingOrder, 20);
         GetOrAddComponent<PlayerAnimator>(playerObject, true);
         playerShootingSystem = GetOrAddComponent<PlayerShootingSystem>(playerObject, true);
+
+        int playerLayer = LayerMask.NameToLayer("Player");
+        if (playerLayer >= 0)
+            playerObject.layer = playerLayer;
+
+        // ProjectSettings/TagManager.asset에 Player Tag를 정의해 둡니다.
+        playerObject.tag = "Player";
 
         Transform weaponPivot = GetOrCreateChild(playerObject.transform, "WeaponPivot");
         Transform weaponVisual = GetOrCreateChild(weaponPivot, "WeaponVisual");
@@ -442,13 +522,20 @@ public class BattleSceneManager : MonoBehaviour
         cameraShakeTarget = pivotObject.transform;
     }
 
-    private void PullExistingContentIfManagerIsEmpty()
+    /// <summary>
+    /// 기존 씬에서 새 BattleSceneManager로 넘어올 때 딱 한 번만 기존 Inspector 데이터를 가져옵니다.
+    /// 이후에는 BattleSceneManager 필드가 authoritative source이므로 빈 리스트도 그대로 반영됩니다.
+    /// </summary>
+    private void ImportExistingContentOnce()
     {
+        if (importedLegacyContent)
+            return;
+
         if (runManager != null)
         {
-            nodeGraph ??= GetPrivateField<NodeGraphSO>(runManager, "nodeGraph");
-            clan ??= GetPrivateField<ClanDefinitionSO>(runManager, "clan");
-            shootingTheme ??= GetPrivateField<ShootingThemeSO>(runManager, "shootingTheme");
+            if (nodeGraph == null) nodeGraph = GetPrivateField<NodeGraphSO>(runManager, "nodeGraph");
+            if (clan == null) clan = GetPrivateField<ClanDefinitionSO>(runManager, "clan");
+            if (shootingTheme == null) shootingTheme = GetPrivateField<ShootingThemeSO>(runManager, "shootingTheme");
         }
 
         if ((startingEquipment == null || startingEquipment.Count == 0) && equipmentSystem != null)
@@ -476,6 +563,9 @@ public class BattleSceneManager : MonoBehaviour
 
         if (playerSprite == null && playerController != null)
             playerSprite = playerController.spriteSO;
+
+        importedLegacyContent = true;
+        MarkObjectDirty(this);
     }
 
     private void ApplyBindings()
@@ -485,13 +575,13 @@ public class BattleSceneManager : MonoBehaviour
             SetPrivateField(runManager, "nodeGraph", nodeGraph);
             SetPrivateField(runManager, "clan", clan);
             SetPrivateField(runManager, "shootingTheme", shootingTheme);
+            SetPrivateField(runManager, "sceneManager", this);
             SetPrivateField(runManager, "roomManager", roomManager);
             SetPrivateField(runManager, "progress", progressSystem);
             SetPrivateField(runManager, "rewardSystem", rewardSystem);
             SetPrivateField(runManager, "equipmentSystem", equipmentSystem);
             SetPrivateField(runManager, "fanMissionSystem", fanMissionSystem);
             SetPrivateField(runManager, "playerController", playerController);
-            SetPrivateField(runManager, "sceneManager", this);
         }
 
         if (roomManager != null)
@@ -534,12 +624,19 @@ public class BattleSceneManager : MonoBehaviour
         if (equipmentSystem != null)
         {
             SetPrivateField(equipmentSystem, "shootingSystem", playerShootingSystem);
-            if (startingEquipment != null && startingEquipment.Count > 0)
-                SetPrivateField(equipmentSystem, "startingEquipment", new List<BattleEquipmentSO>(startingEquipment));
+            SetPrivateField(
+                equipmentSystem,
+                "startingEquipment",
+                startingEquipment != null ? new List<BattleEquipmentSO>(startingEquipment) : new List<BattleEquipmentSO>());
         }
 
-        if (rewardSystem != null && rewardPool != null && rewardPool.Count > 0)
-            SetPrivateField(rewardSystem, "rewardPool", new List<BattleEquipmentSO>(rewardPool));
+        if (rewardSystem != null)
+        {
+            SetPrivateField(
+                rewardSystem,
+                "rewardPool",
+                rewardPool != null ? new List<BattleEquipmentSO>(rewardPool) : new List<BattleEquipmentSO>());
+        }
 
         if (fanMissionSystem != null)
             SetPrivateField(fanMissionSystem, "runProgress", progressSystem);
@@ -559,19 +656,6 @@ public class BattleSceneManager : MonoBehaviour
             SetPrivateField(roomBaseTemplate, "baseRoot", mapRoot);
         }
 
-        BattleTestBootstrap bootstrap = FindFirstObjectByType<BattleTestBootstrap>();
-        if (bootstrap != null)
-        {
-            SetPrivateField(bootstrap, "sceneManager", this);
-            SetPrivateField(bootstrap, "runManager", runManager);
-            SetPrivateField(bootstrap, "roomManager", roomManager);
-            SetPrivateField(bootstrap, "monsterPool", monsterPool);
-            SetPrivateField(bootstrap, "equipmentSystem", equipmentSystem);
-            SetPrivateField(bootstrap, "rewardSystem", rewardSystem);
-            SetPrivateField(bootstrap, "synergyManager", synergyManager);
-            SetPrivateField(bootstrap, "roomBaseTemplate", roomBaseTemplate);
-        }
-
         MarkSceneDirty();
     }
 
@@ -579,11 +663,14 @@ public class BattleSceneManager : MonoBehaviour
     {
         T[] all = FindObjectsByType<T>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         if (all.Length > 1)
-            errors.Add($"Duplicate {displayName}: {all.Length} instances found. Keep exactly one active battle system instance.");
+            errors.Add($"Duplicate {displayName}: {all.Length} instances found. Keep exactly one battle instance.");
     }
 
     private static GameObject GetOrCreateChildObject(GameObject parent, string childName)
     {
+        if (parent == null)
+            return null;
+
         Transform child = parent.transform.Find(childName);
         if (child != null)
             return child.gameObject;
@@ -595,6 +682,9 @@ public class BattleSceneManager : MonoBehaviour
 
     private static Transform GetOrCreateChild(Transform parent, string childName)
     {
+        if (parent == null)
+            return null;
+
         Transform child = parent.Find(childName);
         if (child != null)
             return child;
@@ -635,13 +725,17 @@ public class BattleSceneManager : MonoBehaviour
         return target.AddComponent<T>();
     }
 
-    private static T GetPrivateField<T>(object target, string fieldName) where T : class
+    private static T GetPrivateField<T>(object target, string fieldName)
     {
         if (target == null)
-            return null;
+            return default;
 
         FieldInfo field = target.GetType().GetField(fieldName, FieldFlags);
-        return field != null ? field.GetValue(target) as T : null;
+        if (field == null)
+            return default;
+
+        object value = field.GetValue(target);
+        return value is T typed ? typed : default;
     }
 
     private static bool SetPrivateField(object target, string fieldName, object value)
