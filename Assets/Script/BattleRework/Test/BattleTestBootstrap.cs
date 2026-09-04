@@ -2,12 +2,16 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// BattleTestScene 전용 부트스트랩입니다.
-/// 정식 게임 진입 로직과 분리된 상태에서 필수 Reference / SO 데이터를 검사하고
-/// 기능성 더미 UI 및 Runtime Room Base를 통해 수직 슬라이스를 시작할 수 있게 합니다.
+/// BattleTestScene 전용 진입점입니다.
+/// 필수 시스템 설치/배선/시작 Gate는 BattleSceneManager가 전담하고,
+/// 이 컴포넌트는 Dummy UI와 테스트 자동 시작만 담당합니다.
 /// </summary>
+[RequireComponent(typeof(BattleSceneManager))]
 public class BattleTestBootstrap : MonoBehaviour
 {
+    [SerializeField] private BattleSceneManager sceneManager;
+
+    // 기존 Scene 직렬화 및 BattleSceneManager 자동 배선 호환용 Reference.
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private MonsterPool monsterPool;
@@ -18,31 +22,17 @@ public class BattleTestBootstrap : MonoBehaviour
 
     [Header("Test Startup")]
     [SerializeField] private bool ensureDummyUI = true;
-    [SerializeField] private bool ensureSynergyResolver = true;
-    [Tooltip("기존에 씬에 수동 배치한 테스트 Field Base를 지워도 Room 템플릿 기준 Base를 자동 생성합니다.")]
-    [SerializeField] private bool ensureRuntimeRoomBase = true;
     [Tooltip("false면 Dummy Run Setup 화면에서 START를 눌러 시작합니다.")]
     [SerializeField] private bool autoStartRun = false;
 
     private void Awake()
     {
-        if (ensureSynergyResolver)
-        {
-            if (synergyManager == null)
-                synergyManager = FindFirstObjectByType<SynergyManager>();
+        if (sceneManager == null)
+            sceneManager = GetComponent<BattleSceneManager>();
+        if (sceneManager == null)
+            sceneManager = FindFirstObjectByType<BattleSceneManager>();
 
-            if (synergyManager == null)
-                synergyManager = gameObject.AddComponent<SynergyManager>();
-        }
-
-        if (ensureRuntimeRoomBase)
-        {
-            if (roomBaseTemplate == null)
-                roomBaseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
-
-            if (roomBaseTemplate == null)
-                roomBaseTemplate = gameObject.AddComponent<RoomBaseTemplate>();
-        }
+        ResolveFromSceneManager();
 
         if (!ensureDummyUI)
             return;
@@ -62,24 +52,32 @@ public class BattleTestBootstrap : MonoBehaviour
 
     private void Start()
     {
-        // 이전 PlayMode/UI Bullet Time 상태가 테스트 결과에 영향을 주지 않게 초기화합니다.
         Time.timeScale = 1f;
+
+        ResolveFromSceneManager();
 
         if (!ValidateTestScene(out string report))
         {
-            Debug.LogError($"[BattleTest] Scene validation failed.\n{report}");
+            Debug.LogError($"[BattleTest] START BLOCKED. Scene validation failed.\n{report}");
             return;
         }
 
         Debug.Log("[BattleTest] Scene validation passed.");
 
         if (autoStartRun)
-            runManager.StartRun();
+        {
+            if (sceneManager != null)
+                sceneManager.TryStartRun();
+            else
+                runManager?.StartRun();
+        }
     }
 
     [ContextMenu("Validate Battle Test Scene")]
     public void ValidateFromContextMenu()
     {
+        ResolveFromSceneManager();
+
         bool valid = ValidateTestScene(out string report);
         if (valid)
             Debug.Log("[BattleTest] Validation passed.");
@@ -91,8 +89,14 @@ public class BattleTestBootstrap : MonoBehaviour
     {
         List<string> errors = new();
 
-        if (Camera.main == null)
-            errors.Add("No Camera tagged MainCamera was found.");
+        if (sceneManager == null)
+        {
+            errors.Add("BattleSceneManager is missing.");
+        }
+        else if (!sceneManager.ValidateStartGate(out string sceneReport))
+        {
+            errors.Add($"BattleSceneManager not ready:\n{sceneReport}");
+        }
 
         if (runManager == null)
         {
@@ -103,52 +107,26 @@ public class BattleTestBootstrap : MonoBehaviour
             errors.Add($"BattleRunManager invalid:\n{runReport}");
         }
 
-        if (roomManager == null)
-        {
-            errors.Add("roomManager is null");
-        }
-        else if (!roomManager.ValidateConfiguration(out string roomReport))
-        {
-            errors.Add($"BattleRoomManager invalid:\n{roomReport}");
-        }
-
-        if (monsterPool == null)
-        {
-            errors.Add("monsterPool is null");
-        }
-        else if (!monsterPool.ValidateConfiguration(out string poolReport))
-        {
-            errors.Add($"MonsterPool invalid:\n{poolReport}");
-        }
-
-        if (equipmentSystem == null)
-            errors.Add("equipmentSystem is null");
-
-        if (rewardSystem == null)
-        {
-            errors.Add("rewardSystem is null");
-        }
-        else if (!rewardSystem.ValidateConfiguration(out string rewardReport))
-        {
-            errors.Add($"BattleRewardSystem invalid:\n{rewardReport}");
-        }
-
-        if (ensureSynergyResolver)
-        {
-            if (synergyManager == null)
-            {
-                errors.Add("synergyManager is null");
-            }
-            else if (!synergyManager.ValidateConfiguration(out string synergyReport))
-            {
-                errors.Add($"SynergyManager invalid:\n{synergyReport}");
-            }
-        }
-
-        if (ensureRuntimeRoomBase && roomBaseTemplate == null)
-            errors.Add("roomBaseTemplate is null");
-
         report = string.Join("\n", errors);
         return errors.Count == 0;
+    }
+
+    private void ResolveFromSceneManager()
+    {
+        if (sceneManager == null)
+            return;
+
+        runManager = sceneManager.RunManager;
+        roomManager = sceneManager.RoomManager;
+        monsterPool = sceneManager.MonsterPool;
+
+        if (equipmentSystem == null)
+            equipmentSystem = GetComponent<BattleEquipmentSystem>();
+        if (rewardSystem == null)
+            rewardSystem = GetComponent<BattleRewardSystem>();
+        if (synergyManager == null)
+            synergyManager = GetComponent<SynergyManager>();
+        if (roomBaseTemplate == null)
+            roomBaseTemplate = GetComponent<RoomBaseTemplate>();
     }
 }
