@@ -27,7 +27,7 @@ public enum BattleRunState
 /// Node 진입 -> Room 생성 -> Combat -> Reward -> Exit -> 다음 Node 선택을
 /// 명시적인 상태 머신으로 관리하며, Room 내부 구현과 보상/진행 로직을 분리합니다.
 ///
-/// BattleSceneManager가 존재하는 씬에서는 Scene 설치/필수 Prefab/SO 검증을 통과하지 못하면
+/// BattleSceneManager 설치/필수 Prefab/SO 검증을 통과하지 못하면
 /// StartRun 자체가 실행되지 않습니다.
 /// </summary>
 public class BattleRunManager : MonoBehaviour
@@ -128,8 +128,14 @@ public class BattleRunManager : MonoBehaviour
         if (sceneManager == null)
             sceneManager = FindFirstObjectByType<BattleSceneManager>();
 
-        if (sceneManager != null && !sceneManager.ValidateStartGate(out string sceneReport))
+        if (sceneManager == null)
+        {
+            errors.Add("BattleSceneManager is missing. Add BattleSceneManager to the BattleSystems GameObject and run Install / Repair Battle Scene.");
+        }
+        else if (!sceneManager.ValidateStartGate(out string sceneReport))
+        {
             errors.Add($"BattleSceneManager start gate failed:\n{sceneReport}");
+        }
 
         if (nodeGraph == null)
             errors.Add("nodeGraph is null");
