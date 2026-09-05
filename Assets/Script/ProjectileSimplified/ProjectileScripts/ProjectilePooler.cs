@@ -8,17 +8,40 @@ public class ProjectilePooler : MonoBehaviour
 
     private readonly Queue<Projectile> queue = new();
     private readonly HashSet<Projectile> pooled = new();
+    private bool initialized;
 
     private void Awake()
     {
-        if (projectilePrefab == null)
-        {
-            Debug.LogError($"[ProjectilePool] projectilePrefab is null on '{name}'.");
+        // BattleScene은 런타임 self-repair를 지원하므로 AddComponent 직후에는
+        // prefab이 아직 배선되지 않았을 수 있습니다. null을 오류로 확정하지 않고
+        // Configure/Get 시점까지 초기화를 지연합니다.
+        TryInitialize();
+    }
+
+    public void Configure(Projectile prefab, int? preloadSize = null)
+    {
+        if (prefab != null)
+            projectilePrefab = prefab;
+
+        if (preloadSize.HasValue)
+            initialSize = Mathf.Max(0, preloadSize.Value);
+
+        TryInitialize();
+    }
+
+    private void TryInitialize()
+    {
+        if (initialized || projectilePrefab == null)
             return;
+
+        int preloadCount = Mathf.Max(0, initialSize);
+        for (int i = queue.Count; i < preloadCount; i++)
+        {
+            if (CreateOne() == null)
+                break;
         }
 
-        for (int i = 0; i < initialSize; i++)
-            CreateOne();
+        initialized = true;
     }
 
     private Projectile CreateOne()
@@ -35,6 +58,14 @@ public class ProjectilePooler : MonoBehaviour
 
     public Projectile Get()
     {
+        TryInitialize();
+
+        if (projectilePrefab == null)
+        {
+            Debug.LogError($"[ProjectilePool] Cannot Get projectile because projectilePrefab is null on '{name}'.");
+            return null;
+        }
+
         if (queue.Count == 0 && CreateOne() == null)
             return null;
 
