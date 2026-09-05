@@ -106,6 +106,8 @@ public class BattleSceneEntry : MonoBehaviour
 
     private static readonly BindingFlags FieldFlags =
         BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+    private static readonly BindingFlags StaticFlags =
+        BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic;
 
     private static BattleSceneRequest pendingRequest;
     private static BattleSceneResult lastResult;
@@ -164,10 +166,6 @@ public class BattleSceneEntry : MonoBehaviour
         SceneManager.LoadScene(next.battleSceneName, LoadSceneMode.Single);
     }
 
-    /// <summary>
-    /// Battle runtime bootstrap에서만 호출하는 1회용 Consume API입니다.
-    /// 한 번 읽은 Request는 제거되어 다음 전투에 이전 설정이 남지 않습니다.
-    /// </summary>
     public static bool TryConsumeRequest(out BattleSceneRequest result)
     {
         if (pendingRequest == null)
@@ -273,8 +271,7 @@ public class BattleSceneEntry : MonoBehaviour
             return;
         }
 
-        // BattleSceneManager의 Editor installer와 동일한 생성 함수를 런타임 bootstrap에서도 사용합니다.
-        // 같은 로직을 별도 Manager에 복제하지 않기 위해 private installer를 단일 진실 공급원으로 유지합니다.
+        // BattleSceneManager의 기존 installer를 그대로 호출하여 동일한 hierarchy를 런타임에도 구성합니다.
         InvokeManagerInfrastructureRepair(manager);
 
         BattleSceneRequest consumed;
@@ -290,7 +287,14 @@ public class BattleSceneEntry : MonoBehaviour
             };
         }
 
+        // 가장 높은 우선순위인 Entry 값을 먼저 넣습니다.
         ApplyRequestOverrides(manager, consumed);
+        manager.InstallOrRepairScene();
+
+        // 그 다음 비어 있는 칸만 Test Default가 채웁니다.
+        // 최소 BattleScene은 Manager가 sceneLoaded 시점에 생성되므로 기존 AfterSceneLoad callback보다
+        // 늦을 수 있어 여기서 명시적으로 한 번 적용합니다.
+        ApplyAvailableTestDefaults(manager);
         manager.InstallOrRepairScene();
         ApplyCoreLoadout(consumed);
 
@@ -314,7 +318,6 @@ public class BattleSceneEntry : MonoBehaviour
 
     private IEnumerator WaitForReadyAndStart()
     {
-        // BattleTestDefaults의 AfterSceneLoad fallback 및 첫 프레임의 자동 배선을 기다립니다.
         float timeoutAt = Time.realtimeSinceStartup + 5f;
         string lastReport = string.Empty;
 
@@ -415,8 +418,7 @@ public class BattleSceneEntry : MonoBehaviour
         if (entry.playerSprite != null)
             SetManagerField(manager, "playerSprite", entry.playerSprite);
 
-        // 빈 리스트를 강제 시작 장비로 사용하면 현재 전투 시스템상 시작 불가가 되므로
-        // override가 켜져 있어도 하나 이상 지정됐을 때만 실제 override 합니다.
+        // 현재 전투 구조는 스타터 무기 1개 이상을 요구하므로 빈 override는 fallback으로 처리합니다.
         if (entry.overrideStartingEquipment &&
             entry.startingEquipment != null &&
             entry.startingEquipment.Count > 0)
@@ -452,6 +454,87 @@ public class BattleSceneEntry : MonoBehaviour
             if (core != null)
                 loadout.TryAddSubCore(core);
         }
+    }
+
+    /// <summary>
+    /// BattleTestDefaults의 기존 생성/적용 구현을 다시 만들지 않고 동일 구현을 재사용합니다.
+    /// Reflection은 이 bootstrap 경계에서만 사용하고 실제 전투 런에는 관여하지 않습니다.
+    /// </summary>
+    private static void ApplyAvailableTestDefaults(BattleSceneManager manager)
+    {
+        if (manager == null || manager.ValidateStartGate(out _))
+            return;
+
+        Type defaultsType = typeof(BattleTestDefaults);
+        MethodInfo loadMethod = defaultsType.GetMethod("LoadRuntimeBundle", StaticFlags);
+        MethodInfo applyMethod = defaultsType.GetMethod("ApplyDefaults", StaticFlags);
+
+        if (loadMethod == null || applyMethod == null)
+        {
+            Debug.LogError("[BattleSceneEntry] BattleTestDefaults API could not be resolved.");
+            return;
+        }
+
+        object bundle = null;
+        try
+        {
+            bundle = loadMethod.Invoke(null, null);
+        }
+        catch (TargetInvocationException exception)
+        {
+            Debug.LogException(exception.InnerException ?? exception);
+        }
+
+        if (!IsTestBundleUsable(bundle))
+        {
+#if UNITY_EDITOR
+            // 정상적으로는 InitializeOnLoad에서 미리 생성합니다. 여기서는 사용자가 스크립트 컴파일 직후
+            // 바로 Play한 경우를 위한 최후의 Editor fallback입니다.
+            MethodInfo buildMethod = defaultsType.GetMethod("BuildOrRefreshEditorBundle", StaticFlags);
+            if (buildMethod != null && !EditorApplication.isCompiling)
+            {
+                try
+                {
+                    bundle = buildMethod.Invoke(null, null);
+                }
+                catch (TargetInvocationException exception)
+                {
+                    Debug.LogException(exception.InnerException ?? exception);
+                }
+            }
+#endif
+        }
+
+        if (!IsTestBundleUsable(bundle))
+        {
+            Debug.LogWarning(
+                "[BattleSceneEntry] Battle Test Defaults are unavailable. " +
+                "Custom BattleSceneRequest/BattleSceneManager content must provide the missing values.");
+            return;
+        }
+
+        try
+        {
+            applyMethod.Invoke(null, new[] { (object)manager, bundle, false });
+        }
+        catch (TargetInvocationException exception)
+        {
+            Debug.LogException(exception.InnerException ?? exception);
+        }
+    }
+
+    private static bool IsTestBundleUsable(object bundle)
+    {
+        if (bundle == null)
+            return false;
+
+        PropertyInfo property = bundle.GetType().GetProperty(
+            "IsUsable",
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+
+        return property != null &&
+               property.GetValue(bundle) is bool usable &&
+               usable;
     }
 
     private static void InvokeManagerInfrastructureRepair(BattleSceneManager manager)
@@ -514,8 +597,38 @@ public class BattleSceneEntry : MonoBehaviour
     {
         EditorSceneManager.sceneOpened -= HandleEditorSceneOpened;
         EditorSceneManager.sceneOpened += HandleEditorSceneOpened;
+
+        EditorApplication.delayCall -= EnsureEditorDefaultAssets;
+        EditorApplication.delayCall += EnsureEditorDefaultAssets;
+
         EditorApplication.delayCall -= RepairOpenedBattleScene;
         EditorApplication.delayCall += RepairOpenedBattleScene;
+    }
+
+    /// <summary>
+    /// 다른 Scene에서 곧바로 BattleSceneEntry.Enter()를 호출해도 테스트 Resources가 존재하도록
+    /// Play 전에 기본 Asset Bundle을 한 번 생성/갱신합니다.
+    /// </summary>
+    private static void EnsureEditorDefaultAssets()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
+            return;
+
+        MethodInfo buildMethod = typeof(BattleTestDefaults).GetMethod(
+            "BuildOrRefreshEditorBundle",
+            StaticFlags);
+
+        if (buildMethod == null)
+            return;
+
+        try
+        {
+            buildMethod.Invoke(null, null);
+        }
+        catch (TargetInvocationException exception)
+        {
+            Debug.LogException(exception.InnerException ?? exception);
+        }
     }
 
     private static void HandleEditorSceneOpened(Scene scene, OpenSceneMode mode)
