@@ -292,8 +292,6 @@ public class BattleSceneEntry : MonoBehaviour
         manager.InstallOrRepairScene();
 
         // 그 다음 비어 있는 칸만 Test Default가 채웁니다.
-        // 최소 BattleScene은 Manager가 sceneLoaded 시점에 생성되므로 기존 AfterSceneLoad callback보다
-        // 늦을 수 있어 여기서 명시적으로 한 번 적용합니다.
         ApplyAvailableTestDefaults(manager);
         manager.InstallOrRepairScene();
         ApplyCoreLoadout(consumed);
@@ -311,7 +309,6 @@ public class BattleSceneEntry : MonoBehaviour
         runtimeManager = manager;
         runtimeRequest = consumed != null ? consumed.Clone() : new BattleSceneRequest();
 
-        SubscribeRunEnd();
         StopAllCoroutines();
         StartCoroutine(WaitForReadyAndStart());
     }
@@ -341,11 +338,34 @@ public class BattleSceneEntry : MonoBehaviour
             yield break;
         }
 
+        // BattleRunManager/RoomBaseTemplate은 RequireComponent 단계에서 먼저 OnEnable될 수 있습니다.
+        // 최종 Reference 배선 뒤 한 번 재활성화하여 Room 이벤트 구독을 현재 Reference 기준으로 다시 맺습니다.
+        RefreshRuntimeSubscriptions(runtimeManager);
         ApplyCoreLoadout(runtimeRequest);
         SubscribeRunEnd();
 
         if (runtimeRequest == null || runtimeRequest.autoStart)
             runtimeManager.TryStartRun();
+    }
+
+    private static void RefreshRuntimeSubscriptions(BattleSceneManager manager)
+    {
+        if (manager == null)
+            return;
+
+        BattleRunManager run = manager.RunManager;
+        if (run != null && run.isActiveAndEnabled)
+        {
+            run.enabled = false;
+            run.enabled = true;
+        }
+
+        RoomBaseTemplate roomBase = manager.GetComponent<RoomBaseTemplate>();
+        if (roomBase != null && roomBase.isActiveAndEnabled)
+        {
+            roomBase.enabled = false;
+            roomBase.enabled = true;
+        }
     }
 
     private void SubscribeRunEnd()
@@ -418,7 +438,6 @@ public class BattleSceneEntry : MonoBehaviour
         if (entry.playerSprite != null)
             SetManagerField(manager, "playerSprite", entry.playerSprite);
 
-        // 현재 전투 구조는 스타터 무기 1개 이상을 요구하므로 빈 override는 fallback으로 처리합니다.
         if (entry.overrideStartingEquipment &&
             entry.startingEquipment != null &&
             entry.startingEquipment.Count > 0)
@@ -457,8 +476,8 @@ public class BattleSceneEntry : MonoBehaviour
     }
 
     /// <summary>
-    /// BattleTestDefaults의 기존 생성/적용 구현을 다시 만들지 않고 동일 구현을 재사용합니다.
-    /// Reflection은 이 bootstrap 경계에서만 사용하고 실제 전투 런에는 관여하지 않습니다.
+    /// 기존 BattleTestDefaults 구현을 그대로 재사용하여 Entry에서 지정하지 않은 빈 칸만 채웁니다.
+    /// Reflection은 bootstrap 경계에서만 사용하고 실제 전투 Update에는 관여하지 않습니다.
     /// </summary>
     private static void ApplyAvailableTestDefaults(BattleSceneManager manager)
     {
@@ -488,8 +507,6 @@ public class BattleSceneEntry : MonoBehaviour
         if (!IsTestBundleUsable(bundle))
         {
 #if UNITY_EDITOR
-            // 정상적으로는 InitializeOnLoad에서 미리 생성합니다. 여기서는 사용자가 스크립트 컴파일 직후
-            // 바로 Play한 경우를 위한 최후의 Editor fallback입니다.
             MethodInfo buildMethod = defaultsType.GetMethod("BuildOrRefreshEditorBundle", StaticFlags);
             if (buildMethod != null && !EditorApplication.isCompiling)
             {
@@ -605,19 +622,21 @@ public class BattleSceneEntry : MonoBehaviour
         EditorApplication.delayCall += RepairOpenedBattleScene;
     }
 
-    /// <summary>
-    /// 다른 Scene에서 곧바로 BattleSceneEntry.Enter()를 호출해도 테스트 Resources가 존재하도록
-    /// Play 전에 기본 Asset Bundle을 한 번 생성/갱신합니다.
-    /// </summary>
     private static void EnsureEditorDefaultAssets()
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode || EditorApplication.isCompiling)
             return;
 
-        MethodInfo buildMethod = typeof(BattleTestDefaults).GetMethod(
-            "BuildOrRefreshEditorBundle",
-            StaticFlags);
+        Type defaultsType = typeof(BattleTestDefaults);
+        MethodInfo loadMethod = defaultsType.GetMethod("LoadRuntimeBundle", StaticFlags);
+        if (loadMethod != null)
+        {
+            object existing = loadMethod.Invoke(null, null);
+            if (IsTestBundleUsable(existing))
+                return;
+        }
 
+        MethodInfo buildMethod = defaultsType.GetMethod("BuildOrRefreshEditorBundle", StaticFlags);
         if (buildMethod == null)
             return;
 
