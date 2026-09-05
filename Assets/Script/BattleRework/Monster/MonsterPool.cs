@@ -6,6 +6,7 @@ using UnityEngine.AI;
 /// 몬스터 풀은 생성/반환만 담당합니다.
 /// 언제/어디에/무엇을 스폰할지는 BattleRoomManager가 결정합니다.
 /// Spawn 시 NavMesh와 Player까지의 도달 가능성을 검사해 Room soft-lock을 방지합니다.
+/// BattleScene runtime bootstrap을 위해 prefab 배선 전 AddComponent도 허용하고 실제 초기화는 지연합니다.
 /// </summary>
 public class MonsterPool : MonoBehaviour
 {
@@ -34,17 +35,32 @@ public class MonsterPool : MonoBehaviour
 
     private void Awake()
     {
-        if (!ValidateConfiguration(out string report))
-        {
-            Debug.LogError($"[MonsterPool] Invalid configuration.\n{report}");
+        // BattleSceneEntry가 최소 Scene에서 런타임 구조를 조립할 때는
+        // prefab이 이 Awake 이후 BattleSceneManager에서 배선될 수 있습니다.
+        TryInitialize();
+    }
+
+    public void Configure(MonsterController prefab, ProjectilePooler projectilePool = null)
+    {
+        if (prefab != null)
+            monsterPrefab = prefab;
+        if (projectilePool != null)
+            enemyProjectilePool = projectilePool;
+
+        TryInitialize();
+    }
+
+    private void TryInitialize()
+    {
+        if (initialized || monsterPrefab == null)
             return;
-        }
 
         int preloadCount = Mathf.Max(0, initialPoolSize);
-        for (int i = 0; i < preloadCount; i++)
+        for (int i = pool.Count; i < preloadCount; i++)
         {
             MonsterController monster = CreateNew();
-            if (monster == null) break;
+            if (monster == null)
+                break;
             Return(monster);
         }
 
@@ -80,7 +96,8 @@ public class MonsterPool : MonoBehaviour
             return null;
         }
 
-        if (!initialized && monsterPrefab == null)
+        TryInitialize();
+        if (monsterPrefab == null)
         {
             Debug.LogError("[MonsterPool] Get failed: pool has no monsterPrefab.");
             return null;
