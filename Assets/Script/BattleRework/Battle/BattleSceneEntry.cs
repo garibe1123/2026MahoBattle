@@ -1,5 +1,7 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
@@ -29,7 +31,7 @@ public class BattleSceneRequest
     public PlayerSpriteSO playerSprite;
 
     [Header("Starting Equipment Override")]
-    [Tooltip("켜면 startingEquipment 리스트 자체를 이번 전투의 시작 장비로 사용합니다. 꺼져 있으면 BattleScene 기본값을 사용합니다.")]
+    [Tooltip("켜면 startingEquipment을 이번 전투의 시작 장비로 사용합니다. 비어 있으면 안전상 BattleScene/Test Default로 fallback 합니다.")]
     public bool overrideStartingEquipment;
     public List<BattleEquipmentSO> startingEquipment = new();
 
@@ -86,10 +88,10 @@ public class BattleSceneResult
 /// <summary>
 /// 모든 Scene에서 BattleScene으로 들어갈 때 사용하는 단일 Gateway입니다.
 ///
-/// 사용 방법 1 - 코드:
+/// 코드:
 /// BattleSceneEntry.Enter(new BattleSceneRequest { clan = clan, shootingTheme = theme });
 ///
-/// 사용 방법 2 - Inspector/Button:
+/// Inspector/Button:
 /// 이 컴포넌트를 버튼/포탈에 붙이고 EnterConfiguredBattle()을 호출합니다.
 ///
 /// Request 우선순위:
@@ -102,22 +104,28 @@ public class BattleSceneEntry : MonoBehaviour
     [Header("Configured Entry")]
     [SerializeField] private BattleSceneRequest request = new();
 
+    private static readonly BindingFlags FieldFlags =
+        BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+
     private static BattleSceneRequest pendingRequest;
     private static BattleSceneResult lastResult;
     private static string activeReturnSceneName;
     private static bool sceneHookInstalled;
 
+    private BattleSceneManager runtimeManager;
+    private BattleSceneRequest runtimeRequest;
+    private bool runtimeHost;
+    private bool runEndSubscribed;
+
     public static bool HasPendingRequest => pendingRequest != null;
     public static bool HasResult => lastResult != null;
     public static string ActiveReturnSceneName => activeReturnSceneName;
 
-    /// <summary>Inspector/Button용 진입 함수.</summary>
     public void EnterConfiguredBattle()
     {
         Enter(request);
     }
 
-    /// <summary>모든 값을 기본값에 맡기는 가장 단순한 테스트 진입.</summary>
     public void EnterDefaultBattle()
     {
         Enter(new BattleSceneRequest());
@@ -157,7 +165,7 @@ public class BattleSceneEntry : MonoBehaviour
     }
 
     /// <summary>
-    /// BattleSceneManager만 호출해야 하는 1회용 Consume API입니다.
+    /// Battle runtime bootstrap에서만 호출하는 1회용 Consume API입니다.
     /// 한 번 읽은 Request는 제거되어 다음 전투에 이전 설정이 남지 않습니다.
     /// </summary>
     public static bool TryConsumeRequest(out BattleSceneRequest result)
@@ -214,10 +222,6 @@ public class BattleSceneEntry : MonoBehaviour
         return result != null;
     }
 
-    /// <summary>
-    /// 가장 최근 Entry가 지정한 복귀 Scene으로 이동합니다.
-    /// 결과 데이터는 Consume할 때까지 유지됩니다.
-    /// </summary>
     public static bool ReturnToPreviousScene()
     {
         if (string.IsNullOrWhiteSpace(activeReturnSceneName))
@@ -255,17 +259,238 @@ public class BattleSceneEntry : MonoBehaviour
         if (!IsBattleScene(scene))
             return;
 
-        // BattleScene 파일은 BattleSystems 하나만 있어도 됩니다.
-        // 실제 Manager/Player/Camera/Pool은 BattleSceneManager가 self-repair 합니다.
-        BattleSceneManager manager = UnityEngine.Object.FindFirstObjectByType<BattleSceneManager>();
-        if (manager != null)
-            return;
-
         GameObject root = GameObject.Find("BattleSystems");
         if (root == null)
             root = new GameObject("BattleSystems");
 
-        root.AddComponent<BattleSceneManager>();
+        BattleSceneManager manager = UnityEngine.Object.FindFirstObjectByType<BattleSceneManager>();
+        if (manager == null)
+            manager = root.AddComponent<BattleSceneManager>();
+
+        if (manager == null)
+        {
+            Debug.LogError("[BattleSceneEntry] BattleSceneManager could not be created.");
+            return;
+        }
+
+        // BattleSceneManager의 Editor installer와 동일한 생성 함수를 런타임 bootstrap에서도 사용합니다.
+        // 같은 로직을 별도 Manager에 복제하지 않기 위해 private installer를 단일 진실 공급원으로 유지합니다.
+        InvokeManagerInfrastructureRepair(manager);
+
+        BattleSceneRequest consumed;
+        if (!TryConsumeRequest(out consumed))
+        {
+            consumed = new BattleSceneRequest
+            {
+                battleSceneName = scene.name,
+                useCurrentSceneAsReturnScene = false,
+                returnSceneName = activeReturnSceneName,
+                autoStart = true,
+                autoReturnOnRunEnd = false
+            };
+        }
+
+        ApplyRequestOverrides(manager, consumed);
+        manager.InstallOrRepairScene();
+        ApplyCoreLoadout(consumed);
+
+        BattleSceneEntry host = root.GetComponent<BattleSceneEntry>();
+        if (host == null)
+            host = root.AddComponent<BattleSceneEntry>();
+
+        host.BeginRuntimeHost(manager, consumed);
+    }
+
+    private void BeginRuntimeHost(BattleSceneManager manager, BattleSceneRequest consumed)
+    {
+        runtimeHost = true;
+        runtimeManager = manager;
+        runtimeRequest = consumed != null ? consumed.Clone() : new BattleSceneRequest();
+
+        SubscribeRunEnd();
+        StopAllCoroutines();
+        StartCoroutine(WaitForReadyAndStart());
+    }
+
+    private IEnumerator WaitForReadyAndStart()
+    {
+        // BattleTestDefaults의 AfterSceneLoad fallback 및 첫 프레임의 자동 배선을 기다립니다.
+        float timeoutAt = Time.realtimeSinceStartup + 5f;
+        string lastReport = string.Empty;
+
+        while (runtimeManager != null && Time.realtimeSinceStartup < timeoutAt)
+        {
+            runtimeManager.InstallOrRepairScene();
+            if (runtimeManager.ValidateStartGate(out lastReport))
+                break;
+
+            yield return null;
+        }
+
+        if (runtimeManager == null)
+            yield break;
+
+        if (!runtimeManager.ValidateStartGate(out lastReport))
+        {
+            Debug.LogError(
+                $"[BattleSceneEntry] BattleScene bootstrap timed out. START BLOCKED.\n{lastReport}",
+                runtimeManager);
+            yield break;
+        }
+
+        ApplyCoreLoadout(runtimeRequest);
+        SubscribeRunEnd();
+
+        if (runtimeRequest == null || runtimeRequest.autoStart)
+            runtimeManager.TryStartRun();
+    }
+
+    private void SubscribeRunEnd()
+    {
+        if (!runtimeHost || runEndSubscribed || runtimeManager == null || runtimeManager.RunManager == null)
+            return;
+
+        runtimeManager.RunManager.RunEnded += HandleRunEnded;
+        runEndSubscribed = true;
+    }
+
+    private void UnsubscribeRunEnd()
+    {
+        if (!runEndSubscribed || runtimeManager == null || runtimeManager.RunManager == null)
+            return;
+
+        runtimeManager.RunManager.RunEnded -= HandleRunEnded;
+        runEndSubscribed = false;
+    }
+
+    private void HandleRunEnded(RunEndReason reason)
+    {
+        RunProgressSystem progress = runtimeManager != null && runtimeManager.RunManager != null
+            ? runtimeManager.RunManager.Progress
+            : null;
+
+        BattleSceneResult result = new()
+        {
+            endReason = reason,
+            battleSceneName = gameObject.scene.name,
+            returnSceneName = runtimeRequest != null ? runtimeRequest.returnSceneName : activeReturnSceneName,
+            popularity = progress != null ? progress.Popularity : 0,
+            fanPoints = progress != null ? progress.FanPoints : 0,
+            viewers = progress != null ? progress.Viewers : 0,
+            likes = progress != null ? progress.Likes : 0
+        };
+
+        RecordResult(result);
+
+        if (runtimeRequest != null && runtimeRequest.autoReturnOnRunEnd &&
+            !string.IsNullOrWhiteSpace(result.returnSceneName))
+        {
+            StartCoroutine(ReturnNextFrame());
+        }
+    }
+
+    private IEnumerator ReturnNextFrame()
+    {
+        yield return null;
+        ReturnToPreviousScene();
+    }
+
+    private void OnDisable()
+    {
+        if (runtimeHost)
+            UnsubscribeRunEnd();
+    }
+
+    private static void ApplyRequestOverrides(BattleSceneManager manager, BattleSceneRequest entry)
+    {
+        if (manager == null || entry == null)
+            return;
+
+        if (entry.nodeGraph != null)
+            SetManagerField(manager, "nodeGraph", entry.nodeGraph);
+        if (entry.clan != null)
+            SetManagerField(manager, "clan", entry.clan);
+        if (entry.shootingTheme != null)
+            SetManagerField(manager, "shootingTheme", entry.shootingTheme);
+        if (entry.playerSprite != null)
+            SetManagerField(manager, "playerSprite", entry.playerSprite);
+
+        // 빈 리스트를 강제 시작 장비로 사용하면 현재 전투 시스템상 시작 불가가 되므로
+        // override가 켜져 있어도 하나 이상 지정됐을 때만 실제 override 합니다.
+        if (entry.overrideStartingEquipment &&
+            entry.startingEquipment != null &&
+            entry.startingEquipment.Count > 0)
+        {
+            SetManagerField(
+                manager,
+                "startingEquipment",
+                new List<BattleEquipmentSO>(entry.startingEquipment));
+        }
+    }
+
+    private static void ApplyCoreLoadout(BattleSceneRequest entry)
+    {
+        if (entry == null || !entry.overrideCoreLoadout)
+            return;
+
+        PlayerLoadout loadout = UnityEngine.Object.FindFirstObjectByType<PlayerLoadout>();
+        if (loadout == null)
+            return;
+
+        if (entry.unlockedSubCoreSlots >= 1)
+            loadout.SetUnlockedSubCoreSlots(entry.unlockedSubCoreSlots);
+
+        loadout.SetMainCore(entry.mainCore);
+        loadout.ClearSubCores();
+
+        if (entry.subCores == null)
+            return;
+
+        for (int i = 0; i < entry.subCores.Count; i++)
+        {
+            CoreDefinitionSO core = entry.subCores[i];
+            if (core != null)
+                loadout.TryAddSubCore(core);
+        }
+    }
+
+    private static void InvokeManagerInfrastructureRepair(BattleSceneManager manager)
+    {
+        if (manager == null)
+            return;
+
+        MethodInfo method = typeof(BattleSceneManager).GetMethod(
+            "CreateOnlyMissingSceneInfrastructure",
+            FieldFlags);
+
+        if (method == null)
+        {
+            Debug.LogError(
+                "[BattleSceneEntry] BattleSceneManager runtime installer method was not found. " +
+                "BattleSceneEntry and BattleSceneManager versions are out of sync.");
+            return;
+        }
+
+        try
+        {
+            method.Invoke(manager, null);
+        }
+        catch (TargetInvocationException exception)
+        {
+            Debug.LogException(exception.InnerException ?? exception);
+        }
+    }
+
+    private static void SetManagerField(BattleSceneManager manager, string fieldName, object value)
+    {
+        FieldInfo field = typeof(BattleSceneManager).GetField(fieldName, FieldFlags);
+        if (field == null)
+        {
+            Debug.LogError($"[BattleSceneEntry] BattleSceneManager field '{fieldName}' was not found.");
+            return;
+        }
+
+        field.SetValue(manager, value);
     }
 
     private static bool IsBattleScene(Scene scene)
@@ -311,13 +536,13 @@ public class BattleSceneEntry : MonoBehaviour
         if (!active.IsValid() || !active.isLoaded || active.name != DefaultBattleSceneName)
             return;
 
+        GameObject root = GameObject.Find("BattleSystems");
+        if (root == null)
+            root = new GameObject("BattleSystems");
+
         BattleSceneManager manager = UnityEngine.Object.FindFirstObjectByType<BattleSceneManager>();
         if (manager == null)
         {
-            GameObject root = GameObject.Find("BattleSystems");
-            if (root == null)
-                root = new GameObject("BattleSystems");
-
             manager = root.AddComponent<BattleSceneManager>();
             EditorSceneManager.MarkSceneDirty(active);
         }
