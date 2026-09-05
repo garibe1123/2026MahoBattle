@@ -273,6 +273,7 @@ public class BattleSceneEntry : MonoBehaviour
 
         // BattleSceneManager의 기존 installer를 그대로 호출하여 동일한 hierarchy를 런타임에도 구성합니다.
         InvokeManagerInfrastructureRepair(manager);
+        ConfigureGeneratedNavigation2D();
 
         BattleSceneRequest consumed;
         if (!TryConsumeRequest(out consumed))
@@ -338,8 +339,6 @@ public class BattleSceneEntry : MonoBehaviour
             yield break;
         }
 
-        // BattleRunManager/RoomBaseTemplate은 RequireComponent 단계에서 먼저 OnEnable될 수 있습니다.
-        // 최종 Reference 배선 뒤 한 번 재활성화하여 Room 이벤트 구독을 현재 Reference 기준으로 다시 맺습니다.
         RefreshRuntimeSubscriptions(runtimeManager);
         ApplyCoreLoadout(runtimeRequest);
         SubscribeRunEnd();
@@ -473,6 +472,29 @@ public class BattleSceneEntry : MonoBehaviour
             if (core != null)
                 loadout.TryAddSubCore(core);
         }
+    }
+
+    /// <summary>
+    /// 새로 생성된 Navigation에만 프로젝트 공통 NavMeshPlus 2D 기본값을 적용합니다.
+    /// 이미 CollectSources2d가 있는 커스텀 Navigation은 사용자의 설정을 보존합니다.
+    /// </summary>
+    private static void ConfigureGeneratedNavigation2D()
+    {
+        NavMeshPlus.Components.NavMeshSurface surface =
+            UnityEngine.Object.FindFirstObjectByType<NavMeshPlus.Components.NavMeshSurface>();
+        if (surface == null)
+            return;
+
+        NavMeshPlus.Extensions.CollectSources2d collect2D =
+            surface.GetComponent<NavMeshPlus.Extensions.CollectSources2d>();
+        if (collect2D != null)
+            return;
+
+        surface.gameObject.AddComponent<NavMeshPlus.Extensions.CollectSources2d>();
+        surface.collectObjects = NavMeshPlus.Components.CollectObjects.All;
+        surface.useGeometry = UnityEngine.AI.NavMeshCollectGeometry.RenderMeshes;
+        surface.hideEditorLogs = true;
+        surface.transform.rotation = Quaternion.Euler(-90f, 0f, 0f);
     }
 
     /// <summary>
