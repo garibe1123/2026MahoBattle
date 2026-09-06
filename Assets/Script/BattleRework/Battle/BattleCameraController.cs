@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// 전투 카메라의 기본 Follow / Mouse Wheel Zoom / Map Inspection Pan을 담당합니다.
@@ -7,9 +8,10 @@ using UnityEngine.EventSystems;
 /// 조작:
 /// - Mouse Wheel: Zoom In/Out
 /// - Middle Mouse Drag: 전투 중 맵을 훑어보기
-/// - F: 즉시 Player 쪽으로 시점 복귀
+/// - F: Player 쪽으로 즉시 시점 복귀
 ///
-/// CameraShakePivot이 있으면 그 상위 CameraRig를 움직여 Camera Shake와 Follow가 서로 덮어쓰지 않게 합니다.
+/// 별도 Scene 배치 없이 BattleScene 로드 시 런타임에 자동 설치됩니다.
+/// CameraShakePivot이 있으면 상위 CameraRig를 자동으로 만들어 Follow와 Shake가 서로 덮어쓰지 않게 합니다.
 /// </summary>
 [DisallowMultipleComponent]
 public class BattleCameraController : MonoBehaviour
@@ -43,9 +45,36 @@ public class BattleCameraController : MonoBehaviour
     private float targetZoom;
     private bool inspecting;
     private bool initialized;
+    private bool rigResolved;
 
     public float CurrentZoom => controlledCamera != null ? controlledCamera.orthographicSize : 0f;
     public bool IsInspecting => inspecting;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void InstallSceneHook()
+    {
+        SceneManager.sceneLoaded -= HandleSceneLoaded;
+        SceneManager.sceneLoaded += HandleSceneLoaded;
+    }
+
+    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (!scene.IsValid() || !scene.isLoaded)
+            return;
+
+        bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
+        if (!battleScene)
+        {
+            BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
+            battleScene = manager != null && manager.gameObject.scene == scene;
+        }
+
+        if (!battleScene || Object.FindFirstObjectByType<BattleCameraController>() != null)
+            return;
+
+        GameObject host = new("BattleCameraRuntime");
+        host.AddComponent<BattleCameraController>();
+    }
 
     private void Awake()
     {
@@ -68,14 +97,13 @@ public class BattleCameraController : MonoBehaviour
         if (manager != null)
             roomManager = manager;
 
+        rigResolved = false;
         ResolveMovementRoot();
         InitializeState();
     }
 
     private void ResolveReferences()
     {
-        if (controlledCamera == null)
-            controlledCamera = GetComponentInChildren<Camera>(true);
         if (controlledCamera == null)
             controlledCamera = Camera.main;
 
@@ -89,38 +117,50 @@ public class BattleCameraController : MonoBehaviour
         if (roomManager == null)
             roomManager = FindFirstObjectByType<BattleRoomManager>();
 
+        BattleSceneManager manager = FindFirstObjectByType<BattleSceneManager>();
+        if (manager != null && transform.parent == null)
+            transform.SetParent(manager.transform, true);
+
         ResolveMovementRoot();
     }
 
     private void ResolveMovementRoot()
     {
-        if (movementRoot != null)
+        if (controlledCamera == null || rigResolved)
             return;
-
-        if (controlledCamera == null)
-        {
-            movementRoot = transform;
-            return;
-        }
 
         Transform cameraTransform = controlledCamera.transform;
         Transform shakePivot = cameraTransform.parent != null && cameraTransform.parent.name == "CameraShakePivot"
             ? cameraTransform.parent
             : null;
 
-        if (shakePivot != null && shakePivot.parent != null && shakePivot.parent.name == "CameraRig")
+        if (shakePivot == null)
+        {
+            movementRoot = cameraTransform;
+            rigResolved = true;
+            return;
+        }
+
+        if (shakePivot.parent != null && shakePivot.parent.name == "CameraRig")
         {
             movementRoot = shakePivot.parent;
+            rigResolved = true;
             return;
         }
 
-        if (name == "CameraRig")
-        {
-            movementRoot = transform;
-            return;
-        }
+        Transform oldParent = shakePivot.parent;
+        GameObject rigObject = new("CameraRig");
+        Transform rig = rigObject.transform;
+        rig.position = shakePivot.position;
+        rig.rotation = Quaternion.identity;
+        rig.localScale = Vector3.one;
 
-        movementRoot = cameraTransform;
+        if (oldParent != null)
+            rig.SetParent(oldParent, true);
+
+        shakePivot.SetParent(rig, true);
+        movementRoot = rig;
+        rigResolved = true;
     }
 
     private void InitializeState()
@@ -161,10 +201,7 @@ public class BattleCameraController : MonoBehaviour
         if (Mathf.Abs(scroll) <= 0.001f)
             return;
 
-        targetZoom = Mathf.Clamp(
-            targetZoom - scroll * zoomStep,
-            minZoom,
-            maxZoom);
+        targetZoom = Mathf.Clamp(targetZoom - scroll * zoomStep, minZoom, maxZoom);
     }
 
     private void HandleInspectionInput(bool pointerOverUi)
@@ -196,10 +233,7 @@ public class BattleCameraController : MonoBehaviour
             return;
 
         float zoomT = 1f - Mathf.Exp(-zoomSharpness * Time.unscaledDeltaTime);
-        controlledCamera.orthographicSize = Mathf.Lerp(
-            controlledCamera.orthographicSize,
-            targetZoom,
-            zoomT);
+        controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, targetZoom, zoomT);
 
         if (!inspecting && panOffset.sqrMagnitude > 0.0001f)
         {
@@ -210,8 +244,7 @@ public class BattleCameraController : MonoBehaviour
         Vector2 followPosition = followTarget != null
             ? followTarget.position
             : (Vector2)movementRoot.position;
-        Vector2 desired = followPosition + panOffset;
-        desired = ClampToCurrentRoom(desired);
+        Vector2 desired = ClampToCurrentRoom(followPosition + panOffset);
 
         Vector3 current = movementRoot.position;
         float followT = inspecting
