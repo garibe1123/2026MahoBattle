@@ -2,17 +2,20 @@ using NavMeshPlus.Components;
 using UnityEngine;
 
 /// <summary>
-/// Persistent non-combat Start Base only.
+/// Persistent 4x4 battle anchor.
 ///
 /// Rules:
 /// - 32px = 1 tile = 1 world unit.
-/// - Start Base is at least 3x3 tiles.
-/// - Start Base exists independently from Gameplay Rooms.
-/// - This component does not build Room walls, corridors, bridges, exits, or Gameplay Room shells.
-/// - Gameplay Room presentation is owned by BattleSpatialMapController/BattleRoomManager.
+/// - The persistent base is ALWAYS exactly 4x4 tiles.
+/// - The first Start Base uses the same 4x4 rule as later stage-transition bases.
+/// - On stage transition the base can be re-anchored around the player's current tile.
+/// - Gameplay Room pieces attach around this base; the base itself is never part of room exit animation.
 /// </summary>
 public class RoomBaseTemplate : MonoBehaviour
 {
+    public const int FixedBaseTiles = 4;
+    public const float TileWorldSize = 1f;
+
     [Header("Systems")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleRoomManager roomManager;
@@ -40,13 +43,17 @@ public class RoomBaseTemplate : MonoBehaviour
 
     private GameObject activeBase;
     private RoomDefinitionSO activeRoom;
-    private Vector2 activeWorldSize;
+    private Vector2 activeWorldSize = new(FixedBaseTiles, FixedBaseTiles);
     private bool subscribed;
+    private bool hasRuntimeAnchor;
+    private Vector3 runtimeTileOrigin;
 
     public GameObject ActiveBase => activeBase;
     public RoomDefinitionSO ActiveRoom => activeRoom;
     public Vector2 ActiveWorldSize => activeWorldSize;
     public bool HasPersistentBase => activeBase != null;
+    public Vector3 FixedTileOriginWorld => ResolveTileOriginWorld();
+    public Vector3 FixedCenterWorld => ResolveTileOriginWorld() + new Vector3(1.5f, 1.5f, 0f);
 
     private void Awake()
     {
@@ -112,12 +119,7 @@ public class RoomBaseTemplate : MonoBehaviour
 
     private void HandleNodeEntered(BattleNodeData node)
     {
-        if (node == null || node.room == null)
-            return;
-
-        // The Start Base is not rebuilt as stages change. It only remembers the latest Room data
-        // for inspector/debug context while retaining the original Start Base size and transform.
-        if (activeBase != null && keepAcrossRooms)
+        if (node != null && node.room != null && activeBase != null && keepAcrossRooms)
             activeRoom = node.room;
     }
 
@@ -126,7 +128,7 @@ public class RoomBaseTemplate : MonoBehaviour
         BuildBaseInternal(room, false);
     }
 
-    [ContextMenu("Rebuild Current Start Base")]
+    [ContextMenu("Rebuild Current 4x4 Base")]
     public void RebuildCurrentBase()
     {
         RoomDefinitionSO room = activeRoom;
@@ -139,28 +141,72 @@ public class RoomBaseTemplate : MonoBehaviour
             BuildBaseInternal(room, true);
     }
 
+    /// <summary>
+    /// Promotes the 4x4 tile area around the player's current tile into the next persistent base.
+    /// Returns the world position of the lower-left tile CENTER of that 4x4 base.
+    /// </summary>
+    public Vector3 ReanchorAroundPlayer(Vector3 playerWorldPosition)
+    {
+        ResolveOrigin();
+
+        float tileX = Mathf.Round(playerWorldPosition.x / TileWorldSize) * TileWorldSize;
+        float tileY = Mathf.Round(playerWorldPosition.y / TileWorldSize) * TileWorldSize;
+
+        // Even-sized 4x4 base: keep the player's nearest tile in the inner 2x2 area.
+        runtimeTileOrigin = new Vector3(tileX - 1f, tileY - 1f, ResolveZ());
+        hasRuntimeAnchor = true;
+
+        RoomDefinitionSO room = activeRoom;
+        if (room == null && roomManager != null)
+            room = roomManager.CurrentRoom;
+        if (room == null && runManager != null && runManager.CurrentNode != null)
+            room = runManager.CurrentNode.room;
+
+        if (room != null)
+            BuildBaseInternal(room, true);
+        else if (activeBase != null)
+            MoveExistingBaseToResolvedAnchor();
+
+        return runtimeTileOrigin;
+    }
+
+    public Vector3 ReanchorToTileOrigin(Vector3 lowerLeftTileCenterWorld)
+    {
+        runtimeTileOrigin = new Vector3(
+            Mathf.Round(lowerLeftTileCenterWorld.x / TileWorldSize) * TileWorldSize,
+            Mathf.Round(lowerLeftTileCenterWorld.y / TileWorldSize) * TileWorldSize,
+            ResolveZ());
+        hasRuntimeAnchor = true;
+
+        if (activeRoom != null)
+            BuildBaseInternal(activeRoom, true);
+        else if (activeBase != null)
+            MoveExistingBaseToResolvedAnchor();
+
+        return runtimeTileOrigin;
+    }
+
     private void BuildBaseInternal(RoomDefinitionSO room, bool forceRebuild)
     {
         if (room == null || !room.useRuntimeBase)
             return;
 
+        activeRoom = room;
+        activeWorldSize = new Vector2(FixedBaseTiles, FixedBaseTiles);
+
         if (activeBase != null && keepAcrossRooms && !forceRebuild)
         {
-            activeRoom = room;
+            ApplyExact4x4Sizing(activeBase);
+            MoveExistingBaseToResolvedAnchor();
+            EnsureWalkableBaseSource();
             return;
         }
 
         if (activeBase != null)
-            ClearBase();
+            DestroyBaseObject();
 
         ResolveOrigin();
-        activeRoom = room;
-        activeWorldSize = room.GetStartBaseWorldSize();
-
-        Vector3 originPosition = baseOrigin != null ? baseOrigin.position : transform.position;
-        Vector3 center = originPosition + (Vector3)room.GetStartBaseCenterOffset();
-        center.z = originPosition.z;
-
+        Vector3 center = FixedCenterWorld;
         Transform parent = baseRoot != null
             ? baseRoot
             : (roomManager != null ? roomManager.transform : transform);
@@ -176,48 +222,85 @@ public class RoomBaseTemplate : MonoBehaviour
     [ContextMenu("Clear Start Base")]
     public void ClearBase()
     {
-        if (activeBase != null)
-        {
-            if (Application.isPlaying)
-                Destroy(activeBase);
-            else
-                DestroyImmediate(activeBase);
-        }
-
+        DestroyBaseObject();
         activeBase = null;
         activeRoom = null;
-        activeWorldSize = Vector2.zero;
+        activeWorldSize = new Vector2(FixedBaseTiles, FixedBaseTiles);
+        hasRuntimeAnchor = false;
+        runtimeTileOrigin = Vector3.zero;
+    }
+
+    private void DestroyBaseObject()
+    {
+        if (activeBase == null)
+            return;
+
+        if (Application.isPlaying)
+            Destroy(activeBase);
+        else
+            DestroyImmediate(activeBase);
+    }
+
+    private Vector3 ResolveTileOriginWorld()
+    {
+        if (hasRuntimeAnchor)
+            return runtimeTileOrigin;
+
+        ResolveOrigin();
+        Vector3 origin = baseOrigin != null ? baseOrigin.position : transform.position;
+        return new Vector3(
+            Mathf.Round(origin.x / TileWorldSize) * TileWorldSize,
+            Mathf.Round(origin.y / TileWorldSize) * TileWorldSize,
+            origin.z);
+    }
+
+    private float ResolveZ()
+    {
+        if (baseOrigin != null)
+            return baseOrigin.position.z;
+        if (activeBase != null)
+            return activeBase.transform.position.z;
+        return transform.position.z;
+    }
+
+    private void MoveExistingBaseToResolvedAnchor()
+    {
+        if (activeBase == null)
+            return;
+
+        activeBase.transform.position = FixedCenterWorld;
+        ApplyExact4x4Sizing(activeBase);
+        RefreshSupportCollider(activeBase);
     }
 
     private void BuildPrefabBase(Transform parent, Vector3 center, Vector2 targetSize)
     {
         activeBase = Instantiate(basePrefab, center, Quaternion.identity, parent);
-        activeBase.name = "PersistentStartBase";
+        activeBase.name = "PersistentStartBase_4x4";
 
-        if (!scalePrefabToTemplate)
-            return;
-
-        if (!TryGetRendererBounds(activeBase, out Bounds bounds))
-            return;
-
-        float width = Mathf.Max(0.001f, bounds.size.x);
-        float height = Mathf.Max(0.001f, bounds.size.y);
-        Vector3 scale = activeBase.transform.localScale;
-        scale.x *= targetSize.x / width;
-        scale.y *= targetSize.y / height;
-        activeBase.transform.localScale = scale;
-
-        if (TryGetRendererBounds(activeBase, out Bounds resized))
+        if (scalePrefabToTemplate && TryGetRendererBounds(activeBase, out Bounds bounds))
         {
-            Vector3 correction = center - resized.center;
-            correction.z = 0f;
-            activeBase.transform.position += correction;
+            float width = Mathf.Max(0.001f, bounds.size.x);
+            float height = Mathf.Max(0.001f, bounds.size.y);
+            Vector3 scale = activeBase.transform.localScale;
+            scale.x *= targetSize.x / width;
+            scale.y *= targetSize.y / height;
+            activeBase.transform.localScale = scale;
+
+            if (TryGetRendererBounds(activeBase, out Bounds resized))
+            {
+                Vector3 correction = center - resized.center;
+                correction.z = 0f;
+                activeBase.transform.position += correction;
+            }
         }
+
+        ApplyExact4x4Sizing(activeBase);
     }
 
     private void BuildSpriteBase(Transform parent, Vector3 center, Vector2 targetSize)
     {
-        activeBase = new GameObject("PersistentStartBase");
+        activeBase = new GameObject("PersistentStartBase_4x4");
         activeBase.transform.SetParent(parent, true);
         activeBase.transform.position = center;
 
@@ -245,6 +328,16 @@ public class RoomBaseTemplate : MonoBehaviour
         }
     }
 
+    private static void ApplyExact4x4Sizing(GameObject root)
+    {
+        if (root == null)
+            return;
+
+        SpriteRenderer renderer = root.GetComponent<SpriteRenderer>();
+        if (renderer != null && renderer.drawMode != SpriteDrawMode.Simple)
+            renderer.size = new Vector2(FixedBaseTiles, FixedBaseTiles);
+    }
+
     private void EnsureWalkableBaseSource()
     {
         if (!baseProvidesWalkableNavMesh || activeBase == null)
@@ -260,13 +353,12 @@ public class RoomBaseTemplate : MonoBehaviour
             if (renderer == null || renderer.sprite == null)
                 continue;
 
-            Bounds bounds = renderer.bounds;
-            float area = Mathf.Abs(bounds.size.x * bounds.size.y);
-            if (area <= bestArea)
-                continue;
-
-            bestArea = area;
-            best = renderer;
+            float area = Mathf.Abs(renderer.bounds.size.x * renderer.bounds.size.y);
+            if (area > bestArea)
+            {
+                bestArea = area;
+                best = renderer;
+            }
         }
 
         if (best == null)
@@ -279,6 +371,26 @@ public class RoomBaseTemplate : MonoBehaviour
         modifier.ignoreFromBuild = false;
         modifier.overrideArea = false;
         BattleWalkableField.Ensure(best);
+        RefreshSupportCollider(activeBase);
+    }
+
+    private static void RefreshSupportCollider(GameObject root)
+    {
+        if (root == null)
+            return;
+
+        BattleWalkableField field = root.GetComponentInChildren<BattleWalkableField>(true);
+        SpriteRenderer renderer = field != null ? field.GetComponent<SpriteRenderer>() : null;
+        if (field == null || renderer == null)
+            return;
+
+        BoxCollider2D support = field.GetComponent<BoxCollider2D>();
+        if (support == null || !support.isTrigger)
+            return;
+
+        support.size = renderer.drawMode == SpriteDrawMode.Simple
+            ? (Vector2)renderer.sprite.bounds.size
+            : renderer.size;
     }
 
     private static bool TryGetRendererBounds(GameObject root, out Bounds bounds)
