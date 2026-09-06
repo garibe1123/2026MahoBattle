@@ -40,24 +40,28 @@ public class MonsterSpawnEntry
 }
 
 /// <summary>
-/// Gameplay Room 데이터.
+/// Gameplay Room data.
 ///
-/// 신규 공간 규칙:
-/// - 시각 Tile 기준은 32px = 1 world unit.
-/// - Player 기준 시각 크기는 48px = 1.5 world unit.
-/// - Start Area는 기본 3x3 tile의 독립 공간이며 Room이 아닙니다.
-/// - Combat Room은 기본 최소 6x6 tile이며 Rectangle/L/T/Cross/Irregular/Custom mask를 지원합니다.
-/// - 실제 Room Piece는 여러 tile을 포함해도 Root 하나가 통째로 도킹합니다.
+/// Spatial rules:
+/// - 32px = exactly 1 tile = exactly 1 world unit.
+/// - Player art baseline is 48px = 1.5 world units.
+/// - Start Area is an independent 4x4+ tile platform and is not a Combat Room.
+/// - Combat Rooms are 6x6+.
+/// - Any generated arm / bay / neck / bridge is at least 4 tiles wide.
+/// - Procedural Room cells use integer tile coordinates only.
+/// - A Room Piece may contain many tiles, but docks as one root object.
 ///
-/// recommendedGridSize / blocks는 기존 2x2 world MapBlock 데이터 호환용으로 유지합니다.
+/// recommendedGridSize / blocks remain only for legacy 2x2-world MapBlock compatibility.
 /// </summary>
 [CreateAssetMenu(fileName = "RoomDefinition", menuName = "MahoBattle/Room Definition")]
 public class RoomDefinitionSO : ScriptableObject
 {
     public const float ProceduralTileWorldSize = 1f;
+    public const int MinimumRoomChunkTiles = 4;
+    public const int MinimumCombatRoomTiles = 6;
 
     [Header("Legacy Persistent Base Compatibility")]
-    [Tooltip("구형 Room 데이터 호환용입니다. 실제 Start Area는 BattleRunManager가 Room과 별도로 관리합니다.")]
+    [Tooltip("Legacy Room compatibility only. The real Start Area is managed separately by BattleRunManager.")]
     public bool usePersistentStartBase = true;
 
     [HideInInspector]
@@ -65,42 +69,45 @@ public class RoomDefinitionSO : ScriptableObject
 
     [Header("Room Identity / Legacy Template")]
     public string roomId;
-    [Tooltip("구형 2x2 MapBlock 배치용 크기. 신규 절차형 Room 크기와는 별개입니다.")]
+    [Tooltip("Legacy 2x2 MapBlock grid size. It is separate from the 32px procedural tile size.")]
     public Vector2Int recommendedGridSize = new(4, 4);
 
     [Header("32px Tile / Start Area")]
-    [Tooltip("Start Area 바닥 크기. 전투가 시작되지 않는 독립 출발 공간입니다. 최소 3x3을 권장합니다.")]
-    public Vector2Int startBaseTileSize = new(3, 3);
+    [Tooltip("Independent non-combat Start Area floor. Runtime minimum is 4x4 tiles.")]
+    public Vector2Int startBaseTileSize = new(4, 4);
 
     [Header("Procedural Gameplay Room")]
-    [Tooltip("켜면 32px tile cell mask를 이용해 Room Shape를 절차적으로 구성합니다.")]
+    [Tooltip("Build the Room from an integer 32px tile mask.")]
     public bool useProceduralRoom = true;
-    [Tooltip("Combat Room 최소 tile 크기. 기본 6x6.")]
+    [Tooltip("Combat Room minimum tile size. Runtime minimum is 6x6.")]
     public Vector2Int proceduralMinTileSize = new(6, 6);
-    [Tooltip("Combat Room 최대 tile 크기. 매 Room seed에 따라 이 범위 안에서 변합니다.")]
-    public Vector2Int proceduralMaxTileSize = new(9, 9);
-    [Tooltip("0이면 roomId/node id 기반 deterministic seed를 사용합니다. 0이 아니면 이 값을 seed에 섞습니다.")]
+    [Tooltip("Combat Room maximum tile size.")]
+    public Vector2Int proceduralMaxTileSize = new(10, 10);
+    [Tooltip("Minimum thickness/size of any generated positive room chunk. Runtime minimum is 4 tiles.")]
+    [Min(MinimumRoomChunkTiles)]
+    public int proceduralMinChunkTileSize = MinimumRoomChunkTiles;
+    [Tooltip("0 uses deterministic node/room IDs. Non-zero is mixed into the seed.")]
     public int proceduralSeed;
     [Range(0f, 1f)]
-    [Tooltip("높을수록 외곽을 깎고 Chunk를 붙여 자유형 실루엣을 만듭니다. 중앙 전투 공간과 연결성은 보존합니다.")]
+    [Tooltip("Higher values allow more large corner cuts / bays while preserving 4-tile minimum structure.")]
     public float proceduralComplexity = 0.35f;
     [Range(0f, 0.45f)]
-    [Tooltip("Irregular/Auto Room에서 외곽 tile을 깎을 확률 계수입니다.")]
+    [Tooltip("Chance weight for large corner notches. Notches never create an arm thinner than 4 tiles.")]
     public float proceduralIndentChance = 0.16f;
     [Range(0f, 0.65f)]
-    [Tooltip("Irregular/Auto Room에서 외곽에 작은 덩어리를 붙일 확률 계수입니다.")]
+    [Tooltip("Additional irregularity weight. Generation still operates on 4-tile-safe chunks, never single-tile noise.")]
     public float proceduralExtensionChance = 0.28f;
 
     [Header("Large Room Piece Presentation")]
-    [Tooltip("켜면 낱개 Block이 아니라 큰 Room Piece 하나로 도킹합니다.")]
+    [Tooltip("Dock one large Room root instead of individual tiny blocks.")]
     public bool useLargeRoomPiece = true;
-    [Tooltip("Auto는 절차 생성일 때 Irregular 계열, 비절차형이면 Rectangle로 처리합니다.")]
+    [Tooltip("Auto becomes Irregular for procedural rooms and Rectangle for legacy rooms.")]
     public RoomLargePieceShape largePieceShape = RoomLargePieceShape.Auto;
-    [Tooltip("비절차형 Large Piece용 cell 크기. 0이면 recommendedGridSize fallback.")]
+    [Tooltip("Legacy/non-procedural large piece size. Runtime minimum is 4x4.")]
     public Vector2Int largePieceGridSize = new(4, 4);
-    [Tooltip("Custom일 때 포함할 32px tile 좌표 목록입니다.")]
+    [Tooltip("Custom 32px integer tile coordinates.")]
     public List<Vector2Int> customLargePieceCells = new();
-    [Tooltip("Room Piece가 날아오는 연출 방향. 0이면 접근 방향의 반대쪽에서 들어옵니다.")]
+    [Tooltip("Docking presentation direction. Zero means the spatial controller chooses from the approach direction.")]
     public Vector2 largePieceEntryDirection = Vector2.zero;
     [Min(0.05f)] public float largePieceEntryDuration = 0.72f;
     [Min(0.5f)] public float largePieceEntryOffset = 8f;
@@ -121,12 +128,14 @@ public class RoomDefinitionSO : ScriptableObject
     public List<ObstaclePlacement> obstacles = new();
 
     [Header("Monster Spawn Points")]
-    [Tooltip("완성된 Gameplay Room 내부 Spawn 기준점입니다.")]
+    [Tooltip("Spawn positions inside the completed Gameplay Room.")]
     public List<MonsterSpawnEntry> monsterSpawns = new();
 
     [Header("Clear Presentation")]
     public MapBlock highlightBlockPrefab;
     public Vector2 highlightBlockOffset = new(4f, 0f);
+
+    public int GetMinimumRoomChunkTiles() => Mathf.Max(MinimumRoomChunkTiles, proceduralMinChunkTileSize);
 
     public Vector2Int GetSafeGridSize()
     {
@@ -138,15 +147,15 @@ public class RoomDefinitionSO : ScriptableObject
     public Vector2Int GetStartBaseTileSize()
     {
         return new Vector2Int(
-            Mathf.Max(3, startBaseTileSize.x),
-            Mathf.Max(3, startBaseTileSize.y));
+            Mathf.Max(MinimumRoomChunkTiles, startBaseTileSize.x),
+            Mathf.Max(MinimumRoomChunkTiles, startBaseTileSize.y));
     }
 
     public Vector2Int GetProceduralMinTileSize()
     {
         return new Vector2Int(
-            Mathf.Max(6, proceduralMinTileSize.x),
-            Mathf.Max(6, proceduralMinTileSize.y));
+            Mathf.Max(MinimumCombatRoomTiles, proceduralMinTileSize.x),
+            Mathf.Max(MinimumCombatRoomTiles, proceduralMinTileSize.y));
     }
 
     public Vector2Int GetProceduralMaxTileSize()
@@ -164,8 +173,8 @@ public class RoomDefinitionSO : ScriptableObject
 
         Vector2Int fallback = GetSafeGridSize();
         return new Vector2Int(
-            largePieceGridSize.x > 0 ? largePieceGridSize.x : fallback.x,
-            largePieceGridSize.y > 0 ? largePieceGridSize.y : fallback.y);
+            Mathf.Max(MinimumRoomChunkTiles, largePieceGridSize.x > 0 ? largePieceGridSize.x : fallback.x),
+            Mathf.Max(MinimumRoomChunkTiles, largePieceGridSize.y > 0 ? largePieceGridSize.y : fallback.y));
     }
 
     public Vector2 GetTemplateWorldSize()
@@ -297,22 +306,28 @@ public class RoomDefinitionSO : ScriptableObject
             warnings.AppendLine("roomId is empty.");
 
         if (recommendedGridSize.x < 1 || recommendedGridSize.y < 1)
-            errors.AppendLine("recommendedGridSize must be at least 1x1.");
+            errors.AppendLine("recommendedGridSize must be at least 1x1 for legacy data.");
 
-        if (startBaseTileSize.x < 3 || startBaseTileSize.y < 3)
-            warnings.AppendLine("startBaseTileSize below 3x3 will be clamped to 3x3 at runtime.");
+        if (startBaseTileSize.x < MinimumRoomChunkTiles || startBaseTileSize.y < MinimumRoomChunkTiles)
+            warnings.AppendLine("startBaseTileSize below 4x4 will be clamped to 4x4 at runtime.");
+
+        if (proceduralMinChunkTileSize < MinimumRoomChunkTiles)
+            warnings.AppendLine("proceduralMinChunkTileSize below 4 will be clamped to 4 at runtime.");
 
         if (useProceduralRoom)
         {
-            if (proceduralMinTileSize.x < 6 || proceduralMinTileSize.y < 6)
+            if (proceduralMinTileSize.x < MinimumCombatRoomTiles || proceduralMinTileSize.y < MinimumCombatRoomTiles)
                 warnings.AppendLine("proceduralMinTileSize below 6x6 will be clamped to 6x6 at runtime.");
 
             if (proceduralMaxTileSize.x < proceduralMinTileSize.x || proceduralMaxTileSize.y < proceduralMinTileSize.y)
                 warnings.AppendLine("proceduralMaxTileSize is smaller than min size and will be clamped at runtime.");
         }
 
-        if (!useProceduralRoom && (largePieceGridSize.x < 1 || largePieceGridSize.y < 1))
-            warnings.AppendLine("largePieceGridSize is unset/legacy; recommendedGridSize will be used as fallback.");
+        if (!useProceduralRoom &&
+            (largePieceGridSize.x < MinimumRoomChunkTiles || largePieceGridSize.y < MinimumRoomChunkTiles))
+        {
+            warnings.AppendLine("largePieceGridSize below 4x4 will be clamped to 4x4 at runtime.");
+        }
 
         if (largePieceShape == RoomLargePieceShape.Custom &&
             (customLargePieceCells == null || customLargePieceCells.Count == 0))
