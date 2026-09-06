@@ -20,11 +20,17 @@ public class PlayerController : MonoBehaviour, IDamageable
     [SerializeField] private float baseDefense = 0f;
 
     [Header("Default Body Size")]
-    [Tooltip("자동 생성/기본 Player가 8x8 world Start Base에서 충분히 읽히도록 기본 월드 스케일을 적용합니다. 실제 전용 Player Prefab에서는 끌 수 있습니다.")]
     [SerializeField] private bool applyDefaultBodySizing = true;
     [SerializeField, Min(0.1f)] private float defaultCharacterScale = 1.6f;
-    [Tooltip("CircleCollider2D가 있으면 기본 피격/충돌 반경을 이 값으로 맞춥니다. Transform Scale 적용 전 local radius입니다.")]
     [SerializeField, Min(0.05f)] private float defaultHitColliderRadius = 0.46f;
+
+    [Header("Field Movement Guard")]
+    [Tooltip("켜면 실제 BattleWalkableField가 존재하는 곳에서만 이동/구르기가 가능합니다. 허공이나 아직 생성되지 않은 통로로 이동할 수 없습니다.")]
+    [SerializeField] private bool requireWalkableField = true;
+    [Tooltip("Player Collider 반경 중 바닥 위에 남아 있어야 하는 비율입니다. 너무 높이면 좁은 통로에서 과도하게 막힐 수 있습니다.")]
+    [SerializeField, Range(0.25f, 0.9f)] private float fieldFootprintRadiusMultiplier = 0.58f;
+    [Tooltip("Start Base가 MapBlock이 아니므로 Runtime Marker가 아직 없을 때 자동 등록하는 검사 주기입니다.")]
+    [SerializeField, Min(0.05f)] private float startBaseFieldFallbackInterval = 0.20f;
 
     [Header("Invincibility - v2.2")]
     [SerializeField] private float hitIFrameDuration = 0.5f;
@@ -33,7 +39,6 @@ public class PlayerController : MonoBehaviour, IDamageable
     [Header("Roll Chain")]
     [SerializeField] private float rollStaminaCost = 30f;
     [SerializeField] private int maxConsecutiveRolls = 3;
-    [Tooltip("3연속 구르기 후 강제되는 잠금 시간. 정확한 수치는 플레이테스트 조정 대상.")]
     [SerializeField] private float rollChainCooldown = 0.8f;
 
     [Header("References")]
@@ -41,13 +46,12 @@ public class PlayerController : MonoBehaviour, IDamageable
     [SerializeField] private BattleRunManager runManager;
 
     [Header("Input Gate")]
-    [Tooltip("BattleRunManager가 있으면 Run State에 따라 이동/공격 입력을 잠급니다. 구형 테스트 씬에서는 RunManager가 없으면 항상 입력을 허용합니다.")]
     [SerializeField] private bool useRunStateInputGate = true;
-    [Tooltip("Room 조립 중에도 플레이어 이동/구르기는 허용합니다. 몬스터가 등장하기 전 사격은 계속 잠급니다.")]
     [SerializeField] private bool allowMovementDuringRoomBuild = true;
 
     private Rigidbody2D rb;
     private PlayerAnimator anim;
+    private CircleCollider2D bodyCircle;
 
     private PlayerState currentState;
     private float currentHp;
@@ -62,6 +66,7 @@ public class PlayerController : MonoBehaviour, IDamageable
     private bool movementInputEnabled = true;
     private bool combatInputEnabled = true;
     private bool rollInputEnabled = true;
+    private float nextStartBaseFieldFallbackTime;
 
     public bool IsAlive => currentState != PlayerState.Dead && currentHp > 0f;
     public float Defense => Mathf.Max(0f, baseDefense);
@@ -80,11 +85,13 @@ public class PlayerController : MonoBehaviour, IDamageable
         ApplyDefaultBodySizing();
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponent<PlayerAnimator>();
+        bodyCircle = GetComponent<CircleCollider2D>();
 
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
 
         ResetForRun();
+        EnsureStartBaseWalkableFieldFallback(true);
     }
 
     private void ApplyDefaultBodySizing()
@@ -134,7 +141,8 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     private void FixedUpdate()
     {
-        if (currentState == PlayerState.Dead) return;
+        if (currentState == PlayerState.Dead)
+            return;
 
         if (!movementInputEnabled)
         {
@@ -142,8 +150,137 @@ public class PlayerController : MonoBehaviour, IDamageable
             return;
         }
 
-        if (currentState != PlayerState.Roll)
-            rb.linearVelocity = moveInput * moveSpeed;
+        if (currentState == PlayerState.Roll)
+            return;
+
+        Vector2 desiredVelocity = moveInput * moveSpeed;
+        rb.linearVelocity = ResolveFieldSupportedVelocity(desiredVelocity);
+    }
+
+    /// <summary>
+    /// 대각선 이동이 허공에 걸렸을 때 X/Y 축을 각각 검사해 벽/필드 끝을 따라 자연스럽게 미끄러질 수 있게 합니다.
+    /// 어떤 방향에도 실제 Field가 없으면 속도를 0으로 만듭니다.
+    /// </summary>
+    private Vector2 ResolveFieldSupportedVelocity(Vector2 desiredVelocity)
+    {
+        if (!requireWalkableField || desiredVelocity.sqrMagnitude <= 0.0001f)
+            return desiredVelocity;
+
+        EnsureStartBaseWalkableFieldFallback(false);
+
+        Vector2 current = rb.position;
+        Vector2 fullTarget = current + desiredVelocity * Time.fixedDeltaTime;
+        if (CanOccupyWalkableField(fullTarget))
+            return desiredVelocity;
+
+        Vector2 resolved = Vector2.zero;
+
+        if (Mathf.Abs(desiredVelocity.x) > 0.001f)
+        {
+            Vector2 xTarget = current + Vector2.right * desiredVelocity.x * Time.fixedDeltaTime;
+            if (CanOccupyWalkableField(xTarget))
+                resolved.x = desiredVelocity.x;
+        }
+
+        if (Mathf.Abs(desiredVelocity.y) > 0.001f)
+        {
+            Vector2 yTarget = current + Vector2.up * desiredVelocity.y * Time.fixedDeltaTime;
+            if (CanOccupyWalkableField(yTarget))
+                resolved.y = desiredVelocity.y;
+        }
+
+        return resolved;
+    }
+
+    private bool CanOccupyWalkableField(Vector2 center)
+    {
+        if (!requireWalkableField)
+            return true;
+
+        if (!BattleWalkableField.HasSupport(center))
+            return false;
+
+        float radius = GetWorldBodyRadius() * Mathf.Clamp(fieldFootprintRadiusMultiplier, 0.25f, 0.9f);
+        if (radius <= 0.02f)
+            return true;
+
+        // 몸 전체가 필드 끝을 크게 넘어가지 않도록 8방향 발자국을 검사합니다.
+        Vector2[] probes =
+        {
+            Vector2.right,
+            Vector2.left,
+            Vector2.up,
+            Vector2.down,
+            new Vector2(0.7071068f, 0.7071068f),
+            new Vector2(-0.7071068f, 0.7071068f),
+            new Vector2(0.7071068f, -0.7071068f),
+            new Vector2(-0.7071068f, -0.7071068f)
+        };
+
+        for (int i = 0; i < probes.Length; i++)
+        {
+            if (!BattleWalkableField.HasSupport(center + probes[i] * radius))
+                return false;
+        }
+
+        return true;
+    }
+
+    private float GetWorldBodyRadius()
+    {
+        if (bodyCircle == null)
+            bodyCircle = GetComponent<CircleCollider2D>();
+
+        if (bodyCircle == null)
+            return 0.22f;
+
+        Vector3 scale = transform.lossyScale;
+        float scaleMax = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y));
+        return Mathf.Max(0.05f, bodyCircle.radius * scaleMax);
+    }
+
+    /// <summary>
+    /// Start Base는 MapBlock이 아니므로 가장 큰 바닥 SpriteRenderer를 WalkableField로 한 번 등록합니다.
+    /// 이 fallback은 바닥을 새로 만드는 것이 아니라 이미 존재하는 Start Base Renderer에 판정용 Trigger만 붙입니다.
+    /// </summary>
+    private void EnsureStartBaseWalkableFieldFallback(bool force)
+    {
+        if (!requireWalkableField)
+            return;
+
+        if (!force && Time.unscaledTime < nextStartBaseFieldFallbackTime)
+            return;
+
+        nextStartBaseFieldFallbackTime = Time.unscaledTime + Mathf.Max(0.05f, startBaseFieldFallbackInterval);
+
+        if (BattleWalkableField.HasSupport(transform.position))
+            return;
+
+        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        if (baseTemplate == null || baseTemplate.ActiveBase == null)
+            return;
+
+        SpriteRenderer[] renderers = baseTemplate.ActiveBase.GetComponentsInChildren<SpriteRenderer>(true);
+        SpriteRenderer largest = null;
+        float largestArea = 0f;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.sprite == null)
+                continue;
+
+            Bounds bounds = renderer.bounds;
+            float area = Mathf.Abs(bounds.size.x * bounds.size.y);
+            if (area > largestArea)
+            {
+                largestArea = area;
+                largest = renderer;
+            }
+        }
+
+        if (largest != null)
+            BattleWalkableField.Ensure(largest);
     }
 
     private void HandleInput()
@@ -227,6 +364,13 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         while (timer < rollDuration && currentState == PlayerState.Roll && movementInputEnabled)
         {
+            Vector2 next = rb.position + rollDir * rollSpeed * Time.fixedDeltaTime;
+            if (requireWalkableField && !CanOccupyWalkableField(next))
+            {
+                rb.linearVelocity = Vector2.zero;
+                break;
+            }
+
             rb.linearVelocity = rollDir * rollSpeed;
             timer += Time.deltaTime;
 
@@ -377,10 +521,13 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         if (rb == null)
             rb = GetComponent<Rigidbody2D>();
+        if (bodyCircle == null)
+            bodyCircle = GetComponent<CircleCollider2D>();
 
         if (rb != null)
             rb.linearVelocity = Vector2.zero;
 
+        EnsureStartBaseWalkableFieldFallback(true);
         RefreshInputGate();
         HpChanged?.Invoke(currentHp, maxHp);
         StaminaChanged?.Invoke(currentStamina, maxStamina);
