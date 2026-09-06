@@ -175,17 +175,62 @@ public class BattleEquipmentSystem : MonoBehaviour
             if (slot.equipment != equipment || slot.grade >= 3)
                 continue;
 
-            slot.copies++;
-            if (slot.copies >= 3)
-            {
-                slot.grade++;
-                slot.copies = 1;
-            }
-
+            MergeCopyIntoSlot(slot);
             return true;
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Reward UI처럼 사용자가 정확한 목적 슬롯을 지정하는 획득 경로입니다.
+    /// - 빈 슬롯: 해당 슬롯에 배치
+    /// - 같은 장비: 해당 슬롯에 복사본을 합쳐 Grade 진행
+    /// - 다른 장비: 기존 장비를 버리고 교체
+    /// - Grade 3인 같은 장비: 더 합칠 수 없으므로 실패
+    /// </summary>
+    public bool PlaceIntoSlot(int index, BattleEquipmentSO equipment)
+    {
+        EnsureSlots();
+
+        if (!IsUnlockedIndex(index) || equipment == null)
+            return false;
+
+        BattleEquipmentSlot target = slots[index];
+        if (target.equipment == equipment)
+        {
+            if (target.grade >= 3)
+                return false;
+
+            MergeCopyIntoSlot(target);
+            InventoryChanged?.Invoke();
+            return true;
+        }
+
+        return ReplaceSlot(index, equipment);
+    }
+
+    public bool CanPlaceIntoSlot(int index, BattleEquipmentSO equipment)
+    {
+        EnsureSlots();
+        if (!IsUnlockedIndex(index) || equipment == null)
+            return false;
+
+        BattleEquipmentSlot target = slots[index];
+        return target.equipment != equipment || target.grade < 3;
+    }
+
+    private static void MergeCopyIntoSlot(BattleEquipmentSlot slot)
+    {
+        if (slot == null)
+            return;
+
+        slot.copies++;
+        if (slot.copies >= 3)
+        {
+            slot.grade = Mathf.Min(3, slot.grade + 1);
+            slot.copies = 1;
+        }
     }
 
     public bool ReplaceSlot(int index, BattleEquipmentSO equipment)
@@ -206,6 +251,8 @@ public class BattleEquipmentSystem : MonoBehaviour
 
         if (oldWasEquipped && equipment.shootingData != null)
             EquipSlot(index);
+        else if (oldWasEquipped)
+            EquipFirstAvailableWeapon();
 
         InventoryChanged?.Invoke();
         return true;
