@@ -393,6 +393,7 @@ public class BattleRunManager : MonoBehaviour
         CompleteCurrentNode();
     }
 
+    // Legacy quick-acquire API kept for compatibility with old callers.
     public bool SelectReward(int rewardIndex)
     {
         if (!TryGetReward(rewardIndex, out BattleEquipmentSO selected))
@@ -400,9 +401,25 @@ public class BattleRunManager : MonoBehaviour
 
         if (!equipmentSystem.TryAcquire(selected))
         {
-            Debug.LogWarning("[BattleRun] Reward could not be acquired. Inventory may be full. Replace/discard a slot before selecting again.");
+            Debug.LogWarning("[BattleRun] Reward could not be acquired. Inventory may be full. Place it into an unlocked slot instead.");
             return false;
         }
+
+        CompleteRewardSelection(selected);
+        return true;
+    }
+
+    /// <summary>
+    /// Reward Show의 기본 획득 경로.
+    /// 사용자가 선택한 보상을 직접 지정한 슬롯에 Drop해야만 획득이 확정됩니다.
+    /// 빈 슬롯은 배치, 같은 장비는 합성, 다른 장비가 있으면 그 장비를 버리고 교체합니다.
+    /// </summary>
+    public bool PlaceRewardIntoSlot(int rewardIndex, int slotIndex)
+    {
+        if (!TryGetReward(rewardIndex, out BattleEquipmentSO selected))
+            return false;
+        if (!equipmentSystem.PlaceIntoSlot(slotIndex, selected))
+            return false;
 
         CompleteRewardSelection(selected);
         return true;
