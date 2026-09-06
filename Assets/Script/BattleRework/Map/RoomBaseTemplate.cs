@@ -1,23 +1,15 @@
-using System.Collections;
-using System.Collections.Generic;
 using NavMeshPlus.Components;
 using UnityEngine;
 
 /// <summary>
-/// 전투 런의 영구 Start Base와 실제 Gameplay Room의 기본 Wall Shell fallback을 관리합니다.
+/// Persistent non-combat Start Base only.
 ///
-/// 기본 규칙:
-/// - MapBlock 1개 = 2x2 world unit
-/// - 기본 Start Base = 4x4 block = 8x8 world
-/// - grid (0,0) block 중심 = roomOrigin
-/// - 4x4 Base 중심 = roomOrigin + (3,3)
-///
-/// Start Base는 BattleRunManager가 첫 Gameplay Room보다 먼저 생성합니다.
-/// Start Area에서는 NodeEntered가 호출되지 않으므로 Room Wall / Incoming Block은 절대 생성되지 않습니다.
-/// Start Base는 이후 Room이 바뀌어도 유지되고, 실제 Gameplay Room의 Floor / Wall / Extension만 교체됩니다.
-///
-/// Gameplay Room SO에 명시적인 외곽 Extension Block이 하나도 없으면 테스트용 fallback으로
-/// 해당 Room 사방을 막는 긴 Wall Rail 4개를 생성합니다.
+/// Rules:
+/// - 32px = 1 tile = 1 world unit.
+/// - Start Base is at least 3x3 tiles.
+/// - Start Base exists independently from Gameplay Rooms.
+/// - This component does not build Room walls, corridors, bridges, exits, or Gameplay Room shells.
+/// - Gameplay Room presentation is owned by BattleSpatialMapController/BattleRoomManager.
 /// </summary>
 public class RoomBaseTemplate : MonoBehaviour
 {
@@ -26,41 +18,22 @@ public class RoomBaseTemplate : MonoBehaviour
     [SerializeField] private BattleRoomManager roomManager;
 
     [Header("Base Transform")]
-    [Tooltip("BattleRoomManager의 최초 roomOrigin과 동일한 Transform을 지정하는 것을 권장합니다.")]
     [SerializeField] private Transform baseOrigin;
     [SerializeField] private Transform baseRoot;
 
     [Header("Persistent Start Base")]
-    [Tooltip("런 시작 시 생성한 Start Base를 이후 Room/Run 진행 중 계속 유지합니다.")]
     [SerializeField] private bool keepAcrossRooms = true;
-    [Tooltip("Start Base의 대표 SpriteRenderer를 NavMeshPlus Walkable Source로 등록합니다.")]
     [SerializeField] private bool baseProvidesWalkableNavMesh = true;
 
-    [Header("Real Base Visual - 둘 다 null이면 Dummy")]
-    [Tooltip("완성된 Start Base Prefab이 있다면 지정합니다. Sprite보다 우선 사용합니다.")]
+    [Header("Real Base Visual - both null = runtime dummy")]
     [SerializeField] private GameObject basePrefab;
-    [Tooltip("Base용 Sprite만 사용할 경우 지정합니다. null이면 코드 생성 Dummy Floor를 사용합니다.")]
     [SerializeField] private Sprite baseSprite;
     [SerializeField] private Material baseMaterial;
     [SerializeField] private int sortingOrder = -100;
 
     [Header("Sizing")]
-    [Tooltip("Sprite 모드일 때 SpriteRenderer Tiled를 사용해 Start Base 크기에 맞춥니다.")]
     [SerializeField] private bool tileSpriteToTemplate = true;
-    [Tooltip("Prefab 모드일 때 Prefab의 Renderer Bounds를 측정해 Start Base 크기에 맞게 Root Scale을 조절합니다.")]
     [SerializeField] private bool scalePrefabToTemplate = true;
-
-    [Header("Default Closed Gameplay Room Shell")]
-    [Tooltip("Gameplay Room SO에 외곽 Extension Block이 하나도 없을 때만 닫힌 4면 Wall Rail을 자동 도킹합니다.")]
-    [SerializeField] private bool autoCreateShellWhenNoExtensionBlocks = true;
-    [SerializeField, Min(0.12f)] private float fallbackWallThickness = 0.44f;
-    [Tooltip("네 모서리에 틈이 생기지 않도록 각 Rail 길이를 추가로 겹치는 양입니다.")]
-    [SerializeField, Min(0f)] private float fallbackCornerOverlap = 0.24f;
-    [SerializeField] private Color fallbackWallColor = new(0.13f, 0.16f, 0.21f, 1f);
-    [SerializeField, Range(0.1f, 1.5f)] private float fallbackWallImpactStrength = 0.78f;
-    [SerializeField, Min(0.1f)] private float fallbackWallEntryDuration = 0.54f;
-    [SerializeField, Min(0.5f)] private float fallbackWallEntryOffset = 5.5f;
-    [SerializeField] private int fallbackWallSortingOrder = 4;
 
     [Header("Dummy Base")]
     [SerializeField] private Color dummyBaseColor = new(0.16f, 0.18f, 0.22f, 1f);
@@ -97,7 +70,6 @@ public class RoomBaseTemplate : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-
         if (roomManager == null)
             roomManager = FindFirstObjectByType<BattleRoomManager>();
     }
@@ -109,10 +81,8 @@ public class RoomBaseTemplate : MonoBehaviour
 
         if (roomManager != null)
         {
-            Transform namedRoomOrigin = roomManager.transform.Find("RoomOrigin");
-            baseOrigin = namedRoomOrigin != null
-                ? namedRoomOrigin
-                : roomManager.transform;
+            Transform named = roomManager.transform.Find("RoomOrigin");
+            baseOrigin = named != null ? named : roomManager.transform;
         }
         else
         {
@@ -127,7 +97,6 @@ public class RoomBaseTemplate : MonoBehaviour
 
         if (runManager != null)
             runManager.NodeEntered += HandleNodeEntered;
-
         subscribed = true;
     }
 
@@ -138,39 +107,18 @@ public class RoomBaseTemplate : MonoBehaviour
 
         if (runManager != null)
             runManager.NodeEntered -= HandleNodeEntered;
-
         subscribed = false;
     }
 
     private void HandleNodeEntered(BattleNodeData node)
     {
-        bool combatNode = node != null &&
-                          (node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite);
-
-        if (!combatNode || node.room == null || !node.room.useRuntimeBase)
+        if (node == null || node.room == null)
             return;
 
+        // The Start Base is not rebuilt as stages change. It only remembers the latest Room data
+        // for inspector/debug context while retaining the original Start Base size and transform.
         if (activeBase != null && keepAcrossRooms)
-        {
             activeRoom = node.room;
-
-            Vector2 requestedSize = node.room.GetRuntimeBaseWorldSize();
-            if ((requestedSize - activeWorldSize).sqrMagnitude > 0.001f)
-            {
-                Debug.LogWarning(
-                    $"[RoomBaseTemplate] Persistent Start Base is already {activeWorldSize}, but Room '{node.room.roomId}' requests {requestedSize}. " +
-                    "The first Start Base size is kept for this BattleScene.",
-                    this);
-            }
-        }
-        else
-        {
-            BuildBase(node.room);
-        }
-
-        // Start Area에서는 NodeEntered 자체가 호출되지 않습니다.
-        // 따라서 아래 Wall Shell은 실제 Gameplay Room에만 추가됩니다.
-        PrepareDefaultClosedRoomShell(node.room);
     }
 
     public void BuildBase(RoomDefinitionSO room)
@@ -181,14 +129,11 @@ public class RoomBaseTemplate : MonoBehaviour
     [ContextMenu("Rebuild Current Start Base")]
     public void RebuildCurrentBase()
     {
-        RoomDefinitionSO room = null;
-
-        if (roomManager != null && roomManager.CurrentRoom != null)
-            room = roomManager.CurrentRoom;
-        else if (runManager != null && runManager.CurrentNode != null)
+        RoomDefinitionSO room = activeRoom;
+        if (room == null && runManager != null && runManager.CurrentNode != null)
             room = runManager.CurrentNode.room;
-        else
-            room = activeRoom;
+        if (room == null && roomManager != null && roomManager.CurrentRoom != null)
+            room = roomManager.CurrentRoom;
 
         if (room != null)
             BuildBaseInternal(room, true);
@@ -209,15 +154,11 @@ public class RoomBaseTemplate : MonoBehaviour
             ClearBase();
 
         ResolveOrigin();
-
         activeRoom = room;
-        activeWorldSize = room.GetRuntimeBaseWorldSize();
+        activeWorldSize = room.GetStartBaseWorldSize();
 
-        Vector3 originPosition = baseOrigin != null
-            ? baseOrigin.position
-            : transform.position;
-
-        Vector3 center = originPosition + (Vector3)room.GetRuntimeBaseCenterOffset();
+        Vector3 originPosition = baseOrigin != null ? baseOrigin.position : transform.position;
+        Vector3 center = originPosition + (Vector3)room.GetStartBaseCenterOffset();
         center.z = originPosition.z;
 
         Transform parent = baseRoot != null
@@ -230,199 +171,6 @@ public class RoomBaseTemplate : MonoBehaviour
             BuildSpriteBase(parent, center, activeWorldSize);
 
         EnsureWalkableBaseSource();
-    }
-
-    private void PrepareDefaultClosedRoomShell(RoomDefinitionSO room)
-    {
-        if (!Application.isPlaying ||
-            !autoCreateShellWhenNoExtensionBlocks ||
-            room == null ||
-            !room.usePersistentStartBase)
-        {
-            return;
-        }
-
-        if (HasExplicitExtensionBlocks(room))
-            return;
-
-        if (room.blocks == null)
-            room.blocks = new List<MapBlockPlacement>();
-
-        Vector2Int grid = room.GetSafeGridSize();
-        Vector2 worldSize = room.GetTemplateWorldSize();
-        Vector2 center = room.GetTemplateCenterOffset();
-        Rect rect = room.GetStartBaseLocalRect();
-
-        float overlap = Mathf.Max(0f, fallbackCornerOverlap);
-        Vector2 verticalSize = new(
-            Mathf.Max(0.12f, fallbackWallThickness),
-            worldSize.y + overlap * 2f);
-        Vector2 horizontalSize = new(
-            worldSize.x + overlap * 2f,
-            Mathf.Max(0.12f, fallbackWallThickness));
-
-        List<MapBlockPlacement> syntheticPlacements = new(4);
-        List<GameObject> prototypes = new(4);
-
-        Vector2Int leftGrid = new(-1, 0);
-        Vector2Int rightGrid = new(grid.x, 0);
-        Vector2Int bottomGrid = new(0, -1);
-        Vector2Int topGrid = new(0, grid.y);
-
-        Vector2 leftRoot = room.GetBlockLocalPosition(leftGrid);
-        Vector2 rightRoot = room.GetBlockLocalPosition(rightGrid);
-        Vector2 bottomRoot = room.GetBlockLocalPosition(bottomGrid);
-        Vector2 topRoot = room.GetBlockLocalPosition(topGrid);
-
-        MapBlock leftWall = CreateRuntimeWallPrototype(
-            "Left",
-            new Vector2(rect.xMin, center.y) - leftRoot,
-            verticalSize);
-        MapBlock rightWall = CreateRuntimeWallPrototype(
-            "Right",
-            new Vector2(rect.xMax, center.y) - rightRoot,
-            verticalSize);
-        MapBlock bottomWall = CreateRuntimeWallPrototype(
-            "Bottom",
-            new Vector2(center.x, rect.yMin) - bottomRoot,
-            horizontalSize);
-        MapBlock topWall = CreateRuntimeWallPrototype(
-            "Top",
-            new Vector2(center.x, rect.yMax) - topRoot,
-            horizontalSize);
-
-        AddPrototype(prototypes, leftWall);
-        AddPrototype(prototypes, rightWall);
-        AddPrototype(prototypes, bottomWall);
-        AddPrototype(prototypes, topWall);
-
-        AddSyntheticWallPlacement(room, syntheticPlacements, leftWall, leftGrid, Vector2.left);
-        AddSyntheticWallPlacement(room, syntheticPlacements, rightWall, rightGrid, Vector2.right);
-        AddSyntheticWallPlacement(room, syntheticPlacements, bottomWall, bottomGrid, Vector2.down);
-        AddSyntheticWallPlacement(room, syntheticPlacements, topWall, topGrid, Vector2.up);
-
-        if (syntheticPlacements.Count > 0)
-            StartCoroutine(RemoveSyntheticShellEntriesNextFrame(room, syntheticPlacements, prototypes));
-        else
-            DestroyRuntimeWallPrototypes(prototypes);
-    }
-
-    private static bool HasExplicitExtensionBlocks(RoomDefinitionSO room)
-    {
-        if (room == null || room.blocks == null)
-            return false;
-
-        for (int i = 0; i < room.blocks.Count; i++)
-        {
-            MapBlockPlacement placement = room.blocks[i];
-            if (placement == null || placement.prefab == null)
-                continue;
-
-            if (!room.IsStartBaseGridPosition(placement.gridPosition))
-                return true;
-        }
-
-        return false;
-    }
-
-    private MapBlock CreateRuntimeWallPrototype(
-        string sideName,
-        Vector2 visualOffset,
-        Vector2 visualSize)
-    {
-        GameObject root = new($"__RuntimeRoomWallPrototype_{sideName}");
-        root.transform.SetParent(baseRoot != null ? baseRoot : transform, false);
-        root.transform.localPosition = new Vector3(10000f, 10000f, 0f);
-
-        GameObject visual = new("Visual");
-        visual.transform.SetParent(root.transform, false);
-        visual.transform.localPosition = visualOffset;
-
-        SpriteRenderer renderer = visual.AddComponent<SpriteRenderer>();
-        renderer.sprite = RuntimeRoomBaseSpriteCache.Wall;
-        renderer.drawMode = SpriteDrawMode.Tiled;
-        renderer.size = new Vector2(
-            Mathf.Max(0.12f, visualSize.x),
-            Mathf.Max(0.12f, visualSize.y));
-        renderer.color = fallbackWallColor;
-        renderer.sortingOrder = fallbackWallSortingOrder;
-
-        if (baseMaterial != null)
-            renderer.sharedMaterial = baseMaterial;
-
-        BoxCollider2D collider = visual.AddComponent<BoxCollider2D>();
-        collider.size = renderer.size;
-        collider.isTrigger = false;
-
-        NavMeshModifier modifier = visual.AddComponent<NavMeshModifier>();
-        modifier.ignoreFromBuild = false;
-        modifier.overrideArea = true;
-        modifier.area = 1;
-
-        MapBlock block = root.AddComponent<MapBlock>();
-        block.ConfigureRuntimeDockingBlock(
-            visual.transform,
-            false,
-            fallbackWallImpactStrength,
-            fallbackWallEntryDuration,
-            fallbackWallEntryOffset);
-
-        return block;
-    }
-
-    private static void AddPrototype(List<GameObject> prototypes, MapBlock block)
-    {
-        if (prototypes != null && block != null)
-            prototypes.Add(block.gameObject);
-    }
-
-    private static void AddSyntheticWallPlacement(
-        RoomDefinitionSO room,
-        List<MapBlockPlacement> syntheticPlacements,
-        MapBlock prefab,
-        Vector2Int gridPosition,
-        Vector2 entryDirection)
-    {
-        if (room == null || prefab == null)
-            return;
-
-        MapBlockPlacement placement = new()
-        {
-            prefab = prefab,
-            gridPosition = gridPosition,
-            entryDirection = entryDirection
-        };
-
-        room.blocks.Add(placement);
-        syntheticPlacements.Add(placement);
-    }
-
-    private IEnumerator RemoveSyntheticShellEntriesNextFrame(
-        RoomDefinitionSO room,
-        List<MapBlockPlacement> syntheticPlacements,
-        List<GameObject> prototypes)
-    {
-        yield return null;
-
-        if (room != null && room.blocks != null)
-        {
-            for (int i = 0; i < syntheticPlacements.Count; i++)
-                room.blocks.Remove(syntheticPlacements[i]);
-        }
-
-        DestroyRuntimeWallPrototypes(prototypes);
-    }
-
-    private static void DestroyRuntimeWallPrototypes(List<GameObject> prototypes)
-    {
-        if (prototypes == null)
-            return;
-
-        for (int i = 0; i < prototypes.Count; i++)
-        {
-            if (prototypes[i] != null)
-                Destroy(prototypes[i]);
-        }
     }
 
     [ContextMenu("Clear Start Base")]
@@ -441,10 +189,7 @@ public class RoomBaseTemplate : MonoBehaviour
         activeWorldSize = Vector2.zero;
     }
 
-    private void BuildPrefabBase(
-        Transform parent,
-        Vector3 center,
-        Vector2 targetSize)
+    private void BuildPrefabBase(Transform parent, Vector3 center, Vector2 targetSize)
     {
         activeBase = Instantiate(basePrefab, center, Quaternion.identity, parent);
         activeBase.name = "PersistentStartBase";
@@ -453,33 +198,24 @@ public class RoomBaseTemplate : MonoBehaviour
             return;
 
         if (!TryGetRendererBounds(activeBase, out Bounds bounds))
-        {
-            Debug.LogWarning(
-                $"[RoomBaseTemplate] Base prefab '{basePrefab.name}' has no Renderer. Automatic Start Base scaling was skipped.",
-                this);
             return;
-        }
 
         float width = Mathf.Max(0.001f, bounds.size.x);
         float height = Mathf.Max(0.001f, bounds.size.y);
-
         Vector3 scale = activeBase.transform.localScale;
         scale.x *= targetSize.x / width;
         scale.y *= targetSize.y / height;
         activeBase.transform.localScale = scale;
 
-        if (TryGetRendererBounds(activeBase, out Bounds resizedBounds))
+        if (TryGetRendererBounds(activeBase, out Bounds resized))
         {
-            Vector3 correction = center - resizedBounds.center;
+            Vector3 correction = center - resized.center;
             correction.z = 0f;
             activeBase.transform.position += correction;
         }
     }
 
-    private void BuildSpriteBase(
-        Transform parent,
-        Vector3 center,
-        Vector2 targetSize)
+    private void BuildSpriteBase(Transform parent, Vector3 center, Vector2 targetSize)
     {
         activeBase = new GameObject("PersistentStartBase");
         activeBase.transform.SetParent(parent, true);
@@ -487,9 +223,7 @@ public class RoomBaseTemplate : MonoBehaviour
 
         SpriteRenderer renderer = activeBase.AddComponent<SpriteRenderer>();
         bool dummy = baseSprite == null;
-        renderer.sprite = dummy
-            ? RuntimeRoomBaseSpriteCache.Grid
-            : baseSprite;
+        renderer.sprite = dummy ? RuntimeStartBaseSpriteCache.Grid32 : baseSprite;
         renderer.sortingOrder = sortingOrder;
         renderer.color = dummy ? dummyBaseColor : Color.white;
 
@@ -503,15 +237,10 @@ public class RoomBaseTemplate : MonoBehaviour
         }
         else
         {
-            Vector2 spriteSize = renderer.sprite != null
-                ? renderer.sprite.bounds.size
-                : Vector2.one;
-
-            float width = Mathf.Max(0.001f, spriteSize.x);
-            float height = Mathf.Max(0.001f, spriteSize.y);
+            Vector2 spriteSize = renderer.sprite != null ? renderer.sprite.bounds.size : Vector2.one;
             activeBase.transform.localScale = new Vector3(
-                targetSize.x / width,
-                targetSize.y / height,
+                targetSize.x / Mathf.Max(0.001f, spriteSize.x),
+                targetSize.y / Mathf.Max(0.001f, spriteSize.y),
                 1f);
         }
     }
@@ -541,12 +270,7 @@ public class RoomBaseTemplate : MonoBehaviour
         }
 
         if (best == null)
-        {
-            Debug.LogWarning(
-                "[RoomBaseTemplate] Persistent Start Base has no SpriteRenderer to use as a NavMeshPlus 2D source.",
-                this);
             return;
-        }
 
         NavMeshModifier modifier = best.GetComponent<NavMeshModifier>();
         if (modifier == null)
@@ -554,6 +278,7 @@ public class RoomBaseTemplate : MonoBehaviour
 
         modifier.ignoreFromBuild = false;
         modifier.overrideArea = false;
+        BattleWalkableField.Ensure(best);
     }
 
     private static bool TryGetRendererBounds(GameObject root, out Bounds bounds)
@@ -563,110 +288,62 @@ public class RoomBaseTemplate : MonoBehaviour
             return false;
 
         Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
-        bool hasBounds = false;
-
+        bool found = false;
         for (int i = 0; i < renderers.Length; i++)
         {
             Renderer renderer = renderers[i];
             if (renderer == null)
                 continue;
 
-            if (!hasBounds)
+            if (!found)
             {
                 bounds = renderer.bounds;
-                hasBounds = true;
+                found = true;
             }
             else
             {
                 bounds.Encapsulate(renderer.bounds);
             }
         }
-
-        return hasBounds;
+        return found;
     }
 
-    private static class RuntimeRoomBaseSpriteCache
+    private static class RuntimeStartBaseSpriteCache
     {
-        private static Sprite grid;
-        private static Sprite wall;
+        private static Sprite grid32;
+        public static Sprite Grid32 => grid32 != null ? grid32 : grid32 = CreateGrid32();
 
-        public static Sprite Grid => grid != null ? grid : grid = CreateGridSprite();
-        public static Sprite Wall => wall != null ? wall : wall = CreateWallSprite();
-
-        private static Sprite CreateGridSprite()
+        private static Sprite CreateGrid32()
         {
-            const int size = 16;
-            Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+            const int pixels = 32;
+            Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
             {
-                name = "PersistentStartBaseGridTexture",
+                name = "PersistentStartBase_32pxTile",
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Repeat,
                 hideFlags = HideFlags.HideAndDontSave
             };
 
-            // Dummy Start Base는 '벽/레일'처럼 보이면 안 됩니다.
-            // 한 Tile당 왼쪽/아래 1px만 미세하게 어둡게 그려 얇은 바닥 경계만 남깁니다.
             Color inner = new(0.96f, 0.96f, 0.96f, 1f);
-            Color gridLine = new(0.82f, 0.84f, 0.87f, 1f);
-
-            for (int y = 0; y < size; y++)
+            Color line = new(0.82f, 0.84f, 0.87f, 1f);
+            for (int y = 0; y < pixels; y++)
             {
-                for (int x = 0; x < size; x++)
+                for (int x = 0; x < pixels; x++)
                 {
-                    bool line = x == 0 || y == 0;
-                    texture.SetPixel(x, y, line ? gridLine : inner);
+                    bool border = x == 0 || y == 0;
+                    texture.SetPixel(x, y, border ? line : inner);
                 }
             }
-
-            texture.Apply(false, false);
+            texture.Apply(false, true);
 
             Sprite sprite = Sprite.Create(
                 texture,
-                new Rect(0f, 0f, size, size),
+                new Rect(0f, 0f, pixels, pixels),
                 new Vector2(0.5f, 0.5f),
-                8f,
+                pixels,
                 0,
                 SpriteMeshType.FullRect);
-
-            sprite.name = "PersistentStartBaseGridSprite";
-            sprite.hideFlags = HideFlags.HideAndDontSave;
-            return sprite;
-        }
-
-        private static Sprite CreateWallSprite()
-        {
-            const int size = 8;
-            Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
-            {
-                name = "RuntimeRoomWallTexture",
-                filterMode = FilterMode.Point,
-                wrapMode = TextureWrapMode.Repeat,
-                hideFlags = HideFlags.HideAndDontSave
-            };
-
-            for (int y = 0; y < size; y++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    bool edge = x == 0 || y == 0 || x == size - 1 || y == size - 1;
-                    Color value = edge
-                        ? Color.white
-                        : new Color(0.72f, 0.76f, 0.82f, 1f);
-                    texture.SetPixel(x, y, value);
-                }
-            }
-
-            texture.Apply(false, false);
-
-            Sprite sprite = Sprite.Create(
-                texture,
-                new Rect(0f, 0f, size, size),
-                new Vector2(0.5f, 0.5f),
-                8f,
-                0,
-                SpriteMeshType.FullRect);
-
-            sprite.name = "RuntimeRoomWallSprite";
+            sprite.name = "PersistentStartBase_32pxTile";
             sprite.hideFlags = HideFlags.HideAndDontSave;
             return sprite;
         }
