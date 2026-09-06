@@ -7,26 +7,27 @@ using NavMeshPlus.Components;
 using UnityEngine;
 
 /// <summary>
-/// Presentation correction layer for procedural stage assembly.
+/// Base-centered presentation layer for procedural stage assembly.
 ///
-/// Rules enforced here:
-/// - The persistent 4x4 Start Base is the real center anchor and is never recreated as an incoming piece.
-/// - Room topology rules (10x10+ room, 2-tile+ passages) are independent from presentation-piece size.
-/// - Incoming presentation pieces may be as small as 1x1 or 2x2 tiles.
-/// - Every incoming piece approaches from the outside toward the persistent-base center.
-/// - On clear, pieces leave on the same straight rail axis. No spinning / tumbling exit is used.
+/// Coordinate rule:
+/// - Persistent 4x4 Base owns local tile coordinates (0,0) ~ (3,3).
+/// - Every generated Room is translated into that coordinate space BEFORE it is split into pieces.
+/// - Example 10x10 Room: X/Y = -3,-2,-1, 0,1,2,3, 4,5,6.
+///   Therefore the existing 4x4 Base is physically at the middle and the Room expands around it.
 ///
-/// This component intentionally sits between BattleSpatialMapController (-20000) and
-/// BattleStageTransitionController (-15000), so it can rewrite the temporary runtime room
-/// prototypes after the procedural layout is prepared but before BattleRoomManager instantiates them.
+/// Presentation rule:
+/// - Room topology constraints and presentation-piece size are separate concerns.
+/// - Incoming pieces may be 1x1 / 1x2 / 2x2 / 3x3 / 4x4-ish connected chunks.
+/// - Pieces closer to the Base are assembled first and every piece travels on one cardinal rail axis.
+/// - Clear exit uses the same cardinal, center-relative rail concept. No spin/tumble.
 /// </summary>
 [DefaultExecutionOrder(-19000)]
 public sealed class BattleAssemblyRailPresentation : MonoBehaviour
 {
     [Header("Incoming Piece Granularity")]
     [SerializeField, Min(1)] private int minimumPieceTileCount = 1;
-    [SerializeField, Min(1)] private int maximumPieceTileSpan = 4;
-    [SerializeField, Range(8, 64)] private int maximumPieceCount = 36;
+    [SerializeField, Range(1, 4)] private int maximumPieceTileSpan = 4;
+    [SerializeField, Range(16, 128)] private int maximumPieceCount = 64;
 
     [Header("Rail Exit")]
     [SerializeField] private Ease railExitEase = Ease.InCubic;
@@ -36,13 +37,10 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
 
     private static readonly FieldInfo ActiveBlocksField =
         typeof(BattleRoomManager).GetField("activeBlocks", PrivateInstance);
-
     private static readonly FieldInfo TransitionSpinField =
         typeof(BattleStageTransitionController).GetField("exitGhostSpinDegrees", PrivateInstance);
-
     private static readonly FieldInfo TransitionScaleField =
         typeof(BattleStageTransitionController).GetField("exitGhostEndScale", PrivateInstance);
-
     private static readonly FieldInfo MapBlockExitEaseField =
         typeof(MapBlock).GetField("exitEase", PrivateInstance);
 
@@ -51,6 +49,7 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
     private BattleSpatialMapController spatialMap;
     private RoomBaseTemplate baseTemplate;
     private BattleStageTransitionController stageTransition;
+    private PlayerController player;
     private bool subscribed;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -104,6 +103,8 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         if (stageTransition == null)
             stageTransition = FindFirstObjectByType<BattleStageTransitionController>();
+        if (player == null)
+            player = FindFirstObjectByType<PlayerController>();
     }
 
     private void Subscribe()
@@ -133,7 +134,7 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
         if (!disableLegacyExitSpin || stageTransition == null)
             return;
 
-        // MinAttribute is editor-only validation. Runtime zero intentionally means "no spin".
+        // Runtime zero intentionally means no tumble. The outgoing stage only slides away on rails.
         TransitionSpinField?.SetValue(stageTransition, 0f);
         TransitionScaleField?.SetValue(stageTransition, 1f);
     }
@@ -149,8 +150,9 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
     }
 
     /// <summary>
-    /// BattleSpatialMapController has already placed temporary runtime prototypes in room.blocks at this point.
-    /// We rebuild those temporary prototypes into smaller center-anchored presentation chunks.
+    /// BattleSpatialMapController already generated a Room in positive 0..N tile coordinates.
+    /// This method immediately translates those tiles so the existing persistent Base becomes
+    /// coordinates 0..3 and all other Room cells extend into negative/positive coordinates around it.
     /// </summary>
     private void RewriteRuntimeRoomPieces(BattleNodeData node)
     {
@@ -158,11 +160,10 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
         if (room.blocks == null || room.blocks.Count == 0)
             return;
 
-        Dictionary<Vector2Int, GameObject> sourceTiles = new();
-        HashSet<Vector2Int> fullCells = new();
+        Dictionary<Vector2Int, GameObject> originalSourceTiles = new();
+        HashSet<Vector2Int> originalCells = new();
         WallStyle wallStyle = default;
         bool hasWallStyle = false;
-        List<GameObject> oldRuntimePrototypes = new();
 
         for (int i = 0; i < room.blocks.Count; i++)
         {
@@ -173,8 +174,6 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             GameObject prototypeRoot = placement.prefab.gameObject;
             if (!prototypeRoot.name.StartsWith("__RuntimeRoomPiecePrototype_", StringComparison.Ordinal))
                 continue;
-
-            oldRuntimePrototypes.Add(prototypeRoot);
 
             Transform[] children = prototypeRoot.GetComponentsInChildren<Transform>(true);
             for (int c = 0; c < children.Length; c++)
@@ -189,9 +188,9 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
                         Mathf.RoundToInt(child.localPosition.x),
                         Mathf.RoundToInt(child.localPosition.y));
 
-                    fullCells.Add(cell);
-                    if (!sourceTiles.ContainsKey(cell))
-                        sourceTiles[cell] = child.gameObject;
+                    originalCells.Add(cell);
+                    if (!originalSourceTiles.ContainsKey(cell))
+                        originalSourceTiles[cell] = child.gameObject;
                 }
                 else if (!hasWallStyle && child.name.StartsWith("RoomEdge", StringComparison.Ordinal))
                 {
@@ -206,40 +205,52 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             }
         }
 
-        if (fullCells.Count == 0 || sourceTiles.Count == 0)
+        if (originalCells.Count == 0 || originalSourceTiles.Count == 0)
             return;
 
-        GetBounds(fullCells, out int minX, out int minY, out int maxX, out int maxY);
+        GetBounds(originalCells, out int minX, out int minY, out int maxX, out int maxY);
         int width = maxX - minX + 1;
         int height = maxY - minY + 1;
 
-        int baseStartX = minX + Mathf.Max(0, (width - RoomBaseTemplate.FixedBaseTiles) / 2);
-        int baseStartY = minY + Mathf.Max(0, (height - RoomBaseTemplate.FixedBaseTiles) / 2);
-        int baseEndX = baseStartX + RoomBaseTemplate.FixedBaseTiles - 1;
-        int baseEndY = baseStartY + RoomBaseTemplate.FixedBaseTiles - 1;
+        // Find where a centered 4x4 would have lived in the old positive coordinate room.
+        // Then translate THAT location to 0..3. This is the key that removes the lower-left anchoring bug.
+        int oldBaseStartX = minX + Mathf.Max(0, (width - RoomBaseTemplate.FixedBaseTiles) / 2);
+        int oldBaseStartY = minY + Mathf.Max(0, (height - RoomBaseTemplate.FixedBaseTiles) / 2);
+        Vector2Int toBaseSpace = new(-oldBaseStartX, -oldBaseStartY);
 
-        // The persistent Start Base is the center itself. Do not generate duplicate incoming tiles there.
-        HashSet<Vector2Int> incomingCells = new(fullCells);
-        for (int y = baseStartY; y <= baseEndY; y++)
+        HashSet<Vector2Int> centeredFullCells = new();
+        Dictionary<Vector2Int, GameObject> centeredSourceTiles = new();
+
+        foreach (Vector2Int oldCell in originalCells)
         {
-            for (int x = baseStartX; x <= baseEndX; x++)
+            Vector2Int centeredCell = oldCell + toBaseSpace;
+            centeredFullCells.Add(centeredCell);
+
+            if (originalSourceTiles.TryGetValue(oldCell, out GameObject source) && source != null)
+                centeredSourceTiles[centeredCell] = source;
+        }
+
+        // Existing 4x4 Start Base is the actual center floor. Incoming tiles are only the outside cells.
+        HashSet<Vector2Int> incomingCells = new(centeredFullCells);
+        for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
+        {
+            for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
                 incomingCells.Remove(new Vector2Int(x, y));
         }
 
         if (incomingCells.Count == 0)
             return;
 
-        Vector2 roomCenter = new(
-            (minX + maxX) * 0.5f,
-            (minY + maxY) * 0.5f);
+        // The Base center is always 1.5,1.5 in this coordinate system, regardless of Room size.
+        Vector2 baseCenter = new(1.5f, 1.5f);
 
         int seed = StableHash(node.id) ^ StableHash(room.roomId) ^ room.proceduralSeed;
-        List<HashSet<Vector2Int>> groups = BuildGranularGroups(incomingCells, roomCenter, seed);
+        List<HashSet<Vector2Int>> groups = BuildGranularGroups(incomingCells, baseCenter, seed);
         if (groups.Count == 0)
             return;
 
         if (!hasWallStyle)
-            wallStyle = WallStyle.Fallback(sourceTiles);
+            wallStyle = WallStyle.Fallback(centeredSourceTiles);
 
         List<MapBlockPlacement> rewrittenPlacements = new(groups.Count);
         List<GameObject> newPrototypes = new(groups.Count);
@@ -253,8 +264,8 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             MapBlock block = CreateGranularPrototype(
                 node,
                 group,
-                fullCells,
-                sourceTiles,
+                centeredFullCells,
+                centeredSourceTiles,
                 wallStyle,
                 i);
 
@@ -262,14 +273,13 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
                 continue;
 
             Vector2 pieceCenter = CalculateCenter(group);
-            Vector2 outward = GetDominantOutwardDirection(pieceCenter - roomCenter, i);
+            Vector2 outward = GetDominantOutwardDirection(pieceCenter - baseCenter, i);
 
             rewrittenPlacements.Add(new MapBlockPlacement
             {
                 prefab = block,
                 gridPosition = Vector2Int.zero,
-                // MapBlock.PlayEnter starts at destination + entryDirection * offset,
-                // so outward direction means the piece travels inward toward the persistent base.
+                // PlayEnter starts OUTSIDE along this vector, then travels inward to its final Base-relative cell position.
                 entryDirection = outward
             });
             newPrototypes.Add(block.gameObject);
@@ -280,14 +290,11 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
 
         room.blocks = rewrittenPlacements;
         StartCoroutine(DestroyOurPrototypesNextFrame(newPrototypes));
-
-        // Old prototypes belong to BattleSpatialMapController and are already scheduled for destruction.
-        // Do not destroy them here; its restore coroutine owns their lifetime.
     }
 
     private List<HashSet<Vector2Int>> BuildGranularGroups(
         HashSet<Vector2Int> cells,
-        Vector2 roomCenter,
+        Vector2 baseCenter,
         int seed)
     {
         List<HashSet<Vector2Int>> groups = new();
@@ -298,9 +305,9 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
         List<Vector2Int> ordered = new(cells);
         ordered.Sort((a, b) =>
         {
-            float da = ((Vector2)a - roomCenter).sqrMagnitude;
-            float db = ((Vector2)b - roomCenter).sqrMagnitude;
-            int cmp = da.CompareTo(db); // center-near pieces dock first.
+            float da = ((Vector2)a - baseCenter).sqrMagnitude;
+            float db = ((Vector2)b - baseCenter).sqrMagnitude;
+            int cmp = da.CompareTo(db); // Base-near cells dock first.
             if (cmp != 0) return cmp;
             cmp = a.y.CompareTo(b.y);
             return cmp != 0 ? cmp : a.x.CompareTo(b.x);
@@ -330,7 +337,13 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             }
 
             int targetCount = ChooseTargetPieceCellCount(random);
-            HashSet<Vector2Int> group = GrowConnectedGroup(start, remaining, roomCenter, targetCount);
+            HashSet<Vector2Int> group = GrowConnectedGroup(
+                start,
+                remaining,
+                baseCenter,
+                targetCount,
+                Mathf.Clamp(maximumPieceTileSpan, 1, 4));
+
             if (group.Count == 0)
             {
                 remaining.Remove(start);
@@ -340,7 +353,7 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             groups.Add(group);
         }
 
-        // If the safety cap is reached, put any remaining cells into nearby final groups.
+        // Safety-cap remainder is merged into the nearest piece. Normal 10~14 rooms should rarely reach this path.
         if (remaining.Count > 0)
         {
             foreach (Vector2Int cell in remaining)
@@ -362,21 +375,21 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
         int roll = random.Next(100);
 
         int span;
-        if (roll < 12) span = 1;       // explicit 1x1-capable presentation pieces.
-        else if (roll < 52) span = 2;  // 2x2 is the common small-piece size.
-        else if (roll < 82) span = 3;
+        if (roll < 14) span = 1;
+        else if (roll < 58) span = 2;
+        else if (roll < 84) span = 3;
         else span = 4;
 
         span = Mathf.Clamp(span, 1, maxSpan);
-        int target = span * span;
-        return Mathf.Max(minimumPieceTileCount, target);
+        return Mathf.Max(minimumPieceTileCount, span * span);
     }
 
     private static HashSet<Vector2Int> GrowConnectedGroup(
         Vector2Int start,
         HashSet<Vector2Int> remaining,
-        Vector2 roomCenter,
-        int targetCount)
+        Vector2 baseCenter,
+        int targetCount,
+        int maximumSpan)
     {
         HashSet<Vector2Int> group = new();
         if (!remaining.Contains(start))
@@ -392,22 +405,51 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             Vector2Int.down
         };
 
+        int minX = start.x;
+        int maxX = start.x;
+        int minY = start.y;
+        int maxY = start.y;
+
         while (frontier.Count > 0 && group.Count < Mathf.Max(1, targetCount))
         {
             frontier.Sort((a, b) =>
             {
-                // Prefer cells at a similar radius so pieces read as rings attached around the 4x4 center.
-                float ra = Mathf.Abs(((Vector2)a - roomCenter).magnitude - ((Vector2)start - roomCenter).magnitude);
-                float rb = Mathf.Abs(((Vector2)b - roomCenter).magnitude - ((Vector2)start - roomCenter).magnitude);
+                // Prefer approximately the same ring around the 4x4 Base so chunks read as attached layers.
+                float ra = Mathf.Abs(((Vector2)a - baseCenter).magnitude - ((Vector2)start - baseCenter).magnitude);
+                float rb = Mathf.Abs(((Vector2)b - baseCenter).magnitude - ((Vector2)start - baseCenter).magnitude);
                 return ra.CompareTo(rb);
             });
 
-            Vector2Int current = frontier[0];
-            frontier.RemoveAt(0);
+            int acceptedIndex = -1;
+            for (int i = 0; i < frontier.Count; i++)
+            {
+                Vector2Int candidate = frontier[i];
+                int nextMinX = Mathf.Min(minX, candidate.x);
+                int nextMaxX = Mathf.Max(maxX, candidate.x);
+                int nextMinY = Mathf.Min(minY, candidate.y);
+                int nextMaxY = Mathf.Max(maxY, candidate.y);
+
+                if (nextMaxX - nextMinX + 1 <= maximumSpan &&
+                    nextMaxY - nextMinY + 1 <= maximumSpan)
+                {
+                    acceptedIndex = i;
+                    break;
+                }
+            }
+
+            if (acceptedIndex < 0)
+                break;
+
+            Vector2Int current = frontier[acceptedIndex];
+            frontier.RemoveAt(acceptedIndex);
             if (!remaining.Remove(current))
                 continue;
 
             group.Add(current);
+            minX = Mathf.Min(minX, current.x);
+            maxX = Mathf.Max(maxX, current.x);
+            minY = Mathf.Min(minY, current.y);
+            maxY = Mathf.Max(maxY, current.y);
 
             for (int d = 0; d < dirs.Length; d++)
             {
@@ -423,8 +465,8 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
     private MapBlock CreateGranularPrototype(
         BattleNodeData node,
         HashSet<Vector2Int> group,
-        HashSet<Vector2Int> fullCells,
-        Dictionary<Vector2Int, GameObject> sourceTiles,
+        HashSet<Vector2Int> centeredFullCells,
+        Dictionary<Vector2Int, GameObject> centeredSourceTiles,
         WallStyle wallStyle,
         int index)
     {
@@ -433,7 +475,7 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
 
         foreach (Vector2Int cell in group)
         {
-            if (!sourceTiles.TryGetValue(cell, out GameObject source) || source == null)
+            if (!centeredSourceTiles.TryGetValue(cell, out GameObject source) || source == null)
                 continue;
 
             GameObject tile = Instantiate(source, root.transform);
@@ -442,7 +484,7 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
             tile.transform.localRotation = Quaternion.identity;
         }
 
-        BuildOuterWalls(root.transform, group, fullCells, wallStyle);
+        BuildOuterWalls(root.transform, group, centeredFullCells, wallStyle);
 
         MapBlock block = root.AddComponent<MapBlock>();
         block.ConfigureRuntimeDockingBlock(
@@ -516,64 +558,77 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
 
     private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> _)
     {
-        // BattleStageTransitionController runs after this component. Re-centering each MapBlock root on
-        // its actual visual bounds makes its existing radial rail calculation use the real piece position
-        // instead of the shared RoomOrigin. This does not move anything on screen.
-        RecenterActiveBlockRootsForRailExit();
+        // StageTransition calculates outgoing direction from each MapBlock root to the player.
+        // Projecting that root onto a single dominant axis makes the resulting exit strictly rail-like.
+        PrepareActiveBlockRootsForCardinalRailExit();
         ApplyRailExitPresentationSettings();
     }
 
-    private void RecenterActiveBlockRootsForRailExit()
+    private void PrepareActiveBlockRootsForCardinalRailExit()
     {
         if (roomManager == null || ActiveBlocksField == null)
             return;
         if (ActiveBlocksField.GetValue(roomManager) is not List<MapBlock> blocks)
             return;
 
+        Vector2 exitCenter;
+        if (player != null)
+            exitCenter = player.transform.position;
+        else if (baseTemplate != null)
+            exitCenter = baseTemplate.FixedCenterWorld;
+        else
+            exitCenter = roomManager.RoomOrigin != null ? roomManager.RoomOrigin.position : Vector2.zero;
+
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock block = blocks[i];
             if (block == null)
                 continue;
-
             if (!TryGetRendererBounds(block.gameObject, out Bounds bounds))
                 continue;
 
-            Transform root = block.transform;
-            Vector3 desiredRootPosition = bounds.center;
-            desiredRootPosition.z = root.position.z;
-            Vector3 delta = desiredRootPosition - root.position;
-            if (delta.sqrMagnitude < 0.000001f)
-            {
-                MapBlockExitEaseField?.SetValue(block, railExitEase);
-                continue;
-            }
+            Vector2 actualCenter = bounds.center;
+            Vector2 outward = GetDominantOutwardDirection(actualCenter - exitCenter, i);
+            float axialDistance = Mathf.Abs(outward.x) > 0.5f
+                ? Mathf.Abs(actualCenter.x - exitCenter.x)
+                : Mathf.Abs(actualCenter.y - exitCenter.y);
+            axialDistance = Mathf.Max(0.5f, axialDistance);
 
-            int childCount = root.childCount;
-            Vector3[] worldPositions = new Vector3[childCount];
-            Quaternion[] worldRotations = new Quaternion[childCount];
-            for (int c = 0; c < childCount; c++)
-            {
-                Transform child = root.GetChild(c);
-                worldPositions[c] = child.position;
-                worldRotations[c] = child.rotation;
-            }
-
-            root.position = desiredRootPosition;
-            for (int c = 0; c < childCount; c++)
-            {
-                Transform child = root.GetChild(c);
-                child.position = worldPositions[c];
-                child.rotation = worldRotations[c];
-            }
-
+            Vector3 desiredRootPosition = (Vector3)(exitCenter + outward * axialDistance);
+            desiredRootPosition.z = block.transform.position.z;
+            RecenterRootWithoutMovingChildren(block.transform, desiredRootPosition);
             MapBlockExitEaseField?.SetValue(block, railExitEase);
+        }
+    }
+
+    private static void RecenterRootWithoutMovingChildren(Transform root, Vector3 desiredRootPosition)
+    {
+        if (root == null)
+            return;
+
+        int childCount = root.childCount;
+        Vector3[] worldPositions = new Vector3[childCount];
+        Quaternion[] worldRotations = new Quaternion[childCount];
+
+        for (int i = 0; i < childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            worldPositions[i] = child.position;
+            worldRotations[i] = child.rotation;
+        }
+
+        root.position = desiredRootPosition;
+
+        for (int i = 0; i < childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            child.position = worldPositions[i];
+            child.rotation = worldRotations[i];
         }
     }
 
     private void HandleRunEnded(RunEndReason _)
     {
-        // No persistent runtime data to clear. Hosts stay alive for the next run.
     }
 
     private IEnumerator DestroyOurPrototypesNextFrame(List<GameObject> prototypes)
@@ -743,9 +798,11 @@ public sealed class BattleAssemblyRailPresentation : MonoBehaviour
                 {
                     if (pair.Value == null)
                         continue;
+
                     SpriteRenderer renderer = pair.Value.GetComponent<SpriteRenderer>();
                     if (renderer == null)
                         continue;
+
                     sprite = renderer.sprite;
                     material = renderer.sharedMaterial;
                     break;
