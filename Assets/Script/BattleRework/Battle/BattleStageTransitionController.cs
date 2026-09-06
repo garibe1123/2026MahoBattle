@@ -11,26 +11,29 @@ using UnityEngine;
 ///
 /// Spatial contract:
 /// - 32px = 1 tile = 1 world unit.
-/// - The persistent Start/Base is always 4x4 tiles.
-/// - Every Combat/Elite Room is positioned FROM that persistent 4x4 anchor.
-/// - The generated Room never disables/removes the central 4x4 gameplay cells.
-///   The persistent base remains real walkable floor and is rendered above the generated floor,
-///   so the stage looks like new pieces are added around the existing start point instead of
-///   treating the middle as a hole/reserved void.
-/// - On clear, the player's 4x4 neighborhood becomes the next persistent base and all other
-///   Room pieces spin/fly off before physical reward selection.
+/// - The currently preserved Base is ALWAYS the authoritative 4x4 floor.
+/// - New Combat/Elite Rooms NEVER generate another floor over that 4x4.
+/// - BattleAssemblyRailPresentation rewrites incoming Room cells into Base-relative coordinates:
+///   Base cells are (0,0)~(3,3) and are removed from the incoming-piece set.
+/// - Therefore RoomOrigin is not inferred from generated Room bounds. It is always the world position
+///   of the lower-left tile CENTER of the current persistent 4x4 Base.
+/// - On clear, a new 4x4 is chosen around the player's current tile. That becomes the origin used by
+///   the NEXT stage, which is recalculated around that new Base and again excludes its central 16 cells.
 /// </summary>
 [DefaultExecutionOrder(-15000)]
 public sealed class BattleStageTransitionController : MonoBehaviour
 {
-    [Header("Stage Clear / Exit")]
-    [SerializeField, Min(0.1f)] private float exitGhostExtraDistance = 5f;
+    [Header("Stage Clear / Rail Exit")]
+    [SerializeField, Min(0f)] private float exitGhostExtraDistance = 5f;
     [SerializeField, Min(0f)] private float exitGhostStagger = 0.035f;
-    [SerializeField, Min(45f)] private float exitGhostSpinDegrees = 540f;
-    [SerializeField, Range(0.75f, 1f)] private float exitGhostEndScale = 0.90f;
+
+    // Kept for compatibility with BattleAssemblyRailPresentation reflection.
+    // Runtime rail presentation forces these to 0 / 1 and this controller never rotates outgoing floor pieces.
+    [SerializeField, HideInInspector] private float exitGhostSpinDegrees = 0f;
+    [SerializeField, HideInInspector] private float exitGhostEndScale = 1f;
 
     [Header("Persistent Base Presentation")]
-    [Tooltip("Generated floor uses sorting -20. Keep the preserved 4x4 immediately above it, but below walls/actors.")]
+    [Tooltip("Generated floor uses sorting -20. The actual preserved 4x4 stays immediately above it.")]
     [SerializeField] private int persistentBaseFloorSorting = -19;
 
     [Header("Reward Drop")]
@@ -89,7 +92,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield return null;
         }
 
-        // SpatialMapController (-20000) must prepare temporary room prototypes before this listener.
         yield return null;
         Subscribe();
 
@@ -159,6 +161,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         baseTemplate.EnsurePersistentBase();
         CaptureCurrentBaseAnchor();
         EnsureBasePresentation();
+        ApplyBaseOriginToRoomManager();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -174,11 +177,20 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         baseTemplate.EnsurePersistentBase();
         CaptureCurrentBaseAnchor();
+
+        if (!hasPreservedBaseOrigin)
+        {
+            Debug.LogError("[BattleStageTransition] No persistent 4x4 Base exists for the incoming Room.", this);
+            return;
+        }
+
+        // Critical rule: incoming Room local coordinates are already Base-relative.
+        // Do NOT inspect the incoming Room bounds and do NOT try to locate another center.
+        // (0,0) is always the lower-left tile center of the currently preserved 4x4.
+        baseTemplate.EnsureVisibleAtTileOrigin(preservedBaseTileOrigin, node.room);
+        ApplyBaseOriginToRoomManager();
         EnsureBasePresentation();
 
-        // IMPORTANT: do not disable/rename/suppress the middle 4x4 cells anymore.
-        // We only align the generated room so its central 4x4 lies exactly on the persistent base.
-        AlignGeneratedRoomToPersistentBase(node.room);
         node.room.repositionPlayerOnEnter = false;
         clearedStageCollapsed = false;
     }
@@ -192,91 +204,14 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         hasPreservedBaseOrigin = true;
     }
 
-    /// <summary>
-    /// Makes the persistent 4x4 the absolute anchor for every new room.
-    /// Generated room cells remain fully functional; no central hole/reserved gameplay area exists.
-    /// </summary>
-    private void AlignGeneratedRoomToPersistentBase(RoomDefinitionSO room)
+    private void ApplyBaseOriginToRoomManager()
     {
-        if (room == null || roomManager == null || baseTemplate == null)
+        if (!hasPreservedBaseOrigin || roomManager == null || roomManager.RoomOrigin == null)
             return;
 
-        if (!hasPreservedBaseOrigin)
-            CaptureCurrentBaseAnchor();
-        if (!hasPreservedBaseOrigin)
-            return;
-
-        if (!baseTemplate.EnsureVisibleAtTileOrigin(preservedBaseTileOrigin, room))
-        {
-            Debug.LogError("[BattleStageTransition] Failed to ensure mandatory 4x4 persistent base.", this);
-            return;
-        }
-
-        if (!TryGetRuntimeRoomTileBounds(room, out int minX, out int minY, out int maxX, out int maxY))
-            return;
-
-        int width = maxX - minX + 1;
-        int height = maxY - minY + 1;
-        int baseStartX = minX + Mathf.Max(0, (width - RoomBaseTemplate.FixedBaseTiles) / 2);
-        int baseStartY = minY + Mathf.Max(0, (height - RoomBaseTemplate.FixedBaseTiles) / 2);
-
-        // The lower-left CENTER of the generated room's central 4x4 is placed on the
-        // lower-left CENTER of the persistent 4x4. Every additional tile therefore derives
-        // from the start/base anchor instead of an unrelated world origin.
-        Vector3 roomOrigin = preservedBaseTileOrigin - new Vector3(baseStartX, baseStartY, 0f);
-        if (roomManager.RoomOrigin != null)
-        {
-            roomOrigin.z = roomManager.RoomOrigin.position.z;
-            roomManager.RoomOrigin.position = roomOrigin;
-        }
-
-        EnsureBasePresentation();
-    }
-
-    private static bool TryGetRuntimeRoomTileBounds(
-        RoomDefinitionSO room,
-        out int minX,
-        out int minY,
-        out int maxX,
-        out int maxY)
-    {
-        minX = int.MaxValue;
-        minY = int.MaxValue;
-        maxX = int.MinValue;
-        maxY = int.MinValue;
-
-        if (room == null || room.blocks == null)
-            return false;
-
-        bool found = false;
-        for (int i = 0; i < room.blocks.Count; i++)
-        {
-            MapBlockPlacement placement = room.blocks[i];
-            if (placement == null || placement.prefab == null)
-                continue;
-
-            Transform prototype = placement.prefab.transform;
-            if (!prototype.name.StartsWith("__RuntimeRoomPiecePrototype_", StringComparison.Ordinal))
-                continue;
-
-            Transform[] children = prototype.GetComponentsInChildren<Transform>(true);
-            for (int c = 0; c < children.Length; c++)
-            {
-                Transform child = children[c];
-                if (child == null || !child.name.StartsWith("Tile_", StringComparison.Ordinal))
-                    continue;
-
-                int x = Mathf.RoundToInt(child.localPosition.x);
-                int y = Mathf.RoundToInt(child.localPosition.y);
-                minX = Mathf.Min(minX, x);
-                minY = Mathf.Min(minY, y);
-                maxX = Mathf.Max(maxX, x);
-                maxY = Mathf.Max(maxY, y);
-                found = true;
-            }
-        }
-
-        return found;
+        Vector3 origin = preservedBaseTileOrigin;
+        origin.z = roomManager.RoomOrigin.position.z;
+        roomManager.RoomOrigin.position = origin;
     }
 
     private void EnsureBasePresentation()
@@ -312,17 +247,22 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         NavMeshModifier[] modifiers = baseObject.GetComponentsInChildren<NavMeshModifier>(true);
         for (int i = 0; i < modifiers.Length; i++)
         {
-            if (modifiers[i] == null)
-                continue;
-            modifiers[i].ignoreFromBuild = false;
+            if (modifiers[i] != null)
+                modifiers[i].ignoreFromBuild = false;
         }
 
         BattleWalkableField[] fields = baseObject.GetComponentsInChildren<BattleWalkableField>(true);
         for (int i = 0; i < fields.Length; i++)
+        {
             if (fields[i] != null)
                 fields[i].enabled = true;
+        }
     }
 
+    /// <summary>
+    /// The cleared Room chooses the NEXT authoritative 4x4 around the player's current tile.
+    /// After this method returns, every future Room uses this new Base as local coordinates 0..3.
+    /// </summary>
     private void CollapseClearedStageAroundPlayer()
     {
         if (clearedStageCollapsed || baseTemplate == null || player == null || roomManager == null)
@@ -333,6 +273,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         preservedBaseTileOrigin = baseTemplate.ReanchorAroundPlayer(player.transform.position);
         hasPreservedBaseOrigin = true;
         EnsureBasePresentation();
+        ApplyBaseOriginToRoomManager();
 
         SpawnExitGhostsFromCurrentRoom();
         HideCurrentRoomBlocks();
@@ -349,18 +290,23 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         GameObject root = new("OutgoingStageVisuals");
         DontDestroyOnLoad(root);
 
-        Vector2 center = player != null ? player.transform.position : roomManager.RoomOrigin.position;
-        int ghostIndex = 0;
+        Vector2 baseCenter = baseTemplate != null
+            ? (Vector2)baseTemplate.FixedCenterWorld
+            : (player != null ? (Vector2)player.transform.position : (Vector2)roomManager.RoomOrigin.position);
 
+        int ghostIndex = 0;
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock source = blocks[i];
             if (source == null)
                 continue;
 
-            GameObject cloneObject = Instantiate(source.gameObject, source.transform.position, source.transform.rotation, root.transform);
+            GameObject cloneObject = Instantiate(
+                source.gameObject,
+                source.transform.position,
+                source.transform.rotation,
+                root.transform);
             cloneObject.name = "Outgoing_" + source.name;
-            cloneObject.transform.localScale = source.transform.lossyScale;
             DisableGhostGameplay(cloneObject);
 
             MapBlock ghostBlock = cloneObject.GetComponent<MapBlock>();
@@ -370,13 +316,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 continue;
             }
 
-            Vector2 direction = (Vector2)cloneObject.transform.position - center;
-            if (direction.sqrMagnitude < 0.01f)
-            {
-                Vector2[] fallback = { Vector2.left, Vector2.right, Vector2.up, Vector2.down };
-                direction = fallback[ghostIndex % fallback.Length];
-            }
-            direction.Normalize();
+            Vector2 pieceCenter = TryGetRendererBounds(cloneObject, out Bounds bounds)
+                ? (Vector2)bounds.center
+                : (Vector2)cloneObject.transform.position;
+            Vector2 direction = ResolveCardinalRailDirection(pieceCenter - baseCenter, ghostIndex);
 
             float delay = Mathf.Max(0f, exitGhostStagger) * ghostIndex;
             float duration = Mathf.Max(0.05f, ghostBlock.ExitDuration);
@@ -390,31 +333,36 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 {
                     moveTween.OnComplete(() =>
                     {
-                        if (cloneObject != null)
-                            cloneObject.transform.position += (Vector3)(direction * exitGhostExtraDistance);
+                        if (cloneObject == null)
+                            return;
+
+                        cloneObject.transform
+                            .DOMove(cloneObject.transform.position + (Vector3)(direction * exitGhostExtraDistance), 0.18f)
+                            .SetEase(Ease.InQuad);
                     });
                 }
             }
 
-            float spin = (ghostIndex % 2 == 0 ? 1f : -1f) *
-                         (exitGhostSpinDegrees + ghostIndex * 37f);
-            cloneObject.transform
-                .DORotate(new Vector3(0f, 0f, spin), duration, RotateMode.FastBeyond360)
-                .SetRelative()
-                .SetEase(Ease.InQuad)
-                .SetDelay(delay);
-
-            cloneObject.transform
-                .DOScale(cloneObject.transform.localScale * exitGhostEndScale, duration)
-                .SetEase(Ease.InQuad)
-                .SetDelay(delay);
-
+            // Intentionally no rotation and no scale tween: outgoing pieces leave on the same rail concept as entry.
             exitGhosts.Add(cloneObject);
-            Destroy(cloneObject, duration + delay + 0.35f);
+            Destroy(cloneObject, duration + delay + 0.65f);
             ghostIndex++;
         }
 
-        Destroy(root, 3f);
+        Destroy(root, 4f);
+    }
+
+    private static Vector2 ResolveCardinalRailDirection(Vector2 delta, int fallbackIndex)
+    {
+        if (delta.sqrMagnitude < 0.0001f)
+        {
+            Vector2[] fallback = { Vector2.left, Vector2.right, Vector2.down, Vector2.up };
+            return fallback[Mathf.Abs(fallbackIndex) % fallback.Length];
+        }
+
+        if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
+            return delta.x >= 0f ? Vector2.right : Vector2.left;
+        return delta.y >= 0f ? Vector2.up : Vector2.down;
     }
 
     private void HideCurrentRoomBlocks()
@@ -432,26 +380,33 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
             Renderer[] renderers = block.GetComponentsInChildren<Renderer>(true);
             for (int r = 0; r < renderers.Length; r++)
+            {
                 if (renderers[r] != null)
                     renderers[r].enabled = false;
+            }
 
             Collider2D[] colliders = block.GetComponentsInChildren<Collider2D>(true);
             for (int c = 0; c < colliders.Length; c++)
+            {
                 if (colliders[c] != null)
                     colliders[c].enabled = false;
+            }
 
             NavMeshModifier[] modifiers = block.GetComponentsInChildren<NavMeshModifier>(true);
             for (int m = 0; m < modifiers.Length; m++)
+            {
                 if (modifiers[m] != null)
                     modifiers[m].ignoreFromBuild = true;
+            }
 
             BattleWalkableField[] fields = block.GetComponentsInChildren<BattleWalkableField>(true);
             for (int f = 0; f < fields.Length; f++)
+            {
                 if (fields[f] != null)
                     fields[f].enabled = false;
+            }
         }
 
-        // The room is gone, but the persistent 4x4 must remain visible/walkable.
         EnsureBasePresentation();
     }
 
@@ -459,18 +414,52 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         Collider2D[] colliders = root.GetComponentsInChildren<Collider2D>(true);
         for (int i = 0; i < colliders.Length; i++)
+        {
             if (colliders[i] != null)
                 colliders[i].enabled = false;
+        }
 
         NavMeshModifier[] modifiers = root.GetComponentsInChildren<NavMeshModifier>(true);
         for (int i = 0; i < modifiers.Length; i++)
+        {
             if (modifiers[i] != null)
                 modifiers[i].ignoreFromBuild = true;
+        }
 
         BattleWalkableField[] fields = root.GetComponentsInChildren<BattleWalkableField>(true);
         for (int i = 0; i < fields.Length; i++)
+        {
             if (fields[i] != null)
                 fields[i].enabled = false;
+        }
+    }
+
+    private static bool TryGetRendererBounds(GameObject root, out Bounds bounds)
+    {
+        bounds = default;
+        if (root == null)
+            return false;
+
+        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
+        bool found = false;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled)
+                continue;
+
+            if (!found)
+            {
+                bounds = renderer.bounds;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        return found;
     }
 
     private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> choices)
@@ -512,7 +501,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
             go.transform.DOMove(target, rewardDropDuration)
                 .SetEase(Ease.OutBounce);
-            go.transform.DORotate(new Vector3(0f, 0f, i % 2 == 0 ? 360f : -360f), rewardDropDuration, RotateMode.FastBeyond360)
+            go.transform.DORotate(
+                    new Vector3(0f, 0f, i % 2 == 0 ? 360f : -360f),
+                    rewardDropDuration,
+                    RotateMode.FastBeyond360)
                 .SetEase(Ease.OutCubic);
 
             rewardPickups.Add(go);
@@ -556,6 +548,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             GameObject go = rewardPickups[i];
             if (go == null)
                 continue;
+
             go.transform.DOKill();
             Destroy(go);
         }
@@ -569,6 +562,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             GameObject go = exitGhosts[i];
             if (go == null)
                 continue;
+
             go.transform.DOKill();
             Destroy(go);
         }
@@ -578,8 +572,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private static void CleanupNullEntries(List<GameObject> list)
     {
         for (int i = list.Count - 1; i >= 0; i--)
+        {
             if (list[i] == null)
                 list.RemoveAt(i);
+        }
     }
 
     private static void NormalizeSpriteToWorldSize(SpriteRenderer renderer, float maxWorldSize)
@@ -645,7 +641,10 @@ internal static class StageTransitionRuntimeSpriteCache
                 float dy = Mathf.Abs(y - center.y);
                 bool inside = dx + dy <= 7.0f;
                 bool core = dx + dy <= 4.5f;
-                texture.SetPixel(x, y, !inside ? Color.clear : (core ? Color.white : new Color(0.82f, 0.82f, 0.82f, 1f)));
+                texture.SetPixel(
+                    x,
+                    y,
+                    !inside ? Color.clear : (core ? Color.white : new Color(0.82f, 0.82f, 0.82f, 1f)));
             }
         }
 
