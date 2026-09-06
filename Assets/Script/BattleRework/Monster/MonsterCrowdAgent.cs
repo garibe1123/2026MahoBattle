@@ -42,6 +42,8 @@ public class MonsterCrowdAgent : MonoBehaviour
         warnedAttachFailure = false;
         nextNavAttachCheck = Time.time + Random.Range(0f, 0.12f);
 
+        ApplyGeneratedTestSizing();
+
         if (owner != null)
             owner.RegisterCrowdAgent(this, target);
 
@@ -49,6 +51,23 @@ public class MonsterCrowdAgent : MonoBehaviour
             EnterSimpleMovement();
         else
             ExitSimpleMovementWithoutSnap();
+    }
+
+    private void ApplyGeneratedTestSizing()
+    {
+        if (controller == null || controller.Definition == null)
+            return;
+
+        string id = controller.Definition.monsterId;
+        if (string.IsNullOrEmpty(id) || !id.StartsWith("TEST_"))
+            return;
+
+        // 자동 생성 더미는 기존 0.75 world 크기가 너무 작았기 때문에
+        // 4x4 / 8x8 world 기준에서 읽히는 약 1 world 크기로 올립니다.
+        transform.localScale = Vector3.one;
+        CircleCollider2D circle = GetComponent<CircleCollider2D>();
+        if (circle != null)
+            circle.radius = Mathf.Max(circle.radius, 0.42f);
     }
 
     public void PrepareForPool()
@@ -85,7 +104,7 @@ public class MonsterCrowdAgent : MonoBehaviour
         if (toPlayer.sqrMagnitude > 0.001f)
             spriteAnimator?.SetFacing(toPlayer);
 
-        if (!simpleMovement && owner.ShouldUseSimpleMovement(distance, false))
+        if (!simpleMovement && owner.ShouldUseSimpleMovement(distance, forcedSimpleEntry))
             EnterSimpleMovement();
 
         if (!simpleMovement)
@@ -119,8 +138,7 @@ public class MonsterCrowdAgent : MonoBehaviour
 
         nextNavAttachCheck = Time.time + owner.NavAttachCheckInterval + Random.Range(0f, 0.05f);
 
-        bool shouldAttach = owner.ShouldReturnToPreciseMovement(distance, forcedSimpleEntry);
-        if (!shouldAttach)
+        if (!owner.ShouldReturnToPreciseMovement(distance, forcedSimpleEntry))
             return;
 
         if (owner.TryGetNavAttachPosition(transform.position, out Vector3 navPosition))
