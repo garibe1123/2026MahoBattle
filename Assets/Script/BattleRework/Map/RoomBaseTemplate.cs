@@ -2,14 +2,16 @@ using NavMeshPlus.Components;
 using UnityEngine;
 
 /// <summary>
-/// Persistent 4x4 battle anchor.
+/// Mandatory persistent 4x4 battle anchor.
 ///
 /// Rules:
 /// - 32px = 1 tile = 1 world unit.
 /// - The persistent base is ALWAYS exactly 4x4 tiles.
 /// - The first Start Base uses the same 4x4 rule as later stage-transition bases.
-/// - On stage transition the base can be re-anchored around the player's current tile.
-/// - Gameplay Room pieces attach around this base; the base itself is never part of room exit animation.
+/// - The base is not optional per RoomDefinitionSO. It must exist before any generated Room
+///   is allowed to reserve / hide its center cells.
+/// - On stage clear the base can be re-anchored around the player's current tile.
+/// - Gameplay Room pieces attach around / over this anchor; the base itself never exits.
 /// </summary>
 public class RoomBaseTemplate : MonoBehaviour
 {
@@ -32,14 +34,14 @@ public class RoomBaseTemplate : MonoBehaviour
     [SerializeField] private GameObject basePrefab;
     [SerializeField] private Sprite baseSprite;
     [SerializeField] private Material baseMaterial;
-    [SerializeField] private int sortingOrder = -100;
+    [SerializeField] private int sortingOrder = -19;
 
     [Header("Sizing")]
     [SerializeField] private bool tileSpriteToTemplate = true;
     [SerializeField] private bool scalePrefabToTemplate = true;
 
     [Header("Dummy Base")]
-    [SerializeField] private Color dummyBaseColor = new(0.16f, 0.18f, 0.22f, 1f);
+    [SerializeField] private Color dummyBaseColor = new(0.18f, 0.21f, 0.25f, 1f);
 
     private GameObject activeBase;
     private RoomDefinitionSO activeRoom;
@@ -51,7 +53,7 @@ public class RoomBaseTemplate : MonoBehaviour
     public GameObject ActiveBase => activeBase;
     public RoomDefinitionSO ActiveRoom => activeRoom;
     public Vector2 ActiveWorldSize => activeWorldSize;
-    public bool HasPersistentBase => activeBase != null;
+    public bool HasPersistentBase => activeBase != null && activeBase.activeInHierarchy;
     public Vector3 FixedTileOriginWorld => ResolveTileOriginWorld();
     public Vector3 FixedCenterWorld => ResolveTileOriginWorld() + new Vector3(1.5f, 1.5f, 0f);
 
@@ -59,18 +61,20 @@ public class RoomBaseTemplate : MonoBehaviour
     {
         ResolveSystems();
         ResolveOrigin();
+        EnsurePersistentBase();
     }
 
     private void OnEnable()
     {
         ResolveSystems();
+        ResolveOrigin();
+        EnsurePersistentBase();
         Subscribe();
     }
 
     private void OnDisable()
     {
         Unsubscribe();
-        ClearBase();
     }
 
     private void ResolveSystems()
@@ -88,7 +92,7 @@ public class RoomBaseTemplate : MonoBehaviour
 
         if (roomManager != null)
         {
-            Transform named = roomManager.transform.Find("RoomOrigin");
+            Transform named = roomManager.RoomOrigin;
             baseOrigin = named != null ? named : roomManager.transform;
         }
         else
@@ -119,13 +123,58 @@ public class RoomBaseTemplate : MonoBehaviour
 
     private void HandleNodeEntered(BattleNodeData node)
     {
-        if (node != null && node.room != null && activeBase != null && keepAcrossRooms)
+        if (node != null && node.room != null)
             activeRoom = node.room;
+
+        // Persistent base is a scene invariant, not a Room option.
+        EnsurePersistentBase();
+        MoveExistingBaseToResolvedAnchor();
+        EnsureVisibleBase();
+        EnsureWalkableBaseSource();
     }
 
     public void BuildBase(RoomDefinitionSO room)
     {
         BuildBaseInternal(room, false);
+    }
+
+    /// <summary>
+    /// Guarantees that a visible, walkable 4x4 base exists even when no RoomDefinitionSO is active yet.
+    /// </summary>
+    public bool EnsurePersistentBase()
+    {
+        if (activeBase == null)
+            BuildBaseInternal(activeRoom, false);
+        else
+        {
+            ApplyExact4x4Sizing(activeBase);
+            MoveExistingBaseToResolvedAnchor();
+            EnsureVisibleBase();
+            EnsureWalkableBaseSource();
+        }
+
+        return HasPersistentBase;
+    }
+
+    /// <summary>
+    /// Used by stage presentation code before it suppresses duplicated generated center-floor gameplay sources.
+    /// </summary>
+    public bool EnsureVisibleAtTileOrigin(Vector3 lowerLeftTileCenterWorld, RoomDefinitionSO room = null)
+    {
+        if (room != null)
+            activeRoom = room;
+
+        runtimeTileOrigin = new Vector3(
+            Mathf.Round(lowerLeftTileCenterWorld.x / TileWorldSize) * TileWorldSize,
+            Mathf.Round(lowerLeftTileCenterWorld.y / TileWorldSize) * TileWorldSize,
+            ResolveZ());
+        hasRuntimeAnchor = true;
+
+        BuildBaseInternal(activeRoom, activeBase == null);
+        MoveExistingBaseToResolvedAnchor();
+        EnsureVisibleBase();
+        EnsureWalkableBaseSource();
+        return HasPersistentBase;
     }
 
     [ContextMenu("Rebuild Current 4x4 Base")]
@@ -137,8 +186,7 @@ public class RoomBaseTemplate : MonoBehaviour
         if (room == null && roomManager != null && roomManager.CurrentRoom != null)
             room = roomManager.CurrentRoom;
 
-        if (room != null)
-            BuildBaseInternal(room, true);
+        BuildBaseInternal(room, true);
     }
 
     /// <summary>
@@ -161,12 +209,10 @@ public class RoomBaseTemplate : MonoBehaviour
             room = roomManager.CurrentRoom;
         if (room == null && runManager != null && runManager.CurrentNode != null)
             room = runManager.CurrentNode.room;
-
         if (room != null)
-            BuildBaseInternal(room, true);
-        else if (activeBase != null)
-            MoveExistingBaseToResolvedAnchor();
+            activeRoom = room;
 
+        BuildBaseInternal(activeRoom, true);
         return runtimeTileOrigin;
     }
 
@@ -178,26 +224,25 @@ public class RoomBaseTemplate : MonoBehaviour
             ResolveZ());
         hasRuntimeAnchor = true;
 
-        if (activeRoom != null)
-            BuildBaseInternal(activeRoom, true);
-        else if (activeBase != null)
-            MoveExistingBaseToResolvedAnchor();
-
+        BuildBaseInternal(activeRoom, activeBase == null);
+        MoveExistingBaseToResolvedAnchor();
+        EnsureVisibleBase();
+        EnsureWalkableBaseSource();
         return runtimeTileOrigin;
     }
 
     private void BuildBaseInternal(RoomDefinitionSO room, bool forceRebuild)
     {
-        if (room == null || !room.useRuntimeBase)
-            return;
+        if (room != null)
+            activeRoom = room;
 
-        activeRoom = room;
         activeWorldSize = new Vector2(FixedBaseTiles, FixedBaseTiles);
 
         if (activeBase != null && keepAcrossRooms && !forceRebuild)
         {
             ApplyExact4x4Sizing(activeBase);
             MoveExistingBaseToResolvedAnchor();
+            EnsureVisibleBase();
             EnsureWalkableBaseSource();
             return;
         }
@@ -216,6 +261,7 @@ public class RoomBaseTemplate : MonoBehaviour
         else
             BuildSpriteBase(parent, center, activeWorldSize);
 
+        EnsureVisibleBase();
         EnsureWalkableBaseSource();
     }
 
@@ -239,6 +285,7 @@ public class RoomBaseTemplate : MonoBehaviour
             Destroy(activeBase);
         else
             DestroyImmediate(activeBase);
+        activeBase = null;
     }
 
     private Vector3 ResolveTileOriginWorld()
@@ -271,6 +318,25 @@ public class RoomBaseTemplate : MonoBehaviour
         activeBase.transform.position = FixedCenterWorld;
         ApplyExact4x4Sizing(activeBase);
         RefreshSupportCollider(activeBase);
+    }
+
+    private void EnsureVisibleBase()
+    {
+        if (activeBase == null)
+            return;
+
+        if (!activeBase.activeSelf)
+            activeBase.SetActive(true);
+
+        SpriteRenderer[] renderers = activeBase.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null)
+                continue;
+            renderer.enabled = true;
+            renderer.sortingOrder = sortingOrder;
+        }
     }
 
     private void BuildPrefabBase(Transform parent, Vector3 center, Vector2 targetSize)
@@ -388,6 +454,7 @@ public class RoomBaseTemplate : MonoBehaviour
         if (support == null || !support.isTrigger)
             return;
 
+        support.enabled = true;
         support.size = renderer.drawMode == SpriteDrawMode.Simple
             ? (Vector2)renderer.sprite.bounds.size
             : renderer.size;
