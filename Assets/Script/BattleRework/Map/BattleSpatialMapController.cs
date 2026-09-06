@@ -8,34 +8,45 @@ using UnityEngine.AI;
 using UnityEngine.UI;
 
 /// <summary>
-/// Sephiria-like spatial battle map presentation layer.
+/// Sephiria-like spatial battle map layer.
 ///
-/// - Start Area를 (0,0)으로 두고 NodeGraph Room을 상/하/좌/우 떨어진 위치에 배치합니다.
-/// - Room이 바로 옆에 붙지 않고 사이에 3개 기본 Corridor Piece가 순차 도킹합니다.
-/// - Gameplay Room은 2x2 Block 16개가 아니라 하나의 큰 Root Piece로 도킹합니다.
-/// - Rectangle / L / T / Cross / Custom cell mask가 모두 하나의 Transform으로 움직입니다.
-/// - NodeGraph의 동일 좌표를 우측 상단 Mini Map에 표시합니다.
-///
-/// 기존 BattleRunManager/BattleRoomManager API를 바꾸지 않고 NodeEntered 직전에 Room 데이터를
-/// 한 프레임 동안 presentation용 synthetic piece로 치환합니다. 원본 SO 데이터는 즉시 복구됩니다.
+/// Rules:
+/// - Start Area is an independent 3x3+ tile platform, not a Combat Room.
+/// - Gameplay Rooms are 6x6+ 32px-tile masks and may be Rectangle/L/T/Cross/Irregular/Custom.
+/// - A Room is one large docking piece even though it contains many tiles.
+/// - Current-room exits are represented by world Direction Markers.
+/// - Selecting/entering a node reserves logical navigation, but visible corridor/room pieces are revealed only
+///   when their destination enters the camera range (+ margin).
+/// - Mini Map uses the same NodeGraph coordinates as the world map.
 /// </summary>
 [DefaultExecutionOrder(-20000)]
 public sealed class BattleSpatialMapController : MonoBehaviour
 {
     [Header("World Map")]
-    [SerializeField, Min(10f)] private float roomWorldSpacing = 14f;
-    [SerializeField, Min(1f)] private float corridorWidth = 2.4f;
-    [SerializeField, Range(1, 6)] private int corridorPieceCount = 3;
+    [SerializeField, Min(12f)] private float roomWorldSpacing = 18f;
+    [SerializeField, Min(1f)] private float corridorWidth = 2f;
+    [SerializeField, Range(2, 7)] private int corridorPieceCount = 3;
     [SerializeField, Min(0.05f)] private float corridorEntryDuration = 0.34f;
     [SerializeField, Min(0.5f)] private float corridorEntryOffset = 5f;
-    [SerializeField, Min(0f)] private float corridorPieceStagger = 0.09f;
+    [SerializeField, Min(0f)] private float corridorPieceStagger = 0.05f;
+
+    [Header("Camera Reveal")]
+    [Tooltip("Piece destination이 카메라 경계에서 이 거리 안으로 들어오면 실제 오브젝트를 생성합니다.")]
+    [SerializeField, Min(0f)] private float revealMarginWorld = 1.6f;
+    [SerializeField, Min(0.02f)] private float revealPollInterval = 0.04f;
 
     [Header("Large Room Piece")]
     [SerializeField] private Color roomFloorColor = new(0.18f, 0.21f, 0.25f, 1f);
     [SerializeField] private Color roomEdgeColor = new(0.31f, 0.35f, 0.41f, 1f);
-    [SerializeField, Min(0.05f)] private float roomEdgeThickness = 0.16f;
-    [SerializeField, Min(0.6f)] private float roomDoorWidth = 2.1f;
+    [SerializeField, Min(0.03f)] private float roomEdgeThickness = 0.12f;
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
+
+    [Header("Direction Marker")]
+    [SerializeField, Min(0.2f)] private float markerWorldSize = 0.48f;
+    [SerializeField, Min(0.1f)] private float markerTriggerRadius = 0.52f;
+    [SerializeField, Min(0f)] private float markerInset = 0.34f;
+    [SerializeField] private Color markerAvailableColor = new(0.25f, 0.95f, 1f, 0.92f);
+    [SerializeField] private Color markerEliteColor = new(1f, 0.62f, 0.18f, 0.96f);
 
     [Header("Mini Map")]
     [SerializeField] private Vector2 miniMapSize = new(220f, 180f);
@@ -48,11 +59,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField] private Color miniMapAvailable = new(1f, 0.80f, 0.26f, 1f);
     [SerializeField] private Color miniMapLink = new(0.36f, 0.40f, 0.46f, 0.95f);
 
-    [Header("Default Test Character Readability")]
-    [SerializeField, Min(1f)] private float testPlayerScale = 2.8f;
-    [SerializeField, Min(0.1f)] private float testPlayerColliderRadius = 0.28f;
-    [SerializeField, Min(1f)] private float testMonsterScale = 1.8f;
-    [SerializeField, Min(0.1f)] private float testMonsterColliderRadius = 0.38f;
+    [Header("32px Tile / 48px Character Test Scale")]
+    [Tooltip("32px tile = 1 world, 48px player = 1.5 world.")]
+    [SerializeField, Min(0.5f)] private float testPlayerWorldHeight = 1.5f;
+    [SerializeField, Min(0.1f)] private float testPlayerWorldColliderRadius = 0.42f;
+    [SerializeField, Min(0.5f)] private float testMonsterWorldHeight = 1.5f;
+    [SerializeField, Min(0.1f)] private float testMonsterWorldColliderRadius = 0.40f;
 
     private const BindingFlags InstanceFields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
@@ -63,9 +75,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private NodeGraphSO graph;
 
     private readonly Dictionary<string, Vector2Int> resolvedMapPositions = new();
+    private readonly Dictionary<string, ProceduralRoomLayout> roomLayouts = new();
     private readonly HashSet<string> visitedNodeIds = new();
-    private readonly HashSet<string> builtRouteKeys = new();
+    private readonly HashSet<string> reservedRouteKeys = new();
     private readonly List<GameObject> persistentRouteObjects = new();
+    private readonly List<GameObject> logicalNavigationObjects = new();
+    private readonly List<GameObject> directionMarkers = new();
 
     private BattleNodeData lastEnteredNode;
     private Vector2Int lastMapPosition;
@@ -96,6 +111,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
+        ClearDirectionMarkers();
     }
 
     private IEnumerator BindWhenReady()
@@ -111,7 +127,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         DisableLegacyAutoShell();
         EnsureMiniMapUI();
         BuildResolvedLayout();
+        SyncStartDirectionWithGraph();
         RefreshMiniMap();
+        RefreshWorldDirectionMarkers();
     }
 
     private void TryResolveSystems()
@@ -170,7 +188,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void Update()
     {
-        if (runManager == null || roomManager == null)
+        if (runManager == null || roomManager == null || graph == null)
         {
             TryResolveSystems();
             if (runManager != null)
@@ -179,6 +197,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 DisableLegacyAutoShell();
                 EnsureMiniMapUI();
                 BuildResolvedLayout();
+                SyncStartDirectionWithGraph();
             }
         }
 
@@ -195,11 +214,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ResolveStartOriginFromBase();
 
         RefreshMiniMap();
+        RefreshWorldDirectionMarkers();
     }
 
     private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
     {
         RefreshMiniMap();
+        RefreshWorldDirectionMarkers();
     }
 
     private void HandleRunEnded(RunEndReason _)
@@ -208,51 +229,61 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         lastEnteredNode = null;
         lastMapPosition = Vector2Int.zero;
         lastRoom = null;
+        roomLayouts.Clear();
         ClearPersistentRoutes();
+        ClearLogicalNavigation();
+        ClearDirectionMarkers();
         RefreshMiniMap();
     }
 
+    /// <summary>
+    /// NodeEntered는 "다음 공간이 선택되었다"는 의미입니다.
+    /// 여기서 visible Room 전체를 즉시 만들지 않습니다.
+    /// Logical navigation만 먼저 예약하고 visible corridor/room은 Camera Reveal coroutine이 담당합니다.
+    /// </summary>
     private void HandleNodeEntered(BattleNodeData node)
     {
-        if (node == null || roomManager == null)
+        if (node == null || node.room == null || roomManager == null)
             return;
 
+        ClearDirectionMarkers();
         ResolveStartOriginFromBase(node.room);
         BuildResolvedLayout();
 
         Vector2Int targetMapPosition = ResolveNodeMapPosition(node);
-        Vector3 targetRoomOrigin = startOrigin + new Vector3(
-            targetMapPosition.x * roomWorldSpacing,
-            targetMapPosition.y * roomWorldSpacing,
-            0f);
-
+        Vector3 targetRoomOrigin = MapPositionToWorld(targetMapPosition);
+        Vector3 previousOrigin = MapPositionToWorld(lastMapPosition);
         RoomDefinitionSO previousRoom = lastRoom != null ? lastRoom : node.room;
-        Vector3 previousOrigin = startOrigin + new Vector3(
-            lastMapPosition.x * roomWorldSpacing,
-            lastMapPosition.y * roomWorldSpacing,
-            0f);
 
         Vector2 travelDirection = CardinalDirection(targetMapPosition - lastMapPosition);
         if (travelDirection == Vector2.zero)
             travelDirection = Vector2.right;
 
+        ProceduralRoomLayout targetLayout = GetOrCreateLayout(node, travelDirection);
+        ProceduralRoomLayout previousLayout = lastEnteredNode != null
+            ? GetOrCreateLayout(lastEnteredNode, -travelDirection)
+            : CreateStartLayout(node.room);
+
         roomManager.RoomOrigin.position = targetRoomOrigin;
 
-        BuildConnectionCorridor(
+        RouteGeometry route = CalculateRouteGeometry(
             previousOrigin,
             previousRoom,
+            previousLayout,
             targetRoomOrigin,
             node.room,
-            travelDirection,
-            lastMapPosition,
-            targetMapPosition);
+            targetLayout,
+            travelDirection);
 
-        // Start Area Exit 시 기존 BattleRunManager가 이미 Player를 첫 Room 쪽으로 옮겼더라도
-        // NodeEntered 시점에 다시 통로 시작점으로 복귀시켜 직접 걸어가게 합니다.
+        ReserveLogicalRouteAndRoom(route, node, targetRoomOrigin, targetLayout, travelDirection);
+        SuppressLegacyRoomPiecesForCurrentEnter(node.room);
+
+        // BattleRunManager가 Start -> first room 전환 직전에 Player를 Room으로 순간이동시키는 legacy 동작을 하므로
+        // 첫 transition에서는 다시 Start 출구 앞에 놓아 실제 Corridor를 걸어가게 합니다.
         if (lastEnteredNode == null)
-            PlacePlayerAtRouteStart(previousOrigin, previousRoom, travelDirection);
+            PlacePlayerAtRouteStart(route.start, travelDirection);
 
-        PrepareLargeRoomPiece(node, travelDirection);
+        StartCoroutine(RevealRouteAndRoomRoutine(route, node, targetRoomOrigin, targetLayout, travelDirection));
 
         visitedNodeIds.Add(node.id);
         lastEnteredNode = node;
@@ -290,14 +321,18 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
+    private Vector3 MapPositionToWorld(Vector2Int mapPosition)
+    {
+        return startOrigin + new Vector3(
+            mapPosition.x * roomWorldSpacing,
+            mapPosition.y * roomWorldSpacing,
+            0f);
+    }
+
     private void BuildResolvedLayout()
     {
         if (graph == null)
-        {
-            TryResolveSystems();
-            if (graph == null)
-                return;
-        }
+            return;
 
         resolvedMapPositions.Clear();
         HashSet<Vector2Int> occupied = new() { Vector2Int.zero };
@@ -339,10 +374,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (parent == null || !visited.Add(parent.id))
                 continue;
 
-            Vector2Int parentPosition = resolvedMapPositions.TryGetValue(parent.id, out Vector2Int p)
-                ? p
-                : Vector2Int.zero;
-
+            Vector2Int parentPosition = ResolveNodeMapPosition(parent);
             List<BattleNodeData> next = graph.GetNextNodes(parent);
             for (int i = 0; i < next.Count; i++)
             {
@@ -368,8 +400,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             Vector2Int.right,
             Vector2Int.up,
-            Vector2Int.down,
-            Vector2Int.left
+            Vector2Int.left,
+            Vector2Int.down
         };
 
         for (int offset = 0; offset < directions.Length; offset++)
@@ -414,262 +446,156 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return new Vector2(0f, Mathf.Sign(delta.y));
     }
 
-    private void BuildConnectionCorridor(
-        Vector3 fromOrigin,
-        RoomDefinitionSO fromRoom,
-        Vector3 toOrigin,
-        RoomDefinitionSO toRoom,
-        Vector2 direction,
-        Vector2Int fromMap,
-        Vector2Int toMap)
+    private void SyncStartDirectionWithGraph()
     {
-        string key = RouteKey(fromMap, toMap);
-        if (!builtRouteKeys.Add(key))
+        if (runManager == null || graph == null)
             return;
 
-        Vector2 fromSize = fromRoom != null ? fromRoom.GetLargePieceWorldSize() : new Vector2(8f, 8f);
-        Vector2 toSize = toRoom != null ? toRoom.GetLargePieceWorldSize() : new Vector2(8f, 8f);
-        Vector2 fromCenterOffset = fromRoom != null ? fromRoom.GetLargePieceCenterOffset() : new Vector2(3f, 3f);
-        Vector2 toCenterOffset = toRoom != null ? toRoom.GetLargePieceCenterOffset() : new Vector2(3f, 3f);
-
-        Vector2 fromCenter = (Vector2)fromOrigin + fromCenterOffset;
-        Vector2 toCenter = (Vector2)toOrigin + toCenterOffset;
-
-        if (Mathf.Abs(direction.x) > 0.5f)
-        {
-            Vector2 start = fromCenter + new Vector2(direction.x * fromSize.x * 0.5f, 0f);
-            Vector2 end = new Vector2(toCenter.x - direction.x * toSize.x * 0.5f, start.y);
-            BuildStraightCorridor(start, end, true);
-        }
-        else
-        {
-            Vector2 start = fromCenter + new Vector2(0f, direction.y * fromSize.y * 0.5f);
-            Vector2 end = new Vector2(start.x, toCenter.y - direction.y * toSize.y * 0.5f);
-            BuildStraightCorridor(start, end, false);
-        }
-    }
-
-    private void BuildStraightCorridor(Vector2 start, Vector2 end, bool horizontal)
-    {
-        float totalLength = horizontal ? Mathf.Abs(end.x - start.x) : Mathf.Abs(end.y - start.y);
-        if (totalLength <= 0.2f)
+        BattleNodeData first = graph.GetStartNode();
+        if (first == null)
             return;
 
-        int count = Mathf.Max(1, corridorPieceCount);
-        float pieceLength = totalLength / count;
-        float sign = horizontal ? Mathf.Sign(end.x - start.x) : Mathf.Sign(end.y - start.y);
+        BuildResolvedLayout();
+        Vector2 direction = CardinalDirection(ResolveNodeMapPosition(first));
+        if (direction == Vector2.zero)
+            direction = Vector2.right;
 
-        for (int i = 0; i < count; i++)
-        {
-            float distance = pieceLength * (i + 0.5f);
-            Vector2 center = horizontal
-                ? start + Vector2.right * sign * distance
-                : start + Vector2.up * sign * distance;
-
-            Vector2 size = horizontal
-                ? new Vector2(pieceLength + 0.10f, corridorWidth)
-                : new Vector2(corridorWidth, pieceLength + 0.10f);
-
-            Vector2 incoming = horizontal
-                ? (i % 2 == 0 ? Vector2.down : Vector2.up)
-                : (i % 2 == 0 ? Vector2.left : Vector2.right);
-
-            GameObject piece = CreateCorridorPiece($"RoutePiece_{persistentRouteObjects.Count}", center, size, horizontal);
-            MapBlock block = piece.GetComponent<MapBlock>();
-            block.PlayEnter(piece.transform.position, incoming, i * corridorPieceStagger);
-            persistentRouteObjects.Add(piece);
-        }
+        FieldInfo directionField = typeof(BattleRunManager).GetField("firstRoomDirection", InstanceFields);
+        if (directionField != null)
+            directionField.SetValue(runManager, direction);
     }
 
-    private GameObject CreateCorridorPiece(string objectName, Vector2 destination, Vector2 size, bool horizontal)
+    private ProceduralRoomLayout CreateStartLayout(RoomDefinitionSO room)
     {
-        GameObject root = new(objectName);
-        root.transform.position = destination;
+        Vector2Int size = room != null ? room.GetStartBaseTileSize() : new Vector2Int(3, 3);
+        HashSet<Vector2Int> cells = new();
+        for (int y = 0; y < size.y; y++)
+            for (int x = 0; x < size.x; x++)
+                cells.Add(new Vector2Int(x, y));
+        return new ProceduralRoomLayout(size, cells);
+    }
 
-        GameObject floor = new("Floor");
-        floor.transform.SetParent(root.transform, false);
-        SpriteRenderer floorRenderer = floor.AddComponent<SpriteRenderer>();
-        floorRenderer.sprite = SpatialRuntimeSpriteCache.Solid;
-        floorRenderer.drawMode = SpriteDrawMode.Tiled;
-        floorRenderer.size = size;
-        floorRenderer.color = new Color(0.20f, 0.23f, 0.27f, 1f);
-        floorRenderer.sortingOrder = -30;
+    private ProceduralRoomLayout GetOrCreateLayout(BattleNodeData node, Vector2 approachDirection)
+    {
+        if (node == null || node.room == null)
+            return new ProceduralRoomLayout(new Vector2Int(6, 6), new HashSet<Vector2Int>());
 
-        NavMeshModifier floorModifier = floor.AddComponent<NavMeshModifier>();
-        floorModifier.ignoreFromBuild = false;
-        floorModifier.overrideArea = false;
+        if (roomLayouts.TryGetValue(node.id, out ProceduralRoomLayout cached))
+            return cached;
 
-        float rail = 0.16f;
-        if (horizontal)
+        HashSet<Vector2Int> requiredDirections = new();
+        Vector2Int approach = DirectionToInt(-approachDirection);
+        if (approach != Vector2Int.zero)
+            requiredDirections.Add(approach);
+
+        if (graph != null)
         {
-            CreateRail(root.transform, new Vector2(0f, size.y * 0.5f), new Vector2(size.x, rail));
-            CreateRail(root.transform, new Vector2(0f, -size.y * 0.5f), new Vector2(size.x, rail));
-        }
-        else
-        {
-            CreateRail(root.transform, new Vector2(size.x * 0.5f, 0f), new Vector2(rail, size.y));
-            CreateRail(root.transform, new Vector2(-size.x * 0.5f, 0f), new Vector2(rail, size.y));
+            Vector2Int current = ResolveNodeMapPosition(node);
+            List<BattleNodeData> next = graph.GetNextNodes(node);
+            for (int i = 0; i < next.Count; i++)
+            {
+                Vector2 direction = CardinalDirection(ResolveNodeMapPosition(next[i]) - current);
+                Vector2Int edge = DirectionToInt(direction);
+                if (edge != Vector2Int.zero)
+                    requiredDirections.Add(edge);
+            }
         }
 
-        MapBlock mapBlock = root.AddComponent<MapBlock>();
-        mapBlock.ConfigureRuntimeDockingBlock(root.transform, true, 0.62f, corridorEntryDuration, corridorEntryOffset);
-        return root;
+        ProceduralRoomLayout layout = GenerateProceduralLayout(node, requiredDirections);
+        roomLayouts[node.id] = layout;
+        return layout;
     }
 
-    private void CreateRail(Transform parent, Vector2 localPosition, Vector2 size)
+    private ProceduralRoomLayout GenerateProceduralLayout(BattleNodeData node, HashSet<Vector2Int> requiredEdges)
     {
-        GameObject rail = new("Edge");
-        rail.transform.SetParent(parent, false);
-        rail.transform.localPosition = localPosition;
-
-        SpriteRenderer renderer = rail.AddComponent<SpriteRenderer>();
-        renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-        renderer.drawMode = SpriteDrawMode.Tiled;
-        renderer.size = size;
-        renderer.color = roomEdgeColor;
-        renderer.sortingOrder = 3;
-
-        BoxCollider2D collider = rail.AddComponent<BoxCollider2D>();
-        collider.size = size;
-        collider.isTrigger = false;
-
-        NavMeshModifier modifier = rail.AddComponent<NavMeshModifier>();
-        modifier.ignoreFromBuild = false;
-        modifier.overrideArea = true;
-        modifier.area = 1;
-    }
-
-    private void PlacePlayerAtRouteStart(Vector3 fromOrigin, RoomDefinitionSO room, Vector2 direction)
-    {
-        if (player == null || room == null)
-            return;
-
-        Vector2 size = room.GetRuntimeBaseWorldSize();
-        Vector2 center = (Vector2)fromOrigin + room.GetRuntimeBaseCenterOffset();
-        Vector2 position = center;
-
-        if (Mathf.Abs(direction.x) > 0.5f)
-            position.x += direction.x * (size.x * 0.5f - 0.55f);
-        else
-            position.y += direction.y * (size.y * 0.5f - 0.55f);
-
-        Vector3 world = new(position.x, position.y, player.transform.position.z);
-        player.transform.position = world;
-
-        Rigidbody2D body = player.GetComponent<Rigidbody2D>();
-        if (body != null)
-            body.linearVelocity = Vector2.zero;
-    }
-
-    private void PrepareLargeRoomPiece(BattleNodeData node, Vector2 approachDirection)
-    {
-        if (node == null || node.room == null || !node.room.useLargeRoomPiece)
-            return;
-
         RoomDefinitionSO room = node.room;
-        List<MapBlockPlacement> originalBlocks = room.blocks;
-        bool originalReposition = room.repositionPlayerOnEnter;
-
-        MapBlock prototype = CreateLargeRoomPrototype(room, node, approachDirection);
-        if (prototype == null)
-            return;
-
-        Vector2Int grid = room.GetSafeGridSize();
-        Vector2Int anchorGrid = new(grid.x + 2, 0);
-        Vector2 entry = room.largePieceEntryDirection.sqrMagnitude > 0.001f
-            ? room.largePieceEntryDirection.normalized
-            : Vector2.down;
-
-        room.blocks = new List<MapBlockPlacement>
+        if (!room.useProceduralRoom)
         {
-            new()
-            {
-                prefab = prototype,
-                gridPosition = anchorGrid,
-                entryDirection = entry
-            }
-        };
-
-        // 모든 Room 이동은 통로를 직접 걸어가는 방식이므로 자동 순간이동을 막습니다.
-        room.repositionPlayerOnEnter = false;
-        StartCoroutine(RestoreRoomPresentationDataNextFrame(room, originalBlocks, originalReposition, prototype.gameObject));
-    }
-
-    private MapBlock CreateLargeRoomPrototype(RoomDefinitionSO room, BattleNodeData node, Vector2 approachDirection)
-    {
-        Vector2Int grid = room.GetLargePieceGridSize();
-        HashSet<Vector2Int> cells = BuildRoomCells(room, node, grid);
-        if (cells.Count == 0)
-            return null;
-
-        Vector2Int anchorGrid = new(room.GetSafeGridSize().x + 2, 0);
-        Vector2 anchorWorld = room.GetBlockLocalPosition(anchorGrid);
-
-        GameObject root = new($"__LargeRoomPiecePrototype_{room.roomId}");
-        root.transform.position = new Vector3(10000f, 10000f, 0f);
-
-        foreach (Vector2Int cell in cells)
-        {
-            GameObject floor = new($"Floor_{cell.x}_{cell.y}");
-            floor.transform.SetParent(root.transform, false);
-            floor.transform.localPosition = (Vector3)(room.GetBlockLocalPosition(cell) - anchorWorld);
-
-            SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
-            renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-            renderer.drawMode = SpriteDrawMode.Tiled;
-            renderer.size = MapBlock.BlockWorldSize * 0.98f;
-            renderer.color = roomFloorColor;
-            renderer.sortingOrder = -20;
-
-            NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
-            modifier.ignoreFromBuild = false;
-            modifier.overrideArea = false;
+            Vector2Int grid = room.GetLargePieceGridSize();
+            HashSet<Vector2Int> fixedCells = BuildPresetCells(room, grid);
+            EnsureRequiredEdges(fixedCells, grid, requiredEdges);
+            return new ProceduralRoomLayout(grid, fixedCells);
         }
 
-        Vector2 entranceNormal = -approachDirection;
-        Vector2Int entranceCell = FindEntranceCell(cells, grid, entranceNormal);
-        Vector2Int[] directions = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
+        Vector2Int min = room.GetProceduralMinTileSize();
+        Vector2Int max = room.GetProceduralMaxTileSize();
+        int seed = StableHash(node.id) ^ StableHash(room.roomId) ^ room.proceduralSeed;
+        System.Random random = new(seed);
 
-        foreach (Vector2Int cell in cells)
+        Vector2Int size = new(
+            random.Next(min.x, max.x + 1),
+            random.Next(min.y, max.y + 1));
+
+        RoomLargePieceShape shape = room.largePieceShape;
+        if (shape == RoomLargePieceShape.Auto)
+            shape = RoomLargePieceShape.Irregular;
+
+        HashSet<Vector2Int> cells = BuildPresetCells(room, size, shape);
+
+        if (shape == RoomLargePieceShape.Irregular)
         {
-            for (int i = 0; i < directions.Length; i++)
+            float complexity = Mathf.Clamp01(room.proceduralComplexity);
+            float carveChance = Mathf.Clamp01(room.proceduralIndentChance + complexity * 0.18f);
+            int passes = 1 + Mathf.RoundToInt(complexity * 4f);
+
+            for (int pass = 0; pass < passes; pass++)
             {
-                Vector2Int edge = directions[i];
-                if (cells.Contains(cell + edge))
-                    continue;
+                List<Vector2Int> candidates = new(cells);
+                Shuffle(candidates, random);
 
-                bool entranceEdge = entranceCell == cell &&
-                                    Vector2.Dot((Vector2)edge, entranceNormal) > 0.9f;
-                if (entranceEdge)
-                    continue;
+                for (int i = 0; i < candidates.Count; i++)
+                {
+                    Vector2Int cell = candidates[i];
+                    if (!IsPerimeter(cell, size) || IsCentralSafeCell(cell, size))
+                        continue;
+                    if (random.NextDouble() > carveChance)
+                        continue;
 
-                CreateRoomEdge(root.transform, room.GetBlockLocalPosition(cell) - anchorWorld, edge);
+                    cells.Remove(cell);
+                    if (!IsConnected(cells))
+                        cells.Add(cell);
+                }
+            }
+
+            // 작은 bay/돌출부 느낌을 위해 깎인 외곽을 일부 다시 살립니다.
+            float extensionChance = Mathf.Clamp01(room.proceduralExtensionChance + complexity * 0.15f);
+            for (int y = 0; y < size.y; y++)
+            {
+                for (int x = 0; x < size.x; x++)
+                {
+                    Vector2Int cell = new(x, y);
+                    if (cells.Contains(cell) || !IsPerimeter(cell, size))
+                        continue;
+                    if (random.NextDouble() > extensionChance)
+                        continue;
+                    if (CountCardinalNeighbors(cells, cell) >= 2)
+                        cells.Add(cell);
+                }
             }
         }
 
-        MapBlock block = root.AddComponent<MapBlock>();
-        block.ConfigureRuntimeDockingBlock(
-            root.transform,
-            true,
-            roomImpactStrength,
-            room.largePieceEntryDuration,
-            room.largePieceEntryOffset);
-        return block;
+        EnsureRequiredEdges(cells, size, requiredEdges);
+        EnsureCentralCombatArea(cells, size);
+        return new ProceduralRoomLayout(size, cells);
     }
 
-    private HashSet<Vector2Int> BuildRoomCells(RoomDefinitionSO room, BattleNodeData node, Vector2Int grid)
+    private HashSet<Vector2Int> BuildPresetCells(RoomDefinitionSO room, Vector2Int grid, RoomLargePieceShape? forced = null)
     {
         HashSet<Vector2Int> cells = new();
-        RoomLargePieceShape shape = room.largePieceShape == RoomLargePieceShape.Auto
-            ? RoomLargePieceShape.Rectangle
-            : room.largePieceShape;
+        RoomLargePieceShape shape = forced ?? room.largePieceShape;
+        if (shape == RoomLargePieceShape.Auto)
+            shape = RoomLargePieceShape.Rectangle;
 
         if (shape == RoomLargePieceShape.Custom)
         {
             if (room.customLargePieceCells != null)
             {
                 for (int i = 0; i < room.customLargePieceCells.Count; i++)
-                    cells.Add(room.customLargePieceCells[i]);
+                {
+                    Vector2Int c = room.customLargePieceCells[i];
+                    if (c.x >= 0 && c.y >= 0 && c.x < grid.x && c.y < grid.y)
+                        cells.Add(c);
+                }
             }
             return cells;
         }
@@ -680,8 +606,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             {
                 bool include = shape switch
                 {
-                    RoomLargePieceShape.LShape => x < Mathf.Max(1, grid.x / 2) || y < Mathf.Max(1, grid.y / 2),
-                    RoomLargePieceShape.TShape => y >= Mathf.Max(0, grid.y - Mathf.Max(1, grid.y / 2)) ||
+                    RoomLargePieceShape.LShape => x < Mathf.Max(2, grid.x / 2) || y < Mathf.Max(2, grid.y / 2),
+                    RoomLargePieceShape.TShape => y >= grid.y - Mathf.Max(2, grid.y / 3) ||
                                                   (x >= grid.x / 3 && x <= (grid.x - 1) - grid.x / 3),
                     RoomLargePieceShape.Cross =>
                         (x >= grid.x / 3 && x <= (grid.x - 1) - grid.x / 3) ||
@@ -697,17 +623,465 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return cells;
     }
 
-    private static Vector2Int FindEntranceCell(HashSet<Vector2Int> cells, Vector2Int grid, Vector2 entranceNormal)
+    private static void EnsureCentralCombatArea(HashSet<Vector2Int> cells, Vector2Int size)
     {
-        Vector2 center = new((grid.x - 1) * 0.5f, (grid.y - 1) * 0.5f);
+        int minX = Mathf.Max(0, size.x / 2 - 2);
+        int maxX = Mathf.Min(size.x - 1, minX + 3);
+        int minY = Mathf.Max(0, size.y / 2 - 2);
+        int maxY = Mathf.Min(size.y - 1, minY + 3);
+
+        for (int y = minY; y <= maxY; y++)
+            for (int x = minX; x <= maxX; x++)
+                cells.Add(new Vector2Int(x, y));
+    }
+
+    private static void EnsureRequiredEdges(HashSet<Vector2Int> cells, Vector2Int size, HashSet<Vector2Int> edges)
+    {
+        if (edges == null)
+            return;
+
+        foreach (Vector2Int edge in edges)
+        {
+            Vector2Int door;
+            if (edge == Vector2Int.right) door = new Vector2Int(size.x - 1, size.y / 2);
+            else if (edge == Vector2Int.left) door = new Vector2Int(0, size.y / 2);
+            else if (edge == Vector2Int.up) door = new Vector2Int(size.x / 2, size.y - 1);
+            else if (edge == Vector2Int.down) door = new Vector2Int(size.x / 2, 0);
+            else continue;
+
+            cells.Add(door);
+            Vector2Int center = new(size.x / 2, size.y / 2);
+            Vector2Int cursor = door;
+            while (cursor != center)
+            {
+                if (cursor.x != center.x)
+                    cursor.x += Math.Sign(center.x - cursor.x);
+                else if (cursor.y != center.y)
+                    cursor.y += Math.Sign(center.y - cursor.y);
+                cells.Add(cursor);
+            }
+        }
+    }
+
+    private static bool IsCentralSafeCell(Vector2Int cell, Vector2Int size)
+    {
+        Vector2 center = new((size.x - 1) * 0.5f, (size.y - 1) * 0.5f);
+        return Mathf.Abs(cell.x - center.x) <= 1.5f && Mathf.Abs(cell.y - center.y) <= 1.5f;
+    }
+
+    private static bool IsPerimeter(Vector2Int cell, Vector2Int size)
+    {
+        return cell.x == 0 || cell.y == 0 || cell.x == size.x - 1 || cell.y == size.y - 1;
+    }
+
+    private static int CountCardinalNeighbors(HashSet<Vector2Int> cells, Vector2Int cell)
+    {
+        int count = 0;
+        if (cells.Contains(cell + Vector2Int.right)) count++;
+        if (cells.Contains(cell + Vector2Int.left)) count++;
+        if (cells.Contains(cell + Vector2Int.up)) count++;
+        if (cells.Contains(cell + Vector2Int.down)) count++;
+        return count;
+    }
+
+    private static bool IsConnected(HashSet<Vector2Int> cells)
+    {
+        if (cells == null || cells.Count == 0)
+            return false;
+
+        Vector2Int first = default;
+        foreach (Vector2Int c in cells) { first = c; break; }
+
+        Queue<Vector2Int> queue = new();
+        HashSet<Vector2Int> visited = new();
+        queue.Enqueue(first);
+        visited.Add(first);
+
+        Vector2Int[] dirs = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
+        while (queue.Count > 0)
+        {
+            Vector2Int c = queue.Dequeue();
+            for (int i = 0; i < dirs.Length; i++)
+            {
+                Vector2Int n = c + dirs[i];
+                if (cells.Contains(n) && visited.Add(n))
+                    queue.Enqueue(n);
+            }
+        }
+        return visited.Count == cells.Count;
+    }
+
+    private static void Shuffle<T>(List<T> list, System.Random random)
+    {
+        for (int i = list.Count - 1; i > 0; i--)
+        {
+            int j = random.Next(i + 1);
+            (list[i], list[j]) = (list[j], list[i]);
+        }
+    }
+
+    private static int StableHash(string text)
+    {
+        unchecked
+        {
+            int hash = 23;
+            if (text != null)
+                for (int i = 0; i < text.Length; i++)
+                    hash = hash * 31 + text[i];
+            return hash;
+        }
+    }
+
+    private static Vector2Int DirectionToInt(Vector2 direction)
+    {
+        if (direction.sqrMagnitude <= 0.001f)
+            return Vector2Int.zero;
+        if (Mathf.Abs(direction.x) >= Mathf.Abs(direction.y))
+            return direction.x >= 0f ? Vector2Int.right : Vector2Int.left;
+        return direction.y >= 0f ? Vector2Int.up : Vector2Int.down;
+    }
+
+    private RouteGeometry CalculateRouteGeometry(
+        Vector3 fromOrigin,
+        RoomDefinitionSO fromRoom,
+        ProceduralRoomLayout fromLayout,
+        Vector3 toOrigin,
+        RoomDefinitionSO toRoom,
+        ProceduralRoomLayout toLayout,
+        Vector2 direction)
+    {
+        Vector2 fromCenter = (Vector2)fromOrigin + fromLayout.CenterOffset;
+        Vector2 toCenter = (Vector2)toOrigin + toLayout.CenterOffset;
+        Vector2 fromHalf = fromLayout.WorldSize * 0.5f;
+        Vector2 toHalf = toLayout.WorldSize * 0.5f;
+
+        Vector2 start;
+        Vector2 end;
+        bool horizontal = Mathf.Abs(direction.x) > 0.5f;
+        if (horizontal)
+        {
+            start = fromCenter + new Vector2(direction.x * fromHalf.x, 0f);
+            end = new Vector2(toCenter.x - direction.x * toHalf.x, start.y);
+        }
+        else
+        {
+            start = fromCenter + new Vector2(0f, direction.y * fromHalf.y);
+            end = new Vector2(start.x, toCenter.y - direction.y * toHalf.y);
+        }
+
+        return new RouteGeometry(start, end, horizontal);
+    }
+
+    private void ReserveLogicalRouteAndRoom(
+        RouteGeometry route,
+        BattleNodeData node,
+        Vector3 roomOrigin,
+        ProceduralRoomLayout layout,
+        Vector2 approachDirection)
+    {
+        string key = RouteKey(lastMapPosition, ResolveNodeMapPosition(node));
+        if (reservedRouteKeys.Add(key))
+            BuildLogicalCorridor(route);
+
+        BuildLogicalRoom(node, roomOrigin, layout, approachDirection);
+    }
+
+    private void BuildLogicalCorridor(RouteGeometry route)
+    {
+        float length = route.Length;
+        if (length <= 0.1f)
+            return;
+
+        GameObject root = new($"LogicalRoute_{logicalNavigationObjects.Count}");
+        root.transform.position = route.Center;
+
+        SpriteRenderer floor = root.AddComponent<SpriteRenderer>();
+        floor.sprite = SpatialRuntimeSpriteCache.Solid;
+        floor.drawMode = SpriteDrawMode.Tiled;
+        floor.size = route.horizontal
+            ? new Vector2(length, corridorWidth)
+            : new Vector2(corridorWidth, length);
+        floor.color = new Color(1f, 1f, 1f, 0f);
+        floor.sortingOrder = -1000;
+
+        NavMeshModifier modifier = root.AddComponent<NavMeshModifier>();
+        modifier.ignoreFromBuild = false;
+        modifier.overrideArea = false;
+
+        logicalNavigationObjects.Add(root);
+    }
+
+    private void BuildLogicalRoom(BattleNodeData node, Vector3 roomOrigin, ProceduralRoomLayout layout, Vector2 approachDirection)
+    {
+        GameObject root = new($"LogicalRoom_{node.id}");
+        root.transform.position = roomOrigin;
+
+        HashSet<Vector2Int> doorwayNormals = GetDoorwayNormals(node, approachDirection);
+
+        foreach (Vector2Int cell in layout.cells)
+        {
+            GameObject floor = new($"NavFloor_{cell.x}_{cell.y}");
+            floor.transform.SetParent(root.transform, false);
+            floor.transform.localPosition = (Vector3)((Vector2)cell * RoomDefinitionSO.ProceduralTileWorldSize);
+
+            SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
+            renderer.sprite = SpatialRuntimeSpriteCache.Solid;
+            renderer.drawMode = SpriteDrawMode.Tiled;
+            renderer.size = Vector2.one * RoomDefinitionSO.ProceduralTileWorldSize;
+            renderer.color = new Color(1f, 1f, 1f, 0f);
+            renderer.sortingOrder = -1000;
+
+            NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
+            modifier.ignoreFromBuild = false;
+            modifier.overrideArea = false;
+        }
+
+        BuildBoundaryEdges(root.transform, layout, doorwayNormals, false, true);
+        logicalNavigationObjects.Add(root);
+    }
+
+    private IEnumerator RevealRouteAndRoomRoutine(
+        RouteGeometry route,
+        BattleNodeData node,
+        Vector3 targetRoomOrigin,
+        ProceduralRoomLayout layout,
+        Vector2 travelDirection)
+    {
+        float totalLength = route.Length;
+        int count = Mathf.Max(1, corridorPieceCount);
+        float pieceLength = totalLength / count;
+        float sign = route.horizontal ? Mathf.Sign(route.end.x - route.start.x) : Mathf.Sign(route.end.y - route.start.y);
+
+        for (int i = 0; i < count; i++)
+        {
+            float distance = pieceLength * (i + 0.5f);
+            Vector2 center = route.horizontal
+                ? route.start + Vector2.right * sign * distance
+                : route.start + Vector2.up * sign * distance;
+
+            while (i > 0 && !IsPointWithinCameraReveal(center))
+                yield return new WaitForSecondsRealtime(revealPollInterval);
+
+            Vector2 size = route.horizontal
+                ? new Vector2(pieceLength + 0.06f, corridorWidth)
+                : new Vector2(corridorWidth, pieceLength + 0.06f);
+
+            Vector2 incoming = route.horizontal
+                ? (i % 2 == 0 ? Vector2.down : Vector2.up)
+                : (i % 2 == 0 ? Vector2.left : Vector2.right);
+
+            GameObject piece = CreateVisibleCorridorPiece($"RoutePiece_{persistentRouteObjects.Count}", center, size, route.horizontal);
+            MapBlock block = piece.GetComponent<MapBlock>();
+            block.PlayEnter(piece.transform.position, incoming, i == 0 ? 0f : corridorPieceStagger);
+            persistentRouteObjects.Add(piece);
+        }
+
+        Rect roomBounds = new(
+            (Vector2)targetRoomOrigin - Vector2.one * 0.5f,
+            layout.WorldSize);
+
+        while (!IsRectWithinCameraReveal(roomBounds))
+            yield return new WaitForSecondsRealtime(revealPollInterval);
+
+        GameObject roomPiece = CreateVisibleRoomPiece(node, targetRoomOrigin, layout, travelDirection);
+        persistentRouteObjects.Add(roomPiece);
+    }
+
+    private GameObject CreateVisibleCorridorPiece(string objectName, Vector2 destination, Vector2 size, bool horizontal)
+    {
+        GameObject root = new(objectName);
+        root.transform.position = destination;
+
+        GameObject floor = new("Floor");
+        floor.transform.SetParent(root.transform, false);
+        SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
+        renderer.sprite = SpatialRuntimeSpriteCache.Solid;
+        renderer.drawMode = SpriteDrawMode.Tiled;
+        renderer.size = size;
+        renderer.color = new Color(0.20f, 0.23f, 0.27f, 1f);
+        renderer.sortingOrder = -30;
+
+        NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
+        modifier.ignoreFromBuild = false;
+        modifier.overrideArea = false;
+
+        CreateVisibleRail(root.transform,
+            horizontal ? new Vector2(0f, size.y * 0.5f) : new Vector2(size.x * 0.5f, 0f),
+            horizontal ? new Vector2(size.x, roomEdgeThickness) : new Vector2(roomEdgeThickness, size.y));
+        CreateVisibleRail(root.transform,
+            horizontal ? new Vector2(0f, -size.y * 0.5f) : new Vector2(-size.x * 0.5f, 0f),
+            horizontal ? new Vector2(size.x, roomEdgeThickness) : new Vector2(roomEdgeThickness, size.y));
+
+        MapBlock block = root.AddComponent<MapBlock>();
+        block.ConfigureRuntimeDockingBlock(root.transform, true, 0.62f, corridorEntryDuration, corridorEntryOffset);
+        return root;
+    }
+
+    private void CreateVisibleRail(Transform parent, Vector2 localPosition, Vector2 size)
+    {
+        GameObject rail = new("EdgeVisual");
+        rail.transform.SetParent(parent, false);
+        rail.transform.localPosition = localPosition;
+
+        SpriteRenderer renderer = rail.AddComponent<SpriteRenderer>();
+        renderer.sprite = SpatialRuntimeSpriteCache.Solid;
+        renderer.drawMode = SpriteDrawMode.Tiled;
+        renderer.size = size;
+        renderer.color = roomEdgeColor;
+        renderer.sortingOrder = 3;
+    }
+
+    private GameObject CreateVisibleRoomPiece(
+        BattleNodeData node,
+        Vector3 targetOrigin,
+        ProceduralRoomLayout layout,
+        Vector2 approachDirection)
+    {
+        GameObject root = new($"RoomPiece_{node.id}");
+        root.transform.position = targetOrigin;
+
+        foreach (Vector2Int cell in layout.cells)
+        {
+            GameObject floor = new($"Floor_{cell.x}_{cell.y}");
+            floor.transform.SetParent(root.transform, false);
+            floor.transform.localPosition = (Vector3)((Vector2)cell * RoomDefinitionSO.ProceduralTileWorldSize);
+
+            SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
+            renderer.sprite = SpatialRuntimeSpriteCache.Solid;
+            renderer.drawMode = SpriteDrawMode.Tiled;
+            renderer.size = Vector2.one * 0.98f * RoomDefinitionSO.ProceduralTileWorldSize;
+            renderer.color = roomFloorColor;
+            renderer.sortingOrder = -20;
+
+            NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
+            modifier.ignoreFromBuild = false;
+            modifier.overrideArea = false;
+        }
+
+        BuildBoundaryEdges(root.transform, layout, GetDoorwayNormals(node, approachDirection), true, false);
+
+        MapBlock block = root.AddComponent<MapBlock>();
+        block.ConfigureRuntimeDockingBlock(
+            root.transform,
+            true,
+            roomImpactStrength,
+            node.room.largePieceEntryDuration,
+            node.room.largePieceEntryOffset);
+
+        Vector2 entry = node.room.largePieceEntryDirection.sqrMagnitude > 0.001f
+            ? node.room.largePieceEntryDirection.normalized
+            : Vector2.down;
+        block.PlayEnter(targetOrigin, entry);
+        return root;
+    }
+
+    private HashSet<Vector2Int> GetDoorwayNormals(BattleNodeData node, Vector2 approachDirection)
+    {
+        HashSet<Vector2Int> result = new();
+        Vector2Int approach = DirectionToInt(-approachDirection);
+        if (approach != Vector2Int.zero)
+            result.Add(approach);
+
+        if (node != null && graph != null)
+        {
+            Vector2Int current = ResolveNodeMapPosition(node);
+            List<BattleNodeData> next = graph.GetNextNodes(node);
+            for (int i = 0; i < next.Count; i++)
+            {
+                Vector2Int d = DirectionToInt(CardinalDirection(ResolveNodeMapPosition(next[i]) - current));
+                if (d != Vector2Int.zero)
+                    result.Add(d);
+            }
+        }
+
+        return result;
+    }
+
+    private void BuildBoundaryEdges(
+        Transform root,
+        ProceduralRoomLayout layout,
+        HashSet<Vector2Int> doorwayNormals,
+        bool visible,
+        bool logicalCollision)
+    {
+        Vector2Int[] directions = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
+        Dictionary<Vector2Int, Vector2Int> doorwayCells = new();
+
+        if (doorwayNormals != null)
+        {
+            foreach (Vector2Int normal in doorwayNormals)
+                doorwayCells[normal] = FindEntranceCell(layout.cells, layout.size, normal);
+        }
+
+        foreach (Vector2Int cell in layout.cells)
+        {
+            for (int i = 0; i < directions.Length; i++)
+            {
+                Vector2Int edge = directions[i];
+                if (layout.cells.Contains(cell + edge))
+                    continue;
+
+                if (doorwayCells.TryGetValue(edge, out Vector2Int doorCell) && doorCell == cell)
+                    continue;
+
+                CreateBoundaryEdge(root, cell, edge, visible, logicalCollision);
+            }
+        }
+    }
+
+    private void CreateBoundaryEdge(Transform root, Vector2Int cell, Vector2Int edge, bool visible, bool logicalCollision)
+    {
+        bool vertical = edge.x != 0;
+        Vector2 cellCenter = (Vector2)cell * RoomDefinitionSO.ProceduralTileWorldSize;
+        Vector2 position = cellCenter + (Vector2)edge * RoomDefinitionSO.ProceduralTileWorldSize * 0.5f;
+        Vector2 size = vertical
+            ? new Vector2(roomEdgeThickness, RoomDefinitionSO.ProceduralTileWorldSize + roomEdgeThickness)
+            : new Vector2(RoomDefinitionSO.ProceduralTileWorldSize + roomEdgeThickness, roomEdgeThickness);
+
+        GameObject edgeObject = new(visible ? "RoomEdgeVisual" : "RoomEdgeLogical");
+        edgeObject.transform.SetParent(root, false);
+        edgeObject.transform.localPosition = position;
+
+        if (visible)
+        {
+            SpriteRenderer renderer = edgeObject.AddComponent<SpriteRenderer>();
+            renderer.sprite = SpatialRuntimeSpriteCache.Solid;
+            renderer.drawMode = SpriteDrawMode.Tiled;
+            renderer.size = size;
+            renderer.color = roomEdgeColor;
+            renderer.sortingOrder = 2;
+        }
+
+        if (logicalCollision)
+        {
+            BoxCollider2D collider = edgeObject.AddComponent<BoxCollider2D>();
+            collider.size = size;
+            collider.isTrigger = false;
+
+            NavMeshModifier modifier = edgeObject.AddComponent<NavMeshModifier>();
+            modifier.ignoreFromBuild = false;
+            modifier.overrideArea = true;
+            modifier.area = 1;
+        }
+    }
+
+    private static Vector2Int FindEntranceCell(HashSet<Vector2Int> cells, Vector2Int size, Vector2Int normal)
+    {
+        Vector2 center = new((size.x - 1) * 0.5f, (size.y - 1) * 0.5f);
         Vector2Int best = default;
         float bestScore = float.MaxValue;
         bool found = false;
 
         foreach (Vector2Int cell in cells)
         {
-            Vector2Int neighbor = cell + new Vector2Int(Mathf.RoundToInt(entranceNormal.x), Mathf.RoundToInt(entranceNormal.y));
-            if (cells.Contains(neighbor))
+            if (cells.Contains(cell + normal))
+                continue;
+
+            bool onRequestedSide = normal == Vector2Int.right ? cell.x == size.x - 1 :
+                                   normal == Vector2Int.left ? cell.x == 0 :
+                                   normal == Vector2Int.up ? cell.y == size.y - 1 :
+                                   normal == Vector2Int.down && cell.y == 0;
+            if (!onRequestedSide)
                 continue;
 
             float centerDistance = Vector2.Distance(cell, center);
@@ -719,55 +1093,170 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             }
         }
 
-        return found ? best : Vector2Int.zero;
+        return found ? best : new Vector2Int(size.x / 2, size.y / 2);
     }
 
-    private void CreateRoomEdge(Transform root, Vector2 cellLocalCenter, Vector2Int edge)
+    private void SuppressLegacyRoomPiecesForCurrentEnter(RoomDefinitionSO room)
     {
-        bool vertical = edge.x != 0;
-        Vector2 normal = edge;
-        Vector2 position = cellLocalCenter + normal * MapBlock.BlockWorldSize.x * 0.5f;
-        Vector2 size = vertical
-            ? new Vector2(roomEdgeThickness, MapBlock.BlockWorldSize.y + roomEdgeThickness)
-            : new Vector2(MapBlock.BlockWorldSize.x + roomEdgeThickness, roomEdgeThickness);
+        if (room == null)
+            return;
 
-        GameObject edgeObject = new("RoomEdge");
-        edgeObject.transform.SetParent(root, false);
-        edgeObject.transform.localPosition = position;
-
-        SpriteRenderer renderer = edgeObject.AddComponent<SpriteRenderer>();
-        renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-        renderer.drawMode = SpriteDrawMode.Tiled;
-        renderer.size = size;
-        renderer.color = roomEdgeColor;
-        renderer.sortingOrder = 2;
-
-        BoxCollider2D collider = edgeObject.AddComponent<BoxCollider2D>();
-        collider.size = size;
-        collider.isTrigger = false;
-
-        NavMeshModifier modifier = edgeObject.AddComponent<NavMeshModifier>();
-        modifier.ignoreFromBuild = false;
-        modifier.overrideArea = true;
-        modifier.area = 1;
+        List<MapBlockPlacement> originalBlocks = room.blocks;
+        bool originalReposition = room.repositionPlayerOnEnter;
+        room.blocks = new List<MapBlockPlacement>();
+        room.repositionPlayerOnEnter = false;
+        StartCoroutine(RestoreRoomDataNextFrame(room, originalBlocks, originalReposition));
     }
 
-    private IEnumerator RestoreRoomPresentationDataNextFrame(
-        RoomDefinitionSO room,
-        List<MapBlockPlacement> originalBlocks,
-        bool originalReposition,
-        GameObject prototype)
+    private IEnumerator RestoreRoomDataNextFrame(RoomDefinitionSO room, List<MapBlockPlacement> blocks, bool reposition)
     {
         yield return null;
+        if (room == null)
+            yield break;
+        room.blocks = blocks ?? new List<MapBlockPlacement>();
+        room.repositionPlayerOnEnter = reposition;
+    }
 
-        if (room != null)
+    private void PlacePlayerAtRouteStart(Vector2 routeStart, Vector2 direction)
+    {
+        if (player == null)
+            return;
+
+        Vector2 position = routeStart - direction.normalized * 0.42f;
+        player.transform.position = new Vector3(position.x, position.y, player.transform.position.z);
+        Rigidbody2D body = player.GetComponent<Rigidbody2D>();
+        if (body != null)
+            body.linearVelocity = Vector2.zero;
+    }
+
+    private bool IsPointWithinCameraReveal(Vector2 point)
+    {
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic)
+            return true;
+
+        Vector2 center = camera.transform.position;
+        float halfH = camera.orthographicSize + revealMarginWorld;
+        float halfW = camera.orthographicSize * camera.aspect + revealMarginWorld;
+        return Mathf.Abs(point.x - center.x) <= halfW && Mathf.Abs(point.y - center.y) <= halfH;
+    }
+
+    private bool IsRectWithinCameraReveal(Rect rect)
+    {
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic)
+            return true;
+
+        Vector2 center = camera.transform.position;
+        float halfH = camera.orthographicSize + revealMarginWorld;
+        float halfW = camera.orthographicSize * camera.aspect + revealMarginWorld;
+        Rect cameraRect = new(center - new Vector2(halfW, halfH), new Vector2(halfW * 2f, halfH * 2f));
+        return cameraRect.Overlaps(rect, true);
+    }
+
+    private void RefreshWorldDirectionMarkers()
+    {
+        ClearDirectionMarkers();
+        if (runManager == null || graph == null || player == null)
+            return;
+
+        if (runManager.IsInStartArea)
         {
-            room.blocks = originalBlocks ?? new List<MapBlockPlacement>();
-            room.repositionPlayerOnEnter = originalReposition;
+            BattleNodeData first = graph.GetStartNode();
+            if (first == null || first.room == null)
+                return;
+
+            BuildResolvedLayout();
+            Vector2 direction = CardinalDirection(ResolveNodeMapPosition(first));
+            if (direction == Vector2.zero)
+                direction = Vector2.right;
+
+            Vector2 center = GetStartAreaCenter(first.room);
+            Vector2 half = first.room.GetStartBaseWorldSize() * 0.5f;
+            Vector2 markerPosition = EdgeMarkerPosition(center, half, direction);
+            CreateDirectionMarker(markerPosition, direction, first, false, null);
+            return;
         }
 
-        if (prototype != null)
-            Destroy(prototype);
+        if (!runManager.WaitingForNodeSelection || runManager.CurrentNode == null)
+            return;
+
+        BattleNodeData currentNode = runManager.CurrentNode;
+        ProceduralRoomLayout currentLayout = GetOrCreateLayout(currentNode, Vector2.zero);
+        Vector3 currentOrigin = MapPositionToWorld(ResolveNodeMapPosition(currentNode));
+        Vector2 centerCurrent = (Vector2)currentOrigin + currentLayout.CenterOffset;
+        Vector2 halfCurrent = currentLayout.WorldSize * 0.5f;
+
+        IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
+        Vector2Int currentMap = ResolveNodeMapPosition(currentNode);
+        for (int i = 0; i < choices.Count; i++)
+        {
+            BattleNodeData next = choices[i];
+            if (next == null)
+                continue;
+
+            Vector2 direction = CardinalDirection(ResolveNodeMapPosition(next) - currentMap);
+            if (direction == Vector2.zero)
+                continue;
+
+            Vector2 markerPosition = EdgeMarkerPosition(centerCurrent, halfCurrent, direction);
+            CreateDirectionMarker(
+                markerPosition,
+                direction,
+                next,
+                next.type == BattleNodeType.Elite,
+                () => runManager.SelectNextNode(next.id));
+        }
+    }
+
+    private Vector2 GetStartAreaCenter(RoomDefinitionSO room)
+    {
+        ResolveStartOriginFromBase(room);
+        return (Vector2)startOrigin + room.GetStartBaseCenterOffset();
+    }
+
+    private Vector2 EdgeMarkerPosition(Vector2 center, Vector2 half, Vector2 direction)
+    {
+        Vector2 position = center;
+        if (Mathf.Abs(direction.x) > 0.5f)
+            position.x += direction.x * Mathf.Max(0.1f, half.x - markerInset);
+        else
+            position.y += direction.y * Mathf.Max(0.1f, half.y - markerInset);
+        return position;
+    }
+
+    private void CreateDirectionMarker(
+        Vector2 worldPosition,
+        Vector2 direction,
+        BattleNodeData node,
+        bool elite,
+        Action onTriggered)
+    {
+        GameObject marker = new($"DirectionMarker_{node?.id ?? "Start"}");
+        marker.transform.position = new Vector3(worldPosition.x, worldPosition.y, 0f);
+
+        SpriteRenderer renderer = marker.AddComponent<SpriteRenderer>();
+        renderer.sprite = SpatialRuntimeSpriteCache.Arrow;
+        renderer.color = elite ? markerEliteColor : markerAvailableColor;
+        renderer.sortingOrder = 90;
+        marker.transform.localScale = Vector3.one * markerWorldSize;
+        marker.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg);
+
+        CircleCollider2D trigger = marker.AddComponent<CircleCollider2D>();
+        trigger.isTrigger = true;
+        trigger.radius = markerTriggerRadius / Mathf.Max(0.01f, markerWorldSize);
+
+        SpatialDirectionMarkerTrigger markerTrigger = marker.AddComponent<SpatialDirectionMarkerTrigger>();
+        markerTrigger.Arm(player.transform, onTriggered);
+        directionMarkers.Add(marker);
+    }
+
+    private void ClearDirectionMarkers()
+    {
+        for (int i = 0; i < directionMarkers.Count; i++)
+            if (directionMarkers[i] != null)
+                Destroy(directionMarkers[i]);
+        directionMarkers.Clear();
     }
 
     private static string RouteKey(Vector2Int a, Vector2Int b)
@@ -780,12 +1269,18 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void ClearPersistentRoutes()
     {
         for (int i = 0; i < persistentRouteObjects.Count; i++)
-        {
             if (persistentRouteObjects[i] != null)
                 Destroy(persistentRouteObjects[i]);
-        }
         persistentRouteObjects.Clear();
-        builtRouteKeys.Clear();
+        reservedRouteKeys.Clear();
+    }
+
+    private void ClearLogicalNavigation()
+    {
+        for (int i = 0; i < logicalNavigationObjects.Count; i++)
+            if (logicalNavigationObjects[i] != null)
+                Destroy(logicalNavigationObjects[i]);
+        logicalNavigationObjects.Clear();
     }
 
     private void ApplyReadableDefaultCharacterSizes()
@@ -795,11 +1290,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         if (player != null && player.spriteSO != null && player.spriteSO.name.StartsWith("TEST_", StringComparison.OrdinalIgnoreCase))
         {
-            float scale = Mathf.Max(1f, testPlayerScale);
+            SpriteRenderer renderer = player.GetComponent<SpriteRenderer>();
+            float scale = ResolveScaleForWorldHeight(renderer, testPlayerWorldHeight);
             player.transform.localScale = new Vector3(scale, scale, 1f);
+
             CircleCollider2D circle = player.GetComponent<CircleCollider2D>();
             if (circle != null)
-                circle.radius = Mathf.Max(0.1f, testPlayerColliderRadius);
+                circle.radius = testPlayerWorldColliderRadius / Mathf.Max(0.01f, scale);
         }
 
         MonsterController[] monsters = FindObjectsByType<MonsterController>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
@@ -809,21 +1306,29 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (monster == null || monster.Definition == null ||
                 string.IsNullOrEmpty(monster.Definition.monsterId) ||
                 !monster.Definition.monsterId.StartsWith("TEST_", StringComparison.OrdinalIgnoreCase))
-            {
                 continue;
-            }
 
-            float scale = Mathf.Max(1f, testMonsterScale);
+            SpriteRenderer renderer = monster.GetComponent<SpriteRenderer>();
+            float scale = ResolveScaleForWorldHeight(renderer, testMonsterWorldHeight);
             monster.transform.localScale = new Vector3(scale, scale, 1f);
 
             CircleCollider2D circle = monster.GetComponent<CircleCollider2D>();
             if (circle != null)
-                circle.radius = Mathf.Max(0.1f, testMonsterColliderRadius);
+                circle.radius = testMonsterWorldColliderRadius / Mathf.Max(0.01f, scale);
 
             NavMeshAgent agent = monster.GetComponent<NavMeshAgent>();
             if (agent != null)
-                agent.radius = Mathf.Max(agent.radius, 0.40f);
+                agent.radius = Mathf.Max(0.30f, testMonsterWorldColliderRadius * 0.8f);
         }
+    }
+
+    private static float ResolveScaleForWorldHeight(SpriteRenderer renderer, float targetHeight)
+    {
+        if (renderer == null || renderer.sprite == null)
+            return Mathf.Max(0.1f, targetHeight);
+
+        float spriteHeight = Mathf.Max(0.01f, renderer.sprite.bounds.size.y);
+        return Mathf.Max(0.1f, targetHeight / spriteHeight);
     }
 
     private void EnsureMiniMapUI()
@@ -870,30 +1375,28 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (graph.nodes != null)
         {
             for (int i = 0; i < graph.nodes.Count; i++)
-            {
-                BattleNodeData node = graph.nodes[i];
-                if (node != null)
-                    allPositions.Add(ResolveNodeMapPosition(node));
-            }
+                if (graph.nodes[i] != null)
+                    allPositions.Add(ResolveNodeMapPosition(graph.nodes[i]));
         }
 
         Vector2 mapCenter = CalculateMapCenter(allPositions);
         float spacing = Mathf.Min(miniMapCellSpacing, CalculateMiniMapFitSpacing(allPositions));
 
-        DrawMiniMapLink(Vector2Int.zero, ResolveNodeMapPosition(graph.GetStartNode()), mapCenter, spacing);
+        BattleNodeData startNode = graph.GetStartNode();
+        if (startNode != null)
+            DrawMiniMapLink(Vector2Int.zero, ResolveNodeMapPosition(startNode), mapCenter, spacing);
 
         if (graph.nodes != null)
         {
             for (int i = 0; i < graph.nodes.Count; i++)
             {
                 BattleNodeData node = graph.nodes[i];
-                if (node == null || node.nextNodeIds == null)
+                if (node == null)
                     continue;
 
-                Vector2Int from = ResolveNodeMapPosition(node);
                 List<BattleNodeData> next = graph.GetNextNodes(node);
                 for (int n = 0; n < next.Count; n++)
-                    DrawMiniMapLink(from, ResolveNodeMapPosition(next[n]), mapCenter, spacing);
+                    DrawMiniMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter, spacing);
             }
         }
 
@@ -905,10 +1408,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             IReadOnlyList<BattleNodeData> next = runManager.NextNodeChoices;
             for (int i = 0; i < next.Count; i++)
-            {
                 if (next[i] != null)
                     available.Add(next[i].id);
-            }
         }
 
         if (graph.nodes != null)
@@ -927,7 +1428,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 else if (visitedNodeIds.Contains(node.id))
                     color = miniMapVisited;
 
-                DrawMiniMapNode(ResolveNodeMapPosition(node), color, mapCenter, spacing, node.type == BattleNodeType.Elite ? 1.18f : 1f);
+                DrawMiniMapNode(ResolveNodeMapPosition(node), color, mapCenter, spacing,
+                    node.type == BattleNodeType.Elite ? 1.18f : 1f);
             }
         }
     }
@@ -937,10 +1439,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (positions == null || positions.Count == 0)
             return miniMapCellSpacing;
 
-        int minX = positions[0].x;
-        int maxX = positions[0].x;
-        int minY = positions[0].y;
-        int maxY = positions[0].y;
+        int minX = positions[0].x, maxX = positions[0].x;
+        int minY = positions[0].y, maxY = positions[0].y;
         for (int i = 1; i < positions.Count; i++)
         {
             minX = Mathf.Min(minX, positions[i].x);
@@ -951,9 +1451,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         float rangeX = Mathf.Max(1, maxX - minX);
         float rangeY = Mathf.Max(1, maxY - minY);
-        float fitX = (miniMapSize.x - 42f) / rangeX;
-        float fitY = (miniMapSize.y - 42f) / rangeY;
-        return Mathf.Max(18f, Mathf.Min(fitX, fitY));
+        return Mathf.Max(18f, Mathf.Min((miniMapSize.x - 42f) / rangeX, (miniMapSize.y - 42f) / rangeY));
     }
 
     private static Vector2 CalculateMapCenter(List<Vector2Int> positions)
@@ -961,10 +1459,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (positions == null || positions.Count == 0)
             return Vector2.zero;
 
-        int minX = positions[0].x;
-        int maxX = positions[0].x;
-        int minY = positions[0].y;
-        int maxY = positions[0].y;
+        int minX = positions[0].x, maxX = positions[0].x;
+        int minY = positions[0].y, maxY = positions[0].y;
         for (int i = 1; i < positions.Count; i++)
         {
             minX = Mathf.Min(minX, positions[i].x);
@@ -985,9 +1481,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         RectTransform rect = node.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = new Vector2(
-            (mapPosition.x - mapCenter.x) * spacing,
-            (mapPosition.y - mapCenter.y) * spacing);
+        rect.anchoredPosition = new Vector2((mapPosition.x - mapCenter.x) * spacing, (mapPosition.y - mapCenter.y) * spacing);
         rect.sizeDelta = Vector2.one * miniMapNodeSize * sizeMultiplier;
     }
 
@@ -1020,12 +1514,71 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.sizeDelta = size;
         bar.transform.SetAsFirstSibling();
     }
+
+    private readonly struct RouteGeometry
+    {
+        public readonly Vector2 start;
+        public readonly Vector2 end;
+        public readonly bool horizontal;
+        public RouteGeometry(Vector2 start, Vector2 end, bool horizontal)
+        {
+            this.start = start;
+            this.end = end;
+            this.horizontal = horizontal;
+        }
+        public float Length => horizontal ? Mathf.Abs(end.x - start.x) : Mathf.Abs(end.y - start.y);
+        public Vector2 Center => (start + end) * 0.5f;
+    }
+
+    private sealed class ProceduralRoomLayout
+    {
+        public readonly Vector2Int size;
+        public readonly HashSet<Vector2Int> cells;
+        public ProceduralRoomLayout(Vector2Int size, HashSet<Vector2Int> cells)
+        {
+            this.size = size;
+            this.cells = cells ?? new HashSet<Vector2Int>();
+        }
+        public Vector2 WorldSize => new(size.x, size.y);
+        public Vector2 CenterOffset => new((size.x - 1) * 0.5f, (size.y - 1) * 0.5f);
+    }
+}
+
+[RequireComponent(typeof(Collider2D))]
+internal sealed class SpatialDirectionMarkerTrigger : MonoBehaviour
+{
+    private Transform player;
+    private Action onTriggered;
+    private bool armed;
+
+    public void Arm(Transform playerTarget, Action callback)
+    {
+        player = playerTarget;
+        onTriggered = callback;
+        armed = callback != null;
+    }
+
+    private void OnTriggerEnter2D(Collider2D other)
+    {
+        if (!armed || player == null || other == null)
+            return;
+        Transform t = other.transform;
+        if (t != player && !t.IsChildOf(player))
+            return;
+        armed = false;
+        Action callback = onTriggered;
+        onTriggered = null;
+        callback?.Invoke();
+    }
 }
 
 internal static class SpatialRuntimeSpriteCache
 {
     private static Sprite solid;
+    private static Sprite arrow;
+
     public static Sprite Solid => solid != null ? solid : solid = CreateSolid();
+    public static Sprite Arrow => arrow != null ? arrow : arrow = CreateArrow();
 
     private static Sprite CreateSolid()
     {
@@ -1038,15 +1591,100 @@ internal static class SpatialRuntimeSpriteCache
         texture.SetPixels(new[] { Color.white, Color.white, Color.white, Color.white });
         texture.Apply(false, true);
 
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, 2f, 2f),
-            new Vector2(0.5f, 0.5f),
-            2f,
-            0,
-            SpriteMeshType.FullRect);
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, 2f, 2f), new Vector2(0.5f, 0.5f), 2f, 0, SpriteMeshType.FullRect);
         sprite.hideFlags = HideFlags.HideAndDontSave;
         sprite.name = "SpatialRuntimeSolid";
         return sprite;
     }
+
+    private static Sprite CreateArrow()
+    {
+        const int w = 12;
+        const int h = 8;
+        Texture2D texture = new(w, h, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < h; y++)
+        {
+            for (int x = 0; x < w; x++)
+            {
+                bool shaft = x <= 7 && y >= 3 && y <= 4;
+                int dx = x - 7;
+                bool head = x >= 6 && Mathf.Abs(y - 3.5f) <= (w - x) * 0.55f;
+                texture.SetPixel(x, y, shaft || head ? Color.white : Color.clear);
+            }
+        }
+        texture.Apply(false, true);
+
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, w, h), new Vector2(0.5f, 0.5f), 12f, 0, SpriteMeshType.FullRect);
+        sprite.hideFlags = HideFlags.HideAndDontSave;
+        sprite.name = "SpatialDirectionArrow";
+        return sprite;
+    }
 }
+
+#if UNITY_EDITOR
+[UnityEditor.InitializeOnLoad]
+internal static class BattleProceduralTestDefaultsEditor
+{
+    static BattleProceduralTestDefaultsEditor()
+    {
+        UnityEditor.EditorApplication.delayCall += Apply;
+    }
+
+    private static void Apply()
+    {
+        if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
+            return;
+
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_A.asset",
+            RoomLargePieceShape.Irregular, new Vector2Int(6, 6), new Vector2Int(7, 7), 0.28f);
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_B.asset",
+            RoomLargePieceShape.LShape, new Vector2Int(7, 6), new Vector2Int(8, 7), 0.20f);
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_ELITE.asset",
+            RoomLargePieceShape.Cross, new Vector2Int(8, 8), new Vector2Int(9, 9), 0.12f);
+
+        NodeGraphSO graph = UnityEditor.AssetDatabase.LoadAssetAtPath<NodeGraphSO>(
+            "Assets/Resources/BattleTestDefaults/TEST_NodeGraph.asset");
+        if (graph != null && graph.nodes != null)
+        {
+            Vector2Int[] positions = { Vector2Int.right, Vector2Int.right + Vector2Int.up, Vector2Int.right * 2 + Vector2Int.up };
+            for (int i = 0; i < graph.nodes.Count && i < positions.Length; i++)
+            {
+                if (graph.nodes[i] == null) continue;
+                graph.nodes[i].useExplicitMapPosition = true;
+                graph.nodes[i].mapPosition = positions[i];
+            }
+            UnityEditor.EditorUtility.SetDirty(graph);
+        }
+
+        UnityEditor.AssetDatabase.SaveAssets();
+    }
+
+    private static void ConfigureRoom(
+        string path,
+        RoomLargePieceShape shape,
+        Vector2Int min,
+        Vector2Int max,
+        float complexity)
+    {
+        RoomDefinitionSO room = UnityEditor.AssetDatabase.LoadAssetAtPath<RoomDefinitionSO>(path);
+        if (room == null)
+            return;
+
+        room.startBaseTileSize = new Vector2Int(3, 3);
+        room.useProceduralRoom = true;
+        room.useLargeRoomPiece = true;
+        room.largePieceShape = shape;
+        room.proceduralMinTileSize = min;
+        room.proceduralMaxTileSize = max;
+        room.proceduralComplexity = complexity;
+        room.repositionPlayerOnEnter = false;
+        UnityEditor.EditorUtility.SetDirty(room);
+    }
+}
+#endif
