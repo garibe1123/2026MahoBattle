@@ -4,7 +4,7 @@ using NavMeshPlus.Components;
 using UnityEngine;
 
 /// <summary>
-/// 전투의 영구 Start Base와 기본 Room Shell fallback을 관리합니다.
+/// 전투 런의 영구 Start Base와 실제 Gameplay Room의 기본 Wall Shell fallback을 관리합니다.
 ///
 /// 기본 규칙:
 /// - MapBlock 1개 = 2x2 world unit
@@ -12,14 +12,12 @@ using UnityEngine;
 /// - grid (0,0) block 중심 = roomOrigin
 /// - 4x4 Base 중심 = roomOrigin + (3,3)
 ///
-/// Start Base는 첫 Combat/Elite 진입 때 한 번 만들어지고 BattleScene이 살아 있는 동안 유지됩니다.
-/// Room이 바뀌어도 Base는 유지되고, 현재 Room의 Extension Block / Wall만 교체됩니다.
+/// Start Base는 BattleRunManager가 첫 Gameplay Room보다 먼저 생성합니다.
+/// Start Area에서는 NodeEntered가 호출되지 않으므로 Room Wall / Incoming Block은 절대 생성되지 않습니다.
+/// Start Base는 이후 Room이 바뀌어도 유지되고, 실제 Gameplay Room의 Floor / Wall / Extension만 교체됩니다.
 ///
-/// Room SO에 명시적인 외곽 Extension Block이 하나도 없으면 테스트용 fallback으로
-/// Start Base 사방을 완전히 막는 긴 Wall Rail 4개를 생성합니다.
-/// 각 Rail은 기존 MapBlock 도킹 파이프라인을 사용해 Room 진입 시 한 면씩 '쿵' 하고 붙고,
-/// 전투 중에는 Collider + Not Walkable 경계로 유지됩니다.
-/// 임의의 4방향 출입구는 만들지 않습니다. 다음 Room 이동은 Combat Clear 이후의 Exit 흐름이 담당합니다.
+/// Gameplay Room SO에 명시적인 외곽 Extension Block이 하나도 없으면 테스트용 fallback으로
+/// 해당 Room 사방을 막는 긴 Wall Rail 4개를 생성합니다.
 /// </summary>
 public class RoomBaseTemplate : MonoBehaviour
 {
@@ -28,12 +26,12 @@ public class RoomBaseTemplate : MonoBehaviour
     [SerializeField] private BattleRoomManager roomManager;
 
     [Header("Base Transform")]
-    [Tooltip("BattleRoomManager의 roomOrigin과 동일한 Transform을 지정하는 것을 권장합니다.")]
+    [Tooltip("BattleRoomManager의 최초 roomOrigin과 동일한 Transform을 지정하는 것을 권장합니다.")]
     [SerializeField] private Transform baseOrigin;
     [SerializeField] private Transform baseRoot;
 
     [Header("Persistent Start Base")]
-    [Tooltip("첫 Combat Room에서 생성한 Base를 이후 Room/Run 종료에도 유지합니다.")]
+    [Tooltip("런 시작 시 생성한 Start Base를 이후 Room/Run 진행 중 계속 유지합니다.")]
     [SerializeField] private bool keepAcrossRooms = true;
     [Tooltip("Start Base의 대표 SpriteRenderer를 NavMeshPlus Walkable Source로 등록합니다.")]
     [SerializeField] private bool baseProvidesWalkableNavMesh = true;
@@ -41,7 +39,7 @@ public class RoomBaseTemplate : MonoBehaviour
     [Header("Real Base Visual - 둘 다 null이면 Dummy")]
     [Tooltip("완성된 Start Base Prefab이 있다면 지정합니다. Sprite보다 우선 사용합니다.")]
     [SerializeField] private GameObject basePrefab;
-    [Tooltip("Base용 Sprite만 사용할 경우 지정합니다. null이면 코드 생성 Grid Dummy를 사용합니다.")]
+    [Tooltip("Base용 Sprite만 사용할 경우 지정합니다. null이면 코드 생성 Dummy Floor를 사용합니다.")]
     [SerializeField] private Sprite baseSprite;
     [SerializeField] private Material baseMaterial;
     [SerializeField] private int sortingOrder = -100;
@@ -52,8 +50,8 @@ public class RoomBaseTemplate : MonoBehaviour
     [Tooltip("Prefab 모드일 때 Prefab의 Renderer Bounds를 측정해 Start Base 크기에 맞게 Root Scale을 조절합니다.")]
     [SerializeField] private bool scalePrefabToTemplate = true;
 
-    [Header("Default Closed Room Shell Fallback")]
-    [Tooltip("Room SO에 외곽 Extension Block이 하나도 없을 때만 닫힌 4면 Wall Rail을 자동 도킹합니다.")]
+    [Header("Default Closed Gameplay Room Shell")]
+    [Tooltip("Gameplay Room SO에 외곽 Extension Block이 하나도 없을 때만 닫힌 4면 Wall Rail을 자동 도킹합니다.")]
     [SerializeField] private bool autoCreateShellWhenNoExtensionBlocks = true;
     [SerializeField, Min(0.12f)] private float fallbackWallThickness = 0.44f;
     [Tooltip("네 모서리에 틈이 생기지 않도록 각 Rail 길이를 추가로 겹치는 양입니다.")]
@@ -161,7 +159,7 @@ public class RoomBaseTemplate : MonoBehaviour
             {
                 Debug.LogWarning(
                     $"[RoomBaseTemplate] Persistent Start Base is already {activeWorldSize}, but Room '{node.room.roomId}' requests {requestedSize}. " +
-                    "The first Base size is kept for this BattleScene. Use the same Start Base size across a run or call RebuildCurrentBase explicitly.",
+                    "The first Start Base size is kept for this BattleScene.",
                     this);
             }
         }
@@ -170,8 +168,8 @@ public class RoomBaseTemplate : MonoBehaviour
             BuildBase(node.room);
         }
 
-        // NodeEntered는 BattleRoomManager.EnterRoom보다 먼저 호출됩니다.
-        // 같은 프레임에 임시 Placement를 추가해 BattleRoomManager의 기존 MapBlock 도킹/Impact 파이프라인으로 전달합니다.
+        // Start Area에서는 NodeEntered 자체가 호출되지 않습니다.
+        // 따라서 아래 Wall Shell은 실제 Gameplay Room에만 추가됩니다.
         PrepareDefaultClosedRoomShell(node.room);
     }
 
@@ -234,10 +232,6 @@ public class RoomBaseTemplate : MonoBehaviour
         EnsureWalkableBaseSource();
     }
 
-    /// <summary>
-    /// 정식 Room에 외곽 Extension Block이 하나라도 있으면 디자이너 구성을 그대로 사용합니다.
-    /// 외곽 Block이 전혀 없는 테스트 Room에서만 긴 Wall Rail 4개로 완전한 폐쇄 경계를 만듭니다.
-    /// </summary>
     private void PrepareDefaultClosedRoomShell(RoomDefinitionSO room)
     {
         if (!Application.isPlaying ||
@@ -363,7 +357,7 @@ public class RoomBaseTemplate : MonoBehaviour
         NavMeshModifier modifier = visual.AddComponent<NavMeshModifier>();
         modifier.ignoreFromBuild = false;
         modifier.overrideArea = true;
-        modifier.area = 1; // Unity 기본 Not Walkable
+        modifier.area = 1;
 
         MapBlock block = root.AddComponent<MapBlock>();
         block.ConfigureRuntimeDockingBlock(
@@ -408,7 +402,6 @@ public class RoomBaseTemplate : MonoBehaviour
         List<MapBlockPlacement> syntheticPlacements,
         List<GameObject> prototypes)
     {
-        // BattleRoomManager.EnterRoomRoutine은 첫 yield 전까지 같은 프레임에 Placement를 Instantiate합니다.
         yield return null;
 
         if (room != null && room.blocks != null)
@@ -550,8 +543,7 @@ public class RoomBaseTemplate : MonoBehaviour
         if (best == null)
         {
             Debug.LogWarning(
-                "[RoomBaseTemplate] Persistent Start Base has no SpriteRenderer to use as a NavMeshPlus 2D source. " +
-                "The Base will remain visual-only until a floor SpriteRenderer is provided.",
+                "[RoomBaseTemplate] Persistent Start Base has no SpriteRenderer to use as a NavMeshPlus 2D source.",
                 this);
             return;
         }
@@ -612,15 +604,17 @@ public class RoomBaseTemplate : MonoBehaviour
                 hideFlags = HideFlags.HideAndDontSave
             };
 
-            Color inner = new(0.68f, 0.68f, 0.68f, 1f);
-            Color border = Color.white;
+            // Dummy Start Base는 '벽/레일'처럼 보이면 안 됩니다.
+            // 한 Tile당 왼쪽/아래 1px만 미세하게 어둡게 그려 얇은 바닥 경계만 남깁니다.
+            Color inner = new(0.96f, 0.96f, 0.96f, 1f);
+            Color gridLine = new(0.82f, 0.84f, 0.87f, 1f);
 
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    bool edge = x == 0 || y == 0 || x == size - 1 || y == size - 1;
-                    texture.SetPixel(x, y, edge ? border : inner);
+                    bool line = x == 0 || y == 0;
+                    texture.SetPixel(x, y, line ? gridLine : inner);
                 }
             }
 
