@@ -18,6 +18,8 @@ using UnityEngine.UI;
 /// - Incoming cells are calculated once as: extensionCells = targetCells - baseCells.
 /// - Only extensionCells are split into MapBlock pieces. No central 4x4 floor prototype exists.
 /// - Assembly order is planned from the real occupied frontier: Base -> attached piece -> next attached piece.
+/// - Incoming pieces are never intentionally generated as a single 1x1 tile; minimum presentation size is 2 connected tiles.
+/// - Internal holes are filled before assembly so the persistent Base remains the solid main anchor of the new field.
 /// - Every traversable Room is 10x10+ and shape validation keeps the existing topology constraints.
 ///
 /// BattleRoomManager only executes the already-planned pieces. It does not reinterpret Room geometry.
@@ -32,8 +34,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
 
     [Header("Extension Piece Assembly")]
-    [Tooltip("Room topology size and incoming-piece size are independent. Incoming pieces may be as small as 1 tile.")]
-    [SerializeField, Range(1, 4)] private int maximumPieceTileSpan = 4;
+    [Tooltip("Room topology size and incoming-piece size are independent. A presentation piece starts at 2 connected tiles (1x2 / 2x1 or larger).")]
+    [SerializeField, Range(2, 4)] private int maximumPieceTileSpan = 4;
+    [SerializeField, Range(2, 8)] private int minimumPieceCellCount = 2;
     [SerializeField, Range(12, 96)] private int maximumPieceCount = 48;
 
     [Header("Stage Map")]
@@ -395,6 +398,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 positiveTarget.Add(positiveBaseStart + new Vector2Int(x, y));
         }
 
+        // A generated field may have exterior notches, but never an accidental empty pocket inside the field.
+        // This is especially important around the persistent 4x4: the Base is the main anchor, not an island.
+        FillEnclosedHoles(positiveTarget, size);
+
         int chunk = room.GetMinimumRoomChunkTiles();
         if (positiveTarget.Count == 0 || !IsConnected(positiveTarget) || !EveryCellBelongsToChunk(positiveTarget, chunk))
         {
@@ -416,6 +423,59 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         return new ProceduralRoomLayout(size, targetLocal);
+    }
+
+    private static void FillEnclosedHoles(HashSet<Vector2Int> cells, Vector2Int size)
+    {
+        if (cells == null || size.x <= 0 || size.y <= 0)
+            return;
+
+        Queue<Vector2Int> queue = new();
+        HashSet<Vector2Int> outsideEmpty = new();
+
+        void TrySeed(Vector2Int cell)
+        {
+            if (cell.x < 0 || cell.y < 0 || cell.x >= size.x || cell.y >= size.y)
+                return;
+            if (cells.Contains(cell) || !outsideEmpty.Add(cell))
+                return;
+            queue.Enqueue(cell);
+        }
+
+        for (int x = 0; x < size.x; x++)
+        {
+            TrySeed(new Vector2Int(x, 0));
+            TrySeed(new Vector2Int(x, size.y - 1));
+        }
+        for (int y = 0; y < size.y; y++)
+        {
+            TrySeed(new Vector2Int(0, y));
+            TrySeed(new Vector2Int(size.x - 1, y));
+        }
+
+        while (queue.Count > 0)
+        {
+            Vector2Int current = queue.Dequeue();
+            for (int i = 0; i < Cardinal.Length; i++)
+            {
+                Vector2Int next = current + Cardinal[i];
+                if (next.x < 0 || next.y < 0 || next.x >= size.x || next.y >= size.y)
+                    continue;
+                if (cells.Contains(next) || !outsideEmpty.Add(next))
+                    continue;
+                queue.Enqueue(next);
+            }
+        }
+
+        for (int y = 0; y < size.y; y++)
+        {
+            for (int x = 0; x < size.x; x++)
+            {
+                Vector2Int cell = new(x, y);
+                if (!cells.Contains(cell) && !outsideEmpty.Contains(cell))
+                    cells.Add(cell);
+            }
+        }
     }
 
     private static int ChooseEvenDimension(int min, int max, System.Random random)
@@ -454,7 +514,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         HashSet<Vector2Int> remaining = new(extensionCells);
         HashSet<Vector2Int> occupied = new(baseCells);
         System.Random random = new(seed);
-        int maxSpan = Mathf.Clamp(maximumPieceTileSpan, 1, 4);
+        int maxSpan = Mathf.Clamp(maximumPieceTileSpan, 2, 4);
+        int minCells = Mathf.Clamp(minimumPieceCellCount, 2, maxSpan * maxSpan);
         int safety = 0;
 
         while (remaining.Count > 0 && result.Count < maximumPieceCount && safety++ < 1024)
@@ -466,8 +527,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 break;
             }
 
-            Vector2Int seedCell = frontier[random.Next(frontier.Count)];
-            int targetCount = ChoosePieceCellCount(random, maxSpan);
+            Vector2Int seedCell = ChooseFrontierSeed(frontier, remaining, random);
+            int targetCount = ChoosePieceCellCount(random, maxSpan, minCells);
             HashSet<Vector2Int> piece = GrowConnectedPiece(seedCell, remaining, targetCount, maxSpan, random);
             if (piece.Count == 0)
             {
@@ -492,8 +553,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (frontier.Count == 0)
                 break;
 
-            Vector2Int seedCell = frontier[0];
-            HashSet<Vector2Int> piece = GrowConnectedPiece(seedCell, remaining, 16, 4, random);
+            Vector2Int seedCell = ChooseFrontierSeed(frontier, remaining, random);
+            HashSet<Vector2Int> piece = GrowConnectedPiece(seedCell, remaining, Mathf.Max(minCells, 16), 4, random);
             if (piece.Count == 0)
                 piece.Add(seedCell);
 
@@ -506,6 +567,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             }
         }
 
+        MergeUndersizedPlans(result, minCells);
         return result;
     }
 
@@ -528,12 +590,37 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return result;
     }
 
-    private static int ChoosePieceCellCount(System.Random random, int maxSpan)
+    private static Vector2Int ChooseFrontierSeed(
+        List<Vector2Int> frontier,
+        HashSet<Vector2Int> remaining,
+        System.Random random)
     {
+        if (frontier == null || frontier.Count == 0)
+            return Vector2Int.zero;
+
+        List<Vector2Int> expandable = new();
+        for (int i = 0; i < frontier.Count; i++)
+        {
+            Vector2Int cell = frontier[i];
+            for (int d = 0; d < Cardinal.Length; d++)
+            {
+                if (!remaining.Contains(cell + Cardinal[d]))
+                    continue;
+                expandable.Add(cell);
+                break;
+            }
+        }
+
+        List<Vector2Int> source = expandable.Count > 0 ? expandable : frontier;
+        return source[random.Next(source.Count)];
+    }
+
+    private static int ChoosePieceCellCount(System.Random random, int maxSpan, int minCells)
+    {
+        int maxCells = Mathf.Max(minCells, maxSpan * maxSpan);
         int roll = random.Next(100);
-        int span = roll < 14 ? 1 : roll < 58 ? 2 : roll < 84 ? 3 : 4;
-        span = Mathf.Clamp(span, 1, maxSpan);
-        return span * span;
+        int desired = roll < 38 ? 2 : roll < 66 ? 4 : roll < 84 ? 6 : roll < 94 ? 9 : 12;
+        return Mathf.Clamp(desired, minCells, maxCells);
     }
 
     private static HashSet<Vector2Int> GrowConnectedPiece(
@@ -585,6 +672,68 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         return piece;
+    }
+
+    private static void MergeUndersizedPlans(List<PiecePlan> plans, int minimumCells)
+    {
+        if (plans == null || plans.Count <= 1)
+            return;
+
+        bool changed = true;
+        int safety = 0;
+        while (changed && safety++ < 256)
+        {
+            changed = false;
+            for (int i = 0; i < plans.Count; i++)
+            {
+                PiecePlan small = plans[i];
+                if (small == null || small.cells.Count >= minimumCells)
+                    continue;
+
+                int targetIndex = FindAdjacentPlan(plans, i);
+                if (targetIndex < 0)
+                    continue;
+
+                plans[targetIndex].cells.UnionWith(small.cells);
+                plans.RemoveAt(i);
+                changed = true;
+                break;
+            }
+        }
+    }
+
+    private static int FindAdjacentPlan(List<PiecePlan> plans, int sourceIndex)
+    {
+        if (plans == null || sourceIndex < 0 || sourceIndex >= plans.Count)
+            return -1;
+
+        PiecePlan source = plans[sourceIndex];
+        int best = -1;
+        int bestContacts = -1;
+
+        for (int i = 0; i < plans.Count; i++)
+        {
+            if (i == sourceIndex || plans[i] == null)
+                continue;
+
+            int contacts = 0;
+            foreach (Vector2Int cell in source.cells)
+            {
+                for (int d = 0; d < Cardinal.Length; d++)
+                {
+                    if (plans[i].cells.Contains(cell + Cardinal[d]))
+                        contacts++;
+                }
+            }
+
+            if (contacts > bestContacts)
+            {
+                bestContacts = contacts;
+                best = contacts > 0 ? i : best;
+            }
+        }
+
+        return best;
     }
 
     private static Vector2 ResolveContactOutwardDirection(
