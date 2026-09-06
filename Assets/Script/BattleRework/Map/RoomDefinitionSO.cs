@@ -10,6 +10,7 @@ public enum RoomLargePieceShape
     LShape,
     TShape,
     Cross,
+    Irregular,
     Custom
 }
 
@@ -39,19 +40,22 @@ public class MonsterSpawnEntry
 }
 
 /// <summary>
-/// 하나의 Node에서 사용되는 Gameplay Room 데이터입니다.
+/// Gameplay Room 데이터.
 ///
-/// Start Area의 4x4 Base와 Gameplay Room은 서로 다른 공간입니다.
-/// recommendedGridSize는 구형 2x2 MapBlock 기준 호환 크기로 유지하지만,
-/// 새 기본 표현은 여러 작은 Block을 하나씩 조립하지 않고 큰 Room Piece 하나가 통째로 도킹합니다.
+/// 신규 공간 규칙:
+/// - 시각 Tile 기준은 32px = 1 world unit.
+/// - Player 기준 시각 크기는 48px = 1.5 world unit.
+/// - Start Area는 기본 3x3 tile의 독립 공간이며 Room이 아닙니다.
+/// - Combat Room은 기본 최소 6x6 tile이며 Rectangle/L/T/Cross/Irregular/Custom mask를 지원합니다.
+/// - 실제 Room Piece는 여러 tile을 포함해도 Root 하나가 통째로 도킹합니다.
 ///
-/// 큰 Room Piece는 Rectangle / L / T / Cross / Custom cell mask를 지원합니다.
-/// 내부적으로 여러 2x2 cell을 사용해도 하나의 Root Transform으로 묶여 한 번에 '쾅' 들어옵니다.
-/// 실제 전용 Prefab을 사용하는 기존 blocks 데이터도 계속 호환됩니다.
+/// recommendedGridSize / blocks는 기존 2x2 world MapBlock 데이터 호환용으로 유지합니다.
 /// </summary>
 [CreateAssetMenu(fileName = "RoomDefinition", menuName = "MahoBattle/Room Definition")]
 public class RoomDefinitionSO : ScriptableObject
 {
+    public const float ProceduralTileWorldSize = 1f;
+
     [Header("Legacy Persistent Base Compatibility")]
     [Tooltip("구형 Room 데이터 호환용입니다. 실제 Start Area는 BattleRunManager가 Room과 별도로 관리합니다.")]
     public bool usePersistentStartBase = true;
@@ -59,27 +63,49 @@ public class RoomDefinitionSO : ScriptableObject
     [HideInInspector]
     public bool forbidMonsterSpawnInsideStartBase = false;
 
-    [Header("Room Template")]
+    [Header("Room Identity / Legacy Template")]
     public string roomId;
-    [Tooltip("구형 MapBlock 기준 크기입니다. 기본 4x4 = 8x8 world. Large Piece Size가 0이면 이 값을 사용합니다.")]
+    [Tooltip("구형 2x2 MapBlock 배치용 크기. 신규 절차형 Room 크기와는 별개입니다.")]
     public Vector2Int recommendedGridSize = new(4, 4);
 
-    [Header("Large Room Piece")]
-    [Tooltip("켜면 BattleSpatialMapController가 기존 4x4 낱개 Block 대신 큰 Room Piece 하나로 조립합니다.")]
+    [Header("32px Tile / Start Area")]
+    [Tooltip("Start Area 바닥 크기. 전투가 시작되지 않는 독립 출발 공간입니다. 최소 3x3을 권장합니다.")]
+    public Vector2Int startBaseTileSize = new(3, 3);
+
+    [Header("Procedural Gameplay Room")]
+    [Tooltip("켜면 32px tile cell mask를 이용해 Room Shape를 절차적으로 구성합니다.")]
+    public bool useProceduralRoom = true;
+    [Tooltip("Combat Room 최소 tile 크기. 기본 6x6.")]
+    public Vector2Int proceduralMinTileSize = new(6, 6);
+    [Tooltip("Combat Room 최대 tile 크기. 매 Room seed에 따라 이 범위 안에서 변합니다.")]
+    public Vector2Int proceduralMaxTileSize = new(9, 9);
+    [Tooltip("0이면 roomId/node id 기반 deterministic seed를 사용합니다. 0이 아니면 이 값을 seed에 섞습니다.")]
+    public int proceduralSeed;
+    [Range(0f, 1f)]
+    [Tooltip("높을수록 외곽을 깎고 Chunk를 붙여 자유형 실루엣을 만듭니다. 중앙 전투 공간과 연결성은 보존합니다.")]
+    public float proceduralComplexity = 0.35f;
+    [Range(0f, 0.45f)]
+    [Tooltip("Irregular/Auto Room에서 외곽 tile을 깎을 확률 계수입니다.")]
+    public float proceduralIndentChance = 0.16f;
+    [Range(0f, 0.65f)]
+    [Tooltip("Irregular/Auto Room에서 외곽에 작은 덩어리를 붙일 확률 계수입니다.")]
+    public float proceduralExtensionChance = 0.28f;
+
+    [Header("Large Room Piece Presentation")]
+    [Tooltip("켜면 낱개 Block이 아니라 큰 Room Piece 하나로 도킹합니다.")]
     public bool useLargeRoomPiece = true;
-    [Tooltip("Auto는 안전하게 Rectangle을 사용합니다. 실제 Room에서는 L/T/Cross/Custom을 직접 지정할 수 있습니다.")]
+    [Tooltip("Auto는 절차 생성일 때 Irregular 계열, 비절차형이면 Rectangle로 처리합니다.")]
     public RoomLargePieceShape largePieceShape = RoomLargePieceShape.Auto;
-    [Tooltip("큰 조각의 cell 크기입니다. 0 이하 값은 기존 recommendedGridSize로 자동 fallback합니다.")]
+    [Tooltip("비절차형 Large Piece용 cell 크기. 0이면 recommendedGridSize fallback.")]
     public Vector2Int largePieceGridSize = new(4, 4);
-    [Tooltip("Custom일 때 포함할 cell 좌표 목록입니다. 전체가 하나의 Root로 움직입니다.")]
+    [Tooltip("Custom일 때 포함할 32px tile 좌표 목록입니다.")]
     public List<Vector2Int> customLargePieceCells = new();
-    [Tooltip("큰 Room Piece가 어느 방향에서 날아와 도킹할지 지정합니다. 0이면 기본 방향을 사용합니다.")]
+    [Tooltip("Room Piece가 날아오는 연출 방향. 0이면 접근 방향의 반대쪽에서 들어옵니다.")]
     public Vector2 largePieceEntryDirection = Vector2.zero;
     [Min(0.05f)] public float largePieceEntryDuration = 0.72f;
     [Min(0.5f)] public float largePieceEntryOffset = 8f;
 
     [Header("Runtime Base Compatibility")]
-    [Tooltip("구형 RoomBaseTemplate/테스트 호환용입니다.")]
     public bool useRuntimeBase = true;
     public Vector2 basePaddingWorld = Vector2.zero;
     public Vector2 baseOffset = Vector2.zero;
@@ -89,7 +115,6 @@ public class RoomDefinitionSO : ScriptableObject
     public bool repositionPlayerOnEnter = true;
 
     [Header("Legacy / Custom Prefab Room Pieces")]
-    [Tooltip("전용 MapBlock Prefab을 직접 배치할 때 사용합니다. Large Room Piece가 켜져 있으면 기본 4x4 테스트 배치는 런타임에서 큰 조각으로 치환됩니다.")]
     public List<MapBlockPlacement> blocks = new();
 
     [Header("Obstacles")]
@@ -110,8 +135,33 @@ public class RoomDefinitionSO : ScriptableObject
             Mathf.Max(1, recommendedGridSize.y));
     }
 
+    public Vector2Int GetStartBaseTileSize()
+    {
+        return new Vector2Int(
+            Mathf.Max(3, startBaseTileSize.x),
+            Mathf.Max(3, startBaseTileSize.y));
+    }
+
+    public Vector2Int GetProceduralMinTileSize()
+    {
+        return new Vector2Int(
+            Mathf.Max(6, proceduralMinTileSize.x),
+            Mathf.Max(6, proceduralMinTileSize.y));
+    }
+
+    public Vector2Int GetProceduralMaxTileSize()
+    {
+        Vector2Int min = GetProceduralMinTileSize();
+        return new Vector2Int(
+            Mathf.Max(min.x, proceduralMaxTileSize.x),
+            Mathf.Max(min.y, proceduralMaxTileSize.y));
+    }
+
     public Vector2Int GetLargePieceGridSize()
     {
+        if (useProceduralRoom)
+            return GetProceduralMinTileSize();
+
         Vector2Int fallback = GetSafeGridSize();
         return new Vector2Int(
             largePieceGridSize.x > 0 ? largePieceGridSize.x : fallback.x,
@@ -126,17 +176,22 @@ public class RoomDefinitionSO : ScriptableObject
             grid.y * MapBlock.BlockWorldSize.y);
     }
 
+    public Vector2 GetStartBaseWorldSize()
+    {
+        Vector2Int size = GetStartBaseTileSize();
+        return new Vector2(size.x, size.y) * ProceduralTileWorldSize;
+    }
+
     public Vector2 GetLargePieceWorldSize()
     {
         Vector2Int grid = GetLargePieceGridSize();
-        return new Vector2(
-            grid.x * MapBlock.BlockWorldSize.x,
-            grid.y * MapBlock.BlockWorldSize.y);
+        float tile = useProceduralRoom ? ProceduralTileWorldSize : MapBlock.BlockWorldSize.x;
+        return new Vector2(grid.x * tile, grid.y * tile);
     }
 
     public Vector2 GetRuntimeBaseWorldSize()
     {
-        Vector2 size = GetTemplateWorldSize();
+        Vector2 size = useProceduralRoom ? GetStartBaseWorldSize() : GetTemplateWorldSize();
         Vector2 padding = new(
             Mathf.Max(0f, basePaddingWorld.x),
             Mathf.Max(0f, basePaddingWorld.y));
@@ -151,17 +206,26 @@ public class RoomDefinitionSO : ScriptableObject
             (grid.y - 1) * MapBlock.BlockWorldSize.y * 0.5f);
     }
 
+    public Vector2 GetStartBaseCenterOffset()
+    {
+        Vector2Int size = GetStartBaseTileSize();
+        return new Vector2(
+            (size.x - 1) * ProceduralTileWorldSize * 0.5f,
+            (size.y - 1) * ProceduralTileWorldSize * 0.5f);
+    }
+
     public Vector2 GetLargePieceCenterOffset()
     {
         Vector2Int grid = GetLargePieceGridSize();
+        float tile = useProceduralRoom ? ProceduralTileWorldSize : MapBlock.BlockWorldSize.x;
         return new Vector2(
-            (grid.x - 1) * MapBlock.BlockWorldSize.x * 0.5f,
-            (grid.y - 1) * MapBlock.BlockWorldSize.y * 0.5f);
+            (grid.x - 1) * tile * 0.5f,
+            (grid.y - 1) * tile * 0.5f);
     }
 
     public Vector2 GetRuntimeBaseCenterOffset()
     {
-        return GetTemplateCenterOffset() + baseOffset;
+        return (useProceduralRoom ? GetStartBaseCenterOffset() : GetTemplateCenterOffset()) + baseOffset;
     }
 
     public Vector2 GetBlockLocalPosition(Vector2Int gridPosition)
@@ -169,6 +233,11 @@ public class RoomDefinitionSO : ScriptableObject
         return new Vector2(
             gridPosition.x * MapBlock.BlockWorldSize.x,
             gridPosition.y * MapBlock.BlockWorldSize.y);
+    }
+
+    public Vector2 GetProceduralTileLocalPosition(Vector2Int tilePosition)
+    {
+        return new Vector2(tilePosition.x, tilePosition.y) * ProceduralTileWorldSize;
     }
 
     public bool IsInsideTemplateGrid(Vector2Int gridPosition)
@@ -186,8 +255,8 @@ public class RoomDefinitionSO : ScriptableObject
     public Rect GetStartBaseLocalRect(float extraPadding = 0f)
     {
         float padding = Mathf.Max(0f, extraPadding);
-        Vector2 center = GetTemplateCenterOffset();
-        Vector2 size = GetTemplateWorldSize() + Vector2.one * padding * 2f;
+        Vector2 center = useProceduralRoom ? GetStartBaseCenterOffset() : GetTemplateCenterOffset();
+        Vector2 size = (useProceduralRoom ? GetStartBaseWorldSize() : GetTemplateWorldSize()) + Vector2.one * padding * 2f;
         return new Rect(center - size * 0.5f, size);
     }
 
@@ -230,7 +299,19 @@ public class RoomDefinitionSO : ScriptableObject
         if (recommendedGridSize.x < 1 || recommendedGridSize.y < 1)
             errors.AppendLine("recommendedGridSize must be at least 1x1.");
 
-        if (largePieceGridSize.x < 1 || largePieceGridSize.y < 1)
+        if (startBaseTileSize.x < 3 || startBaseTileSize.y < 3)
+            warnings.AppendLine("startBaseTileSize below 3x3 will be clamped to 3x3 at runtime.");
+
+        if (useProceduralRoom)
+        {
+            if (proceduralMinTileSize.x < 6 || proceduralMinTileSize.y < 6)
+                warnings.AppendLine("proceduralMinTileSize below 6x6 will be clamped to 6x6 at runtime.");
+
+            if (proceduralMaxTileSize.x < proceduralMinTileSize.x || proceduralMaxTileSize.y < proceduralMinTileSize.y)
+                warnings.AppendLine("proceduralMaxTileSize is smaller than min size and will be clamped at runtime.");
+        }
+
+        if (!useProceduralRoom && (largePieceGridSize.x < 1 || largePieceGridSize.y < 1))
             warnings.AppendLine("largePieceGridSize is unset/legacy; recommendedGridSize will be used as fallback.");
 
         if (largePieceShape == RoomLargePieceShape.Custom &&
