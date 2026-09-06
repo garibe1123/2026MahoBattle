@@ -5,15 +5,17 @@ using UnityEngine;
 /// <summary>
 /// Unity Animator를 사용하지 않는 Player Sprite Animator.
 /// SpriteRenderer.flipX만 사용해 좌우를 뒤집으므로 Player Transform/Collider 크기는 유지됩니다.
-/// 테스트 단계에서는 마지막 바라보는 방향을 빨간 점으로 표시할 수 있습니다.
+/// 테스트 방향점은 Player root scale과 무관하게 항상 캐릭터 중심 가까운 world-space 거리를 유지합니다.
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
 public class PlayerAnimator : MonoBehaviour
 {
     [Header("Facing Debug")]
     [SerializeField] private bool showFacingIndicator = true;
-    [SerializeField, Min(0.05f)] private float facingIndicatorDistance = 0.62f;
-    [SerializeField, Min(0.02f)] private float facingIndicatorSize = 0.12f;
+    [Tooltip("Player 중심에서 방향점 중심까지의 WORLD 거리입니다. Root scale에 의해 멀어지지 않습니다.")]
+    [SerializeField, Min(0.05f)] private float facingIndicatorDistance = 0.58f;
+    [Tooltip("방향점의 WORLD 크기입니다.")]
+    [SerializeField, Min(0.02f)] private float facingIndicatorSize = 0.085f;
     [SerializeField] private Color facingIndicatorColor = Color.red;
 
     private SpriteRenderer sr;
@@ -36,10 +38,6 @@ public class PlayerAnimator : MonoBehaviour
         ApplyFacingVisual();
     }
 
-    /// <summary>
-    /// Controller가 매 프레임 호출하는 메인 Sprite 갱신 함수.
-    /// 이동 입력이 있으면 마지막 바라보는 방향도 함께 갱신합니다.
-    /// </summary>
     public void UpdateAnimation(PlayerState state, Vector2 moveDir, PlayerSpriteSO so)
     {
         if (so == null)
@@ -65,8 +63,8 @@ public class PlayerAnimator : MonoBehaviour
     }
 
     /// <summary>
-    /// 이동/조준 방향을 4방향으로 정규화해 디버그 점 위치를 갱신합니다.
-    /// 실제 Sprite는 현재 한 방향 원본을 좌우 flip하는 방식이므로 상/하는 점으로 확인합니다.
+    /// 이동/조준 방향을 4방향으로 정규화합니다.
+    /// 실제 Sprite는 현재 한 방향 원본을 좌우 flip하고, 상/하는 가까운 방향점으로 확인합니다.
     /// </summary>
     public void SetFacing(Vector2 direction)
     {
@@ -92,10 +90,25 @@ public class PlayerAnimator : MonoBehaviour
         if (facingIndicatorRenderer == null)
             return;
 
+        Transform indicator = facingIndicatorRenderer.transform;
+        Vector3 lossy = transform.lossyScale;
+        float scaleX = Mathf.Max(0.001f, Mathf.Abs(lossy.x));
+        float scaleY = Mathf.Max(0.001f, Mathf.Abs(lossy.y));
+
+        // Child localPosition이 Player scale에 다시 곱해지므로 역보정해서 world offset을 일정하게 유지합니다.
+        indicator.localPosition = new Vector3(
+            facing.x * facingIndicatorDistance / scaleX,
+            facing.y * facingIndicatorDistance / scaleY,
+            0f);
+
+        // Dot sprite 자체도 root scale 때문에 커지지 않도록 world size 기준으로 역보정합니다.
+        indicator.localScale = new Vector3(
+            facingIndicatorSize / scaleX,
+            facingIndicatorSize / scaleY,
+            1f);
+
         facingIndicatorRenderer.enabled = showFacingIndicator;
         facingIndicatorRenderer.color = facingIndicatorColor;
-        facingIndicatorRenderer.transform.localPosition = (Vector3)(facing * facingIndicatorDistance);
-        facingIndicatorRenderer.transform.localScale = Vector3.one * facingIndicatorSize;
         facingIndicatorRenderer.sortingOrder = sr != null ? sr.sortingOrder + 100 : 100;
     }
 
@@ -141,6 +154,9 @@ public class PlayerAnimator : MonoBehaviour
 
     private void Update()
     {
+        // Player root scale이 런타임 테스트 보정으로 변경되어도 방향점 world offset이 즉시 유지되게 합니다.
+        ApplyFacingVisual();
+
         if (currentFrames == null || currentFrames.Length <= 1 || sr == null)
             return;
 
@@ -202,10 +218,6 @@ public class PlayerAnimator : MonoBehaviour
     }
 }
 
-/// <summary>
-/// Player/Enemy가 공용으로 사용하는 런타임 디버그 방향점 Sprite.
-/// 별도 Asset 없이 Point Filter 된 작은 빨간 점을 만들기 위한 캐시입니다.
-/// </summary>
 internal static class FacingDebugSpriteCache
 {
     private static Sprite dot;
