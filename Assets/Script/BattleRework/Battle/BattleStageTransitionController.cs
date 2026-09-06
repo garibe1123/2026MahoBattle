@@ -7,40 +7,24 @@ using NavMeshPlus.Components;
 using UnityEngine;
 
 /// <summary>
-/// Stage-to-stage presentation layer.
+/// Stage-to-stage spatial presentation.
 ///
-/// Spatial contract:
-/// - 32px = 1 tile = 1 world unit.
-/// - The currently preserved Base is ALWAYS the authoritative 4x4 floor.
-/// - New Combat/Elite Rooms NEVER generate another floor over that 4x4.
-/// - BattleAssemblyRailPresentation rewrites incoming Room cells into Base-relative coordinates:
-///   Base cells are (0,0)~(3,3) and are removed from the incoming-piece set.
-/// - RoomOrigin is always the world position of the lower-left tile CENTER of the current Base.
-/// - On clear, the next Base is NOT invented around the player. We inspect the CURRENT real Room tiles,
-///   find a complete existing 4x4 that contains the player when possible, and preserve those exact 16 cells.
+/// Contract:
+/// - the persistent 4x4 Base is the authoritative surviving floor.
+/// - on clear, a complete existing 4x4 near/under the player is promoted to the next Base.
+/// - every other active Room piece is visually cloned and sent straight out on a cardinal rail.
+/// - reward acquisition is NOT handled in world space here. Rewards are a click decision in BattleHUD.
 /// </summary>
 [DefaultExecutionOrder(-15000)]
 public sealed class BattleStageTransitionController : MonoBehaviour
 {
     [Header("Stage Clear / Rail Exit")]
-    [SerializeField, Min(0f)] private float exitGhostExtraDistance = 5f;
+    [SerializeField, Min(0f)] private float exitGhostExtraDistance = 8f;
     [SerializeField, Min(0f)] private float exitGhostStagger = 0.035f;
 
-    // Kept for compatibility with BattleAssemblyRailPresentation reflection.
-    [SerializeField, HideInInspector] private float exitGhostSpinDegrees = 0f;
-    [SerializeField, HideInInspector] private float exitGhostEndScale = 1f;
-
     [Header("Persistent Base Presentation")]
-    [Tooltip("Generated floor uses sorting -20. The actual preserved 4x4 stays immediately above it.")]
+    [Tooltip("Generated floor uses sorting -20. The preserved 4x4 remains immediately above it.")]
     [SerializeField] private int persistentBaseFloorSorting = -19;
-
-    [Header("Reward Drop")]
-    [SerializeField, Min(0.5f)] private float rewardDropHeight = 4.2f;
-    [SerializeField, Min(0.1f)] private float rewardDropDuration = 0.72f;
-    [SerializeField, Min(0.4f)] private float rewardSpacing = 1.15f;
-    [SerializeField, Min(0.1f)] private float rewardWorldSize = 0.72f;
-    [SerializeField, Min(0.1f)] private float rewardPickupRadius = 0.38f;
-    [SerializeField] private Color fallbackRewardColor = new(1f, 0.82f, 0.24f, 1f);
 
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly FieldInfo ActiveBlocksField =
@@ -52,7 +36,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private PlayerController player;
 
     private readonly List<GameObject> exitGhosts = new();
-    private readonly List<GameObject> rewardPickups = new();
 
     private Vector3 preservedBaseTileOrigin;
     private bool hasPreservedBaseOrigin;
@@ -78,7 +61,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
-        ClearRewardPickups();
         ClearExitGhosts();
     }
 
@@ -90,6 +72,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield return null;
         }
 
+        // BattleSpatialMapController has a lower execution order and prepares Room data first.
         yield return null;
         Subscribe();
 
@@ -118,7 +101,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         runManager.StateChanged += HandleStateChanged;
         runManager.NodeEntered += HandleNodeEntered;
         runManager.RewardSelectionRequested += HandleRewardSelectionRequested;
-        runManager.RewardSelected += HandleRewardSelected;
         runManager.RunEnded += HandleRunEnded;
         subscribed = true;
     }
@@ -131,7 +113,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         runManager.StateChanged -= HandleStateChanged;
         runManager.NodeEntered -= HandleNodeEntered;
         runManager.RewardSelectionRequested -= HandleRewardSelectionRequested;
-        runManager.RewardSelected -= HandleRewardSelected;
         runManager.RunEnded -= HandleRunEnded;
         subscribed = false;
     }
@@ -139,12 +120,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private void Update()
     {
         ResolveSystems();
-
-        if (runManager != null && runManager.State == BattleRunState.Reward && rewardPickups.Count > 0 && player != null)
-            player.SetInputPermissions(true, false, false);
-
         CleanupNullEntries(exitGhosts);
-        CleanupNullEntries(rewardPickups);
     }
 
     private void HandleStateChanged(BattleRunState next)
@@ -182,8 +158,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return;
         }
 
-        // Incoming Room coordinates are already Base-relative.
-        // (0,0) is the lower-left tile center of the CURRENT preserved 4x4.
         baseTemplate.EnsureVisibleAtTileOrigin(preservedBaseTileOrigin, node.room);
         ApplyBaseOriginToRoomManager();
         EnsureBasePresentation();
@@ -257,9 +231,15 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     }
 
     /// <summary>
-    /// Finds a real 4x4 subset of the CURRENT stage and promotes those exact cells to the next Base.
-    /// The player's containing 4x4 is preferred; otherwise the closest valid existing 4x4 is used.
+    /// Reward state begins only after the current real field has been collapsed to a valid 4x4.
+    /// The reward itself is then presented as clickable UI by BattleHUD.
     /// </summary>
+    private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> _)
+    {
+        ResolveSystems();
+        CollapseClearedStageAroundPlayer();
+    }
+
     private void CollapseClearedStageAroundPlayer()
     {
         if (clearedStageCollapsed || baseTemplate == null || player == null || roomManager == null)
@@ -304,7 +284,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector2Int bestOrigin = default;
         float bestScore = float.MaxValue;
 
-        // First pass: only 4x4 regions that actually contain the player's current tile.
+        // Prefer a complete 4x4 that contains the player's current tile.
         for (int oy = playerTile.y - (RoomBaseTemplate.FixedBaseTiles - 1); oy <= playerTile.y; oy++)
         {
             for (int ox = playerTile.x - (RoomBaseTemplate.FixedBaseTiles - 1); ox <= playerTile.x; ox++)
@@ -323,7 +303,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             }
         }
 
-        // Second pass: player may be standing near an irregular edge. Find the nearest real 4x4.
+        // Near an irregular edge, use the closest complete real 4x4 instead of inventing missing tiles.
         if (!found)
         {
             GetCellBounds(existing, out int minX, out int minY, out int maxX, out int maxY);
@@ -364,7 +344,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (cells == null)
             return;
 
-        // The currently preserved Base is part of the real stage.
         if (baseTemplate != null && baseTemplate.HasPersistentBase)
         {
             Vector2Int baseOrigin = WorldToTile(baseTemplate.FixedTileOriginWorld);
@@ -502,19 +481,20 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                             return;
 
                         cloneObject.transform
-                            .DOMove(cloneObject.transform.position + (Vector3)(direction * exitGhostExtraDistance), 0.18f)
+                            .DOMove(
+                                cloneObject.transform.position + (Vector3)(direction * exitGhostExtraDistance),
+                                0.20f)
                             .SetEase(Ease.InQuad);
                     });
                 }
             }
 
-            // No rotation/scale: outgoing pieces leave on rails.
             exitGhosts.Add(cloneObject);
-            Destroy(cloneObject, duration + delay + 0.65f);
+            Destroy(cloneObject, duration + delay + 0.75f);
             ghostIndex++;
         }
 
-        Destroy(root, 4f);
+        Destroy(root, 5f);
     }
 
     private static Vector2 ResolveCardinalRailDirection(Vector2 delta, int fallbackIndex)
@@ -627,97 +607,11 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         return found;
     }
 
-    private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> choices)
-    {
-        ClearRewardPickups();
-        ResolveSystems();
-
-        CollapseClearedStageAroundPlayer();
-
-        if (choices == null || choices.Count == 0 || player == null)
-            return;
-
-        float totalWidth = (choices.Count - 1) * rewardSpacing;
-        for (int i = 0; i < choices.Count; i++)
-        {
-            BattleEquipmentSO reward = choices[i];
-            if (reward == null)
-                continue;
-
-            float x = player.transform.position.x - totalWidth * 0.5f + i * rewardSpacing;
-            Vector3 target = new(x, player.transform.position.y + 1.05f, player.transform.position.z);
-            Vector3 start = target + Vector3.up * rewardDropHeight;
-
-            GameObject go = new($"StageReward_{i}_{reward.GetDisplayName()}");
-            go.transform.position = start;
-
-            SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
-            renderer.sprite = reward.icon != null ? reward.icon : StageTransitionRuntimeSpriteCache.RewardFallback;
-            renderer.color = reward.icon != null ? Color.white : fallbackRewardColor;
-            renderer.sortingOrder = 120;
-            NormalizeSpriteToWorldSize(renderer, rewardWorldSize);
-
-            CircleCollider2D trigger = go.AddComponent<CircleCollider2D>();
-            trigger.isTrigger = true;
-            trigger.radius = rewardPickupRadius / Mathf.Max(0.01f, Mathf.Abs(go.transform.lossyScale.x));
-
-            BattleStageRewardPickup pickup = go.AddComponent<BattleStageRewardPickup>();
-            pickup.Configure(this, i);
-
-            go.transform.DOMove(target, rewardDropDuration)
-                .SetEase(Ease.OutBounce);
-            go.transform.DORotate(
-                    new Vector3(0f, 0f, i % 2 == 0 ? 360f : -360f),
-                    rewardDropDuration,
-                    RotateMode.FastBeyond360)
-                .SetEase(Ease.OutCubic);
-
-            rewardPickups.Add(go);
-        }
-    }
-
-    internal bool TryCollectReward(int index, GameObject pickupObject)
-    {
-        if (runManager == null || runManager.State != BattleRunState.Reward)
-            return false;
-
-        bool acquired = runManager.SelectReward(index);
-        if (!acquired && pickupObject != null)
-        {
-            pickupObject.transform.DOPunchScale(Vector3.one * 0.12f, 0.18f, 5, 0.5f);
-            return false;
-        }
-
-        if (acquired)
-            ClearRewardPickups();
-        return acquired;
-    }
-
-    private void HandleRewardSelected(BattleEquipmentSO _)
-    {
-        ClearRewardPickups();
-    }
-
     private void HandleRunEnded(RunEndReason _)
     {
-        ClearRewardPickups();
         ClearExitGhosts();
         hasPreservedBaseOrigin = false;
         clearedStageCollapsed = false;
-    }
-
-    private void ClearRewardPickups()
-    {
-        for (int i = 0; i < rewardPickups.Count; i++)
-        {
-            GameObject go = rewardPickups[i];
-            if (go == null)
-                continue;
-
-            go.transform.DOKill();
-            Destroy(go);
-        }
-        rewardPickups.Clear();
     }
 
     private void ClearExitGhosts()
@@ -741,88 +635,5 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             if (list[i] == null)
                 list.RemoveAt(i);
         }
-    }
-
-    private static void NormalizeSpriteToWorldSize(SpriteRenderer renderer, float maxWorldSize)
-    {
-        if (renderer == null || renderer.sprite == null)
-            return;
-
-        Vector2 size = renderer.sprite.bounds.size;
-        float max = Mathf.Max(0.001f, Mathf.Max(size.x, size.y));
-        float scale = Mathf.Max(0.01f, maxWorldSize / max);
-        renderer.transform.localScale = new Vector3(scale, scale, 1f);
-    }
-}
-
-internal sealed class BattleStageRewardPickup : MonoBehaviour
-{
-    private BattleStageTransitionController owner;
-    private int rewardIndex;
-    private bool collected;
-
-    public void Configure(BattleStageTransitionController controller, int index)
-    {
-        owner = controller;
-        rewardIndex = index;
-    }
-
-    private void OnTriggerEnter2D(Collider2D other)
-    {
-        if (collected || owner == null || other == null)
-            return;
-
-        PlayerController hitPlayer = other.GetComponent<PlayerController>();
-        if (hitPlayer == null)
-            hitPlayer = other.GetComponentInParent<PlayerController>();
-        if (hitPlayer == null)
-            return;
-
-        collected = owner.TryCollectReward(rewardIndex, gameObject);
-    }
-}
-
-internal static class StageTransitionRuntimeSpriteCache
-{
-    private static Sprite rewardFallback;
-    public static Sprite RewardFallback => rewardFallback != null ? rewardFallback : rewardFallback = CreateRewardFallback();
-
-    private static Sprite CreateRewardFallback()
-    {
-        const int pixels = 16;
-        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        Vector2 center = new((pixels - 1) * 0.5f, (pixels - 1) * 0.5f);
-        for (int y = 0; y < pixels; y++)
-        {
-            for (int x = 0; x < pixels; x++)
-            {
-                float dx = Mathf.Abs(x - center.x);
-                float dy = Mathf.Abs(y - center.y);
-                bool inside = dx + dy <= 7.0f;
-                bool core = dx + dy <= 4.5f;
-                texture.SetPixel(
-                    x,
-                    y,
-                    !inside ? Color.clear : (core ? Color.white : new Color(0.82f, 0.82f, 0.82f, 1f)));
-            }
-        }
-
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, pixels, pixels),
-            new Vector2(0.5f, 0.5f),
-            pixels,
-            0,
-            SpriteMeshType.FullRect);
-        sprite.name = "RuntimeStageRewardFallback";
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        return sprite;
     }
 }
