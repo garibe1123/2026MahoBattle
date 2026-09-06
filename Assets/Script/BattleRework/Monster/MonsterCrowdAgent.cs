@@ -2,30 +2,41 @@ using UnityEngine;
 using UnityEngine.AI;
 
 /// <summary>
-/// Monster가 멀리 있거나 Base 밖에서 진입하는 동안 NavMesh/A* 갱신을 끄고
-/// MonsterPool이 계산한 Group Target을 향해 단순 직선 이동시키는 Crowd LOD Agent입니다.
+/// 멀리 있는 Monster의 NavMesh/A* 비용을 줄이는 Crowd LOD Agent입니다.
 ///
-/// 가까워지면 NavMesh 위로 붙여 MonsterController의 정밀 AI를 다시 켭니다.
-/// 이 컴포넌트 하나로 수십~수백 마리 상황에서 모든 개체가 매 프레임 SetDestination을 호출하는 것을 피합니다.
+/// Base 외부 Spawn으로 Simple Entry가 시작된 Monster는 즉시 Player에게 돌진하지 않습니다.
+/// 먼저 Spawn Bay에서 Idle로 대기하고, Player가 가까이 접근했을 때만 단순 이동을 시작합니다.
+/// 이후 NavMesh에 붙을 수 있는 지점에 도달하면 MonsterController의 정밀 AI로 전환합니다.
+///
+/// Simple Movement도 wallLayer를 CircleCast해서 Room 벽을 관통하지 않습니다.
 /// MonsterController보다 뒤에 Update해 4방향 Facing Debug 표시도 최종 이동 방향 기준으로 유지합니다.
 /// </summary>
 [DefaultExecutionOrder(100)]
 [DisallowMultipleComponent]
 public class MonsterCrowdAgent : MonoBehaviour
 {
+    [Header("Outside Spawn Staging")]
+    [Tooltip("Base 밖 Simple Entry Monster가 Spawn 직후 중앙으로 달려오지 않고 Player가 가까워질 때까지 대기합니다.")]
+    [SerializeField] private bool holdSimpleEntryUntilPlayerNear = true;
+    [SerializeField, Min(0.5f)] private float simpleEntryWakeDistance = 3.4f;
+    [SerializeField, Min(0f)] private float simpleCollisionPadding = 0.05f;
+
     private MonsterPool owner;
     private MonsterController controller;
     private NavMeshAgent navAgent;
     private EnemyAnimator spriteAnimator;
+    private Collider2D bodyCollider;
     private Transform target;
 
     private bool simpleMovement;
     private bool forcedSimpleEntry;
+    private bool waitingForActivation;
     private float nextNavAttachCheck;
     private float failedAttachElapsed;
     private bool warnedAttachFailure;
 
     public bool IsSimpleMovement => simpleMovement;
+    public bool IsWaitingForActivation => waitingForActivation;
     public Transform Target => target;
 
     private void Awake()
@@ -39,6 +50,7 @@ public class MonsterCrowdAgent : MonoBehaviour
         owner = pool;
         target = playerTarget;
         forcedSimpleEntry = startSimple;
+        waitingForActivation = startSimple && holdSimpleEntryUntilPlayerNear;
         failedAttachElapsed = 0f;
         warnedAttachFailure = false;
         nextNavAttachCheck = Time.time + Random.Range(0f, 0.12f);
@@ -49,7 +61,7 @@ public class MonsterCrowdAgent : MonoBehaviour
             owner.RegisterCrowdAgent(this, target);
 
         if (startSimple)
-            EnterSimpleMovement();
+            EnterSimpleMovement(waitingForActivation);
         else
             ExitSimpleMovementWithoutSnap();
     }
@@ -63,12 +75,12 @@ public class MonsterCrowdAgent : MonoBehaviour
         if (string.IsNullOrEmpty(id) || !id.StartsWith("TEST_"))
             return;
 
-        // 자동 생성 더미는 기존 0.75 world 크기가 너무 작았기 때문에
-        // 4x4 / 8x8 world 기준에서 읽히는 약 1 world 크기로 올립니다.
-        transform.localScale = Vector3.one;
+        // TEST 더미는 8x8 world Start Base에서 읽히도록 확실하게 키웁니다.
+        // 실제 Enemy Prefab/SO의 크기는 건드리지 않습니다.
+        transform.localScale = Vector3.one * 1.6f;
         CircleCollider2D circle = GetComponent<CircleCollider2D>();
         if (circle != null)
-            circle.radius = Mathf.Max(circle.radius, 0.42f);
+            circle.radius = Mathf.Max(circle.radius, 0.46f);
     }
 
     public void PrepareForPool()
@@ -80,6 +92,7 @@ public class MonsterCrowdAgent : MonoBehaviour
         target = null;
         simpleMovement = false;
         forcedSimpleEntry = false;
+        waitingForActivation = false;
         failedAttachElapsed = 0f;
         warnedAttachFailure = false;
     }
@@ -92,6 +105,8 @@ public class MonsterCrowdAgent : MonoBehaviour
             navAgent = GetComponent<NavMeshAgent>();
         if (spriteAnimator == null)
             spriteAnimator = GetComponent<EnemyAnimator>();
+        if (bodyCollider == null)
+            bodyCollider = GetComponent<Collider2D>();
     }
 
     private void Update()
@@ -106,10 +121,21 @@ public class MonsterCrowdAgent : MonoBehaviour
             spriteAnimator?.SetFacing(toPlayer);
 
         if (!simpleMovement && owner.ShouldUseSimpleMovement(distance, forcedSimpleEntry))
-            EnterSimpleMovement();
+            EnterSimpleMovement(false);
 
         if (!simpleMovement)
             return;
+
+        if (waitingForActivation)
+        {
+            spriteAnimator?.Play(EnemyAnimState.Idle, true);
+
+            if (distance > Mathf.Max(0.5f, simpleEntryWakeDistance))
+                return;
+
+            waitingForActivation = false;
+            spriteAnimator?.Play(EnemyAnimState.Move, true);
+        }
 
         UpdateSimpleMovement();
         TryReturnToPreciseMovement(distance);
@@ -127,14 +153,54 @@ public class MonsterCrowdAgent : MonoBehaviour
 
         direction.Normalize();
         float speed = Mathf.Max(0f, controller.Definition.moveSpeed) * owner.SimpleMoveSpeedMultiplier;
-        transform.position += (Vector3)(direction * speed * Time.deltaTime);
+        float moveDistance = speed * Time.deltaTime;
+        if (moveDistance <= 0f)
+            return;
+
+        if (WouldHitRoomWall(direction, moveDistance))
+        {
+            spriteAnimator?.Play(EnemyAnimState.Idle, true);
+            return;
+        }
+
+        transform.position += (Vector3)(direction * moveDistance);
         spriteAnimator?.SetFacing(direction);
         spriteAnimator?.Play(EnemyAnimState.Move, true);
     }
 
+    private bool WouldHitRoomWall(Vector2 direction, float moveDistance)
+    {
+        if (controller == null || controller.Definition == null)
+            return false;
+
+        LayerMask wallMask = controller.Definition.wallLayer;
+        if (wallMask.value == 0)
+            return false;
+
+        float radius = 0.18f;
+        if (bodyCollider != null)
+        {
+            Vector3 extents = bodyCollider.bounds.extents;
+            radius = Mathf.Max(0.08f, Mathf.Min(extents.x, extents.y) * 0.72f);
+        }
+
+        RaycastHit2D hit = Physics2D.CircleCast(
+            transform.position,
+            radius,
+            direction,
+            moveDistance + Mathf.Max(0f, simpleCollisionPadding),
+            wallMask);
+
+        if (hit.collider == null)
+            return false;
+
+        Transform hitTransform = hit.collider.transform;
+        return hitTransform != transform && !hitTransform.IsChildOf(transform);
+    }
+
     private void TryReturnToPreciseMovement(float distance)
     {
-        if (owner == null || Time.time < nextNavAttachCheck)
+        if (waitingForActivation || owner == null || Time.time < nextNavAttachCheck)
             return;
 
         nextNavAttachCheck = Time.time + owner.NavAttachCheckInterval + Random.Range(0f, 0.05f);
@@ -157,17 +223,15 @@ public class MonsterCrowdAgent : MonoBehaviour
             warnedAttachFailure = true;
             Debug.LogWarning(
                 $"[MonsterCrowd] '{name}' reached the precise-AI zone but no NavMesh was found nearby. " +
-                "Check MapBlock NavMesh sources / NavMeshSurface. It will keep simple movement for diagnostics.",
+                "Check Start Base / Room Wall / NavMeshSurface setup. It will keep Simple Movement for diagnostics.",
                 this);
         }
     }
 
-    private void EnterSimpleMovement()
+    private void EnterSimpleMovement(bool holdAtSpawn)
     {
-        if (simpleMovement)
-            return;
-
         simpleMovement = true;
+        waitingForActivation = holdAtSpawn;
 
         if (controller != null)
             controller.enabled = false;
@@ -175,12 +239,13 @@ public class MonsterCrowdAgent : MonoBehaviour
         if (navAgent != null && navAgent.enabled)
             navAgent.enabled = false;
 
-        spriteAnimator?.Play(EnemyAnimState.Move, true);
+        spriteAnimator?.Play(waitingForActivation ? EnemyAnimState.Idle : EnemyAnimState.Move, true);
     }
 
     private void ExitSimpleMovementWithoutSnap()
     {
         simpleMovement = false;
+        waitingForActivation = false;
 
         if (controller == null || controller.Definition == null)
             return;
