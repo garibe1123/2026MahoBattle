@@ -16,25 +16,22 @@ public enum BattleRunState
     BuildingRoom,
     Combat,
     Reward,
-    ExitingRoom,
+    ExitingRoom, // legacy compatibility; stage-select flow does not use physical room exits.
     SelectingNode,
     NonCombat,
     Ended
 }
 
 /// <summary>
-/// 한 런의 최상위 Flow를 관리합니다.
+/// Top-level run flow.
 ///
-/// 핵심 규칙:
-/// - Start Area는 Room이 아닙니다.
-/// - Start Area에서는 BattleRoomManager.EnterRoom을 절대 호출하지 않습니다.
-/// - Start Area에는 영구 4x4 Start Base + Player만 존재합니다.
-/// - Start Area에는 Monster / Obstacle / Room Wall / Incoming Block / Reward가 없습니다.
-/// - Start Area 출구를 밟은 뒤에야 NodeGraph의 첫 실제 Room을 조립합니다.
-/// - 실제 Room의 4x4 바닥은 Start Base와 별개의 Room Floor이므로 다시 전부 조립됩니다.
-///
-/// 이후 Node 진입 -> Room 조립 -> Combat -> Reward -> Exit -> 다음 Node 선택을
-/// 상태 머신으로 관리합니다.
+/// Current rules:
+/// - Start Area is not a Room.
+/// - Start Area contains only the persistent 3x3+ Start Base and Player.
+/// - No bridge/corridor/world traversal exists between stages.
+/// - Stage progression is selected from the NodeGraph UI (Slay-the-Spire style).
+/// - Selecting a stage builds that Room at the battle origin.
+/// - Combat -> Reward -> Stage Selection -> Next Stage.
 /// </summary>
 public class BattleRunManager : MonoBehaviour
 {
@@ -52,15 +49,9 @@ public class BattleRunManager : MonoBehaviour
     [SerializeField] private FanMissionSystem fanMissionSystem;
     [SerializeField] private PlayerController playerController;
 
-    [Header("Empty Start Area")]
-    [Tooltip("첫 Gameplay Room 앞에 전투가 전혀 없는 4x4 Start Area를 둡니다.")]
+    [Header("Start Stage Selection")]
+    [Tooltip("Run starts on an empty non-combat Start Base and asks the player to select the first stage from the Stage Map.")]
     [SerializeField] private bool useEmptyStartArea = true;
-    [Tooltip("Start Base 밖으로 빠지는 것을 막는 보이지 않는 Collider 두께입니다.")]
-    [SerializeField, Min(0.05f)] private float startBoundaryThickness = 0.28f;
-    [Tooltip("Start Area에서 첫 Room으로 넘어가는 보이지 않는 출구 폭입니다.")]
-    [SerializeField, Min(0.5f)] private float startExitWidth = 2.2f;
-    [Tooltip("첫 실제 Room이 Start Base 어느 방향에 붙을지 지정합니다. 기본은 오른쪽입니다.")]
-    [SerializeField] private Vector2 firstRoomDirection = Vector2.right;
 
     [Header("Depth Scaling - inspector driven")]
     [SerializeField] private AnimationCurve hpByDepth = AnimationCurve.Linear(0f, 1f, 10f, 1f);
@@ -72,16 +63,13 @@ public class BattleRunManager : MonoBehaviour
 
     private readonly List<BattleNodeData> nextNodeChoices = new();
     private readonly List<BattleEquipmentSO> currentRewardChoices = new();
-    private readonly List<GameObject> startAreaObjects = new();
 
     private BattleNodeData currentNode;
-    private BattleNodeData pendingFirstGameplayNode;
     private BattleContext currentContext;
     private BattleRunState state = BattleRunState.None;
     private bool runActive;
     private bool roomStartedWithMonsters;
     private bool startAreaActive;
-    private bool transitioningFromStartArea;
     private bool startOriginCaptured;
     private Vector3 startRoomOriginPosition;
     private RunEndReason? lastEndReason;
@@ -112,10 +100,8 @@ public class BattleRunManager : MonoBehaviour
     {
         if (sceneManager == null)
             sceneManager = FindFirstObjectByType<BattleSceneManager>();
-
         if (fanMissionSystem == null)
             fanMissionSystem = FindFirstObjectByType<FanMissionSystem>();
-
         CaptureStartRoomOrigin();
     }
 
@@ -145,8 +131,6 @@ public class BattleRunManager : MonoBehaviour
 
         if (playerController != null)
             playerController.Died -= HandlePlayerDeath;
-
-        ClearStartAreaObjects();
     }
 
     public bool ValidateConfiguration(out string report)
@@ -199,7 +183,6 @@ public class BattleRunManager : MonoBehaviour
     {
         if (runActive)
             return false;
-
         shootingTheme = nextTheme;
         return true;
     }
@@ -208,7 +191,6 @@ public class BattleRunManager : MonoBehaviour
     {
         if (runActive)
             return false;
-
         clan = nextClan;
         return true;
     }
@@ -229,7 +211,6 @@ public class BattleRunManager : MonoBehaviour
 
         CaptureStartRoomOrigin();
         RestoreStartRoomOrigin();
-        ClearStartAreaObjects();
 
         BattleNodeData start = nodeGraph.GetStartNode();
         if (start == null)
@@ -242,17 +223,14 @@ public class BattleRunManager : MonoBehaviour
         nextNodeChoices.Clear();
         currentNode = null;
         currentContext = null;
-        pendingFirstGameplayNode = null;
         roomStartedWithMonsters = false;
         startAreaActive = false;
-        transitioningFromStartArea = false;
         lastEndReason = null;
 
         equipmentSystem.ResetForRun();
         fanMissionSystem?.ResetForRun();
         playerController.ResetForRun();
         progress.BeginRun();
-
         runActive = true;
 
         if (useEmptyStartArea && CanUseNodeRoomAsStartBase(start))
@@ -264,11 +242,8 @@ public class BattleRunManager : MonoBehaviour
     public void RestartRun()
     {
         roomManager?.AbortRoom();
-        ClearStartAreaObjects();
         RestoreStartRoomOrigin();
         startAreaActive = false;
-        transitioningFromStartArea = false;
-        pendingFirstGameplayNode = null;
         runActive = false;
         roomStartedWithMonsters = false;
         SetState(BattleRunState.None);
@@ -277,15 +252,13 @@ public class BattleRunManager : MonoBehaviour
 
     private static bool CanUseNodeRoomAsStartBase(BattleNodeData node)
     {
-        return node != null &&
-               node.room != null &&
+        return node != null && node.room != null &&
                (node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite);
     }
 
     /// <summary>
-    /// Start Area는 Room이 아닙니다.
-    /// 여기서는 BattleRoomManager.EnterRoom / NodeEntered를 호출하지 않습니다.
-    /// 따라서 Monster Spawn / Room Wall / Obstacle / Reward / Combat 이벤트 경로가 존재하지 않습니다.
+    /// Builds only the persistent Start Base and opens Stage Selection.
+    /// There is no physical exit/bridge/corridor from this state.
     /// </summary>
     private void EnterEmptyStartArea(BattleNodeData firstGameplayNode)
     {
@@ -295,25 +268,22 @@ public class BattleRunManager : MonoBehaviour
             return;
         }
 
-        pendingFirstGameplayNode = firstGameplayNode;
         startAreaActive = true;
-        transitioningFromStartArea = false;
         currentNode = null;
         currentContext = null;
         roomStartedWithMonsters = false;
-
         RestoreStartRoomOrigin();
 
-        RoomDefinitionSO room = firstGameplayNode.room;
         RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         if (baseTemplate != null)
-            baseTemplate.BuildBase(room);
-        else
-            Debug.LogWarning("[BattleRun] RoomBaseTemplate not found. Start Area may have no visible Base.");
+            baseTemplate.BuildBase(firstGameplayNode.room);
 
-        PositionPlayerAtStartBaseCenter(room);
-        BuildStartAreaBoundaryAndExit(room);
-        SetState(BattleRunState.EnteringNode);
+        PositionPlayerAtStartBaseCenter(firstGameplayNode.room);
+
+        nextNodeChoices.Clear();
+        nextNodeChoices.Add(firstGameplayNode);
+        SetState(BattleRunState.SelectingNode);
+        NextNodeSelectionRequested?.Invoke(nextNodeChoices);
     }
 
     private void CaptureStartRoomOrigin()
@@ -329,7 +299,6 @@ public class BattleRunManager : MonoBehaviour
     {
         if (!startOriginCaptured || roomManager == null || roomManager.RoomOrigin == null)
             return;
-
         roomManager.RoomOrigin.position = startRoomOriginPosition;
     }
 
@@ -338,7 +307,7 @@ public class BattleRunManager : MonoBehaviour
         if (room == null || playerController == null || roomManager == null || roomManager.RoomOrigin == null)
             return;
 
-        Vector3 destination = roomManager.RoomOrigin.position + (Vector3)room.GetRuntimeBaseCenterOffset();
+        Vector3 destination = roomManager.RoomOrigin.position + (Vector3)room.GetStartBaseCenterOffset();
         destination.z = playerController.transform.position.z;
         playerController.transform.position = destination;
 
@@ -348,142 +317,6 @@ public class BattleRunManager : MonoBehaviour
             body.linearVelocity = Vector2.zero;
             body.angularVelocity = 0f;
         }
-    }
-
-    private void BuildStartAreaBoundaryAndExit(RoomDefinitionSO room)
-    {
-        ClearStartAreaObjects();
-
-        if (room == null || roomManager == null || roomManager.RoomOrigin == null || playerController == null)
-            return;
-
-        Vector2 size = room.GetRuntimeBaseWorldSize();
-        Vector2 center = (Vector2)roomManager.RoomOrigin.position + room.GetRuntimeBaseCenterOffset();
-        float thickness = Mathf.Max(0.05f, startBoundaryThickness);
-
-        CreateStartBoundary(
-            "StartBoundary_Left",
-            new Vector2(center.x - size.x * 0.5f - thickness * 0.5f, center.y),
-            new Vector2(thickness, size.y + thickness * 2f));
-        CreateStartBoundary(
-            "StartBoundary_Right",
-            new Vector2(center.x + size.x * 0.5f + thickness * 0.5f, center.y),
-            new Vector2(thickness, size.y + thickness * 2f));
-        CreateStartBoundary(
-            "StartBoundary_Bottom",
-            new Vector2(center.x, center.y - size.y * 0.5f - thickness * 0.5f),
-            new Vector2(size.x, thickness));
-        CreateStartBoundary(
-            "StartBoundary_Top",
-            new Vector2(center.x, center.y + size.y * 0.5f + thickness * 0.5f),
-            new Vector2(size.x, thickness));
-
-        Vector2 direction = GetCardinalDirection(firstRoomDirection);
-        Vector2 triggerPosition = center;
-        Vector2 triggerSize;
-
-        if (Mathf.Abs(direction.x) > 0.5f)
-        {
-            triggerPosition.x += direction.x * (size.x * 0.5f - 0.34f);
-            triggerSize = new Vector2(0.72f, Mathf.Min(size.y - 0.6f, Mathf.Max(0.8f, startExitWidth)));
-        }
-        else
-        {
-            triggerPosition.y += direction.y * (size.y * 0.5f - 0.34f);
-            triggerSize = new Vector2(Mathf.Min(size.x - 0.6f, Mathf.Max(0.8f, startExitWidth)), 0.72f);
-        }
-
-        GameObject exit = new("StartAreaExitTrigger");
-        exit.transform.SetParent(roomManager.transform, true);
-        exit.transform.position = new Vector3(triggerPosition.x, triggerPosition.y, 0f);
-
-        BoxCollider2D trigger = exit.AddComponent<BoxCollider2D>();
-        trigger.isTrigger = true;
-        trigger.size = triggerSize;
-
-        StartAreaExitTrigger exitTrigger = exit.AddComponent<StartAreaExitTrigger>();
-        exitTrigger.Arm(playerController.transform, HandleStartAreaExitTriggered);
-        startAreaObjects.Add(exit);
-    }
-
-    private void CreateStartBoundary(string objectName, Vector2 worldPosition, Vector2 colliderSize)
-    {
-        GameObject boundary = new(objectName);
-        boundary.transform.SetParent(roomManager != null ? roomManager.transform : transform, true);
-        boundary.transform.position = new Vector3(worldPosition.x, worldPosition.y, 0f);
-
-        int defaultLayer = LayerMask.NameToLayer("Default");
-        boundary.layer = defaultLayer >= 0 ? defaultLayer : 0;
-
-        BoxCollider2D collider = boundary.AddComponent<BoxCollider2D>();
-        collider.isTrigger = false;
-        collider.size = colliderSize;
-        startAreaObjects.Add(boundary);
-    }
-
-    private void HandleStartAreaExitTriggered()
-    {
-        if (!runActive || !startAreaActive || transitioningFromStartArea)
-            return;
-
-        BattleNodeData firstGameplayNode = pendingFirstGameplayNode;
-        if (firstGameplayNode == null || firstGameplayNode.room == null)
-        {
-            Debug.LogError("[BattleRun] Start Area exit was triggered but the first Gameplay Node is missing.");
-            EndRun(RunEndReason.Quit);
-            return;
-        }
-
-        startAreaActive = false;
-        transitioningFromStartArea = true;
-        pendingFirstGameplayNode = null;
-
-        // Start Area와 실제 Room은 같은 좌표를 공유하지 않습니다.
-        // 첫 Room은 Start Base 옆에 별도 4x4 공간으로 배치합니다.
-        PositionFirstGameplayRoomNextToStart(firstGameplayNode.room);
-
-        // MonsterPool은 Spawn 시 Player까지의 NavMesh Path를 검증합니다.
-        // 따라서 Room 조립이 시작되기 전에 Player도 실제 Room 좌표로 옮겨
-        // Start Base 쪽에 남아 Path 검증을 깨는 일을 막습니다.
-        TeleportPlayerToCurrentRoomEntry(firstGameplayNode.room);
-        ClearStartAreaObjects();
-
-        EnterNode(firstGameplayNode, true);
-    }
-
-    private void PositionFirstGameplayRoomNextToStart(RoomDefinitionSO room)
-    {
-        if (!startOriginCaptured || room == null || roomManager == null || roomManager.RoomOrigin == null)
-            return;
-
-        Vector2 direction = GetCardinalDirection(firstRoomDirection);
-        Vector2 size = room.GetTemplateWorldSize();
-        float distance = Mathf.Abs(direction.x) > 0.5f ? size.x : size.y;
-
-        Vector3 position = startRoomOriginPosition + (Vector3)(direction * distance);
-        position.z = startRoomOriginPosition.z;
-        roomManager.RoomOrigin.position = position;
-    }
-
-    private static Vector2 GetCardinalDirection(Vector2 direction)
-    {
-        if (direction.sqrMagnitude <= 0.001f)
-            return Vector2.right;
-
-        return Mathf.Abs(direction.x) >= Mathf.Abs(direction.y)
-            ? new Vector2(Mathf.Sign(direction.x), 0f)
-            : new Vector2(0f, Mathf.Sign(direction.y));
-    }
-
-    private void ClearStartAreaObjects()
-    {
-        for (int i = 0; i < startAreaObjects.Count; i++)
-        {
-            if (startAreaObjects[i] != null)
-                Destroy(startAreaObjects[i]);
-        }
-
-        startAreaObjects.Clear();
     }
 
     public void SelectNextNode(string nodeId)
@@ -507,15 +340,17 @@ public class BattleRunManager : MonoBehaviour
             return;
         }
 
+        bool fromStartArea = startAreaActive;
+        startAreaActive = false;
         nextNodeChoices.Clear();
-        EnterNode(selected);
+        RestoreStartRoomOrigin();
+        EnterNode(selected, fromStartArea);
     }
 
     public void ResolveNonCombatNode()
     {
         if (!runActive || currentNode == null || state != BattleRunState.NonCombat)
             return;
-
         CompleteCurrentNode();
     }
 
@@ -538,7 +373,6 @@ public class BattleRunManager : MonoBehaviour
     {
         if (!TryGetReward(rewardIndex, out BattleEquipmentSO selected))
             return false;
-
         if (!equipmentSystem.ReplaceSlot(slotIndex, selected))
             return false;
 
@@ -549,10 +383,8 @@ public class BattleRunManager : MonoBehaviour
     private bool TryGetReward(int rewardIndex, out BattleEquipmentSO selected)
     {
         selected = null;
-
         if (!runActive || state != BattleRunState.Reward)
             return false;
-
         if (rewardIndex < 0 || rewardIndex >= currentRewardChoices.Count)
             return false;
 
@@ -564,34 +396,29 @@ public class BattleRunManager : MonoBehaviour
     {
         currentRewardChoices.Clear();
         RewardSelected?.Invoke(selected);
-        OpenRoomExitAfterReward();
+        CompleteCurrentNode();
     }
 
     public void SkipReward()
     {
         if (!runActive || state != BattleRunState.Reward)
             return;
-
         currentRewardChoices.Clear();
-        OpenRoomExitAfterReward();
+        CompleteCurrentNode();
     }
 
     public void NotifyPlayerDeath() => HandlePlayerDeath();
 
     public void QuitRun()
     {
-        if (!runActive)
-            return;
-
-        EndRun(RunEndReason.Quit);
+        if (runActive)
+            EndRun(RunEndReason.Quit);
     }
 
     private void HandlePlayerDeath()
     {
-        if (!runActive)
-            return;
-
-        EndRun(RunEndReason.Death);
+        if (runActive)
+            EndRun(RunEndReason.Death);
     }
 
     private void EnterNode(BattleNodeData node, bool fromStartArea = false)
@@ -608,7 +435,7 @@ public class BattleRunManager : MonoBehaviour
         currentNode = node;
         currentContext = BuildContext(node);
 
-        // Start Area에서는 호출하지 않고, 실제 Gameplay Node부터만 전달합니다.
+        // Stage presentation prepares the procedural Room synchronously in this event.
         NodeEntered?.Invoke(node);
 
         switch (node.type)
@@ -623,17 +450,10 @@ public class BattleRunManager : MonoBehaviour
                 }
 
                 SetState(BattleRunState.BuildingRoom);
+                RestoreStartRoomOrigin();
 
-                // 실제 Gameplay Room 4x4 Floor는 영구 Start Base와 별개입니다.
-                // 기존 BattleRoomManager의 Start Base Cell 생략 조건을 호출 중에만 해제해
-                // 4x4 Floor Block을 모두 조립합니다.
                 bool savedPersistentFlag = node.room.usePersistentStartBase;
-                bool savedReposition = node.room.repositionPlayerOnEnter;
                 node.room.usePersistentStartBase = false;
-
-                if (fromStartArea)
-                    node.room.repositionPlayerOnEnter = false;
-
                 try
                 {
                     roomManager.EnterRoom(node.room, currentContext);
@@ -641,7 +461,6 @@ public class BattleRunManager : MonoBehaviour
                 finally
                 {
                     node.room.usePersistentStartBase = savedPersistentFlag;
-                    node.room.repositionPlayerOnEnter = savedReposition;
                 }
                 break;
 
@@ -656,7 +475,6 @@ public class BattleRunManager : MonoBehaviour
     private BattleContext BuildContext(BattleNodeData node)
     {
         BattleContext context = new();
-
         float depthHp = Mathf.Max(0.01f, hpByDepth.Evaluate(node.depth));
         float depthDamage = Mathf.Max(0.01f, damageByDepth.Evaluate(node.depth));
 
@@ -668,10 +486,7 @@ public class BattleRunManager : MonoBehaviour
             nodeDamage = Mathf.Max(1f, eliteDamageMultiplier);
         }
 
-        VillainGrade grade = progress != null
-            ? progress.CurrentVillainGrade
-            : VillainGrade.C;
-
+        VillainGrade grade = progress != null ? progress.CurrentVillainGrade : VillainGrade.C;
         context.Configure(
             node.depth,
             grade,
@@ -681,7 +496,6 @@ public class BattleRunManager : MonoBehaviour
             depthDamage,
             nodeHp,
             nodeDamage);
-
         return context;
     }
 
@@ -690,28 +504,8 @@ public class BattleRunManager : MonoBehaviour
         if (!runActive || currentNode == null || currentNode.room != room)
             return;
 
-        if (transitioningFromStartArea)
-            transitioningFromStartArea = false;
-
         roomStartedWithMonsters = roomManager != null && roomManager.AliveMonsterCount > 0;
         SetState(BattleRunState.Combat);
-    }
-
-    private void TeleportPlayerToCurrentRoomEntry(RoomDefinitionSO room)
-    {
-        if (room == null || playerController == null || roomManager == null || roomManager.RoomOrigin == null)
-            return;
-
-        Vector3 destination = roomManager.RoomOrigin.position + (Vector3)room.playerEntryOffset;
-        destination.z = playerController.transform.position.z;
-        playerController.transform.position = destination;
-
-        Rigidbody2D body = playerController.GetComponent<Rigidbody2D>();
-        if (body != null)
-        {
-            body.linearVelocity = Vector2.zero;
-            body.angularVelocity = 0f;
-        }
     }
 
     private void HandleRoomCombatCleared(RoomDefinitionSO room)
@@ -723,18 +517,16 @@ public class BattleRunManager : MonoBehaviour
         {
             Debug.LogError(
                 $"[BattleRun] Room '{room.roomId}' entered Combat with zero spawned monsters although monster spawns are configured. " +
-                "Combat is kept active for diagnostics. Check Room Floor NavMesh / Monster prefab setup.");
+                "Combat is kept active for diagnostics. Check procedural Room NavMesh / Monster prefab setup.");
             SetState(BattleRunState.Combat);
             return;
         }
 
         currentRewardChoices.Clear();
         List<BattleEquipmentSO> generated = rewardSystem.GenerateChoices(shootingTheme);
-
         if (generated.Count == 0)
         {
-            Debug.LogWarning("[BattleRun] No reward choices were generated. Opening Room exit directly.");
-            OpenRoomExitAfterReward();
+            CompleteCurrentNode();
             return;
         }
 
@@ -754,7 +546,6 @@ public class BattleRunManager : MonoBehaviour
             if (entry != null && entry.monster != null && entry.count > 0)
                 return true;
         }
-
         return false;
     }
 
@@ -766,21 +557,14 @@ public class BattleRunManager : MonoBehaviour
         int point = monster.Definition != null
             ? Mathf.Max(0, monster.Definition.killPointReward)
             : 1;
-
         progress?.AddMonsterKillPoints(point);
     }
 
-    private void OpenRoomExitAfterReward()
-    {
-        SetState(BattleRunState.ExitingRoom);
-        roomManager.OpenExit();
-    }
-
+    // Legacy compatibility only. The stage-select flow never opens a physical room exit.
     private void HandleRoomExited(RoomDefinitionSO room)
     {
         if (!runActive || currentNode == null || currentNode.room != room)
             return;
-
         CompleteCurrentNode();
     }
 
@@ -817,15 +601,10 @@ public class BattleRunManager : MonoBehaviour
         runActive = false;
         roomStartedWithMonsters = false;
         startAreaActive = false;
-        transitioningFromStartArea = false;
-        pendingFirstGameplayNode = null;
         lastEndReason = reason;
         currentRewardChoices.Clear();
         nextNodeChoices.Clear();
-        ClearStartAreaObjects();
-
-        if (reason != RunEndReason.Clear)
-            roomManager?.AbortRoom();
+        roomManager?.AbortRoom();
 
         progress?.EndRun();
         SetState(BattleRunState.Ended);
@@ -839,39 +618,5 @@ public class BattleRunManager : MonoBehaviour
 
         state = next;
         StateChanged?.Invoke(state);
-    }
-}
-
-[RequireComponent(typeof(Collider2D))]
-internal sealed class StartAreaExitTrigger : MonoBehaviour
-{
-    private Transform player;
-    private Action onTriggered;
-    private bool armed;
-
-    public void Arm(Transform playerTarget, Action callback)
-    {
-        player = playerTarget;
-        onTriggered = callback;
-        armed = true;
-
-        Collider2D collider = GetComponent<Collider2D>();
-        if (collider != null)
-            collider.isTrigger = true;
-    }
-
-    private void OnTriggerEnter2D(Collider2D other)
-    {
-        if (!armed || player == null || other == null)
-            return;
-
-        Transform otherTransform = other.transform;
-        if (otherTransform != player && !otherTransform.IsChildOf(player))
-            return;
-
-        armed = false;
-        Action callback = onTriggered;
-        onTriggered = null;
-        callback?.Invoke();
     }
 }
