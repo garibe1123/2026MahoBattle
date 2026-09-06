@@ -14,19 +14,19 @@ using UnityEngine;
 /// 2) Selected Combat Rooms are assembled around that 4x4 anchor.
 /// 3) The central 4x4 cells of the generated Room are reserved for the persistent base,
 ///    so incoming pieces only add floor around it.
-/// 4) After reward collection and next-stage selection, the 4x4 area around the player
-///    becomes the next base. Old room pieces visually fly off-screen while new pieces dock in.
+/// 4) As soon as the clear reward phase starts, the 4x4 area under the player becomes the next base.
+///    Everything else from the cleared Room spins / flies off-screen before the player chooses a reward.
 /// 5) Reward choices physically drop from above and are collected by touching them.
-///
-/// This component is presentation-only. BattleRunManager still owns node/reward progression and
-/// BattleRoomManager still owns real room lifecycle, spawning, NavMesh and combat.
+/// 6) After reward collection the Slay-the-Spire-style Stage Map selects the next node; new Room pieces then dock around the preserved 4x4 base.
 /// </summary>
 [DefaultExecutionOrder(-15000)]
 public sealed class BattleStageTransitionController : MonoBehaviour
 {
-    [Header("Stage Exit")]
+    [Header("Stage Clear / Exit")]
     [SerializeField, Min(0.1f)] private float exitGhostExtraDistance = 5f;
     [SerializeField, Min(0f)] private float exitGhostStagger = 0.035f;
+    [SerializeField, Min(45f)] private float exitGhostSpinDegrees = 540f;
+    [SerializeField, Range(0.75f, 1f)] private float exitGhostEndScale = 0.90f;
 
     [Header("Reward Drop")]
     [SerializeField, Min(0.5f)] private float rewardDropHeight = 4.2f;
@@ -49,6 +49,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private readonly List<GameObject> rewardPickups = new();
     private Vector3 preservedBaseTileOrigin;
     private bool hasPreservedBaseOrigin;
+    private bool clearedStageCollapsed;
     private bool subscribed;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -151,23 +152,16 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return;
 
         ResolveSystems();
-        if (baseTemplate == null || player == null)
+        if (baseTemplate == null)
             return;
 
-        // The very first stage keeps the initial 4x4 Start Base exactly where it was built.
-        if (roomManager == null || !roomManager.IsRoomActive)
+        // Stage clear collapse now happens at RewardSelectionRequested, not when the next Node is entered.
+        // EnteringNode therefore only ensures that the current persistent 4x4 anchor is known.
+        if (!hasPreservedBaseOrigin)
         {
             preservedBaseTileOrigin = baseTemplate.FixedTileOriginWorld;
             hasPreservedBaseOrigin = true;
-            return;
         }
-
-        // After a cleared stage, the player's current neighborhood becomes the next 4x4 anchor.
-        // Clone the old room visuals first because BattleRoomManager clears the real blocks immediately
-        // when EnterRoom starts. The clones are presentation-only and fly out of the screen.
-        SpawnExitGhostsFromCurrentRoom();
-        preservedBaseTileOrigin = baseTemplate.ReanchorAroundPlayer(player.transform.position);
-        hasPreservedBaseOrigin = true;
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -191,6 +185,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         ReservePersistentBaseInsideRuntimeRoom(node.room);
+        clearedStageCollapsed = false;
     }
 
     /// <summary>
@@ -299,6 +294,25 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 fields[i].enabled = false;
     }
 
+    /// <summary>
+    /// Clear presentation starts BEFORE reward choice: keep only the player's 4x4 base, visually eject the rest.
+    /// </summary>
+    private void CollapseClearedStageAroundPlayer()
+    {
+        if (clearedStageCollapsed || baseTemplate == null || player == null || roomManager == null)
+            return;
+        if (!roomManager.IsRoomActive)
+            return;
+
+        preservedBaseTileOrigin = baseTemplate.ReanchorAroundPlayer(player.transform.position);
+        hasPreservedBaseOrigin = true;
+
+        // Clone first while the real Room is still visible, then hide the real pieces immediately.
+        SpawnExitGhostsFromCurrentRoom();
+        HideCurrentRoomBlocks();
+        clearedStageCollapsed = true;
+    }
+
     private void SpawnExitGhostsFromCurrentRoom()
     {
         if (roomManager == null || ActiveBlocksField == null)
@@ -339,27 +353,78 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             }
             direction.Normalize();
 
-            // PlayExit already uses the block's entry offset. Extend it slightly so large rooms clear the camera.
-            Tween tween = ghostBlock.PlayExit(direction);
-            if (tween != null && exitGhostExtraDistance > 0f)
+            float delay = Mathf.Max(0f, exitGhostStagger) * ghostIndex;
+            float duration = Mathf.Max(0.05f, ghostBlock.ExitDuration);
+            Tween moveTween = ghostBlock.PlayExit(direction);
+            if (moveTween != null)
             {
-                tween.OnComplete(() =>
+                if (delay > 0f)
+                    moveTween.SetDelay(delay);
+
+                if (exitGhostExtraDistance > 0f)
                 {
-                    if (cloneObject != null)
-                        cloneObject.transform.position += (Vector3)(direction * exitGhostExtraDistance);
-                });
+                    moveTween.OnComplete(() =>
+                    {
+                        if (cloneObject != null)
+                            cloneObject.transform.position += (Vector3)(direction * exitGhostExtraDistance);
+                    });
+                }
             }
 
-            float delay = Mathf.Max(0f, exitGhostStagger) * ghostIndex;
-            if (delay > 0f && tween != null)
-                tween.SetDelay(delay);
+            float spin = (ghostIndex % 2 == 0 ? 1f : -1f) *
+                         (exitGhostSpinDegrees + ghostIndex * 37f);
+            cloneObject.transform
+                .DORotate(new Vector3(0f, 0f, spin), duration, RotateMode.FastBeyond360)
+                .SetRelative()
+                .SetEase(Ease.InQuad)
+                .SetDelay(delay);
+
+            cloneObject.transform
+                .DOScale(cloneObject.transform.localScale * exitGhostEndScale, duration)
+                .SetEase(Ease.InQuad)
+                .SetDelay(delay);
 
             exitGhosts.Add(cloneObject);
-            Destroy(cloneObject, ghostBlock.ExitDuration + delay + 0.25f);
+            Destroy(cloneObject, duration + delay + 0.35f);
             ghostIndex++;
         }
 
-        Destroy(root, 2.5f);
+        Destroy(root, 3f);
+    }
+
+    private void HideCurrentRoomBlocks()
+    {
+        if (roomManager == null || ActiveBlocksField == null)
+            return;
+        if (ActiveBlocksField.GetValue(roomManager) is not List<MapBlock> blocks)
+            return;
+
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            MapBlock block = blocks[i];
+            if (block == null)
+                continue;
+
+            Renderer[] renderers = block.GetComponentsInChildren<Renderer>(true);
+            for (int r = 0; r < renderers.Length; r++)
+                if (renderers[r] != null)
+                    renderers[r].enabled = false;
+
+            Collider2D[] colliders = block.GetComponentsInChildren<Collider2D>(true);
+            for (int c = 0; c < colliders.Length; c++)
+                if (colliders[c] != null)
+                    colliders[c].enabled = false;
+
+            NavMeshModifier[] modifiers = block.GetComponentsInChildren<NavMeshModifier>(true);
+            for (int m = 0; m < modifiers.Length; m++)
+                if (modifiers[m] != null)
+                    modifiers[m].ignoreFromBuild = true;
+
+            BattleWalkableField[] fields = block.GetComponentsInChildren<BattleWalkableField>(true);
+            for (int f = 0; f < fields.Length; f++)
+                if (fields[f] != null)
+                    fields[f].enabled = false;
+        }
     }
 
     private static void DisableGhostGameplay(GameObject root)
@@ -384,6 +449,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         ClearRewardPickups();
         ResolveSystems();
+
+        // Sephiria-style clear phase: before reward selection, collapse the cleared set to the player's 4x4 anchor.
+        CollapseClearedStageAroundPlayer();
 
         if (choices == null || choices.Count == 0 || player == null)
             return;
@@ -451,6 +519,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         ClearRewardPickups();
         ClearExitGhosts();
         hasPreservedBaseOrigin = false;
+        clearedStageCollapsed = false;
     }
 
     private void ClearRewardPickups()
