@@ -4,14 +4,19 @@ using UnityEngine;
 /// <summary>
 /// Unity Animator / AnimatorController / AnimationClip을 사용하지 않는 Sprite 전용 Animator입니다.
 /// MonsterDefinitionSO.visual에 연결된 Sprite 배열을 프레임 단위로 직접 재생합니다.
-///
-/// 기존 EnemyAnimator 컴포넌트 이름은 Prefab 직렬화 호환 때문에 유지하지만,
-/// 내부 구현은 완전히 자체 Sprite Animator입니다.
+/// 기존 EnemyAnimator 이름은 Prefab 직렬화 호환 때문에 유지합니다.
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
 public class EnemyAnimator : MonoBehaviour
 {
+    [Header("Facing Debug")]
+    [SerializeField] private bool showFacingIndicator = true;
+    [SerializeField, Min(0.05f)] private float facingIndicatorDistance = 0.58f;
+    [SerializeField, Min(0.02f)] private float facingIndicatorSize = 0.10f;
+    [SerializeField] private Color facingIndicatorColor = Color.red;
+
     private SpriteRenderer spriteRenderer;
+    private SpriteRenderer facingIndicatorRenderer;
     private MonsterVisualConfig visual;
 
     private Sprite[] currentFrames;
@@ -23,21 +28,21 @@ public class EnemyAnimator : MonoBehaviour
 
     private float flashTimer;
     private Color normalColor = Color.white;
+    private Vector2 facing = Vector2.right;
 
     public EnemyAnimState currentState { get; private set; } = EnemyAnimState.Idle;
     public int CurrentFrameIndex => frameIndex;
     public bool IsPlaying => currentFrames != null && currentFrames.Length > 0;
     public SpriteRenderer SpriteRenderer => spriteRenderer;
+    public Vector2 Facing => facing;
 
     private void Awake()
     {
         spriteRenderer = GetComponent<SpriteRenderer>();
+        EnsureFacingIndicator();
+        ApplyFacingVisual();
     }
 
-    /// <summary>
-    /// EnemyDefinitionSO 내부 Visual 설정을 직접 연결합니다.
-    /// 별도의 EnemyVisualSO Asset은 새 BattleRework 경로에서는 필요하지 않습니다.
-    /// </summary>
     public void SetupVisual(MonsterVisualConfig config)
     {
         visual = config;
@@ -61,11 +66,12 @@ public class EnemyAnimator : MonoBehaviour
         Sprite fallback = visual.GetFallbackSprite();
         if (fallback != null)
             spriteRenderer.sprite = fallback;
+
+        ApplyFacingVisual();
     }
 
     /// <summary>
-    /// 구형 Enemy.cs / EnemySO가 아직 같은 Prefab Animator를 사용하므로 남겨 둔 호환 오버로드입니다.
-    /// 새 전투 시스템에서는 사용하지 않고 MonsterDefinitionSO.visual을 직접 사용합니다.
+    /// 구형 Enemy.cs / EnemySO 호환 오버로드.
     /// </summary>
     public void SetupVisual(EnemyVisualSO legacyVisual)
     {
@@ -92,9 +98,6 @@ public class EnemyAnimator : MonoBehaviour
         SetupVisual(adapter);
     }
 
-    /// <summary>
-    /// 현재 EnemyDefinition에 등록된 상태 Sprite를 자동으로 찾아 재생합니다.
-    /// </summary>
     public void Play(EnemyAnimState state, bool loop, Action complete = null, bool restart = false)
     {
         Sprite[] frames = visual != null ? visual.GetFrames(state) : null;
@@ -102,10 +105,6 @@ public class EnemyAnimator : MonoBehaviour
         Play(state, frames, fps, loop, complete, restart);
     }
 
-    /// <summary>
-    /// 기존 MonsterController/Legacy Enemy 호출과 호환되는 직접 Sprite 배열 재생 API입니다.
-    /// 비어 있는 배열이 들어오면 해당 State의 Visual 배열 → Idle → Preview Sprite 순으로 fallback 합니다.
-    /// </summary>
     public void Play(
         EnemyAnimState state,
         Sprite[] sprites,
@@ -165,23 +164,83 @@ public class EnemyAnimator : MonoBehaviour
     }
 
     /// <summary>
-    /// Sprite 원본이 오른쪽을 보고 있다는 기준으로 좌우 반전합니다.
-    /// Transform Scale을 뒤집지 않기 때문에 Collider/NavMeshAgent 크기에는 영향을 주지 않습니다.
+    /// 기존 호출 호환용. 수평 정보만 있으면 좌/우를 갱신합니다.
     /// </summary>
     public void SetFacing(float horizontalDirection)
     {
-        if (spriteRenderer == null || visual == null || Mathf.Abs(horizontalDirection) < 0.001f)
+        if (Mathf.Abs(horizontalDirection) < 0.001f)
             return;
 
-        bool faceLeft = horizontalDirection < 0f;
-        spriteRenderer.flipX = visual.sourceFacesRight
-            ? faceLeft
-            : !faceLeft;
+        SetFacing(new Vector2(horizontalDirection, 0f));
     }
 
     /// <summary>
-    /// 전용 Flash Shader 없이도 동작하도록 SpriteRenderer Color를 짧게 변경합니다.
+    /// 4방향 바라보기를 디버그 점으로 표시하고 실제 Sprite는 좌/우 flip만 수행합니다.
+    /// Transform Scale은 건드리지 않으므로 Collider/NavMeshAgent 크기에 영향이 없습니다.
     /// </summary>
+    public void SetFacing(Vector2 direction)
+    {
+        if (direction.sqrMagnitude <= 0.001f)
+            return;
+
+        Vector2 normalized = direction.normalized;
+        facing = Mathf.Abs(normalized.x) >= Mathf.Abs(normalized.y)
+            ? new Vector2(Mathf.Sign(normalized.x), 0f)
+            : new Vector2(0f, Mathf.Sign(normalized.y));
+
+        ApplyFacingVisual(normalized);
+    }
+
+    private void ApplyFacingVisual()
+    {
+        ApplyFacingVisual(facing);
+    }
+
+    private void ApplyFacingVisual(Vector2 rawDirection)
+    {
+        if (spriteRenderer != null && visual != null && Mathf.Abs(rawDirection.x) > 0.001f)
+        {
+            bool faceLeft = rawDirection.x < 0f;
+            spriteRenderer.flipX = visual.sourceFacesRight
+                ? faceLeft
+                : !faceLeft;
+        }
+
+        if (facingIndicatorRenderer == null)
+            EnsureFacingIndicator();
+
+        if (facingIndicatorRenderer == null)
+            return;
+
+        facingIndicatorRenderer.enabled = showFacingIndicator;
+        facingIndicatorRenderer.color = facingIndicatorColor;
+        facingIndicatorRenderer.transform.localPosition = (Vector3)(facing * facingIndicatorDistance);
+        facingIndicatorRenderer.transform.localScale = Vector3.one * facingIndicatorSize;
+        facingIndicatorRenderer.sortingOrder = spriteRenderer != null ? spriteRenderer.sortingOrder + 100 : 100;
+    }
+
+    private void EnsureFacingIndicator()
+    {
+        Transform existing = transform.Find("FacingIndicator");
+        if (existing != null)
+        {
+            facingIndicatorRenderer = existing.GetComponent<SpriteRenderer>();
+        }
+        else
+        {
+            GameObject indicator = new("FacingIndicator");
+            indicator.transform.SetParent(transform, false);
+            facingIndicatorRenderer = indicator.AddComponent<SpriteRenderer>();
+        }
+
+        if (facingIndicatorRenderer == null)
+            return;
+
+        facingIndicatorRenderer.sprite = FacingDebugSpriteCache.Dot;
+        facingIndicatorRenderer.color = facingIndicatorColor;
+        facingIndicatorRenderer.enabled = showFacingIndicator;
+    }
+
     public void Flash()
     {
         if (spriteRenderer == null || visual == null)
@@ -211,10 +270,7 @@ public class EnemyAnimator : MonoBehaviour
 
     private void UpdateFlash()
     {
-        if (spriteRenderer == null)
-            return;
-
-        if (flashTimer <= 0f)
+        if (spriteRenderer == null || flashTimer <= 0f)
             return;
 
         flashTimer -= Time.deltaTime;
@@ -270,7 +326,6 @@ public class EnemyAnimator : MonoBehaviour
         if (HasFrames(stateFrames))
             return stateFrames;
 
-        // 행동 Sprite가 아직 제작되지 않은 테스트 단계에서는 Idle로 fallback 합니다.
         if (state != EnemyAnimState.Idle && HasFrames(visual.idleSprites))
             return visual.idleSprites;
 
