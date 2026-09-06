@@ -4,8 +4,8 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Player-follow battle camera with a dedicated Reward Show framing mode.
-/// Gameplay never follows RoomOrigin; Reward temporarily raises the framing so the
-/// large prize screen can dominate the shot while the player remains visible below it.
+/// Gameplay never follows RoomOrigin; Reward temporarily reframes the shot so the
+/// player sits toward the lower-left while the large prize screen owns most of the view.
 /// </summary>
 [DisallowMultipleComponent]
 public class BattleCameraController : MonoBehaviour
@@ -28,9 +28,9 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0f)] private float zoomSharpness = 12f;
 
     [Header("Reward Show Framing")]
-    [Tooltip("Positive Y moves the camera above the player so the player sits lower in frame and the prize screen owns the upper shot.")]
-    [SerializeField] private Vector2 rewardShowOffset = new(0f, 3.8f);
-    [SerializeField, Min(0.1f)] private float rewardShowZoom = 5.15f;
+    [Tooltip("Camera center moves to +X/+Y from Player. +X intentionally places Player farther LEFT on screen; +Y keeps Player lower in frame.")]
+    [SerializeField] private Vector2 rewardShowOffset = new(3.4f, 3.9f);
+    [SerializeField, Min(0.1f)] private float rewardShowZoom = 5.0f;
     [SerializeField, Min(0f)] private float rewardShowSharpness = 7f;
 
     [Header("Map Inspection")]
