@@ -44,10 +44,11 @@ public class MonsterSpawnEntry
 /// Spatial rules:
 /// - 32px = 1 tile = 1 world unit; Player baseline = 48px = 1.5 world.
 /// - Persistent Base is always exactly 4x4 and is the seed of every generated stage.
-/// - Combat / Elite rooms are at least 14x14 by data contract; runtime may choose larger free aspect ratios.
-/// - Traversable passages/necks/chunks never become 1 tile wide. Minimum structural width is 2 tiles.
+/// - Combat / Elite rooms are at least 20x20 by runtime contract and normally vary up toward 30+ tiles per axis.
+/// - Traversable passages never become 1 tile wide. Absolute passage minimum remains 2 tiles.
+/// - Automatic L/T/Cross silhouettes deliberately use a much thicker body (7+ tiles) so they read as battle spaces, not corridors.
 /// - Auto shape may resolve to Rectangle/L/T/Cross/Irregular; Custom remains opt-in.
-/// - Incoming presentation pieces are separate from topology and may be 1x2, 2x1, 2x2 or larger connected chunks.
+/// - Incoming presentation pieces are separate from topology and are assembled around the existing 4x4 Base.
 /// </summary>
 [CreateAssetMenu(fileName = "RoomDefinition", menuName = "MahoBattle/Room Definition")]
 public class RoomDefinitionSO : ScriptableObject
@@ -55,8 +56,14 @@ public class RoomDefinitionSO : ScriptableObject
     public const float ProceduralTileWorldSize = 1f;
     public const int MinimumStartBaseTiles = 4;
     public const int MinimumPassageTiles = 2;
-    public const int MinimumRoomChunkTiles = 2;
-    public const int MinimumCombatRoomTiles = 14;
+
+    // This is intentionally larger than MinimumPassageTiles.
+    // Passage safety answers "can the player move through it?" while this value answers
+    // "does an auto-generated L/T/Cross read as a room rather than a narrow hallway?"
+    public const int MinimumRoomChunkTiles = 7;
+    public const int MinimumCombatRoomTiles = 20;
+    public const int MinimumPreferredMaxRoomTiles = 30;
+    public const int MinimumRoomSizeVariation = 8;
 
     [Header("Legacy Persistent Base Compatibility")]
     [Tooltip("Compatibility flag only. RoomBaseTemplate owns the real persistent 4x4 Base.")]
@@ -76,11 +83,11 @@ public class RoomDefinitionSO : ScriptableObject
     [Header("Procedural Gameplay Room")]
     [Tooltip("Build the Room from an integer 32px tile mask.")]
     public bool useProceduralRoom = true;
-    [Tooltip("Combat / Elite minimum. Runtime minimum is 14x14.")]
-    public Vector2Int proceduralMinTileSize = new(14, 14);
-    [Tooltip("Preferred upper range. Width/height are independent; rooms need not be square or even-sized.")]
-    public Vector2Int proceduralMaxTileSize = new(22, 20);
-    [Tooltip("Minimum structural thickness. Values below 2 are clamped to 2.")]
+    [Tooltip("Combat / Elite runtime minimum is 20x20. Smaller serialized values are safely clamped.")]
+    public Vector2Int proceduralMinTileSize = new(20, 20);
+    [Tooltip("Preferred upper range. Width/height are independent; default rooms can reach roughly 30 tiles or more per axis.")]
+    public Vector2Int proceduralMaxTileSize = new(32, 30);
+    [Tooltip("Automatic silhouette body thickness. Runtime keeps this at 7+ while passages themselves only require 2 tiles.")]
     [Min(MinimumRoomChunkTiles)] public int proceduralMinChunkTileSize = MinimumRoomChunkTiles;
     [Tooltip("0 uses deterministic node/room IDs. Non-zero is mixed into the seed.")]
     public int proceduralSeed;
@@ -123,6 +130,11 @@ public class RoomDefinitionSO : ScriptableObject
     public Vector2 highlightBlockOffset = new(4f, 0f);
 
     public int GetMinimumPassageTiles() => MinimumPassageTiles;
+
+    /// <summary>
+    /// Thickness used by generated L/T/Cross/Irregular room bodies.
+    /// This is deliberately NOT the same thing as the hard two-tile passage minimum.
+    /// </summary>
     public int GetMinimumRoomChunkTiles() => Mathf.Max(MinimumRoomChunkTiles, proceduralMinChunkTileSize);
 
     public Vector2Int GetSafeGridSize()
@@ -142,7 +154,14 @@ public class RoomDefinitionSO : ScriptableObject
     public Vector2Int GetProceduralMaxTileSize()
     {
         Vector2Int min = GetProceduralMinTileSize();
-        return new Vector2Int(Mathf.Max(min.x, proceduralMaxTileSize.x), Mathf.Max(min.y, proceduralMaxTileSize.y));
+
+        // Old/test Room assets may still serialize the previous 14~22 range.
+        // Do not let those stale values silently shrink the new battle-space scale.
+        int requiredX = Mathf.Max(MinimumPreferredMaxRoomTiles, min.x + MinimumRoomSizeVariation);
+        int requiredY = Mathf.Max(MinimumPreferredMaxRoomTiles, min.y + MinimumRoomSizeVariation);
+        return new Vector2Int(
+            Mathf.Max(requiredX, proceduralMaxTileSize.x),
+            Mathf.Max(requiredY, proceduralMaxTileSize.y));
     }
 
     public Vector2Int GetLargePieceGridSize()
@@ -260,15 +279,19 @@ public class RoomDefinitionSO : ScriptableObject
             errors.AppendLine("recommendedGridSize must be at least 1x1 for legacy data.");
         if (startBaseTileSize.x != 4 || startBaseTileSize.y != 4)
             warnings.AppendLine("startBaseTileSize is compatibility data only; runtime Base is exactly 4x4.");
-        if (proceduralMinChunkTileSize < 2)
-            warnings.AppendLine("proceduralMinChunkTileSize below 2 will be clamped to 2.");
+        if (proceduralMinChunkTileSize < MinimumRoomChunkTiles)
+            warnings.AppendLine($"proceduralMinChunkTileSize below {MinimumRoomChunkTiles} will be widened at runtime for generated Room silhouettes.");
 
         if (useProceduralRoom)
         {
-            if (proceduralMinTileSize.x < 14 || proceduralMinTileSize.y < 14)
-                warnings.AppendLine("proceduralMinTileSize below 14x14 will be clamped at runtime.");
-            if (proceduralMaxTileSize.x < proceduralMinTileSize.x || proceduralMaxTileSize.y < proceduralMinTileSize.y)
-                warnings.AppendLine("proceduralMaxTileSize is smaller than min and will be clamped.");
+            if (proceduralMinTileSize.x < MinimumCombatRoomTiles || proceduralMinTileSize.y < MinimumCombatRoomTiles)
+                warnings.AppendLine($"proceduralMinTileSize below {MinimumCombatRoomTiles}x{MinimumCombatRoomTiles} will be clamped at runtime.");
+
+            Vector2Int safeMin = GetProceduralMinTileSize();
+            int requiredX = Mathf.Max(MinimumPreferredMaxRoomTiles, safeMin.x + MinimumRoomSizeVariation);
+            int requiredY = Mathf.Max(MinimumPreferredMaxRoomTiles, safeMin.y + MinimumRoomSizeVariation);
+            if (proceduralMaxTileSize.x < requiredX || proceduralMaxTileSize.y < requiredY)
+                warnings.AppendLine($"proceduralMaxTileSize is below the expanded battle-room range and will be raised to at least {requiredX}x{requiredY} at runtime.");
         }
 
         if (largePieceShape == RoomLargePieceShape.Custom &&
@@ -297,25 +320,34 @@ public class RoomDefinitionSO : ScriptableObject
         }
 
         if (obstacles != null)
+        {
             for (int i = 0; i < obstacles.Count; i++)
             {
                 if (obstacles[i] == null) errors.AppendLine($"obstacles[{i}] is null.");
                 else if (obstacles[i].prefab == null) errors.AppendLine($"obstacles[{i}] has no prefab.");
             }
+        }
 
         if (monsterSpawns == null || monsterSpawns.Count == 0)
+        {
             warnings.AppendLine("No monster spawns. Combat node may clear immediately.");
+        }
         else
+        {
             for (int i = 0; i < monsterSpawns.Count; i++)
             {
                 MonsterSpawnEntry spawn = monsterSpawns[i];
-                if (spawn == null) errors.AppendLine($"monsterSpawns[{i}] is null.");
+                if (spawn == null)
+                {
+                    errors.AppendLine($"monsterSpawns[{i}] is null.");
+                }
                 else
                 {
                     if (spawn.monster == null) errors.AppendLine($"monsterSpawns[{i}] has no MonsterDefinitionSO.");
                     if (spawn.count < 1) errors.AppendLine($"monsterSpawns[{i}] count must be at least 1.");
                 }
             }
+        }
 
         StringBuilder combined = new();
         if (errors.Length > 0) { combined.AppendLine("[Errors]"); combined.Append(errors); }
