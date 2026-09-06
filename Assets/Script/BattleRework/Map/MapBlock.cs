@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DG.Tweening;
 using NavMeshPlus.Components;
 using UnityEngine;
@@ -12,12 +13,9 @@ public enum MapBlockEntryType
 }
 
 /// <summary>
-/// Persistent Start Base 바깥에 붙는 Extension / Room Wall Block입니다.
-/// 기본 바닥 Block은 2x2 world지만 얇은 벽처럼 다른 실제 Renderer 크기도 사용할 수 있습니다.
-///
-/// Entry:
-/// approach -> contact face impact -> 짧은 directional compression -> 미세 rebound -> exact snap.
-/// 충돌 VFX 위치/길이는 고정 2x2가 아니라 실제 Renderer/Collider Bounds를 기준으로 계산합니다.
+/// Runtime Map / Corridor / Large Room Piece의 도킹 연출을 담당합니다.
+/// contributesWalkableNavMesh가 켜진 Block은 실제 Walkable NavMesh Renderer만
+/// BattleWalkableField로 등록하여 Player가 '실제로 존재하는 바닥' 위에서만 이동하게 합니다.
 /// </summary>
 public class MapBlock : MonoBehaviour
 {
@@ -31,15 +29,12 @@ public class MapBlock : MonoBehaviour
     [SerializeField] private Ease entryEase = Ease.InCubic;
 
     [Header("Navigation Surface")]
-    [Tooltip("Extension Block의 대표 바닥 SpriteRenderer를 NavMeshPlus Walkable Source로 사용합니다. 벽/장식 전용 블록이면 끄세요.")]
+    [Tooltip("실제로 플레이어/몬스터가 설 수 있는 바닥이면 켭니다. 벽/장식 전용 블록이면 끕니다.")]
     [SerializeField] private bool contributesWalkableNavMesh = true;
-    [Tooltip("직접 지정하지 않으면 presentationRoot의 SpriteRenderer에 NavMeshModifier를 자동 보강합니다.")]
     [SerializeField] private NavMeshModifier walkableNavModifier;
 
     [Header("Approach Presentation")]
-    [Tooltip("맵 본체 Collider와 분리된 시각 Root. 비어 있으면 자식 SpriteRenderer를 자동 탐색합니다.")]
     [SerializeField] private Transform presentationRoot;
-    [Tooltip("WheelSlide에서 실제 바퀴 파츠가 있다면 지정. null이면 회전 연출을 생략합니다.")]
     [SerializeField] private Transform wheelRoot;
     [SerializeField, Min(0f)] private float approachRumbleDegrees = 0.55f;
     [SerializeField, Range(1, 40)] private int approachRumbleVibrato = 8;
@@ -48,10 +43,8 @@ public class MapBlock : MonoBehaviour
     [Header("Docking Impact")]
     [SerializeField, Min(0f)] private float impactReboundDistance = 0.055f;
     [SerializeField, Min(0.01f)] private float impactSettleDuration = 0.11f;
-    [Tooltip("Punch 확대가 아니라 진행축을 눌러주는 압축량입니다. 0.04면 약 4% 이내의 짧은 압축만 발생합니다.")]
     [SerializeField, Range(0f, 0.15f)] private float impactPunchScale = 0.045f;
     [SerializeField, Min(0f)] private float impactStrength = 1f;
-    [Tooltip("충돌 VFX를 실제 외곽선보다 아주 조금 안쪽에 배치하는 거리입니다.")]
     [SerializeField, Min(0f)] private float impactFaceInset = 0.02f;
 
     [Header("Exit")]
@@ -65,14 +58,9 @@ public class MapBlock : MonoBehaviour
     public MapBlockEntryType EntryType => entryType;
     public bool WillImpact => entryType != MapBlockEntryType.Static;
     public bool ContributesWalkableNavMesh => contributesWalkableNavMesh;
-    public float EntryDuration => entryType == MapBlockEntryType.Static
-        ? 0f
-        : entryDuration + impactSettleDuration;
+    public float EntryDuration => entryType == MapBlockEntryType.Static ? 0f : entryDuration + impactSettleDuration;
     public float ExitDuration => exitDuration;
 
-    /// <summary>
-    /// block, contactFacePosition, travelDirection, impactStrength
-    /// </summary>
     public event Action<MapBlock, Vector3, Vector2, float> Impacted;
 
     private void Awake()
@@ -82,14 +70,18 @@ public class MapBlock : MonoBehaviour
         CachePresentationPose();
     }
 
+    private void OnEnable()
+    {
+        // Prefab 복제/Pool 재활성화에서도 Field 등록을 보장합니다.
+        if (contributesWalkableNavMesh)
+            EnsureWalkableNavMeshSource();
+    }
+
     private void OnDisable()
     {
         KillTweens();
     }
 
-    /// <summary>
-    /// 코드 생성 Room Wall 같은 런타임 도킹 Block을 기존 진입 파이프라인에 태우기 위한 최소 설정 API입니다.
-    /// </summary>
     public void ConfigureRuntimeDockingBlock(
         Transform visualRoot,
         bool walkable,
@@ -107,6 +99,7 @@ public class MapBlock : MonoBehaviour
         impactReboundDistance = Mathf.Min(impactReboundDistance, 0.04f);
         impactPunchScale = Mathf.Min(impactPunchScale, 0.035f);
         ResolvePresentationRoot();
+        EnsureWalkableNavMeshSource();
         CachePresentationPose();
     }
 
@@ -133,21 +126,39 @@ public class MapBlock : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// NavMeshModifier overrideArea=false인 Renderer만 실제 바닥으로 간주합니다.
+    /// Large Room의 외곽 Wall은 overrideArea=true(Not Walkable)이므로 Player Field에 등록되지 않습니다.
+    /// </summary>
     private void EnsureWalkableNavMeshSource()
     {
         if (!contributesWalkableNavMesh)
             return;
 
-        if (walkableNavModifier != null)
-            return;
+        SpriteRenderer[] renderers = GetComponentsInChildren<SpriteRenderer>(true);
+        bool foundWalkableRenderer = false;
 
-        if (presentationRoot != null)
-            walkableNavModifier = presentationRoot.GetComponent<NavMeshModifier>();
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.sprite == null)
+                continue;
 
-        if (walkableNavModifier == null)
-            walkableNavModifier = GetComponentInChildren<NavMeshModifier>(true);
+            NavMeshModifier modifier = renderer.GetComponent<NavMeshModifier>();
+            if (modifier == null)
+                continue;
 
-        if (walkableNavModifier != null)
+            if (modifier.ignoreFromBuild || modifier.overrideArea)
+                continue;
+
+            if (walkableNavModifier == null)
+                walkableNavModifier = modifier;
+
+            BattleWalkableField.Ensure(renderer);
+            foundWalkableRenderer = true;
+        }
+
+        if (foundWalkableRenderer)
             return;
 
         SpriteRenderer sourceRenderer = presentationRoot != null
@@ -160,8 +171,7 @@ public class MapBlock : MonoBehaviour
         if (sourceRenderer == null)
         {
             Debug.LogWarning(
-                $"[MapBlock] '{name}' contributesWalkableNavMesh is enabled but no SpriteRenderer was found. " +
-                "Assign a floor presentationRoot or disable the option for non-walkable blocks.",
+                $"[MapBlock] '{name}' is walkable but no SpriteRenderer was found. Player movement will not be allowed on this block.",
                 this);
             return;
         }
@@ -172,6 +182,7 @@ public class MapBlock : MonoBehaviour
 
         walkableNavModifier.ignoreFromBuild = false;
         walkableNavModifier.overrideArea = false;
+        BattleWalkableField.Ensure(sourceRenderer);
     }
 
     private void CachePresentationPose()
@@ -449,5 +460,81 @@ public class MapBlock : MonoBehaviour
         Vector2 dir = direction.sqrMagnitude > 0.001f ? direction.normalized : Vector2.right;
         Vector3 destination = transform.position + (Vector3)(dir * entryOffset);
         return transform.DOMove(destination, exitDuration).SetEase(exitEase);
+    }
+}
+
+/// <summary>
+/// Player 이동 허용 여부를 결정하는 실제 바닥 Marker입니다.
+/// Trigger Collider는 물리 충돌용이 아니라 '여기에 실제 Field가 존재하는가' 판정 전용입니다.
+/// </summary>
+[DisallowMultipleComponent]
+public sealed class BattleWalkableField : MonoBehaviour
+{
+    private static readonly HashSet<BattleWalkableField> ActiveFields = new();
+
+    [SerializeField] private Collider2D supportCollider;
+
+    public static int ActiveCount => ActiveFields.Count;
+
+    private void OnEnable()
+    {
+        ActiveFields.Add(this);
+    }
+
+    private void OnDisable()
+    {
+        ActiveFields.Remove(this);
+    }
+
+    public bool Contains(Vector2 worldPoint)
+    {
+        return isActiveAndEnabled &&
+               supportCollider != null &&
+               supportCollider.enabled &&
+               supportCollider.OverlapPoint(worldPoint);
+    }
+
+    public static BattleWalkableField Ensure(SpriteRenderer renderer)
+    {
+        if (renderer == null || renderer.sprite == null)
+            return null;
+
+        BattleWalkableField marker = renderer.GetComponent<BattleWalkableField>();
+        if (marker == null)
+            marker = renderer.gameObject.AddComponent<BattleWalkableField>();
+
+        if (marker.supportCollider == null)
+        {
+            BoxCollider2D support = renderer.gameObject.AddComponent<BoxCollider2D>();
+            support.isTrigger = true;
+            support.usedByEffector = false;
+
+            Vector2 localSize = renderer.drawMode == SpriteDrawMode.Simple
+                ? (Vector2)renderer.sprite.bounds.size
+                : renderer.size;
+
+            support.size = new Vector2(
+                Mathf.Max(0.02f, localSize.x),
+                Mathf.Max(0.02f, localSize.y));
+            marker.supportCollider = support;
+        }
+
+        ActiveFields.Add(marker);
+        return marker;
+    }
+
+    public static bool HasSupport(Vector2 worldPoint)
+    {
+        if (ActiveFields.Count == 0)
+            return false;
+
+        // 복사본을 만들지 않고 직접 순회해 GC를 피합니다.
+        foreach (BattleWalkableField field in ActiveFields)
+        {
+            if (field != null && field.Contains(worldPoint))
+                return true;
+        }
+
+        return false;
     }
 }
