@@ -20,11 +20,11 @@ public class PlayerController : MonoBehaviour, IDamageable
     [SerializeField] private float baseDefense = 0f;
 
     [Header("Default Body Size")]
-    [Tooltip("자동 생성/기본 Player가 너무 작게 보이지 않도록 기본 월드 스케일을 적용합니다. 실제 전용 Player Prefab에서는 끌 수 있습니다.")]
+    [Tooltip("자동 생성/기본 Player가 8x8 world Start Base에서 충분히 읽히도록 기본 월드 스케일을 적용합니다. 실제 전용 Player Prefab에서는 끌 수 있습니다.")]
     [SerializeField] private bool applyDefaultBodySizing = true;
-    [SerializeField, Min(0.1f)] private float defaultCharacterScale = 1.25f;
+    [SerializeField, Min(0.1f)] private float defaultCharacterScale = 1.6f;
     [Tooltip("CircleCollider2D가 있으면 기본 피격/충돌 반경을 이 값으로 맞춥니다. Transform Scale 적용 전 local radius입니다.")]
-    [SerializeField, Min(0.05f)] private float defaultHitColliderRadius = 0.42f;
+    [SerializeField, Min(0.05f)] private float defaultHitColliderRadius = 0.46f;
 
     [Header("Invincibility - v2.2")]
     [SerializeField] private float hitIFrameDuration = 0.5f;
