@@ -5,61 +5,43 @@ using System.Reflection;
 using NavMeshPlus.Components;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Sephiria-like spatial battle map layer.
+/// Stage-selection + procedural Room presentation.
 ///
-/// Hard spatial rules:
-/// - 32px = 1 tile = 1 world unit.
-/// - Start Area is 4x4+ and is not a Combat Room.
-/// - Combat Rooms are 6x6+.
-/// - Generated positive chunks / arms / necks are never thinner than 4 tiles.
-/// - Bridges are tile-aligned and at least 4 tiles wide.
-/// - Every Room Door is derived from the adjacent Bridge axis and uses the same 4-tile band.
-/// - Visible bridge pieces and Room pieces are revealed only when they enter Camera range (+ margin).
-/// - Player movement remains limited by BattleWalkableField, so invisible logical navigation is not walkable.
+/// Current rules:
+/// - NO world bridge/corridor traversal.
+/// - NO next-Room world placement or camera-range reveal.
+/// - NodeGraph is presented as a Slay-the-Spire-style Stage Map.
+/// - Available next nodes are clicked directly in the Stage Map UI.
+/// - Selecting a Combat/Elite node builds that Room at the single battle origin.
+/// - 32px = 1 tile = 1 world unit. All floor tile centers use integer tile coordinates.
+/// - Start Base is handled independently by RoomBaseTemplate and is at least 3x3.
+/// - Combat Room is at least 6x6. Rectangle is the default shape.
 /// </summary>
 [DefaultExecutionOrder(-20000)]
 public sealed class BattleSpatialMapController : MonoBehaviour
 {
-    private const int BridgeWidthTiles = RoomDefinitionSO.MinimumRoomChunkTiles;
-    private const int BridgeMinPieceLengthTiles = RoomDefinitionSO.MinimumRoomChunkTiles;
-
-    [Header("World Map - integer tile lattice")]
-    [SerializeField, Min(16f)] private float roomWorldSpacing = 20f;
-    [SerializeField, Range(2, 5)] private int preferredBridgePieceCount = 3;
-    [SerializeField, Min(0.05f)] private float corridorEntryDuration = 0.34f;
-    [SerializeField, Min(0.5f)] private float corridorEntryOffset = 5f;
-    [SerializeField, Min(0f)] private float corridorPieceStagger = 0.05f;
-
-    [Header("Camera Reveal")]
-    [SerializeField, Min(0f)] private float revealMarginWorld = 1.6f;
-    [SerializeField, Min(0.02f)] private float revealPollInterval = 0.04f;
-
-    [Header("Room Piece")]
+    [Header("Procedural Room")]
     [SerializeField] private Color roomFloorColor = new(0.18f, 0.21f, 0.25f, 1f);
     [SerializeField] private Color roomEdgeColor = new(0.31f, 0.35f, 0.41f, 1f);
     [SerializeField, Min(0.03f)] private float roomEdgeThickness = 0.12f;
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
 
-    [Header("Direction Marker")]
-    [SerializeField, Min(0.2f)] private float markerWorldSize = 0.46f;
-    [SerializeField, Min(0.1f)] private float markerTriggerRadius = 0.52f;
-    [SerializeField, Min(0f)] private float markerInset = 0.30f;
-    [SerializeField] private Color markerAvailableColor = new(0.25f, 0.95f, 1f, 0.92f);
-    [SerializeField] private Color markerEliteColor = new(1f, 0.62f, 0.18f, 0.96f);
-
-    [Header("Mini Map")]
-    [SerializeField] private Vector2 miniMapSize = new(220f, 180f);
-    [SerializeField, Min(16f)] private float miniMapCellSpacing = 34f;
-    [SerializeField, Min(8f)] private float miniMapNodeSize = 18f;
-    [SerializeField] private Color miniMapBackground = new(0.04f, 0.055f, 0.075f, 0.82f);
-    [SerializeField] private Color miniMapUnknown = new(0.28f, 0.31f, 0.36f, 0.92f);
-    [SerializeField] private Color miniMapVisited = new(0.62f, 0.68f, 0.75f, 1f);
-    [SerializeField] private Color miniMapCurrent = new(0.35f, 0.92f, 1f, 1f);
-    [SerializeField] private Color miniMapAvailable = new(1f, 0.80f, 0.26f, 1f);
-    [SerializeField] private Color miniMapLink = new(0.36f, 0.40f, 0.46f, 0.95f);
+    [Header("Stage Map")]
+    [SerializeField] private Vector2 compactMapSize = new(240f, 190f);
+    [SerializeField] private Vector2 selectionMapSize = new(560f, 390f);
+    [SerializeField, Min(18f)] private float mapCellSpacing = 68f;
+    [SerializeField, Min(12f)] private float mapNodeSize = 28f;
+    [SerializeField] private Color mapBackground = new(0.035f, 0.05f, 0.075f, 0.94f);
+    [SerializeField] private Color mapUnknown = new(0.24f, 0.28f, 0.34f, 0.96f);
+    [SerializeField] private Color mapVisited = new(0.60f, 0.66f, 0.72f, 1f);
+    [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
+    [SerializeField] private Color mapAvailable = new(1f, 0.78f, 0.22f, 1f);
+    [SerializeField] private Color mapElite = new(1f, 0.44f, 0.22f, 1f);
+    [SerializeField] private Color mapLink = new(0.34f, 0.39f, 0.46f, 0.96f);
 
     [Header("32px Tile / 48px Character Test Scale")]
     [SerializeField, Min(0.5f)] private float testPlayerWorldHeight = 1.5f;
@@ -71,27 +53,17 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private BattleRunManager runManager;
     private BattleRoomManager roomManager;
-    private RoomBaseTemplate baseTemplate;
     private PlayerController player;
     private NodeGraphSO graph;
 
     private readonly Dictionary<string, Vector2Int> resolvedMapPositions = new();
     private readonly Dictionary<string, ProceduralRoomLayout> roomLayouts = new();
     private readonly HashSet<string> visitedNodeIds = new();
-    private readonly HashSet<string> reservedRouteKeys = new();
-    private readonly List<GameObject> persistentRouteObjects = new();
-    private readonly List<GameObject> logicalNavigationObjects = new();
-    private readonly List<GameObject> directionMarkers = new();
 
-    private BattleNodeData lastEnteredNode;
-    private Vector2Int lastMapPosition;
-    private RoomDefinitionSO lastRoom;
-    private Vector3 startOrigin;
-    private bool startOriginResolved;
+    private Canvas stageMapCanvas;
+    private RectTransform stageMapPanel;
+    private Image stageMapPanelImage;
     private float nextCharacterSizingCheck;
-
-    private Canvas miniMapCanvas;
-    private RectTransform miniMapPanel;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
@@ -99,49 +71,49 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (FindFirstObjectByType<BattleSpatialMapController>() != null)
             return;
 
-        GameObject host = new("BattleSpatialMapRuntime");
+        GameObject host = new("BattleStageMapRuntime");
         DontDestroyOnLoad(host);
         host.AddComponent<BattleSpatialMapController>();
     }
 
-    private void OnEnable() => StartCoroutine(BindWhenReady());
+    private void OnEnable()
+    {
+        StartCoroutine(BindWhenReady());
+    }
 
     private void OnDisable()
     {
         Unsubscribe();
-        ClearDirectionMarkers();
     }
 
     private IEnumerator BindWhenReady()
     {
         while (runManager == null)
         {
-            TryResolveSystems();
+            ResolveSystems();
             if (runManager == null)
                 yield return null;
         }
 
         Subscribe();
-        DisableLegacyAutoShell();
-        EnsureMiniMapUI();
+        EnsureStageMapUI();
         BuildResolvedLayout();
-        SyncStartDirectionWithGraph();
-        RemoveLegacyStartBoundaries();
-        RefreshMiniMap();
-        RefreshWorldDirectionMarkers();
+        RefreshStageMap();
     }
 
-    private void TryResolveSystems()
+    private void ResolveSystems()
     {
-        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
-        if (roomManager == null) roomManager = FindFirstObjectByType<BattleRoomManager>();
-        if (baseTemplate == null) baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
-        if (player == null) player = FindFirstObjectByType<PlayerController>();
+        if (runManager == null)
+            runManager = FindFirstObjectByType<BattleRunManager>();
+        if (roomManager == null)
+            roomManager = FindFirstObjectByType<BattleRoomManager>();
+        if (player == null)
+            player = FindFirstObjectByType<PlayerController>();
 
         if (runManager != null && graph == null)
         {
-            FieldInfo graphField = typeof(BattleRunManager).GetField("nodeGraph", InstanceFields);
-            graph = graphField != null ? graphField.GetValue(runManager) as NodeGraphSO : null;
+            FieldInfo field = typeof(BattleRunManager).GetField("nodeGraph", InstanceFields);
+            graph = field != null ? field.GetValue(runManager) as NodeGraphSO : null;
         }
     }
 
@@ -171,33 +143,18 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         runManager.RunEnded -= HandleRunEnded;
     }
 
-    private void DisableLegacyAutoShell()
-    {
-        if (baseTemplate == null)
-            return;
-
-        FieldInfo field = typeof(RoomBaseTemplate).GetField("autoCreateShellWhenNoExtensionBlocks", InstanceFields);
-        if (field != null)
-            field.SetValue(baseTemplate, false);
-    }
-
     private void Update()
     {
         if (runManager == null || roomManager == null || graph == null)
         {
-            TryResolveSystems();
+            ResolveSystems();
             if (runManager != null)
             {
                 Subscribe();
-                DisableLegacyAutoShell();
-                EnsureMiniMapUI();
+                EnsureStageMapUI();
                 BuildResolvedLayout();
-                SyncStartDirectionWithGraph();
             }
         }
-
-        if (runManager != null && runManager.IsInStartArea)
-            RemoveLegacyStartBoundaries();
 
         if (Time.unscaledTime >= nextCharacterSizingCheck)
         {
@@ -206,370 +163,220 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
+    private void HandleNodeEntered(BattleNodeData node)
+    {
+        if (node == null)
+            return;
+
+        visitedNodeIds.Add(node.id);
+
+        if ((node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite) && node.room != null)
+            PrepareProceduralRoomPresentation(node);
+
+        RefreshStageMap();
+    }
+
     private void HandleStateChanged(BattleRunState _)
     {
-        if (!startOriginResolved && runManager != null && runManager.IsInStartArea)
-            ResolveStartOriginFromBase();
-
-        if (runManager != null && runManager.IsInStartArea)
-            RemoveLegacyStartBoundaries();
-
-        RefreshMiniMap();
-        RefreshWorldDirectionMarkers();
+        RefreshStageMap();
     }
 
     private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
     {
-        RefreshMiniMap();
-        RefreshWorldDirectionMarkers();
+        RefreshStageMap();
     }
 
     private void HandleRunEnded(RunEndReason _)
     {
         visitedNodeIds.Clear();
-        lastEnteredNode = null;
-        lastMapPosition = Vector2Int.zero;
-        lastRoom = null;
         roomLayouts.Clear();
-        ClearPersistentRoutes();
-        ClearLogicalNavigation();
-        ClearDirectionMarkers();
-        RefreshMiniMap();
+        RefreshStageMap();
     }
 
-    private void HandleNodeEntered(BattleNodeData node)
+    // ---------------------------------------------------------------------
+    // Room generation
+    // ---------------------------------------------------------------------
+
+    private void PrepareProceduralRoomPresentation(BattleNodeData node)
     {
-        if (node == null || node.room == null || roomManager == null)
+        RoomDefinitionSO room = node.room;
+        ProceduralRoomLayout layout = GetOrCreateLayout(node);
+        if (layout == null || layout.cells.Count == 0)
             return;
 
-        ClearDirectionMarkers();
-        ResolveStartOriginFromBase(node.room);
-        BuildResolvedLayout();
-
-        Vector2Int targetMapPosition = ResolveNodeMapPosition(node);
-        Vector2 travelDirection = CardinalDirection(targetMapPosition - lastMapPosition);
-        if (travelDirection == Vector2.zero)
-            travelDirection = Vector2.right;
-
-        ProceduralRoomLayout targetLayout = GetOrCreateLayout(node, travelDirection);
-        ProceduralRoomLayout previousLayout = lastEnteredNode != null
-            ? GetOrCreateLayout(lastEnteredNode, -travelDirection)
-            : CreateStartLayout(node.room);
-
-        Vector3 previousOrigin = GetRoomOrigin(lastMapPosition, previousLayout);
-        Vector3 targetRoomOrigin = GetRoomOrigin(targetMapPosition, targetLayout);
-        RoomDefinitionSO previousRoom = lastRoom != null ? lastRoom : node.room;
-
-        roomManager.RoomOrigin.position = targetRoomOrigin;
-
-        RouteGeometry route = CalculateRouteGeometry(
-            previousOrigin,
-            previousLayout,
-            targetRoomOrigin,
-            targetLayout,
-            travelDirection);
-
-        ReserveLogicalRouteAndRoom(route, node, targetRoomOrigin, targetLayout, travelDirection);
-        SuppressLegacyRoomPiecesForCurrentEnter(node.room);
-
-        if (lastEnteredNode == null)
-            PlacePlayerAtRouteStart(route.start, travelDirection);
-
-        StartCoroutine(RevealRouteAndRoomRoutine(route, node, targetRoomOrigin, targetLayout, travelDirection));
-
-        visitedNodeIds.Add(node.id);
-        lastEnteredNode = node;
-        lastMapPosition = targetMapPosition;
-        lastRoom = node.room;
-        RefreshMiniMap();
-    }
-
-    private void ResolveStartOriginFromBase(RoomDefinitionSO fallbackRoom = null)
-    {
-        if (startOriginResolved)
+        MapBlock prototype = CreateRoomPrototype(node, layout);
+        if (prototype == null)
             return;
 
-        if (baseTemplate == null)
-            baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        List<MapBlockPlacement> oldBlocks = room.blocks;
+        bool oldReposition = room.repositionPlayerOnEnter;
+        Vector2 oldEntry = room.playerEntryOffset;
 
-        if (baseTemplate != null && baseTemplate.ActiveBase != null)
+        Vector2 entryDirection = room.largePieceEntryDirection.sqrMagnitude > 0.001f
+            ? room.largePieceEntryDirection.normalized
+            : Vector2.down;
+
+        room.blocks = new List<MapBlockPlacement>
         {
-            RoomDefinitionSO basis = baseTemplate.ActiveRoom != null ? baseTemplate.ActiveRoom : fallbackRoom;
-            if (basis != null)
+            new()
             {
-                startOrigin = baseTemplate.ActiveBase.transform.position - (Vector3)basis.GetRuntimeBaseCenterOffset();
-                startOrigin.z = roomManager != null && roomManager.RoomOrigin != null ? roomManager.RoomOrigin.position.z : 0f;
-                startOriginResolved = true;
-                return;
+                prefab = prototype,
+                gridPosition = Vector2Int.zero,
+                entryDirection = entryDirection
             }
-        }
-
-        if (roomManager != null && roomManager.RoomOrigin != null)
-        {
-            startOrigin = roomManager.RoomOrigin.position;
-            startOriginResolved = true;
-        }
-    }
-
-    private Vector2 GetStartMapAnchor()
-    {
-        BattleNodeData first = graph != null ? graph.GetStartNode() : null;
-        RoomDefinitionSO basis = first != null ? first.room : null;
-        ProceduralRoomLayout layout = CreateStartLayout(basis);
-        return (Vector2)startOrigin + layout.MapAnchorOffset;
-    }
-
-    private Vector3 GetRoomOrigin(Vector2Int mapPosition, ProceduralRoomLayout layout)
-    {
-        Vector2 anchor = GetStartMapAnchor() + new Vector2(
-            mapPosition.x * roomWorldSpacing,
-            mapPosition.y * roomWorldSpacing);
-        Vector2 origin = anchor - layout.MapAnchorOffset;
-        return new Vector3(origin.x, origin.y, startOrigin.z);
-    }
-
-    private void BuildResolvedLayout()
-    {
-        if (graph == null)
-            return;
-
-        resolvedMapPositions.Clear();
-        HashSet<Vector2Int> occupied = new() { Vector2Int.zero };
-
-        if (graph.nodes != null)
-        {
-            for (int i = 0; i < graph.nodes.Count; i++)
-            {
-                BattleNodeData node = graph.nodes[i];
-                if (node == null || string.IsNullOrWhiteSpace(node.id) || !node.useExplicitMapPosition)
-                    continue;
-
-                Vector2Int position = node.mapPosition;
-                if (position == Vector2Int.zero || occupied.Contains(position))
-                    continue;
-
-                resolvedMapPositions[node.id] = position;
-                occupied.Add(position);
-            }
-        }
-
-        BattleNodeData startNode = graph.GetStartNode();
-        if (startNode == null)
-            return;
-
-        Queue<BattleNodeData> queue = new();
-        if (!resolvedMapPositions.ContainsKey(startNode.id))
-        {
-            Vector2Int first = FindFreePosition(Vector2Int.zero, occupied, 0);
-            resolvedMapPositions[startNode.id] = first;
-            occupied.Add(first);
-        }
-        queue.Enqueue(startNode);
-
-        HashSet<string> visited = new();
-        while (queue.Count > 0)
-        {
-            BattleNodeData parent = queue.Dequeue();
-            if (parent == null || !visited.Add(parent.id))
-                continue;
-
-            Vector2Int parentPosition = ResolveNodeMapPosition(parent);
-            List<BattleNodeData> next = graph.GetNextNodes(parent);
-            for (int i = 0; i < next.Count; i++)
-            {
-                BattleNodeData child = next[i];
-                if (child == null)
-                    continue;
-
-                if (!resolvedMapPositions.ContainsKey(child.id))
-                {
-                    Vector2Int candidate = FindFreePosition(parentPosition, occupied, i);
-                    resolvedMapPositions[child.id] = candidate;
-                    occupied.Add(candidate);
-                }
-
-                queue.Enqueue(child);
-            }
-        }
-    }
-
-    private static Vector2Int FindFreePosition(Vector2Int origin, HashSet<Vector2Int> occupied, int preference)
-    {
-        Vector2Int[] directions =
-        {
-            Vector2Int.right,
-            Vector2Int.up,
-            Vector2Int.left,
-            Vector2Int.down
         };
 
-        for (int offset = 0; offset < directions.Length; offset++)
+        // Player always enters the integer center tile of the newly selected stage.
+        room.repositionPlayerOnEnter = true;
+        room.playerEntryOffset = layout.CenterTile;
+
+        StartCoroutine(RestoreRoomDataNextFrame(room, oldBlocks, oldReposition, oldEntry, prototype.gameObject));
+    }
+
+    private IEnumerator RestoreRoomDataNextFrame(
+        RoomDefinitionSO room,
+        List<MapBlockPlacement> blocks,
+        bool reposition,
+        Vector2 entry,
+        GameObject prototype)
+    {
+        yield return null;
+
+        if (room != null)
         {
-            Vector2Int candidate = origin + directions[(preference + offset) % directions.Length];
-            if (!occupied.Contains(candidate))
-                return candidate;
+            room.blocks = blocks ?? new List<MapBlockPlacement>();
+            room.repositionPlayerOnEnter = reposition;
+            room.playerEntryOffset = entry;
         }
 
-        for (int distance = 2; distance < 16; distance++)
+        if (prototype != null)
+            Destroy(prototype);
+    }
+
+    private MapBlock CreateRoomPrototype(BattleNodeData node, ProceduralRoomLayout layout)
+    {
+        GameObject root = new($"__RuntimeRoomPrototype_{node.id}");
+        root.transform.position = new Vector3(10000f, 10000f, 0f);
+
+        foreach (Vector2Int cell in layout.cells)
         {
-            for (int i = 0; i < directions.Length; i++)
+            GameObject floor = new($"Tile_{cell.x}_{cell.y}");
+            floor.transform.SetParent(root.transform, false);
+            floor.transform.localPosition = new Vector3(cell.x, cell.y, 0f);
+
+            SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
+            renderer.sprite = SpatialRuntimeSpriteCache.FloorTile32;
+            renderer.drawMode = SpriteDrawMode.Simple;
+            renderer.color = roomFloorColor;
+            renderer.sortingOrder = -20;
+
+            NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
+            modifier.ignoreFromBuild = false;
+            modifier.overrideArea = false;
+        }
+
+        BuildClosedBoundary(root.transform, layout);
+
+        MapBlock block = root.AddComponent<MapBlock>();
+        block.ConfigureRuntimeDockingBlock(
+            root.transform,
+            true,
+            roomImpactStrength,
+            node.room.largePieceEntryDuration,
+            node.room.largePieceEntryOffset);
+        return block;
+    }
+
+    private void BuildClosedBoundary(Transform root, ProceduralRoomLayout layout)
+    {
+        Vector2Int[] dirs = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
+
+        foreach (Vector2Int cell in layout.cells)
+        {
+            for (int i = 0; i < dirs.Length; i++)
             {
-                Vector2Int candidate = origin + directions[i] * distance;
-                if (!occupied.Contains(candidate))
-                    return candidate;
+                Vector2Int edge = dirs[i];
+                if (layout.cells.Contains(cell + edge))
+                    continue;
+
+                CreateBoundaryEdge(root, cell, edge);
             }
         }
-
-        return origin + Vector2Int.right * 16;
     }
 
-    private Vector2Int ResolveNodeMapPosition(BattleNodeData node)
+    private void CreateBoundaryEdge(Transform root, Vector2Int cell, Vector2Int edge)
     {
-        if (node == null)
-            return Vector2Int.zero;
-        if (resolvedMapPositions.TryGetValue(node.id, out Vector2Int position))
-            return position;
-        return node.useExplicitMapPosition ? node.mapPosition : Vector2Int.right;
+        bool vertical = edge.x != 0;
+        Vector2 position = (Vector2)cell + (Vector2)edge * 0.5f;
+        Vector2 size = vertical
+            ? new Vector2(roomEdgeThickness, 1f + roomEdgeThickness)
+            : new Vector2(1f + roomEdgeThickness, roomEdgeThickness);
+
+        GameObject wall = new("RoomEdge");
+        wall.transform.SetParent(root, false);
+        wall.transform.localPosition = position;
+
+        SpriteRenderer renderer = wall.AddComponent<SpriteRenderer>();
+        renderer.sprite = SpatialRuntimeSpriteCache.Solid32;
+        renderer.drawMode = SpriteDrawMode.Tiled;
+        renderer.size = size;
+        renderer.color = roomEdgeColor;
+        renderer.sortingOrder = 3;
+
+        BoxCollider2D collider = wall.AddComponent<BoxCollider2D>();
+        collider.size = size;
+        collider.isTrigger = false;
+
+        NavMeshModifier modifier = wall.AddComponent<NavMeshModifier>();
+        modifier.ignoreFromBuild = false;
+        modifier.overrideArea = true;
+        modifier.area = 1;
     }
 
-    private static Vector2 CardinalDirection(Vector2Int delta)
-    {
-        if (delta == Vector2Int.zero)
-            return Vector2.zero;
-        if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
-            return new Vector2(Mathf.Sign(delta.x), 0f);
-        return new Vector2(0f, Mathf.Sign(delta.y));
-    }
-
-    private void SyncStartDirectionWithGraph()
-    {
-        if (runManager == null || graph == null)
-            return;
-
-        BattleNodeData first = graph.GetStartNode();
-        if (first == null)
-            return;
-
-        BuildResolvedLayout();
-        Vector2 direction = CardinalDirection(ResolveNodeMapPosition(first));
-        if (direction == Vector2.zero)
-            direction = Vector2.right;
-
-        FieldInfo directionField = typeof(BattleRunManager).GetField("firstRoomDirection", InstanceFields);
-        if (directionField != null)
-            directionField.SetValue(runManager, direction);
-    }
-
-    private ProceduralRoomLayout CreateStartLayout(RoomDefinitionSO room)
-    {
-        Vector2Int size = room != null ? room.GetStartBaseTileSize() : new Vector2Int(4, 4);
-        HashSet<Vector2Int> cells = FillRectangle(size);
-        return new ProceduralRoomLayout(size, cells);
-    }
-
-    private ProceduralRoomLayout GetOrCreateLayout(BattleNodeData node, Vector2 approachDirection)
+    private ProceduralRoomLayout GetOrCreateLayout(BattleNodeData node)
     {
         if (node == null || node.room == null)
-            return new ProceduralRoomLayout(new Vector2Int(6, 6), FillRectangle(new Vector2Int(6, 6)));
+            return null;
 
         if (roomLayouts.TryGetValue(node.id, out ProceduralRoomLayout cached))
             return cached;
 
-        HashSet<Vector2Int> requiredDirections = GetRequiredDoorNormals(node, approachDirection);
-        ProceduralRoomLayout layout = GenerateProceduralLayout(node, requiredDirections);
+        ProceduralRoomLayout layout = GenerateLayout(node);
         roomLayouts[node.id] = layout;
         return layout;
     }
 
-    private HashSet<Vector2Int> GetRequiredDoorNormals(BattleNodeData node, Vector2 approachDirection)
-    {
-        HashSet<Vector2Int> result = new();
-        Vector2Int incoming = DirectionToInt(-approachDirection);
-        if (incoming != Vector2Int.zero)
-            result.Add(incoming);
-
-        if (node != null && graph != null)
-        {
-            Vector2Int current = ResolveNodeMapPosition(node);
-            List<BattleNodeData> next = graph.GetNextNodes(node);
-            for (int i = 0; i < next.Count; i++)
-            {
-                Vector2Int normal = DirectionToInt(CardinalDirection(ResolveNodeMapPosition(next[i]) - current));
-                if (normal != Vector2Int.zero)
-                    result.Add(normal);
-            }
-        }
-
-        return result;
-    }
-
-    private ProceduralRoomLayout GenerateProceduralLayout(BattleNodeData node, HashSet<Vector2Int> requiredEdges)
+    private ProceduralRoomLayout GenerateLayout(BattleNodeData node)
     {
         RoomDefinitionSO room = node.room;
-        if (!room.useProceduralRoom)
-        {
-            Vector2Int grid = room.GetLargePieceGridSize();
-            HashSet<Vector2Int> fixedCells = BuildPresetCells(room, grid, room.largePieceShape);
-            EnsureRequiredDoorBands(fixedCells, grid, requiredEdges, room.GetMinimumRoomChunkTiles());
-            return new ProceduralRoomLayout(grid, fixedCells);
-        }
-
         Vector2Int min = room.GetProceduralMinTileSize();
         Vector2Int max = room.GetProceduralMaxTileSize();
+
         int seed = StableHash(node.id) ^ StableHash(room.roomId) ^ room.proceduralSeed;
         System.Random random = new(seed);
+        Vector2Int size = room.useProceduralRoom
+            ? new Vector2Int(random.Next(min.x, max.x + 1), random.Next(min.y, max.y + 1))
+            : room.GetLargePieceGridSize();
 
-        Vector2Int size = new(
-            PickRoomDimension(min.x, max.x, random),
-            PickRoomDimension(min.y, max.y, random));
+        RoomLargePieceShape shape = room.largePieceShape;
+        if (shape == RoomLargePieceShape.Auto)
+            shape = RoomLargePieceShape.Rectangle;
 
-        RoomLargePieceShape shape = room.largePieceShape == RoomLargePieceShape.Auto
-            ? RoomLargePieceShape.Irregular
-            : room.largePieceShape;
+        HashSet<Vector2Int> cells = BuildShape(room, size, shape, random);
+        int chunk = room.GetMinimumRoomChunkTiles();
 
-        HashSet<Vector2Int> cells = shape == RoomLargePieceShape.Irregular
-            ? BuildIrregularCells(size, room.GetMinimumRoomChunkTiles(), room, random)
-            : BuildPresetCells(room, size, shape);
-
-        if (shape == RoomLargePieceShape.Custom && !HasValidMinimumChunkCoverage(cells, size, room.GetMinimumRoomChunkTiles()))
-        {
-            Debug.LogWarning($"[SpatialMap] Custom room '{room.roomId}' contains structure thinner than 4 tiles. Falling back to Rectangle.");
-            cells = FillRectangle(size);
-        }
-
-        EnsureCentralCombatArea(cells, size, room.GetMinimumRoomChunkTiles());
-        EnsureRequiredDoorBands(cells, size, requiredEdges, room.GetMinimumRoomChunkTiles());
-
-        if (!IsConnected(cells))
-            cells = FillRectangle(size);
+        if (cells.Count == 0 || !IsConnected(cells) || !EveryCellBelongsToChunk(cells, chunk))
+            cells = BuildRectangle(size);
 
         return new ProceduralRoomLayout(size, cells);
     }
 
-    private static int PickRoomDimension(int min, int max, System.Random random)
+    private HashSet<Vector2Int> BuildShape(
+        RoomDefinitionSO room,
+        Vector2Int size,
+        RoomLargePieceShape shape,
+        System.Random random)
     {
-        min = Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, min);
-        max = Mathf.Max(min, max);
-        List<int> values = new();
-        for (int value = min; value <= max; value++)
-            values.Add(value);
-        return values[random.Next(values.Count)];
-    }
-
-    private static HashSet<Vector2Int> FillRectangle(Vector2Int size)
-    {
-        HashSet<Vector2Int> cells = new();
-        for (int y = 0; y < size.y; y++)
-            for (int x = 0; x < size.x; x++)
-                cells.Add(new Vector2Int(x, y));
-        return cells;
-    }
-
-    private HashSet<Vector2Int> BuildPresetCells(RoomDefinitionSO room, Vector2Int grid, RoomLargePieceShape shape)
-    {
-        if (shape == RoomLargePieceShape.Auto)
-            shape = room.useProceduralRoom ? RoomLargePieceShape.Irregular : RoomLargePieceShape.Rectangle;
-
         if (shape == RoomLargePieceShape.Custom)
         {
             HashSet<Vector2Int> custom = new();
@@ -578,32 +385,32 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 for (int i = 0; i < room.customLargePieceCells.Count; i++)
                 {
                     Vector2Int c = room.customLargePieceCells[i];
-                    if (c.x >= 0 && c.y >= 0 && c.x < grid.x && c.y < grid.y)
+                    if (c.x >= 0 && c.y >= 0 && c.x < size.x && c.y < size.y)
                         custom.Add(c);
                 }
             }
             return custom;
         }
 
-        int chunk = room.GetMinimumRoomChunkTiles();
-        int verticalThickness = Mathf.Min(grid.x, Mathf.Max(chunk, grid.x / 2));
-        int horizontalThickness = Mathf.Min(grid.y, Mathf.Max(chunk, grid.y / 2));
-        int verticalStart = Mathf.Max(0, (grid.x - verticalThickness) / 2);
-        int horizontalStart = Mathf.Max(0, (grid.y - horizontalThickness) / 2);
+        if (shape == RoomLargePieceShape.Rectangle)
+            return BuildRectangle(size);
 
+        int chunk = Mathf.Min(room.GetMinimumRoomChunkTiles(), Mathf.Min(size.x, size.y));
         HashSet<Vector2Int> cells = new();
-        for (int y = 0; y < grid.y; y++)
+
+        for (int y = 0; y < size.y; y++)
         {
-            for (int x = 0; x < grid.x; x++)
+            for (int x = 0; x < size.x; x++)
             {
                 bool include = shape switch
                 {
-                    RoomLargePieceShape.LShape => x < verticalThickness || y < horizontalThickness,
-                    RoomLargePieceShape.TShape => y >= grid.y - horizontalThickness ||
-                                                  (x >= verticalStart && x < verticalStart + verticalThickness),
+                    RoomLargePieceShape.LShape => x < chunk || y < chunk,
+                    RoomLargePieceShape.TShape => y >= size.y - chunk ||
+                                                  (x >= (size.x - chunk) / 2 && x < (size.x - chunk) / 2 + chunk),
                     RoomLargePieceShape.Cross =>
-                        (x >= verticalStart && x < verticalStart + verticalThickness) ||
-                        (y >= horizontalStart && y < horizontalStart + horizontalThickness),
+                        (x >= (size.x - chunk) / 2 && x < (size.x - chunk) / 2 + chunk) ||
+                        (y >= (size.y - chunk) / 2 && y < (size.y - chunk) / 2 + chunk),
+                    RoomLargePieceShape.Irregular => true,
                     _ => true
                 };
 
@@ -611,160 +418,90 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     cells.Add(new Vector2Int(x, y));
             }
         }
+
+        if (shape == RoomLargePieceShape.Irregular)
+            ApplySafeCornerNotch(cells, size, chunk, room, random);
+
         return cells;
     }
 
-    private static HashSet<Vector2Int> BuildIrregularCells(
+    private static HashSet<Vector2Int> BuildRectangle(Vector2Int size)
+    {
+        HashSet<Vector2Int> cells = new();
+        for (int y = 0; y < size.y; y++)
+            for (int x = 0; x < size.x; x++)
+                cells.Add(new Vector2Int(x, y));
+        return cells;
+    }
+
+    private static void ApplySafeCornerNotch(
+        HashSet<Vector2Int> cells,
         Vector2Int size,
         int chunk,
         RoomDefinitionSO room,
         System.Random random)
     {
-        HashSet<Vector2Int> cells = FillRectangle(size);
-        int maxCutWidth = Mathf.Max(0, size.x - chunk);
-        int maxCutHeight = Mathf.Max(0, size.y - chunk);
-        if (maxCutWidth <= 0 || maxCutHeight <= 0)
-            return cells;
-
-        float complexity = Mathf.Clamp01(room.proceduralComplexity);
-        int notchCount = 1 + Mathf.RoundToInt(complexity * 2f);
-        float notchChance = Mathf.Clamp01(room.proceduralIndentChance + room.proceduralExtensionChance * 0.35f + complexity * 0.25f);
-
-        List<int> corners = new() { 0, 1, 2, 3 };
-        Shuffle(corners, random);
-
-        int applied = 0;
-        for (int i = 0; i < corners.Count && applied < notchCount; i++)
-        {
-            if (random.NextDouble() > notchChance)
-                continue;
-
-            int cutW = random.Next(1, maxCutWidth + 1);
-            int cutH = random.Next(1, maxCutHeight + 1);
-            int corner = corners[i];
-
-            int minX = corner == 1 || corner == 3 ? size.x - cutW : 0;
-            int minY = corner >= 2 ? size.y - cutH : 0;
-
-            List<Vector2Int> removed = new();
-            for (int y = minY; y < minY + cutH; y++)
-            {
-                for (int x = minX; x < minX + cutW; x++)
-                {
-                    Vector2Int c = new(x, y);
-                    if (cells.Remove(c))
-                        removed.Add(c);
-                }
-            }
-
-            if (!IsConnected(cells))
-            {
-                for (int r = 0; r < removed.Count; r++)
-                    cells.Add(removed[r]);
-                continue;
-            }
-
-            applied++;
-        }
-
-        return cells;
-    }
-
-    private static void EnsureCentralCombatArea(HashSet<Vector2Int> cells, Vector2Int size, int chunk)
-    {
-        int width = Mathf.Min(chunk, size.x);
-        int height = Mathf.Min(chunk, size.y);
-        int startX = Mathf.Max(0, (size.x - width) / 2);
-        int startY = Mathf.Max(0, (size.y - height) / 2);
-        for (int y = startY; y < startY + height; y++)
-            for (int x = startX; x < startX + width; x++)
-                cells.Add(new Vector2Int(x, y));
-    }
-
-    private static void EnsureRequiredDoorBands(
-        HashSet<Vector2Int> cells,
-        Vector2Int size,
-        HashSet<Vector2Int> edges,
-        int width)
-    {
-        if (edges == null)
+        if (size.x < chunk + 2 || size.y < chunk + 2)
             return;
 
-        width = Mathf.Clamp(width, 1, Mathf.Min(size.x, size.y));
-        foreach (Vector2Int edge in edges)
-            EnsureDoorBand(cells, size, edge, width);
-    }
-
-    private static void EnsureDoorBand(HashSet<Vector2Int> cells, Vector2Int size, Vector2Int normal, int width)
-    {
-        if (normal == Vector2Int.zero)
+        double chance = Mathf.Clamp01(room.proceduralIndentChance + room.proceduralComplexity * 0.20f);
+        if (random.NextDouble() > chance)
             return;
 
-        int centerX = size.x / 2;
-        int centerY = size.y / 2;
+        int maxCutX = Mathf.Max(1, size.x - chunk);
+        int maxCutY = Mathf.Max(1, size.y - chunk);
+        int cutX = random.Next(1, maxCutX + 1);
+        int cutY = random.Next(1, maxCutY + 1);
+        int corner = random.Next(4);
 
-        if (normal == Vector2Int.left || normal == Vector2Int.right)
+        for (int y = 0; y < cutY; y++)
         {
-            int bandStart = DoorBandStart(size.y, width);
-            int innerX = normal == Vector2Int.left ? centerX : Mathf.Max(0, centerX - 1);
-            int minX = normal == Vector2Int.left ? 0 : innerX;
-            int maxX = normal == Vector2Int.left ? innerX : size.x - 1;
-            for (int y = bandStart; y < bandStart + width; y++)
-                for (int x = minX; x <= maxX; x++)
-                    cells.Add(new Vector2Int(x, y));
-        }
-        else
-        {
-            int bandStart = DoorBandStart(size.x, width);
-            int innerY = normal == Vector2Int.down ? centerY : Mathf.Max(0, centerY - 1);
-            int minY = normal == Vector2Int.down ? 0 : innerY;
-            int maxY = normal == Vector2Int.down ? innerY : size.y - 1;
-            for (int x = bandStart; x < bandStart + width; x++)
-                for (int y = minY; y <= maxY; y++)
-                    cells.Add(new Vector2Int(x, y));
+            for (int x = 0; x < cutX; x++)
+            {
+                int px = (corner == 1 || corner == 3) ? size.x - 1 - x : x;
+                int py = (corner >= 2) ? size.y - 1 - y : y;
+                cells.Remove(new Vector2Int(px, py));
+            }
         }
     }
 
-    private static int DoorBandStart(int perpendicularSize, int width)
-    {
-        width = Mathf.Min(width, perpendicularSize);
-        return Mathf.Clamp((perpendicularSize - width) / 2, 0, perpendicularSize - width);
-    }
-
-    private static float DoorBandCenter(int perpendicularSize, int width)
-    {
-        return DoorBandStart(perpendicularSize, width) + (width - 1) * 0.5f;
-    }
-
-    private static bool HasValidMinimumChunkCoverage(HashSet<Vector2Int> cells, Vector2Int size, int chunk)
+    /// <summary>
+    /// Prevents single-tile/2-tile appendages. Every positive tile must belong to at least one fully-filled
+    /// chunk x chunk square (default 4x4).
+    /// </summary>
+    private static bool EveryCellBelongsToChunk(HashSet<Vector2Int> cells, int chunk)
     {
         if (cells == null || cells.Count == 0)
             return false;
 
+        chunk = Mathf.Max(1, chunk);
         foreach (Vector2Int cell in cells)
         {
-            bool covered = false;
-            int minStartX = Mathf.Max(0, cell.x - chunk + 1);
-            int maxStartX = Mathf.Min(cell.x, size.x - chunk);
-            int minStartY = Mathf.Max(0, cell.y - chunk + 1);
-            int maxStartY = Mathf.Min(cell.y, size.y - chunk);
-
-            for (int sy = minStartY; sy <= maxStartY && !covered; sy++)
+            bool belongs = false;
+            for (int oy = cell.y - chunk + 1; oy <= cell.y && !belongs; oy++)
             {
-                for (int sx = minStartX; sx <= maxStartX && !covered; sx++)
+                for (int ox = cell.x - chunk + 1; ox <= cell.x && !belongs; ox++)
                 {
                     bool full = true;
-                    for (int y = sy; y < sy + chunk && full; y++)
-                        for (int x = sx; x < sx + chunk; x++)
-                            if (!cells.Contains(new Vector2Int(x, y))) { full = false; break; }
-                    covered = full;
+                    for (int y = 0; y < chunk && full; y++)
+                    {
+                        for (int x = 0; x < chunk; x++)
+                        {
+                            if (!cells.Contains(new Vector2Int(ox + x, oy + y)))
+                            {
+                                full = false;
+                                break;
+                            }
+                        }
+                    }
+                    if (full)
+                        belongs = true;
                 }
             }
 
-            if (!covered)
+            if (!belongs)
                 return false;
         }
-
         return true;
     }
 
@@ -795,15 +532,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return visited.Count == cells.Count;
     }
 
-    private static void Shuffle<T>(List<T> list, System.Random random)
-    {
-        for (int i = list.Count - 1; i > 0; i--)
-        {
-            int j = random.Next(i + 1);
-            (list[i], list[j]) = (list[j], list[i]);
-        }
-    }
-
     private static int StableHash(string text)
     {
         unchecked
@@ -816,576 +544,383 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private static Vector2Int DirectionToInt(Vector2 direction)
+    // ---------------------------------------------------------------------
+    // Stage map UI
+    // ---------------------------------------------------------------------
+
+    private void EnsureStageMapUI()
     {
-        if (direction.sqrMagnitude <= 0.001f)
-            return Vector2Int.zero;
-        if (Mathf.Abs(direction.x) >= Mathf.Abs(direction.y))
-            return direction.x >= 0f ? Vector2Int.right : Vector2Int.left;
-        return direction.y >= 0f ? Vector2Int.up : Vector2Int.down;
+        if (stageMapCanvas != null)
+            return;
+
+        EnsureEventSystem();
+
+        GameObject canvasObject = new("BattleStageMapCanvas");
+        DontDestroyOnLoad(canvasObject);
+        stageMapCanvas = canvasObject.AddComponent<Canvas>();
+        stageMapCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        stageMapCanvas.sortingOrder = 650;
+
+        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+        canvasObject.AddComponent<GraphicRaycaster>();
+
+        GameObject panel = new("StageMapPanel");
+        panel.transform.SetParent(canvasObject.transform, false);
+        stageMapPanelImage = panel.AddComponent<Image>();
+        stageMapPanelImage.color = mapBackground;
+        stageMapPanel = panel.GetComponent<RectTransform>();
     }
 
-    private RouteGeometry CalculateRouteGeometry(
-        Vector3 fromOrigin,
-        ProceduralRoomLayout fromLayout,
-        Vector3 toOrigin,
-        ProceduralRoomLayout toLayout,
-        Vector2 direction)
+    private static void EnsureEventSystem()
     {
-        bool horizontal = Mathf.Abs(direction.x) > 0.5f;
-        Vector2 start;
-        Vector2 end;
+        if (FindFirstObjectByType<EventSystem>() != null)
+            return;
 
-        if (horizontal)
+        GameObject go = new("BattleStageMapEventSystem");
+        DontDestroyOnLoad(go);
+        go.AddComponent<EventSystem>();
+        go.AddComponent<StandaloneInputModule>();
+    }
+
+    private void RefreshStageMap()
+    {
+        if (stageMapPanel == null || graph == null)
+            return;
+
+        bool selecting = runManager != null && runManager.WaitingForNodeSelection;
+        ConfigureStageMapPanel(selecting);
+
+        for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
+            Destroy(stageMapPanel.GetChild(i).gameObject);
+
+        BuildResolvedLayout();
+
+        if (selecting)
+            CreateStageMapTitle();
+
+        List<Vector2Int> positions = new();
+        if (graph.nodes != null)
         {
-            float laneY = fromOrigin.y + DoorBandCenter(fromLayout.size.y, BridgeWidthTiles);
-            start = new Vector2(
-                direction.x > 0f ? fromOrigin.x + fromLayout.size.x - 0.5f : fromOrigin.x - 0.5f,
-                laneY);
-            end = new Vector2(
-                direction.x > 0f ? toOrigin.x - 0.5f : toOrigin.x + toLayout.size.x - 0.5f,
-                laneY);
+            for (int i = 0; i < graph.nodes.Count; i++)
+                if (graph.nodes[i] != null)
+                    positions.Add(ResolveNodeMapPosition(graph.nodes[i]));
+        }
+
+        Vector2 mapCenter = CalculateMapCenter(positions);
+        float spacing = CalculateMapSpacing(positions, selecting);
+
+        // Links first, so nodes render over them.
+        if (graph.nodes != null)
+        {
+            for (int i = 0; i < graph.nodes.Count; i++)
+            {
+                BattleNodeData node = graph.nodes[i];
+                if (node == null)
+                    continue;
+
+                List<BattleNodeData> next = graph.GetNextNodes(node);
+                for (int n = 0; n < next.Count; n++)
+                    DrawMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter, spacing);
+            }
+        }
+
+        HashSet<string> available = new();
+        if (runManager != null)
+        {
+            IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
+            for (int i = 0; i < choices.Count; i++)
+                if (choices[i] != null)
+                    available.Add(choices[i].id);
+        }
+
+        if (graph.nodes == null)
+            return;
+
+        for (int i = 0; i < graph.nodes.Count; i++)
+        {
+            BattleNodeData node = graph.nodes[i];
+            if (node == null)
+                continue;
+
+            bool selectable = selecting && available.Contains(node.id);
+            Color color = mapUnknown;
+            if (runManager != null && runManager.CurrentNode == node)
+                color = mapCurrent;
+            else if (selectable)
+                color = node.type == BattleNodeType.Elite ? mapElite : mapAvailable;
+            else if (visitedNodeIds.Contains(node.id))
+                color = mapVisited;
+
+            DrawStageNode(node, ResolveNodeMapPosition(node), color, mapCenter, spacing, selectable, selecting);
+        }
+    }
+
+    private void ConfigureStageMapPanel(bool selecting)
+    {
+        if (selecting)
+        {
+            stageMapPanel.anchorMin = stageMapPanel.anchorMax = new Vector2(0.5f, 0.5f);
+            stageMapPanel.pivot = new Vector2(0.5f, 0.5f);
+            stageMapPanel.anchoredPosition = Vector2.zero;
+            stageMapPanel.sizeDelta = selectionMapSize;
+            stageMapPanelImage.color = mapBackground;
         }
         else
         {
-            float laneX = fromOrigin.x + DoorBandCenter(fromLayout.size.x, BridgeWidthTiles);
-            start = new Vector2(
-                laneX,
-                direction.y > 0f ? fromOrigin.y + fromLayout.size.y - 0.5f : fromOrigin.y - 0.5f);
-            end = new Vector2(
-                laneX,
-                direction.y > 0f ? toOrigin.y - 0.5f : toOrigin.y + toLayout.size.y - 0.5f);
+            stageMapPanel.anchorMin = stageMapPanel.anchorMax = Vector2.one;
+            stageMapPanel.pivot = Vector2.one;
+            stageMapPanel.anchoredPosition = new Vector2(-22f, -22f);
+            stageMapPanel.sizeDelta = compactMapSize;
+            Color c = mapBackground;
+            c.a *= 0.80f;
+            stageMapPanelImage.color = c;
         }
-
-        return new RouteGeometry(start, end, horizontal);
     }
 
-    private void ReserveLogicalRouteAndRoom(
-        RouteGeometry route,
-        BattleNodeData node,
-        Vector3 roomOrigin,
-        ProceduralRoomLayout layout,
-        Vector2 approachDirection)
+    private void CreateStageMapTitle()
     {
-        string key = RouteKey(lastMapPosition, ResolveNodeMapPosition(node));
-        if (reservedRouteKeys.Add(key))
-            BuildLogicalCorridor(route);
-
-        BuildLogicalRoom(node, roomOrigin, layout, approachDirection);
-    }
-
-    private void BuildLogicalCorridor(RouteGeometry route)
-    {
-        int totalTiles = Mathf.Max(BridgeMinPieceLengthTiles, Mathf.RoundToInt(route.Length));
-        if (totalTiles <= 0)
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
             return;
 
-        GameObject root = new($"LogicalRoute_{logicalNavigationObjects.Count}");
-        root.transform.position = route.Center;
+        GameObject title = new("Title");
+        title.transform.SetParent(stageMapPanel, false);
+        Text text = title.AddComponent<Text>();
+        text.font = font;
+        text.text = "SELECT NEXT STAGE";
+        text.alignment = TextAnchor.MiddleCenter;
+        text.fontSize = 22;
+        text.color = Color.white;
+        text.raycastTarget = false;
 
-        SpriteRenderer floor = root.AddComponent<SpriteRenderer>();
-        floor.sprite = SpatialRuntimeSpriteCache.Solid;
-        floor.drawMode = SpriteDrawMode.Tiled;
-        floor.size = route.horizontal
-            ? new Vector2(totalTiles, BridgeWidthTiles)
-            : new Vector2(BridgeWidthTiles, totalTiles);
-        floor.color = new Color(1f, 1f, 1f, 0f);
-        floor.sortingOrder = -1000;
-
-        NavMeshModifier modifier = root.AddComponent<NavMeshModifier>();
-        modifier.ignoreFromBuild = false;
-        modifier.overrideArea = false;
-        logicalNavigationObjects.Add(root);
+        RectTransform rect = title.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0f, 1f);
+        rect.anchorMax = new Vector2(1f, 1f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = new Vector2(0f, -12f);
+        rect.sizeDelta = new Vector2(0f, 34f);
     }
 
-    private void BuildLogicalRoom(
+    private void DrawStageNode(
         BattleNodeData node,
-        Vector3 roomOrigin,
-        ProceduralRoomLayout layout,
-        Vector2 approachDirection)
+        Vector2Int position,
+        Color color,
+        Vector2 mapCenter,
+        float spacing,
+        bool selectable,
+        bool expanded)
     {
-        GameObject root = new($"LogicalRoom_{node.id}");
-        root.transform.position = roomOrigin;
+        GameObject go = new($"StageNode_{node.id}");
+        go.transform.SetParent(stageMapPanel, false);
 
-        foreach (Vector2Int cell in layout.cells)
+        Image image = go.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = selectable;
+
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = new Vector2(
+            (position.x - mapCenter.x) * spacing,
+            (position.y - mapCenter.y) * spacing - (expanded ? 10f : 0f));
+        float size = mapNodeSize * (node.type == BattleNodeType.Elite ? 1.18f : 1f);
+        rect.sizeDelta = Vector2.one * size;
+
+        if (selectable && runManager != null)
         {
-            GameObject floor = new($"NavFloor_{cell.x}_{cell.y}");
-            floor.transform.SetParent(root.transform, false);
-            floor.transform.localPosition = (Vector3)((Vector2)cell * RoomDefinitionSO.ProceduralTileWorldSize);
-
-            SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
-            renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-            renderer.drawMode = SpriteDrawMode.Tiled;
-            renderer.size = Vector2.one;
-            renderer.color = new Color(1f, 1f, 1f, 0f);
-            renderer.sortingOrder = -1000;
-
-            NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
-            modifier.ignoreFromBuild = false;
-            modifier.overrideArea = false;
+            Button button = go.AddComponent<Button>();
+            button.targetGraphic = image;
+            ColorBlock colors = button.colors;
+            colors.highlightedColor = Color.white;
+            colors.pressedColor = new Color(0.82f, 0.86f, 0.92f, 1f);
+            button.colors = colors;
+            string id = node.id;
+            button.onClick.AddListener(() => runManager.SelectNextNode(id));
         }
 
-        BuildBoundaryEdges(root.transform, layout, GetRequiredDoorNormals(node, approachDirection), false, true);
-        logicalNavigationObjects.Add(root);
+        if (expanded)
+            AddNodeLabel(go.transform, node);
     }
 
-    private IEnumerator RevealRouteAndRoomRoutine(
-        RouteGeometry route,
-        BattleNodeData node,
-        Vector3 targetRoomOrigin,
-        ProceduralRoomLayout layout,
-        Vector2 travelDirection)
+    private static void AddNodeLabel(Transform parent, BattleNodeData node)
     {
-        List<int> segmentLengths = BuildIntegerBridgeSegments(Mathf.RoundToInt(route.Length));
-        float sign = route.horizontal ? Mathf.Sign(route.end.x - route.start.x) : Mathf.Sign(route.end.y - route.start.y);
-        int consumed = 0;
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
+            return;
 
-        for (int i = 0; i < segmentLengths.Count; i++)
+        GameObject label = new("Label");
+        label.transform.SetParent(parent, false);
+        Text text = label.AddComponent<Text>();
+        text.font = font;
+        text.text = node.type.ToString().ToUpperInvariant();
+        text.fontSize = 10;
+        text.alignment = TextAnchor.UpperCenter;
+        text.color = Color.white;
+        text.raycastTarget = false;
+
+        RectTransform rect = label.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(0.5f, 0f);
+        rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 1f);
+        rect.anchoredPosition = new Vector2(0f, -5f);
+        rect.sizeDelta = new Vector2(90f, 20f);
+    }
+
+    private void BuildResolvedLayout()
+    {
+        if (graph == null)
+            return;
+
+        resolvedMapPositions.Clear();
+        HashSet<Vector2Int> occupied = new();
+
+        if (graph.nodes != null)
         {
-            int lengthTiles = segmentLengths[i];
-            float centerDistance = consumed + lengthTiles * 0.5f;
-            Vector2 center = route.horizontal
-                ? route.start + Vector2.right * sign * centerDistance
-                : route.start + Vector2.up * sign * centerDistance;
-
-            while (!IsPointWithinCameraReveal(center))
-                yield return new WaitForSecondsRealtime(revealPollInterval);
-
-            Vector2 size = route.horizontal
-                ? new Vector2(lengthTiles, BridgeWidthTiles)
-                : new Vector2(BridgeWidthTiles, lengthTiles);
-
-            Vector2 incoming = route.horizontal
-                ? (i % 2 == 0 ? Vector2.down : Vector2.up)
-                : (i % 2 == 0 ? Vector2.left : Vector2.right);
-
-            GameObject piece = CreateVisibleCorridorPiece($"BridgePiece_{persistentRouteObjects.Count}", center, size, route.horizontal);
-            MapBlock block = piece.GetComponent<MapBlock>();
-            block.PlayEnter(piece.transform.position, incoming, i == 0 ? 0f : corridorPieceStagger);
-            persistentRouteObjects.Add(piece);
-            consumed += lengthTiles;
-        }
-
-        Rect roomBounds = new(
-            (Vector2)targetRoomOrigin - Vector2.one * 0.5f,
-            new Vector2(layout.size.x, layout.size.y));
-
-        while (!IsRectWithinCameraReveal(roomBounds))
-            yield return new WaitForSecondsRealtime(revealPollInterval);
-
-        GameObject roomPiece = CreateVisibleRoomPiece(node, targetRoomOrigin, layout, travelDirection);
-        persistentRouteObjects.Add(roomPiece);
-    }
-
-    private List<int> BuildIntegerBridgeSegments(int totalTiles)
-    {
-        totalTiles = Mathf.Max(BridgeMinPieceLengthTiles, totalTiles);
-        int maxPieces = Mathf.Max(1, totalTiles / BridgeMinPieceLengthTiles);
-        int count = Mathf.Clamp(preferredBridgePieceCount, 1, maxPieces);
-        int baseLength = totalTiles / count;
-        int remainder = totalTiles % count;
-
-        List<int> result = new(count);
-        for (int i = 0; i < count; i++)
-            result.Add(baseLength + (i < remainder ? 1 : 0));
-        return result;
-    }
-
-    private GameObject CreateVisibleCorridorPiece(string objectName, Vector2 destination, Vector2 size, bool horizontal)
-    {
-        GameObject root = new(objectName);
-        root.transform.position = destination;
-
-        GameObject floor = new("Floor");
-        floor.transform.SetParent(root.transform, false);
-        SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
-        renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-        renderer.drawMode = SpriteDrawMode.Tiled;
-        renderer.size = size;
-        renderer.color = new Color(0.20f, 0.23f, 0.27f, 1f);
-        renderer.sortingOrder = -30;
-
-        NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
-        modifier.ignoreFromBuild = false;
-        modifier.overrideArea = false;
-
-        CreateVisibleRail(root.transform,
-            horizontal ? new Vector2(0f, size.y * 0.5f) : new Vector2(size.x * 0.5f, 0f),
-            horizontal ? new Vector2(size.x, roomEdgeThickness) : new Vector2(roomEdgeThickness, size.y));
-        CreateVisibleRail(root.transform,
-            horizontal ? new Vector2(0f, -size.y * 0.5f) : new Vector2(-size.x * 0.5f, 0f),
-            horizontal ? new Vector2(size.x, roomEdgeThickness) : new Vector2(roomEdgeThickness, size.y));
-
-        MapBlock block = root.AddComponent<MapBlock>();
-        block.ConfigureRuntimeDockingBlock(root.transform, true, 0.62f, corridorEntryDuration, corridorEntryOffset);
-        return root;
-    }
-
-    private void CreateVisibleRail(Transform parent, Vector2 localPosition, Vector2 size)
-    {
-        GameObject rail = new("BridgeEdgeVisual");
-        rail.transform.SetParent(parent, false);
-        rail.transform.localPosition = localPosition;
-
-        SpriteRenderer renderer = rail.AddComponent<SpriteRenderer>();
-        renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-        renderer.drawMode = SpriteDrawMode.Tiled;
-        renderer.size = size;
-        renderer.color = roomEdgeColor;
-        renderer.sortingOrder = 3;
-    }
-
-    private GameObject CreateVisibleRoomPiece(
-        BattleNodeData node,
-        Vector3 targetOrigin,
-        ProceduralRoomLayout layout,
-        Vector2 approachDirection)
-    {
-        GameObject root = new($"RoomPiece_{node.id}");
-        root.transform.position = targetOrigin;
-
-        foreach (Vector2Int cell in layout.cells)
-        {
-            GameObject floor = new($"Floor_{cell.x}_{cell.y}");
-            floor.transform.SetParent(root.transform, false);
-            floor.transform.localPosition = (Vector3)((Vector2)cell * RoomDefinitionSO.ProceduralTileWorldSize);
-
-            SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
-            renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-            renderer.drawMode = SpriteDrawMode.Tiled;
-            renderer.size = Vector2.one;
-            renderer.color = roomFloorColor;
-            renderer.sortingOrder = -20;
-
-            NavMeshModifier modifier = floor.AddComponent<NavMeshModifier>();
-            modifier.ignoreFromBuild = false;
-            modifier.overrideArea = false;
-        }
-
-        BuildBoundaryEdges(root.transform, layout, GetRequiredDoorNormals(node, approachDirection), true, false);
-
-        MapBlock block = root.AddComponent<MapBlock>();
-        block.ConfigureRuntimeDockingBlock(
-            root.transform,
-            true,
-            roomImpactStrength,
-            node.room.largePieceEntryDuration,
-            node.room.largePieceEntryOffset);
-
-        Vector2 entry = node.room.largePieceEntryDirection.sqrMagnitude > 0.001f
-            ? node.room.largePieceEntryDirection.normalized
-            : -approachDirection.normalized;
-        if (entry.sqrMagnitude <= 0.001f)
-            entry = Vector2.down;
-
-        block.PlayEnter(targetOrigin, entry);
-        return root;
-    }
-
-    private void BuildBoundaryEdges(
-        Transform root,
-        ProceduralRoomLayout layout,
-        HashSet<Vector2Int> doorwayNormals,
-        bool visible,
-        bool logicalCollision)
-    {
-        Vector2Int[] directions = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
-        foreach (Vector2Int cell in layout.cells)
-        {
-            for (int i = 0; i < directions.Length; i++)
+            for (int i = 0; i < graph.nodes.Count; i++)
             {
-                Vector2Int edge = directions[i];
-                if (layout.cells.Contains(cell + edge))
+                BattleNodeData node = graph.nodes[i];
+                if (node == null || string.IsNullOrWhiteSpace(node.id) || !node.useExplicitMapPosition)
                     continue;
-                if (doorwayNormals != null && doorwayNormals.Contains(edge) && IsBridgeDoorCell(cell, edge, layout.size))
+
+                Vector2Int pos = node.mapPosition;
+                if (occupied.Add(pos))
+                    resolvedMapPositions[node.id] = pos;
+            }
+        }
+
+        BattleNodeData start = graph.GetStartNode();
+        if (start == null)
+            return;
+
+        if (!resolvedMapPositions.ContainsKey(start.id))
+        {
+            Vector2Int p = FindFreeStagePosition(Vector2Int.zero, 0, occupied);
+            resolvedMapPositions[start.id] = p;
+            occupied.Add(p);
+        }
+
+        Queue<BattleNodeData> queue = new();
+        HashSet<string> visited = new();
+        queue.Enqueue(start);
+
+        while (queue.Count > 0)
+        {
+            BattleNodeData parent = queue.Dequeue();
+            if (parent == null || !visited.Add(parent.id))
+                continue;
+
+            Vector2Int parentPos = ResolveNodeMapPosition(parent);
+            List<BattleNodeData> next = graph.GetNextNodes(parent);
+            for (int i = 0; i < next.Count; i++)
+            {
+                BattleNodeData child = next[i];
+                if (child == null)
                     continue;
-                CreateBoundaryEdge(root, cell, edge, visible, logicalCollision);
+
+                if (!resolvedMapPositions.ContainsKey(child.id))
+                {
+                    Vector2Int candidate = FindFreeStagePosition(parentPos, i, occupied);
+                    resolvedMapPositions[child.id] = candidate;
+                    occupied.Add(candidate);
+                }
+                queue.Enqueue(child);
             }
         }
     }
 
-    private static bool IsBridgeDoorCell(Vector2Int cell, Vector2Int normal, Vector2Int size)
+    private static Vector2Int FindFreeStagePosition(Vector2Int parent, int siblingIndex, HashSet<Vector2Int> occupied)
     {
-        if (normal == Vector2Int.left || normal == Vector2Int.right)
+        int[] xOffsets = { 0, -1, 1, -2, 2, -3, 3 };
+        for (int depthStep = 1; depthStep < 20; depthStep++)
         {
-            bool side = normal == Vector2Int.left ? cell.x == 0 : cell.x == size.x - 1;
-            if (!side) return false;
-            int start = DoorBandStart(size.y, BridgeWidthTiles);
-            return cell.y >= start && cell.y < start + BridgeWidthTiles;
-        }
-
-        if (normal == Vector2Int.up || normal == Vector2Int.down)
-        {
-            bool side = normal == Vector2Int.down ? cell.y == 0 : cell.y == size.y - 1;
-            if (!side) return false;
-            int start = DoorBandStart(size.x, BridgeWidthTiles);
-            return cell.x >= start && cell.x < start + BridgeWidthTiles;
-        }
-
-        return false;
-    }
-
-    private void CreateBoundaryEdge(Transform root, Vector2Int cell, Vector2Int edge, bool visible, bool logicalCollision)
-    {
-        bool vertical = edge.x != 0;
-        Vector2 cellCenter = (Vector2)cell;
-        Vector2 position = cellCenter + (Vector2)edge * 0.5f;
-        Vector2 size = vertical
-            ? new Vector2(roomEdgeThickness, 1f + roomEdgeThickness)
-            : new Vector2(1f + roomEdgeThickness, roomEdgeThickness);
-
-        GameObject edgeObject = new(visible ? "RoomEdgeVisual" : "RoomEdgeLogical");
-        edgeObject.transform.SetParent(root, false);
-        edgeObject.transform.localPosition = position;
-
-        if (visible)
-        {
-            SpriteRenderer renderer = edgeObject.AddComponent<SpriteRenderer>();
-            renderer.sprite = SpatialRuntimeSpriteCache.Solid;
-            renderer.drawMode = SpriteDrawMode.Tiled;
-            renderer.size = size;
-            renderer.color = roomEdgeColor;
-            renderer.sortingOrder = 2;
-        }
-
-        if (logicalCollision)
-        {
-            BoxCollider2D collider = edgeObject.AddComponent<BoxCollider2D>();
-            collider.size = size;
-            collider.isTrigger = false;
-
-            NavMeshModifier modifier = edgeObject.AddComponent<NavMeshModifier>();
-            modifier.ignoreFromBuild = false;
-            modifier.overrideArea = true;
-            modifier.area = 1;
-        }
-    }
-
-    private void SuppressLegacyRoomPiecesForCurrentEnter(RoomDefinitionSO room)
-    {
-        if (room == null)
-            return;
-
-        List<MapBlockPlacement> originalBlocks = room.blocks;
-        bool originalReposition = room.repositionPlayerOnEnter;
-        room.blocks = new List<MapBlockPlacement>();
-        room.repositionPlayerOnEnter = false;
-        StartCoroutine(RestoreRoomDataNextFrame(room, originalBlocks, originalReposition));
-    }
-
-    private IEnumerator RestoreRoomDataNextFrame(RoomDefinitionSO room, List<MapBlockPlacement> blocks, bool reposition)
-    {
-        yield return null;
-        if (room == null)
-            yield break;
-        room.blocks = blocks ?? new List<MapBlockPlacement>();
-        room.repositionPlayerOnEnter = reposition;
-    }
-
-    private void PlacePlayerAtRouteStart(Vector2 routeStart, Vector2 direction)
-    {
-        if (player == null)
-            return;
-
-        Vector2 position = routeStart - direction.normalized * 0.52f;
-        player.transform.position = new Vector3(position.x, position.y, player.transform.position.z);
-        Rigidbody2D body = player.GetComponent<Rigidbody2D>();
-        if (body != null)
-            body.linearVelocity = Vector2.zero;
-    }
-
-    private bool IsPointWithinCameraReveal(Vector2 point)
-    {
-        Camera camera = Camera.main;
-        if (camera == null || !camera.orthographic)
-            return true;
-
-        Vector2 center = camera.transform.position;
-        float halfH = camera.orthographicSize + revealMarginWorld;
-        float halfW = camera.orthographicSize * camera.aspect + revealMarginWorld;
-        return Mathf.Abs(point.x - center.x) <= halfW && Mathf.Abs(point.y - center.y) <= halfH;
-    }
-
-    private bool IsRectWithinCameraReveal(Rect rect)
-    {
-        Camera camera = Camera.main;
-        if (camera == null || !camera.orthographic)
-            return true;
-
-        Vector2 center = camera.transform.position;
-        float halfH = camera.orthographicSize + revealMarginWorld;
-        float halfW = camera.orthographicSize * camera.aspect + revealMarginWorld;
-        Rect cameraRect = new(center - new Vector2(halfW, halfH), new Vector2(halfW * 2f, halfH * 2f));
-        return cameraRect.Overlaps(rect, true);
-    }
-
-    private void RefreshWorldDirectionMarkers()
-    {
-        ClearDirectionMarkers();
-        if (runManager == null || graph == null || player == null)
-            return;
-
-        if (runManager.IsInStartArea)
-        {
-            BattleNodeData first = graph.GetStartNode();
-            if (first == null || first.room == null)
-                return;
-
-            BuildResolvedLayout();
-            Vector2 direction = CardinalDirection(ResolveNodeMapPosition(first));
-            if (direction == Vector2.zero)
-                direction = Vector2.right;
-
-            ProceduralRoomLayout startLayout = CreateStartLayout(first.room);
-            Vector2 markerPosition = GetDoorMarkerPosition(startOrigin, startLayout, direction);
-            AlignStartExitTrigger(markerPosition, direction);
-            CreateDirectionMarker(markerPosition, direction, first, false, null);
-            return;
-        }
-
-        if (!runManager.WaitingForNodeSelection || runManager.CurrentNode == null)
-            return;
-
-        BattleNodeData currentNode = runManager.CurrentNode;
-        ProceduralRoomLayout currentLayout = GetOrCreateLayout(currentNode, Vector2.zero);
-        Vector2Int currentMap = ResolveNodeMapPosition(currentNode);
-        Vector3 currentOrigin = GetRoomOrigin(currentMap, currentLayout);
-
-        IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
-        for (int i = 0; i < choices.Count; i++)
-        {
-            BattleNodeData next = choices[i];
-            if (next == null)
-                continue;
-
-            Vector2 direction = CardinalDirection(ResolveNodeMapPosition(next) - currentMap);
-            if (direction == Vector2.zero)
-                continue;
-
-            Vector2 markerPosition = GetDoorMarkerPosition(currentOrigin, currentLayout, direction);
-            CreateDirectionMarker(
-                markerPosition,
-                direction,
-                next,
-                next.type == BattleNodeType.Elite,
-                () => runManager.SelectNextNode(next.id));
-        }
-    }
-
-    private static Vector2 GetDoorBoundaryCenter(Vector3 origin, ProceduralRoomLayout layout, Vector2 direction)
-    {
-        if (Mathf.Abs(direction.x) > 0.5f)
-        {
-            return new Vector2(
-                direction.x > 0f ? origin.x + layout.size.x - 0.5f : origin.x - 0.5f,
-                origin.y + DoorBandCenter(layout.size.y, BridgeWidthTiles));
-        }
-
-        return new Vector2(
-            origin.x + DoorBandCenter(layout.size.x, BridgeWidthTiles),
-            direction.y > 0f ? origin.y + layout.size.y - 0.5f : origin.y - 0.5f);
-    }
-
-    private Vector2 GetDoorMarkerPosition(Vector3 origin, ProceduralRoomLayout layout, Vector2 direction)
-    {
-        return GetDoorBoundaryCenter(origin, layout, direction) - direction.normalized * markerInset;
-    }
-
-    private void AlignStartExitTrigger(Vector2 markerPosition, Vector2 direction)
-    {
-        StartAreaExitTrigger[] exits = FindObjectsByType<StartAreaExitTrigger>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-        for (int i = 0; i < exits.Length; i++)
-        {
-            StartAreaExitTrigger exit = exits[i];
-            if (exit == null)
-                continue;
-
-            exit.transform.position = new Vector3(markerPosition.x, markerPosition.y, exit.transform.position.z);
-            BoxCollider2D collider = exit.GetComponent<BoxCollider2D>();
-            if (collider != null)
+            for (int i = 0; i < xOffsets.Length; i++)
             {
-                collider.size = Mathf.Abs(direction.x) > 0.5f
-                    ? new Vector2(0.65f, BridgeWidthTiles - 0.35f)
-                    : new Vector2(BridgeWidthTiles - 0.35f, 0.65f);
+                int index = (i + siblingIndex) % xOffsets.Length;
+                Vector2Int candidate = new(parent.x + xOffsets[index], parent.y + depthStep);
+                if (!occupied.Contains(candidate))
+                    return candidate;
             }
         }
+        return new Vector2Int(parent.x, parent.y + 20);
     }
 
-    private void RemoveLegacyStartBoundaries()
+    private Vector2Int ResolveNodeMapPosition(BattleNodeData node)
     {
-        string[] names =
-        {
-            "StartBoundary_Left",
-            "StartBoundary_Right",
-            "StartBoundary_Bottom",
-            "StartBoundary_Top"
-        };
+        if (node == null)
+            return Vector2Int.zero;
+        if (resolvedMapPositions.TryGetValue(node.id, out Vector2Int pos))
+            return pos;
+        return node.useExplicitMapPosition ? node.mapPosition : Vector2Int.zero;
+    }
 
-        for (int i = 0; i < names.Length; i++)
+    private float CalculateMapSpacing(List<Vector2Int> positions, bool expanded)
+    {
+        if (positions == null || positions.Count <= 1)
+            return mapCellSpacing;
+
+        int minX = positions[0].x, maxX = positions[0].x;
+        int minY = positions[0].y, maxY = positions[0].y;
+        for (int i = 1; i < positions.Count; i++)
         {
-            GameObject boundary = GameObject.Find(names[i]);
-            if (boundary != null)
-                Destroy(boundary);
+            minX = Mathf.Min(minX, positions[i].x);
+            maxX = Mathf.Max(maxX, positions[i].x);
+            minY = Mathf.Min(minY, positions[i].y);
+            maxY = Mathf.Max(maxY, positions[i].y);
         }
+
+        Vector2 panelSize = expanded ? selectionMapSize : compactMapSize;
+        float rangeX = Mathf.Max(1, maxX - minX);
+        float rangeY = Mathf.Max(1, maxY - minY);
+        float fitX = (panelSize.x - 90f) / rangeX;
+        float fitY = (panelSize.y - (expanded ? 110f : 55f)) / rangeY;
+        return Mathf.Clamp(Mathf.Min(mapCellSpacing, fitX, fitY), 28f, mapCellSpacing);
     }
 
-    private void CreateDirectionMarker(
-        Vector2 worldPosition,
-        Vector2 direction,
-        BattleNodeData node,
-        bool elite,
-        Action onTriggered)
+    private static Vector2 CalculateMapCenter(List<Vector2Int> positions)
     {
-        GameObject marker = new($"DirectionMarker_{node?.id ?? "Start"}");
-        marker.transform.position = new Vector3(worldPosition.x, worldPosition.y, 0f);
+        if (positions == null || positions.Count == 0)
+            return Vector2.zero;
 
-        SpriteRenderer renderer = marker.AddComponent<SpriteRenderer>();
-        renderer.sprite = SpatialRuntimeSpriteCache.Arrow;
-        renderer.color = elite ? markerEliteColor : markerAvailableColor;
-        renderer.sortingOrder = 90;
-        marker.transform.localScale = Vector3.one * markerWorldSize;
-        marker.transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg);
-
-        CircleCollider2D trigger = marker.AddComponent<CircleCollider2D>();
-        trigger.isTrigger = true;
-        trigger.radius = markerTriggerRadius / Mathf.Max(0.01f, markerWorldSize);
-
-        SpatialDirectionMarkerTrigger markerTrigger = marker.AddComponent<SpatialDirectionMarkerTrigger>();
-        markerTrigger.Arm(player.transform, onTriggered);
-        directionMarkers.Add(marker);
+        int minX = positions[0].x, maxX = positions[0].x;
+        int minY = positions[0].y, maxY = positions[0].y;
+        for (int i = 1; i < positions.Count; i++)
+        {
+            minX = Mathf.Min(minX, positions[i].x);
+            maxX = Mathf.Max(maxX, positions[i].x);
+            minY = Mathf.Min(minY, positions[i].y);
+            maxY = Mathf.Max(maxY, positions[i].y);
+        }
+        return new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
     }
 
-    private void ClearDirectionMarkers()
+    private void DrawMapLink(Vector2Int from, Vector2Int to, Vector2 center, float spacing)
     {
-        for (int i = 0; i < directionMarkers.Count; i++)
-            if (directionMarkers[i] != null)
-                Destroy(directionMarkers[i]);
-        directionMarkers.Clear();
+        Vector2 a = new((from.x - center.x) * spacing, (from.y - center.y) * spacing);
+        Vector2 b = new((to.x - center.x) * spacing, (to.y - center.y) * spacing);
+        Vector2 delta = b - a;
+        float length = delta.magnitude;
+        if (length < 1f)
+            return;
+
+        GameObject go = new("StageLink");
+        go.transform.SetParent(stageMapPanel, false);
+        Image image = go.AddComponent<Image>();
+        image.color = mapLink;
+        image.raycastTarget = false;
+
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = (a + b) * 0.5f;
+        rect.sizeDelta = new Vector2(length, 4f);
+        rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+        go.transform.SetAsFirstSibling();
     }
 
-    private static string RouteKey(Vector2Int a, Vector2Int b)
-    {
-        if (a.x < b.x || (a.x == b.x && a.y <= b.y))
-            return $"{a.x},{a.y}>{b.x},{b.y}";
-        return $"{b.x},{b.y}>{a.x},{a.y}";
-    }
-
-    private void ClearPersistentRoutes()
-    {
-        for (int i = 0; i < persistentRouteObjects.Count; i++)
-            if (persistentRouteObjects[i] != null)
-                Destroy(persistentRouteObjects[i]);
-        persistentRouteObjects.Clear();
-        reservedRouteKeys.Clear();
-    }
-
-    private void ClearLogicalNavigation()
-    {
-        for (int i = 0; i < logicalNavigationObjects.Count; i++)
-            if (logicalNavigationObjects[i] != null)
-                Destroy(logicalNavigationObjects[i]);
-        logicalNavigationObjects.Clear();
-    }
+    // ---------------------------------------------------------------------
+    // Test character sizing
+    // ---------------------------------------------------------------------
 
     private void ApplyReadableDefaultCharacterSizes()
     {
@@ -1422,7 +957,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
             NavMeshAgent agent = monster.GetComponent<NavMeshAgent>();
             if (agent != null)
-                agent.radius = Mathf.Max(0.30f, testMonsterWorldColliderRadius * 0.8f);
+                agent.radius = Mathf.Max(0.35f, testMonsterWorldColliderRadius * 0.75f);
         }
     }
 
@@ -1430,287 +965,102 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (renderer == null || renderer.sprite == null)
             return Mathf.Max(0.1f, targetHeight);
+
         float spriteHeight = Mathf.Max(0.01f, renderer.sprite.bounds.size.y);
         return Mathf.Max(0.1f, targetHeight / spriteHeight);
-    }
-
-    private void EnsureMiniMapUI()
-    {
-        if (miniMapCanvas != null)
-            return;
-
-        GameObject canvasObject = new("BattleMiniMapCanvas");
-        DontDestroyOnLoad(canvasObject);
-        miniMapCanvas = canvasObject.AddComponent<Canvas>();
-        miniMapCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        miniMapCanvas.sortingOrder = 600;
-
-        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
-
-        GameObject panelObject = new("MiniMapPanel");
-        panelObject.transform.SetParent(canvasObject.transform, false);
-        Image panelImage = panelObject.AddComponent<Image>();
-        panelImage.color = miniMapBackground;
-        panelImage.raycastTarget = false;
-
-        miniMapPanel = panelObject.GetComponent<RectTransform>();
-        miniMapPanel.anchorMin = Vector2.one;
-        miniMapPanel.anchorMax = Vector2.one;
-        miniMapPanel.pivot = Vector2.one;
-        miniMapPanel.anchoredPosition = new Vector2(-22f, -22f);
-        miniMapPanel.sizeDelta = miniMapSize;
-    }
-
-    private void RefreshMiniMap()
-    {
-        if (miniMapPanel == null || graph == null)
-            return;
-
-        for (int i = miniMapPanel.childCount - 1; i >= 0; i--)
-            Destroy(miniMapPanel.GetChild(i).gameObject);
-
-        BuildResolvedLayout();
-        List<Vector2Int> allPositions = new() { Vector2Int.zero };
-        if (graph.nodes != null)
-            for (int i = 0; i < graph.nodes.Count; i++)
-                if (graph.nodes[i] != null)
-                    allPositions.Add(ResolveNodeMapPosition(graph.nodes[i]));
-
-        Vector2 mapCenter = CalculateMapCenter(allPositions);
-        float spacing = Mathf.Min(miniMapCellSpacing, CalculateMiniMapFitSpacing(allPositions));
-
-        BattleNodeData startNode = graph.GetStartNode();
-        if (startNode != null)
-            DrawMiniMapLink(Vector2Int.zero, ResolveNodeMapPosition(startNode), mapCenter, spacing);
-
-        if (graph.nodes != null)
-        {
-            for (int i = 0; i < graph.nodes.Count; i++)
-            {
-                BattleNodeData node = graph.nodes[i];
-                if (node == null) continue;
-                List<BattleNodeData> next = graph.GetNextNodes(node);
-                for (int n = 0; n < next.Count; n++)
-                    DrawMiniMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter, spacing);
-            }
-        }
-
-        bool startCurrent = runManager != null && runManager.IsInStartArea;
-        DrawMiniMapNode(Vector2Int.zero, startCurrent ? miniMapCurrent : miniMapVisited, mapCenter, spacing, 0.85f);
-
-        HashSet<string> available = new();
-        if (runManager != null)
-        {
-            IReadOnlyList<BattleNodeData> next = runManager.NextNodeChoices;
-            for (int i = 0; i < next.Count; i++)
-                if (next[i] != null)
-                    available.Add(next[i].id);
-        }
-
-        if (graph.nodes != null)
-        {
-            for (int i = 0; i < graph.nodes.Count; i++)
-            {
-                BattleNodeData node = graph.nodes[i];
-                if (node == null) continue;
-                Color color = miniMapUnknown;
-                if (runManager != null && runManager.CurrentNode == node) color = miniMapCurrent;
-                else if (available.Contains(node.id)) color = miniMapAvailable;
-                else if (visitedNodeIds.Contains(node.id)) color = miniMapVisited;
-                DrawMiniMapNode(ResolveNodeMapPosition(node), color, mapCenter, spacing,
-                    node.type == BattleNodeType.Elite ? 1.18f : 1f);
-            }
-        }
-    }
-
-    private float CalculateMiniMapFitSpacing(List<Vector2Int> positions)
-    {
-        if (positions == null || positions.Count == 0)
-            return miniMapCellSpacing;
-        int minX = positions[0].x, maxX = positions[0].x;
-        int minY = positions[0].y, maxY = positions[0].y;
-        for (int i = 1; i < positions.Count; i++)
-        {
-            minX = Mathf.Min(minX, positions[i].x); maxX = Mathf.Max(maxX, positions[i].x);
-            minY = Mathf.Min(minY, positions[i].y); maxY = Mathf.Max(maxY, positions[i].y);
-        }
-        float rangeX = Mathf.Max(1, maxX - minX);
-        float rangeY = Mathf.Max(1, maxY - minY);
-        return Mathf.Max(18f, Mathf.Min((miniMapSize.x - 42f) / rangeX, (miniMapSize.y - 42f) / rangeY));
-    }
-
-    private static Vector2 CalculateMapCenter(List<Vector2Int> positions)
-    {
-        if (positions == null || positions.Count == 0)
-            return Vector2.zero;
-        int minX = positions[0].x, maxX = positions[0].x;
-        int minY = positions[0].y, maxY = positions[0].y;
-        for (int i = 1; i < positions.Count; i++)
-        {
-            minX = Mathf.Min(minX, positions[i].x); maxX = Mathf.Max(maxX, positions[i].x);
-            minY = Mathf.Min(minY, positions[i].y); maxY = Mathf.Max(maxY, positions[i].y);
-        }
-        return new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
-    }
-
-    private void DrawMiniMapNode(Vector2Int mapPosition, Color color, Vector2 mapCenter, float spacing, float sizeMultiplier)
-    {
-        GameObject node = new("MapNode");
-        node.transform.SetParent(miniMapPanel, false);
-        Image image = node.AddComponent<Image>();
-        image.color = color;
-        image.raycastTarget = false;
-        RectTransform rect = node.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = new Vector2((mapPosition.x - mapCenter.x) * spacing, (mapPosition.y - mapCenter.y) * spacing);
-        rect.sizeDelta = Vector2.one * miniMapNodeSize * sizeMultiplier;
-    }
-
-    private void DrawMiniMapLink(Vector2Int from, Vector2Int to, Vector2 mapCenter, float spacing)
-    {
-        if (from == to) return;
-        Vector2 a = new((from.x - mapCenter.x) * spacing, (from.y - mapCenter.y) * spacing);
-        Vector2 b = new((to.x - mapCenter.x) * spacing, (to.y - mapCenter.y) * spacing);
-        Vector2 delta = b - a;
-        if (Mathf.Abs(delta.x) > 0.01f)
-            CreateMiniMapBar(new Vector2((a.x + b.x) * 0.5f, a.y), new Vector2(Mathf.Abs(delta.x), 4f));
-        if (Mathf.Abs(delta.y) > 0.01f)
-            CreateMiniMapBar(new Vector2(b.x, (a.y + b.y) * 0.5f), new Vector2(4f, Mathf.Abs(delta.y)));
-    }
-
-    private void CreateMiniMapBar(Vector2 position, Vector2 size)
-    {
-        GameObject bar = new("MapLink");
-        bar.transform.SetParent(miniMapPanel, false);
-        Image image = bar.AddComponent<Image>();
-        image.color = miniMapLink;
-        image.raycastTarget = false;
-        RectTransform rect = bar.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = position;
-        rect.sizeDelta = size;
-        bar.transform.SetAsFirstSibling();
-    }
-
-    private readonly struct RouteGeometry
-    {
-        public readonly Vector2 start;
-        public readonly Vector2 end;
-        public readonly bool horizontal;
-        public RouteGeometry(Vector2 start, Vector2 end, bool horizontal)
-        {
-            this.start = start;
-            this.end = end;
-            this.horizontal = horizontal;
-        }
-        public float Length => horizontal ? Mathf.Abs(end.x - start.x) : Mathf.Abs(end.y - start.y);
-        public Vector2 Center => (start + end) * 0.5f;
     }
 
     private sealed class ProceduralRoomLayout
     {
         public readonly Vector2Int size;
         public readonly HashSet<Vector2Int> cells;
+
         public ProceduralRoomLayout(Vector2Int size, HashSet<Vector2Int> cells)
         {
             this.size = size;
             this.cells = cells ?? new HashSet<Vector2Int>();
         }
 
-        // The map anchor is the center line of the mandatory 4-tile door bands, not arbitrary half-cell geometry.
-        public Vector2 MapAnchorOffset => new(
-            DoorBandCenter(size.x, BridgeWidthTiles),
-            DoorBandCenter(size.y, BridgeWidthTiles));
-    }
-}
-
-[RequireComponent(typeof(Collider2D))]
-internal sealed class SpatialDirectionMarkerTrigger : MonoBehaviour
-{
-    private Transform player;
-    private Action onTriggered;
-    private bool armed;
-
-    public void Arm(Transform playerTarget, Action callback)
-    {
-        player = playerTarget;
-        onTriggered = callback;
-        armed = callback != null;
-    }
-
-    private void OnTriggerEnter2D(Collider2D other)
-    {
-        if (!armed || player == null || other == null)
-            return;
-        Transform t = other.transform;
-        if (t != player && !t.IsChildOf(player))
-            return;
-        armed = false;
-        Action callback = onTriggered;
-        onTriggered = null;
-        callback?.Invoke();
+        public Vector2 CenterTile => new(size.x / 2, size.y / 2);
     }
 }
 
 internal static class SpatialRuntimeSpriteCache
 {
-    private static Sprite solid;
-    private static Sprite arrow;
-    public static Sprite Solid => solid != null ? solid : solid = CreateSolid();
-    public static Sprite Arrow => arrow != null ? arrow : arrow = CreateArrow();
+    private static Sprite floorTile32;
+    private static Sprite solid32;
 
-    private static Sprite CreateSolid()
-    {
-        Texture2D texture = new(2, 2, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Repeat,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-        texture.SetPixels(new[] { Color.white, Color.white, Color.white, Color.white });
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, 2f, 2f), new Vector2(0.5f, 0.5f), 2f, 0, SpriteMeshType.FullRect);
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        sprite.name = "SpatialRuntimeSolid";
-        return sprite;
-    }
+    public static Sprite FloorTile32 => floorTile32 != null ? floorTile32 : floorTile32 = CreateFloorTile32();
+    public static Sprite Solid32 => solid32 != null ? solid32 : solid32 = CreateSolid32();
 
-    private static Sprite CreateArrow()
+    private static Sprite CreateFloorTile32()
     {
-        const int w = 12;
-        const int h = 8;
-        Texture2D texture = new(w, h, TextureFormat.RGBA32, false)
+        const int pixels = 32;
+        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Point,
             wrapMode = TextureWrapMode.Clamp,
             hideFlags = HideFlags.HideAndDontSave
         };
 
-        for (int y = 0; y < h; y++)
+        Color inner = Color.white;
+        Color edge = new(0.82f, 0.84f, 0.88f, 1f);
+        for (int y = 0; y < pixels; y++)
         {
-            for (int x = 0; x < w; x++)
+            for (int x = 0; x < pixels; x++)
             {
-                bool shaft = x <= 7 && y >= 3 && y <= 4;
-                bool head = x >= 6 && Mathf.Abs(y - 3.5f) <= (w - x) * 0.55f;
-                texture.SetPixel(x, y, shaft || head ? Color.white : Color.clear);
+                bool line = x == 0 || y == 0;
+                texture.SetPixel(x, y, line ? edge : inner);
             }
         }
         texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, w, h), new Vector2(0.5f, 0.5f), 12f, 0, SpriteMeshType.FullRect);
+
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, pixels, pixels),
+            new Vector2(0.5f, 0.5f),
+            pixels,
+            0,
+            SpriteMeshType.FullRect);
+        sprite.name = "RuntimeFloorTile_32px_1World";
         sprite.hideFlags = HideFlags.HideAndDontSave;
-        sprite.name = "SpatialDirectionArrow";
+        return sprite;
+    }
+
+    private static Sprite CreateSolid32()
+    {
+        const int pixels = 32;
+        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Repeat,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        Color[] colors = new Color[pixels * pixels];
+        for (int i = 0; i < colors.Length; i++)
+            colors[i] = Color.white;
+        texture.SetPixels(colors);
+        texture.Apply(false, true);
+
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, pixels, pixels),
+            new Vector2(0.5f, 0.5f),
+            pixels,
+            0,
+            SpriteMeshType.FullRect);
+        sprite.name = "RuntimeSolid_32px_1World";
+        sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
     }
 }
 
 #if UNITY_EDITOR
 [UnityEditor.InitializeOnLoad]
-internal static class BattleProceduralTestDefaultsEditor
+internal static class BattleStageSelectTestDefaultsEditor
 {
-    static BattleProceduralTestDefaultsEditor()
+    static BattleStageSelectTestDefaultsEditor()
     {
         UnityEditor.EditorApplication.delayCall += Apply;
     }
@@ -1720,55 +1070,27 @@ internal static class BattleProceduralTestDefaultsEditor
         if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
             return;
 
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_A.asset",
-            RoomLargePieceShape.Irregular, new Vector2Int(6, 6), new Vector2Int(8, 8), 0.28f);
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_B.asset",
-            RoomLargePieceShape.LShape, new Vector2Int(8, 6), new Vector2Int(10, 8), 0.20f);
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_ELITE.asset",
-            RoomLargePieceShape.Cross, new Vector2Int(8, 8), new Vector2Int(10, 10), 0.12f);
-
-        NodeGraphSO graph = UnityEditor.AssetDatabase.LoadAssetAtPath<NodeGraphSO>(
-            "Assets/Resources/BattleTestDefaults/TEST_NodeGraph.asset");
-        if (graph != null && graph.nodes != null)
-        {
-            Vector2Int[] positions =
-            {
-                Vector2Int.right,
-                Vector2Int.right + Vector2Int.up,
-                Vector2Int.right * 2 + Vector2Int.up
-            };
-            for (int i = 0; i < graph.nodes.Count && i < positions.Length; i++)
-            {
-                if (graph.nodes[i] == null) continue;
-                graph.nodes[i].useExplicitMapPosition = true;
-                graph.nodes[i].mapPosition = positions[i];
-            }
-            UnityEditor.EditorUtility.SetDirty(graph);
-        }
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_A.asset", new Vector2Int(6, 6), new Vector2Int(7, 7));
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_B.asset", new Vector2Int(7, 7), new Vector2Int(8, 8));
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_ELITE.asset", new Vector2Int(8, 8), new Vector2Int(9, 9));
 
         UnityEditor.AssetDatabase.SaveAssets();
     }
 
-    private static void ConfigureRoom(
-        string path,
-        RoomLargePieceShape shape,
-        Vector2Int min,
-        Vector2Int max,
-        float complexity)
+    private static void ConfigureRoom(string path, Vector2Int min, Vector2Int max)
     {
         RoomDefinitionSO room = UnityEditor.AssetDatabase.LoadAssetAtPath<RoomDefinitionSO>(path);
         if (room == null)
             return;
 
-        room.startBaseTileSize = new Vector2Int(4, 4);
+        room.startBaseTileSize = new Vector2Int(3, 3);
         room.useProceduralRoom = true;
         room.useLargeRoomPiece = true;
-        room.largePieceShape = shape;
+        room.largePieceShape = RoomLargePieceShape.Rectangle;
         room.proceduralMinTileSize = min;
         room.proceduralMaxTileSize = max;
         room.proceduralMinChunkTileSize = 4;
-        room.proceduralComplexity = complexity;
-        room.repositionPlayerOnEnter = false;
+        room.repositionPlayerOnEnter = true;
         UnityEditor.EditorUtility.SetDirty(room);
     }
 }
