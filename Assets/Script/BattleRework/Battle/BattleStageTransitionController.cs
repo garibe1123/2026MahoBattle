@@ -9,15 +9,16 @@ using UnityEngine;
 /// <summary>
 /// Stage-to-stage presentation layer.
 ///
-/// Flow:
-/// 1) The persistent Start/Base anchor is always 4x4 32px tiles.
-/// 2) Selected Combat Rooms are assembled around that 4x4 anchor.
-/// 3) The central 4x4 cells remain visually filled by the generated Room floor while their
-///    duplicate gameplay sources are disabled. The persistent base underneath is the continuity anchor.
-/// 4) As soon as the clear reward phase starts, the 4x4 area under the player becomes the next base.
-///    Everything else from the cleared Room spins / flies off-screen before the player chooses a reward.
-/// 5) Reward choices physically drop from above and are collected by touching them.
-/// 6) After reward collection the Slay-the-Spire-style Stage Map selects the next node; new Room pieces then dock around the preserved 4x4 base.
+/// Spatial contract:
+/// - 32px = 1 tile = 1 world unit.
+/// - The persistent Start/Base is always 4x4 tiles.
+/// - Every Combat/Elite Room is positioned FROM that persistent 4x4 anchor.
+/// - The generated Room never disables/removes the central 4x4 gameplay cells.
+///   The persistent base remains real walkable floor and is rendered above the generated floor,
+///   so the stage looks like new pieces are added around the existing start point instead of
+///   treating the middle as a hole/reserved void.
+/// - On clear, the player's 4x4 neighborhood becomes the next persistent base and all other
+///   Room pieces spin/fly off before physical reward selection.
 /// </summary>
 [DefaultExecutionOrder(-15000)]
 public sealed class BattleStageTransitionController : MonoBehaviour
@@ -27,6 +28,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     [SerializeField, Min(0f)] private float exitGhostStagger = 0.035f;
     [SerializeField, Min(45f)] private float exitGhostSpinDegrees = 540f;
     [SerializeField, Range(0.75f, 1f)] private float exitGhostEndScale = 0.90f;
+
+    [Header("Persistent Base Presentation")]
+    [Tooltip("Generated floor uses sorting -20. Keep the preserved 4x4 immediately above it, but below walls/actors.")]
+    [SerializeField] private int persistentBaseFloorSorting = -19;
 
     [Header("Reward Drop")]
     [SerializeField, Min(0.5f)] private float rewardDropHeight = 4.2f;
@@ -47,6 +52,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private readonly List<GameObject> exitGhosts = new();
     private readonly List<GameObject> rewardPickups = new();
+
     private Vector3 preservedBaseTileOrigin;
     private bool hasPreservedBaseOrigin;
     private bool clearedStageCollapsed;
@@ -83,15 +89,13 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield return null;
         }
 
+        // SpatialMapController (-20000) must prepare temporary room prototypes before this listener.
         yield return null;
         Subscribe();
 
         baseTemplate.EnsurePersistentBase();
-        if (baseTemplate.HasPersistentBase)
-        {
-            preservedBaseTileOrigin = baseTemplate.FixedTileOriginWorld;
-            hasPreservedBaseOrigin = true;
-        }
+        CaptureCurrentBaseAnchor();
+        EnsureBasePresentation();
     }
 
     private void ResolveSystems()
@@ -153,11 +157,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return;
 
         baseTemplate.EnsurePersistentBase();
-        if (!hasPreservedBaseOrigin)
-        {
-            preservedBaseTileOrigin = baseTemplate.FixedTileOriginWorld;
-            hasPreservedBaseOrigin = true;
-        }
+        CaptureCurrentBaseAnchor();
+        EnsureBasePresentation();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -171,35 +172,83 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (baseTemplate == null || roomManager == null)
             return;
 
-        if (!baseTemplate.HasPersistentBase)
-            baseTemplate.BuildBase(node.room);
+        baseTemplate.EnsurePersistentBase();
+        CaptureCurrentBaseAnchor();
+        EnsureBasePresentation();
 
-        if (!hasPreservedBaseOrigin)
-        {
-            preservedBaseTileOrigin = baseTemplate.FixedTileOriginWorld;
-            hasPreservedBaseOrigin = true;
-        }
-
-        ReservePersistentBaseInsideRuntimeRoom(node.room);
+        // IMPORTANT: do not disable/rename/suppress the middle 4x4 cells anymore.
+        // We only align the generated room so its central 4x4 lies exactly on the persistent base.
+        AlignGeneratedRoomToPersistentBase(node.room);
+        node.room.repositionPlayerOnEnter = false;
         clearedStageCollapsed = false;
     }
 
-    /// <summary>
-    /// Generated center-floor sprites remain visible during combat so the Room never has a visual hole.
-    /// Only duplicate Collider/NavMesh/Walkable sources are disabled; the mandatory persistent 4x4 base
-    /// underneath remains the real continuity / movement anchor and is revealed when the Room exits.
-    /// </summary>
-    private void ReservePersistentBaseInsideRuntimeRoom(RoomDefinitionSO room)
+    private void CaptureCurrentBaseAnchor()
     {
-        if (room == null || room.blocks == null || room.blocks.Count == 0)
+        if (baseTemplate == null || !baseTemplate.HasPersistentBase)
             return;
 
-        List<Transform> floorTiles = new();
-        int minX = int.MaxValue;
-        int minY = int.MaxValue;
-        int maxX = int.MinValue;
-        int maxY = int.MinValue;
+        preservedBaseTileOrigin = baseTemplate.FixedTileOriginWorld;
+        hasPreservedBaseOrigin = true;
+    }
 
+    /// <summary>
+    /// Makes the persistent 4x4 the absolute anchor for every new room.
+    /// Generated room cells remain fully functional; no central hole/reserved gameplay area exists.
+    /// </summary>
+    private void AlignGeneratedRoomToPersistentBase(RoomDefinitionSO room)
+    {
+        if (room == null || roomManager == null || baseTemplate == null)
+            return;
+
+        if (!hasPreservedBaseOrigin)
+            CaptureCurrentBaseAnchor();
+        if (!hasPreservedBaseOrigin)
+            return;
+
+        if (!baseTemplate.EnsureVisibleAtTileOrigin(preservedBaseTileOrigin, room))
+        {
+            Debug.LogError("[BattleStageTransition] Failed to ensure mandatory 4x4 persistent base.", this);
+            return;
+        }
+
+        if (!TryGetRuntimeRoomTileBounds(room, out int minX, out int minY, out int maxX, out int maxY))
+            return;
+
+        int width = maxX - minX + 1;
+        int height = maxY - minY + 1;
+        int baseStartX = minX + Mathf.Max(0, (width - RoomBaseTemplate.FixedBaseTiles) / 2);
+        int baseStartY = minY + Mathf.Max(0, (height - RoomBaseTemplate.FixedBaseTiles) / 2);
+
+        // The lower-left CENTER of the generated room's central 4x4 is placed on the
+        // lower-left CENTER of the persistent 4x4. Every additional tile therefore derives
+        // from the start/base anchor instead of an unrelated world origin.
+        Vector3 roomOrigin = preservedBaseTileOrigin - new Vector3(baseStartX, baseStartY, 0f);
+        if (roomManager.RoomOrigin != null)
+        {
+            roomOrigin.z = roomManager.RoomOrigin.position.z;
+            roomManager.RoomOrigin.position = roomOrigin;
+        }
+
+        EnsureBasePresentation();
+    }
+
+    private static bool TryGetRuntimeRoomTileBounds(
+        RoomDefinitionSO room,
+        out int minX,
+        out int minY,
+        out int maxX,
+        out int maxY)
+    {
+        minX = int.MaxValue;
+        minY = int.MaxValue;
+        maxX = int.MinValue;
+        maxY = int.MinValue;
+
+        if (room == null || room.blocks == null)
+            return false;
+
+        bool found = false;
         for (int i = 0; i < room.blocks.Count; i++)
         {
             MapBlockPlacement placement = room.blocks[i];
@@ -223,71 +272,55 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 minY = Mathf.Min(minY, y);
                 maxX = Mathf.Max(maxX, x);
                 maxY = Mathf.Max(maxY, y);
-                floorTiles.Add(child);
+                found = true;
             }
         }
 
-        if (floorTiles.Count == 0 || minX == int.MaxValue)
-            return;
-
-        int width = maxX - minX + 1;
-        int height = maxY - minY + 1;
-        int baseStartX = minX + Mathf.Max(0, (width - RoomBaseTemplate.FixedBaseTiles) / 2);
-        int baseStartY = minY + Mathf.Max(0, (height - RoomBaseTemplate.FixedBaseTiles) / 2);
-        int baseEndX = baseStartX + RoomBaseTemplate.FixedBaseTiles - 1;
-        int baseEndY = baseStartY + RoomBaseTemplate.FixedBaseTiles - 1;
-
-        // Never suppress generated center gameplay sources unless the persistent base is confirmed alive.
-        if (!baseTemplate.EnsureVisibleAtTileOrigin(preservedBaseTileOrigin, room))
-        {
-            Debug.LogError("[BattleStageTransition] Persistent 4x4 base could not be created. Generated center floor will remain untouched.", this);
-            return;
-        }
-
-        Vector3 roomOrigin = preservedBaseTileOrigin - new Vector3(baseStartX, baseStartY, 0f);
-        roomOrigin.z = roomManager.RoomOrigin != null ? roomManager.RoomOrigin.position.z : 0f;
-        if (roomManager.RoomOrigin != null)
-            roomManager.RoomOrigin.position = roomOrigin;
-
-        room.repositionPlayerOnEnter = false;
-
-        for (int i = 0; i < floorTiles.Count; i++)
-        {
-            Transform tile = floorTiles[i];
-            if (tile == null)
-                continue;
-
-            int x = Mathf.RoundToInt(tile.localPosition.x);
-            int y = Mathf.RoundToInt(tile.localPosition.y);
-            if (x < baseStartX || x > baseEndX || y < baseStartY || y > baseEndY)
-                continue;
-
-            ReserveTileGameplayForPersistentBase(tile);
-        }
+        return found;
     }
 
-    private static void ReserveTileGameplayForPersistentBase(Transform tile)
+    private void EnsureBasePresentation()
     {
-        tile.name = "PersistentBaseVisual_" + tile.name;
+        if (baseTemplate == null)
+            return;
 
-        // IMPORTANT: keep SpriteRenderer enabled. This is what makes the active Room floor visually continuous.
-        Collider2D[] colliders = tile.GetComponentsInChildren<Collider2D>(true);
+        baseTemplate.EnsurePersistentBase();
+        GameObject baseObject = baseTemplate.ActiveBase;
+        if (baseObject == null)
+            return;
+
+        SpriteRenderer[] renderers = baseObject.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null)
+                continue;
+
+            renderer.enabled = true;
+            if (renderer.sortingOrder < persistentBaseFloorSorting)
+                renderer.sortingOrder = persistentBaseFloorSorting;
+        }
+
+        Collider2D[] colliders = baseObject.GetComponentsInChildren<Collider2D>(true);
         for (int i = 0; i < colliders.Length; i++)
-            if (colliders[i] != null)
-                colliders[i].enabled = false;
+        {
+            Collider2D collider = colliders[i];
+            if (collider != null && collider.isTrigger)
+                collider.enabled = true;
+        }
 
-        NavMeshModifier[] modifiers = tile.GetComponentsInChildren<NavMeshModifier>(true);
+        NavMeshModifier[] modifiers = baseObject.GetComponentsInChildren<NavMeshModifier>(true);
         for (int i = 0; i < modifiers.Length; i++)
         {
             if (modifiers[i] == null)
                 continue;
-            modifiers[i].ignoreFromBuild = true;
+            modifiers[i].ignoreFromBuild = false;
         }
 
-        BattleWalkableField[] fields = tile.GetComponentsInChildren<BattleWalkableField>(true);
+        BattleWalkableField[] fields = baseObject.GetComponentsInChildren<BattleWalkableField>(true);
         for (int i = 0; i < fields.Length; i++)
             if (fields[i] != null)
-                fields[i].enabled = false;
+                fields[i].enabled = true;
     }
 
     private void CollapseClearedStageAroundPlayer()
@@ -299,6 +332,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         preservedBaseTileOrigin = baseTemplate.ReanchorAroundPlayer(player.transform.position);
         hasPreservedBaseOrigin = true;
+        EnsureBasePresentation();
 
         SpawnExitGhostsFromCurrentRoom();
         HideCurrentRoomBlocks();
@@ -309,7 +343,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         if (roomManager == null || ActiveBlocksField == null)
             return;
-
         if (ActiveBlocksField.GetValue(roomManager) is not List<MapBlock> blocks || blocks.Count == 0)
             return;
 
@@ -417,6 +450,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 if (fields[f] != null)
                     fields[f].enabled = false;
         }
+
+        // The room is gone, but the persistent 4x4 must remain visible/walkable.
+        EnsureBasePresentation();
     }
 
     private static void DisableGhostGameplay(GameObject root)
@@ -575,10 +611,10 @@ internal sealed class BattleStageRewardPickup : MonoBehaviour
         if (collected || owner == null || other == null)
             return;
 
-        PlayerController player = other.GetComponent<PlayerController>();
-        if (player == null)
-            player = other.GetComponentInParent<PlayerController>();
-        if (player == null)
+        PlayerController hitPlayer = other.GetComponent<PlayerController>();
+        if (hitPlayer == null)
+            hitPlayer = other.GetComponentInParent<PlayerController>();
+        if (hitPlayer == null)
             return;
 
         collected = owner.TryCollectReward(rewardIndex, gameObject);
