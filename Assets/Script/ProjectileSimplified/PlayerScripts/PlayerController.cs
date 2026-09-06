@@ -36,6 +36,8 @@ public class PlayerController : MonoBehaviour, IDamageable
     [Header("Input Gate")]
     [Tooltip("BattleRunManager가 있으면 Run State에 따라 이동/공격 입력을 잠급니다. 구형 테스트 씬에서는 RunManager가 없으면 항상 입력을 허용합니다.")]
     [SerializeField] private bool useRunStateInputGate = true;
+    [Tooltip("Room 조립 중에도 플레이어 이동/구르기는 허용합니다. 몬스터가 등장하기 전 사격은 계속 잠급니다.")]
+    [SerializeField] private bool allowMovementDuringRoomBuild = true;
 
     private Rigidbody2D rb;
     private PlayerAnimator anim;
@@ -251,6 +253,20 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         switch (runState)
         {
+            case BattleRunState.None:
+                // BattleScene bootstrap 직후 몇 프레임 동안 State=None일 수 있습니다.
+                // 이 단계에서 이동까지 죽여 두면 Scene/Input 문제와 State Gate 문제를 구분하기 어렵습니다.
+                SetInputPermissions(true, false, true);
+                break;
+
+            case BattleRunState.EnteringNode:
+            case BattleRunState.BuildingRoom:
+                if (allowMovementDuringRoomBuild)
+                    SetInputPermissions(true, false, true);
+                else
+                    SetInputPermissions(false, false, false);
+                break;
+
             case BattleRunState.Combat:
                 SetInputPermissions(true, true, true);
                 break;
