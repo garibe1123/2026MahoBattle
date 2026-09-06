@@ -19,8 +19,8 @@ public class BattleNodeData
     [Min(0)] public int depth;
     public bool isTerminal;
 
-    [Header("World / Mini Map Position")]
-    [Tooltip("켜면 실제 Room 월드 배치와 우측 상단 Mini Map이 이 좌표를 함께 사용합니다. 한 칸은 BattleSpatialMapController의 roomWorldSpacing입니다.")]
+    [Header("Stage Map Lane")]
+    [Tooltip("Optional horizontal lane hint for the vertical Stage Map. Y is ignored at runtime; depth always flows from top to bottom.")]
     public bool useExplicitMapPosition;
     public Vector2Int mapPosition;
 
@@ -32,21 +32,30 @@ public class BattleNodeData
 }
 
 /// <summary>
-/// 웨이브를 대체하는 가변 길이 Branch/Node 그래프 데이터입니다.
+/// Finite roguelite branch graph.
 ///
-/// mapPosition은 Room의 실제 월드 방향과 Mini Map 좌표를 동일하게 유지하기 위한 선택 데이터입니다.
-/// 명시 좌표를 사용하지 않는 Node는 BattleSpatialMapController가 Start=(0,0)을 기준으로
-/// 상/하/좌/우 빈 칸을 찾아 자동 배치합니다.
+/// Stage Map rules:
+/// - depth grows from top to bottom.
+/// - nodes at the same depth are alternative horizontal lanes.
+/// - multiple start nodes are supported so the first decision can also be a real branch.
+/// - startNodeId remains only as legacy fallback for older assets.
 /// </summary>
 [CreateAssetMenu(fileName = "NodeGraph", menuName = "MahoBattle/Node Graph")]
 public class NodeGraphSO : ScriptableObject
 {
+    [Header("Start Choices")]
+    [Tooltip("Preferred start choices. All valid entries are selectable from the initial 4x4 Base.")]
+    public List<string> startNodeIds = new();
+
+    [Tooltip("Legacy single-start fallback. Used only when startNodeIds is empty or invalid.")]
     public string startNodeId;
+
     public List<BattleNodeData> nodes = new();
 
     public BattleNodeData FindNode(string nodeId)
     {
-        if (string.IsNullOrWhiteSpace(nodeId) || nodes == null) return null;
+        if (string.IsNullOrWhiteSpace(nodeId) || nodes == null)
+            return null;
 
         for (int i = 0; i < nodes.Count; i++)
         {
@@ -57,20 +66,49 @@ public class NodeGraphSO : ScriptableObject
         return null;
     }
 
+    public List<BattleNodeData> GetStartNodes()
+    {
+        List<BattleNodeData> result = new();
+        HashSet<string> used = new();
+
+        if (startNodeIds != null)
+        {
+            for (int i = 0; i < startNodeIds.Count; i++)
+            {
+                string id = startNodeIds[i];
+                BattleNodeData node = FindNode(id);
+                if (node != null && used.Add(node.id))
+                    result.Add(node);
+            }
+        }
+
+        if (result.Count == 0)
+        {
+            BattleNodeData legacy = FindNode(startNodeId);
+            if (legacy != null)
+                result.Add(legacy);
+        }
+
+        return result;
+    }
+
     public BattleNodeData GetStartNode()
     {
-        return FindNode(startNodeId);
+        List<BattleNodeData> starts = GetStartNodes();
+        return starts.Count > 0 ? starts[0] : null;
     }
 
     public List<BattleNodeData> GetNextNodes(BattleNodeData current)
     {
         List<BattleNodeData> result = new();
-        if (current == null || current.nextNodeIds == null) return result;
+        if (current == null || current.nextNodeIds == null)
+            return result;
 
+        HashSet<string> used = new();
         for (int i = 0; i < current.nextNodeIds.Count; i++)
         {
             BattleNodeData node = FindNode(current.nextNodeIds[i]);
-            if (node != null)
+            if (node != null && used.Add(node.id))
                 result.Add(node);
         }
 
@@ -82,13 +120,9 @@ public class NodeGraphSO : ScriptableObject
         StringBuilder errors = new();
         StringBuilder warnings = new();
         HashSet<string> ids = new();
-        Dictionary<Vector2Int, string> explicitPositions = new();
 
         if (nodes == null || nodes.Count == 0)
             errors.AppendLine("Node list is empty.");
-
-        if (string.IsNullOrWhiteSpace(startNodeId))
-            errors.AppendLine("startNodeId is empty.");
 
         if (nodes != null)
         {
@@ -110,17 +144,6 @@ public class NodeGraphSO : ScriptableObject
                 if (!ids.Add(node.id))
                     errors.AppendLine($"Duplicate node id: {node.id}");
 
-                if (node.useExplicitMapPosition)
-                {
-                    if (node.mapPosition == Vector2Int.zero)
-                        warnings.AppendLine($"Node '{node.id}' explicitly uses mapPosition (0,0), which is reserved visually for the Start Area.");
-
-                    if (explicitPositions.TryGetValue(node.mapPosition, out string occupiedBy))
-                        warnings.AppendLine($"Nodes '{occupiedBy}' and '{node.id}' share explicit mapPosition {node.mapPosition}.");
-                    else
-                        explicitPositions.Add(node.mapPosition, node.id);
-                }
-
                 bool combatNode = node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite;
                 if (combatNode && node.room == null)
                 {
@@ -141,27 +164,40 @@ public class NodeGraphSO : ScriptableObject
                     }
                 }
 
-                if (node.nextNodeIds == null)
-                    node.nextNodeIds = new List<string>();
-
+                node.nextNodeIds ??= new List<string>();
                 if (node.isTerminal && node.nextNodeIds.Count > 0)
                     warnings.AppendLine($"Terminal node '{node.id}' still has nextNodeIds. They will be ignored.");
             }
         }
 
-        BattleNodeData startNode = !string.IsNullOrWhiteSpace(startNodeId)
-            ? FindNode(startNodeId)
-            : null;
+        List<BattleNodeData> starts = GetStartNodes();
+        if (starts.Count == 0)
+        {
+            errors.AppendLine("No valid start node exists. Add at least one startNodeIds entry or a valid legacy startNodeId.");
+        }
 
-        if (!string.IsNullOrWhiteSpace(startNodeId) && startNode == null)
-            errors.AppendLine($"Start node '{startNodeId}' does not exist.");
+        if (startNodeIds != null)
+        {
+            for (int i = 0; i < startNodeIds.Count; i++)
+            {
+                string id = startNodeIds[i];
+                if (string.IsNullOrWhiteSpace(id))
+                    warnings.AppendLine($"startNodeIds[{i}] is empty.");
+                else if (FindNode(id) == null)
+                    errors.AppendLine($"Start node '{id}' does not exist.");
+            }
+        }
+
+        if (startNodeIds != null && startNodeIds.Count == 0 && !string.IsNullOrWhiteSpace(startNodeId) && FindNode(startNodeId) == null)
+            errors.AppendLine($"Legacy start node '{startNodeId}' does not exist.");
 
         if (nodes != null)
         {
             for (int i = 0; i < nodes.Count; i++)
             {
                 BattleNodeData node = nodes[i];
-                if (node == null || node.nextNodeIds == null) continue;
+                if (node == null || node.nextNodeIds == null)
+                    continue;
 
                 for (int n = 0; n < node.nextNodeIds.Count; n++)
                 {
@@ -172,8 +208,15 @@ public class NodeGraphSO : ScriptableObject
                         continue;
                     }
 
-                    if (FindNode(nextId) == null)
+                    BattleNodeData next = FindNode(nextId);
+                    if (next == null)
+                    {
                         errors.AppendLine($"Node '{node.id}' references missing next node '{nextId}'.");
+                        continue;
+                    }
+
+                    if (next.depth <= node.depth)
+                        warnings.AppendLine($"Node '{node.id}' -> '{next.id}' does not increase depth. Vertical Stage Map expects downward progression.");
                 }
 
                 if (!node.isTerminal && node.nextNodeIds.Count == 0)
@@ -181,8 +224,8 @@ public class NodeGraphSO : ScriptableObject
             }
         }
 
-        if (startNode != null)
-            ValidateReachability(startNode, errors, warnings);
+        if (starts.Count > 0)
+            ValidateReachability(starts, errors, warnings);
 
         StringBuilder combined = new();
         if (errors.Length > 0)
@@ -202,22 +245,25 @@ public class NodeGraphSO : ScriptableObject
     }
 
     private void ValidateReachability(
-        BattleNodeData startNode,
+        IReadOnlyList<BattleNodeData> startNodes,
         StringBuilder errors,
         StringBuilder warnings)
     {
         HashSet<string> visited = new();
-        HashSet<string> visiting = new();
         bool terminalReachable = false;
         bool cycleDetected = false;
 
-        Traverse(startNode, visited, visiting, ref terminalReachable, ref cycleDetected);
+        for (int i = 0; i < startNodes.Count; i++)
+        {
+            HashSet<string> visiting = new();
+            Traverse(startNodes[i], visited, visiting, ref terminalReachable, ref cycleDetected);
+        }
 
         if (!terminalReachable)
-            errors.AppendLine("No terminal node is reachable from startNodeId.");
+            errors.AppendLine("No terminal node is reachable from the configured start choices.");
 
         if (cycleDetected)
-            errors.AppendLine("A reachable NodeGraph cycle was detected. Vertical-slice runs must be finite.");
+            errors.AppendLine("A reachable NodeGraph cycle was detected. Battle runs must be finite.");
 
         if (nodes == null)
             return;
@@ -225,9 +271,10 @@ public class NodeGraphSO : ScriptableObject
         for (int i = 0; i < nodes.Count; i++)
         {
             BattleNodeData node = nodes[i];
-            if (node == null || string.IsNullOrWhiteSpace(node.id)) continue;
+            if (node == null || string.IsNullOrWhiteSpace(node.id))
+                continue;
             if (!visited.Contains(node.id))
-                warnings.AppendLine($"Node '{node.id}' is unreachable from startNodeId.");
+                warnings.AppendLine($"Node '{node.id}' is unreachable from every start choice.");
         }
     }
 
@@ -254,7 +301,9 @@ public class NodeGraphSO : ScriptableObject
         visited.Add(node.id);
 
         if (node.isTerminal)
+        {
             terminalReachable = true;
+        }
         else if (node.nextNodeIds != null)
         {
             for (int i = 0; i < node.nextNodeIds.Count; i++)
