@@ -27,10 +27,11 @@ public enum BattleRunState
 ///
 /// Current rules:
 /// - Start Area is not a Room.
-/// - Start Area contains only the persistent 3x3+ Start Base and Player.
+/// - Start Area contains only the persistent fixed 4x4 Base and Player.
 /// - No bridge/corridor/world traversal exists between stages.
 /// - Stage progression is selected from the NodeGraph UI (Slay-the-Spire style).
-/// - Selecting a stage builds that Room at the battle origin.
+/// - The current persistent 4x4 Base is the authoritative spatial anchor for every incoming stage.
+/// - Selecting a stage builds that Room around the current Base instead of restoring the original scene origin.
 /// - Combat -> Reward -> Stage Selection -> Next Stage.
 /// </summary>
 public class BattleRunManager : MonoBehaviour
@@ -302,12 +303,30 @@ public class BattleRunManager : MonoBehaviour
         roomManager.RoomOrigin.position = startRoomOriginPosition;
     }
 
+    private void AlignRoomOriginToPersistentBase()
+    {
+        if (roomManager == null || roomManager.RoomOrigin == null)
+            return;
+
+        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        if (baseTemplate == null)
+            return;
+
+        baseTemplate.EnsurePersistentBase();
+        Vector3 origin = baseTemplate.FixedTileOriginWorld;
+        origin.z = roomManager.RoomOrigin.position.z;
+        roomManager.RoomOrigin.position = origin;
+    }
+
     private void PositionPlayerAtStartBaseCenter(RoomDefinitionSO room)
     {
         if (room == null || playerController == null || roomManager == null || roomManager.RoomOrigin == null)
             return;
 
-        Vector3 destination = roomManager.RoomOrigin.position + (Vector3)room.GetStartBaseCenterOffset();
+        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        Vector3 destination = baseTemplate != null
+            ? baseTemplate.FixedCenterWorld
+            : roomManager.RoomOrigin.position + (Vector3)room.GetStartBaseCenterOffset();
         destination.z = playerController.transform.position.z;
         playerController.transform.position = destination;
 
@@ -343,7 +362,10 @@ public class BattleRunManager : MonoBehaviour
         bool fromStartArea = startAreaActive;
         startAreaActive = false;
         nextNodeChoices.Clear();
-        RestoreStartRoomOrigin();
+
+        // Do not restore the original scene origin here. Later stages must stay anchored to
+        // the 4x4 promoted from the player's cleared-stage position.
+        AlignRoomOriginToPersistentBase();
         EnterNode(selected, fromStartArea);
     }
 
@@ -450,7 +472,10 @@ public class BattleRunManager : MonoBehaviour
                 }
 
                 SetState(BattleRunState.BuildingRoom);
-                RestoreStartRoomOrigin();
+
+                // NodeEntered may have promoted/repositioned the persistent Base. The new Room must
+                // use that exact lower-left Base tile as its local origin; never snap back to Start.
+                AlignRoomOriginToPersistentBase();
 
                 bool savedPersistentFlag = node.room.usePersistentStartBase;
                 node.room.usePersistentStartBase = false;
