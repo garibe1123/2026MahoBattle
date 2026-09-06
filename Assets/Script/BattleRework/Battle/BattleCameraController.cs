@@ -3,15 +3,17 @@ using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// 전투 카메라의 기본 Follow / Mouse Wheel Zoom / Map Inspection Pan을 담당합니다.
+/// 전투 카메라의 Player Follow / Mouse Wheel Zoom / Map Inspection Pan을 담당합니다.
 ///
-/// 조작:
-/// - Mouse Wheel: Zoom In/Out
-/// - Middle Mouse Drag: 전투 중 맵을 훑어보기
-/// - F: Player 쪽으로 즉시 시점 복귀
+/// 핵심 규칙:
+/// - RoomOrigin / 현재 Room 중심은 카메라 위치에 절대 관여하지 않습니다.
+/// - Gameplay Room이 멀리 생성되거나 도킹되어도 Camera는 Player를 계속 추적합니다.
+/// - Mouse Wheel은 Zoom만 변경합니다.
+/// - Middle Mouse Drag 동안만 Player 기준 Pan Offset을 줄 수 있습니다.
+/// - 드래그를 놓으면 Offset은 자동으로 Player에게 복귀합니다.
+/// - F는 즉시 Player 중심으로 복귀합니다.
 ///
-/// 별도 Scene 배치 없이 BattleScene 로드 시 런타임에 자동 설치됩니다.
-/// CameraShakePivot이 있으면 상위 CameraRig를 자동으로 만들어 Follow와 Shake가 서로 덮어쓰지 않게 합니다.
+/// CameraShakePivot이 있으면 상위 CameraRig를 만들어 Follow와 Shake를 분리합니다.
 /// </summary>
 [DisallowMultipleComponent]
 public class BattleCameraController : MonoBehaviour
@@ -22,9 +24,9 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private Transform movementRoot;
 
-    [Header("Follow")]
-    [SerializeField, Min(0f)] private float followSharpness = 9f;
-    [SerializeField, Min(0f)] private float returnFromInspectionSharpness = 6f;
+    [Header("Player Follow")]
+    [SerializeField, Min(0f)] private float followSharpness = 11f;
+    [SerializeField, Min(0f)] private float returnFromInspectionSharpness = 7f;
 
     [Header("Mouse Wheel Zoom")]
     [SerializeField, Min(0.1f)] private float minZoom = 4.2f;
@@ -33,11 +35,11 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0f)] private float zoomSharpness = 12f;
 
     [Header("Map Inspection")]
-    [Tooltip("가운데 마우스 버튼을 누르고 드래그해서 맵 주변을 확인합니다.")]
+    [Tooltip("가운데 마우스 버튼을 누르고 드래그하면 Player를 기준으로 잠시 주변을 확인합니다.")]
     [SerializeField] private int inspectionMouseButton = 2;
     [SerializeField, Min(0f)] private float inspectionPanMultiplier = 1f;
-    [Tooltip("4x4 Base 밖의 Monster 진입 공간도 확인할 수 있도록 Camera 중심 Clamp에 추가하는 여유입니다.")]
-    [SerializeField, Min(0f)] private float outsideInspectionMargin = 3.5f;
+    [Tooltip("Player로부터 수동 Pan할 수 있는 최대 거리입니다. Room 위치와는 무관합니다.")]
+    [SerializeField, Min(0f)] private float maxInspectionDistance = 12f;
     [SerializeField] private KeyCode recenterKey = KeyCode.F;
 
     private Vector2 panOffset;
@@ -192,6 +194,7 @@ public class BattleCameraController : MonoBehaviour
         {
             panOffset = Vector2.zero;
             inspecting = false;
+            SnapToPlayer();
         }
     }
 
@@ -225,12 +228,22 @@ public class BattleCameraController : MonoBehaviour
         float screenHeight = Mathf.Max(1f, Screen.height);
         float worldPerPixel = controlledCamera.orthographicSize * 2f / screenHeight;
         panOffset -= pixelDelta * worldPerPixel * inspectionPanMultiplier;
+
+        if (maxInspectionDistance > 0f)
+            panOffset = Vector2.ClampMagnitude(panOffset, maxInspectionDistance);
     }
 
     private void LateUpdate()
     {
         if (controlledCamera == null || movementRoot == null)
             return;
+
+        if (followTarget == null)
+        {
+            ResolveReferences();
+            if (followTarget == null)
+                return;
+        }
 
         float zoomT = 1f - Mathf.Exp(-zoomSharpness * Time.unscaledDeltaTime);
         controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, targetZoom, zoomT);
@@ -239,37 +252,31 @@ public class BattleCameraController : MonoBehaviour
         {
             float returnT = 1f - Mathf.Exp(-returnFromInspectionSharpness * Time.unscaledDeltaTime);
             panOffset = Vector2.Lerp(panOffset, Vector2.zero, returnT);
+
+            if (panOffset.sqrMagnitude < 0.0001f)
+                panOffset = Vector2.zero;
         }
 
-        Vector2 followPosition = followTarget != null
-            ? followTarget.position
-            : (Vector2)movementRoot.position;
-        Vector2 desired = ClampToCurrentRoom(followPosition + panOffset);
-
+        // 중요: RoomOrigin / CurrentRoom / Room Bounds는 여기서 전혀 조회하지 않습니다.
+        // Gameplay Room이 멀리 생성되어도 카메라는 오직 Player + 수동 Pan Offset만 추적합니다.
+        Vector2 desired = (Vector2)followTarget.position + panOffset;
         Vector3 current = movementRoot.position;
         float followT = inspecting
             ? 1f
             : 1f - Mathf.Exp(-followSharpness * Time.unscaledDeltaTime);
-        Vector2 next = Vector2.Lerp(current, desired, followT);
+        Vector2 next = Vector2.Lerp((Vector2)current, desired, followT);
         movementRoot.position = new Vector3(next.x, next.y, current.z);
     }
 
-    private Vector2 ClampToCurrentRoom(Vector2 position)
+    private void SnapToPlayer()
     {
-        if (roomManager == null || roomManager.CurrentRoom == null)
-            return position;
+        if (movementRoot == null || followTarget == null)
+            return;
 
-        RoomDefinitionSO room = roomManager.CurrentRoom;
-        Transform origin = roomManager.transform.Find("RoomOrigin");
-        Vector2 originPosition = origin != null
-            ? (Vector2)origin.position
-            : (Vector2)roomManager.transform.position;
-
-        Vector2 center = originPosition + room.GetRuntimeBaseCenterOffset();
-        Vector2 half = room.GetRuntimeBaseWorldSize() * 0.5f + Vector2.one * outsideInspectionMargin;
-
-        return new Vector2(
-            Mathf.Clamp(position.x, center.x - half.x, center.x + half.x),
-            Mathf.Clamp(position.y, center.y - half.y, center.y + half.y));
+        Vector3 current = movementRoot.position;
+        movementRoot.position = new Vector3(
+            followTarget.position.x,
+            followTarget.position.y,
+            current.z);
     }
 }
