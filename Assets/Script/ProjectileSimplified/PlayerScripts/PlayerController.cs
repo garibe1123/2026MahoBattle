@@ -19,6 +19,13 @@ public class PlayerController : MonoBehaviour, IDamageable
     public float staminaRegen = 15f;
     [SerializeField] private float baseDefense = 0f;
 
+    [Header("Default Body Size")]
+    [Tooltip("자동 생성/기본 Player가 너무 작게 보이지 않도록 기본 월드 스케일을 적용합니다. 실제 전용 Player Prefab에서는 끌 수 있습니다.")]
+    [SerializeField] private bool applyDefaultBodySizing = true;
+    [SerializeField, Min(0.1f)] private float defaultCharacterScale = 1.25f;
+    [Tooltip("CircleCollider2D가 있으면 기본 피격/충돌 반경을 이 값으로 맞춥니다. Transform Scale 적용 전 local radius입니다.")]
+    [SerializeField, Min(0.05f)] private float defaultHitColliderRadius = 0.42f;
+
     [Header("Invincibility - v2.2")]
     [SerializeField] private float hitIFrameDuration = 0.5f;
     [SerializeField] private float rollIFrameDuration = 0.15f;
@@ -70,6 +77,7 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     private void Awake()
     {
+        ApplyDefaultBodySizing();
         rb = GetComponent<Rigidbody2D>();
         anim = GetComponent<PlayerAnimator>();
 
@@ -77,6 +85,19 @@ public class PlayerController : MonoBehaviour, IDamageable
             runManager = FindFirstObjectByType<BattleRunManager>();
 
         ResetForRun();
+    }
+
+    private void ApplyDefaultBodySizing()
+    {
+        if (!applyDefaultBodySizing)
+            return;
+
+        float scale = Mathf.Max(0.1f, defaultCharacterScale);
+        transform.localScale = new Vector3(scale, scale, 1f);
+
+        CircleCollider2D circle = GetComponent<CircleCollider2D>();
+        if (circle != null)
+            circle.radius = Mathf.Max(0.05f, defaultHitColliderRadius);
     }
 
     private void OnEnable()
@@ -178,10 +199,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (currentState == PlayerState.Roll) return;
 
         float before = currentStamina;
-        currentStamina = Mathf.MoveTowards(
-            currentStamina,
-            maxStamina,
-            staminaRegen * Time.deltaTime);
+        currentStamina = Mathf.MoveTowards(currentStamina, maxStamina, staminaRegen * Time.deltaTime);
 
         if (!Mathf.Approximately(before, currentStamina))
             StaminaChanged?.Invoke(currentStamina, maxStamina);
@@ -197,9 +215,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         Vector2 fallbackFacing = anim != null && anim.Facing.sqrMagnitude > 0.001f
             ? anim.Facing
             : Vector2.right;
-        Vector2 rollDir = moveInput == Vector2.zero
-            ? fallbackFacing
-            : moveInput;
+        Vector2 rollDir = moveInput == Vector2.zero ? fallbackFacing : moveInput;
 
         if (rollDir.sqrMagnitude <= 0.001f)
             rollDir = Vector2.right;
@@ -233,10 +249,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         }
     }
 
-    private void HandleRunStateChanged(BattleRunState nextState)
-    {
-        ApplyInputGate(nextState);
-    }
+    private void HandleRunStateChanged(BattleRunState nextState) => ApplyInputGate(nextState);
 
     private void RefreshInputGate()
     {
@@ -304,10 +317,7 @@ public class PlayerController : MonoBehaviour, IDamageable
             rb.linearVelocity = Vector2.zero;
     }
 
-    public void ReceiveDamage(DamageContext context, float finalDamage)
-    {
-        TakeDamage(finalDamage);
-    }
+    public void ReceiveDamage(DamageContext context, float finalDamage) => TakeDamage(finalDamage);
 
     public void TakeDamage(float damage)
     {
@@ -379,7 +389,6 @@ public class PlayerController : MonoBehaviour, IDamageable
     public void Heal(float amount)
     {
         if (!IsAlive) return;
-
         currentHp = Mathf.Min(currentHp + Mathf.Max(0f, amount), maxHp);
         HpChanged?.Invoke(currentHp, maxHp);
     }
@@ -387,7 +396,6 @@ public class PlayerController : MonoBehaviour, IDamageable
     public void RestoreStamina(float amount)
     {
         if (!IsAlive) return;
-
         currentStamina = Mathf.Min(currentStamina + Mathf.Max(0f, amount), maxStamina);
         StaminaChanged?.Invoke(currentStamina, maxStamina);
     }
