@@ -1,10 +1,12 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Runtime broadcast HUD used by the battle vertical slice.
-/// Replaces the large IMGUI test overlay with a compact TV-show styled HUD.
-/// It auto-creates itself when a battle scene has no authored BattleHUD yet.
+/// Runtime broadcast HUD.
+/// - compact combat status + equipment dock
+/// - click-only reward decision overlay
+/// - legacy IMGUI overlays are disabled when this HUD is active
 /// </summary>
 public sealed class BattleHUD : MonoBehaviour
 {
@@ -32,10 +34,20 @@ public sealed class BattleHUD : MonoBehaviour
     private Image hpFill;
     private Image staminaFill;
     private Text audienceText;
+
     private readonly Image[] slotBackgrounds = new Image[BattleEquipmentSystem.MaxSlotCount];
     private readonly Image[] slotIcons = new Image[BattleEquipmentSystem.MaxSlotCount];
     private readonly Text[] slotLabels = new Text[BattleEquipmentSystem.MaxSlotCount];
     private readonly Text[] slotGrades = new Text[BattleEquipmentSystem.MaxSlotCount];
+
+    private GameObject rewardBackdrop;
+    private RectTransform rewardCardRoot;
+    private Text rewardTitle;
+    private Text rewardSubtitle;
+    private int pendingRewardIndex = -1;
+    private int lastRewardCount = -1;
+    private BattleRunState lastObservedState = (BattleRunState)(-1);
+
     private float nextSlowRefresh;
     private bool legacyDummyOverlaysDisabled;
 
@@ -95,14 +107,38 @@ public sealed class BattleHUD : MonoBehaviour
         }
 
         if (!active)
+        {
+            SetRewardVisible(false);
             return;
+        }
 
         RefreshVitalBars();
+        RefreshRewardState();
+
         if (Time.unscaledTime >= nextSlowRefresh)
         {
             nextSlowRefresh = Time.unscaledTime + 0.12f;
             RefreshStatus();
             RefreshEquipment();
+        }
+    }
+
+    private void ResolveSystems()
+    {
+        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
+        if (roomManager == null) roomManager = FindFirstObjectByType<BattleRoomManager>();
+        if (progress == null) progress = FindFirstObjectByType<RunProgressSystem>();
+        if (player == null) player = FindFirstObjectByType<PlayerController>();
+
+        if (equipmentSystem == null)
+        {
+            BattleEquipmentSystem found = FindFirstObjectByType<BattleEquipmentSystem>();
+            if (found != null)
+            {
+                UnsubscribeEquipment();
+                equipmentSystem = found;
+                SubscribeEquipment();
+            }
         }
     }
 
@@ -126,28 +162,11 @@ public sealed class BattleHUD : MonoBehaviour
         legacyDummyOverlaysDisabled = true;
     }
 
-    private void ResolveSystems()
-    {
-        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
-        if (roomManager == null) roomManager = FindFirstObjectByType<BattleRoomManager>();
-        if (progress == null) progress = FindFirstObjectByType<RunProgressSystem>();
-        if (equipmentSystem == null)
-        {
-            BattleEquipmentSystem found = FindFirstObjectByType<BattleEquipmentSystem>();
-            if (found != null)
-            {
-                UnsubscribeEquipment();
-                equipmentSystem = found;
-                SubscribeEquipment();
-            }
-        }
-        if (player == null) player = FindFirstObjectByType<PlayerController>();
-    }
-
     private void SubscribeEquipment()
     {
         if (equipmentSystem == null)
             return;
+
         equipmentSystem.InventoryChanged -= RefreshEquipment;
         equipmentSystem.InventoryChanged += RefreshEquipment;
         equipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
@@ -158,6 +177,7 @@ public sealed class BattleHUD : MonoBehaviour
     {
         if (equipmentSystem == null)
             return;
+
         equipmentSystem.InventoryChanged -= RefreshEquipment;
         equipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
     }
@@ -172,11 +192,14 @@ public sealed class BattleHUD : MonoBehaviour
         if (canvas != null)
             return;
 
+        EnsureEventSystem();
+
         GameObject canvasObject = new("BattleBroadcastHUDCanvas");
         canvasObject.transform.SetParent(transform, false);
         canvas = canvasObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.sortingOrder = 500;
+
         CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
@@ -186,8 +209,20 @@ public sealed class BattleHUD : MonoBehaviour
 
         BuildTopStatus();
         BuildEquipmentDock();
+        BuildRewardDecisionOverlay();
         RefreshStatus();
         RefreshEquipment();
+    }
+
+    private static void EnsureEventSystem()
+    {
+        if (FindFirstObjectByType<EventSystem>() != null)
+            return;
+
+        GameObject go = new("BattleUIEventSystem");
+        DontDestroyOnLoad(go);
+        go.AddComponent<EventSystem>();
+        go.AddComponent<StandaloneInputModule>();
     }
 
     private void BuildTopStatus()
@@ -268,6 +303,243 @@ public sealed class BattleHUD : MonoBehaviour
             slotGrades[i] = CreateText(slot.transform, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
             SetAnchors(slotGrades[i].rectTransform, new Vector2(0.55f, 0.70f), new Vector2(0.92f, 0.94f));
         }
+    }
+
+    private void BuildRewardDecisionOverlay()
+    {
+        rewardBackdrop = new GameObject("RewardDecisionBackdrop");
+        rewardBackdrop.transform.SetParent(canvas.transform, false);
+        RectTransform backdropRect = rewardBackdrop.AddComponent<RectTransform>();
+        Stretch(backdropRect);
+        Image backdropImage = rewardBackdrop.AddComponent<Image>();
+        backdropImage.color = new Color(0.004f, 0.006f, 0.012f, 0.78f);
+
+        GameObject panel = CreatePanel(rewardBackdrop.transform, "RewardDecisionPanel", new Vector2(1120f, 620f), new Color(0.025f, 0.030f, 0.047f, 0.985f));
+        RectTransform panelRect = panel.GetComponent<RectTransform>();
+        panelRect.anchorMin = panelRect.anchorMax = new Vector2(0.5f, 0.5f);
+        panelRect.anchoredPosition = Vector2.zero;
+
+        GameObject badge = CreatePanel(panel.transform, "CutBadge", new Vector2(138f, 34f), new Color(0.45f, 0.035f, 0.11f, 1f));
+        RectTransform badgeRect = badge.GetComponent<RectTransform>();
+        badgeRect.anchorMin = badgeRect.anchorMax = new Vector2(0.5f, 1f);
+        badgeRect.pivot = new Vector2(0.5f, 1f);
+        badgeRect.anchoredPosition = new Vector2(0f, -22f);
+        Text badgeText = CreateText(badge.transform, "AND... CUT!", 13, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        Stretch(badgeText.rectTransform);
+
+        rewardTitle = CreateText(panel.transform, "PICK YOUR REWARD", 30, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        SetAnchors(rewardTitle.rectTransform, new Vector2(0.10f, 0.78f), new Vector2(0.90f, 0.90f));
+
+        rewardSubtitle = CreateText(panel.transform, "CLICK ONE CARD TO LOCK THE DECISION", 12, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.64f, 0.69f, 0.78f, 1f));
+        SetAnchors(rewardSubtitle.rectTransform, new Vector2(0.10f, 0.71f), new Vector2(0.90f, 0.78f));
+
+        GameObject cardRoot = new("RewardCards");
+        cardRoot.transform.SetParent(panel.transform, false);
+        rewardCardRoot = cardRoot.AddComponent<RectTransform>();
+        SetAnchors(rewardCardRoot, new Vector2(0.05f, 0.08f), new Vector2(0.95f, 0.68f));
+
+        rewardBackdrop.SetActive(false);
+    }
+
+    private void RefreshRewardState()
+    {
+        if (runManager == null || rewardBackdrop == null)
+            return;
+
+        bool rewardState = runManager.State == BattleRunState.Reward;
+        int count = rewardState ? runManager.CurrentRewardChoices.Count : 0;
+        bool stateChanged = lastObservedState != runManager.State;
+
+        if (!rewardState)
+        {
+            if (rewardBackdrop.activeSelf)
+                SetRewardVisible(false);
+            pendingRewardIndex = -1;
+            lastRewardCount = -1;
+            lastObservedState = runManager.State;
+            return;
+        }
+
+        if (!rewardBackdrop.activeSelf || stateChanged || lastRewardCount != count)
+        {
+            pendingRewardIndex = -1;
+            RebuildRewardCards();
+            SetRewardVisible(true);
+        }
+
+        lastRewardCount = count;
+        lastObservedState = runManager.State;
+    }
+
+    private void SetRewardVisible(bool visible)
+    {
+        if (rewardBackdrop != null)
+            rewardBackdrop.SetActive(visible);
+    }
+
+    private void RebuildRewardCards()
+    {
+        if (rewardCardRoot == null || runManager == null)
+            return;
+
+        for (int i = rewardCardRoot.childCount - 1; i >= 0; i--)
+            Destroy(rewardCardRoot.GetChild(i).gameObject);
+
+        if (pendingRewardIndex >= 0)
+        {
+            BuildReplacementChoices();
+            return;
+        }
+
+        int count = runManager.CurrentRewardChoices.Count;
+        if (count <= 0)
+            return;
+
+        float width = Mathf.Min(300f, 900f / count);
+        float spacing = 24f;
+        float total = count * width + (count - 1) * spacing;
+        float start = -total * 0.5f + width * 0.5f;
+
+        for (int i = 0; i < count; i++)
+        {
+            BattleEquipmentSO reward = runManager.CurrentRewardChoices[i];
+            if (reward == null)
+                continue;
+
+            GameObject card = CreatePanel(rewardCardRoot, $"Reward_{i}", new Vector2(width, 360f), new Color(0.055f, 0.061f, 0.082f, 1f));
+            RectTransform cardRect = card.GetComponent<RectTransform>();
+            cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
+            cardRect.anchoredPosition = new Vector2(start + i * (width + spacing), 0f);
+
+            Image cardImage = card.GetComponent<Image>();
+            Button button = card.AddComponent<Button>();
+            button.targetGraphic = cardImage;
+            int captured = i;
+            button.onClick.AddListener(() => TryChooseReward(captured));
+
+            GameObject iconObject = new("Icon");
+            iconObject.transform.SetParent(card.transform, false);
+            RectTransform iconRect = iconObject.AddComponent<RectTransform>();
+            iconRect.anchorMin = iconRect.anchorMax = new Vector2(0.5f, 0.72f);
+            iconRect.sizeDelta = new Vector2(112f, 112f);
+            Image icon = iconObject.AddComponent<Image>();
+            icon.sprite = reward.icon;
+            icon.enabled = reward.icon != null;
+            icon.preserveAspect = true;
+            icon.raycastTarget = false;
+
+            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 11, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
+            SetAnchors(rarity.rectTransform, new Vector2(0.10f, 0.48f), new Vector2(0.90f, 0.56f));
+
+            Text name = CreateText(card.transform, reward.GetDisplayName(), 18, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            SetAnchors(name.rectTransform, new Vector2(0.07f, 0.31f), new Vector2(0.93f, 0.48f));
+
+            Text stats = CreateText(
+                card.transform,
+                $"{reward.type.ToString().ToUpperInvariant()}\nDMG ×{reward.damageMultiplier:0.00}   MOVE ×{reward.moveSpeedMultiplier:0.00}",
+                11,
+                FontStyle.Normal,
+                TextAnchor.MiddleCenter,
+                new Color(0.68f, 0.73f, 0.82f, 1f));
+            SetAnchors(stats.rectTransform, new Vector2(0.07f, 0.13f), new Vector2(0.93f, 0.30f));
+
+            GameObject select = CreatePanel(card.transform, "Select", new Vector2(width - 36f, 42f), accentColor);
+            RectTransform selectRect = select.GetComponent<RectTransform>();
+            selectRect.anchorMin = selectRect.anchorMax = new Vector2(0.5f, 0f);
+            selectRect.pivot = new Vector2(0.5f, 0f);
+            selectRect.anchoredPosition = new Vector2(0f, 16f);
+            Text selectText = CreateText(select.transform, "SELECT", 12, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            Stretch(selectText.rectTransform);
+            select.GetComponent<Image>().raycastTarget = false;
+        }
+    }
+
+    private void TryChooseReward(int index)
+    {
+        if (runManager == null || runManager.State != BattleRunState.Reward)
+            return;
+
+        if (runManager.SelectReward(index))
+        {
+            pendingRewardIndex = -1;
+            SetRewardVisible(false);
+            return;
+        }
+
+        pendingRewardIndex = index;
+        RebuildRewardCards();
+    }
+
+    private void BuildReplacementChoices()
+    {
+        if (runManager == null || equipmentSystem == null ||
+            pendingRewardIndex < 0 || pendingRewardIndex >= runManager.CurrentRewardChoices.Count)
+            return;
+
+        BattleEquipmentSO pending = runManager.CurrentRewardChoices[pendingRewardIndex];
+        rewardTitle.text = "INVENTORY FULL";
+        rewardSubtitle.text = $"CLICK A SLOT TO REPLACE IT WITH {pending.GetDisplayName().ToUpperInvariant()}";
+
+        int count = equipmentSystem.UnlockedSlotCount;
+        float width = Mathf.Min(190f, 900f / Mathf.Max(1, count));
+        float spacing = 14f;
+        float total = count * width + (count - 1) * spacing;
+        float start = -total * 0.5f + width * 0.5f;
+
+        for (int i = 0; i < count; i++)
+        {
+            BattleEquipmentSlot slot = equipmentSystem.Slots[i];
+            string oldName = slot != null && slot.equipment != null ? slot.equipment.GetDisplayName() : "EMPTY";
+
+            GameObject card = CreatePanel(rewardCardRoot, $"ReplaceSlot_{i}", new Vector2(width, 190f), new Color(0.055f, 0.061f, 0.082f, 1f));
+            RectTransform rect = card.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(start + i * (width + spacing), 20f);
+
+            Button button = card.AddComponent<Button>();
+            button.targetGraphic = card.GetComponent<Image>();
+            int captured = i;
+            button.onClick.AddListener(() => TryReplaceReward(captured));
+
+            Text number = CreateText(card.transform, $"SLOT {i + 1}", 12, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
+            SetAnchors(number.rectTransform, new Vector2(0.08f, 0.62f), new Vector2(0.92f, 0.82f));
+
+            Text label = CreateText(card.transform, Shorten(oldName, 18), 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            SetAnchors(label.rectTransform, new Vector2(0.08f, 0.28f), new Vector2(0.92f, 0.60f));
+
+            Text action = CreateText(card.transform, "REPLACE", 11, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
+            SetAnchors(action.rectTransform, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.25f));
+        }
+
+        GameObject cancel = CreatePanel(rewardCardRoot, "CancelReplace", new Vector2(180f, 42f), new Color(0.16f, 0.17f, 0.21f, 1f));
+        RectTransform cancelRect = cancel.GetComponent<RectTransform>();
+        cancelRect.anchorMin = cancelRect.anchorMax = new Vector2(0.5f, 0f);
+        cancelRect.anchoredPosition = new Vector2(0f, -8f);
+        Button cancelButton = cancel.AddComponent<Button>();
+        cancelButton.targetGraphic = cancel.GetComponent<Image>();
+        cancelButton.onClick.AddListener(() =>
+        {
+            pendingRewardIndex = -1;
+            rewardTitle.text = "PICK YOUR REWARD";
+            rewardSubtitle.text = "CLICK ONE CARD TO LOCK THE DECISION";
+            RebuildRewardCards();
+        });
+        Text cancelText = CreateText(cancel.transform, "BACK", 11, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        Stretch(cancelText.rectTransform);
+    }
+
+    private void TryReplaceReward(int slotIndex)
+    {
+        if (runManager == null || pendingRewardIndex < 0)
+            return;
+
+        if (!runManager.ReplaceRewardIntoSlot(pendingRewardIndex, slotIndex))
+            return;
+
+        pendingRewardIndex = -1;
+        rewardTitle.text = "PICK YOUR REWARD";
+        rewardSubtitle.text = "CLICK ONE CARD TO LOCK THE DECISION";
+        SetRewardVisible(false);
     }
 
     private void RefreshVitalBars()
@@ -439,6 +711,7 @@ internal static class BattleHudSpriteCache
             wrapMode = TextureWrapMode.Clamp,
             hideFlags = HideFlags.HideAndDontSave
         };
+
         for (int y = 0; y < pixels; y++)
         {
             for (int x = 0; x < pixels; x++)
@@ -450,9 +723,16 @@ internal static class BattleHudSpriteCache
                 texture.SetPixel(x, y, new Color(1f, 1f, 1f, a));
             }
         }
+
         texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(texture, new Rect(0, 0, pixels, pixels), new Vector2(0.5f, 0.5f), pixels, 0,
-            SpriteMeshType.FullRect, new Vector4(8f, 8f, 8f, 8f));
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0, 0, pixels, pixels),
+            new Vector2(0.5f, 0.5f),
+            pixels,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(8f, 8f, 8f, 8f));
         sprite.name = "RuntimeHudRoundedPanel";
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
