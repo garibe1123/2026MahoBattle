@@ -61,6 +61,7 @@ public class BattleRunManager : MonoBehaviour
     private BattleContext currentContext;
     private BattleRunState state = BattleRunState.None;
     private bool runActive;
+    private bool roomStartedWithMonsters;
     private RunEndReason? lastEndReason;
 
     public BattleNodeData CurrentNode => currentNode;
@@ -193,6 +194,11 @@ public class BattleRunManager : MonoBehaviour
             return;
         }
 
+        // 이전 Scene/분석 모드가 timeScale 0을 남겼을 경우 BattleScene의 Rigidbody/Room Tween이 전부 정지합니다.
+        // 실제 런 시작은 항상 흐르는 시간에서 시작하도록 최소 복구만 합니다.
+        if (Time.timeScale <= 0f)
+            Time.timeScale = 1f;
+
         if (runActive || roomManager.IsRoomActive)
             roomManager.AbortRoom();
 
@@ -207,6 +213,7 @@ public class BattleRunManager : MonoBehaviour
         nextNodeChoices.Clear();
         currentNode = null;
         currentContext = null;
+        roomStartedWithMonsters = false;
         lastEndReason = null;
 
         equipmentSystem.ResetForRun();
@@ -222,6 +229,7 @@ public class BattleRunManager : MonoBehaviour
     {
         roomManager?.AbortRoom();
         runActive = false;
+        roomStartedWithMonsters = false;
         SetState(BattleRunState.None);
         StartRun();
     }
@@ -342,6 +350,7 @@ public class BattleRunManager : MonoBehaviour
             return;
         }
 
+        roomStartedWithMonsters = false;
         SetState(BattleRunState.EnteringNode);
         currentNode = node;
         currentContext = BuildContext(node);
@@ -407,6 +416,7 @@ public class BattleRunManager : MonoBehaviour
         if (!runActive || currentNode == null || currentNode.room != room)
             return;
 
+        roomStartedWithMonsters = roomManager != null && roomManager.AliveMonsterCount > 0;
         SetState(BattleRunState.Combat);
     }
 
@@ -414,6 +424,18 @@ public class BattleRunManager : MonoBehaviour
     {
         if (!runActive || currentNode == null || currentNode.room != room)
             return;
+
+        // 설정상 몬스터가 존재하는데 단 한 마리도 실제 스폰되지 않았다면
+        // 기존처럼 즉시 Reward로 넘기지 않습니다. 그 동작은 NavMesh/Prefab 누락을 숨기고
+        // Player Input까지 다시 잠가서 "아무 것도 작동하지 않는" 것처럼 보이게 만듭니다.
+        if (!roomStartedWithMonsters && RoomRequestsMonsters(room))
+        {
+            Debug.LogError(
+                $"[BattleRun] Room '{room.roomId}' entered Combat with zero spawned monsters although monster spawns are configured. " +
+                "Combat is being kept active for diagnostics. Check MapBlock NavMeshModifier / NavMeshSurface / Monster prefab setup.");
+            SetState(BattleRunState.Combat);
+            return;
+        }
 
         currentRewardChoices.Clear();
         List<BattleEquipmentSO> generated = rewardSystem.GenerateChoices(shootingTheme);
@@ -428,6 +450,21 @@ public class BattleRunManager : MonoBehaviour
         currentRewardChoices.AddRange(generated);
         SetState(BattleRunState.Reward);
         RewardSelectionRequested?.Invoke(currentRewardChoices);
+    }
+
+    private static bool RoomRequestsMonsters(RoomDefinitionSO room)
+    {
+        if (room == null || room.monsterSpawns == null)
+            return false;
+
+        for (int i = 0; i < room.monsterSpawns.Count; i++)
+        {
+            MonsterSpawnEntry entry = room.monsterSpawns[i];
+            if (entry != null && entry.monster != null && entry.count != 0)
+                return true;
+        }
+
+        return false;
     }
 
     private void HandleMonsterDefeated(MonsterController monster)
@@ -490,6 +527,7 @@ public class BattleRunManager : MonoBehaviour
             return;
 
         runActive = false;
+        roomStartedWithMonsters = false;
         lastEndReason = reason;
         currentRewardChoices.Clear();
         nextNodeChoices.Clear();
