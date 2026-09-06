@@ -8,12 +8,10 @@ using UnityEngine;
 
 /// <summary>
 /// Stage-to-stage spatial presentation.
-///
-/// Contract:
-/// - the persistent 4x4 Base is the authoritative surviving floor.
-/// - on clear, a complete existing 4x4 near/under the player is promoted to the next Base.
-/// - every other active Room piece is visually cloned and sent straight out on a cardinal rail.
-/// - reward acquisition is NOT handled in world space here. Rewards are a click decision in BattleHUD.
+/// - the real cleared floor supplies the next persistent 4x4 Base.
+/// - the rest of the combat field leaves on cardinal rails.
+/// - Reward temporarily docks a non-gameplay 10x4 show floor beside the Base in several heavy slabs.
+/// - reward selection itself remains click-only UI; the temporary show floor never becomes next-stage topology.
 /// </summary>
 [DefaultExecutionOrder(-15000)]
 public sealed class BattleStageTransitionController : MonoBehaviour
@@ -23,8 +21,19 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     [SerializeField, Min(0f)] private float exitGhostStagger = 0.035f;
 
     [Header("Persistent Base Presentation")]
-    [Tooltip("Generated floor uses sorting -20. The preserved 4x4 remains immediately above it.")]
     [SerializeField] private int persistentBaseFloorSorting = -19;
+
+    [Header("Reward Show Stage")]
+    [Tooltip("Temporary floor length attached to the right side of the preserved 4x4 Base.")]
+    [SerializeField, Range(6, 16)] private int rewardStageExtraTiles = 10;
+    [SerializeField, Range(2, 6)] private int rewardStageDepthTiles = 4;
+    [SerializeField, Range(2, 5)] private int rewardStagePieceCount = 3;
+    [SerializeField, Min(0.1f)] private float rewardStageEntryDuration = 0.78f;
+    [SerializeField, Min(0f)] private float rewardStageEntryStagger = 0.12f;
+    [SerializeField, Range(0.1f, 2f)] private float rewardStageImpactStrength = 1.45f;
+    [SerializeField, Min(0.5f)] private float rewardStageOffscreenMargin = 3f;
+    [SerializeField] private Color rewardStageFloorColor = new(0.30f, 0.24f, 0.38f, 1f);
+    [SerializeField] private int rewardStageSortingOrder = -18;
 
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private static readonly FieldInfo ActiveBlocksField =
@@ -36,6 +45,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private PlayerController player;
 
     private readonly List<GameObject> exitGhosts = new();
+    private readonly List<MapBlock> rewardStagePieces = new();
 
     private Vector3 preservedBaseTileOrigin;
     private bool hasPreservedBaseOrigin;
@@ -61,6 +71,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
+        ClearRewardStageImmediate();
         ClearExitGhosts();
     }
 
@@ -72,7 +83,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield return null;
         }
 
-        // BattleSpatialMapController has a lower execution order and prepares Room data first.
         yield return null;
         Subscribe();
 
@@ -83,14 +93,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private void ResolveSystems()
     {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
-        if (roomManager == null)
-            roomManager = FindFirstObjectByType<BattleRoomManager>();
-        if (baseTemplate == null)
-            baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
-        if (player == null)
-            player = FindFirstObjectByType<PlayerController>();
+        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
+        if (roomManager == null) roomManager = FindFirstObjectByType<BattleRoomManager>();
+        if (baseTemplate == null) baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        if (player == null) player = FindFirstObjectByType<PlayerController>();
     }
 
     private void Subscribe()
@@ -101,6 +107,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         runManager.StateChanged += HandleStateChanged;
         runManager.NodeEntered += HandleNodeEntered;
         runManager.RewardSelectionRequested += HandleRewardSelectionRequested;
+        runManager.RewardSelected += HandleRewardSelected;
         runManager.RunEnded += HandleRunEnded;
         subscribed = true;
     }
@@ -113,6 +120,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         runManager.StateChanged -= HandleStateChanged;
         runManager.NodeEntered -= HandleNodeEntered;
         runManager.RewardSelectionRequested -= HandleRewardSelectionRequested;
+        runManager.RewardSelected -= HandleRewardSelected;
         runManager.RunEnded -= HandleRunEnded;
         subscribed = false;
     }
@@ -121,21 +129,25 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         ResolveSystems();
         CleanupNullEntries(exitGhosts);
+        for (int i = rewardStagePieces.Count - 1; i >= 0; i--)
+            if (rewardStagePieces[i] == null)
+                rewardStagePieces.RemoveAt(i);
     }
 
     private void HandleStateChanged(BattleRunState next)
     {
-        if (next != BattleRunState.EnteringNode)
-            return;
+        if (next == BattleRunState.EnteringNode)
+        {
+            ClearRewardStageImmediate();
+            ResolveSystems();
+            if (baseTemplate == null)
+                return;
 
-        ResolveSystems();
-        if (baseTemplate == null)
-            return;
-
-        baseTemplate.EnsurePersistentBase();
-        CaptureCurrentBaseAnchor();
-        EnsureBasePresentation();
-        ApplyBaseOriginToRoomManager();
+            baseTemplate.EnsurePersistentBase();
+            CaptureCurrentBaseAnchor();
+            EnsureBasePresentation();
+            ApplyBaseOriginToRoomManager();
+        }
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -149,6 +161,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (baseTemplate == null || roomManager == null)
             return;
 
+        ClearRewardStageImmediate();
         baseTemplate.EnsurePersistentBase();
         CaptureCurrentBaseAnchor();
 
@@ -161,7 +174,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         baseTemplate.EnsureVisibleAtTileOrigin(preservedBaseTileOrigin, node.room);
         ApplyBaseOriginToRoomManager();
         EnsureBasePresentation();
-
         node.room.repositionPlayerOnEnter = false;
         clearedStageCollapsed = false;
     }
@@ -199,9 +211,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         for (int i = 0; i < renderers.Length; i++)
         {
             SpriteRenderer renderer = renderers[i];
-            if (renderer == null)
-                continue;
-
+            if (renderer == null) continue;
             renderer.enabled = true;
             if (renderer.sortingOrder < persistentBaseFloorSorting)
                 renderer.sortingOrder = persistentBaseFloorSorting;
@@ -209,35 +219,30 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         Collider2D[] colliders = baseObject.GetComponentsInChildren<Collider2D>(true);
         for (int i = 0; i < colliders.Length; i++)
-        {
-            Collider2D collider = colliders[i];
-            if (collider != null && collider.isTrigger)
-                collider.enabled = true;
-        }
+            if (colliders[i] != null && colliders[i].isTrigger)
+                colliders[i].enabled = true;
 
         NavMeshModifier[] modifiers = baseObject.GetComponentsInChildren<NavMeshModifier>(true);
         for (int i = 0; i < modifiers.Length; i++)
-        {
             if (modifiers[i] != null)
                 modifiers[i].ignoreFromBuild = false;
-        }
 
         BattleWalkableField[] fields = baseObject.GetComponentsInChildren<BattleWalkableField>(true);
         for (int i = 0; i < fields.Length; i++)
-        {
             if (fields[i] != null)
                 fields[i].enabled = true;
-        }
     }
 
-    /// <summary>
-    /// Reward state begins only after the current real field has been collapsed to a valid 4x4.
-    /// The reward itself is then presented as clickable UI by BattleHUD.
-    /// </summary>
     private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> _)
     {
         ResolveSystems();
         CollapseClearedStageAroundPlayer();
+        BuildRewardShowStage();
+    }
+
+    private void HandleRewardSelected(BattleEquipmentSO _)
+    {
+        DismissRewardShowStage();
     }
 
     private void CollapseClearedStageAroundPlayer()
@@ -250,9 +255,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector3 nextBaseOrigin;
         if (!TryFindExistingFourByFourBase(player.transform.position, out nextBaseOrigin))
         {
-            Debug.LogWarning(
-                "[BattleStageTransition] Could not find a complete existing 4x4 in the cleared stage. Keeping the current Base.",
-                this);
+            Debug.LogWarning("[BattleStageTransition] No complete real 4x4 near the player; keeping current Base.", this);
             nextBaseOrigin = baseTemplate.FixedTileOriginWorld;
         }
 
@@ -266,10 +269,136 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         clearedStageCollapsed = true;
     }
 
+    // ---------------------------------------------------------------------
+    // Temporary quiz-show floor: 10x4 beside Base, split into large slabs.
+    // ---------------------------------------------------------------------
+
+    private void BuildRewardShowStage()
+    {
+        ClearRewardStageImmediate();
+        if (baseTemplate == null || !baseTemplate.HasPersistentBase)
+            return;
+
+        int totalWidth = Mathf.Clamp(rewardStageExtraTiles, 6, 16);
+        int depth = Mathf.Clamp(rewardStageDepthTiles, 2, 6);
+        int pieceCount = Mathf.Clamp(rewardStagePieceCount, 2, Mathf.Min(5, totalWidth / 2));
+        Vector3 baseOrigin = baseTemplate.FixedTileOriginWorld;
+
+        int consumed = 0;
+        for (int i = 0; i < pieceCount; i++)
+        {
+            int piecesLeft = pieceCount - i;
+            int tilesLeft = totalWidth - consumed;
+            int width = Mathf.Max(2, Mathf.CeilToInt(tilesLeft / (float)piecesLeft));
+            if (i == pieceCount - 1)
+                width = tilesLeft;
+
+            Vector3 destination = baseOrigin + new Vector3(RoomBaseTemplate.FixedBaseTiles + consumed, 0f, 0f);
+            MapBlock piece = CreateRewardStageSlab(i, width, depth, destination);
+            if (piece != null)
+            {
+                float offset = CalculateRightOffscreenEntryOffset(destination, width);
+                piece.ConfigureRuntimeDockingBlock(
+                    piece.transform.Find("Visual"),
+                    false,
+                    rewardStageImpactStrength,
+                    rewardStageEntryDuration,
+                    offset);
+                piece.PlayEnter(destination, Vector2.right, rewardStageEntryStagger * i);
+                rewardStagePieces.Add(piece);
+            }
+
+            consumed += width;
+        }
+    }
+
+    private MapBlock CreateRewardStageSlab(int index, int width, int height, Vector3 destination)
+    {
+        GameObject root = new($"RewardShowSlab_{index}_{width}x{height}");
+        root.transform.SetParent(transform, true);
+        root.transform.position = destination;
+
+        GameObject visual = new("Visual");
+        visual.transform.SetParent(root.transform, false);
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                GameObject tile = new($"ShowTile_{x}_{y}");
+                tile.transform.SetParent(visual.transform, false);
+                tile.transform.localPosition = new Vector3(x, y, 0f);
+                SpriteRenderer renderer = tile.AddComponent<SpriteRenderer>();
+                renderer.sprite = RewardStageRuntimeSpriteCache.FloorTile32;
+                renderer.color = rewardStageFloorColor;
+                renderer.sortingOrder = rewardStageSortingOrder;
+            }
+        }
+
+        MapBlock block = root.AddComponent<MapBlock>();
+        return block;
+    }
+
+    private float CalculateRightOffscreenEntryOffset(Vector3 destination, int pieceWidth)
+    {
+        Camera cam = Camera.main;
+        if (cam == null || !cam.orthographic)
+            return 30f + pieceWidth;
+
+        float rightEdge = cam.transform.position.x + cam.orthographicSize * Mathf.Max(0.1f, cam.aspect);
+        // The slab's left-most visible edge must begin beyond the viewport before it starts moving.
+        float required = rightEdge + rewardStageOffscreenMargin - (destination.x - 0.5f);
+        return Mathf.Max(12f, required);
+    }
+
+    private void DismissRewardShowStage()
+    {
+        for (int i = 0; i < rewardStagePieces.Count; i++)
+        {
+            MapBlock piece = rewardStagePieces[i];
+            if (piece == null)
+                continue;
+
+            float delay = rewardStageEntryStagger * i * 0.6f;
+            Tween tween = piece.PlayExit(Vector2.right);
+            if (tween != null)
+            {
+                if (delay > 0f)
+                    tween.SetDelay(delay);
+                GameObject go = piece.gameObject;
+                tween.OnComplete(() =>
+                {
+                    if (go != null)
+                        Destroy(go);
+                });
+            }
+            else
+            {
+                Destroy(piece.gameObject);
+            }
+        }
+        rewardStagePieces.Clear();
+    }
+
+    private void ClearRewardStageImmediate()
+    {
+        for (int i = 0; i < rewardStagePieces.Count; i++)
+        {
+            MapBlock piece = rewardStagePieces[i];
+            if (piece == null) continue;
+            piece.transform.DOKill();
+            Destroy(piece.gameObject);
+        }
+        rewardStagePieces.Clear();
+    }
+
+    // ---------------------------------------------------------------------
+    // Real cleared-field 4x4 selection.
+    // ---------------------------------------------------------------------
+
     private bool TryFindExistingFourByFourBase(Vector3 playerWorldPosition, out Vector3 lowerLeftTileCenterWorld)
     {
         lowerLeftTileCenterWorld = default;
-
         HashSet<Vector2Int> existing = new();
         CollectCurrentStageTileCells(existing);
         if (existing.Count < RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.FixedBaseTiles)
@@ -284,15 +413,12 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector2Int bestOrigin = default;
         float bestScore = float.MaxValue;
 
-        // Prefer a complete 4x4 that contains the player's current tile.
         for (int oy = playerTile.y - (RoomBaseTemplate.FixedBaseTiles - 1); oy <= playerTile.y; oy++)
         {
             for (int ox = playerTile.x - (RoomBaseTemplate.FixedBaseTiles - 1); ox <= playerTile.x; ox++)
             {
                 Vector2Int origin = new(ox, oy);
-                if (!IsCompleteFourByFour(existing, origin))
-                    continue;
-
+                if (!IsCompleteFourByFour(existing, origin)) continue;
                 float score = ScoreBaseOrigin(origin, playerTilePosition);
                 if (!found || score < bestScore)
                 {
@@ -303,21 +429,17 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             }
         }
 
-        // Near an irregular edge, use the closest complete real 4x4 instead of inventing missing tiles.
         if (!found)
         {
             GetCellBounds(existing, out int minX, out int minY, out int maxX, out int maxY);
             int maxOriginX = maxX - RoomBaseTemplate.FixedBaseTiles + 1;
             int maxOriginY = maxY - RoomBaseTemplate.FixedBaseTiles + 1;
-
             for (int oy = minY; oy <= maxOriginY; oy++)
             {
                 for (int ox = minX; ox <= maxOriginX; ox++)
                 {
                     Vector2Int origin = new(ox, oy);
-                    if (!IsCompleteFourByFour(existing, origin))
-                        continue;
-
+                    if (!IsCompleteFourByFour(existing, origin)) continue;
                     float score = ScoreBaseOrigin(origin, playerTilePosition);
                     if (!found || score < bestScore)
                     {
@@ -348,10 +470,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         {
             Vector2Int baseOrigin = WorldToTile(baseTemplate.FixedTileOriginWorld);
             for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
-            {
                 for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
                     cells.Add(baseOrigin + new Vector2Int(x, y));
-            }
         }
 
         if (roomManager == null || ActiveBlocksField == null)
@@ -362,38 +482,27 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock block = blocks[i];
-            if (block == null)
-                continue;
-
+            if (block == null) continue;
             Transform[] transforms = block.GetComponentsInChildren<Transform>(true);
             for (int t = 0; t < transforms.Length; t++)
             {
                 Transform child = transforms[t];
-                if (child == null || !child.name.StartsWith("Tile_", StringComparison.Ordinal))
-                    continue;
-
-                cells.Add(WorldToTile(child.position));
+                if (child != null && child.name.StartsWith("Tile_", StringComparison.Ordinal))
+                    cells.Add(WorldToTile(child.position));
             }
         }
     }
 
-    private static Vector2Int WorldToTile(Vector3 world)
-    {
-        return new Vector2Int(
-            Mathf.RoundToInt(world.x / RoomBaseTemplate.TileWorldSize),
-            Mathf.RoundToInt(world.y / RoomBaseTemplate.TileWorldSize));
-    }
+    private static Vector2Int WorldToTile(Vector3 world) => new(
+        Mathf.RoundToInt(world.x / RoomBaseTemplate.TileWorldSize),
+        Mathf.RoundToInt(world.y / RoomBaseTemplate.TileWorldSize));
 
     private static bool IsCompleteFourByFour(HashSet<Vector2Int> cells, Vector2Int lowerLeft)
     {
         for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
-        {
             for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
-            {
                 if (!cells.Contains(lowerLeft + new Vector2Int(x, y)))
                     return false;
-            }
-        }
         return true;
     }
 
@@ -403,26 +512,19 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         return (center - playerTilePosition).sqrMagnitude;
     }
 
-    private static void GetCellBounds(
-        HashSet<Vector2Int> cells,
-        out int minX,
-        out int minY,
-        out int maxX,
-        out int maxY)
+    private static void GetCellBounds(HashSet<Vector2Int> cells, out int minX, out int minY, out int maxX, out int maxY)
     {
-        minX = int.MaxValue;
-        minY = int.MaxValue;
-        maxX = int.MinValue;
-        maxY = int.MinValue;
-
+        minX = int.MaxValue; minY = int.MaxValue; maxX = int.MinValue; maxY = int.MinValue;
         foreach (Vector2Int cell in cells)
         {
-            minX = Mathf.Min(minX, cell.x);
-            minY = Mathf.Min(minY, cell.y);
-            maxX = Mathf.Max(maxX, cell.x);
-            maxY = Mathf.Max(maxY, cell.y);
+            minX = Mathf.Min(minX, cell.x); minY = Mathf.Min(minY, cell.y);
+            maxX = Mathf.Max(maxX, cell.x); maxY = Mathf.Max(maxY, cell.y);
         }
     }
+
+    // ---------------------------------------------------------------------
+    // Old combat-field rail-out presentation.
+    // ---------------------------------------------------------------------
 
     private void SpawnExitGhostsFromCurrentRoom()
     {
@@ -433,7 +535,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         GameObject root = new("OutgoingStageVisuals");
         DontDestroyOnLoad(root);
-
         Vector2 baseCenter = baseTemplate != null
             ? (Vector2)baseTemplate.FixedCenterWorld
             : (player != null ? (Vector2)player.transform.position : (Vector2)roomManager.RoomOrigin.position);
@@ -442,14 +543,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock source = blocks[i];
-            if (source == null)
-                continue;
+            if (source == null) continue;
 
-            GameObject cloneObject = Instantiate(
-                source.gameObject,
-                source.transform.position,
-                source.transform.rotation,
-                root.transform);
+            GameObject cloneObject = Instantiate(source.gameObject, source.transform.position, source.transform.rotation, root.transform);
             cloneObject.name = "Outgoing_" + source.name;
             DisableGhostGameplay(cloneObject);
 
@@ -464,26 +560,19 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 ? (Vector2)bounds.center
                 : (Vector2)cloneObject.transform.position;
             Vector2 direction = ResolveCardinalRailDirection(pieceCenter - baseCenter, ghostIndex);
-
             float delay = Mathf.Max(0f, exitGhostStagger) * ghostIndex;
             float duration = Mathf.Max(0.05f, ghostBlock.ExitDuration);
             Tween moveTween = ghostBlock.PlayExit(direction);
             if (moveTween != null)
             {
-                if (delay > 0f)
-                    moveTween.SetDelay(delay);
-
+                if (delay > 0f) moveTween.SetDelay(delay);
                 if (exitGhostExtraDistance > 0f)
                 {
                     moveTween.OnComplete(() =>
                     {
-                        if (cloneObject == null)
-                            return;
-
+                        if (cloneObject == null) return;
                         cloneObject.transform
-                            .DOMove(
-                                cloneObject.transform.position + (Vector3)(direction * exitGhostExtraDistance),
-                                0.20f)
+                            .DOMove(cloneObject.transform.position + (Vector3)(direction * exitGhostExtraDistance), 0.20f)
                             .SetEase(Ease.InQuad);
                     });
                 }
@@ -493,7 +582,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             Destroy(cloneObject, duration + delay + 0.75f);
             ghostIndex++;
         }
-
         Destroy(root, 5f);
     }
 
@@ -504,7 +592,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             Vector2[] fallback = { Vector2.left, Vector2.right, Vector2.down, Vector2.up };
             return fallback[Mathf.Abs(fallbackIndex) % fallback.Length];
         }
-
         if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
             return delta.x >= 0f ? Vector2.right : Vector2.left;
         return delta.y >= 0f ? Vector2.up : Vector2.down;
@@ -520,95 +607,49 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock block = blocks[i];
-            if (block == null)
-                continue;
+            if (block == null) continue;
 
             Renderer[] renderers = block.GetComponentsInChildren<Renderer>(true);
-            for (int r = 0; r < renderers.Length; r++)
-            {
-                if (renderers[r] != null)
-                    renderers[r].enabled = false;
-            }
-
+            for (int r = 0; r < renderers.Length; r++) if (renderers[r] != null) renderers[r].enabled = false;
             Collider2D[] colliders = block.GetComponentsInChildren<Collider2D>(true);
-            for (int c = 0; c < colliders.Length; c++)
-            {
-                if (colliders[c] != null)
-                    colliders[c].enabled = false;
-            }
-
+            for (int c = 0; c < colliders.Length; c++) if (colliders[c] != null) colliders[c].enabled = false;
             NavMeshModifier[] modifiers = block.GetComponentsInChildren<NavMeshModifier>(true);
-            for (int m = 0; m < modifiers.Length; m++)
-            {
-                if (modifiers[m] != null)
-                    modifiers[m].ignoreFromBuild = true;
-            }
-
+            for (int m = 0; m < modifiers.Length; m++) if (modifiers[m] != null) modifiers[m].ignoreFromBuild = true;
             BattleWalkableField[] fields = block.GetComponentsInChildren<BattleWalkableField>(true);
-            for (int f = 0; f < fields.Length; f++)
-            {
-                if (fields[f] != null)
-                    fields[f].enabled = false;
-            }
+            for (int f = 0; f < fields.Length; f++) if (fields[f] != null) fields[f].enabled = false;
         }
-
         EnsureBasePresentation();
     }
 
     private static void DisableGhostGameplay(GameObject root)
     {
         Collider2D[] colliders = root.GetComponentsInChildren<Collider2D>(true);
-        for (int i = 0; i < colliders.Length; i++)
-        {
-            if (colliders[i] != null)
-                colliders[i].enabled = false;
-        }
-
+        for (int i = 0; i < colliders.Length; i++) if (colliders[i] != null) colliders[i].enabled = false;
         NavMeshModifier[] modifiers = root.GetComponentsInChildren<NavMeshModifier>(true);
-        for (int i = 0; i < modifiers.Length; i++)
-        {
-            if (modifiers[i] != null)
-                modifiers[i].ignoreFromBuild = true;
-        }
-
+        for (int i = 0; i < modifiers.Length; i++) if (modifiers[i] != null) modifiers[i].ignoreFromBuild = true;
         BattleWalkableField[] fields = root.GetComponentsInChildren<BattleWalkableField>(true);
-        for (int i = 0; i < fields.Length; i++)
-        {
-            if (fields[i] != null)
-                fields[i].enabled = false;
-        }
+        for (int i = 0; i < fields.Length; i++) if (fields[i] != null) fields[i].enabled = false;
     }
 
     private static bool TryGetRendererBounds(GameObject root, out Bounds bounds)
     {
         bounds = default;
-        if (root == null)
-            return false;
-
+        if (root == null) return false;
         Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
         bool found = false;
         for (int i = 0; i < renderers.Length; i++)
         {
             Renderer renderer = renderers[i];
-            if (renderer == null || !renderer.enabled)
-                continue;
-
-            if (!found)
-            {
-                bounds = renderer.bounds;
-                found = true;
-            }
-            else
-            {
-                bounds.Encapsulate(renderer.bounds);
-            }
+            if (renderer == null || !renderer.enabled) continue;
+            if (!found) { bounds = renderer.bounds; found = true; }
+            else bounds.Encapsulate(renderer.bounds);
         }
-
         return found;
     }
 
     private void HandleRunEnded(RunEndReason _)
     {
+        ClearRewardStageImmediate();
         ClearExitGhosts();
         hasPreservedBaseOrigin = false;
         clearedStageCollapsed = false;
@@ -619,9 +660,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         for (int i = 0; i < exitGhosts.Count; i++)
         {
             GameObject go = exitGhosts[i];
-            if (go == null)
-                continue;
-
+            if (go == null) continue;
             go.transform.DOKill();
             Destroy(go);
         }
@@ -631,9 +670,45 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private static void CleanupNullEntries(List<GameObject> list)
     {
         for (int i = list.Count - 1; i >= 0; i--)
-        {
             if (list[i] == null)
                 list.RemoveAt(i);
+    }
+}
+
+internal static class RewardStageRuntimeSpriteCache
+{
+    private static Sprite floorTile32;
+    public static Sprite FloorTile32 => floorTile32 != null ? floorTile32 : floorTile32 = CreateFloorTile32();
+
+    private static Sprite CreateFloorTile32()
+    {
+        const int pixels = 32;
+        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < pixels; y++)
+        {
+            for (int x = 0; x < pixels; x++)
+            {
+                bool seam = x == 0 || y == 0;
+                texture.SetPixel(x, y, seam ? new Color(0.80f, 0.82f, 0.90f, 1f) : Color.white);
+            }
         }
+        texture.Apply(false, true);
+
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, pixels, pixels),
+            new Vector2(0.5f, 0.5f),
+            pixels,
+            0,
+            SpriteMeshType.FullRect);
+        sprite.name = "RuntimeRewardShowFloor_32px";
+        sprite.hideFlags = HideFlags.HideAndDontSave;
+        return sprite;
     }
 }
