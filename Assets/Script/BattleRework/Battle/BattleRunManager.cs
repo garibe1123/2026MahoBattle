@@ -29,10 +29,10 @@ public enum BattleRunState
 /// - Start Area is not a Room.
 /// - Start Area contains only the persistent fixed 4x4 Base and Player.
 /// - No bridge/corridor/world traversal exists between stages.
-/// - Stage progression is selected from the NodeGraph UI (Slay-the-Spire style).
+/// - Stage progression is selected by clicking a vertical NodeGraph.
+/// - Multiple initial nodes are supported; the first decision is not forced to a single preselected Room.
 /// - The current persistent 4x4 Base is the authoritative spatial anchor for every incoming stage.
-/// - Selecting a stage builds that Room around the current Base instead of restoring the original scene origin.
-/// - Combat -> Reward -> Stage Selection -> Next Stage.
+/// - Combat -> Reward decision -> Stage selection -> Next Stage.
 /// </summary>
 public class BattleRunManager : MonoBehaviour
 {
@@ -51,7 +51,7 @@ public class BattleRunManager : MonoBehaviour
     [SerializeField] private PlayerController playerController;
 
     [Header("Start Stage Selection")]
-    [Tooltip("Run starts on an empty non-combat Start Base and asks the player to select the first stage from the Stage Map.")]
+    [Tooltip("Run starts on an empty non-combat 4x4 Base and asks the player to click one of the configured start nodes.")]
     [SerializeField] private bool useEmptyStartArea = true;
 
     [Header("Depth Scaling - inspector driven")]
@@ -213,10 +213,10 @@ public class BattleRunManager : MonoBehaviour
         CaptureStartRoomOrigin();
         RestoreStartRoomOrigin();
 
-        BattleNodeData start = nodeGraph.GetStartNode();
-        if (start == null)
+        List<BattleNodeData> starts = nodeGraph.GetStartNodes();
+        if (starts.Count == 0)
         {
-            Debug.LogError("[BattleRun] Start node could not be resolved.");
+            Debug.LogError("[BattleRun] No start node choices could be resolved.");
             return;
         }
 
@@ -234,10 +234,10 @@ public class BattleRunManager : MonoBehaviour
         progress.BeginRun();
         runActive = true;
 
-        if (useEmptyStartArea && CanUseNodeRoomAsStartBase(start))
-            EnterEmptyStartArea(start);
+        if (useEmptyStartArea && TryGetStartBaseRoom(starts, out RoomDefinitionSO baseRoom))
+            EnterEmptyStartArea(starts, baseRoom);
         else
-            EnterNode(start);
+            EnterNode(starts[0]);
     }
 
     public void RestartRun()
@@ -251,21 +251,36 @@ public class BattleRunManager : MonoBehaviour
         StartRun();
     }
 
-    private static bool CanUseNodeRoomAsStartBase(BattleNodeData node)
+    private static bool TryGetStartBaseRoom(IReadOnlyList<BattleNodeData> choices, out RoomDefinitionSO room)
     {
-        return node != null && node.room != null &&
-               (node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite);
+        room = null;
+        if (choices == null)
+            return false;
+
+        for (int i = 0; i < choices.Count; i++)
+        {
+            BattleNodeData node = choices[i];
+            if (node == null || node.room == null)
+                continue;
+            if (node.type != BattleNodeType.Combat && node.type != BattleNodeType.Elite)
+                continue;
+
+            room = node.room;
+            return true;
+        }
+
+        return false;
     }
 
     /// <summary>
-    /// Builds only the persistent Start Base and opens Stage Selection.
-    /// There is no physical exit/bridge/corridor from this state.
+    /// Builds only the persistent 4x4 Start Base and exposes every configured start node as a clickable choice.
     /// </summary>
-    private void EnterEmptyStartArea(BattleNodeData firstGameplayNode)
+    private void EnterEmptyStartArea(IReadOnlyList<BattleNodeData> startingChoices, RoomDefinitionSO baseRoom)
     {
-        if (firstGameplayNode == null || firstGameplayNode.room == null)
+        if (startingChoices == null || startingChoices.Count == 0 || baseRoom == null)
         {
-            EnterNode(firstGameplayNode);
+            Debug.LogError("[BattleRun] Empty Start Area requires at least one start choice and one combat Room for Base presentation.");
+            EndRun(RunEndReason.Quit);
             return;
         }
 
@@ -277,12 +292,18 @@ public class BattleRunManager : MonoBehaviour
 
         RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         if (baseTemplate != null)
-            baseTemplate.BuildBase(firstGameplayNode.room);
+            baseTemplate.BuildBase(baseRoom);
 
-        PositionPlayerAtStartBaseCenter(firstGameplayNode.room);
+        PositionPlayerAtStartBaseCenter(baseRoom);
 
         nextNodeChoices.Clear();
-        nextNodeChoices.Add(firstGameplayNode);
+        for (int i = 0; i < startingChoices.Count; i++)
+        {
+            BattleNodeData node = startingChoices[i];
+            if (node != null && !nextNodeChoices.Contains(node))
+                nextNodeChoices.Add(node);
+        }
+
         SetState(BattleRunState.SelectingNode);
         NextNodeSelectionRequested?.Invoke(nextNodeChoices);
     }
@@ -359,14 +380,10 @@ public class BattleRunManager : MonoBehaviour
             return;
         }
 
-        bool fromStartArea = startAreaActive;
         startAreaActive = false;
         nextNodeChoices.Clear();
-
-        // Do not restore the original scene origin here. Later stages must stay anchored to
-        // the 4x4 promoted from the player's cleared-stage position.
         AlignRoomOriginToPersistentBase();
-        EnterNode(selected, fromStartArea);
+        EnterNode(selected);
     }
 
     public void ResolveNonCombatNode()
@@ -443,7 +460,7 @@ public class BattleRunManager : MonoBehaviour
             EndRun(RunEndReason.Death);
     }
 
-    private void EnterNode(BattleNodeData node, bool fromStartArea = false)
+    private void EnterNode(BattleNodeData node)
     {
         if (node == null)
         {
@@ -457,7 +474,6 @@ public class BattleRunManager : MonoBehaviour
         currentNode = node;
         currentContext = BuildContext(node);
 
-        // Stage presentation prepares the procedural Room synchronously in this event.
         NodeEntered?.Invoke(node);
 
         switch (node.type)
@@ -472,9 +488,6 @@ public class BattleRunManager : MonoBehaviour
                 }
 
                 SetState(BattleRunState.BuildingRoom);
-
-                // NodeEntered may have promoted/repositioned the persistent Base. The new Room must
-                // use that exact lower-left Base tile as its local origin; never snap back to Start.
                 AlignRoomOriginToPersistentBase();
 
                 bool savedPersistentFlag = node.room.usePersistentStartBase;
