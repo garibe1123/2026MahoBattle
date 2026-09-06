@@ -33,12 +33,8 @@ public class BattleNodeData
 
 /// <summary>
 /// Finite roguelite branch graph.
-///
-/// Stage Map rules:
-/// - depth grows from top to bottom.
-/// - nodes at the same depth are alternative horizontal lanes.
-/// - multiple start nodes are supported so the first decision can also be a real branch.
-/// - startNodeId remains only as legacy fallback for older assets.
+/// Stage depth grows from top to bottom and same-depth nodes are horizontal alternatives.
+/// Multiple start nodes are supported so the first selection can also be a real branch.
 /// </summary>
 [CreateAssetMenu(fileName = "NodeGraph", menuName = "MahoBattle/Node Graph")]
 public class NodeGraphSO : ScriptableObject
@@ -62,7 +58,6 @@ public class NodeGraphSO : ScriptableObject
             if (nodes[i] != null && nodes[i].id == nodeId)
                 return nodes[i];
         }
-
         return null;
     }
 
@@ -75,8 +70,7 @@ public class NodeGraphSO : ScriptableObject
         {
             for (int i = 0; i < startNodeIds.Count; i++)
             {
-                string id = startNodeIds[i];
-                BattleNodeData node = FindNode(id);
+                BattleNodeData node = FindNode(startNodeIds[i]);
                 if (node != null && used.Add(node.id))
                     result.Add(node);
             }
@@ -111,7 +105,6 @@ public class NodeGraphSO : ScriptableObject
             if (node != null && used.Add(node.id))
                 result.Add(node);
         }
-
         return result;
     }
 
@@ -172,9 +165,7 @@ public class NodeGraphSO : ScriptableObject
 
         List<BattleNodeData> starts = GetStartNodes();
         if (starts.Count == 0)
-        {
             errors.AppendLine("No valid start node exists. Add at least one startNodeIds entry or a valid legacy startNodeId.");
-        }
 
         if (startNodeIds != null)
         {
@@ -187,9 +178,6 @@ public class NodeGraphSO : ScriptableObject
                     errors.AppendLine($"Start node '{id}' does not exist.");
             }
         }
-
-        if (startNodeIds != null && startNodeIds.Count == 0 && !string.IsNullOrWhiteSpace(startNodeId) && FindNode(startNodeId) == null)
-            errors.AppendLine($"Legacy start node '{startNodeId}' does not exist.");
 
         if (nodes != null)
         {
@@ -233,7 +221,6 @@ public class NodeGraphSO : ScriptableObject
             combined.AppendLine("[Errors]");
             combined.Append(errors);
         }
-
         if (warnings.Length > 0)
         {
             combined.AppendLine("[Warnings]");
@@ -244,10 +231,7 @@ public class NodeGraphSO : ScriptableObject
         return errors.Length == 0;
     }
 
-    private void ValidateReachability(
-        IReadOnlyList<BattleNodeData> startNodes,
-        StringBuilder errors,
-        StringBuilder warnings)
+    private void ValidateReachability(IReadOnlyList<BattleNodeData> startNodes, StringBuilder errors, StringBuilder warnings)
     {
         HashSet<string> visited = new();
         bool terminalReachable = false;
@@ -261,7 +245,6 @@ public class NodeGraphSO : ScriptableObject
 
         if (!terminalReachable)
             errors.AppendLine("No terminal node is reachable from the configured start choices.");
-
         if (cycleDetected)
             errors.AppendLine("A reachable NodeGraph cycle was detected. Battle runs must be finite.");
 
@@ -271,9 +254,7 @@ public class NodeGraphSO : ScriptableObject
         for (int i = 0; i < nodes.Count; i++)
         {
             BattleNodeData node = nodes[i];
-            if (node == null || string.IsNullOrWhiteSpace(node.id))
-                continue;
-            if (!visited.Contains(node.id))
+            if (node != null && !string.IsNullOrWhiteSpace(node.id) && !visited.Contains(node.id))
                 warnings.AppendLine($"Node '{node.id}' is unreachable from every start choice.");
         }
     }
@@ -287,13 +268,11 @@ public class NodeGraphSO : ScriptableObject
     {
         if (node == null || string.IsNullOrWhiteSpace(node.id))
             return;
-
         if (visiting.Contains(node.id))
         {
             cycleDetected = true;
             return;
         }
-
         if (visited.Contains(node.id))
             return;
 
@@ -317,3 +296,99 @@ public class NodeGraphSO : ScriptableObject
         visiting.Remove(node.id);
     }
 }
+
+#if UNITY_EDITOR
+/// <summary>
+/// Keeps the generated vertical-slice TEST_NodeGraph representative of the real branching UI.
+/// This touches only the generated TEST asset; authored production NodeGraphs are never rewritten.
+/// </summary>
+[UnityEditor.InitializeOnLoad]
+internal static class BattleTestBranchGraphEditorUpgrade
+{
+    private const string TestGraphPath = "Assets/Resources/BattleTestDefaults/TEST_NodeGraph.asset";
+    private static double nextCheck;
+
+    static BattleTestBranchGraphEditorUpgrade()
+    {
+        UnityEditor.EditorApplication.update += Tick;
+        UnityEditor.EditorApplication.delayCall += Apply;
+    }
+
+    private static void Tick()
+    {
+        if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
+            return;
+        if (UnityEditor.EditorApplication.timeSinceStartup < nextCheck)
+            return;
+
+        nextCheck = UnityEditor.EditorApplication.timeSinceStartup + 1.0d;
+        Apply();
+    }
+
+    private static void Apply()
+    {
+        if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
+            return;
+
+        NodeGraphSO graph = UnityEditor.AssetDatabase.LoadAssetAtPath<NodeGraphSO>(TestGraphPath);
+        if (graph == null || graph.nodes == null)
+            return;
+
+        RoomDefinitionSO roomA = FindRoom(graph, "TEST_A") ?? FindRoom(graph, "TEST_A_LEFT");
+        RoomDefinitionSO roomB = FindRoom(graph, "TEST_B") ?? FindRoom(graph, "TEST_B_RIGHT");
+        RoomDefinitionSO roomElite = FindRoom(graph, "TEST_ELITE") ?? FindRoom(graph, "TEST_ELITE_MID");
+        if (roomA == null || roomB == null || roomElite == null)
+            return;
+
+        bool alreadyBranched = graph.startNodeIds != null && graph.startNodeIds.Count >= 2 && graph.nodes.Count >= 7;
+        if (alreadyBranched)
+            return;
+
+        graph.startNodeId = "TEST_A_LEFT";
+        graph.startNodeIds = new List<string> { "TEST_A_LEFT", "TEST_B_RIGHT" };
+        graph.nodes = new List<BattleNodeData>
+        {
+            Make("TEST_A_LEFT", BattleNodeType.Combat, 0, roomA, false, -1, "TEST_A_MID", "TEST_ELITE_MID"),
+            Make("TEST_B_RIGHT", BattleNodeType.Combat, 0, roomB, false, 1, "TEST_B_MID", "TEST_ELITE_MID"),
+
+            Make("TEST_A_MID", BattleNodeType.Combat, 1, roomA, false, -1, "TEST_FINAL_A", "TEST_FINAL_ELITE"),
+            Make("TEST_ELITE_MID", BattleNodeType.Elite, 1, roomElite, false, 0, "TEST_FINAL_ELITE"),
+            Make("TEST_B_MID", BattleNodeType.Combat, 1, roomB, false, 1, "TEST_FINAL_A", "TEST_FINAL_ELITE"),
+
+            Make("TEST_FINAL_A", BattleNodeType.Combat, 2, roomB, true, -1),
+            Make("TEST_FINAL_ELITE", BattleNodeType.Elite, 2, roomElite, true, 1)
+        };
+
+        UnityEditor.EditorUtility.SetDirty(graph);
+        UnityEditor.AssetDatabase.SaveAssets();
+    }
+
+    private static RoomDefinitionSO FindRoom(NodeGraphSO graph, string id)
+    {
+        BattleNodeData node = graph.FindNode(id);
+        return node != null ? node.room : null;
+    }
+
+    private static BattleNodeData Make(
+        string id,
+        BattleNodeType type,
+        int depth,
+        RoomDefinitionSO room,
+        bool terminal,
+        int lane,
+        params string[] next)
+    {
+        return new BattleNodeData
+        {
+            id = id,
+            type = type,
+            depth = depth,
+            room = room,
+            isTerminal = terminal,
+            useExplicitMapPosition = true,
+            mapPosition = new Vector2Int(lane, 0),
+            nextNodeIds = next != null ? new List<string>(next) : new List<string>()
+        };
+    }
+}
+#endif
