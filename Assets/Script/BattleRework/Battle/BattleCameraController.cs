@@ -4,8 +4,9 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Player-follow battle camera with a dedicated Reward Show framing mode.
-/// Gameplay never follows RoomOrigin; Reward temporarily reframes the shot so the
-/// player sits toward the lower-left while the large prize screen owns most of the view.
+/// Gameplay never follows RoomOrigin. Reward switches to a wider studio shot:
+/// the player stays clearly visible in the lower-left foreground while the prize screen
+/// and presenter occupy the upper/right stage area.
 /// </summary>
 [DisallowMultipleComponent]
 public class BattleCameraController : MonoBehaviour
@@ -28,10 +29,11 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0f)] private float zoomSharpness = 12f;
 
     [Header("Reward Show Framing")]
-    [Tooltip("Camera center moves to +X/+Y from Player. +X intentionally places Player farther LEFT on screen; +Y keeps Player lower in frame.")]
-    [SerializeField] private Vector2 rewardShowOffset = new(3.4f, 3.9f);
-    [SerializeField, Min(0.1f)] private float rewardShowZoom = 5.0f;
-    [SerializeField, Min(0f)] private float rewardShowSharpness = 7f;
+    [Tooltip("Camera moves right/up from Player so Player remains in the lower-left foreground. This is a studio wide shot, not a Player close-up.")]
+    [SerializeField] private Vector2 rewardShowOffset = new(4.6f, 2.4f);
+    [Tooltip("Reward Show is intentionally wider than combat so Player + screen + host + reward stage read as one set.")]
+    [SerializeField, Min(0.1f)] private float rewardShowZoom = 6.0f;
+    [SerializeField, Min(0f)] private float rewardShowSharpness = 6f;
 
     [Header("Map Inspection")]
     [SerializeField] private int inspectionMouseButton = 2;
