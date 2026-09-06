@@ -67,13 +67,13 @@ public class RoomDefinitionSO : ScriptableObject
     [Header("Large Room Piece")]
     [Tooltip("켜면 BattleSpatialMapController가 기존 4x4 낱개 Block 대신 큰 Room Piece 하나로 조립합니다.")]
     public bool useLargeRoomPiece = true;
-    [Tooltip("Auto는 Node 타입/깊이에 따라 테스트용 형태를 선택하고, 실제 Room에서는 원하는 모양을 직접 지정할 수 있습니다.")]
+    [Tooltip("Auto는 안전하게 Rectangle을 사용합니다. 실제 Room에서는 L/T/Cross/Custom을 직접 지정할 수 있습니다.")]
     public RoomLargePieceShape largePieceShape = RoomLargePieceShape.Auto;
-    [Tooltip("큰 조각의 cell 크기입니다. cell 하나는 MapBlock.BlockWorldSize(기본 2x2 world)입니다.")]
+    [Tooltip("큰 조각의 cell 크기입니다. 0 이하 값은 기존 recommendedGridSize로 자동 fallback합니다.")]
     public Vector2Int largePieceGridSize = new(4, 4);
     [Tooltip("Custom일 때 포함할 cell 좌표 목록입니다. 전체가 하나의 Root로 움직입니다.")]
     public List<Vector2Int> customLargePieceCells = new();
-    [Tooltip("큰 Room Piece가 어느 방향에서 날아와 도킹할지 지정합니다. 0이면 진입 통로 반대편에서 들어옵니다.")]
+    [Tooltip("큰 Room Piece가 어느 방향에서 날아와 도킹할지 지정합니다. 0이면 기본 방향을 사용합니다.")]
     public Vector2 largePieceEntryDirection = Vector2.zero;
     [Min(0.05f)] public float largePieceEntryDuration = 0.72f;
     [Min(0.5f)] public float largePieceEntryOffset = 8f;
@@ -231,7 +231,7 @@ public class RoomDefinitionSO : ScriptableObject
             errors.AppendLine("recommendedGridSize must be at least 1x1.");
 
         if (largePieceGridSize.x < 1 || largePieceGridSize.y < 1)
-            errors.AppendLine("largePieceGridSize must be at least 1x1.");
+            warnings.AppendLine("largePieceGridSize is unset/legacy; recommendedGridSize will be used as fallback.");
 
         if (largePieceShape == RoomLargePieceShape.Custom &&
             (customLargePieceCells == null || customLargePieceCells.Count == 0))
