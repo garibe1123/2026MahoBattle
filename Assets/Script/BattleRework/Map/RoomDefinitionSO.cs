@@ -42,14 +42,16 @@ public class MonsterSpawnEntry
 /// <summary>
 /// Gameplay Room data.
 ///
-/// Spatial rules:
+/// Current spatial rules:
 /// - 32px = exactly 1 tile = exactly 1 world unit.
 /// - Player art baseline is 48px = 1.5 world units.
-/// - Start Area is an independent 4x4+ tile platform and is not a Combat Room.
+/// - Start Area is an independent 3x3+ tile platform and is not a Combat Room.
 /// - Combat Rooms are 6x6+.
-/// - Any generated arm / bay / neck / bridge is at least 4 tiles wide.
+/// - Rectangle is the default room shape. L/T/Cross/Irregular/Custom are optional variants.
+/// - Any generated positive arm / bay / neck is at least 4 tiles thick.
 /// - Procedural Room cells use integer tile coordinates only.
 /// - A Room Piece may contain many tiles, but docks as one root object.
+/// - World bridges/corridors are not part of RoomDefinitionSO. Stage progression is NodeGraph selection UI.
 ///
 /// recommendedGridSize / blocks remain only for legacy 2x2-world MapBlock compatibility.
 /// </summary>
@@ -57,6 +59,7 @@ public class MonsterSpawnEntry
 public class RoomDefinitionSO : ScriptableObject
 {
     public const float ProceduralTileWorldSize = 1f;
+    public const int MinimumStartBaseTiles = 3;
     public const int MinimumRoomChunkTiles = 4;
     public const int MinimumCombatRoomTiles = 6;
 
@@ -73,8 +76,8 @@ public class RoomDefinitionSO : ScriptableObject
     public Vector2Int recommendedGridSize = new(4, 4);
 
     [Header("32px Tile / Start Area")]
-    [Tooltip("Independent non-combat Start Area floor. Runtime minimum is 4x4 tiles.")]
-    public Vector2Int startBaseTileSize = new(4, 4);
+    [Tooltip("Independent non-combat Start Area floor. Runtime minimum is 3x3 tiles.")]
+    public Vector2Int startBaseTileSize = new(3, 3);
 
     [Header("Procedural Gameplay Room")]
     [Tooltip("Build the Room from an integer 32px tile mask.")]
@@ -89,25 +92,25 @@ public class RoomDefinitionSO : ScriptableObject
     [Tooltip("0 uses deterministic node/room IDs. Non-zero is mixed into the seed.")]
     public int proceduralSeed;
     [Range(0f, 1f)]
-    [Tooltip("Higher values allow more large corner cuts / bays while preserving 4-tile minimum structure.")]
-    public float proceduralComplexity = 0.35f;
+    [Tooltip("Used only by Irregular rooms. Rectangle is the default and ignores this value.")]
+    public float proceduralComplexity = 0.25f;
     [Range(0f, 0.45f)]
-    [Tooltip("Chance weight for large corner notches. Notches never create an arm thinner than 4 tiles.")]
-    public float proceduralIndentChance = 0.16f;
+    [Tooltip("Used only by Irregular rooms. Cuts are chunk-based and never create sub-4-tile arms.")]
+    public float proceduralIndentChance = 0.14f;
     [Range(0f, 0.65f)]
-    [Tooltip("Additional irregularity weight. Generation still operates on 4-tile-safe chunks, never single-tile noise.")]
-    public float proceduralExtensionChance = 0.28f;
+    [Tooltip("Used only by Irregular rooms. Generation never uses single-tile noise.")]
+    public float proceduralExtensionChance = 0.22f;
 
     [Header("Large Room Piece Presentation")]
     [Tooltip("Dock one large Room root instead of individual tiny blocks.")]
     public bool useLargeRoomPiece = true;
-    [Tooltip("Auto becomes Irregular for procedural rooms and Rectangle for legacy rooms.")]
-    public RoomLargePieceShape largePieceShape = RoomLargePieceShape.Auto;
+    [Tooltip("Rectangle is the default. Auto is also resolved as Rectangle in the current stage-select flow.")]
+    public RoomLargePieceShape largePieceShape = RoomLargePieceShape.Rectangle;
     [Tooltip("Legacy/non-procedural large piece size. Runtime minimum is 4x4.")]
     public Vector2Int largePieceGridSize = new(4, 4);
     [Tooltip("Custom 32px integer tile coordinates.")]
     public List<Vector2Int> customLargePieceCells = new();
-    [Tooltip("Docking presentation direction. Zero means the spatial controller chooses from the approach direction.")]
+    [Tooltip("Docking presentation direction. Zero uses a default vertical drop/slide presentation.")]
     public Vector2 largePieceEntryDirection = Vector2.zero;
     [Min(0.05f)] public float largePieceEntryDuration = 0.72f;
     [Min(0.5f)] public float largePieceEntryOffset = 8f;
@@ -147,8 +150,8 @@ public class RoomDefinitionSO : ScriptableObject
     public Vector2Int GetStartBaseTileSize()
     {
         return new Vector2Int(
-            Mathf.Max(MinimumRoomChunkTiles, startBaseTileSize.x),
-            Mathf.Max(MinimumRoomChunkTiles, startBaseTileSize.y));
+            Mathf.Max(MinimumStartBaseTiles, startBaseTileSize.x),
+            Mathf.Max(MinimumStartBaseTiles, startBaseTileSize.y));
     }
 
     public Vector2Int GetProceduralMinTileSize()
@@ -308,8 +311,8 @@ public class RoomDefinitionSO : ScriptableObject
         if (recommendedGridSize.x < 1 || recommendedGridSize.y < 1)
             errors.AppendLine("recommendedGridSize must be at least 1x1 for legacy data.");
 
-        if (startBaseTileSize.x < MinimumRoomChunkTiles || startBaseTileSize.y < MinimumRoomChunkTiles)
-            warnings.AppendLine("startBaseTileSize below 4x4 will be clamped to 4x4 at runtime.");
+        if (startBaseTileSize.x < MinimumStartBaseTiles || startBaseTileSize.y < MinimumStartBaseTiles)
+            warnings.AppendLine("startBaseTileSize below 3x3 will be clamped to 3x3 at runtime.");
 
         if (proceduralMinChunkTileSize < MinimumRoomChunkTiles)
             warnings.AppendLine("proceduralMinChunkTileSize below 4 will be clamped to 4 at runtime.");
