@@ -12,8 +12,8 @@ using UnityEngine;
 /// Flow:
 /// 1) The persistent Start/Base anchor is always 4x4 32px tiles.
 /// 2) Selected Combat Rooms are assembled around that 4x4 anchor.
-/// 3) The central 4x4 cells of the generated Room are reserved for the persistent base,
-///    so incoming pieces only add floor around it.
+/// 3) The central 4x4 cells remain visually filled by the generated Room floor while their
+///    duplicate gameplay sources are disabled. The persistent base underneath is the continuity anchor.
 /// 4) As soon as the clear reward phase starts, the 4x4 area under the player becomes the next base.
 ///    Everything else from the cleared Room spins / flies off-screen before the player chooses a reward.
 /// 5) Reward choices physically drop from above and are collected by touching them.
@@ -83,12 +83,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield return null;
         }
 
-        // BattleSpatialMapController has an earlier execution order (-20000).
-        // Waiting one frame makes its NodeEntered subscription reliably precede ours, so its
-        // temporary runtime Room prototypes exist before we reserve the central 4x4 cells.
         yield return null;
         Subscribe();
 
+        baseTemplate.EnsurePersistentBase();
         if (baseTemplate.HasPersistentBase)
         {
             preservedBaseTileOrigin = baseTemplate.FixedTileOriginWorld;
@@ -138,7 +136,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         ResolveSystems();
 
-        // Reward is a physical pickup phase: walking is allowed, shooting/roll are not.
         if (runManager != null && runManager.State == BattleRunState.Reward && rewardPickups.Count > 0 && player != null)
             player.SetInputPermissions(true, false, false);
 
@@ -155,8 +152,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (baseTemplate == null)
             return;
 
-        // Stage clear collapse now happens at RewardSelectionRequested, not when the next Node is entered.
-        // EnteringNode therefore only ensures that the current persistent 4x4 anchor is known.
+        baseTemplate.EnsurePersistentBase();
         if (!hasPreservedBaseOrigin)
         {
             preservedBaseTileOrigin = baseTemplate.FixedTileOriginWorld;
@@ -189,10 +185,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     }
 
     /// <summary>
-    /// BattleSpatialMapController temporarily stores its generated MapBlock prototypes in room.blocks
-    /// during NodeEntered. We inspect those prototypes, find the generated Room bounds and reserve the
-    /// central 4x4 cells for RoomBaseTemplate. Incoming pieces therefore physically connect around the
-    /// already-existing base instead of covering/replacing it.
+    /// Generated center-floor sprites remain visible during combat so the Room never has a visual hole.
+    /// Only duplicate Collider/NavMesh/Walkable sources are disabled; the mandatory persistent 4x4 base
+    /// underneath remains the real continuity / movement anchor and is revealed when the Room exits.
     /// </summary>
     private void ReservePersistentBaseInsideRuntimeRoom(RoomDefinitionSO room)
     {
@@ -242,13 +237,18 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         int baseEndX = baseStartX + RoomBaseTemplate.FixedBaseTiles - 1;
         int baseEndY = baseStartY + RoomBaseTemplate.FixedBaseTiles - 1;
 
-        // Place RoomOrigin so generated central 4x4 cell centers exactly coincide with the persistent base.
+        // Never suppress generated center gameplay sources unless the persistent base is confirmed alive.
+        if (!baseTemplate.EnsureVisibleAtTileOrigin(preservedBaseTileOrigin, room))
+        {
+            Debug.LogError("[BattleStageTransition] Persistent 4x4 base could not be created. Generated center floor will remain untouched.", this);
+            return;
+        }
+
         Vector3 roomOrigin = preservedBaseTileOrigin - new Vector3(baseStartX, baseStartY, 0f);
         roomOrigin.z = roomManager.RoomOrigin != null ? roomManager.RoomOrigin.position.z : 0f;
         if (roomManager.RoomOrigin != null)
             roomManager.RoomOrigin.position = roomOrigin;
 
-        // Keep the player where they are. The base is the continuity anchor between stages.
         room.repositionPlayerOnEnter = false;
 
         for (int i = 0; i < floorTiles.Count; i++)
@@ -262,19 +262,15 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             if (x < baseStartX || x > baseEndX || y < baseStartY || y > baseEndY)
                 continue;
 
-            ReserveTileForPersistentBase(tile);
+            ReserveTileGameplayForPersistentBase(tile);
         }
     }
 
-    private static void ReserveTileForPersistentBase(Transform tile)
+    private static void ReserveTileGameplayForPersistentBase(Transform tile)
     {
-        tile.name = "PersistentBaseReserved_" + tile.name;
+        tile.name = "PersistentBaseVisual_" + tile.name;
 
-        SpriteRenderer[] renderers = tile.GetComponentsInChildren<SpriteRenderer>(true);
-        for (int i = 0; i < renderers.Length; i++)
-            if (renderers[i] != null)
-                renderers[i].enabled = false;
-
+        // IMPORTANT: keep SpriteRenderer enabled. This is what makes the active Room floor visually continuous.
         Collider2D[] colliders = tile.GetComponentsInChildren<Collider2D>(true);
         for (int i = 0; i < colliders.Length; i++)
             if (colliders[i] != null)
@@ -294,9 +290,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 fields[i].enabled = false;
     }
 
-    /// <summary>
-    /// Clear presentation starts BEFORE reward choice: keep only the player's 4x4 base, visually eject the rest.
-    /// </summary>
     private void CollapseClearedStageAroundPlayer()
     {
         if (clearedStageCollapsed || baseTemplate == null || player == null || roomManager == null)
@@ -307,7 +300,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         preservedBaseTileOrigin = baseTemplate.ReanchorAroundPlayer(player.transform.position);
         hasPreservedBaseOrigin = true;
 
-        // Clone first while the real Room is still visible, then hide the real pieces immediately.
         SpawnExitGhostsFromCurrentRoom();
         HideCurrentRoomBlocks();
         clearedStageCollapsed = true;
@@ -450,7 +442,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         ClearRewardPickups();
         ResolveSystems();
 
-        // Sephiria-style clear phase: before reward selection, collapse the cleared set to the player's 4x4 anchor.
         CollapseClearedStageAroundPlayer();
 
         if (choices == null || choices.Count == 0 || player == null)
@@ -567,9 +558,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     }
 }
 
-/// <summary>
-/// Physical stage reward trigger. Lives in the same file to avoid another script file.
-/// </summary>
 internal sealed class BattleStageRewardPickup : MonoBehaviour
 {
     private BattleStageTransitionController owner;
