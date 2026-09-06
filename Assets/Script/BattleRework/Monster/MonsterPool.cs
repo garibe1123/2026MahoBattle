@@ -211,10 +211,25 @@ public class MonsterPool : MonoBehaviour
         if (agent != null)
             agent.enabled = false;
 
+        // MonsterController.Setup은 기존 ConfigureAgent를 그대로 사용합니다.
+        // Base 밖 위치에서 바로 Setup하면 agent.isStopped 설정이 off-mesh 경고를 낼 수 있으므로,
+        // Simple Entry 몬스터는 먼저 Player 근처의 안전한 NavMesh 위치에서 초기화한 뒤
+        // Agent/Controller를 끄고 실제 외곽 Spawn 위치로 옮깁니다.
+        Vector3 setupPosition = spawnPosition;
+        if (startSimpleMovement && movingMonster &&
+            NavMesh.SamplePosition(
+                playerTarget.position,
+                out NavMeshHit safeSetupHit,
+                Mathf.Max(1f, navMeshSampleRadius) * 2f,
+                NavMesh.AllAreas))
+        {
+            setupPosition = safeSetupHit.position;
+        }
+
         monster.enabled = true;
         monster.gameObject.SetActive(false);
-        spawnPosition.z = 0f;
-        monster.transform.position = spawnPosition;
+        setupPosition.z = 0f;
+        monster.transform.position = setupPosition;
         monster.gameObject.SetActive(true);
         monster.Setup(definition, context, playerTarget, enemyProjectilePool, onDeath);
 
@@ -222,6 +237,12 @@ public class MonsterPool : MonoBehaviour
         if (crowdAgent == null)
             crowdAgent = monster.gameObject.AddComponent<MonsterCrowdAgent>();
         crowdAgent.Configure(this, playerTarget, startSimpleMovement);
+
+        if (startSimpleMovement)
+        {
+            spawnPosition.z = 0f;
+            monster.transform.position = spawnPosition;
+        }
 
         if (!startSimpleMovement && agent != null && agent.enabled && !agent.isOnNavMesh)
         {
