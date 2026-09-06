@@ -11,18 +11,15 @@ using UnityEngine.UI;
 /// <summary>
 /// Single owner of battle-field spatial planning and Stage Map presentation.
 ///
-/// Spatial invariant:
+/// Spatial invariants:
 /// - 32px = 1 tile = 1 world unit.
-/// - The existing persistent 4x4 Base is INPUT, never an incoming Room product.
-/// - Room generation creates the desired FINAL target mask around that Base.
-/// - Incoming cells are calculated once as: extensionCells = targetCells - baseCells.
-/// - Only extensionCells are split into MapBlock pieces. No central 4x4 floor prototype exists.
-/// - Assembly order is planned from the real occupied frontier: Base -> attached piece -> next attached piece.
-/// - Incoming pieces are never intentionally generated as a single 1x1 tile; minimum presentation size is 2 connected tiles.
-/// - Internal holes are filled before assembly so the persistent Base remains the solid main anchor of the new field.
-/// - Every traversable Room is 10x10+ and shape validation keeps the existing topology constraints.
-///
-/// BattleRoomManager only executes the already-planned pieces. It does not reinterpret Room geometry.
+/// - the currently preserved 4x4 Base is INPUT, never an incoming Room product.
+/// - targetCells are generated around that Base, then extensionCells = targetCells - baseCells.
+/// - only extensionCells become incoming MapBlock pieces.
+/// - large connected pieces are preferred; isolated 1x1 pieces are merged whenever possible.
+/// - every incoming piece starts fully outside the current camera viewport and slides in on a cardinal rail.
+/// - Stage Map is selection-only: no combat-time top-right mini map exists.
+/// - Stage Map depth flows from top to bottom; nodes on the same depth are horizontal alternatives.
 /// </summary>
 [DefaultExecutionOrder(-20000)]
 public sealed class BattleSpatialMapController : MonoBehaviour
@@ -34,23 +31,29 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
 
     [Header("Extension Piece Assembly")]
-    [Tooltip("Room topology size and incoming-piece size are independent. A presentation piece starts at 2 connected tiles (1x2 / 2x1 or larger).")]
-    [SerializeField, Range(2, 4)] private int maximumPieceTileSpan = 4;
-    [SerializeField, Range(2, 8)] private int minimumPieceCellCount = 2;
-    [SerializeField, Range(12, 96)] private int maximumPieceCount = 48;
+    [Tooltip("Maximum rectangular span considered for one incoming piece. Large pieces are preferred.")]
+    [SerializeField, Range(3, 8)] private int maximumPieceTileSpan = 6;
+    [Tooltip("Pieces smaller than this are merged into an adjacent piece whenever possible.")]
+    [SerializeField, Range(2, 12)] private int minimumPieceCellCount = 4;
+    [Tooltip("Used by fallback connected growth when a large rectangle cannot be carved from the frontier.")]
+    [SerializeField, Range(4, 24)] private int preferredPieceCellCount = 12;
+    [SerializeField, Range(8, 64)] private int maximumPieceCount = 32;
+    [Tooltip("Fallback rail distance when no orthographic camera is available.")]
+    [SerializeField, Min(12f)] private float fallbackOffscreenEntryDistance = 36f;
+    [SerializeField, Min(0.5f)] private float offscreenMargin = 2f;
 
-    [Header("Stage Map")]
-    [SerializeField] private Vector2 compactMapSize = new(240f, 190f);
-    [SerializeField] private Vector2 selectionMapSize = new(560f, 390f);
-    [SerializeField, Min(18f)] private float mapCellSpacing = 68f;
-    [SerializeField, Min(12f)] private float mapNodeSize = 28f;
-    [SerializeField] private Color mapBackground = new(0.035f, 0.05f, 0.075f, 0.94f);
-    [SerializeField] private Color mapUnknown = new(0.24f, 0.28f, 0.34f, 0.96f);
-    [SerializeField] private Color mapVisited = new(0.60f, 0.66f, 0.72f, 1f);
+    [Header("Stage Map - Selection Only")]
+    [SerializeField] private Vector2 selectionMapSize = new(920f, 760f);
+    [SerializeField, Min(60f)] private float mapHorizontalSpacing = 150f;
+    [SerializeField, Min(60f)] private float mapVerticalSpacing = 112f;
+    [SerializeField, Min(24f)] private float mapNodeSize = 44f;
+    [SerializeField] private Color mapBackground = new(0.025f, 0.032f, 0.050f, 0.97f);
+    [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
+    [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
     [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
-    [SerializeField] private Color mapAvailable = new(1f, 0.78f, 0.22f, 1f);
-    [SerializeField] private Color mapElite = new(1f, 0.44f, 0.22f, 1f);
-    [SerializeField] private Color mapLink = new(0.34f, 0.39f, 0.46f, 0.96f);
+    [SerializeField] private Color mapAvailable = new(1f, 0.76f, 0.22f, 1f);
+    [SerializeField] private Color mapElite = new(1f, 0.38f, 0.20f, 1f);
+    [SerializeField] private Color mapLink = new(0.30f, 0.35f, 0.43f, 0.96f);
 
     [Header("32px Tile / 48px Character Test Scale")]
     [SerializeField, Min(0.5f)] private float testPlayerWorldHeight = 1.5f;
@@ -74,13 +77,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private PlayerController player;
     private NodeGraphSO graph;
 
-    private readonly Dictionary<string, Vector2Int> resolvedMapPositions = new();
+    private readonly Dictionary<string, Vector2> resolvedMapPositions = new();
     private readonly Dictionary<string, ProceduralRoomLayout> roomLayouts = new();
     private readonly HashSet<string> visitedNodeIds = new();
-
     private readonly HashSet<Vector2Int> currentTargetLocalTiles = new();
-    private Vector2Int currentBaseWorldTile;
 
+    private Vector2Int currentBaseWorldTile;
     private Canvas stageMapCanvas;
     private RectTransform stageMapPanel;
     private Image stageMapPanelImage;
@@ -180,6 +182,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 Subscribe();
                 EnsureStageMapUI();
                 BuildResolvedLayout();
+                RefreshStageMap();
             }
         }
 
@@ -196,7 +199,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
 
         visitedNodeIds.Add(node.id);
-
         if ((node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite) && node.room != null)
             PrepareProceduralRoomPresentation(node);
 
@@ -210,6 +212,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
     {
+        BuildResolvedLayout();
         RefreshStageMap();
     }
 
@@ -269,7 +272,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         for (int i = 0; i < plans.Count; i++)
         {
             PiecePlan plan = plans[i];
-            MapBlock prototype = CreateExtensionPrototype(node, layout.targetCells, plan.cells, i);
+            float offscreenOffset = CalculateOffscreenEntryOffset(plan.cells, plan.entryDirection, baseOriginWorld, room.largePieceEntryOffset);
+            MapBlock prototype = CreateExtensionPrototype(node, layout.targetCells, plan.cells, i, offscreenOffset);
             if (prototype == null)
                 continue;
 
@@ -291,17 +295,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         currentTargetLocalTiles.Clear();
         currentTargetLocalTiles.UnionWith(layout.targetCells);
 
-        // Only extension prototypes exist. The real 4x4 Base stays untouched at local (0..3, 0..3).
         room.blocks = runtimePlacements;
         room.repositionPlayerOnEnter = false;
         room.playerEntryOffset = Vector2.zero;
 
-        StartCoroutine(RestoreRoomDataNextFrame(
-            room,
-            oldBlocks,
-            oldReposition,
-            oldEntry,
-            runtimePrototypes));
+        StartCoroutine(RestoreRoomDataNextFrame(room, oldBlocks, oldReposition, oldEntry, runtimePrototypes));
     }
 
     private void SetRoomOrigin(Vector3 baseOriginWorld)
@@ -367,44 +365,35 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         int seed = StableHash(node.id) ^ StableHash(room.roomId) ^ room.proceduralSeed;
         System.Random random = new(seed);
 
-        Vector2Int size;
-        if (room.useProceduralRoom)
-        {
-            size = new Vector2Int(
-                ChooseEvenDimension(min.x, max.x, random),
-                ChooseEvenDimension(min.y, max.y, random));
-        }
-        else
-        {
-            Vector2Int requested = room.GetLargePieceGridSize();
-            size = new Vector2Int(
-                Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, MakeEven(requested.x)),
-                Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, MakeEven(requested.y)));
-        }
+        Vector2Int size = room.useProceduralRoom
+            ? new Vector2Int(ChooseDimension(min.x, max.x, random), ChooseDimension(min.y, max.y, random))
+            : room.GetLargePieceGridSize();
+
+        size.x = Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, size.x);
+        size.y = Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, size.y);
+
+        Vector2Int positiveBaseStart = new(
+            Mathf.Max(0, (size.x - RoomBaseTemplate.FixedBaseTiles) / 2),
+            Mathf.Max(0, (size.y - RoomBaseTemplate.FixedBaseTiles) / 2));
 
         RoomLargePieceShape shape = room.largePieceShape == RoomLargePieceShape.Auto
-            ? RoomLargePieceShape.Rectangle
+            ? ResolveAutoShape(random)
             : room.largePieceShape;
 
-        HashSet<Vector2Int> positiveTarget = BuildShape(room, size, shape, random);
-        Vector2Int positiveBaseStart = new(
-            (size.x - RoomBaseTemplate.FixedBaseTiles) / 2,
-            (size.y - RoomBaseTemplate.FixedBaseTiles) / 2);
+        HashSet<Vector2Int> positiveTarget = BuildShape(room, size, shape, positiveBaseStart, random);
 
-        // The Base is the seed. Every valid target MUST include all 16 Base cells before any extension is calculated.
         for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
         {
             for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
                 positiveTarget.Add(positiveBaseStart + new Vector2Int(x, y));
         }
 
-        // A generated field may have exterior notches, but never an accidental empty pocket inside the field.
-        // This is especially important around the persistent 4x4: the Base is the main anchor, not an island.
         FillEnclosedHoles(positiveTarget, size);
 
-        int chunk = room.GetMinimumRoomChunkTiles();
+        int chunk = Mathf.Max(RoomDefinitionSO.MinimumPassageTiles, room.GetMinimumRoomChunkTiles());
         if (positiveTarget.Count == 0 || !IsConnected(positiveTarget) || !EveryCellBelongsToChunk(positiveTarget, chunk))
         {
+            Debug.LogWarning($"[BattleSpatial] Shape '{shape}' for '{room.roomId}' failed topology validation. Using a solid rectangle.");
             positiveTarget = BuildRectangle(size);
         }
 
@@ -412,17 +401,157 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         foreach (Vector2Int cell in positiveTarget)
             targetLocal.Add(cell - positiveBaseStart);
 
-        // A hard invariant, not a presentation fix: local 0..3 are exactly the already-existing Base.
         HashSet<Vector2Int> baseCells = CreateBaseCells();
         if (!baseCells.IsSubsetOf(targetLocal))
         {
-            Debug.LogError($"[BattleSpatial] Generated target for '{room.roomId}' lost the persistent Base. Falling back to Rectangle.");
             targetLocal.Clear();
             foreach (Vector2Int cell in BuildRectangle(size))
                 targetLocal.Add(cell - positiveBaseStart);
         }
 
-        return new ProceduralRoomLayout(size, targetLocal);
+        return new ProceduralRoomLayout(size, targetLocal, shape);
+    }
+
+    private static int ChooseDimension(int min, int max, System.Random random)
+    {
+        min = Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, min);
+        max = Mathf.Max(min, max);
+        return random.Next(min, max + 1);
+    }
+
+    private static RoomLargePieceShape ResolveAutoShape(System.Random random)
+    {
+        int roll = random.Next(100);
+        if (roll < 22) return RoomLargePieceShape.Rectangle;
+        if (roll < 42) return RoomLargePieceShape.LShape;
+        if (roll < 62) return RoomLargePieceShape.TShape;
+        if (roll < 78) return RoomLargePieceShape.Cross;
+        return RoomLargePieceShape.Irregular;
+    }
+
+    private HashSet<Vector2Int> BuildShape(
+        RoomDefinitionSO room,
+        Vector2Int size,
+        RoomLargePieceShape shape,
+        Vector2Int baseStart,
+        System.Random random)
+    {
+        if (shape == RoomLargePieceShape.Custom)
+        {
+            HashSet<Vector2Int> custom = new();
+            if (room.customLargePieceCells != null)
+            {
+                for (int i = 0; i < room.customLargePieceCells.Count; i++)
+                {
+                    Vector2Int c = room.customLargePieceCells[i];
+                    if (c.x >= 0 && c.y >= 0 && c.x < size.x && c.y < size.y)
+                        custom.Add(c);
+                }
+            }
+            return custom;
+        }
+
+        if (shape == RoomLargePieceShape.Rectangle)
+            return BuildRectangle(size);
+
+        int chunk = Mathf.Clamp(room.GetMinimumRoomChunkTiles(), RoomDefinitionSO.MinimumPassageTiles, Mathf.Min(size.x, size.y));
+        int bandX = Mathf.Clamp(baseStart.x, 0, Mathf.Max(0, size.x - chunk));
+        int bandY = Mathf.Clamp(baseStart.y, 0, Mathf.Max(0, size.y - chunk));
+        HashSet<Vector2Int> cells = new();
+
+        if (shape == RoomLargePieceShape.Cross)
+        {
+            AddRect(cells, 0, bandY, size.x, chunk, size);
+            AddRect(cells, bandX, 0, chunk, size.y, size);
+            return cells;
+        }
+
+        if (shape == RoomLargePieceShape.TShape)
+        {
+            bool barTop = random.Next(2) == 0;
+            int barY = barTop ? size.y - chunk : 0;
+            AddRect(cells, 0, barY, size.x, chunk, size);
+            AddRect(cells, bandX, 0, chunk, size.y, size);
+            return cells;
+        }
+
+        if (shape == RoomLargePieceShape.LShape)
+        {
+            bool horizontalRight = random.Next(2) == 0;
+            bool verticalUp = random.Next(2) == 0;
+
+            int hx = horizontalRight ? baseStart.x : 0;
+            int hw = horizontalRight ? size.x - hx : Mathf.Min(size.x, baseStart.x + chunk);
+            AddRect(cells, hx, bandY, hw, chunk, size);
+
+            int vy = verticalUp ? baseStart.y : 0;
+            int vh = verticalUp ? size.y - vy : Mathf.Min(size.y, baseStart.y + chunk);
+            AddRect(cells, bandX, vy, chunk, vh, size);
+            return cells;
+        }
+
+        cells = BuildRectangle(size);
+        ApplySafeCornerNotches(cells, size, baseStart, chunk, room, random);
+        return cells;
+    }
+
+    private static void AddRect(HashSet<Vector2Int> cells, int x, int y, int width, int height, Vector2Int bounds)
+    {
+        int minX = Mathf.Clamp(x, 0, bounds.x);
+        int minY = Mathf.Clamp(y, 0, bounds.y);
+        int maxX = Mathf.Clamp(x + width, 0, bounds.x);
+        int maxY = Mathf.Clamp(y + height, 0, bounds.y);
+
+        for (int py = minY; py < maxY; py++)
+            for (int px = minX; px < maxX; px++)
+                cells.Add(new Vector2Int(px, py));
+    }
+
+    private static HashSet<Vector2Int> BuildRectangle(Vector2Int size)
+    {
+        HashSet<Vector2Int> cells = new();
+        for (int y = 0; y < size.y; y++)
+            for (int x = 0; x < size.x; x++)
+                cells.Add(new Vector2Int(x, y));
+        return cells;
+    }
+
+    private static void ApplySafeCornerNotches(
+        HashSet<Vector2Int> cells,
+        Vector2Int size,
+        Vector2Int baseStart,
+        int chunk,
+        RoomDefinitionSO room,
+        System.Random random)
+    {
+        int attempts = 1 + Mathf.RoundToInt(room.proceduralComplexity * 2f);
+        double chance = Mathf.Clamp01(room.proceduralIndentChance + 0.28f);
+
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            if (random.NextDouble() > chance)
+                continue;
+
+            int corner = random.Next(4);
+            int maxCutX = Mathf.Max(chunk, Mathf.Min(size.x / 3, size.x - chunk));
+            int maxCutY = Mathf.Max(chunk, Mathf.Min(size.y / 3, size.y - chunk));
+            int cutX = random.Next(chunk, maxCutX + 1);
+            int cutY = random.Next(chunk, maxCutY + 1);
+
+            for (int y = 0; y < cutY; y++)
+            {
+                for (int x = 0; x < cutX; x++)
+                {
+                    int px = (corner == 1 || corner == 3) ? size.x - 1 - x : x;
+                    int py = corner >= 2 ? size.y - 1 - y : y;
+                    Vector2Int c = new(px, py);
+                    if (c.x >= baseStart.x - 1 && c.x <= baseStart.x + RoomBaseTemplate.FixedBaseTiles &&
+                        c.y >= baseStart.y - 1 && c.y <= baseStart.y + RoomBaseTemplate.FixedBaseTiles)
+                        continue;
+                    cells.Remove(c);
+                }
+            }
+        }
     }
 
     private static void FillEnclosedHoles(HashSet<Vector2Int> cells, Vector2Int size)
@@ -433,38 +562,22 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         Queue<Vector2Int> queue = new();
         HashSet<Vector2Int> outsideEmpty = new();
 
-        void TrySeed(Vector2Int cell)
-        {
-            if (cell.x < 0 || cell.y < 0 || cell.x >= size.x || cell.y >= size.y)
-                return;
-            if (cells.Contains(cell) || !outsideEmpty.Add(cell))
-                return;
-            queue.Enqueue(cell);
-        }
-
         for (int x = 0; x < size.x; x++)
         {
-            TrySeed(new Vector2Int(x, 0));
-            TrySeed(new Vector2Int(x, size.y - 1));
+            SeedOutside(new Vector2Int(x, 0), cells, outsideEmpty, queue, size);
+            SeedOutside(new Vector2Int(x, size.y - 1), cells, outsideEmpty, queue, size);
         }
         for (int y = 0; y < size.y; y++)
         {
-            TrySeed(new Vector2Int(0, y));
-            TrySeed(new Vector2Int(size.x - 1, y));
+            SeedOutside(new Vector2Int(0, y), cells, outsideEmpty, queue, size);
+            SeedOutside(new Vector2Int(size.x - 1, y), cells, outsideEmpty, queue, size);
         }
 
         while (queue.Count > 0)
         {
             Vector2Int current = queue.Dequeue();
             for (int i = 0; i < Cardinal.Length; i++)
-            {
-                Vector2Int next = current + Cardinal[i];
-                if (next.x < 0 || next.y < 0 || next.x >= size.x || next.y >= size.y)
-                    continue;
-                if (cells.Contains(next) || !outsideEmpty.Add(next))
-                    continue;
-                queue.Enqueue(next);
-            }
+                SeedOutside(current + Cardinal[i], cells, outsideEmpty, queue, size);
         }
 
         for (int y = 0; y < size.y; y++)
@@ -478,28 +591,22 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private static int ChooseEvenDimension(int min, int max, System.Random random)
+    private static void SeedOutside(
+        Vector2Int cell,
+        HashSet<Vector2Int> cells,
+        HashSet<Vector2Int> outside,
+        Queue<Vector2Int> queue,
+        Vector2Int size)
     {
-        min = Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, min);
-        max = Mathf.Max(min, max);
-
-        int firstEven = (min & 1) == 0 ? min : min + 1;
-        int lastEven = (max & 1) == 0 ? max : max - 1;
-        if (firstEven > lastEven)
-            return firstEven;
-
-        int count = ((lastEven - firstEven) / 2) + 1;
-        return firstEven + random.Next(count) * 2;
-    }
-
-    private static int MakeEven(int value)
-    {
-        value = Mathf.Max(1, value);
-        return (value & 1) == 0 ? value : value + 1;
+        if (cell.x < 0 || cell.y < 0 || cell.x >= size.x || cell.y >= size.y)
+            return;
+        if (cells.Contains(cell) || !outside.Add(cell))
+            return;
+        queue.Enqueue(cell);
     }
 
     // ---------------------------------------------------------------------
-    // Extension-only piece planning
+    // Large extension-piece planning
     // ---------------------------------------------------------------------
 
     private List<PiecePlan> BuildFrontierAssemblyPlan(
@@ -514,22 +621,31 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         HashSet<Vector2Int> remaining = new(extensionCells);
         HashSet<Vector2Int> occupied = new(baseCells);
         System.Random random = new(seed);
-        int maxSpan = Mathf.Clamp(maximumPieceTileSpan, 2, 4);
+        int maxSpan = Mathf.Clamp(maximumPieceTileSpan, 3, 8);
         int minCells = Mathf.Clamp(minimumPieceCellCount, 2, maxSpan * maxSpan);
         int safety = 0;
 
-        while (remaining.Count > 0 && result.Count < maximumPieceCount && safety++ < 1024)
+        while (remaining.Count > 0 && result.Count < maximumPieceCount && safety++ < 2048)
         {
             List<Vector2Int> frontier = CollectFrontierCells(remaining, occupied);
             if (frontier.Count == 0)
             {
-                Debug.LogError("[BattleSpatial] Extension target became disconnected from the existing 4x4 occupied floor.");
+                Debug.LogError("[BattleSpatial] Extension target became disconnected from the occupied 4x4 frontier.");
                 break;
             }
 
             Vector2Int seedCell = ChooseFrontierSeed(frontier, remaining, random);
-            int targetCount = ChoosePieceCellCount(random, maxSpan, minCells);
-            HashSet<Vector2Int> piece = GrowConnectedPiece(seedCell, remaining, targetCount, maxSpan, random);
+            HashSet<Vector2Int> piece = FindLargestFrontierRectangle(seedCell, remaining, maxSpan, minCells, random);
+            if (piece.Count < minCells)
+            {
+                piece = GrowConnectedPiece(
+                    seedCell,
+                    remaining,
+                    Mathf.Max(minCells, preferredPieceCellCount),
+                    maxSpan,
+                    random);
+            }
+
             if (piece.Count == 0)
             {
                 remaining.Remove(seedCell);
@@ -546,15 +662,20 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             }
         }
 
-        // Safety path: keep connectivity even if a highly irregular custom Room exceeds the piece-count cap.
-        while (remaining.Count > 0 && safety++ < 4096)
+        // If the piece cap was reached, continue with large connected chunks instead of creating single-cell fragments.
+        while (remaining.Count > 0 && safety++ < 8192)
         {
             List<Vector2Int> frontier = CollectFrontierCells(remaining, occupied);
             if (frontier.Count == 0)
                 break;
 
-            Vector2Int seedCell = ChooseFrontierSeed(frontier, remaining, random);
-            HashSet<Vector2Int> piece = GrowConnectedPiece(seedCell, remaining, Mathf.Max(minCells, 16), 4, random);
+            Vector2Int seedCell = frontier[0];
+            HashSet<Vector2Int> piece = GrowConnectedPiece(
+                seedCell,
+                remaining,
+                Mathf.Max(preferredPieceCellCount, minCells),
+                maxSpan,
+                random);
             if (piece.Count == 0)
                 piece.Add(seedCell);
 
@@ -571,9 +692,66 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return result;
     }
 
-    private static List<Vector2Int> CollectFrontierCells(
+    private static HashSet<Vector2Int> FindLargestFrontierRectangle(
+        Vector2Int seed,
         HashSet<Vector2Int> remaining,
-        HashSet<Vector2Int> occupied)
+        int maxSpan,
+        int minimumCells,
+        System.Random random)
+    {
+        HashSet<Vector2Int> best = new();
+        int bestScore = -1;
+
+        for (int width = 1; width <= maxSpan; width++)
+        {
+            for (int height = 1; height <= maxSpan; height++)
+            {
+                int area = width * height;
+                if (area < minimumCells)
+                    continue;
+
+                for (int ox = seed.x - width + 1; ox <= seed.x; ox++)
+                {
+                    for (int oy = seed.y - height + 1; oy <= seed.y; oy++)
+                    {
+                        if (seed.x < ox || seed.x >= ox + width || seed.y < oy || seed.y >= oy + height)
+                            continue;
+
+                        bool full = true;
+                        for (int y = 0; y < height && full; y++)
+                        {
+                            for (int x = 0; x < width; x++)
+                            {
+                                if (!remaining.Contains(new Vector2Int(ox + x, oy + y)))
+                                {
+                                    full = false;
+                                    break;
+                                }
+                            }
+                        }
+
+                        if (!full)
+                            continue;
+
+                        int compactBonus = Mathf.Min(width, height) >= 2 ? 12 : 0;
+                        int score = area * 10 + compactBonus + random.Next(0, 3);
+                        if (score <= bestScore)
+                            continue;
+
+                        bestScore = score;
+                        best.Clear();
+                        for (int y = 0; y < height; y++)
+                            for (int x = 0; x < width; x++)
+                                best.Add(new Vector2Int(ox + x, oy + y));
+                    }
+                }
+            }
+        }
+
+        return best;
+    }
+
+    private static List<Vector2Int> CollectFrontierCells(HashSet<Vector2Int> remaining, HashSet<Vector2Int> occupied)
     {
         List<Vector2Int> result = new();
         foreach (Vector2Int cell in remaining)
@@ -582,7 +760,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             {
                 if (!occupied.Contains(cell + Cardinal[i]))
                     continue;
-
                 result.Add(cell);
                 break;
             }
@@ -590,10 +767,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return result;
     }
 
-    private static Vector2Int ChooseFrontierSeed(
-        List<Vector2Int> frontier,
-        HashSet<Vector2Int> remaining,
-        System.Random random)
+    private static Vector2Int ChooseFrontierSeed(List<Vector2Int> frontier, HashSet<Vector2Int> remaining, System.Random random)
     {
         if (frontier == null || frontier.Count == 0)
             return Vector2Int.zero;
@@ -602,25 +776,16 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         for (int i = 0; i < frontier.Count; i++)
         {
             Vector2Int cell = frontier[i];
+            int neighbors = 0;
             for (int d = 0; d < Cardinal.Length; d++)
-            {
-                if (!remaining.Contains(cell + Cardinal[d]))
-                    continue;
+                if (remaining.Contains(cell + Cardinal[d]))
+                    neighbors++;
+            if (neighbors >= 2)
                 expandable.Add(cell);
-                break;
-            }
         }
 
         List<Vector2Int> source = expandable.Count > 0 ? expandable : frontier;
         return source[random.Next(source.Count)];
-    }
-
-    private static int ChoosePieceCellCount(System.Random random, int maxSpan, int minCells)
-    {
-        int maxCells = Mathf.Max(minCells, maxSpan * maxSpan);
-        int roll = random.Next(100);
-        int desired = roll < 38 ? 2 : roll < 66 ? 4 : roll < 84 ? 6 : roll < 94 ? 9 : 12;
-        return Mathf.Clamp(desired, minCells, maxCells);
     }
 
     private static HashSet<Vector2Int> GrowConnectedPiece(
@@ -662,10 +827,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             minY = nextMinY;
             maxY = nextMaxY;
 
-            int rotation = random.Next(Cardinal.Length);
             for (int d = 0; d < Cardinal.Length; d++)
             {
-                Vector2Int next = current + Cardinal[(d + rotation) % Cardinal.Length];
+                Vector2Int next = current + Cardinal[d];
                 if (remaining.Contains(next) && queued.Add(next))
                     candidates.Add(next);
             }
@@ -681,7 +845,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         bool changed = true;
         int safety = 0;
-        while (changed && safety++ < 256)
+        while (changed && safety++ < 512)
         {
             changed = false;
             for (int i = 0; i < plans.Count; i++)
@@ -704,12 +868,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private static int FindAdjacentPlan(List<PiecePlan> plans, int sourceIndex)
     {
-        if (plans == null || sourceIndex < 0 || sourceIndex >= plans.Count)
-            return -1;
-
         PiecePlan source = plans[sourceIndex];
         int best = -1;
-        int bestContacts = -1;
+        int bestContacts = 0;
 
         for (int i = 0; i < plans.Count; i++)
         {
@@ -720,26 +881,21 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             foreach (Vector2Int cell in source.cells)
             {
                 for (int d = 0; d < Cardinal.Length; d++)
-                {
                     if (plans[i].cells.Contains(cell + Cardinal[d]))
                         contacts++;
-                }
             }
 
             if (contacts > bestContacts)
             {
                 bestContacts = contacts;
-                best = contacts > 0 ? i : best;
+                best = i;
             }
         }
 
         return best;
     }
 
-    private static Vector2 ResolveContactOutwardDirection(
-        HashSet<Vector2Int> piece,
-        HashSet<Vector2Int> occupied,
-        int fallbackIndex)
+    private static Vector2 ResolveContactOutwardDirection(HashSet<Vector2Int> piece, HashSet<Vector2Int> occupied, int fallbackIndex)
     {
         Vector2 outward = Vector2.zero;
         int contacts = 0;
@@ -751,7 +907,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 Vector2Int towardOccupied = Cardinal[i];
                 if (!occupied.Contains(cell + towardOccupied))
                     continue;
-
                 outward += -(Vector2)towardOccupied;
                 contacts++;
             }
@@ -764,8 +919,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return outward.y >= 0f ? Vector2.up : Vector2.down;
         }
 
-        Vector2 center = CalculateCenter(piece);
-        Vector2 delta = center - new Vector2(1.5f, 1.5f);
+        Vector2 delta = CalculateCenter(piece) - new Vector2(1.5f, 1.5f);
         if (delta.sqrMagnitude > 0.001f)
         {
             if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
@@ -777,11 +931,63 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return fallback[Mathf.Abs(fallbackIndex) % fallback.Length];
     }
 
+    private float CalculateOffscreenEntryOffset(
+        HashSet<Vector2Int> pieceCells,
+        Vector2 outward,
+        Vector3 baseOriginWorld,
+        float authoredFallback)
+    {
+        float fallback = Mathf.Max(fallbackOffscreenEntryDistance, authoredFallback);
+        if (pieceCells == null || pieceCells.Count == 0)
+            return fallback;
+
+        GetCellBounds(pieceCells, out int minX, out int minY, out int maxX, out int maxY);
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic)
+            return fallback;
+
+        float halfH = camera.orthographicSize;
+        float halfW = halfH * Mathf.Max(0.1f, camera.aspect);
+        Vector3 cameraCenter = camera.transform.position;
+        float margin = Mathf.Max(0.5f, offscreenMargin) + 0.5f;
+        float required = 0f;
+
+        if (Mathf.Abs(outward.x) >= Mathf.Abs(outward.y))
+        {
+            if (outward.x >= 0f)
+            {
+                float screenRight = cameraCenter.x + halfW + margin;
+                required = screenRight - (baseOriginWorld.x + minX - 0.5f);
+            }
+            else
+            {
+                float screenLeft = cameraCenter.x - halfW - margin;
+                required = (baseOriginWorld.x + maxX + 0.5f) - screenLeft;
+            }
+        }
+        else
+        {
+            if (outward.y >= 0f)
+            {
+                float screenTop = cameraCenter.y + halfH + margin;
+                required = screenTop - (baseOriginWorld.y + minY - 0.5f);
+            }
+            else
+            {
+                float screenBottom = cameraCenter.y - halfH - margin;
+                required = (baseOriginWorld.y + maxY + 0.5f) - screenBottom;
+            }
+        }
+
+        return Mathf.Max(fallback, required);
+    }
+
     private MapBlock CreateExtensionPrototype(
         BattleNodeData node,
         HashSet<Vector2Int> fullTargetCells,
         HashSet<Vector2Int> pieceCells,
-        int pieceIndex)
+        int pieceIndex,
+        float entryOffset)
     {
         if (pieceCells == null || pieceCells.Count == 0)
             return null;
@@ -791,7 +997,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         foreach (Vector2Int cell in pieceCells)
         {
-            // There is intentionally no branch for Base cells here: pieceCells came from target - base.
             GameObject floor = new($"Tile_{cell.x}_{cell.y}");
             floor.transform.SetParent(root.transform, false);
             floor.transform.localPosition = new Vector3(cell.x, cell.y, 0f);
@@ -815,24 +1020,19 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             true,
             roomImpactStrength,
             node.room.largePieceEntryDuration,
-            node.room.largePieceEntryOffset);
+            entryOffset);
         return block;
     }
 
-    private void BuildOuterBoundaryForPiece(
-        Transform root,
-        HashSet<Vector2Int> fullTargetCells,
-        HashSet<Vector2Int> pieceCells)
+    private void BuildOuterBoundaryForPiece(Transform root, HashSet<Vector2Int> fullTargetCells, HashSet<Vector2Int> pieceCells)
     {
         foreach (Vector2Int cell in pieceCells)
         {
             for (int i = 0; i < Cardinal.Length; i++)
             {
                 Vector2Int edge = Cardinal[i];
-                // Base cells are in fullTargetCells, so no seam wall is created against the persistent 4x4.
                 if (fullTargetCells.Contains(cell + edge))
                     continue;
-
                 CreateBoundaryEdge(root, cell, edge);
             }
         }
@@ -870,10 +1070,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         HashSet<Vector2Int> cells = new();
         for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
-        {
             for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
                 cells.Add(new Vector2Int(x, y));
-        }
         return cells;
     }
 
@@ -894,101 +1092,19 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             Mathf.RoundToInt(world.y / RoomBaseTemplate.TileWorldSize));
     }
 
-    // ---------------------------------------------------------------------
-    // Room topology
-    // ---------------------------------------------------------------------
-
-    private HashSet<Vector2Int> BuildShape(
-        RoomDefinitionSO room,
-        Vector2Int size,
-        RoomLargePieceShape shape,
-        System.Random random)
+    private static void GetCellBounds(HashSet<Vector2Int> cells, out int minX, out int minY, out int maxX, out int maxY)
     {
-        if (shape == RoomLargePieceShape.Custom)
+        minX = int.MaxValue;
+        minY = int.MaxValue;
+        maxX = int.MinValue;
+        maxY = int.MinValue;
+
+        foreach (Vector2Int cell in cells)
         {
-            HashSet<Vector2Int> custom = new();
-            if (room.customLargePieceCells != null)
-            {
-                for (int i = 0; i < room.customLargePieceCells.Count; i++)
-                {
-                    Vector2Int c = room.customLargePieceCells[i];
-                    if (c.x >= 0 && c.y >= 0 && c.x < size.x && c.y < size.y)
-                        custom.Add(c);
-                }
-            }
-            return custom;
-        }
-
-        if (shape == RoomLargePieceShape.Rectangle)
-            return BuildRectangle(size);
-
-        int chunk = Mathf.Min(room.GetMinimumRoomChunkTiles(), Mathf.Min(size.x, size.y));
-        HashSet<Vector2Int> cells = new();
-
-        for (int y = 0; y < size.y; y++)
-        {
-            for (int x = 0; x < size.x; x++)
-            {
-                bool include = shape switch
-                {
-                    RoomLargePieceShape.LShape => x < chunk || y < chunk,
-                    RoomLargePieceShape.TShape => y >= size.y - chunk ||
-                                                  (x >= (size.x - chunk) / 2 && x < (size.x - chunk) / 2 + chunk),
-                    RoomLargePieceShape.Cross =>
-                        (x >= (size.x - chunk) / 2 && x < (size.x - chunk) / 2 + chunk) ||
-                        (y >= (size.y - chunk) / 2 && y < (size.y - chunk) / 2 + chunk),
-                    RoomLargePieceShape.Irregular => true,
-                    _ => true
-                };
-
-                if (include)
-                    cells.Add(new Vector2Int(x, y));
-            }
-        }
-
-        if (shape == RoomLargePieceShape.Irregular)
-            ApplySafeCornerNotch(cells, size, chunk, room, random);
-
-        return cells;
-    }
-
-    private static HashSet<Vector2Int> BuildRectangle(Vector2Int size)
-    {
-        HashSet<Vector2Int> cells = new();
-        for (int y = 0; y < size.y; y++)
-            for (int x = 0; x < size.x; x++)
-                cells.Add(new Vector2Int(x, y));
-        return cells;
-    }
-
-    private static void ApplySafeCornerNotch(
-        HashSet<Vector2Int> cells,
-        Vector2Int size,
-        int chunk,
-        RoomDefinitionSO room,
-        System.Random random)
-    {
-        if (size.x < chunk + 2 || size.y < chunk + 2)
-            return;
-
-        double chance = Mathf.Clamp01(room.proceduralIndentChance + room.proceduralComplexity * 0.20f);
-        if (random.NextDouble() > chance)
-            return;
-
-        int maxCutX = Mathf.Max(1, size.x - chunk);
-        int maxCutY = Mathf.Max(1, size.y - chunk);
-        int cutX = random.Next(1, maxCutX + 1);
-        int cutY = random.Next(1, maxCutY + 1);
-        int corner = random.Next(4);
-
-        for (int y = 0; y < cutY; y++)
-        {
-            for (int x = 0; x < cutX; x++)
-            {
-                int px = (corner == 1 || corner == 3) ? size.x - 1 - x : x;
-                int py = corner >= 2 ? size.y - 1 - y : y;
-                cells.Remove(new Vector2Int(px, py));
-            }
+            minX = Mathf.Min(minX, cell.x);
+            minY = Mathf.Min(minY, cell.y);
+            maxX = Mathf.Max(maxX, cell.x);
+            maxY = Mathf.Max(maxY, cell.y);
         }
     }
 
@@ -997,7 +1113,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (cells == null || cells.Count == 0)
             return false;
 
-        chunk = Mathf.Max(1, chunk);
+        chunk = Mathf.Max(RoomDefinitionSO.MinimumPassageTiles, chunk);
         foreach (Vector2Int cell in cells)
         {
             bool belongs = false;
@@ -1065,16 +1181,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             int hash = 23;
             if (text != null)
-            {
                 for (int i = 0; i < text.Length; i++)
                     hash = hash * 31 + text[i];
-            }
             return hash;
         }
     }
 
     // ---------------------------------------------------------------------
-    // Stage map UI
+    // Vertical Stage Map - selection state only
     // ---------------------------------------------------------------------
 
     private void EnsureStageMapUI()
@@ -1089,6 +1203,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapCanvas = canvasObject.AddComponent<Canvas>();
         stageMapCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
         stageMapCanvas.sortingOrder = 650;
+        stageMapCanvas.enabled = false;
 
         CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -1096,11 +1211,24 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
         canvasObject.AddComponent<GraphicRaycaster>();
 
+        GameObject dim = new("Backdrop");
+        dim.transform.SetParent(canvasObject.transform, false);
+        RectTransform dimRect = dim.AddComponent<RectTransform>();
+        dimRect.anchorMin = Vector2.zero;
+        dimRect.anchorMax = Vector2.one;
+        dimRect.offsetMin = dimRect.offsetMax = Vector2.zero;
+        Image dimImage = dim.AddComponent<Image>();
+        dimImage.color = new Color(0.005f, 0.008f, 0.015f, 0.72f);
+
         GameObject panel = new("StageMapPanel");
         panel.transform.SetParent(canvasObject.transform, false);
         stageMapPanelImage = panel.AddComponent<Image>();
         stageMapPanelImage.color = mapBackground;
         stageMapPanel = panel.GetComponent<RectTransform>();
+        stageMapPanel.anchorMin = stageMapPanel.anchorMax = new Vector2(0.5f, 0.5f);
+        stageMapPanel.pivot = new Vector2(0.5f, 0.5f);
+        stageMapPanel.anchoredPosition = Vector2.zero;
+        stageMapPanel.sizeDelta = selectionMapSize;
     }
 
     private static void EnsureEventSystem()
@@ -1116,29 +1244,42 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void RefreshStageMap()
     {
-        if (stageMapPanel == null || graph == null)
+        if (stageMapCanvas == null || stageMapPanel == null || graph == null)
             return;
 
         bool selecting = runManager != null && runManager.WaitingForNodeSelection;
-        ConfigureStageMapPanel(selecting);
+        stageMapCanvas.enabled = selecting;
+        stageMapPanel.gameObject.SetActive(selecting);
+        if (!selecting)
+            return;
 
         for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
             Destroy(stageMapPanel.GetChild(i).gameObject);
 
         BuildResolvedLayout();
-        if (selecting)
-            CreateStageMapTitle();
+        CreateStageMapTitle();
 
-        List<Vector2Int> positions = new();
+        HashSet<string> available = new();
+        if (runManager != null)
+        {
+            IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
+            for (int i = 0; i < choices.Count; i++)
+                if (choices[i] != null)
+                    available.Add(choices[i].id);
+        }
+
+        List<Vector2> positions = new();
         if (graph.nodes != null)
         {
             for (int i = 0; i < graph.nodes.Count; i++)
-                if (graph.nodes[i] != null)
-                    positions.Add(ResolveNodeMapPosition(graph.nodes[i]));
+            {
+                BattleNodeData node = graph.nodes[i];
+                if (node != null)
+                    positions.Add(ResolveNodeMapPosition(node));
+            }
         }
 
         Vector2 mapCenter = CalculateMapCenter(positions);
-        float spacing = CalculateMapSpacing(positions, selecting);
 
         if (graph.nodes != null)
         {
@@ -1150,17 +1291,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
                 List<BattleNodeData> next = graph.GetNextNodes(node);
                 for (int n = 0; n < next.Count; n++)
-                    DrawMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter, spacing);
+                    DrawMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter);
             }
-        }
-
-        HashSet<string> available = new();
-        if (runManager != null)
-        {
-            IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
-            for (int i = 0; i < choices.Count; i++)
-                if (choices[i] != null)
-                    available.Add(choices[i].id);
         }
 
         if (graph.nodes == null)
@@ -1172,7 +1304,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (node == null)
                 continue;
 
-            bool selectable = selecting && available.Contains(node.id);
+            bool selectable = available.Contains(node.id);
             Color color = mapUnknown;
             if (runManager != null && runManager.CurrentNode == node)
                 color = mapCurrent;
@@ -1181,29 +1313,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             else if (visitedNodeIds.Contains(node.id))
                 color = mapVisited;
 
-            DrawStageNode(node, ResolveNodeMapPosition(node), color, mapCenter, spacing, selectable, selecting);
-        }
-    }
-
-    private void ConfigureStageMapPanel(bool selecting)
-    {
-        if (selecting)
-        {
-            stageMapPanel.anchorMin = stageMapPanel.anchorMax = new Vector2(0.5f, 0.5f);
-            stageMapPanel.pivot = new Vector2(0.5f, 0.5f);
-            stageMapPanel.anchoredPosition = Vector2.zero;
-            stageMapPanel.sizeDelta = selectionMapSize;
-            stageMapPanelImage.color = mapBackground;
-        }
-        else
-        {
-            stageMapPanel.anchorMin = stageMapPanel.anchorMax = Vector2.one;
-            stageMapPanel.pivot = Vector2.one;
-            stageMapPanel.anchoredPosition = new Vector2(-22f, -22f);
-            stageMapPanel.sizeDelta = compactMapSize;
-            Color c = mapBackground;
-            c.a *= 0.80f;
-            stageMapPanelImage.color = c;
+            DrawStageNode(node, ResolveNodeMapPosition(node), color, mapCenter, selectable);
         }
     }
 
@@ -1217,9 +1327,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         title.transform.SetParent(stageMapPanel, false);
         Text text = title.AddComponent<Text>();
         text.font = font;
-        text.text = "SELECT NEXT STAGE";
+        text.text = "CHOOSE THE NEXT TAKE";
         text.alignment = TextAnchor.MiddleCenter;
-        text.fontSize = 22;
+        text.fontSize = 28;
+        text.fontStyle = FontStyle.Bold;
         text.color = Color.white;
         text.raycastTarget = false;
 
@@ -1227,18 +1338,28 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(0.5f, 1f);
-        rect.anchoredPosition = new Vector2(0f, -12f);
-        rect.sizeDelta = new Vector2(0f, 34f);
+        rect.anchoredPosition = new Vector2(0f, -18f);
+        rect.sizeDelta = new Vector2(0f, 42f);
+
+        GameObject sub = new("Subtitle");
+        sub.transform.SetParent(stageMapPanel, false);
+        Text subText = sub.AddComponent<Text>();
+        subText.font = font;
+        subText.text = "TOP  →  BOTTOM   /   CLICK ONE OF THE HIGHLIGHTED ROUTES";
+        subText.alignment = TextAnchor.MiddleCenter;
+        subText.fontSize = 12;
+        subText.color = new Color(0.62f, 0.67f, 0.76f, 1f);
+        subText.raycastTarget = false;
+
+        RectTransform subRect = sub.GetComponent<RectTransform>();
+        subRect.anchorMin = new Vector2(0f, 1f);
+        subRect.anchorMax = new Vector2(1f, 1f);
+        subRect.pivot = new Vector2(0.5f, 1f);
+        subRect.anchoredPosition = new Vector2(0f, -56f);
+        subRect.sizeDelta = new Vector2(0f, 24f);
     }
 
-    private void DrawStageNode(
-        BattleNodeData node,
-        Vector2Int position,
-        Color color,
-        Vector2 mapCenter,
-        float spacing,
-        bool selectable,
-        bool expanded)
+    private void DrawStageNode(BattleNodeData node, Vector2 position, Color color, Vector2 mapCenter, bool selectable)
     {
         GameObject go = new($"StageNode_{node.id}");
         go.transform.SetParent(stageMapPanel, false);
@@ -1247,11 +1368,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         image.color = color;
         image.raycastTarget = selectable;
 
+        Outline outline = go.AddComponent<Outline>();
+        outline.effectColor = selectable ? new Color(1f, 1f, 1f, 0.70f) : new Color(1f, 1f, 1f, 0.10f);
+        outline.effectDistance = selectable ? new Vector2(2f, -2f) : new Vector2(1f, -1f);
+
         RectTransform rect = go.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = new Vector2(
-            (position.x - mapCenter.x) * spacing,
-            (position.y - mapCenter.y) * spacing - (expanded ? 10f : 0f));
+            (position.x - mapCenter.x) * mapHorizontalSpacing,
+            (position.y - mapCenter.y) * mapVerticalSpacing - 20f);
         float size = mapNodeSize * (node.type == BattleNodeType.Elite ? 1.18f : 1f);
         rect.sizeDelta = Vector2.one * size;
 
@@ -1267,11 +1392,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             button.onClick.AddListener(() => runManager.SelectNextNode(id));
         }
 
-        if (expanded)
-            AddNodeLabel(go.transform, node);
+        AddNodeLabel(go.transform, node, selectable);
     }
 
-    private static void AddNodeLabel(Transform parent, BattleNodeData node)
+    private static void AddNodeLabel(Transform parent, BattleNodeData node, bool selectable)
     {
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font == null)
@@ -1281,8 +1405,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         label.transform.SetParent(parent, false);
         Text text = label.AddComponent<Text>();
         text.font = font;
-        text.text = node.type.ToString().ToUpperInvariant();
-        text.fontSize = 10;
+        text.text = selectable
+            ? $"{node.type.ToString().ToUpperInvariant()}\nCLICK"
+            : node.type.ToString().ToUpperInvariant();
+        text.fontSize = selectable ? 11 : 10;
+        text.fontStyle = selectable ? FontStyle.Bold : FontStyle.Normal;
         text.alignment = TextAnchor.UpperCenter;
         text.color = Color.white;
         text.raycastTarget = false;
@@ -1291,127 +1418,73 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.anchorMin = new Vector2(0.5f, 0f);
         rect.anchorMax = new Vector2(0.5f, 0f);
         rect.pivot = new Vector2(0.5f, 1f);
-        rect.anchoredPosition = new Vector2(0f, -5f);
-        rect.sizeDelta = new Vector2(90f, 20f);
+        rect.anchoredPosition = new Vector2(0f, -7f);
+        rect.sizeDelta = new Vector2(100f, 38f);
     }
 
     private void BuildResolvedLayout()
     {
-        if (graph == null)
+        if (graph == null || graph.nodes == null)
             return;
 
         resolvedMapPositions.Clear();
-        HashSet<Vector2Int> occupied = new();
+        SortedDictionary<int, List<BattleNodeData>> byDepth = new();
 
-        if (graph.nodes != null)
+        for (int i = 0; i < graph.nodes.Count; i++)
         {
-            for (int i = 0; i < graph.nodes.Count; i++)
-            {
-                BattleNodeData node = graph.nodes[i];
-                if (node == null || string.IsNullOrWhiteSpace(node.id) || !node.useExplicitMapPosition)
-                    continue;
-
-                Vector2Int pos = node.mapPosition;
-                if (occupied.Add(pos))
-                    resolvedMapPositions[node.id] = pos;
-            }
-        }
-
-        BattleNodeData start = graph.GetStartNode();
-        if (start == null)
-            return;
-
-        if (!resolvedMapPositions.ContainsKey(start.id))
-        {
-            Vector2Int p = FindFreeStagePosition(Vector2Int.zero, 0, occupied);
-            resolvedMapPositions[start.id] = p;
-            occupied.Add(p);
-        }
-
-        Queue<BattleNodeData> queue = new();
-        HashSet<string> visited = new();
-        queue.Enqueue(start);
-
-        while (queue.Count > 0)
-        {
-            BattleNodeData parent = queue.Dequeue();
-            if (parent == null || !visited.Add(parent.id))
+            BattleNodeData node = graph.nodes[i];
+            if (node == null || string.IsNullOrWhiteSpace(node.id))
                 continue;
 
-            Vector2Int parentPos = ResolveNodeMapPosition(parent);
-            List<BattleNodeData> next = graph.GetNextNodes(parent);
-            for (int i = 0; i < next.Count; i++)
+            if (!byDepth.TryGetValue(node.depth, out List<BattleNodeData> list))
             {
-                BattleNodeData child = next[i];
-                if (child == null)
-                    continue;
-
-                if (!resolvedMapPositions.ContainsKey(child.id))
-                {
-                    Vector2Int candidate = FindFreeStagePosition(parentPos, i, occupied);
-                    resolvedMapPositions[child.id] = candidate;
-                    occupied.Add(candidate);
-                }
-                queue.Enqueue(child);
+                list = new List<BattleNodeData>();
+                byDepth.Add(node.depth, list);
             }
+            list.Add(node);
         }
-    }
 
-    private static Vector2Int FindFreeStagePosition(Vector2Int parent, int siblingIndex, HashSet<Vector2Int> occupied)
-    {
-        int[] xOffsets = { 0, -1, 1, -2, 2, -3, 3 };
-        for (int depthStep = 1; depthStep < 20; depthStep++)
+        foreach (KeyValuePair<int, List<BattleNodeData>> pair in byDepth)
         {
-            for (int i = 0; i < xOffsets.Length; i++)
+            List<BattleNodeData> list = pair.Value;
+            list.Sort((a, b) =>
             {
-                int index = (i + siblingIndex) % xOffsets.Length;
-                Vector2Int candidate = new(parent.x + xOffsets[index], parent.y + depthStep);
-                if (!occupied.Contains(candidate))
-                    return candidate;
+                if (a.useExplicitMapPosition && b.useExplicitMapPosition)
+                    return a.mapPosition.x.CompareTo(b.mapPosition.x);
+                if (a.useExplicitMapPosition != b.useExplicitMapPosition)
+                    return a.useExplicitMapPosition ? -1 : 1;
+                return string.CompareOrdinal(a.id, b.id);
+            });
+
+            float center = (list.Count - 1) * 0.5f;
+            for (int i = 0; i < list.Count; i++)
+            {
+                BattleNodeData node = list[i];
+                float x = node.useExplicitMapPosition ? node.mapPosition.x : i - center;
+                float y = -node.depth;
+                resolvedMapPositions[node.id] = new Vector2(x, y);
             }
         }
-        return new Vector2Int(parent.x, parent.y + 20);
     }
 
-    private Vector2Int ResolveNodeMapPosition(BattleNodeData node)
+    private Vector2 ResolveNodeMapPosition(BattleNodeData node)
     {
         if (node == null)
-            return Vector2Int.zero;
-        if (resolvedMapPositions.TryGetValue(node.id, out Vector2Int pos))
+            return Vector2.zero;
+        if (resolvedMapPositions.TryGetValue(node.id, out Vector2 pos))
             return pos;
-        return node.useExplicitMapPosition ? node.mapPosition : Vector2Int.zero;
+        return new Vector2(node.useExplicitMapPosition ? node.mapPosition.x : 0f, -node.depth);
     }
 
-    private float CalculateMapSpacing(List<Vector2Int> positions, bool expanded)
-    {
-        if (positions == null || positions.Count <= 1)
-            return mapCellSpacing;
-
-        int minX = positions[0].x, maxX = positions[0].x;
-        int minY = positions[0].y, maxY = positions[0].y;
-        for (int i = 1; i < positions.Count; i++)
-        {
-            minX = Mathf.Min(minX, positions[i].x);
-            maxX = Mathf.Max(maxX, positions[i].x);
-            minY = Mathf.Min(minY, positions[i].y);
-            maxY = Mathf.Max(maxY, positions[i].y);
-        }
-
-        Vector2 panelSize = expanded ? selectionMapSize : compactMapSize;
-        float rangeX = Mathf.Max(1, maxX - minX);
-        float rangeY = Mathf.Max(1, maxY - minY);
-        float fitX = (panelSize.x - 90f) / rangeX;
-        float fitY = (panelSize.y - (expanded ? 110f : 55f)) / rangeY;
-        return Mathf.Clamp(Mathf.Min(mapCellSpacing, fitX, fitY), 28f, mapCellSpacing);
-    }
-
-    private static Vector2 CalculateMapCenter(List<Vector2Int> positions)
+    private static Vector2 CalculateMapCenter(List<Vector2> positions)
     {
         if (positions == null || positions.Count == 0)
             return Vector2.zero;
 
-        int minX = positions[0].x, maxX = positions[0].x;
-        int minY = positions[0].y, maxY = positions[0].y;
+        float minX = positions[0].x;
+        float maxX = positions[0].x;
+        float minY = positions[0].y;
+        float maxY = positions[0].y;
         for (int i = 1; i < positions.Count; i++)
         {
             minX = Mathf.Min(minX, positions[i].x);
@@ -1419,13 +1492,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             minY = Mathf.Min(minY, positions[i].y);
             maxY = Mathf.Max(maxY, positions[i].y);
         }
+
         return new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
     }
 
-    private void DrawMapLink(Vector2Int from, Vector2Int to, Vector2 center, float spacing)
+    private void DrawMapLink(Vector2 from, Vector2 to, Vector2 center)
     {
-        Vector2 a = new((from.x - center.x) * spacing, (from.y - center.y) * spacing);
-        Vector2 b = new((to.x - center.x) * spacing, (to.y - center.y) * spacing);
+        Vector2 a = new((from.x - center.x) * mapHorizontalSpacing, (from.y - center.y) * mapVerticalSpacing - 20f);
+        Vector2 b = new((to.x - center.x) * mapHorizontalSpacing, (to.y - center.y) * mapVerticalSpacing - 20f);
         Vector2 delta = b - a;
         float length = delta.magnitude;
         if (length < 1f)
@@ -1501,11 +1575,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         public readonly Vector2Int size;
         public readonly HashSet<Vector2Int> targetCells;
+        public readonly RoomLargePieceShape shape;
 
-        public ProceduralRoomLayout(Vector2Int size, HashSet<Vector2Int> targetCells)
+        public ProceduralRoomLayout(Vector2Int size, HashSet<Vector2Int> targetCells, RoomLargePieceShape shape)
         {
             this.size = size;
             this.targetCells = targetCells ?? new HashSet<Vector2Int>();
+            this.shape = shape;
         }
     }
 
@@ -1607,9 +1683,9 @@ internal static class BattleStageSelectTestDefaultsEditor
         if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
             return;
 
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_A.asset", new Vector2Int(10, 10), new Vector2Int(12, 12));
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_B.asset", new Vector2Int(10, 10), new Vector2Int(14, 14));
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_ELITE.asset", new Vector2Int(12, 12), new Vector2Int(14, 14));
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_A.asset", new Vector2Int(14, 15), new Vector2Int(18, 20));
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_B.asset", new Vector2Int(15, 16), new Vector2Int(21, 20));
+        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_ELITE.asset", new Vector2Int(17, 17), new Vector2Int(22, 22));
 
         UnityEditor.AssetDatabase.SaveAssets();
     }
@@ -1623,10 +1699,10 @@ internal static class BattleStageSelectTestDefaultsEditor
         room.startBaseTileSize = new Vector2Int(4, 4);
         room.useProceduralRoom = true;
         room.useLargeRoomPiece = true;
-        room.largePieceShape = RoomLargePieceShape.Rectangle;
+        room.largePieceShape = RoomLargePieceShape.Auto;
         room.proceduralMinTileSize = min;
         room.proceduralMaxTileSize = max;
-        room.proceduralMinChunkTileSize = 4;
+        room.proceduralMinChunkTileSize = Mathf.Max(RoomDefinitionSO.MinimumPassageTiles, 4);
         room.repositionPlayerOnEnter = false;
         UnityEditor.EditorUtility.SetDirty(room);
     }
