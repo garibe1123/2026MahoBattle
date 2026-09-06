@@ -19,6 +19,11 @@ public class BattleNodeData
     [Min(0)] public int depth;
     public bool isTerminal;
 
+    [Header("World / Mini Map Position")]
+    [Tooltip("켜면 실제 Room 월드 배치와 우측 상단 Mini Map이 이 좌표를 함께 사용합니다. 한 칸은 BattleSpatialMapController의 roomWorldSpacing입니다.")]
+    public bool useExplicitMapPosition;
+    public Vector2Int mapPosition;
+
     [Header("Combat Room")]
     public RoomDefinitionSO room;
 
@@ -28,7 +33,10 @@ public class BattleNodeData
 
 /// <summary>
 /// 웨이브를 대체하는 가변 길이 Branch/Node 그래프 데이터입니다.
-/// 테스트 시작 전에 ID/Room뿐 아니라 시작점 기준 cycle과 terminal 도달 가능성도 검사합니다.
+///
+/// mapPosition은 Room의 실제 월드 방향과 Mini Map 좌표를 동일하게 유지하기 위한 선택 데이터입니다.
+/// 명시 좌표를 사용하지 않는 Node는 BattleSpatialMapController가 Start=(0,0)을 기준으로
+/// 상/하/좌/우 빈 칸을 찾아 자동 배치합니다.
 /// </summary>
 [CreateAssetMenu(fileName = "NodeGraph", menuName = "MahoBattle/Node Graph")]
 public class NodeGraphSO : ScriptableObject
@@ -74,6 +82,7 @@ public class NodeGraphSO : ScriptableObject
         StringBuilder errors = new();
         StringBuilder warnings = new();
         HashSet<string> ids = new();
+        Dictionary<Vector2Int, string> explicitPositions = new();
 
         if (nodes == null || nodes.Count == 0)
             errors.AppendLine("Node list is empty.");
@@ -100,6 +109,17 @@ public class NodeGraphSO : ScriptableObject
 
                 if (!ids.Add(node.id))
                     errors.AppendLine($"Duplicate node id: {node.id}");
+
+                if (node.useExplicitMapPosition)
+                {
+                    if (node.mapPosition == Vector2Int.zero)
+                        warnings.AppendLine($"Node '{node.id}' explicitly uses mapPosition (0,0), which is reserved visually for the Start Area.");
+
+                    if (explicitPositions.TryGetValue(node.mapPosition, out string occupiedBy))
+                        warnings.AppendLine($"Nodes '{occupiedBy}' and '{node.id}' share explicit mapPosition {node.mapPosition}.");
+                    else
+                        explicitPositions.Add(node.mapPosition, node.id);
+                }
 
                 bool combatNode = node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite;
                 if (combatNode && node.room == null)
