@@ -4,10 +4,11 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Runtime broadcast HUD.
-/// - compact combat status + equipment dock during combat
-/// - Reward uses one near-fullscreen studio prize screen
-/// - clicking a prize only selects it; acquisition is confirmed by dragging it into an unlocked inventory slot
-/// - the current inventory remains visible during the whole Reward decision
+/// Combat keeps a compact status/loadout HUD.
+/// Reward is staged like a quiz show: the real Player remains visible in the lower-left foreground,
+/// one medium-large prize screen occupies the upper/right background, one presenter stands at the far right,
+/// and the current loadout is shown as a thin drop strip below the screen.
+/// Clicking a prize only selects it; dropping it on an unlocked slot confirms acquisition.
 /// </summary>
 public sealed class BattleHUD : MonoBehaviour
 {
@@ -21,11 +22,14 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField] private Color staminaColor = new(0.24f, 0.80f, 0.93f, 1f);
 
     [Header("Reward Show")]
-    [Tooltip("Optional single host artwork. The frame is hidden when no sprite is assigned.")]
+    [Tooltip("Optional single host artwork. The host is drawn without a UI card so it reads as a stage character.")]
     [SerializeField] private Sprite presenterSprite;
-    [SerializeField] private Color rewardFieldFilter = new(0.06f, 0.035f, 0.11f, 0.14f);
-    [Tooltip("Nearly fills a 1920x1080 frame while leaving a narrow strip for the player on the left.")]
-    [SerializeField] private Vector2 rewardScreenSize = new(1680f, 960f);
+    [SerializeField] private Color rewardFieldFilter = new(0.06f, 0.035f, 0.11f, 0.025f);
+    [Tooltip("Background prize display. Intentionally leaves the lower-left Player area unobstructed.")]
+    [SerializeField] private Vector2 rewardScreenSize = new(1120f, 560f);
+    [SerializeField] private Vector2 rewardScreenAnchor = new(0.61f, 0.69f);
+    [SerializeField] private Vector2 rewardLoadoutSize = new(1120f, 150f);
+    [SerializeField] private Vector2 rewardLoadoutAnchor = new(0.61f, 0.145f);
     [SerializeField, Range(1.02f, 1.30f)] private float rewardHoverScale = 1.10f;
     [SerializeField, Min(0f)] private float rewardHoverLift = 12f;
 
@@ -346,6 +350,7 @@ public sealed class BattleHUD : MonoBehaviour
         RectTransform rootRect = rewardRoot.AddComponent<RectTransform>();
         Stretch(rootRect);
 
+        // Barely visible broadcast tint. This must never read as a modal backdrop.
         GameObject filter = new("FieldBroadcastFilter");
         filter.transform.SetParent(rewardRoot.transform, false);
         RectTransform filterRect = filter.AddComponent<RectTransform>();
@@ -355,67 +360,72 @@ public sealed class BattleHUD : MonoBehaviour
         filterImage.raycastTarget = false;
 
         BuildRewardScreen(rewardRoot.transform);
+        BuildRewardInventory(rewardRoot.transform);
         BuildPresenter(rewardRoot.transform);
         rewardRoot.SetActive(false);
     }
 
     private void BuildRewardScreen(Transform parent)
     {
-        GameObject screen = CreatePanel(parent, "PrizeSelectionScreen", rewardScreenSize, new Color(0.022f, 0.018f, 0.050f, 0.97f));
+        GameObject screen = CreatePanel(parent, "PrizeSelectionScreen", rewardScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
         RectTransform screenRect = screen.GetComponent<RectTransform>();
-        screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.57f, 0.52f);
+        screenRect.anchorMin = screenRect.anchorMax = rewardScreenAnchor;
         screenRect.pivot = new Vector2(0.5f, 0.5f);
         screenRect.anchoredPosition = Vector2.zero;
 
-        GameObject inner = CreatePanel(screen.transform, "ScreenInner", rewardScreenSize - new Vector2(48f, 48f), new Color(0.050f, 0.041f, 0.096f, 0.985f));
+        GameObject inner = CreatePanel(screen.transform, "ScreenInner", rewardScreenSize - new Vector2(34f, 34f), new Color(0.055f, 0.045f, 0.105f, 1f));
         RectTransform innerRect = inner.GetComponent<RectTransform>();
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
-        inner.GetComponent<Outline>().effectColor = new Color(0.28f, 0.95f, 0.92f, 0.22f);
+        inner.GetComponent<Outline>().effectColor = new Color(0.28f, 0.95f, 0.92f, 0.20f);
 
-        rewardTitle = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 36, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(rewardTitle.rectTransform, new Vector2(0.045f, 0.895f), new Vector2(0.74f, 0.968f));
+        rewardTitle = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        SetAnchors(rewardTitle.rectTransform, new Vector2(0.05f, 0.865f), new Vector2(0.72f, 0.96f));
 
-        rewardSubtitle = CreateText(inner.transform, "1. SELECT A PRIZE   •   2. DRAG IT TO YOUR INVENTORY", 13, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.76f, 0.86f, 1f));
-        SetAnchors(rewardSubtitle.rectTransform, new Vector2(0.045f, 0.84f), new Vector2(0.83f, 0.895f));
+        rewardSubtitle = CreateText(inner.transform, "SELECT  •  DRAG  •  DROP", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.76f, 0.86f, 1f));
+        SetAnchors(rewardSubtitle.rectTransform, new Vector2(0.05f, 0.805f), new Vector2(0.72f, 0.86f));
 
-        Text live = CreateText(inner.transform, "[ON LIVE]", 15, FontStyle.Bold, TextAnchor.MiddleRight, new Color(1f, 0.10f, 0.12f, 1f));
-        SetAnchors(live.rectTransform, new Vector2(0.80f, 0.90f), new Vector2(0.955f, 0.965f));
+        Text live = CreateText(inner.transform, "[ON LIVE]", 14, FontStyle.Bold, TextAnchor.MiddleRight, new Color(1f, 0.10f, 0.12f, 1f));
+        SetAnchors(live.rectTransform, new Vector2(0.77f, 0.87f), new Vector2(0.95f, 0.95f));
 
         GameObject cardRoot = new("PrizeChoices");
         cardRoot.transform.SetParent(inner.transform, false);
         rewardCardRoot = cardRoot.AddComponent<RectTransform>();
-        SetAnchors(rewardCardRoot, new Vector2(0.045f, 0.47f), new Vector2(0.955f, 0.825f));
+        SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.31f), new Vector2(0.945f, 0.79f));
 
-        focusedRewardName = CreateText(inner.transform, "SELECT A PRIZE ABOVE", 19, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
-        SetAnchors(focusedRewardName.rectTransform, new Vector2(0.05f, 0.385f), new Vector2(0.38f, 0.455f));
+        focusedRewardName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
+        SetAnchors(focusedRewardName.rectTransform, new Vector2(0.055f, 0.185f), new Vector2(0.38f, 0.28f));
 
-        focusedRewardStats = CreateText(inner.transform, "Click a prize to inspect it. Drag the selected prize into one of the unlocked slots below.", 12, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.78f, 0.82f, 0.90f, 1f));
-        SetAnchors(focusedRewardStats.rectTransform, new Vector2(0.38f, 0.375f), new Vector2(0.95f, 0.455f));
+        focusedRewardStats = CreateText(inner.transform, "Hover to inspect. Click to select, then drag it to the loadout strip below.", 11, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.78f, 0.82f, 0.90f, 1f));
+        SetAnchors(focusedRewardStats.rectTransform, new Vector2(0.38f, 0.17f), new Vector2(0.945f, 0.285f));
 
-        GameObject notice = CreatePanel(inner.transform, "PlacementNotice", new Vector2(1430f, 68f), new Color(0.035f, 0.11f, 0.12f, 0.92f));
+        GameObject notice = CreatePanel(inner.transform, "PlacementNotice", new Vector2(980f, 48f), new Color(0.035f, 0.11f, 0.12f, 0.92f));
         RectTransform noticeRect = notice.GetComponent<RectTransform>();
-        noticeRect.anchorMin = noticeRect.anchorMax = new Vector2(0.5f, 0.325f);
+        noticeRect.anchorMin = noticeRect.anchorMax = new Vector2(0.5f, 0.085f);
         noticeRect.anchoredPosition = Vector2.zero;
-        rewardInstruction = CreateText(notice.transform, "SELECT A PRIZE FIRST", 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        rewardInstruction = CreateText(notice.transform, "SELECT A PRIZE FIRST", 11, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
         Stretch(rewardInstruction.rectTransform);
-
-        Text inventoryLabel = CreateText(inner.transform, "CURRENT LOADOUT  —  DROP TARGET", 13, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.78f, 0.88f, 1f));
-        SetAnchors(inventoryLabel.rectTransform, new Vector2(0.05f, 0.245f), new Vector2(0.50f, 0.29f));
-
-        BuildRewardInventory(inner.transform);
     }
 
     private void BuildRewardInventory(Transform parent)
     {
-        GameObject root = new("RewardInventory");
-        root.transform.SetParent(parent, false);
-        rewardInventoryRoot = root.AddComponent<RectTransform>();
-        SetAnchors(rewardInventoryRoot, new Vector2(0.045f, 0.055f), new Vector2(0.955f, 0.235f));
+        GameObject bar = CreatePanel(parent, "RewardLoadoutStrip", rewardLoadoutSize, new Color(0.018f, 0.024f, 0.040f, 0.92f));
+        RectTransform barRect = bar.GetComponent<RectTransform>();
+        barRect.anchorMin = barRect.anchorMax = rewardLoadoutAnchor;
+        barRect.pivot = new Vector2(0.5f, 0.5f);
+        barRect.anchoredPosition = Vector2.zero;
 
-        float slotWidth = 142f;
-        float slotHeight = 145f;
-        float spacing = 10f;
+        Text label = CreateText(bar.transform, "CURRENT LOADOUT  /  DROP TARGET", 10, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.70f, 0.76f, 0.86f, 1f));
+        SetAnchors(label.rectTransform, new Vector2(0.025f, 0.79f), new Vector2(0.46f, 0.97f));
+
+        GameObject root = new("RewardInventory");
+        root.transform.SetParent(bar.transform, false);
+        rewardInventoryRoot = root.AddComponent<RectTransform>();
+        SetAnchors(rewardInventoryRoot, new Vector2(0.02f, 0.08f), new Vector2(0.98f, 0.77f));
+
+        float slotWidth = 108f;
+        float slotHeight = 92f;
+        float spacing = 8f;
         float total = BattleEquipmentSystem.MaxSlotCount * slotWidth + (BattleEquipmentSystem.MaxSlotCount - 1) * spacing;
         float start = -total * 0.5f + slotWidth * 0.5f;
 
@@ -430,39 +440,38 @@ public sealed class BattleHUD : MonoBehaviour
             RewardInventoryDropZone zone = slot.AddComponent<RewardInventoryDropZone>();
             zone.Configure(this, i);
 
-            Text number = CreateText(slot.transform, $"SLOT {i + 1}", 10, FontStyle.Bold, TextAnchor.UpperLeft, new Color(0.70f, 0.74f, 0.82f, 1f));
-            SetAnchors(number.rectTransform, new Vector2(0.06f, 0.76f), new Vector2(0.52f, 0.94f));
+            Text number = CreateText(slot.transform, $"{i + 1}", 9, FontStyle.Bold, TextAnchor.UpperLeft, new Color(0.70f, 0.74f, 0.82f, 1f));
+            SetAnchors(number.rectTransform, new Vector2(0.06f, 0.75f), new Vector2(0.30f, 0.95f));
 
-            rewardSlotGrades[i] = CreateText(slot.transform, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
-            SetAnchors(rewardSlotGrades[i].rectTransform, new Vector2(0.48f, 0.76f), new Vector2(0.94f, 0.94f));
+            rewardSlotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
+            SetAnchors(rewardSlotGrades[i].rectTransform, new Vector2(0.42f, 0.75f), new Vector2(0.94f, 0.95f));
 
-            rewardSlotIcons[i] = CreateImage(slot.transform, "CurrentItemIcon", new Vector2(54f, 54f));
+            rewardSlotIcons[i] = CreateImage(slot.transform, "CurrentItemIcon", new Vector2(38f, 38f));
             rewardSlotIcons[i].rectTransform.anchorMin = rewardSlotIcons[i].rectTransform.anchorMax = new Vector2(0.5f, 0.60f);
 
-            rewardSlotNames[i] = CreateText(slot.transform, "LOCKED", 10, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-            SetAnchors(rewardSlotNames[i].rectTransform, new Vector2(0.05f, 0.24f), new Vector2(0.95f, 0.42f));
+            rewardSlotNames[i] = CreateText(slot.transform, "LOCKED", 8, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            SetAnchors(rewardSlotNames[i].rectTransform, new Vector2(0.05f, 0.19f), new Vector2(0.95f, 0.38f));
 
-            rewardSlotActions[i] = CreateText(slot.transform, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
-            SetAnchors(rewardSlotActions[i].rectTransform, new Vector2(0.05f, 0.045f), new Vector2(0.95f, 0.21f));
+            rewardSlotActions[i] = CreateText(slot.transform, string.Empty, 7, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
+            SetAnchors(rewardSlotActions[i].rectTransform, new Vector2(0.04f, 0.015f), new Vector2(0.96f, 0.18f));
         }
     }
 
     private void BuildPresenter(Transform parent)
     {
-        GameObject hostFrame = CreatePanel(parent, "Presenter", new Vector2(210f, 320f), new Color(0.06f, 0.025f, 0.08f, 0.78f));
-        RectTransform hostRect = hostFrame.GetComponent<RectTransform>();
-        hostRect.anchorMin = hostRect.anchorMax = new Vector2(0.91f, 0.70f);
+        GameObject host = new("Presenter");
+        host.transform.SetParent(parent, false);
+        RectTransform hostRect = host.AddComponent<RectTransform>();
+        hostRect.anchorMin = hostRect.anchorMax = new Vector2(0.905f, 0.50f);
+        hostRect.sizeDelta = new Vector2(270f, 500f);
         hostRect.anchoredPosition = Vector2.zero;
 
-        presenterImage = CreateImage(hostFrame.transform, "PresenterSprite", new Vector2(185f, 250f));
-        presenterImage.rectTransform.anchorMin = presenterImage.rectTransform.anchorMax = new Vector2(0.5f, 0.58f);
+        presenterImage = host.AddComponent<Image>();
+        presenterImage.preserveAspect = true;
+        presenterImage.raycastTarget = false;
         presenterImage.sprite = presenterSprite;
         presenterImage.enabled = presenterSprite != null;
-
-        Text hostName = CreateText(hostFrame.transform, "HOST", 12, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
-        SetAnchors(hostName.rectTransform, new Vector2(0.05f, 0.035f), new Vector2(0.95f, 0.15f));
-
-        hostFrame.SetActive(presenterSprite != null);
+        host.SetActive(presenterSprite != null);
     }
 
     private void RefreshRewardState()
@@ -519,14 +528,14 @@ public sealed class BattleHUD : MonoBehaviour
             Destroy(rewardCardRoot.GetChild(i).gameObject);
 
         rewardTitle.text = "CHOOSE YOUR PRIZE";
-        rewardSubtitle.text = "1. SELECT A PRIZE   •   2. DRAG IT TO YOUR INVENTORY";
+        rewardSubtitle.text = "SELECT  •  DRAG  •  DROP";
 
         int count = runManager.CurrentRewardChoices.Count;
         if (count <= 0)
             return;
 
-        float width = Mathf.Min(360f, 1230f / count);
-        float spacing = 30f;
+        float width = Mathf.Min(275f, 835f / count);
+        float spacing = 22f;
         float total = count * width + (count - 1) * spacing;
         float start = -total * 0.5f + width * 0.5f;
 
@@ -535,7 +544,7 @@ public sealed class BattleHUD : MonoBehaviour
             BattleEquipmentSO reward = runManager.CurrentRewardChoices[i];
             if (reward == null) continue;
 
-            GameObject card = CreatePanel(rewardCardRoot, $"Prize_{i}", new Vector2(width, 300f), RewardCardColor);
+            GameObject card = CreatePanel(rewardCardRoot, $"Prize_{i}", new Vector2(width, 245f), RewardCardColor);
             RectTransform cardRect = card.GetComponent<RectTransform>();
             cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
             Vector2 basePosition = new(start + i * (width + spacing), 0f);
@@ -553,22 +562,22 @@ public sealed class BattleHUD : MonoBehaviour
             RewardPrizeDrag drag = card.AddComponent<RewardPrizeDrag>();
             drag.Configure(this, captured);
 
-            Image icon = CreateImage(card.transform, "PrizeIcon", new Vector2(132f, 132f));
-            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.68f);
+            Image icon = CreateImage(card.transform, "PrizeIcon", new Vector2(105f, 105f));
+            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.67f);
             icon.sprite = reward.icon;
             icon.enabled = reward.icon != null;
 
-            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 11, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
-            SetAnchors(rarity.rectTransform, new Vector2(0.08f, 0.40f), new Vector2(0.92f, 0.48f));
+            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 9, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
+            SetAnchors(rarity.rectTransform, new Vector2(0.08f, 0.39f), new Vector2(0.92f, 0.47f));
 
-            Text name = CreateText(card.transform, reward.GetDisplayName(), 18, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-            SetAnchors(name.rectTransform, new Vector2(0.06f, 0.22f), new Vector2(0.94f, 0.40f));
+            Text name = CreateText(card.transform, reward.GetDisplayName(), 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            SetAnchors(name.rectTransform, new Vector2(0.06f, 0.22f), new Vector2(0.94f, 0.39f));
 
-            Text type = CreateText(card.transform, reward.type.ToString().ToUpperInvariant(), 10, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f));
+            Text type = CreateText(card.transform, reward.type.ToString().ToUpperInvariant(), 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f));
             SetAnchors(type.rectTransform, new Vector2(0.08f, 0.14f), new Vector2(0.92f, 0.22f));
 
-            Text action = CreateText(card.transform, "CLICK / DRAG", 10, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
-            SetAnchors(action.rectTransform, new Vector2(0.08f, 0.035f), new Vector2(0.92f, 0.12f));
+            Text action = CreateText(card.transform, "CLICK / DRAG", 8, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
+            SetAnchors(action.rectTransform, new Vector2(0.08f, 0.025f), new Vector2(0.92f, 0.12f));
         }
     }
 
@@ -590,8 +599,8 @@ public sealed class BattleHUD : MonoBehaviour
         if (rewardInstruction != null)
         {
             rewardInstruction.text = equipmentSystem != null && !equipmentSystem.HasFreeUnlockedSlot()
-                ? $"{selected.GetDisplayName().ToUpperInvariant()} SELECTED  —  INVENTORY FULL: DROP ON THE ITEM YOU WANT TO DISCARD"
-                : $"{selected.GetDisplayName().ToUpperInvariant()} SELECTED  —  DRAG TO AN EMPTY SLOT, OR DROP ON AN ITEM TO REPLACE IT";
+                ? $"{selected.GetDisplayName().ToUpperInvariant()}  —  LOADOUT FULL: DROP ON THE ITEM TO DISCARD"
+                : $"{selected.GetDisplayName().ToUpperInvariant()}  —  DRAG TO AN OPEN SLOT OR DROP ON AN ITEM TO REPLACE";
         }
     }
 
@@ -668,9 +677,9 @@ public sealed class BattleHUD : MonoBehaviour
     private void ClearRewardFocus()
     {
         if (focusedRewardName != null)
-            focusedRewardName.text = "SELECT A PRIZE ABOVE";
+            focusedRewardName.text = "SELECT A PRIZE";
         if (focusedRewardStats != null)
-            focusedRewardStats.text = "Click a prize to inspect it. Drag the selected prize into one of the unlocked slots below.";
+            focusedRewardStats.text = "Hover to inspect. Click to select, then drag it to the loadout strip below.";
         if (rewardInstruction != null)
             rewardInstruction.text = "SELECT A PRIZE FIRST";
     }
@@ -705,31 +714,31 @@ public sealed class BattleHUD : MonoBehaviour
                 rewardSlotIcons[i].enabled = false;
                 rewardSlotNames[i].text = "LOCKED";
                 rewardSlotGrades[i].text = string.Empty;
-                rewardSlotActions[i].text = "";
+                rewardSlotActions[i].text = string.Empty;
                 continue;
             }
 
             rewardSlotIcons[i].sprite = occupied ? slot.equipment.icon : null;
             rewardSlotIcons[i].enabled = occupied && slot.equipment.icon != null;
-            rewardSlotNames[i].text = occupied ? Shorten(slot.equipment.GetDisplayName(), 16) : "EMPTY";
-            rewardSlotGrades[i].text = occupied ? $"G{slot.grade}  {slot.copies}/3" : string.Empty;
+            rewardSlotNames[i].text = occupied ? Shorten(slot.equipment.GetDisplayName(), 13) : "EMPTY";
+            rewardSlotGrades[i].text = occupied ? $"G{slot.grade} {slot.copies}/3" : string.Empty;
 
             if (selected == null)
             {
                 rewardSlotBackgrounds[i].color = occupied ? RewardOccupiedSlotColor : RewardEmptySlotColor;
-                rewardSlotActions[i].text = occupied ? "CURRENT ITEM" : "OPEN SLOT";
+                rewardSlotActions[i].text = occupied ? "CURRENT" : "OPEN";
                 rewardSlotActions[i].color = occupied ? new Color(0.65f, 0.70f, 0.79f, 1f) : new Color(0.30f, 0.90f, 0.85f, 1f);
             }
             else if (canMerge)
             {
                 rewardSlotBackgrounds[i].color = RewardMergeSlotColor;
-                rewardSlotActions[i].text = "DROP TO MERGE";
+                rewardSlotActions[i].text = "MERGE";
                 rewardSlotActions[i].color = new Color(0.30f, 0.95f, 0.78f, 1f);
             }
             else if (maxedSame)
             {
                 rewardSlotBackgrounds[i].color = RewardLockedSlotColor;
-                rewardSlotActions[i].text = "MAX — USE OTHER SLOT";
+                rewardSlotActions[i].text = "MAX";
                 rewardSlotActions[i].color = new Color(0.65f, 0.68f, 0.74f, 1f);
             }
             else if (!occupied)
@@ -741,7 +750,7 @@ public sealed class BattleHUD : MonoBehaviour
             else
             {
                 rewardSlotBackgrounds[i].color = RewardReplaceSlotColor;
-                rewardSlotActions[i].text = "DROP = DISCARD / REPLACE";
+                rewardSlotActions[i].text = "REPLACE";
                 rewardSlotActions[i].color = new Color(1f, 0.42f, 0.45f, 1f);
             }
         }
@@ -756,7 +765,7 @@ public sealed class BattleHUD : MonoBehaviour
 
         EndRewardDrag();
 
-        rewardDragGhost = CreatePanel(canvas.transform, "RewardDragGhost", new Vector2(230f, 128f), new Color(0.16f, 0.07f, 0.16f, 0.96f));
+        rewardDragGhost = CreatePanel(canvas.transform, "RewardDragGhost", new Vector2(200f, 108f), new Color(0.16f, 0.07f, 0.16f, 0.96f));
         rewardDragGhostRect = rewardDragGhost.GetComponent<RectTransform>();
         rewardDragGhostRect.pivot = new Vector2(0.5f, 0.5f);
         rewardDragGhost.transform.SetAsLastSibling();
@@ -765,14 +774,14 @@ public sealed class BattleHUD : MonoBehaviour
         ghostGroup.blocksRaycasts = false;
         ghostGroup.interactable = false;
 
-        Image icon = CreateImage(rewardDragGhost.transform, "Icon", new Vector2(62f, 62f));
+        Image icon = CreateImage(rewardDragGhost.transform, "Icon", new Vector2(54f, 54f));
         icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.20f, 0.58f);
         icon.sprite = selected.icon;
         icon.enabled = selected.icon != null;
 
-        Text name = CreateText(rewardDragGhost.transform, selected.GetDisplayName(), 13, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        Text name = CreateText(rewardDragGhost.transform, selected.GetDisplayName(), 11, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
         SetAnchors(name.rectTransform, new Vector2(0.38f, 0.45f), new Vector2(0.95f, 0.78f));
-        Text hint = CreateText(rewardDragGhost.transform, "DROP INTO SLOT", 9, FontStyle.Bold, TextAnchor.MiddleLeft, accentColor);
+        Text hint = CreateText(rewardDragGhost.transform, "DROP INTO SLOT", 8, FontStyle.Bold, TextAnchor.MiddleLeft, accentColor);
         SetAnchors(hint.rectTransform, new Vector2(0.38f, 0.18f), new Vector2(0.95f, 0.43f));
 
         UpdateRewardDrag(eventData);
@@ -824,7 +833,7 @@ public sealed class BattleHUD : MonoBehaviour
         if (!equipmentSystem.CanPlaceIntoSlot(slotIndex, selected))
         {
             if (rewardInstruction != null)
-                rewardInstruction.text = "THAT SLOT CANNOT TAKE THIS ITEM — CHOOSE ANOTHER UNLOCKED SLOT";
+                rewardInstruction.text = "THAT SLOT CANNOT TAKE THIS ITEM";
             RefreshRewardInventory();
             return;
         }
