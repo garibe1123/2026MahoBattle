@@ -147,6 +147,7 @@ public class PlayerController : MonoBehaviour, IDamageable
             {
                 Vector3 mousePos = mainCamera.ScreenToWorldPoint(Input.mousePosition);
                 mousePos.z = 0f;
+                anim?.SetFacing((Vector2)(mousePos - transform.position));
                 shootingSystem.TryShoot(mousePos);
             }
         }
@@ -193,12 +194,17 @@ public class PlayerController : MonoBehaviour, IDamageable
         consecutiveRolls++;
         StaminaChanged?.Invoke(currentStamina, maxStamina);
 
+        Vector2 fallbackFacing = anim != null && anim.Facing.sqrMagnitude > 0.001f
+            ? anim.Facing
+            : Vector2.right;
         Vector2 rollDir = moveInput == Vector2.zero
-            ? new Vector2(Mathf.Sign(transform.localScale.x), 0f)
+            ? fallbackFacing
             : moveInput;
 
         if (rollDir.sqrMagnitude <= 0.001f)
             rollDir = Vector2.right;
+
+        anim?.SetFacing(rollDir);
 
         float timer = 0f;
         rollInvincible = true;
@@ -254,8 +260,6 @@ public class PlayerController : MonoBehaviour, IDamageable
         switch (runState)
         {
             case BattleRunState.None:
-                // BattleScene bootstrap 직후 몇 프레임 동안 State=None일 수 있습니다.
-                // 이 단계에서 이동까지 죽여 두면 Scene/Input 문제와 State Gate 문제를 구분하기 어렵습니다.
                 SetInputPermissions(true, false, true);
                 break;
 
@@ -272,7 +276,6 @@ public class PlayerController : MonoBehaviour, IDamageable
                 break;
 
             case BattleRunState.ExitingRoom:
-                // 보상 선택 후 Highlight Block까지 직접 걸어갈 수는 있지만 공격은 잠급니다.
                 SetInputPermissions(true, false, true);
                 break;
 
@@ -349,10 +352,6 @@ public class PlayerController : MonoBehaviour, IDamageable
         Died?.Invoke();
     }
 
-    /// <summary>
-    /// 새 런/테스트 재시작 시 플레이어 런타임 상태를 완전히 초기화합니다.
-    /// 장기 성장에서 계산된 maxHp/maxStamina 값 자체는 유지하고 현재값만 채웁니다.
-    /// </summary>
     public void ResetForRun()
     {
         StopAllCoroutines();
