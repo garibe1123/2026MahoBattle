@@ -10,41 +10,43 @@ using UnityEngine.UI;
 /// <summary>
 /// Sephiria-like spatial battle map layer.
 ///
-/// Rules:
-/// - Start Area is an independent 3x3+ tile platform, not a Combat Room.
-/// - Gameplay Rooms are 6x6+ 32px-tile masks and may be Rectangle/L/T/Cross/Irregular/Custom.
-/// - A Room is one large docking piece even though it contains many tiles.
-/// - Current-room exits are represented by world Direction Markers.
-/// - Selecting/entering a node reserves logical navigation, but visible corridor/room pieces are revealed only
-///   when their destination enters the camera range (+ margin).
-/// - Mini Map uses the same NodeGraph coordinates as the world map.
+/// Hard spatial rules:
+/// - 32px = 1 tile = 1 world unit.
+/// - Start Area is 4x4+ and is not a Combat Room.
+/// - Combat Rooms are 6x6+.
+/// - Generated positive chunks / arms / necks are never thinner than 4 tiles.
+/// - Bridges are tile-aligned and at least 4 tiles wide.
+/// - Every Room Door is derived from the adjacent Bridge axis and uses the same 4-tile band.
+/// - Visible bridge pieces and Room pieces are revealed only when they enter Camera range (+ margin).
+/// - Player movement remains limited by BattleWalkableField, so invisible logical navigation is not walkable.
 /// </summary>
 [DefaultExecutionOrder(-20000)]
 public sealed class BattleSpatialMapController : MonoBehaviour
 {
-    [Header("World Map")]
-    [SerializeField, Min(12f)] private float roomWorldSpacing = 18f;
-    [SerializeField, Min(1f)] private float corridorWidth = 2f;
-    [SerializeField, Range(2, 7)] private int corridorPieceCount = 3;
+    private const int BridgeWidthTiles = RoomDefinitionSO.MinimumRoomChunkTiles;
+    private const int BridgeMinPieceLengthTiles = RoomDefinitionSO.MinimumRoomChunkTiles;
+
+    [Header("World Map - integer tile lattice")]
+    [SerializeField, Min(16f)] private float roomWorldSpacing = 20f;
+    [SerializeField, Range(2, 5)] private int preferredBridgePieceCount = 3;
     [SerializeField, Min(0.05f)] private float corridorEntryDuration = 0.34f;
     [SerializeField, Min(0.5f)] private float corridorEntryOffset = 5f;
     [SerializeField, Min(0f)] private float corridorPieceStagger = 0.05f;
 
     [Header("Camera Reveal")]
-    [Tooltip("Piece destination이 카메라 경계에서 이 거리 안으로 들어오면 실제 오브젝트를 생성합니다.")]
     [SerializeField, Min(0f)] private float revealMarginWorld = 1.6f;
     [SerializeField, Min(0.02f)] private float revealPollInterval = 0.04f;
 
-    [Header("Large Room Piece")]
+    [Header("Room Piece")]
     [SerializeField] private Color roomFloorColor = new(0.18f, 0.21f, 0.25f, 1f);
     [SerializeField] private Color roomEdgeColor = new(0.31f, 0.35f, 0.41f, 1f);
     [SerializeField, Min(0.03f)] private float roomEdgeThickness = 0.12f;
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
 
     [Header("Direction Marker")]
-    [SerializeField, Min(0.2f)] private float markerWorldSize = 0.48f;
+    [SerializeField, Min(0.2f)] private float markerWorldSize = 0.46f;
     [SerializeField, Min(0.1f)] private float markerTriggerRadius = 0.52f;
-    [SerializeField, Min(0f)] private float markerInset = 0.34f;
+    [SerializeField, Min(0f)] private float markerInset = 0.30f;
     [SerializeField] private Color markerAvailableColor = new(0.25f, 0.95f, 1f, 0.92f);
     [SerializeField] private Color markerEliteColor = new(1f, 0.62f, 0.18f, 0.96f);
 
@@ -60,11 +62,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField] private Color miniMapLink = new(0.36f, 0.40f, 0.46f, 0.95f);
 
     [Header("32px Tile / 48px Character Test Scale")]
-    [Tooltip("32px tile = 1 world, 48px player = 1.5 world.")]
     [SerializeField, Min(0.5f)] private float testPlayerWorldHeight = 1.5f;
-    [SerializeField, Min(0.1f)] private float testPlayerWorldColliderRadius = 0.42f;
+    [SerializeField, Min(0.1f)] private float testPlayerWorldColliderRadius = 0.60f;
     [SerializeField, Min(0.5f)] private float testMonsterWorldHeight = 1.5f;
-    [SerializeField, Min(0.1f)] private float testMonsterWorldColliderRadius = 0.40f;
+    [SerializeField, Min(0.1f)] private float testMonsterWorldColliderRadius = 0.55f;
 
     private const BindingFlags InstanceFields = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
@@ -103,10 +104,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         host.AddComponent<BattleSpatialMapController>();
     }
 
-    private void OnEnable()
-    {
-        StartCoroutine(BindWhenReady());
-    }
+    private void OnEnable() => StartCoroutine(BindWhenReady());
 
     private void OnDisable()
     {
@@ -128,20 +126,17 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         EnsureMiniMapUI();
         BuildResolvedLayout();
         SyncStartDirectionWithGraph();
+        RemoveLegacyStartBoundaries();
         RefreshMiniMap();
         RefreshWorldDirectionMarkers();
     }
 
     private void TryResolveSystems()
     {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
-        if (roomManager == null)
-            roomManager = FindFirstObjectByType<BattleRoomManager>();
-        if (baseTemplate == null)
-            baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
-        if (player == null)
-            player = FindFirstObjectByType<PlayerController>();
+        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
+        if (roomManager == null) roomManager = FindFirstObjectByType<BattleRoomManager>();
+        if (baseTemplate == null) baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        if (player == null) player = FindFirstObjectByType<PlayerController>();
 
         if (runManager != null && graph == null)
         {
@@ -201,6 +196,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             }
         }
 
+        if (runManager != null && runManager.IsInStartArea)
+            RemoveLegacyStartBoundaries();
+
         if (Time.unscaledTime >= nextCharacterSizingCheck)
         {
             nextCharacterSizingCheck = Time.unscaledTime + 0.35f;
@@ -208,10 +206,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private void HandleStateChanged(BattleRunState state)
+    private void HandleStateChanged(BattleRunState _)
     {
         if (!startOriginResolved && runManager != null && runManager.IsInStartArea)
             ResolveStartOriginFromBase();
+
+        if (runManager != null && runManager.IsInStartArea)
+            RemoveLegacyStartBoundaries();
 
         RefreshMiniMap();
         RefreshWorldDirectionMarkers();
@@ -236,11 +237,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         RefreshMiniMap();
     }
 
-    /// <summary>
-    /// NodeEntered는 "다음 공간이 선택되었다"는 의미입니다.
-    /// 여기서 visible Room 전체를 즉시 만들지 않습니다.
-    /// Logical navigation만 먼저 예약하고 visible corridor/room은 Camera Reveal coroutine이 담당합니다.
-    /// </summary>
     private void HandleNodeEntered(BattleNodeData node)
     {
         if (node == null || node.room == null || roomManager == null)
@@ -251,10 +247,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         BuildResolvedLayout();
 
         Vector2Int targetMapPosition = ResolveNodeMapPosition(node);
-        Vector3 targetRoomOrigin = MapPositionToWorld(targetMapPosition);
-        Vector3 previousOrigin = MapPositionToWorld(lastMapPosition);
-        RoomDefinitionSO previousRoom = lastRoom != null ? lastRoom : node.room;
-
         Vector2 travelDirection = CardinalDirection(targetMapPosition - lastMapPosition);
         if (travelDirection == Vector2.zero)
             travelDirection = Vector2.right;
@@ -264,22 +256,22 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ? GetOrCreateLayout(lastEnteredNode, -travelDirection)
             : CreateStartLayout(node.room);
 
+        Vector3 previousOrigin = GetRoomOrigin(lastMapPosition, previousLayout);
+        Vector3 targetRoomOrigin = GetRoomOrigin(targetMapPosition, targetLayout);
+        RoomDefinitionSO previousRoom = lastRoom != null ? lastRoom : node.room;
+
         roomManager.RoomOrigin.position = targetRoomOrigin;
 
         RouteGeometry route = CalculateRouteGeometry(
             previousOrigin,
-            previousRoom,
             previousLayout,
             targetRoomOrigin,
-            node.room,
             targetLayout,
             travelDirection);
 
         ReserveLogicalRouteAndRoom(route, node, targetRoomOrigin, targetLayout, travelDirection);
         SuppressLegacyRoomPiecesForCurrentEnter(node.room);
 
-        // BattleRunManager가 Start -> first room 전환 직전에 Player를 Room으로 순간이동시키는 legacy 동작을 하므로
-        // 첫 transition에서는 다시 Start 출구 앞에 놓아 실제 Corridor를 걸어가게 합니다.
         if (lastEnteredNode == null)
             PlacePlayerAtRouteStart(route.start, travelDirection);
 
@@ -306,9 +298,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (basis != null)
             {
                 startOrigin = baseTemplate.ActiveBase.transform.position - (Vector3)basis.GetRuntimeBaseCenterOffset();
-                startOrigin.z = roomManager != null && roomManager.RoomOrigin != null
-                    ? roomManager.RoomOrigin.position.z
-                    : 0f;
+                startOrigin.z = roomManager != null && roomManager.RoomOrigin != null ? roomManager.RoomOrigin.position.z : 0f;
                 startOriginResolved = true;
                 return;
             }
@@ -321,12 +311,21 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private Vector3 MapPositionToWorld(Vector2Int mapPosition)
+    private Vector2 GetStartMapAnchor()
     {
-        return startOrigin + new Vector3(
+        BattleNodeData first = graph != null ? graph.GetStartNode() : null;
+        RoomDefinitionSO basis = first != null ? first.room : null;
+        ProceduralRoomLayout layout = CreateStartLayout(basis);
+        return (Vector2)startOrigin + layout.MapAnchorOffset;
+    }
+
+    private Vector3 GetRoomOrigin(Vector2Int mapPosition, ProceduralRoomLayout layout)
+    {
+        Vector2 anchor = GetStartMapAnchor() + new Vector2(
             mapPosition.x * roomWorldSpacing,
-            mapPosition.y * roomWorldSpacing,
-            0f);
+            mapPosition.y * roomWorldSpacing);
+        Vector2 origin = anchor - layout.MapAnchorOffset;
+        return new Vector3(origin.x, origin.y, startOrigin.z);
     }
 
     private void BuildResolvedLayout()
@@ -428,10 +427,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (node == null)
             return Vector2Int.zero;
-
         if (resolvedMapPositions.TryGetValue(node.id, out Vector2Int position))
             return position;
-
         return node.useExplicitMapPosition ? node.mapPosition : Vector2Int.right;
     }
 
@@ -439,10 +436,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (delta == Vector2Int.zero)
             return Vector2.zero;
-
         if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
             return new Vector2(Mathf.Sign(delta.x), 0f);
-
         return new Vector2(0f, Mathf.Sign(delta.y));
     }
 
@@ -467,43 +462,45 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private ProceduralRoomLayout CreateStartLayout(RoomDefinitionSO room)
     {
-        Vector2Int size = room != null ? room.GetStartBaseTileSize() : new Vector2Int(3, 3);
-        HashSet<Vector2Int> cells = new();
-        for (int y = 0; y < size.y; y++)
-            for (int x = 0; x < size.x; x++)
-                cells.Add(new Vector2Int(x, y));
+        Vector2Int size = room != null ? room.GetStartBaseTileSize() : new Vector2Int(4, 4);
+        HashSet<Vector2Int> cells = FillRectangle(size);
         return new ProceduralRoomLayout(size, cells);
     }
 
     private ProceduralRoomLayout GetOrCreateLayout(BattleNodeData node, Vector2 approachDirection)
     {
         if (node == null || node.room == null)
-            return new ProceduralRoomLayout(new Vector2Int(6, 6), new HashSet<Vector2Int>());
+            return new ProceduralRoomLayout(new Vector2Int(6, 6), FillRectangle(new Vector2Int(6, 6)));
 
         if (roomLayouts.TryGetValue(node.id, out ProceduralRoomLayout cached))
             return cached;
 
-        HashSet<Vector2Int> requiredDirections = new();
-        Vector2Int approach = DirectionToInt(-approachDirection);
-        if (approach != Vector2Int.zero)
-            requiredDirections.Add(approach);
+        HashSet<Vector2Int> requiredDirections = GetRequiredDoorNormals(node, approachDirection);
+        ProceduralRoomLayout layout = GenerateProceduralLayout(node, requiredDirections);
+        roomLayouts[node.id] = layout;
+        return layout;
+    }
 
-        if (graph != null)
+    private HashSet<Vector2Int> GetRequiredDoorNormals(BattleNodeData node, Vector2 approachDirection)
+    {
+        HashSet<Vector2Int> result = new();
+        Vector2Int incoming = DirectionToInt(-approachDirection);
+        if (incoming != Vector2Int.zero)
+            result.Add(incoming);
+
+        if (node != null && graph != null)
         {
             Vector2Int current = ResolveNodeMapPosition(node);
             List<BattleNodeData> next = graph.GetNextNodes(node);
             for (int i = 0; i < next.Count; i++)
             {
-                Vector2 direction = CardinalDirection(ResolveNodeMapPosition(next[i]) - current);
-                Vector2Int edge = DirectionToInt(direction);
-                if (edge != Vector2Int.zero)
-                    requiredDirections.Add(edge);
+                Vector2Int normal = DirectionToInt(CardinalDirection(ResolveNodeMapPosition(next[i]) - current));
+                if (normal != Vector2Int.zero)
+                    result.Add(normal);
             }
         }
 
-        ProceduralRoomLayout layout = GenerateProceduralLayout(node, requiredDirections);
-        roomLayouts[node.id] = layout;
-        return layout;
+        return result;
     }
 
     private ProceduralRoomLayout GenerateProceduralLayout(BattleNodeData node, HashSet<Vector2Int> requiredEdges)
@@ -512,8 +509,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (!room.useProceduralRoom)
         {
             Vector2Int grid = room.GetLargePieceGridSize();
-            HashSet<Vector2Int> fixedCells = BuildPresetCells(room, grid);
-            EnsureRequiredEdges(fixedCells, grid, requiredEdges);
+            HashSet<Vector2Int> fixedCells = BuildPresetCells(room, grid, room.largePieceShape);
+            EnsureRequiredDoorBands(fixedCells, grid, requiredEdges, room.GetMinimumRoomChunkTiles());
             return new ProceduralRoomLayout(grid, fixedCells);
         }
 
@@ -523,95 +520,90 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         System.Random random = new(seed);
 
         Vector2Int size = new(
-            random.Next(min.x, max.x + 1),
-            random.Next(min.y, max.y + 1));
+            PickRoomDimension(min.x, max.x, random),
+            PickRoomDimension(min.y, max.y, random));
 
-        RoomLargePieceShape shape = room.largePieceShape;
-        if (shape == RoomLargePieceShape.Auto)
-            shape = RoomLargePieceShape.Irregular;
+        RoomLargePieceShape shape = room.largePieceShape == RoomLargePieceShape.Auto
+            ? RoomLargePieceShape.Irregular
+            : room.largePieceShape;
 
-        HashSet<Vector2Int> cells = BuildPresetCells(room, size, shape);
+        HashSet<Vector2Int> cells = shape == RoomLargePieceShape.Irregular
+            ? BuildIrregularCells(size, room.GetMinimumRoomChunkTiles(), room, random)
+            : BuildPresetCells(room, size, shape);
 
-        if (shape == RoomLargePieceShape.Irregular)
+        if (shape == RoomLargePieceShape.Custom && !HasValidMinimumChunkCoverage(cells, size, room.GetMinimumRoomChunkTiles()))
         {
-            float complexity = Mathf.Clamp01(room.proceduralComplexity);
-            float carveChance = Mathf.Clamp01(room.proceduralIndentChance + complexity * 0.18f);
-            int passes = 1 + Mathf.RoundToInt(complexity * 4f);
-
-            for (int pass = 0; pass < passes; pass++)
-            {
-                List<Vector2Int> candidates = new(cells);
-                Shuffle(candidates, random);
-
-                for (int i = 0; i < candidates.Count; i++)
-                {
-                    Vector2Int cell = candidates[i];
-                    if (!IsPerimeter(cell, size) || IsCentralSafeCell(cell, size))
-                        continue;
-                    if (random.NextDouble() > carveChance)
-                        continue;
-
-                    cells.Remove(cell);
-                    if (!IsConnected(cells))
-                        cells.Add(cell);
-                }
-            }
-
-            // 작은 bay/돌출부 느낌을 위해 깎인 외곽을 일부 다시 살립니다.
-            float extensionChance = Mathf.Clamp01(room.proceduralExtensionChance + complexity * 0.15f);
-            for (int y = 0; y < size.y; y++)
-            {
-                for (int x = 0; x < size.x; x++)
-                {
-                    Vector2Int cell = new(x, y);
-                    if (cells.Contains(cell) || !IsPerimeter(cell, size))
-                        continue;
-                    if (random.NextDouble() > extensionChance)
-                        continue;
-                    if (CountCardinalNeighbors(cells, cell) >= 2)
-                        cells.Add(cell);
-                }
-            }
+            Debug.LogWarning($"[SpatialMap] Custom room '{room.roomId}' contains structure thinner than 4 tiles. Falling back to Rectangle.");
+            cells = FillRectangle(size);
         }
 
-        EnsureRequiredEdges(cells, size, requiredEdges);
-        EnsureCentralCombatArea(cells, size);
+        EnsureCentralCombatArea(cells, size, room.GetMinimumRoomChunkTiles());
+        EnsureRequiredDoorBands(cells, size, requiredEdges, room.GetMinimumRoomChunkTiles());
+
+        if (!IsConnected(cells))
+            cells = FillRectangle(size);
+
         return new ProceduralRoomLayout(size, cells);
     }
 
-    private HashSet<Vector2Int> BuildPresetCells(RoomDefinitionSO room, Vector2Int grid, RoomLargePieceShape? forced = null)
+    private static int PickRoomDimension(int min, int max, System.Random random)
+    {
+        min = Mathf.Max(RoomDefinitionSO.MinimumCombatRoomTiles, min);
+        max = Mathf.Max(min, max);
+        List<int> values = new();
+        for (int value = min; value <= max; value++)
+            values.Add(value);
+        return values[random.Next(values.Count)];
+    }
+
+    private static HashSet<Vector2Int> FillRectangle(Vector2Int size)
     {
         HashSet<Vector2Int> cells = new();
-        RoomLargePieceShape shape = forced ?? room.largePieceShape;
+        for (int y = 0; y < size.y; y++)
+            for (int x = 0; x < size.x; x++)
+                cells.Add(new Vector2Int(x, y));
+        return cells;
+    }
+
+    private HashSet<Vector2Int> BuildPresetCells(RoomDefinitionSO room, Vector2Int grid, RoomLargePieceShape shape)
+    {
         if (shape == RoomLargePieceShape.Auto)
-            shape = RoomLargePieceShape.Rectangle;
+            shape = room.useProceduralRoom ? RoomLargePieceShape.Irregular : RoomLargePieceShape.Rectangle;
 
         if (shape == RoomLargePieceShape.Custom)
         {
+            HashSet<Vector2Int> custom = new();
             if (room.customLargePieceCells != null)
             {
                 for (int i = 0; i < room.customLargePieceCells.Count; i++)
                 {
                     Vector2Int c = room.customLargePieceCells[i];
                     if (c.x >= 0 && c.y >= 0 && c.x < grid.x && c.y < grid.y)
-                        cells.Add(c);
+                        custom.Add(c);
                 }
             }
-            return cells;
+            return custom;
         }
 
+        int chunk = room.GetMinimumRoomChunkTiles();
+        int verticalThickness = Mathf.Min(grid.x, Mathf.Max(chunk, grid.x / 2));
+        int horizontalThickness = Mathf.Min(grid.y, Mathf.Max(chunk, grid.y / 2));
+        int verticalStart = Mathf.Max(0, (grid.x - verticalThickness) / 2);
+        int horizontalStart = Mathf.Max(0, (grid.y - horizontalThickness) / 2);
+
+        HashSet<Vector2Int> cells = new();
         for (int y = 0; y < grid.y; y++)
         {
             for (int x = 0; x < grid.x; x++)
             {
                 bool include = shape switch
                 {
-                    RoomLargePieceShape.LShape => x < Mathf.Max(2, grid.x / 2) || y < Mathf.Max(2, grid.y / 2),
-                    RoomLargePieceShape.TShape => y >= grid.y - Mathf.Max(2, grid.y / 3) ||
-                                                  (x >= grid.x / 3 && x <= (grid.x - 1) - grid.x / 3),
+                    RoomLargePieceShape.LShape => x < verticalThickness || y < horizontalThickness,
+                    RoomLargePieceShape.TShape => y >= grid.y - horizontalThickness ||
+                                                  (x >= verticalStart && x < verticalStart + verticalThickness),
                     RoomLargePieceShape.Cross =>
-                        (x >= grid.x / 3 && x <= (grid.x - 1) - grid.x / 3) ||
-                        (y >= grid.y / 3 && y <= (grid.y - 1) - grid.y / 3),
+                        (x >= verticalStart && x < verticalStart + verticalThickness) ||
+                        (y >= horizontalStart && y < horizontalStart + horizontalThickness),
                     _ => true
                 };
 
@@ -619,69 +611,161 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     cells.Add(new Vector2Int(x, y));
             }
         }
+        return cells;
+    }
+
+    private static HashSet<Vector2Int> BuildIrregularCells(
+        Vector2Int size,
+        int chunk,
+        RoomDefinitionSO room,
+        System.Random random)
+    {
+        HashSet<Vector2Int> cells = FillRectangle(size);
+        int maxCutWidth = Mathf.Max(0, size.x - chunk);
+        int maxCutHeight = Mathf.Max(0, size.y - chunk);
+        if (maxCutWidth <= 0 || maxCutHeight <= 0)
+            return cells;
+
+        float complexity = Mathf.Clamp01(room.proceduralComplexity);
+        int notchCount = 1 + Mathf.RoundToInt(complexity * 2f);
+        float notchChance = Mathf.Clamp01(room.proceduralIndentChance + room.proceduralExtensionChance * 0.35f + complexity * 0.25f);
+
+        List<int> corners = new() { 0, 1, 2, 3 };
+        Shuffle(corners, random);
+
+        int applied = 0;
+        for (int i = 0; i < corners.Count && applied < notchCount; i++)
+        {
+            if (random.NextDouble() > notchChance)
+                continue;
+
+            int cutW = random.Next(1, maxCutWidth + 1);
+            int cutH = random.Next(1, maxCutHeight + 1);
+            int corner = corners[i];
+
+            int minX = corner == 1 || corner == 3 ? size.x - cutW : 0;
+            int minY = corner >= 2 ? size.y - cutH : 0;
+
+            List<Vector2Int> removed = new();
+            for (int y = minY; y < minY + cutH; y++)
+            {
+                for (int x = minX; x < minX + cutW; x++)
+                {
+                    Vector2Int c = new(x, y);
+                    if (cells.Remove(c))
+                        removed.Add(c);
+                }
+            }
+
+            if (!IsConnected(cells))
+            {
+                for (int r = 0; r < removed.Count; r++)
+                    cells.Add(removed[r]);
+                continue;
+            }
+
+            applied++;
+        }
 
         return cells;
     }
 
-    private static void EnsureCentralCombatArea(HashSet<Vector2Int> cells, Vector2Int size)
+    private static void EnsureCentralCombatArea(HashSet<Vector2Int> cells, Vector2Int size, int chunk)
     {
-        int minX = Mathf.Max(0, size.x / 2 - 2);
-        int maxX = Mathf.Min(size.x - 1, minX + 3);
-        int minY = Mathf.Max(0, size.y / 2 - 2);
-        int maxY = Mathf.Min(size.y - 1, minY + 3);
-
-        for (int y = minY; y <= maxY; y++)
-            for (int x = minX; x <= maxX; x++)
+        int width = Mathf.Min(chunk, size.x);
+        int height = Mathf.Min(chunk, size.y);
+        int startX = Mathf.Max(0, (size.x - width) / 2);
+        int startY = Mathf.Max(0, (size.y - height) / 2);
+        for (int y = startY; y < startY + height; y++)
+            for (int x = startX; x < startX + width; x++)
                 cells.Add(new Vector2Int(x, y));
     }
 
-    private static void EnsureRequiredEdges(HashSet<Vector2Int> cells, Vector2Int size, HashSet<Vector2Int> edges)
+    private static void EnsureRequiredDoorBands(
+        HashSet<Vector2Int> cells,
+        Vector2Int size,
+        HashSet<Vector2Int> edges,
+        int width)
     {
         if (edges == null)
             return;
 
+        width = Mathf.Clamp(width, 1, Mathf.Min(size.x, size.y));
         foreach (Vector2Int edge in edges)
-        {
-            Vector2Int door;
-            if (edge == Vector2Int.right) door = new Vector2Int(size.x - 1, size.y / 2);
-            else if (edge == Vector2Int.left) door = new Vector2Int(0, size.y / 2);
-            else if (edge == Vector2Int.up) door = new Vector2Int(size.x / 2, size.y - 1);
-            else if (edge == Vector2Int.down) door = new Vector2Int(size.x / 2, 0);
-            else continue;
+            EnsureDoorBand(cells, size, edge, width);
+    }
 
-            cells.Add(door);
-            Vector2Int center = new(size.x / 2, size.y / 2);
-            Vector2Int cursor = door;
-            while (cursor != center)
-            {
-                if (cursor.x != center.x)
-                    cursor.x += Math.Sign(center.x - cursor.x);
-                else if (cursor.y != center.y)
-                    cursor.y += Math.Sign(center.y - cursor.y);
-                cells.Add(cursor);
-            }
+    private static void EnsureDoorBand(HashSet<Vector2Int> cells, Vector2Int size, Vector2Int normal, int width)
+    {
+        if (normal == Vector2Int.zero)
+            return;
+
+        int centerX = size.x / 2;
+        int centerY = size.y / 2;
+
+        if (normal == Vector2Int.left || normal == Vector2Int.right)
+        {
+            int bandStart = DoorBandStart(size.y, width);
+            int innerX = normal == Vector2Int.left ? centerX : Mathf.Max(0, centerX - 1);
+            int minX = normal == Vector2Int.left ? 0 : innerX;
+            int maxX = normal == Vector2Int.left ? innerX : size.x - 1;
+            for (int y = bandStart; y < bandStart + width; y++)
+                for (int x = minX; x <= maxX; x++)
+                    cells.Add(new Vector2Int(x, y));
+        }
+        else
+        {
+            int bandStart = DoorBandStart(size.x, width);
+            int innerY = normal == Vector2Int.down ? centerY : Mathf.Max(0, centerY - 1);
+            int minY = normal == Vector2Int.down ? 0 : innerY;
+            int maxY = normal == Vector2Int.down ? innerY : size.y - 1;
+            for (int x = bandStart; x < bandStart + width; x++)
+                for (int y = minY; y <= maxY; y++)
+                    cells.Add(new Vector2Int(x, y));
         }
     }
 
-    private static bool IsCentralSafeCell(Vector2Int cell, Vector2Int size)
+    private static int DoorBandStart(int perpendicularSize, int width)
     {
-        Vector2 center = new((size.x - 1) * 0.5f, (size.y - 1) * 0.5f);
-        return Mathf.Abs(cell.x - center.x) <= 1.5f && Mathf.Abs(cell.y - center.y) <= 1.5f;
+        width = Mathf.Min(width, perpendicularSize);
+        return Mathf.Clamp((perpendicularSize - width) / 2, 0, perpendicularSize - width);
     }
 
-    private static bool IsPerimeter(Vector2Int cell, Vector2Int size)
+    private static float DoorBandCenter(int perpendicularSize, int width)
     {
-        return cell.x == 0 || cell.y == 0 || cell.x == size.x - 1 || cell.y == size.y - 1;
+        return DoorBandStart(perpendicularSize, width) + (width - 1) * 0.5f;
     }
 
-    private static int CountCardinalNeighbors(HashSet<Vector2Int> cells, Vector2Int cell)
+    private static bool HasValidMinimumChunkCoverage(HashSet<Vector2Int> cells, Vector2Int size, int chunk)
     {
-        int count = 0;
-        if (cells.Contains(cell + Vector2Int.right)) count++;
-        if (cells.Contains(cell + Vector2Int.left)) count++;
-        if (cells.Contains(cell + Vector2Int.up)) count++;
-        if (cells.Contains(cell + Vector2Int.down)) count++;
-        return count;
+        if (cells == null || cells.Count == 0)
+            return false;
+
+        foreach (Vector2Int cell in cells)
+        {
+            bool covered = false;
+            int minStartX = Mathf.Max(0, cell.x - chunk + 1);
+            int maxStartX = Mathf.Min(cell.x, size.x - chunk);
+            int minStartY = Mathf.Max(0, cell.y - chunk + 1);
+            int maxStartY = Mathf.Min(cell.y, size.y - chunk);
+
+            for (int sy = minStartY; sy <= maxStartY && !covered; sy++)
+            {
+                for (int sx = minStartX; sx <= maxStartX && !covered; sx++)
+                {
+                    bool full = true;
+                    for (int y = sy; y < sy + chunk && full; y++)
+                        for (int x = sx; x < sx + chunk; x++)
+                            if (!cells.Contains(new Vector2Int(x, y))) { full = false; break; }
+                    covered = full;
+                }
+            }
+
+            if (!covered)
+                return false;
+        }
+
+        return true;
     }
 
     private static bool IsConnected(HashSet<Vector2Int> cells)
@@ -696,8 +780,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         HashSet<Vector2Int> visited = new();
         queue.Enqueue(first);
         visited.Add(first);
-
         Vector2Int[] dirs = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
+
         while (queue.Count > 0)
         {
             Vector2Int c = queue.Dequeue();
@@ -743,30 +827,34 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private RouteGeometry CalculateRouteGeometry(
         Vector3 fromOrigin,
-        RoomDefinitionSO fromRoom,
         ProceduralRoomLayout fromLayout,
         Vector3 toOrigin,
-        RoomDefinitionSO toRoom,
         ProceduralRoomLayout toLayout,
         Vector2 direction)
     {
-        Vector2 fromCenter = (Vector2)fromOrigin + fromLayout.CenterOffset;
-        Vector2 toCenter = (Vector2)toOrigin + toLayout.CenterOffset;
-        Vector2 fromHalf = fromLayout.WorldSize * 0.5f;
-        Vector2 toHalf = toLayout.WorldSize * 0.5f;
-
+        bool horizontal = Mathf.Abs(direction.x) > 0.5f;
         Vector2 start;
         Vector2 end;
-        bool horizontal = Mathf.Abs(direction.x) > 0.5f;
+
         if (horizontal)
         {
-            start = fromCenter + new Vector2(direction.x * fromHalf.x, 0f);
-            end = new Vector2(toCenter.x - direction.x * toHalf.x, start.y);
+            float laneY = fromOrigin.y + DoorBandCenter(fromLayout.size.y, BridgeWidthTiles);
+            start = new Vector2(
+                direction.x > 0f ? fromOrigin.x + fromLayout.size.x - 0.5f : fromOrigin.x - 0.5f,
+                laneY);
+            end = new Vector2(
+                direction.x > 0f ? toOrigin.x - 0.5f : toOrigin.x + toLayout.size.x - 0.5f,
+                laneY);
         }
         else
         {
-            start = fromCenter + new Vector2(0f, direction.y * fromHalf.y);
-            end = new Vector2(start.x, toCenter.y - direction.y * toHalf.y);
+            float laneX = fromOrigin.x + DoorBandCenter(fromLayout.size.x, BridgeWidthTiles);
+            start = new Vector2(
+                laneX,
+                direction.y > 0f ? fromOrigin.y + fromLayout.size.y - 0.5f : fromOrigin.y - 0.5f);
+            end = new Vector2(
+                laneX,
+                direction.y > 0f ? toOrigin.y - 0.5f : toOrigin.y + toLayout.size.y - 0.5f);
         }
 
         return new RouteGeometry(start, end, horizontal);
@@ -788,8 +876,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void BuildLogicalCorridor(RouteGeometry route)
     {
-        float length = route.Length;
-        if (length <= 0.1f)
+        int totalTiles = Mathf.Max(BridgeMinPieceLengthTiles, Mathf.RoundToInt(route.Length));
+        if (totalTiles <= 0)
             return;
 
         GameObject root = new($"LogicalRoute_{logicalNavigationObjects.Count}");
@@ -799,24 +887,25 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         floor.sprite = SpatialRuntimeSpriteCache.Solid;
         floor.drawMode = SpriteDrawMode.Tiled;
         floor.size = route.horizontal
-            ? new Vector2(length, corridorWidth)
-            : new Vector2(corridorWidth, length);
+            ? new Vector2(totalTiles, BridgeWidthTiles)
+            : new Vector2(BridgeWidthTiles, totalTiles);
         floor.color = new Color(1f, 1f, 1f, 0f);
         floor.sortingOrder = -1000;
 
         NavMeshModifier modifier = root.AddComponent<NavMeshModifier>();
         modifier.ignoreFromBuild = false;
         modifier.overrideArea = false;
-
         logicalNavigationObjects.Add(root);
     }
 
-    private void BuildLogicalRoom(BattleNodeData node, Vector3 roomOrigin, ProceduralRoomLayout layout, Vector2 approachDirection)
+    private void BuildLogicalRoom(
+        BattleNodeData node,
+        Vector3 roomOrigin,
+        ProceduralRoomLayout layout,
+        Vector2 approachDirection)
     {
         GameObject root = new($"LogicalRoom_{node.id}");
         root.transform.position = roomOrigin;
-
-        HashSet<Vector2Int> doorwayNormals = GetDoorwayNormals(node, approachDirection);
 
         foreach (Vector2Int cell in layout.cells)
         {
@@ -827,7 +916,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
             renderer.sprite = SpatialRuntimeSpriteCache.Solid;
             renderer.drawMode = SpriteDrawMode.Tiled;
-            renderer.size = Vector2.one * RoomDefinitionSO.ProceduralTileWorldSize;
+            renderer.size = Vector2.one;
             renderer.color = new Color(1f, 1f, 1f, 0f);
             renderer.sortingOrder = -1000;
 
@@ -836,7 +925,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             modifier.overrideArea = false;
         }
 
-        BuildBoundaryEdges(root.transform, layout, doorwayNormals, false, true);
+        BuildBoundaryEdges(root.transform, layout, GetRequiredDoorNormals(node, approachDirection), false, true);
         logicalNavigationObjects.Add(root);
     }
 
@@ -847,44 +936,59 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         ProceduralRoomLayout layout,
         Vector2 travelDirection)
     {
-        float totalLength = route.Length;
-        int count = Mathf.Max(1, corridorPieceCount);
-        float pieceLength = totalLength / count;
+        List<int> segmentLengths = BuildIntegerBridgeSegments(Mathf.RoundToInt(route.Length));
         float sign = route.horizontal ? Mathf.Sign(route.end.x - route.start.x) : Mathf.Sign(route.end.y - route.start.y);
+        int consumed = 0;
 
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < segmentLengths.Count; i++)
         {
-            float distance = pieceLength * (i + 0.5f);
+            int lengthTiles = segmentLengths[i];
+            float centerDistance = consumed + lengthTiles * 0.5f;
             Vector2 center = route.horizontal
-                ? route.start + Vector2.right * sign * distance
-                : route.start + Vector2.up * sign * distance;
+                ? route.start + Vector2.right * sign * centerDistance
+                : route.start + Vector2.up * sign * centerDistance;
 
-            while (i > 0 && !IsPointWithinCameraReveal(center))
+            while (!IsPointWithinCameraReveal(center))
                 yield return new WaitForSecondsRealtime(revealPollInterval);
 
             Vector2 size = route.horizontal
-                ? new Vector2(pieceLength + 0.06f, corridorWidth)
-                : new Vector2(corridorWidth, pieceLength + 0.06f);
+                ? new Vector2(lengthTiles, BridgeWidthTiles)
+                : new Vector2(BridgeWidthTiles, lengthTiles);
 
             Vector2 incoming = route.horizontal
                 ? (i % 2 == 0 ? Vector2.down : Vector2.up)
                 : (i % 2 == 0 ? Vector2.left : Vector2.right);
 
-            GameObject piece = CreateVisibleCorridorPiece($"RoutePiece_{persistentRouteObjects.Count}", center, size, route.horizontal);
+            GameObject piece = CreateVisibleCorridorPiece($"BridgePiece_{persistentRouteObjects.Count}", center, size, route.horizontal);
             MapBlock block = piece.GetComponent<MapBlock>();
             block.PlayEnter(piece.transform.position, incoming, i == 0 ? 0f : corridorPieceStagger);
             persistentRouteObjects.Add(piece);
+            consumed += lengthTiles;
         }
 
         Rect roomBounds = new(
             (Vector2)targetRoomOrigin - Vector2.one * 0.5f,
-            layout.WorldSize);
+            new Vector2(layout.size.x, layout.size.y));
 
         while (!IsRectWithinCameraReveal(roomBounds))
             yield return new WaitForSecondsRealtime(revealPollInterval);
 
         GameObject roomPiece = CreateVisibleRoomPiece(node, targetRoomOrigin, layout, travelDirection);
         persistentRouteObjects.Add(roomPiece);
+    }
+
+    private List<int> BuildIntegerBridgeSegments(int totalTiles)
+    {
+        totalTiles = Mathf.Max(BridgeMinPieceLengthTiles, totalTiles);
+        int maxPieces = Mathf.Max(1, totalTiles / BridgeMinPieceLengthTiles);
+        int count = Mathf.Clamp(preferredBridgePieceCount, 1, maxPieces);
+        int baseLength = totalTiles / count;
+        int remainder = totalTiles % count;
+
+        List<int> result = new(count);
+        for (int i = 0; i < count; i++)
+            result.Add(baseLength + (i < remainder ? 1 : 0));
+        return result;
     }
 
     private GameObject CreateVisibleCorridorPiece(string objectName, Vector2 destination, Vector2 size, bool horizontal)
@@ -919,7 +1023,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void CreateVisibleRail(Transform parent, Vector2 localPosition, Vector2 size)
     {
-        GameObject rail = new("EdgeVisual");
+        GameObject rail = new("BridgeEdgeVisual");
         rail.transform.SetParent(parent, false);
         rail.transform.localPosition = localPosition;
 
@@ -949,7 +1053,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
             renderer.sprite = SpatialRuntimeSpriteCache.Solid;
             renderer.drawMode = SpriteDrawMode.Tiled;
-            renderer.size = Vector2.one * 0.98f * RoomDefinitionSO.ProceduralTileWorldSize;
+            renderer.size = Vector2.one;
             renderer.color = roomFloorColor;
             renderer.sortingOrder = -20;
 
@@ -958,7 +1062,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             modifier.overrideArea = false;
         }
 
-        BuildBoundaryEdges(root.transform, layout, GetDoorwayNormals(node, approachDirection), true, false);
+        BuildBoundaryEdges(root.transform, layout, GetRequiredDoorNormals(node, approachDirection), true, false);
 
         MapBlock block = root.AddComponent<MapBlock>();
         block.ConfigureRuntimeDockingBlock(
@@ -970,31 +1074,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         Vector2 entry = node.room.largePieceEntryDirection.sqrMagnitude > 0.001f
             ? node.room.largePieceEntryDirection.normalized
-            : Vector2.down;
+            : -approachDirection.normalized;
+        if (entry.sqrMagnitude <= 0.001f)
+            entry = Vector2.down;
+
         block.PlayEnter(targetOrigin, entry);
         return root;
-    }
-
-    private HashSet<Vector2Int> GetDoorwayNormals(BattleNodeData node, Vector2 approachDirection)
-    {
-        HashSet<Vector2Int> result = new();
-        Vector2Int approach = DirectionToInt(-approachDirection);
-        if (approach != Vector2Int.zero)
-            result.Add(approach);
-
-        if (node != null && graph != null)
-        {
-            Vector2Int current = ResolveNodeMapPosition(node);
-            List<BattleNodeData> next = graph.GetNextNodes(node);
-            for (int i = 0; i < next.Count; i++)
-            {
-                Vector2Int d = DirectionToInt(CardinalDirection(ResolveNodeMapPosition(next[i]) - current));
-                if (d != Vector2Int.zero)
-                    result.Add(d);
-            }
-        }
-
-        return result;
     }
 
     private void BuildBoundaryEdges(
@@ -1005,14 +1090,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         bool logicalCollision)
     {
         Vector2Int[] directions = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
-        Dictionary<Vector2Int, Vector2Int> doorwayCells = new();
-
-        if (doorwayNormals != null)
-        {
-            foreach (Vector2Int normal in doorwayNormals)
-                doorwayCells[normal] = FindEntranceCell(layout.cells, layout.size, normal);
-        }
-
         foreach (Vector2Int cell in layout.cells)
         {
             for (int i = 0; i < directions.Length; i++)
@@ -1020,23 +1097,42 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 Vector2Int edge = directions[i];
                 if (layout.cells.Contains(cell + edge))
                     continue;
-
-                if (doorwayCells.TryGetValue(edge, out Vector2Int doorCell) && doorCell == cell)
+                if (doorwayNormals != null && doorwayNormals.Contains(edge) && IsBridgeDoorCell(cell, edge, layout.size))
                     continue;
-
                 CreateBoundaryEdge(root, cell, edge, visible, logicalCollision);
             }
         }
     }
 
+    private static bool IsBridgeDoorCell(Vector2Int cell, Vector2Int normal, Vector2Int size)
+    {
+        if (normal == Vector2Int.left || normal == Vector2Int.right)
+        {
+            bool side = normal == Vector2Int.left ? cell.x == 0 : cell.x == size.x - 1;
+            if (!side) return false;
+            int start = DoorBandStart(size.y, BridgeWidthTiles);
+            return cell.y >= start && cell.y < start + BridgeWidthTiles;
+        }
+
+        if (normal == Vector2Int.up || normal == Vector2Int.down)
+        {
+            bool side = normal == Vector2Int.down ? cell.y == 0 : cell.y == size.y - 1;
+            if (!side) return false;
+            int start = DoorBandStart(size.x, BridgeWidthTiles);
+            return cell.x >= start && cell.x < start + BridgeWidthTiles;
+        }
+
+        return false;
+    }
+
     private void CreateBoundaryEdge(Transform root, Vector2Int cell, Vector2Int edge, bool visible, bool logicalCollision)
     {
         bool vertical = edge.x != 0;
-        Vector2 cellCenter = (Vector2)cell * RoomDefinitionSO.ProceduralTileWorldSize;
-        Vector2 position = cellCenter + (Vector2)edge * RoomDefinitionSO.ProceduralTileWorldSize * 0.5f;
+        Vector2 cellCenter = (Vector2)cell;
+        Vector2 position = cellCenter + (Vector2)edge * 0.5f;
         Vector2 size = vertical
-            ? new Vector2(roomEdgeThickness, RoomDefinitionSO.ProceduralTileWorldSize + roomEdgeThickness)
-            : new Vector2(RoomDefinitionSO.ProceduralTileWorldSize + roomEdgeThickness, roomEdgeThickness);
+            ? new Vector2(roomEdgeThickness, 1f + roomEdgeThickness)
+            : new Vector2(1f + roomEdgeThickness, roomEdgeThickness);
 
         GameObject edgeObject = new(visible ? "RoomEdgeVisual" : "RoomEdgeLogical");
         edgeObject.transform.SetParent(root, false);
@@ -1065,37 +1161,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private static Vector2Int FindEntranceCell(HashSet<Vector2Int> cells, Vector2Int size, Vector2Int normal)
-    {
-        Vector2 center = new((size.x - 1) * 0.5f, (size.y - 1) * 0.5f);
-        Vector2Int best = default;
-        float bestScore = float.MaxValue;
-        bool found = false;
-
-        foreach (Vector2Int cell in cells)
-        {
-            if (cells.Contains(cell + normal))
-                continue;
-
-            bool onRequestedSide = normal == Vector2Int.right ? cell.x == size.x - 1 :
-                                   normal == Vector2Int.left ? cell.x == 0 :
-                                   normal == Vector2Int.up ? cell.y == size.y - 1 :
-                                   normal == Vector2Int.down && cell.y == 0;
-            if (!onRequestedSide)
-                continue;
-
-            float centerDistance = Vector2.Distance(cell, center);
-            if (centerDistance < bestScore)
-            {
-                bestScore = centerDistance;
-                best = cell;
-                found = true;
-            }
-        }
-
-        return found ? best : new Vector2Int(size.x / 2, size.y / 2);
-    }
-
     private void SuppressLegacyRoomPiecesForCurrentEnter(RoomDefinitionSO room)
     {
         if (room == null)
@@ -1122,7 +1187,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (player == null)
             return;
 
-        Vector2 position = routeStart - direction.normalized * 0.42f;
+        Vector2 position = routeStart - direction.normalized * 0.52f;
         player.transform.position = new Vector3(position.x, position.y, player.transform.position.z);
         Rigidbody2D body = player.GetComponent<Rigidbody2D>();
         if (body != null)
@@ -1171,9 +1236,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (direction == Vector2.zero)
                 direction = Vector2.right;
 
-            Vector2 center = GetStartAreaCenter(first.room);
-            Vector2 half = first.room.GetStartBaseWorldSize() * 0.5f;
-            Vector2 markerPosition = EdgeMarkerPosition(center, half, direction);
+            ProceduralRoomLayout startLayout = CreateStartLayout(first.room);
+            Vector2 markerPosition = GetDoorMarkerPosition(startOrigin, startLayout, direction);
+            AlignStartExitTrigger(markerPosition, direction);
             CreateDirectionMarker(markerPosition, direction, first, false, null);
             return;
         }
@@ -1183,12 +1248,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         BattleNodeData currentNode = runManager.CurrentNode;
         ProceduralRoomLayout currentLayout = GetOrCreateLayout(currentNode, Vector2.zero);
-        Vector3 currentOrigin = MapPositionToWorld(ResolveNodeMapPosition(currentNode));
-        Vector2 centerCurrent = (Vector2)currentOrigin + currentLayout.CenterOffset;
-        Vector2 halfCurrent = currentLayout.WorldSize * 0.5f;
+        Vector2Int currentMap = ResolveNodeMapPosition(currentNode);
+        Vector3 currentOrigin = GetRoomOrigin(currentMap, currentLayout);
 
         IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
-        Vector2Int currentMap = ResolveNodeMapPosition(currentNode);
         for (int i = 0; i < choices.Count; i++)
         {
             BattleNodeData next = choices[i];
@@ -1199,7 +1262,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (direction == Vector2.zero)
                 continue;
 
-            Vector2 markerPosition = EdgeMarkerPosition(centerCurrent, halfCurrent, direction);
+            Vector2 markerPosition = GetDoorMarkerPosition(currentOrigin, currentLayout, direction);
             CreateDirectionMarker(
                 markerPosition,
                 direction,
@@ -1209,20 +1272,61 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private Vector2 GetStartAreaCenter(RoomDefinitionSO room)
+    private static Vector2 GetDoorBoundaryCenter(Vector3 origin, ProceduralRoomLayout layout, Vector2 direction)
     {
-        ResolveStartOriginFromBase(room);
-        return (Vector2)startOrigin + room.GetStartBaseCenterOffset();
+        if (Mathf.Abs(direction.x) > 0.5f)
+        {
+            return new Vector2(
+                direction.x > 0f ? origin.x + layout.size.x - 0.5f : origin.x - 0.5f,
+                origin.y + DoorBandCenter(layout.size.y, BridgeWidthTiles));
+        }
+
+        return new Vector2(
+            origin.x + DoorBandCenter(layout.size.x, BridgeWidthTiles),
+            direction.y > 0f ? origin.y + layout.size.y - 0.5f : origin.y - 0.5f);
     }
 
-    private Vector2 EdgeMarkerPosition(Vector2 center, Vector2 half, Vector2 direction)
+    private Vector2 GetDoorMarkerPosition(Vector3 origin, ProceduralRoomLayout layout, Vector2 direction)
     {
-        Vector2 position = center;
-        if (Mathf.Abs(direction.x) > 0.5f)
-            position.x += direction.x * Mathf.Max(0.1f, half.x - markerInset);
-        else
-            position.y += direction.y * Mathf.Max(0.1f, half.y - markerInset);
-        return position;
+        return GetDoorBoundaryCenter(origin, layout, direction) - direction.normalized * markerInset;
+    }
+
+    private void AlignStartExitTrigger(Vector2 markerPosition, Vector2 direction)
+    {
+        StartAreaExitTrigger[] exits = FindObjectsByType<StartAreaExitTrigger>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        for (int i = 0; i < exits.Length; i++)
+        {
+            StartAreaExitTrigger exit = exits[i];
+            if (exit == null)
+                continue;
+
+            exit.transform.position = new Vector3(markerPosition.x, markerPosition.y, exit.transform.position.z);
+            BoxCollider2D collider = exit.GetComponent<BoxCollider2D>();
+            if (collider != null)
+            {
+                collider.size = Mathf.Abs(direction.x) > 0.5f
+                    ? new Vector2(0.65f, BridgeWidthTiles - 0.35f)
+                    : new Vector2(BridgeWidthTiles - 0.35f, 0.65f);
+            }
+        }
+    }
+
+    private void RemoveLegacyStartBoundaries()
+    {
+        string[] names =
+        {
+            "StartBoundary_Left",
+            "StartBoundary_Right",
+            "StartBoundary_Bottom",
+            "StartBoundary_Top"
+        };
+
+        for (int i = 0; i < names.Length; i++)
+        {
+            GameObject boundary = GameObject.Find(names[i]);
+            if (boundary != null)
+                Destroy(boundary);
+        }
     }
 
     private void CreateDirectionMarker(
@@ -1326,7 +1430,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (renderer == null || renderer.sprite == null)
             return Mathf.Max(0.1f, targetHeight);
-
         float spriteHeight = Mathf.Max(0.01f, renderer.sprite.bounds.size.y);
         return Mathf.Max(0.1f, targetHeight / spriteHeight);
     }
@@ -1370,14 +1473,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             Destroy(miniMapPanel.GetChild(i).gameObject);
 
         BuildResolvedLayout();
-
         List<Vector2Int> allPositions = new() { Vector2Int.zero };
         if (graph.nodes != null)
-        {
             for (int i = 0; i < graph.nodes.Count; i++)
                 if (graph.nodes[i] != null)
                     allPositions.Add(ResolveNodeMapPosition(graph.nodes[i]));
-        }
 
         Vector2 mapCenter = CalculateMapCenter(allPositions);
         float spacing = Mathf.Min(miniMapCellSpacing, CalculateMiniMapFitSpacing(allPositions));
@@ -1391,9 +1491,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             for (int i = 0; i < graph.nodes.Count; i++)
             {
                 BattleNodeData node = graph.nodes[i];
-                if (node == null)
-                    continue;
-
+                if (node == null) continue;
                 List<BattleNodeData> next = graph.GetNextNodes(node);
                 for (int n = 0; n < next.Count; n++)
                     DrawMiniMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter, spacing);
@@ -1417,17 +1515,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             for (int i = 0; i < graph.nodes.Count; i++)
             {
                 BattleNodeData node = graph.nodes[i];
-                if (node == null)
-                    continue;
-
+                if (node == null) continue;
                 Color color = miniMapUnknown;
-                if (runManager != null && runManager.CurrentNode == node)
-                    color = miniMapCurrent;
-                else if (available.Contains(node.id))
-                    color = miniMapAvailable;
-                else if (visitedNodeIds.Contains(node.id))
-                    color = miniMapVisited;
-
+                if (runManager != null && runManager.CurrentNode == node) color = miniMapCurrent;
+                else if (available.Contains(node.id)) color = miniMapAvailable;
+                else if (visitedNodeIds.Contains(node.id)) color = miniMapVisited;
                 DrawMiniMapNode(ResolveNodeMapPosition(node), color, mapCenter, spacing,
                     node.type == BattleNodeType.Elite ? 1.18f : 1f);
             }
@@ -1438,17 +1530,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (positions == null || positions.Count == 0)
             return miniMapCellSpacing;
-
         int minX = positions[0].x, maxX = positions[0].x;
         int minY = positions[0].y, maxY = positions[0].y;
         for (int i = 1; i < positions.Count; i++)
         {
-            minX = Mathf.Min(minX, positions[i].x);
-            maxX = Mathf.Max(maxX, positions[i].x);
-            minY = Mathf.Min(minY, positions[i].y);
-            maxY = Mathf.Max(maxY, positions[i].y);
+            minX = Mathf.Min(minX, positions[i].x); maxX = Mathf.Max(maxX, positions[i].x);
+            minY = Mathf.Min(minY, positions[i].y); maxY = Mathf.Max(maxY, positions[i].y);
         }
-
         float rangeX = Mathf.Max(1, maxX - minX);
         float rangeY = Mathf.Max(1, maxY - minY);
         return Mathf.Max(18f, Mathf.Min((miniMapSize.x - 42f) / rangeX, (miniMapSize.y - 42f) / rangeY));
@@ -1458,15 +1546,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (positions == null || positions.Count == 0)
             return Vector2.zero;
-
         int minX = positions[0].x, maxX = positions[0].x;
         int minY = positions[0].y, maxY = positions[0].y;
         for (int i = 1; i < positions.Count; i++)
         {
-            minX = Mathf.Min(minX, positions[i].x);
-            maxX = Mathf.Max(maxX, positions[i].x);
-            minY = Mathf.Min(minY, positions[i].y);
-            maxY = Mathf.Max(maxY, positions[i].y);
+            minX = Mathf.Min(minX, positions[i].x); maxX = Mathf.Max(maxX, positions[i].x);
+            minY = Mathf.Min(minY, positions[i].y); maxY = Mathf.Max(maxY, positions[i].y);
         }
         return new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
     }
@@ -1478,7 +1563,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         Image image = node.AddComponent<Image>();
         image.color = color;
         image.raycastTarget = false;
-
         RectTransform rect = node.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = new Vector2((mapPosition.x - mapCenter.x) * spacing, (mapPosition.y - mapCenter.y) * spacing);
@@ -1487,13 +1571,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void DrawMiniMapLink(Vector2Int from, Vector2Int to, Vector2 mapCenter, float spacing)
     {
-        if (from == to)
-            return;
-
+        if (from == to) return;
         Vector2 a = new((from.x - mapCenter.x) * spacing, (from.y - mapCenter.y) * spacing);
         Vector2 b = new((to.x - mapCenter.x) * spacing, (to.y - mapCenter.y) * spacing);
         Vector2 delta = b - a;
-
         if (Mathf.Abs(delta.x) > 0.01f)
             CreateMiniMapBar(new Vector2((a.x + b.x) * 0.5f, a.y), new Vector2(Mathf.Abs(delta.x), 4f));
         if (Mathf.Abs(delta.y) > 0.01f)
@@ -1507,7 +1588,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         Image image = bar.AddComponent<Image>();
         image.color = miniMapLink;
         image.raycastTarget = false;
-
         RectTransform rect = bar.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = position;
@@ -1539,8 +1619,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             this.size = size;
             this.cells = cells ?? new HashSet<Vector2Int>();
         }
-        public Vector2 WorldSize => new(size.x, size.y);
-        public Vector2 CenterOffset => new((size.x - 1) * 0.5f, (size.y - 1) * 0.5f);
+
+        // The map anchor is the center line of the mandatory 4-tile door bands, not arbitrary half-cell geometry.
+        public Vector2 MapAnchorOffset => new(
+            DoorBandCenter(size.x, BridgeWidthTiles),
+            DoorBandCenter(size.y, BridgeWidthTiles));
     }
 }
 
@@ -1576,7 +1659,6 @@ internal static class SpatialRuntimeSpriteCache
 {
     private static Sprite solid;
     private static Sprite arrow;
-
     public static Sprite Solid => solid != null ? solid : solid = CreateSolid();
     public static Sprite Arrow => arrow != null ? arrow : arrow = CreateArrow();
 
@@ -1590,7 +1672,6 @@ internal static class SpatialRuntimeSpriteCache
         };
         texture.SetPixels(new[] { Color.white, Color.white, Color.white, Color.white });
         texture.Apply(false, true);
-
         Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, 2f, 2f), new Vector2(0.5f, 0.5f), 2f, 0, SpriteMeshType.FullRect);
         sprite.hideFlags = HideFlags.HideAndDontSave;
         sprite.name = "SpatialRuntimeSolid";
@@ -1613,13 +1694,11 @@ internal static class SpatialRuntimeSpriteCache
             for (int x = 0; x < w; x++)
             {
                 bool shaft = x <= 7 && y >= 3 && y <= 4;
-                int dx = x - 7;
                 bool head = x >= 6 && Mathf.Abs(y - 3.5f) <= (w - x) * 0.55f;
                 texture.SetPixel(x, y, shaft || head ? Color.white : Color.clear);
             }
         }
         texture.Apply(false, true);
-
         Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, w, h), new Vector2(0.5f, 0.5f), 12f, 0, SpriteMeshType.FullRect);
         sprite.hideFlags = HideFlags.HideAndDontSave;
         sprite.name = "SpatialDirectionArrow";
@@ -1642,17 +1721,22 @@ internal static class BattleProceduralTestDefaultsEditor
             return;
 
         ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_A.asset",
-            RoomLargePieceShape.Irregular, new Vector2Int(6, 6), new Vector2Int(7, 7), 0.28f);
+            RoomLargePieceShape.Irregular, new Vector2Int(6, 6), new Vector2Int(8, 8), 0.28f);
         ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_B.asset",
-            RoomLargePieceShape.LShape, new Vector2Int(7, 6), new Vector2Int(8, 7), 0.20f);
+            RoomLargePieceShape.LShape, new Vector2Int(8, 6), new Vector2Int(10, 8), 0.20f);
         ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_ELITE.asset",
-            RoomLargePieceShape.Cross, new Vector2Int(8, 8), new Vector2Int(9, 9), 0.12f);
+            RoomLargePieceShape.Cross, new Vector2Int(8, 8), new Vector2Int(10, 10), 0.12f);
 
         NodeGraphSO graph = UnityEditor.AssetDatabase.LoadAssetAtPath<NodeGraphSO>(
             "Assets/Resources/BattleTestDefaults/TEST_NodeGraph.asset");
         if (graph != null && graph.nodes != null)
         {
-            Vector2Int[] positions = { Vector2Int.right, Vector2Int.right + Vector2Int.up, Vector2Int.right * 2 + Vector2Int.up };
+            Vector2Int[] positions =
+            {
+                Vector2Int.right,
+                Vector2Int.right + Vector2Int.up,
+                Vector2Int.right * 2 + Vector2Int.up
+            };
             for (int i = 0; i < graph.nodes.Count && i < positions.Length; i++)
             {
                 if (graph.nodes[i] == null) continue;
@@ -1676,12 +1760,13 @@ internal static class BattleProceduralTestDefaultsEditor
         if (room == null)
             return;
 
-        room.startBaseTileSize = new Vector2Int(3, 3);
+        room.startBaseTileSize = new Vector2Int(4, 4);
         room.useProceduralRoom = true;
         room.useLargeRoomPiece = true;
         room.largePieceShape = shape;
         room.proceduralMinTileSize = min;
         room.proceduralMaxTileSize = max;
+        room.proceduralMinChunkTileSize = 4;
         room.proceduralComplexity = complexity;
         room.repositionPlayerOnEnter = false;
         UnityEditor.EditorUtility.SetDirty(room);
