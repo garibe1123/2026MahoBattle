@@ -13,10 +13,10 @@ using UnityEngine.UI;
 ///
 /// Current rules:
 /// - NO world bridge/corridor traversal.
-/// - NO next-Room world placement or camera-range reveal.
 /// - NodeGraph is presented as a Slay-the-Spire-style Stage Map.
-/// - Available next nodes are clicked directly in the Stage Map UI.
-/// - Selecting a Combat/Elite node builds that Room at the single battle origin.
+/// - Selecting a Combat/Elite node assembles that Room at the single battle origin.
+/// - A Room does NOT slide in as one flat sheet: it is split into 2~4 large pieces that dock sequentially.
+/// - Internal seams between assembly pieces never create walls. Only the final Room outline creates walls.
 /// - 32px = 1 tile = 1 world unit. All floor tile centers use integer tile coordinates.
 /// - Start Base is handled independently by RoomBaseTemplate and is at least 3x3.
 /// - Combat Room is at least 6x6. Rectangle is the default shape.
@@ -29,6 +29,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField] private Color roomEdgeColor = new(0.31f, 0.35f, 0.41f, 1f);
     [SerializeField, Min(0.03f)] private float roomEdgeThickness = 0.12f;
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
+
+    [Header("Large Piece Assembly")]
+    [Tooltip("선택된 Room을 몇 개의 큰 덩어리로 나눠 도킹할지의 최대값입니다. 6x6 기본 Room은 보통 4개의 약 3x3 Piece가 됩니다.")]
+    [SerializeField, Range(2, 4)] private int maxAssemblyPieces = 4;
+    [Tooltip("너무 작은 조각은 인접 큰 조각에 합칩니다. 낱개 Tile이 하나씩 날아오는 연출을 방지합니다.")]
+    [SerializeField, Min(3)] private int minimumAssemblyPieceCells = 6;
 
     [Header("Stage Map")]
     [SerializeField] private Vector2 compactMapSize = new(240f, 190f);
@@ -44,6 +50,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField] private Color mapLink = new(0.34f, 0.39f, 0.46f, 0.96f);
 
     [Header("32px Tile / 48px Character Test Scale")]
+    [Tooltip("32px tile = 1 world, 48px player = exactly 1.5 world.")]
     [SerializeField, Min(0.5f)] private float testPlayerWorldHeight = 1.5f;
     [SerializeField, Min(0.1f)] private float testPlayerWorldColliderRadius = 0.60f;
     [SerializeField, Min(0.5f)] private float testMonsterWorldHeight = 1.5f;
@@ -194,7 +201,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     }
 
     // ---------------------------------------------------------------------
-    // Room generation
+    // Room generation / large-piece assembly
     // ---------------------------------------------------------------------
 
     private void PrepareProceduralRoomPresentation(BattleNodeData node)
@@ -204,33 +211,51 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (layout == null || layout.cells.Count == 0)
             return;
 
-        MapBlock prototype = CreateRoomPrototype(node, layout);
-        if (prototype == null)
+        List<HashSet<Vector2Int>> assemblyPieces = SplitIntoAssemblyPieces(layout);
+        if (assemblyPieces.Count == 0)
             return;
 
         List<MapBlockPlacement> oldBlocks = room.blocks;
         bool oldReposition = room.repositionPlayerOnEnter;
         Vector2 oldEntry = room.playerEntryOffset;
 
-        Vector2 entryDirection = room.largePieceEntryDirection.sqrMagnitude > 0.001f
-            ? room.largePieceEntryDirection.normalized
-            : Vector2.down;
+        List<MapBlockPlacement> runtimePlacements = new();
+        List<GameObject> runtimePrototypes = new();
 
-        room.blocks = new List<MapBlockPlacement>
+        for (int i = 0; i < assemblyPieces.Count; i++)
         {
-            new()
-            {
-                prefab = prototype,
-                gridPosition = Vector2Int.zero,
-                entryDirection = entryDirection
-            }
-        };
+            HashSet<Vector2Int> pieceCells = assemblyPieces[i];
+            MapBlock prototype = CreateRoomPiecePrototype(node, layout, pieceCells, i);
+            if (prototype == null)
+                continue;
 
-        // Player always enters the integer center tile of the newly selected stage.
+            runtimePrototypes.Add(prototype.gameObject);
+            runtimePlacements.Add(new MapBlockPlacement
+            {
+                // 모든 Piece root는 같은 Room origin에 도착합니다.
+                // 실제 tile offset은 prototype 내부 child localPosition에 이미 들어 있습니다.
+                gridPosition = Vector2Int.zero,
+                prefab = prototype,
+                entryDirection = GetAssemblyEntryDirection(layout, pieceCells, i)
+            });
+        }
+
+        if (runtimePlacements.Count == 0)
+        {
+            DestroyPrototypeList(runtimePrototypes);
+            return;
+        }
+
+        room.blocks = runtimePlacements;
         room.repositionPlayerOnEnter = true;
         room.playerEntryOffset = layout.CenterTile;
 
-        StartCoroutine(RestoreRoomDataNextFrame(room, oldBlocks, oldReposition, oldEntry, prototype.gameObject));
+        StartCoroutine(RestoreRoomDataNextFrame(
+            room,
+            oldBlocks,
+            oldReposition,
+            oldEntry,
+            runtimePrototypes));
     }
 
     private IEnumerator RestoreRoomDataNextFrame(
@@ -238,8 +263,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         List<MapBlockPlacement> blocks,
         bool reposition,
         Vector2 entry,
-        GameObject prototype)
+        List<GameObject> prototypes)
     {
+        // BattleRunManager는 NodeEntered 직후 같은 frame에 BattleRoomManager.EnterRoom을 호출합니다.
+        // 한 frame 뒤에는 prefab clone이 이미 만들어졌으므로 임시 prototype/data를 안전하게 원복할 수 있습니다.
         yield return null;
 
         if (room != null)
@@ -249,16 +276,158 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             room.playerEntryOffset = entry;
         }
 
-        if (prototype != null)
-            Destroy(prototype);
+        DestroyPrototypeList(prototypes);
     }
 
-    private MapBlock CreateRoomPrototype(BattleNodeData node, ProceduralRoomLayout layout)
+    private static void DestroyPrototypeList(List<GameObject> prototypes)
     {
-        GameObject root = new($"__RuntimeRoomPrototype_{node.id}");
-        root.transform.position = new Vector3(10000f, 10000f, 0f);
+        if (prototypes == null)
+            return;
+
+        for (int i = 0; i < prototypes.Count; i++)
+        {
+            if (prototypes[i] != null)
+                Destroy(prototypes[i]);
+        }
+    }
+
+    private List<HashSet<Vector2Int>> SplitIntoAssemblyPieces(ProceduralRoomLayout layout)
+    {
+        List<HashSet<Vector2Int>> result = new();
+        if (layout == null || layout.cells == null || layout.cells.Count == 0)
+            return result;
+
+        int splitX = Mathf.Max(1, layout.size.x / 2);
+        int splitY = Mathf.Max(1, layout.size.y / 2);
+        HashSet<Vector2Int>[] quadrants =
+        {
+            new(), new(), new(), new()
+        };
 
         foreach (Vector2Int cell in layout.cells)
+        {
+            int index = 0;
+            if (cell.x >= splitX) index += 1;
+            if (cell.y >= splitY) index += 2;
+            quadrants[index].Add(cell);
+        }
+
+        int requested = Mathf.Clamp(maxAssemblyPieces, 2, 4);
+        for (int i = 0; i < quadrants.Length && result.Count < requested; i++)
+        {
+            if (quadrants[i].Count > 0)
+                result.Add(quadrants[i]);
+        }
+
+        MergeTinyAssemblyPieces(result, Mathf.Max(3, minimumAssemblyPieceCells));
+
+        if (result.Count < 2 && layout.cells.Count >= 2)
+            result = SplitAlongLongestAxis(layout);
+
+        return result;
+    }
+
+    private static List<HashSet<Vector2Int>> SplitAlongLongestAxis(ProceduralRoomLayout layout)
+    {
+        List<HashSet<Vector2Int>> result = new() { new(), new() };
+        bool horizontal = layout.size.x >= layout.size.y;
+        int split = horizontal ? Mathf.Max(1, layout.size.x / 2) : Mathf.Max(1, layout.size.y / 2);
+
+        foreach (Vector2Int cell in layout.cells)
+        {
+            bool second = horizontal ? cell.x >= split : cell.y >= split;
+            result[second ? 1 : 0].Add(cell);
+        }
+
+        if (result[0].Count == 0 || result[1].Count == 0)
+        {
+            result.Clear();
+            result.Add(new HashSet<Vector2Int>(layout.cells));
+        }
+
+        return result;
+    }
+
+    private static void MergeTinyAssemblyPieces(List<HashSet<Vector2Int>> pieces, int minimumCells)
+    {
+        if (pieces == null)
+            return;
+
+        bool changed = true;
+        while (changed && pieces.Count > 2)
+        {
+            changed = false;
+            int tinyIndex = -1;
+            for (int i = 0; i < pieces.Count; i++)
+            {
+                if (pieces[i].Count < minimumCells)
+                {
+                    tinyIndex = i;
+                    break;
+                }
+            }
+
+            if (tinyIndex < 0)
+                break;
+
+            int target = FindBestAssemblyMergeTarget(pieces, tinyIndex);
+            if (target < 0)
+                break;
+
+            foreach (Vector2Int cell in pieces[tinyIndex])
+                pieces[target].Add(cell);
+            pieces.RemoveAt(tinyIndex);
+            changed = true;
+        }
+    }
+
+    private static int FindBestAssemblyMergeTarget(List<HashSet<Vector2Int>> pieces, int sourceIndex)
+    {
+        if (pieces == null || sourceIndex < 0 || sourceIndex >= pieces.Count)
+            return -1;
+
+        Vector2Int[] dirs = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
+        int bestIndex = -1;
+        int bestTouchCount = -1;
+
+        for (int i = 0; i < pieces.Count; i++)
+        {
+            if (i == sourceIndex)
+                continue;
+
+            int touchCount = 0;
+            foreach (Vector2Int cell in pieces[sourceIndex])
+            {
+                for (int d = 0; d < dirs.Length; d++)
+                {
+                    if (pieces[i].Contains(cell + dirs[d]))
+                        touchCount++;
+                }
+            }
+
+            if (touchCount > bestTouchCount)
+            {
+                bestTouchCount = touchCount;
+                bestIndex = i;
+            }
+        }
+
+        return bestIndex;
+    }
+
+    private MapBlock CreateRoomPiecePrototype(
+        BattleNodeData node,
+        ProceduralRoomLayout fullLayout,
+        HashSet<Vector2Int> pieceCells,
+        int pieceIndex)
+    {
+        if (pieceCells == null || pieceCells.Count == 0)
+            return null;
+
+        GameObject root = new($"__RuntimeRoomPiecePrototype_{node.id}_{pieceIndex}");
+        root.transform.position = new Vector3(10000f, 10000f, 0f);
+
+        foreach (Vector2Int cell in pieceCells)
         {
             GameObject floor = new($"Tile_{cell.x}_{cell.y}");
             floor.transform.SetParent(root.transform, false);
@@ -275,7 +444,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             modifier.overrideArea = false;
         }
 
-        BuildClosedBoundary(root.transform, layout);
+        // Piece끼리 맞닿는 seam에는 벽을 절대 만들지 않습니다.
+        // fullLayout 바깥으로 노출되는 최종 Room 외곽에만 Wall을 생성합니다.
+        BuildOuterBoundaryForPiece(root.transform, fullLayout, pieceCells);
 
         MapBlock block = root.AddComponent<MapBlock>();
         block.ConfigureRuntimeDockingBlock(
@@ -287,16 +458,19 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return block;
     }
 
-    private void BuildClosedBoundary(Transform root, ProceduralRoomLayout layout)
+    private void BuildOuterBoundaryForPiece(
+        Transform root,
+        ProceduralRoomLayout fullLayout,
+        HashSet<Vector2Int> pieceCells)
     {
         Vector2Int[] dirs = { Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down };
 
-        foreach (Vector2Int cell in layout.cells)
+        foreach (Vector2Int cell in pieceCells)
         {
             for (int i = 0; i < dirs.Length; i++)
             {
                 Vector2Int edge = dirs[i];
-                if (layout.cells.Contains(cell + edge))
+                if (fullLayout.cells.Contains(cell + edge))
                     continue;
 
                 CreateBoundaryEdge(root, cell, edge);
@@ -331,6 +505,31 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         modifier.ignoreFromBuild = false;
         modifier.overrideArea = true;
         modifier.area = 1;
+    }
+
+    private static Vector2 GetAssemblyEntryDirection(
+        ProceduralRoomLayout layout,
+        HashSet<Vector2Int> pieceCells,
+        int pieceIndex)
+    {
+        if (layout == null || pieceCells == null || pieceCells.Count == 0)
+            return Vector2.down;
+
+        Vector2 center = Vector2.zero;
+        foreach (Vector2Int cell in pieceCells)
+            center += (Vector2)cell;
+        center /= pieceCells.Count;
+
+        Vector2 roomCenter = new((layout.size.x - 1) * 0.5f, (layout.size.y - 1) * 0.5f);
+        Vector2 delta = center - roomCenter;
+
+        if (Mathf.Abs(delta.x) > Mathf.Abs(delta.y) + 0.05f)
+            return delta.x >= 0f ? Vector2.right : Vector2.left;
+        if (Mathf.Abs(delta.y) > 0.05f)
+            return delta.y >= 0f ? Vector2.up : Vector2.down;
+
+        Vector2[] fallback = { Vector2.left, Vector2.right, Vector2.down, Vector2.up };
+        return fallback[Mathf.Abs(pieceIndex) % fallback.Length];
     }
 
     private ProceduralRoomLayout GetOrCreateLayout(BattleNodeData node)
@@ -459,16 +658,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             for (int x = 0; x < cutX; x++)
             {
                 int px = (corner == 1 || corner == 3) ? size.x - 1 - x : x;
-                int py = (corner >= 2) ? size.y - 1 - y : y;
+                int py = corner >= 2 ? size.y - 1 - y : y;
                 cells.Remove(new Vector2Int(px, py));
             }
         }
     }
 
-    /// <summary>
-    /// Prevents single-tile/2-tile appendages. Every positive tile must belong to at least one fully-filled
-    /// chunk x chunk square (default 4x4).
-    /// </summary>
     private static bool EveryCellBelongsToChunk(HashSet<Vector2Int> cells, int chunk)
     {
         if (cells == null || cells.Count == 0)
@@ -494,6 +689,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                             }
                         }
                     }
+
                     if (full)
                         belongs = true;
                 }
@@ -502,6 +698,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             if (!belongs)
                 return false;
         }
+
         return true;
     }
 
@@ -511,7 +708,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return false;
 
         Vector2Int first = default;
-        foreach (Vector2Int c in cells) { first = c; break; }
+        foreach (Vector2Int c in cells)
+        {
+            first = c;
+            break;
+        }
 
         Queue<Vector2Int> queue = new();
         HashSet<Vector2Int> visited = new();
@@ -529,6 +730,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     queue.Enqueue(n);
             }
         }
+
         return visited.Count == cells.Count;
     }
 
@@ -538,8 +740,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             int hash = 23;
             if (text != null)
+            {
                 for (int i = 0; i < text.Length; i++)
                     hash = hash * 31 + text[i];
+            }
             return hash;
         }
     }
@@ -605,14 +809,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (graph.nodes != null)
         {
             for (int i = 0; i < graph.nodes.Count; i++)
+            {
                 if (graph.nodes[i] != null)
                     positions.Add(ResolveNodeMapPosition(graph.nodes[i]));
+            }
         }
 
         Vector2 mapCenter = CalculateMapCenter(positions);
         float spacing = CalculateMapSpacing(positions, selecting);
 
-        // Links first, so nodes render over them.
         if (graph.nodes != null)
         {
             for (int i = 0; i < graph.nodes.Count; i++)
@@ -623,7 +828,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
                 List<BattleNodeData> next = graph.GetNextNodes(node);
                 for (int n = 0; n < next.Count; n++)
-                    DrawMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter, spacing);
+                {
+                    DrawMapLink(
+                        ResolveNodeMapPosition(node),
+                        ResolveNodeMapPosition(next[n]),
+                        mapCenter,
+                        spacing);
+                }
             }
         }
 
@@ -632,8 +843,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
             for (int i = 0; i < choices.Count; i++)
+            {
                 if (choices[i] != null)
                     available.Add(choices[i].id);
+            }
         }
 
         if (graph.nodes == null)
