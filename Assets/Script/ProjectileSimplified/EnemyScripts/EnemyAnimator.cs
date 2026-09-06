@@ -10,9 +10,10 @@ using UnityEngine;
 public class EnemyAnimator : MonoBehaviour
 {
     [Header("Facing Debug")]
+    [Tooltip("몬스터 중심에서 방향점 중심까지의 WORLD 거리입니다. Root scale에 의해 멀어지지 않습니다.")]
     [SerializeField] private bool showFacingIndicator = true;
     [SerializeField, Min(0.05f)] private float facingIndicatorDistance = 0.58f;
-    [SerializeField, Min(0.02f)] private float facingIndicatorSize = 0.10f;
+    [SerializeField, Min(0.02f)] private float facingIndicatorSize = 0.085f;
     [SerializeField] private Color facingIndicatorColor = Color.red;
 
     private SpriteRenderer spriteRenderer;
@@ -70,9 +71,6 @@ public class EnemyAnimator : MonoBehaviour
         ApplyFacingVisual();
     }
 
-    /// <summary>
-    /// 구형 Enemy.cs / EnemySO 호환 오버로드.
-    /// </summary>
     public void SetupVisual(EnemyVisualSO legacyVisual)
     {
         if (legacyVisual == null)
@@ -163,9 +161,6 @@ public class EnemyAnimator : MonoBehaviour
             ApplyFallbackSprite();
     }
 
-    /// <summary>
-    /// 기존 호출 호환용. 수평 정보만 있으면 좌/우를 갱신합니다.
-    /// </summary>
     public void SetFacing(float horizontalDirection)
     {
         if (Mathf.Abs(horizontalDirection) < 0.001f)
@@ -212,10 +207,22 @@ public class EnemyAnimator : MonoBehaviour
         if (facingIndicatorRenderer == null)
             return;
 
+        Transform indicator = facingIndicatorRenderer.transform;
+        Vector3 lossy = transform.lossyScale;
+        float scaleX = Mathf.Max(0.001f, Mathf.Abs(lossy.x));
+        float scaleY = Mathf.Max(0.001f, Mathf.Abs(lossy.y));
+
+        indicator.localPosition = new Vector3(
+            facing.x * facingIndicatorDistance / scaleX,
+            facing.y * facingIndicatorDistance / scaleY,
+            0f);
+        indicator.localScale = new Vector3(
+            facingIndicatorSize / scaleX,
+            facingIndicatorSize / scaleY,
+            1f);
+
         facingIndicatorRenderer.enabled = showFacingIndicator;
         facingIndicatorRenderer.color = facingIndicatorColor;
-        facingIndicatorRenderer.transform.localPosition = (Vector3)(facing * facingIndicatorDistance);
-        facingIndicatorRenderer.transform.localScale = Vector3.one * facingIndicatorSize;
         facingIndicatorRenderer.sortingOrder = spriteRenderer != null ? spriteRenderer.sortingOrder + 100 : 100;
     }
 
@@ -264,6 +271,8 @@ public class EnemyAnimator : MonoBehaviour
 
     private void Update()
     {
+        // Runtime scale 보정이 바뀌어도 방향점 world offset은 일정하게 유지합니다.
+        ApplyFacingVisual();
         UpdateFlash();
         UpdateFrames();
     }
