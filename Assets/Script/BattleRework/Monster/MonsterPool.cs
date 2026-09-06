@@ -5,16 +5,23 @@ using UnityEngine.AI;
 /// <summary>
 /// 몬스터 생성/반환 + 대규모 Crowd LOD 그룹 정보를 관리합니다.
 ///
-/// - Base 밖 Spawn: NavMesh가 없는 위치에서는 MonsterCrowdAgent가 단순 직선 이동으로 진입
-/// - 가까운 거리: NavMesh에 붙은 뒤 MonsterController의 정밀 AI 사용
-/// - 대규모 몬스터: 일정 수 이상이면 멀리 있는 개체의 NavMeshAgent를 꺼 A*/SetDestination 비용을 줄임
-/// - Group Target: 여러 몬스터가 Player 위치를 개별 계산하지 않고 그룹 단위 캐시를 공유
+/// - Room Base 내부에 지정된 이동형 Monster Spawn Point는 기본적으로 Base 외곽으로 투영됩니다.
+/// - Base 밖 Spawn은 NavMesh가 없는 동안 MonsterCrowdAgent가 단순 직선 이동으로 진입합니다.
+/// - 가까운 거리에서는 NavMesh에 붙은 뒤 MonsterController의 정밀 AI를 사용합니다.
+/// - 대규모 몬스터는 일정 수 이상일 때 멀리 있는 개체의 NavMeshAgent를 꺼 A*/SetDestination 비용을 줄입니다.
+/// - 여러 Monster가 Player Target을 개별 계산하지 않고 Group Target 캐시를 공유합니다.
 /// </summary>
 public class MonsterPool : MonoBehaviour
 {
     [SerializeField] private MonsterController monsterPrefab;
     [SerializeField] private int initialPoolSize = 20;
     [SerializeField] private ProjectilePooler enemyProjectilePool;
+
+    [Header("Room Perimeter Spawn")]
+    [Tooltip("이동형 Monster의 Spawn Point가 Room Base 내부라면 가장 가까운 외곽 면 밖으로 자동 투영합니다.")]
+    [SerializeField] private bool forceMovingSpawnsOutsideBase = true;
+    [SerializeField, Min(0.1f)] private float outsideSpawnDistance = 1.8f;
+    [SerializeField] private BattleRoomManager roomManager;
 
     [Header("Spawn Safety")]
     [SerializeField, Min(0.1f)] private float navMeshSampleRadius = 2f;
@@ -76,6 +83,9 @@ public class MonsterPool : MonoBehaviour
 
     private void Awake()
     {
+        if (roomManager == null)
+            roomManager = FindFirstObjectByType<BattleRoomManager>();
+
         TryInitialize();
     }
 
@@ -106,6 +116,9 @@ public class MonsterPool : MonoBehaviour
             monsterPrefab = prefab;
         if (projectilePool != null)
             enemyProjectilePool = projectilePool;
+
+        if (roomManager == null)
+            roomManager = FindFirstObjectByType<BattleRoomManager>();
 
         TryInitialize();
     }
@@ -166,6 +179,8 @@ public class MonsterPool : MonoBehaviour
         }
 
         bool movingMonster = definition.moveType != MonsterMoveType.Stationary;
+        requestedPosition = ResolveRoomPerimeterSpawn(requestedPosition, movingMonster);
+
         bool nearRequestedNavMesh = NavMesh.SamplePosition(
             requestedPosition,
             out _,
@@ -177,8 +192,6 @@ public class MonsterPool : MonoBehaviour
 
         if (movingMonster && enableCrowdOptimization && !nearRequestedNavMesh)
         {
-            // 4x4 Base 외곽 Spawn은 정확한 requestedPosition을 보존합니다.
-            // NavMesh에 억지로 Snap하지 않고 Simple Movement로 Base에 진입합니다.
             spawnPosition = requestedPosition;
             startSimpleMovement = true;
         }
@@ -211,10 +224,6 @@ public class MonsterPool : MonoBehaviour
         if (agent != null)
             agent.enabled = false;
 
-        // MonsterController.Setup은 기존 ConfigureAgent를 그대로 사용합니다.
-        // Base 밖 위치에서 바로 Setup하면 agent.isStopped 설정이 off-mesh 경고를 낼 수 있으므로,
-        // Simple Entry 몬스터는 먼저 Player 근처의 안전한 NavMesh 위치에서 초기화한 뒤
-        // Agent/Controller를 끄고 실제 외곽 Spawn 위치로 옮깁니다.
         Vector3 setupPosition = spawnPosition;
         if (startSimpleMovement && movingMonster &&
             NavMesh.SamplePosition(
@@ -254,6 +263,53 @@ public class MonsterPool : MonoBehaviour
         }
 
         return monster;
+    }
+
+    private Vector3 ResolveRoomPerimeterSpawn(Vector3 requestedPosition, bool movingMonster)
+    {
+        if (!forceMovingSpawnsOutsideBase || !movingMonster)
+            return requestedPosition;
+
+        if (roomManager == null)
+            roomManager = FindFirstObjectByType<BattleRoomManager>();
+
+        RoomDefinitionSO room = roomManager != null ? roomManager.CurrentRoom : null;
+        if (room == null)
+            return requestedPosition;
+
+        Transform originTransform = roomManager.transform.Find("RoomOrigin");
+        Vector2 origin = originTransform != null
+            ? (Vector2)originTransform.position
+            : (Vector2)roomManager.transform.position;
+
+        Vector2 center = origin + room.GetTemplateCenterOffset();
+        Vector2 half = room.GetTemplateWorldSize() * 0.5f;
+        Vector2 min = center - half;
+        Vector2 max = center + half;
+        Vector2 point = requestedPosition;
+
+        bool inside = point.x >= min.x && point.x <= max.x &&
+                      point.y >= min.y && point.y <= max.y;
+        if (!inside)
+            return requestedPosition;
+
+        float left = point.x - min.x;
+        float right = max.x - point.x;
+        float bottom = point.y - min.y;
+        float top = max.y - point.y;
+        float nearest = Mathf.Min(left, right, bottom, top);
+        float distance = Mathf.Max(0.1f, outsideSpawnDistance);
+
+        if (nearest == left)
+            point.x = min.x - distance;
+        else if (nearest == right)
+            point.x = max.x + distance;
+        else if (nearest == bottom)
+            point.y = min.y - distance;
+        else
+            point.y = max.y + distance;
+
+        return new Vector3(point.x, point.y, requestedPosition.z);
     }
 
     private bool TryResolveSpawnPosition(
