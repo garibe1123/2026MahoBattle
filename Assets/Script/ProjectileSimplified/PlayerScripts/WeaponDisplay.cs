@@ -1,37 +1,104 @@
 using UnityEngine;
 
+/// <summary>
+/// Legacy weapon visual bridge.
+/// WeaponPivotëŠ” í•­ìƒ Player ì¤‘ì‹¬ì„ ê¸°ì¤€ìœ¼ë¡œ íšŒì „í•˜ê³ ,
+/// WeaponVisualì€ Player root scaleê³¼ ë¬´ê´€í•˜ê²Œ ì¼ì •í•œ world-space marginë§Œ ìœ ì§€í•©ë‹ˆë‹¤.
+/// </summary>
 public class WeaponDisplay : MonoBehaviour
 {
     public SpriteRenderer weaponSpriteRenderer;
-    public Transform pivot; // ÃÑÀÌ È¸ÀüÇÒ Áß½ÉÃà (ÇÃ·¹ÀÌ¾î ¾î±ú³ª Áß½É)
+    public Transform pivot;
+
+    [Header("Visual Placement")]
+    [Tooltip("Player ì¤‘ì‹¬ì—ì„œ ì´ Sprite ì¤‘ì‹¬ê¹Œì§€ì˜ WORLD ê±°ë¦¬ì…ë‹ˆë‹¤.")]
+    [SerializeField, Min(0f)] private float weaponWorldOffset = 0.46f;
+    [Tooltip("Placeholder/ê¸°ë³¸ ì´ Spriteê°€ ì§€ë‚˜ì¹˜ê²Œ ì»¤ì§€ì§€ ì•Šë„ë¡ world ìµœëŒ€ ë³€ ê¸¸ì´ë¥¼ ì •ê·œí™”í•©ë‹ˆë‹¤.")]
+    [SerializeField] private bool normalizeWeaponWorldSize = true;
+    [SerializeField, Min(0.1f)] private float weaponMaxWorldSize = 0.72f;
 
     public void UpdateWeaponSprite(Sprite newSprite)
     {
+        if (weaponSpriteRenderer == null)
+            return;
+
         weaponSpriteRenderer.sprite = newSprite;
+        ApplyVisualPlacement();
     }
 
-    void Update()
+    private void Awake()
     {
-        // ºÒ¸´ Å¸ÀÓ(Tab)À¸·Î ½Ã°£ÀÌ ¸ØÃèÀ» ¶§´Â ÃÑ±¸µµ È¸ÀüÇÏÁö ¾ÊÀ½ (¼±ÅÃ »çÇ×)
-        // if (Time.timeScale <= 0.1f) return; 
+        ResolveReferences();
+        ApplyVisualPlacement();
+    }
 
-        Vector3 mousePos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
-        mousePos.z = 0f;
+    private void OnEnable()
+    {
+        ResolveReferences();
+        ApplyVisualPlacement();
+    }
 
-        Vector3 aimDirection = (mousePos - pivot.position).normalized;
+    private void Update()
+    {
+        ResolveReferences();
+        if (pivot == null || weaponSpriteRenderer == null)
+            return;
+
+        // Player Rootê°€ 48px ê¸°ì¤€ìœ¼ë¡œ scale ë³´ì •ë˜ì–´ë„ ì´ì´ ë©€ë¦¬ ë°€ë ¤ë‚˜ì§€ ì•Šê²Œ ë§¤ frame world offsetì„ ì—­ë³´ì •í•©ë‹ˆë‹¤.
+        ApplyVisualPlacement();
+
+        Camera main = Camera.main;
+        if (main == null)
+            return;
+
+        Vector3 mousePos = main.ScreenToWorldPoint(Input.mousePosition);
+        mousePos.z = pivot.position.z;
+
+        Vector3 aimDirection = mousePos - pivot.position;
+        if (aimDirection.sqrMagnitude <= 0.0001f)
+            return;
+
         float angle = Mathf.Atan2(aimDirection.y, aimDirection.x) * Mathf.Rad2Deg;
+        pivot.eulerAngles = new Vector3(0f, 0f, angle);
+        weaponSpriteRenderer.flipY = angle > 90f || angle < -90f;
+    }
 
-        // ÃÑ±â È¸Àü
-        pivot.eulerAngles = new Vector3(0, 0, angle);
+    private void ResolveReferences()
+    {
+        if (weaponSpriteRenderer == null)
+            weaponSpriteRenderer = GetComponent<SpriteRenderer>();
 
-        // ¡Ú °¢µµ°¡ ¿ŞÂÊÀ» ÇâÇÒ ¶§ (90µµ ³Ñ¾î°¡¸é) ÀÌ¹ÌÁö°¡ µÚÁıÈ÷´Â °ÍÀ» ¹æÁö
-        if (angle > 90 || angle < -90)
-        {
-            weaponSpriteRenderer.flipY = true;
-        }
-        else
-        {
-            weaponSpriteRenderer.flipY = false;
-        }
+        if (pivot == null)
+            pivot = transform.parent != null ? transform.parent : transform;
+    }
+
+    private void ApplyVisualPlacement()
+    {
+        if (pivot == null || weaponSpriteRenderer == null)
+            return;
+
+        // Fallback hierarchyëŠ” Player/WeaponPivot/WeaponVisualì…ë‹ˆë‹¤.
+        // Pivot ìì²´ë¥¼ Player ì¤‘ì‹¬ì— ê³ ì •í•´ì„œ ê³¼ê±° local offsetì´ ë‚¨ì•„ ìˆì–´ë„ ë©€ë¦¬ ë‚ ì•„ê°€ì§€ ì•Šê²Œ í•©ë‹ˆë‹¤.
+        if (pivot.parent != null)
+            pivot.localPosition = Vector3.zero;
+
+        Transform visual = weaponSpriteRenderer.transform;
+        float pivotScaleX = Mathf.Max(0.001f, Mathf.Abs(pivot.lossyScale.x));
+        visual.localPosition = new Vector3(weaponWorldOffset / pivotScaleX, 0f, 0f);
+
+        if (!normalizeWeaponWorldSize || weaponSpriteRenderer.sprite == null)
+            return;
+
+        Vector2 spriteSize = weaponSpriteRenderer.sprite.bounds.size;
+        float spriteMax = Mathf.Max(0.001f, Mathf.Max(spriteSize.x, spriteSize.y));
+
+        Transform visualParent = visual.parent;
+        Vector3 parentLossy = visualParent != null ? visualParent.lossyScale : Vector3.one;
+        float parentScale = Mathf.Max(
+            0.001f,
+            Mathf.Max(Mathf.Abs(parentLossy.x), Mathf.Abs(parentLossy.y)));
+
+        float targetLocalScale = Mathf.Max(0.01f, weaponMaxWorldSize / (spriteMax * parentScale));
+        visual.localScale = new Vector3(targetLocalScale, targetLocalScale, 1f);
     }
 }
