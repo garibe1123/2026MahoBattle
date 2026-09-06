@@ -1,17 +1,20 @@
+using NavMeshPlus.Components;
 using UnityEngine;
 
 /// <summary>
-/// 기존 테스트 씬에 수동으로 배치하던 Field Base를 대체합니다.
-/// Combat/Elite Node 진입 시 RoomDefinitionSO의 템플릿 크기에 맞는 Base를 자동 생성하고,
-/// Room 종료 시 자동 제거합니다.
+/// 전투의 영구 Start Base를 관리합니다.
 ///
-/// 기본 좌표 규칙:
-/// - MapBlock 1개 = 2x2 world unit = 128x128px (64px/unit 기준)
-/// - Room 4x4 block = 8x8 world unit = 512x512px
+/// 기본 규칙:
+/// - MapBlock 1개 = 2x2 world unit
+/// - 기본 Start Base = 4x4 block = 8x8 world
 /// - grid (0,0) block 중심 = roomOrigin
-/// - 따라서 4x4 Base 중심은 roomOrigin + (3,3)
+/// - 4x4 Base 중심 = roomOrigin + (3,3)
 ///
-/// Base는 기본적으로 시각적 기준면입니다. 실제 이동/NavMesh 바닥은 MapBlock Prefab이 담당합니다.
+/// Start Base는 첫 Combat/Elite 진입 때 한 번 만들어지고 BattleScene이 살아 있는 동안 유지됩니다.
+/// Room이 끝나거나 Run이 Clear/Death/Quit 되어도 제거하지 않습니다.
+/// 이후 Room의 blocks는 이 Base 밖에 붙는 확장/도킹 Block만 담당합니다.
+///
+/// Base 자체가 NavMeshPlus 2D Walkable Source가 되므로 기본 4x4 셀을 별도 MapBlock 16개로 생성할 필요가 없습니다.
 /// </summary>
 public class RoomBaseTemplate : MonoBehaviour
 {
@@ -20,12 +23,18 @@ public class RoomBaseTemplate : MonoBehaviour
     [SerializeField] private BattleRoomManager roomManager;
 
     [Header("Base Transform")]
-    [Tooltip("BattleRoomManager의 roomOrigin과 동일한 Transform을 지정하는 것을 권장합니다. null이면 RoomManager Transform/RoomOrigin 이름의 자식을 자동 탐색합니다.")]
+    [Tooltip("BattleRoomManager의 roomOrigin과 동일한 Transform을 지정하는 것을 권장합니다.")]
     [SerializeField] private Transform baseOrigin;
     [SerializeField] private Transform baseRoot;
 
+    [Header("Persistent Start Base")]
+    [Tooltip("첫 Combat Room에서 생성한 Base를 이후 Room/Run 종료에도 유지합니다.")]
+    [SerializeField] private bool keepAcrossRooms = true;
+    [Tooltip("Start Base의 대표 SpriteRenderer를 NavMeshPlus Walkable Source로 등록합니다.")]
+    [SerializeField] private bool baseProvidesWalkableNavMesh = true;
+
     [Header("Real Base Visual - 둘 다 null이면 Dummy")]
-    [Tooltip("완성된 Base Prefab이 있다면 지정합니다. Sprite보다 우선 사용합니다.")]
+    [Tooltip("완성된 Start Base Prefab이 있다면 지정합니다. Sprite보다 우선 사용합니다.")]
     [SerializeField] private GameObject basePrefab;
     [Tooltip("Base용 Sprite만 사용할 경우 지정합니다. null이면 코드 생성 Grid Dummy를 사용합니다.")]
     [SerializeField] private Sprite baseSprite;
@@ -33,9 +42,9 @@ public class RoomBaseTemplate : MonoBehaviour
     [SerializeField] private int sortingOrder = -100;
 
     [Header("Sizing")]
-    [Tooltip("Sprite 모드일 때 SpriteRenderer Tiled를 사용해 템플릿 크기에 맞춥니다.")]
+    [Tooltip("Sprite 모드일 때 SpriteRenderer Tiled를 사용해 Start Base 크기에 맞춥니다.")]
     [SerializeField] private bool tileSpriteToTemplate = true;
-    [Tooltip("Prefab 모드일 때 Prefab의 Renderer Bounds를 측정해 템플릿 크기에 맞게 Root Scale을 조절합니다.")]
+    [Tooltip("Prefab 모드일 때 Prefab의 Renderer Bounds를 측정해 Start Base 크기에 맞게 Root Scale을 조절합니다.")]
     [SerializeField] private bool scalePrefabToTemplate = true;
 
     [Header("Dummy Base")]
@@ -49,6 +58,7 @@ public class RoomBaseTemplate : MonoBehaviour
     public GameObject ActiveBase => activeBase;
     public RoomDefinitionSO ActiveRoom => activeRoom;
     public Vector2 ActiveWorldSize => activeWorldSize;
+    public bool HasPersistentBase => activeBase != null;
 
     private void Awake()
     {
@@ -65,6 +75,8 @@ public class RoomBaseTemplate : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
+        // Component/Scene 자체가 내려갈 때만 정리합니다.
+        // RoomExited / RunEnded에서는 Start Base를 지우지 않습니다.
         ClearBase();
     }
 
@@ -101,13 +113,7 @@ public class RoomBaseTemplate : MonoBehaviour
             return;
 
         if (runManager != null)
-        {
             runManager.NodeEntered += HandleNodeEntered;
-            runManager.RunEnded += HandleRunEnded;
-        }
-
-        if (roomManager != null)
-            roomManager.RoomExited += HandleRoomExited;
 
         subscribed = true;
     }
@@ -118,13 +124,7 @@ public class RoomBaseTemplate : MonoBehaviour
             return;
 
         if (runManager != null)
-        {
             runManager.NodeEntered -= HandleNodeEntered;
-            runManager.RunEnded -= HandleRunEnded;
-        }
-
-        if (roomManager != null)
-            roomManager.RoomExited -= HandleRoomExited;
 
         subscribed = false;
     }
@@ -135,31 +135,63 @@ public class RoomBaseTemplate : MonoBehaviour
                           (node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite);
 
         if (!combatNode || node.room == null || !node.room.useRuntimeBase)
+            return;
+
+        if (activeBase != null && keepAcrossRooms)
         {
-            ClearBase();
+            activeRoom = node.room;
+
+            Vector2 requestedSize = node.room.GetRuntimeBaseWorldSize();
+            if ((requestedSize - activeWorldSize).sqrMagnitude > 0.001f)
+            {
+                Debug.LogWarning(
+                    $"[RoomBaseTemplate] Persistent Start Base is already {activeWorldSize}, but Room '{node.room.roomId}' requests {requestedSize}. " +
+                    "The first Base size is kept for this BattleScene. Use the same Start Base size across a run or call RebuildCurrentBase explicitly.",
+                    this);
+            }
             return;
         }
 
         BuildBase(node.room);
     }
 
-    private void HandleRoomExited(RoomDefinitionSO room)
-    {
-        if (room == null || activeRoom == null || room == activeRoom)
-            ClearBase();
-    }
-
-    private void HandleRunEnded(RunEndReason reason)
-    {
-        ClearBase();
-    }
-
+    /// <summary>
+    /// Start Base를 생성합니다. keepAcrossRooms가 켜져 있고 이미 존재하면 기존 Base를 유지합니다.
+    /// </summary>
     public void BuildBase(RoomDefinitionSO room)
     {
-        ClearBase();
+        BuildBaseInternal(room, false);
+    }
 
+    [ContextMenu("Rebuild Current Start Base")]
+    public void RebuildCurrentBase()
+    {
+        RoomDefinitionSO room = null;
+
+        if (roomManager != null && roomManager.CurrentRoom != null)
+            room = roomManager.CurrentRoom;
+        else if (runManager != null && runManager.CurrentNode != null)
+            room = runManager.CurrentNode.room;
+        else
+            room = activeRoom;
+
+        if (room != null)
+            BuildBaseInternal(room, true);
+    }
+
+    private void BuildBaseInternal(RoomDefinitionSO room, bool forceRebuild)
+    {
         if (room == null || !room.useRuntimeBase)
             return;
+
+        if (activeBase != null && keepAcrossRooms && !forceRebuild)
+        {
+            activeRoom = room;
+            return;
+        }
+
+        if (activeBase != null)
+            ClearBase();
 
         ResolveOrigin();
 
@@ -178,30 +210,23 @@ public class RoomBaseTemplate : MonoBehaviour
             : (roomManager != null ? roomManager.transform : transform);
 
         if (basePrefab != null)
-        {
             BuildPrefabBase(parent, center, activeWorldSize, room);
-            return;
-        }
+        else
+            BuildSpriteBase(parent, center, activeWorldSize, room);
 
-        BuildSpriteBase(parent, center, activeWorldSize, room);
+        EnsureWalkableBaseSource();
     }
 
-    public void RebuildCurrentBase()
-    {
-        if (roomManager != null && roomManager.CurrentRoom != null)
-        {
-            BuildBase(roomManager.CurrentRoom);
-            return;
-        }
-
-        if (runManager != null && runManager.CurrentNode != null)
-            HandleNodeEntered(runManager.CurrentNode);
-    }
-
+    [ContextMenu("Clear Start Base")]
     public void ClearBase()
     {
         if (activeBase != null)
-            Destroy(activeBase);
+        {
+            if (Application.isPlaying)
+                Destroy(activeBase);
+            else
+                DestroyImmediate(activeBase);
+        }
 
         activeBase = null;
         activeRoom = null;
@@ -215,7 +240,7 @@ public class RoomBaseTemplate : MonoBehaviour
         RoomDefinitionSO room)
     {
         activeBase = Instantiate(basePrefab, center, Quaternion.identity, parent);
-        activeBase.name = $"RuntimeRoomBase_{SafeRoomName(room)}";
+        activeBase.name = "PersistentStartBase";
 
         if (!scalePrefabToTemplate)
             return;
@@ -223,8 +248,8 @@ public class RoomBaseTemplate : MonoBehaviour
         if (!TryGetRendererBounds(activeBase, out Bounds bounds))
         {
             Debug.LogWarning(
-                $"[RoomBaseTemplate] Base prefab '{basePrefab.name}' has no Renderer. " +
-                "Automatic template scaling was skipped.");
+                $"[RoomBaseTemplate] Base prefab '{basePrefab.name}' has no Renderer. Automatic Start Base scaling was skipped.",
+                this);
             return;
         }
 
@@ -236,7 +261,6 @@ public class RoomBaseTemplate : MonoBehaviour
         scale.y *= targetSize.y / height;
         activeBase.transform.localScale = scale;
 
-        // Renderer pivot/child offset이 있는 Prefab도 최종 Bounds 중심이 템플릿 중심에 오도록 한 번 더 보정합니다.
         if (TryGetRendererBounds(activeBase, out Bounds resizedBounds))
         {
             Vector3 correction = center - resizedBounds.center;
@@ -251,7 +275,7 @@ public class RoomBaseTemplate : MonoBehaviour
         Vector2 targetSize,
         RoomDefinitionSO room)
     {
-        activeBase = new GameObject($"RuntimeRoomBase_{SafeRoomName(room)}");
+        activeBase = new GameObject("PersistentStartBase");
         activeBase.transform.SetParent(parent, true);
         activeBase.transform.position = center;
 
@@ -286,6 +310,51 @@ public class RoomBaseTemplate : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// NavMeshPlus 2D는 NavMeshModifier가 붙은 SpriteRenderer를 RenderMesh source로 수집합니다.
+    /// Start Base가 실제 기본 바닥을 담당하므로 가장 큰 SpriteRenderer 하나를 Walkable Source로 등록합니다.
+    /// </summary>
+    private void EnsureWalkableBaseSource()
+    {
+        if (!baseProvidesWalkableNavMesh || activeBase == null)
+            return;
+
+        SpriteRenderer[] renderers = activeBase.GetComponentsInChildren<SpriteRenderer>(true);
+        SpriteRenderer best = null;
+        float bestArea = -1f;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.sprite == null)
+                continue;
+
+            Bounds bounds = renderer.bounds;
+            float area = Mathf.Abs(bounds.size.x * bounds.size.y);
+            if (area <= bestArea)
+                continue;
+
+            bestArea = area;
+            best = renderer;
+        }
+
+        if (best == null)
+        {
+            Debug.LogWarning(
+                "[RoomBaseTemplate] Persistent Start Base has no SpriteRenderer to use as a NavMeshPlus 2D source. " +
+                "The Base will remain visual-only until a floor SpriteRenderer is provided.",
+                this);
+            return;
+        }
+
+        NavMeshModifier modifier = best.GetComponent<NavMeshModifier>();
+        if (modifier == null)
+            modifier = best.gameObject.AddComponent<NavMeshModifier>();
+
+        modifier.ignoreFromBuild = false;
+        modifier.overrideArea = false;
+    }
+
     private static bool TryGetRendererBounds(GameObject root, out Bounds bounds)
     {
         bounds = default;
@@ -315,16 +384,6 @@ public class RoomBaseTemplate : MonoBehaviour
         return hasBounds;
     }
 
-    private static string SafeRoomName(RoomDefinitionSO room)
-    {
-        if (room == null)
-            return "Unknown";
-
-        return string.IsNullOrWhiteSpace(room.roomId)
-            ? room.name
-            : room.roomId;
-    }
-
     private static class RuntimeRoomBaseSpriteCache
     {
         private static Sprite grid;
@@ -335,7 +394,7 @@ public class RoomBaseTemplate : MonoBehaviour
             const int size = 16;
             Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
             {
-                name = "RuntimeRoomBaseGridTexture",
+                name = "PersistentStartBaseGridTexture",
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Repeat,
                 hideFlags = HideFlags.HideAndDontSave
@@ -355,7 +414,7 @@ public class RoomBaseTemplate : MonoBehaviour
 
             texture.Apply(false, false);
 
-            // 16px / 8 PPU = 2 world unit. 즉 Dummy Grid 한 칸이 MapBlock 하나와 정확히 같은 크기입니다.
+            // 16px / 8 PPU = 2 world. Dummy Grid 한 칸 = MapBlock 한 칸.
             Sprite sprite = Sprite.Create(
                 texture,
                 new Rect(0f, 0f, size, size),
@@ -364,7 +423,7 @@ public class RoomBaseTemplate : MonoBehaviour
                 0,
                 SpriteMeshType.FullRect);
 
-            sprite.name = "RuntimeRoomBaseGridSprite";
+            sprite.name = "PersistentStartBaseGridSprite";
             sprite.hideFlags = HideFlags.HideAndDontSave;
             return sprite;
         }
