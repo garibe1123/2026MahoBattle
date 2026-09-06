@@ -1,20 +1,16 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
-using UnityEngine.Serialization;
 
 /// <summary>
-/// 몬스터 생성/반환 + 대규모 Crowd LOD 그룹 정보를 관리합니다.
+/// 몬스터 생성/반환만 담당합니다.
+/// 언제/어디에/무엇을 스폰할지는 BattleRoomManager / RoomDefinitionSO가 결정합니다.
 ///
 /// Spawn rule:
-/// - Persistent Start Base 내부에서는 Monster를 생성하지 않습니다.
-/// - Room SO의 Spawn Point가 Base 내부면 가장 가까운 외곽 면 밖으로 자동 투영합니다.
-/// - 이동형 Monster는 Base 밖에서 Simple Movement로 진입한 뒤 가까워지면 NavMesh 정밀 AI로 전환합니다.
-/// - Stationary Monster도 Base 내부 좌표는 외부로 이동되지만, 고정형이므로 그 위치에서 그대로 동작합니다.
-///
-/// Crowd rule:
-/// - 대규모 몬스터는 멀리 있을 때 NavMeshAgent/A* 갱신을 끕니다.
-/// - 여러 Monster가 Player Target을 개별 계산하지 않고 Group Target 캐시를 공유합니다.
+/// - Room SO의 localPosition을 그대로 기준점으로 사용합니다.
+/// - Spawn은 현재 완성된 Room의 NavMesh 위에서만 허용합니다.
+/// - Player까지 완전한 NavMesh 경로가 없는 위치는 거부합니다.
+/// - Start Base 안쪽 Spawn을 임의로 벽 밖/외곽으로 투영하지 않습니다.
 /// </summary>
 public class MonsterPool : MonoBehaviour
 {
@@ -22,59 +18,13 @@ public class MonsterPool : MonoBehaviour
     [SerializeField] private int initialPoolSize = 20;
     [SerializeField] private ProjectilePooler enemyProjectilePool;
 
-    [Header("Persistent Start Base Spawn Exclusion")]
-    [FormerlySerializedAs("forceMovingSpawnsOutsideBase")]
-    [Tooltip("Start Base 내부의 모든 Monster Spawn Point를 가장 가까운 외곽 면 밖으로 이동합니다.")]
-    [SerializeField] private bool forceSpawnsOutsideBase = true;
-    [SerializeField, Min(0.1f)] private float outsideSpawnDistance = 1.8f;
-    [SerializeField] private BattleRoomManager roomManager;
-
     [Header("Spawn Safety")]
-    [SerializeField, Min(0.1f)] private float navMeshSampleRadius = 2f;
+    [SerializeField, Min(0.1f)] private float navMeshSampleRadius = 1.25f;
     [SerializeField, Min(0)] private int reachableSpawnRetryCount = 6;
-    [SerializeField, Min(0f)] private float retryScatterRadius = 1.5f;
-
-    [Header("Crowd LOD")]
-    [SerializeField] private bool enableCrowdOptimization = true;
-    [Tooltip("이 수 이하에서는 기존 정밀 AI를 우선합니다. Base 밖 진입 몬스터는 수와 관계없이 Simple Entry를 사용합니다.")]
-    [SerializeField, Min(1)] private int optimizationThreshold = 10;
-    [Tooltip("공유 Target을 사용하는 몬스터 그룹당 최대 인원입니다.")]
-    [SerializeField, Range(2, 32)] private int membersPerGroup = 10;
-    [Tooltip("Player와 이 거리보다 멀고 몬스터 수가 많으면 NavMesh/A* 대신 Simple Movement를 사용합니다.")]
-    [SerializeField, Min(1f)] private float preciseNavDistance = 6.2f;
-    [SerializeField, Min(0.02f)] private float groupTargetRefreshInterval = 0.14f;
-    [SerializeField, Range(0.25f, 1.5f)] private float simpleMoveSpeedMultiplier = 0.92f;
-    [SerializeField, Min(0.1f)] private float navAttachSampleRadius = 1.25f;
-    [SerializeField, Min(0.03f)] private float navAttachCheckInterval = 0.16f;
-    [Tooltip("같은 Group 멤버가 정확히 같은 점으로 겹치지 않도록 Player 주변에 주는 작은 Formation 반경입니다.")]
-    [SerializeField, Min(0f)] private float groupFormationRadius = 0.9f;
+    [SerializeField, Min(0f)] private float retryScatterRadius = 1.0f;
 
     private readonly Queue<MonsterController> pool = new();
-    private readonly Dictionary<MonsterCrowdAgent, CrowdMemberRecord> crowdMembers = new();
-    private readonly List<CrowdGroup> crowdGroups = new();
-
     private bool initialized;
-    private int nextCrowdGroupId;
-    private float nextCrowdTargetRefresh;
-
-    public int ActiveCrowdCount => crowdMembers.Count;
-    public float PreciseNavDistance => Mathf.Max(1f, preciseNavDistance);
-    public float SimpleMoveSpeedMultiplier => Mathf.Max(0.25f, simpleMoveSpeedMultiplier);
-    public float NavAttachCheckInterval => Mathf.Max(0.03f, navAttachCheckInterval);
-
-    private sealed class CrowdMemberRecord
-    {
-        public CrowdGroup group;
-        public Vector2 slotOffset;
-    }
-
-    private sealed class CrowdGroup
-    {
-        public int id;
-        public Transform target;
-        public Vector2 cachedTarget;
-        public readonly List<MonsterCrowdAgent> members = new();
-    }
 
     public bool ValidateConfiguration(out string report)
     {
@@ -89,42 +39,16 @@ public class MonsterPool : MonoBehaviour
 
     private void Awake()
     {
-        if (roomManager == null)
-            roomManager = FindFirstObjectByType<BattleRoomManager>();
-
         TryInitialize();
-    }
-
-    private void Update()
-    {
-        if (Time.time < nextCrowdTargetRefresh)
-            return;
-
-        nextCrowdTargetRefresh = Time.time + Mathf.Max(0.02f, groupTargetRefreshInterval);
-
-        for (int i = crowdGroups.Count - 1; i >= 0; i--)
-        {
-            CrowdGroup group = crowdGroups[i];
-            if (group == null || group.members.Count == 0)
-            {
-                crowdGroups.RemoveAt(i);
-                continue;
-            }
-
-            if (group.target != null)
-                group.cachedTarget = group.target.position;
-        }
     }
 
     public void Configure(MonsterController prefab, ProjectilePooler projectilePool = null)
     {
         if (prefab != null)
             monsterPrefab = prefab;
+
         if (projectilePool != null)
             enemyProjectilePool = projectilePool;
-
-        if (roomManager == null)
-            roomManager = FindFirstObjectByType<BattleRoomManager>();
 
         TryInitialize();
     }
@@ -140,6 +64,7 @@ public class MonsterPool : MonoBehaviour
             MonsterController monster = CreateNew();
             if (monster == null)
                 break;
+
             Return(monster);
         }
 
@@ -152,8 +77,6 @@ public class MonsterPool : MonoBehaviour
             return null;
 
         MonsterController monster = Instantiate(monsterPrefab, transform);
-        if (monster.GetComponent<MonsterCrowdAgent>() == null)
-            monster.gameObject.AddComponent<MonsterCrowdAgent>();
         monster.gameObject.SetActive(false);
         return monster;
     }
@@ -184,64 +107,16 @@ public class MonsterPool : MonoBehaviour
             return null;
         }
 
-        bool movingMonster = definition.moveType != MonsterMoveType.Stationary;
-        requestedPosition = ResolveRoomPerimeterSpawn(requestedPosition, out bool projectedOutsideBase);
-
-        bool nearRequestedNavMesh = NavMesh.SamplePosition(
-            requestedPosition,
-            out _,
-            0.35f,
-            NavMesh.AllAreas);
-
-        Vector3 spawnPosition;
-        bool startSimpleMovement = movingMonster && projectedOutsideBase;
-
-        // Base 외곽 진입은 NavMesh 유무/몬스터 수와 관계없이 Simple Entry로 시작합니다.
-        // Start Base 안쪽으로 순간 Snap되어 보이는 것을 막고, 외부 진입 연출과 Crowd LOD를 동일한 경로로 처리합니다.
-        if (startSimpleMovement)
+        if (!TryResolveSpawnPosition(
+                requestedPosition,
+                playerTarget.position,
+                definition.moveType,
+                out Vector3 spawnPosition))
         {
-            spawnPosition = requestedPosition;
-        }
-        else if (!movingMonster && projectedOutsideBase)
-        {
-            // 고정형은 NavMesh가 없는 Base 외부에도 놓일 수 있습니다.
-            spawnPosition = requestedPosition;
-        }
-        else if (movingMonster && enableCrowdOptimization && !nearRequestedNavMesh)
-        {
-            spawnPosition = requestedPosition;
-            startSimpleMovement = true;
-        }
-        else
-        {
-            if (!TryResolveSpawnPosition(
-                    requestedPosition,
-                    playerTarget.position,
-                    definition.moveType,
-                    out spawnPosition))
-            {
-                Debug.LogError(
-                    $"[MonsterPool] Spawn rejected for '{definition.displayName}' at {requestedPosition}. " +
-                    "No reachable NavMesh position could be found. The monster will not be counted by the Room.");
-                return null;
-            }
-
-            // Safety: NavMesh Sample이 다시 Start Base 안으로 끌어당겼다면 내부 Spawn을 허용하지 않습니다.
-            if (IsInsideCurrentStartBase(spawnPosition))
-            {
-                spawnPosition = ResolveRoomPerimeterSpawn(spawnPosition, out bool safetyProjected);
-                if (movingMonster && safetyProjected)
-                    startSimpleMovement = true;
-            }
-
-            float distance = Vector2.Distance(spawnPosition, playerTarget.position);
-            if (!startSimpleMovement)
-            {
-                startSimpleMovement = movingMonster &&
-                                      enableCrowdOptimization &&
-                                      crowdMembers.Count + 1 > Mathf.Max(1, optimizationThreshold) &&
-                                      distance > PreciseNavDistance;
-            }
+            Debug.LogError(
+                $"[MonsterPool] Spawn rejected for '{definition.displayName}' at {requestedPosition}. " +
+                "No reachable Room NavMesh position could be found. The monster will not be counted by the Room.");
+            return null;
         }
 
         MonsterController monster = pool.Count > 0 ? pool.Dequeue() : CreateNew();
@@ -252,100 +127,25 @@ public class MonsterPool : MonoBehaviour
         if (agent != null)
             agent.enabled = false;
 
-        Vector3 setupPosition = spawnPosition;
-        if (startSimpleMovement && movingMonster &&
-            NavMesh.SamplePosition(
-                playerTarget.position,
-                out NavMeshHit safeSetupHit,
-                Mathf.Max(1f, navMeshSampleRadius) * 2f,
-                NavMesh.AllAreas))
-        {
-            // MonsterController.Setup이 NavMeshAgent를 구성할 수 있도록 잠깐 안전한 내부 NavMesh 위치에서 Setup한 뒤
-            // Crowd Agent를 Simple 상태로 바꾸고 실제 외곽 Spawn 위치로 옮깁니다.
-            setupPosition = safeSetupHit.position;
-        }
-
         monster.enabled = true;
         monster.gameObject.SetActive(false);
-        setupPosition.z = 0f;
-        monster.transform.position = setupPosition;
+        spawnPosition.z = 0f;
+        monster.transform.position = spawnPosition;
         monster.gameObject.SetActive(true);
         monster.Setup(definition, context, playerTarget, enemyProjectilePool, onDeath);
 
-        MonsterCrowdAgent crowdAgent = monster.GetComponent<MonsterCrowdAgent>();
-        if (crowdAgent == null)
-            crowdAgent = monster.gameObject.AddComponent<MonsterCrowdAgent>();
-        crowdAgent.Configure(this, playerTarget, startSimpleMovement);
+        ApplyGeneratedTestSizing(monster, definition);
 
-        if (startSimpleMovement)
-        {
-            spawnPosition.z = 0f;
-            monster.transform.position = spawnPosition;
-        }
-
-        if (!startSimpleMovement && agent != null && agent.enabled && !agent.isOnNavMesh)
+        if (agent != null && agent.enabled && !agent.isOnNavMesh)
         {
             Debug.LogError(
                 $"[MonsterPool] '{definition.displayName}' Setup enabled its NavMeshAgent off-mesh. " +
-                "Returning it to the pool to prevent a soft-lock.");
+                "Returning it to the pool to prevent a room soft-lock.");
             Return(monster);
             return null;
         }
 
         return monster;
-    }
-
-    private Vector3 ResolveRoomPerimeterSpawn(Vector3 requestedPosition, out bool projectedOutsideBase)
-    {
-        projectedOutsideBase = false;
-
-        if (!forceSpawnsOutsideBase)
-            return requestedPosition;
-
-        if (roomManager == null)
-            roomManager = FindFirstObjectByType<BattleRoomManager>();
-
-        RoomDefinitionSO room = roomManager != null ? roomManager.CurrentRoom : null;
-        if (room == null || !room.usePersistentStartBase || !room.forbidMonsterSpawnInsideStartBase)
-            return requestedPosition;
-
-        Vector2 origin = GetRoomOriginPosition(roomManager);
-        Vector2 local = (Vector2)requestedPosition - origin;
-        if (!room.IsInsideStartBaseLocal(local))
-            return requestedPosition;
-
-        Vector2 projectedLocal = room.ProjectOutsideStartBaseLocal(local, outsideSpawnDistance);
-        Vector2 world = origin + projectedLocal;
-        projectedOutsideBase = true;
-
-        return new Vector3(world.x, world.y, requestedPosition.z);
-    }
-
-    private bool IsInsideCurrentStartBase(Vector3 worldPosition)
-    {
-        if (!forceSpawnsOutsideBase)
-            return false;
-
-        if (roomManager == null)
-            roomManager = FindFirstObjectByType<BattleRoomManager>();
-
-        RoomDefinitionSO room = roomManager != null ? roomManager.CurrentRoom : null;
-        if (room == null || !room.usePersistentStartBase || !room.forbidMonsterSpawnInsideStartBase)
-            return false;
-
-        Vector2 origin = GetRoomOriginPosition(roomManager);
-        return room.IsInsideStartBaseLocal((Vector2)worldPosition - origin);
-    }
-
-    private static Vector2 GetRoomOriginPosition(BattleRoomManager manager)
-    {
-        if (manager == null)
-            return Vector2.zero;
-
-        Transform originTransform = manager.transform.Find("RoomOrigin");
-        return originTransform != null
-            ? (Vector2)originTransform.position
-            : (Vector2)manager.transform.position;
     }
 
     private bool TryResolveSpawnPosition(
@@ -365,7 +165,9 @@ public class MonsterPool : MonoBehaviour
 
         if (movingMonster && !hasTargetSample)
         {
-            Debug.LogError($"[MonsterPool] Player position {playerPosition} is not near a NavMesh. Moving monsters cannot be validated.");
+            Debug.LogError(
+                $"[MonsterPool] Player position {playerPosition} is not near the current Room NavMesh. " +
+                "Moving monsters cannot be validated.");
             return false;
         }
 
@@ -409,137 +211,34 @@ public class MonsterPool : MonoBehaviour
         return false;
     }
 
-    public void RegisterCrowdAgent(MonsterCrowdAgent crowdAgent, Transform playerTarget)
+    private static void ApplyGeneratedTestSizing(
+        MonsterController monster,
+        MonsterDefinitionSO definition)
     {
-        if (crowdAgent == null)
+        if (monster == null || definition == null)
             return;
 
-        UnregisterCrowdAgent(crowdAgent);
-
-        CrowdGroup group = null;
-        int maxPerGroup = Mathf.Max(2, membersPerGroup);
-        for (int i = 0; i < crowdGroups.Count; i++)
+        if (string.IsNullOrEmpty(definition.monsterId) ||
+            !definition.monsterId.StartsWith("TEST_"))
         {
-            CrowdGroup candidate = crowdGroups[i];
-            if (candidate != null &&
-                candidate.target == playerTarget &&
-                candidate.members.Count < maxPerGroup)
-            {
-                group = candidate;
-                break;
-            }
-        }
-
-        if (group == null)
-        {
-            group = new CrowdGroup
-            {
-                id = nextCrowdGroupId++,
-                target = playerTarget,
-                cachedTarget = playerTarget != null ? (Vector2)playerTarget.position : Vector2.zero
-            };
-            crowdGroups.Add(group);
-        }
-
-        int slot = group.members.Count;
-        group.members.Add(crowdAgent);
-        crowdMembers[crowdAgent] = new CrowdMemberRecord
-        {
-            group = group,
-            slotOffset = ComputeFormationOffset(slot, maxPerGroup, group.id)
-        };
-    }
-
-    public void UnregisterCrowdAgent(MonsterCrowdAgent crowdAgent)
-    {
-        if (crowdAgent == null || !crowdMembers.TryGetValue(crowdAgent, out CrowdMemberRecord record))
             return;
-
-        crowdMembers.Remove(crowdAgent);
-        if (record.group != null)
-        {
-            record.group.members.Remove(crowdAgent);
-            if (record.group.members.Count == 0)
-                crowdGroups.Remove(record.group);
-        }
-    }
-
-    public Vector2 GetCrowdMoveTarget(MonsterCrowdAgent crowdAgent, Vector2 fallbackTarget)
-    {
-        if (crowdAgent == null || !crowdMembers.TryGetValue(crowdAgent, out CrowdMemberRecord record))
-            return fallbackTarget;
-
-        CrowdGroup group = record.group;
-        if (group == null)
-            return fallbackTarget;
-
-        return group.cachedTarget + record.slotOffset;
-    }
-
-    public bool ShouldUseSimpleMovement(float distanceToPlayer, bool forcedSimpleEntry)
-    {
-        if (forcedSimpleEntry)
-            return true;
-
-        if (!enableCrowdOptimization)
-            return false;
-
-        return crowdMembers.Count > Mathf.Max(1, optimizationThreshold) &&
-               distanceToPlayer > PreciseNavDistance;
-    }
-
-    public bool ShouldReturnToPreciseMovement(float distanceToPlayer, bool forcedSimpleEntry)
-    {
-        if (distanceToPlayer <= PreciseNavDistance)
-            return true;
-
-        if (forcedSimpleEntry)
-            return false;
-
-        if (!enableCrowdOptimization)
-            return true;
-
-        return crowdMembers.Count <= Mathf.Max(1, optimizationThreshold);
-    }
-
-    public bool TryGetNavAttachPosition(Vector3 currentPosition, out Vector3 resolved)
-    {
-        resolved = currentPosition;
-        if (!NavMesh.SamplePosition(
-                currentPosition,
-                out NavMeshHit hit,
-                Mathf.Max(0.1f, navAttachSampleRadius),
-                NavMesh.AllAreas))
-        {
-            return false;
         }
 
-        resolved = hit.position;
-        resolved.z = 0f;
-        return true;
-    }
+        // 자동 생성 테스트 더미만 크게 유지합니다.
+        // 실제 Enemy Prefab은 제작자가 설정한 Transform/Collider 크기를 그대로 사용합니다.
+        monster.transform.localScale = Vector3.one * 1.6f;
 
-    private Vector2 ComputeFormationOffset(int slot, int capacity, int groupId)
-    {
-        if (groupFormationRadius <= 0f || capacity <= 1)
-            return Vector2.zero;
-
-        float normalized = slot / (float)Mathf.Max(1, capacity);
-        float angle = normalized * 360f + (groupId * 47f) % 360f;
-        float radians = angle * Mathf.Deg2Rad;
-        float ring = Mathf.Lerp(0.35f, 1f, (slot % 4) / 3f) * groupFormationRadius;
-        return new Vector2(Mathf.Cos(radians), Mathf.Sin(radians)) * ring;
+        CircleCollider2D circle = monster.GetComponent<CircleCollider2D>();
+        if (circle != null)
+            circle.radius = Mathf.Max(circle.radius, 0.46f);
     }
 
     public void Return(MonsterController monster)
     {
-        if (monster == null) return;
-
-        MonsterCrowdAgent crowdAgent = monster.GetComponent<MonsterCrowdAgent>();
-        crowdAgent?.PrepareForPool();
+        if (monster == null)
+            return;
 
         monster.PrepareForPool();
-        monster.enabled = true;
         monster.gameObject.SetActive(false);
         monster.transform.SetParent(transform);
 
