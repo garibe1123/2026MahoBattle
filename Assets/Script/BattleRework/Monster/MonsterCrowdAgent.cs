@@ -8,8 +8,8 @@ using UnityEngine.AI;
 /// 먼저 Spawn Bay에서 Idle로 대기하고, Player가 가까이 접근했을 때만 단순 이동을 시작합니다.
 /// 이후 NavMesh에 붙을 수 있는 지점에 도달하면 MonsterController의 정밀 AI로 전환합니다.
 ///
-/// Simple Movement도 wallLayer를 CircleCast해서 Room 벽을 관통하지 않습니다.
-/// MonsterController보다 뒤에 Update해 4방향 Facing Debug 표시도 최종 이동 방향 기준으로 유지합니다.
+/// Simple Movement는 A*를 사용하지 않지만 Room Wall을 CircleCast하고,
+/// 정면이 막히면 벽의 접선 방향으로 저비용 steering을 수행해 출입구를 찾아 들어갑니다.
 /// </summary>
 [DefaultExecutionOrder(100)]
 [DisallowMultipleComponent]
@@ -147,33 +147,81 @@ public class MonsterCrowdAgent : MonoBehaviour
             return;
 
         Vector2 destination = owner.GetCrowdMoveTarget(this, target.position);
-        Vector2 direction = destination - (Vector2)transform.position;
-        if (direction.sqrMagnitude <= 0.001f)
+        Vector2 desiredDirection = destination - (Vector2)transform.position;
+        if (desiredDirection.sqrMagnitude <= 0.001f)
             return;
 
-        direction.Normalize();
+        desiredDirection.Normalize();
         float speed = Mathf.Max(0f, controller.Definition.moveSpeed) * owner.SimpleMoveSpeedMultiplier;
         float moveDistance = speed * Time.deltaTime;
         if (moveDistance <= 0f)
             return;
 
-        if (WouldHitRoomWall(direction, moveDistance))
+        if (!TryResolveSimpleMoveDirection(desiredDirection, moveDistance, out Vector2 moveDirection))
         {
             spriteAnimator?.Play(EnemyAnimState.Idle, true);
             return;
         }
 
-        transform.position += (Vector3)(direction * moveDistance);
-        spriteAnimator?.SetFacing(direction);
+        transform.position += (Vector3)(moveDirection * moveDistance);
+        spriteAnimator?.SetFacing(moveDirection);
         spriteAnimator?.Play(EnemyAnimState.Move, true);
     }
 
-    private bool WouldHitRoomWall(Vector2 direction, float moveDistance)
+    /// <summary>
+    /// 직진 가능하면 그대로 이동합니다.
+    /// 벽에 막히면 충돌 normal의 접선 두 방향 중 Player 방향에 더 가까운 쪽을 우선 시도합니다.
+    /// Pathfinding이 아니라 CircleCast 최대 3회 수준의 로컬 steering이라 Crowd LOD 목적을 유지합니다.
+    /// </summary>
+    private bool TryResolveSimpleMoveDirection(
+        Vector2 desiredDirection,
+        float moveDistance,
+        out Vector2 resolvedDirection)
     {
+        resolvedDirection = desiredDirection;
+
+        if (!TryCastRoomWall(desiredDirection, moveDistance, out RaycastHit2D directHit))
+            return true;
+
+        Vector2 normal = directHit.normal.sqrMagnitude > 0.001f
+            ? directHit.normal.normalized
+            : -desiredDirection;
+
+        Vector2 tangentA = new(-normal.y, normal.x);
+        Vector2 tangentB = -tangentA;
+
+        float aScore = Vector2.Dot(tangentA, desiredDirection);
+        float bScore = Vector2.Dot(tangentB, desiredDirection);
+        Vector2 first = aScore >= bScore ? tangentA : tangentB;
+        Vector2 second = aScore >= bScore ? tangentB : tangentA;
+
+        if (!TryCastRoomWall(first, moveDistance, out _))
+        {
+            resolvedDirection = first;
+            return true;
+        }
+
+        if (!TryCastRoomWall(second, moveDistance, out _))
+        {
+            resolvedDirection = second;
+            return true;
+        }
+
+        resolvedDirection = Vector2.zero;
+        return false;
+    }
+
+    private bool TryCastRoomWall(Vector2 direction, float moveDistance, out RaycastHit2D hit)
+    {
+        hit = default;
         if (controller == null || controller.Definition == null)
             return false;
 
         LayerMask wallMask = controller.Definition.wallLayer;
+        // 구형/사용자 Enemy SO에서 wallLayer가 비어 있더라도 Runtime Room Wall은 Default Layer이므로 최소 안전 fallback.
+        if (wallMask.value == 0)
+            wallMask = LayerMask.GetMask("Default");
+
         if (wallMask.value == 0)
             return false;
 
@@ -184,18 +232,22 @@ public class MonsterCrowdAgent : MonoBehaviour
             radius = Mathf.Max(0.08f, Mathf.Min(extents.x, extents.y) * 0.72f);
         }
 
-        RaycastHit2D hit = Physics2D.CircleCast(
+        RaycastHit2D cast = Physics2D.CircleCast(
             transform.position,
             radius,
             direction,
             moveDistance + Mathf.Max(0f, simpleCollisionPadding),
             wallMask);
 
-        if (hit.collider == null)
+        if (cast.collider == null)
             return false;
 
-        Transform hitTransform = hit.collider.transform;
-        return hitTransform != transform && !hitTransform.IsChildOf(transform);
+        Transform hitTransform = cast.collider.transform;
+        if (hitTransform == transform || hitTransform.IsChildOf(transform))
+            return false;
+
+        hit = cast;
+        return true;
     }
 
     private void TryReturnToPreciseMovement(float distance)
