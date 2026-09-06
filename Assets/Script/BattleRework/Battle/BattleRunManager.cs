@@ -438,7 +438,16 @@ public class BattleRunManager : MonoBehaviour
         transitioningFromStartArea = true;
         pendingFirstGameplayNode = null;
 
+        // Start Area와 실제 Room은 같은 좌표를 공유하지 않습니다.
+        // 첫 Room은 Start Base 옆에 별도 4x4 공간으로 배치합니다.
         PositionFirstGameplayRoomNextToStart(firstGameplayNode.room);
+
+        // MonsterPool은 Spawn 시 Player까지의 NavMesh Path를 검증합니다.
+        // 따라서 Room 조립이 시작되기 전에 Player도 실제 Room 좌표로 옮겨
+        // Start Base 쪽에 남아 Path 검증을 깨는 일을 막습니다.
+        TeleportPlayerToCurrentRoomEntry(firstGameplayNode.room);
+        ClearStartAreaObjects();
+
         EnterNode(firstGameplayNode, true);
     }
 
@@ -599,8 +608,7 @@ public class BattleRunManager : MonoBehaviour
         currentNode = node;
         currentContext = BuildContext(node);
 
-        // RoomBaseTemplate은 이 시점에 실제 Gameplay Room의 Wall/Extension 준비만 수행합니다.
-        // Start Area에서는 이 이벤트 자체를 호출하지 않습니다.
+        // Start Area에서는 호출하지 않고, 실제 Gameplay Node부터만 전달합니다.
         NodeEntered?.Invoke(node);
 
         switch (node.type)
@@ -616,9 +624,9 @@ public class BattleRunManager : MonoBehaviour
 
                 SetState(BattleRunState.BuildingRoom);
 
-                // 실제 Gameplay Room의 4x4 바닥은 Persistent Start Base와 다른 공간입니다.
-                // BattleRoomManager의 구형 "Start Base 내부 Cell 생략" 조건을 런타임 호출 동안만 해제해
-                // Room의 4x4 Floor Block을 전부 쿵 하고 조립합니다.
+                // 실제 Gameplay Room 4x4 Floor는 영구 Start Base와 별개입니다.
+                // 기존 BattleRoomManager의 Start Base Cell 생략 조건을 호출 중에만 해제해
+                // 4x4 Floor Block을 모두 조립합니다.
                 bool savedPersistentFlag = node.room.usePersistentStartBase;
                 bool savedReposition = node.room.repositionPlayerOnEnter;
                 node.room.usePersistentStartBase = false;
@@ -683,11 +691,7 @@ public class BattleRunManager : MonoBehaviour
             return;
 
         if (transitioningFromStartArea)
-        {
             transitioningFromStartArea = false;
-            ClearStartAreaObjects();
-            TeleportPlayerToCurrentRoomEntry(room);
-        }
 
         roomStartedWithMonsters = roomManager != null && roomManager.AliveMonsterCount > 0;
         SetState(BattleRunState.Combat);
@@ -838,10 +842,6 @@ public class BattleRunManager : MonoBehaviour
     }
 }
 
-/// <summary>
-/// Start Area 전용 보이지 않는 전환 Trigger입니다.
-/// Start Area는 Room이 아니므로 RoomExitPad/BattleRoomManager를 재사용하지 않습니다.
-/// </summary>
 [RequireComponent(typeof(Collider2D))]
 internal sealed class StartAreaExitTrigger : MonoBehaviour
 {
