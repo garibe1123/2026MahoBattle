@@ -3,6 +3,16 @@ using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
 
+public enum RoomLargePieceShape
+{
+    Auto,
+    Rectangle,
+    LShape,
+    TShape,
+    Cross,
+    Custom
+}
+
 [Serializable]
 public class MapBlockPlacement
 {
@@ -29,59 +39,68 @@ public class MonsterSpawnEntry
 }
 
 /// <summary>
-/// 하나의 Node에서 사용되는 전투 Room 데이터입니다.
+/// 하나의 Node에서 사용되는 Gameplay Room 데이터입니다.
 ///
-/// recommendedGridSize는 항상 존재하는 Start Base의 기준 격자입니다.
-/// 기본 4x4 = 8x8 world unit이며, 이 영역은 Room 교체 때도 사라지지 않는 전투 기준면입니다.
-/// blocks 목록에서 이 격자 안 Placement는 구형 데이터 호환용 Base Cell로 간주되어 런타임 조립에서 생략되고,
-/// 격자 밖 Placement만 추가/확장 Block으로 들어와 도킹 연출을 수행합니다.
+/// Start Area의 4x4 Base와 Gameplay Room은 서로 다른 공간입니다.
+/// recommendedGridSize는 구형 2x2 MapBlock 기준 호환 크기로 유지하지만,
+/// 새 기본 표현은 여러 작은 Block을 하나씩 조립하지 않고 큰 Room Piece 하나가 통째로 도킹합니다.
 ///
-/// Monster Spawn Point는 완성된 Room 내부 좌표입니다.
-/// BattleRoomManager가 Room 조립과 NavMesh Bake를 끝낸 뒤 MonsterPool이 해당 좌표 주변의 유효 NavMesh 위치를 찾습니다.
+/// 큰 Room Piece는 Rectangle / L / T / Cross / Custom cell mask를 지원합니다.
+/// 내부적으로 여러 2x2 cell을 사용해도 하나의 Root Transform으로 묶여 한 번에 '쾅' 들어옵니다.
+/// 실제 전용 Prefab을 사용하는 기존 blocks 데이터도 계속 호환됩니다.
 /// </summary>
 [CreateAssetMenu(fileName = "RoomDefinition", menuName = "MahoBattle/Room Definition")]
 public class RoomDefinitionSO : ScriptableObject
 {
-    [Header("Persistent Start Base")]
-    [Tooltip("기본 4x4 템플릿 영역을 Room마다 재생성하지 않는 영구 Start Base로 사용합니다.")]
+    [Header("Legacy Persistent Base Compatibility")]
+    [Tooltip("구형 Room 데이터 호환용입니다. 실제 Start Area는 BattleRunManager가 Room과 별도로 관리합니다.")]
     public bool usePersistentStartBase = true;
 
     [HideInInspector]
-    [Tooltip("이전 외곽 Spawn 실험의 직렬화 호환용 값입니다. 현재 런타임에서는 사용하지 않습니다.")]
     public bool forbidMonsterSpawnInsideStartBase = false;
 
     [Header("Room Template")]
     public string roomId;
-    [Tooltip("Start Base의 가로/세로 MapBlock 개수입니다. 기본 4x4이며 MapBlock 하나는 2x2 world unit입니다.")]
+    [Tooltip("구형 MapBlock 기준 크기입니다. 기본 4x4 = 8x8 world. Large Piece Size가 0이면 이 값을 사용합니다.")]
     public Vector2Int recommendedGridSize = new(4, 4);
 
-    [Header("Runtime Base")]
-    [Tooltip("수동으로 씬에 깔아둔 테스트 Base 대신 Start Base를 자동 생성합니다.")]
+    [Header("Large Room Piece")]
+    [Tooltip("켜면 BattleSpatialMapController가 기존 4x4 낱개 Block 대신 큰 Room Piece 하나로 조립합니다.")]
+    public bool useLargeRoomPiece = true;
+    [Tooltip("Auto는 Node 타입/깊이에 따라 테스트용 형태를 선택하고, 실제 Room에서는 원하는 모양을 직접 지정할 수 있습니다.")]
+    public RoomLargePieceShape largePieceShape = RoomLargePieceShape.Auto;
+    [Tooltip("큰 조각의 cell 크기입니다. cell 하나는 MapBlock.BlockWorldSize(기본 2x2 world)입니다.")]
+    public Vector2Int largePieceGridSize = new(4, 4);
+    [Tooltip("Custom일 때 포함할 cell 좌표 목록입니다. 전체가 하나의 Root로 움직입니다.")]
+    public List<Vector2Int> customLargePieceCells = new();
+    [Tooltip("큰 Room Piece가 어느 방향에서 날아와 도킹할지 지정합니다. 0이면 진입 통로 반대편에서 들어옵니다.")]
+    public Vector2 largePieceEntryDirection = Vector2.zero;
+    [Min(0.05f)] public float largePieceEntryDuration = 0.72f;
+    [Min(0.5f)] public float largePieceEntryOffset = 8f;
+
+    [Header("Runtime Base Compatibility")]
+    [Tooltip("구형 RoomBaseTemplate/테스트 호환용입니다.")]
     public bool useRuntimeBase = true;
-    [Tooltip("기준 Base 크기에 추가할 양쪽 여백(world unit)입니다. (1,1)이면 총 크기가 가로/세로 각각 2씩 증가합니다.")]
     public Vector2 basePaddingWorld = Vector2.zero;
-    [Tooltip("grid (0,0) Block 중심이 roomOrigin입니다. 필요할 때 Start Base 시각물만 추가로 이동시키는 Offset입니다.")]
     public Vector2 baseOffset = Vector2.zero;
 
     [Header("Player Entry")]
-    [Tooltip("새 Room 진입 시 roomOrigin 기준 플레이어 시작 위치입니다. Room 전환 후 이전 Exit 위치에 남는 문제를 방지합니다.")]
     public Vector2 playerEntryOffset = Vector2.zero;
     public bool repositionPlayerOnEnter = true;
 
-    [Header("Extension Block Layout")]
-    [Tooltip("Start Base 격자 밖 Placement만 실제 조립/도킹 Block으로 사용됩니다. 격자 안 Placement는 구형 4x4 데이터 호환용으로 무시됩니다.")]
+    [Header("Legacy / Custom Prefab Room Pieces")]
+    [Tooltip("전용 MapBlock Prefab을 직접 배치할 때 사용합니다. Large Room Piece가 켜져 있으면 기본 4x4 테스트 배치는 런타임에서 큰 조각으로 치환됩니다.")]
     public List<MapBlockPlacement> blocks = new();
 
     [Header("Obstacles")]
     public List<ObstaclePlacement> obstacles = new();
 
     [Header("Monster Spawn Points")]
-    [Tooltip("완성된 Room 내부의 Spawn 기준점입니다. 런타임에서 가장 가까운 유효 NavMesh 위치로만 보정되며 벽 밖으로 투영하지 않습니다.")]
+    [Tooltip("완성된 Gameplay Room 내부 Spawn 기준점입니다.")]
     public List<MonsterSpawnEntry> monsterSpawns = new();
 
     [Header("Clear Presentation")]
     public MapBlock highlightBlockPrefab;
-    [Tooltip("roomOrigin 기준 Highlight Block Offset입니다.")]
     public Vector2 highlightBlockOffset = new(4f, 0f);
 
     public Vector2Int GetSafeGridSize()
@@ -91,13 +110,25 @@ public class RoomDefinitionSO : ScriptableObject
             Mathf.Max(1, recommendedGridSize.y));
     }
 
-    /// <summary>
-    /// Start Base 전체 Block 영역의 월드 크기입니다.
-    /// 기본 4x4라면 8x8 world unit = 64px/unit 기준 512x512px입니다.
-    /// </summary>
+    public Vector2Int GetLargePieceGridSize()
+    {
+        Vector2Int fallback = GetSafeGridSize();
+        return new Vector2Int(
+            largePieceGridSize.x > 0 ? largePieceGridSize.x : fallback.x,
+            largePieceGridSize.y > 0 ? largePieceGridSize.y : fallback.y);
+    }
+
     public Vector2 GetTemplateWorldSize()
     {
         Vector2Int grid = GetSafeGridSize();
+        return new Vector2(
+            grid.x * MapBlock.BlockWorldSize.x,
+            grid.y * MapBlock.BlockWorldSize.y);
+    }
+
+    public Vector2 GetLargePieceWorldSize()
+    {
+        Vector2Int grid = GetLargePieceGridSize();
         return new Vector2(
             grid.x * MapBlock.BlockWorldSize.x,
             grid.y * MapBlock.BlockWorldSize.y);
@@ -109,17 +140,20 @@ public class RoomDefinitionSO : ScriptableObject
         Vector2 padding = new(
             Mathf.Max(0f, basePaddingWorld.x),
             Mathf.Max(0f, basePaddingWorld.y));
-
         return size + padding * 2f;
     }
 
-    /// <summary>
-    /// grid (0,0)의 Block 중심이 roomOrigin이므로 4x4 Start Base 중심은 (3,3)입니다.
-    /// 실제 4x4 Base 경계는 local -1..7 입니다.
-    /// </summary>
     public Vector2 GetTemplateCenterOffset()
     {
         Vector2Int grid = GetSafeGridSize();
+        return new Vector2(
+            (grid.x - 1) * MapBlock.BlockWorldSize.x * 0.5f,
+            (grid.y - 1) * MapBlock.BlockWorldSize.y * 0.5f);
+    }
+
+    public Vector2 GetLargePieceCenterOffset()
+    {
+        Vector2Int grid = GetLargePieceGridSize();
         return new Vector2(
             (grid.x - 1) * MapBlock.BlockWorldSize.x * 0.5f,
             (grid.y - 1) * MapBlock.BlockWorldSize.y * 0.5f);
@@ -140,10 +174,8 @@ public class RoomDefinitionSO : ScriptableObject
     public bool IsInsideTemplateGrid(Vector2Int gridPosition)
     {
         Vector2Int grid = GetSafeGridSize();
-        return gridPosition.x >= 0 &&
-               gridPosition.y >= 0 &&
-               gridPosition.x < grid.x &&
-               gridPosition.y < grid.y;
+        return gridPosition.x >= 0 && gridPosition.y >= 0 &&
+               gridPosition.x < grid.x && gridPosition.y < grid.y;
     }
 
     public bool IsStartBaseGridPosition(Vector2Int gridPosition)
@@ -151,10 +183,6 @@ public class RoomDefinitionSO : ScriptableObject
         return usePersistentStartBase && IsInsideTemplateGrid(gridPosition);
     }
 
-    /// <summary>
-    /// roomOrigin 기준 Start Base local Rect를 반환합니다.
-    /// 기본 4x4면 x/y 모두 -1..7 범위입니다.
-    /// </summary>
     public Rect GetStartBaseLocalRect(float extraPadding = 0f)
     {
         float padding = Mathf.Max(0f, extraPadding);
@@ -170,10 +198,6 @@ public class RoomDefinitionSO : ScriptableObject
                localPosition.y >= rect.yMin && localPosition.y <= rect.yMax;
     }
 
-    /// <summary>
-    /// 이전 외곽 Spawn 실험과의 API 호환용입니다.
-    /// 현재 MonsterPool은 이 함수를 사용하지 않습니다.
-    /// </summary>
     public Vector2 ProjectOutsideStartBaseLocal(Vector2 localPosition, float outsideDistance)
     {
         Rect rect = GetStartBaseLocalRect();
@@ -188,15 +212,10 @@ public class RoomDefinitionSO : ScriptableObject
         float nearest = Mathf.Min(left, right, bottom, top);
 
         Vector2 projected = localPosition;
-        if (Mathf.Approximately(nearest, left))
-            projected.x = rect.xMin - distance;
-        else if (Mathf.Approximately(nearest, right))
-            projected.x = rect.xMax + distance;
-        else if (Mathf.Approximately(nearest, bottom))
-            projected.y = rect.yMin - distance;
-        else
-            projected.y = rect.yMax + distance;
-
+        if (Mathf.Approximately(nearest, left)) projected.x = rect.xMin - distance;
+        else if (Mathf.Approximately(nearest, right)) projected.x = rect.xMax + distance;
+        else if (Mathf.Approximately(nearest, bottom)) projected.y = rect.yMin - distance;
+        else projected.y = rect.yMax + distance;
         return projected;
     }
 
@@ -210,6 +229,15 @@ public class RoomDefinitionSO : ScriptableObject
 
         if (recommendedGridSize.x < 1 || recommendedGridSize.y < 1)
             errors.AppendLine("recommendedGridSize must be at least 1x1.");
+
+        if (largePieceGridSize.x < 1 || largePieceGridSize.y < 1)
+            errors.AppendLine("largePieceGridSize must be at least 1x1.");
+
+        if (largePieceShape == RoomLargePieceShape.Custom &&
+            (customLargePieceCells == null || customLargePieceCells.Count == 0))
+        {
+            errors.AppendLine("Custom Large Room Piece requires at least one customLargePieceCells entry.");
+        }
 
         if (basePaddingWorld.x < 0f || basePaddingWorld.y < 0f)
             errors.AppendLine("basePaddingWorld cannot contain negative values.");
@@ -231,13 +259,6 @@ public class RoomDefinitionSO : ScriptableObject
 
                 if (!occupied.Add(placement.gridPosition))
                     warnings.AppendLine($"Duplicate MapBlock grid position: {placement.gridPosition}");
-
-                if (usePersistentStartBase && IsInsideTemplateGrid(placement.gridPosition))
-                {
-                    warnings.AppendLine(
-                        $"blocks[{i}] grid {placement.gridPosition} is inside the Persistent Start Base and will not spawn as an incoming block. " +
-                        "Keep it only for legacy layout compatibility or remove it from the Room asset.");
-                }
             }
         }
 
@@ -262,8 +283,6 @@ public class RoomDefinitionSO : ScriptableObject
         }
         else
         {
-            Rect roomRect = GetStartBaseLocalRect();
-
             for (int i = 0; i < monsterSpawns.Count; i++)
             {
                 MonsterSpawnEntry spawn = monsterSpawns[i];
@@ -278,21 +297,8 @@ public class RoomDefinitionSO : ScriptableObject
 
                 if (spawn.count < 1)
                     errors.AppendLine($"monsterSpawns[{i}] count must be at least 1.");
-
-                if (spawn.scatterRadius > Mathf.Max(recommendedGridSize.x, recommendedGridSize.y) * 2f)
-                    warnings.AppendLine($"monsterSpawns[{i}] scatterRadius is very large for this Room.");
-
-                if (usePersistentStartBase && !IsInsideStartBaseLocal(spawn.localPosition, spawn.scatterRadius))
-                {
-                    warnings.AppendLine(
-                        $"monsterSpawns[{i}] at {spawn.localPosition} is outside the current Start Base bounds {roomRect}. " +
-                        "Make sure an Extension Block provides walkable NavMesh there, otherwise the spawn can be rejected.");
-                }
             }
         }
-
-        if (highlightBlockPrefab != null && highlightBlockOffset.sqrMagnitude < 0.01f)
-            warnings.AppendLine("highlightBlockOffset is near zero. ExitPad may appear directly under the player entry area.");
 
         StringBuilder combined = new();
         if (errors.Length > 0)
