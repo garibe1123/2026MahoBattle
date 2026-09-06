@@ -7,11 +7,12 @@ using UnityEngine.AI;
 
 /// <summary>
 /// Room Lifecycle:
-/// Build Blocks -> impact presentation -> Build NavMesh -> Spawn Fixed Monsters -> Combat -> Cleared
-/// -> (external reward flow) -> OpenExit -> Highlight Pad -> Exit Blocks.
+/// Persistent Start Base -> Build Extension Blocks -> NavMesh -> Spawn Monsters Outside Base -> Combat
+/// -> Reward -> Highlight Pad -> Exit Extension Blocks.
 ///
-/// MapBlock 충돌 연출의 중앙 관리자 역할도 담당합니다.
-/// 실제 Impact/Dust Sprite가 비어 있으면 코드 기반 Dummy VFX를 자동 사용합니다.
+/// 기본 4x4 Start Base는 RoomBaseTemplate이 영구 유지합니다.
+/// RoomDefinitionSO.blocks 중 Start Base 격자 안 Placement는 생성하지 않고,
+/// 격자 밖 Extension Block만 이동/도킹 연출을 수행합니다.
 /// </summary>
 public class BattleRoomManager : MonoBehaviour
 {
@@ -24,38 +25,41 @@ public class BattleRoomManager : MonoBehaviour
     [SerializeField] private NavMeshSurface navSurface;
     [SerializeField] private MonsterPool monsterPool;
 
-    [Header("Map Assembly Timing")]
-    [Tooltip("RoomDefinitionSO의 Block 배열 순서대로 진입 시차를 줍니다.")]
+    [Header("Extension Block Assembly")]
+    [Tooltip("Start Base 밖 Extension Block 배열 순서대로 진입 시차를 줍니다.")]
     [SerializeField] private float blockEntryStagger = 0.055f;
-    [SerializeField] private float maxBlockEntryStagger = 0.40f;
+    [SerializeField] private float maxBlockEntryStagger = 0.32f;
 
-    [Header("Map Impact VFX - Sprite가 없으면 Dummy")]
+    [Header("Docking Impact VFX - custom Sprite가 없으면 Procedural")]
     [SerializeField] private Transform impactVfxRoot;
-    [Tooltip("블록이 쾅 하고 고정되는 순간의 Sprite Animation. 비어 있으면 코드 Dummy Flash/Ring.")]
+    [Tooltip("직접 제작한 접촉면 Impact Sprite Animation. 비어 있으면 세련된 면 기반 Procedural FX를 사용합니다.")]
     [SerializeField] private Sprite[] impactSprites;
-    [Tooltip("충돌 먼지 Sprite Animation. 비어 있으면 코드 Dummy Dust.")]
+    [Tooltip("직접 제작한 먼지/파편 Sprite Animation. 비어 있으면 접촉면을 따라 퍼지는 Procedural FX를 사용합니다.")]
     [SerializeField] private Sprite[] dustSprites;
-    [SerializeField, Min(1f)] private float impactVfxFps = 16f;
+    [SerializeField, Min(1f)] private float impactVfxFps = 20f;
     [SerializeField, Min(0.05f)] private float impactVfxWorldScale = 1f;
     [SerializeField] private Material impactVfxMaterial;
-    [SerializeField] private int impactVfxSortingOrder = 90;
-    [SerializeField] private Color dummyImpactColor = new(1f, 0.92f, 0.72f, 1f);
-    [SerializeField] private Color dummyDustColor = new(0.70f, 0.67f, 0.60f, 0.85f);
-    [SerializeField, Min(1f)] private float finalBlockImpactMultiplier = 1.45f;
+    [SerializeField] private int impactVfxSortingOrder = -12;
+    [SerializeField] private Color dummyImpactColor = new(0.88f, 0.96f, 1f, 1f);
+    [SerializeField] private Color dummyDustColor = new(0.52f, 0.58f, 0.64f, 0.70f);
+    [SerializeField, Min(1f)] private float finalBlockImpactMultiplier = 1.28f;
 
-    [Header("Map Impact Camera Shake")]
-    [Tooltip("권장: MainCamera 자체보다 CameraShakePivot 같은 전용 부모 Transform을 지정하세요. null이면 MainCamera를 fallback으로 사용합니다.")]
+    [Header("Directional Camera Impulse")]
+    [Tooltip("랜덤 Shake가 아니라 충돌 진행 방향 반대로 짧게 밀렸다 복귀하는 Impulse입니다.")]
     [SerializeField] private Transform cameraShakeTarget;
-    [SerializeField, Min(0f)] private float cameraShakeAmplitude = 0.075f;
-    [SerializeField, Min(0.01f)] private float cameraShakeDuration = 0.12f;
-    [SerializeField, Min(0f)] private float maxCameraShakeAmplitude = 0.16f;
-    [SerializeField, Min(0.01f)] private float maxCameraShakeDuration = 0.24f;
+    [SerializeField, Min(0f)] private float cameraShakeAmplitude = 0.060f;
+    [SerializeField, Min(0.01f)] private float cameraShakeDuration = 0.13f;
+    [SerializeField, Min(0f)] private float maxCameraShakeAmplitude = 0.13f;
+    [SerializeField, Min(0.01f)] private float maxCameraShakeDuration = 0.22f;
+    [SerializeField, Min(1f)] private float cameraImpulseSpring = 72f;
+    [SerializeField, Min(0f)] private float cameraImpulseDamping = 15f;
+    [SerializeField, Range(0f, 0.25f)] private float cameraImpulseTangentNoise = 0.06f;
 
     [Header("Optional Impact Sound")]
     [SerializeField] private AudioSource impactAudioSource;
     [SerializeField] private AudioClip impactClip;
-    [SerializeField, Range(0f, 1f)] private float impactVolume = 0.55f;
-    [SerializeField, Range(0f, 0.3f)] private float impactPitchRandomness = 0.06f;
+    [SerializeField, Range(0f, 1f)] private float impactVolume = 0.48f;
+    [SerializeField, Range(0f, 0.3f)] private float impactPitchRandomness = 0.04f;
 
     private readonly List<MapBlock> activeBlocks = new();
     private readonly List<BattleObstacle> activeObstacles = new();
@@ -75,7 +79,8 @@ public class BattleRoomManager : MonoBehaviour
     private Coroutine cameraShakeRoutine;
     private Transform activeShakeTarget;
     private Vector3 lastCameraShakeOffset;
-    private float requestedShakeAmplitude;
+    private Vector2 cameraImpulseOffset;
+    private Vector2 cameraImpulseVelocity;
     private float requestedShakeEndTime;
 
     public event Action<RoomDefinitionSO> RoomCombatStarted;
@@ -84,6 +89,7 @@ public class BattleRoomManager : MonoBehaviour
     public event Action<MonsterController> MonsterDefeated;
 
     public RoomDefinitionSO CurrentRoom => currentRoom;
+    public Transform RoomOrigin => roomOrigin;
     public bool IsRoomActive => currentRoom != null;
     public bool IsTransitioning => roomTransitioning;
     public bool IsCombatCleared => combatCleared;
@@ -148,13 +154,13 @@ public class BattleRoomManager : MonoBehaviour
 
         RepositionPlayerForRoom(room);
 
-        float longestEntry = BuildMapBlocks(room);
+        float longestEntry = BuildExtensionBlocks(room);
         BuildObstacles(room);
 
         if (longestEntry > 0f)
             yield return new WaitForSeconds(longestEntry);
 
-        // Tween의 부동소수 오차가 NavMesh Source에 남지 않도록 모든 블록은 이미 MapBlock에서 최종 Snap됩니다.
+        // Persistent Start Base + Extension Block이 모두 최종 위치에 정착한 뒤 NavMesh를 굽습니다.
         RebuildNavMesh();
         SpawnFixedMonsters(room);
 
@@ -185,20 +191,26 @@ public class BattleRoomManager : MonoBehaviour
         }
     }
 
-    private float BuildMapBlocks(RoomDefinitionSO room)
+    /// <summary>
+    /// Start Base 안쪽 Placement는 RoomBaseTemplate이 이미 담당하므로 생성하지 않습니다.
+    /// 격자 밖 Placement만 실제 Incoming/Extension Block으로 생성합니다.
+    /// </summary>
+    private float BuildExtensionBlocks(RoomDefinitionSO room)
     {
         float longest = 0f;
         expectedAssemblyImpacts = 0;
         receivedAssemblyImpacts = 0;
 
-        if (room.blocks == null)
+        if (room == null || room.blocks == null)
             return longest;
 
-        // 마지막 충돌을 정확히 판별하기 위해 먼저 Impact 대상 수를 계산합니다.
         for (int i = 0; i < room.blocks.Count; i++)
         {
             MapBlockPlacement placement = room.blocks[i];
-            if (placement != null && placement.prefab != null && placement.prefab.WillImpact)
+            if (!ShouldBuildPlacement(room, placement))
+                continue;
+
+            if (placement.prefab.WillImpact)
                 expectedAssemblyImpacts++;
         }
 
@@ -206,15 +218,14 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < room.blocks.Count; i++)
         {
             MapBlockPlacement placement = room.blocks[i];
-            if (placement == null || placement.prefab == null) continue;
+            if (!ShouldBuildPlacement(room, placement))
+                continue;
 
             Transform parent = mapRoot != null ? mapRoot : transform;
             MapBlock block = Instantiate(placement.prefab, parent);
 
-            Vector3 destination = roomOrigin.position + new Vector3(
-                placement.gridPosition.x * MapBlock.BlockWorldSize.x,
-                placement.gridPosition.y * MapBlock.BlockWorldSize.y,
-                0f);
+            Vector3 destination = roomOrigin.position + (Vector3)room.GetBlockLocalPosition(placement.gridPosition);
+            destination.z = roomOrigin.position.z;
 
             float delay = Mathf.Min(
                 Mathf.Max(0f, maxBlockEntryStagger),
@@ -230,6 +241,17 @@ public class BattleRoomManager : MonoBehaviour
         }
 
         return longest;
+    }
+
+    private static bool ShouldBuildPlacement(RoomDefinitionSO room, MapBlockPlacement placement)
+    {
+        if (room == null || placement == null || placement.prefab == null)
+            return false;
+
+        if (room.useRuntimeBase && room.usePersistentStartBase && room.IsStartBaseGridPosition(placement.gridPosition))
+            return false;
+
+        return true;
     }
 
     private void HandleMapBlockImpact(
@@ -251,13 +273,8 @@ public class BattleRoomManager : MonoBehaviour
 
         float strength = Mathf.Max(0.05f, blockStrength) * finalMultiplier;
 
-        SpawnMapImpactVfx(
-            impactPosition,
-            travelDirection,
-            strength,
-            finalImpact);
-
-        RequestCameraShake(strength, finalImpact);
+        SpawnMapImpactVfx(impactPosition, travelDirection, strength, finalImpact);
+        RequestCameraImpulse(travelDirection, strength, finalImpact);
         PlayImpactSound(strength, finalImpact);
     }
 
@@ -271,7 +288,7 @@ public class BattleRoomManager : MonoBehaviour
             ? impactVfxRoot
             : (mapRoot != null ? mapRoot : transform);
 
-        GameObject go = new(finalImpact ? "MapImpactVFX_Final" : "MapImpactVFX");
+        GameObject go = new(finalImpact ? "DockImpactFX_Final" : "DockImpactFX");
         go.transform.SetParent(parent, true);
         go.transform.position = position;
 
@@ -280,7 +297,7 @@ public class BattleRoomManager : MonoBehaviour
             impactSprites,
             dustSprites,
             impactVfxFps,
-            impactVfxWorldScale * Mathf.Lerp(0.85f, 1.25f, Mathf.Clamp01(strength)),
+            impactVfxWorldScale * Mathf.Lerp(0.88f, 1.16f, Mathf.Clamp01(strength)),
             impactVfxMaterial,
             impactVfxSortingOrder,
             dummyImpactColor,
@@ -295,41 +312,50 @@ public class BattleRoomManager : MonoBehaviour
             return;
 
         float oldPitch = impactAudioSource.pitch;
-        float randomPitch = UnityEngine.Random.Range(
-            -impactPitchRandomness,
-            impactPitchRandomness);
-
+        float randomPitch = UnityEngine.Random.Range(-impactPitchRandomness, impactPitchRandomness);
         impactAudioSource.pitch = Mathf.Clamp(1f + randomPitch, 0.5f, 2f);
-        float volume = impactVolume * Mathf.Clamp(strength, 0.35f, finalImpact ? 1.35f : 1f);
+
+        float volume = impactVolume * Mathf.Clamp(strength, 0.35f, finalImpact ? 1.20f : 1f);
         impactAudioSource.PlayOneShot(impactClip, Mathf.Clamp01(volume));
         impactAudioSource.pitch = oldPitch;
     }
 
-    private void RequestCameraShake(float strength, bool finalImpact)
+    /// <summary>
+    /// 진행 방향 반대로 CameraShakePivot을 밀어낸 뒤 spring으로 복귀시킵니다.
+    /// 랜덤 원형 Shake를 사용하지 않아 도킹 방향이 읽히고 연출이 덜 산만합니다.
+    /// </summary>
+    private void RequestCameraImpulse(Vector2 travelDirection, float strength, bool finalImpact)
     {
         Transform target = ResolveCameraShakeTarget();
         if (target == null || cameraShakeAmplitude <= 0f)
             return;
 
-        activeShakeTarget = target;
+        Vector2 direction = travelDirection.sqrMagnitude > 0.001f
+            ? travelDirection.normalized
+            : Vector2.down;
+        Vector2 tangent = new(-direction.y, direction.x);
 
         float amplitude = cameraShakeAmplitude * Mathf.Max(0.1f, strength);
         if (finalImpact)
-            amplitude *= 1.15f;
+            amplitude *= 1.10f;
+        amplitude = Mathf.Min(amplitude, Mathf.Max(cameraShakeAmplitude, maxCameraShakeAmplitude));
 
-        requestedShakeAmplitude = Mathf.Clamp(
-            Mathf.Max(requestedShakeAmplitude, amplitude),
-            0f,
-            Mathf.Max(cameraShakeAmplitude, maxCameraShakeAmplitude));
+        float tangentAmount = UnityEngine.Random.Range(-cameraImpulseTangentNoise, cameraImpulseTangentNoise);
+        Vector2 impulseDirection = (-direction + tangent * tangentAmount).normalized;
 
-        float duration = cameraShakeDuration * (finalImpact ? 1.25f : 1f);
-        duration = Mathf.Min(Mathf.Max(0.01f, duration), Mathf.Max(0.01f, maxCameraShakeDuration));
+        activeShakeTarget = target;
+        cameraImpulseVelocity += impulseDirection * amplitude * 28f;
+        cameraImpulseVelocity = Vector2.ClampMagnitude(
+            cameraImpulseVelocity,
+            Mathf.Max(0.01f, maxCameraShakeAmplitude) * 34f);
+
+        float duration = cameraShakeDuration * (finalImpact ? 1.18f : 1f);
         requestedShakeEndTime = Mathf.Max(
             requestedShakeEndTime,
-            Time.unscaledTime + duration);
+            Time.unscaledTime + Mathf.Min(duration, Mathf.Max(0.01f, maxCameraShakeDuration)));
 
         if (cameraShakeRoutine == null)
-            cameraShakeRoutine = StartCoroutine(CameraShakeRoutine());
+            cameraShakeRoutine = StartCoroutine(CameraImpulseRoutine());
     }
 
     private Transform ResolveCameraShakeTarget()
@@ -341,26 +367,35 @@ public class BattleRoomManager : MonoBehaviour
         return main != null ? main.transform : null;
     }
 
-    private IEnumerator CameraShakeRoutine()
+    private IEnumerator CameraImpulseRoutine()
     {
         lastCameraShakeOffset = Vector3.zero;
+        cameraImpulseOffset = Vector2.zero;
 
-        while (activeShakeTarget != null && Time.unscaledTime < requestedShakeEndTime)
+        while (activeShakeTarget != null)
         {
-            // 이전 프레임에 우리가 더했던 Offset만 제거한 뒤 새 Offset을 더합니다.
             activeShakeTarget.localPosition -= lastCameraShakeOffset;
 
-            float remaining = Mathf.Max(0f, requestedShakeEndTime - Time.unscaledTime);
-            float fadeWindow = Mathf.Max(0.01f, cameraShakeDuration);
-            float fade = Mathf.Clamp01(remaining / fadeWindow);
+            float dt = Mathf.Min(0.033f, Mathf.Max(0.001f, Time.unscaledDeltaTime));
+            Vector2 acceleration =
+                -cameraImpulseOffset * Mathf.Max(1f, cameraImpulseSpring) -
+                cameraImpulseVelocity * Mathf.Max(0f, cameraImpulseDamping);
 
-            Vector2 random = UnityEngine.Random.insideUnitCircle;
-            lastCameraShakeOffset = new Vector3(
-                random.x,
-                random.y,
-                0f) * requestedShakeAmplitude * fade;
+            cameraImpulseVelocity += acceleration * dt;
+            cameraImpulseOffset += cameraImpulseVelocity * dt;
+            cameraImpulseOffset = Vector2.ClampMagnitude(
+                cameraImpulseOffset,
+                Mathf.Max(0.01f, maxCameraShakeAmplitude));
 
+            lastCameraShakeOffset = new Vector3(cameraImpulseOffset.x, cameraImpulseOffset.y, 0f);
             activeShakeTarget.localPosition += lastCameraShakeOffset;
+
+            bool timeDone = Time.unscaledTime >= requestedShakeEndTime;
+            bool settled = cameraImpulseOffset.sqrMagnitude < 0.000004f &&
+                           cameraImpulseVelocity.sqrMagnitude < 0.0004f;
+            if (timeDone && settled)
+                break;
+
             yield return null;
         }
 
@@ -368,7 +403,8 @@ public class BattleRoomManager : MonoBehaviour
             activeShakeTarget.localPosition -= lastCameraShakeOffset;
 
         lastCameraShakeOffset = Vector3.zero;
-        requestedShakeAmplitude = 0f;
+        cameraImpulseOffset = Vector2.zero;
+        cameraImpulseVelocity = Vector2.zero;
         requestedShakeEndTime = 0f;
         activeShakeTarget = null;
         cameraShakeRoutine = null;
@@ -386,20 +422,22 @@ public class BattleRoomManager : MonoBehaviour
             activeShakeTarget.localPosition -= lastCameraShakeOffset;
 
         lastCameraShakeOffset = Vector3.zero;
-        requestedShakeAmplitude = 0f;
+        cameraImpulseOffset = Vector2.zero;
+        cameraImpulseVelocity = Vector2.zero;
         requestedShakeEndTime = 0f;
         activeShakeTarget = null;
     }
 
     private void BuildObstacles(RoomDefinitionSO room)
     {
-        if (room.obstacles == null)
+        if (room == null || room.obstacles == null)
             return;
 
         for (int i = 0; i < room.obstacles.Count; i++)
         {
             ObstaclePlacement placement = room.obstacles[i];
-            if (placement == null || placement.prefab == null) continue;
+            if (placement == null || placement.prefab == null)
+                continue;
 
             Transform parent = obstacleRoot != null ? obstacleRoot : transform;
             Vector3 position = roomOrigin.position + (Vector3)placement.localPosition;
@@ -439,7 +477,7 @@ public class BattleRoomManager : MonoBehaviour
             return;
         }
 
-        if (room.monsterSpawns == null)
+        if (room == null || room.monsterSpawns == null)
             return;
 
         int requestedCount = 0;
@@ -448,7 +486,8 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < room.monsterSpawns.Count; i++)
         {
             MonsterSpawnEntry entry = room.monsterSpawns[i];
-            if (entry == null || entry.monster == null) continue;
+            if (entry == null || entry.monster == null)
+                continue;
 
             int count = Mathf.Max(1, entry.count);
             requestedCount += count;
@@ -459,9 +498,9 @@ public class BattleRoomManager : MonoBehaviour
                     ? UnityEngine.Random.insideUnitCircle * entry.scatterRadius
                     : Vector2.zero;
 
-                Vector3 position = roomOrigin.position + (Vector3)(entry.localPosition + scatter);
+                Vector3 requestedPosition = roomOrigin.position + (Vector3)(entry.localPosition + scatter);
                 MonsterController monster = monsterPool.Get(
-                    position,
+                    requestedPosition,
                     entry.monster,
                     currentContext,
                     playerTarget,
@@ -484,14 +523,16 @@ public class BattleRoomManager : MonoBehaviour
         {
             Debug.LogError(
                 $"[BattleRoom] Room '{room.roomId}' requested {requestedCount} monsters but none could spawn. " +
-                "The Room will clear for diagnostic safety instead of soft-locking.");
+                "Combat will remain active through BattleRunManager diagnostic safety. Check Start Base NavMesh / Monster prefab setup.");
         }
     }
 
     private void HandleMonsterDeath(MonsterController monster)
     {
-        if (monster == null) return;
-        if (!activeMonsters.Remove(monster)) return;
+        if (monster == null)
+            return;
+        if (!activeMonsters.Remove(monster))
+            return;
 
         MonsterDefeated?.Invoke(monster);
         monsterPool?.Return(monster);
@@ -543,7 +584,7 @@ public class BattleRoomManager : MonoBehaviour
         MapBlock highlight = Instantiate(currentRoom.highlightBlockPrefab, parent);
         Vector3 destination = roomOrigin.position + (Vector3)currentRoom.highlightBlockOffset;
 
-        // Highlight는 Room 조립 충격 카운트에는 포함하지 않지만 자체 반동 연출은 그대로 사용합니다.
+        // Highlight는 Start Base나 조립 Impact Count에 포함되지 않는 별도 출구 Block입니다.
         highlight.PlayEnter(destination, Vector2.down);
         activeBlocks.Add(highlight);
 
@@ -577,10 +618,12 @@ public class BattleRoomManager : MonoBehaviour
 
         float longestExit = 0f;
 
+        // activeBlocks에는 Extension/Highlight만 있으므로 Persistent Start Base는 절대 Exit되지 않습니다.
         for (int i = 0; i < activeBlocks.Count; i++)
         {
             MapBlock block = activeBlocks[i];
-            if (block == null) continue;
+            if (block == null)
+                continue;
 
             Vector2 direction = ((Vector2)block.transform.position - (Vector2)roomOrigin.position).normalized;
             block.PlayExit(direction);
@@ -618,10 +661,12 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < activeMonsters.Count; i++)
         {
             MonsterController monster = activeMonsters[i];
-            if (monster == null || !monster.gameObject.activeInHierarchy) continue;
+            if (monster == null || !monster.gameObject.activeInHierarchy)
+                continue;
 
             NavMeshAgent agent = monster.GetComponent<NavMeshAgent>();
-            if (agent == null || !agent.enabled) continue;
+            if (agent == null || !agent.enabled)
+                continue;
 
             agentsToRestore.Add(agent);
             agent.enabled = false;
@@ -633,7 +678,8 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < agentsToRestore.Count; i++)
         {
             NavMeshAgent agent = agentsToRestore[i];
-            if (agent == null || !agent.gameObject.activeInHierarchy) continue;
+            if (agent == null || !agent.gameObject.activeInHierarchy)
+                continue;
 
             if (NavMesh.SamplePosition(agent.transform.position, out NavMeshHit hit, 2f, NavMesh.AllAreas))
             {
@@ -661,7 +707,8 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < activeObstacles.Count; i++)
         {
             BattleObstacle obstacle = activeObstacles[i];
-            if (obstacle == null) continue;
+            if (obstacle == null)
+                continue;
 
             obstacle.Broken -= HandleObstacleBroken;
             Destroy(obstacle.gameObject);
@@ -671,7 +718,8 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < activeBlocks.Count; i++)
         {
             MapBlock block = activeBlocks[i];
-            if (block == null) continue;
+            if (block == null)
+                continue;
 
             block.Impacted -= HandleMapBlockImpact;
             Destroy(block.gameObject);
@@ -694,14 +742,14 @@ public class BattleRoomManager : MonoBehaviour
 }
 
 /// <summary>
-/// BattleRoomManager가 충돌 순간에 런타임 생성하는 일회성 VFX Player.
-/// 실제 Sprite 배열이 있으면 Sprite Animation을 사용하고,
-/// 각 배열이 비어 있으면 그 부분만 코드 생성 Dummy VFX로 fallback 합니다.
+/// 도킹 접촉면 전용 일회성 VFX Player.
+/// 실제 Sprite 배열이 있으면 그대로 재생하고, 비어 있으면 원형 폭발 없이
+/// Contact Core + Soft Glow + Tangent Sparks + Low Dust 레이어를 Procedural로 생성합니다.
 /// </summary>
 internal sealed class MapImpactVfxInstance : MonoBehaviour
 {
     private SpriteRenderer impactRenderer;
-    private SpriteRenderer flashRenderer;
+    private SpriteRenderer glowRenderer;
     private SpriteRenderer dustRenderer;
 
     private Sprite[] impactFrames;
@@ -710,15 +758,22 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
     private float elapsed;
     private float duration;
     private float worldScale;
-    private bool dummyImpact;
-    private bool dummyDust;
+    private bool proceduralImpact;
+    private bool proceduralDust;
     private Color impactColor;
     private Color dustColor;
 
-    private readonly List<Transform> dummyDustTransforms = new();
-    private readonly List<SpriteRenderer> dummyDustRenderers = new();
-    private readonly List<Vector2> dummyDustVelocities = new();
-    private readonly List<float> dummyDustSpin = new();
+    private readonly List<ParticleVisual> particles = new();
+
+    private sealed class ParticleVisual
+    {
+        public Transform transform;
+        public SpriteRenderer renderer;
+        public Vector2 localVelocity;
+        public float spin;
+        public float baseAlpha;
+        public float drag;
+    }
 
     public void Play(
         Sprite[] realImpactFrames,
@@ -735,12 +790,12 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         impactFrames = realImpactFrames;
         dustFrames = realDustFrames;
         fps = Mathf.Max(1f, animationFps);
-        worldScale = Mathf.Max(0.05f, scale) * (finalImpact ? 1.12f : 1f);
+        worldScale = Mathf.Max(0.05f, scale) * (finalImpact ? 1.06f : 1f);
         impactColor = fallbackImpactColor;
         dustColor = fallbackDustColor;
 
-        dummyImpact = impactFrames == null || impactFrames.Length == 0;
-        dummyDust = dustFrames == null || dustFrames.Length == 0;
+        proceduralImpact = !HasFrames(impactFrames);
+        proceduralDust = !HasFrames(dustFrames);
 
         Vector2 direction = travelDirection.sqrMagnitude > 0.001f
             ? travelDirection.normalized
@@ -748,59 +803,110 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
         transform.rotation = Quaternion.Euler(0f, 0f, angle);
 
-        CreateImpactVisual(material, sortingOrder);
-        CreateDustVisual(material, sortingOrder - 1, direction, finalImpact);
+        // Procedural fallback은 타일 본체보다 아래 Sorting에 두어 접촉면/하부에서만 보이게 합니다.
+        int resolvedOrder = proceduralImpact && proceduralDust
+            ? Mathf.Min(sortingOrder, -12)
+            : sortingOrder;
 
-        float impactDuration = dummyImpact
-            ? 0.34f
+        CreateImpactVisual(material, resolvedOrder, finalImpact);
+        CreateDustVisual(material, resolvedOrder - 1, finalImpact);
+
+        float impactDuration = proceduralImpact
+            ? (finalImpact ? 0.28f : 0.22f)
             : impactFrames.Length / fps;
-        float dustDuration = dummyDust
-            ? 0.48f
+        float dustDuration = proceduralDust
+            ? (finalImpact ? 0.34f : 0.28f)
             : dustFrames.Length / fps;
 
-        duration = Mathf.Max(0.18f, impactDuration, dustDuration);
+        duration = Mathf.Max(0.16f, impactDuration, dustDuration);
     }
 
-    private void CreateImpactVisual(Material material, int sortingOrder)
+    private void CreateImpactVisual(Material material, int sortingOrder, bool finalImpact)
     {
-        GameObject impactGo = new("Impact");
+        GameObject impactGo = new("ContactCore");
         impactGo.transform.SetParent(transform, false);
         impactRenderer = impactGo.AddComponent<SpriteRenderer>();
         impactRenderer.sortingOrder = sortingOrder;
         if (material != null)
             impactRenderer.sharedMaterial = material;
 
-        if (!dummyImpact)
+        if (!proceduralImpact)
         {
             impactRenderer.sprite = impactFrames[0];
             impactGo.transform.localScale = Vector3.one * worldScale;
             return;
         }
 
-        impactRenderer.sprite = MapImpactDummySpriteCache.Ring;
+        impactRenderer.sprite = MapImpactProceduralSpriteCache.ContactCore;
         impactRenderer.color = impactColor;
-        impactGo.transform.localScale = Vector3.one * worldScale * 0.30f;
+        impactGo.transform.localScale = new Vector3(
+            worldScale * 0.42f,
+            worldScale * (finalImpact ? 1.12f : 1f),
+            1f);
 
-        GameObject flashGo = new("Flash");
-        flashGo.transform.SetParent(transform, false);
-        flashRenderer = flashGo.AddComponent<SpriteRenderer>();
-        flashRenderer.sprite = MapImpactDummySpriteCache.Flash;
-        flashRenderer.color = impactColor;
-        flashRenderer.sortingOrder = sortingOrder + 1;
+        GameObject glowGo = new("ContactGlow");
+        glowGo.transform.SetParent(transform, false);
+        glowRenderer = glowGo.AddComponent<SpriteRenderer>();
+        glowRenderer.sprite = MapImpactProceduralSpriteCache.ContactGlow;
+        Color glowColor = impactColor;
+        glowColor.a *= 0.44f;
+        glowRenderer.color = glowColor;
+        glowRenderer.sortingOrder = sortingOrder - 1;
         if (material != null)
-            flashRenderer.sharedMaterial = material;
-        flashGo.transform.localScale = Vector3.one * worldScale * 0.65f;
+            glowRenderer.sharedMaterial = material;
+        glowGo.transform.localScale = new Vector3(
+            worldScale * 0.55f,
+            worldScale * (finalImpact ? 1.20f : 1.06f),
+            1f);
+
+        CreateSparks(material, sortingOrder + 1, finalImpact);
     }
 
-    private void CreateDustVisual(
-        Material material,
-        int sortingOrder,
-        Vector2 travelDirection,
-        bool finalImpact)
+    private void CreateSparks(Material material, int sortingOrder, bool finalImpact)
     {
-        if (!dummyDust)
+        int count = finalImpact ? 7 : 4;
+        for (int i = 0; i < count; i++)
         {
-            GameObject dustGo = new("Dust");
+            GameObject go = new($"Spark_{i}");
+            go.transform.SetParent(transform, false);
+
+            float alongFace = count <= 1
+                ? 0f
+                : Mathf.Lerp(-0.78f, 0.78f, i / (float)(count - 1));
+            alongFace += UnityEngine.Random.Range(-0.10f, 0.10f);
+            go.transform.localPosition = new Vector3(0f, alongFace * worldScale, 0f);
+
+            SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
+            renderer.sprite = MapImpactProceduralSpriteCache.Spark;
+            renderer.sortingOrder = sortingOrder;
+            Color color = impactColor;
+            color.a = UnityEngine.Random.Range(0.65f, 1f);
+            renderer.color = color;
+            if (material != null)
+                renderer.sharedMaterial = material;
+
+            float particleScale = UnityEngine.Random.Range(0.055f, 0.095f) * worldScale;
+            go.transform.localScale = new Vector3(particleScale * 1.8f, particleScale, 1f);
+
+            particles.Add(new ParticleVisual
+            {
+                transform = go.transform,
+                renderer = renderer,
+                localVelocity = new Vector2(
+                    UnityEngine.Random.Range(-1.65f, -0.65f),
+                    UnityEngine.Random.Range(-1.45f, 1.45f)) * worldScale,
+                spin = UnityEngine.Random.Range(-240f, 240f),
+                baseAlpha = color.a,
+                drag = 7.5f
+            });
+        }
+    }
+
+    private void CreateDustVisual(Material material, int sortingOrder, bool finalImpact)
+    {
+        if (!proceduralDust)
+        {
+            GameObject dustGo = new("DustAnimation");
             dustGo.transform.SetParent(transform, false);
             dustRenderer = dustGo.AddComponent<SpriteRenderer>();
             dustRenderer.sprite = dustFrames[0];
@@ -811,37 +917,45 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
             return;
         }
 
-        int count = finalImpact ? 9 : 6;
-        Vector2 backward = -travelDirection;
-        if (backward.sqrMagnitude <= 0.001f)
-            backward = Vector2.up;
-
+        int count = finalImpact ? 7 : 5;
         for (int i = 0; i < count; i++)
         {
-            GameObject dustGo = new($"Dust_{i}");
-            dustGo.transform.SetParent(transform, false);
+            GameObject go = new($"DustWisp_{i}");
+            go.transform.SetParent(transform, false);
 
-            SpriteRenderer renderer = dustGo.AddComponent<SpriteRenderer>();
-            renderer.sprite = MapImpactDummySpriteCache.Dust;
-            renderer.color = dustColor;
+            float alongFace = count <= 1
+                ? 0f
+                : Mathf.Lerp(-0.82f, 0.82f, i / (float)(count - 1));
+            alongFace += UnityEngine.Random.Range(-0.12f, 0.12f);
+            go.transform.localPosition = new Vector3(
+                UnityEngine.Random.Range(-0.02f, 0.02f),
+                alongFace * worldScale,
+                0f);
+
+            SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
+            renderer.sprite = MapImpactProceduralSpriteCache.DustWisp;
             renderer.sortingOrder = sortingOrder;
+            Color color = dustColor;
+            color.a *= UnityEngine.Random.Range(0.55f, 0.90f);
+            renderer.color = color;
             if (material != null)
                 renderer.sharedMaterial = material;
 
-            float spread = count <= 1
-                ? 0f
-                : Mathf.Lerp(-70f, 70f, i / (float)(count - 1));
-            float randomJitter = UnityEngine.Random.Range(-16f, 16f);
-            Vector2 dir = Rotate(backward, spread + randomJitter);
-            float speed = UnityEngine.Random.Range(0.9f, 2.1f) * worldScale;
+            float xScale = UnityEngine.Random.Range(0.16f, 0.28f) * worldScale;
+            float yScale = UnityEngine.Random.Range(0.08f, 0.16f) * worldScale;
+            go.transform.localScale = new Vector3(xScale, yScale, 1f);
 
-            dustGo.transform.localScale = Vector3.one * worldScale *
-                                          UnityEngine.Random.Range(0.12f, 0.28f);
-
-            dummyDustTransforms.Add(dustGo.transform);
-            dummyDustRenderers.Add(renderer);
-            dummyDustVelocities.Add(dir * speed);
-            dummyDustSpin.Add(UnityEngine.Random.Range(-280f, 280f));
+            particles.Add(new ParticleVisual
+            {
+                transform = go.transform,
+                renderer = renderer,
+                localVelocity = new Vector2(
+                    UnityEngine.Random.Range(-0.58f, -0.22f),
+                    UnityEngine.Random.Range(-0.26f, 0.26f)) * worldScale,
+                spin = UnityEngine.Random.Range(-22f, 22f),
+                baseAlpha = color.a,
+                drag = 4.2f
+            });
         }
     }
 
@@ -850,15 +964,15 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         elapsed += Time.unscaledDeltaTime;
         float t = duration <= 0f ? 1f : Mathf.Clamp01(elapsed / duration);
 
-        if (dummyImpact)
-            UpdateDummyImpact(t);
+        if (proceduralImpact)
+            UpdateProceduralImpact(t);
         else
             UpdateRealAnimation(impactRenderer, impactFrames);
 
-        if (dummyDust)
-            UpdateDummyDust(t);
-        else
+        if (!proceduralDust)
             UpdateRealAnimation(dustRenderer, dustFrames);
+
+        UpdateParticles(t);
 
         if (elapsed >= duration)
             Destroy(gameObject);
@@ -866,159 +980,200 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
 
     private void UpdateRealAnimation(SpriteRenderer renderer, Sprite[] frames)
     {
-        if (renderer == null || frames == null || frames.Length == 0)
+        if (renderer == null || !HasFrames(frames))
             return;
 
-        int index = Mathf.Min(
-            frames.Length - 1,
-            Mathf.FloorToInt(elapsed * fps));
-        renderer.sprite = frames[index];
+        int index = Mathf.Min(frames.Length - 1, Mathf.FloorToInt(elapsed * fps));
+        if (frames[index] != null)
+            renderer.sprite = frames[index];
     }
 
-    private void UpdateDummyImpact(float t)
+    private void UpdateProceduralImpact(float t)
     {
+        float sharp = Mathf.Clamp01(t * 4.8f);
+        float fade = 1f - Mathf.SmoothStep(0.15f, 1f, t);
+
         if (impactRenderer != null)
         {
-            float eased = 1f - Mathf.Pow(1f - t, 3f);
-            impactRenderer.transform.localScale = Vector3.one * worldScale *
-                                                  Mathf.Lerp(0.30f, 1.55f, eased);
+            Vector3 scale = impactRenderer.transform.localScale;
+            scale.x = worldScale * Mathf.Lerp(0.18f, 0.52f, 1f - Mathf.Pow(1f - sharp, 3f));
+            impactRenderer.transform.localScale = scale;
+
             Color color = impactColor;
-            color.a *= 1f - t;
+            color.a *= fade;
             impactRenderer.color = color;
         }
 
-        if (flashRenderer != null)
+        if (glowRenderer != null)
         {
-            float flashT = Mathf.Clamp01(t * 2.7f);
-            flashRenderer.transform.localScale = Vector3.one * worldScale *
-                                                 Mathf.Lerp(0.55f, 1.18f, flashT);
+            float glowT = Mathf.Clamp01(t * 3.6f);
+            Vector3 scale = glowRenderer.transform.localScale;
+            scale.x = worldScale * Mathf.Lerp(0.28f, 0.82f, glowT);
+            glowRenderer.transform.localScale = scale;
+
             Color color = impactColor;
-            color.a *= 1f - flashT;
-            flashRenderer.color = color;
+            color.a *= 0.42f * (1f - glowT);
+            glowRenderer.color = color;
         }
     }
 
-    private void UpdateDummyDust(float t)
+    private void UpdateParticles(float t)
     {
-        float dt = Time.unscaledDeltaTime;
-        for (int i = 0; i < dummyDustTransforms.Count; i++)
+        float dt = Mathf.Min(0.033f, Time.unscaledDeltaTime);
+        float fade = 1f - Mathf.SmoothStep(0.20f, 1f, t);
+
+        for (int i = 0; i < particles.Count; i++)
         {
-            Transform dust = dummyDustTransforms[i];
-            SpriteRenderer renderer = dummyDustRenderers[i];
-            if (dust == null || renderer == null) continue;
+            ParticleVisual particle = particles[i];
+            if (particle == null || particle.transform == null || particle.renderer == null)
+                continue;
 
-            Vector2 velocity = dummyDustVelocities[i];
-            velocity *= Mathf.Pow(0.12f, dt);
-            dummyDustVelocities[i] = velocity;
+            particle.localVelocity *= Mathf.Exp(-particle.drag * dt);
+            particle.transform.localPosition += (Vector3)(particle.localVelocity * dt);
+            particle.transform.Rotate(0f, 0f, particle.spin * dt);
 
-            dust.position += (Vector3)(velocity * dt);
-            dust.Rotate(0f, 0f, dummyDustSpin[i] * dt);
-
-            Color color = dustColor;
-            color.a *= 1f - t;
-            renderer.color = color;
+            Color color = particle.renderer.color;
+            color.a = particle.baseAlpha * fade;
+            particle.renderer.color = color;
         }
     }
 
-    private static Vector2 Rotate(Vector2 value, float degrees)
+    private static bool HasFrames(Sprite[] frames)
     {
-        float rad = degrees * Mathf.Deg2Rad;
-        float cos = Mathf.Cos(rad);
-        float sin = Mathf.Sin(rad);
-        return new Vector2(
-            value.x * cos - value.y * sin,
-            value.x * sin + value.y * cos);
+        if (frames == null || frames.Length == 0)
+            return false;
+
+        for (int i = 0; i < frames.Length; i++)
+        {
+            if (frames[i] != null)
+                return true;
+        }
+
+        return false;
     }
 }
 
-internal static class MapImpactDummySpriteCache
+internal static class MapImpactProceduralSpriteCache
 {
-    private static Sprite ring;
-    private static Sprite flash;
-    private static Sprite dust;
+    private static Sprite contactCore;
+    private static Sprite contactGlow;
+    private static Sprite spark;
+    private static Sprite dustWisp;
 
-    public static Sprite Ring => ring != null ? ring : ring = CreateRing();
-    public static Sprite Flash => flash != null ? flash : flash = CreateFlash();
-    public static Sprite Dust => dust != null ? dust : dust = CreateDust();
+    public static Sprite ContactCore => contactCore != null ? contactCore : contactCore = CreateContactCore();
+    public static Sprite ContactGlow => contactGlow != null ? contactGlow : contactGlow = CreateContactGlow();
+    public static Sprite Spark => spark != null ? spark : spark = CreateSpark();
+    public static Sprite DustWisp => dustWisp != null ? dustWisp : dustWisp = CreateDustWisp();
 
-    private static Sprite CreateRing()
+    private static Sprite CreateContactCore()
     {
-        const int size = 32;
-        Texture2D tex = CreateTexture(size);
-        Vector2 center = new((size - 1) * 0.5f, (size - 1) * 0.5f);
+        const int width = 12;
+        const int height = 48;
+        Texture2D texture = CreateTexture(width, height, false);
+        float centerX = (width - 1) * 0.5f;
+        float centerY = (height - 1) * 0.5f;
 
-        for (int y = 0; y < size; y++)
+        for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < size; x++)
+            float vertical = 1f - Mathf.Abs(y - centerY) / (height * 0.5f);
+            vertical = Mathf.SmoothStep(0f, 1f, vertical);
+            for (int x = 0; x < width; x++)
             {
-                float distance = Vector2.Distance(new Vector2(x, y), center);
-                bool visible = distance >= 10.5f && distance <= 13.5f;
-                tex.SetPixel(x, y, visible ? Color.white : Color.clear);
+                float horizontal = 1f - Mathf.Abs(x - centerX) / 2.2f;
+                float alpha = Mathf.Clamp01(horizontal) * vertical;
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
             }
         }
 
-        return Finish(tex, size, 32f);
+        return Finish(texture, width, height, 24f);
     }
 
-    private static Sprite CreateFlash()
+    private static Sprite CreateContactGlow()
     {
-        const int size = 32;
-        Texture2D tex = CreateTexture(size);
-        int center = size / 2;
+        const int width = 28;
+        const int height = 48;
+        Texture2D texture = CreateTexture(width, height, true);
+        float centerX = (width - 1) * 0.5f;
+        float centerY = (height - 1) * 0.5f;
 
-        for (int y = 0; y < size; y++)
+        for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < size; x++)
+            float vertical = 1f - Mathf.Abs(y - centerY) / (height * 0.5f);
+            vertical = Mathf.Pow(Mathf.Clamp01(vertical), 0.65f);
+            for (int x = 0; x < width; x++)
             {
-                int dx = Mathf.Abs(x - center);
-                int dy = Mathf.Abs(y - center);
-                bool cross = dx <= 1 || dy <= 1;
-                bool diagonal = Mathf.Abs(dx - dy) <= 1 && dx <= 10;
-                bool core = dx + dy <= 5;
-                tex.SetPixel(x, y, cross || diagonal || core ? Color.white : Color.clear);
+                float horizontal = 1f - Mathf.Abs(x - centerX) / (width * 0.5f);
+                float alpha = Mathf.Pow(Mathf.Clamp01(horizontal), 2.2f) * vertical * 0.70f;
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
             }
         }
 
-        return Finish(tex, size, 32f);
+        return Finish(texture, width, height, 24f);
     }
 
-    private static Sprite CreateDust()
+    private static Sprite CreateSpark()
     {
-        const int size = 8;
-        Texture2D tex = CreateTexture(size);
-        Vector2 center = new((size - 1) * 0.5f, (size - 1) * 0.5f);
-
-        for (int y = 0; y < size; y++)
+        const int width = 12;
+        const int height = 4;
+        Texture2D texture = CreateTexture(width, height, true);
+        for (int y = 0; y < height; y++)
         {
-            for (int x = 0; x < size; x++)
+            for (int x = 0; x < width; x++)
             {
-                float distance = Vector2.Distance(new Vector2(x, y), center);
-                tex.SetPixel(x, y, distance <= 3.25f ? Color.white : Color.clear);
+                float longitudinal = 1f - x / (float)(width - 1);
+                float vertical = 1f - Mathf.Abs(y - (height - 1) * 0.5f) / 2f;
+                float alpha = Mathf.Clamp01(longitudinal * vertical);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+        return Finish(texture, width, height, 24f);
+    }
+
+    private static Sprite CreateDustWisp()
+    {
+        const int width = 24;
+        const int height = 12;
+        Texture2D texture = CreateTexture(width, height, true);
+        Vector2 center = new((width - 1) * 0.5f, (height - 1) * 0.5f);
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                Vector2 p = new((x - center.x) / (width * 0.5f), (y - center.y) / (height * 0.5f));
+                float d = p.sqrMagnitude;
+                float alpha = Mathf.Pow(Mathf.Clamp01(1f - d), 1.8f) * 0.78f;
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
             }
         }
 
-        return Finish(tex, size, 16f);
+        return Finish(texture, width, height, 24f);
     }
 
-    private static Texture2D CreateTexture(int size)
+    private static Texture2D CreateTexture(int width, int height, bool smooth)
     {
-        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
         {
-            filterMode = FilterMode.Point,
+            filterMode = smooth ? FilterMode.Bilinear : FilterMode.Point,
             wrapMode = TextureWrapMode.Clamp,
             hideFlags = HideFlags.HideAndDontSave
         };
+
+        Color[] clear = new Color[width * height];
+        texture.SetPixels(clear);
         return texture;
     }
 
-    private static Sprite Finish(Texture2D texture, int size, float pixelsPerUnit)
+    private static Sprite Finish(Texture2D texture, int width, int height, float pixelsPerUnit)
     {
         texture.Apply(false, true);
         Sprite sprite = Sprite.Create(
             texture,
-            new Rect(0f, 0f, size, size),
+            new Rect(0f, 0f, width, height),
             new Vector2(0.5f, 0.5f),
-            pixelsPerUnit);
+            pixelsPerUnit,
+            0,
+            SpriteMeshType.FullRect);
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
     }
