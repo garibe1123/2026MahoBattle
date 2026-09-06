@@ -31,10 +31,13 @@ public class MonsterSpawnEntry
 /// <summary>
 /// 하나의 Node에서 사용되는 전투 Room 데이터입니다.
 ///
-/// recommendedGridSize는 이제 "항상 존재하는 Start Base"의 기준 격자입니다.
+/// recommendedGridSize는 항상 존재하는 Start Base의 기준 격자입니다.
 /// 기본 4x4 = 8x8 world unit이며, 이 영역은 Room 교체 때도 사라지지 않는 전투 기준면입니다.
-/// blocks 목록에서 이 격자 안의 Placement는 구형 데이터 호환용 Base Cell로 간주되어 런타임 조립에서 생략되고,
+/// blocks 목록에서 이 격자 안 Placement는 구형 데이터 호환용 Base Cell로 간주되어 런타임 조립에서 생략되고,
 /// 격자 밖 Placement만 추가/확장 Block으로 들어와 도킹 연출을 수행합니다.
+///
+/// Monster Spawn Point는 완성된 Room 내부 좌표입니다.
+/// BattleRoomManager가 Room 조립과 NavMesh Bake를 끝낸 뒤 MonsterPool이 해당 좌표 주변의 유효 NavMesh 위치를 찾습니다.
 /// </summary>
 [CreateAssetMenu(fileName = "RoomDefinition", menuName = "MahoBattle/Room Definition")]
 public class RoomDefinitionSO : ScriptableObject
@@ -42,8 +45,10 @@ public class RoomDefinitionSO : ScriptableObject
     [Header("Persistent Start Base")]
     [Tooltip("기본 4x4 템플릿 영역을 Room마다 재생성하지 않는 영구 Start Base로 사용합니다.")]
     public bool usePersistentStartBase = true;
-    [Tooltip("Start Base 내부 Monster Spawn 좌표를 허용하지 않습니다. 내부 좌표는 런타임에서 가장 가까운 Base 외곽으로 이동됩니다.")]
-    public bool forbidMonsterSpawnInsideStartBase = true;
+
+    [HideInInspector]
+    [Tooltip("이전 외곽 Spawn 실험의 직렬화 호환용 값입니다. 현재 런타임에서는 사용하지 않습니다.")]
+    public bool forbidMonsterSpawnInsideStartBase = false;
 
     [Header("Room Template")]
     public string roomId;
@@ -71,7 +76,7 @@ public class RoomDefinitionSO : ScriptableObject
     public List<ObstaclePlacement> obstacles = new();
 
     [Header("Monster Spawn Points")]
-    [Tooltip("Start Base 내부 좌표를 넣어도 forbidMonsterSpawnInsideStartBase가 켜져 있으면 런타임에서 외곽으로 투영됩니다.")]
+    [Tooltip("완성된 Room 내부의 Spawn 기준점입니다. 런타임에서 가장 가까운 유효 NavMesh 위치로만 보정되며 벽 밖으로 투영하지 않습니다.")]
     public List<MonsterSpawnEntry> monsterSpawns = new();
 
     [Header("Clear Presentation")]
@@ -132,10 +137,6 @@ public class RoomDefinitionSO : ScriptableObject
             gridPosition.y * MapBlock.BlockWorldSize.y);
     }
 
-    /// <summary>
-    /// Start Base가 점유하는 Grid Cell인지 확인합니다.
-    /// true인 Placement는 Persistent Base가 대신하므로 BattleRoomManager가 별도 Block을 생성하지 않습니다.
-    /// </summary>
     public bool IsInsideTemplateGrid(Vector2Int gridPosition)
     {
         Vector2Int grid = GetSafeGridSize();
@@ -170,8 +171,8 @@ public class RoomDefinitionSO : ScriptableObject
     }
 
     /// <summary>
-    /// Start Base 내부의 local 좌표를 가장 가까운 외곽 면 밖으로 투영합니다.
-    /// 이미 외부라면 입력 좌표를 그대로 반환합니다.
+    /// 이전 외곽 Spawn 실험과의 API 호환용입니다.
+    /// 현재 MonsterPool은 이 함수를 사용하지 않습니다.
     /// </summary>
     public Vector2 ProjectOutsideStartBaseLocal(Vector2 localPosition, float outsideDistance)
     {
@@ -261,6 +262,8 @@ public class RoomDefinitionSO : ScriptableObject
         }
         else
         {
+            Rect roomRect = GetStartBaseLocalRect();
+
             for (int i = 0; i < monsterSpawns.Count; i++)
             {
                 MonsterSpawnEntry spawn = monsterSpawns[i];
@@ -279,10 +282,11 @@ public class RoomDefinitionSO : ScriptableObject
                 if (spawn.scatterRadius > Mathf.Max(recommendedGridSize.x, recommendedGridSize.y) * 2f)
                     warnings.AppendLine($"monsterSpawns[{i}] scatterRadius is very large for this Room.");
 
-                if (forbidMonsterSpawnInsideStartBase && IsInsideStartBaseLocal(spawn.localPosition))
+                if (usePersistentStartBase && !IsInsideStartBaseLocal(spawn.localPosition, spawn.scatterRadius))
                 {
                     warnings.AppendLine(
-                        $"monsterSpawns[{i}] is inside the Start Base. Runtime spawn safety will move it outside the Base perimeter.");
+                        $"monsterSpawns[{i}] at {spawn.localPosition} is outside the current Start Base bounds {roomRect}. " +
+                        "Make sure an Extension Block provides walkable NavMesh there, otherwise the spawn can be rejected.");
                 }
             }
         }
