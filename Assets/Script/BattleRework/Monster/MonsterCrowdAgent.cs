@@ -1,4 +1,3 @@
-using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 
@@ -8,7 +7,9 @@ using UnityEngine.AI;
 ///
 /// 가까워지면 NavMesh 위로 붙여 MonsterController의 정밀 AI를 다시 켭니다.
 /// 이 컴포넌트 하나로 수십~수백 마리 상황에서 모든 개체가 매 프레임 SetDestination을 호출하는 것을 피합니다.
+/// MonsterController보다 뒤에 Update해 4방향 Facing Debug 표시도 최종 이동 방향 기준으로 유지합니다.
 /// </summary>
+[DefaultExecutionOrder(100)]
 [DisallowMultipleComponent]
 public class MonsterCrowdAgent : MonoBehaviour
 {
@@ -199,69 +200,5 @@ public class MonsterCrowdAgent : MonoBehaviour
         }
 
         controller.enabled = true;
-    }
-}
-
-/// <summary>
-/// 생성된 TEST Room의 기존 내부 Spawn Point를 런타임에서 Base 외곽으로 이동시킵니다.
-/// 정식 Room Asset은 건드리지 않고 TEST_NodeGraph에만 적용합니다.
-/// </summary>
-internal static class BattleTestSpawnPerimeterMigration
-{
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void MoveGeneratedTestSpawnsOutsideBase()
-    {
-        NodeGraphSO graph = Resources.Load<NodeGraphSO>("BattleTestDefaults/TEST_NodeGraph");
-        if (graph == null || graph.nodes == null)
-            return;
-
-        HashSet<RoomDefinitionSO> visited = new();
-        for (int i = 0; i < graph.nodes.Count; i++)
-        {
-            BattleNodeData node = graph.nodes[i];
-            RoomDefinitionSO room = node != null ? node.room : null;
-            if (room == null || !visited.Add(room) || room.monsterSpawns == null)
-                continue;
-
-            MoveRoomSpawns(room);
-        }
-    }
-
-    private static void MoveRoomSpawns(RoomDefinitionSO room)
-    {
-        Vector2 center = room.GetTemplateCenterOffset();
-        Vector2 half = room.GetTemplateWorldSize() * 0.5f;
-        Vector2 min = center - half;
-        Vector2 max = center + half;
-        const float outsideDistance = 1.8f;
-
-        for (int i = 0; i < room.monsterSpawns.Count; i++)
-        {
-            MonsterSpawnEntry spawn = room.monsterSpawns[i];
-            if (spawn == null)
-                continue;
-
-            Vector2 p = spawn.localPosition;
-            bool inside = p.x >= min.x && p.x <= max.x && p.y >= min.y && p.y <= max.y;
-            if (!inside)
-                continue;
-
-            float left = p.x - min.x;
-            float right = max.x - p.x;
-            float bottom = p.y - min.y;
-            float top = max.y - p.y;
-            float nearest = Mathf.Min(left, right, bottom, top);
-
-            if (Mathf.Approximately(nearest, left))
-                p.x = min.x - outsideDistance;
-            else if (Mathf.Approximately(nearest, right))
-                p.x = max.x + outsideDistance;
-            else if (Mathf.Approximately(nearest, bottom))
-                p.y = min.y - outsideDistance;
-            else
-                p.y = max.y + outsideDistance;
-
-            spawn.localPosition = p;
-        }
     }
 }
