@@ -12,12 +12,12 @@ public enum MapBlockEntryType
 }
 
 /// <summary>
-/// 2x2 world unit Extension MapBlock.
-/// Persistent Start Base 바깥에 붙는 추가 Block만 이 컴포넌트의 진입/도킹 연출을 사용합니다.
+/// Persistent Start Base 바깥에 붙는 Extension / Room Wall Block입니다.
+/// 기본 바닥 Block은 2x2 world지만 얇은 벽처럼 다른 실제 Renderer 크기도 사용할 수 있습니다.
 ///
 /// Entry:
-/// approach -> contact face impact -> 짧은 directional compression -> 미세 rebound -> exact grid snap.
-/// 충돌 VFX 자체는 BattleRoomManager가 접촉면 기준으로 재생합니다.
+/// approach -> contact face impact -> 짧은 directional compression -> 미세 rebound -> exact snap.
+/// 충돌 VFX 위치/길이는 고정 2x2가 아니라 실제 Renderer/Collider Bounds를 기준으로 계산합니다.
 /// </summary>
 public class MapBlock : MonoBehaviour
 {
@@ -51,7 +51,7 @@ public class MapBlock : MonoBehaviour
     [Tooltip("Punch 확대가 아니라 진행축을 눌러주는 압축량입니다. 0.04면 약 4% 이내의 짧은 압축만 발생합니다.")]
     [SerializeField, Range(0f, 0.15f)] private float impactPunchScale = 0.045f;
     [SerializeField, Min(0f)] private float impactStrength = 1f;
-    [Tooltip("충돌 VFX를 블록 외곽선보다 아주 조금 안쪽에 배치하는 거리입니다.")]
+    [Tooltip("충돌 VFX를 실제 외곽선보다 아주 조금 안쪽에 배치하는 거리입니다.")]
     [SerializeField, Min(0f)] private float impactFaceInset = 0.02f;
 
     [Header("Exit")]
@@ -85,6 +85,29 @@ public class MapBlock : MonoBehaviour
     private void OnDisable()
     {
         KillTweens();
+    }
+
+    /// <summary>
+    /// 코드 생성 Room Wall 같은 런타임 도킹 Block을 기존 진입 파이프라인에 태우기 위한 최소 설정 API입니다.
+    /// </summary>
+    public void ConfigureRuntimeDockingBlock(
+        Transform visualRoot,
+        bool walkable,
+        float strength = 0.6f,
+        float duration = 0.50f,
+        float offset = 5.5f)
+    {
+        presentationRoot = visualRoot != null ? visualRoot : transform;
+        contributesWalkableNavMesh = walkable;
+        entryType = MapBlockEntryType.WheelSlide;
+        entryDuration = Mathf.Max(0.05f, duration);
+        entryOffset = Mathf.Max(0f, offset);
+        impactStrength = Mathf.Max(0f, strength);
+        approachRumbleDegrees = Mathf.Min(approachRumbleDegrees, 0.35f);
+        impactReboundDistance = Mathf.Min(impactReboundDistance, 0.04f);
+        impactPunchScale = Mathf.Min(impactPunchScale, 0.035f);
+        ResolvePresentationRoot();
+        CachePresentationPose();
     }
 
     private void ResolvePresentationRoot()
@@ -199,14 +222,20 @@ public class MapBlock : MonoBehaviour
             ? travelDirection.normalized
             : Vector2.down;
 
-        float halfWidth = BlockWorldSize.x * 0.5f;
-        float halfHeight = BlockWorldSize.y * 0.5f;
-        float supportDistance =
-            Mathf.Abs(direction.x) * halfWidth +
-            Mathf.Abs(direction.y) * halfHeight;
+        if (TryGetPresentationBounds(out Bounds bounds))
+        {
+            float supportDistance =
+                Mathf.Abs(direction.x) * bounds.extents.x +
+                Mathf.Abs(direction.y) * bounds.extents.y;
+            supportDistance = Mathf.Max(0f, supportDistance - impactFaceInset);
+            return bounds.center + (Vector3)(direction * supportDistance);
+        }
 
-        supportDistance = Mathf.Max(0f, supportDistance - impactFaceInset);
-        return destination + (Vector3)(direction * supportDistance);
+        float fallbackDistance =
+            Mathf.Abs(direction.x) * BlockWorldSize.x * 0.5f +
+            Mathf.Abs(direction.y) * BlockWorldSize.y * 0.5f;
+        fallbackDistance = Mathf.Max(0f, fallbackDistance - impactFaceInset);
+        return destination + (Vector3)(direction * fallbackDistance);
     }
 
     public float GetImpactFaceLength(Vector2 travelDirection)
@@ -215,9 +244,66 @@ public class MapBlock : MonoBehaviour
             ? travelDirection.normalized
             : Vector2.down;
 
+        if (TryGetPresentationBounds(out Bounds bounds))
+        {
+            return Mathf.Abs(direction.x) >= Mathf.Abs(direction.y)
+                ? bounds.size.y
+                : bounds.size.x;
+        }
+
         return Mathf.Abs(direction.x) >= Mathf.Abs(direction.y)
             ? BlockWorldSize.y
             : BlockWorldSize.x;
+    }
+
+    private bool TryGetPresentationBounds(out Bounds bounds)
+    {
+        bounds = default;
+        bool found = false;
+
+        Renderer[] renderers = presentationRoot != null
+            ? presentationRoot.GetComponentsInChildren<Renderer>(true)
+            : GetComponentsInChildren<Renderer>(true);
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled)
+                continue;
+
+            if (!found)
+            {
+                bounds = renderer.bounds;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        if (found)
+            return true;
+
+        Collider2D[] colliders = GetComponentsInChildren<Collider2D>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Collider2D collider = colliders[i];
+            if (collider == null || !collider.enabled)
+                continue;
+
+            if (!found)
+            {
+                bounds = collider.bounds;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(collider.bounds);
+            }
+        }
+
+        return found;
     }
 
     public Tween PlayEnter(Vector3 destination, Vector2 preferredDirection, float delay = 0f)
