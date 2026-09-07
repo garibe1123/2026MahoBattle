@@ -49,7 +49,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("켜면 사회자 Sprite Sheet를 마지막 프레임 뒤에 처음부터 반복 재생합니다.")]
     [SerializeField] private bool presenterLoop = true;
 
-    [Tooltip("켜면 보상 선택 상태에 진입했을 때 사회자 애니메이션을 자동으로 시작합니다.")]
+    [Tooltip("켜면 아이템 선택 또는 맵 선택 토크쇼에 진입했을 때 사회자 애니메이션을 자동으로 시작합니다.")]
     [SerializeField] private bool autoPlayPresenterDuringReward = true;
 
     [Header("버드아이뷰 조명 Sprite Sheet")]
@@ -62,7 +62,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("켜면 조명 Sprite Sheet를 반복 재생합니다.")]
     [SerializeField] private bool spotlightLoop = true;
 
-    [Tooltip("켜면 보상 선택 상태에 진입했을 때 플레이어/사회자 조명 애니메이션을 자동으로 시작합니다.")]
+    [Tooltip("켜면 아이템 선택 또는 맵 선택 토크쇼에 진입했을 때 플레이어/사회자 조명 애니메이션을 자동으로 시작합니다.")]
     [SerializeField] private bool autoPlaySpotlightDuringReward = true;
 
     [Header("쇼 컷인 Sprite Sheet")]
@@ -101,7 +101,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private Coroutine cueRoutine;
     private Coroutine floorDecorateRoutine;
 
-    private bool rewardPresentationActive;
+    private bool selectionShowPresentationActive;
     private bool subscribed;
     private bool warnedMissingTemplate;
     private float nextFieldTemplateScan;
@@ -162,7 +162,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             SubscribeRunEvents();
         }
 
-        if (rewardPresentationActive)
+        if (selectionShowPresentationActive)
             ResolveHudSpotlightImages();
 
         if (autoApplyTemplateToSlidingField &&
@@ -239,12 +239,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private void HandleRunStateChanged(BattleRunState state)
     {
-        bool reward = state == BattleRunState.Reward;
-        if (reward == rewardPresentationActive)
+        bool selectionShow = state == BattleRunState.Reward || state == BattleRunState.SelectingNode;
+        if (selectionShow == selectionShowPresentationActive)
             return;
 
-        rewardPresentationActive = reward;
-        if (reward)
+        selectionShowPresentationActive = selectionShow;
+        if (selectionShow)
         {
             if (autoPlayPresenterDuringReward)
                 PlayPresenterAnimation(true);

@@ -5,7 +5,6 @@ using System.Reflection;
 using NavMeshPlus.Components;
 using UnityEngine;
 using UnityEngine.AI;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
@@ -48,7 +47,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(24f)] private float mapNodeSize = 44f;
     [SerializeField, Min(0.05f)] private float mapRevealDuration = 0.28f;
     [SerializeField, Min(0f)] private float mapRevealSlideDistance = 90f;
-    [SerializeField] private Color mapBackground = new(0.025f, 0.032f, 0.050f, 0.97f);
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
     [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
@@ -76,6 +74,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private BattleRoomManager roomManager;
     private RoomBaseTemplate baseTemplate;
     private PlayerController player;
+    private BattleHUD hud;
     private NodeGraphSO graph;
 
     private readonly Dictionary<string, Vector2> resolvedMapPositions = new();
@@ -84,10 +83,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private readonly HashSet<Vector2Int> currentTargetLocalTiles = new();
 
     private Vector2Int currentBaseWorldTile;
-    private Canvas stageMapCanvas;
     private CanvasGroup stageMapCanvasGroup;
     private RectTransform stageMapPanel;
-    private Image stageMapPanelImage;
     private Coroutine stageMapRevealRoutine;
     private Vector2 stageMapPanelRestPosition;
     private float resolvedMapHorizontalSpacing;
@@ -122,10 +119,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private IEnumerator BindWhenReady()
     {
-        while (runManager == null)
+        while (runManager == null || hud == null)
         {
             ResolveSystems();
-            if (runManager == null)
+            if (runManager == null || hud == null)
                 yield return null;
         }
 
@@ -145,6 +142,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
+        if (hud == null)
+            hud = FindFirstObjectByType<BattleHUD>();
 
         if (runManager != null && graph == null)
         {
@@ -181,7 +180,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void Update()
     {
-        if (runManager == null || roomManager == null || graph == null || baseTemplate == null)
+        if (runManager == null || roomManager == null || graph == null || baseTemplate == null ||
+            hud == null || stageMapPanel == null)
         {
             ResolveSystems();
             if (runManager != null)
@@ -1195,63 +1195,30 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void EnsureStageMapUI()
     {
-        if (stageMapCanvas != null)
+        if (stageMapPanel != null)
             return;
 
-        EnsureEventSystem();
+        ResolveSystems();
+        if (hud == null || hud.MapSelectionRoot == null)
+            return;
 
-        GameObject canvasObject = new("BattleStageMapCanvas");
-        DontDestroyOnLoad(canvasObject);
-        stageMapCanvas = canvasObject.AddComponent<Canvas>();
-        stageMapCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        stageMapCanvas.sortingOrder = 650;
-        stageMapCanvas.enabled = false;
-        stageMapCanvasGroup = canvasObject.AddComponent<CanvasGroup>();
+        // 아이템 선택과 같은 RewardQuizShow의 TV 화면 안에 맵을 직접 그립니다.
+        // 별도 전면 Canvas를 만들지 않으므로 사회자·조명·TV 프레임이 그대로 공유됩니다.
+        stageMapPanel = hud.MapSelectionRoot;
+        stageMapCanvasGroup = stageMapPanel.GetComponent<CanvasGroup>();
+        if (stageMapCanvasGroup == null)
+            stageMapCanvasGroup = stageMapPanel.gameObject.AddComponent<CanvasGroup>();
         stageMapCanvasGroup.alpha = 0f;
-
-        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
-        canvasObject.AddComponent<GraphicRaycaster>();
-
-        GameObject dim = new("Backdrop");
-        dim.transform.SetParent(canvasObject.transform, false);
-        RectTransform dimRect = dim.AddComponent<RectTransform>();
-        dimRect.anchorMin = Vector2.zero;
-        dimRect.anchorMax = Vector2.one;
-        dimRect.offsetMin = dimRect.offsetMax = Vector2.zero;
-        Image dimImage = dim.AddComponent<Image>();
-        dimImage.color = new Color(0.005f, 0.008f, 0.015f, 0.72f);
-
-        GameObject panel = new("StageMapPanel");
-        panel.transform.SetParent(canvasObject.transform, false);
-        stageMapPanelImage = panel.AddComponent<Image>();
-        stageMapPanelImage.color = mapBackground;
-        stageMapPanel = panel.GetComponent<RectTransform>();
-        stageMapPanel.anchorMin = stageMapPanel.anchorMax = new Vector2(0.5f, 0.5f);
-        stageMapPanel.pivot = new Vector2(0.5f, 0.5f);
-        stageMapPanel.anchoredPosition = Vector2.zero;
-        stageMapPanel.sizeDelta = selectionMapSize;
         stageMapPanelRestPosition = stageMapPanel.anchoredPosition;
         resolvedMapHorizontalSpacing = mapHorizontalSpacing;
         resolvedMapVerticalSpacing = mapVerticalSpacing;
     }
 
-    private static void EnsureEventSystem()
-    {
-        if (FindFirstObjectByType<EventSystem>() != null)
-            return;
-
-        GameObject go = new("BattleStageMapEventSystem");
-        DontDestroyOnLoad(go);
-        go.AddComponent<EventSystem>();
-        go.AddComponent<StandaloneInputModule>();
-    }
-
     private void RefreshStageMap()
     {
-        if (stageMapCanvas == null || stageMapPanel == null || graph == null)
+        if (stageMapPanel == null)
+            EnsureStageMapUI();
+        if (stageMapPanel == null || graph == null)
             return;
 
         bool selecting = runManager != null && runManager.WaitingForNodeSelection;
@@ -1261,8 +1228,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
         }
 
-        bool reveal = !stageMapCanvas.enabled || !stageMapPanel.gameObject.activeSelf;
-        stageMapCanvas.enabled = true;
+        bool reveal = !stageMapPanel.gameObject.activeSelf ||
+                      stageMapCanvasGroup == null ||
+                      stageMapCanvasGroup.alpha <= 0.001f;
         stageMapPanel.gameObject.SetActive(true);
 
         for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
@@ -1556,8 +1524,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         float horizontalRange = maxX - minX;
         float verticalRange = maxY - minY;
-        float usableWidth = Mathf.Max(1f, stageMapPanel.rect.width - 180f);
-        float usableHeight = Mathf.Max(1f, stageMapPanel.rect.height - 190f);
+        float panelWidth = stageMapPanel.rect.width > 1f ? stageMapPanel.rect.width : selectionMapSize.x;
+        float panelHeight = stageMapPanel.rect.height > 1f ? stageMapPanel.rect.height : selectionMapSize.y;
+        float usableWidth = Mathf.Max(1f, panelWidth - 160f);
+        float usableHeight = Mathf.Max(1f, panelHeight - 170f);
         if (horizontalRange > 0.001f)
             resolvedMapHorizontalSpacing = Mathf.Min(mapHorizontalSpacing, usableWidth / horizontalRange);
         if (verticalRange > 0.001f)
@@ -1614,8 +1584,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapPanel.localScale = Vector3.one;
             stageMapPanel.gameObject.SetActive(false);
         }
-        if (stageMapCanvas != null)
-            stageMapCanvas.enabled = false;
     }
 
     // ---------------------------------------------------------------------

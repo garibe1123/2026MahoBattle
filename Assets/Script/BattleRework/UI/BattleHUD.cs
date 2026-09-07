@@ -80,6 +80,9 @@ public sealed class BattleHUD : MonoBehaviour
     private GameObject rewardRoot;
     private RectTransform rewardCardRoot;
     private RectTransform rewardInventoryRoot;
+    private RectTransform mapSelectionRoot;
+    private GameObject rewardInventoryPanel;
+    private GameObject rewardNoticePanel;
     private Text rewardTitle;
     private Text rewardSubtitle;
     private Text rewardInstruction;
@@ -104,6 +107,9 @@ public sealed class BattleHUD : MonoBehaviour
 
     private GameObject rewardDragGhost;
     private RectTransform rewardDragGhostRect;
+
+    /// <summary>맵 선택 노드가 아이템 선택과 동일한 토크쇼 TV 안에 그려지는 전용 영역입니다.</summary>
+    public RectTransform MapSelectionRoot => mapSelectionRoot;
 
     private static readonly Color RewardCardColor = new(0.095f, 0.080f, 0.155f, 1f);
     private static readonly Color RewardCardSelectedColor = new(0.22f, 0.075f, 0.19f, 1f);
@@ -472,6 +478,12 @@ public sealed class BattleHUD : MonoBehaviour
         rewardCardRoot = cardRoot.AddComponent<RectTransform>();
         SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.31f), new Vector2(0.945f, 0.79f));
 
+        GameObject mapRoot = new("MapSelectionScreen");
+        mapRoot.transform.SetParent(inner.transform, false);
+        mapSelectionRoot = mapRoot.AddComponent<RectTransform>();
+        SetAnchors(mapSelectionRoot, new Vector2(0.025f, 0.055f), new Vector2(0.975f, 0.94f));
+        mapRoot.SetActive(false);
+
         focusedRewardName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
         SetAnchors(focusedRewardName.rectTransform, new Vector2(0.055f, 0.185f), new Vector2(0.38f, 0.28f));
 
@@ -479,6 +491,7 @@ public sealed class BattleHUD : MonoBehaviour
         SetAnchors(focusedRewardStats.rectTransform, new Vector2(0.38f, 0.17f), new Vector2(0.945f, 0.285f));
 
         GameObject notice = CreatePanel(inner.transform, "PlacementNotice", new Vector2(980f, 48f), new Color(0.035f, 0.11f, 0.12f, 0.92f));
+        rewardNoticePanel = notice;
         RectTransform noticeRect = notice.GetComponent<RectTransform>();
         noticeRect.anchorMin = noticeRect.anchorMax = new Vector2(0.5f, 0.085f);
         noticeRect.anchoredPosition = Vector2.zero;
@@ -489,6 +502,7 @@ public sealed class BattleHUD : MonoBehaviour
     private void BuildRewardInventory(Transform parent)
     {
         GameObject bar = CreatePanel(parent, "RewardLoadoutStrip", rewardLoadoutSize, new Color(0.018f, 0.024f, 0.040f, 0.92f));
+        rewardInventoryPanel = bar;
         RectTransform barRect = bar.GetComponent<RectTransform>();
         barRect.anchorMin = barRect.anchorMax = rewardLoadoutAnchor;
         barRect.pivot = new Vector2(0.5f, 0.5f);
@@ -572,8 +586,23 @@ public sealed class BattleHUD : MonoBehaviour
             return;
 
         bool rewardState = runManager.State == BattleRunState.Reward;
+        bool mapSelectionState = runManager.State == BattleRunState.SelectingNode;
         int count = rewardState ? runManager.CurrentRewardChoices.Count : 0;
         bool stateChanged = lastObservedState != runManager.State;
+
+        if (mapSelectionState)
+        {
+            if (!rewardRoot.activeSelf || stateChanged || mapSelectionRoot == null || !mapSelectionRoot.gameObject.activeSelf)
+            {
+                pendingRewardIndex = -1;
+                lastRewardCount = -1;
+                SetRewardVisible(true, true);
+                PulseRewardSpotlights();
+            }
+
+            lastObservedState = runManager.State;
+            return;
+        }
 
         if (!rewardState)
         {
@@ -599,7 +628,7 @@ public sealed class BattleHUD : MonoBehaviour
         lastObservedState = runManager.State;
     }
 
-    private void SetRewardVisible(bool visible)
+    private void SetRewardVisible(bool visible, bool mapSelection = false)
     {
         if (rewardRoot != null)
             rewardRoot.SetActive(visible);
@@ -607,6 +636,24 @@ public sealed class BattleHUD : MonoBehaviour
             combatStatusRoot.SetActive(!visible);
         if (equipmentDockRoot != null)
             equipmentDockRoot.SetActive(!visible);
+
+        bool showRewardContent = visible && !mapSelection;
+        if (rewardTitle != null)
+            rewardTitle.gameObject.SetActive(showRewardContent);
+        if (rewardSubtitle != null)
+            rewardSubtitle.gameObject.SetActive(showRewardContent);
+        if (rewardCardRoot != null)
+            rewardCardRoot.gameObject.SetActive(showRewardContent);
+        if (focusedRewardName != null)
+            focusedRewardName.gameObject.SetActive(showRewardContent);
+        if (focusedRewardStats != null)
+            focusedRewardStats.gameObject.SetActive(showRewardContent);
+        if (rewardNoticePanel != null)
+            rewardNoticePanel.SetActive(showRewardContent);
+        if (rewardInventoryPanel != null)
+            rewardInventoryPanel.SetActive(showRewardContent);
+        if (mapSelectionRoot != null)
+            mapSelectionRoot.gameObject.SetActive(visible && mapSelection);
 
         if (!visible)
         {
