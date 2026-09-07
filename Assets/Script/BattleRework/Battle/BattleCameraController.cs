@@ -3,10 +3,9 @@ using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Player-follow battle camera with a dedicated selection-show framing mode.
-/// Gameplay never follows RoomOrigin. Item/Map selection switches to a wider studio shot:
-/// the player stays clearly visible near the lower-left foreground while the prize screen
-/// and presenter occupy the upper/right stage area.
+/// Player-follow battle camera with one shared selection-show framing mode.
+/// Reward와 Map은 같은 TV 세트이므로 같은 camera offset / orthographic size를 사용합니다.
+/// Map 커서 추적은 같은 줌을 유지한 채 위치만 부드럽게 pan 합니다.
 /// </summary>
 [DisallowMultipleComponent]
 public class BattleCameraController : MonoBehaviour
@@ -28,10 +27,10 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float zoomStep = 0.8f;
     [SerializeField, Min(0f)] private float zoomSharpness = 12f;
 
-    [Header("Selection Talk Show Framing")]
-    [Tooltip("아이템 선택과 맵 선택에서 카메라를 플레이어보다 오른쪽/위로 이동시켜 플레이어를 화면 왼쪽에 남기는 스튜디오 와이드 샷입니다.")]
+    [Header("Shared Selection Talk Show Framing")]
+    [Tooltip("Reward / Map 공용 카메라 오프셋입니다. 두 상태 모두 반드시 같은 값을 사용합니다.")]
     [SerializeField] private Vector2 rewardShowOffset = new(5.7f, 2.35f);
-    [Tooltip("Reward Show stays wide enough for Player + screen + presenter + reward stage to read as one set.")]
+    [Tooltip("Reward / Map 공용 Orthographic Size입니다. Map 전용 별도 줌은 사용하지 않습니다.")]
     [SerializeField, Min(0.1f)] private float rewardShowZoom = 6.1f;
     [SerializeField, Min(0f)] private float rewardShowSharpness = 6f;
     [Tooltip("선택 화면 진입/이탈 구도가 즉시 바뀌지 않도록 적용하는 전환 속도입니다.")]
@@ -39,10 +38,8 @@ public class BattleCameraController : MonoBehaviour
     [Tooltip("선택 화면 전환 중 카메라가 한 프레임에 과도하게 이동하지 않도록 제한하는 초당 월드 거리입니다.")]
     [SerializeField, Min(1f)] private float selectionTransitionMaxSpeed = 14f;
 
-    [Header("Map Cursor Camera Tracking")]
-    [Tooltip("커서가 맵 화면 안에 있을 때 사용하는 실제 카메라 줌입니다. 기본 맵 구도는 Reward Show 비율을 그대로 사용합니다.")]
-    [SerializeField, Min(0.1f)] private float mapCursorZoom = 5.15f;
-    [Tooltip("맵 화면 안의 커서 방향으로 카메라가 이동하는 최대 월드 거리입니다.")]
+    [Header("Map Cursor Camera Tracking - Pan Only")]
+    [Tooltip("맵 화면 안의 커서 방향으로 카메라가 이동하는 최대 월드 거리입니다. 카메라 Size는 Reward와 동일하게 유지합니다.")]
     [SerializeField] private Vector2 mapCursorPanDistance = new(1.65f, 0.9f);
     [SerializeField, Min(1f)] private float mapCursorTrackingSharpness = 3.8f;
 
@@ -116,10 +113,6 @@ public class BattleCameraController : MonoBehaviour
         ClearSelectionShake();
     }
 
-    /// <summary>
-    /// 맵 노드 확정 순간 UI가 아니라 실제 전투 카메라에 감쇠 진동을 적용합니다.
-    /// LateUpdate의 추적 결과에 오프셋을 합성하므로 Reward/Map framing과 충돌하지 않습니다.
-    /// </summary>
     public void PlaySelectionConfirmShake(float amplitude, float duration)
     {
         selectionShakeAmplitude = Mathf.Max(0f, amplitude);
@@ -319,6 +312,7 @@ public class BattleCameraController : MonoBehaviour
         bool mapSelectionFraming = rewardFraming && runManager != null &&
                                    runManager.State == BattleRunState.SelectingNode;
         bool activeMapTracking = mapSelectionFraming && mapCursorTracking;
+
         float framingTarget = rewardFraming ? 1f : 0f;
         float framingT = 1f - Mathf.Exp(
             -Mathf.Max(0.5f, selectionTransitionSharpness) * Time.unscaledDeltaTime);
@@ -333,11 +327,9 @@ public class BattleCameraController : MonoBehaviour
             : Vector2.zero;
         currentMapCursorPan = Vector2.Lerp(currentMapCursorPan, targetMapPan, trackingT);
 
-        float selectionZoom = Mathf.Clamp(
-            activeMapTracking ? mapCursorZoom : rewardShowZoom,
-            minZoom,
-            maxZoom);
-        float desiredZoom = Mathf.Lerp(targetZoom, selectionZoom, selectionFramingBlend);
+        // Reward / Map 모두 동일한 Orthographic Size를 사용합니다.
+        float sharedSelectionZoom = Mathf.Clamp(rewardShowZoom, minZoom, maxZoom);
+        float desiredZoom = Mathf.Lerp(targetZoom, sharedSelectionZoom, selectionFramingBlend);
         float zoomSpeed = Mathf.Lerp(zoomSharpness, rewardShowSharpness, selectionFramingBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
         controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, desiredZoom, zoomT);
@@ -350,9 +342,11 @@ public class BattleCameraController : MonoBehaviour
                 panOffset = Vector2.zero;
         }
 
+        // 기본 구도도 Reward / Map 공용. Map은 이 기준점에서 커서 방향 pan만 추가합니다.
         Vector2 selectionOffset = rewardShowOffset + currentMapCursorPan;
         Vector2 desiredOffset = Vector2.Lerp(panOffset, selectionOffset, selectionFramingBlend);
         Vector2 desired = (Vector2)followTarget.position + desiredOffset;
+
         Vector3 current = movementRoot.position;
         Vector2 unshakenCurrent = (Vector2)current - lastSelectionShakeOffset;
         float followSpeed = Mathf.Lerp(followSharpness, rewardShowSharpness, selectionFramingBlend);
@@ -360,6 +354,7 @@ public class BattleCameraController : MonoBehaviour
             ? 1f
             : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
         Vector2 next = Vector2.Lerp(unshakenCurrent, desired, followT);
+
         if ((rewardFraming || selectionFramingBlend > 0f) && selectionTransitionMaxSpeed > 0f)
         {
             next = Vector2.MoveTowards(
@@ -367,6 +362,7 @@ public class BattleCameraController : MonoBehaviour
                 next,
                 selectionTransitionMaxSpeed * Time.unscaledDeltaTime);
         }
+
         lastSelectionShakeOffset = EvaluateSelectionShakeOffset();
         Vector2 shaken = next + lastSelectionShakeOffset;
         movementRoot.position = new Vector3(shaken.x, shaken.y, current.z);
