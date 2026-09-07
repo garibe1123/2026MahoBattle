@@ -1,11 +1,11 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
+using UnityEngine.Serialization;
 
 /// <summary>
-/// Player-follow battle camera with one shared selection-show framing mode.
-/// Reward와 Map은 같은 TV 세트이므로 같은 camera offset / orthographic size를 사용합니다.
-/// Map 커서 추적은 같은 줌을 유지한 채 위치만 부드럽게 pan 합니다.
+/// 일반 전투에서는 Player를 따라가고, Reward / Map에서는 BattleShowWorldSetController의
+/// 단일 Camera Anchor를 사용합니다. Reward와 Map의 카메라 위치/크기를 따로 계산하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 public class BattleCameraController : MonoBehaviour
@@ -15,6 +15,7 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField] private Transform followTarget;
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleShowWorldSetController showStage;
     [SerializeField] private Transform movementRoot;
 
     [Header("Player Follow")]
@@ -27,21 +28,17 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float zoomStep = 0.8f;
     [SerializeField, Min(0f)] private float zoomSharpness = 12f;
 
-    [Header("Shared Selection Talk Show Framing")]
-    [Tooltip("Reward / Map 공용 카메라 오프셋입니다. 두 상태 모두 반드시 같은 값을 사용합니다.")]
-    [SerializeField] private Vector2 rewardShowOffset = new(5.7f, 2.35f);
-    [Tooltip("Reward / Map 공용 Orthographic Size입니다. Map 전용 별도 줌은 사용하지 않습니다.")]
-    [SerializeField, Min(0.1f)] private float rewardShowZoom = 6.1f;
-    [SerializeField, Min(0f)] private float rewardShowSharpness = 6f;
-    [Tooltip("선택 화면 진입/이탈 구도가 즉시 바뀌지 않도록 적용하는 전환 속도입니다.")]
-    [SerializeField, Min(0.5f)] private float selectionTransitionSharpness = 3.2f;
-    [Tooltip("선택 화면 전환 중 카메라가 한 프레임에 과도하게 이동하지 않도록 제한하는 초당 월드 거리입니다.")]
-    [SerializeField, Min(1f)] private float selectionTransitionMaxSpeed = 14f;
+    [Header("Shared Show Camera")]
+    [FormerlySerializedAs("rewardShowSharpness")]
+    [SerializeField, Min(0f)] private float showFollowSharpness = 6f;
+    [SerializeField, Min(0.5f)] private float showTransitionSharpness = 3.2f;
+    [SerializeField, Min(1f)] private float showTransitionMaxSpeed = 14f;
 
-    [Header("Map Cursor Camera Tracking - Pan Only")]
-    [Tooltip("맵 화면 안의 커서 방향으로 카메라가 이동하는 최대 월드 거리입니다. 카메라 Size는 Reward와 동일하게 유지합니다.")]
-    [SerializeField] private Vector2 mapCursorPanDistance = new(1.65f, 0.9f);
-    [SerializeField, Min(1f)] private float mapCursorTrackingSharpness = 3.8f;
+    [Header("Shared TV Cursor Tracking")]
+    [FormerlySerializedAs("mapCursorPanDistance")]
+    [SerializeField] private Vector2 showCursorPanDistance = new(1.65f, 0.9f);
+    [FormerlySerializedAs("mapCursorTrackingSharpness")]
+    [SerializeField, Min(1f)] private float showCursorTrackingSharpness = 3.8f;
 
     [Header("Map Inspection")]
     [SerializeField] private int inspectionMouseButton = 2;
@@ -52,23 +49,25 @@ public class BattleCameraController : MonoBehaviour
     private Vector2 panOffset;
     private Vector2 previousMousePosition;
     private float targetZoom;
-    private float zoomBeforeReward;
+    private float zoomBeforeShow;
     private bool inspecting;
     private bool initialized;
     private bool rigResolved;
-    private bool rewardFraming;
+    private bool showFraming;
+    private float showBlend;
+
+    private bool showCursorTracking;
+    private Vector2 requestedShowCursorDirection;
+    private Vector2 currentShowCursorPan;
+
     private float selectionShakeStartedAt = -1f;
     private float selectionShakeDuration;
     private float selectionShakeAmplitude;
     private Vector2 lastSelectionShakeOffset;
-    private bool mapCursorTracking;
-    private Vector2 requestedMapCursorDirection;
-    private Vector2 currentMapCursorPan;
-    private float selectionFramingBlend;
 
     public float CurrentZoom => controlledCamera != null ? controlledCamera.orthographicSize : 0f;
     public bool IsInspecting => inspecting;
-    public bool IsRewardFraming => rewardFraming;
+    public bool IsRewardFraming => showFraming;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void InstallSceneHook()
@@ -111,6 +110,21 @@ public class BattleCameraController : MonoBehaviour
     private void OnDisable()
     {
         ClearSelectionShake();
+        SetShowCursorTracking(false, Vector2.zero);
+    }
+
+    public void Configure(Camera camera, Transform target, BattleRoomManager manager)
+    {
+        if (camera != null)
+            controlledCamera = camera;
+        if (target != null)
+            followTarget = target;
+        if (manager != null)
+            roomManager = manager;
+
+        rigResolved = false;
+        ResolveMovementRoot();
+        InitializeState();
     }
 
     public void PlaySelectionConfirmShake(float amplitude, float duration)
@@ -120,25 +134,23 @@ public class BattleCameraController : MonoBehaviour
         selectionShakeStartedAt = Time.unscaledTime;
     }
 
-    public void SetMapCursorTracking(bool active, Vector2 normalizedDirection)
+    /// <summary>Reward / Map 공용 TV 커서 추적 입력입니다.</summary>
+    public void SetShowCursorTracking(bool active, Vector2 normalizedDirection)
     {
-        mapCursorTracking = active;
-        requestedMapCursorDirection = active
+        showCursorTracking = active;
+        requestedShowCursorDirection = active
             ? new Vector2(
                 Mathf.Clamp(normalizedDirection.x, -1f, 1f),
                 Mathf.Clamp(normalizedDirection.y, -1f, 1f))
             : Vector2.zero;
     }
 
-    public void Configure(Camera camera, Transform target, BattleRoomManager manager)
+    /// <summary>
+    /// 기존 BattleSpatialMapController 호환용입니다. 실제 처리는 공용 TV 추적으로 통합됩니다.
+    /// </summary>
+    public void SetMapCursorTracking(bool active, Vector2 normalizedDirection)
     {
-        if (camera != null) controlledCamera = camera;
-        if (target != null) followTarget = target;
-        if (manager != null) roomManager = manager;
-
-        rigResolved = false;
-        ResolveMovementRoot();
-        InitializeState();
+        SetShowCursorTracking(active, normalizedDirection);
     }
 
     private void ResolveReferences()
@@ -157,6 +169,8 @@ public class BattleCameraController : MonoBehaviour
             roomManager = FindFirstObjectByType<BattleRoomManager>();
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (showStage == null)
+            showStage = FindFirstObjectByType<BattleShowWorldSetController>();
 
         BattleSceneManager manager = FindFirstObjectByType<BattleSceneManager>();
         if (manager != null && transform.parent == null)
@@ -212,7 +226,7 @@ public class BattleCameraController : MonoBehaviour
         minZoom = Mathf.Max(0.1f, minZoom);
         maxZoom = Mathf.Max(minZoom, maxZoom);
         targetZoom = Mathf.Clamp(controlledCamera.orthographicSize, minZoom, maxZoom);
-        zoomBeforeReward = targetZoom;
+        zoomBeforeShow = targetZoom;
         initialized = true;
     }
 
@@ -222,8 +236,9 @@ public class BattleCameraController : MonoBehaviour
         if (controlledCamera == null)
             return;
 
-        UpdateRewardMode();
-        if (rewardFraming)
+        UpdateShowMode();
+
+        if (showFraming)
         {
             inspecting = false;
             panOffset = Vector2.zero;
@@ -244,24 +259,27 @@ public class BattleCameraController : MonoBehaviour
         }
     }
 
-    private void UpdateRewardMode()
+    private void UpdateShowMode()
     {
-        bool shouldRewardFrame = runManager != null &&
-                                 (runManager.State == BattleRunState.Reward ||
-                                  runManager.State == BattleRunState.SelectingNode);
-        if (shouldRewardFrame == rewardFraming)
+        bool shouldShow = runManager != null &&
+                          (runManager.State == BattleRunState.Reward ||
+                           runManager.State == BattleRunState.SelectingNode);
+
+        if (shouldShow == showFraming)
             return;
 
-        rewardFraming = shouldRewardFrame;
+        showFraming = shouldShow;
         inspecting = false;
         panOffset = Vector2.zero;
 
-        if (rewardFraming)
-            zoomBeforeReward = targetZoom;
+        if (showFraming)
+        {
+            zoomBeforeShow = targetZoom;
+        }
         else
         {
-            targetZoom = Mathf.Clamp(zoomBeforeReward, minZoom, maxZoom);
-            SetMapCursorTracking(false, Vector2.zero);
+            targetZoom = Mathf.Clamp(zoomBeforeShow, minZoom, maxZoom);
+            SetShowCursorTracking(false, Vector2.zero);
         }
     }
 
@@ -270,6 +288,7 @@ public class BattleCameraController : MonoBehaviour
         float scroll = Input.mouseScrollDelta.y;
         if (Mathf.Abs(scroll) <= 0.001f)
             return;
+
         targetZoom = Mathf.Clamp(targetZoom - scroll * zoomStep, minZoom, maxZoom);
     }
 
@@ -293,6 +312,7 @@ public class BattleCameraController : MonoBehaviour
         float screenHeight = Mathf.Max(1f, Screen.height);
         float worldPerPixel = controlledCamera.orthographicSize * 2f / screenHeight;
         panOffset -= pixelDelta * worldPerPixel * inspectionPanMultiplier;
+
         if (maxInspectionDistance > 0f)
             panOffset = Vector2.ClampMagnitude(panOffset, maxInspectionDistance);
     }
@@ -309,32 +329,28 @@ public class BattleCameraController : MonoBehaviour
                 return;
         }
 
-        bool mapSelectionFraming = rewardFraming && runManager != null &&
-                                   runManager.State == BattleRunState.SelectingNode;
-        bool activeMapTracking = mapSelectionFraming && mapCursorTracking;
+        float targetBlend = showFraming ? 1f : 0f;
+        float blendT = 1f - Mathf.Exp(-Mathf.Max(0.5f, showTransitionSharpness) * Time.unscaledDeltaTime);
+        showBlend = Mathf.Lerp(showBlend, targetBlend, blendT);
+        if (Mathf.Abs(showBlend - targetBlend) < 0.001f)
+            showBlend = targetBlend;
 
-        float framingTarget = rewardFraming ? 1f : 0f;
-        float framingT = 1f - Mathf.Exp(
-            -Mathf.Max(0.5f, selectionTransitionSharpness) * Time.unscaledDeltaTime);
-        selectionFramingBlend = Mathf.Lerp(selectionFramingBlend, framingTarget, framingT);
-        if (Mathf.Abs(selectionFramingBlend - framingTarget) < 0.001f)
-            selectionFramingBlend = framingTarget;
-
-        float trackingT = 1f - Mathf.Exp(
-            -Mathf.Max(1f, mapCursorTrackingSharpness) * Time.unscaledDeltaTime);
-        Vector2 targetMapPan = activeMapTracking
-            ? Vector2.Scale(requestedMapCursorDirection, mapCursorPanDistance)
+        float cursorT = 1f - Mathf.Exp(-Mathf.Max(1f, showCursorTrackingSharpness) * Time.unscaledDeltaTime);
+        Vector2 targetCursorPan = showFraming && showCursorTracking
+            ? Vector2.Scale(requestedShowCursorDirection, showCursorPanDistance)
             : Vector2.zero;
-        currentMapCursorPan = Vector2.Lerp(currentMapCursorPan, targetMapPan, trackingT);
+        currentShowCursorPan = Vector2.Lerp(currentShowCursorPan, targetCursorPan, cursorT);
 
-        // Reward / Map 모두 동일한 Orthographic Size를 사용합니다.
-        float sharedSelectionZoom = Mathf.Clamp(rewardShowZoom, minZoom, maxZoom);
-        float desiredZoom = Mathf.Lerp(targetZoom, sharedSelectionZoom, selectionFramingBlend);
-        float zoomSpeed = Mathf.Lerp(zoomSharpness, rewardShowSharpness, selectionFramingBlend);
+        float normalZoom = targetZoom;
+        float showZoom = showStage != null && showStage.HasCameraAnchor
+            ? showStage.ShowCameraSize
+            : normalZoom;
+        float desiredZoom = Mathf.Lerp(normalZoom, Mathf.Clamp(showZoom, minZoom, maxZoom), showBlend);
+        float zoomSpeed = Mathf.Lerp(zoomSharpness, showFollowSharpness, showBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
         controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, desiredZoom, zoomT);
 
-        if (!rewardFraming && !inspecting && panOffset.sqrMagnitude > 0.0001f)
+        if (!showFraming && !inspecting && panOffset.sqrMagnitude > 0.0001f)
         {
             float returnT = 1f - Mathf.Exp(-returnFromInspectionSharpness * Time.unscaledDeltaTime);
             panOffset = Vector2.Lerp(panOffset, Vector2.zero, returnT);
@@ -342,25 +358,26 @@ public class BattleCameraController : MonoBehaviour
                 panOffset = Vector2.zero;
         }
 
-        // 기본 구도도 Reward / Map 공용. Map은 이 기준점에서 커서 방향 pan만 추가합니다.
-        Vector2 selectionOffset = rewardShowOffset + currentMapCursorPan;
-        Vector2 desiredOffset = Vector2.Lerp(panOffset, selectionOffset, selectionFramingBlend);
-        Vector2 desired = (Vector2)followTarget.position + desiredOffset;
+        Vector2 normalTarget = (Vector2)followTarget.position + panOffset;
+        Vector2 showTarget = showStage != null && showStage.HasCameraAnchor
+            ? (Vector2)showStage.CameraTargetWorld + currentShowCursorPan
+            : normalTarget;
+        Vector2 desiredTarget = Vector2.Lerp(normalTarget, showTarget, showBlend);
 
         Vector3 current = movementRoot.position;
         Vector2 unshakenCurrent = (Vector2)current - lastSelectionShakeOffset;
-        float followSpeed = Mathf.Lerp(followSharpness, rewardShowSharpness, selectionFramingBlend);
-        float followT = !rewardFraming && inspecting
+        float followSpeed = Mathf.Lerp(followSharpness, showFollowSharpness, showBlend);
+        float followT = !showFraming && inspecting
             ? 1f
             : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
-        Vector2 next = Vector2.Lerp(unshakenCurrent, desired, followT);
+        Vector2 next = Vector2.Lerp(unshakenCurrent, desiredTarget, followT);
 
-        if ((rewardFraming || selectionFramingBlend > 0f) && selectionTransitionMaxSpeed > 0f)
+        if ((showFraming || showBlend > 0f) && showTransitionMaxSpeed > 0f)
         {
             next = Vector2.MoveTowards(
                 unshakenCurrent,
                 next,
-                selectionTransitionMaxSpeed * Time.unscaledDeltaTime);
+                showTransitionMaxSpeed * Time.unscaledDeltaTime);
         }
 
         lastSelectionShakeOffset = EvaluateSelectionShakeOffset();
