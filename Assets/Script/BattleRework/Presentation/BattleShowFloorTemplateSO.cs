@@ -51,7 +51,7 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
     [Tooltip("판의 아래쪽 면이 기존 바닥과 연결될 때 사용하는 아래 핸들 이미지입니다. 핸들은 바닥 본체의 아래쪽 가장자리에 바로 붙여 배치합니다.")]
     [SerializeField] private Sprite lowerHandleSprite32;
 
-    [Tooltip("핸들을 어느 면에 표시할지 정합니다. ContactSideOnly는 실제 연결면만, AllFourSides는 네 방향 모두, None은 핸들을 표시하지 않습니다.")]
+    [Tooltip("핸들을 어느 면에 표시할지 정합니다. ContactSideOnly는 실제 연결면만, AllFourSides는 네 방향 모두, None은 핸들을 표시하지 않습니다. 각 면에는 손잡이가 최대 1개만 나오며, 옆면은 위/아래 끝, 상하면은 좌/우 끝 중 하나에 배치됩니다.")]
     [SerializeField] private BattleShowHandlePlacementMode handlePlacement = BattleShowHandlePlacementMode.ContactSideOnly;
 
     [Header("색상")]

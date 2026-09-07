@@ -687,17 +687,19 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
         bool all = template.HandlePlacement == BattleShowHandlePlacementMode.AllFourSides;
         Vector2 side = NormalizeCardinal(contactSide);
-        float midX = (minX + maxX) * 0.5f;
-        float midY = (minY + maxY) * 0.5f;
-
-        // 핸들은 별도 거리값을 두지 않습니다.
-        // 32px 한 칸 바깥, 즉 바닥 외곽에 바로 맞닿는 위치에 고정합니다.
+        // 한 면에 핸들은 최대 1개만 만듭니다.
+        // 좌/우 옆면은 세로 양 끝(최상단 또는 최하단),
+        // 위/아래 면은 가로 양 끝(최좌측 또는 최우측) 중 하나에만 배치합니다.
+        // 바닥 외곽에 바로 맞닿는 한 칸 바깥 거리는 기존과 같습니다.
         if (all || side == Vector2.left)
         {
             CreateOptionalHandle(
                 templateRoot,
                 "DockHandle_Left",
-                new Vector3(minX - 1f, midY, 0f),
+                new Vector3(
+                    minX - 1f,
+                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.left) ? maxY : minY,
+                    0f),
                 template.LeftHandleSprite32,
                 template.HandleTint,
                 sortingLayerId,
@@ -709,7 +711,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             CreateOptionalHandle(
                 templateRoot,
                 "DockHandle_Right",
-                new Vector3(maxX + 1f, midY, 0f),
+                new Vector3(
+                    maxX + 1f,
+                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.right) ? maxY : minY,
+                    0f),
                 template.RightHandleSprite32,
                 template.HandleTint,
                 sortingLayerId,
@@ -721,7 +726,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             CreateOptionalHandle(
                 templateRoot,
                 "DockHandle_Upper",
-                new Vector3(midX, maxY + 1f, 0f),
+                new Vector3(
+                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.up) ? maxX : minX,
+                    maxY + 1f,
+                    0f),
                 template.UpperHandleSprite32,
                 template.HandleTint,
                 sortingLayerId,
@@ -733,12 +741,34 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             CreateOptionalHandle(
                 templateRoot,
                 "DockHandle_Lower",
-                new Vector3(midX, minY - 1f, 0f),
+                new Vector3(
+                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.down) ? maxX : minX,
+                    minY - 1f,
+                    0f),
                 template.LowerHandleSprite32,
                 template.HandleTint,
                 sortingLayerId,
                 handleSorting);
         }
+    }
+
+    private static bool ShouldUsePositiveHandleEnd(Transform templateRoot, Vector2 side)
+    {
+        Transform stableRoot = templateRoot != null && templateRoot.parent != null
+            ? templateRoot.parent
+            : templateRoot;
+        int instanceId = stableRoot != null ? stableRoot.GetInstanceID() : 0;
+        int sideSalt = side == Vector2.left
+            ? 17
+            : side == Vector2.right
+                ? 30
+                : side == Vector2.up
+                    ? 47
+                    : 60;
+
+        // PresentationTemplate만 새로 만드는 Refresh 후에도
+        // 부모 판 인스턴스는 같으므로 선택된 끝 위치가 바뀌지 않습니다.
+        return ((instanceId ^ sideSalt) & 1) == 0;
     }
 
     private static void CreateOptionalHandle(
