@@ -3,8 +3,8 @@ using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Player-follow battle camera with a dedicated Reward Show framing mode.
-/// Gameplay never follows RoomOrigin. Reward switches to a wider studio shot:
+/// Player-follow battle camera with a dedicated selection-show framing mode.
+/// Gameplay never follows RoomOrigin. Item/Map selection switches to a wider studio shot:
 /// the player stays clearly visible near the lower-left foreground while the prize screen
 /// and presenter occupy the upper/right stage area.
 /// </summary>
@@ -28,8 +28,8 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float zoomStep = 0.8f;
     [SerializeField, Min(0f)] private float zoomSharpness = 12f;
 
-    [Header("Reward Show Framing")]
-    [Tooltip("Camera moves farther right/up from Player so Player reads closer to the left edge while remaining fully visible. This is a studio wide shot, not a Player close-up.")]
+    [Header("Selection Talk Show Framing")]
+    [Tooltip("아이템 선택과 맵 선택에서 카메라를 플레이어보다 오른쪽/위로 이동시켜 플레이어를 화면 왼쪽에 남기는 스튜디오 와이드 샷입니다.")]
     [SerializeField] private Vector2 rewardShowOffset = new(5.7f, 2.35f);
     [Tooltip("Reward Show stays wide enough for Player + screen + presenter + reward stage to read as one set.")]
     [SerializeField, Min(0.1f)] private float rewardShowZoom = 6.1f;
@@ -208,7 +208,9 @@ public class BattleCameraController : MonoBehaviour
 
     private void UpdateRewardMode()
     {
-        bool shouldRewardFrame = runManager != null && runManager.State == BattleRunState.Reward;
+        bool shouldRewardFrame = runManager != null &&
+                                 (runManager.State == BattleRunState.Reward ||
+                                  runManager.State == BattleRunState.SelectingNode);
         if (shouldRewardFrame == rewardFraming)
             return;
 

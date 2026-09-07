@@ -32,6 +32,8 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField] private Vector2 presenterOffset = Vector2.zero;
     [SerializeField] private bool presenterFlipX;
     [SerializeField] private Color rewardFieldFilter = new(0.06f, 0.035f, 0.11f, 0.025f);
+    [Tooltip("최초 맵 선택 대기실에서만 전장 위에 덮는 어두운 필터입니다. TV와 스포트라이트는 이 필터보다 앞에 그려집니다.")]
+    [SerializeField] private Color openingWaitingRoomFilter = new(0.008f, 0.012f, 0.026f, 0.52f);
     [Tooltip("Background prize display. Intentionally leaves the lower-left Player area unobstructed.")]
     [SerializeField] private Vector2 rewardScreenSize = new(1120f, 560f);
     [SerializeField] private Vector2 rewardScreenAnchor = new(0.61f, 0.69f);
@@ -88,6 +90,7 @@ public sealed class BattleHUD : MonoBehaviour
     private Text rewardInstruction;
     private Text focusedRewardName;
     private Text focusedRewardStats;
+    private Image fieldBroadcastFilterImage;
     private Image presenterImage;
     private RectTransform presenterRect;
     private Image playerSpotlightImage;
@@ -415,6 +418,7 @@ public sealed class BattleHUD : MonoBehaviour
         Image filterImage = filter.AddComponent<Image>();
         filterImage.color = rewardFieldFilter;
         filterImage.raycastTarget = false;
+        fieldBroadcastFilterImage = filterImage;
 
         // Floor glows are created before screen/characters so they always read as light on the stage floor.
         BuildPlayerSpotlight(rewardRoot.transform);
@@ -632,6 +636,14 @@ public sealed class BattleHUD : MonoBehaviour
     {
         if (rewardRoot != null)
             rewardRoot.SetActive(visible);
+        if (fieldBroadcastFilterImage != null)
+        {
+            bool openingWaitingRoom = visible && mapSelection &&
+                                      runManager != null && runManager.IsInStartArea;
+            fieldBroadcastFilterImage.color = openingWaitingRoom
+                ? openingWaitingRoomFilter
+                : rewardFieldFilter;
+        }
         if (combatStatusRoot != null)
             combatStatusRoot.SetActive(!visible);
         if (equipmentDockRoot != null)

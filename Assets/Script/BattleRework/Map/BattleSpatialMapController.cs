@@ -1311,7 +1311,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         title.transform.SetParent(stageMapPanel, false);
         Text text = title.AddComponent<Text>();
         text.font = font;
-        text.text = "CHOOSE THE NEXT TAKE";
+        bool openingWaitingRoom = runManager != null && runManager.IsInStartArea;
+        text.text = openingWaitingRoom
+            ? "WAITING ROOM — CHOOSE YOUR FIRST TAKE"
+            : "CHOOSE THE NEXT TAKE";
         text.alignment = TextAnchor.MiddleCenter;
         text.fontSize = 28;
         text.fontStyle = FontStyle.Bold;
@@ -1329,7 +1332,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         sub.transform.SetParent(stageMapPanel, false);
         Text subText = sub.AddComponent<Text>();
         subText.font = font;
-        subText.text = "START  →  FINAL   /   CLICK ONE OF THE HIGHLIGHTED ROUTES";
+        subText.text = openingWaitingRoom
+            ? "OPENING CALL  /  SELECT A HIGHLIGHTED ROUTE TO ENTER THE STAGE"
+            : "START  →  FINAL   /   CLICK ONE OF THE HIGHLIGHTED ROUTES";
         subText.alignment = TextAnchor.MiddleCenter;
         subText.fontSize = 12;
         subText.color = new Color(0.62f, 0.67f, 0.76f, 1f);

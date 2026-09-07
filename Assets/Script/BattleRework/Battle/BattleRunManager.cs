@@ -53,6 +53,8 @@ public class BattleRunManager : MonoBehaviour
     [Header("Start Stage Selection")]
     [Tooltip("Run starts on an empty non-combat 4x4 Base and asks the player to click one of the configured start nodes.")]
     [SerializeField] private bool useEmptyStartArea = true;
+    [Tooltip("오프닝 대기실 4x4 Base 중심에서 플레이어를 옮길 월드 좌표 오프셋입니다. 기본값은 화면 왼쪽 아래 쪽입니다.")]
+    [SerializeField] private Vector2 startPlayerWaitingRoomOffset = new(-0.9f, -0.35f);
 
     [Header("Depth Scaling - inspector driven")]
     [SerializeField] private AnimationCurve hpByDepth = AnimationCurve.Linear(0f, 1f, 10f, 1f);
@@ -348,6 +350,11 @@ public class BattleRunManager : MonoBehaviour
         Vector3 destination = baseTemplate != null
             ? baseTemplate.FixedCenterWorld
             : roomManager.RoomOrigin.position + (Vector3)room.GetStartBaseCenterOffset();
+        float maxOffset = (RoomBaseTemplate.FixedBaseTiles - 1) * 0.5f - 0.15f;
+        Vector2 waitingRoomOffset = new(
+            Mathf.Clamp(startPlayerWaitingRoomOffset.x, -maxOffset, maxOffset),
+            Mathf.Clamp(startPlayerWaitingRoomOffset.y, -maxOffset, maxOffset));
+        destination += (Vector3)waitingRoomOffset;
         destination.z = playerController.transform.position.z;
         playerController.transform.position = destination;
 
