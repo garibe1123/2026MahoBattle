@@ -12,6 +12,7 @@ using UnityEngine.UI;
 ///
 /// 담당 범위:
 /// - SO 기반 32px 슬라이드 바닥 조립
+/// - 일반 전투 필드의 굴러오는 MapBlock과 Reward Show Slab 모두에 동일 SO 적용
 /// - 필수 위 판 / 3분할 하판(좌측 끝·중앙 반복·우측 끝) 배치
 /// - 바닥에 바로 붙는 4방향 핸들 배치
 /// - MapBlock 도킹 순간 핸들 '찰칵' 반동
@@ -19,7 +20,7 @@ using UnityEngine.UI;
 /// - 버드아이뷰 조명 Sprite Sheet 재생
 /// - LET'S ROLL! / CUT! 컷인 재생
 ///
-/// 실제 바닥의 이동과 위치 계산은 BattleStageTransitionController / MapBlock이 담당하고,
+/// 실제 바닥의 이동과 위치 계산은 BattleSpatialMapController / BattleStageTransitionController / MapBlock이 담당하고,
 /// 이 스크립트는 아트와 연출 타이밍만 통제합니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -28,8 +29,15 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public static BattleShowPresentationManager Instance { get; private set; }
 
     [Header("기본 쇼 바닥 템플릿")]
-    [Tooltip("굴러오는 쇼 바닥에 기본으로 사용할 SO입니다. Project 창에서 Create > Battle > Show > Floor Template으로 만든 뒤, 바닥/위 판/3분할 하판/핸들 Sprite를 넣어 할당합니다.")]
+    [Tooltip("굴러오는 모든 전투 필드 조각과 Reward Show 바닥에 기본으로 사용할 SO입니다. Project 창에서 Create > Battle > Show > Floor Template으로 만든 뒤, 바닥/위 판/3분할 하판/핸들 Sprite를 넣어 할당합니다.")]
     [SerializeField] private BattleShowFloorTemplateSO defaultFloorTemplate;
+
+    [Header("필드 SO 자동 적용")]
+    [Tooltip("켜면 현재 씬에 생성되는 WheelSlide MapBlock을 주기적으로 찾아 Default Floor Template을 자동 적용합니다. 일반 전투 필드의 런타임 조각과 Reward Show Slab 모두 대상입니다.")]
+    [SerializeField] private bool autoApplyTemplateToSlidingField = true;
+
+    [Tooltip("새로 생성된 굴러오는 필드 조각을 찾는 간격입니다. 값이 작을수록 생성 직후 빨리 SO가 적용됩니다.")]
+    [SerializeField, Range(0.02f, 0.5f)] private float fieldTemplateScanInterval = 0.06f;
 
     [Header("사회자 Sprite Sheet")]
     [Tooltip("사회자 애니메이션의 잘라진 Sprite 프레임을 재생 순서대로 넣습니다. 비어 있으면 BattleHUD에 설정된 기본 사회자 Sprite를 그대로 사용합니다.")]
@@ -82,6 +90,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private BattleShowFloorTemplateSO runtimeFloorTemplate;
     private BattleRunManager runManager;
     private BattleHUD hud;
+    private RoomBaseTemplate baseTemplate;
     private Image playerSpotlightImage;
     private Image presenterSpotlightImage;
     private Canvas cueCanvas;
@@ -99,6 +108,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool warnedMissingLowerLeft;
     private bool warnedMissingLowerCenter;
     private bool warnedMissingLowerRight;
+    private float nextFieldTemplateScan;
 
     private readonly HashSet<MapBlock> decoratedBlocks = new();
     private static Sprite fallback32;
@@ -162,6 +172,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         ResolveReferences();
         SubscribeRunEvents();
+        nextFieldTemplateScan = 0f;
     }
 
     private void OnDisable()
@@ -186,7 +197,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private void Update()
     {
-        if (hud == null || runManager == null)
+        if (hud == null || runManager == null || baseTemplate == null)
         {
             ResolveReferences();
             SubscribeRunEvents();
@@ -194,6 +205,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
         if (rewardPresentationActive)
             ResolveHudSpotlightImages();
+
+        if (autoApplyTemplateToSlidingField &&
+            ActiveFloorTemplate != null &&
+            Time.unscaledTime >= nextFieldTemplateScan)
+        {
+            nextFieldTemplateScan = Time.unscaledTime + Mathf.Max(0.02f, fieldTemplateScanInterval);
+            DecorateAllLiveSlidingBlocks(false);
+        }
 
         CleanupDecoratedBlocks();
     }
@@ -236,6 +255,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (hud == null)
             hud = FindFirstObjectByType<BattleHUD>();
+        if (baseTemplate == null)
+            baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
     }
 
     private void SubscribeRunEvents()
@@ -288,7 +309,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             return;
 
         if (node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite)
+        {
             PlayLetsRoll();
+            nextFieldTemplateScan = 0f;
+        }
     }
 
     private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> _)
@@ -322,17 +346,17 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return fallback;
     }
 
-    /// <summary>현재 존재하는 RewardShowSlab에 활성 SO의 아트를 다시 적용합니다.</summary>
+    /// <summary>현재 존재하는 일반 전투 필드와 Reward Show Slab에 활성 SO의 아트를 다시 적용합니다.</summary>
     public void RefreshSlidingFloorArt()
     {
         if (floorDecorateRoutine != null)
             StopCoroutine(floorDecorateRoutine);
 
-        floorDecorateRoutine = StartCoroutine(DecorateIncomingShowFloorNextFrame(true));
+        floorDecorateRoutine = StartCoroutine(DecorateAllSlidingFloorNextFrame(true));
     }
 
     /// <summary>
-    /// 향후 상/하/좌/우에서 들어오는 다른 MapBlock에도 같은 템플릿을 재사용할 수 있는 공개 함수입니다.
+    /// 상/하/좌/우에서 들어오는 MapBlock에 현재 SO 템플릿을 즉시 적용합니다.
     /// contactSide에는 기존 바닥과 실제로 맞물리는 면(Vector2.left/right/up/down)을 넘깁니다.
     /// </summary>
     public void ApplySlidingTemplate(MapBlock block, Vector2 contactSide, bool rebuild = false)
@@ -345,25 +369,105 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private IEnumerator DecorateIncomingShowFloorNextFrame(bool rebuild = false)
     {
-        // RewardSelectionRequested와 StageTransitionController의 호출 순서와 무관하게
-        // 실제 Slab 생성이 끝난 뒤 장식하도록 한 프레임 기다립니다.
         yield return null;
+        DecorateAllLiveSlidingBlocks(rebuild);
+        floorDecorateRoutine = null;
+    }
 
-        Transform[] transforms = FindObjectsByType<Transform>(
-            FindObjectsInactive.Include,
+    private IEnumerator DecorateAllSlidingFloorNextFrame(bool rebuild)
+    {
+        yield return null;
+        DecorateAllLiveSlidingBlocks(rebuild);
+        floorDecorateRoutine = null;
+    }
+
+    /// <summary>
+    /// 현재 씬에 실제 생성된 굴러오는 MapBlock을 찾아 SO를 입힙니다.
+    /// 기존 구현이 RewardShowSlab_ 이름만 찾던 문제를 없애 일반 전투 필드도 함께 처리합니다.
+    /// </summary>
+    private void DecorateAllLiveSlidingBlocks(bool rebuild)
+    {
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(
+            FindObjectsInactive.Exclude,
             FindObjectsSortMode.None);
 
-        for (int i = 0; i < transforms.Length; i++)
+        for (int i = 0; i < blocks.Length; i++)
         {
-            Transform root = transforms[i];
-            if (root == null || !root.name.StartsWith("RewardShowSlab_", StringComparison.Ordinal))
+            MapBlock block = blocks[i];
+            if (block == null || !block.WillImpact)
                 continue;
 
-            // 현재 Reward Slab은 화면 오른쪽에서 왼쪽으로 들어오므로 왼쪽 면이 실제 체결면입니다.
-            DecorateSlidingBlock(root, Vector2.left, rebuild);
+            string blockName = block.name;
+            if (blockName.StartsWith("__RuntimeRoomPiecePrototype_", StringComparison.Ordinal) ||
+                blockName.StartsWith("Outgoing_", StringComparison.Ordinal))
+                continue;
+
+            if (!HasSupportedFloorTiles(block.transform))
+                continue;
+
+            Vector2 contactSide = ResolveContactSide(block);
+            DecorateSlidingBlock(block.transform, contactSide, rebuild);
+        }
+    }
+
+    private static bool HasSupportedFloorTiles(Transform blockRoot)
+    {
+        if (blockRoot == null)
+            return false;
+
+        Transform visual = blockRoot.Find("Visual");
+        Transform tileRoot = visual != null ? visual : blockRoot;
+
+        for (int i = 0; i < tileRoot.childCount; i++)
+        {
+            string childName = tileRoot.GetChild(i).name;
+            if (childName.StartsWith("ShowTile_", StringComparison.Ordinal) ||
+                childName.StartsWith("Tile_", StringComparison.Ordinal))
+                return true;
         }
 
-        floorDecorateRoutine = null;
+        return false;
+    }
+
+    private Vector2 ResolveContactSide(MapBlock block)
+    {
+        if (block == null)
+            return Vector2.left;
+
+        if (block.name.StartsWith("RewardShowSlab_", StringComparison.Ordinal))
+            return Vector2.left;
+
+        ResolveReferences();
+        Vector2 baseCenter = baseTemplate != null
+            ? (Vector2)baseTemplate.FixedCenterWorld
+            : Vector2.zero;
+
+        Vector2 pieceCenter = block.transform.position;
+        Renderer[] renderers = block.GetComponentsInChildren<Renderer>(true);
+        bool found = false;
+        Bounds bounds = default;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled)
+                continue;
+
+            if (!found)
+            {
+                bounds = renderer.bounds;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        if (found)
+            pieceCenter = bounds.center;
+
+        Vector2 towardBase = baseCenter - pieceCenter;
+        return NormalizeCardinal(towardBase);
     }
 
     private void DecorateSlidingBlock(Transform slabRoot, Vector2 contactSide, bool rebuild)
@@ -371,9 +475,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (slabRoot == null)
             return;
 
+        // Reward Show Slab은 Visual 자식 아래에 타일이 있고,
+        // 일반 전투 필드 런타임 MapBlock은 Root 바로 아래에 Tile_*이 있습니다.
         Transform visual = slabRoot.Find("Visual");
         if (visual == null)
-            return;
+            visual = slabRoot;
 
         Transform oldTemplate = visual.Find("PresentationTemplate");
         if (oldTemplate != null)
@@ -403,7 +509,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         for (int i = 0; i < visual.childCount; i++)
         {
             Transform child = visual.GetChild(i);
-            if (child == null || !child.name.StartsWith("ShowTile_", StringComparison.Ordinal))
+            if (child == null)
+                continue;
+
+            bool isFloorTile =
+                child.name.StartsWith("ShowTile_", StringComparison.Ordinal) ||
+                child.name.StartsWith("Tile_", StringComparison.Ordinal);
+            if (!isFloorTile)
                 continue;
 
             SpriteRenderer renderer = child.GetComponent<SpriteRenderer>();
@@ -465,8 +577,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         }
 
         // 하판은 좌측 끝 / 중앙 반복 / 우측 끝 3종만 사용합니다.
-        // 폭이 2칸이면 좌·우만, 3칸 이상이면 가운데를 중앙 Sprite로 반복 채웁니다.
-        // 폭이 1칸인 예외 상황에서는 중앙 Sprite를 우선 사용합니다.
         for (int x = minX; x <= maxX; x++)
         {
             Sprite lowerSprite = ResolveLowerPlateSprite(template, x, minX, maxX);
@@ -647,10 +757,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             return;
 
         Transform visual = block.transform.Find("Visual");
-        Transform presentationTemplate = visual != null ? visual.Find("PresentationTemplate") : null;
+        if (visual == null)
+            visual = block.transform;
+
+        Transform presentationTemplate = visual.Find("PresentationTemplate");
         if (presentationTemplate == null)
             return;
 
+        // MapBlock의 travelDirection은 실제 이동 방향이므로, 체결면은 그 이동 방향 쪽 면입니다.
         Vector2 contactSide = NormalizeCardinal(travelDirection);
         Transform handle = FindHandle(presentationTemplate, contactSide);
         if (handle == null)
