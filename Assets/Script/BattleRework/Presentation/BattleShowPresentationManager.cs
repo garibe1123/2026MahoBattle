@@ -497,7 +497,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     /// MapBlock이 아닌 고정 4x4 Base에도 같은 SO의 Floor Variant를 적용합니다.
     /// 원본 Base Renderer/Collider는 그대로 두고 1x1 타일 16개를 위에 조립하므로
     /// 기존 NavMesh와 충돌 구조는 건드리지 않습니다.
-    /// 고정 Base에는 아래 하판과 아래 면 양 끝의 손잡이만 함께 설치합니다.
+    /// 고정 Base에는 아래 하판과 네 외곽면 양 끝의 손잡이를 함께 설치합니다.
     /// </summary>
     private void DecoratePersistentBase(bool rebuild)
     {
@@ -587,30 +587,86 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 lowerSorting);
         }
 
-        // Base 손잡이는 위쪽에 만들지 않고,
-        // 아래 면의 최좌측/최우측 끝에 최대 2개만 고정 배치합니다.
-        if (template.HandlePlacement != BattleShowHandlePlacementMode.None &&
-            template.LowerHandleSprite32 != null)
+        // 고정 Base도 굴러오는 판과 같은 체결 구조가 보이도록
+        // 네 면의 양 끝에 2개씩 배치합니다. 한 면 내부에는 반복하지 않습니다.
+        if (template.HandlePlacement != BattleShowHandlePlacementMode.None)
         {
-            GameObject groupObject = new("DockHandle_Lower");
-            groupObject.transform.SetParent(templateRoot, false);
-            CreateOptionalHandle(
-                groupObject.transform,
-                "DockHandle_Lower_LeftEnd",
+            CreateFixedFaceHandles(
+                templateRoot,
+                "DockHandle_Lower",
                 new Vector3(min - centerOffset, min - centerOffset - 1f, 0f),
-                template.LowerHandleSprite32,
-                template.HandleTint,
-                sortingLayerId,
-                handleSorting);
-            CreateOptionalHandle(
-                groupObject.transform,
-                "DockHandle_Lower_RightEnd",
                 new Vector3(max - centerOffset, min - centerOffset - 1f, 0f),
                 template.LowerHandleSprite32,
-                template.HandleTint,
                 sortingLayerId,
-                handleSorting);
+                handleSorting,
+                template.HandleTint);
+
+            Sprite upperHandle = template.UpperHandleSprite32 != null
+                ? template.UpperHandleSprite32
+                : template.UpperPlateSprite32;
+            CreateFixedFaceHandles(
+                templateRoot,
+                "DockHandle_Upper",
+                new Vector3(min - centerOffset, max - centerOffset + 1f, 0f),
+                new Vector3(max - centerOffset, max - centerOffset + 1f, 0f),
+                upperHandle,
+                sortingLayerId,
+                handleSorting,
+                template.HandleTint);
+
+            CreateFixedFaceHandles(
+                templateRoot,
+                "DockHandle_Left",
+                new Vector3(min - centerOffset - 1f, min - centerOffset, 0f),
+                new Vector3(min - centerOffset - 1f, max - centerOffset, 0f),
+                template.LeftHandleSprite32,
+                sortingLayerId,
+                handleSorting,
+                template.HandleTint);
+
+            CreateFixedFaceHandles(
+                templateRoot,
+                "DockHandle_Right",
+                new Vector3(max - centerOffset + 1f, min - centerOffset, 0f),
+                new Vector3(max - centerOffset + 1f, max - centerOffset, 0f),
+                template.RightHandleSprite32,
+                sortingLayerId,
+                handleSorting,
+                template.HandleTint);
         }
+    }
+
+    private static void CreateFixedFaceHandles(
+        Transform templateRoot,
+        string groupName,
+        Vector3 negativeEnd,
+        Vector3 positiveEnd,
+        Sprite sprite,
+        int sortingLayerId,
+        int sortingOrder,
+        Color tint)
+    {
+        if (templateRoot == null || sprite == null)
+            return;
+
+        GameObject groupObject = new(groupName);
+        groupObject.transform.SetParent(templateRoot, false);
+        CreateOptionalHandle(
+            groupObject.transform,
+            $"{groupName}_NegativeEnd",
+            negativeEnd,
+            sprite,
+            tint,
+            sortingLayerId,
+            sortingOrder);
+        CreateOptionalHandle(
+            groupObject.transform,
+            $"{groupName}_PositiveEnd",
+            positiveEnd,
+            sprite,
+            tint,
+            sortingLayerId,
+            sortingOrder);
     }
 
     private void DecorateSlidingBlock(

@@ -19,7 +19,7 @@ using UnityEngine.UI;
 /// - large connected pieces are preferred; isolated 1x1 pieces are merged whenever possible.
 /// - every incoming piece starts fully outside the current camera viewport and slides in on a cardinal rail.
 /// - Stage Map is selection-only: no combat-time top-right mini map exists.
-/// - Stage Map depth flows from top to bottom; nodes on the same depth are horizontal alternatives.
+/// - Stage Map depth flows from left to right; nodes on the same depth are vertical alternatives.
 /// </summary>
 [DefaultExecutionOrder(-20000)]
 public sealed class BattleSpatialMapController : MonoBehaviour
@@ -42,10 +42,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(0.5f)] private float offscreenMargin = 2f;
 
     [Header("Stage Map - Selection Only")]
-    [SerializeField] private Vector2 selectionMapSize = new(920f, 760f);
+    [SerializeField] private Vector2 selectionMapSize = new(1560f, 760f);
     [SerializeField, Min(60f)] private float mapHorizontalSpacing = 150f;
     [SerializeField, Min(60f)] private float mapVerticalSpacing = 112f;
     [SerializeField, Min(24f)] private float mapNodeSize = 44f;
+    [SerializeField, Min(0.05f)] private float mapRevealDuration = 0.28f;
+    [SerializeField, Min(0f)] private float mapRevealSlideDistance = 90f;
     [SerializeField] private Color mapBackground = new(0.025f, 0.032f, 0.050f, 0.97f);
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
@@ -83,8 +85,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private Vector2Int currentBaseWorldTile;
     private Canvas stageMapCanvas;
+    private CanvasGroup stageMapCanvasGroup;
     private RectTransform stageMapPanel;
     private Image stageMapPanelImage;
+    private Coroutine stageMapRevealRoutine;
+    private Vector2 stageMapPanelRestPosition;
+    private float resolvedMapHorizontalSpacing;
+    private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
 
     public Vector3 CurrentBaseOriginWorld => baseTemplate != null
@@ -110,6 +117,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
+        HideStageMapImmediate();
     }
 
     private IEnumerator BindWhenReady()
@@ -1182,7 +1190,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     }
 
     // ---------------------------------------------------------------------
-    // Vertical Stage Map - selection state only
+    // Horizontal Stage Map - selection state only
     // ---------------------------------------------------------------------
 
     private void EnsureStageMapUI()
@@ -1198,6 +1206,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
         stageMapCanvas.sortingOrder = 650;
         stageMapCanvas.enabled = false;
+        stageMapCanvasGroup = canvasObject.AddComponent<CanvasGroup>();
+        stageMapCanvasGroup.alpha = 0f;
 
         CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -1223,6 +1233,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapPanel.pivot = new Vector2(0.5f, 0.5f);
         stageMapPanel.anchoredPosition = Vector2.zero;
         stageMapPanel.sizeDelta = selectionMapSize;
+        stageMapPanelRestPosition = stageMapPanel.anchoredPosition;
+        resolvedMapHorizontalSpacing = mapHorizontalSpacing;
+        resolvedMapVerticalSpacing = mapVerticalSpacing;
     }
 
     private static void EnsureEventSystem()
@@ -1242,10 +1255,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
 
         bool selecting = runManager != null && runManager.WaitingForNodeSelection;
-        stageMapCanvas.enabled = selecting;
-        stageMapPanel.gameObject.SetActive(selecting);
         if (!selecting)
+        {
+            HideStageMapImmediate();
             return;
+        }
+
+        bool reveal = !stageMapCanvas.enabled || !stageMapPanel.gameObject.activeSelf;
+        stageMapCanvas.enabled = true;
+        stageMapPanel.gameObject.SetActive(true);
 
         for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
             Destroy(stageMapPanel.GetChild(i).gameObject);
@@ -1274,6 +1292,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         Vector2 mapCenter = CalculateMapCenter(positions);
+        ResolveStageMapSpacing(positions);
 
         if (graph.nodes != null)
         {
@@ -1309,6 +1328,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
             DrawStageNode(node, ResolveNodeMapPosition(node), color, mapCenter, selectable);
         }
+
+        if (reveal)
+            PlayStageMapReveal();
     }
 
     private void CreateStageMapTitle()
@@ -1339,7 +1361,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         sub.transform.SetParent(stageMapPanel, false);
         Text subText = sub.AddComponent<Text>();
         subText.font = font;
-        subText.text = "TOP  →  BOTTOM   /   CLICK ONE OF THE HIGHLIGHTED ROUTES";
+        subText.text = "START  →  FINAL   /   CLICK ONE OF THE HIGHLIGHTED ROUTES";
         subText.alignment = TextAnchor.MiddleCenter;
         subText.fontSize = 12;
         subText.color = new Color(0.62f, 0.67f, 0.76f, 1f);
@@ -1369,8 +1391,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         RectTransform rect = go.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = new Vector2(
-            (position.x - mapCenter.x) * mapHorizontalSpacing,
-            (position.y - mapCenter.y) * mapVerticalSpacing - 20f);
+            (position.x - mapCenter.x) * resolvedMapHorizontalSpacing,
+            (position.y - mapCenter.y) * resolvedMapVerticalSpacing - 20f);
         float size = mapNodeSize * (node.type == BattleNodeType.Elite ? 1.18f : 1f);
         rect.sizeDelta = Vector2.one * size;
 
@@ -1454,8 +1476,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             for (int i = 0; i < list.Count; i++)
             {
                 BattleNodeData node = list[i];
-                float x = node.useExplicitMapPosition ? node.mapPosition.x : i - center;
-                float y = -node.depth;
+                float x = node.depth;
+                float y = node.useExplicitMapPosition ? node.mapPosition.x : center - i;
                 resolvedMapPositions[node.id] = new Vector2(x, y);
             }
         }
@@ -1467,7 +1489,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return Vector2.zero;
         if (resolvedMapPositions.TryGetValue(node.id, out Vector2 pos))
             return pos;
-        return new Vector2(node.useExplicitMapPosition ? node.mapPosition.x : 0f, -node.depth);
+        return new Vector2(node.depth, node.useExplicitMapPosition ? node.mapPosition.x : 0f);
     }
 
     private static Vector2 CalculateMapCenter(List<Vector2> positions)
@@ -1492,8 +1514,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void DrawMapLink(Vector2 from, Vector2 to, Vector2 center)
     {
-        Vector2 a = new((from.x - center.x) * mapHorizontalSpacing, (from.y - center.y) * mapVerticalSpacing - 20f);
-        Vector2 b = new((to.x - center.x) * mapHorizontalSpacing, (to.y - center.y) * mapVerticalSpacing - 20f);
+        Vector2 a = new((from.x - center.x) * resolvedMapHorizontalSpacing, (from.y - center.y) * resolvedMapVerticalSpacing - 20f);
+        Vector2 b = new((to.x - center.x) * resolvedMapHorizontalSpacing, (to.y - center.y) * resolvedMapVerticalSpacing - 20f);
         Vector2 delta = b - a;
         float length = delta.magnitude;
         if (length < 1f)
@@ -1511,6 +1533,89 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.sizeDelta = new Vector2(length, 4f);
         rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
         go.transform.SetAsFirstSibling();
+    }
+
+    private void ResolveStageMapSpacing(List<Vector2> positions)
+    {
+        resolvedMapHorizontalSpacing = mapHorizontalSpacing;
+        resolvedMapVerticalSpacing = mapVerticalSpacing;
+        if (positions == null || positions.Count < 2 || stageMapPanel == null)
+            return;
+
+        float minX = positions[0].x;
+        float maxX = positions[0].x;
+        float minY = positions[0].y;
+        float maxY = positions[0].y;
+        for (int i = 1; i < positions.Count; i++)
+        {
+            minX = Mathf.Min(minX, positions[i].x);
+            maxX = Mathf.Max(maxX, positions[i].x);
+            minY = Mathf.Min(minY, positions[i].y);
+            maxY = Mathf.Max(maxY, positions[i].y);
+        }
+
+        float horizontalRange = maxX - minX;
+        float verticalRange = maxY - minY;
+        float usableWidth = Mathf.Max(1f, stageMapPanel.rect.width - 180f);
+        float usableHeight = Mathf.Max(1f, stageMapPanel.rect.height - 190f);
+        if (horizontalRange > 0.001f)
+            resolvedMapHorizontalSpacing = Mathf.Min(mapHorizontalSpacing, usableWidth / horizontalRange);
+        if (verticalRange > 0.001f)
+            resolvedMapVerticalSpacing = Mathf.Min(mapVerticalSpacing, usableHeight / verticalRange);
+    }
+
+    private void PlayStageMapReveal()
+    {
+        if (stageMapRevealRoutine != null)
+            StopCoroutine(stageMapRevealRoutine);
+        stageMapRevealRoutine = StartCoroutine(AnimateStageMapReveal());
+    }
+
+    private IEnumerator AnimateStageMapReveal()
+    {
+        if (stageMapCanvasGroup == null || stageMapPanel == null)
+            yield break;
+
+        float duration = Mathf.Max(0.05f, mapRevealDuration);
+        float elapsed = 0f;
+        Vector2 startPosition = stageMapPanelRestPosition + Vector2.right * mapRevealSlideDistance;
+        stageMapCanvasGroup.alpha = 0f;
+        stageMapPanel.anchoredPosition = startPosition;
+        stageMapPanel.localScale = Vector3.one * 0.96f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float eased = 1f - Mathf.Pow(1f - t, 3f);
+            stageMapCanvasGroup.alpha = eased;
+            stageMapPanel.anchoredPosition = Vector2.LerpUnclamped(startPosition, stageMapPanelRestPosition, eased);
+            stageMapPanel.localScale = Vector3.LerpUnclamped(Vector3.one * 0.96f, Vector3.one, eased);
+            yield return null;
+        }
+
+        stageMapCanvasGroup.alpha = 1f;
+        stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
+        stageMapPanel.localScale = Vector3.one;
+        stageMapRevealRoutine = null;
+    }
+
+    private void HideStageMapImmediate()
+    {
+        if (stageMapRevealRoutine != null)
+            StopCoroutine(stageMapRevealRoutine);
+        stageMapRevealRoutine = null;
+
+        if (stageMapCanvasGroup != null)
+            stageMapCanvasGroup.alpha = 0f;
+        if (stageMapPanel != null)
+        {
+            stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
+            stageMapPanel.localScale = Vector3.one;
+            stageMapPanel.gameObject.SetActive(false);
+        }
+        if (stageMapCanvas != null)
+            stageMapCanvas.enabled = false;
     }
 
     // ---------------------------------------------------------------------

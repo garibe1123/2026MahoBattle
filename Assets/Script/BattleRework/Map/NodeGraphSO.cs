@@ -20,7 +20,7 @@ public class BattleNodeData
     public bool isTerminal;
 
     [Header("Stage Map Lane")]
-    [Tooltip("Optional horizontal lane hint for the vertical Stage Map. Y is ignored at runtime; depth always flows from top to bottom.")]
+    [Tooltip("Optional vertical lane hint for the horizontal Stage Map. X is used as the vertical lane value; depth always flows from left to right.")]
     public bool useExplicitMapPosition;
     public Vector2Int mapPosition;
 
@@ -33,7 +33,7 @@ public class BattleNodeData
 
 /// <summary>
 /// Finite roguelite branch graph.
-/// Stage depth grows from top to bottom and same-depth nodes are horizontal alternatives.
+/// Stage depth grows from left to right and same-depth nodes are vertical alternatives.
 /// Multiple start nodes are supported so the first selection can also be a real branch.
 /// </summary>
 [CreateAssetMenu(fileName = "NodeGraph", menuName = "MahoBattle/Node Graph")]
@@ -204,7 +204,7 @@ public class NodeGraphSO : ScriptableObject
                     }
 
                     if (next.depth <= node.depth)
-                        warnings.AppendLine($"Node '{node.id}' -> '{next.id}' does not increase depth. Vertical Stage Map expects downward progression.");
+                        warnings.AppendLine($"Node '{node.id}' -> '{next.id}' does not increase depth. Horizontal Stage Map expects rightward progression.");
                 }
 
                 if (!node.isTerminal && node.nextNodeIds.Count == 0)
