@@ -54,7 +54,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(1f)] private float mapCursorFollowSharpness = 9f;
     [Tooltip("맵 노드 확정 후 다음 스테이지로 넘어가기 전에 재생하는 충격 연출 시간입니다.")]
     [SerializeField, Range(0.15f, 1f)] private float mapConfirmDuration = 0.44f;
-    [SerializeField, Range(0f, 40f)] private float mapConfirmShake = 18f;
+    [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
+    [SerializeField, Range(0f, 0.75f)] private float mapConfirmCameraShake = 0.22f;
     [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.075f;
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
@@ -84,6 +85,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private RoomBaseTemplate baseTemplate;
     private PlayerController player;
     private BattleHUD hud;
+    private BattleCameraController battleCameraController;
     private NodeGraphSO graph;
 
     private readonly Dictionary<string, Vector2> resolvedMapPositions = new();
@@ -155,6 +157,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             player = FindFirstObjectByType<PlayerController>();
         if (hud == null)
             hud = FindFirstObjectByType<BattleHUD>();
+        if (battleCameraController == null)
+            battleCameraController = FindFirstObjectByType<BattleCameraController>();
 
         if (runManager != null && graph == null)
         {
@@ -1653,21 +1657,22 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         float duration = Mathf.Max(0.15f, mapConfirmDuration);
         float elapsed = 0f;
-        Vector2 basePosition = stageMapPanel != null
-            ? stageMapPanel.anchoredPosition
-            : stageMapPanelRestPosition;
+        float boardBaseScale = stageMapPanel != null ? stageMapPanel.localScale.x : 1f;
         Vector3 selectedBaseScale = selectedNode != null ? selectedNode.localScale : Vector3.one;
+
+        if (battleCameraController == null)
+            battleCameraController = FindFirstObjectByType<BattleCameraController>();
+        if (battleCameraController != null)
+            battleCameraController.PlaySelectionConfirmShake(mapConfirmCameraShake, duration);
 
         while (elapsed < duration && stageMapPanel != null)
         {
             elapsed += Time.unscaledDeltaTime;
             float t = Mathf.Clamp01(elapsed / duration);
             float decay = 1f - t;
-            float shakeX = Mathf.Sin(elapsed * 92f) * mapConfirmShake * decay;
-            float shakeY = Mathf.Sin(elapsed * 127f + 0.8f) * mapConfirmShake * 0.45f * decay;
-            stageMapPanel.anchoredPosition = basePosition + new Vector2(shakeX, shakeY);
 
-            float boardPulse = 1f + (Mathf.Max(1f, mapConfirmZoom) - 1f) *
+            float boardPulse = Mathf.Lerp(boardBaseScale, 1f, t) +
+                (Mathf.Max(1f, mapConfirmZoom) - 1f) *
                 Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 1.7f)) * decay;
             stageMapPanel.localScale = Vector3.one * boardPulse;
 

@@ -49,6 +49,10 @@ public class BattleCameraController : MonoBehaviour
     private bool initialized;
     private bool rigResolved;
     private bool rewardFraming;
+    private float selectionShakeStartedAt = -1f;
+    private float selectionShakeDuration;
+    private float selectionShakeAmplitude;
+    private Vector2 lastSelectionShakeOffset;
 
     public float CurrentZoom => controlledCamera != null ? controlledCamera.orthographicSize : 0f;
     public bool IsInspecting => inspecting;
@@ -90,6 +94,22 @@ public class BattleCameraController : MonoBehaviour
     {
         ResolveReferences();
         InitializeState();
+    }
+
+    private void OnDisable()
+    {
+        ClearSelectionShake();
+    }
+
+    /// <summary>
+    /// 맵 노드 확정 순간 UI가 아니라 실제 전투 카메라에 감쇠 진동을 적용합니다.
+    /// LateUpdate의 추적 결과에 오프셋을 합성하므로 Reward/Map framing과 충돌하지 않습니다.
+    /// </summary>
+    public void PlaySelectionConfirmShake(float amplitude, float duration)
+    {
+        selectionShakeAmplitude = Mathf.Max(0f, amplitude);
+        selectionShakeDuration = Mathf.Max(0.05f, duration);
+        selectionShakeStartedAt = Time.unscaledTime;
     }
 
     public void Configure(Camera camera, Transform target, BattleRoomManager manager)
@@ -285,12 +305,53 @@ public class BattleCameraController : MonoBehaviour
 
         Vector2 desired = (Vector2)followTarget.position + (rewardFraming ? rewardShowOffset : panOffset);
         Vector3 current = movementRoot.position;
+        Vector2 unshakenCurrent = (Vector2)current - lastSelectionShakeOffset;
         float followSpeed = rewardFraming ? rewardShowSharpness : followSharpness;
         float followT = !rewardFraming && inspecting
             ? 1f
             : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
-        Vector2 next = Vector2.Lerp((Vector2)current, desired, followT);
-        movementRoot.position = new Vector3(next.x, next.y, current.z);
+        Vector2 next = Vector2.Lerp(unshakenCurrent, desired, followT);
+        lastSelectionShakeOffset = EvaluateSelectionShakeOffset();
+        Vector2 shaken = next + lastSelectionShakeOffset;
+        movementRoot.position = new Vector3(shaken.x, shaken.y, current.z);
+    }
+
+    private Vector2 EvaluateSelectionShakeOffset()
+    {
+        if (selectionShakeStartedAt < 0f || selectionShakeAmplitude <= 0f)
+            return Vector2.zero;
+
+        float elapsed = Time.unscaledTime - selectionShakeStartedAt;
+        float duration = Mathf.Max(0.05f, selectionShakeDuration);
+        if (elapsed >= duration)
+        {
+            selectionShakeStartedAt = -1f;
+            selectionShakeAmplitude = 0f;
+            return Vector2.zero;
+        }
+
+        float t = Mathf.Clamp01(elapsed / duration);
+        float decay = (1f - t) * (1f - t);
+        float x = Mathf.Sin(elapsed * 83f) + Mathf.Sin(elapsed * 137f + 0.55f) * 0.38f;
+        float y = Mathf.Sin(elapsed * 109f + 1.1f) + Mathf.Sin(elapsed * 151f) * 0.32f;
+        return new Vector2(x, y * 0.72f) * (selectionShakeAmplitude * decay);
+    }
+
+    private void ClearSelectionShake()
+    {
+        if (movementRoot != null && lastSelectionShakeOffset.sqrMagnitude > 0f)
+        {
+            Vector3 position = movementRoot.position;
+            movementRoot.position = new Vector3(
+                position.x - lastSelectionShakeOffset.x,
+                position.y - lastSelectionShakeOffset.y,
+                position.z);
+        }
+
+        lastSelectionShakeOffset = Vector2.zero;
+        selectionShakeStartedAt = -1f;
+        selectionShakeDuration = 0f;
+        selectionShakeAmplitude = 0f;
     }
 
     private void SnapToPlayer()
@@ -298,6 +359,7 @@ public class BattleCameraController : MonoBehaviour
         if (movementRoot == null || followTarget == null)
             return;
 
+        ClearSelectionShake();
         Vector3 current = movementRoot.position;
         movementRoot.position = new Vector3(followTarget.position.x, followTarget.position.y, current.z);
     }
