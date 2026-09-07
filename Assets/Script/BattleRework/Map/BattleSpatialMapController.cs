@@ -47,6 +47,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(24f)] private float mapNodeSize = 44f;
     [SerializeField, Min(0.05f)] private float mapRevealDuration = 0.28f;
     [SerializeField, Min(0f)] private float mapRevealSlideDistance = 90f;
+    [Tooltip("커서가 맵 화면 안으로 들어왔을 때 적용되는 보드 확대 배율입니다.")]
+    [SerializeField, Range(1f, 1.12f)] private float mapCursorZoom = 1.045f;
+    [Tooltip("맵 화면 안에서 커서를 따라 보여줄 최대 패닝 거리입니다.")]
+    [SerializeField] private Vector2 mapCursorTrackDistance = new(28f, 16f);
+    [SerializeField, Min(1f)] private float mapCursorFollowSharpness = 9f;
+    [Tooltip("맵 노드 확정 후 다음 스테이지로 넘어가기 전에 재생하는 충격 연출 시간입니다.")]
+    [SerializeField, Range(0.15f, 1f)] private float mapConfirmDuration = 0.44f;
+    [SerializeField, Range(0f, 40f)] private float mapConfirmShake = 18f;
+    [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.075f;
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
     [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
@@ -86,7 +95,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private CanvasGroup stageMapCanvasGroup;
     private RectTransform stageMapPanel;
     private Coroutine stageMapRevealRoutine;
+    private Coroutine stageMapConfirmRoutine;
     private Vector2 stageMapPanelRestPosition;
+    private bool stageMapSelectionLocked;
     private float resolvedMapHorizontalSpacing;
     private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
@@ -198,6 +209,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             nextCharacterSizingCheck = Time.unscaledTime + 0.35f;
             ApplyReadableDefaultCharacterSizes();
         }
+
+        UpdateStageMapPointerPresentation();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -1378,7 +1391,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             colors.pressedColor = new Color(0.82f, 0.86f, 0.92f, 1f);
             button.colors = colors;
             string id = node.id;
-            button.onClick.AddListener(() => runManager.SelectNextNode(id));
+            button.onClick.AddListener(() => BeginStageNodeSelection(id, rect));
         }
 
         AddNodeLabel(go.transform, node, selectable);
@@ -1575,14 +1588,130 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapRevealRoutine = null;
     }
 
+    private void UpdateStageMapPointerPresentation()
+    {
+        if (stageMapPanel == null || stageMapRevealRoutine != null || stageMapSelectionLocked)
+            return;
+
+        bool interactive = runManager != null && runManager.WaitingForNodeSelection &&
+                           stageMapPanel.gameObject.activeInHierarchy;
+        Vector2 targetPosition = stageMapPanelRestPosition;
+        float targetScale = 1f;
+
+        if (interactive && RectTransformUtility.RectangleContainsScreenPoint(
+                stageMapPanel,
+                Input.mousePosition,
+                null))
+        {
+            targetScale = Mathf.Max(1f, mapCursorZoom);
+            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    stageMapPanel,
+                    Input.mousePosition,
+                    null,
+                    out Vector2 localCursor))
+            {
+                Rect rect = stageMapPanel.rect;
+                Vector2 normalized = new(
+                    rect.width > 0.001f ? Mathf.Clamp(localCursor.x / (rect.width * 0.5f), -1f, 1f) : 0f,
+                    rect.height > 0.001f ? Mathf.Clamp(localCursor.y / (rect.height * 0.5f), -1f, 1f) : 0f);
+                // 카메라가 커서 쪽을 바라보는 느낌이 나도록 콘텐츠는 반대 방향으로 움직입니다.
+                targetPosition -= Vector2.Scale(normalized, mapCursorTrackDistance);
+            }
+        }
+
+        float blend = 1f - Mathf.Exp(-Mathf.Max(1f, mapCursorFollowSharpness) * Time.unscaledDeltaTime);
+        stageMapPanel.anchoredPosition = Vector2.Lerp(
+            stageMapPanel.anchoredPosition,
+            targetPosition,
+            blend);
+        stageMapPanel.localScale = Vector3.Lerp(
+            stageMapPanel.localScale,
+            Vector3.one * targetScale,
+            blend);
+    }
+
+    private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)
+    {
+        if (stageMapSelectionLocked || runManager == null || !runManager.WaitingForNodeSelection)
+            return;
+
+        stageMapSelectionLocked = true;
+        if (stageMapCanvasGroup != null)
+            stageMapCanvasGroup.blocksRaycasts = false;
+        if (stageMapConfirmRoutine != null)
+            StopCoroutine(stageMapConfirmRoutine);
+        stageMapConfirmRoutine = StartCoroutine(AnimateStageNodeSelection(nodeId, selectedNode));
+    }
+
+    private IEnumerator AnimateStageNodeSelection(string nodeId, RectTransform selectedNode)
+    {
+        if (stageMapRevealRoutine != null)
+        {
+            StopCoroutine(stageMapRevealRoutine);
+            stageMapRevealRoutine = null;
+        }
+
+        float duration = Mathf.Max(0.15f, mapConfirmDuration);
+        float elapsed = 0f;
+        Vector2 basePosition = stageMapPanel != null
+            ? stageMapPanel.anchoredPosition
+            : stageMapPanelRestPosition;
+        Vector3 selectedBaseScale = selectedNode != null ? selectedNode.localScale : Vector3.one;
+
+        while (elapsed < duration && stageMapPanel != null)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float decay = 1f - t;
+            float shakeX = Mathf.Sin(elapsed * 92f) * mapConfirmShake * decay;
+            float shakeY = Mathf.Sin(elapsed * 127f + 0.8f) * mapConfirmShake * 0.45f * decay;
+            stageMapPanel.anchoredPosition = basePosition + new Vector2(shakeX, shakeY);
+
+            float boardPulse = 1f + (Mathf.Max(1f, mapConfirmZoom) - 1f) *
+                Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 1.7f)) * decay;
+            stageMapPanel.localScale = Vector3.one * boardPulse;
+
+            if (selectedNode != null)
+            {
+                float nodePulse = 1f + Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 2.1f)) * 0.24f * decay;
+                selectedNode.localScale = selectedBaseScale * nodePulse;
+            }
+
+            yield return null;
+        }
+
+        if (selectedNode != null)
+            selectedNode.localScale = selectedBaseScale;
+        if (stageMapPanel != null)
+        {
+            stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
+            stageMapPanel.localScale = Vector3.one;
+        }
+
+        stageMapConfirmRoutine = null;
+        stageMapSelectionLocked = false;
+        if (stageMapCanvasGroup != null)
+            stageMapCanvasGroup.blocksRaycasts = true;
+
+        runManager?.SelectNextNode(nodeId);
+    }
+
     private void HideStageMapImmediate()
     {
         if (stageMapRevealRoutine != null)
             StopCoroutine(stageMapRevealRoutine);
         stageMapRevealRoutine = null;
 
+        if (stageMapConfirmRoutine != null)
+            StopCoroutine(stageMapConfirmRoutine);
+        stageMapConfirmRoutine = null;
+        stageMapSelectionLocked = false;
+
         if (stageMapCanvasGroup != null)
+        {
             stageMapCanvasGroup.alpha = 0f;
+            stageMapCanvasGroup.blocksRaycasts = true;
+        }
         if (stageMapPanel != null)
         {
             stageMapPanel.anchoredPosition = stageMapPanelRestPosition;

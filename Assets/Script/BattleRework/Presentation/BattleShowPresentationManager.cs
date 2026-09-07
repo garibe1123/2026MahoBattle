@@ -325,8 +325,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         MapBlock[] blocks = FindObjectsByType<MapBlock>(
             FindObjectsInactive.Exclude,
             FindObjectsSortMode.None);
-        HashSet<Vector2Int> occupied = BuildOccupiedFloorCells(blocks, out HashSet<Vector2Int> decorated);
-        DecorateSlidingBlock(block.transform, rebuild, occupied, decorated);
+        HashSet<Vector2Int> occupied = BuildOccupiedFloorCells(blocks);
+        DecorateSlidingBlock(block.transform, rebuild, occupied);
     }
 
     private IEnumerator DecorateIncomingShowFloorNextFrame(bool rebuild = false)
@@ -382,9 +382,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             liveBlocks.Add(block);
         }
 
-        HashSet<Vector2Int> occupiedFloorCells = BuildOccupiedFloorCells(
-            blocks,
-            out HashSet<Vector2Int> decoratedFloorCells);
+        HashSet<Vector2Int> occupiedFloorCells = BuildOccupiedFloorCells(blocks);
 
         // 자동 스캔은 아직 장식되지 않은 새 판만 처리합니다.
         // 도킹/필드 확장 때 기존 판을 rebuild하면 랜덤 바닥과 손잡이가 다시 배치되어
@@ -393,8 +391,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             DecorateSlidingBlock(
                 liveBlocks[i].transform,
                 rebuild,
-                occupiedFloorCells,
-                decoratedFloorCells);
+                occupiedFloorCells);
     }
 
     private static bool HasSupportedFloorTiles(Transform blockRoot)
@@ -416,12 +413,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return false;
     }
 
-    private HashSet<Vector2Int> BuildOccupiedFloorCells(
-        MapBlock[] blocks,
-        out HashSet<Vector2Int> decoratedFloorCells)
+    private HashSet<Vector2Int> BuildOccupiedFloorCells(MapBlock[] blocks)
     {
         HashSet<Vector2Int> occupied = new();
-        decoratedFloorCells = new HashSet<Vector2Int>();
         ResolveReferences();
         if (baseTemplate != null && baseTemplate.ActiveBase != null)
         {
@@ -459,7 +453,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                     continue;
                 Vector2Int cell = ResolveDestinationFloorCell(block, child);
                 occupied.Add(cell);
-                decoratedFloorCells.Add(cell);
             }
         }
 
@@ -672,8 +665,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private void DecorateSlidingBlock(
         Transform slabRoot,
         bool rebuild,
-        HashSet<Vector2Int> occupiedFloorCells,
-        HashSet<Vector2Int> decoratedFloorCells)
+        HashSet<Vector2Int> occupiedFloorCells)
     {
         if (slabRoot == null)
             return;
@@ -785,7 +777,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             slabRoot.GetComponent<MapBlock>(),
             floorTiles,
             occupiedFloorCells,
-            decoratedFloorCells,
             template,
             plateTint,
             templateSortingLayerId,
@@ -962,19 +953,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         MapBlock block,
         List<Transform> floorTiles,
         HashSet<Vector2Int> occupiedFloorCells,
-        HashSet<Vector2Int> decoratedFloorCells,
         BattleShowFloorTemplateSO template,
         Color plateTint,
         int sortingLayerId,
         int lowerSorting,
         int handleSorting)
     {
-        if (template == null || floorTiles == null || occupiedFloorCells == null ||
-            decoratedFloorCells == null)
+        if (template == null || floorTiles == null || occupiedFloorCells == null)
             return;
-
-        HashSet<Vector2Int> lowerEndpoints =
-            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.down);
 
         List<Transform> exposedLeft = new();
         List<Transform> exposedRight = new();
@@ -991,35 +977,44 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             if (!occupiedFloorCells.Contains(cell + Vector2Int.down)) exposedLower.Add(tile);
         }
 
-        // 하판은 실제로 아래쪽이 노출된 타일에만 조립하고,
-        // 완성된 전체 필드의 최좌/최우 셀에만 좌/우 끝 Sprite를 사용합니다.
-        // 따라서 조각 경계마다 끝 Sprite가 반복되거나 Base 내부 경계에 겹치지 않습니다.
+        // 하판은 완성된 전체 필드가 아니라 이 판 안의 연속된 아래쪽 구간마다
+        // Left / Center / Right를 다시 시작합니다. 도킹 뒤에도 각 판의 경계가 남아
+        // 여러 판이 하나의 긴 하판으로 합쳐져 보이지 않습니다.
         if (exposedLower.Count > 0)
         {
-            int minX = int.MaxValue;
-            int maxX = int.MinValue;
-            foreach (Vector2Int endpoint in lowerEndpoints)
+            exposedLower.Sort((a, b) =>
             {
-                minX = Mathf.Min(minX, endpoint.x);
-                maxX = Mathf.Max(maxX, endpoint.x);
-            }
+                Vector2Int cellA = ResolveDestinationFloorCell(block, a);
+                Vector2Int cellB = ResolveDestinationFloorCell(block, b);
+                int row = cellA.y.CompareTo(cellB.y);
+                return row != 0 ? row : cellA.x.CompareTo(cellB.x);
+            });
 
-            for (int i = 0; i < exposedLower.Count; i++)
+            int runStart = 0;
+            for (int i = 1; i <= exposedLower.Count; i++)
             {
-                Transform tile = exposedLower[i];
-                Vector2Int cell = ResolveDestinationFloorCell(block, tile);
-                Sprite lowerSprite = ResolveLowerPlateSprite(template, cell.x, minX, maxX);
-                if (lowerSprite == null)
+                bool endOfRun = i == exposedLower.Count;
+                if (!endOfRun)
+                {
+                    Vector2Int previous = ResolveDestinationFloorCell(block, exposedLower[i - 1]);
+                    Vector2Int current = ResolveDestinationFloorCell(block, exposedLower[i]);
+                    endOfRun = current.y != previous.y || current.x != previous.x + 1;
+                }
+
+                if (!endOfRun)
                     continue;
 
-                CreateTemplateSprite(
+                CreateLowerPlateRun(
                     templateRoot,
-                    $"LowerPlate_{cell.x}_{cell.y}",
-                    tile.localPosition + Vector3.down,
-                    lowerSprite,
+                    block,
+                    exposedLower,
+                    runStart,
+                    i - 1,
+                    template,
                     plateTint,
                     sortingLayerId,
                     lowerSorting);
+                runStart = i;
             }
         }
 
@@ -1070,65 +1065,39 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             handleSorting);
     }
 
-    /// <summary>
-    /// 완성된 전체 필드의 한 외곽면에서 양 끝 셀만 선택합니다.
-    /// 위/아래 면은 가장 왼쪽과 오른쪽, 좌/우 면은 가장 아래와 위를 고르며
-    /// 면의 길이가 한 칸이면 같은 셀을 중복하지 않습니다.
-    /// </summary>
-    private static HashSet<Vector2Int> SelectExteriorFaceEndpoints(
-        HashSet<Vector2Int> decoratedFloorCells,
-        HashSet<Vector2Int> occupiedFloorCells,
-        Vector2Int side)
+    private static void CreateLowerPlateRun(
+        Transform templateRoot,
+        MapBlock block,
+        List<Transform> exposedLower,
+        int firstIndex,
+        int lastIndex,
+        BattleShowFloorTemplateSO template,
+        Color plateTint,
+        int sortingLayerId,
+        int lowerSorting)
     {
-        HashSet<Vector2Int> endpoints = new();
-        bool found = false;
-        Vector2Int negativeEnd = default;
-        Vector2Int positiveEnd = default;
+        if (firstIndex < 0 || lastIndex < firstIndex || lastIndex >= exposedLower.Count)
+            return;
 
-        foreach (Vector2Int cell in decoratedFloorCells)
+        Vector2Int firstCell = ResolveDestinationFloorCell(block, exposedLower[firstIndex]);
+        Vector2Int lastCell = ResolveDestinationFloorCell(block, exposedLower[lastIndex]);
+        for (int i = firstIndex; i <= lastIndex; i++)
         {
-            if (occupiedFloorCells.Contains(cell + side))
+            Transform tile = exposedLower[i];
+            Vector2Int cell = ResolveDestinationFloorCell(block, tile);
+            Sprite lowerSprite = ResolveLowerPlateSprite(template, cell.x, firstCell.x, lastCell.x);
+            if (lowerSprite == null)
                 continue;
 
-            if (!found)
-            {
-                negativeEnd = cell;
-                positiveEnd = cell;
-                found = true;
-                continue;
-            }
-
-            if (IsBetterFaceEndpoint(cell, negativeEnd, side, false))
-                negativeEnd = cell;
-            if (IsBetterFaceEndpoint(cell, positiveEnd, side, true))
-                positiveEnd = cell;
+            CreateTemplateSprite(
+                templateRoot,
+                $"LowerPlate_{cell.x}_{cell.y}",
+                tile.localPosition + Vector3.down,
+                lowerSprite,
+                plateTint,
+                sortingLayerId,
+                lowerSorting);
         }
-
-        if (!found)
-            return endpoints;
-
-        endpoints.Add(negativeEnd);
-        endpoints.Add(positiveEnd);
-        return endpoints;
-    }
-
-    private static bool IsBetterFaceEndpoint(
-        Vector2Int candidate,
-        Vector2Int current,
-        Vector2Int side,
-        bool positiveEnd)
-    {
-        int candidateAxis = side.x != 0 ? candidate.y : candidate.x;
-        int currentAxis = side.x != 0 ? current.y : current.x;
-        if (candidateAxis != currentAxis)
-            return positiveEnd
-                ? candidateAxis > currentAxis
-                : candidateAxis < currentAxis;
-
-        // 오목한 외곽에서 같은 끝 좌표가 여러 개면 가장 바깥쪽 셀을 사용합니다.
-        int candidateOutward = candidate.x * side.x + candidate.y * side.y;
-        int currentOutward = current.x * side.x + current.y * side.y;
-        return candidateOutward > currentOutward;
     }
 
     /// <summary>
