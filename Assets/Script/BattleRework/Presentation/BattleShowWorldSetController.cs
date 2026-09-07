@@ -470,16 +470,23 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         Camera camera = Camera.main;
-        bool valid = camera != null && RectTransformUtility.ScreenPointToLocalPointInRectangle(tvRect, Input.mousePosition, camera, out Vector2 local);
+        Vector2 local = Vector2.zero;
+        bool valid = camera != null && RectTransformUtility.ScreenPointToLocalPointInRectangle(
+            tvRect,
+            Input.mousePosition,
+            camera,
+            out local);
         bool inside = valid && tvRect.rect.Contains(local);
         Vector2 normalized = Vector2.zero;
 
         if (inside)
         {
             Rect rect = tvRect.rect;
+            float halfWidth = Mathf.Max(1f, rect.width * 0.5f);
+            float halfHeight = Mathf.Max(1f, rect.height * 0.5f);
             normalized = new Vector2(
-                Mathf.Clamp(local.x / Mathf.Max(1f, rect.width * 0.5f), -1f, 1f),
-                Mathf.Clamp(local.y / Mathf.Max(1f, rect.height * 0.5f), -1f, 1f));
+                Mathf.Clamp(local.x / halfWidth, -1f, 1f),
+                Mathf.Clamp(local.y / halfHeight, -1f, 1f));
         }
 
         battleCamera.SetShowCursorTracking(inside, normalized);
