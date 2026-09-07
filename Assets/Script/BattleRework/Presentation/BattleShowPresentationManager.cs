@@ -434,9 +434,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// MapBlock이 아닌 고정 4x4 Base에도 같은 SO 외형을 적용합니다.
+    /// MapBlock이 아닌 고정 4x4 Base에도 같은 SO의 Floor Variant를 적용합니다.
     /// 원본 Base Renderer/Collider는 그대로 두고 1x1 타일 16개를 위에 조립하므로
     /// 기존 NavMesh와 충돌 구조는 건드리지 않습니다.
+    /// 고정 Base는 밖에서 들어와 도킹하는 판이 아니므로 상/하판과 핸들은 만들지 않습니다.
     /// </summary>
     private void DecoratePersistentBase(bool rebuild)
     {
@@ -472,9 +473,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             sourceSorting,
             replaceFloorArt,
             out int floorSorting,
-            out int upperSorting,
-            out int lowerSorting,
-            out int handleSorting);
+            out _,
+            out _,
+            out _);
 
         GameObject templateObject = new("PresentationTemplate");
         Transform templateRoot = templateObject.transform;
@@ -509,48 +510,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             }
         }
 
-        if (template.UpperPlateSprite32 != null)
-        {
-            for (int x = min; x <= max; x++)
-            {
-                CreateTemplateSprite(
-                    templateRoot,
-                    $"UpperPlate_{x}",
-                    new Vector3(x - centerOffset, max - centerOffset + 1f, 0f),
-                    template.UpperPlateSprite32,
-                    template.PlateTint,
-                    sortingLayerId,
-                    upperSorting);
-            }
-        }
-
-        for (int x = min; x <= max; x++)
-        {
-            Sprite lowerSprite = ResolveLowerPlateSprite(template, x, min, max);
-            if (lowerSprite == null)
-                continue;
-
-            CreateTemplateSprite(
-                templateRoot,
-                $"LowerPlate_{x}",
-                new Vector3(x - centerOffset, min - centerOffset - 1f, 0f),
-                lowerSprite,
-                template.PlateTint,
-                sortingLayerId,
-                lowerSorting);
-        }
-
-        CreateHandles(
-            templateRoot,
-            min - centerOffset,
-            max - centerOffset,
-            min - centerOffset,
-            max - centerOffset,
-            Vector2.left,
-            template,
-            sortingLayerId,
-            handleSorting,
-            true);
+        // 최초 4x4 Base에는 연결 방향이 없으므로
+        // 핸들/상판/하판을 강제 생성하지 않습니다.
     }
 
     private void DecorateSlidingBlock(Transform slabRoot, Vector2 contactSide, bool rebuild)
@@ -667,24 +628,25 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
         Sprite upperPlate = template != null ? template.UpperPlateSprite32 : null;
         Color plateTint = template != null ? template.PlateTint : Color.white;
+        Vector2 normalizedContactSide = NormalizeCardinal(contactSide);
 
         // 비어 있는 Sprite 슬롯은 런타임 회색/흰색 더미로 대체하지 않습니다.
         // Floor Variants가 비어 있으면 위에서 기존 Tile Sprite를 그대로 유지하고,
         // 위/하판과 핸들은 Sprite가 지정된 부품만 생성합니다.
-        if (upperPlate != null)
+        if (upperPlate != null && normalizedContactSide == Vector2.up)
         {
-            // 위 판은 본체 최상단에 바로 붙는 한 줄이며 전체 폭에 반복됩니다.
-            for (int x = minX; x <= maxX; x++)
-            {
-                CreateTemplateSprite(
-                    templateRoot,
-                    $"UpperPlate_{x}",
-                    new Vector3(x, maxY + 1f, 0f),
-                    upperPlate,
-                    plateTint,
-                    templateSortingLayerId,
-                    upperSort);
-            }
+            // 상단 부품은 실제 접촉면이 위쪽인 판에만 만듭니다.
+            // 따라서 Base 위쪽에 붙는 판의 외곽 위에 부품이 반복되지 않습니다.
+            // 배치도 최좌측/최우측 끝 중 하나로 제한합니다.
+            int upperX = ShouldUsePositiveHandleEnd(templateRoot, Vector2.up) ? maxX : minX;
+            CreateTemplateSprite(
+                templateRoot,
+                $"UpperPlate_{upperX}",
+                new Vector3(upperX, maxY + 1f, 0f),
+                upperPlate,
+                plateTint,
+                templateSortingLayerId,
+                upperSort);
         }
 
         // 하판은 좌측 끝 / 중앙 반복 / 우측 끝 3종만 사용합니다.
@@ -889,13 +851,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         Vector2 contactSide,
         BattleShowFloorTemplateSO template,
         int sortingLayerId,
-        int handleSorting,
-        bool forceAllSides = false)
+        int handleSorting)
     {
         if (template == null || template.HandlePlacement == BattleShowHandlePlacementMode.None)
             return;
 
-        bool all = forceAllSides || template.HandlePlacement == BattleShowHandlePlacementMode.AllFourSides;
+        bool all = template.HandlePlacement == BattleShowHandlePlacementMode.AllFourSides;
         Vector2 side = NormalizeCardinal(contactSide);
         // 한 면에 핸들은 최대 1개만 만듭니다.
         // 좌/우 옆면은 세로 양 끝(최상단 또는 최하단),

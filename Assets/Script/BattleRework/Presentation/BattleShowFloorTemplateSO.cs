@@ -24,7 +24,7 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
     [SerializeField] private Sprite[] floorVariants;
 
     [Header("위 판 - 32px")]
-    [Tooltip("바닥 본체 최상단에 딱 붙는 한 줄로 전체 폭에 반복 배치할 위 판 이미지입니다. 비어 있으면 런타임 더미를 만들지 않고 위 판만 생략합니다.")]
+    [Tooltip("실제 연결면이 위쪽인 판에서만, 최상단 양 끝 중 하나에 배치할 상단 부품 이미지입니다. 전체 폭에 반복하지 않으며, 비어 있으면 생략합니다.")]
     [SerializeField] private Sprite upperPlateSprite32;
 
     [Header("하판 - 32px / 좌·중앙·우")]
