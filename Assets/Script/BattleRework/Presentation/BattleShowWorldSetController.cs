@@ -2,23 +2,19 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
-using DG.Tweening;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// DELTARUNE식 TV 쇼 구도를 전투 월드에 구성합니다.
+/// Reward / Map 선택 연출을 하나의 공용 월드 TV 세트로 관리합니다.
 ///
-/// 레이어 원칙:
-///   [뒤] 전투 Field 바닥
-///        World TV (WorldSpace Canvas / 실제 GameObject)
-///        Player + Presenter (실제 SpriteRenderer)
-///        Prize 선택 슬롯 + 전투 Loadout (ScreenSpace UI)
-///   [앞]
-///
-/// TV는 Player 화면좌표를 따라다니지 않습니다. 현재 BattleWalkableField 전체를 무대로 보고
-/// 그 뒤쪽(월드 +Y)에 실제 GameObject로 배치합니다. Prize/Map 내용만 TV의 WorldSpace Canvas에
-/// 끼워 넣습니다. 아이템 선택/드롭은 기존 전투 EquipmentDock Slot을 그대로 사용합니다.
+/// 핵심 원칙:
+/// - Reward와 Map은 서로 다른 TV가 아닙니다. 같은 Stage Root / 같은 TV Transform을 공유합니다.
+/// - Reward <-> Map 전환에서는 TV 위치/스케일/카메라 구도를 다시 계산하지 않고 TV 내용만 교체합니다.
+/// - PrizeChoices는 TV 화면 내부의 아이템 선택 UI입니다.
+/// - TV 앞의 3자리는 아이템 슬롯이 아니라 캐릭터 이미지용 World SpriteRenderer입니다.
+/// - Presenter도 Stage Root 소속의 World SpriteRenderer입니다.
+/// - 전투 EquipmentDock의 외형은 PrizeChoices 스타일 템플릿으로만 재사용합니다.
 /// </summary>
 [DefaultExecutionOrder(20000)]
 [DisallowMultipleComponent]
@@ -33,54 +29,41 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private static BattleShowWorldSetController instance;
 
-    [Header("World TV Backdrop")]
-    [Tooltip("TV WorldSpace Canvas의 픽셀 기준 크기입니다. 기존 Prize / Map 화면과 동일한 비율을 유지합니다.")]
+    [Header("Shared World TV")]
     [SerializeField] private Vector2 tvCanvasSize = new(1120f, 560f);
-
-    [Tooltip("TV 픽셀을 월드 유닛으로 환산하는 값입니다. 높을수록 TV가 작아집니다.")]
     [SerializeField, Min(32f)] private float tvPixelsPerUnit = 122f;
-
-    [Tooltip("Field 뒤쪽 끝에서 TV 하단이 Field 쪽으로 살짝 겹치는 거리입니다. TV는 캐릭터보다 뒤에 렌더됩니다.")]
     [SerializeField, Min(0f)] private float tvFieldOverlap = 0.40f;
-
-    [Tooltip("Player보다 TV를 기본적으로 몇 Sorting Order 뒤에 둘지 결정합니다. 실제로는 Field보다 앞이 되도록 자동 보정합니다.")]
     [SerializeField, Min(1)] private int tvBehindPlayerOrder = 20;
 
-    [Header("TV Mechanical Entry")]
-    [SerializeField] private Vector2 tvRailDirection = Vector2.up;
-    [SerializeField, Min(0.05f)] private float tvEntryDuration = 0.62f;
-    [SerializeField, Min(2f)] private float tvRailDistance = 12f;
-    [SerializeField, Range(0f, 1.5f)] private float tvImpactStrength = 0.72f;
+    [Header("Shared Stage Entry")]
+    [SerializeField] private Vector2 stageRailDirection = Vector2.up;
+    [SerializeField, Min(0.05f)] private float stageEntryDuration = 0.62f;
+    [SerializeField, Min(2f)] private float stageRailDistance = 12f;
+    [SerializeField, Range(0f, 1.5f)] private float stageImpactStrength = 0.72f;
 
     [Header("Presenter - World Sprite")]
-    [Tooltip("Field 오른쪽 끝에서 사회자를 안쪽으로 들이는 거리입니다.")]
-    [SerializeField, Min(0f)] private float presenterInsetX = 1.15f;
-
-    [Tooltip("Field 세로 중앙 기준 사회자 위치 보정입니다.")]
-    [SerializeField] private float presenterYOffset = 0.20f;
-
+    [Tooltip("TV 중심 기준 사회자 월드 위치입니다. Reward/Map 모두 같은 값을 사용합니다.")]
+    [SerializeField] private Vector2 presenterLocalOffset = new(5.15f, -1.55f);
     [SerializeField, Min(0.5f)] private float presenterWorldHeight = 3.35f;
     [SerializeField, Min(1)] private int presenterFrontOrder = 30;
-    [SerializeField] private Vector2 presenterRailDirection = Vector2.right;
-    [SerializeField, Min(0.05f)] private float presenterEntryDuration = 0.48f;
-    [SerializeField, Min(2f)] private float presenterRailDistance = 8f;
-    [SerializeField, Range(0f, 1.5f)] private float presenterImpactStrength = 0.45f;
     [SerializeField] private Sprite presenterFallbackSprite;
 
-    [Header("Foreground Prize Slots")]
-    [Tooltip("Prize 후보 슬롯은 전투 Equipment Slot의 외형을 복사해 사용합니다.")]
-    [SerializeField] private Vector2 prizeSlotSize = new(98f, 94f);
-    [SerializeField, Min(0f)] private float prizeSlotSpacing = 14f;
-    [SerializeField] private Vector2 prizeChoiceAnchor = new(0.36f, 0.285f);
+    [Header("Three Character Images - World Sprite")]
+    [Tooltip("레퍼런스에서 TV 앞에 서 있는 3명입니다. 아이템 슬롯이 아닙니다.")]
+    [SerializeField] private Sprite[] contestantSprites = new Sprite[3];
+    [SerializeField] private Vector2[] contestantLocalOffsets =
+    {
+        new(-4.25f, -2.20f),
+        new(-2.85f, -2.20f),
+        new(-1.45f, -2.20f)
+    };
+    [SerializeField, Min(0.25f)] private float contestantWorldHeight = 1.35f;
+    [SerializeField, Min(1)] private int contestantFrontOrder = 10;
 
-    [Header("Map Readability")]
-    [SerializeField, Min(30f)] private float mapStartGap = 112f;
-    [SerializeField] private Vector2 mapStartSize = new(92f, 46f);
-    [SerializeField] private Color mapStartColor = new(0.11f, 0.78f, 0.98f, 1f);
-    [SerializeField] private Color mapStartLinkColor = new(0.16f, 0.78f, 1f, 0.92f);
-    [SerializeField] private Color selectableNodeAccent = new(1f, 0.78f, 0.16f, 1f);
-    [SerializeField, Min(40f)] private float selectableNodeMinSize = 60f;
-    [SerializeField, Min(0.02f)] private float mapDecorationInterval = 0.08f;
+    [Header("Prize UI Inside TV")]
+    [Tooltip("아이템 후보는 TV 내부에 유지하되 전투 Equipment Slot의 외형만 재사용합니다.")]
+    [SerializeField] private Vector2 prizeSlotSize = new(176f, 152f);
+    [SerializeField, Min(0f)] private float prizeSlotSpacing = 22f;
 
     private BattleRunManager runManager;
     private BattleHUD hud;
@@ -94,6 +77,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private RectTransform equipmentDockRect;
     private RectTransform mapScreenRect;
     private RectTransform mapSelectionRect;
+
     private GameObject legacyMapWorldCanvasRoot;
     private Image legacyPresenterImage;
     private Sprite legacyPresenterSprite;
@@ -101,33 +85,29 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private Image legacyPlayerSpotlight;
     private Image legacyPresenterSpotlight;
 
-    private GameObject tvRailRoot;
-    private MapBlock tvRailBlock;
+    private GameObject stageRoot;
+    private MapBlock stageRailBlock;
     private Canvas tvCanvas;
     private RectTransform tvCanvasRect;
     private CanvasGroup tvCanvasGroup;
 
-    private GameObject presenterRailRoot;
-    private MapBlock presenterRailBlock;
     private Transform presenterVisual;
     private SpriteRenderer presenterRenderer;
+    private readonly SpriteRenderer[] contestantRenderers = new SpriteRenderer[3];
 
     private Coroutine bindRoutine;
     private Coroutine transitionRoutine;
     private ShowMode currentMode;
     private ShowMode desiredMode;
     private bool bound;
-    private bool railTransitioning;
-    private float nextMapDecorationTime;
+    private bool stageTransitioning;
     private int styledPrizeChildCount = -1;
     private Sprite lastPresenterSprite;
     private bool warnedMissingPresenterSprite;
 
-    private Vector3 tvDockPosition;
-    private Vector3 presenterDockPosition;
+    private Vector3 stageDockPosition;
 
-    private static readonly BindingFlags PrivateInstance =
-        BindingFlags.Instance | BindingFlags.NonPublic;
+    private static readonly BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
 
     private static readonly FieldInfo HudPresenterSpriteField =
         typeof(BattleHUD).GetField("presenterSprite", PrivateInstance);
@@ -162,6 +142,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         instance = this;
         DontDestroyOnLoad(gameObject);
+        EnsureContestantArrayShape();
     }
 
     private void OnEnable()
@@ -180,13 +161,23 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             StopCoroutine(transitionRoutine);
         transitionRoutine = null;
 
-        KillTweens();
+        if (stageRoot != null)
+            stageRoot.transform.DOKill();
     }
 
     private void OnDestroy()
     {
         if (instance == this)
             instance = null;
+    }
+
+    public void SetContestantSprites(Sprite first, Sprite second, Sprite third)
+    {
+        EnsureContestantArrayShape();
+        contestantSprites[0] = first;
+        contestantSprites[1] = second;
+        contestantSprites[2] = third;
+        RefreshContestantVisuals();
     }
 
     private IEnumerator BindWhenReady()
@@ -197,10 +188,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             if (hud != null && runManager != null && TryResolveHudObjects())
             {
                 CaptureLegacyPresenterSprite();
-                BuildWorldStage();
-                MoveTvScreensIntoWorld();
-                PrepareForegroundRewardSlots();
-                SuppressLegacyShowDecoration();
+                BuildSharedWorldStage();
+                MoveBothScreensIntoSharedTv();
+                SuppressLegacyDuplicatePresentation();
                 bound = true;
                 bindRoutine = null;
                 yield break;
@@ -243,10 +233,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         if (legacyMapWorldCanvasRoot == null)
         {
-            Canvas[] canvases = FindObjectsByType<Canvas>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None);
-
+            Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             for (int i = 0; i < canvases.Length; i++)
             {
                 Canvas candidate = canvases[i];
@@ -275,7 +262,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         return rewardRootRect != null &&
                rewardScreenRect != null &&
                prizeChoiceRoot != null &&
-               rewardInventoryStripRect != null &&
                equipmentDockRect != null &&
                mapScreenRect != null &&
                mapSelectionRect != null;
@@ -290,92 +276,121 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             legacyPresenterSprite = legacyPresenterImage.sprite;
     }
 
-    private void BuildWorldStage()
+    private void BuildSharedWorldStage()
     {
-        if (tvRailRoot == null)
+        if (stageRoot != null)
+            return;
+
+        stageRoot = new GameObject("BattleShowSharedStage");
+        stageRoot.transform.SetParent(transform, false);
+
+        GameObject canvasObject = new("BattleShowSharedWorldTV");
+        canvasObject.transform.SetParent(stageRoot.transform, false);
+
+        tvCanvas = canvasObject.AddComponent<Canvas>();
+        tvCanvas.renderMode = RenderMode.WorldSpace;
+        tvCanvas.overrideSorting = true;
+        tvCanvas.worldCamera = Camera.main;
+        canvasObject.AddComponent<GraphicRaycaster>();
+
+        tvCanvasGroup = canvasObject.AddComponent<CanvasGroup>();
+        tvCanvasGroup.alpha = 1f;
+        tvCanvasGroup.interactable = false;
+        tvCanvasGroup.blocksRaycasts = false;
+
+        tvCanvasRect = canvasObject.GetComponent<RectTransform>();
+        tvCanvasRect.sizeDelta = tvCanvasSize;
+        tvCanvasRect.pivot = new Vector2(0.5f, 0.5f);
+        float worldScale = 1f / Mathf.Max(32f, tvPixelsPerUnit);
+        tvCanvasRect.localScale = new Vector3(worldScale, worldScale, 1f);
+        tvCanvasRect.localPosition = Vector3.zero;
+        tvCanvasRect.localRotation = Quaternion.identity;
+
+        BuildPresenterWorldObject();
+        BuildContestantWorldObjects();
+
+        stageRailBlock = stageRoot.AddComponent<MapBlock>();
+        stageRailBlock.ConfigureRuntimeDockingBlock(
+            stageRoot.transform,
+            false,
+            stageImpactStrength,
+            stageEntryDuration,
+            stageRailDistance);
+
+        stageRoot.SetActive(false);
+    }
+
+    private void BuildPresenterWorldObject()
+    {
+        GameObject presenterObject = new("PresenterWorldSprite");
+        presenterObject.transform.SetParent(stageRoot.transform, false);
+        presenterVisual = presenterObject.transform;
+        presenterVisual.localPosition = presenterLocalOffset;
+
+        presenterRenderer = presenterObject.AddComponent<SpriteRenderer>();
+        presenterRenderer.color = Color.white;
+        presenterRenderer.enabled = false;
+    }
+
+    private void BuildContestantWorldObjects()
+    {
+        EnsureContestantArrayShape();
+
+        for (int i = 0; i < contestantRenderers.Length; i++)
         {
-            tvRailRoot = new GameObject("BattleShowTVRail");
-            tvRailRoot.transform.SetParent(transform, false);
+            GameObject character = new($"ShowCharacter_{i + 1}");
+            character.transform.SetParent(stageRoot.transform, false);
+            character.transform.localPosition = contestantLocalOffsets[i];
 
-            GameObject canvasObject = new("BattleShowWorldTV");
-            canvasObject.transform.SetParent(tvRailRoot.transform, false);
-
-            tvCanvas = canvasObject.AddComponent<Canvas>();
-            tvCanvas.renderMode = RenderMode.WorldSpace;
-            tvCanvas.overrideSorting = true;
-            tvCanvas.worldCamera = Camera.main;
-            canvasObject.AddComponent<GraphicRaycaster>();
-
-            tvCanvasGroup = canvasObject.AddComponent<CanvasGroup>();
-            tvCanvasGroup.alpha = 1f;
-            tvCanvasGroup.interactable = true;
-            tvCanvasGroup.blocksRaycasts = true;
-
-            tvCanvasRect = canvasObject.GetComponent<RectTransform>();
-            tvCanvasRect.sizeDelta = tvCanvasSize;
-            tvCanvasRect.pivot = new Vector2(0.5f, 0.5f);
-            float scale = 1f / Mathf.Max(32f, tvPixelsPerUnit);
-            tvCanvasRect.localScale = new Vector3(scale, scale, 1f);
-            tvCanvasRect.localPosition = Vector3.zero;
-            tvCanvasRect.localRotation = Quaternion.identity;
-
-            tvRailBlock = tvRailRoot.AddComponent<MapBlock>();
-            tvRailBlock.ConfigureRuntimeDockingBlock(
-                tvRailRoot.transform,
-                false,
-                tvImpactStrength,
-                tvEntryDuration,
-                tvRailDistance);
-
-            tvRailRoot.SetActive(false);
+            SpriteRenderer renderer = character.AddComponent<SpriteRenderer>();
+            renderer.color = Color.white;
+            renderer.enabled = false;
+            contestantRenderers[i] = renderer;
         }
 
-        if (presenterRailRoot == null)
+        RefreshContestantVisuals();
+    }
+
+    private void EnsureContestantArrayShape()
+    {
+        if (contestantSprites == null || contestantSprites.Length != 3)
         {
-            presenterRailRoot = new GameObject("BattleShowPresenterRail");
-            presenterRailRoot.transform.SetParent(transform, false);
+            Sprite[] resized = new Sprite[3];
+            if (contestantSprites != null)
+            {
+                int copy = Mathf.Min(3, contestantSprites.Length);
+                for (int i = 0; i < copy; i++)
+                    resized[i] = contestantSprites[i];
+            }
+            contestantSprites = resized;
+        }
 
-            GameObject visualObject = new("PresenterWorldSprite");
-            visualObject.transform.SetParent(presenterRailRoot.transform, false);
-            presenterVisual = visualObject.transform;
-
-            presenterRenderer = visualObject.AddComponent<SpriteRenderer>();
-            presenterRenderer.color = Color.white;
-            presenterRenderer.enabled = false;
-
-            presenterRailBlock = presenterRailRoot.AddComponent<MapBlock>();
-            presenterRailBlock.ConfigureRuntimeDockingBlock(
-                presenterRailRoot.transform,
-                false,
-                presenterImpactStrength,
-                presenterEntryDuration,
-                presenterRailDistance);
-
-            presenterRailRoot.SetActive(false);
+        if (contestantLocalOffsets == null || contestantLocalOffsets.Length != 3)
+        {
+            contestantLocalOffsets = new[]
+            {
+                new Vector2(-4.25f, -2.20f),
+                new Vector2(-2.85f, -2.20f),
+                new Vector2(-1.45f, -2.20f)
+            };
         }
     }
 
-    private void MoveTvScreensIntoWorld()
+    private void MoveBothScreensIntoSharedTv()
     {
         if (tvCanvasRect == null)
             return;
 
-        // Prize 후보는 TV 안이 아니라 무대 전경에 남깁니다.
-        prizeChoiceRoot.SetParent(rewardRootRect, false);
-        prizeChoiceRoot.anchorMin = prizeChoiceRoot.anchorMax = prizeChoiceAnchor;
-        prizeChoiceRoot.pivot = new Vector2(0.5f, 0.5f);
-        prizeChoiceRoot.sizeDelta = new Vector2(520f, 118f);
-        prizeChoiceRoot.anchoredPosition = Vector2.zero;
-        prizeChoiceRoot.localScale = Vector3.one;
-        prizeChoiceRoot.localRotation = Quaternion.identity;
-
+        // PrizeChoices는 원래 Reward 화면 내부에 있는 아이템 선택 UI입니다.
+        // TV 앞의 3개 캐릭터와 절대 섞지 않습니다.
         ReparentWorldScreen(rewardScreenRect);
         ReparentWorldScreen(mapScreenRect);
 
         if (legacyMapWorldCanvasRoot != null)
             legacyMapWorldCanvasRoot.SetActive(false);
 
-        rewardInventoryStripRect.gameObject.SetActive(false);
+        if (rewardInventoryStripRect != null)
+            rewardInventoryStripRect.gameObject.SetActive(false);
     }
 
     private void ReparentWorldScreen(RectTransform rect)
@@ -392,25 +407,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         rect.localRotation = Quaternion.identity;
     }
 
-    private void PrepareForegroundRewardSlots()
-    {
-        if (equipmentDockRect == null)
-            return;
-
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            Transform slot = equipmentDockRect.Find($"Slot_{i + 1}");
-            if (slot == null)
-                continue;
-
-            RewardInventoryDropZone zone = slot.GetComponent<RewardInventoryDropZone>();
-            if (zone == null)
-                zone = slot.gameObject.AddComponent<RewardInventoryDropZone>();
-            zone.Configure(hud, i);
-        }
-    }
-
-    private void SuppressLegacyShowDecoration()
+    private void SuppressLegacyDuplicatePresentation()
     {
         if (legacyFieldFilter != null)
         {
@@ -430,7 +427,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             legacyPresenterSpotlight.enabled = false;
         }
 
-        if (legacyPresenterImage != null)
+        // 실제 월드 Presenter Sprite를 확보한 경우에만 구 UI Presenter를 끕니다.
+        // Sprite를 못 찾은 상태에서 먼저 꺼서 사회자가 통째로 사라지는 문제를 막습니다.
+        if (legacyPresenterImage != null && ResolvePresenterSprite() != null)
         {
             legacyPresenterImage.raycastTarget = false;
             legacyPresenterImage.enabled = false;
@@ -449,6 +448,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         ResolveSystems();
         UpdateDesiredMode();
         UpdatePresenterVisual();
+        RefreshContestantVisuals();
 
         if (transitionRoutine == null && desiredMode != currentMode)
             transitionRoutine = StartCoroutine(TransitionLoop());
@@ -459,7 +459,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (!bound)
             return;
 
-        // BattleHUD가 상태 전환 때 다시 켜도 최종 렌더 직전에 구 구조를 차단합니다.
         if (legacyMapWorldCanvasRoot != null && legacyMapWorldCanvasRoot.activeSelf)
             legacyMapWorldCanvasRoot.SetActive(false);
         if (rewardInventoryStripRect != null && rewardInventoryStripRect.gameObject.activeSelf)
@@ -470,17 +469,16 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             legacyPlayerSpotlight.enabled = false;
         if (legacyPresenterSpotlight != null)
             legacyPresenterSpotlight.enabled = false;
-        if (legacyPresenterImage != null)
+
+        if (legacyPresenterImage != null && ResolvePresenterSprite() != null)
             legacyPresenterImage.enabled = false;
 
         if (tvCanvas != null && tvCanvas.worldCamera != Camera.main)
             tvCanvas.worldCamera = Camera.main;
 
         UpdateWorldSorting();
-        KeepDockedStageOnCurrentField();
-        MaintainForegroundRewardUi();
-        EnsureMapReadabilityDecorations();
-        AnimateMapReadability();
+        KeepSharedStageDocked();
+        MaintainRewardUiInsideTv();
     }
 
     private void UpdateDesiredMode()
@@ -499,61 +497,80 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private IEnumerator TransitionLoop()
     {
-        railTransitioning = true;
+        stageTransitioning = true;
         SetInteraction(false);
 
         while (currentMode != desiredMode)
         {
-            ShowMode leaving = currentMode;
-            if (leaving != ShowMode.None)
-            {
-                SetContentActive(leaving, true);
-                PlayExit();
-                yield return new WaitForSecondsRealtime(GetExitDuration());
-            }
-
             ShowMode entering = desiredMode;
-            currentMode = ShowMode.None;
-            SetContentActive(ShowMode.None, false);
 
-            if (entering == ShowMode.None)
+            // Reward <-> Map 전환은 같은 TV를 그대로 둔 채 내용만 바꿉니다.
+            if (currentMode != ShowMode.None && entering != ShowMode.None)
             {
-                if (tvRailRoot != null)
-                    tvRailRoot.SetActive(false);
-                if (presenterRailRoot != null)
-                    presenterRailRoot.SetActive(false);
+                currentMode = entering;
+                SetContentActive(currentMode);
+                SetInteraction(true);
                 continue;
             }
 
-            ResolveDockTargets();
-            SetContentActive(entering, true);
+            // 선택 쇼를 완전히 나갈 때만 Stage 전체가 퇴장합니다.
+            if (currentMode != ShowMode.None && entering == ShowMode.None)
+            {
+                if (stageRailBlock != null && stageRoot != null && stageRoot.activeSelf)
+                    stageRailBlock.PlayExit(NormalizeDirection(stageRailDirection));
 
-            tvRailRoot.SetActive(true);
-            presenterRailRoot.SetActive(true);
+                float exitDuration = stageRailBlock != null
+                    ? stageRailBlock.ExitDuration
+                    : stageEntryDuration;
+                yield return new WaitForSecondsRealtime(exitDuration + 0.03f);
 
-            if (presentationManager != null)
-                presentationManager.PlayPresenterAnimation(true);
+                currentMode = ShowMode.None;
+                SetContentActive(ShowMode.None);
+                if (stageRoot != null)
+                    stageRoot.SetActive(false);
+                continue;
+            }
 
-            PlayEnter();
-            yield return new WaitForSecondsRealtime(GetEntryDuration());
+            // None -> Reward/Map 진입에서만 공용 Stage가 한 번 들어옵니다.
+            if (currentMode == ShowMode.None && entering != ShowMode.None)
+            {
+                ResolveSharedStageDock();
+                currentMode = entering;
+                SetContentActive(currentMode);
 
-            currentMode = entering;
-            SetContentActive(currentMode, true);
-            if (currentMode == desiredMode)
-                SetInteraction(true);
+                if (stageRoot != null)
+                    stageRoot.SetActive(true);
+
+                if (presentationManager != null)
+                    presentationManager.PlayPresenterAnimation(true);
+
+                if (stageRailBlock != null)
+                    stageRailBlock.PlayEnter(stageDockPosition, NormalizeDirection(stageRailDirection));
+                else if (stageRoot != null)
+                    stageRoot.transform.position = stageDockPosition;
+
+                float entryDuration = stageRailBlock != null
+                    ? stageRailBlock.GetEntryDuration()
+                    : stageEntryDuration;
+                yield return new WaitForSecondsRealtime(entryDuration + 0.03f);
+
+                if (currentMode == desiredMode)
+                    SetInteraction(true);
+            }
         }
 
-        railTransitioning = false;
+        stageTransitioning = false;
         transitionRoutine = null;
 
         if (currentMode != ShowMode.None && currentMode == desiredMode)
             SetInteraction(true);
     }
 
-    private void SetContentActive(ShowMode mode, bool visible)
+    private void SetContentActive(ShowMode mode)
     {
-        bool reward = visible && mode == ShowMode.Reward;
-        bool map = visible && mode == ShowMode.Map;
+        bool visible = mode != ShowMode.None;
+        bool reward = mode == ShowMode.Reward;
+        bool map = mode == ShowMode.Map;
 
         if (rewardRootRect != null && visible)
             rewardRootRect.gameObject.SetActive(true);
@@ -562,109 +579,59 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             rewardScreenRect.gameObject.SetActive(reward);
         if (mapScreenRect != null)
             mapScreenRect.gameObject.SetActive(map);
-        if (mapSelectionRect != null && map)
-            mapSelectionRect.gameObject.SetActive(true);
+        if (mapSelectionRect != null)
+            mapSelectionRect.gameObject.SetActive(map);
         if (prizeChoiceRoot != null)
             prizeChoiceRoot.gameObject.SetActive(reward);
 
         if (rewardInventoryStripRect != null)
             rewardInventoryStripRect.gameObject.SetActive(false);
 
-        if (equipmentDockRect != null && visible)
-            equipmentDockRect.gameObject.SetActive(reward);
+        // EquipmentDock은 전투 HUD 원래 위치를 유지합니다.
+        // Reward 후보 3개를 대신하는 용도로 이동시키지 않습니다.
     }
 
     private void SetInteraction(bool enabledInteraction)
     {
-        if (tvCanvasGroup != null)
-        {
-            tvCanvasGroup.interactable = enabledInteraction && currentMode == ShowMode.Map;
-            tvCanvasGroup.blocksRaycasts = enabledInteraction && currentMode == ShowMode.Map;
-        }
+        if (tvCanvasGroup == null)
+            return;
+
+        bool interactive = enabledInteraction && currentMode != ShowMode.None;
+        tvCanvasGroup.interactable = interactive;
+        tvCanvasGroup.blocksRaycasts = interactive;
     }
 
-    private void ResolveDockTargets()
+    private void ResolveSharedStageDock()
     {
         if (TryGetLiveFieldBounds(out Bounds fieldBounds))
         {
             float tvWorldHeight = tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit);
             float tvBottom = fieldBounds.max.y - tvFieldOverlap;
-            tvDockPosition = new Vector3(
+            stageDockPosition = new Vector3(
                 fieldBounds.center.x,
                 tvBottom + tvWorldHeight * 0.5f,
                 0f);
-
-            presenterDockPosition = new Vector3(
-                fieldBounds.max.x - presenterInsetX,
-                fieldBounds.center.y + presenterYOffset,
-                0f);
-        }
-        else
-        {
-            Vector3 fallback = player != null ? player.transform.position : Vector3.zero;
-            float tvWorldHeight = tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit);
-            tvDockPosition = fallback + new Vector3(0f, 3.2f + tvWorldHeight * 0.5f, 0f);
-            presenterDockPosition = fallback + new Vector3(3.8f, 0.2f, 0f);
+            return;
         }
 
-        presenterDockPosition = ClampPresenterInsideCamera(presenterDockPosition);
+        Vector3 fallback = player != null ? player.transform.position : Vector3.zero;
+        float fallbackTvHeight = tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit);
+        stageDockPosition = fallback + new Vector3(0f, 3.2f + fallbackTvHeight * 0.5f, 0f);
     }
 
-    private void KeepDockedStageOnCurrentField()
+    private void KeepSharedStageDocked()
     {
-        if (railTransitioning || currentMode == ShowMode.None)
+        if (stageTransitioning || currentMode == ShowMode.None || stageRoot == null || !stageRoot.activeSelf)
             return;
 
-        ResolveDockTargets();
-        if (tvRailRoot != null && tvRailRoot.activeSelf)
-            tvRailRoot.transform.position = tvDockPosition;
-        if (presenterRailRoot != null && presenterRailRoot.activeSelf)
-            presenterRailRoot.transform.position = presenterDockPosition;
+        // Reward와 Map 모두 동일한 함수 / 동일한 Transform / 동일한 값을 사용합니다.
+        ResolveSharedStageDock();
+        stageRoot.transform.position = stageDockPosition;
     }
 
-    private void PlayEnter()
+    private void MaintainRewardUiInsideTv()
     {
-        if (tvRailBlock != null)
-            tvRailBlock.PlayEnter(tvDockPosition, NormalizeDirection(tvRailDirection));
-        if (presenterRailBlock != null)
-            presenterRailBlock.PlayEnter(presenterDockPosition, NormalizeDirection(presenterRailDirection));
-    }
-
-    private void PlayExit()
-    {
-        if (tvRailBlock != null && tvRailRoot != null && tvRailRoot.activeSelf)
-            tvRailBlock.PlayExit(NormalizeDirection(tvRailDirection));
-        if (presenterRailBlock != null && presenterRailRoot != null && presenterRailRoot.activeSelf)
-            presenterRailBlock.PlayExit(NormalizeDirection(presenterRailDirection));
-    }
-
-    private float GetEntryDuration()
-    {
-        float tvDuration = tvRailBlock != null ? tvRailBlock.GetEntryDuration() : tvEntryDuration;
-        float presenterDuration = presenterRailBlock != null ? presenterRailBlock.GetEntryDuration() : presenterEntryDuration;
-        return Mathf.Max(tvDuration, presenterDuration) + 0.03f;
-    }
-
-    private float GetExitDuration()
-    {
-        float tvDuration = tvRailBlock != null ? tvRailBlock.ExitDuration : tvEntryDuration;
-        float presenterDuration = presenterRailBlock != null ? presenterRailBlock.ExitDuration : presenterEntryDuration;
-        return Mathf.Max(tvDuration, presenterDuration) + 0.03f;
-    }
-
-    private void MaintainForegroundRewardUi()
-    {
-        if (runManager == null)
-            return;
-
-        bool reward = runManager.State == BattleRunState.Reward;
-
-        if (rewardInventoryStripRect != null)
-            rewardInventoryStripRect.gameObject.SetActive(false);
-
-        // Reward 중에는 BattleHUD가 숨긴 기존 전투 Loadout을 그대로 다시 사용합니다.
-        if (equipmentDockRect != null && reward)
-            equipmentDockRect.gameObject.SetActive(true);
+        bool reward = runManager != null && runManager.State == BattleRunState.Reward;
 
         if (prizeChoiceRoot != null)
             prizeChoiceRoot.gameObject.SetActive(reward);
@@ -708,9 +675,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         for (int i = 0; i < cards.Count; i++)
         {
             RectTransform card = cards[i];
-            Vector2 basePosition = new(
-                startX + i * (width + prizeSlotSpacing),
-                0f);
+            Vector2 basePosition = new(startX + i * (width + prizeSlotSpacing), 0f);
 
             card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
             card.pivot = new Vector2(0.5f, 0.5f);
@@ -730,54 +695,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             RewardCardHover hover = card.GetComponent<RewardCardHover>();
             if (drag != null && hover != null)
                 hover.Configure(hud, drag.RewardIndex, card, basePosition);
-
-            Transform iconTransform = card.Find("PrizeIcon");
-            if (iconTransform is RectTransform iconRect)
-            {
-                iconRect.sizeDelta = new Vector2(44f, 44f);
-                iconRect.anchorMin = iconRect.anchorMax = new Vector2(0.5f, 0.62f);
-            }
-
-            Text[] texts = card.GetComponentsInChildren<Text>(true);
-            Text nameText = null;
-            Text actionText = null;
-            for (int t = 0; t < texts.Length; t++)
-            {
-                Text text = texts[t];
-                if (text == null)
-                    continue;
-
-                if (text.text == "CLICK / DRAG")
-                {
-                    actionText = text;
-                    continue;
-                }
-
-                if (nameText == null || text.fontSize > nameText.fontSize)
-                    nameText = text;
-            }
-
-            for (int t = 0; t < texts.Length; t++)
-            {
-                Text text = texts[t];
-                if (text == null)
-                    continue;
-                text.gameObject.SetActive(text == nameText || text == actionText);
-            }
-
-            if (nameText != null)
-            {
-                nameText.fontSize = 9;
-                nameText.alignment = TextAnchor.MiddleCenter;
-                SetAnchors(nameText.rectTransform, new Vector2(0.05f, 0.14f), new Vector2(0.95f, 0.34f));
-            }
-
-            if (actionText != null)
-            {
-                actionText.fontSize = 7;
-                actionText.alignment = TextAnchor.MiddleCenter;
-                SetAnchors(actionText.rectTransform, new Vector2(0.04f, 0.015f), new Vector2(0.96f, 0.13f));
-            }
         }
 
         ApplyPrizeSelectionColors();
@@ -820,6 +737,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (presenterRenderer == null || presenterVisual == null)
             return;
 
+        presenterVisual.localPosition = presenterLocalOffset;
+
         Sprite sprite = ResolvePresenterSprite();
         if (sprite != lastPresenterSprite)
         {
@@ -829,9 +748,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         bool show = sprite != null &&
-                    presenterRailRoot != null &&
-                    presenterRailRoot.activeSelf &&
-                    (currentMode != ShowMode.None || desiredMode != ShowMode.None || railTransitioning);
+                    stageRoot != null &&
+                    stageRoot.activeSelf &&
+                    (currentMode != ShowMode.None || desiredMode != ShowMode.None || stageTransitioning);
         presenterRenderer.enabled = show;
     }
 
@@ -853,8 +772,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             if (frames != null)
             {
                 for (int i = 0; i < frames.Length; i++)
+                {
                     if (frames[i] != null)
                         return frames[i];
+                }
             }
         }
 
@@ -867,8 +788,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         {
             warnedMissingPresenterSprite = true;
             Debug.LogWarning(
-                "[BattleShowWorldSetController] 사회자 Sprite가 없습니다. " +
-                "BattleShowPresentationManager.presenterFrames 또는 BattleHUD.presenterSprite를 할당하세요.",
+                "[BattleShowWorldSetController] 월드 사회자 Sprite 소스를 찾지 못했습니다. " +
+                "기존 Presenter UI는 이 경우 강제로 끄지 않습니다.",
                 this);
         }
 
@@ -888,43 +809,85 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         presenterVisual.localScale = new Vector3(flip ? -scale : scale, scale, 1f);
     }
 
+    private void RefreshContestantVisuals()
+    {
+        EnsureContestantArrayShape();
+
+        Sprite playerFallback = null;
+        if (player != null)
+        {
+            SpriteRenderer playerRenderer = player.GetComponentInChildren<SpriteRenderer>(true);
+            if (playerRenderer != null)
+                playerFallback = playerRenderer.sprite;
+        }
+
+        for (int i = 0; i < contestantRenderers.Length; i++)
+        {
+            SpriteRenderer renderer = contestantRenderers[i];
+            if (renderer == null)
+                continue;
+
+            renderer.transform.localPosition = contestantLocalOffsets[i];
+            Sprite sprite = contestantSprites[i];
+            if (i == 0 && sprite == null)
+                sprite = playerFallback;
+
+            renderer.sprite = sprite;
+            renderer.enabled = sprite != null && stageRoot != null && stageRoot.activeSelf;
+
+            if (sprite != null)
+            {
+                float height = Mathf.Abs(sprite.bounds.size.y);
+                float scale = height > 0.0001f ? contestantWorldHeight / height : 1f;
+                renderer.transform.localScale = new Vector3(scale, scale, 1f);
+            }
+        }
+    }
+
     private void UpdateWorldSorting()
     {
         SpriteRenderer playerRenderer = player != null
             ? player.GetComponentInChildren<SpriteRenderer>(true)
             : null;
 
-        if (playerRenderer != null)
-        {
-            if (tvCanvas != null)
-            {
-                tvCanvas.sortingLayerID = playerRenderer.sortingLayerID;
-
-                int playerOrder = playerRenderer.sortingOrder;
-                int tvOrder = playerOrder - Mathf.Max(1, tvBehindPlayerOrder);
-                int highestFieldOrder = GetHighestFieldSortingOrder(playerRenderer.sortingLayerID);
-
-                // TV는 바닥보다 앞, Player보다 뒤여야 합니다.
-                if (highestFieldOrder < playerOrder)
-                    tvOrder = Mathf.Max(tvOrder, highestFieldOrder + 1);
-                tvOrder = Mathf.Min(tvOrder, playerOrder - 1);
-
-                tvCanvas.sortingOrder = tvOrder;
-            }
-
-            if (presenterRenderer != null)
-            {
-                presenterRenderer.sortingLayerID = playerRenderer.sortingLayerID;
-                presenterRenderer.sortingOrder =
-                    playerRenderer.sortingOrder + Mathf.Max(1, presenterFrontOrder);
-            }
-        }
-        else
+        if (playerRenderer == null)
         {
             if (tvCanvas != null)
                 tvCanvas.sortingOrder = -10;
             if (presenterRenderer != null)
                 presenterRenderer.sortingOrder = 30;
+            for (int i = 0; i < contestantRenderers.Length; i++)
+                if (contestantRenderers[i] != null)
+                    contestantRenderers[i].sortingOrder = 10;
+            return;
+        }
+
+        int layerId = playerRenderer.sortingLayerID;
+        int playerOrder = playerRenderer.sortingOrder;
+
+        if (tvCanvas != null)
+        {
+            tvCanvas.sortingLayerID = layerId;
+            int tvOrder = playerOrder - Mathf.Max(1, tvBehindPlayerOrder);
+            int highestFieldOrder = GetHighestFieldSortingOrder(layerId);
+            if (highestFieldOrder < playerOrder)
+                tvOrder = Mathf.Max(tvOrder, highestFieldOrder + 1);
+            tvCanvas.sortingOrder = Mathf.Min(tvOrder, playerOrder - 1);
+        }
+
+        for (int i = 0; i < contestantRenderers.Length; i++)
+        {
+            SpriteRenderer renderer = contestantRenderers[i];
+            if (renderer == null)
+                continue;
+            renderer.sortingLayerID = layerId;
+            renderer.sortingOrder = playerOrder + Mathf.Max(1, contestantFrontOrder);
+        }
+
+        if (presenterRenderer != null)
+        {
+            presenterRenderer.sortingLayerID = layerId;
+            presenterRenderer.sortingOrder = playerOrder + Mathf.Max(1, presenterFrontOrder);
         }
     }
 
@@ -949,35 +912,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         return highest == int.MinValue ? -1000 : highest;
-    }
-
-    private Vector3 ClampPresenterInsideCamera(Vector3 preferred)
-    {
-        Camera camera = Camera.main;
-        Sprite sprite = ResolvePresenterSprite();
-        if (camera == null || !camera.orthographic || sprite == null)
-            return preferred;
-
-        float aspect = sprite.bounds.size.y > 0.0001f
-            ? Mathf.Abs(sprite.bounds.size.x / sprite.bounds.size.y)
-            : 0.62f;
-        float halfWidth = presenterWorldHeight * aspect * 0.5f;
-        float halfHeight = presenterWorldHeight * 0.5f;
-
-        Vector3 center = camera.transform.position;
-        float cameraHalfHeight = camera.orthographicSize;
-        float cameraHalfWidth = cameraHalfHeight * Mathf.Max(0.1f, camera.aspect);
-
-        preferred.x = Mathf.Clamp(
-            preferred.x,
-            center.x - cameraHalfWidth + halfWidth + 0.2f,
-            center.x + cameraHalfWidth - halfWidth - 0.2f);
-        preferred.y = Mathf.Clamp(
-            preferred.y,
-            center.y - cameraHalfHeight + halfHeight + 0.2f,
-            center.y + cameraHalfHeight - halfHeight - 0.2f);
-        preferred.z = 0f;
-        return preferred;
     }
 
     private static bool TryGetLiveFieldBounds(out Bounds bounds)
@@ -1021,235 +955,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         return found;
-    }
-
-    // ------------------------------------------------------------------
-    // Map START / selectable readability
-    // ------------------------------------------------------------------
-
-    private void EnsureMapReadabilityDecorations()
-    {
-        if (currentMode != ShowMode.Map ||
-            mapSelectionRect == null ||
-            !mapSelectionRect.gameObject.activeInHierarchy)
-            return;
-        if (Time.unscaledTime < nextMapDecorationTime)
-            return;
-
-        nextMapDecorationTime = Time.unscaledTime + Mathf.Max(0.02f, mapDecorationInterval);
-
-        List<RectTransform> nodes = CollectStageNodes();
-        if (nodes.Count == 0)
-            return;
-
-        for (int i = 0; i < nodes.Count; i++)
-            DecorateSelectableNode(nodes[i]);
-
-        if (mapSelectionRect.Find("StageStartMarker") != null)
-            return;
-
-        float minX = float.MaxValue;
-        for (int i = 0; i < nodes.Count; i++)
-            minX = Mathf.Min(minX, nodes[i].anchoredPosition.x);
-
-        List<RectTransform> firstNodes = new();
-        float firstYSum = 0f;
-        for (int i = 0; i < nodes.Count; i++)
-        {
-            if (Mathf.Abs(nodes[i].anchoredPosition.x - minX) > 1.5f)
-                continue;
-            firstNodes.Add(nodes[i]);
-            firstYSum += nodes[i].anchoredPosition.y;
-        }
-
-        if (firstNodes.Count == 0)
-            return;
-
-        float firstY = firstYSum / firstNodes.Count;
-        float panelLeft = mapSelectionRect.rect.xMin;
-        float desiredX = minX - mapStartGap;
-        float minimumX = panelLeft + mapStartSize.x * 0.5f + 16f;
-        float startX = Mathf.Max(minimumX, desiredX);
-        if (startX > minX - mapStartSize.x * 0.65f)
-            startX = Mathf.Min(minX - mapStartSize.x * 0.65f, minimumX);
-
-        Vector2 startPosition = new(startX, firstY);
-        CreateStartMarker(startPosition);
-
-        Vector2 lineStart = startPosition + Vector2.right * (mapStartSize.x * 0.5f + 4f);
-        for (int i = 0; i < firstNodes.Count; i++)
-            CreateMapLine(lineStart, firstNodes[i].anchoredPosition, "StartRouteLink");
-    }
-
-    private List<RectTransform> CollectStageNodes()
-    {
-        List<RectTransform> result = new();
-        if (mapSelectionRect == null)
-            return result;
-
-        for (int i = 0; i < mapSelectionRect.childCount; i++)
-        {
-            Transform child = mapSelectionRect.GetChild(i);
-            if (child == null || !child.name.StartsWith("StageNode_", StringComparison.Ordinal))
-                continue;
-            if (child is RectTransform rect)
-                result.Add(rect);
-        }
-
-        return result;
-    }
-
-    private void DecorateSelectableNode(RectTransform node)
-    {
-        if (node == null)
-            return;
-
-        Button button = node.GetComponent<Button>();
-        if (button == null)
-            return;
-
-        node.sizeDelta = new Vector2(
-            Mathf.Max(node.sizeDelta.x, selectableNodeMinSize),
-            Mathf.Max(node.sizeDelta.y, selectableNodeMinSize));
-
-        Outline outline = node.GetComponent<Outline>();
-        if (outline != null)
-        {
-            outline.effectColor = selectableNodeAccent;
-            outline.effectDistance = new Vector2(3f, -3f);
-        }
-
-        ColorBlock colors = button.colors;
-        colors.highlightedColor = Color.white;
-        colors.pressedColor = new Color(1f, 0.92f, 0.50f, 1f);
-        button.colors = colors;
-
-        if (node.Find("ClickHint") == null)
-            CreateClickHint(node);
-    }
-
-    private void CreateClickHint(RectTransform node)
-    {
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null)
-            return;
-
-        GameObject hint = new("ClickHint");
-        hint.transform.SetParent(node, false);
-        Text text = hint.AddComponent<Text>();
-        text.font = font;
-        text.text = "▼ CLICK!";
-        text.fontSize = 11;
-        text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.MiddleCenter;
-        text.color = selectableNodeAccent;
-        text.raycastTarget = false;
-
-        RectTransform rect = hint.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 1f);
-        rect.pivot = new Vector2(0.5f, 0f);
-        rect.anchoredPosition = new Vector2(0f, 9f);
-        rect.sizeDelta = new Vector2(100f, 22f);
-    }
-
-    private void CreateStartMarker(Vector2 position)
-    {
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null || mapSelectionRect == null)
-            return;
-
-        GameObject marker = new("StageStartMarker");
-        marker.transform.SetParent(mapSelectionRect, false);
-
-        Image image = marker.AddComponent<Image>();
-        image.color = mapStartColor;
-        image.raycastTarget = false;
-
-        Outline outline = marker.AddComponent<Outline>();
-        outline.effectColor = Color.white;
-        outline.effectDistance = new Vector2(2f, -2f);
-
-        RectTransform rect = marker.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = position;
-        rect.sizeDelta = mapStartSize;
-
-        GameObject label = new("Label");
-        label.transform.SetParent(marker.transform, false);
-        Text text = label.AddComponent<Text>();
-        text.font = font;
-        text.text = "START!  ▶";
-        text.fontSize = 14;
-        text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.MiddleCenter;
-        text.color = Color.white;
-        text.raycastTarget = false;
-        Stretch(label.GetComponent<RectTransform>());
-    }
-
-    private void CreateMapLine(Vector2 from, Vector2 to, string name)
-    {
-        if (mapSelectionRect == null)
-            return;
-
-        Vector2 delta = to - from;
-        float length = delta.magnitude;
-        if (length < 1f)
-            return;
-
-        GameObject line = new(name);
-        line.transform.SetParent(mapSelectionRect, false);
-        Image image = line.AddComponent<Image>();
-        image.color = mapStartLinkColor;
-        image.raycastTarget = false;
-
-        RectTransform rect = line.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = (from + to) * 0.5f;
-        rect.sizeDelta = new Vector2(length, 5f);
-        rect.localRotation = Quaternion.Euler(
-            0f,
-            0f,
-            Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-        line.transform.SetAsFirstSibling();
-    }
-
-    private void AnimateMapReadability()
-    {
-        if (currentMode != ShowMode.Map || mapSelectionRect == null)
-            return;
-
-        float pulse = 0.78f + Mathf.Sin(Time.unscaledTime * 5.5f) * 0.22f;
-        for (int i = 0; i < mapSelectionRect.childCount; i++)
-        {
-            Transform child = mapSelectionRect.GetChild(i);
-            if (child == null || !child.name.StartsWith("StageNode_", StringComparison.Ordinal))
-                continue;
-            if (child.GetComponent<Button>() == null)
-                continue;
-
-            Transform hint = child.Find("ClickHint");
-            if (hint == null)
-                continue;
-
-            Text text = hint.GetComponent<Text>();
-            if (text == null)
-                continue;
-
-            Color color = selectableNodeAccent;
-            color.a = pulse;
-            text.color = color;
-        }
-    }
-
-    private void KillTweens()
-    {
-        if (tvRailRoot != null)
-            tvRailRoot.transform.DOKill();
-        if (presenterRailRoot != null)
-            presenterRailRoot.transform.DOKill();
     }
 
     private static Vector2 NormalizeDirection(Vector2 direction)
@@ -1316,24 +1021,5 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         return null;
-    }
-
-    private static void SetAnchors(RectTransform rect, Vector2 min, Vector2 max)
-    {
-        if (rect == null)
-            return;
-        rect.anchorMin = min;
-        rect.anchorMax = max;
-        rect.offsetMin = rect.offsetMax = Vector2.zero;
-    }
-
-    private static void Stretch(RectTransform rect)
-    {
-        if (rect == null)
-            return;
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = Vector2.zero;
-        rect.offsetMax = Vector2.zero;
     }
 }
