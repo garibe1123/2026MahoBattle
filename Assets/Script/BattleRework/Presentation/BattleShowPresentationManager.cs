@@ -13,7 +13,7 @@ using UnityEngine.UI;
 /// 담당 범위:
 /// - SO 기반 32px 슬라이드 바닥 조립
 /// - 일반 전투 필드의 굴러오는 MapBlock과 Reward Show Slab 모두에 동일 SO 적용
-/// - 필수 위 판 / 3분할 하판(좌측 끝·중앙 반복·우측 끝) 배치
+/// - 선택형 위 판 / 3분할 하판(좌측 끝·중앙 반복·우측 끝) 배치
 /// - 바닥에 바로 붙는 4방향 핸들 배치
 /// - MapBlock 도킹 순간 핸들 '찰칵' 반동
 /// - 사회자 Sprite Sheet 재생
@@ -104,55 +104,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool rewardPresentationActive;
     private bool subscribed;
     private bool warnedMissingTemplate;
-    private bool warnedMissingUpperPlate;
-    private bool warnedMissingLowerLeft;
-    private bool warnedMissingLowerCenter;
-    private bool warnedMissingLowerRight;
     private float nextFieldTemplateScan;
 
     private readonly HashSet<MapBlock> decoratedBlocks = new();
-    private static Sprite fallback32;
-
     /// <summary>런타임 임시 교체가 없으면 Inspector의 Default Floor Template을 사용합니다.</summary>
     public BattleShowFloorTemplateSO ActiveFloorTemplate =>
         runtimeFloorTemplate != null ? runtimeFloorTemplate : defaultFloorTemplate;
 
     public BattleShowFloorTemplateSO DefaultFloorTemplate => defaultFloorTemplate;
-
-    private static Sprite Default32Sprite
-    {
-        get
-        {
-            if (fallback32 != null)
-                return fallback32;
-
-            const int pixels = 32;
-            Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
-            {
-                filterMode = FilterMode.Point,
-                wrapMode = TextureWrapMode.Clamp,
-                hideFlags = HideFlags.HideAndDontSave
-            };
-
-            Color[] colors = new Color[pixels * pixels];
-            for (int i = 0; i < colors.Length; i++)
-                colors[i] = Color.white;
-
-            texture.SetPixels(colors);
-            texture.Apply(false, true);
-
-            fallback32 = Sprite.Create(
-                texture,
-                new Rect(0f, 0f, pixels, pixels),
-                new Vector2(0.5f, 0.5f),
-                pixels,
-                0,
-                SpriteMeshType.FullRect);
-            fallback32.name = "RuntimeShowDefault32";
-            fallback32.hideFlags = HideFlags.HideAndDontSave;
-            return fallback32;
-        }
-    }
 
     private void Awake()
     {
@@ -243,10 +202,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private void ResetTemplateWarnings()
     {
         warnedMissingTemplate = false;
-        warnedMissingUpperPlate = false;
-        warnedMissingLowerLeft = false;
-        warnedMissingLowerCenter = false;
-        warnedMissingLowerRight = false;
     }
 
     private void ResolveReferences()
@@ -398,8 +353,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 continue;
 
             string blockName = block.name;
-            if (blockName.StartsWith("__RuntimeRoomPiecePrototype_", StringComparison.Ordinal) ||
-                blockName.StartsWith("Outgoing_", StringComparison.Ordinal))
+            // Runtime 전투 조각은 Prototype을 Instantiate한 뒤에도
+            // "__RuntimeRoomPiecePrototype_...(Clone)" 이름을 유지합니다.
+            // Prototype 접두사 자체를 제외하면 실제 전투 필드까지 함께 누락됩니다.
+            if (blockName.StartsWith("Outgoing_", StringComparison.Ordinal))
                 continue;
 
             if (!HasSupportedFloorTiles(block.transform))
@@ -502,7 +459,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         int minY = int.MaxValue;
         int maxY = int.MinValue;
         bool foundTile = false;
+        int templateSortingLayerId = 0;
+        int sourceFloorSortingOrder = -18;
+        bool foundSortingLayer = false;
 
+        bool replaceFloorArt = HasUsableFloorVariant(template);
         Color floorTint = template != null ? template.FloorTint : Color.white;
         int floorSorting = template != null ? template.FloorSortingOrder : -18;
 
@@ -522,12 +483,24 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             if (renderer == null)
                 continue;
 
-            Sprite randomFloor = GetRandomFloorSprite(renderer.sprite);
-            if (randomFloor != null)
-                renderer.sprite = randomFloor;
+            if (!foundSortingLayer)
+            {
+                templateSortingLayerId = renderer.sortingLayerID;
+                sourceFloorSortingOrder = renderer.sortingOrder;
+                foundSortingLayer = true;
+            }
 
-            renderer.color = floorTint;
-            renderer.sortingOrder = floorSorting;
+            // Floor Variants를 하나도 지정하지 않은 SO는 기존 필드 외형을 덮어쓰지 않습니다.
+            // 이 규칙이 없으면 런타임 기본 타일에 흰 Tint가 적용되어 회색 더미처럼 보입니다.
+            if (replaceFloorArt)
+            {
+                Sprite randomFloor = GetRandomFloorSprite(renderer.sprite);
+                if (randomFloor != null)
+                    renderer.sprite = randomFloor;
+
+                renderer.color = floorTint;
+                renderer.sortingOrder = floorSorting;
+            }
 
             int x = Mathf.RoundToInt(child.localPosition.x);
             int y = Mathf.RoundToInt(child.localPosition.y);
@@ -541,13 +514,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (!foundTile)
             return;
 
+        if (!replaceFloorArt)
+            floorSorting = sourceFloorSortingOrder;
+
         GameObject templateObject = new("PresentationTemplate");
         templateObject.transform.SetParent(visual, false);
         Transform templateRoot = templateObject.transform;
 
-        Sprite upperPlate = template != null && template.UpperPlateSprite32 != null
-            ? template.UpperPlateSprite32
-            : Default32Sprite;
+        Sprite upperPlate = template != null ? template.UpperPlateSprite32 : null;
         Color plateTint = template != null ? template.PlateTint : Color.white;
 
         int upperSort = template != null
@@ -563,17 +537,26 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         int handleSort = template != null
             ? Mathf.Max(template.HandleSortingOrder, Mathf.Max(lowerSort + 1, upperSort + 1))
             : upperSort + 1;
+        int handleSortingLayerId = templateSortingLayerId;
+        ResolveHandleRenderOrder(ref handleSortingLayerId, ref handleSort);
 
-        // 위 판은 본체 최상단에 바로 붙는 한 줄이며 전체 폭에 반복됩니다.
-        for (int x = minX; x <= maxX; x++)
+        // 비어 있는 Sprite 슬롯은 런타임 회색/흰색 더미로 대체하지 않습니다.
+        // Floor Variants가 비어 있으면 위에서 기존 Tile Sprite를 그대로 유지하고,
+        // 위/하판과 핸들은 Sprite가 지정된 부품만 생성합니다.
+        if (upperPlate != null)
         {
-            CreateTemplateSprite(
-                templateRoot,
-                $"UpperPlate_{x}",
-                new Vector3(x, maxY + 1f, 0f),
-                upperPlate,
-                plateTint,
-                upperSort);
+            // 위 판은 본체 최상단에 바로 붙는 한 줄이며 전체 폭에 반복됩니다.
+            for (int x = minX; x <= maxX; x++)
+            {
+                CreateTemplateSprite(
+                    templateRoot,
+                    $"UpperPlate_{x}",
+                    new Vector3(x, maxY + 1f, 0f),
+                    upperPlate,
+                    plateTint,
+                    templateSortingLayerId,
+                    upperSort);
+            }
         }
 
         // 하판은 좌측 끝 / 중앙 반복 / 우측 끝 3종만 사용합니다.
@@ -589,6 +572,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 new Vector3(x, minY - 1f, 0f),
                 lowerSprite,
                 plateTint,
+                templateSortingLayerId,
                 lowerSort);
         }
 
@@ -600,9 +584,56 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             maxY,
             contactSide,
             template,
+            handleSortingLayerId,
             handleSort);
 
         SubscribeDockImpact(slabRoot.GetComponent<MapBlock>());
+    }
+
+    private static bool HasUsableFloorVariant(BattleShowFloorTemplateSO template)
+    {
+        Sprite[] variants = template != null ? template.FloorVariants : null;
+        if (variants == null)
+            return false;
+
+        for (int i = 0; i < variants.Length; i++)
+        {
+            if (variants[i] != null)
+                return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// 핸들은 새 조각과 기존 4x4 Base의 접촉면 위에 겹치므로,
+    /// 기존 Base가 더 높은 Sorting Layer를 쓰더라도 그 아래로 숨지 않게 보정합니다.
+    /// </summary>
+    private void ResolveHandleRenderOrder(ref int sortingLayerId, ref int sortingOrder)
+    {
+        if (baseTemplate == null || baseTemplate.ActiveBase == null)
+            return;
+
+        int selectedLayerValue = SortingLayer.GetLayerValueFromID(sortingLayerId);
+        SpriteRenderer[] baseRenderers = baseTemplate.ActiveBase.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < baseRenderers.Length; i++)
+        {
+            SpriteRenderer renderer = baseRenderers[i];
+            if (renderer == null || !renderer.enabled)
+                continue;
+
+            int candidateLayerValue = SortingLayer.GetLayerValueFromID(renderer.sortingLayerID);
+            if (candidateLayerValue > selectedLayerValue)
+            {
+                sortingLayerId = renderer.sortingLayerID;
+                selectedLayerValue = candidateLayerValue;
+                sortingOrder = renderer.sortingOrder + 1;
+            }
+            else if (renderer.sortingLayerID == sortingLayerId)
+            {
+                sortingOrder = Mathf.Max(sortingOrder, renderer.sortingOrder + 1);
+            }
+        }
     }
 
     private static Sprite ResolveLowerPlateSprite(
@@ -648,6 +679,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         int maxY,
         Vector2 contactSide,
         BattleShowFloorTemplateSO template,
+        int sortingLayerId,
         int handleSorting)
     {
         if (template == null || template.HandlePlacement == BattleShowHandlePlacementMode.None)
@@ -668,6 +700,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 new Vector3(minX - 1f, midY, 0f),
                 template.LeftHandleSprite32,
                 template.HandleTint,
+                sortingLayerId,
                 handleSorting);
         }
 
@@ -679,6 +712,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 new Vector3(maxX + 1f, midY, 0f),
                 template.RightHandleSprite32,
                 template.HandleTint,
+                sortingLayerId,
                 handleSorting);
         }
 
@@ -690,6 +724,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 new Vector3(midX, maxY + 1f, 0f),
                 template.UpperHandleSprite32,
                 template.HandleTint,
+                sortingLayerId,
                 handleSorting);
         }
 
@@ -701,6 +736,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 new Vector3(midX, minY - 1f, 0f),
                 template.LowerHandleSprite32,
                 template.HandleTint,
+                sortingLayerId,
                 handleSorting);
         }
     }
@@ -711,12 +747,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         Vector3 localPosition,
         Sprite sprite,
         Color tint,
+        int sortingLayerId,
         int sortingOrder)
     {
         if (sprite == null)
             return;
 
-        CreateTemplateSprite(parent, objectName, localPosition, sprite, tint, sortingOrder);
+        CreateTemplateSprite(parent, objectName, localPosition, sprite, tint, sortingLayerId, sortingOrder);
     }
 
     private static SpriteRenderer CreateTemplateSprite(
@@ -725,6 +762,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         Vector3 localPosition,
         Sprite sprite,
         Color tint,
+        int sortingLayerId,
         int sortingOrder)
     {
         GameObject go = new(objectName);
@@ -734,6 +772,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
         renderer.sprite = sprite;
         renderer.color = tint;
+        renderer.sortingLayerID = sortingLayerId;
         renderer.sortingOrder = sortingOrder;
         return renderer;
     }
@@ -843,30 +882,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (template == null && !warnedMissingTemplate)
         {
             warnedMissingTemplate = true;
-            Debug.LogWarning("[BattleShowPresentationManager] Default Floor Template SO가 비어 있습니다. 바닥 본체는 기존 Sprite를 유지하고 위 판은 임시 32px 사각형으로 표시합니다.", this);
+            Debug.LogWarning("[BattleShowPresentationManager] Default Floor Template SO가 비어 있습니다. 기존 바닥 Sprite를 그대로 유지하며 추가 판/핸들은 만들지 않습니다.", this);
         }
 
-        if ((template == null || template.UpperPlateSprite32 == null) && !warnedMissingUpperPlate)
-        {
-            warnedMissingUpperPlate = true;
-            Debug.LogWarning("[BattleShowPresentationManager] 위 판 Sprite는 필수입니다. 현재는 임시 32px Sprite-Default를 사용합니다.", this);
-        }
-
-        if (template == null)
-            return;
-
-        WarnMissingLowerPart(template.LowerPlateLeftSprite32 == null, ref warnedMissingLowerLeft, "하판 좌측 끝 Sprite가 비어 있습니다.");
-        WarnMissingLowerPart(template.LowerPlateCenterSprite32 == null, ref warnedMissingLowerCenter, "하판 중앙 Sprite가 비어 있습니다. 3칸 이상인 판의 중앙 구간이 비어 보일 수 있습니다.");
-        WarnMissingLowerPart(template.LowerPlateRightSprite32 == null, ref warnedMissingLowerRight, "하판 우측 끝 Sprite가 비어 있습니다.");
-    }
-
-    private void WarnMissingLowerPart(bool missing, ref bool warned, string message)
-    {
-        if (!missing || warned)
-            return;
-
-        warned = true;
-        Debug.LogWarning($"[BattleShowPresentationManager] {message}", this);
     }
 
     // ------------------------------------------------------------------
