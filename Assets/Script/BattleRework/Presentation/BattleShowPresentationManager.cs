@@ -105,7 +105,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool subscribed;
     private bool warnedMissingTemplate;
     private float nextFieldTemplateScan;
-    private int lastFloorTopologyHash = int.MinValue;
 
     private readonly HashSet<MapBlock> decoratedBlocks = new();
     /// <summary>런타임 임시 교체가 없으면 Inspector의 Default Floor Template을 사용합니다.</summary>
@@ -386,43 +385,16 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         HashSet<Vector2Int> occupiedFloorCells = BuildOccupiedFloorCells(
             blocks,
             out HashSet<Vector2Int> decoratedFloorCells);
-        int topologyHash = unchecked(
-            CalculateFloorTopologyHash(occupiedFloorCells) * 397 ^
-            CalculateFloorTopologyHash(decoratedFloorCells));
-        bool topologyChanged = topologyHash != lastFloorTopologyHash;
-        lastFloorTopologyHash = topologyHash;
 
+        // 자동 스캔은 아직 장식되지 않은 새 판만 처리합니다.
+        // 도킹/필드 확장 때 기존 판을 rebuild하면 랜덤 바닥과 손잡이가 다시 배치되어
+        // 판이 연결 순간 재정렬되는 것처럼 보이므로, 명시적인 Refresh에서만 rebuild합니다.
         for (int i = 0; i < liveBlocks.Count; i++)
             DecorateSlidingBlock(
                 liveBlocks[i].transform,
-                rebuild || topologyChanged,
+                rebuild,
                 occupiedFloorCells,
                 decoratedFloorCells);
-    }
-
-    private static int CalculateFloorTopologyHash(HashSet<Vector2Int> cells)
-    {
-        if (cells == null || cells.Count == 0)
-            return 0;
-
-        List<Vector2Int> orderedCells = new(cells);
-        orderedCells.Sort((a, b) =>
-        {
-            int xCompare = a.x.CompareTo(b.x);
-            return xCompare != 0 ? xCompare : a.y.CompareTo(b.y);
-        });
-
-        unchecked
-        {
-            int hash = 17;
-            for (int i = 0; i < orderedCells.Count; i++)
-            {
-                hash = hash * 31 + orderedCells[i].x;
-                hash = hash * 31 + orderedCells[i].y;
-            }
-
-            return hash;
-        }
     }
 
     private static bool HasSupportedFloorTiles(Transform blockRoot)
