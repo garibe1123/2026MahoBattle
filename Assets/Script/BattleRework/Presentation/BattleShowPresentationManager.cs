@@ -105,6 +105,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool subscribed;
     private bool warnedMissingTemplate;
     private float nextFieldTemplateScan;
+    private int lastFloorTopologyHash = int.MinValue;
 
     private readonly HashSet<MapBlock> decoratedBlocks = new();
     /// <summary>런타임 임시 교체가 없으면 Inspector의 Default Floor Template을 사용합니다.</summary>
@@ -325,7 +326,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         MapBlock[] blocks = FindObjectsByType<MapBlock>(
             FindObjectsInactive.Exclude,
             FindObjectsSortMode.None);
-        DecorateSlidingBlock(block.transform, rebuild, BuildOccupiedFloorCells(blocks));
+        HashSet<Vector2Int> occupied = BuildOccupiedFloorCells(blocks, out HashSet<Vector2Int> decorated);
+        DecorateSlidingBlock(block.transform, rebuild, occupied, decorated);
     }
 
     private IEnumerator DecorateIncomingShowFloorNextFrame(bool rebuild = false)
@@ -381,9 +383,46 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             liveBlocks.Add(block);
         }
 
-        HashSet<Vector2Int> occupiedFloorCells = BuildOccupiedFloorCells(blocks);
+        HashSet<Vector2Int> occupiedFloorCells = BuildOccupiedFloorCells(
+            blocks,
+            out HashSet<Vector2Int> decoratedFloorCells);
+        int topologyHash = unchecked(
+            CalculateFloorTopologyHash(occupiedFloorCells) * 397 ^
+            CalculateFloorTopologyHash(decoratedFloorCells));
+        bool topologyChanged = topologyHash != lastFloorTopologyHash;
+        lastFloorTopologyHash = topologyHash;
+
         for (int i = 0; i < liveBlocks.Count; i++)
-            DecorateSlidingBlock(liveBlocks[i].transform, rebuild, occupiedFloorCells);
+            DecorateSlidingBlock(
+                liveBlocks[i].transform,
+                rebuild || topologyChanged,
+                occupiedFloorCells,
+                decoratedFloorCells);
+    }
+
+    private static int CalculateFloorTopologyHash(HashSet<Vector2Int> cells)
+    {
+        if (cells == null || cells.Count == 0)
+            return 0;
+
+        List<Vector2Int> orderedCells = new(cells);
+        orderedCells.Sort((a, b) =>
+        {
+            int xCompare = a.x.CompareTo(b.x);
+            return xCompare != 0 ? xCompare : a.y.CompareTo(b.y);
+        });
+
+        unchecked
+        {
+            int hash = 17;
+            for (int i = 0; i < orderedCells.Count; i++)
+            {
+                hash = hash * 31 + orderedCells[i].x;
+                hash = hash * 31 + orderedCells[i].y;
+            }
+
+            return hash;
+        }
     }
 
     private static bool HasSupportedFloorTiles(Transform blockRoot)
@@ -405,9 +444,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return false;
     }
 
-    private HashSet<Vector2Int> BuildOccupiedFloorCells(MapBlock[] blocks)
+    private HashSet<Vector2Int> BuildOccupiedFloorCells(
+        MapBlock[] blocks,
+        out HashSet<Vector2Int> decoratedFloorCells)
     {
         HashSet<Vector2Int> occupied = new();
+        decoratedFloorCells = new HashSet<Vector2Int>();
         ResolveReferences();
         if (baseTemplate != null && baseTemplate.ActiveBase != null)
         {
@@ -443,7 +485,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 Transform child = tileRoot.GetChild(childIndex);
                 if (!IsSupportedFloorTile(child))
                     continue;
-                occupied.Add(ResolveDestinationFloorCell(block, child));
+                Vector2Int cell = ResolveDestinationFloorCell(block, child);
+                occupied.Add(cell);
+                decoratedFloorCells.Add(cell);
             }
         }
 
@@ -481,7 +525,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     /// MapBlock이 아닌 고정 4x4 Base에도 같은 SO의 Floor Variant를 적용합니다.
     /// 원본 Base Renderer/Collider는 그대로 두고 1x1 타일 16개를 위에 조립하므로
     /// 기존 NavMesh와 충돌 구조는 건드리지 않습니다.
-    /// 고정 Base는 밖에서 들어와 도킹하는 판이 아니므로 상/하판과 핸들은 만들지 않습니다.
+    /// 고정 Base에는 아래 하판과 아래 면 양 끝의 손잡이만 함께 설치합니다.
     /// </summary>
     private void DecoratePersistentBase(bool rebuild)
     {
@@ -518,8 +562,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             replaceFloorArt,
             out int floorSorting,
             out _,
-            out _,
-            out _);
+            out int lowerSorting,
+            out int handleSorting);
 
         GameObject templateObject = new("PresentationTemplate");
         Transform templateRoot = templateObject.transform;
@@ -554,14 +598,54 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             }
         }
 
-        // 최초 4x4 Base에는 연결 방향이 없으므로
-        // 핸들/상판/하판을 강제 생성하지 않습니다.
+        // 최초 4x4 Base에도 아래 하판은 기본 설치합니다.
+        for (int x = min; x <= max; x++)
+        {
+            Sprite lowerSprite = ResolveLowerPlateSprite(template, x, min, max);
+            if (lowerSprite == null)
+                continue;
+
+            CreateTemplateSprite(
+                templateRoot,
+                $"BaseLowerPlate_{x}",
+                new Vector3(x - centerOffset, min - centerOffset - 1f, 0f),
+                lowerSprite,
+                template.PlateTint,
+                sortingLayerId,
+                lowerSorting);
+        }
+
+        // Base 손잡이는 위쪽에 만들지 않고,
+        // 아래 면의 최좌측/최우측 끝에 최대 2개만 고정 배치합니다.
+        if (template.HandlePlacement != BattleShowHandlePlacementMode.None &&
+            template.LowerHandleSprite32 != null)
+        {
+            GameObject groupObject = new("DockHandle_Lower");
+            groupObject.transform.SetParent(templateRoot, false);
+            CreateOptionalHandle(
+                groupObject.transform,
+                "DockHandle_Lower_LeftEnd",
+                new Vector3(min - centerOffset, min - centerOffset - 1f, 0f),
+                template.LowerHandleSprite32,
+                template.HandleTint,
+                sortingLayerId,
+                handleSorting);
+            CreateOptionalHandle(
+                groupObject.transform,
+                "DockHandle_Lower_RightEnd",
+                new Vector3(max - centerOffset, min - centerOffset - 1f, 0f),
+                template.LowerHandleSprite32,
+                template.HandleTint,
+                sortingLayerId,
+                handleSorting);
+        }
     }
 
     private void DecorateSlidingBlock(
         Transform slabRoot,
         bool rebuild,
-        HashSet<Vector2Int> occupiedFloorCells)
+        HashSet<Vector2Int> occupiedFloorCells,
+        HashSet<Vector2Int> decoratedFloorCells)
     {
         if (slabRoot == null)
             return;
@@ -673,6 +757,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             slabRoot.GetComponent<MapBlock>(),
             floorTiles,
             occupiedFloorCells,
+            decoratedFloorCells,
             template,
             plateTint,
             templateSortingLayerId,
@@ -849,54 +934,59 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         MapBlock block,
         List<Transform> floorTiles,
         HashSet<Vector2Int> occupiedFloorCells,
+        HashSet<Vector2Int> decoratedFloorCells,
         BattleShowFloorTemplateSO template,
         Color plateTint,
         int sortingLayerId,
         int lowerSorting,
         int handleSorting)
     {
-        if (template == null || floorTiles == null || occupiedFloorCells == null)
+        if (template == null || floorTiles == null || occupiedFloorCells == null ||
+            decoratedFloorCells == null)
             return;
 
-        List<Transform> exposedLeft = new();
-        List<Transform> exposedRight = new();
-        List<Transform> exposedUpper = new();
+        HashSet<Vector2Int> leftEndpoints =
+            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.left);
+        HashSet<Vector2Int> rightEndpoints =
+            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.right);
+        HashSet<Vector2Int> upperEndpoints =
+            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.up);
+        HashSet<Vector2Int> lowerEndpoints =
+            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.down);
+
         List<Transform> exposedLower = new();
 
         for (int i = 0; i < floorTiles.Count; i++)
         {
             Transform tile = floorTiles[i];
             Vector2Int cell = ResolveDestinationFloorCell(block, tile);
-            if (!occupiedFloorCells.Contains(cell + Vector2Int.left)) exposedLeft.Add(tile);
-            if (!occupiedFloorCells.Contains(cell + Vector2Int.right)) exposedRight.Add(tile);
-            if (!occupiedFloorCells.Contains(cell + Vector2Int.up)) exposedUpper.Add(tile);
             if (!occupiedFloorCells.Contains(cell + Vector2Int.down)) exposedLower.Add(tile);
         }
 
-        // 하판은 전체 바운드가 아니라 실제로 아래쪽이 노출된 타일에만 조립합니다.
-        // 따라서 최초 4x4 Base와 맞닿는 내부 경계에는 하판이 겹치지 않습니다.
+        // 하판은 실제로 아래쪽이 노출된 타일에만 조립하고,
+        // 완성된 전체 필드의 최좌/최우 셀에만 좌/우 끝 Sprite를 사용합니다.
+        // 따라서 조각 경계마다 끝 Sprite가 반복되거나 Base 내부 경계에 겹치지 않습니다.
         if (exposedLower.Count > 0)
         {
             int minX = int.MaxValue;
             int maxX = int.MinValue;
-            for (int i = 0; i < exposedLower.Count; i++)
+            foreach (Vector2Int endpoint in lowerEndpoints)
             {
-                int x = Mathf.RoundToInt(exposedLower[i].localPosition.x);
-                minX = Mathf.Min(minX, x);
-                maxX = Mathf.Max(maxX, x);
+                minX = Mathf.Min(minX, endpoint.x);
+                maxX = Mathf.Max(maxX, endpoint.x);
             }
 
             for (int i = 0; i < exposedLower.Count; i++)
             {
                 Transform tile = exposedLower[i];
-                int x = Mathf.RoundToInt(tile.localPosition.x);
-                Sprite lowerSprite = ResolveLowerPlateSprite(template, x, minX, maxX);
+                Vector2Int cell = ResolveDestinationFloorCell(block, tile);
+                Sprite lowerSprite = ResolveLowerPlateSprite(template, cell.x, minX, maxX);
                 if (lowerSprite == null)
                     continue;
 
                 CreateTemplateSprite(
                     templateRoot,
-                    $"LowerPlate_{x}_{i}",
+                    $"LowerPlate_{cell.x}_{cell.y}",
                     tile.localPosition + Vector3.down,
                     lowerSprite,
                     plateTint,
@@ -908,78 +998,158 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (template.HandlePlacement == BattleShowHandlePlacementMode.None)
             return;
 
-        CreateExteriorHandle(templateRoot, exposedLeft, Vector2.left, "DockHandle_Left", template.LeftHandleSprite32, template, sortingLayerId, handleSorting);
-        CreateExteriorHandle(templateRoot, exposedRight, Vector2.right, "DockHandle_Right", template.RightHandleSprite32, template, sortingLayerId, handleSorting);
+        CreateExteriorHandles(
+            templateRoot,
+            block,
+            floorTiles,
+            leftEndpoints,
+            Vector2.left,
+            "DockHandle_Left",
+            template.LeftHandleSprite32,
+            template,
+            sortingLayerId,
+            handleSorting);
+        CreateExteriorHandles(
+            templateRoot,
+            block,
+            floorTiles,
+            rightEndpoints,
+            Vector2.right,
+            "DockHandle_Right",
+            template.RightHandleSprite32,
+            template,
+            sortingLayerId,
+            handleSorting);
 
         // 기존 Upper Plate 슬롯에 상단 핸들 이미지를 넣어둔 SO도 바로 동작하도록
-        // Upper Handle이 비어 있으면 Upper Plate를 1개짜리 상단 핸들로 사용합니다.
+        // Upper Handle이 비어 있으면 Upper Plate를 상단 양 끝 핸들로 사용합니다.
         Sprite upperHandle = template.UpperHandleSprite32 != null
             ? template.UpperHandleSprite32
             : template.UpperPlateSprite32;
-        CreateExteriorHandle(templateRoot, exposedUpper, Vector2.up, "DockHandle_Upper", upperHandle, template, sortingLayerId, handleSorting);
-        CreateExteriorHandle(templateRoot, exposedLower, Vector2.down, "DockHandle_Lower", template.LowerHandleSprite32, template, sortingLayerId, handleSorting);
+        CreateExteriorHandles(
+            templateRoot,
+            block,
+            floorTiles,
+            upperEndpoints,
+            Vector2.up,
+            "DockHandle_Upper",
+            upperHandle,
+            template,
+            sortingLayerId,
+            handleSorting);
+        CreateExteriorHandles(
+            templateRoot,
+            block,
+            floorTiles,
+            lowerEndpoints,
+            Vector2.down,
+            "DockHandle_Lower",
+            template.LowerHandleSprite32,
+            template,
+            sortingLayerId,
+            handleSorting);
     }
 
-    private static void CreateExteriorHandle(
+    /// <summary>
+    /// 완성된 전체 필드의 한 외곽면에서 양 끝 셀만 선택합니다.
+    /// 위/아래 면은 가장 왼쪽과 오른쪽, 좌/우 면은 가장 아래와 위를 고르며
+    /// 면의 길이가 한 칸이면 같은 셀을 중복하지 않습니다.
+    /// </summary>
+    private static HashSet<Vector2Int> SelectExteriorFaceEndpoints(
+        HashSet<Vector2Int> decoratedFloorCells,
+        HashSet<Vector2Int> occupiedFloorCells,
+        Vector2Int side)
+    {
+        HashSet<Vector2Int> endpoints = new();
+        bool found = false;
+        Vector2Int negativeEnd = default;
+        Vector2Int positiveEnd = default;
+
+        foreach (Vector2Int cell in decoratedFloorCells)
+        {
+            if (occupiedFloorCells.Contains(cell + side))
+                continue;
+
+            if (!found)
+            {
+                negativeEnd = cell;
+                positiveEnd = cell;
+                found = true;
+                continue;
+            }
+
+            if (IsBetterFaceEndpoint(cell, negativeEnd, side, false))
+                negativeEnd = cell;
+            if (IsBetterFaceEndpoint(cell, positiveEnd, side, true))
+                positiveEnd = cell;
+        }
+
+        if (!found)
+            return endpoints;
+
+        endpoints.Add(negativeEnd);
+        endpoints.Add(positiveEnd);
+        return endpoints;
+    }
+
+    private static bool IsBetterFaceEndpoint(
+        Vector2Int candidate,
+        Vector2Int current,
+        Vector2Int side,
+        bool positiveEnd)
+    {
+        int candidateAxis = side.x != 0 ? candidate.y : candidate.x;
+        int currentAxis = side.x != 0 ? current.y : current.x;
+        if (candidateAxis != currentAxis)
+            return positiveEnd
+                ? candidateAxis > currentAxis
+                : candidateAxis < currentAxis;
+
+        // 오목한 외곽에서 같은 끝 좌표가 여러 개면 가장 바깥쪽 셀을 사용합니다.
+        int candidateOutward = candidate.x * side.x + candidate.y * side.y;
+        int currentOutward = current.x * side.x + current.y * side.y;
+        return candidateOutward > currentOutward;
+    }
+
+    private static void CreateExteriorHandles(
         Transform templateRoot,
-        List<Transform> exposedTiles,
+        MapBlock block,
+        List<Transform> floorTiles,
+        HashSet<Vector2Int> endpointCells,
         Vector2 side,
-        string objectName,
+        string groupName,
         Sprite sprite,
         BattleShowFloorTemplateSO template,
         int sortingLayerId,
         int sortingOrder)
     {
-        if (sprite == null || exposedTiles == null || exposedTiles.Count == 0)
+        if (sprite == null || floorTiles == null || endpointCells == null || endpointCells.Count == 0)
             return;
 
-        bool positiveEnd = ShouldUsePositiveHandleEnd(templateRoot, side);
-        Transform selected = exposedTiles[0];
-        float selectedAxis = GetHandleEndAxis(selected, side);
-        for (int i = 1; i < exposedTiles.Count; i++)
+        GameObject groupObject = null;
+        int createdCount = 0;
+        for (int i = 0; i < floorTiles.Count; i++)
         {
-            float axis = GetHandleEndAxis(exposedTiles[i], side);
-            if ((positiveEnd && axis > selectedAxis) || (!positiveEnd && axis < selectedAxis))
+            Transform tile = floorTiles[i];
+            if (!endpointCells.Contains(ResolveDestinationFloorCell(block, tile)))
+                continue;
+
+            if (groupObject == null)
             {
-                selected = exposedTiles[i];
-                selectedAxis = axis;
+                groupObject = new GameObject(groupName);
+                groupObject.transform.SetParent(templateRoot, false);
             }
+
+            CreateOptionalHandle(
+                groupObject.transform,
+                $"{groupName}_End_{createdCount}",
+                tile.localPosition + (Vector3)side,
+                sprite,
+                template.HandleTint,
+                sortingLayerId,
+                sortingOrder);
+            createdCount++;
         }
-
-        CreateOptionalHandle(
-            templateRoot,
-            objectName,
-            selected.localPosition + (Vector3)side,
-            sprite,
-            template.HandleTint,
-            sortingLayerId,
-            sortingOrder);
-    }
-
-    private static float GetHandleEndAxis(Transform tile, Vector2 side)
-    {
-        return Mathf.Abs(side.x) > 0.5f
-            ? tile.localPosition.y
-            : tile.localPosition.x;
-    }
-
-    private static bool ShouldUsePositiveHandleEnd(Transform templateRoot, Vector2 side)
-    {
-        Transform stableRoot = templateRoot != null && templateRoot.parent != null
-            ? templateRoot.parent
-            : templateRoot;
-        int instanceId = stableRoot != null ? stableRoot.GetInstanceID() : 0;
-        int sideSalt = side == Vector2.left
-            ? 17
-            : side == Vector2.right
-                ? 30
-                : side == Vector2.up
-                    ? 47
-                    : 60;
-
-        // PresentationTemplate만 새로 만드는 Refresh 후에도
-        // 부모 판 인스턴스는 같으므로 선택된 끝 위치가 바뀌지 않습니다.
-        return ((instanceId ^ sideSalt) & 1) == 0;
     }
 
     private static void CreateOptionalHandle(
