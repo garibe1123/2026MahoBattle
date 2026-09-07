@@ -1,24 +1,21 @@
+using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using DG.Tweening;
 using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward / Map 선택 연출을 ScreenSpace HUD가 아니라 실제 전투 월드의 쇼 세트로 운용합니다.
+/// Reward / Map 선택을 실제 전투 월드의 TV 쇼 세트로 운용합니다.
 ///
-/// 핵심 원칙:
-/// - Prize / Map 화면은 하나의 WorldSpace Canvas를 가진 월드 GameObject에 붙습니다.
-/// - 화면 Rail과 사회자 Rail은 MapBlock의 WheelSlide 진입/퇴장을 그대로 재사용합니다.
-///   따라서 필드 타일처럼 화면 밖에서 굴러오고, 도킹 반동 뒤에 멈추며, 상태가 끝나면 다시 빠져나갑니다.
-/// - 사회자는 Canvas Image를 사용하지 않고 SpriteRenderer GameObject로 표시합니다.
-/// - 기존 BattleHUD가 만드는 Reward UI의 실제 내용(버튼/드래그/맵 노드)은 버리지 않고
-///   WorldSpace Canvas로 옮기므로 기존 선택 로직을 그대로 보존합니다.
-/// - BattleShowPresentationManager가 SetPresenterSprite()로 갱신하는 presenterSprite 값은
-///   월드 SpriteRenderer가 읽어 Sprite Sheet 애니메이션을 그대로 이어받습니다.
-///
-/// 별도 씬 세팅 없이도 동작하도록 Runtime Host를 만들지만, 씬에 직접 배치한 인스턴스가 있으면
-/// Inspector 값을 사용하도록 중복 인스턴스는 자동 비활성화합니다.
+/// - 아이템 화면과 맵 화면은 같은 WorldSpace TV viewport 안에서 교체됩니다.
+/// - viewport에는 RectMask2D를 걸어 TV 내부 콘텐츠가 화면 바깥으로 새지 않습니다.
+/// - TV와 사회자는 MapBlock의 진입/퇴장 연출을 그대로 재사용합니다.
+/// - TV는 생성 시점의 카메라 viewport에 맞춰 자동 축소/보정되어 화면 밖으로 잘리지 않습니다.
+/// - 사회자는 Canvas Image가 아니라 SpriteRenderer 월드 오브젝트입니다.
+/// - 맵에는 좌측 START! 기점을 만들고 최초 노드까지 실제 선으로 연결합니다.
+/// - 현재 클릭 가능한 노드는 hit area / outline / CLICK! 표식을 강화합니다.
 /// </summary>
 [DefaultExecutionOrder(20000)]
 [DisallowMultipleComponent]
@@ -33,40 +30,55 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private static BattleShowWorldSetController instance;
 
-    [Header("World Screen")]
-    [Tooltip("기존 1120px TV 화면을 월드 크기로 환산할 PPU입니다. 기존 Map World Screen 기본값과 동일합니다.")]
+    [Header("World TV")]
+    [Tooltip("TV UI의 기준 PPU입니다. 값이 높을수록 월드에서 작게 보입니다.")]
     [SerializeField, Min(16f)] private float worldPixelsPerUnit = 88.5f;
 
-    [Tooltip("현재 4x4 Base 중심을 기준으로 TV 세트 중심이 놓일 월드 오프셋입니다.")]
-    [SerializeField] private Vector2 screenWorldOffset = new(0f, 5.30f);
+    [Tooltip("4x4 Base 중심을 기준으로 TV가 놓일 선호 위치입니다. 실제 위치는 카메라 안으로 자동 보정됩니다.")]
+    [SerializeField] private Vector2 screenWorldOffset = new(0f, 3.65f);
 
-    [Tooltip("WorldSpace Canvas의 가상 픽셀 크기입니다. TV 아래 Loadout Strip까지 포함할 수 있게 세로를 넉넉히 잡습니다.")]
-    [SerializeField] private Vector2 worldCanvasSize = new(1180f, 820f);
+    [Tooltip("TV + 아이템 Loadout Strip을 포함하는 World Canvas의 가상 픽셀 크기입니다.")]
+    [SerializeField] private Vector2 worldCanvasSize = new(1180f, 760f);
 
-    [Tooltip("TV 본체가 Canvas 중앙에서 위로 올라가는 픽셀 오프셋입니다.")]
-    [SerializeField] private float screenCanvasYOffset = 90f;
+    [Tooltip("아이템/맵 내용이 실제로 출력되는 TV viewport 크기입니다.")]
+    [SerializeField] private Vector2 screenViewportSize = new(1120f, 560f);
+
+    [Tooltip("World Canvas 중앙을 기준으로 TV viewport의 Y 위치입니다.")]
+    [SerializeField] private float screenCanvasYOffset = 78f;
 
     [Tooltip("아이템 선택 시 Loadout Strip의 Canvas 내 Y 위치입니다.")]
-    [SerializeField] private float inventoryCanvasY = -300f;
+    [SerializeField] private float inventoryCanvasY = -278f;
 
     [Tooltip("TV World Canvas Sorting Order. 바닥/캐릭터보다 뒤에 놓는 기본값입니다.")]
     [SerializeField] private int screenSortingOrder = -50;
 
+    [Header("Camera Fit")]
+    [Tooltip("TV 세트가 사용할 수 있는 카메라 가로 비율입니다. 호버 확대분까지 포함해 계산합니다.")]
+    [SerializeField, Range(0.55f, 0.98f)] private float maxViewportWidthRatio = 0.86f;
+
+    [Tooltip("TV 세트가 사용할 수 있는 카메라 세로 비율입니다. 플레이어/바닥이 완전히 가려지지 않도록 제한합니다.")]
+    [SerializeField, Range(0.45f, 0.95f)] private float maxViewportHeightRatio = 0.72f;
+
+    [Tooltip("카메라 가장자리와 TV 사이에 남길 최소 월드 여백입니다.")]
+    [SerializeField, Min(0f)] private float cameraViewportMargin = 0.45f;
+
+    [Tooltip("작은 해상도에서도 TV를 이 비율 이하로 축소하지 않습니다.")]
+    [SerializeField, Range(0.35f, 1f)] private float minimumCameraFitScale = 0.58f;
+
     [Header("Presenter World Sprite")]
-    [Tooltip("현재 4x4 Base 중심을 기준으로 사회자가 서는 위치입니다.")]
-    [SerializeField] private Vector2 presenterWorldOffset = new(5.35f, 1.05f);
+    [Tooltip("4x4 Base 중심을 기준으로 사회자가 서는 선호 위치입니다. 실제 위치는 카메라 안으로 자동 보정됩니다.")]
+    [SerializeField] private Vector2 presenterWorldOffset = new(5.15f, 0.95f);
 
     [Tooltip("사회자 Sprite를 월드에서 이 높이로 정규화합니다.")]
     [SerializeField, Min(0.5f)] private float presenterWorldHeight = 3.6f;
 
-    [Tooltip("사회자 SpriteRenderer Sorting Order. Player 앞/옆에 읽히도록 충분히 높게 둡니다.")]
     [SerializeField] private int presenterSortingOrder = 30;
 
     [Header("Mechanical Entry / Exit")]
-    [Tooltip("TV가 위 레일에서 내려오는 이동 방향입니다. MapBlock의 WheelSlide를 그대로 사용합니다.")]
+    [Tooltip("TV가 위 레일에서 내려오는 방향입니다.")]
     [SerializeField] private Vector2 screenRailDirection = Vector2.up;
 
-    [Tooltip("사회자가 오른쪽 세트 밖에서 들어오는 이동 방향입니다.")]
+    [Tooltip("사회자가 오른쪽 세트 밖에서 들어오는 방향입니다.")]
     [SerializeField] private Vector2 presenterRailDirection = Vector2.right;
 
     [SerializeField, Min(0.05f)] private float screenEntryDuration = 0.62f;
@@ -77,9 +89,19 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Range(0f, 1.5f)] private float presenterImpactStrength = 0.48f;
 
     [Header("Cursor Focus")]
-    [Tooltip("커서가 현재 TV 화면 안에 있을 때 전체 세트를 확대합니다.")]
     [SerializeField, Range(1f, 1.30f)] private float cursorFocusScale = 1.12f;
     [SerializeField, Min(0.5f)] private float cursorFocusSharpness = 6.5f;
+
+    [Header("Map Readability")]
+    [Tooltip("START! 표식을 첫 노드보다 왼쪽으로 떨어뜨리는 거리입니다.")]
+    [SerializeField, Min(30f)] private float mapStartGap = 112f;
+
+    [SerializeField] private Vector2 mapStartSize = new(92f, 46f);
+    [SerializeField] private Color mapStartColor = new(0.11f, 0.78f, 0.98f, 1f);
+    [SerializeField] private Color mapStartLinkColor = new(0.16f, 0.78f, 1f, 0.92f);
+    [SerializeField] private Color selectableNodeAccent = new(1f, 0.78f, 0.16f, 1f);
+    [SerializeField, Min(40f)] private float selectableNodeMinSize = 60f;
+    [SerializeField, Min(0.02f)] private float mapDecorationInterval = 0.08f;
 
     private BattleRunManager runManager;
     private BattleHUD hud;
@@ -90,6 +112,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private Transform screenFocusRoot;
     private Canvas worldCanvas;
     private RectTransform worldCanvasRect;
+    private RectTransform screenViewportRect;
     private GraphicRaycaster worldRaycaster;
     private MapBlock screenRailBlock;
 
@@ -118,7 +141,13 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private bool bound;
     private bool railTransitioning;
     private float currentFocusScale = 1f;
+    private float currentCameraFitScale = 1f;
+    private float nextMapDecorationTime;
     private Sprite lastPresenterSprite;
+
+    private Vector3 screenDockPosition;
+    private Vector3 presenterDockPosition;
+    private Vector3 lastDockBaseCenter;
 
     private static readonly BindingFlags PrivateInstance =
         BindingFlags.Instance | BindingFlags.NonPublic;
@@ -248,9 +277,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             screenRailRoot = new GameObject("BattleShowScreenRail");
             screenRailRoot.transform.SetParent(transform, false);
 
-            GameObject focus = new("ScreenFocusRoot");
-            focus.transform.SetParent(screenRailRoot.transform, false);
-            screenFocusRoot = focus.transform;
+            GameObject focusObject = new("ScreenFocusRoot");
+            focusObject.transform.SetParent(screenRailRoot.transform, false);
+            screenFocusRoot = focusObject.transform;
 
             GameObject canvasObject = new("BattleShowWorldCanvas");
             canvasObject.transform.SetParent(screenFocusRoot, false);
@@ -264,10 +293,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             worldCanvasRect = canvasObject.GetComponent<RectTransform>();
             worldCanvasRect.sizeDelta = worldCanvasSize;
             worldCanvasRect.pivot = new Vector2(0.5f, 0.5f);
-            float scale = 1f / Mathf.Max(16f, worldPixelsPerUnit);
-            worldCanvasRect.localScale = new Vector3(scale, scale, 1f);
             worldCanvasRect.localPosition = Vector3.zero;
             worldCanvasRect.localRotation = Quaternion.identity;
+
+            GameObject viewportObject = new("TVContentViewport");
+            viewportObject.transform.SetParent(worldCanvasRect, false);
+            screenViewportRect = viewportObject.AddComponent<RectTransform>();
+            screenViewportRect.anchorMin = screenViewportRect.anchorMax = new Vector2(0.5f, 0.5f);
+            screenViewportRect.pivot = new Vector2(0.5f, 0.5f);
+            screenViewportRect.sizeDelta = screenViewportSize;
+            screenViewportRect.anchoredPosition = new Vector2(0f, screenCanvasYOffset);
+            viewportObject.AddComponent<RectMask2D>();
 
             screenRailBlock = screenRailRoot.AddComponent<MapBlock>();
             screenRailBlock.ConfigureRuntimeDockingBlock(
@@ -283,10 +319,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             presenterRailRoot = new GameObject("BattleShowPresenterRail");
             presenterRailRoot.transform.SetParent(transform, false);
 
-            GameObject visual = new("PresenterWorldSprite");
-            visual.transform.SetParent(presenterRailRoot.transform, false);
-            presenterVisual = visual.transform;
-            presenterRenderer = visual.AddComponent<SpriteRenderer>();
+            GameObject visualObject = new("PresenterWorldSprite");
+            visualObject.transform.SetParent(presenterRailRoot.transform, false);
+            presenterVisual = visualObject.transform;
+            presenterRenderer = visualObject.AddComponent<SpriteRenderer>();
             presenterRenderer.sortingOrder = presenterSortingOrder;
             presenterRenderer.enabled = false;
 
@@ -299,17 +335,23 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 presenterRailDistance);
         }
 
+        ApplyCameraFitAndDockTargets();
         screenRailRoot.SetActive(false);
         presenterRailRoot.SetActive(false);
     }
 
     private void MoveHudContentIntoWorldSet()
     {
-        if (worldCanvasRect == null)
+        if (worldCanvasRect == null || screenViewportRect == null)
             return;
 
-        ReparentScreenRect(rewardScreenRect, new Vector2(0f, screenCanvasYOffset));
-        ReparentScreenRect(mapScreenRect, new Vector2(0f, screenCanvasYOffset));
+        Vector2 resolvedViewportSize = screenViewportSize;
+        if (rewardScreenRect != null && rewardScreenRect.sizeDelta.x > 1f && rewardScreenRect.sizeDelta.y > 1f)
+            resolvedViewportSize = rewardScreenRect.sizeDelta;
+        screenViewportRect.sizeDelta = resolvedViewportSize;
+
+        ReparentScreenRect(rewardScreenRect, screenViewportRect);
+        ReparentScreenRect(mapScreenRect, screenViewportRect);
 
         if (rewardInventoryRect != null)
         {
@@ -327,17 +369,18 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         SetContentActive(ShowMode.None, false);
         SetWorldInteraction(false);
+        ApplyCameraFitAndDockTargets();
     }
 
-    private static void ReparentScreenRect(RectTransform rect, Vector2 anchoredPosition)
+    private static void ReparentScreenRect(RectTransform rect, RectTransform parent)
     {
-        if (rect == null || instance == null || instance.worldCanvasRect == null)
+        if (rect == null || parent == null)
             return;
 
-        rect.SetParent(instance.worldCanvasRect, false);
+        rect.SetParent(parent, false);
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = anchoredPosition;
+        rect.anchoredPosition = Vector2.zero;
         rect.localScale = Vector3.one;
         rect.localRotation = Quaternion.identity;
     }
@@ -355,15 +398,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void SuppressLegacyScreenSpaceShowVisuals()
     {
-        // 전장 전체를 덮던 ScreenSpace 필터는 쇼 세트가 월드에 존재하게 된 뒤에는 사용하지 않습니다.
         if (legacyFieldFilter != null)
         {
             legacyFieldFilter.raycastTarget = false;
             legacyFieldFilter.enabled = false;
         }
 
-        // 기존 UI 조명은 화면 좌표 기반이므로 렌더만 끕니다.
-        // BattleShowPresentationManager가 Sprite를 갱신해도 월드 세트와 충돌하지 않습니다.
         if (legacyPlayerSpotlight != null)
         {
             legacyPlayerSpotlight.raycastTarget = false;
@@ -376,9 +416,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             legacyPresenterSpotlight.enabled = false;
         }
 
-        // 사회자는 이제 SpriteRenderer만 사용합니다. HUD 내부 Image 오브젝트 자체를 제거합니다.
-        // BattleHUD.SetPresenterSprite()는 presenterSprite 필드 갱신을 계속 수행하므로
-        // BattleShowPresentationManager의 기존 Sprite Sheet 재생 API는 그대로 살아 있습니다.
+        // 사회자 UI Image는 완전히 제거합니다. BattleHUD의 presenterSprite 값 자체는 남겨
+        // PresentationManager가 재생하는 Sprite Sheet를 월드 SpriteRenderer가 계속 읽습니다.
         if (legacyPresenterObject != null)
         {
             Destroy(legacyPresenterObject);
@@ -408,8 +447,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (!bound)
             return;
 
-        // BattleHUD / BattleShowPresentationManager가 같은 프레임에 옛 UI를 다시 켜더라도
-        // 렌더 직전에 확실하게 비활성화합니다.
         if (legacyFieldFilter != null)
             legacyFieldFilter.enabled = false;
         if (legacyPlayerSpotlight != null)
@@ -423,6 +460,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         UpdateWorldSorting();
         UpdateCursorFocus();
         FollowCurrentBaseWhileDocked();
+        EnsureMapReadabilityDecorations();
+        AnimateMapReadability();
     }
 
     private void UpdateDesiredMode()
@@ -449,8 +488,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             ShowMode leaving = currentMode;
             if (leaving != ShowMode.None)
             {
-                // HUD가 상태 변경과 함께 기존 화면을 먼저 꺼도, 기계식 퇴장이 끝날 때까지
-                // 현재 화면을 다시 살려 두어 '퍽 꺼지는' 컷을 없앱니다.
+                // 기존 화면을 즉시 끄지 않고 레일 퇴장 완료까지 유지합니다.
                 SetContentActive(leaving, true);
                 PlayRailExit();
                 yield return new WaitForSecondsRealtime(GetExitWaitDuration());
@@ -480,7 +518,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             currentMode = entering;
             SetContentActive(currentMode, true);
 
-            // 진입 도중 상태가 또 바뀌었으면 Raycast를 열지 않고 바로 다음 기계식 전환으로 갑니다.
             if (currentMode == desiredMode)
                 SetWorldInteraction(true);
         }
@@ -494,21 +531,24 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void PrepareRailObjectsForEntry()
     {
+        ApplyCameraFitAndDockTargets();
+
         if (screenRailRoot != null)
             screenRailRoot.SetActive(true);
         if (presenterRailRoot != null)
             presenterRailRoot.SetActive(true);
 
+        currentFocusScale = 1f;
         if (screenFocusRoot != null)
-            screenFocusRoot.localScale = Vector3.one * currentFocusScale;
+            screenFocusRoot.localScale = Vector3.one;
     }
 
     private void PlayRailEnter()
     {
         if (screenRailBlock != null)
-            screenRailBlock.PlayEnter(ResolveScreenWorldPosition(), NormalizeDirection(screenRailDirection));
+            screenRailBlock.PlayEnter(screenDockPosition, NormalizeDirection(screenRailDirection));
         if (presenterRailBlock != null)
-            presenterRailBlock.PlayEnter(ResolvePresenterWorldPosition(), NormalizeDirection(presenterRailDirection));
+            presenterRailBlock.PlayEnter(presenterDockPosition, NormalizeDirection(presenterRailDirection));
     }
 
     private void PlayRailExit()
@@ -545,8 +585,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (mapScreenRect != null)
             mapScreenRect.gameObject.SetActive(map);
 
-        // BattleSpatialMapController가 직접 들고 있는 실제 노드 Root입니다.
-        // Map 모드에서 부모 화면과 함께 활성 상태를 보장합니다.
         if (mapSelectionRect != null && map)
             mapSelectionRect.gameObject.SetActive(true);
     }
@@ -574,18 +612,96 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         group.blocksRaycasts = interactive;
     }
 
-    private Vector3 ResolveScreenWorldPosition()
+    // ------------------------------------------------------------------
+    // Camera fit / world placement
+    // ------------------------------------------------------------------
+
+    private void ApplyCameraFitAndDockTargets()
     {
-        Vector3 center = ResolveBaseCenter();
-        center += (Vector3)screenWorldOffset;
-        return center;
+        float baseScale = 1f / Mathf.Max(16f, worldPixelsPerUnit);
+        currentCameraFitScale = CalculateCameraFitScale(baseScale);
+
+        if (worldCanvasRect != null)
+        {
+            float scale = baseScale * currentCameraFitScale;
+            worldCanvasRect.localScale = new Vector3(scale, scale, 1f);
+        }
+
+        Vector3 baseCenter = ResolveBaseCenter();
+        lastDockBaseCenter = baseCenter;
+        screenDockPosition = ResolveScreenDockPosition(baseCenter, baseScale * currentCameraFitScale);
+        presenterDockPosition = ResolvePresenterDockPosition(baseCenter);
     }
 
-    private Vector3 ResolvePresenterWorldPosition()
+    private float CalculateCameraFitScale(float baseWorldPerPixel)
     {
-        Vector3 center = ResolveBaseCenter();
-        center += (Vector3)presenterWorldOffset;
-        return center;
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic)
+            return 1f;
+
+        float cameraHeight = camera.orthographicSize * 2f;
+        float cameraWidth = cameraHeight * Mathf.Max(0.1f, camera.aspect);
+        float allowedWidth = Mathf.Max(1f, cameraWidth * maxViewportWidthRatio - cameraViewportMargin * 2f);
+        float allowedHeight = Mathf.Max(1f, cameraHeight * maxViewportHeightRatio - cameraViewportMargin * 2f);
+
+        // 호버 확대까지 계산해서 확대 순간 다시 화면 밖으로 잘리지 않게 합니다.
+        float nominalWidth = worldCanvasSize.x * baseWorldPerPixel * Mathf.Max(1f, cursorFocusScale);
+        float nominalHeight = worldCanvasSize.y * baseWorldPerPixel * Mathf.Max(1f, cursorFocusScale);
+        float fit = Mathf.Min(
+            1f,
+            Mathf.Min(
+                allowedWidth / Mathf.Max(0.01f, nominalWidth),
+                allowedHeight / Mathf.Max(0.01f, nominalHeight)));
+
+        return Mathf.Clamp(fit, minimumCameraFitScale, 1f);
+    }
+
+    private Vector3 ResolveScreenDockPosition(Vector3 baseCenter, float worldScale)
+    {
+        Vector3 preferred = baseCenter + (Vector3)screenWorldOffset;
+        Vector2 halfExtents = new(
+            worldCanvasSize.x * worldScale * Mathf.Max(1f, cursorFocusScale) * 0.5f,
+            worldCanvasSize.y * worldScale * Mathf.Max(1f, cursorFocusScale) * 0.5f);
+        return ClampPointInsideCamera(preferred, halfExtents);
+    }
+
+    private Vector3 ResolvePresenterDockPosition(Vector3 baseCenter)
+    {
+        Vector3 preferred = baseCenter + (Vector3)presenterWorldOffset;
+        float aspect = 0.65f;
+        if (presenterRenderer != null && presenterRenderer.sprite != null &&
+            presenterRenderer.sprite.bounds.size.y > 0.0001f)
+        {
+            aspect = Mathf.Abs(
+                presenterRenderer.sprite.bounds.size.x /
+                presenterRenderer.sprite.bounds.size.y);
+        }
+
+        Vector2 halfExtents = new(
+            presenterWorldHeight * Mathf.Max(0.25f, aspect) * 0.5f,
+            presenterWorldHeight * 0.5f);
+        return ClampPointInsideCamera(preferred, halfExtents);
+    }
+
+    private Vector3 ClampPointInsideCamera(Vector3 preferred, Vector2 halfExtents)
+    {
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic)
+            return preferred;
+
+        Vector3 center = camera.transform.position;
+        float cameraHalfHeight = camera.orthographicSize;
+        float cameraHalfWidth = cameraHalfHeight * Mathf.Max(0.1f, camera.aspect);
+
+        float left = center.x - cameraHalfWidth + cameraViewportMargin + halfExtents.x;
+        float right = center.x + cameraHalfWidth - cameraViewportMargin - halfExtents.x;
+        float bottom = center.y - cameraHalfHeight + cameraViewportMargin + halfExtents.y;
+        float top = center.y + cameraHalfHeight - cameraViewportMargin - halfExtents.y;
+
+        Vector3 result = preferred;
+        result.x = left <= right ? Mathf.Clamp(preferred.x, left, right) : center.x;
+        result.y = bottom <= top ? Mathf.Clamp(preferred.y, bottom, top) : center.y;
+        return result;
     }
 
     private Vector3 ResolveBaseCenter()
@@ -606,11 +722,21 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (railTransitioning || currentMode == ShowMode.None)
             return;
 
-        if (screenRailRoot != null && screenRailRoot.activeSelf)
-            screenRailRoot.transform.position = ResolveScreenWorldPosition();
-        if (presenterRailRoot != null && presenterRailRoot.activeSelf)
-            presenterRailRoot.transform.position = ResolvePresenterWorldPosition();
+        Vector3 baseCenter = ResolveBaseCenter();
+        // 카메라 추적 때문에 TV가 화면을 따라다니지 않도록 Base 자체가 바뀐 경우에만 재도킹합니다.
+        if (Vector2.Distance(baseCenter, lastDockBaseCenter) > 0.20f)
+        {
+            ApplyCameraFitAndDockTargets();
+            if (screenRailRoot != null && screenRailRoot.activeSelf)
+                screenRailRoot.transform.position = screenDockPosition;
+            if (presenterRailRoot != null && presenterRailRoot.activeSelf)
+                presenterRailRoot.transform.position = presenterDockPosition;
+        }
     }
+
+    // ------------------------------------------------------------------
+    // Cursor focus
+    // ------------------------------------------------------------------
 
     private void UpdateCursorFocus()
     {
@@ -637,6 +763,221 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         screenFocusRoot.localScale = Vector3.one * currentFocusScale;
     }
 
+    // ------------------------------------------------------------------
+    // Map START / selectable readability
+    // ------------------------------------------------------------------
+
+    private void EnsureMapReadabilityDecorations()
+    {
+        if (currentMode != ShowMode.Map || mapSelectionRect == null || !mapSelectionRect.gameObject.activeInHierarchy)
+            return;
+        if (Time.unscaledTime < nextMapDecorationTime)
+            return;
+
+        nextMapDecorationTime = Time.unscaledTime + Mathf.Max(0.02f, mapDecorationInterval);
+
+        List<RectTransform> nodes = CollectStageNodes();
+        if (nodes.Count == 0)
+            return;
+
+        for (int i = 0; i < nodes.Count; i++)
+            DecorateSelectableNode(nodes[i]);
+
+        if (mapSelectionRect.Find("StageStartMarker") != null)
+            return;
+
+        float minX = float.MaxValue;
+        for (int i = 0; i < nodes.Count; i++)
+            minX = Mathf.Min(minX, nodes[i].anchoredPosition.x);
+
+        List<RectTransform> firstNodes = new();
+        float firstYSum = 0f;
+        for (int i = 0; i < nodes.Count; i++)
+        {
+            if (Mathf.Abs(nodes[i].anchoredPosition.x - minX) > 1.5f)
+                continue;
+            firstNodes.Add(nodes[i]);
+            firstYSum += nodes[i].anchoredPosition.y;
+        }
+
+        if (firstNodes.Count == 0)
+            return;
+
+        float firstY = firstYSum / firstNodes.Count;
+        float panelLeft = mapSelectionRect.rect.xMin;
+        float desiredX = minX - mapStartGap;
+        float minimumX = panelLeft + mapStartSize.x * 0.5f + 16f;
+        float startX = Mathf.Max(minimumX, desiredX);
+
+        // 공간이 너무 좁으면 첫 노드와 겹치지 않는 범위에서 START를 최대한 좌측에 고정합니다.
+        if (startX > minX - mapStartSize.x * 0.65f)
+            startX = Mathf.Min(minX - mapStartSize.x * 0.65f, minimumX);
+
+        Vector2 startPosition = new(startX, firstY);
+        CreateStartMarker(startPosition);
+
+        Vector2 lineStart = startPosition + Vector2.right * (mapStartSize.x * 0.5f + 4f);
+        for (int i = 0; i < firstNodes.Count; i++)
+            CreateMapLine(lineStart, firstNodes[i].anchoredPosition, "StartRouteLink");
+    }
+
+    private List<RectTransform> CollectStageNodes()
+    {
+        List<RectTransform> result = new();
+        if (mapSelectionRect == null)
+            return result;
+
+        for (int i = 0; i < mapSelectionRect.childCount; i++)
+        {
+            Transform child = mapSelectionRect.GetChild(i);
+            if (child == null || !child.name.StartsWith("StageNode_", StringComparison.Ordinal))
+                continue;
+
+            RectTransform rect = child as RectTransform;
+            if (rect != null)
+                result.Add(rect);
+        }
+
+        return result;
+    }
+
+    private void DecorateSelectableNode(RectTransform node)
+    {
+        if (node == null)
+            return;
+
+        Button button = node.GetComponent<Button>();
+        if (button == null)
+            return;
+
+        node.sizeDelta = new Vector2(
+            Mathf.Max(node.sizeDelta.x, selectableNodeMinSize),
+            Mathf.Max(node.sizeDelta.y, selectableNodeMinSize));
+
+        Outline outline = node.GetComponent<Outline>();
+        if (outline != null)
+        {
+            outline.effectColor = selectableNodeAccent;
+            outline.effectDistance = new Vector2(3f, -3f);
+        }
+
+        ColorBlock colors = button.colors;
+        colors.highlightedColor = Color.white;
+        colors.pressedColor = new Color(1f, 0.86f, 0.50f, 1f);
+        colors.selectedColor = colors.highlightedColor;
+        button.colors = colors;
+
+        if (node.Find("SelectableClickPrompt") != null)
+            return;
+
+        GameObject prompt = new("SelectableClickPrompt");
+        prompt.transform.SetParent(node, false);
+        RectTransform promptRect = prompt.AddComponent<RectTransform>();
+        promptRect.anchorMin = promptRect.anchorMax = new Vector2(0.5f, 1f);
+        promptRect.pivot = new Vector2(0.5f, 0f);
+        promptRect.anchoredPosition = new Vector2(0f, 12f);
+        promptRect.sizeDelta = new Vector2(96f, 24f);
+
+        Text text = prompt.AddComponent<Text>();
+        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.text = "▼  CLICK!";
+        text.fontSize = 12;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = selectableNodeAccent;
+        text.raycastTarget = false;
+
+        CanvasGroup group = prompt.AddComponent<CanvasGroup>();
+        group.blocksRaycasts = false;
+        group.interactable = false;
+    }
+
+    private void CreateStartMarker(Vector2 position)
+    {
+        if (mapSelectionRect == null)
+            return;
+
+        GameObject marker = new("StageStartMarker");
+        marker.transform.SetParent(mapSelectionRect, false);
+
+        RectTransform rect = marker.AddComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = position;
+        rect.sizeDelta = mapStartSize;
+
+        Image image = marker.AddComponent<Image>();
+        image.color = mapStartColor;
+        image.raycastTarget = false;
+
+        Outline outline = marker.AddComponent<Outline>();
+        outline.effectColor = Color.white;
+        outline.effectDistance = new Vector2(2f, -2f);
+
+        Text text = CreateSimpleText(marker.transform, "START!  ▶", 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        if (text != null)
+            StretchRect(text.rectTransform);
+    }
+
+    private void CreateMapLine(Vector2 from, Vector2 to, string objectName)
+    {
+        if (mapSelectionRect == null)
+            return;
+
+        Vector2 delta = to - from;
+        float length = delta.magnitude;
+        if (length < 1f)
+            return;
+
+        GameObject line = new(objectName);
+        line.transform.SetParent(mapSelectionRect, false);
+        Image image = line.AddComponent<Image>();
+        image.color = mapStartLinkColor;
+        image.raycastTarget = false;
+
+        RectTransform rect = line.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = (from + to) * 0.5f;
+        rect.sizeDelta = new Vector2(length, 5f);
+        rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+        line.transform.SetAsFirstSibling();
+    }
+
+    private void AnimateMapReadability()
+    {
+        if (currentMode != ShowMode.Map || mapSelectionRect == null || !mapSelectionRect.gameObject.activeInHierarchy)
+            return;
+
+        float wave = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 5.5f);
+        float pulse = Mathf.Lerp(1f, 1.055f, wave);
+        float alpha = Mathf.Lerp(0.62f, 1f, wave);
+
+        Transform start = mapSelectionRect.Find("StageStartMarker");
+        if (start != null)
+            start.localScale = Vector3.one * Mathf.Lerp(1f, 1.035f, wave);
+
+        for (int i = 0; i < mapSelectionRect.childCount; i++)
+        {
+            Transform child = mapSelectionRect.GetChild(i);
+            if (child == null || !child.name.StartsWith("StageNode_", StringComparison.Ordinal))
+                continue;
+
+            Transform prompt = child.Find("SelectableClickPrompt");
+            if (prompt == null)
+                continue;
+
+            prompt.localScale = Vector3.one * pulse;
+            CanvasGroup group = prompt.GetComponent<CanvasGroup>();
+            if (group != null)
+                group.alpha = alpha;
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Presenter
+    // ------------------------------------------------------------------
+
     private void UpdatePresenterVisual()
     {
         if (hud == null || presenterRenderer == null || presenterVisual == null)
@@ -651,6 +992,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             lastPresenterSprite = sprite;
             presenterRenderer.sprite = sprite;
             ApplyPresenterWorldScale(sprite);
+
+            if (!railTransitioning && currentMode != ShowMode.None)
+                presenterDockPosition = ResolvePresenterDockPosition(lastDockBaseCenter);
         }
 
         if (HudPresenterColorField != null && HudPresenterColorField.GetValue(hud) is Color color)
@@ -794,5 +1138,40 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         return null;
+    }
+
+    private static Text CreateSimpleText(
+        Transform parent,
+        string value,
+        int fontSize,
+        FontStyle style,
+        TextAnchor anchor,
+        Color color)
+    {
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
+            return null;
+
+        GameObject go = new("Text");
+        go.transform.SetParent(parent, false);
+        Text text = go.AddComponent<Text>();
+        text.font = font;
+        text.text = value;
+        text.fontSize = fontSize;
+        text.fontStyle = style;
+        text.alignment = anchor;
+        text.color = color;
+        text.raycastTarget = false;
+        return text;
+    }
+
+    private static void StretchRect(RectTransform rect)
+    {
+        if (rect == null)
+            return;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 }
