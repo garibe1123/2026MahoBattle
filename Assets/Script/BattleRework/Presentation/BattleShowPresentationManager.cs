@@ -3,110 +3,81 @@ using System.Collections;
 using System.Collections.Generic;
 using DG.Tweening;
 using UnityEngine;
-using UnityEngine.Serialization;
 using UnityEngine.UI;
 
 /// <summary>
-/// Scene-authored presentation controller for the battle-show layer.
-/// Attach this component to one Empty GameObject and assign the art from Inspector.
+/// 전투 쇼 연출의 중앙 통제 매니저입니다.
+/// 씬에 Empty GameObject 하나를 만들고 이 컴포넌트를 붙인 뒤,
+/// Default Floor Template에 BattleShowFloorTemplateSO를 할당해서 사용합니다.
 ///
-/// Responsibilities:
-/// - random 32px floor variants for incoming show slabs
-/// - six-part sliding template: upper/lower plates + left/right/upper/lower handles
-/// - presenter sprite-sheet playback
-/// - bird-eye spotlight sprite-sheet playback
-/// - one-shot show cues such as "LET'S ROLL!" and "CUT!"
+/// 담당 범위:
+/// - SO 기반 32px 슬라이드 바닥 / 위판 / 아래판 / 4방향 핸들 조립
+/// - MapBlock 도킹 순간 핸들 '찰칵' 반동
+/// - 사회자 Sprite Sheet 재생
+/// - 버드아이뷰 조명 Sprite Sheet 재생
+/// - LET'S ROLL! / CUT! 컷인 재생
 ///
-/// BattleStageTransitionController still owns movement/topology.
-/// This manager only controls replaceable presentation art and timing.
+/// 실제 바닥의 이동과 위치 계산은 BattleStageTransitionController / MapBlock이 담당하고,
+/// 이 스크립트는 아트와 연출 타이밍만 통제합니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleShowPresentationManager : MonoBehaviour
 {
-    public enum HandlePlacementMode
-    {
-        ContactSideOnly,
-        AllFourSides,
-        None
-    }
-
     public static BattleShowPresentationManager Instance { get; private set; }
 
-    [Header("Sliding Floor / Template - 32px")]
-    [Tooltip("Random interior floor tile variants. Expected: 32x32 px, PPU 32.")]
-    [SerializeField] private Sprite[] floorVariants;
+    [Header("기본 쇼 바닥 템플릿")]
+    [Tooltip("굴러오는 쇼 바닥에 기본으로 사용할 SO입니다. Project 창에서 Create > Battle > Show > Floor Template으로 만든 뒤, 현재 제작한 위판/아래판/핸들/랜덤 바닥 Sprite를 넣어 할당합니다.")]
+    [SerializeField] private BattleShowFloorTemplateSO defaultFloorTemplate;
 
-    [Tooltip("MANDATORY upper plate. Repeated across the entire upper edge of every sliding slab. It always sits one full 32px row above the floor body.")]
-    [FormerlySerializedAs("upperEdgeSprite32")]
-    [SerializeField] private Sprite upperPlateSprite32;
-
-    [Tooltip("Lower plate. Repeated across the entire lower edge of every sliding slab.")]
-    [FormerlySerializedAs("lowerEdgeSprite32")]
-    [SerializeField] private Sprite lowerPlateSprite32;
-
-    [Tooltip("32px handle used when the block connects on its left side.")]
-    [SerializeField] private Sprite leftHandleSprite32;
-
-    [Tooltip("32px handle used when the block connects on its right side.")]
-    [SerializeField] private Sprite rightHandleSprite32;
-
-    [Tooltip("32px handle used when the block connects on its upper side.")]
-    [SerializeField] private Sprite upperHandleSprite32;
-
-    [Tooltip("32px handle used when the block connects on its lower side.")]
-    [SerializeField] private Sprite lowerHandleSprite32;
-
-    [Tooltip("Reward slabs currently arrive from screen-right, so the left handle is the actual contact handle.")]
-    [SerializeField] private HandlePlacementMode rewardHandlePlacement = HandlePlacementMode.ContactSideOnly;
-
-    [SerializeField] private Color floorTint = Color.white;
-    [SerializeField] private Color plateTint = Color.white;
-    [SerializeField] private Color handleTint = Color.white;
-
-    [Header("Sliding Template Sorting")]
-    [SerializeField] private int floorSortingOrder = -18;
-    [SerializeField] private int lowerPlateSortingOrder = -17;
-    [Tooltip("Upper plate is forcibly kept above the floor body, even if this value is set too low.")]
-    [SerializeField] private int upperPlateSortingOrder = -15;
-    [SerializeField] private int handleSortingOrder = -14;
-
-    [Header("Sliding Template Placement")]
-    [Tooltip("Local tile-space offset for side handles from the slab border.")]
-    [SerializeField, Range(0.5f, 1.5f)] private float sideHandleDistance = 1f;
-    [Tooltip("Local tile-space offset from the upper/lower plate row for vertical handles.")]
-    [SerializeField, Range(0.5f, 1.5f)] private float verticalHandleDistance = 1f;
-
-    [Header("Dock Click")]
-    [Tooltip("Small visual snap on the contact handle when MapBlock reports its docking impact.")]
-    [SerializeField, Range(0f, 0.35f)] private float dockHandlePunch = 0.14f;
-    [SerializeField, Min(0.03f)] private float dockHandlePunchDuration = 0.14f;
-    [SerializeField, Range(1, 12)] private int dockHandlePunchVibrato = 4;
-
-    [Header("Presenter Sprite Sheet")]
-    [Tooltip("Put sliced presenter sprite-sheet frames here in playback order.")]
+    [Header("사회자 Sprite Sheet")]
+    [Tooltip("사회자 애니메이션의 잘라진 Sprite 프레임을 재생 순서대로 넣습니다. 비어 있으면 BattleHUD에 설정된 기본 사회자 Sprite를 그대로 사용합니다.")]
     [SerializeField] private Sprite[] presenterFrames;
+
+    [Tooltip("사회자 애니메이션의 초당 프레임 수입니다. 예: 8이면 1초에 8프레임을 재생합니다.")]
     [SerializeField, Min(1f)] private float presenterFps = 8f;
+
+    [Tooltip("켜면 사회자 Sprite Sheet를 마지막 프레임 뒤에 처음부터 반복 재생합니다.")]
     [SerializeField] private bool presenterLoop = true;
+
+    [Tooltip("켜면 보상 선택 상태에 진입했을 때 사회자 애니메이션을 자동으로 시작합니다.")]
     [SerializeField] private bool autoPlayPresenterDuringReward = true;
 
-    [Header("Spotlight Sprite Sheet")]
-    [Tooltip("Optional bird-eye floor-light animation frames. If empty, BattleHUD keeps its generated soft ellipse.")]
+    [Header("버드아이뷰 조명 Sprite Sheet")]
+    [Tooltip("플레이어와 사회자 발밑 조명에 사용할 Sprite Sheet 프레임입니다. 비어 있으면 BattleHUD가 만드는 기본 타원형 조명을 사용합니다.")]
     [SerializeField] private Sprite[] spotlightFrames;
+
+    [Tooltip("조명 Sprite Sheet의 초당 프레임 수입니다.")]
     [SerializeField, Min(1f)] private float spotlightFps = 10f;
+
+    [Tooltip("켜면 조명 Sprite Sheet를 반복 재생합니다.")]
     [SerializeField] private bool spotlightLoop = true;
+
+    [Tooltip("켜면 보상 선택 상태에 진입했을 때 플레이어/사회자 조명 애니메이션을 자동으로 시작합니다.")]
     [SerializeField] private bool autoPlaySpotlightDuringReward = true;
 
-    [Header("Show Cue Sprite Sheets")]
-    [Tooltip("Sliced frames for LET'S ROLL!. Automatically plays when entering a Combat/Elite node.")]
+    [Header("쇼 컷인 Sprite Sheet")]
+    [Tooltip("전투/엘리트 노드가 시작될 때 재생할 LET'S ROLL! 컷인 프레임입니다. 비어 있으면 아무것도 재생하지 않습니다.")]
     [SerializeField] private Sprite[] letsRollFrames;
-    [Tooltip("Sliced frames for CUT!. Automatically plays when combat ends and reward selection starts.")]
+
+    [Tooltip("전투가 끝나고 보상 선택으로 넘어갈 때 재생할 CUT! 컷인 프레임입니다. 비어 있으면 아무것도 재생하지 않습니다.")]
     [SerializeField] private Sprite[] cutFrames;
+
+    [Tooltip("LET'S ROLL! / CUT! 컷인의 초당 프레임 수입니다.")]
     [SerializeField, Min(1f)] private float cueFps = 12f;
+
+    [Tooltip("컷인 이미지가 화면에서 차지하는 UI 크기입니다. 기준 해상도는 1920x1080입니다.")]
     [SerializeField] private Vector2 cueSize = new(900f, 360f);
+
+    [Tooltip("컷인 이미지의 화면 기준 위치입니다. (0,0)=좌하단, (0.5,0.5)=중앙, (1,1)=우상단입니다.")]
     [SerializeField] private Vector2 cueAnchor = new(0.5f, 0.58f);
+
+    [Tooltip("Cue Anchor를 기준으로 컷인 위치를 추가로 이동시키는 픽셀 오프셋입니다.")]
     [SerializeField] private Vector2 cueOffset = Vector2.zero;
+
+    [Tooltip("컷인 전용 Canvas의 Sorting Order입니다. BattleHUD보다 앞에 보여야 하므로 기본값은 높게 잡혀 있습니다.")]
     [SerializeField] private int cueCanvasSortingOrder = 900;
 
+    private BattleShowFloorTemplateSO runtimeFloorTemplate;
     private BattleRunManager runManager;
     private BattleHUD hud;
     private Image playerSpotlightImage;
@@ -121,39 +92,17 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private bool rewardPresentationActive;
     private bool subscribed;
+    private bool warnedMissingTemplate;
+    private bool warnedMissingUpperPlate;
 
     private readonly HashSet<MapBlock> decoratedBlocks = new();
-
-    private bool warnedUpperPlate;
-    private bool warnedLowerPlate;
-    private bool warnedLeftHandle;
-    private bool warnedRightHandle;
-    private bool warnedUpperHandle;
-    private bool warnedLowerHandle;
-
     private static Sprite fallback32;
 
-    public Color FloorTint => floorTint;
-    public Color PlateTint => plateTint;
-    public Color HandleTint => handleTint;
+    /// <summary>런타임 임시 교체가 없으면 Inspector의 Default Floor Template을 사용합니다.</summary>
+    public BattleShowFloorTemplateSO ActiveFloorTemplate =>
+        runtimeFloorTemplate != null ? runtimeFloorTemplate : defaultFloorTemplate;
 
-    public Sprite UpperPlateSprite32 => upperPlateSprite32 != null ? upperPlateSprite32 : Default32Sprite;
-    public Sprite LowerPlateSprite32 => lowerPlateSprite32;
-    public Sprite LeftHandleSprite32 => leftHandleSprite32;
-    public Sprite RightHandleSprite32 => rightHandleSprite32;
-    public Sprite UpperHandleSprite32 => upperHandleSprite32;
-    public Sprite LowerHandleSprite32 => lowerHandleSprite32;
-    public bool HasFloorVariants => floorVariants != null && floorVariants.Length > 0;
-
-    /// <summary>
-    /// Upper plate must always read above the floor body.
-    /// Handles are allowed above it because they are mechanical overlays.
-    /// </summary>
-    private int EffectiveUpperPlateSortingOrder =>
-        Mathf.Max(upperPlateSortingOrder, floorSortingOrder + 2);
-
-    private int EffectiveHandleSortingOrder =>
-        Mathf.Max(handleSortingOrder, EffectiveUpperPlateSortingOrder + 1);
+    public BattleShowFloorTemplateSO DefaultFloorTemplate => defaultFloorTemplate;
 
     private static Sprite Default32Sprite
     {
@@ -184,7 +133,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 pixels,
                 0,
                 SpriteMeshType.FullRect);
-
             fallback32.name = "RuntimeShowDefault32";
             fallback32.hideFlags = HideFlags.HideAndDontSave;
             return fallback32;
@@ -195,7 +143,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         if (Instance != null && Instance != this)
         {
-            Debug.LogWarning("[BattleShowPresentationManager] Multiple managers found. Keeping the first one.", this);
+            Debug.LogWarning("[BattleShowPresentationManager] 여러 Manager가 존재합니다. 먼저 생성된 Manager만 사용합니다.", this);
             enabled = false;
             return;
         }
@@ -245,6 +193,31 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         CleanupDecoratedBlocks();
     }
 
+    /// <summary>
+    /// 런타임 중 특정 스테이지/테마의 다른 바닥 SO로 잠시 교체할 때 사용합니다.
+    /// null을 넘기면 다시 Default Floor Template을 사용합니다.
+    /// </summary>
+    public void SetFloorTemplate(BattleShowFloorTemplateSO template, bool refreshExisting = true)
+    {
+        runtimeFloorTemplate = template;
+        warnedMissingTemplate = false;
+        warnedMissingUpperPlate = false;
+
+        if (refreshExisting)
+            RefreshSlidingFloorArt();
+    }
+
+    /// <summary>런타임 바닥 SO 교체를 해제하고 Inspector의 기본 SO로 되돌립니다.</summary>
+    public void ResetFloorTemplate(bool refreshExisting = true)
+    {
+        runtimeFloorTemplate = null;
+        warnedMissingTemplate = false;
+        warnedMissingUpperPlate = false;
+
+        if (refreshExisting)
+            RefreshSlidingFloorArt();
+    }
+
     private void ResolveReferences()
     {
         if (runManager == null)
@@ -262,7 +235,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         runManager.NodeEntered += HandleNodeEntered;
         runManager.RewardSelectionRequested += HandleRewardSelectionRequested;
         subscribed = true;
-
         HandleRunStateChanged(runManager.State);
     }
 
@@ -318,18 +290,19 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------------
-    // Sliding floor/template artwork
+    // SO 기반 슬라이드 바닥 / 기계식 템플릿
     // ------------------------------------------------------------------
 
     public Sprite GetRandomFloorSprite(Sprite fallback = null)
     {
-        if (floorVariants == null || floorVariants.Length == 0)
+        Sprite[] variants = ActiveFloorTemplate != null ? ActiveFloorTemplate.FloorVariants : null;
+        if (variants == null || variants.Length == 0)
             return fallback;
 
-        int start = UnityEngine.Random.Range(0, floorVariants.Length);
-        for (int i = 0; i < floorVariants.Length; i++)
+        int start = UnityEngine.Random.Range(0, variants.Length);
+        for (int i = 0; i < variants.Length; i++)
         {
-            Sprite sprite = floorVariants[(start + i) % floorVariants.Length];
+            Sprite sprite = variants[(start + i) % variants.Length];
             if (sprite != null)
                 return sprite;
         }
@@ -337,9 +310,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return fallback;
     }
 
-    /// <summary>
-    /// Re-scans the temporary reward floor. Useful after changing art at runtime.
-    /// </summary>
+    /// <summary>현재 존재하는 RewardShowSlab에 활성 SO의 아트를 다시 적용합니다.</summary>
     public void RefreshSlidingFloorArt()
     {
         if (floorDecorateRoutine != null)
@@ -349,9 +320,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Public hook for any future cardinal sliding MapBlock.
-    /// contactSide is the face that physically meets the already-occupied floor:
-    /// left/right/up/down.
+    /// 향후 상/하/좌/우에서 들어오는 다른 MapBlock에도 같은 템플릿을 재사용할 수 있는 공개 함수입니다.
+    /// contactSide에는 기존 바닥과 실제로 맞물리는 면(Vector2.left/right/up/down)을 넘깁니다.
     /// </summary>
     public void ApplySlidingTemplate(MapBlock block, Vector2 contactSide, bool rebuild = false)
     {
@@ -363,8 +333,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private IEnumerator DecorateIncomingShowFloorNextFrame(bool rebuild = false)
     {
-        // RewardSelectionRequested may fire before or after the transition controller.
-        // One frame is enough because the slabs are created and immediately moved from offscreen.
+        // RewardSelectionRequested와 StageTransitionController의 호출 순서와 무관하게
+        // 실제 Slab 생성이 끝난 뒤 장식하도록 한 프레임 기다립니다.
         yield return null;
 
         Transform[] transforms = FindObjectsByType<Transform>(
@@ -377,8 +347,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             if (root == null || !root.name.StartsWith("RewardShowSlab_", StringComparison.Ordinal))
                 continue;
 
-            // Reward slabs currently come from screen-right toward the Base,
-            // so their left face is the physical click/contact face.
+            // 현재 Reward Slab은 화면 오른쪽에서 왼쪽으로 들어오므로 왼쪽 면이 실제 체결면입니다.
             DecorateSlidingBlock(root, Vector2.left, rebuild);
         }
 
@@ -407,11 +376,17 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             Destroy(oldTemplate.gameObject);
         }
 
+        BattleShowFloorTemplateSO template = ActiveFloorTemplate;
+        WarnTemplateState(template);
+
         int minX = int.MaxValue;
         int maxX = int.MinValue;
         int minY = int.MaxValue;
         int maxY = int.MinValue;
         bool foundTile = false;
+
+        Color floorTint = template != null ? template.FloorTint : Color.white;
+        int floorSorting = template != null ? template.FloorSortingOrder : -18;
 
         for (int i = 0; i < visual.childCount; i++)
         {
@@ -428,11 +403,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 renderer.sprite = randomFloor;
 
             renderer.color = floorTint;
-            renderer.sortingOrder = floorSortingOrder;
+            renderer.sortingOrder = floorSorting;
 
             int x = Mathf.RoundToInt(child.localPosition.x);
             int y = Mathf.RoundToInt(child.localPosition.y);
-
             minX = Mathf.Min(minX, x);
             maxX = Mathf.Max(maxX, x);
             minY = Mathf.Min(minY, y);
@@ -443,45 +417,45 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (!foundTile)
             return;
 
-        WarnMissingTemplateSprites();
-
         GameObject templateObject = new("PresentationTemplate");
         templateObject.transform.SetParent(visual, false);
         Transform templateRoot = templateObject.transform;
 
-        // Plate rows are extension rows, not replacements for the walkable body.
-        // The mandatory upper plate therefore always occupies maxY + 1.
+        Sprite upperPlate = template != null && template.UpperPlateSprite32 != null
+            ? template.UpperPlateSprite32
+            : Default32Sprite;
+        Sprite lowerPlate = template != null ? template.LowerPlateSprite32 : null;
+        Color plateTint = template != null ? template.PlateTint : Color.white;
+        int upperSort = template != null
+            ? Mathf.Max(template.UpperPlateSortingOrder, floorSorting + 2)
+            : floorSorting + 2;
+        int lowerSort = template != null ? template.LowerPlateSortingOrder : floorSorting + 1;
+
+        // 위 판은 '디폴트 템플릿의 필수 부품'입니다.
+        // 본체 최상단의 1타일 위(maxY + 1)에 전체 폭만큼 반드시 반복 배치합니다.
         for (int x = minX; x <= maxX; x++)
         {
             CreateTemplateSprite(
                 templateRoot,
                 $"UpperPlate_{x}",
                 new Vector3(x, maxY + 1f, 0f),
-                UpperPlateSprite32,
+                upperPlate,
                 plateTint,
-                EffectiveUpperPlateSortingOrder);
+                upperSort);
 
-            if (lowerPlateSprite32 != null)
+            if (lowerPlate != null)
             {
                 CreateTemplateSprite(
                     templateRoot,
                     $"LowerPlate_{x}",
                     new Vector3(x, minY - 1f, 0f),
-                    lowerPlateSprite32,
+                    lowerPlate,
                     plateTint,
-                    lowerPlateSortingOrder);
+                    lowerSort);
             }
         }
 
-        CreateHandles(
-            templateRoot,
-            minX,
-            maxX,
-            minY,
-            maxY,
-            contactSide,
-            rewardHandlePlacement);
-
+        CreateHandles(templateRoot, minX, maxX, minY, maxY, contactSide, template, upperSort);
         SubscribeDockImpact(slabRoot.GetComponent<MapBlock>());
     }
 
@@ -492,70 +466,43 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         int minY,
         int maxY,
         Vector2 contactSide,
-        HandlePlacementMode placementMode)
+        BattleShowFloorTemplateSO template,
+        int upperPlateSorting)
     {
-        if (placementMode == HandlePlacementMode.None)
+        if (template == null || template.HandlePlacement == BattleShowHandlePlacementMode.None)
             return;
 
+        bool all = template.HandlePlacement == BattleShowHandlePlacementMode.AllFourSides;
+        Vector2 side = NormalizeCardinal(contactSide);
         float midX = (minX + maxX) * 0.5f;
         float midY = (minY + maxY) * 0.5f;
-
-        bool all = placementMode == HandlePlacementMode.AllFourSides;
-        Vector2 side = NormalizeCardinal(contactSide);
+        int handleSorting = Mathf.Max(template.HandleSortingOrder, upperPlateSorting + 1);
 
         if (all || side == Vector2.left)
-        {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Left",
-                new Vector3(minX - sideHandleDistance, midY, 0f),
-                leftHandleSprite32);
-        }
+            CreateOptionalHandle(templateRoot, "DockHandle_Left", new Vector3(minX - template.SideHandleDistance, midY, 0f), template.LeftHandleSprite32, template, handleSorting);
 
         if (all || side == Vector2.right)
-        {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Right",
-                new Vector3(maxX + sideHandleDistance, midY, 0f),
-                rightHandleSprite32);
-        }
+            CreateOptionalHandle(templateRoot, "DockHandle_Right", new Vector3(maxX + template.SideHandleDistance, midY, 0f), template.RightHandleSprite32, template, handleSorting);
 
         if (all || side == Vector2.up)
-        {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Upper",
-                new Vector3(midX, maxY + 1f + verticalHandleDistance, 0f),
-                upperHandleSprite32);
-        }
+            CreateOptionalHandle(templateRoot, "DockHandle_Upper", new Vector3(midX, maxY + 1f + template.VerticalHandleDistance, 0f), template.UpperHandleSprite32, template, handleSorting);
 
         if (all || side == Vector2.down)
-        {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Lower",
-                new Vector3(midX, minY - 1f - verticalHandleDistance, 0f),
-                lowerHandleSprite32);
-        }
+            CreateOptionalHandle(templateRoot, "DockHandle_Lower", new Vector3(midX, minY - 1f - template.VerticalHandleDistance, 0f), template.LowerHandleSprite32, template, handleSorting);
     }
 
-    private void CreateOptionalHandle(
+    private static void CreateOptionalHandle(
         Transform parent,
         string objectName,
         Vector3 localPosition,
-        Sprite sprite)
+        Sprite sprite,
+        BattleShowFloorTemplateSO template,
+        int sortingOrder)
     {
-        if (sprite == null)
+        if (sprite == null || template == null)
             return;
 
-        CreateTemplateSprite(
-            parent,
-            objectName,
-            localPosition,
-            sprite,
-            handleTint,
-            EffectiveHandleSortingOrder);
+        CreateTemplateSprite(parent, objectName, localPosition, sprite, template.HandleTint, sortingOrder);
     }
 
     private static SpriteRenderer CreateTemplateSprite(
@@ -586,36 +533,33 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         decoratedBlocks.Add(block);
     }
 
-    private void HandleBlockImpacted(
-        MapBlock block,
-        Vector3 _,
-        Vector2 travelDirection,
-        float strength)
+    private void HandleBlockImpacted(MapBlock block, Vector3 _, Vector2 travelDirection, float strength)
     {
         if (block == null)
             return;
 
+        BattleShowFloorTemplateSO template = ActiveFloorTemplate;
+        if (template == null || template.DockHandlePunch <= 0.001f)
+            return;
+
         Transform visual = block.transform.Find("Visual");
-        Transform template = visual != null ? visual.Find("PresentationTemplate") : null;
-        if (template == null)
+        Transform presentationTemplate = visual != null ? visual.Find("PresentationTemplate") : null;
+        if (presentationTemplate == null)
             return;
 
         Vector2 contactSide = NormalizeCardinal(travelDirection);
-        Transform handle = FindHandle(template, contactSide);
+        Transform handle = FindHandle(presentationTemplate, contactSide);
         if (handle == null)
             return;
 
         handle.DOKill();
         handle.localScale = Vector3.one;
 
-        float punch = Mathf.Max(0f, dockHandlePunch) * Mathf.Clamp(strength, 0.45f, 1.8f);
-        if (punch <= 0.001f)
-            return;
-
+        float punch = template.DockHandlePunch * Mathf.Clamp(strength, 0.45f, 1.8f);
         handle.DOPunchScale(
                 new Vector3(punch, punch, 0f),
-                Mathf.Max(0.03f, dockHandlePunchDuration),
-                Mathf.Max(1, dockHandlePunchVibrato),
+                Mathf.Max(0.03f, template.DockHandlePunchDuration),
+                Mathf.Max(1, template.DockHandlePunchVibrato),
                 0.45f)
             .SetUpdate(true);
     }
@@ -625,15 +569,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (templateRoot == null)
             return null;
 
-        if (side == Vector2.left)
-            return templateRoot.Find("DockHandle_Left");
-        if (side == Vector2.right)
-            return templateRoot.Find("DockHandle_Right");
-        if (side == Vector2.up)
-            return templateRoot.Find("DockHandle_Upper");
-        if (side == Vector2.down)
-            return templateRoot.Find("DockHandle_Lower");
-
+        if (side == Vector2.left) return templateRoot.Find("DockHandle_Left");
+        if (side == Vector2.right) return templateRoot.Find("DockHandle_Right");
+        if (side == Vector2.up) return templateRoot.Find("DockHandle_Upper");
+        if (side == Vector2.down) return templateRoot.Find("DockHandle_Lower");
         return null;
     }
 
@@ -681,50 +620,23 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         decoratedBlocks.Clear();
     }
 
-    private void WarnMissingTemplateSprites()
+    private void WarnTemplateState(BattleShowFloorTemplateSO template)
     {
-        WarnOnce(
-            upperPlateSprite32 == null,
-            ref warnedUpperPlate,
-            "Upper Plate 32px is mandatory. A plain 32px Sprite-Default placeholder is being used.");
+        if (template == null && !warnedMissingTemplate)
+        {
+            warnedMissingTemplate = true;
+            Debug.LogWarning("[BattleShowPresentationManager] Default Floor Template SO가 비어 있습니다. 바닥 본체는 기존 Sprite를 유지하고 위 판은 임시 32px 사각형으로 표시합니다.", this);
+        }
 
-        WarnOnce(
-            lowerPlateSprite32 == null,
-            ref warnedLowerPlate,
-            "Lower Plate 32px is not assigned.");
-
-        WarnOnce(
-            leftHandleSprite32 == null,
-            ref warnedLeftHandle,
-            "Left Handle 32px is not assigned.");
-
-        WarnOnce(
-            rightHandleSprite32 == null,
-            ref warnedRightHandle,
-            "Right Handle 32px is not assigned.");
-
-        WarnOnce(
-            upperHandleSprite32 == null,
-            ref warnedUpperHandle,
-            "Upper Handle 32px is not assigned.");
-
-        WarnOnce(
-            lowerHandleSprite32 == null,
-            ref warnedLowerHandle,
-            "Lower Handle 32px is not assigned.");
-    }
-
-    private void WarnOnce(bool condition, ref bool warned, string message)
-    {
-        if (!condition || warned)
-            return;
-
-        warned = true;
-        Debug.LogWarning($"[BattleShowPresentationManager] {message}", this);
+        if ((template == null || template.UpperPlateSprite32 == null) && !warnedMissingUpperPlate)
+        {
+            warnedMissingUpperPlate = true;
+            Debug.LogWarning("[BattleShowPresentationManager] 위 판 Sprite는 필수입니다. 현재는 임시 32px Sprite-Default를 사용합니다.", this);
+        }
     }
 
     // ------------------------------------------------------------------
-    // Presenter
+    // 사회자 Sprite Sheet
     // ------------------------------------------------------------------
 
     public void PlayPresenterAnimation(bool restart = true)
@@ -737,7 +649,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         {
             if (!restart)
                 return;
-
             StopCoroutine(presenterRoutine);
         }
 
@@ -748,7 +659,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         if (presenterRoutine != null)
             StopCoroutine(presenterRoutine);
-
         presenterRoutine = null;
     }
 
@@ -768,7 +678,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             {
                 if (!presenterLoop)
                     break;
-
                 frame = 0;
             }
 
@@ -779,7 +688,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------------
-    // Bird-eye spotlight sprite-sheet playback
+    // 버드아이뷰 조명 Sprite Sheet
     // ------------------------------------------------------------------
 
     public void PlaySpotlightAnimation(bool restart = true)
@@ -793,7 +702,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         {
             if (!restart)
                 return;
-
             StopCoroutine(spotlightRoutine);
         }
 
@@ -804,7 +712,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         if (spotlightRoutine != null)
             StopCoroutine(spotlightRoutine);
-
         spotlightRoutine = null;
     }
 
@@ -816,13 +723,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         while (true)
         {
             ResolveHudSpotlightImages();
-
             Sprite sprite = spotlightFrames[frame];
+
             if (sprite != null)
             {
                 if (playerSpotlightImage != null)
                     playerSpotlightImage.sprite = sprite;
-
                 if (presenterSpotlightImage != null)
                     presenterSpotlightImage.sprite = sprite;
             }
@@ -832,7 +738,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             {
                 if (!spotlightLoop)
                     break;
-
                 frame = 0;
             }
 
@@ -865,7 +770,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     }
 
     // ------------------------------------------------------------------
-    // Show cues
+    // LET'S ROLL! / CUT! 컷인
     // ------------------------------------------------------------------
 
     public void PlayLetsRoll() => PlayCue(letsRollFrames);
@@ -889,7 +794,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             StopCoroutine(cueRoutine);
 
         cueRoutine = null;
-
         if (cueImage != null)
             cueImage.enabled = false;
     }
@@ -946,30 +850,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 #if UNITY_EDITOR
     private void OnValidate()
     {
-        Validate32PxSprite(upperPlateSprite32, "Upper Plate");
-        Validate32PxSprite(lowerPlateSprite32, "Lower Plate");
-        Validate32PxSprite(leftHandleSprite32, "Left Handle");
-        Validate32PxSprite(rightHandleSprite32, "Right Handle");
-        Validate32PxSprite(upperHandleSprite32, "Upper Handle");
-        Validate32PxSprite(lowerHandleSprite32, "Lower Handle");
-
-        if (floorVariants != null)
-        {
-            for (int i = 0; i < floorVariants.Length; i++)
-                Validate32PxSprite(floorVariants[i], $"Floor Variant {i}");
-        }
-    }
-
-    private void Validate32PxSprite(Sprite sprite, string label)
-    {
-        if (sprite == null)
-            return;
-
-        if (Mathf.RoundToInt(sprite.rect.width) != 32 ||
-            Mathf.RoundToInt(sprite.rect.height) != 32)
+        if (defaultFloorTemplate == null)
         {
             Debug.LogWarning(
-                $"[BattleShowPresentationManager] {label} is expected to be 32x32px: {sprite.name}",
+                "[BattleShowPresentationManager] Default Floor Template SO를 할당하세요. Create > Battle > Show > Floor Template에서 만들 수 있습니다.",
                 this);
         }
     }
