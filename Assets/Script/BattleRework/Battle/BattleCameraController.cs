@@ -34,13 +34,17 @@ public class BattleCameraController : MonoBehaviour
     [Tooltip("Reward Show stays wide enough for Player + screen + presenter + reward stage to read as one set.")]
     [SerializeField, Min(0.1f)] private float rewardShowZoom = 6.1f;
     [SerializeField, Min(0f)] private float rewardShowSharpness = 6f;
+    [Tooltip("선택 화면 진입/이탈 구도가 즉시 바뀌지 않도록 적용하는 전환 속도입니다.")]
+    [SerializeField, Min(0.5f)] private float selectionTransitionSharpness = 3.2f;
+    [Tooltip("선택 화면 전환 중 카메라가 한 프레임에 과도하게 이동하지 않도록 제한하는 초당 월드 거리입니다.")]
+    [SerializeField, Min(1f)] private float selectionTransitionMaxSpeed = 14f;
 
     [Header("Map Cursor Camera Tracking")]
     [Tooltip("커서가 맵 화면 안에 있을 때 사용하는 실제 카메라 줌입니다. 기본 맵 구도는 Reward Show 비율을 그대로 사용합니다.")]
-    [SerializeField, Min(0.1f)] private float mapCursorZoom = 5.45f;
+    [SerializeField, Min(0.1f)] private float mapCursorZoom = 5.15f;
     [Tooltip("맵 화면 안의 커서 방향으로 카메라가 이동하는 최대 월드 거리입니다.")]
     [SerializeField] private Vector2 mapCursorPanDistance = new(1.65f, 0.9f);
-    [SerializeField, Min(1f)] private float mapCursorTrackingSharpness = 6.5f;
+    [SerializeField, Min(1f)] private float mapCursorTrackingSharpness = 3.8f;
 
     [Header("Map Inspection")]
     [SerializeField] private int inspectionMouseButton = 2;
@@ -63,6 +67,7 @@ public class BattleCameraController : MonoBehaviour
     private bool mapCursorTracking;
     private Vector2 requestedMapCursorDirection;
     private Vector2 currentMapCursorPan;
+    private float selectionFramingBlend;
 
     public float CurrentZoom => controlledCamera != null ? controlledCamera.orthographicSize : 0f;
     public bool IsInspecting => inspecting;
@@ -314,6 +319,13 @@ public class BattleCameraController : MonoBehaviour
         bool mapSelectionFraming = rewardFraming && runManager != null &&
                                    runManager.State == BattleRunState.SelectingNode;
         bool activeMapTracking = mapSelectionFraming && mapCursorTracking;
+        float framingTarget = rewardFraming ? 1f : 0f;
+        float framingT = 1f - Mathf.Exp(
+            -Mathf.Max(0.5f, selectionTransitionSharpness) * Time.unscaledDeltaTime);
+        selectionFramingBlend = Mathf.Lerp(selectionFramingBlend, framingTarget, framingT);
+        if (Mathf.Abs(selectionFramingBlend - framingTarget) < 0.001f)
+            selectionFramingBlend = framingTarget;
+
         float trackingT = 1f - Mathf.Exp(
             -Mathf.Max(1f, mapCursorTrackingSharpness) * Time.unscaledDeltaTime);
         Vector2 targetMapPan = activeMapTracking
@@ -321,10 +333,12 @@ public class BattleCameraController : MonoBehaviour
             : Vector2.zero;
         currentMapCursorPan = Vector2.Lerp(currentMapCursorPan, targetMapPan, trackingT);
 
-        float desiredZoom = rewardFraming
-            ? Mathf.Clamp(activeMapTracking ? mapCursorZoom : rewardShowZoom, minZoom, maxZoom)
-            : targetZoom;
-        float zoomSpeed = rewardFraming ? rewardShowSharpness : zoomSharpness;
+        float selectionZoom = Mathf.Clamp(
+            activeMapTracking ? mapCursorZoom : rewardShowZoom,
+            minZoom,
+            maxZoom);
+        float desiredZoom = Mathf.Lerp(targetZoom, selectionZoom, selectionFramingBlend);
+        float zoomSpeed = Mathf.Lerp(zoomSharpness, rewardShowSharpness, selectionFramingBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
         controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, desiredZoom, zoomT);
 
@@ -336,15 +350,23 @@ public class BattleCameraController : MonoBehaviour
                 panOffset = Vector2.zero;
         }
 
-        Vector2 desired = (Vector2)followTarget.position +
-                          (rewardFraming ? rewardShowOffset + currentMapCursorPan : panOffset);
+        Vector2 selectionOffset = rewardShowOffset + currentMapCursorPan;
+        Vector2 desiredOffset = Vector2.Lerp(panOffset, selectionOffset, selectionFramingBlend);
+        Vector2 desired = (Vector2)followTarget.position + desiredOffset;
         Vector3 current = movementRoot.position;
         Vector2 unshakenCurrent = (Vector2)current - lastSelectionShakeOffset;
-        float followSpeed = rewardFraming ? rewardShowSharpness : followSharpness;
+        float followSpeed = Mathf.Lerp(followSharpness, rewardShowSharpness, selectionFramingBlend);
         float followT = !rewardFraming && inspecting
             ? 1f
             : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
         Vector2 next = Vector2.Lerp(unshakenCurrent, desired, followT);
+        if ((rewardFraming || selectionFramingBlend > 0f) && selectionTransitionMaxSpeed > 0f)
+        {
+            next = Vector2.MoveTowards(
+                unshakenCurrent,
+                next,
+                selectionTransitionMaxSpeed * Time.unscaledDeltaTime);
+        }
         lastSelectionShakeOffset = EvaluateSelectionShakeOffset();
         Vector2 shaken = next + lastSelectionShakeOffset;
         movementRoot.position = new Vector3(shaken.x, shaken.y, current.z);

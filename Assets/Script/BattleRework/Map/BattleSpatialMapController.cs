@@ -1593,6 +1593,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         if (stageMapPanel == null || stageMapRevealRoutine != null)
         {
+            hud?.SetMapCursorFocus(false);
             battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
             return;
         }
@@ -1619,11 +1620,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 Vector2 normalized = new(
                     rect.width > 0.001f ? Mathf.Clamp(localCursor.x / (rect.width * 0.5f), -1f, 1f) : 0f,
                     rect.height > 0.001f ? Mathf.Clamp(localCursor.y / (rect.height * 0.5f), -1f, 1f) : 0f);
+                hud?.SetMapCursorFocus(true);
                 battleCameraController?.SetMapCursorTracking(true, normalized);
                 return;
             }
         }
 
+        hud?.SetMapCursorFocus(false);
         battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
     }
 
@@ -1633,6 +1636,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
 
         stageMapSelectionLocked = true;
+        hud?.SetMapCursorFocus(true);
         if (stageMapCanvasGroup != null)
             stageMapCanvasGroup.blocksRaycasts = false;
         if (stageMapConfirmRoutine != null)
@@ -1717,6 +1721,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapPanel.gameObject.SetActive(false);
         }
         battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+        hud?.SetMapCursorFocus(false);
     }
 
     // ---------------------------------------------------------------------

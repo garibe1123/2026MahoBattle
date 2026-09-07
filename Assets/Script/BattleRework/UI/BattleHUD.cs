@@ -63,6 +63,10 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField] private Vector2 mapWorldScreenOffset = new(8.1f, 4.67f);
     [Tooltip("Persistent Base 바닥보다 뒤에 그려질 맵 World Canvas Sorting Order입니다.")]
     [SerializeField] private int mapWorldSortingOrder = -50;
+    [Tooltip("커서가 맵 화면 안에 있을 때 화면 전체가 확대되는 배율입니다.")]
+    [SerializeField, Range(1f, 1.3f)] private float mapCursorFocusScale = 1.14f;
+    [Tooltip("맵 화면 등장/퇴장 및 커서 확대가 부드럽게 전환되는 속도입니다.")]
+    [SerializeField, Min(0.5f)] private float mapWorldTransitionSharpness = 4.2f;
 
     private BattleRunManager runManager;
     private BattleRoomManager roomManager;
@@ -95,6 +99,10 @@ public sealed class BattleHUD : MonoBehaviour
     private GameObject mapWorldCanvasRoot;
     private Canvas mapWorldCanvas;
     private RectTransform mapWorldCanvasRect;
+    private CanvasGroup mapWorldCanvasGroup;
+    private Vector3 mapWorldBaseScale;
+    private bool mapWorldVisibleTarget;
+    private bool mapCursorFocused;
     private GameObject rewardInventoryPanel;
     private GameObject rewardNoticePanel;
     private Text rewardTitle;
@@ -213,7 +221,13 @@ public sealed class BattleHUD : MonoBehaviour
     private void LateUpdate()
     {
         UpdateSpotlightPositions();
+        UpdateWorldMapScreenTransition();
         UpdateWorldMapScreenPosition();
+    }
+
+    public void SetMapCursorFocus(bool focused)
+    {
+        mapCursorFocused = focused && mapWorldVisibleTarget;
     }
 
     public void SetPresenterSprite(Sprite sprite)
@@ -525,12 +539,17 @@ public sealed class BattleHUD : MonoBehaviour
         mapWorldCanvas.sortingOrder = mapWorldSortingOrder;
         mapWorldCanvas.worldCamera = Camera.main;
         mapWorldCanvasRoot.AddComponent<GraphicRaycaster>();
+        mapWorldCanvasGroup = mapWorldCanvasRoot.AddComponent<CanvasGroup>();
+        mapWorldCanvasGroup.alpha = 0f;
+        mapWorldCanvasGroup.interactable = false;
+        mapWorldCanvasGroup.blocksRaycasts = false;
 
         mapWorldCanvasRect = mapWorldCanvasRoot.GetComponent<RectTransform>();
         mapWorldCanvasRect.sizeDelta = rewardScreenSize;
         mapWorldCanvasRect.pivot = new Vector2(0.5f, 0.5f);
         float worldScale = 1f / Mathf.Max(16f, mapWorldPixelsPerUnit);
-        mapWorldCanvasRect.localScale = new Vector3(worldScale, worldScale, 1f);
+        mapWorldBaseScale = new Vector3(worldScale, worldScale, 1f);
+        mapWorldCanvasRect.localScale = mapWorldBaseScale * 0.92f;
 
         GameObject screen = CreatePanel(
             mapWorldCanvasRoot.transform,
@@ -562,6 +581,39 @@ public sealed class BattleHUD : MonoBehaviour
         mapWorldCanvasRoot.SetActive(false);
     }
 
+    private void UpdateWorldMapScreenTransition()
+    {
+        if (mapWorldCanvasRoot == null || mapWorldCanvasRect == null || mapWorldCanvasGroup == null)
+            return;
+
+        if (mapWorldVisibleTarget && !mapWorldCanvasRoot.activeSelf)
+            mapWorldCanvasRoot.SetActive(true);
+        if (!mapWorldCanvasRoot.activeSelf)
+            return;
+
+        float blend = 1f - Mathf.Exp(
+            -Mathf.Max(0.5f, mapWorldTransitionSharpness) * Time.unscaledDeltaTime);
+        float targetAlpha = mapWorldVisibleTarget ? 1f : 0f;
+        float targetScale = mapWorldVisibleTarget
+            ? (mapCursorFocused ? Mathf.Max(1f, mapCursorFocusScale) : 1f)
+            : 0.92f;
+
+        mapWorldCanvasGroup.alpha = Mathf.Lerp(mapWorldCanvasGroup.alpha, targetAlpha, blend);
+        mapWorldCanvasRect.localScale = Vector3.Lerp(
+            mapWorldCanvasRect.localScale,
+            mapWorldBaseScale * targetScale,
+            blend);
+        mapWorldCanvasGroup.interactable = mapWorldVisibleTarget && mapWorldCanvasGroup.alpha >= 0.85f;
+        mapWorldCanvasGroup.blocksRaycasts = mapWorldCanvasGroup.interactable;
+
+        if (!mapWorldVisibleTarget && mapWorldCanvasGroup.alpha <= 0.01f)
+        {
+            mapWorldCanvasGroup.alpha = 0f;
+            mapWorldCanvasRect.localScale = mapWorldBaseScale * 0.92f;
+            mapWorldCanvasRoot.SetActive(false);
+        }
+    }
+
     private void UpdateWorldMapScreenPosition()
     {
         if (mapWorldCanvasRect == null)
@@ -571,6 +623,10 @@ public sealed class BattleHUD : MonoBehaviour
             mapWorldCanvas.worldCamera = Camera.main;
 
         if (mapWorldCanvasRoot != null && !mapWorldCanvasRoot.activeInHierarchy)
+            return;
+
+        // 다음 노드로 넘어가며 Player/Base가 이동해도, 퇴장 중인 화면은 마지막 위치에서 사라집니다.
+        if (!mapWorldVisibleTarget)
             return;
 
         if (player != null)
@@ -745,8 +801,17 @@ public sealed class BattleHUD : MonoBehaviour
         bool showRewardContent = visible && !mapSelection;
         if (rewardScreenRect != null)
             rewardScreenRect.gameObject.SetActive(showRewardContent);
-        if (mapWorldCanvasRoot != null)
-            mapWorldCanvasRoot.SetActive(visible && mapSelection);
+        mapWorldVisibleTarget = visible && mapSelection;
+        if (mapWorldVisibleTarget && mapWorldCanvasRoot != null && !mapWorldCanvasRoot.activeSelf)
+        {
+            if (mapWorldCanvasGroup != null)
+                mapWorldCanvasGroup.alpha = 0f;
+            if (mapWorldCanvasRect != null)
+                mapWorldCanvasRect.localScale = mapWorldBaseScale * 0.92f;
+            mapWorldCanvasRoot.SetActive(true);
+        }
+        if (!mapWorldVisibleTarget)
+            mapCursorFocused = false;
         if (rewardTitle != null)
             rewardTitle.gameObject.SetActive(showRewardContent);
         if (rewardSubtitle != null)
