@@ -10,7 +10,7 @@ using UnityEngine.UI;
 /// one medium-large prize screen occupies the upper/right background, one presenter overlaps its right edge,
 /// and the current loadout is shown as a thin drop strip below the screen.
 /// Clicking a prize only selects it; dropping it on an unlocked slot confirms acquisition.
-/// Hovering/changing a prize pulses stage spotlights on both Player and Presenter.
+/// Hovering/changing a prize pulses soft bird-eye floor spotlights under Player and Presenter.
 /// </summary>
 public sealed class BattleHUD : MonoBehaviour
 {
@@ -24,9 +24,13 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField] private Color staminaColor = new(0.24f, 0.80f, 0.93f, 1f);
 
     [Header("Reward Show")]
-    [Tooltip("Final presenter artwork. If empty, a visible runtime silhouette is used so the host never disappears during layout tests.")]
+    [Tooltip("Presenter artwork. Leave empty to use a plain Sprite-Default placeholder, then replace it from Inspector or SetPresenterSprite().")]
     [SerializeField] private Sprite presenterSprite;
-    [SerializeField] private Color presenterFallbackColor = new(0.96f, 0.28f, 0.52f, 1f);
+    [SerializeField] private Color presenterColor = new(0.34f, 0.34f, 0.40f, 1f);
+    [SerializeField] private Vector2 presenterAnchor = new(0.88f, 0.49f);
+    [SerializeField] private Vector2 presenterSize = new(370f, 600f);
+    [SerializeField] private Vector2 presenterOffset = Vector2.zero;
+    [SerializeField] private bool presenterFlipX;
     [SerializeField] private Color rewardFieldFilter = new(0.06f, 0.035f, 0.11f, 0.025f);
     [Tooltip("Background prize display. Intentionally leaves the lower-left Player area unobstructed.")]
     [SerializeField] private Vector2 rewardScreenSize = new(1120f, 560f);
@@ -36,14 +40,19 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField, Range(1.02f, 1.30f)] private float rewardHoverScale = 1.10f;
     [SerializeField, Min(0f)] private float rewardHoverLift = 12f;
 
-    [Header("Reward Spotlights")]
-    [SerializeField] private Color playerSpotlightColor = new(1f, 0.93f, 0.66f, 0.055f);
-    [SerializeField] private Color presenterSpotlightColor = new(0.74f, 0.92f, 1f, 0.055f);
-    [SerializeField, Range(0.08f, 0.75f)] private float spotlightPeakAlpha = 0.38f;
+    [Header("Reward Floor Spotlights")]
+    [Tooltip("Soft floor glow only. No vertical cone/beam is drawn.")]
+    [SerializeField] private Color playerSpotlightColor = new(1f, 0.93f, 0.66f, 0.10f);
+    [SerializeField] private Color presenterSpotlightColor = new(0.74f, 0.92f, 1f, 0.10f);
+    [SerializeField, Range(0.08f, 0.65f)] private float spotlightPeakAlpha = 0.34f;
     [SerializeField, Min(0.05f)] private float spotlightAttack = 0.09f;
     [SerializeField, Min(0.05f)] private float spotlightRelease = 0.34f;
-    [SerializeField] private Vector2 playerSpotlightSize = new(390f, 700f);
-    [SerializeField] private Vector2 presenterSpotlightSize = new(470f, 820f);
+    [Tooltip("Bird-eye floor ellipse. X should be wider than Y.")]
+    [SerializeField] private Vector2 playerSpotlightSize = new(330f, 126f);
+    [Tooltip("Bird-eye floor ellipse. X should be wider than Y.")]
+    [SerializeField] private Vector2 presenterSpotlightSize = new(410f, 154f);
+    [SerializeField] private Vector2 playerSpotlightScreenOffset = new(0f, -18f);
+    [SerializeField] private Vector2 presenterSpotlightOffset = new(0f, -278f);
 
     private BattleRunManager runManager;
     private BattleRoomManager roomManager;
@@ -77,6 +86,7 @@ public sealed class BattleHUD : MonoBehaviour
     private Text focusedRewardName;
     private Text focusedRewardStats;
     private Image presenterImage;
+    private RectTransform presenterRect;
     private Image playerSpotlightImage;
     private Image presenterSpotlightImage;
 
@@ -180,7 +190,29 @@ public sealed class BattleHUD : MonoBehaviour
 
     private void LateUpdate()
     {
-        UpdatePlayerSpotlightPosition();
+        UpdateSpotlightPositions();
+    }
+
+    public void SetPresenterSprite(Sprite sprite)
+    {
+        presenterSprite = sprite;
+        ApplyPresenterVisual();
+    }
+
+    public void SetPresenterColor(Color color)
+    {
+        presenterColor = color;
+        ApplyPresenterVisual();
+    }
+
+    public void SetPresenterLayout(Vector2 anchor, Vector2 size, Vector2 offset, bool flipX = false)
+    {
+        presenterAnchor = anchor;
+        presenterSize = size;
+        presenterOffset = offset;
+        presenterFlipX = flipX;
+        ApplyPresenterVisual();
+        UpdatePresenterSpotlightPosition();
     }
 
     private void ResolveSystems()
@@ -378,9 +410,10 @@ public sealed class BattleHUD : MonoBehaviour
         filterImage.color = rewardFieldFilter;
         filterImage.raycastTarget = false;
 
+        // Floor glows are created before screen/characters so they always read as light on the stage floor.
         BuildPlayerSpotlight(rewardRoot.transform);
-        BuildRewardScreen(rewardRoot.transform);
         BuildPresenterSpotlight(rewardRoot.transform);
+        BuildRewardScreen(rewardRoot.transform);
         BuildPresenter(rewardRoot.transform);
         BuildRewardInventory(rewardRoot.transform);
         rewardRoot.SetActive(false);
@@ -388,23 +421,25 @@ public sealed class BattleHUD : MonoBehaviour
 
     private void BuildPlayerSpotlight(Transform parent)
     {
-        playerSpotlightImage = CreateImage(parent, "PlayerSpotlight", playerSpotlightSize);
+        playerSpotlightImage = CreateImage(parent, "PlayerFloorSpotlight", playerSpotlightSize);
         RectTransform rect = playerSpotlightImage.rectTransform;
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.08f);
-        playerSpotlightImage.sprite = BattleHudSpriteCache.SpotlightBeam;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        playerSpotlightImage.sprite = BattleHudSpriteCache.FloorSpotlight;
+        playerSpotlightImage.preserveAspect = false;
         playerSpotlightImage.color = playerSpotlightColor;
         playerSpotlightImage.raycastTarget = false;
     }
 
     private void BuildPresenterSpotlight(Transform parent)
     {
-        presenterSpotlightImage = CreateImage(parent, "PresenterSpotlight", presenterSpotlightSize);
+        presenterSpotlightImage = CreateImage(parent, "PresenterFloorSpotlight", presenterSpotlightSize);
         RectTransform rect = presenterSpotlightImage.rectTransform;
-        rect.anchorMin = rect.anchorMax = new Vector2(0.88f, 0.08f);
-        rect.pivot = new Vector2(0.5f, 0f);
-        rect.anchoredPosition = Vector2.zero;
-        presenterSpotlightImage.sprite = BattleHudSpriteCache.SpotlightBeam;
+        rect.anchorMin = rect.anchorMax = presenterAnchor;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = presenterOffset + presenterSpotlightOffset;
+        presenterSpotlightImage.sprite = BattleHudSpriteCache.FloorSpotlight;
+        presenterSpotlightImage.preserveAspect = false;
         presenterSpotlightImage.color = presenterSpotlightColor;
         presenterSpotlightImage.raycastTarget = false;
     }
@@ -505,17 +540,30 @@ public sealed class BattleHUD : MonoBehaviour
     {
         GameObject host = new("Presenter");
         host.transform.SetParent(parent, false);
-        RectTransform hostRect = host.AddComponent<RectTransform>();
-        hostRect.anchorMin = hostRect.anchorMax = new Vector2(0.88f, 0.49f);
-        hostRect.sizeDelta = new Vector2(370f, 600f);
-        hostRect.anchoredPosition = Vector2.zero;
-
+        presenterRect = host.AddComponent<RectTransform>();
         presenterImage = host.AddComponent<Image>();
         presenterImage.preserveAspect = true;
         presenterImage.raycastTarget = false;
-        presenterImage.sprite = presenterSprite != null ? presenterSprite : BattleHudSpriteCache.PresenterFallback;
-        presenterImage.color = presenterSprite != null ? Color.white : presenterFallbackColor;
-        presenterImage.enabled = true;
+        ApplyPresenterVisual();
+    }
+
+    private void ApplyPresenterVisual()
+    {
+        if (presenterRect != null)
+        {
+            presenterRect.anchorMin = presenterRect.anchorMax = presenterAnchor;
+            presenterRect.pivot = new Vector2(0.5f, 0.5f);
+            presenterRect.sizeDelta = presenterSize;
+            presenterRect.anchoredPosition = presenterOffset;
+            presenterRect.localScale = new Vector3(presenterFlipX ? -1f : 1f, 1f, 1f);
+        }
+
+        if (presenterImage != null)
+        {
+            presenterImage.sprite = presenterSprite != null ? presenterSprite : BattleHudSpriteCache.DefaultSprite;
+            presenterImage.color = presenterColor;
+            presenterImage.enabled = true;
+        }
     }
 
     private void RefreshRewardState()
@@ -806,6 +854,12 @@ public sealed class BattleHUD : MonoBehaviour
         }
     }
 
+    private void UpdateSpotlightPositions()
+    {
+        UpdatePlayerSpotlightPosition();
+        UpdatePresenterSpotlightPosition();
+    }
+
     private void UpdatePlayerSpotlightPosition()
     {
         if (rewardRoot == null || !rewardRoot.activeSelf || playerSpotlightImage == null || player == null)
@@ -821,7 +875,18 @@ public sealed class BattleHUD : MonoBehaviour
             return;
 
         if (RectTransformUtility.ScreenPointToLocalPointInRectangle(rootRect, screenPoint, null, out Vector2 localPoint))
-            playerSpotlightImage.rectTransform.anchoredPosition = localPoint + new Vector2(0f, -28f);
+            playerSpotlightImage.rectTransform.anchoredPosition = localPoint + playerSpotlightScreenOffset;
+    }
+
+    private void UpdatePresenterSpotlightPosition()
+    {
+        if (presenterSpotlightImage == null)
+            return;
+
+        RectTransform rect = presenterSpotlightImage.rectTransform;
+        rect.anchorMin = rect.anchorMax = presenterAnchor;
+        rect.sizeDelta = presenterSpotlightSize;
+        rect.anchoredPosition = presenterOffset + presenterSpotlightOffset;
     }
 
     private void PulseRewardSpotlights()
@@ -839,17 +904,17 @@ public sealed class BattleHUD : MonoBehaviour
         image.rectTransform.DOKill();
 
         Color idle = image.color;
-        float idleAlpha = Mathf.Clamp(idle.a, 0.015f, 0.16f);
+        float idleAlpha = Mathf.Clamp(idle.a, 0.02f, 0.18f);
         idle.a = idleAlpha;
         Color peak = idle;
         peak.a = Mathf.Max(idleAlpha, spotlightPeakAlpha);
 
         image.color = idle;
-        image.rectTransform.localScale = Vector3.one * 0.96f;
+        image.rectTransform.localScale = Vector3.one * 0.92f;
 
         Sequence sequence = DOTween.Sequence().SetUpdate(true);
         sequence.Append(image.DOColor(peak, spotlightAttack).SetEase(Ease.OutQuad));
-        sequence.Join(image.rectTransform.DOScale(1.04f, spotlightAttack).SetEase(Ease.OutQuad));
+        sequence.Join(image.rectTransform.DOScale(1.09f, spotlightAttack).SetEase(Ease.OutQuad));
         sequence.Append(image.DOColor(idle, spotlightRelease).SetEase(Ease.OutCubic));
         sequence.Join(image.rectTransform.DOScale(1f, spotlightRelease).SetEase(Ease.OutCubic));
     }
@@ -1189,12 +1254,12 @@ internal sealed class RewardInventoryDropZone : MonoBehaviour, IDropHandler, IPo
 internal static class BattleHudSpriteCache
 {
     private static Sprite roundedPanel;
-    private static Sprite presenterFallback;
-    private static Sprite spotlightBeam;
+    private static Sprite defaultSprite;
+    private static Sprite floorSpotlight;
 
     public static Sprite RoundedPanel => roundedPanel != null ? roundedPanel : roundedPanel = CreateRoundedPanel();
-    public static Sprite PresenterFallback => presenterFallback != null ? presenterFallback : presenterFallback = CreatePresenterFallback();
-    public static Sprite SpotlightBeam => spotlightBeam != null ? spotlightBeam : spotlightBeam = CreateSpotlightBeam();
+    public static Sprite DefaultSprite => defaultSprite != null ? defaultSprite : defaultSprite = CreateDefaultSprite();
+    public static Sprite FloorSpotlight => floorSpotlight != null ? floorSpotlight : floorSpotlight = CreateFloorSpotlight();
 
     private static Sprite CreateRoundedPanel()
     {
@@ -1233,47 +1298,31 @@ internal static class BattleHudSpriteCache
         return sprite;
     }
 
-    private static Sprite CreatePresenterFallback()
+    private static Sprite CreateDefaultSprite()
     {
-        const int width = 96;
-        const int height = 160;
-        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        const int pixels = 16;
+        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
         {
-            filterMode = FilterMode.Bilinear,
+            filterMode = FilterMode.Point,
             wrapMode = TextureWrapMode.Clamp,
             hideFlags = HideFlags.HideAndDontSave
         };
 
-        Color clear = new(1f, 1f, 1f, 0f);
-        Color solid = Color.white;
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                bool head = (new Vector2(x, y) - new Vector2(51f, 126f)).sqrMagnitude <= 17f * 17f;
-                float torsoT = Mathf.InverseLerp(35f, 108f, y);
-                float torsoHalf = Mathf.Lerp(30f, 20f, torsoT);
-                bool torso = y >= 34 && y <= 109 && Mathf.Abs(x - 50f) <= torsoHalf;
-                bool pointingArm = DistancePointToSegment(new Vector2(x, y), new Vector2(32f, 94f), new Vector2(8f, 76f)) <= 7f;
-                bool downArm = DistancePointToSegment(new Vector2(x, y), new Vector2(69f, 92f), new Vector2(77f, 45f)) <= 7f;
-                bool leftLeg = DistancePointToSegment(new Vector2(x, y), new Vector2(43f, 40f), new Vector2(35f, 4f)) <= 9f;
-                bool rightLeg = DistancePointToSegment(new Vector2(x, y), new Vector2(57f, 40f), new Vector2(65f, 4f)) <= 9f;
-                bool visible = head || torso || pointingArm || downArm || leftLeg || rightLeg;
-                texture.SetPixel(x, y, visible ? solid : clear);
-            }
-        }
+        for (int y = 0; y < pixels; y++)
+            for (int x = 0; x < pixels; x++)
+                texture.SetPixel(x, y, Color.white);
 
         texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0f), 96f, 0, SpriteMeshType.FullRect);
-        sprite.name = "RuntimePresenterFallback";
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, pixels, pixels), new Vector2(0.5f, 0.5f), pixels, 0, SpriteMeshType.FullRect);
+        sprite.name = "RuntimeSpriteDefault";
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
     }
 
-    private static Sprite CreateSpotlightBeam()
+    private static Sprite CreateFloorSpotlight()
     {
-        const int width = 128;
-        const int height = 256;
+        const int width = 256;
+        const int height = 128;
         Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Bilinear,
@@ -1281,36 +1330,32 @@ internal static class BattleHudSpriteCache
             hideFlags = HideFlags.HideAndDontSave
         };
 
+        Vector2 center = new((width - 1) * 0.5f, (height - 1) * 0.5f);
+        float invRadiusX = 1f / Mathf.Max(1f, center.x);
+        float invRadiusY = 1f / Mathf.Max(1f, center.y);
+
         for (int y = 0; y < height; y++)
         {
-            float t = y / (float)(height - 1);
-            float halfWidth = Mathf.Lerp(width * 0.48f, width * 0.12f, t);
-            float verticalFade = Mathf.Lerp(1f, 0.28f, t);
             for (int x = 0; x < width; x++)
             {
-                float normalized = Mathf.Abs(x - (width - 1) * 0.5f) / Mathf.Max(1f, halfWidth);
-                float edge = 1f - Mathf.SmoothStep(0.58f, 1f, normalized);
-                float floorGlow = Mathf.Exp(-Mathf.Pow((t - 0.03f) / 0.09f, 2f)) * 0.35f;
-                float alpha = Mathf.Clamp01(edge * verticalFade + floorGlow * edge);
+                float nx = (x - center.x) * invRadiusX;
+                float ny = (y - center.y) * invRadiusY;
+                float radius = Mathf.Sqrt(nx * nx + ny * ny);
+
+                // Soft radial floor pool: bright center, feathered edge, no hard crop and no upward beam.
+                float core = 1f - Mathf.SmoothStep(0.08f, 0.70f, radius);
+                float feather = 1f - Mathf.SmoothStep(0.56f, 1f, radius);
+                float alpha = Mathf.Clamp01(core * 0.52f + feather * 0.48f);
+                alpha *= Mathf.Clamp01(1f - Mathf.Pow(radius, 3.2f));
+
                 texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
             }
         }
 
         texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0f), 128f, 0, SpriteMeshType.FullRect);
-        sprite.name = "RuntimeRewardSpotlightBeam";
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.5f), 128f, 0, SpriteMeshType.FullRect);
+        sprite.name = "RuntimeRewardBirdEyeFloorSpotlight";
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
-    }
-
-    private static float DistancePointToSegment(Vector2 point, Vector2 a, Vector2 b)
-    {
-        Vector2 ab = b - a;
-        float denominator = ab.sqrMagnitude;
-        if (denominator <= 0.0001f)
-            return Vector2.Distance(point, a);
-
-        float t = Mathf.Clamp01(Vector2.Dot(point - a, ab) / denominator);
-        return Vector2.Distance(point, a + ab * t);
     }
 }
