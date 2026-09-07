@@ -65,16 +65,16 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
     [SerializeField] private Color handleTint = Color.white;
 
     [Header("Sorting Order")]
-    [Tooltip("바닥 본체의 SpriteRenderer Sorting Order입니다.")]
+    [Tooltip("바닥 본체의 SpriteRenderer Sorting Order 기준값입니다. 코드에서 핸들·상판·하판보다 항상 앞에 보이도록 자동 보정됩니다.")]
     [SerializeField] private int floorSortingOrder = -18;
 
     [Tooltip("하판의 Sorting Order입니다. 코드에서 바닥 본체와 핸들보다 뒤에 보이도록 자동 보정됩니다.")]
     [SerializeField] private int lowerPlateSortingOrder = -19;
 
-    [Tooltip("위 판의 Sorting Order입니다. 코드에서 바닥보다 최소 2단계 위가 되도록 자동 보정됩니다.")]
+    [Tooltip("위 판의 Sorting Order 기준값입니다. 바닥 본체보다 뒤에 보이도록 자동 보정됩니다.")]
     [SerializeField] private int upperPlateSortingOrder = -15;
 
-    [Tooltip("핸들의 Sorting Order입니다. 하판보다 반드시 위에 표시되며, 위 판과 겹치는 경우에도 핸들이 앞에 보이도록 자동 보정됩니다.")]
+    [Tooltip("핸들의 Sorting Order 기준값입니다. 하판보다 앞, 바닥 본체보다 뒤에 보이도록 자동 보정됩니다.")]
     [SerializeField] private int handleSortingOrder = -14;
 
     [Header("찰칵 연결 반동")]

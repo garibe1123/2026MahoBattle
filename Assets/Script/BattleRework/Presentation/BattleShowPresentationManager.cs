@@ -12,7 +12,7 @@ using UnityEngine.UI;
 ///
 /// 담당 범위:
 /// - SO 기반 32px 슬라이드 바닥 조립
-/// - 일반 전투 필드의 굴러오는 MapBlock과 Reward Show Slab 모두에 동일 SO 적용
+/// - 기본 4x4 Base, 일반 전투 MapBlock, Reward Show Slab에 동일 SO 적용
 /// - 선택형 위 판 / 3분할 하판(좌측 끝·중앙 반복·우측 끝) 배치
 /// - 바닥에 바로 붙는 4방향 핸들 배치
 /// - MapBlock 도킹 순간 핸들 '찰칵' 반동
@@ -29,11 +29,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public static BattleShowPresentationManager Instance { get; private set; }
 
     [Header("기본 쇼 바닥 템플릿")]
-    [Tooltip("굴러오는 모든 전투 필드 조각과 Reward Show 바닥에 기본으로 사용할 SO입니다. Project 창에서 Create > Battle > Show > Floor Template으로 만든 뒤, 바닥/위 판/3분할 하판/핸들 Sprite를 넣어 할당합니다.")]
+    [Tooltip("기본 4x4 Base, 굴러오는 모든 전투 필드 조각, Reward Show 바닥에 공통으로 사용할 SO입니다. Project 창에서 Create > Battle > Show > Floor Template으로 만든 뒤, 바닥/위 판/3분할 하판/핸들 Sprite를 넣어 할당합니다.")]
     [SerializeField] private BattleShowFloorTemplateSO defaultFloorTemplate;
 
     [Header("필드 SO 자동 적용")]
-    [Tooltip("켜면 현재 씬에 생성되는 WheelSlide MapBlock을 주기적으로 찾아 Default Floor Template을 자동 적용합니다. 일반 전투 필드의 런타임 조각과 Reward Show Slab 모두 대상입니다.")]
+    [Tooltip("켜면 현재 씬의 기본 4x4 Base와 생성되는 WheelSlide MapBlock을 주기적으로 찾아 Default Floor Template을 자동 적용합니다. 일반 전투 필드와 Reward Show Slab 모두 대상입니다.")]
     [SerializeField] private bool autoApplyTemplateToSlidingField = true;
 
     [Tooltip("새로 생성된 굴러오는 필드 조각을 찾는 간격입니다. 값이 작을수록 생성 직후 빨리 SO가 적용됩니다.")]
@@ -170,7 +170,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             Time.unscaledTime >= nextFieldTemplateScan)
         {
             nextFieldTemplateScan = Time.unscaledTime + Mathf.Max(0.02f, fieldTemplateScanInterval);
-            DecorateAllLiveSlidingBlocks(false);
+            DecorateAllLiveFloor(false);
         }
 
         CleanupDecoratedBlocks();
@@ -301,7 +301,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return fallback;
     }
 
-    /// <summary>현재 존재하는 일반 전투 필드와 Reward Show Slab에 활성 SO의 아트를 다시 적용합니다.</summary>
+    /// <summary>기본 4x4 Base와 현재 존재하는 전투/Reward Show 필드에 활성 SO의 아트를 다시 적용합니다.</summary>
     public void RefreshSlidingFloorArt()
     {
         if (floorDecorateRoutine != null)
@@ -325,15 +325,21 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private IEnumerator DecorateIncomingShowFloorNextFrame(bool rebuild = false)
     {
         yield return null;
-        DecorateAllLiveSlidingBlocks(rebuild);
+        DecorateAllLiveFloor(rebuild);
         floorDecorateRoutine = null;
     }
 
     private IEnumerator DecorateAllSlidingFloorNextFrame(bool rebuild)
     {
         yield return null;
-        DecorateAllLiveSlidingBlocks(rebuild);
+        DecorateAllLiveFloor(rebuild);
         floorDecorateRoutine = null;
+    }
+
+    private void DecorateAllLiveFloor(bool rebuild)
+    {
+        DecoratePersistentBase(rebuild);
+        DecorateAllLiveSlidingBlocks(rebuild);
     }
 
     /// <summary>
@@ -427,6 +433,126 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return NormalizeCardinal(towardBase);
     }
 
+    /// <summary>
+    /// MapBlock이 아닌 고정 4x4 Base에도 같은 SO 외형을 적용합니다.
+    /// 원본 Base Renderer/Collider는 그대로 두고 1x1 타일 16개를 위에 조립하므로
+    /// 기존 NavMesh와 충돌 구조는 건드리지 않습니다.
+    /// </summary>
+    private void DecoratePersistentBase(bool rebuild)
+    {
+        ResolveReferences();
+        BattleShowFloorTemplateSO template = ActiveFloorTemplate;
+        GameObject activeBase = baseTemplate != null ? baseTemplate.ActiveBase : null;
+        if (activeBase == null)
+            return;
+
+        Transform baseRoot = activeBase.transform;
+        Transform oldTemplate = baseRoot.Find("PresentationTemplate");
+        if (oldTemplate != null)
+        {
+            if (!rebuild)
+                return;
+
+            oldTemplate.name = "PresentationTemplate_Removing";
+            oldTemplate.gameObject.SetActive(false);
+            Destroy(oldTemplate.gameObject);
+        }
+
+        // SO가 비어 있을 때는 기존 Base 아트만 남기고 런타임 더미를 만들지 않습니다.
+        if (template == null)
+            return;
+
+        SpriteRenderer sourceRenderer = FindLargestSpriteRenderer(activeBase);
+        int sortingLayerId = sourceRenderer != null ? sourceRenderer.sortingLayerID : 0;
+        int sourceSorting = sourceRenderer != null ? sourceRenderer.sortingOrder : -19;
+        bool replaceFloorArt = HasUsableFloorVariant(template);
+
+        ResolvePartSorting(
+            template,
+            sourceSorting,
+            replaceFloorArt,
+            out int floorSorting,
+            out int upperSorting,
+            out int lowerSorting,
+            out int handleSorting);
+
+        GameObject templateObject = new("PresentationTemplate");
+        Transform templateRoot = templateObject.transform;
+        templateRoot.position = baseTemplate.FixedCenterWorld;
+        templateRoot.rotation = Quaternion.identity;
+        templateRoot.localScale = Vector3.one;
+        templateRoot.SetParent(baseRoot, true);
+
+        const int min = 0;
+        const int max = RoomBaseTemplate.FixedBaseTiles - 1;
+        const float centerOffset = (RoomBaseTemplate.FixedBaseTiles - 1) * 0.5f;
+
+        if (replaceFloorArt)
+        {
+            for (int y = min; y <= max; y++)
+            {
+                for (int x = min; x <= max; x++)
+                {
+                    Sprite floorSprite = GetRandomFloorSprite();
+                    if (floorSprite == null)
+                        continue;
+
+                    CreateTemplateSprite(
+                        templateRoot,
+                        $"BaseFloor_{x}_{y}",
+                        new Vector3(x - centerOffset, y - centerOffset, 0f),
+                        floorSprite,
+                        template.FloorTint,
+                        sortingLayerId,
+                        floorSorting);
+                }
+            }
+        }
+
+        if (template.UpperPlateSprite32 != null)
+        {
+            for (int x = min; x <= max; x++)
+            {
+                CreateTemplateSprite(
+                    templateRoot,
+                    $"UpperPlate_{x}",
+                    new Vector3(x - centerOffset, max - centerOffset + 1f, 0f),
+                    template.UpperPlateSprite32,
+                    template.PlateTint,
+                    sortingLayerId,
+                    upperSorting);
+            }
+        }
+
+        for (int x = min; x <= max; x++)
+        {
+            Sprite lowerSprite = ResolveLowerPlateSprite(template, x, min, max);
+            if (lowerSprite == null)
+                continue;
+
+            CreateTemplateSprite(
+                templateRoot,
+                $"LowerPlate_{x}",
+                new Vector3(x - centerOffset, min - centerOffset - 1f, 0f),
+                lowerSprite,
+                template.PlateTint,
+                sortingLayerId,
+                lowerSorting);
+        }
+
+        CreateHandles(
+            templateRoot,
+            min - centerOffset,
+            max - centerOffset,
+            min - centerOffset,
+            max - centerOffset,
+            Vector2.left,
+            template,
+            sortingLayerId,
+            handleSorting,
+            true);
+    }
+
     private void DecorateSlidingBlock(Transform slabRoot, Vector2 contactSide, bool rebuild)
     {
         if (slabRoot == null)
@@ -447,6 +573,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 return;
             }
 
+            oldTemplate.name = "PresentationTemplate_Removing";
             oldTemplate.gameObject.SetActive(false);
             Destroy(oldTemplate.gameObject);
         }
@@ -462,10 +589,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         int templateSortingLayerId = 0;
         int sourceFloorSortingOrder = -18;
         bool foundSortingLayer = false;
+        List<SpriteRenderer> floorRenderers = new();
 
         bool replaceFloorArt = HasUsableFloorVariant(template);
         Color floorTint = template != null ? template.FloorTint : Color.white;
-        int floorSorting = template != null ? template.FloorSortingOrder : -18;
 
         for (int i = 0; i < visual.childCount; i++)
         {
@@ -489,18 +616,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 sourceFloorSortingOrder = renderer.sortingOrder;
                 foundSortingLayer = true;
             }
-
-            // Floor Variants를 하나도 지정하지 않은 SO는 기존 필드 외형을 덮어쓰지 않습니다.
-            // 이 규칙이 없으면 런타임 기본 타일에 흰 Tint가 적용되어 회색 더미처럼 보입니다.
-            if (replaceFloorArt)
-            {
-                Sprite randomFloor = GetRandomFloorSprite(renderer.sprite);
-                if (randomFloor != null)
-                    renderer.sprite = randomFloor;
-
-                renderer.color = floorTint;
-                renderer.sortingOrder = floorSorting;
-            }
+            floorRenderers.Add(renderer);
 
             int x = Mathf.RoundToInt(child.localPosition.x);
             int y = Mathf.RoundToInt(child.localPosition.y);
@@ -514,8 +630,36 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (!foundTile)
             return;
 
-        if (!replaceFloorArt)
-            floorSorting = sourceFloorSortingOrder;
+        ResolvePartSorting(
+            template,
+            sourceFloorSortingOrder,
+            replaceFloorArt,
+            out int floorSorting,
+            out int upperSort,
+            out int lowerSort,
+            out int handleSort);
+        RaiseSlidingStructureAboveBase(
+            ref templateSortingLayerId,
+            ref floorSorting,
+            ref upperSort,
+            ref lowerSort,
+            ref handleSort);
+
+        for (int i = 0; i < floorRenderers.Count; i++)
+        {
+            SpriteRenderer renderer = floorRenderers[i];
+            if (replaceFloorArt)
+            {
+                Sprite randomFloor = GetRandomFloorSprite(renderer.sprite);
+                if (randomFloor != null)
+                    renderer.sprite = randomFloor;
+                renderer.color = floorTint;
+            }
+
+            // 바닥 본체는 해당 판의 상판/하판/핸들보다 항상 앞에 보입니다.
+            renderer.sortingLayerID = templateSortingLayerId;
+            renderer.sortingOrder = floorSorting;
+        }
 
         GameObject templateObject = new("PresentationTemplate");
         templateObject.transform.SetParent(visual, false);
@@ -523,22 +667,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
         Sprite upperPlate = template != null ? template.UpperPlateSprite32 : null;
         Color plateTint = template != null ? template.PlateTint : Color.white;
-
-        int upperSort = template != null
-            ? Mathf.Max(template.UpperPlateSortingOrder, floorSorting + 2)
-            : floorSorting + 2;
-
-        // 하판은 '판 밑에 깔리는 부품'이므로 바닥 본체보다 뒤에 보이게 강제합니다.
-        int lowerSort = template != null
-            ? Mathf.Min(template.LowerPlateSortingOrder, floorSorting - 1)
-            : floorSorting - 1;
-
-        // 핸들은 하판보다 반드시 위에 보이며, 위 판과 겹쳐도 핸들이 앞에 나오게 합니다.
-        int handleSort = template != null
-            ? Mathf.Max(template.HandleSortingOrder, Mathf.Max(lowerSort + 1, upperSort + 1))
-            : upperSort + 1;
-        int handleSortingLayerId = templateSortingLayerId;
-        ResolveHandleRenderOrder(ref handleSortingLayerId, ref handleSort);
 
         // 비어 있는 Sprite 슬롯은 런타임 회색/흰색 더미로 대체하지 않습니다.
         // Floor Variants가 비어 있으면 위에서 기존 Tile Sprite를 그대로 유지하고,
@@ -584,7 +712,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             maxY,
             contactSide,
             template,
-            handleSortingLayerId,
+            templateSortingLayerId,
             handleSort);
 
         SubscribeDockImpact(slabRoot.GetComponent<MapBlock>());
@@ -605,21 +733,93 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return false;
     }
 
+    private static SpriteRenderer FindLargestSpriteRenderer(GameObject root)
+    {
+        if (root == null)
+            return null;
+
+        SpriteRenderer[] renderers = root.GetComponentsInChildren<SpriteRenderer>(true);
+        SpriteRenderer best = null;
+        float bestArea = -1f;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || !renderer.gameObject.activeInHierarchy)
+                continue;
+
+            float area = Mathf.Abs(renderer.bounds.size.x * renderer.bounds.size.y);
+            if (area > bestArea)
+            {
+                bestArea = area;
+                best = renderer;
+            }
+        }
+
+        return best;
+    }
+
+    private static void ResolvePartSorting(
+        BattleShowFloorTemplateSO template,
+        int sourceFloorSorting,
+        bool hasFloorOverlay,
+        out int floorSorting,
+        out int upperSorting,
+        out int lowerSorting,
+        out int handleSorting)
+    {
+        if (template == null)
+        {
+            floorSorting = sourceFloorSorting;
+            upperSorting = floorSorting - 1;
+            handleSorting = floorSorting - 1;
+            lowerSorting = floorSorting - 2;
+            return;
+        }
+
+        if (hasFloorOverlay)
+        {
+            int highestRequestedPart = Mathf.Max(
+                template.UpperPlateSortingOrder,
+                Mathf.Max(template.LowerPlateSortingOrder, template.HandleSortingOrder));
+            floorSorting = Mathf.Max(
+                sourceFloorSorting,
+                Mathf.Max(template.FloorSortingOrder, highestRequestedPart + 1));
+        }
+        else
+        {
+            // Floor Variant가 비어 있으면 기존 바닥 Renderer가 최상단이 됩니다.
+            floorSorting = sourceFloorSorting;
+        }
+
+        upperSorting = Mathf.Min(template.UpperPlateSortingOrder, floorSorting - 1);
+        lowerSorting = Mathf.Min(template.LowerPlateSortingOrder, floorSorting - 2);
+        handleSorting = Mathf.Clamp(
+            template.HandleSortingOrder,
+            lowerSorting + 1,
+            floorSorting - 1);
+    }
+
     /// <summary>
-    /// 핸들은 새 조각과 기존 4x4 Base의 접촉면 위에 겹치므로,
-    /// 기존 Base가 더 높은 Sorting Layer를 쓰더라도 그 아래로 숨지 않게 보정합니다.
+    /// 새 판의 핸들은 기존 4x4 Base 위에서 보이고,
+    /// 새 판의 바닥은 그 핸들보다 한 단계 앞에 보이게 전체 구조를 같이 올립니다.
     /// </summary>
-    private void ResolveHandleRenderOrder(ref int sortingLayerId, ref int sortingOrder)
+    private void RaiseSlidingStructureAboveBase(
+        ref int sortingLayerId,
+        ref int floorSorting,
+        ref int upperSorting,
+        ref int lowerSorting,
+        ref int handleSorting)
     {
         if (baseTemplate == null || baseTemplate.ActiveBase == null)
             return;
 
         int selectedLayerValue = SortingLayer.GetLayerValueFromID(sortingLayerId);
+        int baseTopSorting = int.MinValue;
         SpriteRenderer[] baseRenderers = baseTemplate.ActiveBase.GetComponentsInChildren<SpriteRenderer>(true);
         for (int i = 0; i < baseRenderers.Length; i++)
         {
             SpriteRenderer renderer = baseRenderers[i];
-            if (renderer == null || !renderer.enabled)
+            if (renderer == null || !renderer.enabled || !renderer.gameObject.activeInHierarchy)
                 continue;
 
             int candidateLayerValue = SortingLayer.GetLayerValueFromID(renderer.sortingLayerID);
@@ -627,13 +827,22 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             {
                 sortingLayerId = renderer.sortingLayerID;
                 selectedLayerValue = candidateLayerValue;
-                sortingOrder = renderer.sortingOrder + 1;
+                baseTopSorting = renderer.sortingOrder;
             }
             else if (renderer.sortingLayerID == sortingLayerId)
             {
-                sortingOrder = Mathf.Max(sortingOrder, renderer.sortingOrder + 1);
+                baseTopSorting = Mathf.Max(baseTopSorting, renderer.sortingOrder);
             }
         }
+
+        if (baseTopSorting == int.MinValue)
+            return;
+
+        int offset = Mathf.Max(0, baseTopSorting + 1 - handleSorting);
+        floorSorting += offset;
+        upperSorting += offset;
+        lowerSorting += offset;
+        handleSorting += offset;
     }
 
     private static Sprite ResolveLowerPlateSprite(
@@ -673,19 +882,20 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private static void CreateHandles(
         Transform templateRoot,
-        int minX,
-        int maxX,
-        int minY,
-        int maxY,
+        float minX,
+        float maxX,
+        float minY,
+        float maxY,
         Vector2 contactSide,
         BattleShowFloorTemplateSO template,
         int sortingLayerId,
-        int handleSorting)
+        int handleSorting,
+        bool forceAllSides = false)
     {
         if (template == null || template.HandlePlacement == BattleShowHandlePlacementMode.None)
             return;
 
-        bool all = template.HandlePlacement == BattleShowHandlePlacementMode.AllFourSides;
+        bool all = forceAllSides || template.HandlePlacement == BattleShowHandlePlacementMode.AllFourSides;
         Vector2 side = NormalizeCardinal(contactSide);
         // 한 면에 핸들은 최대 1개만 만듭니다.
         // 좌/우 옆면은 세로 양 끝(최상단 또는 최하단),

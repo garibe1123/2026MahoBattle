@@ -334,9 +334,29 @@ public class RoomBaseTemplate : MonoBehaviour
             SpriteRenderer renderer = renderers[i];
             if (renderer == null)
                 continue;
+
+            // BattleShowPresentationManager가 조립한 4x4 SO 아트는
+            // 부품별 Sorting Order를 자체 규칙으로 관리합니다.
+            // 여기서 Base 기본값으로 다시 덮어쓰지 않습니다.
+            if (IsPresentationRenderer(renderer.transform))
+                continue;
+
             renderer.enabled = true;
             renderer.sortingOrder = sortingOrder;
         }
+    }
+
+    private static bool IsPresentationRenderer(Transform target)
+    {
+        Transform current = target;
+        while (current != null)
+        {
+            if (current.name.StartsWith("PresentationTemplate", System.StringComparison.Ordinal))
+                return true;
+            current = current.parent;
+        }
+
+        return false;
     }
 
     private void BuildPrefabBase(Transform parent, Vector3 center, Vector2 targetSize)
