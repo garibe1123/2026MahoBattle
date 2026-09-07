@@ -47,11 +47,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(24f)] private float mapNodeSize = 44f;
     [SerializeField, Min(0.05f)] private float mapRevealDuration = 0.28f;
     [SerializeField, Min(0f)] private float mapRevealSlideDistance = 90f;
-    [Tooltip("커서가 맵 화면 안으로 들어왔을 때 적용되는 보드 확대 배율입니다.")]
-    [SerializeField, Range(1f, 1.12f)] private float mapCursorZoom = 1.065f;
-    [Tooltip("맵 화면 안에서 커서를 따라 보여줄 최대 패닝 거리입니다.")]
-    [SerializeField] private Vector2 mapCursorTrackDistance = new(28f, 16f);
-    [SerializeField, Min(1f)] private float mapCursorFollowSharpness = 9f;
     [Tooltip("맵 노드 확정 후 다음 스테이지로 넘어가기 전에 재생하는 충격 연출 시간입니다.")]
     [SerializeField, Range(0.15f, 1f)] private float mapConfirmDuration = 0.44f;
     [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
@@ -214,7 +209,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ApplyReadableDefaultCharacterSizes();
         }
 
-        UpdateStageMapPointerPresentation();
+        UpdateStageMapCursorTracking();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -1219,8 +1214,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (hud == null || hud.MapSelectionRoot == null)
             return;
 
-        // 아이템 선택과 같은 RewardQuizShow의 TV 화면 안에 맵을 직접 그립니다.
-        // 별도 전면 Canvas를 만들지 않으므로 사회자·조명·TV 프레임이 그대로 공유됩니다.
+        // 맵은 HUD 전면 Overlay가 아니라 바닥/캐릭터 뒤의 World Space 화면에 그립니다.
         stageMapPanel = hud.MapSelectionRoot;
         stageMapCanvasGroup = stageMapPanel.GetComponent<CanvasGroup>();
         if (stageMapCanvasGroup == null)
@@ -1592,46 +1586,45 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapRevealRoutine = null;
     }
 
-    private void UpdateStageMapPointerPresentation()
+    private void UpdateStageMapCursorTracking()
     {
-        if (stageMapPanel == null || stageMapRevealRoutine != null || stageMapSelectionLocked)
+        if (battleCameraController == null)
+            battleCameraController = FindFirstObjectByType<BattleCameraController>();
+
+        if (stageMapPanel == null || stageMapRevealRoutine != null)
+        {
+            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            return;
+        }
+
+        if (stageMapSelectionLocked)
             return;
 
         bool interactive = runManager != null && runManager.WaitingForNodeSelection &&
                            stageMapPanel.gameObject.activeInHierarchy;
-        Vector2 targetPosition = stageMapPanelRestPosition;
-        float targetScale = 1f;
+        Camera eventCamera = Camera.main;
 
         if (interactive && RectTransformUtility.RectangleContainsScreenPoint(
                 stageMapPanel,
                 Input.mousePosition,
-                null))
+                eventCamera))
         {
-            targetScale = Mathf.Max(1f, mapCursorZoom);
             if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
                     stageMapPanel,
                     Input.mousePosition,
-                    null,
+                    eventCamera,
                     out Vector2 localCursor))
             {
                 Rect rect = stageMapPanel.rect;
                 Vector2 normalized = new(
                     rect.width > 0.001f ? Mathf.Clamp(localCursor.x / (rect.width * 0.5f), -1f, 1f) : 0f,
                     rect.height > 0.001f ? Mathf.Clamp(localCursor.y / (rect.height * 0.5f), -1f, 1f) : 0f);
-                // 카메라가 커서 쪽을 바라보는 느낌이 나도록 콘텐츠는 반대 방향으로 움직입니다.
-                targetPosition -= Vector2.Scale(normalized, mapCursorTrackDistance);
+                battleCameraController?.SetMapCursorTracking(true, normalized);
+                return;
             }
         }
 
-        float blend = 1f - Mathf.Exp(-Mathf.Max(1f, mapCursorFollowSharpness) * Time.unscaledDeltaTime);
-        stageMapPanel.anchoredPosition = Vector2.Lerp(
-            stageMapPanel.anchoredPosition,
-            targetPosition,
-            blend);
-        stageMapPanel.localScale = Vector3.Lerp(
-            stageMapPanel.localScale,
-            Vector3.one * targetScale,
-            blend);
+        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
     }
 
     private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)
@@ -1723,6 +1716,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapPanel.localScale = Vector3.one;
             stageMapPanel.gameObject.SetActive(false);
         }
+        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
     }
 
     // ---------------------------------------------------------------------

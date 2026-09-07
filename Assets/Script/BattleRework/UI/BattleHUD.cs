@@ -37,9 +37,6 @@ public sealed class BattleHUD : MonoBehaviour
     [Tooltip("Background prize display. Intentionally leaves the lower-left Player area unobstructed.")]
     [SerializeField] private Vector2 rewardScreenSize = new(1120f, 560f);
     [SerializeField] private Vector2 rewardScreenAnchor = new(0.61f, 0.69f);
-    [Tooltip("최초 및 중간 맵 선택에서 화면을 거의 가득 채우는 전용 보드 크기입니다.")]
-    [SerializeField] private Vector2 mapSelectionScreenSize = new(1740f, 900f);
-    [SerializeField] private Vector2 mapSelectionScreenAnchor = new(0.50f, 0.53f);
     [SerializeField] private Vector2 rewardLoadoutSize = new(1120f, 150f);
     [SerializeField] private Vector2 rewardLoadoutAnchor = new(0.61f, 0.145f);
     [SerializeField, Range(1.02f, 1.30f)] private float rewardHoverScale = 1.10f;
@@ -58,6 +55,14 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField] private Vector2 presenterSpotlightSize = new(410f, 154f);
     [SerializeField] private Vector2 playerSpotlightScreenOffset = new(0f, -18f);
     [SerializeField] private Vector2 presenterSpotlightOffset = new(0f, -278f);
+
+    [Header("Map Selection World Screen")]
+    [Tooltip("맵 화면은 아이템 선택 화면과 같은 픽셀 비율을 유지한 채 월드에 배치됩니다.")]
+    [SerializeField, Min(16f)] private float mapWorldPixelsPerUnit = 88.5f;
+    [Tooltip("플레이어 기준 맵 화면 중심입니다. 기본값은 아이템 선택 화면의 (0.61, 0.69) 구도를 월드 좌표로 환산한 위치입니다.")]
+    [SerializeField] private Vector2 mapWorldScreenOffset = new(8.1f, 4.67f);
+    [Tooltip("Persistent Base 바닥보다 뒤에 그려질 맵 World Canvas Sorting Order입니다.")]
+    [SerializeField] private int mapWorldSortingOrder = -50;
 
     private BattleRunManager runManager;
     private BattleRoomManager roomManager;
@@ -87,7 +92,9 @@ public sealed class BattleHUD : MonoBehaviour
     private RectTransform rewardInventoryRoot;
     private RectTransform mapSelectionRoot;
     private RectTransform rewardScreenRect;
-    private RectTransform rewardScreenInnerRect;
+    private GameObject mapWorldCanvasRoot;
+    private Canvas mapWorldCanvas;
+    private RectTransform mapWorldCanvasRect;
     private GameObject rewardInventoryPanel;
     private GameObject rewardNoticePanel;
     private Text rewardTitle;
@@ -206,6 +213,7 @@ public sealed class BattleHUD : MonoBehaviour
     private void LateUpdate()
     {
         UpdateSpotlightPositions();
+        UpdateWorldMapScreenPosition();
     }
 
     public void SetPresenterSprite(Sprite sprite)
@@ -321,6 +329,7 @@ public sealed class BattleHUD : MonoBehaviour
         BuildTopStatus();
         BuildEquipmentDock();
         BuildRewardShow();
+        BuildWorldMapScreen();
         RefreshStatus();
         RefreshEquipment();
     }
@@ -471,7 +480,6 @@ public sealed class BattleHUD : MonoBehaviour
 
         GameObject inner = CreatePanel(screen.transform, "ScreenInner", rewardScreenSize - new Vector2(34f, 34f), new Color(0.055f, 0.045f, 0.105f, 1f));
         RectTransform innerRect = inner.GetComponent<RectTransform>();
-        rewardScreenInnerRect = innerRect;
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
         inner.GetComponent<Outline>().effectColor = new Color(0.28f, 0.95f, 0.92f, 0.20f);
@@ -491,20 +499,6 @@ public sealed class BattleHUD : MonoBehaviour
         rewardCardRoot = cardRoot.AddComponent<RectTransform>();
         SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.31f), new Vector2(0.945f, 0.79f));
 
-        GameObject mapRoot = new("MapSelectionScreen");
-        mapRoot.transform.SetParent(inner.transform, false);
-        mapSelectionRoot = mapRoot.AddComponent<RectTransform>();
-        SetAnchors(mapSelectionRoot, new Vector2(0.025f, 0.055f), new Vector2(0.975f, 0.94f));
-        Image mapBoard = mapRoot.AddComponent<Image>();
-        mapBoard.sprite = BattleHudSpriteCache.RoundedPanel;
-        mapBoard.type = Image.Type.Sliced;
-        mapBoard.color = new Color(0.012f, 0.021f, 0.048f, 0.97f);
-        mapBoard.raycastTarget = false;
-        Outline mapBoardOutline = mapRoot.AddComponent<Outline>();
-        mapBoardOutline.effectColor = new Color(0.22f, 0.82f, 1f, 0.32f);
-        mapBoardOutline.effectDistance = new Vector2(2f, -2f);
-        mapRoot.SetActive(false);
-
         focusedRewardName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
         SetAnchors(focusedRewardName.rectTransform, new Vector2(0.055f, 0.185f), new Vector2(0.38f, 0.28f));
 
@@ -518,6 +512,85 @@ public sealed class BattleHUD : MonoBehaviour
         noticeRect.anchoredPosition = Vector2.zero;
         rewardInstruction = CreateText(notice.transform, "SELECT A PRIZE FIRST", 11, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
         Stretch(rewardInstruction.rectTransform);
+    }
+
+    private void BuildWorldMapScreen()
+    {
+        mapWorldCanvasRoot = new GameObject("BattleMapSelectionWorldCanvas");
+        mapWorldCanvasRoot.transform.SetParent(transform, false);
+
+        mapWorldCanvas = mapWorldCanvasRoot.AddComponent<Canvas>();
+        mapWorldCanvas.renderMode = RenderMode.WorldSpace;
+        mapWorldCanvas.overrideSorting = true;
+        mapWorldCanvas.sortingOrder = mapWorldSortingOrder;
+        mapWorldCanvas.worldCamera = Camera.main;
+        mapWorldCanvasRoot.AddComponent<GraphicRaycaster>();
+
+        mapWorldCanvasRect = mapWorldCanvasRoot.GetComponent<RectTransform>();
+        mapWorldCanvasRect.sizeDelta = rewardScreenSize;
+        mapWorldCanvasRect.pivot = new Vector2(0.5f, 0.5f);
+        float worldScale = 1f / Mathf.Max(16f, mapWorldPixelsPerUnit);
+        mapWorldCanvasRect.localScale = new Vector3(worldScale, worldScale, 1f);
+
+        GameObject screen = CreatePanel(
+            mapWorldCanvasRoot.transform,
+            "MapSelectionScreen",
+            rewardScreenSize,
+            new Color(0.025f, 0.020f, 0.055f, 0.985f));
+        RectTransform screenRect = screen.GetComponent<RectTransform>();
+        screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.5f, 0.5f);
+        screenRect.anchoredPosition = Vector2.zero;
+        screen.GetComponent<Image>().raycastTarget = false;
+
+        GameObject inner = CreatePanel(
+            screen.transform,
+            "ScreenInner",
+            rewardScreenSize - new Vector2(34f, 34f),
+            new Color(0.012f, 0.021f, 0.048f, 0.97f));
+        RectTransform innerRect = inner.GetComponent<RectTransform>();
+        innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
+        innerRect.anchoredPosition = Vector2.zero;
+        inner.GetComponent<Image>().raycastTarget = false;
+        inner.GetComponent<Outline>().effectColor = new Color(0.22f, 0.82f, 1f, 0.32f);
+
+        GameObject mapRoot = new("MapSelectionContent");
+        mapRoot.transform.SetParent(inner.transform, false);
+        mapSelectionRoot = mapRoot.AddComponent<RectTransform>();
+        SetAnchors(mapSelectionRoot, new Vector2(0.025f, 0.055f), new Vector2(0.975f, 0.94f));
+
+        UpdateWorldMapScreenPosition();
+        mapWorldCanvasRoot.SetActive(false);
+    }
+
+    private void UpdateWorldMapScreenPosition()
+    {
+        if (mapWorldCanvasRect == null)
+            return;
+
+        if (mapWorldCanvas != null && mapWorldCanvas.worldCamera == null)
+            mapWorldCanvas.worldCamera = Camera.main;
+
+        if (mapWorldCanvasRoot != null && !mapWorldCanvasRoot.activeInHierarchy)
+            return;
+
+        if (player != null)
+        {
+            Vector3 position = player.transform.position + (Vector3)mapWorldScreenOffset;
+            position.z = player.transform.position.z;
+            mapWorldCanvasRect.position = position;
+            mapWorldCanvasRect.rotation = Quaternion.identity;
+        }
+
+        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        GameObject activeBase = baseTemplate != null ? baseTemplate.ActiveBase : null;
+        SpriteRenderer baseRenderer = activeBase != null
+            ? activeBase.GetComponentInChildren<SpriteRenderer>(true)
+            : null;
+        if (mapWorldCanvas != null && baseRenderer != null)
+        {
+            mapWorldCanvas.sortingLayerID = baseRenderer.sortingLayerID;
+            mapWorldCanvas.sortingOrder = Mathf.Min(mapWorldSortingOrder, baseRenderer.sortingOrder - 1);
+        }
     }
 
     private void BuildRewardInventory(Transform parent)
@@ -662,7 +735,7 @@ public sealed class BattleHUD : MonoBehaviour
                 ? openingWaitingRoomFilter
                 : rewardFieldFilter;
         }
-        ApplySelectionShowLayout(mapSelection, openingWaitingRoom);
+        ApplySelectionShowLayout(openingWaitingRoom);
 
         if (combatStatusRoot != null)
             combatStatusRoot.SetActive(!visible);
@@ -670,6 +743,10 @@ public sealed class BattleHUD : MonoBehaviour
             equipmentDockRoot.SetActive(!visible);
 
         bool showRewardContent = visible && !mapSelection;
+        if (rewardScreenRect != null)
+            rewardScreenRect.gameObject.SetActive(showRewardContent);
+        if (mapWorldCanvasRoot != null)
+            mapWorldCanvasRoot.SetActive(visible && mapSelection);
         if (rewardTitle != null)
             rewardTitle.gameObject.SetActive(showRewardContent);
         if (rewardSubtitle != null)
@@ -694,19 +771,8 @@ public sealed class BattleHUD : MonoBehaviour
         }
     }
 
-    private void ApplySelectionShowLayout(bool mapSelection, bool openingWaitingRoom)
+    private void ApplySelectionShowLayout(bool openingWaitingRoom)
     {
-        if (rewardScreenRect != null)
-        {
-            Vector2 anchor = mapSelection ? mapSelectionScreenAnchor : rewardScreenAnchor;
-            Vector2 size = mapSelection ? mapSelectionScreenSize : rewardScreenSize;
-            rewardScreenRect.anchorMin = rewardScreenRect.anchorMax = anchor;
-            rewardScreenRect.sizeDelta = size;
-            rewardScreenRect.anchoredPosition = Vector2.zero;
-            if (rewardScreenInnerRect != null)
-                rewardScreenInnerRect.sizeDelta = size - new Vector2(34f, 34f);
-        }
-
         if (presenterRect != null)
             presenterRect.gameObject.SetActive(!openingWaitingRoom);
         if (presenterSpotlightImage != null)
