@@ -1313,7 +1313,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         text.font = font;
         bool openingWaitingRoom = runManager != null && runManager.IsInStartArea;
         text.text = openingWaitingRoom
-            ? "WAITING ROOM — CHOOSE YOUR FIRST TAKE"
+            ? "[  MAP SELECT  ]"
             : "CHOOSE THE NEXT TAKE";
         text.alignment = TextAnchor.MiddleCenter;
         text.fontSize = 28;
@@ -1333,7 +1333,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         Text subText = sub.AddComponent<Text>();
         subText.font = font;
         subText.text = openingWaitingRoom
-            ? "OPENING CALL  /  SELECT A HIGHLIGHTED ROUTE TO ENTER THE STAGE"
+            ? "WAITING ROOM  /  CHOOSE YOUR FIRST STAGE"
             : "START  →  FINAL   /   CLICK ONE OF THE HIGHLIGHTED ROUTES";
         subText.alignment = TextAnchor.MiddleCenter;
         subText.fontSize = 12;

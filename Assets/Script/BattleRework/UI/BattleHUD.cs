@@ -37,6 +37,9 @@ public sealed class BattleHUD : MonoBehaviour
     [Tooltip("Background prize display. Intentionally leaves the lower-left Player area unobstructed.")]
     [SerializeField] private Vector2 rewardScreenSize = new(1120f, 560f);
     [SerializeField] private Vector2 rewardScreenAnchor = new(0.61f, 0.69f);
+    [Tooltip("최초 대기실 맵 선택에서 플레이어 뒤쪽 배경처럼 보이도록 넓혀 사용하는 화면 크기입니다.")]
+    [SerializeField] private Vector2 openingMapScreenSize = new(1320f, 620f);
+    [SerializeField] private Vector2 openingMapScreenAnchor = new(0.50f, 0.67f);
     [SerializeField] private Vector2 rewardLoadoutSize = new(1120f, 150f);
     [SerializeField] private Vector2 rewardLoadoutAnchor = new(0.61f, 0.145f);
     [SerializeField, Range(1.02f, 1.30f)] private float rewardHoverScale = 1.10f;
@@ -83,6 +86,8 @@ public sealed class BattleHUD : MonoBehaviour
     private RectTransform rewardCardRoot;
     private RectTransform rewardInventoryRoot;
     private RectTransform mapSelectionRoot;
+    private RectTransform rewardScreenRect;
+    private RectTransform rewardScreenInnerRect;
     private GameObject rewardInventoryPanel;
     private GameObject rewardNoticePanel;
     private Text rewardTitle;
@@ -90,6 +95,7 @@ public sealed class BattleHUD : MonoBehaviour
     private Text rewardInstruction;
     private Text focusedRewardName;
     private Text focusedRewardStats;
+    private Text onLiveText;
     private Image fieldBroadcastFilterImage;
     private Image presenterImage;
     private RectTransform presenterRect;
@@ -458,12 +464,14 @@ public sealed class BattleHUD : MonoBehaviour
     {
         GameObject screen = CreatePanel(parent, "PrizeSelectionScreen", rewardScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
         RectTransform screenRect = screen.GetComponent<RectTransform>();
+        rewardScreenRect = screenRect;
         screenRect.anchorMin = screenRect.anchorMax = rewardScreenAnchor;
         screenRect.pivot = new Vector2(0.5f, 0.5f);
         screenRect.anchoredPosition = Vector2.zero;
 
         GameObject inner = CreatePanel(screen.transform, "ScreenInner", rewardScreenSize - new Vector2(34f, 34f), new Color(0.055f, 0.045f, 0.105f, 1f));
         RectTransform innerRect = inner.GetComponent<RectTransform>();
+        rewardScreenInnerRect = innerRect;
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
         inner.GetComponent<Outline>().effectColor = new Color(0.28f, 0.95f, 0.92f, 0.20f);
@@ -475,6 +483,7 @@ public sealed class BattleHUD : MonoBehaviour
         SetAnchors(rewardSubtitle.rectTransform, new Vector2(0.05f, 0.805f), new Vector2(0.72f, 0.86f));
 
         Text live = CreateText(inner.transform, "[ON LIVE]", 14, FontStyle.Bold, TextAnchor.MiddleRight, new Color(1f, 0.10f, 0.12f, 1f));
+        onLiveText = live;
         SetAnchors(live.rectTransform, new Vector2(0.77f, 0.87f), new Vector2(0.95f, 0.95f));
 
         GameObject cardRoot = new("PrizeChoices");
@@ -486,6 +495,14 @@ public sealed class BattleHUD : MonoBehaviour
         mapRoot.transform.SetParent(inner.transform, false);
         mapSelectionRoot = mapRoot.AddComponent<RectTransform>();
         SetAnchors(mapSelectionRoot, new Vector2(0.025f, 0.055f), new Vector2(0.975f, 0.94f));
+        Image mapBoard = mapRoot.AddComponent<Image>();
+        mapBoard.sprite = BattleHudSpriteCache.RoundedPanel;
+        mapBoard.type = Image.Type.Sliced;
+        mapBoard.color = new Color(0.012f, 0.021f, 0.048f, 0.97f);
+        mapBoard.raycastTarget = false;
+        Outline mapBoardOutline = mapRoot.AddComponent<Outline>();
+        mapBoardOutline.effectColor = new Color(0.22f, 0.82f, 1f, 0.32f);
+        mapBoardOutline.effectDistance = new Vector2(2f, -2f);
         mapRoot.SetActive(false);
 
         focusedRewardName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
@@ -636,14 +653,17 @@ public sealed class BattleHUD : MonoBehaviour
     {
         if (rewardRoot != null)
             rewardRoot.SetActive(visible);
+
+        bool openingWaitingRoom = visible && mapSelection &&
+                                  runManager != null && runManager.IsInStartArea;
         if (fieldBroadcastFilterImage != null)
         {
-            bool openingWaitingRoom = visible && mapSelection &&
-                                      runManager != null && runManager.IsInStartArea;
             fieldBroadcastFilterImage.color = openingWaitingRoom
                 ? openingWaitingRoomFilter
                 : rewardFieldFilter;
         }
+        ApplySelectionShowLayout(openingWaitingRoom);
+
         if (combatStatusRoot != null)
             combatStatusRoot.SetActive(!visible);
         if (equipmentDockRoot != null)
@@ -672,6 +692,27 @@ public sealed class BattleHUD : MonoBehaviour
             EndRewardDrag();
             KillSpotlightTweens();
         }
+    }
+
+    private void ApplySelectionShowLayout(bool openingWaitingRoom)
+    {
+        if (rewardScreenRect != null)
+        {
+            Vector2 anchor = openingWaitingRoom ? openingMapScreenAnchor : rewardScreenAnchor;
+            Vector2 size = openingWaitingRoom ? openingMapScreenSize : rewardScreenSize;
+            rewardScreenRect.anchorMin = rewardScreenRect.anchorMax = anchor;
+            rewardScreenRect.sizeDelta = size;
+            rewardScreenRect.anchoredPosition = Vector2.zero;
+            if (rewardScreenInnerRect != null)
+                rewardScreenInnerRect.sizeDelta = size - new Vector2(34f, 34f);
+        }
+
+        if (presenterRect != null)
+            presenterRect.gameObject.SetActive(!openingWaitingRoom);
+        if (presenterSpotlightImage != null)
+            presenterSpotlightImage.gameObject.SetActive(!openingWaitingRoom);
+        if (onLiveText != null)
+            onLiveText.gameObject.SetActive(!openingWaitingRoom);
     }
 
     private void RebuildRewardCards()
