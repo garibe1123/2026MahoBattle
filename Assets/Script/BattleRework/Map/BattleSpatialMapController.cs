@@ -48,7 +48,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float mapRevealDuration = 0.28f;
     [SerializeField, Min(0f)] private float mapRevealSlideDistance = 90f;
     [Tooltip("커서가 맵 화면 안으로 들어왔을 때 적용되는 보드 확대 배율입니다.")]
-    [SerializeField, Range(1f, 1.12f)] private float mapCursorZoom = 1.045f;
+    [SerializeField, Range(1f, 1.12f)] private float mapCursorZoom = 1.065f;
     [Tooltip("맵 화면 안에서 커서를 따라 보여줄 최대 패닝 거리입니다.")]
     [SerializeField] private Vector2 mapCursorTrackDistance = new(28f, 16f);
     [SerializeField, Min(1f)] private float mapCursorFollowSharpness = 9f;
@@ -56,7 +56,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0.15f, 1f)] private float mapConfirmDuration = 0.44f;
     [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
     [SerializeField, Range(0f, 0.75f)] private float mapConfirmCameraShake = 0.22f;
-    [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.075f;
+    [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.105f;
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
     [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);

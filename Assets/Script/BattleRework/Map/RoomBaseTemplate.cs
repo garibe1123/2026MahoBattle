@@ -231,6 +231,25 @@ public class RoomBaseTemplate : MonoBehaviour
         return runtimeTileOrigin;
     }
 
+    /// <summary>
+    /// 클리어된 Room에서 선택한 4x4 위치를 다음 Start Base로 승격합니다.
+    /// 기존 최초 Base를 이동해 재사용하지 않고 해당 위치에 새 Base 인스턴스를 구축합니다.
+    /// </summary>
+    public Vector3 PromoteToNewBaseAtTileOrigin(Vector3 lowerLeftTileCenterWorld)
+    {
+        runtimeTileOrigin = new Vector3(
+            Mathf.Round(lowerLeftTileCenterWorld.x / TileWorldSize) * TileWorldSize,
+            Mathf.Round(lowerLeftTileCenterWorld.y / TileWorldSize) * TileWorldSize,
+            ResolveZ());
+        hasRuntimeAnchor = true;
+
+        BuildBaseInternal(activeRoom, true);
+        MoveExistingBaseToResolvedAnchor();
+        EnsureVisibleBase();
+        EnsureWalkableBaseSource();
+        return runtimeTileOrigin;
+    }
+
     private void BuildBaseInternal(RoomDefinitionSO room, bool forceRebuild)
     {
         if (room != null)
@@ -281,6 +300,7 @@ public class RoomBaseTemplate : MonoBehaviour
         if (activeBase == null)
             return;
 
+        activeBase.SetActive(false);
         if (Application.isPlaying)
             Destroy(activeBase);
         else

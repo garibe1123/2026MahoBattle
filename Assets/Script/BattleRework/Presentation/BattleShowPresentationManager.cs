@@ -311,6 +311,15 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     }
 
     /// <summary>
+    /// 다음 스테이지용 4x4 Base가 플레이어 발밑으로 승격됐을 때 Base 아트만 새로 조립합니다.
+    /// 굴러온 판은 건드리지 않으므로 기존 랜덤 바닥과 손잡이 배치가 바뀌지 않습니다.
+    /// </summary>
+    public void RefreshPersistentBaseArt()
+    {
+        DecoratePersistentBase(true);
+    }
+
+    /// <summary>
     /// MapBlock에 현재 SO 템플릿을 즉시 적용합니다.
     /// contactSide 인자는 기존 호출부 호환용으로 남겨 두며,
     /// 실제 하드웨어 배치는 전체 필드의 점유 타일을 기준으로 계산합니다.
@@ -966,6 +975,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         List<Transform> exposedRight = new();
         List<Transform> exposedUpper = new();
         List<Transform> exposedLower = new();
+        HashSet<Vector2Int> blockFloorCells = new();
+
+        for (int i = 0; i < floorTiles.Count; i++)
+            blockFloorCells.Add(ResolveDestinationFloorCell(block, floorTiles[i]));
 
         for (int i = 0; i < floorTiles.Count; i++)
         {
@@ -974,7 +987,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             if (!occupiedFloorCells.Contains(cell + Vector2Int.left)) exposedLeft.Add(tile);
             if (!occupiedFloorCells.Contains(cell + Vector2Int.right)) exposedRight.Add(tile);
             if (!occupiedFloorCells.Contains(cell + Vector2Int.up)) exposedUpper.Add(tile);
-            if (!occupiedFloorCells.Contains(cell + Vector2Int.down)) exposedLower.Add(tile);
+            // 하판은 최종 필드가 아니라 이 판 자체의 아래쪽 윤곽을 사용합니다.
+            // 다른 판이 아래에 도킹해도 처음 굴러올 때 있던 하판을 삭제하지 않습니다.
+            if (!blockFloorCells.Contains(cell + Vector2Int.down)) exposedLower.Add(tile);
         }
 
         // 하판은 완성된 전체 필드가 아니라 이 판 안의 연속된 아래쪽 구간마다

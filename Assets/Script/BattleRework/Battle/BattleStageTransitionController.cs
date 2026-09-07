@@ -255,13 +255,21 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector3 nextBaseOrigin;
         if (!TryFindExistingFourByFourBase(player.transform.position, out nextBaseOrigin))
         {
-            Debug.LogWarning("[BattleStageTransition] No complete real 4x4 near the player; keeping current Base.", this);
-            nextBaseOrigin = baseTemplate.FixedTileOriginWorld;
+            Vector2Int playerTile = WorldToTile(player.transform.position);
+            nextBaseOrigin = new Vector3(
+                (playerTile.x - 1) * RoomBaseTemplate.TileWorldSize,
+                (playerTile.y - 1) * RoomBaseTemplate.TileWorldSize,
+                baseTemplate.FixedTileOriginWorld.z);
+            Debug.LogWarning(
+                "[BattleStageTransition] 현재 Room 타일을 조회하지 못해도 최초 Base를 재사용하지 않고 " +
+                "플레이어 발밑을 중심으로 다음 4x4 Base를 생성합니다.",
+                this);
         }
 
-        preservedBaseTileOrigin = baseTemplate.ReanchorToTileOrigin(nextBaseOrigin);
+        preservedBaseTileOrigin = baseTemplate.PromoteToNewBaseAtTileOrigin(nextBaseOrigin);
         hasPreservedBaseOrigin = true;
         EnsureBasePresentation();
+        BattleShowPresentationManager.Instance?.RefreshPersistentBaseArt();
         ApplyBaseOriginToRoomManager();
 
         SpawnExitGhostsFromCurrentRoom();
@@ -400,8 +408,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         lowerLeftTileCenterWorld = default;
         HashSet<Vector2Int> existing = new();
-        CollectCurrentStageTileCells(existing);
-        if (existing.Count < RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.FixedBaseTiles)
+        CollectCurrentRoomTileCells(existing);
+        if (existing.Count == 0)
             return false;
 
         Vector2Int playerTile = WorldToTile(playerWorldPosition);
@@ -409,8 +417,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             playerWorldPosition.x / RoomBaseTemplate.TileWorldSize,
             playerWorldPosition.y / RoomBaseTemplate.TileWorldSize);
 
-        bool found = false;
+        bool foundComplete = false;
         Vector2Int bestOrigin = default;
+        int bestCoverage = -1;
         float bestScore = float.MaxValue;
 
         for (int oy = playerTile.y - (RoomBaseTemplate.FixedBaseTiles - 1); oy <= playerTile.y; oy++)
@@ -418,41 +427,40 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             for (int ox = playerTile.x - (RoomBaseTemplate.FixedBaseTiles - 1); ox <= playerTile.x; ox++)
             {
                 Vector2Int origin = new(ox, oy);
-                if (!IsCompleteFourByFour(existing, origin)) continue;
+                int coverage = CountCoveredBaseCells(existing, origin);
+                bool complete = coverage == RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.FixedBaseTiles;
                 float score = ScoreBaseOrigin(origin, playerTilePosition);
-                if (!found || score < bestScore)
+
+                if (complete)
                 {
-                    found = true;
+                    if (!foundComplete || score < bestScore)
+                    {
+                        foundComplete = true;
+                        bestCoverage = coverage;
+                        bestScore = score;
+                        bestOrigin = origin;
+                    }
+                }
+                else if (!foundComplete &&
+                         (coverage > bestCoverage || coverage == bestCoverage && score < bestScore))
+                {
+                    bestCoverage = coverage;
                     bestScore = score;
                     bestOrigin = origin;
                 }
             }
         }
 
-        if (!found)
-        {
-            GetCellBounds(existing, out int minX, out int minY, out int maxX, out int maxY);
-            int maxOriginX = maxX - RoomBaseTemplate.FixedBaseTiles + 1;
-            int maxOriginY = maxY - RoomBaseTemplate.FixedBaseTiles + 1;
-            for (int oy = minY; oy <= maxOriginY; oy++)
-            {
-                for (int ox = minX; ox <= maxOriginX; ox++)
-                {
-                    Vector2Int origin = new(ox, oy);
-                    if (!IsCompleteFourByFour(existing, origin)) continue;
-                    float score = ScoreBaseOrigin(origin, playerTilePosition);
-                    if (!found || score < bestScore)
-                    {
-                        found = true;
-                        bestScore = score;
-                        bestOrigin = origin;
-                    }
-                }
-            }
-        }
-
-        if (!found)
+        if (bestCoverage <= 0)
             return false;
+
+        if (!foundComplete)
+        {
+            Debug.LogWarning(
+                $"[BattleStageTransition] Player 주변에 완전한 4x4가 없어 " +
+                $"실제 타일이 가장 많은 {bestCoverage}/16 구간을 다음 Base로 승격합니다.",
+                this);
+        }
 
         lowerLeftTileCenterWorld = new Vector3(
             bestOrigin.x * RoomBaseTemplate.TileWorldSize,
@@ -461,18 +469,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         return true;
     }
 
-    private void CollectCurrentStageTileCells(HashSet<Vector2Int> cells)
+    private void CollectCurrentRoomTileCells(HashSet<Vector2Int> cells)
     {
         if (cells == null)
             return;
-
-        if (baseTemplate != null && baseTemplate.HasPersistentBase)
-        {
-            Vector2Int baseOrigin = WorldToTile(baseTemplate.FixedTileOriginWorld);
-            for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
-                for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
-                    cells.Add(baseOrigin + new Vector2Int(x, y));
-        }
 
         if (roomManager == null || ActiveBlocksField == null)
             return;
@@ -497,29 +497,20 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Mathf.RoundToInt(world.x / RoomBaseTemplate.TileWorldSize),
         Mathf.RoundToInt(world.y / RoomBaseTemplate.TileWorldSize));
 
-    private static bool IsCompleteFourByFour(HashSet<Vector2Int> cells, Vector2Int lowerLeft)
+    private static int CountCoveredBaseCells(HashSet<Vector2Int> cells, Vector2Int lowerLeft)
     {
+        int covered = 0;
         for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
             for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
-                if (!cells.Contains(lowerLeft + new Vector2Int(x, y)))
-                    return false;
-        return true;
+                if (cells.Contains(lowerLeft + new Vector2Int(x, y)))
+                    covered++;
+        return covered;
     }
 
     private static float ScoreBaseOrigin(Vector2Int lowerLeft, Vector2 playerTilePosition)
     {
         Vector2 center = (Vector2)lowerLeft + new Vector2(1.5f, 1.5f);
         return (center - playerTilePosition).sqrMagnitude;
-    }
-
-    private static void GetCellBounds(HashSet<Vector2Int> cells, out int minX, out int minY, out int maxX, out int maxY)
-    {
-        minX = int.MaxValue; minY = int.MaxValue; maxX = int.MinValue; maxY = int.MinValue;
-        foreach (Vector2Int cell in cells)
-        {
-            minX = Mathf.Min(minX, cell.x); minY = Mathf.Min(minY, cell.y);
-            maxX = Mathf.Max(maxX, cell.x); maxY = Mathf.Max(maxY, cell.y);
-        }
     }
 
     // ---------------------------------------------------------------------

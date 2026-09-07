@@ -37,9 +37,9 @@ public sealed class BattleHUD : MonoBehaviour
     [Tooltip("Background prize display. Intentionally leaves the lower-left Player area unobstructed.")]
     [SerializeField] private Vector2 rewardScreenSize = new(1120f, 560f);
     [SerializeField] private Vector2 rewardScreenAnchor = new(0.61f, 0.69f);
-    [Tooltip("최초 대기실 맵 선택에서 플레이어 뒤쪽 배경처럼 보이도록 넓혀 사용하는 화면 크기입니다.")]
-    [SerializeField] private Vector2 openingMapScreenSize = new(1320f, 620f);
-    [SerializeField] private Vector2 openingMapScreenAnchor = new(0.50f, 0.67f);
+    [Tooltip("최초 및 중간 맵 선택에서 화면을 거의 가득 채우는 전용 보드 크기입니다.")]
+    [SerializeField] private Vector2 mapSelectionScreenSize = new(1740f, 900f);
+    [SerializeField] private Vector2 mapSelectionScreenAnchor = new(0.50f, 0.53f);
     [SerializeField] private Vector2 rewardLoadoutSize = new(1120f, 150f);
     [SerializeField] private Vector2 rewardLoadoutAnchor = new(0.61f, 0.145f);
     [SerializeField, Range(1.02f, 1.30f)] private float rewardHoverScale = 1.10f;
@@ -662,7 +662,7 @@ public sealed class BattleHUD : MonoBehaviour
                 ? openingWaitingRoomFilter
                 : rewardFieldFilter;
         }
-        ApplySelectionShowLayout(openingWaitingRoom);
+        ApplySelectionShowLayout(mapSelection, openingWaitingRoom);
 
         if (combatStatusRoot != null)
             combatStatusRoot.SetActive(!visible);
@@ -694,12 +694,12 @@ public sealed class BattleHUD : MonoBehaviour
         }
     }
 
-    private void ApplySelectionShowLayout(bool openingWaitingRoom)
+    private void ApplySelectionShowLayout(bool mapSelection, bool openingWaitingRoom)
     {
         if (rewardScreenRect != null)
         {
-            Vector2 anchor = openingWaitingRoom ? openingMapScreenAnchor : rewardScreenAnchor;
-            Vector2 size = openingWaitingRoom ? openingMapScreenSize : rewardScreenSize;
+            Vector2 anchor = mapSelection ? mapSelectionScreenAnchor : rewardScreenAnchor;
+            Vector2 size = mapSelection ? mapSelectionScreenSize : rewardScreenSize;
             rewardScreenRect.anchorMin = rewardScreenRect.anchorMax = anchor;
             rewardScreenRect.sizeDelta = size;
             rewardScreenRect.anchoredPosition = Vector2.zero;

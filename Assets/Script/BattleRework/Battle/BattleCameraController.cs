@@ -33,6 +33,8 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField] private Vector2 rewardShowOffset = new(5.7f, 2.35f);
     [Tooltip("Reward Show stays wide enough for Player + screen + presenter + reward stage to read as one set.")]
     [SerializeField, Min(0.1f)] private float rewardShowZoom = 6.1f;
+    [Tooltip("최초 및 중간 맵 선택에서 사용하는 더 가까운 월드 카메라 줌입니다.")]
+    [SerializeField, Min(0.1f)] private float mapSelectionZoom = 5.2f;
     [SerializeField, Min(0f)] private float rewardShowSharpness = 6f;
 
     [Header("Map Inspection")]
@@ -288,8 +290,10 @@ public class BattleCameraController : MonoBehaviour
                 return;
         }
 
+        bool mapSelectionFraming = rewardFraming && runManager != null &&
+                                   runManager.State == BattleRunState.SelectingNode;
         float desiredZoom = rewardFraming
-            ? Mathf.Clamp(rewardShowZoom, minZoom, maxZoom)
+            ? Mathf.Clamp(mapSelectionFraming ? mapSelectionZoom : rewardShowZoom, minZoom, maxZoom)
             : targetZoom;
         float zoomSpeed = rewardFraming ? rewardShowSharpness : zoomSharpness;
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
