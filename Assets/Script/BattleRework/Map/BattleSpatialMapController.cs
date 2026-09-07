@@ -26,7 +26,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 {
     [Header("Procedural Room")]
     [SerializeField] private Color roomFloorColor = new(0.18f, 0.21f, 0.25f, 1f);
-    [SerializeField] private Color roomEdgeColor = new(0.31f, 0.35f, 0.41f, 1f);
     [SerializeField, Min(0.03f)] private float roomEdgeThickness = 0.12f;
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
 
@@ -1045,17 +1044,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ? new Vector2(roomEdgeThickness, 1f + roomEdgeThickness)
             : new Vector2(1f + roomEdgeThickness, roomEdgeThickness);
 
-        GameObject wall = new("RoomEdge");
+        GameObject wall = new("RoomBoundaryCollider");
         wall.transform.SetParent(root, false);
         wall.transform.localPosition = (Vector2)cell + (Vector2)edge * 0.5f;
 
-        SpriteRenderer renderer = wall.AddComponent<SpriteRenderer>();
-        renderer.sprite = SpatialRuntimeSpriteCache.Solid32;
-        renderer.drawMode = SpriteDrawMode.Tiled;
-        renderer.size = size;
-        renderer.color = roomEdgeColor;
-        renderer.sortingOrder = 3;
-
+        // 회색 RoomEdge는 보이지 않게 하되,
+        // 방 외곽 충돌과 NavMesh Not Walkable 처리는 그대로 유지합니다.
         BoxCollider2D collider = wall.AddComponent<BoxCollider2D>();
         collider.size = size;
         collider.isTrigger = false;

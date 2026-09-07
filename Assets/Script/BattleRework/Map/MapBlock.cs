@@ -54,12 +54,16 @@ public class MapBlock : MonoBehaviour
     private Quaternion presentationBaseRotation;
     private Vector3 presentationBaseScale = Vector3.one;
     private Vector3 wheelBaseEuler;
+    private Vector3 entryDestination;
+    private bool hasEntryDestination;
 
     public MapBlockEntryType EntryType => entryType;
     public bool WillImpact => entryType != MapBlockEntryType.Static;
     public bool ContributesWalkableNavMesh => contributesWalkableNavMesh;
     public float EntryDuration => entryType == MapBlockEntryType.Static ? 0f : entryDuration + impactSettleDuration;
     public float ExitDuration => exitDuration;
+    public bool HasEntryDestination => hasEntryDestination;
+    public Vector3 EntryDestination => hasEntryDestination ? entryDestination : transform.position;
 
     public event Action<MapBlock, Vector3, Vector2, float> Impacted;
 
@@ -218,6 +222,8 @@ public class MapBlock : MonoBehaviour
     public void SnapTo(Vector3 worldPosition)
     {
         KillTweens();
+        entryDestination = worldPosition;
+        hasEntryDestination = true;
         transform.position = worldPosition;
         RestorePresentationPose();
     }
@@ -321,6 +327,8 @@ public class MapBlock : MonoBehaviour
     {
         KillTweens();
         RestorePresentationPose();
+        entryDestination = destination;
+        hasEntryDestination = true;
 
         if (entryType == MapBlockEntryType.Static)
         {

@@ -311,15 +311,21 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 상/하/좌/우에서 들어오는 MapBlock에 현재 SO 템플릿을 즉시 적용합니다.
-    /// contactSide에는 기존 바닥과 실제로 맞물리는 면(Vector2.left/right/up/down)을 넘깁니다.
+    /// MapBlock에 현재 SO 템플릿을 즉시 적용합니다.
+    /// contactSide 인자는 기존 호출부 호환용으로 남겨 두며,
+    /// 실제 하드웨어 배치는 전체 필드의 점유 타일을 기준으로 계산합니다.
     /// </summary>
     public void ApplySlidingTemplate(MapBlock block, Vector2 contactSide, bool rebuild = false)
     {
         if (block == null)
             return;
 
-        DecorateSlidingBlock(block.transform, contactSide, rebuild);
+        _ = contactSide;
+
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+        DecorateSlidingBlock(block.transform, rebuild, BuildOccupiedFloorCells(blocks));
     }
 
     private IEnumerator DecorateIncomingShowFloorNextFrame(bool rebuild = false)
@@ -351,6 +357,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         MapBlock[] blocks = FindObjectsByType<MapBlock>(
             FindObjectsInactive.Exclude,
             FindObjectsSortMode.None);
+        List<MapBlock> liveBlocks = new();
 
         for (int i = 0; i < blocks.Length; i++)
         {
@@ -361,16 +368,22 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             string blockName = block.name;
             // Runtime 전투 조각은 Prototype을 Instantiate한 뒤에도
             // "__RuntimeRoomPiecePrototype_...(Clone)" 이름을 유지합니다.
-            // Prototype 접두사 자체를 제외하면 실제 전투 필드까지 함께 누락됩니다.
-            if (blockName.StartsWith("Outgoing_", StringComparison.Ordinal))
+            // 복제본은 포함하되 10000,10000에 있는 원본 Prototype 자체는 제외합니다.
+            bool rawPrototype =
+                blockName.StartsWith("__RuntimeRoomPiecePrototype_", StringComparison.Ordinal) &&
+                !blockName.EndsWith("(Clone)", StringComparison.Ordinal);
+            if (rawPrototype || blockName.StartsWith("Outgoing_", StringComparison.Ordinal))
                 continue;
 
             if (!HasSupportedFloorTiles(block.transform))
                 continue;
 
-            Vector2 contactSide = ResolveContactSide(block);
-            DecorateSlidingBlock(block.transform, contactSide, rebuild);
+            liveBlocks.Add(block);
         }
+
+        HashSet<Vector2Int> occupiedFloorCells = BuildOccupiedFloorCells(blocks);
+        for (int i = 0; i < liveBlocks.Count; i++)
+            DecorateSlidingBlock(liveBlocks[i].transform, rebuild, occupiedFloorCells);
     }
 
     private static bool HasSupportedFloorTiles(Transform blockRoot)
@@ -392,45 +405,76 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return false;
     }
 
-    private Vector2 ResolveContactSide(MapBlock block)
+    private HashSet<Vector2Int> BuildOccupiedFloorCells(MapBlock[] blocks)
     {
-        if (block == null)
-            return Vector2.left;
-
-        if (block.name.StartsWith("RewardShowSlab_", StringComparison.Ordinal))
-            return Vector2.left;
-
+        HashSet<Vector2Int> occupied = new();
         ResolveReferences();
-        Vector2 baseCenter = baseTemplate != null
-            ? (Vector2)baseTemplate.FixedCenterWorld
-            : Vector2.zero;
-
-        Vector2 pieceCenter = block.transform.position;
-        Renderer[] renderers = block.GetComponentsInChildren<Renderer>(true);
-        bool found = false;
-        Bounds bounds = default;
-        for (int i = 0; i < renderers.Length; i++)
+        if (baseTemplate != null && baseTemplate.ActiveBase != null)
         {
-            Renderer renderer = renderers[i];
-            if (renderer == null || !renderer.enabled)
+            Vector3 origin = baseTemplate.FixedTileOriginWorld;
+            Vector2Int baseOrigin = WorldToFloorCell(origin);
+            for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
+                for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
+                    occupied.Add(baseOrigin + new Vector2Int(x, y));
+        }
+
+        if (blocks == null)
+            return occupied;
+
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            MapBlock block = blocks[i];
+            if (block == null)
                 continue;
 
-            if (!found)
+            string blockName = block.name;
+            bool rawPrototype =
+                blockName.StartsWith("__RuntimeRoomPiecePrototype_", StringComparison.Ordinal) &&
+                !blockName.EndsWith("(Clone)", StringComparison.Ordinal);
+            if (rawPrototype || blockName.StartsWith("Outgoing_", StringComparison.Ordinal))
+                continue;
+
+            Transform tileRoot = block.transform.Find("Visual");
+            if (tileRoot == null)
+                tileRoot = block.transform;
+
+            for (int childIndex = 0; childIndex < tileRoot.childCount; childIndex++)
             {
-                bounds = renderer.bounds;
-                found = true;
-            }
-            else
-            {
-                bounds.Encapsulate(renderer.bounds);
+                Transform child = tileRoot.GetChild(childIndex);
+                if (!IsSupportedFloorTile(child))
+                    continue;
+                occupied.Add(ResolveDestinationFloorCell(block, child));
             }
         }
 
-        if (found)
-            pieceCenter = bounds.center;
+        return occupied;
+    }
 
-        Vector2 towardBase = baseCenter - pieceCenter;
-        return NormalizeCardinal(towardBase);
+    private static Vector2Int WorldToFloorCell(Vector3 worldPosition)
+    {
+        return new Vector2Int(
+            Mathf.RoundToInt(worldPosition.x / RoomBaseTemplate.TileWorldSize),
+            Mathf.RoundToInt(worldPosition.y / RoomBaseTemplate.TileWorldSize));
+    }
+
+    private static Vector2Int ResolveDestinationFloorCell(MapBlock block, Transform tile)
+    {
+        if (tile == null)
+            return Vector2Int.zero;
+
+        Vector3 destinationWorld = tile.position;
+        if (block != null && block.HasEntryDestination)
+            destinationWorld += block.EntryDestination - block.transform.position;
+        return WorldToFloorCell(destinationWorld);
+    }
+
+    private static bool IsSupportedFloorTile(Transform child)
+    {
+        if (child == null)
+            return false;
+
+        return child.name.StartsWith("ShowTile_", StringComparison.Ordinal) ||
+               child.name.StartsWith("Tile_", StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -514,7 +558,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         // 핸들/상판/하판을 강제 생성하지 않습니다.
     }
 
-    private void DecorateSlidingBlock(Transform slabRoot, Vector2 contactSide, bool rebuild)
+    private void DecorateSlidingBlock(
+        Transform slabRoot,
+        bool rebuild,
+        HashSet<Vector2Int> occupiedFloorCells)
     {
         if (slabRoot == null)
             return;
@@ -542,15 +589,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         BattleShowFloorTemplateSO template = ActiveFloorTemplate;
         WarnTemplateState(template);
 
-        int minX = int.MaxValue;
-        int maxX = int.MinValue;
-        int minY = int.MaxValue;
-        int maxY = int.MinValue;
         bool foundTile = false;
         int templateSortingLayerId = 0;
         int sourceFloorSortingOrder = -18;
         bool foundSortingLayer = false;
         List<SpriteRenderer> floorRenderers = new();
+        List<Transform> floorTiles = new();
 
         bool replaceFloorArt = HasUsableFloorVariant(template);
         Color floorTint = template != null ? template.FloorTint : Color.white;
@@ -561,10 +605,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             if (child == null)
                 continue;
 
-            bool isFloorTile =
-                child.name.StartsWith("ShowTile_", StringComparison.Ordinal) ||
-                child.name.StartsWith("Tile_", StringComparison.Ordinal);
-            if (!isFloorTile)
+            if (!IsSupportedFloorTile(child))
                 continue;
 
             SpriteRenderer renderer = child.GetComponent<SpriteRenderer>();
@@ -578,13 +619,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 foundSortingLayer = true;
             }
             floorRenderers.Add(renderer);
+            floorTiles.Add(child);
 
-            int x = Mathf.RoundToInt(child.localPosition.x);
-            int y = Mathf.RoundToInt(child.localPosition.y);
-            minX = Mathf.Min(minX, x);
-            maxX = Mathf.Max(maxX, x);
-            minY = Mathf.Min(minY, y);
-            maxY = Mathf.Max(maxY, y);
             foundTile = true;
         }
 
@@ -626,55 +662,21 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         templateObject.transform.SetParent(visual, false);
         Transform templateRoot = templateObject.transform;
 
-        Sprite upperPlate = template != null ? template.UpperPlateSprite32 : null;
         Color plateTint = template != null ? template.PlateTint : Color.white;
-        Vector2 normalizedContactSide = NormalizeCardinal(contactSide);
 
         // 비어 있는 Sprite 슬롯은 런타임 회색/흰색 더미로 대체하지 않습니다.
         // Floor Variants가 비어 있으면 위에서 기존 Tile Sprite를 그대로 유지하고,
         // 위/하판과 핸들은 Sprite가 지정된 부품만 생성합니다.
-        if (upperPlate != null && normalizedContactSide == Vector2.up)
-        {
-            // 상단 부품은 실제 접촉면이 위쪽인 판에만 만듭니다.
-            // 따라서 Base 위쪽에 붙는 판의 외곽 위에 부품이 반복되지 않습니다.
-            // 배치도 최좌측/최우측 끝 중 하나로 제한합니다.
-            int upperX = ShouldUsePositiveHandleEnd(templateRoot, Vector2.up) ? maxX : minX;
-            CreateTemplateSprite(
-                templateRoot,
-                $"UpperPlate_{upperX}",
-                new Vector3(upperX, maxY + 1f, 0f),
-                upperPlate,
-                plateTint,
-                templateSortingLayerId,
-                upperSort);
-        }
 
-        // 하판은 좌측 끝 / 중앙 반복 / 우측 끝 3종만 사용합니다.
-        for (int x = minX; x <= maxX; x++)
-        {
-            Sprite lowerSprite = ResolveLowerPlateSprite(template, x, minX, maxX);
-            if (lowerSprite == null)
-                continue;
-
-            CreateTemplateSprite(
-                templateRoot,
-                $"LowerPlate_{x}",
-                new Vector3(x, minY - 1f, 0f),
-                lowerSprite,
-                plateTint,
-                templateSortingLayerId,
-                lowerSort);
-        }
-
-        CreateHandles(
+        CreateExteriorHardware(
             templateRoot,
-            minX,
-            maxX,
-            minY,
-            maxY,
-            contactSide,
+            slabRoot.GetComponent<MapBlock>(),
+            floorTiles,
+            occupiedFloorCells,
             template,
+            plateTint,
             templateSortingLayerId,
+            lowerSort,
             handleSort);
 
         SubscribeDockImpact(slabRoot.GetComponent<MapBlock>());
@@ -842,85 +844,123 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return template.LowerPlateCenterSprite32;
     }
 
-    private static void CreateHandles(
+    private static void CreateExteriorHardware(
         Transform templateRoot,
-        float minX,
-        float maxX,
-        float minY,
-        float maxY,
-        Vector2 contactSide,
+        MapBlock block,
+        List<Transform> floorTiles,
+        HashSet<Vector2Int> occupiedFloorCells,
         BattleShowFloorTemplateSO template,
+        Color plateTint,
         int sortingLayerId,
+        int lowerSorting,
         int handleSorting)
     {
-        if (template == null || template.HandlePlacement == BattleShowHandlePlacementMode.None)
+        if (template == null || floorTiles == null || occupiedFloorCells == null)
             return;
 
-        bool all = template.HandlePlacement == BattleShowHandlePlacementMode.AllFourSides;
-        Vector2 side = NormalizeCardinal(contactSide);
-        // 한 면에 핸들은 최대 1개만 만듭니다.
-        // 좌/우 옆면은 세로 양 끝(최상단 또는 최하단),
-        // 위/아래 면은 가로 양 끝(최좌측 또는 최우측) 중 하나에만 배치합니다.
-        // 바닥 외곽에 바로 맞닿는 한 칸 바깥 거리는 기존과 같습니다.
-        if (all || side == Vector2.left)
+        List<Transform> exposedLeft = new();
+        List<Transform> exposedRight = new();
+        List<Transform> exposedUpper = new();
+        List<Transform> exposedLower = new();
+
+        for (int i = 0; i < floorTiles.Count; i++)
         {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Left",
-                new Vector3(
-                    minX - 1f,
-                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.left) ? maxY : minY,
-                    0f),
-                template.LeftHandleSprite32,
-                template.HandleTint,
-                sortingLayerId,
-                handleSorting);
+            Transform tile = floorTiles[i];
+            Vector2Int cell = ResolveDestinationFloorCell(block, tile);
+            if (!occupiedFloorCells.Contains(cell + Vector2Int.left)) exposedLeft.Add(tile);
+            if (!occupiedFloorCells.Contains(cell + Vector2Int.right)) exposedRight.Add(tile);
+            if (!occupiedFloorCells.Contains(cell + Vector2Int.up)) exposedUpper.Add(tile);
+            if (!occupiedFloorCells.Contains(cell + Vector2Int.down)) exposedLower.Add(tile);
         }
 
-        if (all || side == Vector2.right)
+        // 하판은 전체 바운드가 아니라 실제로 아래쪽이 노출된 타일에만 조립합니다.
+        // 따라서 최초 4x4 Base와 맞닿는 내부 경계에는 하판이 겹치지 않습니다.
+        if (exposedLower.Count > 0)
         {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Right",
-                new Vector3(
-                    maxX + 1f,
-                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.right) ? maxY : minY,
-                    0f),
-                template.RightHandleSprite32,
-                template.HandleTint,
-                sortingLayerId,
-                handleSorting);
+            int minX = int.MaxValue;
+            int maxX = int.MinValue;
+            for (int i = 0; i < exposedLower.Count; i++)
+            {
+                int x = Mathf.RoundToInt(exposedLower[i].localPosition.x);
+                minX = Mathf.Min(minX, x);
+                maxX = Mathf.Max(maxX, x);
+            }
+
+            for (int i = 0; i < exposedLower.Count; i++)
+            {
+                Transform tile = exposedLower[i];
+                int x = Mathf.RoundToInt(tile.localPosition.x);
+                Sprite lowerSprite = ResolveLowerPlateSprite(template, x, minX, maxX);
+                if (lowerSprite == null)
+                    continue;
+
+                CreateTemplateSprite(
+                    templateRoot,
+                    $"LowerPlate_{x}_{i}",
+                    tile.localPosition + Vector3.down,
+                    lowerSprite,
+                    plateTint,
+                    sortingLayerId,
+                    lowerSorting);
+            }
         }
 
-        if (all || side == Vector2.up)
+        if (template.HandlePlacement == BattleShowHandlePlacementMode.None)
+            return;
+
+        CreateExteriorHandle(templateRoot, exposedLeft, Vector2.left, "DockHandle_Left", template.LeftHandleSprite32, template, sortingLayerId, handleSorting);
+        CreateExteriorHandle(templateRoot, exposedRight, Vector2.right, "DockHandle_Right", template.RightHandleSprite32, template, sortingLayerId, handleSorting);
+
+        // 기존 Upper Plate 슬롯에 상단 핸들 이미지를 넣어둔 SO도 바로 동작하도록
+        // Upper Handle이 비어 있으면 Upper Plate를 1개짜리 상단 핸들로 사용합니다.
+        Sprite upperHandle = template.UpperHandleSprite32 != null
+            ? template.UpperHandleSprite32
+            : template.UpperPlateSprite32;
+        CreateExteriorHandle(templateRoot, exposedUpper, Vector2.up, "DockHandle_Upper", upperHandle, template, sortingLayerId, handleSorting);
+        CreateExteriorHandle(templateRoot, exposedLower, Vector2.down, "DockHandle_Lower", template.LowerHandleSprite32, template, sortingLayerId, handleSorting);
+    }
+
+    private static void CreateExteriorHandle(
+        Transform templateRoot,
+        List<Transform> exposedTiles,
+        Vector2 side,
+        string objectName,
+        Sprite sprite,
+        BattleShowFloorTemplateSO template,
+        int sortingLayerId,
+        int sortingOrder)
+    {
+        if (sprite == null || exposedTiles == null || exposedTiles.Count == 0)
+            return;
+
+        bool positiveEnd = ShouldUsePositiveHandleEnd(templateRoot, side);
+        Transform selected = exposedTiles[0];
+        float selectedAxis = GetHandleEndAxis(selected, side);
+        for (int i = 1; i < exposedTiles.Count; i++)
         {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Upper",
-                new Vector3(
-                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.up) ? maxX : minX,
-                    maxY + 1f,
-                    0f),
-                template.UpperHandleSprite32,
-                template.HandleTint,
-                sortingLayerId,
-                handleSorting);
+            float axis = GetHandleEndAxis(exposedTiles[i], side);
+            if ((positiveEnd && axis > selectedAxis) || (!positiveEnd && axis < selectedAxis))
+            {
+                selected = exposedTiles[i];
+                selectedAxis = axis;
+            }
         }
 
-        if (all || side == Vector2.down)
-        {
-            CreateOptionalHandle(
-                templateRoot,
-                "DockHandle_Lower",
-                new Vector3(
-                    ShouldUsePositiveHandleEnd(templateRoot, Vector2.down) ? maxX : minX,
-                    minY - 1f,
-                    0f),
-                template.LowerHandleSprite32,
-                template.HandleTint,
-                sortingLayerId,
-                handleSorting);
-        }
+        CreateOptionalHandle(
+            templateRoot,
+            objectName,
+            selected.localPosition + (Vector3)side,
+            sprite,
+            template.HandleTint,
+            sortingLayerId,
+            sortingOrder);
+    }
+
+    private static float GetHandleEndAxis(Transform tile, Vector2 side)
+    {
+        return Mathf.Abs(side.x) > 0.5f
+            ? tile.localPosition.y
+            : tile.localPosition.x;
     }
 
     private static bool ShouldUsePositiveHandleEnd(Transform templateRoot, Vector2 side)
