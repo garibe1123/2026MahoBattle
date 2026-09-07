@@ -10,7 +10,8 @@ using UnityEngine.UI;
 /// DELTARUNE식 TV 쇼 구도를 전투 월드에 구성합니다.
 ///
 /// 레이어 원칙:
-///   [뒤] World TV (WorldSpace Canvas / 실제 GameObject)
+///   [뒤] 전투 Field 바닥
+///        World TV (WorldSpace Canvas / 실제 GameObject)
 ///        Player + Presenter (실제 SpriteRenderer)
 ///        Prize 선택 슬롯 + 전투 Loadout (ScreenSpace UI)
 ///   [앞]
@@ -42,7 +43,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [Tooltip("Field 뒤쪽 끝에서 TV 하단이 Field 쪽으로 살짝 겹치는 거리입니다. TV는 캐릭터보다 뒤에 렌더됩니다.")]
     [SerializeField, Min(0f)] private float tvFieldOverlap = 0.40f;
 
-    [Tooltip("TV Canvas를 Player보다 몇 Sorting Order 뒤에 둘지 결정합니다.")]
+    [Tooltip("Player보다 TV를 기본적으로 몇 Sorting Order 뒤에 둘지 결정합니다. 실제로는 Field보다 앞이 되도록 자동 보정합니다.")]
     [SerializeField, Min(1)] private int tvBehindPlayerOrder = 20;
 
     [Header("TV Mechanical Entry")]
@@ -71,8 +72,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField] private Vector2 prizeSlotSize = new(98f, 94f);
     [SerializeField, Min(0f)] private float prizeSlotSpacing = 14f;
     [SerializeField] private Vector2 prizeChoiceAnchor = new(0.36f, 0.285f);
-    [SerializeField, Range(0.7f, 1.4f)] private float prizeHoverScale = 1.10f;
-    [SerializeField, Min(0f)] private float prizeHoverLift = 10f;
 
     [Header("Map Readability")]
     [SerializeField, Min(30f)] private float mapStartGap = 112f;
@@ -900,22 +899,56 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             if (tvCanvas != null)
             {
                 tvCanvas.sortingLayerID = playerRenderer.sortingLayerID;
-                tvCanvas.sortingOrder = playerRenderer.sortingOrder - Mathf.Max(1, tvBehindPlayerOrder);
+
+                int playerOrder = playerRenderer.sortingOrder;
+                int tvOrder = playerOrder - Mathf.Max(1, tvBehindPlayerOrder);
+                int highestFieldOrder = GetHighestFieldSortingOrder(playerRenderer.sortingLayerID);
+
+                // TV는 바닥보다 앞, Player보다 뒤여야 합니다.
+                if (highestFieldOrder < playerOrder)
+                    tvOrder = Mathf.Max(tvOrder, highestFieldOrder + 1);
+                tvOrder = Mathf.Min(tvOrder, playerOrder - 1);
+
+                tvCanvas.sortingOrder = tvOrder;
             }
 
             if (presenterRenderer != null)
             {
                 presenterRenderer.sortingLayerID = playerRenderer.sortingLayerID;
-                presenterRenderer.sortingOrder = playerRenderer.sortingOrder + Mathf.Max(1, presenterFrontOrder);
+                presenterRenderer.sortingOrder =
+                    playerRenderer.sortingOrder + Mathf.Max(1, presenterFrontOrder);
             }
         }
         else
         {
             if (tvCanvas != null)
-                tvCanvas.sortingOrder = -20;
+                tvCanvas.sortingOrder = -10;
             if (presenterRenderer != null)
                 presenterRenderer.sortingOrder = 30;
         }
+    }
+
+    private static int GetHighestFieldSortingOrder(int sortingLayerId)
+    {
+        int highest = int.MinValue;
+        BattleWalkableField[] fields = FindObjectsByType<BattleWalkableField>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < fields.Length; i++)
+        {
+            BattleWalkableField field = fields[i];
+            if (field == null)
+                continue;
+
+            SpriteRenderer renderer = field.GetComponent<SpriteRenderer>();
+            if (renderer == null || renderer.sortingLayerID != sortingLayerId)
+                continue;
+
+            highest = Mathf.Max(highest, renderer.sortingOrder);
+        }
+
+        return highest == int.MinValue ? -1000 : highest;
     }
 
     private Vector3 ClampPresenterInsideCamera(Vector3 preferred)
