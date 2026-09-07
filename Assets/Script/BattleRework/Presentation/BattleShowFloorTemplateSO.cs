@@ -24,7 +24,7 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
     [SerializeField] private Sprite[] floorVariants;
 
     [Header("위 판 - 32px")]
-    [Tooltip("상단 외곽 핸들의 대체 이미지입니다. Upper Handle이 비어 있을 때만 최상단의 왼쪽/오른쪽 끝에 최대 2개 배치되며, 전체 폭에 반복하지 않습니다.")]
+    [Tooltip("상단 핸들의 대체 이미지입니다. Upper Handle이 비어 있을 때 굴러오는 각 판의 상단 왼쪽/오른쪽 끝 중 1~2곳에 랜덤 배치되며, 도킹 후에도 유지됩니다.")]
     [SerializeField] private Sprite upperPlateSprite32;
 
     [Header("하판 - 32px / 좌·중앙·우")]
@@ -51,7 +51,7 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
     [Tooltip("판의 아래쪽 면이 기존 바닥과 연결될 때 사용하는 아래 핸들 이미지입니다. 핸들은 바닥 본체의 아래쪽 가장자리에 바로 붙여 배치합니다.")]
     [SerializeField] private Sprite lowerHandleSprite32;
 
-    [Tooltip("핸들 표시를 켜고 끄는 설정입니다. None이 아니면 완성된 전체 바닥에서 실제로 노출된 외곽면에만 손잡이가 생성됩니다. 위/아래 면은 왼쪽·오른쪽 끝, 좌/우 면은 아래·위 끝에 각 면 최대 2개만 배치되며 한 칸 면은 1개로 합쳐집니다.")]
+    [Tooltip("핸들 표시를 켜고 끄는 설정입니다. None이 아니면 굴러오는 각 판의 노출면에 손잡이를 한 번 랜덤 배치합니다. 위/아래 면은 왼쪽·오른쪽 끝, 좌/우 면은 아래·위 끝 중 1~2곳을 사용하며 한 칸 면은 1개만 생성됩니다. 최초 배치는 도킹 후에도 바뀌지 않습니다.")]
     [SerializeField] private BattleShowHandlePlacementMode handlePlacement = BattleShowHandlePlacementMode.ContactSideOnly;
 
     [Header("색상")]

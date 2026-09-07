@@ -917,21 +917,21 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             decoratedFloorCells == null)
             return;
 
-        HashSet<Vector2Int> leftEndpoints =
-            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.left);
-        HashSet<Vector2Int> rightEndpoints =
-            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.right);
-        HashSet<Vector2Int> upperEndpoints =
-            SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.up);
         HashSet<Vector2Int> lowerEndpoints =
             SelectExteriorFaceEndpoints(decoratedFloorCells, occupiedFloorCells, Vector2Int.down);
 
+        List<Transform> exposedLeft = new();
+        List<Transform> exposedRight = new();
+        List<Transform> exposedUpper = new();
         List<Transform> exposedLower = new();
 
         for (int i = 0; i < floorTiles.Count; i++)
         {
             Transform tile = floorTiles[i];
             Vector2Int cell = ResolveDestinationFloorCell(block, tile);
+            if (!occupiedFloorCells.Contains(cell + Vector2Int.left)) exposedLeft.Add(tile);
+            if (!occupiedFloorCells.Contains(cell + Vector2Int.right)) exposedRight.Add(tile);
+            if (!occupiedFloorCells.Contains(cell + Vector2Int.up)) exposedUpper.Add(tile);
             if (!occupiedFloorCells.Contains(cell + Vector2Int.down)) exposedLower.Add(tile);
         }
 
@@ -970,22 +970,18 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         if (template.HandlePlacement == BattleShowHandlePlacementMode.None)
             return;
 
-        CreateExteriorHandles(
+        CreateRandomExteriorHandles(
             templateRoot,
-            block,
-            floorTiles,
-            leftEndpoints,
+            exposedLeft,
             Vector2.left,
             "DockHandle_Left",
             template.LeftHandleSprite32,
             template,
             sortingLayerId,
             handleSorting);
-        CreateExteriorHandles(
+        CreateRandomExteriorHandles(
             templateRoot,
-            block,
-            floorTiles,
-            rightEndpoints,
+            exposedRight,
             Vector2.right,
             "DockHandle_Right",
             template.RightHandleSprite32,
@@ -998,22 +994,18 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         Sprite upperHandle = template.UpperHandleSprite32 != null
             ? template.UpperHandleSprite32
             : template.UpperPlateSprite32;
-        CreateExteriorHandles(
+        CreateRandomExteriorHandles(
             templateRoot,
-            block,
-            floorTiles,
-            upperEndpoints,
+            exposedUpper,
             Vector2.up,
             "DockHandle_Upper",
             upperHandle,
             template,
             sortingLayerId,
             handleSorting);
-        CreateExteriorHandles(
+        CreateRandomExteriorHandles(
             templateRoot,
-            block,
-            floorTiles,
-            lowerEndpoints,
+            exposedLower,
             Vector2.down,
             "DockHandle_Lower",
             template.LowerHandleSprite32,
@@ -1083,11 +1075,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return candidateOutward > currentOutward;
     }
 
-    private static void CreateExteriorHandles(
+    /// <summary>
+    /// 굴러오는 판 하나의 노출 면에서 허용된 양 끝 중 1개 또는 2개를 랜덤 배치합니다.
+    /// 생성된 손잡이는 판의 자식으로 남아 도킹 이후에도 위치가 바뀌지 않습니다.
+    /// </summary>
+    private static void CreateRandomExteriorHandles(
         Transform templateRoot,
-        MapBlock block,
-        List<Transform> floorTiles,
-        HashSet<Vector2Int> endpointCells,
+        List<Transform> exposedTiles,
         Vector2 side,
         string groupName,
         Sprite sprite,
@@ -1095,33 +1089,84 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         int sortingLayerId,
         int sortingOrder)
     {
-        if (sprite == null || floorTiles == null || endpointCells == null || endpointCells.Count == 0)
+        if (sprite == null || exposedTiles == null || exposedTiles.Count == 0)
             return;
 
-        GameObject groupObject = null;
-        int createdCount = 0;
-        for (int i = 0; i < floorTiles.Count; i++)
+        Transform negativeEnd = exposedTiles[0];
+        Transform positiveEnd = exposedTiles[0];
+        for (int i = 1; i < exposedTiles.Count; i++)
         {
-            Transform tile = floorTiles[i];
-            if (!endpointCells.Contains(ResolveDestinationFloorCell(block, tile)))
-                continue;
+            Transform candidate = exposedTiles[i];
+            if (IsBetterLocalFaceEndpoint(candidate, negativeEnd, side, false))
+                negativeEnd = candidate;
+            if (IsBetterLocalFaceEndpoint(candidate, positiveEnd, side, true))
+                positiveEnd = candidate;
+        }
 
-            if (groupObject == null)
-            {
-                groupObject = new GameObject(groupName);
-                groupObject.transform.SetParent(templateRoot, false);
-            }
+        GameObject groupObject = new(groupName);
+        groupObject.transform.SetParent(templateRoot, false);
 
+        if (negativeEnd == positiveEnd)
+        {
             CreateOptionalHandle(
                 groupObject.transform,
-                $"{groupName}_End_{createdCount}",
-                tile.localPosition + (Vector3)side,
+                $"{groupName}_OnlyEnd",
+                negativeEnd.localPosition + (Vector3)side,
                 sprite,
                 template.HandleTint,
                 sortingLayerId,
                 sortingOrder);
-            createdCount++;
+            return;
         }
+
+        // 0=음의 끝 1개, 1=양의 끝 1개, 2=양 끝 2개.
+        // 판이 처음 등장할 때 한 번만 뽑고 이후 자동 rebuild를 하지 않으므로 그대로 유지됩니다.
+        int randomLayout = UnityEngine.Random.Range(0, 3);
+        if (randomLayout != 1)
+        {
+            CreateOptionalHandle(
+                groupObject.transform,
+                $"{groupName}_NegativeEnd",
+                negativeEnd.localPosition + (Vector3)side,
+                sprite,
+                template.HandleTint,
+                sortingLayerId,
+                sortingOrder);
+        }
+
+        if (randomLayout != 0)
+        {
+            CreateOptionalHandle(
+                groupObject.transform,
+                $"{groupName}_PositiveEnd",
+                positiveEnd.localPosition + (Vector3)side,
+                sprite,
+                template.HandleTint,
+                sortingLayerId,
+                sortingOrder);
+        }
+    }
+
+    private static bool IsBetterLocalFaceEndpoint(
+        Transform candidate,
+        Transform current,
+        Vector2 side,
+        bool positiveEnd)
+    {
+        float candidateAxis = Mathf.Abs(side.x) > 0.5f
+            ? candidate.localPosition.y
+            : candidate.localPosition.x;
+        float currentAxis = Mathf.Abs(side.x) > 0.5f
+            ? current.localPosition.y
+            : current.localPosition.x;
+        if (!Mathf.Approximately(candidateAxis, currentAxis))
+            return positiveEnd
+                ? candidateAxis > currentAxis
+                : candidateAxis < currentAxis;
+
+        float candidateOutward = Vector2.Dot(candidate.localPosition, side);
+        float currentOutward = Vector2.Dot(current.localPosition, side);
+        return candidateOutward > currentOutward;
     }
 
     private static void CreateOptionalHandle(
