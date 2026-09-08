@@ -120,6 +120,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     public bool HasCameraAnchor => dockCaptured && !externalGate && currentMode != ShowMode.None;
     public Vector3 CameraTargetWorld => cameraTargetWorld;
     public float ShowCameraSize => Mathf.Max(0.1f, cameraSizeWorld);
+    public Transform PresenterWorldTransform =>
+        presenterRenderer != null && presenterRenderer.enabled && presenterRenderer.gameObject.activeInHierarchy
+            ? presenterTransform
+            : null;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
