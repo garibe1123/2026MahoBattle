@@ -215,12 +215,12 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         GameObject lightObject = new("FieldGlobalLight");
         lightObject.transform.SetParent(transform, false);
+        // URP 17.0.3 Light2D.Awake가 현재 존재하는 Sorting Layer 전체를 자동 등록합니다.
         fieldGlobalLight = lightObject.AddComponent<Light2D>();
         fieldGlobalLight.lightType = Light2D.LightType.Global;
         fieldGlobalLight.blendStyleIndex = 0;
         fieldGlobalLight.color = generatedGlobalLightColor;
         fieldGlobalLight.intensity = 1f;
-        fieldGlobalLight.targetSortingLayers = new[] { SortingLayer.NameToID("Default") };
         baseGlobalLightIntensity = fieldGlobalLight.intensity;
     }
 
@@ -230,6 +230,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         lightObject.transform.SetParent(transform, true);
         playerSpotlightTransform = lightObject.transform;
 
+        // targetSortingLayers는 이 패키지 버전의 public API가 아니므로 기본 전체 Layer 등록을 사용합니다.
         playerSpotlight = lightObject.AddComponent<Light2D>();
         playerSpotlight.lightType = Light2D.LightType.Point;
         playerSpotlight.blendStyleIndex = 0;
@@ -245,7 +246,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         playerSpotlight.overlapOperation = Light2D.OverlapOperation.Additive;
         playerSpotlight.shadowsEnabled = false;
         playerSpotlight.volumetricEnabled = false;
-        playerSpotlight.targetSortingLayers = new[] { SortingLayer.NameToID("Default") };
 
         CreatePixelLightPool();
     }
