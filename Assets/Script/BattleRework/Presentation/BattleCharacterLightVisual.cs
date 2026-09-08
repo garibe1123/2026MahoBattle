@@ -1,36 +1,35 @@
 using UnityEngine;
-using UnityEngine.Rendering.Universal;
 
 /// <summary>
-/// Runtime character light visual.
-/// - Soft ellipse pool is anchored near the lower part of the current SpriteRenderer bounds.
-/// - Local Light2D gives the sprite a weak stage-lit response.
-/// - A very low-alpha sprite overlay keeps the character readable even with an unlit sprite material.
+/// Character presentation light that does not behave like a circular point lamp.
+/// - A compressed soft ellipse is placed under the lower edge of the sprite.
+/// - A very weak additive top-light overlay makes the sprite read as lit from above.
+/// - No local Point Light2D is created, so multiple characters do not fill the field with circular light blobs.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleCharacterLightVisual : MonoBehaviour
 {
     public const string PoolRendererName = "CharacterLightPool";
-    public const string GlowRendererName = "CharacterSpriteGlow";
+    public const string GlowRendererName = "CharacterSpriteTopLight";
+
+    private const string TopLightShaderName = "Sprites/BattleCharacterTopLight";
 
     private static Sprite sharedPoolSprite;
+    private static Material sharedTopLightMaterial;
 
     private SpriteRenderer targetRenderer;
     private SpriteRenderer poolRenderer;
     private SpriteRenderer glowRenderer;
-    private Light2D bodyLight;
     private Transform poolTransform;
     private Transform glowTransform;
-    private Transform bodyLightTransform;
+    private MaterialPropertyBlock glowProperties;
 
     private Color poolColor = Color.white;
-    private Color bodyLightColor = Color.white;
-    private float poolMaxAlpha = 0.3f;
-    private float poolWidthMultiplier = 1.35f;
-    private float poolHeightRatio = 0.25f;
-    private float bodyLightIntensity = 0.15f;
-    private float bodyLightRadiusMultiplier = 0.8f;
-    private float spriteGlowAlpha = 0.08f;
+    private Color topLightColor = Color.white;
+    private float poolMaxAlpha = 0.2f;
+    private float poolWidthMultiplier = 1.4f;
+    private float poolHeightRatio = 0.18f;
+    private float topLightStrength = 0.04f;
     private float fadeSharpness = 7f;
 
     private float targetVisibility;
@@ -40,26 +39,22 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     public void Configure(
         SpriteRenderer spriteRenderer,
         Color lightPoolColor,
-        Color localBodyLightColor,
+        Color spriteTopLightColor,
         float maxPoolAlpha,
         float widthMultiplier,
         float heightRatio,
-        float localBodyIntensity,
-        float localBodyRadiusMultiplier,
-        float glowAlpha,
+        float spriteTopLightStrength,
         float lightFadeSharpness)
     {
         if (spriteRenderer != null)
             targetRenderer = spriteRenderer;
 
         poolColor = lightPoolColor;
-        bodyLightColor = localBodyLightColor;
+        topLightColor = spriteTopLightColor;
         poolMaxAlpha = Mathf.Clamp01(maxPoolAlpha);
         poolWidthMultiplier = Mathf.Max(0.1f, widthMultiplier);
-        poolHeightRatio = Mathf.Clamp(heightRatio, 0.08f, 0.8f);
-        bodyLightIntensity = Mathf.Max(0f, localBodyIntensity);
-        bodyLightRadiusMultiplier = Mathf.Max(0.1f, localBodyRadiusMultiplier);
-        spriteGlowAlpha = Mathf.Clamp(glowAlpha, 0f, 0.5f);
+        poolHeightRatio = Mathf.Clamp(heightRatio, 0.05f, 0.55f);
+        topLightStrength = Mathf.Clamp(spriteTopLightStrength, 0f, 0.35f);
         fadeSharpness = Mathf.Max(0.1f, lightFadeSharpness);
 
         EnsureRig();
@@ -81,6 +76,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
     private void Awake()
     {
+        RemoveLegacyBodyLight();
+
         if (targetRenderer == null)
             targetRenderer = ResolveRenderer();
 
@@ -119,10 +116,20 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         ApplyVisualState();
     }
 
+    private void RemoveLegacyBodyLight()
+    {
+        Transform legacy = transform.Find("CharacterBodyGlowLight");
+        if (legacy != null)
+        {
+            legacy.gameObject.SetActive(false);
+            Destroy(legacy.gameObject);
+        }
+    }
+
     private SpriteRenderer ResolveRenderer()
     {
         SpriteRenderer direct = GetComponent<SpriteRenderer>();
-        if (direct != null && direct.name != PoolRendererName && direct.name != GlowRendererName)
+        if (IsUsableTargetRenderer(direct))
             return direct;
 
         SpriteRenderer[] renderers = GetComponentsInChildren<SpriteRenderer>(true);
@@ -132,12 +139,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         for (int i = 0; i < renderers.Length; i++)
         {
             SpriteRenderer renderer = renderers[i];
-            if (renderer == null ||
-                renderer.name == PoolRendererName ||
-                renderer.name == GlowRendererName)
-            {
+            if (!IsUsableTargetRenderer(renderer))
                 continue;
-            }
 
             float area = Mathf.Abs(renderer.bounds.size.x * renderer.bounds.size.y);
             if (area <= bestArea)
@@ -148,6 +151,13 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         }
 
         return best;
+    }
+
+    private static bool IsUsableTargetRenderer(SpriteRenderer renderer)
+    {
+        return renderer != null &&
+               renderer.name != PoolRendererName &&
+               renderer.name != GlowRendererName;
     }
 
     private void EnsureRig()
@@ -161,6 +171,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
             poolObject.transform.SetParent(transform, true);
             poolTransform = poolObject.transform;
+
             poolRenderer = poolObject.GetComponent<SpriteRenderer>();
             if (poolRenderer == null)
                 poolRenderer = poolObject.AddComponent<SpriteRenderer>();
@@ -176,41 +187,20 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
             GameObject glowObject = new(GlowRendererName);
             glowObject.transform.SetParent(targetRenderer.transform, false);
+
             glowTransform = glowObject.transform;
             glowTransform.localPosition = Vector3.zero;
             glowTransform.localRotation = Quaternion.identity;
             glowTransform.localScale = Vector3.one;
 
             glowRenderer = glowObject.AddComponent<SpriteRenderer>();
-        }
-
-        if (bodyLight == null)
-        {
-            Transform existing = transform.Find("CharacterBodyGlowLight");
-            GameObject lightObject = existing != null
-                ? existing.gameObject
-                : new GameObject("CharacterBodyGlowLight");
-
-            lightObject.transform.SetParent(transform, true);
-            bodyLightTransform = lightObject.transform;
-            bodyLight = lightObject.GetComponent<Light2D>();
-            if (bodyLight == null)
-                bodyLight = lightObject.AddComponent<Light2D>();
-
-            bodyLight.lightType = Light2D.LightType.Point;
-            bodyLight.blendStyleIndex = 0;
-            bodyLight.pointLightInnerAngle = 360f;
-            bodyLight.pointLightOuterAngle = 360f;
-            bodyLight.falloffIntensity = 0.72f;
-            bodyLight.overlapOperation = Light2D.OverlapOperation.Additive;
-            bodyLight.shadowsEnabled = false;
-            bodyLight.volumetricEnabled = false;
+            glowRenderer.sharedMaterial = GetOrCreateTopLightMaterial();
         }
 
         if (poolTransform == null && poolRenderer != null)
             poolTransform = poolRenderer.transform;
-        if (bodyLightTransform == null && bodyLight != null)
-            bodyLightTransform = bodyLight.transform;
+
+        glowProperties ??= new MaterialPropertyBlock();
     }
 
     private void UpdatePlacement()
@@ -219,47 +209,36 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         float spriteWidth = Mathf.Max(0.2f, bounds.size.x);
         float spriteHeight = Mathf.Max(0.2f, bounds.size.y);
 
-        float poolWidth = Mathf.Max(0.8f, spriteWidth * poolWidthMultiplier);
-        float poolHeight = Mathf.Max(0.16f, poolWidth * poolHeightRatio);
-        float poolY = bounds.min.y + Mathf.Max(0.025f, spriteHeight * 0.055f);
+        float poolWidth = Mathf.Max(0.72f, spriteWidth * poolWidthMultiplier);
+        float poolHeight = Mathf.Max(0.11f, poolWidth * poolHeightRatio);
+        float poolY = bounds.min.y + Mathf.Max(0.02f, spriteHeight * 0.035f);
 
-        if (poolTransform != null)
+        if (poolTransform != null && poolRenderer != null && poolRenderer.sprite != null)
         {
             poolTransform.position = new Vector3(
                 bounds.center.x,
                 poolY,
                 targetRenderer.transform.position.z);
+            poolTransform.rotation = Quaternion.identity;
 
             Vector3 parentScale = transform.lossyScale;
             float inverseX = Mathf.Abs(parentScale.x) > 0.0001f ? 1f / Mathf.Abs(parentScale.x) : 1f;
             float inverseY = Mathf.Abs(parentScale.y) > 0.0001f ? 1f / Mathf.Abs(parentScale.y) : 1f;
 
+            Vector2 spriteSize = poolRenderer.sprite.bounds.size;
+            float sourceWidth = Mathf.Max(0.0001f, spriteSize.x);
+            float sourceHeight = Mathf.Max(0.0001f, spriteSize.y);
+
             poolTransform.localScale = new Vector3(
-                poolWidth * 0.5f * inverseX,
-                poolHeight * inverseY,
+                poolWidth / sourceWidth * inverseX,
+                poolHeight / sourceHeight * inverseY,
                 1f);
-            poolTransform.rotation = Quaternion.identity;
         }
 
         if (poolRenderer != null)
         {
             poolRenderer.sortingLayerID = targetRenderer.sortingLayerID;
             poolRenderer.sortingOrder = targetRenderer.sortingOrder - 1;
-        }
-
-        if (bodyLightTransform != null)
-        {
-            bodyLightTransform.position = new Vector3(
-                bounds.center.x,
-                bounds.center.y - spriteHeight * 0.05f,
-                targetRenderer.transform.position.z);
-        }
-
-        if (bodyLight != null)
-        {
-            float bodyRadius = Mathf.Max(spriteWidth, spriteHeight) * bodyLightRadiusMultiplier;
-            bodyLight.pointLightInnerRadius = Mathf.Max(0.05f, bodyRadius * 0.28f);
-            bodyLight.pointLightOuterRadius = Mathf.Max(bodyLight.pointLightInnerRadius + 0.08f, bodyRadius);
         }
     }
 
@@ -276,6 +255,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         glowRenderer.maskInteraction = targetRenderer.maskInteraction;
         glowRenderer.sortingLayerID = targetRenderer.sortingLayerID;
         glowRenderer.sortingOrder = targetRenderer.sortingOrder + 1;
+        glowRenderer.color = new Color(1f, 1f, 1f, targetRenderer.color.a);
+
+        if (glowRenderer.sharedMaterial == null)
+            glowRenderer.sharedMaterial = GetOrCreateTopLightMaterial();
     }
 
     private void ApplyVisualState()
@@ -290,20 +273,44 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             poolRenderer.enabled = color.a > 0.001f;
         }
 
-        if (bodyLight != null)
-        {
-            bodyLight.color = bodyLightColor;
-            bodyLight.intensity = bodyLightIntensity * visibility;
-            bodyLight.enabled = bodyLight.intensity > 0.001f;
-        }
-
         if (glowRenderer != null)
         {
-            Color glow = bodyLightColor;
-            glow.a = spriteGlowAlpha * visibility * (targetRenderer != null ? targetRenderer.color.a : 1f);
-            glowRenderer.color = glow;
-            glowRenderer.enabled = glow.a > 0.001f && targetRenderer != null && targetRenderer.enabled;
+            Material material = GetOrCreateTopLightMaterial();
+            glowRenderer.sharedMaterial = material;
+
+            bool canGlow = material != null &&
+                           targetRenderer != null &&
+                           targetRenderer.enabled &&
+                           targetRenderer.gameObject.activeInHierarchy;
+
+            glowRenderer.enabled = canGlow && topLightStrength * visibility > 0.001f;
+            if (glowRenderer.enabled)
+            {
+                glowRenderer.GetPropertyBlock(glowProperties);
+                glowProperties.SetColor("_GlowColor", topLightColor);
+                glowProperties.SetFloat("_Strength", topLightStrength * visibility);
+                glowRenderer.SetPropertyBlock(glowProperties);
+            }
         }
+    }
+
+    private static Material GetOrCreateTopLightMaterial()
+    {
+        if (sharedTopLightMaterial != null)
+            return sharedTopLightMaterial;
+
+        Shader shader = Shader.Find(TopLightShaderName);
+        if (shader == null)
+            shader = Resources.Load<Shader>("BattleCharacterTopLight");
+        if (shader == null)
+            return null;
+
+        sharedTopLightMaterial = new Material(shader)
+        {
+            name = "BattleCharacterTopLight_Runtime",
+            hideFlags = HideFlags.HideAndDontSave
+        };
+        return sharedTopLightMaterial;
     }
 
     private static Sprite GetOrCreatePoolSprite()
@@ -311,7 +318,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (sharedPoolSprite != null)
             return sharedPoolSprite;
 
-        const int width = 64;
+        const int width = 96;
         const int height = 32;
         Texture2D texture = new(width, height, TextureFormat.RGBA32, false, true)
         {
@@ -330,10 +337,9 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             {
                 float nx = ((x + 0.5f) / width) * 2f - 1f;
                 float distance = Mathf.Sqrt(nx * nx + ny * ny);
-
                 float edge = Mathf.Clamp01(1f - distance);
                 float alpha = Mathf.SmoothStep(0f, 1f, edge);
-                alpha *= alpha;
+                alpha = alpha * alpha * (0.82f + 0.18f * edge);
 
                 pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
             }
