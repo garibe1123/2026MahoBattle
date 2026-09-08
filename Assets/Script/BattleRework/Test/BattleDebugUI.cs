@@ -1,24 +1,87 @@
 using System.Collections;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
-/// 정식 UI가 없어도 Run -> Combat -> Reward -> Branch -> End를 검증하기 위한 개발용 IMGUI입니다.
-/// BattleTestScene에서만 사용합니다.
+/// BattleScene 엔진 테스트용 IMGUI입니다.
+/// 좌측 레거시 디버그 패널은 F1로 켜고 끌 수 있으며,
+/// 우측 상단 KILL ALL ENEMY 퀵 액션은 살아 있는 적이 있을 때만 표시됩니다.
 /// </summary>
 public class BattleDebugUI : MonoBehaviour
 {
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
-    [SerializeField] private bool visible = true;
+    [SerializeField] private bool visible = false;
+
+    private static bool sceneHookInstalled;
 
     private Vector2 scroll;
     private Coroutine killAllRoutine;
 
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void InstallSceneHook()
+    {
+        if (sceneHookInstalled)
+            return;
+
+        SceneManager.sceneLoaded -= HandleSceneLoaded;
+        SceneManager.sceneLoaded += HandleSceneLoaded;
+        sceneHookInstalled = true;
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void EnsureCurrentSceneHost()
+    {
+        EnsureEngineTestHost(SceneManager.GetActiveScene());
+    }
+
+    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        EnsureEngineTestHost(scene);
+    }
+
+    private static void EnsureEngineTestHost(Scene scene)
+    {
+        if (!scene.IsValid() || !scene.isLoaded)
+            return;
+        if (!Application.isEditor && !Debug.isDebugBuild)
+            return;
+        if (scene.name != BattleSceneEntry.DefaultBattleSceneName)
+            return;
+
+        BattleDebugUI[] existing = FindObjectsByType<BattleDebugUI>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        if (existing.Length > 0)
+            return;
+
+        GameObject host = new("BattleEngineTestDebugUI");
+        BattleDebugUI ui = host.AddComponent<BattleDebugUI>();
+        ui.visible = false;
+    }
+
+    private void Awake()
+    {
+        ResolveReferences();
+    }
+
     private void Update()
     {
+        ResolveReferences();
+
         if (Input.GetKeyDown(KeyCode.F1))
             visible = !visible;
+    }
+
+    private void ResolveReferences()
+    {
+        if (runManager == null)
+            runManager = FindFirstObjectByType<BattleRunManager>();
+        if (roomManager == null)
+            roomManager = FindFirstObjectByType<BattleRoomManager>();
+        if (equipmentSystem == null)
+            equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
     }
 
     private void OnGUI()
@@ -95,7 +158,8 @@ public class BattleDebugUI : MonoBehaviour
             for (int i = 0; i < runManager.NextNodeChoices.Count; i++)
             {
                 BattleNodeData node = runManager.NextNodeChoices[i];
-                if (node == null) continue;
+                if (node == null)
+                    continue;
 
                 if (GUILayout.Button($"{node.id} / {node.type} / Depth {node.depth}", GUILayout.Height(28f)))
                     runManager.SelectNextNode(node.id);
@@ -130,6 +194,7 @@ public class BattleDebugUI : MonoBehaviour
         Rect area = new(Screen.width - width - 12f, 12f, width, height);
 
         Color previousBackground = GUI.backgroundColor;
+        bool previousEnabled = GUI.enabled;
         GUI.backgroundColor = new Color(0.88f, 0.18f, 0.18f, 1f);
 
         GUILayout.BeginArea(area);
@@ -140,9 +205,9 @@ public class BattleDebugUI : MonoBehaviour
         GUI.enabled = killAllRoutine == null;
         if (GUILayout.Button(label, GUILayout.Width(width), GUILayout.Height(height)))
             killAllRoutine = StartCoroutine(KillAllEnemiesRoutine());
-        GUI.enabled = true;
 
         GUILayout.EndArea();
+        GUI.enabled = previousEnabled;
         GUI.backgroundColor = previousBackground;
     }
 
@@ -164,8 +229,6 @@ public class BattleDebugUI : MonoBehaviour
 
     private IEnumerator KillAllEnemiesRoutine()
     {
-        // Dash 중 조건부 무적 등으로 한 프레임에 죽지 않는 적도 테스트 버튼으로 정리되도록
-        // 짧은 시간 동안 살아 있는 Monster에게만 반복해서 치명 피해를 적용합니다.
         float timeoutAt = Time.realtimeSinceStartup + 3f;
 
         while (Time.realtimeSinceStartup < timeoutAt)
@@ -203,7 +266,6 @@ public class BattleDebugUI : MonoBehaviour
             ? monster.Facing.normalized
             : Vector2.right;
 
-        // 방패 정면 판정을 타지 않도록 몬스터 뒤쪽을 Damage Source로 사용합니다.
         Vector2 sourcePosition = (Vector2)monster.transform.position - facing * 2f;
         float lethalDamage = Mathf.Max(
             1000000f,
