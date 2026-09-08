@@ -28,6 +28,10 @@ public class MapBlock : MonoBehaviour
     [SerializeField, Min(0f)] private float entryOffset = 8f;
     [SerializeField] private Ease entryEase = Ease.InCubic;
 
+    [Header("Entry Sequence Readability")]
+    [Tooltip("BattleRoomManager가 주는 조립 Stagger를 실제 전투 바닥에서 더 분명하게 보이게 하는 배율입니다. Show Floor처럼 walkable=false인 연출용 판에는 적용하지 않습니다.")]
+    [SerializeField, Min(1f)] private float walkableEntryDelayScale = 2.25f;
+
     [Header("Navigation Surface")]
     [Tooltip("실제로 플레이어/몬스터가 설 수 있는 바닥이면 켭니다. 벽/장식 전용 블록이면 끕니다.")]
     [SerializeField] private bool contributesWalkableNavMesh = true;
@@ -76,7 +80,6 @@ public class MapBlock : MonoBehaviour
 
     private void OnEnable()
     {
-        // Prefab 복제/Pool 재활성화에서도 Field 등록을 보장합니다.
         if (contributesWalkableNavMesh)
             EnsureWalkableNavMeshSource();
     }
@@ -130,10 +133,6 @@ public class MapBlock : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// NavMeshModifier overrideArea=false인 Renderer만 실제 바닥으로 간주합니다.
-    /// Large Room의 외곽 Wall은 overrideArea=true(Not Walkable)이므로 Player Field에 등록되지 않습니다.
-    /// </summary>
     private void EnsureWalkableNavMeshSource()
     {
         if (!contributesWalkableNavMesh)
@@ -228,9 +227,21 @@ public class MapBlock : MonoBehaviour
         RestorePresentationPose();
     }
 
+    private float ResolveEntryDelay(float requestedDelay)
+    {
+        float delay = Mathf.Max(0f, requestedDelay);
+        if (!contributesWalkableNavMesh || delay <= 0f)
+            return delay;
+
+        return delay * Mathf.Max(1f, walkableEntryDelayScale);
+    }
+
     public float GetEntryDuration(float delay = 0f)
     {
-        return Mathf.Max(0f, delay) + EntryDuration;
+        if (entryType == MapBlockEntryType.Static)
+            return 0f;
+
+        return ResolveEntryDelay(delay) + EntryDuration;
     }
 
     public Vector3 GetImpactContactPoint(Vector3 destination, Vector2 travelDirection)
@@ -366,7 +377,7 @@ public class MapBlock : MonoBehaviour
 
         transform.position = start;
 
-        float safeDelay = Mathf.Max(0f, delay);
+        float safeDelay = ResolveEntryDelay(delay);
         float approachTime = Mathf.Max(0.01f, entryDuration);
         float settleTime = Mathf.Max(0.01f, impactSettleDuration);
 
@@ -536,7 +547,6 @@ public sealed class BattleWalkableField : MonoBehaviour
         if (ActiveFields.Count == 0)
             return false;
 
-        // 복사본을 만들지 않고 직접 순회해 GC를 피합니다.
         foreach (BattleWalkableField field in ActiveFields)
         {
             if (field != null && field.Contains(worldPoint))
