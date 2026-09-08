@@ -19,6 +19,9 @@ public enum MapBlockEntryType
 ///
 /// WheelSlide는 이미 도킹 예정/도킹 완료된 바닥과 Persistent 4x4를 관통하는 Rail을 사용하지 않습니다.
 /// 기본 방향이 막히면 다른 Cardinal Rail을 찾고, 네 방향 모두 막히면 관통 대신 제자리 Snap을 사용합니다.
+///
+/// 목적지에 닿은 뒤의 반동/VFX/카메라 충격은 BattleTileDockingPresentationManager가 공통 관리합니다.
+/// 따라서 전투 필드, 대기실 Screen Carrier, Reward/Map Show Carrier가 동일한 도킹 감각을 사용합니다.
 /// </summary>
 public class MapBlock : MonoBehaviour
 {
@@ -54,7 +57,9 @@ public class MapBlock : MonoBehaviour
     [SerializeField] private float wheelSpinDegreesPerWorldUnit = 180f;
 
     [Header("Docking Impact")]
+    [Tooltip("공용 Docking Manager가 없는 비상 fallback에서만 사용합니다.")]
     [SerializeField, Min(0f)] private float impactReboundDistance = 0.055f;
+    [Tooltip("공용 Docking Manager가 없는 비상 fallback에서만 사용합니다.")]
     [SerializeField, Min(0.01f)] private float impactSettleDuration = 0.11f;
     [SerializeField, Range(0f, 0.15f)] private float impactPunchScale = 0.045f;
     [SerializeField, Min(0f)] private float impactStrength = 1f;
@@ -73,7 +78,9 @@ public class MapBlock : MonoBehaviour
     public MapBlockEntryType EntryType => entryType;
     public bool WillImpact => entryType != MapBlockEntryType.Static;
     public bool ContributesWalkableNavMesh => contributesWalkableNavMesh;
-    public float EntryDuration => entryType == MapBlockEntryType.Static ? 0f : entryDuration + impactSettleDuration;
+    public float EntryDuration => entryType == MapBlockEntryType.Static
+        ? 0f
+        : entryDuration + ResolveDockSettleDuration();
     public float ExitDuration => exitDuration;
     public bool HasEntryDestination => hasEntryDestination;
     public Vector3 EntryDestination => hasEntryDestination ? entryDestination : transform.position;
@@ -243,6 +250,13 @@ public class MapBlock : MonoBehaviour
             return delay;
 
         return delay * Mathf.Max(1f, walkableEntryDelayScale);
+    }
+
+    private float ResolveDockSettleDuration()
+    {
+        return BattleTileDockingPresentationManager.Instance != null
+            ? BattleTileDockingPresentationManager.SharedSettleDuration
+            : Mathf.Max(0.01f, impactSettleDuration);
     }
 
     public float GetEntryDuration(float delay = 0f)
@@ -571,7 +585,8 @@ public class MapBlock : MonoBehaviour
 
         float safeDelay = ResolveEntryDelay(delay);
         float approachTime = Mathf.Max(0.01f, entryDuration);
-        float settleTime = Mathf.Max(0.01f, impactSettleDuration);
+        float settleTime = ResolveDockSettleDuration();
+        BattleTileDockingPresentationManager dockingPresentation = BattleTileDockingPresentationManager.Instance;
 
         if (presentationRoot != null && approachRumbleDegrees > 0f)
         {
@@ -604,26 +619,45 @@ public class MapBlock : MonoBehaviour
             sequence.AppendInterval(safeDelay);
 
         sequence.Append(transform.DOMove(destination, approachTime).SetEase(entryEase));
+
+        Vector3 contactPoint = GetImpactContactPoint(destination, travelDirection);
+        bool hasLegacyImpactListener = Impacted != null;
         sequence.AppendCallback(() =>
         {
             transform.position = destination;
             AnimateDirectionalCompression(travelDirection, settleTime);
-
-            Vector3 contactPoint = GetImpactContactPoint(destination, travelDirection);
             Impacted?.Invoke(this, contactPoint, travelDirection, Mathf.Max(0f, impactStrength));
         });
 
-        if (impactReboundDistance > 0f)
+        if (dockingPresentation != null)
         {
-            Vector3 rebound = destination - (Vector3)(travelDirection * impactReboundDistance);
-            sequence.Append(
-                transform.DOMove(rebound, settleTime * 0.30f)
-                    .SetEase(Ease.OutQuad));
+            // BattleRoomManager가 Impacted를 구독한 Legacy Room은 기존 VFX 호출을 유지하고
+            // 그 외(대기실/Show/Highlight 등)는 공용 Manager가 VFX까지 담당합니다.
+            // 물리 반동은 모든 경로에서 동일하게 공용 Manager를 사용합니다.
+            dockingPresentation.AppendDockSettle(
+                sequence,
+                transform,
+                destination,
+                travelDirection,
+                contactPoint,
+                Mathf.Max(0f, impactStrength),
+                !hasLegacyImpactListener);
         }
+        else
+        {
+            // Runtime Manager 생성 실패 시 기존 동작을 유지하는 보수적 fallback.
+            if (impactReboundDistance > 0f)
+            {
+                Vector3 rebound = destination - (Vector3)(travelDirection * impactReboundDistance);
+                sequence.Append(
+                    transform.DOMove(rebound, settleTime * 0.30f)
+                        .SetEase(Ease.OutQuad));
+            }
 
-        sequence.Append(
-            transform.DOMove(destination, settleTime * 0.70f)
-                .SetEase(Ease.OutCubic));
+            sequence.Append(
+                transform.DOMove(destination, settleTime * 0.70f)
+                    .SetEase(Ease.OutCubic));
+        }
 
         sequence.OnComplete(() =>
         {
