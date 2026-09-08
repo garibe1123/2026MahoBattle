@@ -7,20 +7,16 @@ using UnityEngine.SceneManagement;
 /// <summary>
 /// BattleRoomManager가 만든 ProceduralAssemblyGroup_*의 표시 전용 조립기입니다.
 ///
-/// 3-Group을 하나의 거대한 Bounds로 직선 이동시키면 Persistent 4x4를 둘러싼 Group은
-/// 안전한 Cardinal Rail을 찾을 수 없어 MapBlock이 즉시 Snap하는 경우가 있습니다.
-/// 이 컴포넌트는 Group 자체를 움직이지 않고, Group 안의 실제 AssemblySubPiece_*를
-/// 3개의 순차 Wave로 화면 밖에서 도킹시킵니다.
+/// 역할은 오직 '안전한 Rail을 찾아 3개의 순차 Wave로 타일 조각을 이동'시키는 것입니다.
+/// 목적지 충돌 이후의 반동/VFX/카메라 충격은 BattleTileDockingPresentationManager가 공통 관리합니다.
 ///
 /// 규칙:
 /// - Group 1 -> Group 2 -> Group 3 순서로 완전히 분리된 Wave를 사용합니다.
 /// - 각 SubPiece는 Persistent 4x4 바깥 방향을 우선 Rail로 사용합니다.
 /// - 이미 도킹한 이전 Group의 최종 바닥과 Persistent 4x4를 관통하는 Rail은 사용하지 않습니다.
 /// - 긴 Rail이 막히면 같은 방향의 더 짧은 안전 Rail을 찾습니다.
-/// - 실제 도킹 순간에는 접촉 VFX + Camera Impulse + 3단 감쇠 반동을 넣어
-///   '쾅 -> 쿵 -> 쿵쿵' 식으로 무게가 남도록 합니다.
-/// - 어떤 Cardinal Rail도 안전하지 않은 극단적인 내부 조각만 Scale-in fallback을 사용합니다.
-///   기존 타일을 관통하거나 최종 위치로 순간이동하는 fallback은 사용하지 않습니다.
+/// - 어떤 Cardinal Rail도 안전하지 않은 내부 조각만 Scale-in fallback을 사용합니다.
+///   기존 타일을 관통하거나 최종 위치로 순간이동하는 Rail fallback은 사용하지 않습니다.
 /// </summary>
 [DefaultExecutionOrder(30000)]
 [DisallowMultipleComponent]
@@ -35,27 +31,9 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
     [SerializeField, Min(0f)] private float waveGap = 0f;
     [SerializeField, Min(0.05f)] private float fallbackScaleDuration = 0.22f;
 
-    [Header("Dock Impact / Inertia")]
-    [Tooltip("첫 충돌 뒤 진행 반대 방향으로 튕겨나는 거리입니다.")]
-    [SerializeField, Range(0.02f, 0.25f)] private float primaryReboundDistance = 0.12f;
-    [Tooltip("두 번째 작은 반동 거리입니다.")]
-    [SerializeField, Range(0.01f, 0.12f)] private float secondaryReboundDistance = 0.052f;
-    [Tooltip("마지막 미세 반동 거리입니다.")]
-    [SerializeField, Range(0f, 0.06f)] private float microReboundDistance = 0.020f;
-    [SerializeField, Range(0.02f, 0.08f)] private float primaryReboundTime = 0.040f;
-    [SerializeField, Range(0.01f, 0.06f)] private float secondaryReboundTime = 0.026f;
-    [SerializeField, Range(0.005f, 0.04f)] private float microReboundTime = 0.014f;
-    [SerializeField, Range(0.4f, 1.8f)] private float impactVfxScale = 1.0f;
-    [SerializeField] private int impactVfxSortingOrder = -8;
-    [SerializeField] private Color impactColor = new(0.90f, 0.98f, 1f, 1f);
-    [SerializeField] private Color dustColor = new(0.50f, 0.56f, 0.64f, 0.72f);
-    [SerializeField, Range(0f, 0.35f)] private float cameraImpactAmplitude = 0.085f;
-    [SerializeField, Range(0.05f, 0.3f)] private float cameraImpactDuration = 0.13f;
-
     private readonly HashSet<int> processedGroups = new();
     private RoomBaseTemplate baseTemplate;
     private BattleRoomManager roomManager;
-    private BattleCameraController battleCamera;
 
     private sealed class SubPiecePlan
     {
@@ -102,8 +80,6 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
             baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         if (roomManager == null)
             roomManager = FindFirstObjectByType<BattleRoomManager>();
-        if (battleCamera == null)
-            battleCamera = FindFirstObjectByType<BattleCameraController>();
     }
 
     private void LateUpdate()
@@ -135,8 +111,8 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
 
         newGroups.Sort((a, b) => a.index.CompareTo(b.index));
 
-        // 모든 Group Root를 먼저 최종 기준점에 고정합니다.
-        // 자식 Piece의 finalPosition을 정확히 얻은 뒤에만 실제 Piece를 화면 밖으로 보냅니다.
+        // Group Root 자체의 기존 MapBlock tween은 끄고 최종 기준점에 고정합니다.
+        // 이후 실제 보이는 SubPiece만 안전 Rail로 이동시킵니다.
         for (int i = 0; i < newGroups.Count; i++)
         {
             GroupPlan plan = newGroups[i];
@@ -165,7 +141,7 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
         float roomMoveDuration = roomManager != null && roomManager.CurrentRoom != null
             ? Mathf.Max(0.05f, roomManager.CurrentRoom.largePieceEntryDuration)
             : 0.72f;
-        float settleDuration = ResolveSettleDuration();
+        float settleDuration = BattleTileDockingPresentationManager.SharedSettleDuration;
         float waveLength = roomMoveDuration + settleDuration + Mathf.Max(0f, waveGap);
         int finalGroupIndex = newGroups[newGroups.Count - 1].index;
 
@@ -281,7 +257,13 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
             Vector2 radial = (Vector2)piece.finalBounds.center - baseCenter;
             Vector2 primary = Cardinalize(radial);
 
-            if (TryResolveSafeRail(piece.finalBounds, piece.finalPosition, primary, blockers, out Vector2 sourceDirection, out float railDistance))
+            if (TryResolveSafeRail(
+                    piece.finalBounds,
+                    piece.finalPosition,
+                    primary,
+                    blockers,
+                    out Vector2 sourceDirection,
+                    out float railDistance))
             {
                 Vector3 start = piece.finalPosition + (Vector3)(sourceDirection * railDistance);
                 Vector2 travelDirection = -sourceDirection.normalized;
@@ -299,8 +281,8 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
             }
             else
             {
-                // 내부가 완전히 둘러싸인 Piece는 물리적으로 어떤 직선 Rail도 만들 수 없습니다.
-                // 기존 타일을 관통하거나 순간이동시키지 않고 최종 위치에서 짧은 Scale-in만 사용합니다.
+                // 완전히 둘러싸인 내부 Piece는 기존 타일을 관통시키지 않습니다.
+                // 최종 위치에서 짧은 Scale-in만 사용합니다.
                 pieceTransform.position = piece.finalPosition;
                 Vector3 finalScale = pieceTransform.localScale;
                 pieceTransform.localScale = new Vector3(finalScale.x * 0.82f, finalScale.y * 0.82f, finalScale.z);
@@ -330,49 +312,32 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
             return;
 
         Vector3 final = piece.finalPosition;
-        Vector3 rebound1 = final - (Vector3)(travelDirection * Mathf.Max(0f, primaryReboundDistance));
-        Vector3 rebound2 = final - (Vector3)(travelDirection * Mathf.Max(0f, secondaryReboundDistance));
-        Vector3 rebound3 = final - (Vector3)(travelDirection * Mathf.Max(0f, microReboundDistance));
-
-        float t1 = Mathf.Max(0.005f, primaryReboundTime);
-        float t2 = Mathf.Max(0.005f, secondaryReboundTime);
-        float t3 = Mathf.Max(0.005f, microReboundTime);
-        float settleScale = 0.11f / Mathf.Max(0.001f, (t1 + t1) + (t2 + t2) + (t3 + t3));
-        t1 *= settleScale;
-        t2 *= settleScale;
-        t3 *= settleScale;
-
         Sequence sequence = DOTween.Sequence();
         if (delay > 0f)
             sequence.AppendInterval(delay);
 
         sequence.Append(pieceTransform.DOMove(final, approachDuration).SetEase(Ease.InCubic));
-        sequence.AppendCallback(() =>
-        {
-            if (pieceTransform == null)
-                return;
 
-            pieceTransform.position = final;
-            if (impactAnchor)
-                PlayDockImpact(piece, travelDirection, finalImpact);
-        });
-
-        // 진행 방향으로 억지로 파고들지 않고, 충돌 지점에서 뒤로 튕겼다가 감쇠하며 다시 붙습니다.
-        // 이미 도킹된 타일을 관통하지 않으면서도 큰 판의 관성/질량감을 남깁니다.
-        if (primaryReboundDistance > 0f)
+        BattleTileDockingPresentationManager dockingPresentation = BattleTileDockingPresentationManager.Instance;
+        if (dockingPresentation != null)
         {
-            sequence.Append(pieceTransform.DOMove(rebound1, t1).SetEase(Ease.OutQuad));
-            sequence.Append(pieceTransform.DOMove(final, t1).SetEase(Ease.InQuad));
+            Vector3 contactPoint = ResolveContactPoint(piece.finalBounds, travelDirection);
+            dockingPresentation.AppendDockSettle(
+                sequence,
+                pieceTransform,
+                final,
+                travelDirection,
+                contactPoint,
+                ResolveImpactStrength(piece),
+                impactAnchor,
+                finalImpact);
         }
-        if (secondaryReboundDistance > 0f)
+        else
         {
-            sequence.Append(pieceTransform.DOMove(rebound2, t2).SetEase(Ease.OutQuad));
-            sequence.Append(pieceTransform.DOMove(final, t2).SetEase(Ease.InQuad));
-        }
-        if (microReboundDistance > 0f)
-        {
-            sequence.Append(pieceTransform.DOMove(rebound3, t3).SetEase(Ease.OutQuad));
-            sequence.Append(pieceTransform.DOMove(final, t3).SetEase(Ease.InQuad));
+            // 공용 Manager 생성 실패 시에도 '딱 멈춤'이 되지 않도록 최소 반동은 유지합니다.
+            Vector3 rebound = final - (Vector3)(travelDirection * 0.055f);
+            sequence.Append(pieceTransform.DOMove(rebound, 0.035f).SetEase(Ease.OutQuad));
+            sequence.Append(pieceTransform.DOMove(final, 0.055f).SetEase(Ease.OutCubic));
         }
 
         sequence.OnComplete(() =>
@@ -382,36 +347,13 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
         });
     }
 
-    private void PlayDockImpact(SubPiecePlan piece, Vector2 travelDirection, bool finalImpact)
+    private static float ResolveImpactStrength(SubPiecePlan piece)
     {
         if (piece == null)
-            return;
+            return 1f;
 
-        Vector3 contactPoint = ResolveContactPoint(piece.finalBounds, travelDirection);
-        GameObject effect = new(finalImpact ? "ProceduralDockImpact_Final" : "ProceduralDockImpact");
-        effect.transform.position = contactPoint;
-        if (roomManager != null)
-            effect.transform.SetParent(roomManager.transform, true);
-
-        MapImpactVfxInstance instance = effect.AddComponent<MapImpactVfxInstance>();
-        instance.Play(
-            null,
-            null,
-            20f,
-            impactVfxScale * (finalImpact ? 1.18f : 1f),
-            null,
-            impactVfxSortingOrder,
-            impactColor,
-            dustColor,
-            travelDirection,
-            finalImpact);
-
-        if (battleCamera != null && cameraImpactAmplitude > 0f)
-        {
-            float amplitude = cameraImpactAmplitude * (finalImpact ? 1.35f : 1f);
-            float duration = cameraImpactDuration * (finalImpact ? 1.18f : 1f);
-            battleCamera.PlaySelectionConfirmShake(amplitude, duration);
-        }
+        float area = Mathf.Max(1f, piece.finalBounds.size.x * piece.finalBounds.size.y);
+        return Mathf.Lerp(0.85f, 1.35f, Mathf.InverseLerp(1f, 24f, area));
     }
 
     private static Vector3 ResolveContactPoint(Bounds bounds, Vector2 travelDirection)
@@ -448,12 +390,6 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
         }
 
         return bestIndex;
-    }
-
-    private float ResolveSettleDuration()
-    {
-        // BattleRoomManager의 MapBlock 기본 impactSettleDuration(0.11s) 안에서 끝내 NavMesh/Monster 시작보다 늦지 않게 합니다.
-        return 0.11f;
     }
 
     private bool TryResolveSafeRail(
