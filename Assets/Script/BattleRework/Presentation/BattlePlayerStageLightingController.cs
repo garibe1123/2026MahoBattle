@@ -4,15 +4,14 @@ using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
-/// Fills the presentation gap between Show selection and real Combat.
+/// Owns only the dark pre-combat stage language.
 ///
 /// State rules:
 /// - None / EnteringNode / BuildingRoom: dark stage + Player focus + floor spotlight.
-/// - Combat: stage dim fades away, but the Player floor spotlight remains visible.
-/// - Reward / SelectingNode: existing BattleShowFocusController remains authoritative.
+/// - Combat: all Player-specific spotlights are removed; the bright world light / Volume own the image.
+/// - Reward / SelectingNode: BattleShowFocusController and the existing show lighting remain authoritative.
 ///
-/// This controller also prevents the old tall key-light shaft from appearing during
-/// pre-combat / combat and makes sure the scene Global Light2D cannot stay disabled.
+/// It also makes sure a scene Global Light2D cannot remain disabled during battle setup.
 /// </summary>
 [DefaultExecutionOrder(-3200)]
 [DisallowMultipleComponent]
@@ -35,15 +34,12 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     [SerializeField] private bool forceGlobalLightActive = true;
     [SerializeField, Min(0.05f)] private float globalLightProbeInterval = 0.25f;
 
-    [Header("Player Floor Spotlight")]
+    [Header("Pre-Combat Player Floor Spotlight")]
     [SerializeField] private Color floorSpotlightColor = new(1f, 0.92f, 0.76f, 1f);
-    [Tooltip("전투 중에도 분명히 보이는 발밑 광량입니다.")]
-    [SerializeField, Range(0f, 1f)] private float combatFloorAlpha = 0.36f;
-    [Tooltip("전투 시작 전 어두운 Stage에서는 조금 더 강하게 보입니다.")]
+    [Tooltip("전투가 실제로 시작되기 전 어두운 Stage에서만 사용합니다.")]
     [SerializeField, Range(0f, 1f)] private float preCombatFloorAlpha = 0.46f;
     [SerializeField, Min(0.1f)] private float floorWidthMultiplier = 1.85f;
     [SerializeField, Range(0.05f, 0.55f)] private float floorHeightRatio = 0.20f;
-    [SerializeField, Min(0.1f)] private float floorAlphaChangeSpeed = 4.5f;
 
     [Header("Pre-Combat Dark Stage")]
     [Tooltip("BattleHUD보다 뒤, 기존 Show Focus보다 살짝 뒤에 둡니다.")]
@@ -57,7 +53,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.22f;
     [SerializeField, Range(0.001f, 0.08f)] private float characterFeather = 0.018f;
     [SerializeField, Min(0.01f)] private float preCombatFadeInDuration = 0.14f;
-    [SerializeField, Min(0.01f)] private float combatRevealDuration = 0.30f;
+    [SerializeField, Min(0.01f)] private float combatRevealDuration = 0.22f;
 
     private Canvas overlayCanvas;
     private Image overlayImage;
@@ -68,7 +64,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     private PlayerController boundPlayer;
 
     private float currentStageDim;
-    private float currentFloorAlpha;
     private float nextGlobalLightProbe;
 
     public static BattlePlayerStageLightingController Instance => instance;
@@ -124,7 +119,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
     private void OnDisable()
     {
-        SetLegacyPlayerLightsSuppressed(false);
+        SetExistingPlayerPresentationLightsSuppressed(false);
         ApplyOverlayImmediate(0f);
 
         if (floorRenderer != null)
@@ -165,20 +160,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
             stageTarget,
             Time.unscaledDeltaTime / stageDuration);
 
-        float floorTargetAlpha = preCombat
-            ? preCombatFloorAlpha
-            : combat
-                ? combatFloorAlpha
-                : 0f;
-
-        currentFloorAlpha = Mathf.MoveTowards(
-            currentFloorAlpha,
-            floorTargetAlpha,
-            Mathf.Max(0.1f, floorAlphaChangeSpeed) * Time.unscaledDeltaTime);
-
-        // Combat / pre-combat uses the cleaner floor spotlight only.
-        // Reward / Map Selection returns control to the existing Show lighting.
-        SetLegacyPlayerLightsSuppressed(preCombat || combat);
+        SetExistingPlayerPresentationLightsSuppressed(preCombat || combat);
     }
 
     private void LateUpdate()
@@ -188,8 +170,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         UpdateFloorSpotlight();
         UpdatePreCombatOverlay();
 
-        bool suppressLegacy = IsPreCombatStage() || IsCombat();
-        SetLegacyPlayerLightsSuppressed(suppressLegacy);
+        SetExistingPlayerPresentationLightsSuppressed(IsPreCombatStage() || IsCombat());
     }
 
     private void ResolveReferences()
@@ -206,11 +187,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
             return false;
 
         BattleRunState state = runManager.State;
-
-        // Before StartRun / immediately after scene load, keep the same dark-stage language.
         if (state == BattleRunState.None)
             return true;
-
         if (!runManager.RunActive)
             return false;
 
@@ -243,13 +221,11 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
                 continue;
 
             fallback ??= light;
-
             if (light.name == "BattleWorldGlobalLight")
             {
                 preferred = light;
                 break;
             }
-
             if (preferred == null && light.gameObject.activeInHierarchy)
                 preferred = light;
         }
@@ -260,7 +236,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
         if (!target.gameObject.activeSelf)
             target.gameObject.SetActive(true);
-
         target.enabled = true;
     }
 
@@ -273,7 +248,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         {
             if (floorRenderer != null)
                 Destroy(floorRenderer.gameObject);
-
             floorRenderer = null;
             floorTransform = null;
             boundPlayer = player;
@@ -283,10 +257,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
             return;
 
         Transform existing = player.transform.Find(FloorSpotlightName);
-        GameObject floorObject = existing != null
-            ? existing.gameObject
-            : new GameObject(FloorSpotlightName);
-
+        GameObject floorObject = existing != null ? existing.gameObject : new GameObject(FloorSpotlightName);
         floorObject.transform.SetParent(player.transform, true);
         floorTransform = floorObject.transform;
 
@@ -304,6 +275,13 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         if (floorRenderer == null || floorTransform == null || player == null)
             return;
 
+        float alpha = Mathf.Clamp01(preCombatFloorAlpha * currentStageDim);
+        if (alpha <= 0.001f)
+        {
+            floorRenderer.enabled = false;
+            return;
+        }
+
         SpriteRenderer targetRenderer = ResolvePrimarySpriteRenderer(player.gameObject);
         if (targetRenderer == null || !targetRenderer.gameObject.activeInHierarchy)
         {
@@ -318,10 +296,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         float poolHeight = Mathf.Max(0.13f, poolWidth * floorHeightRatio);
         float poolY = bounds.min.y + Mathf.Max(0.015f, spriteHeight * 0.025f);
 
-        floorTransform.position = new Vector3(
-            bounds.center.x,
-            poolY,
-            targetRenderer.transform.position.z);
+        floorTransform.position = new Vector3(bounds.center.x, poolY, targetRenderer.transform.position.z);
         floorTransform.rotation = Quaternion.identity;
 
         ApplyWorldSizeToChild(
@@ -336,25 +311,19 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         floorRenderer.sharedMaterial = GetOrCreateFloorMaterial();
 
         Color color = floorSpotlightColor;
-        color.a = Mathf.Clamp01(currentFloorAlpha);
+        color.a = alpha;
         floorRenderer.color = color;
-        floorRenderer.enabled = color.a > 0.001f;
+        floorRenderer.enabled = true;
     }
 
-    private void SetLegacyPlayerLightsSuppressed(bool suppressed)
+    private void SetExistingPlayerPresentationLightsSuppressed(bool suppressed)
     {
         if (player == null)
             return;
 
-        SetChildActiveIfFound(
-            player.transform,
-            BattleCharacterLightVisual.KeyRendererName,
-            !suppressed);
-
-        SetChildActiveIfFound(
-            player.transform,
-            BattleCharacterLightVisual.PoolRendererName,
-            !suppressed);
+        SetChildActiveIfFound(player.transform, BattleCharacterLightVisual.KeyRendererName, !suppressed);
+        SetChildActiveIfFound(player.transform, BattleCharacterLightVisual.PoolRendererName, !suppressed);
+        SetChildActiveIfFound(player.transform, BattleCharacterLightVisual.GlowRendererName, !suppressed);
     }
 
     private static void SetChildActiveIfFound(Transform root, string childName, bool active)
@@ -375,12 +344,9 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         Shader shader = Shader.Find(FocusShaderName);
         if (shader == null)
             shader = Resources.Load<Shader>("BattleShowFocusMask");
-
         if (shader == null)
         {
-            Debug.LogError(
-                $"[BattlePlayerStageLightingController] Shader '{FocusShaderName}'를 찾지 못했습니다.",
-                this);
+            Debug.LogError($"[BattlePlayerStageLightingController] Shader '{FocusShaderName}'를 찾지 못했습니다.", this);
             enabled = false;
             return;
         }
@@ -389,7 +355,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         {
             GameObject canvasObject = new("BattlePreCombatFocusCanvas");
             canvasObject.transform.SetParent(transform, false);
-
             overlayCanvas = canvasObject.AddComponent<Canvas>();
             overlayCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
             overlayCanvas.overrideSorting = true;
@@ -405,7 +370,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         {
             GameObject imageObject = new("PreCombatFocusMask");
             imageObject.transform.SetParent(overlayCanvas.transform, false);
-
             RectTransform rect = imageObject.AddComponent<RectTransform>();
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
@@ -451,30 +415,17 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
         overlayMaterial.SetColor("_MaskColor", dimColor);
         overlayMaterial.SetFloat("_Presentation", currentStageDim);
-
-        overlayMaterial.SetVector(
-            "_DimCenter",
-            new Vector4(playerUv.x, playerUv.y, 0f, 0f));
+        overlayMaterial.SetVector("_DimCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
         overlayMaterial.SetFloat("_NearDimAlpha", nearDimAlpha);
         overlayMaterial.SetFloat("_FarDimAlpha", farDimAlpha);
         overlayMaterial.SetFloat("_DimRadius", Mathf.Max(0.001f, dimFalloffRadius));
-
-        overlayMaterial.SetVector(
-            "_PlayerCenter",
-            new Vector4(playerUv.x, playerUv.y, 0f, 0f));
+        overlayMaterial.SetVector("_PlayerCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
         overlayMaterial.SetFloat("_PlayerRadius", playerRadiusUv);
-        overlayMaterial.SetFloat(
-            "_PlayerStrength",
-            playerVisible ? currentStageDim : 0f);
-
+        overlayMaterial.SetFloat("_PlayerStrength", playerVisible ? currentStageDim : 0f);
         overlayMaterial.SetFloat("_PresenterStrength", 0f);
         overlayMaterial.SetFloat("_ScreenStrength", 0f);
-        overlayMaterial.SetFloat(
-            "_CharacterVerticalRatio",
-            Mathf.Clamp(characterVerticalRatio, 0.2f, 1f));
-        overlayMaterial.SetFloat(
-            "_CharacterLowerOffset",
-            Mathf.Clamp01(characterLowerOffset));
+        overlayMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(characterVerticalRatio, 0.2f, 1f));
+        overlayMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(characterLowerOffset));
         overlayMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, characterFeather));
         overlayMaterial.SetFloat("_RectFeather", 0.0035f);
 
@@ -498,19 +449,13 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         if (centerScreen.z <= 0f)
             return false;
 
-        Vector3 edgeWorld =
-            target.position + camera.transform.right * Mathf.Max(0.01f, radiusWorld);
+        Vector3 edgeWorld = target.position + camera.transform.right * Mathf.Max(0.01f, radiusWorld);
         Vector3 edgeScreen = camera.WorldToScreenPoint(edgeWorld);
 
         float width = Mathf.Max(1f, Screen.width);
         float height = Mathf.Max(1f, Screen.height);
-
-        centerUv = new Vector2(
-            Mathf.Clamp01(centerScreen.x / width),
-            Mathf.Clamp01(centerScreen.y / height));
-
-        radiusUv = Mathf.Abs(edgeScreen.x - centerScreen.x) / height;
-        radiusUv = Mathf.Max(0.0001f, radiusUv);
+        centerUv = new Vector2(Mathf.Clamp01(centerScreen.x / width), Mathf.Clamp01(centerScreen.y / height));
+        radiusUv = Mathf.Max(0.0001f, Mathf.Abs(edgeScreen.x - centerScreen.x) / height);
         return true;
     }
 
@@ -566,13 +511,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         if (child == null || sprite == null)
             return;
 
-        float inverseX = Mathf.Abs(parentWorldScale.x) > 0.0001f
-            ? 1f / Mathf.Abs(parentWorldScale.x)
-            : 1f;
-        float inverseY = Mathf.Abs(parentWorldScale.y) > 0.0001f
-            ? 1f / Mathf.Abs(parentWorldScale.y)
-            : 1f;
-
+        float inverseX = Mathf.Abs(parentWorldScale.x) > 0.0001f ? 1f / Mathf.Abs(parentWorldScale.x) : 1f;
+        float inverseY = Mathf.Abs(parentWorldScale.y) > 0.0001f ? 1f / Mathf.Abs(parentWorldScale.y) : 1f;
         Vector2 spriteSize = sprite.bounds.size;
         float sourceWidth = Mathf.Max(0.0001f, spriteSize.x);
         float sourceHeight = Mathf.Max(0.0001f, spriteSize.y);
@@ -625,7 +565,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
         const int width = 96;
         const int height = 32;
-
         Texture2D texture = new(width, height, TextureFormat.RGBA32, false, true)
         {
             name = "BattlePlayerFloorSpotlightTexture_Runtime",
@@ -638,7 +577,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         for (int y = 0; y < height; y++)
         {
             float ny = ((y + 0.5f) / height) * 2f - 1f;
-
             for (int x = 0; x < width; x++)
             {
                 float nx = ((x + 0.5f) / width) * 2f - 1f;
@@ -646,7 +584,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
                 float edge = Mathf.Clamp01(1f - distance);
                 float alpha = Mathf.SmoothStep(0f, 1f, edge);
                 alpha = alpha * alpha * (0.84f + 0.16f * edge);
-
                 pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
             }
         }
