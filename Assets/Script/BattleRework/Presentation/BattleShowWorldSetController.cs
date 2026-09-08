@@ -11,12 +11,14 @@ using UnityEngine.UI;
 /// 공통 화면 유닛:
 /// - Persistent 4x4의 왼쪽 끝과 10x2 Screen Carrier의 왼쪽 끝을 정확히 맞춥니다.
 /// - Screen Carrier가 위쪽 레일에서 내려와 4x4 상단에 도킹합니다.
+/// - TV는 Screen Carrier의 Y 중심을 기준으로 장착되어 바닥 위에 붕 뜨지 않습니다.
 /// - TV는 Screen Carrier의 자식이므로 Reward/Map 모두 같은 물리 유닛을 사용합니다.
 /// - Reward -> Map에서는 Screen Carrier/TV를 유지하고 내용만 Map으로 바꿉니다.
 ///
 /// Reward 전용 유닛:
-/// - Presenter 5x4가 Base 오른쪽에서 도킹합니다.
-/// - Presenter SpriteRenderer는 Presenter 5x4의 자식으로 함께 움직입니다.
+/// - Presenter 6x4가 Base 오른쪽에서 도킹합니다.
+/// - Presenter SpriteRenderer는 Presenter 6x4의 자식으로 함께 움직입니다.
+/// - Presenter Sprite는 Carrier의 오른쪽 Edge에 맞춰 정렬합니다.
 /// - 실제 Presenter Sprite가 비어 있으면 BattleHudSpriteCache.DefaultSprite를 표시합니다.
 ///
 /// 카메라:
@@ -32,7 +34,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private const int ScreenCarrierWidth = 10;
     private const int ScreenCarrierDepth = 2;
-    private const int PresenterCarrierWidth = 5;
+    private const int PresenterCarrierWidth = 6;
     private const int PresenterCarrierDepth = 4;
 
     private static BattleShowWorldSetController instance;
@@ -40,7 +42,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [Header("TV")]
     [SerializeField] private Vector2 tvCanvasSize = new(1120f, 560f);
     [SerializeField, Min(32f)] private float tvPixelsPerUnit = 122f;
-    [SerializeField, Min(-1f)] private float tvMountGap = 0.10f;
+    [Tooltip("Screen Carrier의 Y 중심에서 TV 중심을 추가로 미세 조정할 값입니다.")]
+    [SerializeField, Range(-1f, 1f)] private float tvCarrierCenterYOffset = 0f;
 
     [Header("Dock Units")]
     [SerializeField, Min(0.05f)] private float carrierEntryDuration = 0.62f;
@@ -57,6 +60,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField] private Sprite presenterFallbackSprite;
     [SerializeField, Min(0.5f)] private float presenterWorldHeight = 3.6f;
     [SerializeField] private float presenterPadYOffset = 0.20f;
+    [SerializeField, Range(0f, 1f)] private float presenterRightPadding = 0.15f;
     [SerializeField, Min(1)] private int presenterFrontOrder = 20;
 
     [Header("Map Start")]
@@ -466,7 +470,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (mode == ShowMode.Reward)
         {
             presenterCarrier = CreateCarrier(
-                "PresenterCarrier_5x4",
+                "PresenterCarrier_6x4",
                 PresenterCarrierWidth,
                 PresenterCarrierDepth,
                 presenterCarrierDestination);
@@ -543,7 +547,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         presenterCarrier = CreateCarrier(
-            "PresenterCarrier_5x4",
+            "PresenterCarrier_6x4",
             PresenterCarrierWidth,
             PresenterCarrierDepth,
             presenterCarrierDestination);
@@ -706,11 +710,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private Vector3 ResolveTvMountLocalPosition()
     {
-        float tvWorldHeight = tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit);
-        float carrierTopEdge = ScreenCarrierDepth - 0.5f;
+        float carrierCenterY = (ScreenCarrierDepth - 1) * 0.5f;
         return new Vector3(
             (ScreenCarrierWidth - 1) * 0.5f,
-            carrierTopEdge + tvWorldHeight * 0.5f + tvMountGap,
+            carrierCenterY + tvCarrierCenterYOffset,
             0f);
     }
 
@@ -732,6 +735,22 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         presenterTransform.localRotation = Quaternion.identity;
         presenterTransform.gameObject.SetActive(true);
         UpdatePresenter();
+    }
+
+    private void AlignPresenterToCarrierRight(Sprite sprite)
+    {
+        if (presenterTransform == null || presenterCarrier == null || sprite == null)
+            return;
+
+        float xScale = presenterTransform.localScale.x;
+        float visualRightOffset = xScale >= 0f
+            ? sprite.bounds.max.x * xScale
+            : sprite.bounds.min.x * xScale;
+
+        float carrierRightEdge = PresenterCarrierWidth - 0.5f;
+        float x = carrierRightEdge - Mathf.Max(0f, presenterRightPadding) - visualRightOffset;
+        float y = (PresenterCarrierDepth - 1) * 0.5f + presenterPadYOffset;
+        presenterTransform.localPosition = new Vector3(x, y, 0f);
     }
 
     private void HideScreenCarrierTopHandle()
@@ -908,6 +927,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 presenterTransform.localScale = new Vector3(flip ? -scale : scale, scale, 1f);
             }
         }
+
+        AlignPresenterToCarrierRight(sprite);
 
         bool rewardMode = currentMode == ShowMode.Reward ||
                           (stageTransitioning && desiredMode == ShowMode.Reward);
