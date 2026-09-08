@@ -12,6 +12,7 @@ using UnityEngine.UI;
 /// - Persistent 4x4의 왼쪽 끝과 10x2 Screen Carrier의 왼쪽 끝을 정확히 맞춥니다.
 /// - Screen Carrier가 위쪽 레일에서 내려와 4x4 상단에 도킹합니다.
 /// - TV의 아래 Edge를 10x2 Carrier의 두 타일 행 사이 중앙선에 맞추고, 화면 본체는 그 지점에서 위로 올라갑니다.
+/// - TV는 Floor/Carrier보다 항상 앞 Sorting Order에 배치합니다.
 /// - TV는 Screen Carrier의 자식이므로 Reward/Map 모두 같은 물리 유닛을 사용합니다.
 /// - Reward -> Map에서는 Screen Carrier/TV를 유지하고 내용만 Map으로 바꿉니다.
 ///
@@ -1001,7 +1002,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (tvCanvas != null)
         {
             tvCanvas.sortingLayerID = playerRenderer.sortingLayerID;
-            tvCanvas.sortingOrder = Mathf.Min(fieldOrder + 1, playerOrder - 1);
+            int highestFloorOrder = Mathf.Max(fieldOrder, carrierFloorSortingOrder);
+            tvCanvas.sortingOrder = Mathf.Max(highestFloorOrder + 2, playerOrder + 1);
         }
 
         if (presenterRenderer != null)
