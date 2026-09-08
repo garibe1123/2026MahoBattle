@@ -11,7 +11,7 @@ using UnityEngine.UI;
 /// 공통 화면 유닛:
 /// - Persistent 4x4의 왼쪽 끝과 10x2 Screen Carrier의 왼쪽 끝을 정확히 맞춥니다.
 /// - Screen Carrier가 위쪽 레일에서 내려와 4x4 상단에 도킹합니다.
-/// - TV는 Screen Carrier의 Y 중심을 기준으로 장착되어 바닥 위에 붕 뜨지 않습니다.
+/// - TV의 아래 Edge를 10x2 Carrier의 두 타일 행 사이 중앙선에 맞추고, 화면 본체는 그 지점에서 위로 올라갑니다.
 /// - TV는 Screen Carrier의 자식이므로 Reward/Map 모두 같은 물리 유닛을 사용합니다.
 /// - Reward -> Map에서는 Screen Carrier/TV를 유지하고 내용만 Map으로 바꿉니다.
 ///
@@ -42,8 +42,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [Header("TV")]
     [SerializeField] private Vector2 tvCanvasSize = new(1120f, 560f);
     [SerializeField, Min(32f)] private float tvPixelsPerUnit = 122f;
-    [Tooltip("Screen Carrier의 Y 중심에서 TV 중심을 추가로 미세 조정할 값입니다.")]
-    [SerializeField, Range(-1f, 1f)] private float tvCarrierCenterYOffset = 0f;
+    [Tooltip("10x2 Screen Carrier의 두 타일 행 사이 중앙선을 기준으로 TV 아래 Edge를 미세 조정할 값입니다.")]
+    [SerializeField, Range(-1f, 1f)] private float tvBottomAnchorYOffset = 0f;
 
     [Header("Dock Units")]
     [SerializeField, Min(0.05f)] private float carrierEntryDuration = 0.62f;
@@ -710,10 +710,13 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private Vector3 ResolveTvMountLocalPosition()
     {
-        float carrierCenterY = (ScreenCarrierDepth - 1) * 0.5f;
+        float tvWorldHeight = tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit);
+        float carrierMidlineY = (ScreenCarrierDepth - 1) * 0.5f;
+        float tvBottomY = carrierMidlineY + tvBottomAnchorYOffset;
+
         return new Vector3(
             (ScreenCarrierWidth - 1) * 0.5f,
-            carrierCenterY + tvCarrierCenterYOffset,
+            tvBottomY + tvWorldHeight * 0.5f,
             0f);
     }
 
