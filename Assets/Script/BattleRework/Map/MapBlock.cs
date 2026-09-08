@@ -16,6 +16,9 @@ public enum MapBlockEntryType
 /// Runtime Map / Corridor / Large Room Piece의 도킹 연출을 담당합니다.
 /// contributesWalkableNavMesh가 켜진 Block은 실제 Walkable NavMesh Renderer만
 /// BattleWalkableField로 등록하여 Player가 '실제로 존재하는 바닥' 위에서만 이동하게 합니다.
+///
+/// WheelSlide는 이미 도킹 예정/도킹 완료된 바닥과 Persistent 4x4를 관통하는 Rail을 사용하지 않습니다.
+/// 기본 방향이 막히면 다른 Cardinal Rail을 찾고, 네 방향 모두 막히면 관통 대신 제자리 Snap을 사용합니다.
 /// </summary>
 public class MapBlock : MonoBehaviour
 {
@@ -31,6 +34,12 @@ public class MapBlock : MonoBehaviour
     [Header("Entry Sequence Readability")]
     [Tooltip("BattleRoomManager가 주는 조립 Stagger를 실제 전투 바닥에서 더 분명하게 보이게 하는 배율입니다. Show Floor처럼 walkable=false인 연출용 판에는 적용하지 않습니다.")]
     [SerializeField, Min(1f)] private float walkableEntryDelayScale = 2.25f;
+
+    [Header("Entry Collision Safety")]
+    [Tooltip("켜면 WheelSlide가 이미 존재하는 Tile/Persistent 4x4를 관통하지 않도록 Cardinal Rail을 다시 선택합니다.")]
+    [SerializeField] private bool avoidExistingTilePenetration = true;
+    [SerializeField, Range(4, 16)] private int entryPathSamples = 8;
+    [SerializeField, Range(0f, 0.25f)] private float entryPathClearance = 0.06f;
 
     [Header("Navigation Surface")]
     [Tooltip("실제로 플레이어/몬스터가 설 수 있는 바닥이면 켭니다. 벽/장식 전용 블록이면 끕니다.")]
@@ -334,6 +343,178 @@ public class MapBlock : MonoBehaviour
         return found;
     }
 
+    private static Vector2 Cardinalize(Vector2 direction)
+    {
+        if (direction.sqrMagnitude <= 0.001f)
+            return Vector2.right;
+
+        return Mathf.Abs(direction.x) >= Mathf.Abs(direction.y)
+            ? (direction.x >= 0f ? Vector2.right : Vector2.left)
+            : (direction.y >= 0f ? Vector2.up : Vector2.down);
+    }
+
+    private Vector2 ResolveSafeWheelSlideSourceDirection(Vector3 destination, Vector2 preferredDirection)
+    {
+        Vector2 primary = Cardinalize(preferredDirection);
+        if (!avoidExistingTilePenetration || entryOffset <= 0.01f)
+            return primary;
+
+        Vector2 perpendicularA = new(-primary.y, primary.x);
+        Vector2 perpendicularB = -perpendicularA;
+        Vector2 opposite = -primary;
+
+        Vector2[] candidates =
+        {
+            primary,
+            perpendicularA,
+            perpendicularB,
+            opposite
+        };
+
+        for (int i = 0; i < candidates.Length; i++)
+        {
+            if (IsEntryPathClear(destination, candidates[i]))
+                return candidates[i];
+        }
+
+        Debug.LogWarning(
+            $"[MapBlock] '{name}' has no clear cardinal entry rail. " +
+            "To preserve the no-tunneling rule it will snap to its destination instead of crossing existing tiles.",
+            this);
+        return Vector2.zero;
+    }
+
+    private bool IsEntryPathClear(Vector3 destination, Vector2 sourceDirection)
+    {
+        Vector2 direction = Cardinalize(sourceDirection);
+        if (!TryGetFloorBoundsAtRootPosition(this, destination, out Bounds ownFinalBounds))
+            return true;
+
+        List<Bounds> blockers = CollectFinalFloorBlockers();
+        if (blockers.Count == 0)
+            return true;
+
+        Vector3 startRoot = destination + (Vector3)(direction * entryOffset);
+        int samples = Mathf.Clamp(entryPathSamples, 4, 16);
+
+        // t=1은 최종 도킹 지점이므로 검사하지 않습니다.
+        // 인접한 바닥과 Edge가 맞닿는 정상 도킹까지 충돌로 오인하지 않기 위함입니다.
+        for (int i = 0; i < samples; i++)
+        {
+            float t = i / (float)samples;
+            Vector3 rootPosition = Vector3.Lerp(startRoot, destination, t);
+            Vector3 delta = rootPosition - destination;
+            Bounds moving = ownFinalBounds;
+            moving.center += delta;
+
+            for (int b = 0; b < blockers.Count; b++)
+            {
+                if (Overlaps2D(moving, blockers[b], entryPathClearance))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    private List<Bounds> CollectFinalFloorBlockers()
+    {
+        List<Bounds> blockers = new();
+
+        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        if (baseTemplate != null && baseTemplate.HasPersistentBase)
+        {
+            blockers.Add(new Bounds(
+                baseTemplate.FixedCenterWorld,
+                new Vector3(
+                    RoomBaseTemplate.FixedBaseTiles,
+                    RoomBaseTemplate.FixedBaseTiles,
+                    0.1f)));
+        }
+
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            MapBlock other = blocks[i];
+            if (other == null || other == this || !other.gameObject.activeInHierarchy)
+                continue;
+
+            Vector3 finalRoot = other.HasEntryDestination
+                ? other.EntryDestination
+                : other.transform.position;
+
+            if (TryGetFloorBoundsAtRootPosition(other, finalRoot, out Bounds bounds))
+                blockers.Add(bounds);
+        }
+
+        return blockers;
+    }
+
+    private static bool TryGetFloorBoundsAtRootPosition(MapBlock block, Vector3 rootPosition, out Bounds bounds)
+    {
+        bounds = default;
+        if (block == null)
+            return false;
+
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+        bool found = false;
+        Vector3 delta = rootPosition - block.transform.position;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled || renderer.sprite == null)
+                continue;
+
+            string rendererName = renderer.name;
+            bool floorRenderer =
+                rendererName.StartsWith("Tile_", StringComparison.Ordinal) ||
+                rendererName.StartsWith("ShowTile_", StringComparison.Ordinal) ||
+                renderer.GetComponent<BattleWalkableField>() != null;
+
+            if (!floorRenderer)
+                continue;
+
+            Bounds shifted = renderer.bounds;
+            shifted.center += delta;
+
+            if (!found)
+            {
+                bounds = shifted;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(shifted);
+            }
+        }
+
+        if (found)
+            return true;
+
+        if (!block.TryGetPresentationBounds(out Bounds fallback))
+            return false;
+
+        fallback.center += delta;
+        bounds = fallback;
+        return true;
+    }
+
+    private static bool Overlaps2D(Bounds a, Bounds b, float clearance)
+    {
+        float safe = Mathf.Max(0f, clearance);
+        float aHalfX = Mathf.Max(0.01f, a.extents.x - safe);
+        float aHalfY = Mathf.Max(0.01f, a.extents.y - safe);
+        float bHalfX = Mathf.Max(0.01f, b.extents.x - safe);
+        float bHalfY = Mathf.Max(0.01f, b.extents.y - safe);
+
+        return Mathf.Abs(a.center.x - b.center.x) < aHalfX + bHalfX &&
+               Mathf.Abs(a.center.y - b.center.y) < aHalfY + bHalfY;
+    }
+
     public Tween PlayEnter(Vector3 destination, Vector2 preferredDirection, float delay = 0f)
     {
         KillTweens();
@@ -366,8 +547,14 @@ public class MapBlock : MonoBehaviour
                 break;
 
             default:
-                start += (Vector3)(preferred * entryOffset);
-                sourceDirection = preferred;
+                sourceDirection = ResolveSafeWheelSlideSourceDirection(destination, preferred);
+                if (sourceDirection.sqrMagnitude <= 0.001f)
+                {
+                    transform.position = destination;
+                    RestorePresentationPose();
+                    return transform.DOMove(destination, 0f);
+                }
+                start += (Vector3)(sourceDirection * entryOffset);
                 break;
         }
 
