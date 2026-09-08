@@ -6,14 +6,18 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward / Map 공용 월드 쇼 세트.
+/// Reward / Map 공용 월드 TV 세트.
 /// 공간 기준은 BattleStageTransitionController가 확정한 Player 4x4 중심 하나만 사용합니다.
-/// Reward <-> Map에서는 TV 내용만 바뀌며 Camera/TV/Presenter/Floor 배치는 유지됩니다.
+/// TV 위치/스케일/Camera 기준은 Reward와 Map에서 동일합니다.
 ///
-/// Show 진입 순서:
-/// 1) 4x4 오른쪽 Show Floor가 오른쪽 레일에서 순차 도킹
-/// 2) Presenter는 마지막 Presenter Floor에 실려 함께 진입
-/// 3) Floor 도킹 완료 후 TV가 위쪽 레일에서 진입
+/// Reward:
+/// - 4x4 오른쪽에 Show Floor가 순차 도킹합니다.
+/// - Presenter는 마지막 Presenter Floor에 실려 함께 들어옵니다.
+/// - Floor 도킹 뒤 TV가 들어옵니다.
+///
+/// Map:
+/// - Show Floor / Presenter / Contestant는 사용하지 않습니다.
+/// - Player가 서 있는 Persistent 4x4 + 동일 TV만 남깁니다.
 /// </summary>
 [DefaultExecutionOrder(20000)]
 [DisallowMultipleComponent]
@@ -32,7 +36,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Range(1f, 1.2f)] private float tvPointerFocusScale = 1.08f;
     [SerializeField, Min(1f)] private float tvPointerFocusSharpness = 7f;
 
-    [Header("Shared Show Floor")]
+    [Header("Reward Show Floor")]
     [SerializeField, Range(4, 12)] private int showFloorWidth = 8;
     [SerializeField, Range(2, 6)] private int showFloorDepth = 4;
     [SerializeField, Range(2, 5)] private int showFloorPieceCount = 3;
@@ -53,7 +57,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Min(1)] private int presenterFrontOrder = 20;
 
     [Header("Optional Three Characters")]
-    [Tooltip("레퍼런스의 TV 앞 캐릭터 3자리. Sprite가 할당된 자리만 표시하며 Player는 복제하지 않습니다.")]
+    [Tooltip("Reward 쇼의 TV 앞 캐릭터 3자리. Sprite가 할당된 자리만 표시하며 Player는 복제하지 않습니다.")]
     [SerializeField] private Sprite[] contestantSprites = new Sprite[3];
     [SerializeField] private Vector2[] contestantLocalOffsets =
     {
@@ -438,6 +442,36 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         {
             ShowMode next = desiredMode;
 
+            // Reward -> Map: TV/Camera는 그대로 두고 Reward 전용 바닥과 사회자만 퇴장시킵니다.
+            if (currentMode == ShowMode.Reward && next == ShowMode.Map)
+            {
+                float floorDuration = PlayShowFloorExit();
+                if (floorDuration > 0f)
+                    yield return new WaitForSecondsRealtime(floorDuration + 0.03f);
+
+                ClearShowFloorImmediate();
+                currentMode = ShowMode.Map;
+                SetContent(currentMode);
+                continue;
+            }
+
+            // 예외적인 Map -> Reward 복귀도 같은 TV를 유지하고 Reward 전용 세트만 다시 도킹합니다.
+            if (currentMode == ShowMode.Map && next == ShowMode.Reward)
+            {
+                currentMode = ShowMode.Reward;
+                SetContent(currentMode);
+                BuildShowFloor();
+                presentation?.PlayPresenterAnimation(true);
+                UpdatePresenter();
+
+                float floorDuration = PlayShowFloorEnter();
+                if (floorDuration > 0f)
+                    yield return new WaitForSecondsRealtime(floorDuration + 0.04f);
+
+                BattleDockHandleVisibilityController.RefreshNow();
+                continue;
+            }
+
             if (currentMode != ShowMode.None && next != ShowMode.None)
             {
                 currentMode = next;
@@ -465,15 +499,23 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 stageRoot.transform.localScale = Vector3.one;
                 dockCaptured = true;
 
-                BuildShowFloor();
-                presentation?.PlayPresenterAnimation(true);
-                UpdatePresenter();
+                if (currentMode == ShowMode.Reward)
+                {
+                    BuildShowFloor();
+                    presentation?.PlayPresenterAnimation(true);
+                    UpdatePresenter();
 
-                float floorDuration = PlayShowFloorEnter();
-                if (floorDuration > 0f)
-                    yield return new WaitForSecondsRealtime(floorDuration + 0.04f);
+                    float floorDuration = PlayShowFloorEnter();
+                    if (floorDuration > 0f)
+                        yield return new WaitForSecondsRealtime(floorDuration + 0.04f);
 
-                BattleDockHandleVisibilityController.RefreshNow();
+                    BattleDockHandleVisibilityController.RefreshNow();
+                }
+                else
+                {
+                    ClearShowFloorImmediate();
+                }
+
                 yield return PlayTvEnter();
             }
         }
@@ -516,11 +558,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             stageAnchorWorld = player != null ? player.transform.position : Vector3.zero;
 
         stageAnchorWorld.z = 0f;
-        float combinedCenterX = Mathf.Max(0, showFloorWidth) * 0.5f;
 
-        tvDestinationWorld = stageAnchorWorld + new Vector3(combinedCenterX, tvCenterYOffset, 0f);
+        // Reward와 Map은 정확히 같은 TV 위치와 같은 Camera 기준을 사용합니다.
+        // Show Floor 폭은 TV/Camera 계산에 절대로 개입하지 않습니다.
+        tvDestinationWorld = stageAnchorWorld + new Vector3(0f, tvCenterYOffset, 0f);
         cameraTargetWorld = stageAnchorWorld + new Vector3(
-            combinedCenterX + showCameraOffset.x,
+            showCameraOffset.x,
             showCameraOffset.y,
             0f);
     }
@@ -656,6 +699,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (presenterTransform == null)
             return;
 
+        presenterTransform.gameObject.SetActive(true);
+
         if (carrier == null)
         {
             presenterTransform.SetParent(stageRoot.transform, false);
@@ -746,7 +791,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private void ClearShowFloorImmediate()
     {
         if (presenterTransform != null && stageRoot != null)
+        {
             presenterTransform.SetParent(stageRoot.transform, true);
+            presenterTransform.gameObject.SetActive(false);
+        }
 
         for (int i = 0; i < showFloorPieces.Count; i++)
         {
@@ -840,15 +888,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (presenterRenderer == null || presenterTransform == null)
             return;
 
-        if (legacyPresenter == null)
-            legacyPresenter = FindPresenterImage();
-
-        Sprite sprite = legacyPresenter != null ? legacyPresenter.sprite : null;
-        if (sprite == BattleHudSpriteCache.DefaultSprite)
-            sprite = null;
-        if (sprite == null)
-            sprite = presenterFallbackSprite;
-
+        Sprite sprite = ResolvePresenterSprite();
         if (sprite != lastPresenterSprite)
         {
             lastPresenterSprite = sprite;
@@ -863,22 +903,58 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             }
         }
 
+        bool rewardMode = currentMode == ShowMode.Reward || (stageTransitioning && desiredMode == ShowMode.Reward);
         bool carrierVisible = presenterTransform.parent != null && presenterTransform.parent.gameObject.activeInHierarchy;
-        presenterRenderer.enabled = sprite != null && IsShowActive && carrierVisible;
+        presenterRenderer.enabled = sprite != null && rewardMode && carrierVisible && presenterTransform.gameObject.activeInHierarchy;
 
-        if (sprite == null && IsShowActive && !presenterWarningShown)
+        if (sprite == null && rewardMode && !presenterWarningShown)
         {
             presenterWarningShown = true;
             Debug.LogWarning(
-                "[BattleShowWorldSetController] Presenter Sprite가 없습니다. " +
-                "BattleShowPresentationManager.presenterFrames 또는 presenterFallbackSprite를 확인하세요.",
+                "[BattleShowWorldSetController] Presenter 실제 Sprite가 없습니다. " +
+                "BattleShowPresentationManager.presenterFrames 또는 presenterFallbackSprite를 할당해야 합니다.",
                 this);
         }
+    }
+
+    private Sprite ResolvePresenterSprite()
+    {
+        if (legacyPresenter == null)
+            legacyPresenter = FindPresenterImage();
+
+        Sprite sprite = legacyPresenter != null ? legacyPresenter.sprite : null;
+        if (sprite == BattleHudSpriteCache.DefaultSprite)
+            sprite = null;
+
+        if (sprite == null && presentation != null)
+        {
+            System.Reflection.FieldInfo field = typeof(BattleShowPresentationManager).GetField(
+                "presenterFrames",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Sprite[] frames = field != null ? field.GetValue(presentation) as Sprite[] : null;
+            if (frames != null)
+            {
+                for (int i = 0; i < frames.Length; i++)
+                {
+                    if (frames[i] == null)
+                        continue;
+                    sprite = frames[i];
+                    break;
+                }
+            }
+        }
+
+        if (sprite == null)
+            sprite = presenterFallbackSprite;
+
+        return sprite;
     }
 
     private void RefreshContestants()
     {
         EnsureContestantArrays();
+        bool rewardMode = currentMode == ShowMode.Reward || (stageTransitioning && desiredMode == ShowMode.Reward);
+
         for (int i = 0; i < contestantRenderers.Length; i++)
         {
             SpriteRenderer renderer = contestantRenderers[i];
@@ -887,7 +963,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
             Sprite sprite = contestantSprites[i];
             renderer.sprite = sprite;
-            renderer.enabled = sprite != null && IsShowActive;
+            renderer.enabled = sprite != null && rewardMode;
             renderer.transform.localPosition = contestantLocalOffsets[i];
 
             if (sprite == null)
