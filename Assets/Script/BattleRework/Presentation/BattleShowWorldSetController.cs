@@ -6,19 +6,21 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward / Map 월드 쇼 세트.
+/// Reward / Map 공용 월드 쇼 세트.
 ///
-/// Reward 구조:
-/// - Player가 남긴 Persistent 4x4를 기준으로 배치합니다.
-/// - 10x2 Screen Carrier가 위쪽 레일에서 내려와 Base 상단에 도킹합니다.
-/// - Item TV는 Screen Carrier의 자식이므로 따로 내려오지 않고 Carrier와 함께 움직입니다.
-/// - 4x4 Presenter Carrier가 오른쪽에서 들어와 Base 우측에 도킹합니다.
-/// - Presenter SpriteRenderer는 Presenter Carrier의 자식이므로 타일과 함께 쾅 들어옵니다.
-/// - 카메라는 수동 오프셋이 아니라 최종 도킹된 Base + Carrier + TV Bounds를 기준으로 계산합니다.
+/// 공통 화면 유닛:
+/// - Persistent 4x4의 왼쪽 끝과 10x2 Screen Carrier의 왼쪽 끝을 정확히 맞춥니다.
+/// - Screen Carrier가 위쪽 레일에서 내려와 4x4 상단에 도킹합니다.
+/// - TV는 Screen Carrier의 자식이므로 Reward/Map 모두 같은 물리 유닛을 사용합니다.
+/// - Reward -> Map에서는 Screen Carrier/TV를 유지하고 내용만 Map으로 바꿉니다.
 ///
-/// Map 구조:
-/// - Reward 전용 10x2 / Presenter 4x4 Carrier는 퇴장하여 실제 바닥은 Persistent 4x4만 남깁니다.
-/// - 동일 TV는 Carrier에서 분리해 같은 월드 위치에 유지하고 Map 내용만 표시합니다.
+/// Reward 전용 유닛:
+/// - Presenter 4x4가 Base 오른쪽에서 도킹합니다.
+/// - Presenter SpriteRenderer는 Presenter 4x4의 자식으로 함께 움직입니다.
+///
+/// 카메라:
+/// - Persistent 4x4 + 10x2 Screen Carrier + TV의 실제 최종 Bounds를 기준으로 계산합니다.
+/// - Presenter 유닛은 카메라 기준에 개입하지 않아 Reward/Map 전환에서 카메라 기준이 바뀌지 않습니다.
 /// </summary>
 [DefaultExecutionOrder(20000)]
 [DisallowMultipleComponent]
@@ -39,17 +41,16 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Range(1f, 1.2f)] private float tvPointerFocusScale = 1.08f;
     [SerializeField, Min(1f)] private float tvPointerFocusSharpness = 7f;
 
-    [Header("Reward Dock Units")]
+    [Header("Dock Units")]
     [SerializeField, Min(0.05f)] private float carrierEntryDuration = 0.62f;
     [SerializeField, Min(2f)] private float carrierRailDistance = 12f;
     [SerializeField, Min(0f)] private float presenterEntryDelay = 0.16f;
     [SerializeField, Range(0f, 2f)] private float carrierImpactStrength = 1.05f;
     [SerializeField] private int carrierFloorSortingOrder = -18;
 
-    [Header("Camera From Docked Set")]
+    [Header("Shared Camera From Docked Screen")]
     [SerializeField, Min(0f)] private float rewardCameraPadding = 0.85f;
     [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 5.4f;
-    [SerializeField, Min(0.1f)] private float mapCameraSize = 6.1f;
 
     [Header("Presenter")]
     [SerializeField] private Sprite presenterFallbackSprite;
@@ -428,11 +429,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 stageRoot.SetActive(true);
                 dockCaptured = true;
 
-                if (next == ShowMode.Reward)
-                    yield return EnterRewardStage();
-                else
-                    EnterMapStageStandalone();
-
+                yield return EnterScreenCarrier(next);
                 currentMode = next;
                 SetContent(currentMode);
                 continue;
@@ -447,17 +444,31 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         transitionRoutine = null;
     }
 
-    private IEnumerator EnterRewardStage()
+    private IEnumerator EnterScreenCarrier(ShowMode mode)
     {
-        ClearRewardCarriers(false);
-        BuildRewardCarriers();
-        MountTvToScreenCarrier();
-        AttachPresenterToCarrier();
-        SetContent(ShowMode.Reward);
+        ClearAllCarriers(false);
 
-        ComputeDockedCameraFrame();
-        presentation?.PlayPresenterAnimation(true);
-        UpdatePresenter();
+        screenCarrier = CreateCarrier(
+            "ShowScreenCarrier_10x2",
+            ScreenCarrierWidth,
+            ScreenCarrierDepth,
+            screenCarrierDestination);
+        MountTvToScreenCarrier();
+
+        if (mode == ShowMode.Reward)
+        {
+            presenterCarrier = CreateCarrier(
+                "PresenterCarrier_4x4",
+                PresenterCarrierSize,
+                PresenterCarrierSize,
+                presenterCarrierDestination);
+            AttachPresenterToCarrier();
+            presentation?.PlayPresenterAnimation(true);
+            UpdatePresenter();
+        }
+
+        SetContent(mode);
+        ComputeSharedCameraFrame();
 
         float screenDuration = 0f;
         float presenterDuration = 0f;
@@ -487,7 +498,67 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private IEnumerator RewardToMap()
     {
         SetInteraction(false);
-        DetachTvKeepWorld();
+
+        float presenterDuration = 0f;
+        if (presenterCarrier != null)
+        {
+            presenterCarrier.PlayExit(Vector2.right);
+            presenterDuration = presenterCarrier.ExitDuration;
+        }
+
+        if (presenterRenderer != null)
+            presenterRenderer.enabled = false;
+
+        if (presenterDuration > 0f)
+            yield return new WaitForSecondsRealtime(presenterDuration + 0.03f);
+
+        DestroyPresenterCarrier();
+        currentMode = ShowMode.Map;
+        SetContent(ShowMode.Map);
+        ComputeSharedCameraFrame();
+        BattleDockHandleVisibilityController.RefreshNow();
+    }
+
+    private IEnumerator MapToReward()
+    {
+        SetInteraction(false);
+
+        if (screenCarrier == null)
+        {
+            yield return EnterScreenCarrier(ShowMode.Reward);
+            currentMode = ShowMode.Reward;
+            SetContent(ShowMode.Reward);
+            yield break;
+        }
+
+        presenterCarrier = CreateCarrier(
+            "PresenterCarrier_4x4",
+            PresenterCarrierSize,
+            PresenterCarrierSize,
+            presenterCarrierDestination);
+        AttachPresenterToCarrier();
+        presentation?.PlayPresenterAnimation(true);
+        UpdatePresenter();
+
+        currentMode = ShowMode.Reward;
+        SetContent(ShowMode.Reward);
+
+        if (presenterCarrier != null)
+        {
+            presenterCarrier.PlayEnter(presenterCarrierDestination, Vector2.right, 0f);
+            float duration = presenterCarrier.GetEntryDuration(0f);
+            if (duration > 0f)
+                yield return new WaitForSecondsRealtime(duration + 0.03f);
+        }
+
+        ComputeSharedCameraFrame();
+        BattleDockHandleVisibilityController.RefreshNow();
+    }
+
+    private IEnumerator ExitCurrentStage()
+    {
+        battleCamera?.SetShowCursorTracking(false, Vector2.zero);
+        SetInteraction(false);
 
         float screenDuration = 0f;
         float presenterDuration = 0f;
@@ -504,78 +575,14 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             presenterDuration = presenterCarrier.ExitDuration;
         }
 
-        if (presenterRenderer != null)
-            presenterRenderer.enabled = false;
-
         float wait = Mathf.Max(screenDuration, presenterDuration);
         if (wait > 0f)
             yield return new WaitForSecondsRealtime(wait + 0.03f);
 
-        ClearRewardCarriers(true);
-        currentMode = ShowMode.Map;
-        SetContent(ShowMode.Map);
-
-        // Map에서는 실제 바닥은 Persistent 4x4만 남고,
-        // TV는 Reward 때 도킹된 최종 위치를 그대로 사용합니다.
-        cameraSizeWorld = Mathf.Max(mapCameraSize, cameraSizeWorld);
-        BattleDockHandleVisibilityController.RefreshNow();
-    }
-
-    private IEnumerator MapToReward()
-    {
-        SetInteraction(false);
         if (tvObject != null)
             tvObject.SetActive(false);
 
-        currentMode = ShowMode.Reward;
-        yield return EnterRewardStage();
-    }
-
-    private void EnterMapStageStandalone()
-    {
-        ClearRewardCarriers(false);
-        PlaceTvAtVirtualMountedPosition();
-        currentMode = ShowMode.Map;
-        SetContent(ShowMode.Map);
-
-        // 직접 Map으로 진입하는 예외 경로에서도 화면 위치는 Reward의 10x2 Carrier 도킹 위치와 같습니다.
-        ComputeDockedCameraFrame();
-        cameraSizeWorld = Mathf.Max(mapCameraSize, cameraSizeWorld);
-    }
-
-    private IEnumerator ExitCurrentStage()
-    {
-        battleCamera?.SetShowCursorTracking(false, Vector2.zero);
-        SetInteraction(false);
-
-        if (currentMode == ShowMode.Reward)
-        {
-            float screenDuration = 0f;
-            float presenterDuration = 0f;
-
-            if (screenCarrier != null)
-            {
-                screenCarrier.PlayExit(Vector2.up);
-                screenDuration = screenCarrier.ExitDuration;
-            }
-
-            if (presenterCarrier != null)
-            {
-                presenterCarrier.PlayExit(Vector2.right);
-                presenterDuration = presenterCarrier.ExitDuration;
-            }
-
-            float wait = Mathf.Max(screenDuration, presenterDuration);
-            if (wait > 0f)
-                yield return new WaitForSecondsRealtime(wait + 0.03f);
-        }
-
-        if (tvObject != null)
-            tvObject.SetActive(false);
-        ClearRewardCarriers(false);
-
-        if (presenterTransform != null)
-            presenterTransform.gameObject.SetActive(false);
+        ClearAllCarriers(false);
         if (stageRoot != null)
             stageRoot.SetActive(false);
     }
@@ -593,38 +600,27 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         stageAnchorWorld.z = 0f;
 
-        // Persistent 4x4의 최상단 다음 행부터 10x2 Screen Carrier가 붙습니다.
-        screenCarrierDestination = stageAnchorWorld + new Vector3(
-            -(ScreenCarrierWidth - 1) * 0.5f,
-            RoomBaseTemplate.FixedBaseTiles * 0.5f + 0.5f,
+        float baseHalfTileSpan = (RoomBaseTemplate.FixedBaseTiles - 1) * 0.5f;
+        float baseLeftTileCenterX = stageAnchorWorld.x - baseHalfTileSpan;
+        float baseBottomTileCenterY = stageAnchorWorld.y - baseHalfTileSpan;
+        float baseTopTileCenterY = stageAnchorWorld.y + baseHalfTileSpan;
+
+        // 핵심 정렬 규칙:
+        // Persistent 4x4의 왼쪽 Tile Center와 10x2 Screen Carrier의 왼쪽 Tile Center를 동일하게 둡니다.
+        // 따라서 두 바닥의 실제 왼쪽 Edge도 정확히 일치합니다.
+        screenCarrierDestination = new Vector3(
+            baseLeftTileCenterX,
+            baseTopTileCenterY + 1f,
             0f);
 
-        // Persistent 4x4의 오른쪽 다음 열부터 Presenter 4x4가 붙습니다.
-        presenterCarrierDestination = stageAnchorWorld + new Vector3(
-            RoomBaseTemplate.FixedBaseTiles * 0.5f + 0.5f,
-            -(PresenterCarrierSize - 1) * 0.5f,
+        // Presenter 4x4는 Persistent 4x4 오른쪽에 정확히 한 타일 간격 없이 이어 붙습니다.
+        presenterCarrierDestination = new Vector3(
+            stageAnchorWorld.x + baseHalfTileSpan + 1f,
+            baseBottomTileCenterY,
             0f);
 
         tvMountedWorld = ResolveMountedTvWorld();
-        cameraTargetWorld = stageAnchorWorld;
-        cameraSizeWorld = Mathf.Max(mapCameraSize, rewardCameraMinSize);
-    }
-
-    private void BuildRewardCarriers()
-    {
-        screenCarrier = CreateCarrier(
-            "RewardScreenCarrier_10x2",
-            ScreenCarrierWidth,
-            ScreenCarrierDepth,
-            screenCarrierDestination);
-
-        presenterCarrier = CreateCarrier(
-            "PresenterCarrier_4x4",
-            PresenterCarrierSize,
-            PresenterCarrierSize,
-            presenterCarrierDestination);
-
-        BattleDockHandleVisibilityController.RefreshNow();
+        ComputeSharedCameraFrame();
     }
 
     private MapBlock CreateCarrier(string objectName, int width, int height, Vector3 destination)
@@ -700,33 +696,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         tvMountedWorld = screenCarrierDestination + ResolveTvMountLocalPosition();
     }
 
-    private void DetachTvKeepWorld()
-    {
-        if (tvRect == null || stageRoot == null)
-            return;
-
-        Vector3 worldPosition = tvRect.position;
-        tvRect.SetParent(stageRoot.transform, true);
-        tvRect.position = worldPosition;
-        tvRect.localRotation = Quaternion.identity;
-        tvRect.localScale = tvBaseScale;
-        tvMountedWorld = worldPosition;
-    }
-
-    private void PlaceTvAtVirtualMountedPosition()
-    {
-        if (tvRect == null || tvObject == null || stageRoot == null)
-            return;
-
-        tvRect.DOKill();
-        tvRect.SetParent(stageRoot.transform, true);
-        tvRect.position = ResolveMountedTvWorld();
-        tvRect.rotation = Quaternion.identity;
-        tvRect.localScale = tvBaseScale;
-        tvObject.SetActive(true);
-        tvMountedWorld = tvRect.position;
-    }
-
     private Vector3 ResolveTvMountLocalPosition()
     {
         float tvWorldHeight = tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit);
@@ -757,24 +726,29 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         UpdatePresenter();
     }
 
-    private void ClearRewardCarriers(bool keepDetachedTv)
+    private void DestroyPresenterCarrier()
     {
-        if (keepDetachedTv)
-            DetachTvKeepWorld();
-        else if (tvRect != null && stageRoot != null && tvRect.parent != stageRoot.transform)
-            tvRect.SetParent(stageRoot.transform, true);
-
         if (presenterTransform != null && stageRoot != null)
         {
             presenterTransform.SetParent(stageRoot.transform, true);
             presenterTransform.gameObject.SetActive(false);
         }
 
-        DestroyCarrier(ref screenCarrier);
         DestroyCarrier(ref presenterCarrier);
-
         if (presenterRenderer != null)
             presenterRenderer.enabled = false;
+    }
+
+    private void ClearAllCarriers(bool keepTvVisible)
+    {
+        if (tvRect != null && stageRoot != null && tvRect.parent != stageRoot.transform)
+            tvRect.SetParent(stageRoot.transform, true);
+
+        if (!keepTvVisible && tvObject != null)
+            tvObject.SetActive(false);
+
+        DestroyPresenterCarrier();
+        DestroyCarrier(ref screenCarrier);
     }
 
     private static void DestroyCarrier(ref MapBlock block)
@@ -783,7 +757,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             return;
 
         block.transform.DOKill();
-        Destroy(block.gameObject);
+        UnityEngine.Object.Destroy(block.gameObject);
         block = null;
     }
 
@@ -795,7 +769,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             presenterCarrier.transform.DOKill();
     }
 
-    private void ComputeDockedCameraFrame()
+    private void ComputeSharedCameraFrame()
     {
         Bounds bounds = new(
             new Vector3(stageAnchorWorld.x, stageAnchorWorld.y, 0f),
@@ -807,17 +781,13 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             ScreenCarrierDepth);
         bounds.Encapsulate(screenBounds);
 
-        Bounds presenterBounds = CreateTileUnitBounds(
-            presenterCarrierDestination,
-            PresenterCarrierSize,
-            PresenterCarrierSize);
-        bounds.Encapsulate(presenterBounds);
-
+        tvMountedWorld = ResolveMountedTvWorld();
         Vector2 tvWorldSize = new(
             tvCanvasSize.x / Mathf.Max(32f, tvPixelsPerUnit),
             tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit));
-        Bounds tvBounds = new(tvMountedWorld, new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f));
-        bounds.Encapsulate(tvBounds);
+        bounds.Encapsulate(new Bounds(
+            tvMountedWorld,
+            new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f)));
 
         cameraTargetWorld = new Vector3(bounds.center.x, bounds.center.y, 0f);
 
@@ -936,7 +906,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             presenterWarningShown = true;
             Debug.LogWarning(
                 "[BattleShowWorldSetController] Presenter 실제 Sprite가 없습니다. " +
-                "현재 Scene/PresentationManager에 presenterFrames 또는 BattleHUD presenterSprite를 할당해야 합니다.",
+                "BattleShowPresentationManager.presenterFrames 또는 BattleHUD presenterSprite를 할당해야 합니다.",
                 this);
         }
     }
