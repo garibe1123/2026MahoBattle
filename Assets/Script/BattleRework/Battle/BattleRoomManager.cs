@@ -11,11 +11,14 @@ using UnityEngine.AI;
 /// -> Reward -> Highlight Pad -> Exit Extension Blocks.
 ///
 /// 기본 4x4 Start Base는 RoomBaseTemplate이 영구 유지합니다.
-/// RoomDefinitionSO.blocks 중 Start Base 격자 안 Placement는 생성하지 않고,
-/// 격자 밖 Extension Block만 이동/도킹 연출을 수행합니다.
+/// Procedural Room의 세부 Piece는 그대로 바닥 형태를 만들되, 실제 진입 이동은 최대 3개의
+/// Assembly Group으로 묶어서 수행합니다. 이미 붙은 타일을 다음 Piece가 뚫고 지나가지 않도록
+/// Group 단위로 순차 도킹합니다.
 /// </summary>
 public class BattleRoomManager : MonoBehaviour
 {
+    private const int ProceduralAssemblyGroupCount = 3;
+
     [Header("Scene References")]
     [SerializeField] private Transform roomOrigin;
     [SerializeField] private Transform mapRoot;
@@ -26,9 +29,11 @@ public class BattleRoomManager : MonoBehaviour
     [SerializeField] private MonsterPool monsterPool;
 
     [Header("Extension Block Assembly")]
-    [Tooltip("Start Base 밖 Extension Block 배열 순서대로 진입 시차를 줍니다.")]
+    [Tooltip("Legacy/custom Block 배열 진입 시차입니다. Procedural Room은 아래 3-Group 조립을 사용합니다.")]
     [SerializeField] private float blockEntryStagger = 0.055f;
     [SerializeField] private float maxBlockEntryStagger = 0.32f;
+    [Tooltip("Procedural Room의 3개 Assembly Group이 화면 밖에서 시작하는 Rail 거리입니다.")]
+    [SerializeField, Min(12f)] private float proceduralAssemblyRailDistance = 36f;
 
     [Header("Docking Impact VFX - custom Sprite가 없으면 Procedural")]
     [SerializeField] private Transform impactVfxRoot;
@@ -160,7 +165,6 @@ public class BattleRoomManager : MonoBehaviour
         if (longestEntry > 0f)
             yield return new WaitForSeconds(longestEntry);
 
-        // Persistent Start Base + Extension Block이 모두 최종 위치에 정착한 뒤 NavMesh를 굽습니다.
         RebuildNavMesh();
         SpawnFixedMonsters(room);
 
@@ -191,36 +195,44 @@ public class BattleRoomManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Start Base 안쪽 Placement는 RoomBaseTemplate이 이미 담당하므로 생성하지 않습니다.
-    /// 격자 밖 Placement만 실제 Incoming/Extension Block으로 생성합니다.
-    /// </summary>
     private float BuildExtensionBlocks(RoomDefinitionSO room)
     {
-        float longest = 0f;
         expectedAssemblyImpacts = 0;
         receivedAssemblyImpacts = 0;
 
         if (room == null || room.blocks == null)
-            return longest;
+            return 0f;
 
+        List<MapBlockPlacement> placements = new();
         for (int i = 0; i < room.blocks.Count; i++)
         {
             MapBlockPlacement placement = room.blocks[i];
-            if (!ShouldBuildPlacement(room, placement))
-                continue;
+            if (ShouldBuildPlacement(room, placement))
+                placements.Add(placement);
+        }
 
+        if (placements.Count == 0)
+            return 0f;
+
+        if (room.useProceduralRoom)
+            return BuildThreeProceduralAssemblyGroups(room, placements);
+
+        return BuildLegacyExtensionBlocks(room, placements);
+    }
+
+    private float BuildLegacyExtensionBlocks(RoomDefinitionSO room, List<MapBlockPlacement> placements)
+    {
+        float longest = 0f;
+        for (int i = 0; i < placements.Count; i++)
+        {
+            MapBlockPlacement placement = placements[i];
             if (placement.prefab.WillImpact)
                 expectedAssemblyImpacts++;
         }
 
-        int validIndex = 0;
-        for (int i = 0; i < room.blocks.Count; i++)
+        for (int i = 0; i < placements.Count; i++)
         {
-            MapBlockPlacement placement = room.blocks[i];
-            if (!ShouldBuildPlacement(room, placement))
-                continue;
-
+            MapBlockPlacement placement = placements[i];
             Transform parent = mapRoot != null ? mapRoot : transform;
             MapBlock block = Instantiate(placement.prefab, parent);
 
@@ -229,7 +241,7 @@ public class BattleRoomManager : MonoBehaviour
 
             float delay = Mathf.Min(
                 Mathf.Max(0f, maxBlockEntryStagger),
-                Mathf.Max(0f, blockEntryStagger) * validIndex);
+                Mathf.Max(0f, blockEntryStagger) * i);
 
             if (block.WillImpact)
                 block.Impacted += HandleMapBlockImpact;
@@ -237,9 +249,92 @@ public class BattleRoomManager : MonoBehaviour
             block.PlayEnter(destination, placement.entryDirection, delay);
             activeBlocks.Add(block);
             longest = Mathf.Max(longest, block.GetEntryDuration(delay));
-            validIndex++;
         }
 
+        return longest;
+    }
+
+    /// <summary>
+    /// Procedural 세부 Piece들을 생성 순서 그대로 세 덩어리로 묶습니다.
+    /// Spatial planner가 4x4 Frontier부터 바깥쪽으로 Piece를 생성하므로,
+    /// 앞 Group부터 완전히 도킹시킨 뒤 다음 Group을 보내면 바깥 Piece가 이미 붙은 안쪽 Piece를
+    /// 뚫고 지나가는 문제가 사라집니다.
+    /// </summary>
+    private float BuildThreeProceduralAssemblyGroups(RoomDefinitionSO room, List<MapBlockPlacement> placements)
+    {
+        int groupCount = Mathf.Min(ProceduralAssemblyGroupCount, placements.Count);
+        if (groupCount <= 0)
+            return 0f;
+
+        expectedAssemblyImpacts = groupCount;
+        float nextDelay = 0f;
+        float longest = 0f;
+
+        for (int groupIndex = 0; groupIndex < groupCount; groupIndex++)
+        {
+            int startIndex = Mathf.FloorToInt(groupIndex * placements.Count / (float)groupCount);
+            int endExclusive = Mathf.FloorToInt((groupIndex + 1) * placements.Count / (float)groupCount);
+            endExclusive = Mathf.Max(startIndex + 1, endExclusive);
+
+            Transform parent = mapRoot != null ? mapRoot : transform;
+            GameObject groupObject = new($"ProceduralAssemblyGroup_{groupIndex + 1}_of_{groupCount}");
+            groupObject.transform.SetParent(parent, true);
+            groupObject.transform.position = roomOrigin.position;
+
+            Vector2 preferredDirection = Vector2.zero;
+            int childCount = 0;
+
+            for (int i = startIndex; i < endExclusive && i < placements.Count; i++)
+            {
+                MapBlockPlacement placement = placements[i];
+                if (placement == null || placement.prefab == null)
+                    continue;
+
+                MapBlock child = Instantiate(placement.prefab, parent);
+                Vector3 childDestination = roomOrigin.position + (Vector3)room.GetBlockLocalPosition(placement.gridPosition);
+                childDestination.z = roomOrigin.position.z;
+                child.SnapTo(childDestination);
+                child.transform.SetParent(groupObject.transform, true);
+                child.name = $"AssemblySubPiece_{groupIndex + 1}_{childCount + 1}";
+                child.enabled = false;
+
+                preferredDirection += placement.entryDirection.sqrMagnitude > 0.001f
+                    ? placement.entryDirection.normalized
+                    : Vector2.zero;
+                childCount++;
+            }
+
+            if (childCount == 0)
+            {
+                Destroy(groupObject);
+                continue;
+            }
+
+            MapBlock groupBlock = groupObject.AddComponent<MapBlock>();
+            groupBlock.ConfigureRuntimeDockingBlock(
+                groupObject.transform,
+                false,
+                1f,
+                Mathf.Max(0.05f, room.largePieceEntryDuration),
+                Mathf.Max(12f, proceduralAssemblyRailDistance));
+            groupBlock.Impacted += HandleMapBlockImpact;
+
+            if (preferredDirection.sqrMagnitude <= 0.001f)
+            {
+                Vector2[] fallback = { Vector2.right, Vector2.up, Vector2.left };
+                preferredDirection = fallback[groupIndex % fallback.Length];
+            }
+
+            Vector3 destination = roomOrigin.position;
+            groupBlock.PlayEnter(destination, preferredDirection, nextDelay);
+            activeBlocks.Add(groupBlock);
+
+            float finishAt = groupBlock.GetEntryDuration(nextDelay);
+            longest = Mathf.Max(longest, finishAt);
+            nextDelay = finishAt;
+        }
+
+        expectedAssemblyImpacts = activeBlocks.Count;
         return longest;
     }
 
@@ -320,10 +415,6 @@ public class BattleRoomManager : MonoBehaviour
         impactAudioSource.pitch = oldPitch;
     }
 
-    /// <summary>
-    /// 진행 방향 반대로 CameraShakePivot을 밀어낸 뒤 spring으로 복귀시킵니다.
-    /// 랜덤 원형 Shake를 사용하지 않아 도킹 방향이 읽히고 연출이 덜 산만합니다.
-    /// </summary>
     private void RequestCameraImpulse(Vector2 travelDirection, float strength, bool finalImpact)
     {
         Transform target = ResolveCameraShakeTarget();
@@ -584,7 +675,6 @@ public class BattleRoomManager : MonoBehaviour
         MapBlock highlight = Instantiate(currentRoom.highlightBlockPrefab, parent);
         Vector3 destination = roomOrigin.position + (Vector3)currentRoom.highlightBlockOffset;
 
-        // Highlight는 Start Base나 조립 Impact Count에 포함되지 않는 별도 출구 Block입니다.
         highlight.PlayEnter(destination, Vector2.down);
         activeBlocks.Add(highlight);
 
@@ -618,7 +708,6 @@ public class BattleRoomManager : MonoBehaviour
 
         float longestExit = 0f;
 
-        // activeBlocks에는 Extension/Highlight만 있으므로 Persistent Start Base는 절대 Exit되지 않습니다.
         for (int i = 0; i < activeBlocks.Count; i++)
         {
             MapBlock block = activeBlocks[i];
@@ -741,11 +830,6 @@ public class BattleRoomManager : MonoBehaviour
     }
 }
 
-/// <summary>
-/// 도킹 접촉면 전용 일회성 VFX Player.
-/// 실제 Sprite 배열이 있으면 그대로 재생하고, 비어 있으면 원형 폭발 없이
-/// Contact Core + Soft Glow + Tangent Sparks + Low Dust 레이어를 Procedural로 생성합니다.
-/// </summary>
 internal sealed class MapImpactVfxInstance : MonoBehaviour
 {
     private SpriteRenderer impactRenderer;
@@ -803,7 +887,6 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
         transform.rotation = Quaternion.Euler(0f, 0f, angle);
 
-        // Procedural fallback은 타일 본체보다 아래 Sorting에 두어 접촉면/하부에서만 보이게 합니다.
         int resolvedOrder = proceduralImpact && proceduralDust
             ? Mathf.Min(sortingOrder, -12)
             : sortingOrder;
