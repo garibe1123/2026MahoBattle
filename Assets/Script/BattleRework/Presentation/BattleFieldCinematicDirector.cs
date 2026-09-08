@@ -43,13 +43,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     [SerializeField, Min(0f)] private float spotlightLeadDistance = 0.34f;
     [SerializeField, Min(0.1f)] private float playerSpeedForFullLead = 5f;
 
-    [Header("Pixel Stage Light Pool")]
-    [Tooltip("Unlit Sprite도 무대 조명의 위치를 읽을 수 있게 하는 World Sprite 광륜입니다. 기존 Material은 바꾸지 않습니다.")]
-    [SerializeField] private bool enablePixelLightPool = true;
-    [SerializeField] private Color pixelLightPoolColor = new(1f, 0.84f, 0.42f, 0.30f);
-    [SerializeField, Min(0.1f)] private float pixelLightPoolDiameter = 5.5f;
-    [SerializeField] private int pixelLightPoolSortingOrder = 8;
-
     [Header("Combat Start Beat")]
     [SerializeField] private bool focusPlayerOnCombatStart = true;
     [SerializeField, Min(0f)] private float combatStartFocusDuration = 0.65f;
@@ -58,9 +51,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private Light2D fieldGlobalLight;
     private Light2D playerSpotlight;
     private Transform playerSpotlightTransform;
-    private SpriteRenderer pixelLightPoolRenderer;
-    private Sprite generatedPixelLightPoolSprite;
-    private Texture2D generatedPixelLightPoolTexture;
     private Rigidbody2D playerBody;
     private Coroutine bindRoutine;
     private bool subscribed;
@@ -133,11 +123,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     {
         if (instance == this)
             instance = null;
-
-        if (generatedPixelLightPoolSprite != null)
-            Destroy(generatedPixelLightPoolSprite);
-        if (generatedPixelLightPoolTexture != null)
-            Destroy(generatedPixelLightPoolTexture);
     }
 
     private IEnumerator BindWhenReady()
@@ -246,73 +231,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         playerSpotlight.overlapOperation = Light2D.OverlapOperation.Additive;
         playerSpotlight.shadowsEnabled = false;
         playerSpotlight.volumetricEnabled = false;
-
-        CreatePixelLightPool();
-    }
-
-    private void CreatePixelLightPool()
-    {
-        if (playerSpotlightTransform == null || pixelLightPoolRenderer != null)
-            return;
-
-        GameObject poolObject = new("PixelStageLightPool");
-        poolObject.transform.SetParent(playerSpotlightTransform, false);
-        float poolDiameter = Mathf.Max(0.1f, pixelLightPoolDiameter);
-        poolObject.transform.localScale = new Vector3(poolDiameter, poolDiameter * 0.62f, 1f);
-
-        pixelLightPoolRenderer = poolObject.AddComponent<SpriteRenderer>();
-        pixelLightPoolRenderer.sprite = CreatePixelLightPoolSprite();
-        pixelLightPoolRenderer.sortingLayerID = SortingLayer.NameToID("Default");
-        pixelLightPoolRenderer.sortingOrder = pixelLightPoolSortingOrder;
-        pixelLightPoolRenderer.color = WithAlpha(pixelLightPoolColor, 0f);
-    }
-
-    private Sprite CreatePixelLightPoolSprite()
-    {
-        const int size = 32;
-        generatedPixelLightPoolTexture = new Texture2D(size, size, TextureFormat.RGBA32, false)
-        {
-            name = "Runtime_PixelStageLightPool",
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp
-        };
-
-        Color[] pixels = new Color[size * size];
-        Vector2 center = new((size - 1) * 0.5f, (size - 1) * 0.5f);
-        float radius = size * 0.5f;
-
-        for (int y = 0; y < size; y++)
-        {
-            for (int x = 0; x < size; x++)
-            {
-                float distance = Vector2.Distance(new Vector2(x, y), center) / radius;
-                float alpha;
-
-                if (distance <= 0.52f)
-                    alpha = 0.16f;
-                else if (distance <= 0.66f)
-                    alpha = 0.32f;
-                else if (distance <= 0.78f)
-                    alpha = 0.92f;
-                else if (distance <= 0.88f)
-                    alpha = 0.26f;
-                else
-                    alpha = 0f;
-
-                pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
-            }
-        }
-
-        generatedPixelLightPoolTexture.SetPixels(pixels);
-        generatedPixelLightPoolTexture.Apply(false, true);
-
-        generatedPixelLightPoolSprite = Sprite.Create(
-            generatedPixelLightPoolTexture,
-            new Rect(0f, 0f, size, size),
-            new Vector2(0.5f, 0.5f),
-            size);
-        generatedPixelLightPoolSprite.name = "Runtime_PixelStageLightPool";
-        return generatedPixelLightPoolSprite;
     }
 
     private void Subscribe()
@@ -403,17 +321,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         float spotlightT = ExponentialT(spotlightBlendSharpness);
         playerSpotlight.intensity = Mathf.Lerp(playerSpotlight.intensity, spotlightTarget, spotlightT);
 
-        if (pixelLightPoolRenderer != null)
-        {
-            float poolTargetAlpha = spotlightActive && enablePixelLightPool
-                ? Mathf.Clamp01(pixelLightPoolColor.a)
-                : 0f;
-            float currentAlpha = pixelLightPoolRenderer.color.a;
-            pixelLightPoolRenderer.color = WithAlpha(
-                pixelLightPoolColor,
-                Mathf.Lerp(currentAlpha, poolTargetAlpha, spotlightT));
-        }
-
         if (!spotlightActive)
         {
             if (playerSpotlight.intensity < 0.001f)
@@ -460,12 +367,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         return 1f - Mathf.Exp(-Mathf.Max(0f, sharpness) * Time.unscaledDeltaTime);
     }
 
-    private static Color WithAlpha(Color color, float alpha)
-    {
-        color.a = Mathf.Clamp01(alpha);
-        return color;
-    }
-
     private void ReleaseCombatStartFocus()
     {
         if (combatStartFocusRequest == 0)
@@ -484,8 +385,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             fieldGlobalLight.intensity = baseGlobalLightIntensity;
         if (playerSpotlight != null)
             playerSpotlight.intensity = 0f;
-        if (pixelLightPoolRenderer != null)
-            pixelLightPoolRenderer.color = WithAlpha(pixelLightPoolColor, 0f);
     }
 
     public int FocusTarget(
