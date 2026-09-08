@@ -30,15 +30,15 @@ public class BattleCameraController : MonoBehaviour
 
     [Header("Shared Show Camera")]
     [FormerlySerializedAs("rewardShowSharpness")]
-    [SerializeField, Min(0f)] private float showFollowSharpness = 6f;
+    [SerializeField, Min(0f)] private float showFollowSharpness = 7.2f;
     [SerializeField, Min(0.5f)] private float showTransitionSharpness = 3.2f;
     [SerializeField, Min(1f)] private float showTransitionMaxSpeed = 14f;
 
     [Header("Shared TV Cursor Tracking")]
     [FormerlySerializedAs("mapCursorPanDistance")]
-    [SerializeField] private Vector2 showCursorPanDistance = new(1.65f, 0.9f);
+    [SerializeField] private Vector2 showCursorPanDistance = new(2.45f, 1.35f);
     [FormerlySerializedAs("mapCursorTrackingSharpness")]
-    [SerializeField, Min(1f)] private float showCursorTrackingSharpness = 3.8f;
+    [SerializeField, Min(1f)] private float showCursorTrackingSharpness = 5.6f;
 
     [Header("Map Inspection")]
     [SerializeField] private int inspectionMouseButton = 2;
