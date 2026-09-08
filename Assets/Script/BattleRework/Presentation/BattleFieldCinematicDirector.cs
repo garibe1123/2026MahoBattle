@@ -8,12 +8,13 @@ using UnityEngine.SceneManagement;
 /// Battle field / show lighting director.
 ///
 /// Lighting rules:
-/// - Battle scene background is always solid black.
-/// - A single Global Light 2D provides the dim base world light.
-/// - The Global Light fades in instead of switching on instantly.
-/// - Player / Presenter / Enemy use a compressed ellipse light pool near the feet.
-/// - A weak local Light2D and sprite overlay make the character itself glow slightly.
-/// - TV / Screen never receives a character spotlight. Rect focus stays in BattleShowFocusController.
+/// - Battle camera empty background is always solid black.
+/// - One Global Light 2D carries the world exposure and always changes through a fade.
+/// - Combat stays deliberately dim so VFX still have headroom.
+/// - Player / Presenter use a soft compressed light pool at the lower sprite edge.
+/// - Enemies keep only a weaker contact pool; they do not own a permanent circular Point Light2D.
+/// - Character sprites receive only a very weak top-down additive wash.
+/// - TV / Screen never receives a character light. Rect focus remains in BattleShowFocusController.
 /// </summary>
 [DefaultExecutionOrder(-4000)]
 [DisallowMultipleComponent]
@@ -38,52 +39,48 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     [SerializeField] private Color battleBackgroundColor = Color.black;
 
     [Header("Battle World Light")]
-    [SerializeField] private Color worldLightColor = new(0.94f, 0.96f, 1f, 1f);
-    [SerializeField, Range(0f, 1f)] private float worldLightStartIntensity = 0.12f;
-    [SerializeField, Range(0f, 1f)] private float worldLightCombatIntensity = 0.68f;
-    [SerializeField, Range(0f, 1f)] private float worldLightShowIntensity = 0.50f;
-    [SerializeField, Range(0f, 1f)] private float worldLightIdleIntensity = 0.42f;
-    [SerializeField, Min(0.1f)] private float worldLightFadeSharpness = 1.85f;
-    [SerializeField] private bool replayWorldLightFadeOnCombatStart = true;
+    [SerializeField] private Color worldLightColor = new(0.90f, 0.93f, 1f, 1f);
+    [SerializeField, Range(0f, 1f)] private float worldLightStartIntensity = 0.10f;
+    [SerializeField, Range(0f, 1f)] private float worldLightIdleIntensity = 0.30f;
+    [SerializeField, Range(0f, 1f)] private float worldLightCombatIntensity = 0.52f;
+    [SerializeField, Range(0f, 1f)] private float worldLightShowIntensity = 0.34f;
+    [SerializeField, Min(0.05f)] private float worldLightRiseDuration = 0.85f;
+    [SerializeField, Min(0.05f)] private float worldLightFallDuration = 0.48f;
 
-    [Header("Player Light")]
-    [SerializeField] private Color playerPoolColor = new(1f, 0.92f, 0.70f, 1f);
-    [SerializeField] private Color playerBodyLightColor = new(1f, 0.94f, 0.78f, 1f);
-    [SerializeField, Range(0f, 1f)] private float playerPoolAlpha = 0.38f;
-    [SerializeField, Min(0.1f)] private float playerPoolWidthMultiplier = 1.45f;
-    [SerializeField, Range(0.08f, 0.8f)] private float playerPoolHeightRatio = 0.27f;
-    [SerializeField, Min(0f)] private float playerBodyLightIntensity = 0.20f;
-    [SerializeField, Min(0.1f)] private float playerBodyLightRadiusMultiplier = 0.86f;
-    [SerializeField, Range(0f, 0.5f)] private float playerSpriteGlowAlpha = 0.10f;
+    [Header("Player Stage Light")]
+    [SerializeField] private Color playerPoolColor = new(1f, 0.91f, 0.70f, 1f);
+    [SerializeField] private Color playerTopLightColor = new(1f, 0.95f, 0.80f, 1f);
+    [SerializeField, Range(0f, 1f)] private float playerPoolAlpha = 0.22f;
+    [SerializeField, Min(0.1f)] private float playerPoolWidthMultiplier = 1.50f;
+    [SerializeField, Range(0.05f, 0.55f)] private float playerPoolHeightRatio = 0.18f;
+    [SerializeField, Range(0f, 0.35f)] private float playerTopLightStrength = 0.045f;
+    [SerializeField, Range(0f, 1f)] private float playerCombatStrength = 0.82f;
 
-    [Header("Enemy Light")]
-    [SerializeField] private Color enemyPoolColor = new(0.78f, 0.87f, 1f, 1f);
-    [SerializeField] private Color enemyBodyLightColor = new(0.82f, 0.90f, 1f, 1f);
-    [SerializeField, Range(0f, 1f)] private float enemyPoolAlpha = 0.24f;
-    [SerializeField, Min(0.1f)] private float enemyPoolWidthMultiplier = 1.28f;
-    [SerializeField, Range(0.08f, 0.8f)] private float enemyPoolHeightRatio = 0.24f;
-    [SerializeField, Min(0f)] private float enemyBodyLightIntensity = 0.13f;
-    [SerializeField, Min(0.1f)] private float enemyBodyLightRadiusMultiplier = 0.72f;
-    [SerializeField, Range(0f, 0.5f)] private float enemySpriteGlowAlpha = 0.055f;
+    [Header("Enemy Contact Light")]
+    [SerializeField] private Color enemyPoolColor = new(0.72f, 0.82f, 1f, 1f);
+    [SerializeField] private Color enemyTopLightColor = new(0.80f, 0.88f, 1f, 1f);
+    [SerializeField, Range(0f, 1f)] private float enemyPoolAlpha = 0.10f;
+    [SerializeField, Min(0.1f)] private float enemyPoolWidthMultiplier = 1.18f;
+    [SerializeField, Range(0.05f, 0.55f)] private float enemyPoolHeightRatio = 0.14f;
+    [SerializeField, Range(0f, 0.35f)] private float enemyTopLightStrength = 0.018f;
+    [SerializeField, Range(0f, 1f)] private float enemyCombatStrength = 0.72f;
     [SerializeField, Min(0.05f)] private float enemyLightScanInterval = 0.22f;
 
-    [Header("Presenter Light")]
-    [SerializeField] private Color presenterPoolColor = new(1f, 0.86f, 0.62f, 1f);
-    [SerializeField] private Color presenterBodyLightColor = new(1f, 0.90f, 0.72f, 1f);
-    [SerializeField, Range(0f, 1f)] private float presenterPoolAlpha = 0.36f;
-    [SerializeField, Min(0.1f)] private float presenterPoolWidthMultiplier = 1.36f;
-    [SerializeField, Range(0.08f, 0.8f)] private float presenterPoolHeightRatio = 0.25f;
-    [SerializeField, Min(0f)] private float presenterBodyLightIntensity = 0.18f;
-    [SerializeField, Min(0.1f)] private float presenterBodyLightRadiusMultiplier = 0.82f;
-    [SerializeField, Range(0f, 0.5f)] private float presenterSpriteGlowAlpha = 0.09f;
+    [Header("Presenter Stage Light")]
+    [SerializeField] private Color presenterPoolColor = new(1f, 0.84f, 0.60f, 1f);
+    [SerializeField] private Color presenterTopLightColor = new(1f, 0.91f, 0.72f, 1f);
+    [SerializeField, Range(0f, 1f)] private float presenterPoolAlpha = 0.26f;
+    [SerializeField, Min(0.1f)] private float presenterPoolWidthMultiplier = 1.42f;
+    [SerializeField, Range(0.05f, 0.55f)] private float presenterPoolHeightRatio = 0.18f;
+    [SerializeField, Range(0f, 0.35f)] private float presenterTopLightStrength = 0.050f;
 
     [Header("Character Light Fade")]
-    [SerializeField, Min(0.1f)] private float characterLightFadeSharpness = 7.5f;
+    [SerializeField, Min(0.1f)] private float characterLightFadeSharpness = 6.8f;
 
     [Header("Combat Start Beat")]
     [SerializeField] private bool focusPlayerOnCombatStart = true;
-    [SerializeField, Min(0f)] private float combatStartFocusDuration = 0.65f;
-    [SerializeField, Min(0f)] private float combatStartZoom = 5.15f;
+    [SerializeField, Min(0f)] private float combatStartFocusDuration = 0.58f;
+    [SerializeField, Min(0f)] private float combatStartZoom = 5.25f;
 
     private readonly List<EnemyLightBinding> enemyLightBindings = new();
 
@@ -324,14 +321,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private void HandleRoomCombatStarted(RoomDefinitionSO _)
     {
         combatLightingRequested = true;
-
-        if (fieldGlobalLight != null && replayWorldLightFadeOnCombatStart)
-        {
-            fieldGlobalLight.intensity = Mathf.Min(
-                fieldGlobalLight.intensity,
-                Mathf.Clamp01(worldLightStartIntensity));
-        }
-
         RefreshEnemyLightVisuals(true);
 
         if (!focusPlayerOnCombatStart || player == null || battleCamera == null)
@@ -375,7 +364,12 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                             (combatLightingRequested || showLightingRequested);
 
         if (playerLightVisual != null)
-            playerLightVisual.SetTarget(playerActive, 1f);
+        {
+            float strength = combatLightingRequested && !showLightingRequested
+                ? Mathf.Clamp01(playerCombatStrength)
+                : 1f;
+            playerLightVisual.SetTarget(playerActive, strength);
+        }
 
         bool presenterActive = showLightingRequested &&
                                presenterLightVisual != null &&
@@ -394,7 +388,9 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                 continue;
             }
 
-            binding.visual.SetTarget(combatLightingRequested && binding.monster.IsAlive, 1f);
+            binding.visual.SetTarget(
+                combatLightingRequested && binding.monster.IsAlive,
+                Mathf.Clamp01(enemyCombatStrength));
         }
     }
 
@@ -409,12 +405,18 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         else if (showLightingRequested)
             target = Mathf.Clamp01(worldLightShowIntensity);
 
-        float t = ExponentialT(worldLightFadeSharpness);
-        fieldGlobalLight.color = Color.Lerp(fieldGlobalLight.color, worldLightColor, t);
-        fieldGlobalLight.intensity = Mathf.Lerp(fieldGlobalLight.intensity, target, t);
+        fieldGlobalLight.color = worldLightColor;
 
-        if (Mathf.Abs(fieldGlobalLight.intensity - target) < 0.001f)
-            fieldGlobalLight.intensity = target;
+        float current = fieldGlobalLight.intensity;
+        float duration = target >= current
+            ? Mathf.Max(0.05f, worldLightRiseDuration)
+            : Mathf.Max(0.05f, worldLightFallDuration);
+        float speed = 1f / duration;
+
+        fieldGlobalLight.intensity = Mathf.MoveTowards(
+            current,
+            target,
+            speed * Time.unscaledDeltaTime);
     }
 
     private void EnsurePlayerLightVisual()
@@ -430,13 +432,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                 playerLightVisual.Configure(
                     ResolvePrimarySpriteRenderer(player.gameObject),
                     playerPoolColor,
-                    playerBodyLightColor,
+                    playerTopLightColor,
                     playerPoolAlpha,
                     playerPoolWidthMultiplier,
                     playerPoolHeightRatio,
-                    playerBodyLightIntensity,
-                    playerBodyLightRadiusMultiplier,
-                    playerSpriteGlowAlpha,
+                    playerTopLightStrength,
                     characterLightFadeSharpness);
             }
         }
@@ -466,14 +466,13 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             presenterLightVisual.Configure(
                 ResolvePrimarySpriteRenderer(presenterTarget.gameObject),
                 presenterPoolColor,
-                presenterBodyLightColor,
+                presenterTopLightColor,
                 presenterPoolAlpha,
                 presenterPoolWidthMultiplier,
                 presenterPoolHeightRatio,
-                presenterBodyLightIntensity,
-                presenterBodyLightRadiusMultiplier,
-                presenterSpriteGlowAlpha,
+                presenterTopLightStrength,
                 characterLightFadeSharpness);
+            presenterLightVisual.SetImmediate(0f);
         }
     }
 
@@ -509,14 +508,13 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                 visual.Configure(
                     ResolvePrimarySpriteRenderer(monster.gameObject),
                     enemyPoolColor,
-                    enemyBodyLightColor,
+                    enemyTopLightColor,
                     enemyPoolAlpha,
                     enemyPoolWidthMultiplier,
                     enemyPoolHeightRatio,
-                    enemyBodyLightIntensity,
-                    enemyBodyLightRadiusMultiplier,
-                    enemySpriteGlowAlpha,
+                    enemyTopLightStrength,
                     characterLightFadeSharpness);
+                visual.SetImmediate(0f);
 
                 binding = new EnemyLightBinding
                 {
@@ -526,7 +524,9 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                 enemyLightBindings.Add(binding);
             }
 
-            binding.visual.SetTarget(combatLightingRequested && monster.IsAlive, 1f);
+            binding.visual.SetTarget(
+                combatLightingRequested && monster.IsAlive,
+                Mathf.Clamp01(enemyCombatStrength));
         }
     }
 
@@ -553,7 +553,9 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                 continue;
             }
 
-            binding.visual.SetTarget(active && binding.monster.IsAlive, 1f);
+            binding.visual.SetTarget(
+                active && binding.monster.IsAlive,
+                Mathf.Clamp01(enemyCombatStrength));
         }
     }
 
@@ -575,8 +577,12 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             return null;
 
         SpriteRenderer direct = target.GetComponent<SpriteRenderer>();
-        if (direct != null)
+        if (direct != null &&
+            direct.name != BattleCharacterLightVisual.PoolRendererName &&
+            direct.name != BattleCharacterLightVisual.GlowRendererName)
+        {
             return direct;
+        }
 
         SpriteRenderer[] renderers = target.GetComponentsInChildren<SpriteRenderer>(true);
         SpriteRenderer best = null;
@@ -619,11 +625,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             if (binding != null && binding.visual != null)
                 binding.visual.SetImmediate(visibility);
         }
-    }
-
-    private float ExponentialT(float sharpness)
-    {
-        return 1f - Mathf.Exp(-Mathf.Max(0.01f, sharpness) * Time.unscaledDeltaTime);
     }
 
     private void ReleaseCombatStartFocus()
