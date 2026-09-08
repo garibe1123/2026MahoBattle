@@ -1,7 +1,17 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 using UnityEngine.Serialization;
+
+public enum BattleCameraFocusPriority
+{
+    PlayerFollow = 0,
+    FieldCombat = 10,
+    ForcedEvent = 20,
+    StageTransition = 50,
+    Show = 100
+}
 
 /// <summary>
 /// 일반 전투에서는 Player를 따라가고, Reward / Map에서는 BattleShowWorldSetController의
@@ -21,6 +31,11 @@ public class BattleCameraController : MonoBehaviour
     [Header("Player Follow")]
     [SerializeField, Min(0f)] private float followSharpness = 11f;
     [SerializeField, Min(0f)] private float returnFromInspectionSharpness = 7f;
+
+    [Header("Player Camera Lead")]
+    [SerializeField, Min(0f)] private float playerLeadDistance = 0.80f;
+    [SerializeField, Min(0.1f)] private float playerSpeedForFullLead = 5f;
+    [SerializeField, Min(0f)] private float playerLeadSharpness = 6f;
 
     [Header("Mouse Wheel Zoom")]
     [SerializeField, Min(0.1f)] private float minZoom = 4.2f;
@@ -46,6 +61,31 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0f)] private float maxInspectionDistance = 12f;
     [SerializeField] private KeyCode recenterKey = KeyCode.F;
 
+    [Header("Field Cinematic Focus")]
+    [SerializeField, Min(0f)] private float cinematicFollowSharpness = 7.5f;
+    [SerializeField, Min(0f)] private float cinematicZoomSharpness = 8f;
+    [SerializeField, Min(0f)] private float defaultBoundsPadding = 0.85f;
+
+    [Header("Directional Camera Impulse")]
+    [SerializeField, Min(1f)] private float impulseSpring = 72f;
+    [SerializeField, Min(0f)] private float impulseDamping = 15f;
+    [SerializeField, Min(0.01f)] private float maxImpulseOffset = 0.18f;
+    [SerializeField, Min(0.01f)] private float maxImpulseVelocity = 5.2f;
+
+    private sealed class CameraFocusRequest
+    {
+        public int id;
+        public int priority;
+        public Transform target;
+        public bool tracksTarget;
+        public Vector2 position;
+        public Bounds bounds;
+        public bool usesBounds;
+        public float requestedZoom;
+        public float boundsPadding;
+        public float expiresAt;
+    }
+
     private Vector2 panOffset;
     private Vector2 previousMousePosition;
     private float targetZoom;
@@ -55,6 +95,13 @@ public class BattleCameraController : MonoBehaviour
     private bool rigResolved;
     private bool showFraming;
     private float showBlend;
+    private BattleSceneManager battleSceneManager;
+    private Rigidbody2D followBody;
+    private Transform resolvedFollowBodyTarget;
+    private Vector2 currentPlayerLead;
+
+    private readonly List<CameraFocusRequest> focusRequests = new();
+    private int nextFocusRequestId = 1;
 
     private bool showCursorTracking;
     private Vector2 requestedShowCursorDirection;
@@ -63,7 +110,10 @@ public class BattleCameraController : MonoBehaviour
     private float selectionShakeStartedAt = -1f;
     private float selectionShakeDuration;
     private float selectionShakeAmplitude;
-    private Vector2 lastSelectionShakeOffset;
+    private Vector2 directionalImpulseOffset;
+    private Vector2 directionalImpulseVelocity;
+    private float directionalImpulseEndTime;
+    private Vector2 lastCameraEffectOffset;
 
     public float CurrentZoom => controlledCamera != null ? controlledCamera.orthographicSize : 0f;
     public bool IsInspecting => inspecting;
@@ -109,7 +159,8 @@ public class BattleCameraController : MonoBehaviour
 
     private void OnDisable()
     {
-        ClearSelectionShake();
+        ClearCameraEffects();
+        focusRequests.Clear();
         SetShowCursorTracking(false, Vector2.zero);
     }
 
@@ -132,6 +183,104 @@ public class BattleCameraController : MonoBehaviour
         selectionShakeAmplitude = Mathf.Max(0f, amplitude);
         selectionShakeDuration = Mathf.Max(0.05f, duration);
         selectionShakeStartedAt = Time.unscaledTime;
+    }
+
+    /// <summary>
+    /// 카메라의 최종 Impulse Layer에 방향성 충격을 누적합니다.
+    /// direction은 카메라가 처음 밀려날 방향입니다.
+    /// </summary>
+    public void PushCameraImpulse(Vector2 direction, float strength, float duration = 0.13f)
+    {
+        float safeStrength = Mathf.Max(0f, strength);
+        if (safeStrength <= 0f)
+            return;
+
+        Vector2 resolvedDirection = direction.sqrMagnitude > 0.001f
+            ? direction.normalized
+            : Random.insideUnitCircle.normalized;
+        if (resolvedDirection.sqrMagnitude <= 0.001f)
+            resolvedDirection = Vector2.down;
+
+        directionalImpulseVelocity += resolvedDirection * (safeStrength * 28f);
+        directionalImpulseVelocity = Vector2.ClampMagnitude(
+            directionalImpulseVelocity,
+            Mathf.Max(0.01f, maxImpulseVelocity));
+        directionalImpulseEndTime = Mathf.Max(
+            directionalImpulseEndTime,
+            Time.unscaledTime + Mathf.Max(0.01f, duration));
+    }
+
+    public int FocusTarget(
+        Transform target,
+        float duration,
+        float zoom = 0f,
+        BattleCameraFocusPriority priority = BattleCameraFocusPriority.FieldCombat)
+    {
+        if (target == null)
+            return 0;
+
+        return AddFocusRequest(new CameraFocusRequest
+        {
+            target = target,
+            tracksTarget = true,
+            position = target.position,
+            requestedZoom = zoom,
+            priority = (int)priority,
+            expiresAt = ResolveExpiry(duration)
+        });
+    }
+
+    public int FocusPosition(
+        Vector3 worldPosition,
+        float duration,
+        float zoom = 0f,
+        BattleCameraFocusPriority priority = BattleCameraFocusPriority.FieldCombat)
+    {
+        return AddFocusRequest(new CameraFocusRequest
+        {
+            position = worldPosition,
+            requestedZoom = zoom,
+            priority = (int)priority,
+            expiresAt = ResolveExpiry(duration)
+        });
+    }
+
+    public int FocusBounds(
+        Bounds bounds,
+        float duration,
+        float padding = -1f,
+        BattleCameraFocusPriority priority = BattleCameraFocusPriority.FieldCombat)
+    {
+        return AddFocusRequest(new CameraFocusRequest
+        {
+            position = bounds.center,
+            bounds = bounds,
+            usesBounds = true,
+            boundsPadding = padding >= 0f ? padding : defaultBoundsPadding,
+            priority = (int)priority,
+            expiresAt = ResolveExpiry(duration)
+        });
+    }
+
+    public void ReleaseFocus(int requestId)
+    {
+        if (requestId <= 0)
+            return;
+
+        for (int i = focusRequests.Count - 1; i >= 0; i--)
+        {
+            if (focusRequests[i].id == requestId)
+                focusRequests.RemoveAt(i);
+        }
+    }
+
+    public void ReleaseAllFieldFocus()
+    {
+        for (int i = focusRequests.Count - 1; i >= 0; i--)
+        {
+            if (focusRequests[i].priority < (int)BattleCameraFocusPriority.StageTransition)
+                focusRequests.RemoveAt(i);
+        }
     }
 
     /// <summary>Reward / Map 공용 TV 커서 추적 입력입니다.</summary>
@@ -165,6 +314,8 @@ public class BattleCameraController : MonoBehaviour
                 followTarget = player.transform;
         }
 
+        ResolveFollowBody();
+
         if (roomManager == null)
             roomManager = FindFirstObjectByType<BattleRoomManager>();
         if (runManager == null)
@@ -172,11 +323,22 @@ public class BattleCameraController : MonoBehaviour
         if (showStage == null)
             showStage = FindFirstObjectByType<BattleShowWorldSetController>();
 
-        BattleSceneManager manager = FindFirstObjectByType<BattleSceneManager>();
-        if (manager != null && transform.parent == null)
-            transform.SetParent(manager.transform, true);
+        if (battleSceneManager == null && transform.parent == null)
+            battleSceneManager = FindFirstObjectByType<BattleSceneManager>();
+        if (battleSceneManager != null && transform.parent == null)
+            transform.SetParent(battleSceneManager.transform, true);
 
         ResolveMovementRoot();
+    }
+
+    private void ResolveFollowBody()
+    {
+        if (followTarget == resolvedFollowBodyTarget)
+            return;
+
+        resolvedFollowBodyTarget = followTarget;
+        followBody = followTarget != null ? followTarget.GetComponent<Rigidbody2D>() : null;
+        currentPlayerLead = Vector2.zero;
     }
 
     private void ResolveMovementRoot()
@@ -329,6 +491,8 @@ public class BattleCameraController : MonoBehaviour
                 return;
         }
 
+        ResolveFollowBody();
+
         float targetBlend = showFraming ? 1f : 0f;
         float blendT = 1f - Mathf.Exp(-Mathf.Max(0.5f, showTransitionSharpness) * Time.unscaledDeltaTime);
         showBlend = Mathf.Lerp(showBlend, targetBlend, blendT);
@@ -341,12 +505,22 @@ public class BattleCameraController : MonoBehaviour
             : Vector2.zero;
         currentShowCursorPan = Vector2.Lerp(currentShowCursorPan, targetCursorPan, cursorT);
 
-        float normalZoom = targetZoom;
+        UpdatePlayerLead();
+
+        CameraFocusRequest activeFocus = showFraming ? null : ResolveActiveFocusRequest();
+        if (inspecting && activeFocus != null &&
+            activeFocus.priority < (int)BattleCameraFocusPriority.ForcedEvent)
+        {
+            activeFocus = null;
+        }
+
+        float normalZoom = ResolveFocusZoom(activeFocus);
         float showZoom = showStage != null && showStage.HasCameraAnchor
             ? showStage.ShowCameraSize
             : normalZoom;
         float desiredZoom = Mathf.Lerp(normalZoom, Mathf.Clamp(showZoom, minZoom, maxZoom), showBlend);
-        float zoomSpeed = Mathf.Lerp(zoomSharpness, showFollowSharpness, showBlend);
+        float normalZoomSpeed = activeFocus != null ? cinematicZoomSharpness : zoomSharpness;
+        float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showFollowSharpness, showBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
         controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, desiredZoom, zoomT);
 
@@ -358,31 +532,163 @@ public class BattleCameraController : MonoBehaviour
                 panOffset = Vector2.zero;
         }
 
-        Vector2 normalTarget = (Vector2)followTarget.position + panOffset;
+        Vector2 normalTarget = activeFocus != null
+            ? ResolveFocusPosition(activeFocus)
+            : (Vector2)followTarget.position + panOffset + currentPlayerLead;
         Vector2 showTarget = showStage != null && showStage.HasCameraAnchor
             ? (Vector2)showStage.CameraTargetWorld + currentShowCursorPan
             : normalTarget;
         Vector2 desiredTarget = Vector2.Lerp(normalTarget, showTarget, showBlend);
 
         Vector3 current = movementRoot.position;
-        Vector2 unshakenCurrent = (Vector2)current - lastSelectionShakeOffset;
-        float followSpeed = Mathf.Lerp(followSharpness, showFollowSharpness, showBlend);
-        float followT = !showFraming && inspecting
+        Vector2 unaffectedCurrent = (Vector2)current - lastCameraEffectOffset;
+        float normalFollowSpeed = activeFocus != null ? cinematicFollowSharpness : followSharpness;
+        float followSpeed = Mathf.Lerp(normalFollowSpeed, showFollowSharpness, showBlend);
+        float followT = !showFraming && inspecting && activeFocus == null
             ? 1f
             : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
-        Vector2 next = Vector2.Lerp(unshakenCurrent, desiredTarget, followT);
+        Vector2 next = Vector2.Lerp(unaffectedCurrent, desiredTarget, followT);
 
         if ((showFraming || showBlend > 0f) && showTransitionMaxSpeed > 0f)
         {
             next = Vector2.MoveTowards(
-                unshakenCurrent,
+                unaffectedCurrent,
                 next,
                 showTransitionMaxSpeed * Time.unscaledDeltaTime);
         }
 
-        lastSelectionShakeOffset = EvaluateSelectionShakeOffset();
-        Vector2 shaken = next + lastSelectionShakeOffset;
+        UpdateDirectionalImpulse();
+        lastCameraEffectOffset = directionalImpulseOffset + EvaluateSelectionShakeOffset();
+        Vector2 shaken = next + lastCameraEffectOffset;
         movementRoot.position = new Vector3(shaken.x, shaken.y, current.z);
+    }
+
+    private void UpdatePlayerLead()
+    {
+        bool combatFollow = runManager != null && runManager.State == BattleRunState.Combat &&
+                            !showFraming && !inspecting && followBody != null;
+        Vector2 targetLead = Vector2.zero;
+
+        if (combatFollow)
+        {
+            Vector2 velocity = followBody.linearVelocity;
+            float speed = velocity.magnitude;
+            if (speed > 0.01f)
+            {
+                float amount = Mathf.Clamp01(speed / Mathf.Max(0.1f, playerSpeedForFullLead));
+                targetLead = velocity.normalized * (playerLeadDistance * amount);
+            }
+        }
+
+        float t = 1f - Mathf.Exp(-Mathf.Max(0f, playerLeadSharpness) * Time.unscaledDeltaTime);
+        currentPlayerLead = Vector2.Lerp(currentPlayerLead, targetLead, t);
+        if (currentPlayerLead.sqrMagnitude < 0.000001f && targetLead == Vector2.zero)
+            currentPlayerLead = Vector2.zero;
+    }
+
+    private int AddFocusRequest(CameraFocusRequest request)
+    {
+        if (request == null)
+            return 0;
+
+        if (nextFocusRequestId <= 0)
+            nextFocusRequestId = 1;
+
+        request.id = nextFocusRequestId++;
+        focusRequests.Add(request);
+        return request.id;
+    }
+
+    private static float ResolveExpiry(float duration)
+    {
+        return duration > 0f ? Time.unscaledTime + duration : -1f;
+    }
+
+    private CameraFocusRequest ResolveActiveFocusRequest()
+    {
+        float now = Time.unscaledTime;
+        CameraFocusRequest best = null;
+
+        for (int i = focusRequests.Count - 1; i >= 0; i--)
+        {
+            CameraFocusRequest request = focusRequests[i];
+            bool expired = request.expiresAt >= 0f && now >= request.expiresAt;
+            bool lostTarget = request.tracksTarget &&
+                              (request.target == null || !request.target.gameObject.activeInHierarchy);
+            if (expired || lostTarget)
+            {
+                focusRequests.RemoveAt(i);
+                continue;
+            }
+
+            if (best == null || request.priority > best.priority ||
+                (request.priority == best.priority && request.id > best.id))
+            {
+                best = request;
+            }
+        }
+
+        return best;
+    }
+
+    private Vector2 ResolveFocusPosition(CameraFocusRequest request)
+    {
+        if (request == null)
+            return followTarget != null ? (Vector2)followTarget.position : Vector2.zero;
+        if (request.target != null)
+            return request.target.position;
+        return request.usesBounds ? (Vector2)request.bounds.center : request.position;
+    }
+
+    private float ResolveFocusZoom(CameraFocusRequest request)
+    {
+        if (request == null)
+            return targetZoom;
+
+        if (request.usesBounds)
+        {
+            float padding = Mathf.Max(0f, request.boundsPadding);
+            float aspect = controlledCamera != null && controlledCamera.aspect > 0.01f
+                ? controlledCamera.aspect
+                : 16f / 9f;
+            float sizeByHeight = request.bounds.extents.y + padding;
+            float sizeByWidth = (request.bounds.extents.x + padding) / Mathf.Max(0.1f, aspect);
+            return Mathf.Clamp(Mathf.Max(sizeByHeight, sizeByWidth), minZoom, maxZoom);
+        }
+
+        return request.requestedZoom > 0f
+            ? Mathf.Clamp(request.requestedZoom, minZoom, maxZoom)
+            : targetZoom;
+    }
+
+    private void UpdateDirectionalImpulse()
+    {
+        if (directionalImpulseOffset == Vector2.zero && directionalImpulseVelocity == Vector2.zero)
+            return;
+
+        float dt = Mathf.Min(0.033f, Mathf.Max(0.001f, Time.unscaledDeltaTime));
+        Vector2 acceleration =
+            -directionalImpulseOffset * Mathf.Max(1f, impulseSpring) -
+            directionalImpulseVelocity * Mathf.Max(0f, impulseDamping);
+
+        directionalImpulseVelocity += acceleration * dt;
+        directionalImpulseVelocity = Vector2.ClampMagnitude(
+            directionalImpulseVelocity,
+            Mathf.Max(0.01f, maxImpulseVelocity));
+        directionalImpulseOffset += directionalImpulseVelocity * dt;
+        directionalImpulseOffset = Vector2.ClampMagnitude(
+            directionalImpulseOffset,
+            Mathf.Max(0.01f, maxImpulseOffset));
+
+        bool timeDone = Time.unscaledTime >= directionalImpulseEndTime;
+        bool settled = directionalImpulseOffset.sqrMagnitude < 0.000004f &&
+                       directionalImpulseVelocity.sqrMagnitude < 0.0004f;
+        if (timeDone && settled)
+        {
+            directionalImpulseOffset = Vector2.zero;
+            directionalImpulseVelocity = Vector2.zero;
+            directionalImpulseEndTime = 0f;
+        }
     }
 
     private Vector2 EvaluateSelectionShakeOffset()
@@ -406,18 +712,21 @@ public class BattleCameraController : MonoBehaviour
         return new Vector2(x, y * 0.72f) * (selectionShakeAmplitude * decay);
     }
 
-    private void ClearSelectionShake()
+    private void ClearCameraEffects()
     {
-        if (movementRoot != null && lastSelectionShakeOffset.sqrMagnitude > 0f)
+        if (movementRoot != null && lastCameraEffectOffset.sqrMagnitude > 0f)
         {
             Vector3 position = movementRoot.position;
             movementRoot.position = new Vector3(
-                position.x - lastSelectionShakeOffset.x,
-                position.y - lastSelectionShakeOffset.y,
+                position.x - lastCameraEffectOffset.x,
+                position.y - lastCameraEffectOffset.y,
                 position.z);
         }
 
-        lastSelectionShakeOffset = Vector2.zero;
+        lastCameraEffectOffset = Vector2.zero;
+        directionalImpulseOffset = Vector2.zero;
+        directionalImpulseVelocity = Vector2.zero;
+        directionalImpulseEndTime = 0f;
         selectionShakeStartedAt = -1f;
         selectionShakeDuration = 0f;
         selectionShakeAmplitude = 0f;
@@ -428,7 +737,8 @@ public class BattleCameraController : MonoBehaviour
         if (movementRoot == null || followTarget == null)
             return;
 
-        ClearSelectionShake();
+        ClearCameraEffects();
+        currentPlayerLead = Vector2.zero;
         Vector3 current = movementRoot.position;
         movementRoot.position = new Vector3(followTarget.position.x, followTarget.position.y, current.z);
     }

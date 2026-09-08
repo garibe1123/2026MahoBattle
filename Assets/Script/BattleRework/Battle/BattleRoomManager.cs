@@ -82,6 +82,7 @@ public class BattleRoomManager : MonoBehaviour
     private int receivedAssemblyImpacts;
 
     private Coroutine cameraShakeRoutine;
+    private BattleCameraController battleCamera;
     private Transform activeShakeTarget;
     private Vector3 lastCameraShakeOffset;
     private Vector2 cameraImpulseOffset;
@@ -417,8 +418,7 @@ public class BattleRoomManager : MonoBehaviour
 
     private void RequestCameraImpulse(Vector2 travelDirection, float strength, bool finalImpact)
     {
-        Transform target = ResolveCameraShakeTarget();
-        if (target == null || cameraShakeAmplitude <= 0f)
+        if (cameraShakeAmplitude <= 0f)
             return;
 
         Vector2 direction = travelDirection.sqrMagnitude > 0.001f
@@ -434,16 +434,35 @@ public class BattleRoomManager : MonoBehaviour
         float tangentAmount = UnityEngine.Random.Range(-cameraImpulseTangentNoise, cameraImpulseTangentNoise);
         Vector2 impulseDirection = (-direction + tangent * tangentAmount).normalized;
 
+        float duration = cameraShakeDuration * (finalImpact ? 1.18f : 1f);
+        duration = Mathf.Min(duration, Mathf.Max(0.01f, maxCameraShakeDuration));
+
+        if (battleCamera == null)
+            battleCamera = FindFirstObjectByType<BattleCameraController>();
+
+        if (battleCamera != null)
+        {
+            if (cameraShakeRoutine != null)
+                StopCameraShakeImmediate();
+
+            battleCamera.PushCameraImpulse(impulseDirection, amplitude, duration);
+            return;
+        }
+
+        // BattleCameraController가 없는 Legacy Scene에서만 기존 Pivot Spring을 fallback으로 사용합니다.
+        Transform target = ResolveCameraShakeTarget();
+        if (target == null)
+            return;
+
         activeShakeTarget = target;
         cameraImpulseVelocity += impulseDirection * amplitude * 28f;
         cameraImpulseVelocity = Vector2.ClampMagnitude(
             cameraImpulseVelocity,
             Mathf.Max(0.01f, maxCameraShakeAmplitude) * 34f);
 
-        float duration = cameraShakeDuration * (finalImpact ? 1.18f : 1f);
         requestedShakeEndTime = Mathf.Max(
             requestedShakeEndTime,
-            Time.unscaledTime + Mathf.Min(duration, Mathf.Max(0.01f, maxCameraShakeDuration)));
+            Time.unscaledTime + duration);
 
         if (cameraShakeRoutine == null)
             cameraShakeRoutine = StartCoroutine(CameraImpulseRoutine());

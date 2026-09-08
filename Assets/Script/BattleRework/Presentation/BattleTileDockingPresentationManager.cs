@@ -180,7 +180,8 @@ public sealed class BattleTileDockingPresentationManager : MonoBehaviour
         if (battleCamera != null && cameraImpactAmplitude > 0f)
         {
             float amplitude = cameraImpactAmplitude * Mathf.Lerp(0.82f, 1.30f, Mathf.InverseLerp(0.25f, 2.5f, resolvedStrength));
-            battleCamera.PlaySelectionConfirmShake(
+            battleCamera.PushCameraImpulse(
+                -direction,
                 amplitude,
                 cameraImpactDuration * (finalImpact ? 1.18f : 1f));
         }
