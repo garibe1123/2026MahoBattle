@@ -42,7 +42,6 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Range(-100f, 100f)] public float saturation = 10f;
 
     [Header("Shadow / Midtone / Highlight Trackballs")]
-    [Tooltip("Neutral by default so authored sprite colors stay intact. Neutral is (1,1,1,0).")]
     public Vector4 shadows = new(1f, 1f, 1f, 0f);
     public Vector4 midtones = new(1f, 1f, 1f, 0f);
     public Vector4 highlights = new(1f, 1f, 1f, 0f);
@@ -52,7 +51,6 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Range(0f, 1f)] public float highlightsEnd = 1f;
 
     [Header("Split Toning")]
-    [Tooltip("Neutral gray defaults. Author room-specific tint only when a room truly needs it.")]
     public Color splitShadows = new(0.5f, 0.5f, 0.5f, 1f);
     public Color splitHighlights = new(0.5f, 0.5f, 0.5f, 1f);
     [Range(-100f, 100f)] public float splitBalance = 0f;
@@ -64,17 +62,16 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     public Color bloomTint = Color.white;
 
     [Header("Vignette")]
-    [Range(0f, 1f)] public float vignetteIntensity = 0.055f;
-    [Range(0.01f, 1f)] public float vignetteSmoothness = 0.32f;
+    [Tooltip("Combat Volume에서 화면 구석만 살짝 눌러 중앙 전장을 읽기 쉽게 합니다.")]
+    [Range(0f, 1f)] public float vignetteIntensity = 0.10f;
+    [Range(0.01f, 1f)] public float vignetteSmoothness = 0.36f;
     public Color vignetteColor = Color.black;
 
     [Header("Tonemapping")]
     public TonemappingMode tonemappingMode = TonemappingMode.Neutral;
 
     [Header("Analog TV - Camera Distortion")]
-    [Tooltip("Very small RGB edge separation. Keep low for pixel art readability.")]
     [Range(0f, 1f)] public float chromaticAberrationIntensity = 0.04f;
-    [Tooltip("Subtle barrel-like image bend. Negative values bend the image in the opposite direction.")]
     [Range(-1f, 1f)] public float lensDistortionIntensity = -0.055f;
     [Range(0.01f, 5f)] public float lensDistortionScale = 1.015f;
     [Range(0f, 1f)] public float filmGrainIntensity = 0.055f;
