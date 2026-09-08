@@ -28,6 +28,12 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField, Range(-1f, 1f)] private float lensDistortionIntensity = -0.020f;
     [SerializeField, Range(0.01f, 5f)] private float lensDistortionScale = 1.008f;
 
+    [Header("Show Lens Vignette")]
+    [Tooltip("CRT/lens-like falloff that darkens only the outer corners without crushing the TV content in the center.")]
+    [SerializeField, Range(0f, 1f)] private float vignetteIntensity = 0.13f;
+    [SerializeField, Range(0.01f, 1f)] private float vignetteSmoothness = 0.48f;
+    [SerializeField] private Color vignetteColor = Color.black;
+
     [Header("Analog Surface")]
     [SerializeField, Range(0f, 1f)] private float overlayStrength = 0.72f;
     [SerializeField, Range(0f, 0.25f)] private float scanlineStrength = 0.050f;
@@ -46,6 +52,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private FilmGrain filmGrain;
     private ChromaticAberration chromaticAberration;
     private LensDistortion lensDistortion;
+    private Vignette vignette;
 
     private Canvas overlayCanvas;
     private Image overlayImage;
@@ -174,6 +181,13 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         lensDistortion = runtimeProfile.Add<LensDistortion>(true);
         lensDistortion.intensity.Override(lensDistortionIntensity);
         lensDistortion.scale.Override(lensDistortionScale);
+
+        vignette = runtimeProfile.Add<Vignette>(true);
+        vignette.color.Override(vignetteColor);
+        vignette.center.Override(new Vector2(0.5f, 0.5f));
+        vignette.intensity.Override(vignetteIntensity);
+        vignette.smoothness.Override(vignetteSmoothness);
+        vignette.rounded.Override(false);
     }
 
     private void EnsureOverlay()
