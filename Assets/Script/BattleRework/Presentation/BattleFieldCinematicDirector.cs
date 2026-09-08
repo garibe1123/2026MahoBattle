@@ -1,23 +1,30 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// 전투 Logic과 분리된 Field / Show 카메라 연출 진입점입니다.
+/// Battle field / show lighting director.
 ///
-/// 최종 조명 규칙:
-/// - Normal Battle에서는 Presentation 조명을 사용하지 않습니다.
-/// - Reward / Map Selection에서만 Player / Presenter에 360도 원형 Light Pool을 사용합니다.
-/// - Screen / TV에는 Light2D를 만들지 않습니다. Screen 노출은 BattleShowFocusController의 Rect Focus가 담당합니다.
-/// - Field Global Light와 Camera Background는 건드리지 않습니다.
-///
-/// Camera Transform, Player, Monster, Tile 좌표는 직접 수정하지 않습니다.
+/// Lighting rules:
+/// - Battle scene background is always solid black.
+/// - A single Global Light 2D provides the dim base world light.
+/// - The Global Light fades in instead of switching on instantly.
+/// - Player / Presenter / Enemy use a compressed ellipse light pool near the feet.
+/// - A weak local Light2D and sprite overlay make the character itself glow slightly.
+/// - TV / Screen never receives a character spotlight. Rect focus stays in BattleShowFocusController.
 /// </summary>
 [DefaultExecutionOrder(-4000)]
 [DisallowMultipleComponent]
 public sealed class BattleFieldCinematicDirector : MonoBehaviour
 {
+    private sealed class EnemyLightBinding
+    {
+        public MonsterController monster;
+        public BattleCharacterLightVisual visual;
+    }
+
     private static BattleFieldCinematicDirector instance;
 
     [Header("References")]
@@ -27,39 +34,75 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     [SerializeField] private PlayerController player;
     [SerializeField] private BattleShowWorldSetController showWorldSet;
 
-    [Header("Character Circle Spotlight")]
-    [SerializeField] private bool enableCharacterSpotlights = true;
-    [SerializeField] private Color playerSpotlightColor = new(1f, 0.94f, 0.72f, 1f);
-    [SerializeField] private Color presenterSpotlightColor = new(1f, 0.88f, 0.66f, 1f);
-    [SerializeField, Min(0f)] private float playerSpotlightIntensity = 0.85f;
-    [SerializeField, Min(0f)] private float presenterSpotlightIntensity = 0.85f;
-    [SerializeField, Min(0.1f)] private float playerSpotlightOuterRadius = 2.15f;
-    [SerializeField, Min(0.1f)] private float presenterSpotlightOuterRadius = 2.35f;
-    [SerializeField, Range(0f, 1f)] private float spotlightFalloff = 0.62f;
-    [SerializeField, Min(0f)] private float spotlightBlendSharpness = 8.5f;
-    [SerializeField, Min(0f)] private float spotlightTrackingSharpness = 14f;
-    [SerializeField] private Vector2 playerSpotlightOffset = new(0f, -0.10f);
-    [SerializeField] private Vector2 presenterSpotlightOffset = new(0f, -0.10f);
+    [Header("Battle Camera Background")]
+    [SerializeField] private Color battleBackgroundColor = Color.black;
+
+    [Header("Battle World Light")]
+    [SerializeField] private Color worldLightColor = new(0.94f, 0.96f, 1f, 1f);
+    [SerializeField, Range(0f, 1f)] private float worldLightStartIntensity = 0.12f;
+    [SerializeField, Range(0f, 1f)] private float worldLightCombatIntensity = 0.68f;
+    [SerializeField, Range(0f, 1f)] private float worldLightShowIntensity = 0.50f;
+    [SerializeField, Range(0f, 1f)] private float worldLightIdleIntensity = 0.42f;
+    [SerializeField, Min(0.1f)] private float worldLightFadeSharpness = 1.85f;
+    [SerializeField] private bool replayWorldLightFadeOnCombatStart = true;
+
+    [Header("Player Light")]
+    [SerializeField] private Color playerPoolColor = new(1f, 0.92f, 0.70f, 1f);
+    [SerializeField] private Color playerBodyLightColor = new(1f, 0.94f, 0.78f, 1f);
+    [SerializeField, Range(0f, 1f)] private float playerPoolAlpha = 0.38f;
+    [SerializeField, Min(0.1f)] private float playerPoolWidthMultiplier = 1.45f;
+    [SerializeField, Range(0.08f, 0.8f)] private float playerPoolHeightRatio = 0.27f;
+    [SerializeField, Min(0f)] private float playerBodyLightIntensity = 0.20f;
+    [SerializeField, Min(0.1f)] private float playerBodyLightRadiusMultiplier = 0.86f;
+    [SerializeField, Range(0f, 0.5f)] private float playerSpriteGlowAlpha = 0.10f;
+
+    [Header("Enemy Light")]
+    [SerializeField] private Color enemyPoolColor = new(0.78f, 0.87f, 1f, 1f);
+    [SerializeField] private Color enemyBodyLightColor = new(0.82f, 0.90f, 1f, 1f);
+    [SerializeField, Range(0f, 1f)] private float enemyPoolAlpha = 0.24f;
+    [SerializeField, Min(0.1f)] private float enemyPoolWidthMultiplier = 1.28f;
+    [SerializeField, Range(0.08f, 0.8f)] private float enemyPoolHeightRatio = 0.24f;
+    [SerializeField, Min(0f)] private float enemyBodyLightIntensity = 0.13f;
+    [SerializeField, Min(0.1f)] private float enemyBodyLightRadiusMultiplier = 0.72f;
+    [SerializeField, Range(0f, 0.5f)] private float enemySpriteGlowAlpha = 0.055f;
+    [SerializeField, Min(0.05f)] private float enemyLightScanInterval = 0.22f;
+
+    [Header("Presenter Light")]
+    [SerializeField] private Color presenterPoolColor = new(1f, 0.86f, 0.62f, 1f);
+    [SerializeField] private Color presenterBodyLightColor = new(1f, 0.90f, 0.72f, 1f);
+    [SerializeField, Range(0f, 1f)] private float presenterPoolAlpha = 0.36f;
+    [SerializeField, Min(0.1f)] private float presenterPoolWidthMultiplier = 1.36f;
+    [SerializeField, Range(0.08f, 0.8f)] private float presenterPoolHeightRatio = 0.25f;
+    [SerializeField, Min(0f)] private float presenterBodyLightIntensity = 0.18f;
+    [SerializeField, Min(0.1f)] private float presenterBodyLightRadiusMultiplier = 0.82f;
+    [SerializeField, Range(0f, 0.5f)] private float presenterSpriteGlowAlpha = 0.09f;
+
+    [Header("Character Light Fade")]
+    [SerializeField, Min(0.1f)] private float characterLightFadeSharpness = 7.5f;
 
     [Header("Combat Start Beat")]
     [SerializeField] private bool focusPlayerOnCombatStart = true;
     [SerializeField, Min(0f)] private float combatStartFocusDuration = 0.65f;
     [SerializeField, Min(0f)] private float combatStartZoom = 5.15f;
 
-    private Light2D playerSpotlight;
-    private Transform playerSpotlightTransform;
-    private Light2D presenterSpotlight;
-    private Transform presenterSpotlightTransform;
+    private readonly List<EnemyLightBinding> enemyLightBindings = new();
+
+    private Light2D fieldGlobalLight;
+    private Camera sceneCamera;
+    private BattleCharacterLightVisual playerLightVisual;
+    private BattleCharacterLightVisual presenterLightVisual;
+    private Transform lastPresenterTarget;
 
     private Coroutine bindRoutine;
     private bool subscribed;
+    private bool combatLightingRequested;
     private bool showLightingRequested;
-    private bool playerPositionInitialized;
-    private bool presenterPositionInitialized;
+    private bool worldLightInitialized;
+    private float nextEnemyLightScan;
     private int combatStartFocusRequest;
 
     public static BattleFieldCinematicDirector Instance => instance;
-    public bool IsFieldLightingActive => showLightingRequested;
+    public bool IsFieldLightingActive => fieldGlobalLight != null && fieldGlobalLight.intensity > 0.001f;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void InstallSceneHook()
@@ -98,7 +141,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         instance = this;
         ResolveReferences();
-        EnsureLightingRig();
+        EnsureWorldLight();
+        ConfigureCameraBackground();
     }
 
     private void OnEnable()
@@ -115,7 +159,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         Unsubscribe();
         ReleaseCombatStartFocus();
-        RestoreLightingImmediate();
+        SetCharacterLightsImmediate(false);
     }
 
     private void OnDestroy()
@@ -129,10 +173,10 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         while (enabled)
         {
             ResolveReferences();
-            EnsureLightingRig();
+            EnsureWorldLight();
+            ConfigureCameraBackground();
 
-            if (battleCamera != null && runManager != null && roomManager != null &&
-                player != null && showWorldSet != null)
+            if (battleCamera != null && runManager != null && roomManager != null && player != null)
                 break;
 
             yield return null;
@@ -146,6 +190,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         Subscribe();
         ApplyRunState(runManager.State);
+        EnsurePlayerLightVisual();
+        RefreshEnemyLightVisuals(true);
         bindRoutine = null;
     }
 
@@ -161,6 +207,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             player = FindFirstObjectByType<PlayerController>();
         if (showWorldSet == null)
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
+        if (sceneCamera == null)
+            sceneCamera = Camera.main;
 
         if (transform.parent == null)
         {
@@ -170,52 +218,55 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         }
     }
 
-    private void EnsureLightingRig()
+    private void ConfigureCameraBackground()
     {
-        if (playerSpotlight == null)
-            CreateCircleSpotlight(
-                "PlayerShowCircleSpotlight",
-                playerSpotlightColor,
-                playerSpotlightOuterRadius,
-                out playerSpotlight,
-                out playerSpotlightTransform);
+        if (sceneCamera == null)
+            sceneCamera = Camera.main;
+        if (sceneCamera == null)
+            return;
 
-        if (presenterSpotlight == null)
-            CreateCircleSpotlight(
-                "PresenterShowCircleSpotlight",
-                presenterSpotlightColor,
-                presenterSpotlightOuterRadius,
-                out presenterSpotlight,
-                out presenterSpotlightTransform);
+        sceneCamera.clearFlags = CameraClearFlags.SolidColor;
+        sceneCamera.backgroundColor = battleBackgroundColor;
     }
 
-    private void CreateCircleSpotlight(
-        string objectName,
-        Color color,
-        float outerRadius,
-        out Light2D light,
-        out Transform lightTransform)
+    private void EnsureWorldLight()
     {
-        GameObject lightObject = new(objectName);
-        lightObject.transform.SetParent(transform, true);
-        lightTransform = lightObject.transform;
+        if (fieldGlobalLight != null)
+            return;
 
-        light = lightObject.AddComponent<Light2D>();
-        light.lightType = Light2D.LightType.Point;
-        light.blendStyleIndex = 0;
-        light.color = color;
-        light.intensity = 0f;
-        light.falloffIntensity = spotlightFalloff;
+        Light2D[] lights = FindObjectsByType<Light2D>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
 
-        // 360도 Point Light만 사용합니다.
-        // 천장 -> 대상 방향의 원뿔 / 빛기둥은 만들지 않습니다.
-        light.pointLightInnerAngle = 360f;
-        light.pointLightOuterAngle = 360f;
-        light.pointLightInnerRadius = Mathf.Max(0.05f, outerRadius * 0.36f);
-        light.pointLightOuterRadius = Mathf.Max(light.pointLightInnerRadius + 0.1f, outerRadius);
-        light.overlapOperation = Light2D.OverlapOperation.Additive;
-        light.shadowsEnabled = false;
-        light.volumetricEnabled = false;
+        for (int i = 0; i < lights.Length; i++)
+        {
+            Light2D candidate = lights[i];
+            if (candidate == null || candidate.lightType != Light2D.LightType.Global)
+                continue;
+            if (candidate.gameObject.scene != gameObject.scene)
+                continue;
+
+            fieldGlobalLight = candidate;
+            break;
+        }
+
+        if (fieldGlobalLight == null)
+        {
+            GameObject lightObject = new("BattleWorldGlobalLight");
+            lightObject.transform.SetParent(transform, false);
+
+            fieldGlobalLight = lightObject.AddComponent<Light2D>();
+            fieldGlobalLight.lightType = Light2D.LightType.Global;
+            fieldGlobalLight.blendStyleIndex = 0;
+        }
+
+        fieldGlobalLight.color = worldLightColor;
+
+        if (!worldLightInitialized)
+        {
+            fieldGlobalLight.intensity = Mathf.Clamp01(worldLightStartIntensity);
+            worldLightInitialized = true;
+        }
     }
 
     private void Subscribe()
@@ -236,6 +287,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         if (runManager != null)
             runManager.StateChanged -= HandleRunStateChanged;
+
         if (roomManager != null)
         {
             roomManager.RoomCombatStarted -= HandleRoomCombatStarted;
@@ -252,26 +304,36 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
     private void ApplyRunState(BattleRunState state)
     {
-        bool combat = runManager != null && runManager.RunActive && state == BattleRunState.Combat;
-        showLightingRequested = runManager != null && runManager.RunActive &&
+        bool runActive = runManager != null && runManager.RunActive;
+        combatLightingRequested = runActive && state == BattleRunState.Combat;
+        showLightingRequested = runActive &&
                                 (state == BattleRunState.Reward || state == BattleRunState.SelectingNode);
 
-        if (!showLightingRequested)
+        if (!combatLightingRequested)
         {
-            playerPositionInitialized = false;
-            presenterPositionInitialized = false;
-        }
-
-        // 일반 전투에는 Spotlight를 사용하지 않지만, 기존 Combat Start Camera Beat는 유지합니다.
-        if (!combat)
-        {
+            SetEnemyLightsTarget(false);
             ReleaseCombatStartFocus();
             battleCamera?.ReleaseAllFieldFocus();
+        }
+        else
+        {
+            RefreshEnemyLightVisuals(true);
         }
     }
 
     private void HandleRoomCombatStarted(RoomDefinitionSO _)
     {
+        combatLightingRequested = true;
+
+        if (fieldGlobalLight != null && replayWorldLightFadeOnCombatStart)
+        {
+            fieldGlobalLight.intensity = Mathf.Min(
+                fieldGlobalLight.intensity,
+                Mathf.Clamp01(worldLightStartIntensity));
+        }
+
+        RefreshEnemyLightVisuals(true);
+
         if (!focusPlayerOnCombatStart || player == null || battleCamera == null)
             return;
 
@@ -285,92 +347,283 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
     private void HandleRoomCombatCleared(RoomDefinitionSO _)
     {
+        combatLightingRequested = false;
+        SetEnemyLightsTarget(false);
         ReleaseCombatStartFocus();
         battleCamera?.ReleaseAllFieldFocus();
     }
 
-    private void LateUpdate()
+    private void Update()
     {
         ResolveReferences();
-        EnsureLightingRig();
+        ConfigureCameraBackground();
+        EnsureWorldLight();
 
-        if (playerSpotlight == null || presenterSpotlight == null)
+        UpdateWorldLight();
+        EnsurePlayerLightVisual();
+        EnsurePresenterLightVisual();
+
+        if (Time.unscaledTime >= nextEnemyLightScan)
+        {
+            nextEnemyLightScan = Time.unscaledTime + Mathf.Max(0.05f, enemyLightScanInterval);
+            RefreshEnemyLightVisuals(false);
+        }
+
+        bool playerActive = player != null &&
+                            player.IsAlive &&
+                            player.gameObject.activeInHierarchy &&
+                            (combatLightingRequested || showLightingRequested);
+
+        if (playerLightVisual != null)
+            playerLightVisual.SetTarget(playerActive, 1f);
+
+        bool presenterActive = showLightingRequested &&
+                               presenterLightVisual != null &&
+                               lastPresenterTarget != null &&
+                               lastPresenterTarget.gameObject.activeInHierarchy;
+
+        if (presenterLightVisual != null)
+            presenterLightVisual.SetTarget(presenterActive, 1f);
+
+        for (int i = enemyLightBindings.Count - 1; i >= 0; i--)
+        {
+            EnemyLightBinding binding = enemyLightBindings[i];
+            if (binding == null || binding.monster == null || binding.visual == null)
+            {
+                enemyLightBindings.RemoveAt(i);
+                continue;
+            }
+
+            binding.visual.SetTarget(combatLightingRequested && binding.monster.IsAlive, 1f);
+        }
+    }
+
+    private void UpdateWorldLight()
+    {
+        if (fieldGlobalLight == null)
             return;
 
-        bool playerActive = enableCharacterSpotlights && showLightingRequested &&
-                            player != null && player.IsAlive && player.gameObject.activeInHierarchy;
+        float target = Mathf.Clamp01(worldLightIdleIntensity);
+        if (combatLightingRequested)
+            target = Mathf.Clamp01(worldLightCombatIntensity);
+        else if (showLightingRequested)
+            target = Mathf.Clamp01(worldLightShowIntensity);
 
+        float t = ExponentialT(worldLightFadeSharpness);
+        fieldGlobalLight.color = Color.Lerp(fieldGlobalLight.color, worldLightColor, t);
+        fieldGlobalLight.intensity = Mathf.Lerp(fieldGlobalLight.intensity, target, t);
+
+        if (Mathf.Abs(fieldGlobalLight.intensity - target) < 0.001f)
+            fieldGlobalLight.intensity = target;
+    }
+
+    private void EnsurePlayerLightVisual()
+    {
+        if (player == null)
+            return;
+
+        if (playerLightVisual == null)
+        {
+            playerLightVisual = EnsureCharacterLightVisual(player.gameObject);
+            if (playerLightVisual != null)
+            {
+                playerLightVisual.Configure(
+                    ResolvePrimarySpriteRenderer(player.gameObject),
+                    playerPoolColor,
+                    playerBodyLightColor,
+                    playerPoolAlpha,
+                    playerPoolWidthMultiplier,
+                    playerPoolHeightRatio,
+                    playerBodyLightIntensity,
+                    playerBodyLightRadiusMultiplier,
+                    playerSpriteGlowAlpha,
+                    characterLightFadeSharpness);
+            }
+        }
+    }
+
+    private void EnsurePresenterLightVisual()
+    {
         Transform presenterTarget = showWorldSet != null
             ? showWorldSet.PresenterWorldTransform
             : null;
-        bool presenterActive = enableCharacterSpotlights && showLightingRequested &&
-                               presenterTarget != null && presenterTarget.gameObject.activeInHierarchy;
 
-        float intensityT = ExponentialT(spotlightBlendSharpness);
-        float playerTargetIntensity = playerActive ? Mathf.Max(0f, playerSpotlightIntensity) : 0f;
-        float presenterTargetIntensity = presenterActive ? Mathf.Max(0f, presenterSpotlightIntensity) : 0f;
-
-        playerSpotlight.intensity = Mathf.Lerp(
-            playerSpotlight.intensity,
-            playerTargetIntensity,
-            intensityT);
-        presenterSpotlight.intensity = Mathf.Lerp(
-            presenterSpotlight.intensity,
-            presenterTargetIntensity,
-            intensityT);
-
-        if (playerSpotlight.intensity < 0.001f && !playerActive)
-            playerSpotlight.intensity = 0f;
-        if (presenterSpotlight.intensity < 0.001f && !presenterActive)
-            presenterSpotlight.intensity = 0f;
-
-        if (playerActive)
-            UpdateSpotlightPosition(
-                playerSpotlightTransform,
-                player.transform,
-                playerSpotlightOffset,
-                ref playerPositionInitialized);
-        else
-            playerPositionInitialized = false;
-
-        if (presenterActive)
-            UpdateSpotlightPosition(
-                presenterSpotlightTransform,
-                presenterTarget,
-                presenterSpotlightOffset,
-                ref presenterPositionInitialized);
-        else
-            presenterPositionInitialized = false;
-    }
-
-    private void UpdateSpotlightPosition(
-        Transform lightTransform,
-        Transform target,
-        Vector2 offset,
-        ref bool initialized)
-    {
-        if (lightTransform == null || target == null)
-            return;
-
-        Vector3 desired = target.position + (Vector3)offset;
-        if (!initialized)
+        if (presenterTarget == null)
         {
-            lightTransform.position = desired;
-            initialized = true;
+            lastPresenterTarget = null;
+            presenterLightVisual = null;
             return;
         }
 
-        float trackingT = ExponentialT(spotlightTrackingSharpness);
-        Vector3 current = lightTransform.position;
-        lightTransform.position = new Vector3(
-            Mathf.Lerp(current.x, desired.x, trackingT),
-            Mathf.Lerp(current.y, desired.y, trackingT),
-            desired.z);
+        if (presenterTarget == lastPresenterTarget && presenterLightVisual != null)
+            return;
+
+        lastPresenterTarget = presenterTarget;
+        presenterLightVisual = EnsureCharacterLightVisual(presenterTarget.gameObject);
+
+        if (presenterLightVisual != null)
+        {
+            presenterLightVisual.Configure(
+                ResolvePrimarySpriteRenderer(presenterTarget.gameObject),
+                presenterPoolColor,
+                presenterBodyLightColor,
+                presenterPoolAlpha,
+                presenterPoolWidthMultiplier,
+                presenterPoolHeightRatio,
+                presenterBodyLightIntensity,
+                presenterBodyLightRadiusMultiplier,
+                presenterSpriteGlowAlpha,
+                characterLightFadeSharpness);
+        }
+    }
+
+    private void RefreshEnemyLightVisuals(bool force)
+    {
+        for (int i = enemyLightBindings.Count - 1; i >= 0; i--)
+        {
+            EnemyLightBinding binding = enemyLightBindings[i];
+            if (binding == null || binding.monster == null || binding.visual == null)
+                enemyLightBindings.RemoveAt(i);
+        }
+
+        if (!force && !combatLightingRequested)
+            return;
+
+        MonsterController[] monsters = FindObjectsByType<MonsterController>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < monsters.Length; i++)
+        {
+            MonsterController monster = monsters[i];
+            if (monster == null)
+                continue;
+
+            EnemyLightBinding binding = FindEnemyBinding(monster);
+            if (binding == null)
+            {
+                BattleCharacterLightVisual visual = EnsureCharacterLightVisual(monster.gameObject);
+                if (visual == null)
+                    continue;
+
+                visual.Configure(
+                    ResolvePrimarySpriteRenderer(monster.gameObject),
+                    enemyPoolColor,
+                    enemyBodyLightColor,
+                    enemyPoolAlpha,
+                    enemyPoolWidthMultiplier,
+                    enemyPoolHeightRatio,
+                    enemyBodyLightIntensity,
+                    enemyBodyLightRadiusMultiplier,
+                    enemySpriteGlowAlpha,
+                    characterLightFadeSharpness);
+
+                binding = new EnemyLightBinding
+                {
+                    monster = monster,
+                    visual = visual
+                };
+                enemyLightBindings.Add(binding);
+            }
+
+            binding.visual.SetTarget(combatLightingRequested && monster.IsAlive, 1f);
+        }
+    }
+
+    private EnemyLightBinding FindEnemyBinding(MonsterController monster)
+    {
+        for (int i = 0; i < enemyLightBindings.Count; i++)
+        {
+            EnemyLightBinding binding = enemyLightBindings[i];
+            if (binding != null && binding.monster == monster)
+                return binding;
+        }
+
+        return null;
+    }
+
+    private void SetEnemyLightsTarget(bool active)
+    {
+        for (int i = enemyLightBindings.Count - 1; i >= 0; i--)
+        {
+            EnemyLightBinding binding = enemyLightBindings[i];
+            if (binding == null || binding.monster == null || binding.visual == null)
+            {
+                enemyLightBindings.RemoveAt(i);
+                continue;
+            }
+
+            binding.visual.SetTarget(active && binding.monster.IsAlive, 1f);
+        }
+    }
+
+    private static BattleCharacterLightVisual EnsureCharacterLightVisual(GameObject target)
+    {
+        if (target == null)
+            return null;
+
+        BattleCharacterLightVisual visual = target.GetComponent<BattleCharacterLightVisual>();
+        if (visual == null)
+            visual = target.AddComponent<BattleCharacterLightVisual>();
+
+        return visual;
+    }
+
+    private static SpriteRenderer ResolvePrimarySpriteRenderer(GameObject target)
+    {
+        if (target == null)
+            return null;
+
+        SpriteRenderer direct = target.GetComponent<SpriteRenderer>();
+        if (direct != null)
+            return direct;
+
+        SpriteRenderer[] renderers = target.GetComponentsInChildren<SpriteRenderer>(true);
+        SpriteRenderer best = null;
+        float bestArea = -1f;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null ||
+                renderer.name == BattleCharacterLightVisual.PoolRendererName ||
+                renderer.name == BattleCharacterLightVisual.GlowRendererName)
+            {
+                continue;
+            }
+
+            float area = Mathf.Abs(renderer.bounds.size.x * renderer.bounds.size.y);
+            if (area <= bestArea)
+                continue;
+
+            best = renderer;
+            bestArea = area;
+        }
+
+        return best;
+    }
+
+    private void SetCharacterLightsImmediate(bool active)
+    {
+        float visibility = active ? 1f : 0f;
+
+        if (playerLightVisual != null)
+            playerLightVisual.SetImmediate(visibility);
+
+        if (presenterLightVisual != null)
+            presenterLightVisual.SetImmediate(visibility);
+
+        for (int i = 0; i < enemyLightBindings.Count; i++)
+        {
+            EnemyLightBinding binding = enemyLightBindings[i];
+            if (binding != null && binding.visual != null)
+                binding.visual.SetImmediate(visibility);
+        }
     }
 
     private float ExponentialT(float sharpness)
     {
-        return 1f - Mathf.Exp(-Mathf.Max(0f, sharpness) * Time.unscaledDeltaTime);
+        return 1f - Mathf.Exp(-Mathf.Max(0.01f, sharpness) * Time.unscaledDeltaTime);
     }
 
     private void ReleaseCombatStartFocus()
@@ -380,18 +633,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         battleCamera?.ReleaseFocus(combatStartFocusRequest);
         combatStartFocusRequest = 0;
-    }
-
-    private void RestoreLightingImmediate()
-    {
-        showLightingRequested = false;
-        playerPositionInitialized = false;
-        presenterPositionInitialized = false;
-
-        if (playerSpotlight != null)
-            playerSpotlight.intensity = 0f;
-        if (presenterSpotlight != null)
-            presenterSpotlight.intensity = 0f;
     }
 
     public int FocusTarget(

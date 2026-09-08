@@ -23,7 +23,9 @@ Shader "UI/BattleShowFocusMask"
         _ScreenRect ("Screen Rect MinMax", Vector) = (0.4,0.4,0.6,0.6)
         _ScreenStrength ("Screen Strength", Range(0,1)) = 0
 
-        _CircleFeather ("Circle Feather", Float) = 0.018
+        _CharacterVerticalRatio ("Character Vertical Ratio", Range(0.2,1)) = 0.58
+        _CharacterLowerOffset ("Character Lower Offset", Range(0,1)) = 0.24
+        _CircleFeather ("Character Feather", Float) = 0.018
         _RectFeather ("Rect Feather", Float) = 0.0035
     }
 
@@ -87,6 +89,8 @@ Shader "UI/BattleShowFocusMask"
             float4 _ScreenRect;
             float _ScreenStrength;
 
+            float _CharacterVerticalRatio;
+            float _CharacterLowerOffset;
             float _CircleFeather;
             float _RectFeather;
 
@@ -107,12 +111,33 @@ Shader "UI/BattleShowFocusMask"
                 return length(delta);
             }
 
-            float CircleHole(float2 uv, float2 center, float radius, float feather)
+            float CharacterEllipseHole(
+                float2 uv,
+                float2 center,
+                float radius,
+                float verticalRatio,
+                float lowerOffset,
+                float feather)
             {
-                float distanceFromCenter = AspectDistance(uv, center);
+                float aspect = _ScreenParams.x / max(1.0, _ScreenParams.y);
+                float safeRadius = max(0.0001, radius);
+                float safeVertical = max(0.05, verticalRatio);
+
+                center.y -= safeRadius * lowerOffset;
+
+                float2 delta = uv - center;
+                delta.x *= aspect;
+
+                float2 normalizedDistance = float2(
+                    delta.x / safeRadius,
+                    delta.y / (safeRadius * safeVertical));
+
+                float distanceFromCenter = length(normalizedDistance);
+                float normalizedFeather = feather / safeRadius;
+
                 return 1.0 - smoothstep(
-                    max(0.0, radius - feather),
-                    radius + feather,
+                    max(0.0, 1.0 - normalizedFeather),
+                    1.0 + normalizedFeather,
                     distanceFromCenter);
             }
 
@@ -128,21 +153,30 @@ Shader "UI/BattleShowFocusMask"
             {
                 float2 uv = i.uv;
 
-                // Player 근처는 Dark Gray가 남고, 멀어질수록 거의 Black으로 떨어집니다.
                 float distanceFromPlayer = AspectDistance(uv, _DimCenter.xy);
                 float farT = smoothstep(0.0, max(0.0001, _DimRadius), distanceFromPlayer);
                 float dimAlpha = lerp(_NearDimAlpha, _FarDimAlpha, farT);
 
-                // Character = Circle Focus
                 float playerHole =
-                    CircleHole(uv, _PlayerCenter.xy, _PlayerRadius, _CircleFeather)
+                    CharacterEllipseHole(
+                        uv,
+                        _PlayerCenter.xy,
+                        _PlayerRadius,
+                        _CharacterVerticalRatio,
+                        _CharacterLowerOffset,
+                        _CircleFeather)
                     * _PlayerStrength;
 
                 float presenterHole =
-                    CircleHole(uv, _PresenterCenter.xy, _PresenterRadius, _CircleFeather)
+                    CharacterEllipseHole(
+                        uv,
+                        _PresenterCenter.xy,
+                        _PresenterRadius,
+                        _CharacterVerticalRatio,
+                        _CharacterLowerOffset,
+                        _CircleFeather)
                     * _PresenterStrength;
 
-                // Screen = Rect Focus. TV에는 원형 Spotlight / Beam을 만들지 않습니다.
                 float screenSd = RectSignedDistance(uv, _ScreenRect);
                 float screenHole =
                     (1.0 - smoothstep(-_RectFeather, _RectFeather, screenSd))
