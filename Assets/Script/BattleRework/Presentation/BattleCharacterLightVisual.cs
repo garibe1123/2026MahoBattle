@@ -1,25 +1,32 @@
 using UnityEngine;
 
 /// <summary>
-/// Character presentation light that does not behave like a circular point lamp.
-/// - A compressed soft ellipse is placed under the lower edge of the sprite.
-/// - A very weak additive top-light overlay makes the sprite read as lit from above.
-/// - No local Point Light2D is created, so multiple characters do not fill the field with circular light blobs.
+/// Character presentation lighting.
+/// - Key light: a tall soft additive shaft behind Player / Presenter, visibly reading as light from above.
+/// - Foot pool: a compressed ellipse at the sprite's lower edge for contact.
+/// - Top light: a weak additive copy of the sprite, strongest near its upper half.
+/// Enemies normally use only the contact pool.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleCharacterLightVisual : MonoBehaviour
 {
+    public const string KeyRendererName = "CharacterKeySpotlight";
     public const string PoolRendererName = "CharacterLightPool";
     public const string GlowRendererName = "CharacterSpriteTopLight";
 
     private const string TopLightShaderName = "Sprites/BattleCharacterTopLight";
+    private const string KeyLightShaderName = "Sprites/BattleSoftKeyLight";
 
     private static Sprite sharedPoolSprite;
+    private static Sprite sharedKeyLightSprite;
     private static Material sharedTopLightMaterial;
+    private static Material sharedKeyLightMaterial;
 
     private SpriteRenderer targetRenderer;
+    private SpriteRenderer keyRenderer;
     private SpriteRenderer poolRenderer;
     private SpriteRenderer glowRenderer;
+    private Transform keyTransform;
     private Transform poolTransform;
     private Transform glowTransform;
     private MaterialPropertyBlock glowProperties;
@@ -31,6 +38,13 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private float poolHeightRatio = 0.18f;
     private float topLightStrength = 0.04f;
     private float fadeSharpness = 7f;
+
+    private bool keyLightEnabled;
+    private Color keyLightColor = Color.white;
+    private float keyLightMaxAlpha = 0.2f;
+    private float keyLightWidthMultiplier = 1.6f;
+    private float keyLightHeightMultiplier = 1.6f;
+    private float keyLightVerticalOffsetRatio = 0.15f;
 
     private float targetVisibility;
     private float targetStrength = 1f;
@@ -56,6 +70,25 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         poolHeightRatio = Mathf.Clamp(heightRatio, 0.05f, 0.55f);
         topLightStrength = Mathf.Clamp(spriteTopLightStrength, 0f, 0.35f);
         fadeSharpness = Mathf.Max(0.1f, lightFadeSharpness);
+
+        EnsureRig();
+        ApplyVisualState();
+    }
+
+    public void ConfigureKeyLight(
+        bool enabled,
+        Color lightColor,
+        float maxAlpha,
+        float widthMultiplier,
+        float heightMultiplier,
+        float verticalOffsetRatio)
+    {
+        keyLightEnabled = enabled;
+        keyLightColor = lightColor;
+        keyLightMaxAlpha = Mathf.Clamp01(maxAlpha);
+        keyLightWidthMultiplier = Mathf.Max(0.2f, widthMultiplier);
+        keyLightHeightMultiplier = Mathf.Max(0.2f, heightMultiplier);
+        keyLightVerticalOffsetRatio = Mathf.Clamp(verticalOffsetRatio, -1f, 1f);
 
         EnsureRig();
         ApplyVisualState();
@@ -156,12 +189,31 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private static bool IsUsableTargetRenderer(SpriteRenderer renderer)
     {
         return renderer != null &&
+               renderer.name != KeyRendererName &&
                renderer.name != PoolRendererName &&
                renderer.name != GlowRendererName;
     }
 
     private void EnsureRig()
     {
+        if (keyRenderer == null)
+        {
+            Transform existing = transform.Find(KeyRendererName);
+            GameObject keyObject = existing != null
+                ? existing.gameObject
+                : new GameObject(KeyRendererName);
+
+            keyObject.transform.SetParent(transform, true);
+            keyTransform = keyObject.transform;
+
+            keyRenderer = keyObject.GetComponent<SpriteRenderer>();
+            if (keyRenderer == null)
+                keyRenderer = keyObject.AddComponent<SpriteRenderer>();
+
+            keyRenderer.sprite = GetOrCreateKeyLightSprite();
+            keyRenderer.sharedMaterial = GetOrCreateKeyLightMaterial();
+        }
+
         if (poolRenderer == null)
         {
             Transform existing = transform.Find(PoolRendererName);
@@ -197,6 +249,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             glowRenderer.sharedMaterial = GetOrCreateTopLightMaterial();
         }
 
+        if (keyTransform == null && keyRenderer != null)
+            keyTransform = keyRenderer.transform;
         if (poolTransform == null && poolRenderer != null)
             poolTransform = poolRenderer.transform;
 
@@ -208,6 +262,28 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         Bounds bounds = targetRenderer.bounds;
         float spriteWidth = Mathf.Max(0.2f, bounds.size.x);
         float spriteHeight = Mathf.Max(0.2f, bounds.size.y);
+
+        if (keyTransform != null && keyRenderer != null && keyRenderer.sprite != null)
+        {
+            float keyWidth = Mathf.Max(0.9f, spriteWidth * keyLightWidthMultiplier);
+            float keyHeight = Mathf.Max(1.1f, spriteHeight * keyLightHeightMultiplier);
+            float keyY = bounds.center.y + spriteHeight * keyLightVerticalOffsetRatio;
+
+            keyTransform.position = new Vector3(
+                bounds.center.x,
+                keyY,
+                targetRenderer.transform.position.z);
+            keyTransform.rotation = Quaternion.identity;
+
+            ApplyWorldSizeToChild(
+                keyTransform,
+                keyRenderer.sprite,
+                keyWidth,
+                keyHeight);
+
+            keyRenderer.sortingLayerID = targetRenderer.sortingLayerID;
+            keyRenderer.sortingOrder = targetRenderer.sortingOrder - 2;
+        }
 
         float poolWidth = Mathf.Max(0.72f, spriteWidth * poolWidthMultiplier);
         float poolHeight = Mathf.Max(0.11f, poolWidth * poolHeightRatio);
@@ -221,25 +297,42 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
                 targetRenderer.transform.position.z);
             poolTransform.rotation = Quaternion.identity;
 
-            Vector3 parentScale = transform.lossyScale;
-            float inverseX = Mathf.Abs(parentScale.x) > 0.0001f ? 1f / Mathf.Abs(parentScale.x) : 1f;
-            float inverseY = Mathf.Abs(parentScale.y) > 0.0001f ? 1f / Mathf.Abs(parentScale.y) : 1f;
+            ApplyWorldSizeToChild(
+                poolTransform,
+                poolRenderer.sprite,
+                poolWidth,
+                poolHeight);
 
-            Vector2 spriteSize = poolRenderer.sprite.bounds.size;
-            float sourceWidth = Mathf.Max(0.0001f, spriteSize.x);
-            float sourceHeight = Mathf.Max(0.0001f, spriteSize.y);
-
-            poolTransform.localScale = new Vector3(
-                poolWidth / sourceWidth * inverseX,
-                poolHeight / sourceHeight * inverseY,
-                1f);
-        }
-
-        if (poolRenderer != null)
-        {
             poolRenderer.sortingLayerID = targetRenderer.sortingLayerID;
             poolRenderer.sortingOrder = targetRenderer.sortingOrder - 1;
         }
+    }
+
+    private void ApplyWorldSizeToChild(
+        Transform child,
+        Sprite sprite,
+        float width,
+        float height)
+    {
+        if (child == null || sprite == null)
+            return;
+
+        Vector3 parentScale = transform.lossyScale;
+        float inverseX = Mathf.Abs(parentScale.x) > 0.0001f
+            ? 1f / Mathf.Abs(parentScale.x)
+            : 1f;
+        float inverseY = Mathf.Abs(parentScale.y) > 0.0001f
+            ? 1f / Mathf.Abs(parentScale.y)
+            : 1f;
+
+        Vector2 spriteSize = sprite.bounds.size;
+        float sourceWidth = Mathf.Max(0.0001f, spriteSize.x);
+        float sourceHeight = Mathf.Max(0.0001f, spriteSize.y);
+
+        child.localScale = new Vector3(
+            width / sourceWidth * inverseX,
+            height / sourceHeight * inverseY,
+            1f);
     }
 
     private void SyncGlowRenderer()
@@ -265,6 +358,18 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     {
         float visibility = Mathf.Clamp01(currentVisibility);
 
+        if (keyRenderer != null)
+        {
+            Color color = keyLightColor;
+            color.a = keyLightEnabled ? keyLightMaxAlpha * visibility : 0f;
+            keyRenderer.color = color;
+            keyRenderer.sharedMaterial = GetOrCreateKeyLightMaterial();
+            keyRenderer.enabled =
+                keyLightEnabled &&
+                keyRenderer.sharedMaterial != null &&
+                color.a > 0.001f;
+        }
+
         if (poolRenderer != null)
         {
             Color color = poolColor;
@@ -278,12 +383,16 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             Material material = GetOrCreateTopLightMaterial();
             glowRenderer.sharedMaterial = material;
 
-            bool canGlow = material != null &&
-                           targetRenderer != null &&
-                           targetRenderer.enabled &&
-                           targetRenderer.gameObject.activeInHierarchy;
+            bool canGlow =
+                material != null &&
+                targetRenderer != null &&
+                targetRenderer.enabled &&
+                targetRenderer.gameObject.activeInHierarchy;
 
-            glowRenderer.enabled = canGlow && topLightStrength * visibility > 0.001f;
+            glowRenderer.enabled =
+                canGlow &&
+                topLightStrength * visibility > 0.001f;
+
             if (glowRenderer.enabled)
             {
                 glowRenderer.GetPropertyBlock(glowProperties);
@@ -311,6 +420,25 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             hideFlags = HideFlags.HideAndDontSave
         };
         return sharedTopLightMaterial;
+    }
+
+    private static Material GetOrCreateKeyLightMaterial()
+    {
+        if (sharedKeyLightMaterial != null)
+            return sharedKeyLightMaterial;
+
+        Shader shader = Shader.Find(KeyLightShaderName);
+        if (shader == null)
+            shader = Resources.Load<Shader>("BattleSoftKeyLight");
+        if (shader == null)
+            return null;
+
+        sharedKeyLightMaterial = new Material(shader)
+        {
+            name = "BattleSoftKeyLight_Runtime",
+            hideFlags = HideFlags.HideAndDontSave
+        };
+        return sharedKeyLightMaterial;
     }
 
     private static Sprite GetOrCreatePoolSprite()
@@ -358,5 +486,58 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         sharedPoolSprite.name = "RuntimeCharacterLightPoolSprite";
         sharedPoolSprite.hideFlags = HideFlags.HideAndDontSave;
         return sharedPoolSprite;
+    }
+
+    private static Sprite GetOrCreateKeyLightSprite()
+    {
+        if (sharedKeyLightSprite != null)
+            return sharedKeyLightSprite;
+
+        const int width = 64;
+        const int height = 128;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false, true)
+        {
+            name = "RuntimeCharacterKeySpotlight",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        Color[] pixels = new Color[width * height];
+        for (int y = 0; y < height; y++)
+        {
+            float v = (y + 0.5f) / height;
+            float verticalFadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.02f, 0.22f, v));
+            float verticalFadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.78f, 1f, v));
+            float vertical = verticalFadeIn * verticalFadeOut;
+
+            // Wider near the source, narrower near the feet.
+            float widthAtHeight = Mathf.Lerp(0.56f, 0.92f, v);
+
+            for (int x = 0; x < width; x++)
+            {
+                float nx = Mathf.Abs(((x + 0.5f) / width) * 2f - 1f);
+                float normalizedX = nx / Mathf.Max(0.001f, widthAtHeight);
+                float horizontal = 1f - Mathf.SmoothStep(0.42f, 1f, normalizedX);
+                float centerLift = Mathf.Lerp(0.82f, 1f, 1f - Mathf.Clamp01(normalizedX));
+                float alpha = Mathf.Clamp01(horizontal * vertical * centerLift);
+
+                pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+
+        sharedKeyLightSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, width, height),
+            new Vector2(0.5f, 0.5f),
+            32f,
+            0,
+            SpriteMeshType.FullRect);
+        sharedKeyLightSprite.name = "RuntimeCharacterKeySpotlightSprite";
+        sharedKeyLightSprite.hideFlags = HideFlags.HideAndDontSave;
+        return sharedKeyLightSprite;
     }
 }
