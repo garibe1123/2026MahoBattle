@@ -6,14 +6,12 @@ using UnityEngine.UI;
 /// Reward / Map Selection 전용 Show Focus Mask.
 ///
 /// 규칙:
-/// - Normal Battle에서는 완전히 OFF
-/// - Player / Presenter는 원형 Focus
-/// - TV / Screen은 실제 WorldSpace RectTransform을 기준으로 사각형 Focus
-/// - Reward Item / Map 대상에는 별도 Spotlight를 만들지 않음
-/// - Field는 Player 근처 Dark Gray -> 외곽 Black으로 암전
-///
-/// 조명 자체는 BattleFieldCinematicDirector가 Character 원형 Light Pool만 담당하고,
-/// 이 컴포넌트는 화면 암전과 노출 영역만 담당합니다.
+/// - Normal Battle에서는 완전히 OFF.
+/// - Player / Presenter는 캐릭터 하부 쪽으로 내려간 타원형 Stage Focus.
+/// - TV / Screen은 실제 WorldSpace RectTransform을 기준으로 사각형 Focus.
+/// - Reward Item / Map 대상에는 별도 천장 Spotlight를 만들지 않음.
+/// - 첫 Map 선택은 TV 도킹 완료를 기다리지 않고 카메라 이동과 암전을 먼저 시작.
+/// - Reward는 기존보다 강한 쇼 암전을 유지하고, 첫 Map은 Base가 조금 더 읽히도록 약하게 암전.
 /// </summary>
 [DefaultExecutionOrder(26000)]
 [DisallowMultipleComponent]
@@ -35,31 +33,43 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField] private int overlaySortingOrder = 450;
     [SerializeField] private Color dimColor = Color.black;
 
-    [Header("Show Enter Order")]
-    [Tooltip("Show Camera Anchor가 잡힌 뒤 암전이 시작되기까지 카메라가 먼저 움직이는 시간입니다.")]
-    [SerializeField, Min(0f)] private float cameraLeadBeforeDim = 0.12f;
+    [Header("Reward / Normal Map Enter")]
+    [SerializeField, Min(0f)] private float cameraLeadBeforeDim = 0.10f;
     [SerializeField, Min(0.01f)] private float dimFadeInDuration = 0.20f;
-    [Tooltip("암전이 시작된 뒤 Circle / Rect Focus가 따라 들어오는 지연입니다.")]
     [SerializeField, Min(0f)] private float focusLeadAfterDim = 0.08f;
     [SerializeField, Min(0.01f)] private float focusFadeInDuration = 0.16f;
+
+    [Header("Opening Map Enter")]
+    [Tooltip("첫 맵 선택은 TV Carrier가 도킹하기 전부터 카메라/암전이 시작됩니다.")]
+    [SerializeField, Min(0f)] private float openingMapCameraLeadBeforeDim = 0.025f;
+    [SerializeField, Min(0.01f)] private float openingMapDimFadeInDuration = 0.30f;
+    [SerializeField, Min(0f)] private float openingMapFocusLeadAfterDim = 0.09f;
+    [SerializeField, Min(0.01f)] private float openingMapFocusFadeInDuration = 0.19f;
 
     [Header("Show Exit Order")]
     [SerializeField, Min(0.01f)] private float exitFocusFadeDuration = 0.12f;
     [SerializeField, Min(0.01f)] private float exitDimFadeDuration = 0.18f;
     [SerializeField, Min(0f)] private float cameraReturnDelay = 0.05f;
 
-    [Header("Background Dim")]
-    [Tooltip("Player 주변, Spotlight 바깥쪽에 남는 어두운 회색 암전량입니다.")]
+    [Header("Reward / Normal Map Background Dim")]
     [SerializeField, Range(0f, 1f)] private float nearDimAlpha = 0.62f;
-    [Tooltip("멀리 떨어진 Field의 암전량입니다. 1에 가까울수록 Black입니다.")]
     [SerializeField, Range(0f, 1f)] private float farDimAlpha = 0.96f;
-    [Tooltip("화면 높이 비율 기준 Dark Gray -> Black 전환 거리입니다.")]
     [SerializeField, Range(0.05f, 1.5f)] private float dimFalloffRadius = 0.58f;
 
-    [Header("Character Circle Focus")]
-    [SerializeField, Min(0.1f)] private float playerFocusRadiusWorld = 1.55f;
-    [SerializeField, Min(0.1f)] private float presenterFocusRadiusWorld = 1.95f;
-    [SerializeField, Range(0.001f, 0.08f)] private float circleFeather = 0.018f;
+    [Header("Opening Map Background Dim")]
+    [Tooltip("첫 4x4 Base가 완전히 사라져 보이지 않도록 Reward보다 덜 어둡게 유지합니다.")]
+    [SerializeField, Range(0f, 1f)] private float openingMapNearDimAlpha = 0.48f;
+    [SerializeField, Range(0f, 1f)] private float openingMapFarDimAlpha = 0.92f;
+    [SerializeField, Range(0.05f, 1.5f)] private float openingMapDimFalloffRadius = 0.66f;
+
+    [Header("Character Stage Focus")]
+    [SerializeField, Min(0.1f)] private float playerFocusRadiusWorld = 1.48f;
+    [SerializeField, Min(0.1f)] private float presenterFocusRadiusWorld = 1.92f;
+    [Tooltip("1이면 원형, 작을수록 위아래로 눌린 타원형입니다.")]
+    [SerializeField, Range(0.2f, 1f)] private float characterVerticalRatio = 0.48f;
+    [Tooltip("Focus 중심을 Sprite 중심보다 아래로 내립니다. 발밑 Stage Light 느낌을 강화합니다.")]
+    [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.20f;
+    [SerializeField, Range(0.001f, 0.08f)] private float characterFeather = 0.018f;
 
     [Header("Screen Rect Focus")]
     [Tooltip("0에 가까울수록 TV 실제 화면 경계에 딱 맞는 직사각형입니다.")]
@@ -74,7 +84,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
     private bool runSubscribed;
     private bool selectionShowRequested;
-    private float showAnchorReadyAt = -1f;
+    private float showStageBecameActiveAt = -1f;
     private float currentDimBlend;
     private float currentFocusBlend;
 
@@ -164,33 +174,40 @@ public sealed class BattleShowFocusController : MonoBehaviour
         float now = Time.unscaledTime;
         float deltaTime = Time.unscaledDeltaTime;
 
-        bool stageReady = selectionShowRequested && showWorldSet != null && showWorldSet.HasCameraAnchor;
-        if (stageReady)
+        bool stageActive = selectionShowRequested && showWorldSet != null && showWorldSet.IsShowActive;
+        if (stageActive)
         {
-            if (showAnchorReadyAt < 0f)
-                showAnchorReadyAt = now;
+            if (showStageBecameActiveAt < 0f)
+                showStageBecameActiveAt = now;
 
             lastShowTarget = showWorldSet.CameraTargetWorld;
             lastShowZoom = showWorldSet.ShowCameraSize;
             hasLastShowFrame = true;
         }
 
-        if (selectionShowRequested && showAnchorReadyAt >= 0f)
+        bool openingMap = IsOpeningMapShow();
+
+        if (selectionShowRequested && showStageBecameActiveAt >= 0f)
         {
-            float elapsed = now - showAnchorReadyAt;
+            float elapsed = now - showStageBecameActiveAt;
+            float lead = openingMap ? openingMapCameraLeadBeforeDim : cameraLeadBeforeDim;
+            float dimDuration = openingMap ? openingMapDimFadeInDuration : dimFadeInDuration;
+            float focusLead = openingMap ? openingMapFocusLeadAfterDim : focusLeadAfterDim;
+            float focusDuration = openingMap ? openingMapFocusFadeInDuration : focusFadeInDuration;
+
             float dimTarget = SmoothRange(
                 elapsed,
-                cameraLeadBeforeDim,
-                cameraLeadBeforeDim + Mathf.Max(0.01f, dimFadeInDuration));
+                lead,
+                lead + Mathf.Max(0.01f, dimDuration));
 
-            float focusStart = cameraLeadBeforeDim + Mathf.Max(0f, focusLeadAfterDim);
+            float focusStart = lead + Mathf.Max(0f, focusLead);
             float focusTarget = SmoothRange(
                 elapsed,
                 focusStart,
-                focusStart + Mathf.Max(0.01f, focusFadeInDuration));
+                focusStart + Mathf.Max(0.01f, focusDuration));
 
-            currentDimBlend = MoveTowards01(currentDimBlend, dimTarget, dimFadeInDuration, deltaTime);
-            currentFocusBlend = MoveTowards01(currentFocusBlend, focusTarget, focusFadeInDuration, deltaTime);
+            currentDimBlend = MoveTowards01(currentDimBlend, dimTarget, dimDuration, deltaTime);
+            currentFocusBlend = MoveTowards01(currentFocusBlend, focusTarget, focusDuration, deltaTime);
         }
         else if (!selectionShowRequested)
         {
@@ -200,7 +217,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
                 exitFocusFadeDuration,
                 deltaTime);
 
-            // Circle / Rect Focus가 먼저 꺼진 뒤 Background Dim을 해제합니다.
             if (currentFocusBlend <= 0.001f)
             {
                 currentDimBlend = MoveTowards01(
@@ -233,13 +249,17 @@ public sealed class BattleShowFocusController : MonoBehaviour
         Vector4 screenRect = new(0.5f, 0.5f, 0.5f, 0.5f);
         bool screenVisible = TryProjectScreenRect(camera, out screenRect);
 
+        float activeNearDim = openingMap ? openingMapNearDimAlpha : nearDimAlpha;
+        float activeFarDim = openingMap ? openingMapFarDimAlpha : farDimAlpha;
+        float activeDimRadius = openingMap ? openingMapDimFalloffRadius : dimFalloffRadius;
+
         runtimeMaterial.SetColor("_MaskColor", dimColor);
         runtimeMaterial.SetFloat("_Presentation", currentDimBlend);
 
         runtimeMaterial.SetVector("_DimCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
-        runtimeMaterial.SetFloat("_NearDimAlpha", nearDimAlpha);
-        runtimeMaterial.SetFloat("_FarDimAlpha", farDimAlpha);
-        runtimeMaterial.SetFloat("_DimRadius", Mathf.Max(0.001f, dimFalloffRadius));
+        runtimeMaterial.SetFloat("_NearDimAlpha", activeNearDim);
+        runtimeMaterial.SetFloat("_FarDimAlpha", activeFarDim);
+        runtimeMaterial.SetFloat("_DimRadius", Mathf.Max(0.001f, activeDimRadius));
 
         runtimeMaterial.SetVector("_PlayerCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
         runtimeMaterial.SetFloat("_PlayerRadius", playerRadiusUv);
@@ -252,7 +272,9 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetVector("_ScreenRect", screenRect);
         runtimeMaterial.SetFloat("_ScreenStrength", screenVisible ? currentFocusBlend : 0f);
 
-        runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, circleFeather));
+        runtimeMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(characterVerticalRatio, 0.2f, 1f));
+        runtimeMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(characterLowerOffset));
+        runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, characterFeather));
         runtimeMaterial.SetFloat("_RectFeather", Mathf.Max(0.0001f, rectFeather));
 
         if (overlayImage != null)
@@ -301,12 +323,12 @@ public sealed class BattleShowFocusController : MonoBehaviour
         if (nextShow)
         {
             ReleaseExitCameraHold();
-            showAnchorReadyAt = -1f;
+            showStageBecameActiveAt = -1f;
         }
         else
         {
             HoldLastShowCameraFrame();
-            showAnchorReadyAt = -1f;
+            showStageBecameActiveAt = -1f;
         }
 
         selectionShowRequested = nextShow;
@@ -319,6 +341,14 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         return runManager.State == BattleRunState.Reward ||
                runManager.State == BattleRunState.SelectingNode;
+    }
+
+    private bool IsOpeningMapShow()
+    {
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.SelectingNode &&
+               runManager.IsInStartArea;
     }
 
     private void HoldLastShowCameraFrame()
@@ -468,7 +498,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
             Mathf.Clamp01(centerScreen.x / width),
             Mathf.Clamp01(centerScreen.y / height));
 
-        // Shader에서 UV X에 Aspect를 곱하므로 화면 높이 기준 Radius를 사용합니다.
         radiusUv = Mathf.Abs(edgeScreen.x - centerScreen.x) / height;
         radiusUv = Mathf.Max(0.0001f, radiusUv);
         return true;
@@ -525,7 +554,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
     {
         currentDimBlend = 0f;
         currentFocusBlend = 0f;
-        showAnchorReadyAt = -1f;
+        showStageBecameActiveAt = -1f;
 
         if (runtimeMaterial != null)
         {
