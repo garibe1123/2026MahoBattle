@@ -442,6 +442,11 @@ public class MapBlock : MonoBehaviour
             if (other == null || other == this || !other.gameObject.activeInHierarchy)
                 continue;
 
+            // Procedural 3-Group은 세부 Piece MapBlock을 부모 Assembly MapBlock 아래에 묶습니다.
+            // 같은 Assembly 내부 구성요소를 외부 장애물로 취급하면 자기 자신 때문에 Rail이 막히므로 제외합니다.
+            if (other.transform.IsChildOf(transform) || transform.IsChildOf(other.transform))
+                continue;
+
             Vector3 finalRoot = other.HasEntryDestination
                 ? other.EntryDestination
                 : other.transform.position;
