@@ -56,7 +56,11 @@ Shader "Sprites/BattleSoftKeyLight"
 
             fixed4 frag(v2f i) : SV_Target
             {
-                fixed4 tex = tex2D(_MainTex, i.uv);
+                // The procedural source texture is authored with its broad end at UV.y = 1.
+                // Flip it here so the narrow source stays above the character and the beam
+                // opens toward the floor, matching an actual ceiling spotlight.
+                float2 beamUv = float2(i.uv.x, 1.0 - i.uv.y);
+                fixed4 tex = tex2D(_MainTex, beamUv);
                 return fixed4(i.color.rgb, tex.a * i.color.a);
             }
             ENDCG
