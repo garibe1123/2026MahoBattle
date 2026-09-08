@@ -15,11 +15,13 @@ using UnityEngine.UI;
 /// - Reward -> Map에서는 Screen Carrier/TV를 유지하고 내용만 Map으로 바꿉니다.
 ///
 /// Reward 전용 유닛:
-/// - Presenter 4x4가 Base 오른쪽에서 도킹합니다.
-/// - Presenter SpriteRenderer는 Presenter 4x4의 자식으로 함께 움직입니다.
+/// - Presenter 5x4가 Base 오른쪽에서 도킹합니다.
+/// - Presenter SpriteRenderer는 Presenter 5x4의 자식으로 함께 움직입니다.
+/// - 실제 Presenter Sprite가 비어 있으면 BattleHudSpriteCache.DefaultSprite를 표시합니다.
 ///
 /// 카메라:
 /// - Persistent 4x4 + 10x2 Screen Carrier + TV의 실제 최종 Bounds를 기준으로 계산합니다.
+/// - TV 자체는 커서 Hover로 확대하지 않습니다. 커서 반응은 카메라 Tracking만 사용합니다.
 /// - Presenter 유닛은 카메라 기준에 개입하지 않아 Reward/Map 전환에서 카메라 기준이 바뀌지 않습니다.
 /// </summary>
 [DefaultExecutionOrder(20000)]
@@ -30,7 +32,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private const int ScreenCarrierWidth = 10;
     private const int ScreenCarrierDepth = 2;
-    private const int PresenterCarrierSize = 4;
+    private const int PresenterCarrierWidth = 5;
+    private const int PresenterCarrierDepth = 4;
 
     private static BattleShowWorldSetController instance;
 
@@ -38,8 +41,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField] private Vector2 tvCanvasSize = new(1120f, 560f);
     [SerializeField, Min(32f)] private float tvPixelsPerUnit = 122f;
     [SerializeField, Min(-1f)] private float tvMountGap = 0.10f;
-    [SerializeField, Range(1f, 1.2f)] private float tvPointerFocusScale = 1.08f;
-    [SerializeField, Min(1f)] private float tvPointerFocusSharpness = 7f;
 
     [Header("Dock Units")]
     [SerializeField, Min(0.05f)] private float carrierEntryDuration = 0.62f;
@@ -54,8 +55,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     [Header("Presenter")]
     [SerializeField] private Sprite presenterFallbackSprite;
-    [SerializeField, Min(0.5f)] private float presenterWorldHeight = 3.4f;
-    [SerializeField] private float presenterPadYOffset = 0.35f;
+    [SerializeField, Min(0.5f)] private float presenterWorldHeight = 3.6f;
+    [SerializeField] private float presenterPadYOffset = 0.20f;
     [SerializeField, Min(1)] private int presenterFrontOrder = 20;
 
     [Header("Map Start")]
@@ -87,7 +88,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private Transform presenterTransform;
     private SpriteRenderer presenterRenderer;
     private Sprite lastPresenterSprite;
-    private bool presenterWarningShown;
 
     private MapBlock screenCarrier;
     private MapBlock presenterCarrier;
@@ -171,7 +171,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         battleCamera?.SetShowCursorTracking(false, Vector2.zero);
         KillCarrierTweens();
         if (tvRect != null)
+        {
             tvRect.DOKill();
+            tvRect.localScale = tvBaseScale;
+        }
     }
 
     private void OnDestroy()
@@ -377,6 +380,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (tvCanvas != null && tvCanvas.worldCamera != Camera.main)
             tvCanvas.worldCamera = Camera.main;
 
+        if (tvRect != null)
+            tvRect.localScale = tvBaseScale;
+
+        HideScreenCarrierTopHandle();
         UpdateSorting();
         MaintainEquipmentDock();
         EnsureMapStartMarker();
@@ -454,13 +461,14 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             ScreenCarrierDepth,
             screenCarrierDestination);
         MountTvToScreenCarrier();
+        HideScreenCarrierTopHandle();
 
         if (mode == ShowMode.Reward)
         {
             presenterCarrier = CreateCarrier(
-                "PresenterCarrier_4x4",
-                PresenterCarrierSize,
-                PresenterCarrierSize,
+                "PresenterCarrier_5x4",
+                PresenterCarrierWidth,
+                PresenterCarrierDepth,
                 presenterCarrierDestination);
             AttachPresenterToCarrier();
             presentation?.PlayPresenterAnimation(true);
@@ -487,12 +495,14 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         BattleDockHandleVisibilityController.RefreshNow();
+        HideScreenCarrierTopHandle();
 
         float wait = Mathf.Max(screenDuration, presenterDuration);
         if (wait > 0f)
             yield return new WaitForSecondsRealtime(wait + 0.04f);
 
         BattleDockHandleVisibilityController.RefreshNow();
+        HideScreenCarrierTopHandle();
     }
 
     private IEnumerator RewardToMap()
@@ -517,6 +527,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         SetContent(ShowMode.Map);
         ComputeSharedCameraFrame();
         BattleDockHandleVisibilityController.RefreshNow();
+        HideScreenCarrierTopHandle();
     }
 
     private IEnumerator MapToReward()
@@ -532,9 +543,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         presenterCarrier = CreateCarrier(
-            "PresenterCarrier_4x4",
-            PresenterCarrierSize,
-            PresenterCarrierSize,
+            "PresenterCarrier_5x4",
+            PresenterCarrierWidth,
+            PresenterCarrierDepth,
             presenterCarrierDestination);
         AttachPresenterToCarrier();
         presentation?.PlayPresenterAnimation(true);
@@ -553,6 +564,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         ComputeSharedCameraFrame();
         BattleDockHandleVisibilityController.RefreshNow();
+        HideScreenCarrierTopHandle();
     }
 
     private IEnumerator ExitCurrentStage()
@@ -605,15 +617,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         float baseBottomTileCenterY = stageAnchorWorld.y - baseHalfTileSpan;
         float baseTopTileCenterY = stageAnchorWorld.y + baseHalfTileSpan;
 
-        // 핵심 정렬 규칙:
-        // Persistent 4x4의 왼쪽 Tile Center와 10x2 Screen Carrier의 왼쪽 Tile Center를 동일하게 둡니다.
-        // 따라서 두 바닥의 실제 왼쪽 Edge도 정확히 일치합니다.
         screenCarrierDestination = new Vector3(
             baseLeftTileCenterX,
             baseTopTileCenterY + 1f,
             0f);
 
-        // Presenter 4x4는 Persistent 4x4 오른쪽에 정확히 한 타일 간격 없이 이어 붙습니다.
         presenterCarrierDestination = new Vector3(
             stageAnchorWorld.x + baseHalfTileSpan + 1f,
             baseBottomTileCenterY,
@@ -718,12 +726,30 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         presenterTransform.SetParent(presenterCarrier.transform, false);
         presenterTransform.localPosition = new Vector3(
-            (PresenterCarrierSize - 1) * 0.5f,
-            (PresenterCarrierSize - 1) * 0.5f + presenterPadYOffset,
+            (PresenterCarrierWidth - 1) * 0.5f,
+            (PresenterCarrierDepth - 1) * 0.5f + presenterPadYOffset,
             0f);
         presenterTransform.localRotation = Quaternion.identity;
         presenterTransform.gameObject.SetActive(true);
         UpdatePresenter();
+    }
+
+    private void HideScreenCarrierTopHandle()
+    {
+        if (screenCarrier == null)
+            return;
+
+        Transform visual = screenCarrier.transform.Find("Visual");
+        if (visual == null)
+            return;
+
+        Transform template = visual.Find("PresentationTemplate");
+        if (template == null)
+            return;
+
+        Transform upper = template.Find("DockHandle_Upper");
+        if (upper != null && upper.gameObject.activeSelf)
+            upper.gameObject.SetActive(false);
     }
 
     private void DestroyPresenterCarrier()
@@ -838,7 +864,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             stageTransitioning || externalGate || tvObject == null || !tvObject.activeSelf)
         {
             battleCamera?.SetShowCursorTracking(false, Vector2.zero);
-            ApplyTvFocus(false);
             return;
         }
 
@@ -863,17 +888,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         battleCamera.SetShowCursorTracking(inside, normalized);
-        ApplyTvFocus(inside);
-    }
-
-    private void ApplyTvFocus(bool focused)
-    {
-        if (tvRect == null)
-            return;
-
-        float target = focused ? Mathf.Max(1f, tvPointerFocusScale) : 1f;
-        float t = 1f - Mathf.Exp(-Mathf.Max(1f, tvPointerFocusSharpness) * Time.unscaledDeltaTime);
-        tvRect.localScale = Vector3.Lerp(tvRect.localScale, tvBaseScale * target, t);
     }
 
     private void UpdatePresenter()
@@ -892,7 +906,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 float scale = presenterWorldHeight / Mathf.Max(0.0001f, Mathf.Abs(sprite.bounds.size.y));
                 bool flip = legacyPresenter != null && legacyPresenter.rectTransform.localScale.x < 0f;
                 presenterTransform.localScale = new Vector3(flip ? -scale : scale, scale, 1f);
-                presenterWarningShown = false;
             }
         }
 
@@ -900,15 +913,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                           (stageTransitioning && desiredMode == ShowMode.Reward);
         bool carrierVisible = presenterCarrier != null && presenterCarrier.gameObject.activeInHierarchy;
         presenterRenderer.enabled = sprite != null && rewardMode && carrierVisible && presenterTransform.gameObject.activeInHierarchy;
-
-        if (sprite == null && rewardMode && !presenterWarningShown)
-        {
-            presenterWarningShown = true;
-            Debug.LogWarning(
-                "[BattleShowWorldSetController] Presenter 실제 Sprite가 없습니다. " +
-                "BattleShowPresentationManager.presenterFrames 또는 BattleHUD presenterSprite를 할당해야 합니다.",
-                this);
-        }
     }
 
     private Sprite ResolvePresenterSprite()
@@ -940,6 +944,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         if (sprite == null)
             sprite = presenterFallbackSprite;
+        if (sprite == null)
+            sprite = BattleHudSpriteCache.DefaultSprite;
 
         return sprite;
     }
