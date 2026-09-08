@@ -28,6 +28,12 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public float outwardDistance;
     }
 
+    private sealed class FloorVisualSnapshot
+    {
+        public Sprite sprite;
+        public Color color;
+    }
+
     [Header("Persistent Base")]
     [SerializeField] private int persistentBaseFloorSorting = -19;
 
@@ -222,6 +228,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector3 nextOrigin = FindBestFourByFourOrigin(player.transform.position);
         nextOrigin.z = baseTemplate.FixedTileOriginWorld.z;
 
+        // 새 Persistent Base는 별도 GameObject를 다시 만들기 때문에,
+        // 재생성 전에 지금 플레이어가 실제로 보고 있던 4x4 바닥 Sprite를 먼저 저장합니다.
+        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin);
+
         preservedBaseTileOrigin = baseTemplate.PromoteToNewBaseAtTileOrigin(nextOrigin);
         hasPreservedBaseOrigin = true;
         preparedForIncomingNode = true;
@@ -230,6 +240,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         EnsureBaseVisible();
         EnsurePlayerVisible();
         BattleShowPresentationManager.Instance?.RefreshPersistentBaseArt();
+        RestoreFourByFourFloorVisuals(preservedFloorVisuals);
         ApplyBaseOriginToRoomManager();
         CaptureShowAnchorFromBase();
         BattleDockHandleVisibilityController.RefreshNow();
@@ -263,8 +274,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 if (plan == null || plan.block == null)
                     continue;
 
-                // 새 4x4와 겹쳐 있던 기존 Piece가 빠질 때 Base 위로 떠 보이지 않게
-                // 기존 Piece 전체를 Base보다 뒤로 내린 후 이동시킵니다.
                 PushOutgoingRenderersBehindBase(plan.block);
                 DisableOutgoingWalkable(plan.block);
                 plan.block.PlayExit(plan.direction);
@@ -328,6 +337,112 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         return result;
     }
 
+    private FloorVisualSnapshot[] CaptureFourByFourFloorVisuals(Vector3 lowerLeftTileOrigin)
+    {
+        int tileCount = RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.FixedBaseTiles;
+        FloorVisualSnapshot[] snapshots = new FloorVisualSnapshot[tileCount];
+        int[] ranks = new int[tileCount];
+        for (int i = 0; i < ranks.Length; i++)
+            ranks[i] = int.MinValue;
+
+        Vector2Int originCell = WorldToTile(lowerLeftTileOrigin);
+
+        // 기존 Persistent Base가 선택 영역에 포함된 경우도 현재 보이는 Sprite를 후보로 넣습니다.
+        if (baseTemplate != null && baseTemplate.ActiveBase != null)
+            CaptureFloorRenderers(baseTemplate.ActiveBase, originCell, snapshots, ranks);
+
+        // 실제 전투 Room Piece의 Tile_* Sprite는 PresentationManager가 랜덤 Floor Variant를
+        // 직접 적용한 Renderer이므로, 여기서 저장하면 화면에서 보던 모양을 그대로 보존할 수 있습니다.
+        List<MapBlock> blocks = CollectCurrentRoomWalkableBlocks();
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            MapBlock block = blocks[i];
+            if (block != null)
+                CaptureFloorRenderers(block.gameObject, originCell, snapshots, ranks);
+        }
+
+        return snapshots;
+    }
+
+    private static void CaptureFloorRenderers(
+        GameObject root,
+        Vector2Int originCell,
+        FloorVisualSnapshot[] snapshots,
+        int[] ranks)
+    {
+        if (root == null || snapshots == null || ranks == null)
+            return;
+
+        SpriteRenderer[] renderers = root.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled || renderer.sprite == null)
+                continue;
+            if (!IsFloorVisualName(renderer.gameObject.name))
+                continue;
+
+            Vector2Int cell = WorldToTile(renderer.transform.position);
+            int localX = cell.x - originCell.x;
+            int localY = cell.y - originCell.y;
+            if (localX < 0 || localX >= RoomBaseTemplate.FixedBaseTiles ||
+                localY < 0 || localY >= RoomBaseTemplate.FixedBaseTiles)
+                continue;
+
+            int index = localY * RoomBaseTemplate.FixedBaseTiles + localX;
+            int layerRank = SortingLayer.GetLayerValueFromID(renderer.sortingLayerID);
+            int rank = layerRank * 100000 + renderer.sortingOrder;
+            if (rank < ranks[index])
+                continue;
+
+            ranks[index] = rank;
+            snapshots[index] = new FloorVisualSnapshot
+            {
+                sprite = renderer.sprite,
+                color = renderer.color
+            };
+        }
+    }
+
+    private void RestoreFourByFourFloorVisuals(FloorVisualSnapshot[] snapshots)
+    {
+        if (snapshots == null || baseTemplate == null || baseTemplate.ActiveBase == null)
+            return;
+
+        Transform presentationRoot = baseTemplate.ActiveBase.transform.Find("PresentationTemplate");
+        if (presentationRoot == null)
+            return;
+
+        for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
+        {
+            for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
+            {
+                int index = y * RoomBaseTemplate.FixedBaseTiles + x;
+                FloorVisualSnapshot snapshot = snapshots[index];
+                if (snapshot == null || snapshot.sprite == null)
+                    continue;
+
+                Transform floor = presentationRoot.Find($"BaseFloor_{x}_{y}");
+                SpriteRenderer renderer = floor != null ? floor.GetComponent<SpriteRenderer>() : null;
+                if (renderer == null)
+                    continue;
+
+                renderer.sprite = snapshot.sprite;
+                renderer.color = snapshot.color;
+            }
+        }
+    }
+
+    private static bool IsFloorVisualName(string objectName)
+    {
+        if (string.IsNullOrEmpty(objectName))
+            return false;
+
+        return objectName.StartsWith("Tile_", System.StringComparison.Ordinal) ||
+               objectName.StartsWith("ShowTile_", System.StringComparison.Ordinal) ||
+               objectName.StartsWith("BaseFloor_", System.StringComparison.Ordinal);
+    }
+
     private Bounds CreatePersistentBaseBounds(Vector2 baseCenter)
     {
         float size = RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.TileWorldSize;
@@ -340,10 +455,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         List<CollapseExitPlan>[] groups =
         {
-            new List<CollapseExitPlan>(), // Left
-            new List<CollapseExitPlan>(), // Right
-            new List<CollapseExitPlan>(), // Down
-            new List<CollapseExitPlan>()  // Up
+            new List<CollapseExitPlan>(),
+            new List<CollapseExitPlan>(),
+            new List<CollapseExitPlan>(),
+            new List<CollapseExitPlan>()
         };
 
         for (int i = 0; i < blocks.Count; i++)
@@ -364,7 +479,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             });
         }
 
-        // 같은 방향 안에서는 가장 바깥쪽 Block부터 먼저 보내야 뒤 Block이 앞 Block을 추월하지 않습니다.
         for (int i = 0; i < groups.Length; i++)
             groups[i].Sort((a, b) => b.outwardDistance.CompareTo(a.outwardDistance));
 
@@ -380,7 +494,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         bool fullyDown = blockBounds.max.y <= baseBounds.min.y + epsilon;
         bool fullyUp = blockBounds.min.y >= baseBounds.max.y - epsilon;
 
-        // 이미 Base 바깥에 있는 Block은 절대로 Base 반대편으로 보내지 않습니다.
         if (fullyLeft || fullyRight || fullyDown || fullyUp)
         {
             float bestGap = float.NegativeInfinity;
@@ -398,8 +511,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return bestSide;
         }
 
-        // 새 Persistent Base와 겹쳐 있는 기존 Piece는 가장 가까운 Base 외곽면으로 빠집니다.
-        // 이 경우 Renderer를 Base 뒤로 내리므로 이동 중에도 4x4 위를 가로지르는 것처럼 보이지 않습니다.
         float moveLeft = Mathf.Max(0f, blockBounds.max.x - baseBounds.min.x);
         float moveRight = Mathf.Max(0f, baseBounds.max.x - blockBounds.min.x);
         float moveDown = Mathf.Max(0f, blockBounds.max.y - baseBounds.min.y);
@@ -631,6 +742,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         Vector3 nextOrigin = FindBestFourByFourOrigin(player.transform.position);
         nextOrigin.z = baseTemplate.FixedTileOriginWorld.z;
+        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin);
 
         preservedBaseTileOrigin = baseTemplate.PromoteToNewBaseAtTileOrigin(nextOrigin);
         hasPreservedBaseOrigin = true;
@@ -638,6 +750,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         EnsureBaseVisible();
         BattleShowPresentationManager.Instance?.RefreshPersistentBaseArt();
+        RestoreFourByFourFloorVisuals(preservedFloorVisuals);
         ApplyBaseOriginToRoomManager();
         CaptureShowAnchorFromBase();
         BattleDockHandleVisibilityController.RefreshNow();
