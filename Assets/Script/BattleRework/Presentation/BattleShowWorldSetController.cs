@@ -6,15 +6,14 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward / Map이 공유하는 하나의 월드 쇼 세트입니다.
-///
-/// 공간 기준은 BattleStageTransitionController가 확정한 Player 4x4 중심 하나뿐입니다.
-/// Reward <-> Map 전환에서는 TV/카메라/사회자/쇼 바닥을 다시 계산하지 않고 TV 내용만 바꿉니다.
+/// Reward / Map 공용 월드 쇼 세트.
+/// 공간 기준은 BattleStageTransitionController가 확정한 Player 4x4 중심 하나만 사용합니다.
+/// Reward <-> Map에서는 TV 내용만 바뀌며 Camera/TV/Presenter/Floor 배치는 유지됩니다.
 ///
 /// Show 진입 순서:
-/// 1) 4x4 오른쪽에 Show Floor 판들이 오른쪽 레일에서 순차 도킹
-/// 2) 사회자는 마지막 Presenter Floor 판에 실려 같이 진입
-/// 3) Floor 도킹 완료 뒤 TV가 위쪽 레일에서 진입
+/// 1) 4x4 오른쪽 Show Floor가 오른쪽 레일에서 순차 도킹
+/// 2) Presenter는 마지막 Presenter Floor에 실려 함께 진입
+/// 3) Floor 도킹 완료 후 TV가 위쪽 레일에서 진입
 /// </summary>
 [DefaultExecutionOrder(20000)]
 [DisallowMultipleComponent]
@@ -34,7 +33,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Min(1f)] private float tvPointerFocusSharpness = 7f;
 
     [Header("Shared Show Floor")]
-    [Tooltip("4x4 Base 오른쪽에 추가되는 쇼 바닥의 전체 폭입니다.")]
     [SerializeField, Range(4, 12)] private int showFloorWidth = 8;
     [SerializeField, Range(2, 6)] private int showFloorDepth = 4;
     [SerializeField, Range(2, 5)] private int showFloorPieceCount = 3;
@@ -45,19 +43,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField] private int showFloorFallbackSortingOrder = -18;
 
     [Header("Shared Camera Frame")]
-    [Tooltip("X=4x4+Show Floor 전체 중심에서 추가 이동, Y=세로 추가 이동입니다.")]
     [SerializeField] private Vector2 showCameraOffset = new(0f, 0.75f);
     [SerializeField, Min(0.1f)] private float showCameraSize = 6.1f;
 
     [Header("Presenter")]
-    [Tooltip("HUD Presenter가 비어 있을 때만 사용하는 월드 사회자 Sprite입니다.")]
     [SerializeField] private Sprite presenterFallbackSprite;
     [SerializeField, Min(0.5f)] private float presenterWorldHeight = 3.4f;
     [SerializeField] private float presenterPadYOffset = 0.55f;
     [SerializeField, Min(1)] private int presenterFrontOrder = 20;
 
     [Header("Optional Three Characters")]
-    [Tooltip("레퍼런스의 TV 앞 캐릭터 3자리입니다. 명시적으로 Sprite가 들어간 자리만 표시하며 Player를 복제하지 않습니다.")]
+    [Tooltip("레퍼런스의 TV 앞 캐릭터 3자리. Sprite가 할당된 자리만 표시하며 Player는 복제하지 않습니다.")]
     [SerializeField] private Sprite[] contestantSprites = new Sprite[3];
     [SerializeField] private Vector2[] contestantLocalOffsets =
     {
@@ -213,36 +209,27 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void ResolveSystems()
     {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
-        if (hud == null)
-            hud = FindFirstObjectByType<BattleHUD>();
-        if (player == null)
-            player = FindFirstObjectByType<PlayerController>();
-        if (battleCamera == null)
-            battleCamera = FindFirstObjectByType<BattleCameraController>();
-        if (baseTemplate == null)
-            baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
+        if (hud == null) hud = FindFirstObjectByType<BattleHUD>();
+        if (player == null) player = FindFirstObjectByType<PlayerController>();
+        if (battleCamera == null) battleCamera = FindFirstObjectByType<BattleCameraController>();
+        if (baseTemplate == null) baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         if (presentation == null)
+        {
             presentation = BattleShowPresentationManager.Instance != null
                 ? BattleShowPresentationManager.Instance
                 : FindFirstObjectByType<BattleShowPresentationManager>();
+        }
     }
 
     private void ResolveUi()
     {
-        if (rewardScreen == null)
-            rewardScreen = FindRect("PrizeSelectionScreen");
-        if (mapScreen == null)
-            mapScreen = FindRect("MapSelectionScreen");
-        if (mapContent == null)
-            mapContent = FindRect("MapSelectionContent");
-        if (equipmentDock == null)
-            equipmentDock = FindRect("EquipmentDock");
-        if (rewardLoadoutStrip == null)
-            rewardLoadoutStrip = FindRect("RewardLoadoutStrip");
-        if (legacyPresenter == null)
-            legacyPresenter = FindPresenterImage();
+        if (rewardScreen == null) rewardScreen = FindRect("PrizeSelectionScreen");
+        if (mapScreen == null) mapScreen = FindRect("MapSelectionScreen");
+        if (mapContent == null) mapContent = FindRect("MapSelectionContent");
+        if (equipmentDock == null) equipmentDock = FindRect("EquipmentDock");
+        if (rewardLoadoutStrip == null) rewardLoadoutStrip = FindRect("RewardLoadoutStrip");
+        if (legacyPresenter == null) legacyPresenter = FindPresenterImage();
 
         if (legacyMapCanvas == null)
         {
@@ -285,10 +272,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         float tvScale = 1f / Mathf.Max(32f, tvPixelsPerUnit);
         tvBaseScale = new Vector3(tvScale, tvScale, 1f);
         tvRect.localScale = tvBaseScale;
+        tvObject.SetActive(false);
 
         BuildPresenter();
         BuildContestants();
-
         stageRoot.SetActive(false);
     }
 
@@ -343,11 +330,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     {
         ReparentToTv(rewardScreen);
         ReparentToTv(mapScreen);
-
-        if (legacyMapCanvas != null)
-            legacyMapCanvas.SetActive(false);
-        if (rewardLoadoutStrip != null)
-            rewardLoadoutStrip.gameObject.SetActive(false);
+        if (legacyMapCanvas != null) legacyMapCanvas.SetActive(false);
+        if (rewardLoadoutStrip != null) rewardLoadoutStrip.gameObject.SetActive(false);
     }
 
     private void ReparentToTv(RectTransform rect)
@@ -388,9 +372,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         DisableImage(FindImage("PlayerFloorSpotlight"));
         DisableImage(FindImage("PresenterFloorSpotlight"));
         DisableImage(legacyPresenter);
-
-        if (rewardLoadoutStrip != null)
-            rewardLoadoutStrip.gameObject.SetActive(false);
+        if (rewardLoadoutStrip != null) rewardLoadoutStrip.gameObject.SetActive(false);
     }
 
     private static void DisableImage(Image image)
@@ -413,7 +395,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         ResolveSystems();
         ResolveUi();
         desiredMode = ResolveDesiredMode();
-
         UpdatePresenter();
         RefreshContestants();
         UpdatePointerTracking();
@@ -428,12 +409,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             return;
 
         DisableImage(legacyPresenter);
-        if (legacyMapCanvas != null && legacyMapCanvas.activeSelf)
-            legacyMapCanvas.SetActive(false);
-        if (rewardLoadoutStrip != null && rewardLoadoutStrip.gameObject.activeSelf)
-            rewardLoadoutStrip.gameObject.SetActive(false);
-        if (tvCanvas != null && tvCanvas.worldCamera != Camera.main)
-            tvCanvas.worldCamera = Camera.main;
+        if (legacyMapCanvas != null && legacyMapCanvas.activeSelf) legacyMapCanvas.SetActive(false);
+        if (rewardLoadoutStrip != null && rewardLoadoutStrip.gameObject.activeSelf) rewardLoadoutStrip.gameObject.SetActive(false);
+        if (tvCanvas != null && tvCanvas.worldCamera != Camera.main) tvCanvas.worldCamera = Camera.main;
 
         UpdateSorting();
         MaintainEquipmentDock();
@@ -460,12 +438,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         {
             ShowMode next = desiredMode;
 
-            // Reward <-> Map은 같은 세트에서 TV 내용만 교체합니다.
             if (currentMode != ShowMode.None && next != ShowMode.None)
             {
                 currentMode = next;
                 SetContent(currentMode);
-                SetInteraction(true);
                 continue;
             }
 
@@ -499,11 +475,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
                 BattleDockHandleVisibilityController.RefreshNow();
                 yield return PlayTvEnter();
-                SetInteraction(true);
             }
         }
 
         stageTransitioning = false;
+        SetInteraction(currentMode != ShowMode.None);
         transitionRoutine = null;
     }
 
@@ -517,11 +493,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             yield return new WaitForSecondsRealtime(tvDuration * 0.55f);
 
         float floorDuration = PlayShowFloorExit();
-        float remainingTv = Mathf.Max(0f, tvDuration * 0.45f);
-        float wait = Mathf.Max(remainingTv, floorDuration);
+        float wait = Mathf.Max(Mathf.Max(0f, tvDuration * 0.45f), floorDuration);
         if (wait > 0f)
             yield return new WaitForSecondsRealtime(wait + 0.03f);
 
+        if (tvObject != null)
+            tvObject.SetActive(false);
         ClearShowFloorImmediate();
         if (stageRoot != null)
             stageRoot.SetActive(false);
@@ -532,21 +509,15 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         ResolveSystems();
 
         if (hasExplicitStageAnchor)
-        {
             stageAnchorWorld = explicitStageAnchor;
-        }
         else if (baseTemplate != null && baseTemplate.HasPersistentBase)
-        {
             stageAnchorWorld = baseTemplate.FixedCenterWorld;
-        }
         else
-        {
             stageAnchorWorld = player != null ? player.transform.position : Vector3.zero;
-        }
 
         stageAnchorWorld.z = 0f;
-
         float combinedCenterX = Mathf.Max(0, showFloorWidth) * 0.5f;
+
         tvDestinationWorld = stageAnchorWorld + new Vector3(combinedCenterX, tvCenterYOffset, 0f);
         cameraTargetWorld = stageAnchorWorld + new Vector3(
             combinedCenterX + showCameraOffset.x,
@@ -585,12 +556,16 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 0f,
                 0f);
 
-            MapBlock piece = CreateShowFloorPiece(i, width, depth, destination, i == pieceCount - 1);
+            bool presenterPiece = i == pieceCount - 1;
+            MapBlock piece = CreateShowFloorPiece(i, width, depth, destination, presenterPiece);
             if (piece != null)
             {
                 showFloorPieces.Add(piece);
-                presenterCarrier = piece;
-                presenterCarrierWidth = width;
+                if (presenterPiece)
+                {
+                    presenterCarrier = piece;
+                    presenterCarrierWidth = width;
+                }
             }
 
             consumed += width;
@@ -599,12 +574,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         for (int i = 0; i < showFloorPieces.Count; i++)
         {
             MapBlock piece = showFloorPieces[i];
-            if (piece == null)
-                continue;
-            piece.gameObject.SetActive(true);
+            if (piece != null)
+                piece.gameObject.SetActive(true);
         }
 
-        // 모든 목적지 판이 존재하는 상태에서 한 번에 장식해야 내부 접합면 손잡이가 생성되지 않습니다.
         if (presentation != null)
         {
             for (int i = 0; i < showFloorPieces.Count; i++)
@@ -619,12 +592,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         BattleDockHandleVisibilityController.RefreshNow();
     }
 
-    private MapBlock CreateShowFloorPiece(
-        int index,
-        int width,
-        int height,
-        Vector3 destination,
-        bool presenterPiece)
+    private MapBlock CreateShowFloorPiece(int index, int width, int height, Vector3 destination, bool presenterPiece)
     {
         GameObject root = new(presenterPiece
             ? $"PresenterShowFloorPiece_{index}_{width}x{height}"
@@ -644,9 +612,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             showFloorEntryDuration,
             showFloorRailDistance);
 
-        SpriteRenderer playerRenderer = player != null
-            ? player.GetComponentInChildren<SpriteRenderer>(true)
-            : null;
+        SpriteRenderer playerRenderer = player != null ? player.GetComponentInChildren<SpriteRenderer>(true) : null;
         int sortingLayerId = playerRenderer != null ? playerRenderer.sortingLayerID : 0;
 
         bool createdAnyTile = false;
@@ -677,7 +643,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         {
             Debug.LogWarning(
                 "[BattleShowWorldSetController] Show Floor용 Floor Variant가 없습니다. " +
-                "BattleShowPresentationManager의 Default Floor Template을 확인하세요.",
+                "BattleShowPresentationManager Default Floor Template을 확인하세요.",
                 this);
         }
 
@@ -751,7 +717,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private IEnumerator PlayTvEnter()
     {
-        if (tvRect == null)
+        if (tvRect == null || tvObject == null)
             yield break;
 
         tvRect.DOKill();
@@ -808,13 +774,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void SetContent(ShowMode mode)
     {
-        if (rewardScreen != null)
-            rewardScreen.gameObject.SetActive(mode == ShowMode.Reward);
-        if (mapScreen != null)
-            mapScreen.gameObject.SetActive(mode == ShowMode.Map);
-        if (mapContent != null && mode == ShowMode.Map)
-            mapContent.gameObject.SetActive(true);
-
+        if (rewardScreen != null) rewardScreen.gameObject.SetActive(mode == ShowMode.Reward);
+        if (mapScreen != null) mapScreen.gameObject.SetActive(mode == ShowMode.Map);
+        if (mapContent != null && mode == ShowMode.Map) mapContent.gameObject.SetActive(true);
         MaintainEquipmentDock();
     }
 
@@ -823,7 +785,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (tvGroup == null)
             return;
 
-        bool active = enabledInteraction && currentMode != ShowMode.None && !stageTransitioning;
+        bool active = enabledInteraction && currentMode != ShowMode.None && !externalGate;
         tvGroup.interactable = active;
         tvGroup.blocksRaycasts = active;
     }
@@ -831,7 +793,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private void UpdatePointerTracking()
     {
         if (battleCamera == null || tvRect == null || currentMode == ShowMode.None ||
-            stageTransitioning || externalGate || stageRoot == null || !stageRoot.activeSelf)
+            stageTransitioning || externalGate || stageRoot == null || !stageRoot.activeSelf ||
+            tvObject == null || !tvObject.activeSelf)
         {
             battleCamera?.SetShowCursorTracking(false, Vector2.zero);
             ApplyTvFocus(false);
@@ -952,9 +915,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void UpdateSorting()
     {
-        SpriteRenderer playerRenderer = player != null
-            ? player.GetComponentInChildren<SpriteRenderer>(true)
-            : null;
+        SpriteRenderer playerRenderer = player != null ? player.GetComponentInChildren<SpriteRenderer>(true) : null;
         if (playerRenderer == null)
             return;
 
