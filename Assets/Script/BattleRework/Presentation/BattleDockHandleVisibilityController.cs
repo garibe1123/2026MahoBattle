@@ -3,17 +3,12 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// 현재 필드의 최종 점유 셀을 기준으로 내부 접합면의 손잡이만 숨깁니다.
-/// 바닥 Sprite/랜덤 아트/하판은 다시 만들지 않으므로 도킹 뒤 아트가 재추첨되지 않습니다.
-///
-/// 대상:
-/// - Persistent 4x4 Base의 PresentationTemplate
-/// - 일반 전투 MapBlock의 PresentationTemplate
-/// - Reward Show Floor MapBlock의 PresentationTemplate
+/// 현재 필드의 최종 점유 셀을 기준으로 도킹 손잡이 가시성을 정리합니다.
 ///
 /// 규칙:
-/// 다른 바닥 셀이 바로 붙어 있는 면은 내부 접합면이므로 그 면의 DockHandle_* 그룹을 숨깁니다.
-/// 다시 외곽면이 되면 기존 그룹을 재활성화합니다.
+/// - Persistent 4x4 Base는 손잡이를 사용하지 않습니다. 생성되어 있더라도 항상 숨깁니다.
+/// - 일반 전투 MapBlock / Reward Show Floor는 다른 바닥과 맞닿는 내부 접합면의 손잡이만 숨깁니다.
+/// - 바닥 Sprite/랜덤 아트/하판은 다시 만들지 않습니다.
 /// </summary>
 [DefaultExecutionOrder(22000)]
 [DisallowMultipleComponent]
@@ -83,11 +78,13 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
                 occupied.Add(cell);
         }
 
-        if (baseTemplate != null && baseTemplate.ActiveBase != null && baseCells.Count > 0)
+        // Persistent 4x4 Base에는 손잡이를 사용하지 않습니다.
+        // PresentationTemplate이 재구축되어 손잡이 그룹이 다시 생겨도 즉시 숨깁니다.
+        if (baseTemplate != null && baseTemplate.ActiveBase != null)
         {
             Transform template = baseTemplate.ActiveBase.transform.Find("PresentationTemplate");
             if (template != null)
-                ApplyContactVisibility(template, baseCells, occupied);
+                HideAllHandles(template);
         }
 
         foreach (KeyValuePair<MapBlock, HashSet<Vector2Int>> pair in blockCells)
@@ -149,6 +146,17 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
 
         return target.name.StartsWith("Tile_", StringComparison.Ordinal) ||
                target.name.StartsWith("ShowTile_", StringComparison.Ordinal);
+    }
+
+    private static void HideAllHandles(Transform templateRoot)
+    {
+        if (templateRoot == null)
+            return;
+
+        SetGroupVisible(templateRoot, "DockHandle_Left", false);
+        SetGroupVisible(templateRoot, "DockHandle_Right", false);
+        SetGroupVisible(templateRoot, "DockHandle_Upper", false);
+        SetGroupVisible(templateRoot, "DockHandle_Lower", false);
     }
 
     private static void ApplyContactVisibility(
