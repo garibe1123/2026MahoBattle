@@ -62,9 +62,9 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     public Color bloomTint = Color.white;
 
     [Header("Vignette")]
-    [Tooltip("Combat Volume에서 화면 구석만 살짝 눌러 중앙 전장을 읽기 쉽게 합니다.")]
-    [Range(0f, 1f)] public float vignetteIntensity = 0.10f;
-    [Range(0.01f, 1f)] public float vignetteSmoothness = 0.36f;
+    [Tooltip("Soft lens-style corner falloff. Keep the center readable while the four corners gently sink into black.")]
+    [Range(0f, 1f)] public float vignetteIntensity = 0.14f;
+    [Range(0.01f, 1f)] public float vignetteSmoothness = 0.48f;
     public Color vignetteColor = Color.black;
 
     [Header("Tonemapping")]
@@ -115,11 +115,12 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Range(0f, 1f)] public float presenterPoolAlpha = 0.24f;
     [Min(0.1f)] public float presenterPoolWidthMultiplier = 1.48f;
     [Range(0.05f, 0.55f)] public float presenterPoolHeightRatio = 0.15f;
-    [Range(0f, 1f)] public float presenterKeyLightAlpha = 0.22f;
-    [Min(0.2f)] public float presenterKeyLightWidthMultiplier = 1.58f;
-    [Min(0.2f)] public float presenterKeyLightHeightMultiplier = 2.05f;
-    [Range(-1f, 1f)] public float presenterKeyLightVerticalOffsetRatio = 0.38f;
-    [Range(0f, 0.35f)] public float presenterTopLightStrength = 0.07f;
+    [Tooltip("Keep the presenter beam subtle; most of the readable light should come from the floor pool and sprite top-light.")]
+    [Range(0f, 1f)] public float presenterKeyLightAlpha = 0.075f;
+    [Min(0.2f)] public float presenterKeyLightWidthMultiplier = 1.35f;
+    [Min(0.2f)] public float presenterKeyLightHeightMultiplier = 1.30f;
+    [Range(-1f, 1f)] public float presenterKeyLightVerticalOffsetRatio = 0.12f;
+    [Range(0f, 0.35f)] public float presenterTopLightStrength = 0.05f;
 
     [Header("Shared Character Fade")]
     [Min(0.1f)] public float characterLightFadeSharpness = 6.8f;
