@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 
 /// <summary>
@@ -12,6 +13,7 @@ public class BattleDebugUI : MonoBehaviour
     [SerializeField] private bool visible = true;
 
     private Vector2 scroll;
+    private Coroutine killAllRoutine;
 
     private void Update()
     {
@@ -21,7 +23,10 @@ public class BattleDebugUI : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!visible) return;
+        DrawKillAllEnemyButton();
+
+        if (!visible)
+            return;
 
         GUILayout.BeginArea(new Rect(12f, 12f, 420f, Screen.height - 24f), GUI.skin.box);
         scroll = GUILayout.BeginScrollView(scroll);
@@ -112,6 +117,107 @@ public class BattleDebugUI : MonoBehaviour
 
         GUILayout.EndScrollView();
         GUILayout.EndArea();
+    }
+
+    private void DrawKillAllEnemyButton()
+    {
+        int aliveCount = CountAliveMonsters();
+        if (aliveCount <= 0)
+            return;
+
+        const float width = 220f;
+        const float height = 48f;
+        Rect area = new(Screen.width - width - 12f, 12f, width, height);
+
+        Color previousBackground = GUI.backgroundColor;
+        GUI.backgroundColor = new Color(0.88f, 0.18f, 0.18f, 1f);
+
+        GUILayout.BeginArea(area);
+        string label = killAllRoutine != null
+            ? $"KILLING ENEMIES... ({aliveCount})"
+            : $"KILL ALL ENEMY ({aliveCount})";
+
+        GUI.enabled = killAllRoutine == null;
+        if (GUILayout.Button(label, GUILayout.Width(width), GUILayout.Height(height)))
+            killAllRoutine = StartCoroutine(KillAllEnemiesRoutine());
+        GUI.enabled = true;
+
+        GUILayout.EndArea();
+        GUI.backgroundColor = previousBackground;
+    }
+
+    private static int CountAliveMonsters()
+    {
+        MonsterController[] monsters = FindObjectsByType<MonsterController>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        int count = 0;
+        for (int i = 0; i < monsters.Length; i++)
+        {
+            if (monsters[i] != null && monsters[i].IsAlive)
+                count++;
+        }
+
+        return count;
+    }
+
+    private IEnumerator KillAllEnemiesRoutine()
+    {
+        // Dash 중 조건부 무적 등으로 한 프레임에 죽지 않는 적도 테스트 버튼으로 정리되도록
+        // 짧은 시간 동안 살아 있는 Monster에게만 반복해서 치명 피해를 적용합니다.
+        float timeoutAt = Time.realtimeSinceStartup + 3f;
+
+        while (Time.realtimeSinceStartup < timeoutAt)
+        {
+            MonsterController[] monsters = FindObjectsByType<MonsterController>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+
+            bool foundAlive = false;
+            for (int i = 0; i < monsters.Length; i++)
+            {
+                MonsterController monster = monsters[i];
+                if (monster == null || !monster.IsAlive)
+                    continue;
+
+                foundAlive = true;
+                ApplyEngineTestLethalDamage(monster);
+            }
+
+            if (!foundAlive)
+                break;
+
+            yield return null;
+        }
+
+        killAllRoutine = null;
+    }
+
+    private void ApplyEngineTestLethalDamage(MonsterController monster)
+    {
+        if (monster == null || !monster.IsAlive)
+            return;
+
+        Vector2 facing = monster.Facing.sqrMagnitude > 0.001f
+            ? monster.Facing.normalized
+            : Vector2.right;
+
+        // 방패 정면 판정을 타지 않도록 몬스터 뒤쪽을 Damage Source로 사용합니다.
+        Vector2 sourcePosition = (Vector2)monster.transform.position - facing * 2f;
+        float lethalDamage = Mathf.Max(
+            1000000f,
+            monster.CurrentHp + monster.ShieldDurability + 1000f);
+
+        DamageContext context = new(
+            gameObject,
+            sourcePosition,
+            lethalDamage,
+            1f,
+            0f,
+            DamageKind.Melee);
+
+        monster.ReceiveDamage(context, lethalDamage);
     }
 
     private void DrawEquipment()
