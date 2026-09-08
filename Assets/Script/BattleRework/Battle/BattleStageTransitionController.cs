@@ -13,11 +13,26 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed class BattleStageTransitionController : MonoBehaviour
 {
+    private enum CollapseExitSide
+    {
+        Left,
+        Right,
+        Down,
+        Up
+    }
+
+    private sealed class CollapseExitPlan
+    {
+        public MapBlock block;
+        public Vector2 direction;
+        public float outwardDistance;
+    }
+
     [Header("Persistent Base")]
     [SerializeField] private int persistentBaseFloorSorting = -19;
 
     [Header("Combat Clear Collapse")]
-    [Tooltip("4x4 밖 Room Block이 한 장씩 빠져나가기 시작하는 간격입니다.")]
+    [Tooltip("4x4 밖 Room Block이 바깥쪽부터 다음 묶음으로 빠져나가기 시작하는 간격입니다.")]
     [SerializeField, Min(0f)] private float collapseExitStagger = 0.10f;
     [Tooltip("마지막 Block 퇴장 뒤 Show Floor를 열기 전 짧은 간격입니다.")]
     [SerializeField, Min(0f)] private float showOpenDelayAfterCollapse = 0.08f;
@@ -153,7 +168,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             EnsureBaseVisible();
             EnsurePlayerVisible();
 
-            // 보상이 없는 Room도 같은 전환을 거칩니다.
             if (roomManager != null && roomManager.IsRoomActive)
                 BeginSelectionCollapseIfNeeded();
             else
@@ -167,8 +181,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (next != BattleRunState.EnteringNode)
             return;
 
-        // 정상 경로에서는 Reward 진입 때 이미 준비되어 있습니다.
-        // 레거시/예외 경로만 여기서 즉시 보정합니다.
         if (roomManager != null && roomManager.IsRoomActive && !preparedForIncomingNode)
             PromoteNextBaseAroundPlayer();
 
@@ -222,31 +234,45 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         CaptureShowAnchorFromBase();
         BattleDockHandleVisibilityController.RefreshNow();
 
-        // 2) 새 Persistent Base는 MapBlock이 아니므로 남습니다.
-        // 기존 Room의 walkable MapBlock만 바깥쪽부터 한 장씩 퇴장시킵니다.
+        // 2) 기존 Room Block을 4x4의 좌/우/아래/위 네 방향으로 분류합니다.
+        // 각 방향은 바깥쪽 Block부터 빠지고, 한 Wave에서 각 방향 최대 1개씩 출발합니다.
+        // 따라서 한 방향으로 몰려 겹치는 현상을 줄이고, 4x4를 가로질러 반대편으로 빠지는 경로도 만들지 않습니다.
         List<MapBlock> outgoingBlocks = CollectCurrentRoomWalkableBlocks();
         Vector2 baseCenter = showAnchorCenter;
-        outgoingBlocks.Sort((a, b) =>
-        {
-            float da = a == null ? -1f : ((Vector2)a.transform.position - baseCenter).sqrMagnitude;
-            float db = b == null ? -1f : ((Vector2)b.transform.position - baseCenter).sqrMagnitude;
-            return db.CompareTo(da);
-        });
+        Bounds baseBounds = CreatePersistentBaseBounds(baseCenter);
+        List<CollapseExitPlan>[] groups = BuildExitGroups(outgoingBlocks, baseBounds);
+
+        int waveCount = 0;
+        for (int side = 0; side < groups.Length; side++)
+            waveCount = Mathf.Max(waveCount, groups[side].Count);
 
         float stagger = Mathf.Max(0f, collapseExitStagger);
         float lastExitDuration = 0f;
 
-        for (int i = 0; i < outgoingBlocks.Count; i++)
+        for (int wave = 0; wave < waveCount; wave++)
         {
-            MapBlock block = outgoingBlocks[i];
-            if (block == null)
-                continue;
+            bool startedAny = false;
 
-            Vector2 direction = ResolveOutwardCardinal(block.transform.position, baseCenter);
-            block.PlayExit(direction);
-            lastExitDuration = Mathf.Max(lastExitDuration, block.ExitDuration);
+            for (int side = 0; side < groups.Length; side++)
+            {
+                List<CollapseExitPlan> group = groups[side];
+                if (wave >= group.Count)
+                    continue;
 
-            if (stagger > 0f && i < outgoingBlocks.Count - 1)
+                CollapseExitPlan plan = group[wave];
+                if (plan == null || plan.block == null)
+                    continue;
+
+                // 새 4x4와 겹쳐 있던 기존 Piece가 빠질 때 Base 위로 떠 보이지 않게
+                // 기존 Piece 전체를 Base보다 뒤로 내린 후 이동시킵니다.
+                PushOutgoingRenderersBehindBase(plan.block);
+                DisableOutgoingWalkable(plan.block);
+                plan.block.PlayExit(plan.direction);
+                lastExitDuration = Mathf.Max(lastExitDuration, plan.block.ExitDuration);
+                startedAny = true;
+            }
+
+            if (startedAny && stagger > 0f && wave < waveCount - 1)
                 yield return new WaitForSecondsRealtime(stagger);
         }
 
@@ -300,6 +326,236 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         return result;
+    }
+
+    private Bounds CreatePersistentBaseBounds(Vector2 baseCenter)
+    {
+        float size = RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.TileWorldSize;
+        return new Bounds(
+            new Vector3(baseCenter.x, baseCenter.y, 0f),
+            new Vector3(size, size, 0.1f));
+    }
+
+    private List<CollapseExitPlan>[] BuildExitGroups(List<MapBlock> blocks, Bounds baseBounds)
+    {
+        List<CollapseExitPlan>[] groups =
+        {
+            new List<CollapseExitPlan>(), // Left
+            new List<CollapseExitPlan>(), // Right
+            new List<CollapseExitPlan>(), // Down
+            new List<CollapseExitPlan>()  // Up
+        };
+
+        for (int i = 0; i < blocks.Count; i++)
+        {
+            MapBlock block = blocks[i];
+            if (block == null)
+                continue;
+
+            Bounds blockBounds = ResolveBlockBounds(block);
+            CollapseExitSide side = ResolveExitSide(blockBounds, baseBounds);
+            Vector2 direction = DirectionFor(side);
+
+            groups[(int)side].Add(new CollapseExitPlan
+            {
+                block = block,
+                direction = direction,
+                outwardDistance = ResolveOutwardDistance(blockBounds, baseBounds, side)
+            });
+        }
+
+        // 같은 방향 안에서는 가장 바깥쪽 Block부터 먼저 보내야 뒤 Block이 앞 Block을 추월하지 않습니다.
+        for (int i = 0; i < groups.Length; i++)
+            groups[i].Sort((a, b) => b.outwardDistance.CompareTo(a.outwardDistance));
+
+        return groups;
+    }
+
+    private static CollapseExitSide ResolveExitSide(Bounds blockBounds, Bounds baseBounds)
+    {
+        const float epsilon = 0.02f;
+
+        bool fullyLeft = blockBounds.max.x <= baseBounds.min.x + epsilon;
+        bool fullyRight = blockBounds.min.x >= baseBounds.max.x - epsilon;
+        bool fullyDown = blockBounds.max.y <= baseBounds.min.y + epsilon;
+        bool fullyUp = blockBounds.min.y >= baseBounds.max.y - epsilon;
+
+        // 이미 Base 바깥에 있는 Block은 절대로 Base 반대편으로 보내지 않습니다.
+        if (fullyLeft || fullyRight || fullyDown || fullyUp)
+        {
+            float bestGap = float.NegativeInfinity;
+            CollapseExitSide bestSide = CollapseExitSide.Down;
+
+            if (fullyLeft)
+                SelectIfGreater(baseBounds.min.x - blockBounds.max.x, CollapseExitSide.Left, ref bestGap, ref bestSide);
+            if (fullyRight)
+                SelectIfGreater(blockBounds.min.x - baseBounds.max.x, CollapseExitSide.Right, ref bestGap, ref bestSide);
+            if (fullyDown)
+                SelectIfGreater(baseBounds.min.y - blockBounds.max.y, CollapseExitSide.Down, ref bestGap, ref bestSide);
+            if (fullyUp)
+                SelectIfGreater(blockBounds.min.y - baseBounds.max.y, CollapseExitSide.Up, ref bestGap, ref bestSide);
+
+            return bestSide;
+        }
+
+        // 새 Persistent Base와 겹쳐 있는 기존 Piece는 가장 가까운 Base 외곽면으로 빠집니다.
+        // 이 경우 Renderer를 Base 뒤로 내리므로 이동 중에도 4x4 위를 가로지르는 것처럼 보이지 않습니다.
+        float moveLeft = Mathf.Max(0f, blockBounds.max.x - baseBounds.min.x);
+        float moveRight = Mathf.Max(0f, baseBounds.max.x - blockBounds.min.x);
+        float moveDown = Mathf.Max(0f, blockBounds.max.y - baseBounds.min.y);
+        float moveUp = Mathf.Max(0f, baseBounds.max.y - blockBounds.min.y);
+
+        float bestMove = moveLeft;
+        CollapseExitSide result = CollapseExitSide.Left;
+
+        SelectIfSmaller(moveRight, CollapseExitSide.Right, ref bestMove, ref result);
+        SelectIfSmaller(moveDown, CollapseExitSide.Down, ref bestMove, ref result);
+        SelectIfSmaller(moveUp, CollapseExitSide.Up, ref bestMove, ref result);
+        return result;
+    }
+
+    private static void SelectIfGreater(
+        float value,
+        CollapseExitSide side,
+        ref float bestValue,
+        ref CollapseExitSide bestSide)
+    {
+        if (value <= bestValue)
+            return;
+        bestValue = value;
+        bestSide = side;
+    }
+
+    private static void SelectIfSmaller(
+        float value,
+        CollapseExitSide side,
+        ref float bestValue,
+        ref CollapseExitSide bestSide)
+    {
+        if (value >= bestValue)
+            return;
+        bestValue = value;
+        bestSide = side;
+    }
+
+    private static Vector2 DirectionFor(CollapseExitSide side)
+    {
+        switch (side)
+        {
+            case CollapseExitSide.Left: return Vector2.left;
+            case CollapseExitSide.Right: return Vector2.right;
+            case CollapseExitSide.Up: return Vector2.up;
+            default: return Vector2.down;
+        }
+    }
+
+    private static float ResolveOutwardDistance(Bounds blockBounds, Bounds baseBounds, CollapseExitSide side)
+    {
+        switch (side)
+        {
+            case CollapseExitSide.Left:
+                return Mathf.Max(0f, baseBounds.min.x - blockBounds.center.x);
+            case CollapseExitSide.Right:
+                return Mathf.Max(0f, blockBounds.center.x - baseBounds.max.x);
+            case CollapseExitSide.Up:
+                return Mathf.Max(0f, blockBounds.center.y - baseBounds.max.y);
+            default:
+                return Mathf.Max(0f, baseBounds.min.y - blockBounds.center.y);
+        }
+    }
+
+    private static Bounds ResolveBlockBounds(MapBlock block)
+    {
+        bool found = false;
+        Bounds bounds = default;
+
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.sprite == null)
+                continue;
+
+            if (!found)
+            {
+                bounds = renderer.bounds;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(renderer.bounds);
+            }
+        }
+
+        if (found)
+            return bounds;
+
+        Collider2D[] colliders = block.GetComponentsInChildren<Collider2D>(true);
+        for (int i = 0; i < colliders.Length; i++)
+        {
+            Collider2D collider = colliders[i];
+            if (collider == null || !collider.enabled)
+                continue;
+
+            if (!found)
+            {
+                bounds = collider.bounds;
+                found = true;
+            }
+            else
+            {
+                bounds.Encapsulate(collider.bounds);
+            }
+        }
+
+        if (found)
+            return bounds;
+
+        return new Bounds(block.transform.position, MapBlock.BlockWorldSize);
+    }
+
+    private void PushOutgoingRenderersBehindBase(MapBlock block)
+    {
+        if (block == null)
+            return;
+
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+        if (renderers.Length == 0)
+            return;
+
+        int highest = int.MinValue;
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] != null)
+                highest = Mathf.Max(highest, renderers[i].sortingOrder);
+        }
+
+        if (highest == int.MinValue)
+            return;
+
+        int targetHighest = persistentBaseFloorSorting - 2;
+        int shift = targetHighest - highest;
+        if (shift >= 0)
+            return;
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            if (renderers[i] != null)
+                renderers[i].sortingOrder += shift;
+        }
+    }
+
+    private static void DisableOutgoingWalkable(MapBlock block)
+    {
+        if (block == null)
+            return;
+
+        BattleWalkableField[] fields = block.GetComponentsInChildren<BattleWalkableField>(true);
+        for (int i = 0; i < fields.Length; i++)
+        {
+            if (fields[i] != null)
+                fields[i].enabled = false;
+        }
     }
 
     private void HoldShowStageGate()
@@ -508,18 +764,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         return new Vector3(bestOrigin.x * tileSize, bestOrigin.y * tileSize, playerWorld.z);
-    }
-
-    private static Vector2 ResolveOutwardCardinal(Vector3 blockWorld, Vector2 baseCenter)
-    {
-        Vector2 delta = (Vector2)blockWorld - baseCenter;
-        if (delta.sqrMagnitude <= 0.0001f)
-            return Vector2.down;
-
-        if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
-            return delta.x >= 0f ? Vector2.right : Vector2.left;
-
-        return delta.y >= 0f ? Vector2.up : Vector2.down;
     }
 
     private static Vector2Int WorldToTile(Vector3 world)
