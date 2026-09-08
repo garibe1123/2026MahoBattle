@@ -5,23 +5,29 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// BattleRoomManager가 만든 ProceduralAssemblyGroup_*의 표시 전용 조립기입니다.
+/// Procedural Room의 진입 조립만 담당합니다.
 ///
-/// 역할은 오직 '안전한 Rail을 찾아 3개의 순차 Wave로 타일 조각을 이동'시키는 것입니다.
-/// 목적지 충돌 이후의 반동/VFX/카메라 충격은 BattleTileDockingPresentationManager가 공통 관리합니다.
-///
-/// 규칙:
-/// - Group 1 -> Group 2 -> Group 3 순서로 완전히 분리된 Wave를 사용합니다.
-/// - 각 SubPiece는 Persistent 4x4 바깥 방향을 우선 Rail로 사용합니다.
-/// - 이미 도킹한 이전 Group의 최종 바닥과 Persistent 4x4를 관통하는 Rail은 사용하지 않습니다.
-/// - 긴 Rail이 막히면 같은 방향의 더 짧은 안전 Rail을 찾습니다.
-/// - 어떤 Cardinal Rail도 안전하지 않은 내부 조각만 Scale-in fallback을 사용합니다.
-///   기존 타일을 관통하거나 최종 위치로 순간이동하는 Rail fallback은 사용하지 않습니다.
+/// 핵심 규칙:
+/// - 최종 Room 형태 / 개별 MapBlock 형태는 변경하지 않습니다.
+/// - 퇴장 로직도 변경하지 않습니다.
+/// - 다만 화면 밖에서 '이동해서 들어오는 운송 단위'는 최소 2x2 Footprint를 보장합니다.
+/// - 1x1 / 1xN / Nx1 Piece는 혼자 들어오지 않고, 인접 Piece와 임시 Entry Transport로 묶여 함께 이동합니다.
+/// - 도킹 완료 후에는 임시 Transport만 해제되고 원래 MapBlock 부모 구조로 복귀합니다.
+/// - 이미 도킹한 이전 Wave와 Persistent 4x4를 관통하는 Rail은 사용하지 않습니다.
+/// - 충돌 이후의 쾅 / 반동 / VFX / 카메라 충격은 BattleTileDockingPresentationManager가 공통 처리합니다.
 /// </summary>
 [DefaultExecutionOrder(30000)]
 [DisallowMultipleComponent]
 public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
 {
+    [Header("Entry Transport Minimum Footprint")]
+    [Tooltip("들어오는 이동 단위의 최소 가로 크기입니다. 실제 MapBlock 자체 크기는 제한하지 않습니다.")]
+    [SerializeField, Min(1f)] private float minimumEntryWidth = 2f;
+    [Tooltip("들어오는 이동 단위의 최소 세로 크기입니다. 실제 MapBlock 자체 크기는 제한하지 않습니다.")]
+    [SerializeField, Min(1f)] private float minimumEntryHeight = 2f;
+    [Tooltip("작은 Piece를 인접 Transport와 합칠 때 Edge 접촉으로 보는 여유값입니다.")]
+    [SerializeField, Range(0f, 0.35f)] private float mergeAdjacencyTolerance = 0.16f;
+
     [Header("Safe Rail")]
     [SerializeField, Min(8f)] private float preferredRailDistance = 36f;
     [SerializeField, Min(0.5f)] private float minimumRailDistance = 1.25f;
@@ -34,12 +40,15 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
     private readonly HashSet<int> processedGroups = new();
     private RoomBaseTemplate baseTemplate;
     private BattleRoomManager roomManager;
+    private int transportSerial;
 
     private sealed class SubPiecePlan
     {
         public MapBlock block;
+        public Transform originalParent;
         public Vector3 finalPosition;
         public Bounds finalBounds;
+        public int sourceWave;
     }
 
     private sealed class GroupPlan
@@ -47,6 +56,17 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
         public MapBlock group;
         public int index;
         public readonly List<SubPiecePlan> pieces = new();
+    }
+
+    /// <summary>
+    /// Entry에서만 존재하는 임시 운송 단위입니다.
+    /// 도킹이 끝나면 pieces는 각자의 원래 부모로 복귀합니다.
+    /// </summary>
+    private sealed class EntryUnitPlan
+    {
+        public readonly List<SubPiecePlan> pieces = new();
+        public int wave;
+        public Bounds finalBounds;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -111,26 +131,32 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
 
         newGroups.Sort((a, b) => a.index.CompareTo(b.index));
 
-        // Group Root 자체의 기존 MapBlock tween은 끄고 최종 기준점에 고정합니다.
-        // 이후 실제 보이는 SubPiece만 안전 Rail로 이동시킵니다.
+        // BattleRoomManager가 Group Root에 걸어 둔 임시 Tween은 제거하고 최종 기준점에 고정합니다.
+        // 실제 화면 진입은 아래의 2x2+ Entry Transport만 수행합니다.
         for (int i = 0; i < newGroups.Count; i++)
         {
             GroupPlan plan = newGroups[i];
-            MapBlock group = plan.group;
-            if (group == null)
+            if (plan.group == null)
                 continue;
 
-            group.transform.DOKill(false);
-            if (group.HasEntryDestination)
-                group.transform.position = group.EntryDestination;
+            plan.group.transform.DOKill(false);
+            if (plan.group.HasEntryDestination)
+                plan.group.transform.position = plan.group.EntryDestination;
 
             RefreshFinalPieceData(plan);
         }
 
-        List<Bounds> previousGroupBlockers = new();
+        List<EntryUnitPlan> entryUnits = BuildEntryUnits(newGroups);
+        EnsureMinimumIncomingFootprint(entryUnits);
+        if (entryUnits.Count == 0)
+            return;
+
+        entryUnits.Sort(CompareEntryUnits);
+
+        List<Bounds> previousWaveBlockers = new();
         if (baseTemplate != null && baseTemplate.HasPersistentBase)
         {
-            previousGroupBlockers.Add(new Bounds(
+            previousWaveBlockers.Add(new Bounds(
                 baseTemplate.FixedCenterWorld,
                 new Vector3(
                     RoomBaseTemplate.FixedBaseTiles,
@@ -143,26 +169,44 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
             : 0.72f;
         float settleDuration = BattleTileDockingPresentationManager.SharedSettleDuration;
         float waveLength = roomMoveDuration + settleDuration + Mathf.Max(0f, waveGap);
-        int finalGroupIndex = newGroups[newGroups.Count - 1].index;
+
+        List<int> waveOrder = CollectWaveOrder(entryUnits);
+        int finalWave = waveOrder.Count > 0 ? waveOrder[waveOrder.Count - 1] : 1;
+        EntryUnitPlan finalImpactUnit = FindLargestUnitInWave(entryUnits, finalWave);
+
+        for (int waveOrdinal = 0; waveOrdinal < waveOrder.Count; waveOrdinal++)
+        {
+            int wave = waveOrder[waveOrdinal];
+            float waveDelay = waveOrdinal * waveLength;
+
+            for (int i = 0; i < entryUnits.Count; i++)
+            {
+                EntryUnitPlan unit = entryUnits[i];
+                if (unit == null || unit.wave != wave)
+                    continue;
+
+                AnimateEntryUnit(
+                    unit,
+                    previousWaveBlockers,
+                    waveDelay,
+                    roomMoveDuration,
+                    unit == finalImpactUnit);
+            }
+
+            // 같은 Wave끼리는 동시에 접근하므로 서로를 장애물로 잡지 않습니다.
+            // Wave가 끝난 뒤에만 다음 Wave의 blocker로 추가합니다.
+            for (int i = 0; i < entryUnits.Count; i++)
+            {
+                EntryUnitPlan unit = entryUnits[i];
+                if (unit != null && unit.wave == wave)
+                    previousWaveBlockers.Add(unit.finalBounds);
+            }
+        }
 
         for (int i = 0; i < newGroups.Count; i++)
         {
-            GroupPlan plan = newGroups[i];
-            if (plan.group == null)
-                continue;
-
-            float waveDelay = Mathf.Max(0, plan.index - 1) * waveLength;
-            AnimateGroup(
-                plan,
-                previousGroupBlockers,
-                waveDelay,
-                roomMoveDuration,
-                plan.index == finalGroupIndex);
-
-            for (int p = 0; p < plan.pieces.Count; p++)
-                previousGroupBlockers.Add(plan.pieces[p].finalBounds);
-
-            processedGroups.Add(plan.group.GetInstanceID());
+            if (newGroups[i].group != null)
+                processedGroups.Add(newGroups[i].group.GetInstanceID());
         }
     }
 
@@ -189,7 +233,9 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
             plan.pieces.Add(new SubPiecePlan
             {
                 block = child,
-                finalPosition = child.transform.position
+                originalParent = child.transform.parent,
+                finalPosition = child.transform.position,
+                sourceWave = plan.index
             });
         }
 
@@ -226,6 +272,7 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
             if (piece == null || piece.block == null)
                 continue;
 
+            piece.originalParent = piece.block.transform.parent;
             piece.finalPosition = piece.block.transform.position;
             if (!TryGetFloorBounds(piece.block.transform, out Bounds bounds))
                 bounds = new Bounds(piece.finalPosition, Vector3.one * 0.95f);
@@ -233,127 +280,366 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
         }
     }
 
-    private void AnimateGroup(
-        GroupPlan plan,
-        List<Bounds> blockers,
-        float delay,
-        float duration,
-        bool finalGroup)
+    private static List<EntryUnitPlan> BuildEntryUnits(List<GroupPlan> groups)
     {
-        Vector2 baseCenter = baseTemplate != null && baseTemplate.HasPersistentBase
-            ? (Vector2)baseTemplate.FixedCenterWorld
-            : Vector2.zero;
-        int impactAnchorIndex = FindImpactAnchorIndex(plan);
+        List<EntryUnitPlan> units = new();
+        if (groups == null)
+            return units;
 
-        for (int i = 0; i < plan.pieces.Count; i++)
+        for (int g = 0; g < groups.Count; g++)
         {
-            SubPiecePlan piece = plan.pieces[i];
-            if (piece == null || piece.block == null)
+            GroupPlan group = groups[g];
+            if (group == null)
                 continue;
 
-            Transform pieceTransform = piece.block.transform;
-            pieceTransform.DOKill(false);
-
-            Vector2 radial = (Vector2)piece.finalBounds.center - baseCenter;
-            Vector2 primary = Cardinalize(radial);
-
-            if (TryResolveSafeRail(
-                    piece.finalBounds,
-                    piece.finalPosition,
-                    primary,
-                    blockers,
-                    out Vector2 sourceDirection,
-                    out float railDistance))
+            for (int p = 0; p < group.pieces.Count; p++)
             {
-                Vector3 start = piece.finalPosition + (Vector3)(sourceDirection * railDistance);
-                Vector2 travelDirection = -sourceDirection.normalized;
-                bool impactAnchor = i == impactAnchorIndex;
+                SubPiecePlan piece = group.pieces[p];
+                if (piece == null || piece.block == null)
+                    continue;
 
-                pieceTransform.position = start;
-                PlayDockSequence(
-                    piece,
-                    pieceTransform,
-                    travelDirection,
-                    Mathf.Max(0f, delay),
-                    Mathf.Max(0.05f, duration),
-                    impactAnchor,
-                    finalGroup && impactAnchor);
+                EntryUnitPlan unit = new()
+                {
+                    wave = Mathf.Max(1, piece.sourceWave),
+                    finalBounds = piece.finalBounds
+                };
+                unit.pieces.Add(piece);
+                units.Add(unit);
             }
-            else
+        }
+
+        return units;
+    }
+
+    /// <summary>
+    /// 실제 MapBlock을 합치지 않고 Entry에서만 임시 운송 단위를 병합합니다.
+    /// 작은 Piece를 미래 Wave Piece와 묶는 경우 wave=max를 사용하므로,
+    /// 미래 Piece를 앞당겨 보내지 않고 작은 Piece가 뒤로 기다렸다가 같이 들어옵니다.
+    /// </summary>
+    private void EnsureMinimumIncomingFootprint(List<EntryUnitPlan> units)
+    {
+        if (units == null || units.Count <= 0)
+            return;
+
+        int safety = 0;
+        while (safety++ < 2048)
+        {
+            int smallIndex = FindFirstUndersizedUnit(units);
+            if (smallIndex < 0)
+                break;
+
+            if (units.Count == 1)
             {
-                // 완전히 둘러싸인 내부 Piece는 기존 타일을 관통시키지 않습니다.
-                // 최종 위치에서 짧은 Scale-in만 사용합니다.
-                pieceTransform.position = piece.finalPosition;
-                Vector3 finalScale = pieceTransform.localScale;
-                pieceTransform.localScale = new Vector3(finalScale.x * 0.82f, finalScale.y * 0.82f, finalScale.z);
-                pieceTransform
-                    .DOScale(finalScale, Mathf.Max(0.05f, fallbackScaleDuration))
-                    .SetDelay(Mathf.Max(0f, delay))
-                    .SetEase(Ease.OutBack);
-
-                Debug.LogWarning(
-                    $"[BattleProceduralAssemblyAnimator] '{piece.block.name}' has no collision-free straight rail. " +
-                    "Used a non-tunneling scale-in fallback.",
-                    piece.block);
+                Debug.LogError(
+                    "[BattleProceduralAssemblyAnimator] Procedural entry has only one transport and it is smaller than the required 2x2 footprint. " +
+                    "It will remain at its final position instead of violating the incoming-size invariant.");
+                break;
             }
+
+            int mergeIndex = FindBestMergeCandidate(units, smallIndex);
+            if (mergeIndex < 0)
+                break;
+
+            EntryUnitPlan small = units[smallIndex];
+            EntryUnitPlan target = units[mergeIndex];
+
+            target.pieces.AddRange(small.pieces);
+            target.wave = Mathf.Max(target.wave, small.wave);
+            target.finalBounds.Encapsulate(small.finalBounds);
+
+            units.RemoveAt(smallIndex);
         }
     }
 
-    private void PlayDockSequence(
-        SubPiecePlan piece,
-        Transform pieceTransform,
-        Vector2 travelDirection,
+    private int FindFirstUndersizedUnit(List<EntryUnitPlan> units)
+    {
+        for (int i = 0; i < units.Count; i++)
+        {
+            EntryUnitPlan unit = units[i];
+            if (unit != null && !MeetsEntryFootprint(unit.finalBounds))
+                return i;
+        }
+        return -1;
+    }
+
+    private bool MeetsEntryFootprint(Bounds bounds)
+    {
+        return bounds.size.x + 0.001f >= Mathf.Max(1f, minimumEntryWidth) &&
+               bounds.size.y + 0.001f >= Mathf.Max(1f, minimumEntryHeight);
+    }
+
+    private int FindBestMergeCandidate(List<EntryUnitPlan> units, int sourceIndex)
+    {
+        EntryUnitPlan source = units[sourceIndex];
+        if (source == null)
+            return -1;
+
+        int best = -1;
+        float bestScore = float.NegativeInfinity;
+
+        for (int i = 0; i < units.Count; i++)
+        {
+            if (i == sourceIndex || units[i] == null)
+                continue;
+
+            EntryUnitPlan candidate = units[i];
+            Bounds merged = candidate.finalBounds;
+            merged.Encapsulate(source.finalBounds);
+
+            float gap = BoundsGap2D(source.finalBounds, candidate.finalBounds);
+            bool adjacent = gap <= Mathf.Max(0f, mergeAdjacencyTolerance);
+            bool becomesValid = MeetsEntryFootprint(merged);
+
+            // 인접 연결을 최우선으로 하고, 그 다음 바로 2x2 이상이 되는 조합,
+            // 그 뒤 가까운 거리 / 기존 큰 운송 단위를 선호합니다.
+            float score = adjacent ? 10000f : 0f;
+            if (becomesValid)
+                score += 2500f;
+            score -= gap * 100f;
+            score += Mathf.Min(merged.size.x * merged.size.y, 64f);
+
+            // 작은 Piece 때문에 미래 Wave가 앞당겨지는 것을 막습니다.
+            // 같은 조건이면 source와 같거나 더 늦은 Wave를 우선합니다.
+            if (candidate.wave >= source.wave)
+                score += 120f;
+
+            if (score <= bestScore)
+                continue;
+
+            bestScore = score;
+            best = i;
+        }
+
+        return best;
+    }
+
+    private static float BoundsGap2D(Bounds a, Bounds b)
+    {
+        float dx = Mathf.Max(0f, Mathf.Max(a.min.x - b.max.x, b.min.x - a.max.x));
+        float dy = Mathf.Max(0f, Mathf.Max(a.min.y - b.max.y, b.min.y - a.max.y));
+        return dx + dy;
+    }
+
+    private static int CompareEntryUnits(EntryUnitPlan a, EntryUnitPlan b)
+    {
+        if (ReferenceEquals(a, b))
+            return 0;
+        if (a == null)
+            return 1;
+        if (b == null)
+            return -1;
+
+        int wave = a.wave.CompareTo(b.wave);
+        if (wave != 0)
+            return wave;
+
+        float areaA = a.finalBounds.size.x * a.finalBounds.size.y;
+        float areaB = b.finalBounds.size.x * b.finalBounds.size.y;
+        return areaB.CompareTo(areaA);
+    }
+
+    private static List<int> CollectWaveOrder(List<EntryUnitPlan> units)
+    {
+        List<int> waves = new();
+        for (int i = 0; i < units.Count; i++)
+        {
+            EntryUnitPlan unit = units[i];
+            if (unit == null || waves.Contains(unit.wave))
+                continue;
+            waves.Add(unit.wave);
+        }
+        waves.Sort();
+        return waves;
+    }
+
+    private static EntryUnitPlan FindLargestUnitInWave(List<EntryUnitPlan> units, int wave)
+    {
+        EntryUnitPlan best = null;
+        float bestArea = -1f;
+        for (int i = 0; i < units.Count; i++)
+        {
+            EntryUnitPlan unit = units[i];
+            if (unit == null || unit.wave != wave)
+                continue;
+
+            float area = Mathf.Max(0.01f, unit.finalBounds.size.x * unit.finalBounds.size.y);
+            if (area <= bestArea)
+                continue;
+
+            best = unit;
+            bestArea = area;
+        }
+        return best;
+    }
+
+    private void AnimateEntryUnit(
+        EntryUnitPlan unit,
+        List<Bounds> blockers,
         float delay,
-        float approachDuration,
-        bool impactAnchor,
+        float duration,
         bool finalImpact)
     {
-        if (piece == null || pieceTransform == null)
+        if (unit == null || unit.pieces.Count == 0)
             return;
 
-        Vector3 final = piece.finalPosition;
+        // 하드 invariant: 이동해서 들어오는 단위는 최소 2x2 Footprint.
+        if (!MeetsEntryFootprint(unit.finalBounds))
+        {
+            RestoreUnitPiecesImmediate(unit);
+            return;
+        }
+
+        Vector2 baseCenter = baseTemplate != null && baseTemplate.HasPersistentBase
+            ? (Vector2)baseTemplate.FixedCenterWorld
+            : Vector2.zero;
+
+        Vector2 radial = (Vector2)unit.finalBounds.center - baseCenter;
+        Vector2 primary = Cardinalize(radial);
+        Vector3 finalRoot = unit.finalBounds.center;
+
+        if (!TryResolveSafeRail(
+                unit.finalBounds,
+                finalRoot,
+                primary,
+                blockers,
+                out Vector2 sourceDirection,
+                out float railDistance))
+        {
+            PlayScaleFallback(unit, delay);
+            return;
+        }
+
+        Transform transport = CreateTransport(unit, finalRoot);
+        if (transport == null)
+            return;
+
+        Vector3 startRoot = finalRoot + (Vector3)(sourceDirection * railDistance);
+        Vector2 travelDirection = -sourceDirection.normalized;
+        transport.position = startRoot;
+
         Sequence sequence = DOTween.Sequence();
         if (delay > 0f)
             sequence.AppendInterval(delay);
 
-        sequence.Append(pieceTransform.DOMove(final, approachDuration).SetEase(Ease.InCubic));
+        sequence.Append(
+            transport.DOMove(finalRoot, Mathf.Max(0.05f, duration))
+                .SetEase(Ease.InCubic));
 
         BattleTileDockingPresentationManager dockingPresentation = BattleTileDockingPresentationManager.Instance;
         if (dockingPresentation != null)
         {
-            Vector3 contactPoint = ResolveContactPoint(piece.finalBounds, travelDirection);
             dockingPresentation.AppendDockSettle(
                 sequence,
-                pieceTransform,
-                final,
+                transport,
+                finalRoot,
                 travelDirection,
-                contactPoint,
-                ResolveImpactStrength(piece),
-                impactAnchor,
+                ResolveContactPoint(unit.finalBounds, travelDirection),
+                ResolveImpactStrength(unit),
+                true,
                 finalImpact);
         }
         else
         {
-            // 공용 Manager 생성 실패 시에도 '딱 멈춤'이 되지 않도록 최소 반동은 유지합니다.
-            Vector3 rebound = final - (Vector3)(travelDirection * 0.055f);
-            sequence.Append(pieceTransform.DOMove(rebound, 0.035f).SetEase(Ease.OutQuad));
-            sequence.Append(pieceTransform.DOMove(final, 0.055f).SetEase(Ease.OutCubic));
+            Vector3 rebound = finalRoot - (Vector3)(travelDirection * 0.055f);
+            sequence.Append(transport.DOMove(rebound, 0.035f).SetEase(Ease.OutQuad));
+            sequence.Append(transport.DOMove(finalRoot, 0.055f).SetEase(Ease.OutCubic));
         }
 
         sequence.OnComplete(() =>
         {
-            if (pieceTransform != null)
-                pieceTransform.position = final;
+            if (transport != null)
+                transport.position = finalRoot;
+            RestorePiecesAndDestroyTransport(unit, transport);
         });
     }
 
-    private static float ResolveImpactStrength(SubPiecePlan piece)
+    private Transform CreateTransport(EntryUnitPlan unit, Vector3 finalRoot)
     {
-        if (piece == null)
+        if (unit == null || unit.pieces.Count == 0)
+            return null;
+
+        GameObject transportObject = new($"ProceduralEntryTransport_{unit.wave}_{++transportSerial}");
+        Transform transport = transportObject.transform;
+        transport.position = finalRoot;
+
+        for (int i = 0; i < unit.pieces.Count; i++)
+        {
+            SubPiecePlan piece = unit.pieces[i];
+            if (piece == null || piece.block == null)
+                continue;
+
+            Transform pieceTransform = piece.block.transform;
+            piece.originalParent = pieceTransform.parent;
+            pieceTransform.DOKill(false);
+            pieceTransform.position = piece.finalPosition;
+            pieceTransform.SetParent(transport, true);
+        }
+
+        return transport;
+    }
+
+    private void RestorePiecesAndDestroyTransport(EntryUnitPlan unit, Transform transport)
+    {
+        if (unit != null)
+        {
+            for (int i = 0; i < unit.pieces.Count; i++)
+            {
+                SubPiecePlan piece = unit.pieces[i];
+                if (piece == null || piece.block == null)
+                    continue;
+
+                Transform pieceTransform = piece.block.transform;
+                pieceTransform.SetParent(piece.originalParent, true);
+                pieceTransform.position = piece.finalPosition;
+            }
+        }
+
+        if (transport != null)
+            Destroy(transport.gameObject);
+    }
+
+    private void RestoreUnitPiecesImmediate(EntryUnitPlan unit)
+    {
+        if (unit == null)
+            return;
+
+        for (int i = 0; i < unit.pieces.Count; i++)
+        {
+            SubPiecePlan piece = unit.pieces[i];
+            if (piece == null || piece.block == null)
+                continue;
+
+            piece.block.transform.position = piece.finalPosition;
+        }
+    }
+
+    private void PlayScaleFallback(EntryUnitPlan unit, float delay)
+    {
+        Vector3 finalRoot = unit.finalBounds.center;
+        Transform transport = CreateTransport(unit, finalRoot);
+        if (transport == null)
+            return;
+
+        Vector3 finalScale = transport.localScale;
+        transport.localScale = new Vector3(finalScale.x * 0.86f, finalScale.y * 0.86f, finalScale.z);
+        transport
+            .DOScale(finalScale, Mathf.Max(0.05f, fallbackScaleDuration))
+            .SetDelay(Mathf.Max(0f, delay))
+            .SetEase(Ease.OutBack)
+            .OnComplete(() => RestorePiecesAndDestroyTransport(unit, transport));
+
+        Debug.LogWarning(
+            $"[BattleProceduralAssemblyAnimator] 2x2+ Entry Transport has no collision-free straight rail. " +
+            "Used scale-in fallback without crossing existing tiles.");
+    }
+
+    private static float ResolveImpactStrength(EntryUnitPlan unit)
+    {
+        if (unit == null)
             return 1f;
 
-        float area = Mathf.Max(1f, piece.finalBounds.size.x * piece.finalBounds.size.y);
-        return Mathf.Lerp(0.85f, 1.35f, Mathf.InverseLerp(1f, 24f, area));
+        float area = Mathf.Max(1f, unit.finalBounds.size.x * unit.finalBounds.size.y);
+        return Mathf.Lerp(0.90f, 1.45f, Mathf.InverseLerp(4f, 32f, area));
     }
 
     private static Vector3 ResolveContactPoint(Bounds bounds, Vector2 travelDirection)
@@ -365,31 +651,6 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
                         Mathf.Abs(direction.y) * bounds.extents.y;
         support = Mathf.Max(0f, support - 0.02f);
         return bounds.center + (Vector3)(direction * support);
-    }
-
-    private static int FindImpactAnchorIndex(GroupPlan plan)
-    {
-        if (plan == null || plan.pieces.Count == 0)
-            return -1;
-
-        int bestIndex = 0;
-        float bestArea = -1f;
-        for (int i = 0; i < plan.pieces.Count; i++)
-        {
-            SubPiecePlan piece = plan.pieces[i];
-            if (piece == null)
-                continue;
-
-            float area = Mathf.Max(0.01f, piece.finalBounds.size.x) *
-                         Mathf.Max(0.01f, piece.finalBounds.size.y);
-            if (area <= bestArea)
-                continue;
-
-            bestArea = area;
-            bestIndex = i;
-        }
-
-        return bestIndex;
     }
 
     private bool TryResolveSafeRail(
@@ -456,7 +717,7 @@ public sealed class BattleProceduralAssemblyAnimator : MonoBehaviour
         Vector3 startRoot = finalRoot + (Vector3)(sourceDirection * distance);
         int samples = Mathf.Clamp(pathSamples, 4, 20);
 
-        // 마지막 샘플은 정상적인 Edge-to-Edge 도킹이므로 제외합니다.
+        // 마지막 샘플은 정상적인 Edge-to-Edge 도킹 지점이므로 검사하지 않습니다.
         for (int i = 0; i < samples; i++)
         {
             float t = i / (float)samples;
