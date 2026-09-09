@@ -50,6 +50,15 @@ public static class BattleEquipmentGridAutoInstaller
             }
 
             bool changed = false;
+            BattleEquipmentSystem equipment = manager.GetComponent<BattleEquipmentSystem>();
+            if (equipment != null && equipment.LegacyNumberKeyEquipEnabled)
+            {
+                Undo.RecordObject(equipment, "Disable Legacy Number Key Equipment Input");
+                equipment.LegacyNumberKeyEquipEnabled = false;
+                EditorUtility.SetDirty(equipment);
+                changed = true;
+            }
+
             if (manager.GetComponent<BattleGridSynergyController>() == null)
             {
                 Undo.AddComponent<BattleGridSynergyController>(manager.gameObject);
@@ -83,6 +92,10 @@ public static class BattleEquipmentGridAutoInstaller
             BattleSceneManager manager = managers[i];
             if (manager == null)
                 continue;
+
+            BattleEquipmentSystem equipment = manager.GetComponent<BattleEquipmentSystem>();
+            if (equipment != null)
+                equipment.LegacyNumberKeyEquipEnabled = false;
 
             if (manager.GetComponent<BattleGridSynergyController>() == null)
                 manager.gameObject.AddComponent<BattleGridSynergyController>();
