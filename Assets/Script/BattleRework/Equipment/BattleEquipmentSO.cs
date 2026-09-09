@@ -54,6 +54,11 @@ public class BattleEquipmentSO : ScriptableObject
     public BattleEquipmentType type;
     public EquipmentRarity rarity = EquipmentRarity.Common;
 
+    [Header("Description")]
+    [TextArea(2, 5)]
+    [Tooltip("Reward TV의 반투명 설명 바에 표시할 아이템 설명입니다. 비어 있으면 Rarity / Type / Tag / 수치가 자동 설명으로 표시됩니다.")]
+    public string description;
+
     [Header("Meta / Reward")]
     [Min(0)] public int unlockLevel;
     [Min(0.01f)] public float baseRewardWeight = 1f;
