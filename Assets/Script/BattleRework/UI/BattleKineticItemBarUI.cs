@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -6,46 +7,47 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 #endif
 
-/// <summary>
-/// 전투 중 9개 장비 슬롯을 항상 읽을 수 있게 보여주는 Kinetic Item Bar입니다.
-/// 기존 BattleHUD의 일자형 EquipmentDock은 BattleKineticLoadoutUI가 Combat에서 숨기고,
-/// 이 바가 같은 장비 데이터를 새로운 고대비/비대칭 스타일로 표시합니다.
-/// </summary>
 [DisallowMultipleComponent]
-[DefaultExecutionOrder(29950)]
+[DefaultExecutionOrder(30150)]
 public sealed class BattleKineticItemBarUI : MonoBehaviour
 {
+    private const int GridSize = BattleEquipmentSystem.GridSize;
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int CanvasSortingOrder = 770;
 
-    [Header("References")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [SerializeField] private BattleGridSynergyController gridSynergy;
 
-    [Header("Kinetic Item Bar")]
-    [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.98f);
-    [SerializeField] private Color paperColor = new(0.94f, 0.90f, 0.76f, 1f);
+    [Header("Backpack HUD")]
+    [SerializeField] private Color inkColor = new(0.030f, 0.028f, 0.045f, 0.98f);
+    [SerializeField] private Color paperColor = new(0.92f, 0.88f, 0.74f, 1f);
+    [SerializeField] private Color emptyCellColor = new(0.19f, 0.18f, 0.22f, 0.96f);
+    [SerializeField] private Color occupiedCellColor = new(0.060f, 0.055f, 0.080f, 0.99f);
+    [SerializeField] private Color lockedColor = new(0.065f, 0.060f, 0.080f, 0.92f);
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
-    [SerializeField] private Color lockedColor = new(0.10f, 0.09f, 0.14f, 0.94f);
-    [SerializeField, Range(1f, 1.2f)] private float equippedScale = 1.08f;
+    [SerializeField, Range(1f, 1.16f)] private float equippedScale = 1.055f;
     [SerializeField, Min(1f)] private float fadeSharpness = 14f;
 
     private Canvas canvas;
     private CanvasGroup group;
     private RectTransform root;
-    private Text currentName;
-    private Text currentPrompt;
+    private Text capacityText;
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
     private readonly Image[] slotIcons = new Image[SlotCount];
     private readonly Image[] slotAccents = new Image[SlotCount];
+    private readonly Outline[] slotOutlines = new Outline[SlotCount];
     private readonly Text[] slotGrades = new Text[SlotCount];
-    private readonly Text[] slotStates = new Text[SlotCount];
+    private readonly GameObject[] lockMarks = new GameObject[SlotCount];
 
-    private bool subscribed;
+    private bool equipmentSubscribed;
+    private bool gridSubscribed;
+    private bool expandedGridSkinApplied;
+    private float nextExpandedSkinAttempt;
 
     private void Awake()
     {
@@ -61,10 +63,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         Refresh();
     }
 
-    private void OnDisable()
-    {
-        Unsubscribe();
-    }
+    private void OnDisable() => Unsubscribe();
 
     private void Update()
     {
@@ -78,54 +77,60 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             float t = 1f - Mathf.Exp(-Mathf.Max(1f, fadeSharpness) * Time.unscaledDeltaTime);
             group.alpha = Mathf.Lerp(group.alpha, combat ? 1f : 0f, t);
         }
+
+        if (!expandedGridSkinApplied && Time.unscaledTime >= nextExpandedSkinAttempt)
+        {
+            nextExpandedSkinAttempt = Time.unscaledTime + 0.35f;
+            ApplyExpandedGridBackpackSkin();
+        }
     }
 
     private void ResolveReferences()
     {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
-        if (equipmentSystem == null)
-            equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
+        if (equipmentSystem == null) equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        if (gridSynergy == null) gridSynergy = FindFirstObjectByType<BattleGridSynergyController>();
     }
 
     private void Subscribe()
     {
-        if (subscribed || equipmentSystem == null)
-            return;
+        if (!equipmentSubscribed && equipmentSystem != null)
+        {
+            equipmentSystem.InventoryChanged += Refresh;
+            equipmentSystem.SlotCapacityChanged += HandleCapacityChanged;
+            equipmentSystem.EquippedSlotChanged += HandleEquippedChanged;
+            equipmentSubscribed = true;
+        }
 
-        equipmentSystem.InventoryChanged += Refresh;
-        equipmentSystem.SlotCapacityChanged += HandleCapacityChanged;
-        equipmentSystem.EquippedSlotChanged += HandleEquippedChanged;
-        subscribed = true;
+        if (!gridSubscribed && gridSynergy != null)
+        {
+            gridSynergy.GridSynergiesChanged += Refresh;
+            gridSubscribed = true;
+        }
     }
 
     private void Unsubscribe()
     {
-        if (!subscribed || equipmentSystem == null)
-            return;
-
-        equipmentSystem.InventoryChanged -= Refresh;
-        equipmentSystem.SlotCapacityChanged -= HandleCapacityChanged;
-        equipmentSystem.EquippedSlotChanged -= HandleEquippedChanged;
-        subscribed = false;
+        if (equipmentSubscribed && equipmentSystem != null)
+        {
+            equipmentSystem.InventoryChanged -= Refresh;
+            equipmentSystem.SlotCapacityChanged -= HandleCapacityChanged;
+            equipmentSystem.EquippedSlotChanged -= HandleEquippedChanged;
+        }
+        if (gridSubscribed && gridSynergy != null)
+            gridSynergy.GridSynergiesChanged -= Refresh;
+        equipmentSubscribed = false;
+        gridSubscribed = false;
     }
 
-    private void HandleCapacityChanged(int _)
-    {
-        Refresh();
-    }
-
-    private void HandleEquippedChanged(int _)
-    {
-        Refresh();
-    }
+    private void HandleCapacityChanged(int _) => Refresh();
+    private void HandleEquippedChanged(int _) => Refresh();
 
     private void EnsureUi()
     {
-        if (canvas != null)
-            return;
+        if (canvas != null) return;
 
-        GameObject canvasObject = new("BattleKineticItemBarCanvas");
+        GameObject canvasObject = new("BattleBackpackGridCanvas");
         canvasObject.transform.SetParent(transform, false);
         canvas = canvasObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -137,17 +142,18 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
 
-        root = CreateRect(canvas.transform, "KineticItemBar", new Vector2(1100f, 122f));
+        root = CreateRect(canvas.transform, "BackpackMiniGrid", new Vector2(224f, 242f));
         root.anchorMin = root.anchorMax = new Vector2(0f, 0f);
         root.pivot = new Vector2(0f, 0f);
-        root.anchoredPosition = new Vector2(26f, 24f);
-        root.localRotation = Quaternion.Euler(0f, 0f, -1.2f);
+        root.anchoredPosition = new Vector2(20f, 20f);
+        root.localRotation = Quaternion.Euler(0f, 0f, -1.4f);
 
         Image back = root.gameObject.AddComponent<Image>();
         back.color = inkColor;
         back.raycastTarget = false;
+
         Outline outline = root.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentYellow;
+        outline.effectColor = accentPink;
         outline.effectDistance = new Vector2(4f, -4f);
 
         group = root.gameObject.AddComponent<CanvasGroup>();
@@ -155,166 +161,211 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         group.blocksRaycasts = false;
         group.interactable = false;
 
-        BuildTitleBlock();
-        BuildSlots();
+        BuildHeader();
+        BuildGrid();
         Refresh();
     }
 
-    private void BuildTitleBlock()
+    private void BuildHeader()
     {
-        RectTransform wedge = CreateRect(root, "ItemBarYellowWedge", new Vector2(270f, 138f));
-        wedge.anchorMin = wedge.anchorMax = new Vector2(0f, 0.5f);
-        wedge.pivot = new Vector2(0.5f, 0.5f);
-        wedge.anchoredPosition = new Vector2(96f, 4f);
-        wedge.localRotation = Quaternion.Euler(0f, 0f, -7f);
-        Image wedgeImage = wedge.gameObject.AddComponent<Image>();
-        wedgeImage.color = accentYellow;
-        wedgeImage.raycastTarget = false;
+        RectTransform tag = CreateRect(root, "PackHeaderTag", new Vector2(100f, 34f));
+        tag.anchorMin = tag.anchorMax = new Vector2(0f, 1f);
+        tag.pivot = new Vector2(0f, 1f);
+        tag.anchoredPosition = new Vector2(8f, -4f);
+        tag.localRotation = Quaternion.Euler(0f, 0f, -4f);
+        Image tagImage = tag.gameObject.AddComponent<Image>();
+        tagImage.color = accentYellow;
+        tagImage.raycastTarget = false;
 
-        RectTransform pinkSlash = CreateRect(root, "ItemBarPinkSlash", new Vector2(18f, 150f));
-        pinkSlash.anchorMin = pinkSlash.anchorMax = new Vector2(0f, 0.5f);
-        pinkSlash.anchoredPosition = new Vector2(224f, 0f);
-        pinkSlash.localRotation = Quaternion.Euler(0f, 0f, 11f);
-        Image pink = pinkSlash.gameObject.AddComponent<Image>();
-        pink.color = accentPink;
-        pink.raycastTarget = false;
+        Text title = CreateText(tag, "PACK", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        Stretch(title.rectTransform);
 
-        Text title = CreateText(root, "ITEM // LOADOUT", 20, FontStyle.Bold, TextAnchor.MiddleLeft, inkColor);
-        title.rectTransform.anchorMin = title.rectTransform.anchorMax = new Vector2(0f, 0.5f);
-        title.rectTransform.pivot = new Vector2(0f, 0.5f);
-        title.rectTransform.sizeDelta = new Vector2(210f, 30f);
-        title.rectTransform.anchoredPosition = new Vector2(24f, 26f);
-        title.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -4f);
+        capacityText = CreateText(root, "3 / 9", 10, FontStyle.Bold, TextAnchor.MiddleRight, paperColor);
+        capacityText.rectTransform.anchorMin = capacityText.rectTransform.anchorMax = new Vector2(1f, 1f);
+        capacityText.rectTransform.pivot = new Vector2(1f, 1f);
+        capacityText.rectTransform.sizeDelta = new Vector2(72f, 24f);
+        capacityText.rectTransform.anchoredPosition = new Vector2(-12f, -8f);
 
-        currentName = CreateText(root, "NO WEAPON", 13, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        currentName.rectTransform.anchorMin = currentName.rectTransform.anchorMax = new Vector2(0f, 0.5f);
-        currentName.rectTransform.pivot = new Vector2(0f, 0.5f);
-        currentName.rectTransform.sizeDelta = new Vector2(245f, 28f);
-        currentName.rectTransform.anchoredPosition = new Vector2(248f, 28f);
-
-        currentPrompt = CreateText(root, "TAB / LB  TAP NEXT // HOLD GRID", 9, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
-        currentPrompt.rectTransform.anchorMin = currentPrompt.rectTransform.anchorMax = new Vector2(0f, 0.5f);
-        currentPrompt.rectTransform.pivot = new Vector2(0f, 0.5f);
-        currentPrompt.rectTransform.sizeDelta = new Vector2(250f, 24f);
-        currentPrompt.rectTransform.anchoredPosition = new Vector2(248f, -28f);
+        Text hint = CreateText(root, "TAB / LB", 8, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
+        hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = new Vector2(1f, 1f);
+        hint.rectTransform.pivot = new Vector2(1f, 1f);
+        hint.rectTransform.sizeDelta = new Vector2(72f, 20f);
+        hint.rectTransform.anchoredPosition = new Vector2(-12f, -27f);
     }
 
-    private void BuildSlots()
+    private void BuildGrid()
     {
-        const float slotWidth = 72f;
-        const float slotHeight = 82f;
-        const float gap = 8f;
-        const float startX = 488f;
+        const float cell = 60f;
+        const float gap = 5f;
+        const float total = cell * GridSize + gap * (GridSize - 1);
+
+        RectTransform gridRoot = CreateRect(root, "BackpackCells", new Vector2(total, total));
+        gridRoot.anchorMin = gridRoot.anchorMax = new Vector2(0f, 0f);
+        gridRoot.pivot = new Vector2(0f, 0f);
+        gridRoot.anchoredPosition = new Vector2(14f, 14f);
 
         for (int i = 0; i < SlotCount; i++)
         {
-            RectTransform slot = CreateRect(root, $"KineticBarSlot_{i}", new Vector2(slotWidth, slotHeight));
-            slot.anchorMin = slot.anchorMax = new Vector2(0f, 0.5f);
+            int x = i % GridSize;
+            int y = i / GridSize;
+            RectTransform slot = CreateRect(gridRoot, $"BackpackCell_{i}", new Vector2(cell, cell));
+            slot.anchorMin = slot.anchorMax = new Vector2(0f, 0f);
             slot.pivot = new Vector2(0.5f, 0.5f);
-            slot.anchoredPosition = new Vector2(startX + i * (slotWidth + gap), 0f);
-            slot.localRotation = Quaternion.Euler(0f, 0f, (i % 3 - 1) * 1.2f);
+            slot.anchoredPosition = new Vector2(x * (cell + gap) + cell * 0.5f, total - (y * (cell + gap) + cell * 0.5f));
             slotRects[i] = slot;
 
-            Image back = slot.gameObject.AddComponent<Image>();
-            back.color = inkColor;
-            back.raycastTarget = false;
-            slotBackgrounds[i] = back;
+            Image cellImage = slot.gameObject.AddComponent<Image>();
+            cellImage.color = emptyCellColor;
+            cellImage.raycastTarget = false;
+            slotBackgrounds[i] = cellImage;
 
-            Outline outline = slot.gameObject.AddComponent<Outline>();
-            outline.effectColor = new Color(0f, 0f, 0f, 0.75f);
-            outline.effectDistance = new Vector2(3f, -3f);
+            Outline cellOutline = slot.gameObject.AddComponent<Outline>();
+            cellOutline.effectColor = Color.black;
+            cellOutline.effectDistance = new Vector2(3f, -3f);
+            slotOutlines[i] = cellOutline;
 
-            Image icon = CreateImage(slot, "Icon", new Vector2(44f, 44f));
-            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.58f);
+            Image icon = CreateImage(slot, "Icon", new Vector2(49f, 49f));
+            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            icon.rectTransform.anchoredPosition = Vector2.zero;
             icon.preserveAspect = true;
             icon.raycastTarget = false;
             slotIcons[i] = icon;
 
-            Text grade = CreateText(slot, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperRight, accentYellow);
-            SetAnchors(grade.rectTransform, new Vector2(0.58f, 0.73f), new Vector2(0.92f, 0.96f));
+            Text grade = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, accentYellow);
+            SetAnchors(grade.rectTransform, new Vector2(0.56f, 0.68f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
 
-            Text state = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.LowerCenter, paperColor);
-            SetAnchors(state.rectTransform, new Vector2(0.05f, 0.04f), new Vector2(0.95f, 0.27f));
-            slotStates[i] = state;
-
-            RectTransform accent = CreateRect(slot, "ActiveAccent", new Vector2(slotWidth - 8f, 5f));
-            accent.anchorMin = accent.anchorMax = new Vector2(0.5f, 0f);
-            accent.pivot = new Vector2(0.5f, 0f);
-            accent.anchoredPosition = new Vector2(0f, 2f);
+            RectTransform accent = CreateRect(slot, "CellAccent", new Vector2(5f, cell - 8f));
+            accent.anchorMin = accent.anchorMax = new Vector2(0f, 0.5f);
+            accent.pivot = new Vector2(0f, 0.5f);
+            accent.anchoredPosition = new Vector2(3f, 0f);
             Image accentImage = accent.gameObject.AddComponent<Image>();
-            accentImage.color = accentYellow;
             accentImage.raycastTarget = false;
             slotAccents[i] = accentImage;
+
+            GameObject lock = new($"LockMark_{i}");
+            lock.transform.SetParent(slot, false);
+            RectTransform lockRect = lock.AddComponent<RectTransform>();
+            Stretch(lockRect);
+            lockMarks[i] = lock;
+            CreateLockSlash(lock.transform, 45f);
+            CreateLockSlash(lock.transform, -45f);
         }
+    }
+
+    private void CreateLockSlash(Transform parent, float angle)
+    {
+        RectTransform slash = CreateRect(parent, "LockSlash", new Vector2(38f, 4f));
+        slash.anchorMin = slash.anchorMax = new Vector2(0.5f, 0.5f);
+        slash.anchoredPosition = Vector2.zero;
+        slash.localRotation = Quaternion.Euler(0f, 0f, angle);
+        Image image = slash.gameObject.AddComponent<Image>();
+        image.color = new Color(0.48f, 0.45f, 0.52f, 0.58f);
+        image.raycastTarget = false;
     }
 
     private void Refresh()
     {
-        if (equipmentSystem == null || canvas == null)
-            return;
+        if (equipmentSystem == null || canvas == null) return;
 
         int equipped = equipmentSystem.EquippedSlotIndex;
-        BattleEquipmentSO current = null;
-        if (equipped >= 0 && equipped < equipmentSystem.Slots.Count)
-            current = equipmentSystem.Slots[equipped]?.equipment;
-
-        if (currentName != null)
-            currentName.text = current != null ? current.GetDisplayName().ToUpperInvariant() : "NO MANUAL WEAPON";
+        if (capacityText != null) capacityText.text = $"{equipmentSystem.UnlockedSlotCount} / {SlotCount}";
 
         for (int i = 0; i < SlotCount; i++)
         {
             bool unlocked = equipmentSystem.IsSlotUnlocked(i);
             BattleEquipmentSlot slot = i < equipmentSystem.Slots.Count ? equipmentSystem.Slots[i] : null;
             BattleEquipmentSO equipment = slot?.equipment;
+            bool occupied = equipment != null;
             bool isEquipped = i == equipped;
+            bool linked = IsSlotLinked(i);
 
             if (slotBackgrounds[i] != null)
+                slotBackgrounds[i].color = !unlocked ? lockedColor : occupied ? occupiedCellColor : emptyCellColor;
+
+            if (slotOutlines[i] != null)
             {
-                slotBackgrounds[i].color = !unlocked
-                    ? lockedColor
-                    : isEquipped
-                        ? new Color(0.045f, 0.23f, 0.28f, 1f)
-                        : inkColor;
+                slotOutlines[i].effectColor = !unlocked
+                    ? new Color(0f, 0f, 0f, 0.65f)
+                    : isEquipped ? accentYellow : linked ? accentCyan : new Color(0f, 0f, 0f, 0.92f);
+                slotOutlines[i].effectDistance = isEquipped || linked ? new Vector2(4f, -4f) : new Vector2(3f, -3f);
             }
 
-            if (slotRects[i] != null)
-                slotRects[i].localScale = Vector3.one * (isEquipped ? equippedScale : 1f);
+            if (slotRects[i] != null) slotRects[i].localScale = Vector3.one * (isEquipped ? equippedScale : 1f);
 
             if (slotIcons[i] != null)
             {
-                slotIcons[i].sprite = equipment != null ? equipment.icon : null;
-                slotIcons[i].enabled = unlocked && equipment != null && equipment.icon != null;
-                slotIcons[i].color = isEquipped ? Color.white : new Color(0.90f, 0.90f, 0.90f, 1f);
+                slotIcons[i].sprite = occupied ? equipment.icon : null;
+                slotIcons[i].enabled = unlocked && occupied && equipment.icon != null;
+                slotIcons[i].color = Color.white;
             }
 
             if (slotGrades[i] != null)
             {
-                slotGrades[i].text = unlocked && equipment != null ? $"G{slot.grade}" : string.Empty;
-                slotGrades[i].color = isEquipped ? accentCyan : accentYellow;
-            }
-
-            if (slotStates[i] != null)
-            {
-                Vector2Int p = BattleEquipmentSystem.SlotIndexToGrid(i);
-                slotStates[i].text = !unlocked
-                    ? "LOCK"
-                    : isEquipped
-                        ? "ACTIVE"
-                        : equipment != null
-                            ? $"{p.x + 1}-{p.y + 1}"
-                            : "--";
-                slotStates[i].color = isEquipped ? accentCyan : paperColor;
+                slotGrades[i].text = unlocked && occupied ? $"G{slot.grade}" : string.Empty;
+                slotGrades[i].color = isEquipped ? accentYellow : linked ? accentCyan : paperColor;
             }
 
             if (slotAccents[i] != null)
             {
-                slotAccents[i].enabled = unlocked;
-                slotAccents[i].color = isEquipped
-                    ? accentYellow
-                    : new Color(accentPink.r, accentPink.g, accentPink.b, equipment != null ? 0.42f : 0.12f);
+                slotAccents[i].enabled = unlocked && (occupied || isEquipped || linked);
+                slotAccents[i].color = isEquipped ? accentYellow : linked ? accentCyan : new Color(accentPink.r, accentPink.g, accentPink.b, 0.48f);
             }
+
+            if (lockMarks[i] != null) lockMarks[i].SetActive(!unlocked);
         }
+    }
+
+    private bool IsSlotLinked(int slotIndex)
+    {
+        if (gridSynergy == null) return false;
+        IReadOnlyList<BattleGridSynergyLink> links = gridSynergy.ActiveLinks;
+        for (int i = 0; i < links.Count; i++)
+        {
+            BattleGridSynergyLink link = links[i];
+            if (link != null && (link.slotA == slotIndex || link.slotB == slotIndex)) return true;
+        }
+        return false;
+    }
+
+    private void ApplyExpandedGridBackpackSkin()
+    {
+        RectTransform[] all = FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        int styled = 0;
+        for (int i = 0; i < all.Length; i++)
+        {
+            RectTransform rect = all[i];
+            if (rect == null || !rect.name.StartsWith("GridSlot_")) continue;
+
+            rect.sizeDelta = new Vector2(154f, 154f);
+            rect.localRotation = Quaternion.identity;
+
+            Outline outline = rect.GetComponent<Outline>();
+            if (outline != null) outline.effectDistance = new Vector2(4f, -4f);
+
+            Transform iconTransform = rect.Find("Icon");
+            if (iconTransform is RectTransform iconRect)
+            {
+                iconRect.sizeDelta = new Vector2(100f, 100f);
+                iconRect.anchorMin = iconRect.anchorMax = new Vector2(0.5f, 0.54f);
+                iconRect.anchoredPosition = Vector2.zero;
+            }
+
+            Text[] texts = rect.GetComponentsInChildren<Text>(true);
+            for (int t = 0; t < texts.Length; t++)
+            {
+                Text text = texts[t];
+                if (text == null) continue;
+                if (text.fontSize >= 13)
+                {
+                    text.gameObject.SetActive(false);
+                    continue;
+                }
+                text.fontSize = Mathf.Min(text.fontSize, 9);
+            }
+            styled++;
+        }
+        expandedGridSkinApplied = styled >= SlotCount;
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
@@ -353,11 +404,16 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
     }
+
+    private static void Stretch(RectTransform rect)
+    {
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
+    }
 }
 
-/// <summary>
-/// 별도 프리팹 수정 없이 BattleSceneManager에 Item Bar를 자동 설치합니다.
-/// </summary>
 public static class BattleKineticItemBarAutoInstaller
 {
 #if UNITY_EDITOR
@@ -373,9 +429,7 @@ public static class BattleKineticItemBarAutoInstaller
 
     private static void QueueInstall()
     {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-
+        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued) return;
         installQueued = true;
         EditorApplication.delayCall += EnsureEditorComponents;
     }
@@ -383,20 +437,13 @@ public static class BattleKineticItemBarAutoInstaller
     private static void EnsureEditorComponents()
     {
         installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
         BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleKineticItemBarUI>() != null)
-                continue;
-
+            if (manager == null || EditorUtility.IsPersistent(manager) || !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded) continue;
+            if (manager.GetComponent<BattleKineticItemBarUI>() != null) continue;
             Undo.AddComponent<BattleKineticItemBarUI>(manager.gameObject);
             EditorUtility.SetDirty(manager.gameObject);
             EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
@@ -407,15 +454,11 @@ public static class BattleKineticItemBarAutoInstaller
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeComponents()
     {
-        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
+        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleKineticItemBarUI>() == null)
-                manager.gameObject.AddComponent<BattleKineticItemBarUI>();
+            if (manager != null && manager.GetComponent<BattleKineticItemBarUI>() == null) manager.gameObject.AddComponent<BattleKineticItemBarUI>();
         }
     }
 }
