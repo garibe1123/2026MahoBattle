@@ -8,24 +8,28 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// 작은 BackpackMiniGrid가 갑자기 사라지고 LoadoutSwitchFull이 켜지는 점프컷을 제거합니다.
-/// Combat Tab과 Reward PACK 편집 모두 같은 전환을 사용합니다.
+/// 작은 BackpackMiniGrid와 LoadoutSwitchFull 사이를 하나의 PACK이 실제로 변형되는 것처럼 연결합니다.
+///
+/// 실제 PACK RectTransform을 직접 움직이지 않습니다. 다른 UI 레이아웃 컨트롤러가 PACK 위치를 갱신해도
+/// 전환 모션이 끊기지 않도록, 전환 시작 순간의 PACK을 복제한 비상호작용 Ghost를 전용 Overlay Canvas에서
+/// 이동/회전/확대합니다.
 ///
 /// Open:
-/// 1) 현재 작은 PACK이 살짝 비틀리며 화면 중앙 GridBoard 쪽으로 이동
-/// 2) 크기가 커지며 약한 overshoot
-/// 3) Full Tab UI가 뒤에서 cross-fade
-/// 4) 작은 PACK이 사라지고 실제 GridBoard가 정착
+/// - 작은 PACK이 잠깐 반대 방향으로 눌리는 anticipation
+/// - 중앙 GridBoard 쪽으로 곡선을 그리며 이동
+/// - 회전 + Back overshoot 확대
+/// - Full UI와 cross-fade
+/// - 마지막에 Ghost가 Grid에 정착하며 Full UI로 자연스럽게 치환
 ///
-/// Close는 위 모션의 역방향입니다.
-/// 모든 시간은 unscaledDeltaTime을 사용하므로 Bullet Time / Reward Slow 상태에서도
-/// UI 전환 속도는 일정합니다.
+/// Close는 위 동작을 역순으로 재생합니다.
+/// 모든 트위닝은 unscaledDeltaTime 기반이라 Combat/Reward Bullet Time에서도 UI 속도는 일정합니다.
 /// </summary>
 [DisallowMultipleComponent]
-[DefaultExecutionOrder(33580)]
+[DefaultExecutionOrder(33680)]
 public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
 {
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
+    private const int TransitionSortingOrder = 2400;
 
     private enum MorphState
     {
@@ -41,20 +45,22 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
 
     [Header("Timing")]
-    [SerializeField, Range(0.16f, 0.60f)] private float openDuration = 0.34f;
-    [SerializeField, Range(0.14f, 0.50f)] private float closeDuration = 0.26f;
+    [SerializeField, Range(0.20f, 0.70f)] private float openDuration = 0.42f;
+    [SerializeField, Range(0.18f, 0.60f)] private float closeDuration = 0.34f;
 
-    [Header("PACK Morph")]
-    [SerializeField, Range(0.80f, 1.00f)] private float targetBoardCoverage = 0.92f;
-    [SerializeField, Range(0f, 8f)] private float rotationKickDegrees = 3.4f;
-    [SerializeField, Range(0f, 80f)] private float arcHeight = 34f;
-    [SerializeField, Range(0.4f, 2.5f)] private float backOvershoot = 1.08f;
+    [Header("PACK Motion")]
+    [SerializeField, Range(0.82f, 1.02f)] private float targetBoardCoverage = 0.94f;
+    [SerializeField, Range(0f, 12f)] private float rotationKickDegrees = 5.5f;
+    [SerializeField, Range(0f, 120f)] private float arcHeight = 54f;
+    [SerializeField, Range(0f, 70f)] private float anticipationDistance = 24f;
+    [SerializeField, Range(0.82f, 1f)] private float anticipationScale = 0.95f;
+    [SerializeField, Range(0.8f, 2.4f)] private float scaleOvershoot = 1.18f;
 
     [Header("Cross Fade")]
-    [SerializeField, Range(0f, 0.75f)] private float fullFadeStart = 0.28f;
-    [SerializeField, Range(0.25f, 0.95f)] private float packFadeStart = 0.56f;
-    [SerializeField, Range(0.70f, 1f)] private float raycastEnablePoint = 0.86f;
-    [SerializeField, Range(0.75f, 0.98f)] private float fullUiStartScale = 0.90f;
+    [SerializeField, Range(0f, 0.65f)] private float fullFadeStart = 0.22f;
+    [SerializeField, Range(0.35f, 0.90f)] private float packFadeStart = 0.60f;
+    [SerializeField, Range(0.65f, 0.98f)] private float raycastEnablePoint = 0.88f;
+    [SerializeField, Range(0.72f, 0.98f)] private float fullUiStartScale = 0.88f;
 
     [Header("Final Full UI Scale")]
     [SerializeField, Range(0.85f, 1.10f)] private float combatFullScale = 1f;
@@ -65,8 +71,11 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private RectTransform fullRoot;
     private CanvasGroup fullGroup;
     private RectTransform boardRoot;
-    private RectTransform detailRoot;
-    private CanvasGroup detailGroup;
+
+    private Canvas transitionCanvas;
+    private RectTransform transitionRoot;
+    private RectTransform ghostRoot;
+    private CanvasGroup ghostGroup;
 
     private FieldInfo loadoutSwitchHeldField;
     private FieldInfo loadoutBoardShownField;
@@ -74,29 +83,29 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private MorphState state = MorphState.Closed;
     private float elapsed;
     private bool rewardMode;
+    private bool initialized;
     private float nextResolveTime;
 
-    // PACK home pose. 실제 작은 PACK이 화면에 떠 있던 상태를 그대로 기억합니다.
+    // 전환 시작 때 저장한 작은 PACK의 화면 기준 Home pose.
     private bool homePoseValid;
-    private Vector2 homeAnchoredPosition;
-    private Vector3 homeLocalScale = Vector3.one;
-    private Quaternion homeLocalRotation = Quaternion.identity;
-    private Vector3 homeCenterWorld;
+    private Vector2 homeCenter;
+    private Vector2 homeSize;
+    private Vector3 homeGhostScale = Vector3.one;
+    private float homeRotation;
     private float homeAlpha = 1f;
 
-    // Transition start pose. 방향이 중간에 뒤집혀도 현재 위치에서 자연스럽게 이어집니다.
-    private Vector3 transitionStartCenterWorld;
+    // 현재 전환의 시작 pose. 중간에 방향이 반전되어도 현재 위치부터 이어서 움직입니다.
+    private Vector2 transitionStartCenter;
     private Vector3 transitionStartScale = Vector3.one;
-    private Quaternion transitionStartRotation = Quaternion.identity;
-    private float transitionStartPackAlpha = 1f;
+    private float transitionStartRotation;
+    private float transitionStartGhostAlpha = 1f;
     private float transitionStartFullAlpha;
-
-    private bool initialized;
 
     private void Awake()
     {
         ResolveReferences();
         CacheReflection();
+        EnsureTransitionCanvas();
         ResolveUi();
     }
 
@@ -104,21 +113,29 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     {
         ResolveReferences();
         CacheReflection();
+        EnsureTransitionCanvas();
         ResolveUi();
         nextResolveTime = 0f;
         initialized = false;
+        state = MorphState.Closed;
     }
 
     private void OnDisable()
     {
-        if (homePoseValid)
-            RestoreHomePose();
+        DestroyGhost();
+        RestoreMiniPackVisibility();
+    }
+
+    private void OnDestroy()
+    {
+        DestroyGhost();
     }
 
     private void Update()
     {
         ResolveReferences();
         CacheReflection();
+        EnsureTransitionCanvas();
 
         if (Time.unscaledTime >= nextResolveTime)
         {
@@ -170,6 +187,10 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
                 elapsed += Time.unscaledDeltaTime;
                 ApplyClosing(Mathf.Clamp01(elapsed / Mathf.Max(0.01f, closeDuration)));
                 break;
+
+            case MorphState.Closed:
+                MaintainClosedState();
+                break;
         }
     }
 
@@ -214,13 +235,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
                 boardRoot = FindChildRect(fullRoot, "GridBoard");
             }
         }
-
-        if (detailRoot == null)
-        {
-            detailRoot = FindRect("EquipmentDetailPanel");
-            if (detailRoot != null)
-                detailGroup = detailRoot.GetComponent<CanvasGroup>();
-        }
     }
 
     private bool IsInspectRequested(out bool isReward)
@@ -245,127 +259,201 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private void BeginOpening(bool isReward)
     {
         ResolveUi();
-        if (miniPackRoot == null || miniPackGroup == null || fullRoot == null || fullGroup == null || boardRoot == null)
+        EnsureTransitionCanvas();
+        if (!CanMorph())
             return;
 
         rewardMode = isReward;
 
-        // Closed 상태에서만 실제 HUD의 현재 위치를 home으로 저장합니다.
-        // Closing 중 다시 열리면 현재 transition pose에서 방향만 전환합니다.
-        if (state == MorphState.Closed || !homePoseValid)
+        if (state == MorphState.Closed || ghostRoot == null)
+        {
             CaptureHomePose();
+            CreateGhostFromPack();
+        }
 
-        transitionStartCenterWorld = GetMiniPackCenterWorld();
-        transitionStartScale = miniPackRoot.localScale;
-        transitionStartRotation = miniPackRoot.localRotation;
-        transitionStartPackAlpha = Mathf.Clamp01(miniPackGroup.alpha > 0.001f ? miniPackGroup.alpha : homeAlpha);
+        if (ghostRoot == null)
+            return;
+
+        transitionStartCenter = ghostRoot.anchoredPosition;
+        transitionStartScale = ghostRoot.localScale;
+        transitionStartRotation = NormalizeAngle(ghostRoot.localEulerAngles.z);
+        transitionStartGhostAlpha = ghostGroup != null ? ghostGroup.alpha : 1f;
         transitionStartFullAlpha = Mathf.Clamp01(fullGroup.alpha);
 
         elapsed = 0f;
         state = MorphState.Opening;
 
         fullRoot.gameObject.SetActive(true);
-        miniPackRoot.gameObject.SetActive(true);
-        miniPackGroup.alpha = transitionStartPackAlpha;
-        miniPackGroup.blocksRaycasts = false;
-        miniPackGroup.interactable = false;
         fullGroup.blocksRaycasts = false;
         fullGroup.interactable = false;
+
+        HideRealMiniPack();
     }
 
     private void BeginClosing()
     {
         ResolveUi();
-        if (miniPackRoot == null || miniPackGroup == null || fullRoot == null || fullGroup == null || boardRoot == null)
+        EnsureTransitionCanvas();
+        if (!CanMorph() || !homePoseValid)
             return;
 
-        // Open 완료 후 작은 PACK은 home 위치로 복구되어 투명해져 있습니다.
-        // 닫기 시작 시에는 GridBoard 위치에 다시 겹쳐 놓고 거기서 home으로 축소합니다.
-        if (state == MorphState.Open)
-        {
-            Vector3 boardCenter = GetBoardCenterWorld();
-            Vector3 targetScale = ComputeBoardCoverScale();
-            Quaternion targetRotation = ComputeBoardLocalRotation();
-            SetMiniPackVisualCenter(boardCenter, targetScale, targetRotation);
-            miniPackGroup.alpha = 0f;
-        }
+        if (ghostRoot == null)
+            CreateGhostAtBoardPose();
 
-        transitionStartCenterWorld = GetMiniPackCenterWorld();
-        transitionStartScale = miniPackRoot.localScale;
-        transitionStartRotation = miniPackRoot.localRotation;
-        transitionStartPackAlpha = miniPackGroup.alpha;
+        if (ghostRoot == null)
+            return;
+
+        transitionStartCenter = ghostRoot.anchoredPosition;
+        transitionStartScale = ghostRoot.localScale;
+        transitionStartRotation = NormalizeAngle(ghostRoot.localEulerAngles.z);
+        transitionStartGhostAlpha = ghostGroup != null ? ghostGroup.alpha : 0f;
         transitionStartFullAlpha = Mathf.Clamp01(fullGroup.alpha);
 
         elapsed = 0f;
         state = MorphState.Closing;
-        miniPackRoot.gameObject.SetActive(true);
-        miniPackGroup.blocksRaycasts = false;
-        miniPackGroup.interactable = false;
+
         fullGroup.blocksRaycasts = false;
         fullGroup.interactable = false;
+        HideRealMiniPack();
+    }
+
+    private bool CanMorph()
+    {
+        return miniPackRoot != null &&
+               miniPackGroup != null &&
+               fullRoot != null &&
+               fullGroup != null &&
+               boardRoot != null &&
+               transitionRoot != null;
     }
 
     private void CaptureHomePose()
     {
-        if (miniPackRoot == null)
+        if (miniPackRoot == null || transitionRoot == null)
+            return;
+
+        if (!TryGetRectInTransitionSpace(miniPackRoot, out Vector2 center, out Vector2 size))
             return;
 
         homePoseValid = true;
-        homeAnchoredPosition = miniPackRoot.anchoredPosition;
-        homeLocalScale = miniPackRoot.localScale;
-        homeLocalRotation = miniPackRoot.localRotation;
-        homeCenterWorld = GetMiniPackCenterWorld();
+        homeCenter = center;
+        homeSize = size;
+        homeRotation = GetScreenRotation(miniPackRoot);
         homeAlpha = miniPackGroup != null ? Mathf.Clamp01(miniPackGroup.alpha) : 1f;
+
+        Vector2 intrinsic = GetIntrinsicSize(miniPackRoot);
+        homeGhostScale = new Vector3(
+            size.x / Mathf.Max(1f, intrinsic.x),
+            size.y / Mathf.Max(1f, intrinsic.y),
+            1f);
     }
 
-    private void RestoreHomePose()
+    private void CreateGhostFromPack()
     {
-        if (!homePoseValid || miniPackRoot == null)
+        DestroyGhost();
+        if (!homePoseValid || miniPackRoot == null || transitionRoot == null)
             return;
 
-        miniPackRoot.anchoredPosition = homeAnchoredPosition;
-        miniPackRoot.localScale = homeLocalScale;
-        miniPackRoot.localRotation = homeLocalRotation;
+        GameObject clone = Instantiate(miniPackRoot.gameObject, transitionRoot, false);
+        clone.name = "BackpackMorphGhost";
+        ghostRoot = clone.GetComponent<RectTransform>();
+        if (ghostRoot == null)
+        {
+            Destroy(clone);
+            return;
+        }
+
+        PrepareGhostHierarchy(clone);
+        ghostGroup = clone.GetComponent<CanvasGroup>();
+        if (ghostGroup == null)
+            ghostGroup = clone.AddComponent<CanvasGroup>();
+        ghostGroup.alpha = Mathf.Max(0.01f, homeAlpha);
+        ghostGroup.blocksRaycasts = false;
+        ghostGroup.interactable = false;
+
+        ghostRoot.anchorMin = ghostRoot.anchorMax = new Vector2(0.5f, 0.5f);
+        ghostRoot.pivot = new Vector2(0.5f, 0.5f);
+        ghostRoot.anchoredPosition = homeCenter;
+        ghostRoot.localScale = homeGhostScale;
+        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, homeRotation);
+        ghostRoot.SetAsLastSibling();
+    }
+
+    private void CreateGhostAtBoardPose()
+    {
+        if (!homePoseValid)
+            CaptureHomePose();
+        CreateGhostFromPack();
+        if (ghostRoot == null)
+            return;
+
+        GetBoardPose(out Vector2 boardCenter, out Vector3 boardScale, out float boardRotation);
+        ghostRoot.anchoredPosition = boardCenter;
+        ghostRoot.localScale = boardScale;
+        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, boardRotation);
+        if (ghostGroup != null)
+            ghostGroup.alpha = 0f;
+    }
+
+    private void PrepareGhostHierarchy(GameObject clone)
+    {
+        Canvas[] nestedCanvases = clone.GetComponentsInChildren<Canvas>(true);
+        for (int i = 0; i < nestedCanvases.Length; i++)
+        {
+            Canvas nested = nestedCanvases[i];
+            if (nested == null)
+                continue;
+            nested.overrideSorting = false;
+        }
+
+        Graphic[] graphics = clone.GetComponentsInChildren<Graphic>(true);
+        for (int i = 0; i < graphics.Length; i++)
+            if (graphics[i] != null)
+                graphics[i].raycastTarget = false;
     }
 
     private void ApplyOpening(float p)
     {
         bool paused = BattlePauseController.IsPaused;
-        float move = EaseInOutCubic(p);
-        float scaleEase = EaseOutBack(p, backOvershoot);
-        float fullFade = SmoothRange(fullFadeStart, 0.90f, p);
-        float packFade = 1f - SmoothRange(packFadeStart, 0.94f, p);
+        GetBoardPose(out Vector2 boardCenter, out Vector3 boardScale, out float boardRotation);
 
-        Vector3 boardCenter = GetBoardCenterWorld();
-        Vector3 targetScale = ComputeBoardCoverScale();
-        Quaternion targetRotation = ComputeBoardLocalRotation();
+        float anticipationIn = SmoothRange(0f, 0.12f, p);
+        float anticipationOut = 1f - SmoothRange(0.12f, 0.28f, p);
+        float anticipation = anticipationIn * anticipationOut;
 
-        Vector3 center = Vector3.LerpUnclamped(transitionStartCenterWorld, boardCenter, move);
-        center += GetWorldUpOffset(Mathf.Sin(p * Mathf.PI) * arcHeight);
+        float travelP = SmoothRange(0.12f, 1f, p);
+        float move = EaseInOutCubic(travelP);
+        float scaleT = EaseOutBack(travelP, scaleOvershoot);
 
-        Vector3 scale = Vector3.LerpUnclamped(transitionStartScale, targetScale, scaleEase);
-        Quaternion rotation = Quaternion.SlerpUnclamped(transitionStartRotation, targetRotation, move);
-        float kick = Mathf.Sin(p * Mathf.PI) * rotationKickDegrees;
-        rotation *= Quaternion.Euler(0f, 0f, -kick);
+        Vector2 anticipationVector = new(-anticipationDistance, anticipationDistance * 0.26f);
+        Vector2 center = Vector2.LerpUnclamped(transitionStartCenter, boardCenter, move);
+        center += anticipationVector * anticipation;
+        center += Vector2.up * Mathf.Sin(travelP * Mathf.PI) * arcHeight;
 
-        SetMiniPackVisualCenter(center, scale, rotation);
-        miniPackGroup.alpha = Mathf.Clamp01(transitionStartPackAlpha * packFade);
-        miniPackGroup.blocksRaycasts = false;
-        miniPackGroup.interactable = false;
+        Vector3 anticipatedStartScale = Vector3.Scale(transitionStartScale, new Vector3(anticipationScale, anticipationScale, 1f));
+        Vector3 fromScale = Vector3.Lerp(transitionStartScale, anticipatedStartScale, anticipationIn * anticipationOut);
+        Vector3 scale = Vector3.LerpUnclamped(fromScale, boardScale, scaleT);
 
+        float rotation = Mathf.LerpAngle(transitionStartRotation, boardRotation, move);
+        rotation += Mathf.Sin(travelP * Mathf.PI) * -rotationKickDegrees;
+
+        SetGhostPose(center, scale, rotation);
+
+        float packFade = 1f - SmoothRange(packFadeStart, 0.96f, p);
+        if (ghostGroup != null)
+            ghostGroup.alpha = Mathf.Clamp01(transitionStartGhostAlpha * packFade);
+
+        float fullFade = SmoothRange(fullFadeStart, 0.92f, p);
         float finalScale = rewardMode ? rewardFullScale : combatFullScale;
-        float uiScale = Mathf.Lerp(fullUiStartScale, 1f, EaseOutCubic(p));
-        fullRoot.localScale = Vector3.one * finalScale * uiScale;
+        float fullScaleT = EaseOutBack(SmoothRange(0.10f, 1f, p), 1.03f);
+        float visualScale = Mathf.Lerp(fullUiStartScale, 1f, fullScaleT);
+
+        fullRoot.localScale = Vector3.one * finalScale * visualScale;
         fullGroup.alpha = Mathf.Max(transitionStartFullAlpha * (1f - fullFade), fullFade);
         fullGroup.blocksRaycasts = !paused && p >= raycastEnablePoint;
         fullGroup.interactable = !paused && p >= raycastEnablePoint;
 
-        if (detailGroup != null)
-        {
-            float desired = detailGroup.alpha;
-            float detailFade = SmoothRange(0.62f, 0.96f, p);
-            detailGroup.alpha = desired * detailFade;
-        }
+        HideRealMiniPack();
 
         if (p >= 1f)
             CompleteOpening();
@@ -375,14 +463,7 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     {
         state = MorphState.Open;
         elapsed = 0f;
-
-        RestoreHomePose();
-        if (miniPackGroup != null)
-        {
-            miniPackGroup.alpha = 0f;
-            miniPackGroup.blocksRaycasts = false;
-            miniPackGroup.interactable = false;
-        }
+        DestroyGhost();
 
         if (fullGroup != null)
         {
@@ -393,11 +474,13 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
 
         if (fullRoot != null)
             fullRoot.localScale = Vector3.one * (rewardMode ? rewardFullScale : combatFullScale);
+
+        HideRealMiniPack();
     }
 
     private void MaintainOpenState()
     {
-        if (fullGroup == null || fullRoot == null || miniPackGroup == null)
+        if (fullRoot == null || fullGroup == null || miniPackGroup == null)
             return;
 
         bool paused = BattlePauseController.IsPaused;
@@ -405,60 +488,45 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
         fullGroup.blocksRaycasts = !paused;
         fullGroup.interactable = !paused;
         fullRoot.localScale = Vector3.one * (rewardMode ? rewardFullScale : combatFullScale);
-
-        miniPackGroup.alpha = 0f;
-        miniPackGroup.blocksRaycasts = false;
-        miniPackGroup.interactable = false;
+        HideRealMiniPack();
     }
 
     private void ApplyClosing(float p)
     {
-        float move = EaseInOutCubic(p);
-        float fullFade = 1f - SmoothRange(0.04f, 0.72f, p);
-        float packFade = SmoothRange(0.16f, 0.58f, p);
+        bool paused = BattlePauseController.IsPaused;
 
-        Vector3 center = Vector3.LerpUnclamped(transitionStartCenterWorld, homeCenterWorld, move);
-        center += GetWorldUpOffset(Mathf.Sin(p * Mathf.PI) * arcHeight * 0.55f);
+        float travel = EaseInOutCubic(p);
+        float ghostFade = SmoothRange(0.04f, 0.28f, p) * (1f - SmoothRange(0.82f, 1f, p));
 
-        Vector3 scale = Vector3.LerpUnclamped(transitionStartScale, homeLocalScale, EaseInOutCubic(p));
-        Quaternion rotation = Quaternion.SlerpUnclamped(transitionStartRotation, homeLocalRotation, move);
-        float kick = Mathf.Sin(p * Mathf.PI) * rotationKickDegrees * 0.55f;
-        rotation *= Quaternion.Euler(0f, 0f, kick);
+        Vector2 center = Vector2.LerpUnclamped(transitionStartCenter, homeCenter, travel);
+        center += Vector2.up * Mathf.Sin(p * Mathf.PI) * arcHeight * 0.62f;
 
-        SetMiniPackVisualCenter(center, scale, rotation);
-        miniPackGroup.alpha = Mathf.Lerp(transitionStartPackAlpha, homeAlpha, packFade);
-        miniPackGroup.blocksRaycasts = false;
-        miniPackGroup.interactable = false;
+        Vector3 scale = Vector3.LerpUnclamped(transitionStartScale, homeGhostScale, EaseInOutCubic(p));
+        float rotation = Mathf.LerpAngle(transitionStartRotation, homeRotation, travel);
+        rotation += Mathf.Sin(p * Mathf.PI) * rotationKickDegrees * 0.58f;
 
+        SetGhostPose(center, scale, rotation);
+        if (ghostGroup != null)
+            ghostGroup.alpha = Mathf.Clamp01(Mathf.Max(transitionStartGhostAlpha, ghostFade));
+
+        float fullFade = 1f - SmoothRange(0.02f, 0.72f, p);
         float finalScale = rewardMode ? rewardFullScale : combatFullScale;
-        float uiScale = Mathf.Lerp(1f, fullUiStartScale, EaseInCubic(p));
-        fullRoot.localScale = Vector3.one * finalScale * uiScale;
-        fullGroup.alpha = transitionStartFullAlpha * fullFade;
+        fullGroup.alpha = Mathf.Clamp01(transitionStartFullAlpha * fullFade);
+        fullRoot.localScale = Vector3.one * finalScale * Mathf.Lerp(1f, fullUiStartScale, EaseInCubic(p));
         fullGroup.blocksRaycasts = false;
         fullGroup.interactable = false;
 
-        if (detailGroup != null)
-            detailGroup.alpha *= fullFade;
+        HideRealMiniPack();
 
         if (p >= 1f)
-            CompleteClosing();
+            CompleteClosing(paused);
     }
 
-    private void CompleteClosing()
+    private void CompleteClosing(bool paused)
     {
         state = MorphState.Closed;
         elapsed = 0f;
-
-        RestoreHomePose();
-        if (miniPackGroup != null)
-        {
-            miniPackGroup.alpha = homeAlpha;
-            bool interactive = !BattlePauseController.IsPaused &&
-                               runManager != null && runManager.RunActive &&
-                               (runManager.State == BattleRunState.Combat || runManager.State == BattleRunState.Reward);
-            miniPackGroup.blocksRaycasts = interactive;
-            miniPackGroup.interactable = interactive;
-        }
+        DestroyGhost();
 
         if (fullGroup != null)
         {
@@ -468,103 +536,226 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
         }
 
         if (fullRoot != null)
-            fullRoot.localScale = Vector3.one * (rewardMode ? rewardFullScale : combatFullScale);
+            fullRoot.localScale = Vector3.one * fullUiStartScale;
+
+        if (miniPackGroup != null)
+        {
+            miniPackGroup.alpha = homeAlpha > 0.01f ? homeAlpha : 1f;
+            miniPackGroup.blocksRaycasts = !paused;
+            miniPackGroup.interactable = !paused;
+        }
 
         homePoseValid = false;
     }
 
-    private Vector3 GetMiniPackCenterWorld()
+    private void MaintainClosedState()
     {
-        return miniPackRoot != null
-            ? miniPackRoot.TransformPoint(miniPackRoot.rect.center)
-            : Vector3.zero;
+        if (ghostRoot != null)
+            DestroyGhost();
     }
 
-    private Vector3 GetBoardCenterWorld()
+    private void HideRealMiniPack()
     {
-        return boardRoot != null
-            ? boardRoot.TransformPoint(boardRoot.rect.center)
-            : GetMiniPackCenterWorld();
-    }
-
-    private Vector3 ComputeBoardCoverScale()
-    {
-        if (miniPackRoot == null || boardRoot == null)
-            return homeLocalScale;
-
-        float miniWorldWidth = Mathf.Max(0.0001f, WorldRectWidth(miniPackRoot));
-        float miniWorldHeight = Mathf.Max(0.0001f, WorldRectHeight(miniPackRoot));
-        float localX = Mathf.Max(0.0001f, Mathf.Abs(miniPackRoot.localScale.x));
-        float localY = Mathf.Max(0.0001f, Mathf.Abs(miniPackRoot.localScale.y));
-
-        float unitWorldWidth = miniWorldWidth / localX;
-        float unitWorldHeight = miniWorldHeight / localY;
-        float boardWorldWidth = Mathf.Max(0.0001f, WorldRectWidth(boardRoot));
-        float boardWorldHeight = Mathf.Max(0.0001f, WorldRectHeight(boardRoot));
-
-        float targetX = boardWorldWidth * targetBoardCoverage / unitWorldWidth;
-        float targetY = boardWorldHeight * targetBoardCoverage / unitWorldHeight;
-        float uniform = Mathf.Max(0.01f, Mathf.Min(targetX, targetY));
-
-        float signX = homeLocalScale.x < 0f ? -1f : 1f;
-        float signY = homeLocalScale.y < 0f ? -1f : 1f;
-        return new Vector3(uniform * signX, uniform * signY, homeLocalScale.z);
-    }
-
-    private Quaternion ComputeBoardLocalRotation()
-    {
-        if (miniPackRoot == null || boardRoot == null || miniPackRoot.parent == null)
-            return homeLocalRotation;
-
-        return Quaternion.Inverse(miniPackRoot.parent.rotation) * boardRoot.rotation;
-    }
-
-    private void SetMiniPackVisualCenter(Vector3 centerWorld, Vector3 localScale, Quaternion localRotation)
-    {
-        if (miniPackRoot == null || miniPackRoot.parent == null)
+        if (miniPackGroup == null)
             return;
 
-        miniPackRoot.localScale = localScale;
-        miniPackRoot.localRotation = localRotation;
-
-        Vector3 localCenter = miniPackRoot.rect.center;
-        Vector3 scaledCenter = Vector3.Scale(localCenter, localScale);
-        Vector3 rotatedCenterInParent = localRotation * scaledCenter;
-        Vector3 worldOffset = miniPackRoot.parent.TransformVector(rotatedCenterInParent);
-        miniPackRoot.position = centerWorld - worldOffset;
+        miniPackGroup.alpha = 0f;
+        miniPackGroup.blocksRaycasts = false;
+        miniPackGroup.interactable = false;
     }
 
-    private Vector3 GetWorldUpOffset(float localAmount)
+    private void RestoreMiniPackVisibility()
     {
-        if (miniPackRoot == null || miniPackRoot.parent == null)
-            return Vector3.up * localAmount;
-        return miniPackRoot.parent.TransformVector(new Vector3(0f, localAmount, 0f));
+        if (miniPackGroup == null)
+            return;
+
+        miniPackGroup.alpha = homePoseValid && homeAlpha > 0.01f ? homeAlpha : 1f;
+        miniPackGroup.blocksRaycasts = !BattlePauseController.IsPaused;
+        miniPackGroup.interactable = !BattlePauseController.IsPaused;
     }
 
-    private static float WorldRectWidth(RectTransform rect)
+    private void GetBoardPose(out Vector2 center, out Vector3 scale, out float rotation)
+    {
+        center = Vector2.zero;
+        scale = Vector3.one;
+        rotation = 0f;
+
+        if (boardRoot == null || transitionRoot == null || ghostRoot == null)
+            return;
+
+        if (!TryGetRectInTransitionSpace(boardRoot, out center, out Vector2 boardSize))
+            return;
+
+        Vector2 intrinsic = GetIntrinsicSize(ghostRoot);
+        float cover = Mathf.Clamp(targetBoardCoverage, 0.82f, 1.02f);
+        scale = new Vector3(
+            boardSize.x * cover / Mathf.Max(1f, intrinsic.x),
+            boardSize.y * cover / Mathf.Max(1f, intrinsic.y),
+            1f);
+        rotation = GetScreenRotation(boardRoot);
+    }
+
+    private void SetGhostPose(Vector2 center, Vector3 scale, float rotation)
+    {
+        if (ghostRoot == null)
+            return;
+
+        ghostRoot.anchoredPosition = center;
+        ghostRoot.localScale = scale;
+        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, rotation);
+    }
+
+    private void EnsureTransitionCanvas()
+    {
+        if (transitionCanvas != null)
+            return;
+
+        GameObject canvasObject = new("BattleInventoryMorphCanvas");
+        canvasObject.transform.SetParent(transform, false);
+        transitionCanvas = canvasObject.AddComponent<Canvas>();
+        transitionCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        transitionCanvas.overrideSorting = true;
+        transitionCanvas.sortingOrder = TransitionSortingOrder;
+
+        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+
+        transitionRoot = CreateRect(canvasObject.transform, "MorphTransitionRoot", Vector2.zero);
+        Stretch(transitionRoot);
+        transitionRoot.anchorMin = transitionRoot.anchorMax = new Vector2(0.5f, 0.5f);
+        transitionRoot.pivot = new Vector2(0.5f, 0.5f);
+        transitionRoot.sizeDelta = new Vector2(1920f, 1080f);
+        transitionRoot.anchoredPosition = Vector2.zero;
+
+        CanvasGroup group = transitionRoot.gameObject.AddComponent<CanvasGroup>();
+        group.blocksRaycasts = false;
+        group.interactable = false;
+    }
+
+    private bool TryGetRectInTransitionSpace(RectTransform source, out Vector2 center, out Vector2 size)
+    {
+        center = Vector2.zero;
+        size = Vector2.zero;
+        if (source == null || transitionRoot == null)
+            return false;
+
+        Vector3[] corners = new Vector3[4];
+        source.GetWorldCorners(corners);
+
+        Canvas sourceCanvas = source.GetComponentInParent<Canvas>();
+        Camera camera = sourceCanvas != null && sourceCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+            ? sourceCanvas.worldCamera
+            : null;
+
+        Vector2[] local = new Vector2[4];
+        for (int i = 0; i < 4; i++)
+        {
+            Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, corners[i]);
+            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(transitionRoot, screen, null, out local[i]))
+                return false;
+        }
+
+        Vector2 min = local[0];
+        Vector2 max = local[0];
+        for (int i = 1; i < 4; i++)
+        {
+            min = Vector2.Min(min, local[i]);
+            max = Vector2.Max(max, local[i]);
+        }
+
+        center = (min + max) * 0.5f;
+        size = new Vector2(Mathf.Max(1f, max.x - min.x), Mathf.Max(1f, max.y - min.y));
+        return true;
+    }
+
+    private static Vector2 GetIntrinsicSize(RectTransform rect)
+    {
+        if (rect == null)
+            return Vector2.one;
+
+        Vector2 size = rect.rect.size;
+        if (size.x < 1f || size.y < 1f)
+            size = rect.sizeDelta;
+        return new Vector2(Mathf.Max(1f, size.x), Mathf.Max(1f, size.y));
+    }
+
+    private static float GetScreenRotation(RectTransform rect)
     {
         if (rect == null)
             return 0f;
-        Vector3 left = rect.TransformPoint(new Vector3(rect.rect.xMin, rect.rect.center.y, 0f));
-        Vector3 right = rect.TransformPoint(new Vector3(rect.rect.xMax, rect.rect.center.y, 0f));
-        return Vector3.Distance(left, right);
+        return NormalizeAngle(rect.eulerAngles.z);
     }
 
-    private static float WorldRectHeight(RectTransform rect)
+    private void DestroyGhost()
     {
-        if (rect == null)
-            return 0f;
-        Vector3 bottom = rect.TransformPoint(new Vector3(rect.rect.center.x, rect.rect.yMin, 0f));
-        Vector3 top = rect.TransformPoint(new Vector3(rect.rect.center.x, rect.rect.yMax, 0f));
-        return Vector3.Distance(bottom, top);
+        if (ghostRoot != null)
+            Destroy(ghostRoot.gameObject);
+        ghostRoot = null;
+        ghostGroup = null;
+    }
+
+    private static bool ReadBool(FieldInfo field, object owner)
+    {
+        if (field == null || owner == null)
+            return false;
+        object raw = field.GetValue(owner);
+        return raw is bool value && value;
+    }
+
+    private static RectTransform FindRect(string objectName)
+    {
+        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < all.Length; i++)
+        {
+            RectTransform rect = all[i];
+            if (rect != null && rect.name == objectName)
+                return rect;
+        }
+        return null;
+    }
+
+    private static RectTransform FindChildRect(RectTransform root, string objectName)
+    {
+        if (root == null)
+            return null;
+
+        RectTransform[] all = root.GetComponentsInChildren<RectTransform>(true);
+        for (int i = 0; i < all.Length; i++)
+        {
+            RectTransform rect = all[i];
+            if (rect != null && rect.name == objectName)
+                return rect;
+        }
+        return null;
+    }
+
+    private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
+    {
+        GameObject go = new(name);
+        go.transform.SetParent(parent, false);
+        RectTransform rect = go.AddComponent<RectTransform>();
+        rect.sizeDelta = size;
+        return rect;
+    }
+
+    private static void Stretch(RectTransform rect)
+    {
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 
     private static float SmoothRange(float start, float end, float value)
     {
-        if (end <= start + 0.0001f)
+        if (Mathf.Approximately(start, end))
             return value >= end ? 1f : 0f;
-        float t = Mathf.Clamp01((value - start) / (end - start));
-        return t * t * (3f - 2f * t);
+        return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(start, end, value));
     }
 
     private static float EaseInOutCubic(float t)
@@ -575,59 +766,27 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
             : 1f - Mathf.Pow(-2f * t + 2f, 3f) * 0.5f;
     }
 
-    private static float EaseOutCubic(float t)
-    {
-        t = Mathf.Clamp01(t);
-        float u = 1f - t;
-        return 1f - u * u * u;
-    }
-
     private static float EaseInCubic(float t)
     {
         t = Mathf.Clamp01(t);
         return t * t * t;
     }
 
-    private static float EaseOutBack(float t, float strength)
+    private static float EaseOutBack(float t, float overshoot)
     {
         t = Mathf.Clamp01(t);
-        float c1 = 1.70158f * Mathf.Max(0.01f, strength);
+        float c1 = Mathf.Max(0.01f, overshoot);
         float c3 = c1 + 1f;
-        float u = t - 1f;
-        return 1f + c3 * u * u * u + c1 * u * u;
+        float x = t - 1f;
+        return 1f + c3 * x * x * x + c1 * x * x;
     }
 
-    private static bool ReadBool(FieldInfo field, object owner)
+    private static float NormalizeAngle(float angle)
     {
-        if (field == null || owner == null)
-            return false;
-        object value = field.GetValue(owner);
-        return value is bool result && result;
-    }
-
-    private static RectTransform FindRect(string objectName)
-    {
-        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect != null && rect.name == objectName)
-                return rect;
-        }
-        return null;
-    }
-
-    private static RectTransform FindChildRect(RectTransform root, string name)
-    {
-        if (root == null)
-            return null;
-        RectTransform[] all = root.GetComponentsInChildren<RectTransform>(true);
-        for (int i = 0; i < all.Length; i++)
-            if (all[i] != null && all[i].name == name)
-                return all[i];
-        return null;
+        angle %= 360f;
+        if (angle > 180f) angle -= 360f;
+        if (angle < -180f) angle += 360f;
+        return angle;
     }
 }
 
