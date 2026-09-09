@@ -5,6 +5,11 @@ using UnityEngine.UI;
 /// <summary>
 /// Combat-only screen-space corner darkening.
 ///
+/// This component is authored on the BattleSystems GameObject so its tuning values stay
+/// visible and editable in the BattleScene Inspector before Play Mode. If another battle
+/// scene is missing the component, the runtime fallback attaches it to that scene's
+/// BattleSystems root instead of creating a separate presentation GameObject.
+///
 /// Unlike URP's circular Vignette, this overlay keeps the center almost untouched,
 /// applies only a small amount of edge falloff, and deepens the four corners more strongly.
 /// It sits below Battle HUD / Show Focus canvases, so it grades the battle image without
@@ -15,6 +20,7 @@ using UnityEngine.UI;
 public sealed class BattleCombatCornerVignetteController : MonoBehaviour
 {
     private const string ShaderName = "UI/BattleCombatCornerVignette";
+    private const string BattleSystemsName = "BattleSystems";
     private const int OverlaySortingOrder = 420;
 
     private static BattleCombatCornerVignetteController instance;
@@ -24,16 +30,17 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
 
     [Header("Corner Vignette")]
     [SerializeField] private Color vignetteColor = Color.black;
+    [Tooltip("전체 코너/엣지 비네팅 강도입니다. 0이면 효과가 완전히 꺼집니다.")]
     [SerializeField, Range(0f, 1f)] private float overallStrength = 1f;
     [Tooltip("화면 변 중앙부까지 아주 약하게 먹는 암부입니다. 너무 높이면 일반 비네팅처럼 보입니다.")]
     [SerializeField, Range(0f, 0.25f)] private float edgeDarkness = 0.045f;
     [Tooltip("네 귀퉁이에 추가되는 주 암부입니다.")]
     [SerializeField, Range(0f, 0.5f)] private float cornerDarkness = 0.22f;
-    [Tooltip("좌우 끝에서 안쪽으로 암부가 퍼지는 범위입니다.")]
+    [Tooltip("좌우 끝에서 안쪽으로 암부가 퍼지는 범위입니다. 높을수록 중앙 쪽으로 넓게 퍼집니다.")]
     [SerializeField, Range(0.05f, 0.6f)] private float horizontalFalloff = 0.25f;
-    [Tooltip("상하 끝에서 안쪽으로 암부가 퍼지는 범위입니다. 16:9 화면에서는 가로보다 조금 넓게 잡는 편이 자연스럽습니다.")]
+    [Tooltip("상하 끝에서 안쪽으로 암부가 퍼지는 범위입니다. 높을수록 중앙 쪽으로 넓게 퍼집니다.")]
     [SerializeField, Range(0.05f, 0.6f)] private float verticalFalloff = 0.31f;
-    [Tooltip("값이 낮을수록 코너 암부가 넓고 부드럽게 퍼집니다.")]
+    [Tooltip("값이 낮을수록 코너 암부가 넓고 부드럽게 퍼지고, 높을수록 모서리에 집중됩니다.")]
     [SerializeField, Range(0.25f, 4f)] private float cornerPower = 0.78f;
 
     [Header("Blend")]
@@ -60,25 +67,55 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
             return;
 
         bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
-        if (!battleScene)
-        {
-            BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
-            battleScene = manager != null && manager.gameObject.scene == scene;
-        }
+        BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
 
-        if (!battleScene || Object.FindFirstObjectByType<BattleCombatCornerVignetteController>() != null)
+        if (!battleScene)
+            battleScene = manager != null && manager.gameObject.scene == scene;
+
+        if (!battleScene)
             return;
 
-        GameObject host = new("BattleCombatCornerVignetteRuntime");
-        SceneManager.MoveGameObjectToScene(host, scene);
-        host.AddComponent<BattleCombatCornerVignetteController>();
+        BattleCombatCornerVignetteController existing =
+            Object.FindFirstObjectByType<BattleCombatCornerVignetteController>();
+        if (existing != null && existing.gameObject.scene == scene)
+            return;
+
+        GameObject host = FindBattleSystemsRoot(scene);
+
+        if (host == null && manager != null && manager.gameObject.scene == scene)
+            host = manager.gameObject;
+
+        if (host == null)
+        {
+            host = new GameObject(BattleSystemsName);
+            SceneManager.MoveGameObjectToScene(host, scene);
+        }
+
+        if (host.GetComponent<BattleCombatCornerVignetteController>() == null)
+            host.AddComponent<BattleCombatCornerVignetteController>();
+    }
+
+    private static GameObject FindBattleSystemsRoot(Scene scene)
+    {
+        if (!scene.IsValid() || !scene.isLoaded)
+            return null;
+
+        GameObject[] roots = scene.GetRootGameObjects();
+        for (int i = 0; i < roots.Length; i++)
+        {
+            GameObject root = roots[i];
+            if (root != null && root.name == BattleSystemsName)
+                return root;
+        }
+
+        return null;
     }
 
     private void Awake()
     {
         if (instance != null && instance != this)
         {
-            Destroy(gameObject);
+            Destroy(this);
             return;
         }
 
@@ -130,7 +167,11 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
     private void ResolveReferences()
     {
         if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
+        {
+            runManager = GetComponent<BattleRunManager>();
+            if (runManager == null)
+                runManager = FindFirstObjectByType<BattleRunManager>();
+        }
     }
 
     private bool IsCombat()
