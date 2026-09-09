@@ -9,7 +9,8 @@ using UnityEngine.UI;
 /// 입력:
 /// - Tab / Gamepad LB 짧게 탭: 다음 Manual Weapon으로 즉시 순환
 /// - Tab / LB 홀드: Bullet Time + 3x3 Grid 오픈
-/// - WASD / Arrow / Left Stick: Grid 이동
+/// - WASD / Arrow: GetKeyDown 1회 입력으로 Grid 이동
+/// - Left Stick: 독립 Repeat 입력으로 Grid 이동
 /// - Tab / LB 릴리즈: 선택한 Manual Weapon 장착
 ///
 /// 시각 방향은 특정 게임의 Asset을 복제하지 않고,
@@ -308,34 +309,65 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         int dx = 0;
         int dy = 0;
 
+        // Keyboard UI navigation is strictly edge-triggered. GetAxisRaw also contains
+        // keyboard Horizontal/Vertical, so letting the stick path read while WASD is held
+        // made one D press repeat like a held gamepad stick.
         if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) dx = -1;
         else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) dx = 1;
         else if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) dy = -1;
         else if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) dy = 1;
 
+        if (dx != 0 || dy != 0)
+        {
+            ResetStickNavigation();
+            MoveSelection(dx, dy);
+            return;
+        }
+
+        // As long as a keyboard direction remains held, completely suppress the legacy
+        // Horizontal/Vertical axis path. This keeps WASD/arrow input at exactly one move
+        // per GetKeyDown while preserving repeat behaviour for an actual analog stick.
+        if (IsKeyboardNavigationHeld())
+        {
+            ResetStickNavigation();
+            return;
+        }
+
         Vector2 stick = new(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
         bool stickActive = Mathf.Abs(stick.x) >= stickThreshold || Mathf.Abs(stick.y) >= stickThreshold;
-        if (dx == 0 && dy == 0 && stickActive && Time.unscaledTime >= nextStickRepeat)
+        if (!stickActive)
         {
-            if (Mathf.Abs(stick.x) >= Mathf.Abs(stick.y))
-                dx = stick.x >= 0f ? 1 : -1;
-            else
-                dy = stick.y >= 0f ? -1 : 1;
-
-            bool newDirection = Vector2.Dot(stick.normalized, lastStickDirection) < 0.8f;
-            nextStickRepeat = Time.unscaledTime + (newDirection ? 0.06f : Mathf.Max(0.05f, stickRepeatDelay));
-            lastStickDirection = stick.normalized;
-        }
-        else if (!stickActive)
-        {
-            lastStickDirection = Vector2.zero;
-            nextStickRepeat = 0f;
+            ResetStickNavigation();
+            return;
         }
 
-        if (dx == 0 && dy == 0)
+        if (Time.unscaledTime < nextStickRepeat)
             return;
 
+        if (Mathf.Abs(stick.x) >= Mathf.Abs(stick.y))
+            dx = stick.x >= 0f ? 1 : -1;
+        else
+            dy = stick.y >= 0f ? -1 : 1;
+
+        bool newDirection = lastStickDirection.sqrMagnitude <= 0.001f ||
+                            Vector2.Dot(stick.normalized, lastStickDirection) < 0.8f;
+        nextStickRepeat = Time.unscaledTime + (newDirection ? 0.06f : Mathf.Max(0.05f, stickRepeatDelay));
+        lastStickDirection = stick.normalized;
         MoveSelection(dx, dy);
+    }
+
+    private static bool IsKeyboardNavigationHeld()
+    {
+        return Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.D) ||
+               Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.S) ||
+               Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) ||
+               Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow);
+    }
+
+    private void ResetStickNavigation()
+    {
+        lastStickDirection = Vector2.zero;
+        nextStickRepeat = 0f;
     }
 
     private void MoveSelection(int dx, int dy)
