@@ -6,11 +6,11 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// BattleShowPresentationManager가 BattleSystems에서 빠지는 것을 방지하는 설치 보조기입니다.
+/// BattleShowPresentationManager / BattleShowSetDecorationController가 BattleSystems에서 빠지는 것을 방지하는 설치 보조기입니다.
 ///
 /// Editor:
 /// - BattleSceneManager가 존재하는 로드된 씬을 감시합니다.
-/// - 같은 GameObject(BattleSystems)에 BattleShowPresentationManager가 없으면 자동으로 추가합니다.
+/// - 같은 GameObject(BattleSystems)에 필요한 Show 컴포넌트가 없으면 자동으로 추가합니다.
 /// - 추가된 컴포넌트가 씬에 저장될 수 있도록 Scene을 Dirty 처리합니다.
 ///
 /// Runtime:
@@ -57,10 +57,22 @@ public static class BattleShowPresentationAutoInstaller
                 continue;
             }
 
-            if (manager.GetComponent<BattleShowPresentationManager>() != null)
+            bool changed = false;
+            if (manager.GetComponent<BattleShowPresentationManager>() == null)
+            {
+                Undo.AddComponent<BattleShowPresentationManager>(manager.gameObject);
+                changed = true;
+            }
+
+            if (manager.GetComponent<BattleShowSetDecorationController>() == null)
+            {
+                Undo.AddComponent<BattleShowSetDecorationController>(manager.gameObject);
+                changed = true;
+            }
+
+            if (!changed)
                 continue;
 
-            Undo.AddComponent<BattleShowPresentationManager>(manager.gameObject);
             EditorUtility.SetDirty(manager.gameObject);
             EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
         }
@@ -77,10 +89,14 @@ public static class BattleShowPresentationAutoInstaller
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager == null || manager.GetComponent<BattleShowPresentationManager>() != null)
+            if (manager == null)
                 continue;
 
-            manager.gameObject.AddComponent<BattleShowPresentationManager>();
+            if (manager.GetComponent<BattleShowPresentationManager>() == null)
+                manager.gameObject.AddComponent<BattleShowPresentationManager>();
+
+            if (manager.GetComponent<BattleShowSetDecorationController>() == null)
+                manager.gameObject.AddComponent<BattleShowSetDecorationController>();
         }
     }
 }
