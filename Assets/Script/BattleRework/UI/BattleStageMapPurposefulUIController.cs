@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Generic;
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -11,22 +9,19 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// Stage Map의 연출을 "항상 화려한 UI"가 아니라 "결정해야 하는 곳만 강하게" 보이도록 정리합니다.
+/// Stage Map UI를 정돈하고, 실제 선택 지점만 강하게 강조합니다.
 ///
-/// - Reward 테마가 공용 TV Frame에 남긴 기울기/강한 장식을 Map에서 중화합니다.
-/// - MapSelectionContent를 TV 전체 Safe Area로 확장하고 Map 전용 Mask/RectMask를 해제해 가장자리 잘림을 줄입니다.
-/// - WorldSpace Canvas / CanvasGroup의 Raycast 상태를 보강합니다.
-/// - 선택 가능한 StageNode는 표시 크기와 별개로 넓은 투명 Pointer Hit Area를 가집니다.
-/// - 평상시 Path/Node는 절제하고, Hover/선택 가능한 Node에서만 Yellow/Pink Accent가 강해집니다.
-/// - Map 상태 동안 기존 Show Focus를 조금 더 강하게 하여 실제 화면으로 시선을 모읍니다.
-///
-/// 기존 NodeGraphSO, Scene, Sprite, Reward 데이터는 수정하지 않습니다.
+/// - Reward 쪽 장식이 공용 TV Frame에 남아도 Map에서는 정렬/톤을 다시 잡습니다.
+/// - MapSelectionContent를 TV Safe Area 전체로 확장합니다.
+/// - Map 전용 Mask/RectMask를 잠시 풀어 가장자리 노드 잘림을 줄입니다.
+/// - 작은 노드 비주얼은 유지하면서 더 큰 투명 Pointer Hit Area를 사용합니다.
+/// - World Space Canvas의 GraphicRaycaster / worldCamera / CanvasGroup 입력 상태를 보강합니다.
+/// - 항상 화려한 장식 대신 selectable/current/hover 상태에만 강한 Accent를 사용합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32580)]
 public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private const string SharedFrameName = "PrizeSelectionScreen";
     private const string ScreenInnerName = "ScreenInner";
     private const string ViewportName = "ShowContentViewport";
@@ -39,7 +34,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
-    [SerializeField] private BattleShowFocusController showFocus;
 
     [Header("Purposeful Map Theme")]
     [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.040f, 0.995f);
@@ -49,19 +43,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.48f, 1f);
     [SerializeField] private Color accentCyan = new(0.16f, 0.86f, 0.92f, 1f);
-    [SerializeField, Min(56f)] private float pointerHitSize = 92f;
-    [SerializeField, Min(28f)] private float selectableNodeSize = 52f;
-    [SerializeField, Min(28f)] private float eliteNodeSize = 58f;
+    [SerializeField, Min(56f)] private float pointerHitSize = 96f;
+    [SerializeField, Min(28f)] private float selectableNodeSize = 54f;
+    [SerializeField, Min(28f)] private float eliteNodeSize = 60f;
     [SerializeField, Min(0.02f)] private float refreshInterval = 0.08f;
-
-    [Header("Map Screen Focus")]
-    [SerializeField, Range(0f, 1f)] private float mapNearDimAlpha = 0.72f;
-    [SerializeField, Range(0f, 1f)] private float mapFarDimAlpha = 0.985f;
-    [SerializeField, Range(0.05f, 1.5f)] private float mapDimFalloffRadius = 0.50f;
-    [SerializeField, Range(0f, 1f)] private float openingMapNearDimAlpha = 0.58f;
-    [SerializeField, Range(0f, 1f)] private float openingMapFarDimAlpha = 0.955f;
-    [SerializeField, Range(0.05f, 1.5f)] private float openingMapDimFalloffRadius = 0.60f;
-    [SerializeField, Range(0f, 0.05f)] private float mapScreenFocusPadding = 0.012f;
 
     private RectTransform sharedFrame;
     private RectTransform screenInner;
@@ -72,59 +57,20 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private CanvasGroup tvGroup;
     private Canvas tvCanvas;
 
-    private float nextRefresh;
     private bool wasMapActive;
-    private bool focusValuesCaptured;
-    private FocusValues originalFocusValues;
+    private float nextRefresh;
 
-    private bool frameVisualCaptured;
-    private FrameVisualState originalFrameVisual;
-    private readonly Dictionary<GameObject, bool> rewardAccentStates = new();
+    private bool frameStateCaptured;
+    private Quaternion originalFrameRotation;
+    private Color originalFrameColor;
+    private Color originalFrameOutlineColor;
+    private Vector2 originalFrameOutlineDistance;
+    private Color originalInnerColor;
+    private Color originalInnerOutlineColor;
+    private Vector2 originalInnerOutlineDistance;
+
     private readonly Dictionary<Behaviour, bool> clippingStates = new();
-
-    private readonly struct FocusValues
-    {
-        public readonly float near;
-        public readonly float far;
-        public readonly float radius;
-        public readonly float openingNear;
-        public readonly float openingFar;
-        public readonly float openingRadius;
-        public readonly float padding;
-
-        public FocusValues(
-            float near,
-            float far,
-            float radius,
-            float openingNear,
-            float openingFar,
-            float openingRadius,
-            float padding)
-        {
-            this.near = near;
-            this.far = far;
-            this.radius = radius;
-            this.openingNear = openingNear;
-            this.openingFar = openingFar;
-            this.openingRadius = openingRadius;
-            this.padding = padding;
-        }
-    }
-
-    private struct FrameVisualState
-    {
-        public Quaternion rotation;
-        public Color frameColor;
-        public bool hasFrameImage;
-        public Color frameOutlineColor;
-        public Vector2 frameOutlineDistance;
-        public bool hasFrameOutline;
-        public Color innerColor;
-        public bool hasInnerImage;
-        public Color innerOutlineColor;
-        public Vector2 innerOutlineDistance;
-        public bool hasInnerOutline;
-    }
+    private readonly Dictionary<GameObject, bool> rewardAccentStates = new();
 
     private void Awake()
     {
@@ -160,23 +106,21 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             return;
         }
 
+        ResolveUi();
+
         if (!wasMapActive)
         {
-            ResolveUi();
-            CaptureFrameVisual();
-            CaptureFocusValues();
+            CaptureFrameState();
             wasMapActive = true;
         }
 
-        ApplyFocusedMapSettings();
+        ApplyMapFrame();
         MaintainInteraction();
 
         if (Time.unscaledTime < nextRefresh)
             return;
 
         nextRefresh = Time.unscaledTime + Mathf.Max(0.02f, refreshInterval);
-        ResolveUi();
-        ApplyMapFrame();
         ApplyMapHierarchy();
     }
 
@@ -185,22 +129,23 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (!IsMapActive())
             return;
 
-        // Reward Theme / Shared TV가 같은 프레임을 늦게 다시 만져도 Map 정책이 최종 상태가 되게 합니다.
+        // Reward Theme / Shared TV가 같은 Frame을 늦게 다시 만져도 Map 정책이 마지막에 적용되게 합니다.
+        ResolveUi();
         ApplyMapFrame();
         MaintainInteraction();
     }
 
     private bool IsMapActive()
     {
-        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.SelectingNode;
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.SelectingNode;
     }
 
     private void ResolveReferences()
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (showFocus == null)
-            showFocus = FindFirstObjectByType<BattleShowFocusController>();
     }
 
     private void ResolveUi()
@@ -234,36 +179,38 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         }
     }
 
-    private void CaptureFrameVisual()
+    private void CaptureFrameState()
     {
-        if (frameVisualCaptured || sharedFrame == null)
+        if (frameStateCaptured || sharedFrame == null)
             return;
+
+        originalFrameRotation = sharedFrame.localRotation;
 
         Image frameImage = sharedFrame.GetComponent<Image>();
         Outline frameOutline = sharedFrame.GetComponent<Outline>();
         Image innerImage = screenInner != null ? screenInner.GetComponent<Image>() : null;
         Outline innerOutline = screenInner != null ? screenInner.GetComponent<Outline>() : null;
 
-        originalFrameVisual = new FrameVisualState
+        if (frameImage != null)
+            originalFrameColor = frameImage.color;
+        if (frameOutline != null)
         {
-            rotation = sharedFrame.localRotation,
-            frameColor = frameImage != null ? frameImage.color : Color.white,
-            hasFrameImage = frameImage != null,
-            frameOutlineColor = frameOutline != null ? frameOutline.effectColor : Color.white,
-            frameOutlineDistance = frameOutline != null ? frameOutline.effectDistance : Vector2.zero,
-            hasFrameOutline = frameOutline != null,
-            innerColor = innerImage != null ? innerImage.color : Color.white,
-            hasInnerImage = innerImage != null,
-            innerOutlineColor = innerOutline != null ? innerOutline.effectColor : Color.white,
-            innerOutlineDistance = innerOutline != null ? innerOutline.effectDistance : Vector2.zero,
-            hasInnerOutline = innerOutline != null
-        };
-        frameVisualCaptured = true;
+            originalFrameOutlineColor = frameOutline.effectColor;
+            originalFrameOutlineDistance = frameOutline.effectDistance;
+        }
+        if (innerImage != null)
+            originalInnerColor = innerImage.color;
+        if (innerOutline != null)
+        {
+            originalInnerOutlineColor = innerOutline.effectColor;
+            originalInnerOutlineDistance = innerOutline.effectDistance;
+        }
+
+        frameStateCaptured = true;
     }
 
     private void ApplyMapFrame()
     {
-        ResolveUi();
         if (sharedFrame == null)
             return;
 
@@ -276,7 +223,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         Outline frameOutline = sharedFrame.GetComponent<Outline>();
         if (frameOutline != null)
         {
-            frameOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.42f);
+            frameOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.34f);
             frameOutline.effectDistance = new Vector2(2f, -2f);
         }
 
@@ -289,15 +236,13 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             Outline innerOutline = screenInner.GetComponent<Outline>();
             if (innerOutline != null)
             {
-                innerOutline.effectColor = new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.20f);
+                innerOutline.effectColor = new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.16f);
                 innerOutline.effectDistance = new Vector2(1f, -1f);
             }
         }
 
         if (mapContent != null)
         {
-            // 기존 2.5~6% Inset을 없애 실제 TV 화면을 Safe Area로 전부 사용합니다.
-            // SpatialMap의 기존 Node 좌표는 중앙 기준이라 그대로 유지되며 가장자리 여유만 늘어납니다.
             mapContent.anchorMin = Vector2.zero;
             mapContent.anchorMax = Vector2.one;
             mapContent.offsetMin = Vector2.zero;
@@ -313,8 +258,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private void MaintainInteraction()
     {
-        ResolveUi();
-
         if (viewportGroup != null)
         {
             viewportGroup.interactable = true;
@@ -324,8 +267,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (mapGroup != null)
         {
             mapGroup.interactable = true;
-            // Reveal/확정 Routine이 직접 false로 잠그는 경우를 존중하기 위해 Alpha가 충분할 때만 보강합니다.
-            if (mapGroup.alpha >= 0.80f)
+            if (mapGroup.alpha >= 0.75f)
                 mapGroup.blocksRaycasts = true;
         }
 
@@ -339,6 +281,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         {
             if (tvCanvas.renderMode == RenderMode.WorldSpace && tvCanvas.worldCamera != Camera.main)
                 tvCanvas.worldCamera = Camera.main;
+
             if (tvCanvas.GetComponent<GraphicRaycaster>() == null)
                 tvCanvas.gameObject.AddComponent<GraphicRaycaster>();
         }
@@ -376,7 +319,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 continue;
             }
 
-            if (rect.name.StartsWith("StageNode_", StringComparison.Ordinal))
+            if (rect.name.StartsWith("StageNode_", System.StringComparison.Ordinal))
                 StyleNode(rect);
         }
 
@@ -394,14 +337,14 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.text = opening ? "FIRST STAGE" : "NEXT STAGE";
         text.alignment = TextAnchor.MiddleLeft;
         text.fontStyle = FontStyle.Bold;
-        text.fontSize = 25;
+        text.fontSize = 24;
         text.color = paperColor;
 
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(0f, 1f);
         rect.anchoredPosition = new Vector2(42f, -16f);
-        rect.sizeDelta = new Vector2(-84f, 38f);
+        rect.sizeDelta = new Vector2(-84f, 36f);
         rect.localRotation = Quaternion.identity;
     }
 
@@ -422,8 +365,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = new Vector2(1f, 1f);
         rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(42f, -50f);
-        rect.sizeDelta = new Vector2(-84f, 22f);
+        rect.anchoredPosition = new Vector2(42f, -48f);
+        rect.sizeDelta = new Vector2(-84f, 20f);
         rect.localRotation = Quaternion.identity;
     }
 
@@ -431,7 +374,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     {
         Image image = rect.GetComponent<Image>();
         if (image != null)
-            image.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.22f);
+            image.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.20f);
 
         Vector2 size = rect.sizeDelta;
         size.y = 3f;
@@ -448,9 +391,12 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             return;
 
         bool selectable = button != null;
-        bool elite = label != null && (label.text ?? string.Empty).IndexOf("ELITE", StringComparison.OrdinalIgnoreCase) >= 0;
-        bool current = runManager != null && runManager.CurrentNode != null &&
+        bool elite = label != null &&
+                     (label.text ?? string.Empty).IndexOf("ELITE", System.StringComparison.OrdinalIgnoreCase) >= 0;
+        bool current = runManager != null &&
+                       runManager.CurrentNode != null &&
                        rect.name == $"StageNode_{runManager.CurrentNode.id}";
+
         Color accent = elite ? accentPink : accentYellow;
 
         if (selectable)
@@ -464,8 +410,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
             if (label != null)
             {
-                string type = ExtractNodeType(label.text);
-                label.text = type;
+                label.text = ExtractNodeType(label.text);
                 label.fontStyle = FontStyle.Bold;
                 label.fontSize = 10;
                 label.color = paperColor;
@@ -475,9 +420,14 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         }
         else if (current)
         {
-            image.color = new Color(accentCyan.r * 0.30f, accentCyan.g * 0.30f, accentCyan.b * 0.30f, 1f);
+            image.color = new Color(
+                accentCyan.r * 0.28f,
+                accentCyan.g * 0.28f,
+                accentCyan.b * 0.28f,
+                1f);
             outline.effectColor = accentCyan;
             outline.effectDistance = new Vector2(3f, -3f);
+
             if (label != null)
             {
                 label.text = ExtractNodeType(label.text);
@@ -491,6 +441,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             image.color = new Color(0.10f, 0.105f, 0.13f, 0.92f);
             outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
             outline.effectDistance = new Vector2(1f, -1f);
+
             if (label != null)
             {
                 label.text = ExtractNodeType(label.text);
@@ -511,6 +462,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         Transform existing = node.Find(PointerHitAreaName);
         RectTransform hitRect;
         Image hitImage;
+
         if (existing is RectTransform existingRect)
         {
             hitRect = existingRect;
@@ -520,13 +472,15 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         {
             GameObject hit = new(PointerHitAreaName);
             hit.transform.SetParent(node, false);
+
             hitRect = hit.AddComponent<RectTransform>();
-            hitImage = hit.AddComponent<Image>();
-            hitImage.color = new Color(1f, 1f, 1f, 0.001f);
-            hitImage.raycastTarget = true;
             hitRect.anchorMin = hitRect.anchorMax = new Vector2(0.5f, 0.5f);
             hitRect.pivot = new Vector2(0.5f, 0.5f);
             hitRect.anchoredPosition = Vector2.zero;
+
+            hitImage = hit.AddComponent<Image>();
+            hitImage.color = new Color(1f, 1f, 1f, 0.001f);
+            hitImage.raycastTarget = true;
             hit.transform.SetAsLastSibling();
         }
 
@@ -534,10 +488,18 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (hitImage != null)
             hitImage.raycastTarget = true;
 
-        BattleStageMapNodePointerFeedback feedback = hitRect.GetComponent<BattleStageMapNodePointerFeedback>();
+        BattleStageMapNodePointerFeedback feedback =
+            hitRect.GetComponent<BattleStageMapNodePointerFeedback>();
         if (feedback == null)
             feedback = hitRect.gameObject.AddComponent<BattleStageMapNodePointerFeedback>();
-        feedback.Configure(nodeImage, nodeOutline, label, accent, inkColor, paperColor);
+
+        feedback.Configure(
+            nodeImage,
+            nodeOutline,
+            label,
+            accent,
+            inkColor,
+            paperColor);
     }
 
     private void EnsureDecisionAccent()
@@ -545,10 +507,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (mapContent == null || mapContent.Find(DecisionAccentName) != null)
             return;
 
-        RectTransform accent = CreateRect(mapContent, DecisionAccentName, new Vector2(8f, 52f));
+        RectTransform accent = CreateRect(mapContent, DecisionAccentName, new Vector2(8f, 50f));
         accent.anchorMin = accent.anchorMax = new Vector2(0f, 1f);
         accent.pivot = new Vector2(0f, 1f);
         accent.anchoredPosition = new Vector2(24f, -14f);
+
         Image image = accent.gameObject.AddComponent<Image>();
         image.color = accentYellow;
         image.raycastTarget = false;
@@ -583,6 +546,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         int newline = normalized.IndexOf('\n');
         if (newline >= 0)
             normalized = normalized.Substring(0, newline);
+
         return normalized.Trim().ToUpperInvariant();
     }
 
@@ -591,23 +555,17 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (root == null)
             return;
 
-        RectMask2D[] rectMasks = root.GetComponents<RectMask2D>();
-        for (int i = 0; i < rectMasks.Length; i++)
+        RectMask2D rectMask = root.GetComponent<RectMask2D>();
+        if (rectMask != null)
         {
-            RectMask2D mask = rectMasks[i];
-            if (mask == null)
-                continue;
-            if (!clippingStates.ContainsKey(mask))
-                clippingStates.Add(mask, mask.enabled);
-            mask.enabled = false;
+            if (!clippingStates.ContainsKey(rectMask))
+                clippingStates.Add(rectMask, rectMask.enabled);
+            rectMask.enabled = false;
         }
 
-        Mask[] masks = root.GetComponents<Mask>();
-        for (int i = 0; i < masks.Length; i++)
+        Mask mask = root.GetComponent<Mask>();
+        if (mask != null)
         {
-            Mask mask = masks[i];
-            if (mask == null)
-                continue;
             if (!clippingStates.ContainsKey(mask))
                 clippingStates.Add(mask, mask.enabled);
             mask.enabled = false;
@@ -616,7 +574,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private void DisableRewardAccentsDuringMap()
     {
-        RectTransform[] all = FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        RectTransform[] all = FindObjectsByType<RectTransform>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
@@ -626,92 +587,45 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             GameObject go = rect.gameObject;
             if (!rewardAccentStates.ContainsKey(go))
                 rewardAccentStates.Add(go, go.activeSelf);
+
             if (go.activeSelf)
                 go.SetActive(false);
         }
     }
 
-    private void CaptureFocusValues()
-    {
-        if (focusValuesCaptured || showFocus == null)
-            return;
-
-        originalFocusValues = new FocusValues(
-            ReadFloat(showFocus, "nearDimAlpha", 0.62f),
-            ReadFloat(showFocus, "farDimAlpha", 0.96f),
-            ReadFloat(showFocus, "dimFalloffRadius", 0.58f),
-            ReadFloat(showFocus, "openingMapNearDimAlpha", 0.48f),
-            ReadFloat(showFocus, "openingMapFarDimAlpha", 0.92f),
-            ReadFloat(showFocus, "openingMapDimFalloffRadius", 0.66f),
-            ReadFloat(showFocus, "screenRectPadding", 0.002f));
-        focusValuesCaptured = true;
-    }
-
-    private void ApplyFocusedMapSettings()
-    {
-        if (showFocus == null)
-            return;
-
-        CaptureFocusValues();
-        WriteFloat(showFocus, "nearDimAlpha", mapNearDimAlpha);
-        WriteFloat(showFocus, "farDimAlpha", mapFarDimAlpha);
-        WriteFloat(showFocus, "dimFalloffRadius", mapDimFalloffRadius);
-        WriteFloat(showFocus, "openingMapNearDimAlpha", openingMapNearDimAlpha);
-        WriteFloat(showFocus, "openingMapFarDimAlpha", openingMapFarDimAlpha);
-        WriteFloat(showFocus, "openingMapDimFalloffRadius", openingMapDimFalloffRadius);
-        WriteFloat(showFocus, "screenRectPadding", mapScreenFocusPadding);
-    }
-
     private void RestoreMapOnlyState()
     {
-        if (focusValuesCaptured && showFocus != null)
+        if (frameStateCaptured && sharedFrame != null)
         {
-            WriteFloat(showFocus, "nearDimAlpha", originalFocusValues.near);
-            WriteFloat(showFocus, "farDimAlpha", originalFocusValues.far);
-            WriteFloat(showFocus, "dimFalloffRadius", originalFocusValues.radius);
-            WriteFloat(showFocus, "openingMapNearDimAlpha", originalFocusValues.openingNear);
-            WriteFloat(showFocus, "openingMapFarDimAlpha", originalFocusValues.openingFar);
-            WriteFloat(showFocus, "openingMapDimFalloffRadius", originalFocusValues.openingRadius);
-            WriteFloat(showFocus, "screenRectPadding", originalFocusValues.padding);
-        }
-        focusValuesCaptured = false;
+            sharedFrame.localRotation = originalFrameRotation;
 
-        if (frameVisualCaptured && sharedFrame != null)
-        {
-            sharedFrame.localRotation = originalFrameVisual.rotation;
             Image frameImage = sharedFrame.GetComponent<Image>();
-            if (originalFrameVisual.hasFrameImage && frameImage != null)
-                frameImage.color = originalFrameVisual.frameColor;
+            if (frameImage != null)
+                frameImage.color = originalFrameColor;
 
             Outline frameOutline = sharedFrame.GetComponent<Outline>();
-            if (originalFrameVisual.hasFrameOutline && frameOutline != null)
+            if (frameOutline != null)
             {
-                frameOutline.effectColor = originalFrameVisual.frameOutlineColor;
-                frameOutline.effectDistance = originalFrameVisual.frameOutlineDistance;
+                frameOutline.effectColor = originalFrameOutlineColor;
+                frameOutline.effectDistance = originalFrameOutlineDistance;
             }
 
             if (screenInner != null)
             {
                 Image innerImage = screenInner.GetComponent<Image>();
-                if (originalFrameVisual.hasInnerImage && innerImage != null)
-                    innerImage.color = originalFrameVisual.innerColor;
+                if (innerImage != null)
+                    innerImage.color = originalInnerColor;
 
                 Outline innerOutline = screenInner.GetComponent<Outline>();
-                if (originalFrameVisual.hasInnerOutline && innerOutline != null)
+                if (innerOutline != null)
                 {
-                    innerOutline.effectColor = originalFrameVisual.innerOutlineColor;
-                    innerOutline.effectDistance = originalFrameVisual.innerOutlineDistance;
+                    innerOutline.effectColor = originalInnerOutlineColor;
+                    innerOutline.effectDistance = originalInnerOutlineDistance;
                 }
             }
         }
-        frameVisualCaptured = false;
 
-        foreach (KeyValuePair<GameObject, bool> pair in rewardAccentStates)
-        {
-            if (pair.Key != null)
-                pair.Key.SetActive(pair.Value);
-        }
-        rewardAccentStates.Clear();
+        frameStateCaptured = false;
 
         foreach (KeyValuePair<Behaviour, bool> pair in clippingStates)
         {
@@ -719,37 +633,28 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 pair.Key.enabled = pair.Value;
         }
         clippingStates.Clear();
-    }
 
-    private static float ReadFloat(object target, string fieldName, float fallback)
-    {
-        if (target == null)
-            return fallback;
-        FieldInfo field = target.GetType().GetField(fieldName, PrivateInstance);
-        if (field == null || field.FieldType != typeof(float))
-            return fallback;
-        object value = field.GetValue(target);
-        return value is float result ? result : fallback;
-    }
-
-    private static void WriteFloat(object target, string fieldName, float value)
-    {
-        if (target == null)
-            return;
-        FieldInfo field = target.GetType().GetField(fieldName, PrivateInstance);
-        if (field != null && field.FieldType == typeof(float))
-            field.SetValue(target, value);
+        foreach (KeyValuePair<GameObject, bool> pair in rewardAccentStates)
+        {
+            if (pair.Key != null)
+                pair.Key.SetActive(pair.Value);
+        }
+        rewardAccentStates.Clear();
     }
 
     private static RectTransform FindRect(string objectName)
     {
-        RectTransform[] all = FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        RectTransform[] all = FindObjectsByType<RectTransform>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
             if (rect != null && rect.name == objectName)
                 return rect;
         }
+
         return null;
     }
 
@@ -775,10 +680,13 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 }
 
 /// <summary>
-/// 실제 Node는 작게 유지하고 Pointer Target만 넓게 잡습니다.
-/// 평상시에는 절제된 Node, Hover 순간에만 강한 Accent를 사용합니다.
+/// 실제 노드는 작게 유지하고 Pointer Target만 넓게 잡습니다.
+/// Hover 때만 노드가 강하게 반응합니다.
 /// </summary>
-internal sealed class BattleStageMapNodePointerFeedback : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+internal sealed class BattleStageMapNodePointerFeedback :
+    MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler
 {
     private Image nodeImage;
     private Outline nodeOutline;
@@ -803,8 +711,10 @@ internal sealed class BattleStageMapNodePointerFeedback : MonoBehaviour, IPointe
         accent = accentColor;
         baseColor = normalColor;
         paperColor = textColor;
+
         if (label != null)
             baseLabel = ExtractLabel(label.text);
+
         if (!hovered)
             ApplyNormal();
     }
@@ -830,11 +740,13 @@ internal sealed class BattleStageMapNodePointerFeedback : MonoBehaviour, IPointe
     {
         if (nodeImage != null)
             nodeImage.color = accent;
+
         if (nodeOutline != null)
         {
             nodeOutline.effectColor = paperColor;
             nodeOutline.effectDistance = new Vector2(6f, -6f);
         }
+
         if (label != null)
         {
             label.text = baseLabel + "\nSELECT";
@@ -847,11 +759,13 @@ internal sealed class BattleStageMapNodePointerFeedback : MonoBehaviour, IPointe
     {
         if (nodeImage != null)
             nodeImage.color = baseColor;
+
         if (nodeOutline != null)
         {
             nodeOutline.effectColor = accent;
             nodeOutline.effectDistance = new Vector2(3f, -3f);
         }
+
         if (label != null)
         {
             label.text = baseLabel;
@@ -864,10 +778,12 @@ internal sealed class BattleStageMapNodePointerFeedback : MonoBehaviour, IPointe
     {
         if (string.IsNullOrWhiteSpace(source))
             return "STAGE";
+
         string normalized = source.Replace("\r", string.Empty);
         int newline = normalized.IndexOf('\n');
         if (newline >= 0)
             normalized = normalized.Substring(0, newline);
+
         return normalized.Trim().ToUpperInvariant();
     }
 }
@@ -889,6 +805,7 @@ public static class BattleStageMapPurposefulUIAutoInstaller
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
             return;
+
         installQueued = true;
         EditorApplication.delayCall += EnsureEditorComponents;
     }
@@ -903,9 +820,13 @@ public static class BattleStageMapPurposefulUIAutoInstaller
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
+            if (manager == null ||
+                EditorUtility.IsPersistent(manager) ||
+                !manager.gameObject.scene.IsValid() ||
+                !manager.gameObject.scene.isLoaded)
+            {
                 continue;
+            }
 
             if (manager.GetComponent<BattleStageMapPurposefulUIController>() != null)
                 continue;
@@ -920,15 +841,18 @@ public static class BattleStageMapPurposefulUIAutoInstaller
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeComponents()
     {
-        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
+        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
 
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleStageMapPurposefulUIController>() == null)
+            if (manager != null &&
+                manager.GetComponent<BattleStageMapPurposefulUIController>() == null)
+            {
                 manager.gameObject.AddComponent<BattleStageMapPurposefulUIController>();
+            }
         }
     }
 }
