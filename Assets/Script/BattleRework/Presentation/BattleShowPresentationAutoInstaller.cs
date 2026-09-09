@@ -6,7 +6,7 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// BattleShowPresentationManager / BattleShowSetDecorationController가 BattleSystems에서 빠지는 것을 방지하는 설치 보조기입니다.
+/// Battle Show presentation components가 BattleSystems에서 빠지는 것을 방지하는 설치 보조기입니다.
 ///
 /// Editor:
 /// - BattleSceneManager가 존재하는 로드된 씬을 감시합니다.
@@ -70,6 +70,12 @@ public static class BattleShowPresentationAutoInstaller
                 changed = true;
             }
 
+            if (manager.GetComponent<BattleShowSharedTvContentController>() == null)
+            {
+                Undo.AddComponent<BattleShowSharedTvContentController>(manager.gameObject);
+                changed = true;
+            }
+
             if (!changed)
                 continue;
 
@@ -97,6 +103,9 @@ public static class BattleShowPresentationAutoInstaller
 
             if (manager.GetComponent<BattleShowSetDecorationController>() == null)
                 manager.gameObject.AddComponent<BattleShowSetDecorationController>();
+
+            if (manager.GetComponent<BattleShowSharedTvContentController>() == null)
+                manager.gameObject.AddComponent<BattleShowSharedTvContentController>();
         }
     }
 }
