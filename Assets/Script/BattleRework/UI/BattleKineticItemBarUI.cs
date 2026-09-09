@@ -243,13 +243,13 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             accentImage.raycastTarget = false;
             slotAccents[i] = accentImage;
 
-            GameObject lock = new($"LockMark_{i}");
-            lock.transform.SetParent(slot, false);
-            RectTransform lockRect = lock.AddComponent<RectTransform>();
+            GameObject lockMark = new($"LockMark_{i}");
+            lockMark.transform.SetParent(slot, false);
+            RectTransform lockRect = lockMark.AddComponent<RectTransform>();
             Stretch(lockRect);
-            lockMarks[i] = lock;
-            CreateLockSlash(lock.transform, 45f);
-            CreateLockSlash(lock.transform, -45f);
+            lockMarks[i] = lockMark;
+            CreateLockSlash(lockMark.transform, 45f);
+            CreateLockSlash(lockMark.transform, -45f);
         }
     }
 
