@@ -8,12 +8,10 @@ using UnityEditor.SceneManagement;
 
 /// <summary>
 /// 좌측 하단 PACK의 드래그 사용성을 보강합니다.
-///
-/// - Combat / Reward에서 PACK 셀을 실제 Drag Source / Drop Target으로 사용할 수 있게 Raycast를 유지합니다.
-/// - Reward에서는 PACK을 화면 모서리에 고정하지 않고 조금 안쪽으로 이동시킵니다.
-/// - 실제 Drag 중에는 PACK이 한 번 더 안쪽으로 들어오고 살짝 커져 Drop Target으로 읽히게 합니다.
-/// - InventoryDragGhost / RewardDragGhost는 PACK보다 높은 Sorting Order로 올려 아이템 아이콘이 가방 위를 떠다니게 합니다.
-/// - 기존 장비 SO / Sprite / Scene 직렬화 데이터는 변경하지 않습니다.
+/// - Combat / Reward에서 PACK 셀 Raycast 유지
+/// - Reward에서는 PACK을 크게 열어 실제 편집 보드처럼 사용
+/// - Drag 중에는 PACK을 조금 더 안쪽/크게 이동
+/// - Drag Ghost는 PACK보다 높은 Sorting Order 유지
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32920)]
@@ -24,13 +22,15 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
     private const string InventoryGhostName = "InventoryDragGhost";
     private const string RewardGhostName = "RewardDragGhost";
     private const int DragSortingOrder = 2200;
+    private const float MinimumRewardPackScale = 1.28f;
+    private const float MinimumDraggingPackScale = 1.34f;
 
     [Header("PACK Position")]
     [SerializeField] private Vector2 combatPackPosition = new(58f, 38f);
     [SerializeField] private Vector2 rewardPackPosition = new(112f, 64f);
-    [SerializeField] private Vector2 draggingPackPosition = new(158f, 78f);
-    [SerializeField, Range(1f, 1.20f)] private float rewardPackScale = 1.04f;
-    [SerializeField, Range(1f, 1.25f)] private float draggingPackScale = 1.10f;
+    [SerializeField] private Vector2 draggingPackPosition = new(146f, 76f);
+    [SerializeField, Range(1f, 1.45f)] private float rewardPackScale = 1.28f;
+    [SerializeField, Range(1f, 1.50f)] private float draggingPackScale = 1.34f;
     [SerializeField, Min(1f)] private float movementSharpness = 11f;
 
     [Header("Dragged Item")]
@@ -39,7 +39,7 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
     [SerializeField, Range(1f, 1.25f)] private float rewardGhostScale = 1.08f;
 
     [Header("TRASH Follow")]
-    [SerializeField] private Vector2 trashOffsetFromPack = new(326f, 8f);
+    [SerializeField] private Vector2 trashOffsetFromPack = new(414f, 8f);
 
     private BattleRunManager runManager;
     private RectTransform packRoot;
@@ -93,7 +93,7 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
 
         PromoteDragGhost(inventoryGhost, true);
         PromoteDragGhost(rewardGhost, false);
-        FollowTrash(reward, dragging);
+        FollowTrash(reward);
     }
 
     private void ResolveReferences()
@@ -137,7 +137,6 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         bool interactive = !BattlePauseController.IsPaused && (IsCombat() || IsReward());
         if (packGroup != null)
         {
-            // 미니 PACK 자체에서 장비를 집어 Drag / Swap할 수 있게 합니다.
             packGroup.blocksRaycasts = interactive;
             packGroup.interactable = interactive;
         }
@@ -165,12 +164,12 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         if (dragging)
         {
             targetPosition = draggingPackPosition;
-            targetScale = draggingPackScale;
+            targetScale = Mathf.Max(MinimumDraggingPackScale, draggingPackScale);
         }
         else if (reward)
         {
             targetPosition = rewardPackPosition;
-            targetScale = rewardPackScale;
+            targetScale = Mathf.Max(MinimumRewardPackScale, rewardPackScale);
         }
         else
         {
@@ -189,7 +188,6 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         currentPackPosition = Vector2.Lerp(currentPackPosition, targetPosition, t);
         currentPackScale = Mathf.Lerp(currentPackScale, targetScale, t);
 
-        // 앞 단계의 Layout Controller가 매 프레임 기본 위치를 다시 써도 이 컨트롤러가 최종 Presentation을 소유합니다.
         packRoot.anchorMin = packRoot.anchorMax = Vector2.zero;
         packRoot.pivot = Vector2.zero;
         packRoot.anchoredPosition = currentPackPosition;
@@ -208,8 +206,6 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         if (ghost == null || !ghost.gameObject.activeInHierarchy)
             return;
 
-        // RewardDragGhost는 BattleHUD Canvas(낮은 Sorting Order)에서 생성되므로
-        // nested Canvas로 승격하지 않으면 좌측 PACK 뒤로 들어갈 수 있습니다.
         Canvas ghostCanvas = ghost.GetComponent<Canvas>();
         if (ghostCanvas == null)
             ghostCanvas = ghost.gameObject.AddComponent<Canvas>();
@@ -244,21 +240,18 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         }
         else
         {
-            // Reward 카드 Drag도 PACK 위로 올라오되, 기존 이름/힌트 구성은 유지합니다.
             ghost.localScale = Vector3.one * rewardGhostScale;
         }
     }
 
-    private void FollowTrash(bool reward, bool dragging)
+    private void FollowTrash(bool reward)
     {
         if (trashRoot == null || !reward)
             return;
 
-        // PACK이 안쪽으로 이동/확대될 때 TRASH도 같이 따라와 한 묶음으로 읽히게 합니다.
-        Vector2 basePosition = dragging ? currentPackPosition : currentPackPosition;
         trashRoot.anchorMin = trashRoot.anchorMax = Vector2.zero;
         trashRoot.pivot = Vector2.zero;
-        trashRoot.anchoredPosition = basePosition + trashOffsetFromPack;
+        trashRoot.anchoredPosition = currentPackPosition + trashOffsetFromPack;
     }
 
     private bool IsCombat()
