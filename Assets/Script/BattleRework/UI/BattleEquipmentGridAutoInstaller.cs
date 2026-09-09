@@ -42,10 +42,10 @@ public static class BattleEquipmentGridAutoInstaller
             BattleEquipmentSystem equipment = manager.GetComponent<BattleEquipmentSystem>();
             if (equipment != null)
             {
-                if (!equipment.LegacyNumberKeyEquipEnabled)
+                if (equipment.LegacyNumberKeyEquipEnabled)
                 {
-                    Undo.RecordObject(equipment, "Enable Number Key Equipment Input");
-                    equipment.LegacyNumberKeyEquipEnabled = true;
+                    Undo.RecordObject(equipment, "Disable Legacy Number Key Equipment Input");
+                    equipment.LegacyNumberKeyEquipEnabled = false;
                     changed = true;
                 }
 
@@ -90,7 +90,7 @@ public static class BattleEquipmentGridAutoInstaller
             BattleEquipmentSystem equipment = manager.GetComponent<BattleEquipmentSystem>();
             if (equipment != null)
             {
-                equipment.LegacyNumberKeyEquipEnabled = true;
+                equipment.LegacyNumberKeyEquipEnabled = false;
                 if (equipment.UnlockedSlotCount < MinimumBackpackSlots) equipment.SetUnlockedSlotCount(MinimumBackpackSlots);
             }
 
