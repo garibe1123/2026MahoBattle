@@ -224,7 +224,8 @@ public sealed class BattleRewardKineticThemeController : MonoBehaviour
             Outline outline = slot.GetComponent<Outline>();
             if (outline == null)
                 outline = slot.gameObject.AddComponent<Outline>();
-            outline.effectColor = new Color(AccentForIndex(i).r, AccentForIndex(i).g, AccentForIndex(i).b, 0.75f);
+            Color accent = AccentForIndex(i);
+            outline.effectColor = new Color(accent.r, accent.g, accent.b, 0.75f);
             outline.effectDistance = new Vector2(3f, -3f);
         }
     }
@@ -261,7 +262,7 @@ public sealed class BattleRewardKineticThemeController : MonoBehaviour
 
     private Color AccentForIndex(int index)
     {
-        return index % 3 switch
+        return (index % 3) switch
         {
             0 => accentYellow,
             1 => accentCyan,
