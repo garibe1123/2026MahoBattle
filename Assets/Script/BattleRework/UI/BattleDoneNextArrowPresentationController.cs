@@ -9,8 +9,12 @@ using UnityEditor.SceneManagement;
 
 /// <summary>
 /// Reward PACK의 기존 DONE / NEXT 입력은 그대로 두고 시각만 담당합니다.
-/// 버튼 Root는 PACK 우측 하단 부착 레이아웃이 소유하고, 이 컴포넌트는 내부 ArrowVisual만 움직입니다.
-/// 따라서 꿀렁임 때문에 PACK 부착 위치가 흔들리거나 다른 레이아웃 컨트롤러와 충돌하지 않습니다.
+///
+/// 주의:
+/// - 버튼 Root는 PACK 우측 하단 부착 레이아웃이 소유합니다.
+/// - 이 컴포넌트는 내부 DoneNextArrowVisual만 움직입니다.
+/// - 커스텀 MaskableGraphic Mesh 대신 Unity 기본 Image 조각을 조합해 화살표를 만듭니다.
+///   World/Overlay Canvas, Mask 조합에 따라 커스텀 Mesh만 사라지고 Text/HitBox만 남는 문제를 피합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(45000)]
@@ -18,6 +22,8 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 {
     private const string DoneName = "RewardPackDone";
     private const string VisualName = "DoneNextArrowVisual";
+    private const string ShadowGroupName = "ArrowShadowGroup";
+    private const string FillGroupName = "ArrowFillGroup";
 
     [Header("Arrow")]
     [SerializeField] private Vector2 buttonSize = new(232f, 72f);
@@ -36,8 +42,16 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
     private RectTransform doneRoot;
     private RectTransform visualRoot;
-    private BattleDoneArrowGraphic shadowGraphic;
-    private BattleDoneArrowGraphic fillGraphic;
+    private RectTransform shadowGroup;
+    private RectTransform fillGroup;
+
+    private Image shadowBody;
+    private Image shadowHead;
+    private Image fillBody;
+    private Image fillHead;
+    private Image speedLine;
+    private Image speedLineSmall;
+
     private Button button;
     private Image baseImage;
     private Outline baseOutline;
@@ -101,13 +115,12 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         baseOutline ??= doneRoot.GetComponent<Outline>();
 
         if (visualRoot == null)
-        {
-            Transform existing = doneRoot.Find(VisualName);
-            visualRoot = existing as RectTransform;
-        }
+            visualRoot = doneRoot.Find(VisualName) as RectTransform;
 
         if (visualRoot == null)
             BuildArrowVisual();
+        else
+            ResolveArrowPieces();
 
         if (label == null)
         {
@@ -117,7 +130,9 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
                 Text text = texts[i];
                 if (text == null)
                     continue;
-                if (text.text != null && (text.text.Contains("DONE") || text.text.Contains("NEXT") || text.text.Contains("START")))
+
+                string value = text.text ?? string.Empty;
+                if (value.Contains("DONE") || value.Contains("NEXT") || value.Contains("START"))
                 {
                     label = text;
                     break;
@@ -141,40 +156,137 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         visualRoot = visualObject.AddComponent<RectTransform>();
         Stretch(visualRoot);
 
-        GameObject shadowObject = new("ArrowShadow");
-        shadowObject.transform.SetParent(visualRoot, false);
-        RectTransform shadowRect = shadowObject.AddComponent<RectTransform>();
-        shadowRect.anchorMin = Vector2.zero;
-        shadowRect.anchorMax = Vector2.one;
-        shadowRect.offsetMin = new Vector2(-5f, -5f);
-        shadowRect.offsetMax = new Vector2(5f, 5f);
-        shadowGraphic = shadowObject.AddComponent<BattleDoneArrowGraphic>();
-        shadowGraphic.raycastTarget = false;
+        shadowGroup = CreateGroup(visualRoot, ShadowGroupName);
+        shadowGroup.anchoredPosition = new Vector2(5f, -5f);
+        BuildArrowPieces(shadowGroup, true);
 
-        GameObject fillObject = new("ArrowFill");
-        fillObject.transform.SetParent(visualRoot, false);
-        RectTransform fillRect = fillObject.AddComponent<RectTransform>();
-        Stretch(fillRect);
-        fillGraphic = fillObject.AddComponent<BattleDoneArrowGraphic>();
-        fillGraphic.raycastTarget = false;
+        fillGroup = CreateGroup(visualRoot, FillGroupName);
+        BuildArrowPieces(fillGroup, false);
 
-        RectTransform speedLine = CreateRect(visualRoot, "ArrowSpeedLine", new Vector2(58f, 6f));
-        speedLine.anchorMin = speedLine.anchorMax = new Vector2(0f, 0.5f);
-        speedLine.pivot = new Vector2(1f, 0.5f);
-        speedLine.anchoredPosition = new Vector2(-8f, 13f);
-        speedLine.localRotation = Quaternion.Euler(0f, 0f, -4f);
-        Image speedImage = speedLine.gameObject.AddComponent<Image>();
-        speedImage.color = new Color(1f, 1f, 1f, 0.72f);
-        speedImage.raycastTarget = false;
+        RectTransform speedRect = CreateRect(visualRoot, "ArrowSpeedLine", new Vector2(58f, 6f));
+        speedRect.anchorMin = speedRect.anchorMax = new Vector2(0f, 0.5f);
+        speedRect.pivot = new Vector2(1f, 0.5f);
+        speedRect.anchoredPosition = new Vector2(-8f, 13f);
+        speedRect.localRotation = Quaternion.Euler(0f, 0f, -4f);
+        speedLine = speedRect.gameObject.AddComponent<Image>();
+        speedLine.color = new Color(1f, 1f, 1f, 0.72f);
+        speedLine.raycastTarget = false;
 
-        RectTransform secondLine = CreateRect(visualRoot, "ArrowSpeedLineSmall", new Vector2(36f, 4f));
-        secondLine.anchorMin = secondLine.anchorMax = new Vector2(0f, 0.5f);
-        secondLine.pivot = new Vector2(1f, 0.5f);
-        secondLine.anchoredPosition = new Vector2(-2f, -12f);
-        secondLine.localRotation = Quaternion.Euler(0f, 0f, 3f);
-        Image secondImage = secondLine.gameObject.AddComponent<Image>();
-        secondImage.color = new Color(1f, 1f, 1f, 0.42f);
-        secondImage.raycastTarget = false;
+        RectTransform smallRect = CreateRect(visualRoot, "ArrowSpeedLineSmall", new Vector2(36f, 4f));
+        smallRect.anchorMin = smallRect.anchorMax = new Vector2(0f, 0.5f);
+        smallRect.pivot = new Vector2(1f, 0.5f);
+        smallRect.anchoredPosition = new Vector2(-2f, -12f);
+        smallRect.localRotation = Quaternion.Euler(0f, 0f, 3f);
+        speedLineSmall = smallRect.gameObject.AddComponent<Image>();
+        speedLineSmall.color = new Color(1f, 1f, 1f, 0.42f);
+        speedLineSmall.raycastTarget = false;
+    }
+
+    private RectTransform CreateGroup(Transform parent, string name)
+    {
+        RectTransform rect = CreateRect(parent, name, Vector2.zero);
+        Stretch(rect);
+        return rect;
+    }
+
+    private void BuildArrowPieces(RectTransform group, bool shadow)
+    {
+        // 몸통은 중앙 높이의 직사각형, 화살촉은 45도 회전한 정사각형입니다.
+        // 둘을 겹치면 Sprite/Custom Mesh가 없어도 항상 렌더되는 우향 화살표가 됩니다.
+        RectTransform bodyRect = CreateRect(group, shadow ? "ShadowBody" : "FillBody", Vector2.zero);
+        bodyRect.anchorMin = new Vector2(0f, 0.12f);
+        bodyRect.anchorMax = new Vector2(0.845f, 0.88f);
+        bodyRect.offsetMin = Vector2.zero;
+        bodyRect.offsetMax = Vector2.zero;
+        Image body = bodyRect.gameObject.AddComponent<Image>();
+        body.raycastTarget = false;
+
+        float headSize = Mathf.Max(40f, buttonSize.y * 0.70f);
+        RectTransform headRect = CreateRect(group, shadow ? "ShadowHead" : "FillHead", Vector2.one * headSize);
+        headRect.anchorMin = headRect.anchorMax = new Vector2(0.845f, 0.5f);
+        headRect.pivot = new Vector2(0.5f, 0.5f);
+        headRect.anchoredPosition = Vector2.zero;
+        headRect.localRotation = Quaternion.Euler(0f, 0f, 45f);
+        Image head = headRect.gameObject.AddComponent<Image>();
+        head.raycastTarget = false;
+
+        if (shadow)
+        {
+            shadowBody = body;
+            shadowHead = head;
+        }
+        else
+        {
+            fillBody = body;
+            fillHead = head;
+        }
+    }
+
+    private void ResolveArrowPieces()
+    {
+        if (visualRoot == null)
+            return;
+
+        shadowGroup ??= visualRoot.Find(ShadowGroupName) as RectTransform;
+        fillGroup ??= visualRoot.Find(FillGroupName) as RectTransform;
+
+        if (shadowGroup == null || fillGroup == null)
+        {
+            // 이전 버전의 Custom Mesh Visual이 Play Mode 재진입 없이 남아 있는 경우도 복구합니다.
+            DestroyVisualChildrenExceptLabel();
+            BuildArrowVisualIntoExistingRoot();
+            return;
+        }
+
+        shadowBody ??= shadowGroup.Find("ShadowBody")?.GetComponent<Image>();
+        shadowHead ??= shadowGroup.Find("ShadowHead")?.GetComponent<Image>();
+        fillBody ??= fillGroup.Find("FillBody")?.GetComponent<Image>();
+        fillHead ??= fillGroup.Find("FillHead")?.GetComponent<Image>();
+        speedLine ??= visualRoot.Find("ArrowSpeedLine")?.GetComponent<Image>();
+        speedLineSmall ??= visualRoot.Find("ArrowSpeedLineSmall")?.GetComponent<Image>();
+    }
+
+    private void BuildArrowVisualIntoExistingRoot()
+    {
+        if (visualRoot == null)
+            return;
+
+        shadowGroup = CreateGroup(visualRoot, ShadowGroupName);
+        shadowGroup.anchoredPosition = new Vector2(5f, -5f);
+        BuildArrowPieces(shadowGroup, true);
+
+        fillGroup = CreateGroup(visualRoot, FillGroupName);
+        BuildArrowPieces(fillGroup, false);
+
+        RectTransform speedRect = CreateRect(visualRoot, "ArrowSpeedLine", new Vector2(58f, 6f));
+        speedRect.anchorMin = speedRect.anchorMax = new Vector2(0f, 0.5f);
+        speedRect.pivot = new Vector2(1f, 0.5f);
+        speedRect.anchoredPosition = new Vector2(-8f, 13f);
+        speedRect.localRotation = Quaternion.Euler(0f, 0f, -4f);
+        speedLine = speedRect.gameObject.AddComponent<Image>();
+        speedLine.raycastTarget = false;
+
+        RectTransform smallRect = CreateRect(visualRoot, "ArrowSpeedLineSmall", new Vector2(36f, 4f));
+        smallRect.anchorMin = smallRect.anchorMax = new Vector2(0f, 0.5f);
+        smallRect.pivot = new Vector2(1f, 0.5f);
+        smallRect.anchoredPosition = new Vector2(-2f, -12f);
+        smallRect.localRotation = Quaternion.Euler(0f, 0f, 3f);
+        speedLineSmall = smallRect.gameObject.AddComponent<Image>();
+        speedLineSmall.raycastTarget = false;
+    }
+
+    private void DestroyVisualChildrenExceptLabel()
+    {
+        if (visualRoot == null)
+            return;
+
+        for (int i = visualRoot.childCount - 1; i >= 0; i--)
+        {
+            Transform child = visualRoot.GetChild(i);
+            if (label != null && child == label.transform)
+                continue;
+            Destroy(child.gameObject);
+        }
     }
 
     private void ApplyVisual()
@@ -185,7 +297,7 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
         doneRoot.sizeDelta = buttonSize;
 
-        // 기존 사각형 버튼은 클릭 판정만 남기고 렌더는 ArrowGraphic이 담당합니다.
+        // Root Image는 클릭 판정만 담당합니다. 실제 색은 기본 Image 조각이 그립니다.
         if (baseImage != null)
         {
             baseImage.color = Color.clear;
@@ -199,10 +311,20 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         if (hovered && ready)
             fill = Color.Lerp(readyColor, Color.white, 0.14f);
 
-        if (shadowGraphic != null)
-            shadowGraphic.color = new Color(inkColor.r, inkColor.g, inkColor.b, ready ? 1f : 0.74f);
-        if (fillGraphic != null)
-            fillGraphic.color = fill;
+        Color shadow = new(inkColor.r, inkColor.g, inkColor.b, ready ? 1f : 0.74f);
+        SetImageColor(shadowBody, shadow);
+        SetImageColor(shadowHead, shadow);
+        SetImageColor(fillBody, fill);
+        SetImageColor(fillHead, fill);
+
+        if (speedLine != null)
+            speedLine.color = ready
+                ? new Color(1f, 1f, 1f, hovered ? 0.90f : 0.72f)
+                : new Color(1f, 1f, 1f, 0.14f);
+        if (speedLineSmall != null)
+            speedLineSmall.color = ready
+                ? new Color(1f, 1f, 1f, hovered ? 0.62f : 0.42f)
+                : new Color(1f, 1f, 1f, 0.08f);
 
         if (label != null)
         {
@@ -212,9 +334,10 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             label.fontSize = 15;
             label.alignment = TextAnchor.MiddleCenter;
             label.color = ready ? inkColor : disabledTextColor;
+
             RectTransform labelRect = label.rectTransform;
             labelRect.anchorMin = new Vector2(0.08f, 0.12f);
-            labelRect.anchorMax = new Vector2(0.78f, 0.88f);
+            labelRect.anchorMax = new Vector2(0.76f, 0.88f);
             labelRect.offsetMin = Vector2.zero;
             labelRect.offsetMax = Vector2.zero;
             labelRect.localScale = Vector3.one;
@@ -243,6 +366,16 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             push * travelX * amplitude,
             secondary * travelY * amplitude);
         visualRoot.localRotation = Quaternion.Euler(0f, 0f, secondary * wobbleDegrees * amplitude);
+    }
+
+    private static void SetImageColor(Image image, Color color)
+    {
+        if (image == null)
+            return;
+
+        image.enabled = true;
+        image.color = color;
+        image.raycastTarget = false;
     }
 
     internal void SetHovered(bool value)
@@ -282,49 +415,6 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
     }
 }
 
-/// <summary>기본 Image Sprite 없이 실제 우향 화살표 실루엣을 그립니다.</summary>
-internal sealed class BattleDoneArrowGraphic : MaskableGraphic
-{
-    protected override void OnPopulateMesh(VertexHelper vh)
-    {
-        vh.Clear();
-
-        Rect r = GetPixelAdjustedRect();
-        float head = Mathf.Min(r.height * 0.78f, r.width * 0.31f);
-        float tailInset = Mathf.Min(r.height * 0.13f, 10f);
-        float bodyRight = r.xMax - head;
-        Vector2 center = r.center;
-
-        Vector2[] points =
-        {
-            new(r.xMin, r.yMin + tailInset),
-            new(bodyRight, r.yMin + tailInset),
-            new(bodyRight, r.yMin),
-            new(r.xMax, center.y),
-            new(bodyRight, r.yMax),
-            new(bodyRight, r.yMax - tailInset),
-            new(r.xMin, r.yMax - tailInset)
-        };
-
-        UIVertex vertex = UIVertex.simpleVert;
-        vertex.color = color;
-        vertex.position = center;
-        vh.AddVert(vertex);
-
-        for (int i = 0; i < points.Length; i++)
-        {
-            vertex.position = points[i];
-            vh.AddVert(vertex);
-        }
-
-        for (int i = 0; i < points.Length; i++)
-        {
-            int next = (i + 1) % points.Length;
-            vh.AddTriangle(0, i + 1, next + 1);
-        }
-    }
-}
-
 internal sealed class BattleDoneNextArrowHoverRelay : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 {
     private BattleDoneNextArrowPresentationController owner;
@@ -355,6 +445,7 @@ public static class BattleDoneNextArrowPresentationAutoInstaller
     {
         if (queued || EditorApplication.isPlayingOrWillChangePlaymode)
             return;
+
         queued = true;
         EditorApplication.delayCall += InstallEditor;
     }
@@ -389,6 +480,7 @@ public static class BattleDoneNextArrowPresentationAutoInstaller
         BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
+
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
