@@ -12,12 +12,15 @@ using UnityEditor.SceneManagement;
 /// - Reward에서는 PACK을 크게 열어 실제 편집 보드처럼 사용
 /// - Drag 중에는 PACK을 조금 더 안쪽/크게 이동
 /// - Drag Ghost는 PACK보다 높은 Sorting Order 유지
+/// - TRASH Drop 영역은 화면 절대 좌표가 아니라 현재 활성 PACK 프레임의 우측 하단에 직접 부착
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32920)]
 public sealed class BattleInventoryDragPresentationController : MonoBehaviour
 {
     private const string PackName = "BackpackMiniGrid";
+    private const string FullPackName = "GridBoard";
+    private const string FullPackContainerName = "LoadoutSwitchFull";
     private const string TrashName = "InventoryTrash";
     private const string InventoryGhostName = "InventoryDragGhost";
     private const string RewardGhostName = "RewardDragGhost";
@@ -38,12 +41,16 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
     [SerializeField] private Vector2 inventoryGhostIconSize = new(84f, 84f);
     [SerializeField, Range(1f, 1.25f)] private float rewardGhostScale = 1.08f;
 
-    [Header("TRASH Follow")]
-    [SerializeField] private Vector2 trashOffsetFromPack = new(414f, 8f);
+    [Header("TRASH Attachment")]
+    [Tooltip("현재 활성 PACK 프레임 우측 하단에서 TRASH Drop 영역이 겹쳐 붙는 로컬 오프셋입니다.")]
+    [SerializeField] private Vector2 trashAttachOffset = new(-8f, 0f);
 
     private BattleRunManager runManager;
     private RectTransform packRoot;
     private CanvasGroup packGroup;
+    private RectTransform fullPackRoot;
+    private RectTransform fullPackContainer;
+    private CanvasGroup fullPackGroup;
     private RectTransform trashRoot;
     private RectTransform inventoryGhost;
     private RectTransform rewardGhost;
@@ -65,6 +72,19 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         ResolveUi();
         nextResolveTime = 0f;
         packMotionInitialized = false;
+
+        Canvas.willRenderCanvases -= HandleWillRenderCanvases;
+        Canvas.willRenderCanvases += HandleWillRenderCanvases;
+    }
+
+    private void OnDisable()
+    {
+        Canvas.willRenderCanvases -= HandleWillRenderCanvases;
+    }
+
+    private void OnDestroy()
+    {
+        Canvas.willRenderCanvases -= HandleWillRenderCanvases;
     }
 
     private void Update()
@@ -96,6 +116,19 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         FollowTrash(reward);
     }
 
+    /// <summary>
+    /// 다른 Reward/Tab 레이아웃 컨트롤러가 LateUpdate에서 TRASH 좌표를 다시 써도
+    /// 실제 Canvas 렌더 직전에 PACK 우측 하단으로 최종 고정합니다.
+    /// </summary>
+    private void HandleWillRenderCanvases()
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        ResolveUi();
+        FollowTrash(IsReward());
+    }
+
     private void ResolveReferences()
     {
         if (runManager == null)
@@ -114,6 +147,21 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
                 currentPackScale = Mathf.Max(0.01f, packRoot.localScale.x);
                 packMotionInitialized = true;
             }
+        }
+
+        if (fullPackContainer == null)
+        {
+            fullPackContainer = FindRect(FullPackContainerName);
+            if (fullPackContainer != null)
+                fullPackGroup = fullPackContainer.GetComponent<CanvasGroup>();
+        }
+
+        if (fullPackRoot == null)
+        {
+            if (fullPackContainer != null)
+                fullPackRoot = FindChildRect(fullPackContainer, FullPackName);
+            if (fullPackRoot == null)
+                fullPackRoot = FindRect(FullPackName);
         }
 
         if (trashRoot == null)
@@ -249,9 +297,41 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         if (trashRoot == null || !reward)
             return;
 
-        trashRoot.anchorMin = trashRoot.anchorMax = Vector2.zero;
-        trashRoot.pivot = Vector2.zero;
-        trashRoot.anchoredPosition = currentPackPosition + trashOffsetFromPack;
+        RectTransform targetPack = ResolveVisiblePackFrame();
+        if (targetPack == null)
+            return;
+
+        // TRASH는 별도 화면 좌표가 아니라 PACK 프레임의 실제 자식으로 둡니다.
+        // 따라서 PACK이 이동/확대/트위닝되어도 우측 하단 모서리를 항상 같이 따라갑니다.
+        if (trashRoot.parent != targetPack)
+            trashRoot.SetParent(targetPack, false);
+
+        trashRoot.anchorMin = trashRoot.anchorMax = new Vector2(1f, 0f);
+        trashRoot.pivot = new Vector2(0f, 0f);
+        trashRoot.anchoredPosition = trashAttachOffset;
+        trashRoot.localRotation = Quaternion.identity;
+        trashRoot.localScale = Vector3.one;
+        trashRoot.SetAsLastSibling();
+    }
+
+    private RectTransform ResolveVisiblePackFrame()
+    {
+        bool fullVisible = fullPackRoot != null &&
+                           fullPackRoot.gameObject.activeInHierarchy &&
+                           fullPackGroup != null &&
+                           fullPackGroup.alpha > 0.05f;
+
+        if (fullVisible)
+            return fullPackRoot;
+
+        bool miniVisible = packRoot != null &&
+                           packRoot.gameObject.activeInHierarchy &&
+                           (packGroup == null || packGroup.alpha > 0.05f);
+
+        if (miniVisible)
+            return packRoot;
+
+        return fullPackRoot != null ? fullPackRoot : packRoot;
     }
 
     private bool IsCombat()
@@ -266,6 +346,22 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         return runManager != null &&
                runManager.RunActive &&
                runManager.State == BattleRunState.Reward;
+    }
+
+    private static RectTransform FindChildRect(Transform parent, string objectName)
+    {
+        if (parent == null)
+            return null;
+
+        RectTransform[] all = parent.GetComponentsInChildren<RectTransform>(true);
+        for (int i = 0; i < all.Length; i++)
+        {
+            RectTransform rect = all[i];
+            if (rect != null && rect.name == objectName)
+                return rect;
+        }
+
+        return null;
     }
 
     private static RectTransform FindRect(string objectName)
