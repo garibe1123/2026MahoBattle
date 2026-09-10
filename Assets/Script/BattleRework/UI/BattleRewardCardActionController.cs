@@ -12,10 +12,13 @@ using UnityEngine.UI;
 /// 이름 기반 전역 FindRect에 의존하지 않으므로 다른 비활성/복제 UI를 잘못 잡지 않습니다.
 ///
 /// 규칙:
-/// - Hover는 Transform을 변경하지 않습니다. Hover 강조는 기존 monochrome 정책에 맡깁니다.
-/// - 클릭 선택(pendingRewardIndex)된 카드만 세로로 크게 펼칩니다.
+/// - 선택 전 Hover만 임시 Preview 강조를 허용합니다.
+/// - 클릭 선택(pendingRewardIndex) 이후에는 선택 카드만 Yellow 고정 강조를 유지합니다.
+/// - 선택 이후 다른 카드 Hover는 Stroke / Color 상태를 절대 바꾸지 않습니다.
+/// - 클릭 선택된 카드만 세로로 크게 펼칩니다.
 /// - 비선택 카드는 실제 sizeDelta를 줄입니다. localScale을 사용하지 않습니다.
 /// - 선택 카드 안에 DESCRIPTION / EFFECTS / TAGS / [결정]을 직접 배치합니다.
+/// - Reward 후보 선택 중에는 우측 EquipmentDetailPanel을 완전히 비활성화합니다.
 /// - RewardActiveDescriptionBar, focusedRewardName/focusedRewardStats는 Reward 선택 중 사용하지 않습니다.
 /// - 기존 PlacementNotice 자체를 작은 [아이템 획득 포기하기] 버튼으로 재사용합니다.
 /// - 구형 RewardSelectionPresentation은 선택 단계에서 잠시 꺼서 설명 바가 다시 살아나는 충돌을 막습니다.
@@ -41,6 +44,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [Header("Theme")]
     [SerializeField] private Color neutralCard = new(0.055f, 0.057f, 0.066f, 0.995f);
     [SerializeField] private Color selectedCard = new(0.145f, 0.045f, 0.115f, 0.995f);
+    [SerializeField] private Color inactiveIconColor = new(0.48f, 0.49f, 0.52f, 0.52f);
     [SerializeField] private Color ink = new(0.012f, 0.013f, 0.016f, 0.995f);
     [SerializeField] private Color paper = new(0.96f, 0.96f, 0.96f, 1f);
     [SerializeField] private Color muted = new(0.58f, 0.59f, 0.62f, 1f);
@@ -53,6 +57,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private BattleInventoryInteractionController inventoryInteraction;
     private BattleRewardDecisionFlowController decisionFlow;
     private BattleRewardSelectionPresentationController legacySelectionPresentation;
+    private BattleEquipmentDetailPanelController equipmentDetailPanel;
 
     private FieldInfo pendingRewardIndexField;
     private FieldInfo rewardCardRootField;
@@ -87,6 +92,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private bool legacyWasEnabled;
     private bool legacySuppressed;
+    private bool detailPanelWasEnabled;
+    private bool detailPanelSuppressed;
     private bool decideBound;
     private bool skipBound;
 
@@ -145,6 +152,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     {
         Canvas.willRenderCanvases -= HandleWillRenderCanvases;
         RestoreLegacySelectionPresentation();
+        RestoreEquipmentDetailPanel();
         HideGeneratedChoiceUi();
     }
 
@@ -152,6 +160,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     {
         Canvas.willRenderCanvases -= HandleWillRenderCanvases;
         RestoreLegacySelectionPresentation();
+        RestoreEquipmentDetailPanel();
         if (instance == this)
             instance = null;
     }
@@ -169,6 +178,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         bool choice = IsChoiceStage();
         SetLegacySelectionPresentationSuppressed(choice);
+        SetEquipmentDetailPanelSuppressed(choice);
 
         if (!choice)
             HideGeneratedChoiceUi();
@@ -197,6 +207,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             decisionFlow = FindFirstObjectByType<BattleRewardDecisionFlowController>(FindObjectsInactive.Include);
         if (legacySelectionPresentation == null)
             legacySelectionPresentation = FindFirstObjectByType<BattleRewardSelectionPresentationController>(FindObjectsInactive.Include);
+        if (equipmentDetailPanel == null)
+            equipmentDetailPanel = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
     }
 
     private void CacheReflection()
@@ -283,6 +295,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
 
         SetLegacySelectionPresentationSuppressed(true);
+        SetEquipmentDetailPanelSuppressed(true);
         HideLegacyDescriptionUi();
         LayoutRewardCardArea();
         LayoutSkipButton();
@@ -407,10 +420,20 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             ConfigureBuiltInCardContent(card.rect, GetReward(card.drag.RewardIndex), isSelected);
 
             if (card.group != null)
-                card.group.alpha = !hasSelection || isSelected ? 1f : 0.62f;
+                card.group.alpha = !hasSelection || isSelected ? 1f : 0.48f;
 
             if (card.background != null)
                 card.background.color = isSelected ? selectedCard : neutralCard;
+
+            if (hasSelection && !isSelected)
+            {
+                if (card.outline != null)
+                    card.outline.enabled = false;
+
+                Image inactiveIcon = card.rect.Find("PrizeIcon")?.GetComponent<Image>();
+                if (inactiveIcon != null)
+                    inactiveIcon.color = inactiveIconColor;
+            }
         }
     }
 
@@ -806,6 +829,37 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         legacySelectionPresentation.enabled = legacyWasEnabled;
         legacySuppressed = false;
+    }
+
+    private void SetEquipmentDetailPanelSuppressed(bool suppress)
+    {
+        if (equipmentDetailPanel == null)
+            return;
+
+        if (suppress)
+        {
+            if (!detailPanelSuppressed)
+            {
+                detailPanelWasEnabled = equipmentDetailPanel.enabled;
+                detailPanelSuppressed = true;
+            }
+
+            if (equipmentDetailPanel.enabled)
+                equipmentDetailPanel.enabled = false;
+        }
+        else
+        {
+            RestoreEquipmentDetailPanel();
+        }
+    }
+
+    private void RestoreEquipmentDetailPanel()
+    {
+        if (!detailPanelSuppressed || equipmentDetailPanel == null)
+            return;
+
+        equipmentDetailPanel.enabled = detailPanelWasEnabled;
+        detailPanelSuppressed = false;
     }
 
     private void HideGeneratedChoiceUi()
