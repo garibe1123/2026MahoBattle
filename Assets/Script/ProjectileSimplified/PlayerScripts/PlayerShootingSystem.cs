@@ -174,20 +174,38 @@ public class PlayerShootingSystem : MonoBehaviour
             ammoInventory[currentWeaponIndex] = currentAmmo;
         }
 
+        // 무기 전환은 기존 무기의 재장전/애니메이션/발사 쿨다운 상태를 새 무기로 넘기지 않습니다.
+        // 특히 재장전 중 0탄창 상태에서 다른 무기로 갔다 돌아오면 영구적으로 발사가 막히던 경로를 차단합니다.
         CancelReload();
+        StopWeaponAnimation();
 
         currentWeaponIndex = index;
         currentWeaponSO = unlockedWeapons[index];
-        currentAmmo = ammoInventory[index];
+        currentAmmo = Mathf.Clamp(ammoInventory[index], 0, Mathf.Max(0, currentWeaponSO.maxAmmo));
+        nextFireTime = Time.time;
 
-        PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
         WeaponChanged?.Invoke(currentWeaponSO);
+
+        // 재장전 도중 무기를 바꾸면 해당 무기의 저장 탄약이 0일 수 있습니다.
+        // 다시 장착한 순간 자동 재장전을 시작해 '무기 변경 후 총이 죽는' 상태를 만들지 않습니다.
+        if (currentAmmo <= 0 && currentWeaponSO.maxAmmo > 0)
+            ReloadFuncCall();
+        else
+            PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
     }
 
     public void TryShoot(Vector3 mousePos, Transform target = null)
     {
-        if (isReloading || Time.time < nextFireTime || currentAmmo <= 0 || currentWeaponSO == null)
+        if (currentWeaponSO == null || isReloading || Time.time < nextFireTime)
             return;
+
+        // 0탄창 상태를 단순 return으로 방치하면 전환 후 다시는 발사 입력이 회복되지 않을 수 있습니다.
+        // 발사 입력 자체가 안전하게 재장전을 시작하도록 보장합니다.
+        if (currentAmmo <= 0)
+        {
+            ReloadFuncCall();
+            return;
+        }
 
         if (playerProjectilePool == null)
         {
