@@ -19,6 +19,8 @@ using UnityEngine.UI;
 /// - 비선택 카드는 실제 sizeDelta를 줄입니다. localScale을 사용하지 않습니다.
 /// - 선택 카드 안에 DESCRIPTION / EFFECTS / TAGS / [결정]을 직접 배치합니다.
 /// - Reward 후보 선택 중에는 우측 EquipmentDetailPanel을 완전히 비활성화합니다.
+/// - Reward 후보 카드는 Drag하지 않습니다. RewardPrizeDrag는 index marker로만 유지하고 입력은 항상 비활성화합니다.
+/// - Reward PACK 편집 중 하단 상태문구는 표시하지 않습니다. DONE / NEXT, TRASH, Hand만 상태를 전달합니다.
 /// - RewardActiveDescriptionBar, focusedRewardName/focusedRewardStats는 Reward 선택 중 사용하지 않습니다.
 /// - 기존 PlacementNotice 자체를 작은 [아이템 획득 포기하기] 버튼으로 재사용합니다.
 /// - 구형 RewardSelectionPresentation은 선택 단계에서 잠시 꺼서 설명 바가 다시 살아나는 충돌을 막습니다.
@@ -64,6 +66,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private FieldInfo rewardNoticePanelField;
     private FieldInfo focusedRewardNameField;
     private FieldInfo focusedRewardStatsField;
+    private FieldInfo rewardEditStatusField;
     private MethodInfo confirmSelectedRewardMethod;
 
     private RectTransform rewardCardRoot;
@@ -177,22 +180,38 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         bool choice = IsChoiceStage();
+        bool packEditing = IsRewardPackEditing();
         SetLegacySelectionPresentationSuppressed(choice);
         SetEquipmentDetailPanelSuppressed(choice);
 
-        if (!choice)
+        if (choice)
+        {
+            DisableLegacyRewardDrag();
+        }
+        else
+        {
             HideGeneratedChoiceUi();
+        }
+
+        if (packEditing)
+            HidePackEditStatus();
     }
 
     private void LateUpdate()
     {
+        if (IsRewardPackEditing())
+            HidePackEditStatus();
         ApplyFinalChoicePresentation(true);
     }
 
     private void HandleWillRenderCanvases()
     {
-        if (isActiveAndEnabled)
-            ApplyFinalChoicePresentation(false);
+        if (!isActiveAndEnabled)
+            return;
+
+        if (IsRewardPackEditing())
+            HidePackEditStatus();
+        ApplyFinalChoicePresentation(false);
     }
 
     private void ResolveReferences()
@@ -222,6 +241,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             focusedRewardNameField ??= hudType.GetField("focusedRewardName", PrivateInstance);
             focusedRewardStatsField ??= hudType.GetField("focusedRewardStats", PrivateInstance);
         }
+
+        if (inventoryInteraction != null && rewardEditStatusField == null)
+            rewardEditStatusField = typeof(BattleInventoryInteractionController).GetField("rewardEditStatus", PrivateInstance);
 
         if (decisionFlow != null && confirmSelectedRewardMethod == null)
             confirmSelectedRewardMethod = typeof(BattleRewardDecisionFlowController)
@@ -271,6 +293,15 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                (inventoryInteraction == null || !inventoryInteraction.IsRewardPackEditing);
     }
 
+    private bool IsRewardPackEditing()
+    {
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.Reward &&
+               inventoryInteraction != null &&
+               inventoryInteraction.IsRewardPackEditing;
+    }
+
     private int GetPendingRewardIndex()
     {
         if (battleHud == null || pendingRewardIndexField == null)
@@ -285,6 +316,36 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             pendingRewardIndexField.SetValue(battleHud, value);
     }
 
+    private void DisableLegacyRewardDrag()
+    {
+        if (rewardCardRoot != null)
+        {
+            RewardPrizeDrag[] drags = rewardCardRoot.GetComponentsInChildren<RewardPrizeDrag>(true);
+            for (int i = 0; i < drags.Length; i++)
+            {
+                if (drags[i] != null && drags[i].enabled)
+                    drags[i].enabled = false;
+            }
+        }
+
+        // 이미 BeginDrag가 시작된 한 프레임까지 남아 있더라도 즉시 제거합니다.
+        battleHud?.EndRewardDrag();
+    }
+
+    private void HidePackEditStatus()
+    {
+        if (inventoryInteraction == null || rewardEditStatusField == null)
+            return;
+
+        Text status = rewardEditStatusField.GetValue(inventoryInteraction) as Text;
+        if (status == null)
+            return;
+
+        status.text = string.Empty;
+        if (status.gameObject.activeSelf)
+            status.gameObject.SetActive(false);
+    }
+
     private void ApplyFinalChoicePresentation(bool advanceTween)
     {
         if (!IsChoiceStage())
@@ -294,6 +355,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (rewardCardRoot == null || rewardInner == null)
             return;
 
+        DisableLegacyRewardDrag();
         SetLegacySelectionPresentationSuppressed(true);
         SetEquipmentDetailPanelSuppressed(true);
         HideLegacyDescriptionUi();
@@ -348,6 +410,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             RectTransform rect = drag != null ? drag.transform as RectTransform : null;
             if (rect == null)
                 continue;
+
+            // RewardPrizeDrag는 여러 기존 코드가 RewardIndex marker로 읽으므로 제거하지 않고 입력만 죽입니다.
+            drag.enabled = false;
 
             result.Add(new CardRef
             {
