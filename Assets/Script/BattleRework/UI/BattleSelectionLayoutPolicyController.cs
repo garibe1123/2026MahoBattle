@@ -14,6 +14,7 @@ using UnityEditor.SceneManagement;
 /// - Reward / Map 월드 TV가 실제 플레이 화면에서 작게 보이지 않도록 TV 캔버스 자체의 해상도/월드 크기와
 ///   Show 카메라 구도를 함께 확대합니다.
 /// - Reward 후보 카드는 TV의 넓어진 면적을 실제로 사용하도록 다시 배치합니다.
+/// - Reward 카드 Hover는 위치/형제순서/스케일을 절대 바꾸지 않고 정보 강조만 담당합니다.
 /// - Combat Tab / Reward Pack Edit의 3x3 Grid는 중앙이 아니라 좌측에 고정합니다.
 /// - 장비 상세 정보 패널은 선택 열과 무관하게 항상 우측에 고정합니다.
 /// - Reward 후보 선택 중의 작은 PACK은 화면 구석에서 보조 정보 정도의 크기로 유지합니다.
@@ -114,6 +115,9 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 
         ApplyWorldSetConfiguration(false);
         ApplyTightShowCamera();
+
+        if (IsRewardChoicePhase())
+            DisableLegacyRewardHoverMotion();
     }
 
     private void LateUpdate()
@@ -372,6 +376,20 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
                runManager.State == BattleRunState.SelectingNode;
     }
 
+    private void DisableLegacyRewardHoverMotion()
+    {
+        if (prizeChoices == null)
+            return;
+
+        RewardCardHover[] legacyHovers = prizeChoices.GetComponentsInChildren<RewardCardHover>(true);
+        for (int i = 0; i < legacyHovers.Length; i++)
+        {
+            RewardCardHover hover = legacyHovers[i];
+            if (hover != null && hover.enabled)
+                hover.enabled = false;
+        }
+    }
+
     private void ApplyRewardChoiceLayout()
     {
         if (rewardScreen == null || rewardInner == null)
@@ -390,6 +408,27 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             int count = prizeChoices.childCount;
             if (count > 0)
             {
+                RectTransform[] stableCards = new RectTransform[count];
+
+                for (int childIndex = 0; childIndex < count; childIndex++)
+                {
+                    RectTransform card = prizeChoices.GetChild(childIndex) as RectTransform;
+                    if (card == null)
+                        continue;
+
+                    RewardCardHover legacyHover = card.GetComponent<RewardCardHover>();
+                    if (legacyHover != null && legacyHover.enabled)
+                        legacyHover.enabled = false;
+
+                    RewardPrizeDrag drag = card.GetComponent<RewardPrizeDrag>();
+                    int stableIndex = drag != null
+                        ? Mathf.Clamp(drag.RewardIndex, 0, count - 1)
+                        : childIndex;
+
+                    if (stableCards[stableIndex] == null)
+                        stableCards[stableIndex] = card;
+                }
+
                 float usableWidth = expandedTvCanvasSize.x * 0.82f;
                 float gap = Mathf.Max(0f, rewardCardGap);
                 float width = Mathf.Min(
@@ -400,14 +439,18 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 
                 for (int i = 0; i < count; i++)
                 {
-                    RectTransform card = prizeChoices.GetChild(i) as RectTransform;
+                    RectTransform card = stableCards[i];
                     if (card == null)
                         continue;
+
+                    if (card.GetSiblingIndex() != i)
+                        card.SetSiblingIndex(i);
 
                     card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
                     card.pivot = new Vector2(0.5f, 0.5f);
                     card.sizeDelta = new Vector2(width, rewardCardSize.y);
                     card.anchoredPosition = new Vector2(start + i * (width + gap), 0f);
+                    card.localScale = Vector3.one;
 
                     RectTransform icon = card.Find("PrizeIcon") as RectTransform;
                     if (icon != null)
