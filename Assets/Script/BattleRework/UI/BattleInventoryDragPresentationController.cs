@@ -12,7 +12,7 @@ using UnityEditor.SceneManagement;
 /// - Reward에서는 PACK을 크게 열어 실제 편집 보드처럼 사용
 /// - Drag 중에는 PACK을 조금 더 안쪽/크게 이동
 /// - Drag Ghost는 PACK보다 높은 Sorting Order 유지
-/// - TRASH Drop 영역은 화면 절대 좌표가 아니라 현재 활성 PACK 프레임의 우측 하단에 직접 부착
+/// - TRASH와 DONE/NEXT 영역은 화면 절대 좌표가 아니라 현재 활성 PACK 프레임 우측 하단에 직접 부착
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32920)]
@@ -22,6 +22,7 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
     private const string FullPackName = "GridBoard";
     private const string FullPackContainerName = "LoadoutSwitchFull";
     private const string TrashName = "InventoryTrash";
+    private const string DoneName = "RewardPackDone";
     private const string InventoryGhostName = "InventoryDragGhost";
     private const string RewardGhostName = "RewardDragGhost";
     private const int DragSortingOrder = 2200;
@@ -41,9 +42,11 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
     [SerializeField] private Vector2 inventoryGhostIconSize = new(84f, 84f);
     [SerializeField, Range(1f, 1.25f)] private float rewardGhostScale = 1.08f;
 
-    [Header("TRASH Attachment")]
+    [Header("PACK Attached Controls")]
     [Tooltip("현재 활성 PACK 프레임 우측 하단에서 TRASH Drop 영역이 겹쳐 붙는 로컬 오프셋입니다.")]
     [SerializeField] private Vector2 trashAttachOffset = new(-8f, 0f);
+    [Tooltip("TRASH 바로 위에 DONE / NEXT 영역이 붙는 로컬 오프셋입니다.")]
+    [SerializeField] private Vector2 doneAttachOffset = new(-8f, 80f);
 
     private BattleRunManager runManager;
     private RectTransform packRoot;
@@ -52,6 +55,7 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
     private RectTransform fullPackContainer;
     private CanvasGroup fullPackGroup;
     private RectTransform trashRoot;
+    private RectTransform doneRoot;
     private RectTransform inventoryGhost;
     private RectTransform rewardGhost;
 
@@ -113,12 +117,12 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
 
         PromoteDragGhost(inventoryGhost, true);
         PromoteDragGhost(rewardGhost, false);
-        FollowTrash(reward);
+        FollowPackControls(reward);
     }
 
     /// <summary>
-    /// 다른 Reward/Tab 레이아웃 컨트롤러가 LateUpdate에서 TRASH 좌표를 다시 써도
-    /// 실제 Canvas 렌더 직전에 PACK 우측 하단으로 최종 고정합니다.
+    /// 다른 Reward/Tab 레이아웃 컨트롤러가 LateUpdate에서 TRASH/DONE 좌표를 다시 써도
+    /// 실제 Canvas 렌더 직전에 현재 PACK 우측 하단으로 최종 고정합니다.
     /// </summary>
     private void HandleWillRenderCanvases()
     {
@@ -126,7 +130,7 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
             return;
 
         ResolveUi();
-        FollowTrash(IsReward());
+        FollowPackControls(IsReward());
     }
 
     private void ResolveReferences()
@@ -166,6 +170,8 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
 
         if (trashRoot == null)
             trashRoot = FindRect(TrashName);
+        if (doneRoot == null)
+            doneRoot = FindRect(DoneName);
 
         if (inventoryGhost == null || !inventoryGhost.gameObject.activeInHierarchy)
             inventoryGhost = FindRect(InventoryGhostName);
@@ -292,26 +298,35 @@ public sealed class BattleInventoryDragPresentationController : MonoBehaviour
         }
     }
 
-    private void FollowTrash(bool reward)
+    private void FollowPackControls(bool reward)
     {
-        if (trashRoot == null || !reward)
+        if (!reward)
             return;
 
         RectTransform targetPack = ResolveVisiblePackFrame();
         if (targetPack == null)
             return;
 
-        // TRASH는 별도 화면 좌표가 아니라 PACK 프레임의 실제 자식으로 둡니다.
-        // 따라서 PACK이 이동/확대/트위닝되어도 우측 하단 모서리를 항상 같이 따라갑니다.
-        if (trashRoot.parent != targetPack)
-            trashRoot.SetParent(targetPack, false);
+        AttachToPackCorner(trashRoot, targetPack, trashAttachOffset);
+        AttachToPackCorner(doneRoot, targetPack, doneAttachOffset);
+    }
 
-        trashRoot.anchorMin = trashRoot.anchorMax = new Vector2(1f, 0f);
-        trashRoot.pivot = new Vector2(0f, 0f);
-        trashRoot.anchoredPosition = trashAttachOffset;
-        trashRoot.localRotation = Quaternion.identity;
-        trashRoot.localScale = Vector3.one;
-        trashRoot.SetAsLastSibling();
+    private static void AttachToPackCorner(RectTransform control, RectTransform targetPack, Vector2 localOffset)
+    {
+        if (control == null || targetPack == null)
+            return;
+
+        // 컨트롤 자체의 활성/비활성 상태는 BattleInventoryInteractionController가 소유합니다.
+        // 여기서는 레이아웃만 PACK 프레임에 종속시킵니다.
+        if (control.parent != targetPack)
+            control.SetParent(targetPack, false);
+
+        control.anchorMin = control.anchorMax = new Vector2(1f, 0f);
+        control.pivot = new Vector2(0f, 0f);
+        control.anchoredPosition = localOffset;
+        control.localRotation = Quaternion.identity;
+        control.localScale = Vector3.one;
+        control.SetAsLastSibling();
     }
 
     private RectTransform ResolveVisiblePackFrame()
