@@ -12,13 +12,13 @@ using UnityEditor.SceneManagement;
 /// <summary>
 /// 아이템 UI의 최종 시각 정책입니다.
 ///
-/// 기본 규칙:
-/// - UI와 아이템 아이콘은 선택되지 않았을 때 흑백입니다.
-/// - Reward 후보 / PACK / 확장 Grid에서 Hover 또는 실제 선택된 한 칸만 컬러가 살아납니다.
-/// - Hover는 위치나 sibling 순서를 절대 바꾸지 않고 제자리 Scale만 키웁니다.
-/// - 아이템 합성 단계는 기존 BattleEquipmentSlot.grade를 그대로 사용합니다.
-///   LV.1 = White, LV.2 = Blue, LV.3 = Violet. 동일 아이템 판별은 기존 BattleEquipmentSO 참조 기준입니다.
-/// - Reward 설명 바는 Hover/선택 아이템이 있을 때만 보입니다.
+/// 핵심 규칙:
+/// - 선택/호버가 없으면 UI와 아이템은 흑백 + 최소 정보만 표시합니다.
+/// - Reward 후보는 Hover 중인 카드 하나만 컬러 테두리와 설명을 표시합니다.
+/// - Reward Hover는 위치/크기/회전/Sibling 순서를 절대 변경하지 않습니다.
+/// - PACK / 확장 Grid도 기본은 흑백이며 실제 Hover/선택 상태에만 컬러가 살아납니다.
+/// - 합성 단계는 기존 BattleEquipmentSlot.grade를 그대로 사용합니다.
+///   LV.1 = White, LV.2 = Blue, LV.3 = Violet.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(42000)]
@@ -33,14 +33,12 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
     [SerializeField] private Color darkCell = new(0.065f, 0.068f, 0.075f, 0.98f);
     [SerializeField] private Color white = new(0.96f, 0.96f, 0.96f, 1f);
     [SerializeField] private Color muted = new(0.56f, 0.57f, 0.60f, 1f);
-    [SerializeField] private Color neutralOutline = new(0.88f, 0.88f, 0.88f, 0.24f);
+    [SerializeField] private Color neutralOutline = new(0.88f, 0.88f, 0.88f, 0.20f);
 
     [Header("Focus Only")]
     [SerializeField] private Color hoverAccent = new(0.12f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color selectedAccent = new(1f, 0.78f, 0.08f, 1f);
     [SerializeField] private Color pickedAccent = new(1f, 0.16f, 0.50f, 1f);
-    [SerializeField, Range(1.01f, 1.18f)] private float hoverScale = 1.075f;
-    [SerializeField, Min(1f)] private float hoverSharpness = 18f;
 
     [Header("Merge Tier")]
     [SerializeField] private Color level1Color = Color.white;
@@ -52,9 +50,8 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
     private BattleInventoryInteractionController inventoryInteraction;
     private BattleKineticLoadoutUI kineticLoadout;
     private BattleEquipmentDetailPanelController detailPanel;
-    private BattleHUD battleHud;
+    private BattleRewardKineticThemeController legacyRewardTheme;
 
-    private FieldInfo pendingRewardIndexField;
     private FieldInfo selectedRewardSlotField;
     private FieldInfo padSelectedSlotField;
     private FieldInfo padPickedSlotField;
@@ -79,8 +76,6 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
     private readonly List<RewardCardState> rewardCards = new();
     private readonly RectTransform[] miniSlots = new RectTransform[SlotCount];
     private readonly RectTransform[] gridSlots = new RectTransform[SlotCount];
-    private readonly float[] miniHoverBlend = new float[SlotCount];
-    private readonly float[] gridHoverBlend = new float[SlotCount];
 
     private RectTransform cachedPrizeChoices;
     private int cachedRewardCount = -1;
@@ -97,7 +92,6 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         public Image icon;
         public Outline outline;
         public Text[] texts;
-        public float hoverBlend;
     }
 
     private void Awake()
@@ -114,6 +108,15 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         CacheFields();
         EnsureMaterial();
         nextResolveTime = 0f;
+    }
+
+    private void OnDisable()
+    {
+        hoveredReward = -1;
+        hoveredMiniSlot = -1;
+        hoveredGridSlot = -1;
+        if (rewardDescriptionGroup != null)
+            rewardDescriptionGroup.alpha = 0f;
     }
 
     private void OnDestroy()
@@ -155,15 +158,17 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
         if (detailPanel == null)
             detailPanel = FindFirstObjectByType<BattleEquipmentDetailPanelController>();
-        if (battleHud == null)
-            battleHud = FindFirstObjectByType<BattleHUD>();
+        if (legacyRewardTheme == null)
+            legacyRewardTheme = FindFirstObjectByType<BattleRewardKineticThemeController>();
+
+        // 이전 Kinetic Reward Theme가 0.12초마다 카드 색/회전/Outline을 다시 쓰고 있었기 때문에
+        // 현재의 단일 흑백 정책과 충돌합니다. Reward 외형은 이 컨트롤러 하나만 소유합니다.
+        if (legacyRewardTheme != null && legacyRewardTheme.enabled)
+            legacyRewardTheme.enabled = false;
     }
 
     private void CacheFields()
     {
-        if (battleHud != null && pendingRewardIndexField == null)
-            pendingRewardIndexField = typeof(BattleHUD).GetField("pendingRewardIndex", PrivateInstance);
-
         if (inventoryInteraction != null && selectedRewardSlotField == null)
         {
             System.Type type = typeof(BattleInventoryInteractionController);
@@ -219,8 +224,9 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         rewardDescriptionBar = rewardInner != null
             ? rewardInner.Find("RewardActiveDescriptionBar") as RectTransform
             : FindRect("RewardActiveDescriptionBar");
-        if (rewardDescriptionBar != null)
-            rewardDescriptionGroup = rewardDescriptionBar.GetComponent<CanvasGroup>();
+        rewardDescriptionGroup = rewardDescriptionBar != null
+            ? rewardDescriptionBar.GetComponent<CanvasGroup>()
+            : null;
 
         placementNotice = rewardInner != null
             ? rewardInner.Find("PlacementNotice") as RectTransform
@@ -228,8 +234,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
         miniPack = FindRect("BackpackMiniGrid");
         fullRoot = FindRect("LoadoutSwitchFull");
-        if (fullRoot != null)
-            fullGroup = fullRoot.GetComponent<CanvasGroup>();
+        fullGroup = fullRoot != null ? fullRoot.GetComponent<CanvasGroup>() : null;
 
         for (int i = 0; i < SlotCount; i++)
         {
@@ -267,6 +272,11 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             if (drag == null)
                 continue;
 
+            // BattleHUD의 구형 Hover는 카드 위치/스케일/Sibling을 직접 바꾸므로 완전히 차단합니다.
+            RewardCardHover legacyHover = root.GetComponent<RewardCardHover>();
+            if (legacyHover != null)
+                legacyHover.enabled = false;
+
             BattleMonochromeRewardHoverRelay relay = root.GetComponent<BattleMonochromeRewardHoverRelay>();
             if (relay == null)
                 relay = root.gameObject.AddComponent<BattleMonochromeRewardHoverRelay>();
@@ -279,8 +289,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
                 background = root.GetComponent<Image>(),
                 icon = root.Find("PrizeIcon")?.GetComponent<Image>(),
                 outline = root.GetComponent<Outline>(),
-                texts = root.GetComponentsInChildren<Text>(true),
-                hoverBlend = 0f
+                texts = root.GetComponentsInChildren<Text>(true)
             });
         }
     }
@@ -309,16 +318,10 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
     internal void SetInventoryHover(int slotIndex, bool expanded, bool entered)
     {
-        int current = expanded ? hoveredGridSlot : hoveredMiniSlot;
-        if (entered)
-            current = slotIndex;
-        else if (current == slotIndex)
-            current = -1;
-
         if (expanded)
-            hoveredGridSlot = current;
+            hoveredGridSlot = entered ? slotIndex : (hoveredGridSlot == slotIndex ? -1 : hoveredGridSlot);
         else
-            hoveredMiniSlot = current;
+            hoveredMiniSlot = entered ? slotIndex : (hoveredMiniSlot == slotIndex ? -1 : hoveredMiniSlot);
 
         if (!expanded || detailPanel == null || detailManualSelectedSlotField == null)
             return;
@@ -339,14 +342,15 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
     {
         if (rewardScreen != null)
         {
+            rewardScreen.localRotation = Quaternion.identity;
             Image screenBack = rewardScreen.GetComponent<Image>();
             if (screenBack != null)
                 screenBack.color = black;
             Outline screenOutline = rewardScreen.GetComponent<Outline>();
             if (screenOutline != null)
             {
-                screenOutline.effectColor = new Color(white.r, white.g, white.b, 0.34f);
-                screenOutline.effectDistance = new Vector2(3f, -3f);
+                screenOutline.effectColor = new Color(white.r, white.g, white.b, 0.28f);
+                screenOutline.effectDistance = new Vector2(2f, -2f);
             }
         }
 
@@ -358,7 +362,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             Outline innerOutline = rewardInner.GetComponent<Outline>();
             if (innerOutline != null)
             {
-                innerOutline.effectColor = new Color(white.r, white.g, white.b, 0.18f);
+                innerOutline.effectColor = new Color(white.r, white.g, white.b, 0.16f);
                 innerOutline.effectDistance = new Vector2(2f, -2f);
             }
 
@@ -370,20 +374,22 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
                     continue;
 
                 string value = text.text ?? string.Empty;
-                if (value.Contains("CHOOSE YOUR PRIZE"))
-                    text.color = black;
-                else if (value.Contains("ON LIVE"))
-                    text.color = white;
-                else
-                    text.color = muted;
+                text.color = value.Contains("CHOOSE YOUR PRIZE") ? white : muted;
             }
         }
+
+        // 과거 Kinetic 장식은 기본 화면을 필요 이상으로 컬러풀하게 만들기 때문에 숨깁니다.
+        RectTransform rewardAccent = rewardInner != null
+            ? rewardInner.Find("RewardKineticAccentLayer") as RectTransform
+            : null;
+        if (rewardAccent != null && rewardAccent.gameObject.activeSelf)
+            rewardAccent.gameObject.SetActive(false);
 
         if (placementNotice != null)
         {
             Image noticeBack = placementNotice.GetComponent<Image>();
             if (noticeBack != null)
-                noticeBack.color = new Color(0.035f, 0.037f, 0.042f, 0.92f);
+                noticeBack.color = new Color(0.035f, 0.037f, 0.042f, 0.88f);
             Outline noticeOutline = placementNotice.GetComponent<Outline>();
             if (noticeOutline != null)
             {
@@ -392,24 +398,14 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             }
         }
 
-        RectTransform rewardAccent = FindRectCachedAccent();
-        if (rewardAccent != null)
-        {
-            SetImageColor(rewardAccent.Find("YellowHeaderCut"), white);
-            SetImageColor(rewardAccent.Find("PinkSlash"), new Color(0.76f, 0.76f, 0.76f, 0.95f));
-            SetImageColor(rewardAccent.Find("CyanRule"), new Color(0.88f, 0.88f, 0.88f, 0.85f));
-            SetImageColor(rewardAccent.Find("PaperCut"), new Color(1f, 1f, 1f, 0.14f));
-        }
-
         if (miniPack != null)
         {
             Image packBack = miniPack.GetComponent<Image>();
             if (packBack != null)
                 packBack.color = black;
-
             Outline packOutline = miniPack.GetComponent<Outline>();
             if (packOutline != null)
-                packOutline.effectColor = new Color(white.r, white.g, white.b, 0.72f);
+                packOutline.effectColor = new Color(white.r, white.g, white.b, 0.55f);
 
             SetImageColor(miniPack.Find("PackHeaderTag"), white);
 
@@ -431,21 +427,9 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         }
     }
 
-    private RectTransform FindRectCachedAccent()
-    {
-        if (rewardInner == null)
-            return null;
-        return rewardInner.Find("RewardKineticAccentLayer") as RectTransform;
-    }
-
     private void ApplyRewardChoiceVisuals()
     {
         bool rewardChoice = IsRewardChoicePhase();
-        int pending = rewardChoice ? ReadInt(pendingRewardIndexField, battleHud, -1) : -1;
-        int focusIndex = rewardChoice && hoveredReward >= 0 ? hoveredReward : pending;
-
-        float dt = Time.unscaledDeltaTime;
-        float blendStep = 1f - Mathf.Exp(-Mathf.Max(1f, hoverSharpness) * dt);
 
         for (int i = 0; i < rewardCards.Count; i++)
         {
@@ -454,42 +438,37 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
                 continue;
 
             int rewardIndex = card.drag.RewardIndex;
-            bool focused = rewardChoice && rewardIndex == focusIndex;
             bool hovered = rewardChoice && rewardIndex == hoveredReward;
-            bool selected = rewardChoice && rewardIndex == pending;
 
-            card.hoverBlend = Mathf.Lerp(card.hoverBlend, hovered ? 1f : 0f, blendStep);
-            float scale = Mathf.Lerp(1f, hoverScale, card.hoverBlend);
-            card.root.localScale = Vector3.one * scale;
+            // Hover는 Transform을 절대 건드리지 않습니다.
+            // 기존 코드/다른 테마가 스케일 또는 회전을 남겼더라도 최종 렌더 전에 중립 상태로 복구합니다.
+            card.root.localScale = Vector3.one;
+            card.root.localRotation = Quaternion.identity;
 
-            Color stateColor = selected ? selectedAccent : hoverAccent;
             if (card.background != null)
-                card.background.color = focused
-                    ? Color.Lerp(darkCell, stateColor, 0.14f)
-                    : darkCell;
+                card.background.color = darkCell;
 
             if (card.outline != null)
             {
-                card.outline.enabled = focused;
-                card.outline.effectColor = stateColor;
-                card.outline.effectDistance = hovered
-                    ? new Vector2(6f, -6f)
-                    : new Vector2(5f, -5f);
+                card.outline.enabled = hovered;
+                card.outline.effectColor = hoverAccent;
+                card.outline.effectDistance = new Vector2(5f, -5f);
             }
 
             if (card.icon != null)
             {
-                card.icon.material = focused ? null : monochromeMaterial;
-                card.icon.color = focused ? Color.white : new Color(0.82f, 0.82f, 0.82f, 0.72f);
+                card.icon.material = hovered ? null : monochromeMaterial;
+                card.icon.color = hovered
+                    ? Color.white
+                    : new Color(0.80f, 0.80f, 0.80f, 0.70f);
             }
 
-            BattleEquipmentSO equipment = GetReward(rewardIndex);
-            ApplyRewardTexts(card.texts, equipment, focused, stateColor);
+            ApplyRewardTexts(card.texts, GetReward(rewardIndex), hovered);
         }
 
+        bool showDescription = rewardChoice && hoveredReward >= 0;
         if (rewardDescriptionGroup != null)
         {
-            bool showDescription = rewardChoice && focusIndex >= 0;
             rewardDescriptionGroup.alpha = showDescription ? 1f : 0f;
             rewardDescriptionGroup.blocksRaycasts = false;
             rewardDescriptionGroup.interactable = false;
@@ -499,18 +478,15 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         {
             Image descriptionBack = rewardDescriptionBar.GetComponent<Image>();
             if (descriptionBack != null)
-                descriptionBack.color = new Color(0.010f, 0.011f, 0.014f, 0.86f);
+                descriptionBack.color = new Color(0.010f, 0.011f, 0.014f, 0.88f);
 
             Image accent = rewardDescriptionBar.Find("Accent")?.GetComponent<Image>();
-            if (accent != null && focusIndex >= 0)
-            {
-                bool selectedFocus = focusIndex == pending;
-                accent.color = selectedFocus ? selectedAccent : hoverAccent;
-            }
+            if (accent != null)
+                accent.color = showDescription ? hoverAccent : Color.clear;
         }
     }
 
-    private void ApplyRewardTexts(Text[] texts, BattleEquipmentSO equipment, bool focused, Color stateColor)
+    private void ApplyRewardTexts(Text[] texts, BattleEquipmentSO equipment, bool hovered)
     {
         if (texts == null)
             return;
@@ -526,17 +502,18 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             if (!string.IsNullOrEmpty(rarity) && (value == rarity || value.StartsWith("LV.1 / ")))
             {
                 text.text = $"LV.1 / {rarity}";
-                text.color = focused ? level1Color : muted;
+                text.color = level1Color;
                 continue;
             }
 
             if (value.Contains("CLICK") || value.Contains("DRAG"))
             {
-                text.color = focused ? stateColor : muted;
+                text.color = muted;
                 continue;
             }
 
-            text.color = focused ? white : new Color(muted.r, muted.g, muted.b, 0.82f);
+            // Hover 전/후 모두 카드 본문은 무채색. 색은 테두리와 아이콘 복원에만 사용합니다.
+            text.color = hovered ? white : new Color(muted.r, muted.g, muted.b, 0.86f);
         }
     }
 
@@ -545,7 +522,6 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         if (equipmentSystem == null)
             return;
 
-        float step = 1f - Mathf.Exp(-Mathf.Max(1f, hoverSharpness) * Time.unscaledDeltaTime);
         for (int i = 0; i < SlotCount; i++)
         {
             RectTransform slot = miniSlots[i];
@@ -557,8 +533,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             bool selected = IsMiniSlotSelected(i);
             bool focused = hovered || selected;
 
-            miniHoverBlend[i] = Mathf.Lerp(miniHoverBlend[i], hovered ? 1f : 0f, step);
-            slot.localScale = Vector3.one * Mathf.Lerp(1f, hoverScale, miniHoverBlend[i]);
+            slot.localScale = Vector3.one;
 
             Image back = slot.GetComponent<Image>();
             if (back != null)
@@ -567,15 +542,15 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             Outline outline = slot.GetComponent<Outline>();
             if (outline != null)
             {
-                outline.effectColor = neutralOutline;
-                outline.effectDistance = new Vector2(3f, -3f);
+                outline.effectColor = hovered ? hoverAccent : neutralOutline;
+                outline.effectDistance = hovered ? new Vector2(4f, -4f) : new Vector2(3f, -3f);
             }
 
             Image icon = slot.Find("Icon")?.GetComponent<Image>();
             if (icon != null)
             {
                 icon.material = focused ? null : monochromeMaterial;
-                icon.color = focused ? Color.white : new Color(0.84f, 0.84f, 0.84f, 0.78f);
+                icon.color = focused ? Color.white : new Color(0.82f, 0.82f, 0.82f, 0.76f);
             }
 
             BattleEquipmentSlot runtimeSlot = GetRuntimeSlot(i);
@@ -596,9 +571,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             return;
 
         int selected = ResolveExpandedSelectedSlot();
-        int focus = hoveredGridSlot >= 0 && HasItem(hoveredGridSlot) ? hoveredGridSlot : selected;
         bool visible = IsExpandedGridContext();
-        float step = 1f - Mathf.Exp(-Mathf.Max(1f, hoverSharpness) * Time.unscaledDeltaTime);
 
         for (int i = 0; i < SlotCount; i++)
         {
@@ -608,20 +581,20 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
             bool occupied = HasItem(i);
             bool hovered = visible && occupied && i == hoveredGridSlot;
-            bool focused = visible && occupied && i == focus;
+            bool selectedSlot = visible && occupied && i == selected;
             bool picked = IsRewardPickedSlot(i);
+            bool focused = hovered || selectedSlot || picked;
 
-            gridHoverBlend[i] = Mathf.Lerp(gridHoverBlend[i], hovered ? 1f : 0f, step);
-            slot.localScale = Vector3.one * Mathf.Lerp(1f, hoverScale, gridHoverBlend[i]);
+            slot.localScale = Vector3.one;
 
             Image back = slot.GetComponent<Image>();
-            Color focusColor = picked ? pickedAccent : hovered ? hoverAccent : selectedAccent;
             if (back != null)
-                back.color = focused ? Color.Lerp(darkCell, focusColor, 0.14f) : darkCell;
+                back.color = darkCell;
 
             Outline outline = slot.GetComponent<Outline>();
             if (outline != null)
             {
+                Color focusColor = picked ? pickedAccent : hovered ? hoverAccent : selectedAccent;
                 outline.effectColor = focused ? focusColor : neutralOutline;
                 outline.effectDistance = focused ? new Vector2(5f, -5f) : new Vector2(3f, -3f);
             }
@@ -630,7 +603,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             if (icon != null)
             {
                 icon.material = focused ? null : monochromeMaterial;
-                icon.color = focused ? Color.white : new Color(0.84f, 0.84f, 0.84f, 0.78f);
+                icon.color = focused ? Color.white : new Color(0.82f, 0.82f, 0.82f, 0.76f);
             }
 
             BattleEquipmentSlot runtimeSlot = GetRuntimeSlot(i);
@@ -667,12 +640,9 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             if (!value.StartsWith("G") && !value.StartsWith("LV."))
                 continue;
 
-            if (value.Length > 1 && char.IsDigit(value[value.Length - 1]))
-            {
-                text.text = $"LV.{Mathf.Clamp(runtimeSlot.grade, 1, 3)}";
-                text.color = tierColor;
-                return;
-            }
+            text.text = $"LV.{Mathf.Clamp(runtimeSlot.grade, 1, 3)}";
+            text.color = tierColor;
+            return;
         }
     }
 
@@ -688,8 +658,11 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
     {
         if (runManager == null || !runManager.RunActive || fullGroup == null || fullGroup.alpha <= 0.05f)
             return false;
+
         return runManager.State == BattleRunState.Combat ||
-               (runManager.State == BattleRunState.Reward && inventoryInteraction != null && inventoryInteraction.IsRewardPackEditing);
+               (runManager.State == BattleRunState.Reward &&
+                inventoryInteraction != null &&
+                inventoryInteraction.IsRewardPackEditing);
     }
 
     private int ResolveExpandedSelectedSlot()
@@ -758,7 +731,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
     private Color ResolveLevelColor(int level)
     {
-        return (Mathf.Clamp(level, 1, 3)) switch
+        return Mathf.Clamp(level, 1, 3) switch
         {
             1 => level1Color,
             2 => level2Color,
@@ -770,6 +743,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
     {
         if (child == null || parent == null)
             return false;
+
         Transform current = child;
         while (current != null)
         {
@@ -810,6 +784,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
+
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
@@ -903,6 +878,7 @@ public static class BattleMonochromeItemVisualAutoInstaller
         BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
+
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
