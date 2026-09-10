@@ -10,16 +10,14 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// Reward PACK과 Combat Tab 3x3에서 현재 선택된 장비의 정보를 우측 독립 패널로 표시합니다.
+/// PACK / Combat Tab / Reward 후보에서 현재 Inspect 대상의 상세 정보를 공용 패널로 표시합니다.
 ///
 /// 원칙:
-/// - 아무 아이템도 선택되지 않았으면 패널을 숨깁니다.
-/// - Reward: 마우스 클릭 선택 / 패드 선택 / 새로 PACK에 들어간 아이템을 표시합니다.
-/// - Combat: Tab/LB 확장 Grid가 실제로 열린 동안 현재 Grid 선택 슬롯을 표시합니다.
-/// - 장착/시너지 상태만으로는 패널이 열리지 않습니다. UI의 '선택'이 있어야 합니다.
-///
-/// 시각은 검정 기반의 비대칭 고대비 레이아웃에 Cyan / Yellow / Pink 잉크 포인트를 사용합니다.
-/// 특정 게임의 원본 UI Asset을 복제하지 않고 정보 우선의 kinetic / ink-accent 방향만 사용합니다.
+/// - 아무 아이템도 선택/호버하지 않았으면 패널을 숨깁니다.
+/// - Reward 후보는 PointerEnter 동안만 기존 PACK 상세 패널을 그대로 Preview로 사용합니다.
+/// - Reward Hover는 카드의 위치/크기/회전/Sibling 순서를 절대 변경하지 않습니다.
+/// - Reward PACK / Combat Tab에서는 실제 선택된 슬롯을 표시합니다.
+/// - 장착/시너지 상태만으로는 패널을 열지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30920)]
@@ -47,7 +45,6 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.08f, 1f);
     [SerializeField] private Color accentCyan = new(0.14f, 0.92f, 0.94f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.16f, 0.50f, 1f);
-    [SerializeField] private Color mutedText = new(0.64f, 0.67f, 0.72f, 1f);
 
     private Canvas canvas;
     private RectTransform root;
@@ -63,8 +60,12 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     private Text synergyTitle;
     private Text synergyText;
 
+    // 다른 Inventory 컨트롤러가 reflection으로 읽고 있으므로 필드명은 유지합니다.
     private int manualSelectedSlot = -1;
+    private int hoveredRewardIndex = -1;
     private int renderedSlot = -999;
+    private int renderedRewardIndex = -999;
+    private bool renderedRewardPreview;
     private bool renderedVisible;
     private BattleRunState lastState = (BattleRunState)(-1);
     private float nextRelayInstall;
@@ -91,6 +92,18 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         nextRelayInstall = 0f;
     }
 
+    private void OnDisable()
+    {
+        hoveredRewardIndex = -1;
+        manualSelectedSlot = -1;
+        renderedSlot = -999;
+        renderedRewardIndex = -999;
+        renderedRewardPreview = false;
+        renderedVisible = false;
+        if (group != null)
+            group.alpha = 0f;
+    }
+
     private void Update()
     {
         ResolveReferences();
@@ -99,15 +112,36 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         if (runManager != null && runManager.State != lastState)
         {
             manualSelectedSlot = -1;
+            hoveredRewardIndex = -1;
             renderedSlot = -999;
+            renderedRewardIndex = -999;
+            renderedRewardPreview = false;
             lastState = runManager.State;
         }
 
         if (Time.unscaledTime >= nextRelayInstall)
         {
-            nextRelayInstall = Time.unscaledTime + 0.18f;
-            InstallClickRelays();
+            nextRelayInstall = Time.unscaledTime + 0.12f;
+            InstallInspectRelays();
         }
+
+        // Reward 후보 Hover가 최우선 Inspect 대상입니다.
+        // PACK에 넣기 전의 후보 SO이므로 실제 슬롯을 만들거나 데이터를 변경하지 않습니다.
+        if (TryGetHoveredReward(out int rewardIndex, out BattleEquipmentSO reward))
+        {
+            if (!renderedRewardPreview || rewardIndex != renderedRewardIndex || !renderedVisible)
+                RefreshRewardPreview(rewardIndex, reward);
+
+            renderedRewardPreview = true;
+            renderedRewardIndex = rewardIndex;
+            renderedSlot = -999;
+            renderedVisible = true;
+            Animate(true);
+            return;
+        }
+
+        renderedRewardPreview = false;
+        renderedRewardIndex = -999;
 
         bool contextVisible = IsRewardContext() || IsCombatTabContext();
         if (!contextVisible)
@@ -133,11 +167,37 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         if (!TryGetEquipment(slotIndex, out _, out _))
         {
             manualSelectedSlot = -1;
+            renderedSlot = -999;
             return;
         }
 
         manualSelectedSlot = slotIndex;
         renderedSlot = -999;
+    }
+
+    internal void SetRewardPreviewHover(int rewardIndex, bool entered)
+    {
+        if (!IsRewardChoiceContext())
+        {
+            hoveredRewardIndex = -1;
+            return;
+        }
+
+        if (entered)
+        {
+            if (TryGetReward(rewardIndex, out _))
+            {
+                hoveredRewardIndex = rewardIndex;
+                renderedRewardIndex = -999;
+            }
+            return;
+        }
+
+        if (hoveredRewardIndex == rewardIndex)
+        {
+            hoveredRewardIndex = -1;
+            renderedRewardIndex = -999;
+        }
     }
 
     private void ResolveReferences()
@@ -168,6 +228,12 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     private bool IsRewardContext()
     {
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward;
+    }
+
+    private bool IsRewardChoiceContext()
+    {
+        return IsRewardContext() &&
+               (inventoryInteraction == null || !inventoryInteraction.IsRewardPackEditing);
     }
 
     private bool IsCombatTabContext()
@@ -226,6 +292,27 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         return -1;
     }
 
+    private bool TryGetHoveredReward(out int rewardIndex, out BattleEquipmentSO equipment)
+    {
+        rewardIndex = hoveredRewardIndex;
+        equipment = null;
+
+        if (!IsRewardChoiceContext() || rewardIndex < 0)
+            return false;
+
+        return TryGetReward(rewardIndex, out equipment);
+    }
+
+    private bool TryGetReward(int rewardIndex, out BattleEquipmentSO equipment)
+    {
+        equipment = null;
+        if (runManager == null || rewardIndex < 0 || rewardIndex >= runManager.CurrentRewardChoices.Count)
+            return false;
+
+        equipment = runManager.CurrentRewardChoices[rewardIndex];
+        return equipment != null;
+    }
+
     private bool TryGetEquipment(int slotIndex, out BattleEquipmentSlot runtimeSlot, out BattleEquipmentSO equipment)
     {
         runtimeSlot = null;
@@ -242,7 +329,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 
     private void RefreshPanel(int slotIndex, BattleEquipmentSlot runtimeSlot, BattleEquipmentSO equipment)
     {
-        if (equipment == null)
+        if (equipment == null || runtimeSlot == null)
             return;
 
         if (slotLabel != null)
@@ -251,20 +338,55 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
             slotLabel.text = $"PACK // {grid.x + 1}-{grid.y + 1}";
         }
 
-        if (title != null)
-            title.text = equipment.GetDisplayName().ToUpperInvariant();
-
-        if (rarityType != null)
-            rarityType.text = $"{equipment.rarity.ToString().ToUpperInvariant()}  /  {equipment.type.ToString().ToUpperInvariant()}";
+        ApplyCommonEquipmentInfo(equipment);
 
         if (stateLabel != null)
         {
             bool equipped = equipmentSystem != null && equipmentSystem.EquippedSlotIndex == slotIndex;
             stateLabel.text = equipped
-                ? $"ACTIVE  //  G{runtimeSlot.grade}"
-                : $"GRADE {runtimeSlot.grade}  //  COPY {runtimeSlot.copies}/3";
+                ? $"ACTIVE  //  LV.{runtimeSlot.grade}"
+                : $"LV.{runtimeSlot.grade}  //  COPY {runtimeSlot.copies}/3";
             stateLabel.color = equipped ? accentYellow : accentCyan;
         }
+
+        if (synergyTitle != null)
+            synergyTitle.text = "GRID LINK";
+        if (synergyText != null)
+            synergyText.text = BuildSynergies(slotIndex);
+    }
+
+    private void RefreshRewardPreview(int rewardIndex, BattleEquipmentSO equipment)
+    {
+        if (equipment == null)
+            return;
+
+        if (slotLabel != null)
+            slotLabel.text = $"REWARD // {rewardIndex + 1}";
+
+        ApplyCommonEquipmentInfo(equipment);
+
+        if (stateLabel != null)
+        {
+            stateLabel.text = "LV.1  //  HOVER PREVIEW";
+            stateLabel.color = accentCyan;
+        }
+
+        if (synergyTitle != null)
+            synergyTitle.text = "PACK / MERGE";
+        if (synergyText != null)
+            synergyText.text = BuildRewardPackHint(equipment);
+    }
+
+    private void ApplyCommonEquipmentInfo(BattleEquipmentSO equipment)
+    {
+        if (equipment == null)
+            return;
+
+        if (title != null)
+            title.text = equipment.GetDisplayName().ToUpperInvariant();
+
+        if (rarityType != null)
+            rarityType.text = $"{equipment.rarity.ToString().ToUpperInvariant()}  /  {equipment.type.ToString().ToUpperInvariant()}";
 
         if (icon != null)
         {
@@ -275,7 +397,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         if (description != null)
         {
             description.text = !string.IsNullOrWhiteSpace(equipment.description)
-                ? equipment.description
+                ? equipment.description.Trim()
                 : BuildFallbackDescription(equipment);
         }
 
@@ -289,9 +411,6 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 
         if (tagText != null)
             tagText.text = BuildTags(equipment);
-
-        if (synergyText != null)
-            synergyText.text = BuildSynergies(slotIndex);
     }
 
     private static string BuildFallbackDescription(BattleEquipmentSO equipment)
@@ -325,7 +444,8 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         StringBuilder sb = new();
         for (int i = 0; i < equipment.tags.Count; i++)
         {
-            if (i > 0) sb.Append("  •  ");
+            if (i > 0)
+                sb.Append("  •  ");
             sb.Append(equipment.tags[i].ToString().ToUpperInvariant());
         }
         return sb.ToString();
@@ -343,7 +463,8 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
             if (link == null || (link.slotA != slotIndex && link.slotB != slotIndex))
                 continue;
 
-            if (sb.Length > 0) sb.Append('\n');
+            if (sb.Length > 0)
+                sb.Append('\n');
             sb.Append("+ ");
             sb.Append(link.displayName);
             if (link.damageMultiplier > 1.001f)
@@ -351,6 +472,23 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         }
 
         return sb.Length > 0 ? sb.ToString() : "NO ACTIVE GRID LINK";
+    }
+
+    private string BuildRewardPackHint(BattleEquipmentSO equipment)
+    {
+        if (equipmentSystem == null || equipment == null)
+            return "DROP INTO PACK TO ACQUIRE";
+
+        for (int i = 0; i < equipmentSystem.Slots.Count; i++)
+        {
+            BattleEquipmentSlot slot = equipmentSystem.Slots[i];
+            if (slot == null || slot.equipment != equipment)
+                continue;
+
+            return $"SAME ITEM IN PACK  //  LV.{slot.grade}  COPY {slot.copies}/3\nDROP INTO PACK TO MERGE / PLACE";
+        }
+
+        return "NEW ITEM  //  DROP INTO PACK TO ACQUIRE";
     }
 
     private void EnsureUi()
@@ -379,6 +517,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         Image back = root.gameObject.AddComponent<Image>();
         back.color = inkColor;
         back.raycastTarget = false;
+
         Outline outline = root.gameObject.AddComponent<Outline>();
         outline.effectColor = accentCyan;
         outline.effectDistance = new Vector2(5f, -5f);
@@ -465,7 +604,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         rarityType = CreateText(root, "COMMON / MANUAL", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
         SetAnchors(rarityType.rectTransform, new Vector2(0.36f, 0.65f), new Vector2(0.94f, 0.72f));
 
-        stateLabel = CreateText(root, "ACTIVE // G1", 10, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow);
+        stateLabel = CreateText(root, "ACTIVE // LV.1", 10, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow);
         SetAnchors(stateLabel.rectTransform, new Vector2(0.36f, 0.59f), new Vector2(0.94f, 0.65f));
     }
 
@@ -524,16 +663,32 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
             group.alpha = 0f;
     }
 
-    private void InstallClickRelays()
+    private void InstallInspectRelays()
     {
         for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
         {
-            AttachRelay(FindRect($"BackpackCell_{i}"), i);
-            AttachRelay(FindRect($"GridSlot_{i}"), i);
+            AttachSlotRelay(FindRect($"BackpackCell_{i}"), i);
+            AttachSlotRelay(FindRect($"GridSlot_{i}"), i);
+        }
+
+        RewardPrizeDrag[] rewardCards = UnityEngine.Object.FindObjectsByType<RewardPrizeDrag>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < rewardCards.Length; i++)
+        {
+            RewardPrizeDrag drag = rewardCards[i];
+            if (drag == null)
+                continue;
+
+            BattleRewardInspectHoverRelay relay = drag.GetComponent<BattleRewardInspectHoverRelay>();
+            if (relay == null)
+                relay = drag.gameObject.AddComponent<BattleRewardInspectHoverRelay>();
+            relay.Configure(this, drag.RewardIndex);
         }
     }
 
-    private void AttachRelay(RectTransform rect, int slotIndex)
+    private void AttachSlotRelay(RectTransform rect, int slotIndex)
     {
         if (rect == null)
             return;
@@ -569,6 +724,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
+
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
@@ -641,6 +797,28 @@ internal sealed class BattleEquipmentInspectClickRelay : MonoBehaviour, IPointer
     {
         if (eventData.button == PointerEventData.InputButton.Left)
             owner?.SelectSlotFromPointer(slotIndex);
+    }
+}
+
+internal sealed class BattleRewardInspectHoverRelay : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
+{
+    private BattleEquipmentDetailPanelController owner;
+    private int rewardIndex;
+
+    public void Configure(BattleEquipmentDetailPanelController controller, int index)
+    {
+        owner = controller;
+        rewardIndex = index;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        owner?.SetRewardPreviewHover(rewardIndex, true);
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        owner?.SetRewardPreviewHover(rewardIndex, false);
     }
 }
 
