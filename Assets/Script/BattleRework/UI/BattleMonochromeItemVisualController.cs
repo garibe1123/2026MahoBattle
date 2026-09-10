@@ -66,9 +66,12 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
     private Material monochromeMaterial;
 
+    private RectTransform rewardScreen;
+    private RectTransform rewardInner;
     private RectTransform prizeChoices;
     private RectTransform rewardDescriptionBar;
     private CanvasGroup rewardDescriptionGroup;
+    private RectTransform placementNotice;
     private RectTransform miniPack;
     private RectTransform fullRoot;
     private CanvasGroup fullGroup;
@@ -134,7 +137,6 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
     private void LateUpdate()
     {
-        ResolveUi(false);
         ApplyStaticMonochrome();
         ApplyRewardChoiceVisuals();
         ApplyMiniPackVisuals();
@@ -202,16 +204,27 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
     private void ResolveUi(bool forceRewardCache)
     {
-        RectTransform resolvedChoices = FindRect("PrizeChoices");
+        rewardScreen = FindRect("PrizeSelectionScreen");
+        rewardInner = rewardScreen != null ? rewardScreen.Find("ScreenInner") as RectTransform : null;
+
+        RectTransform resolvedChoices = rewardInner != null
+            ? rewardInner.Find("PrizeChoices") as RectTransform
+            : FindRect("PrizeChoices");
         if (resolvedChoices != prizeChoices)
         {
             prizeChoices = resolvedChoices;
             forceRewardCache = true;
         }
 
-        rewardDescriptionBar = FindRect("RewardActiveDescriptionBar");
+        rewardDescriptionBar = rewardInner != null
+            ? rewardInner.Find("RewardActiveDescriptionBar") as RectTransform
+            : FindRect("RewardActiveDescriptionBar");
         if (rewardDescriptionBar != null)
             rewardDescriptionGroup = rewardDescriptionBar.GetComponent<CanvasGroup>();
+
+        placementNotice = rewardInner != null
+            ? rewardInner.Find("PlacementNotice") as RectTransform
+            : FindRect("PlacementNotice");
 
         miniPack = FindRect("BackpackMiniGrid");
         fullRoot = FindRect("LoadoutSwitchFull");
@@ -324,6 +337,70 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
     private void ApplyStaticMonochrome()
     {
+        if (rewardScreen != null)
+        {
+            Image screenBack = rewardScreen.GetComponent<Image>();
+            if (screenBack != null)
+                screenBack.color = black;
+            Outline screenOutline = rewardScreen.GetComponent<Outline>();
+            if (screenOutline != null)
+            {
+                screenOutline.effectColor = new Color(white.r, white.g, white.b, 0.34f);
+                screenOutline.effectDistance = new Vector2(3f, -3f);
+            }
+        }
+
+        if (rewardInner != null)
+        {
+            Image innerBack = rewardInner.GetComponent<Image>();
+            if (innerBack != null)
+                innerBack.color = new Color(0.028f, 0.030f, 0.034f, 0.995f);
+            Outline innerOutline = rewardInner.GetComponent<Outline>();
+            if (innerOutline != null)
+            {
+                innerOutline.effectColor = new Color(white.r, white.g, white.b, 0.18f);
+                innerOutline.effectDistance = new Vector2(2f, -2f);
+            }
+
+            Text[] texts = rewardInner.GetComponentsInChildren<Text>(true);
+            for (int i = 0; i < texts.Length; i++)
+            {
+                Text text = texts[i];
+                if (text == null || IsChildOf(text.transform, prizeChoices) || IsChildOf(text.transform, rewardDescriptionBar))
+                    continue;
+
+                string value = text.text ?? string.Empty;
+                if (value.Contains("CHOOSE YOUR PRIZE"))
+                    text.color = black;
+                else if (value.Contains("ON LIVE"))
+                    text.color = white;
+                else
+                    text.color = muted;
+            }
+        }
+
+        if (placementNotice != null)
+        {
+            Image noticeBack = placementNotice.GetComponent<Image>();
+            if (noticeBack != null)
+                noticeBack.color = new Color(0.035f, 0.037f, 0.042f, 0.92f);
+            Outline noticeOutline = placementNotice.GetComponent<Outline>();
+            if (noticeOutline != null)
+            {
+                noticeOutline.effectColor = neutralOutline;
+                noticeOutline.effectDistance = new Vector2(2f, -2f);
+            }
+        }
+
+        RectTransform rewardAccent = FindRectCachedAccent();
+        if (rewardAccent != null)
+        {
+            SetImageColor(rewardAccent.Find("YellowHeaderCut"), white);
+            SetImageColor(rewardAccent.Find("PinkSlash"), new Color(0.76f, 0.76f, 0.76f, 0.95f));
+            SetImageColor(rewardAccent.Find("CyanRule"), new Color(0.88f, 0.88f, 0.88f, 0.85f));
+            SetImageColor(rewardAccent.Find("PaperCut"), new Color(1f, 1f, 1f, 0.14f));
+        }
+
         if (miniPack != null)
         {
             Image packBack = miniPack.GetComponent<Image>();
@@ -350,18 +427,15 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
         if (fullRoot != null)
         {
             SetImageColor(fullRoot.Find("YellowWedge"), new Color(0.90f, 0.90f, 0.90f, 0.93f));
-            Transform board = fullRoot.Find("GridBoard/BoardBack");
-            SetImageColor(board, new Color(0.90f, 0.90f, 0.90f, 0.96f));
+            SetImageColor(fullRoot.Find("GridBoard/BoardBack"), new Color(0.90f, 0.90f, 0.90f, 0.96f));
         }
+    }
 
-        RectTransform rewardAccent = FindRect("RewardKineticAccentLayer");
-        if (rewardAccent != null)
-        {
-            SetImageColor(rewardAccent.Find("YellowHeaderCut"), white);
-            SetImageColor(rewardAccent.Find("PinkSlash"), new Color(0.76f, 0.76f, 0.76f, 0.95f));
-            SetImageColor(rewardAccent.Find("CyanRule"), new Color(0.88f, 0.88f, 0.88f, 0.85f));
-            SetImageColor(rewardAccent.Find("PaperCut"), new Color(1f, 1f, 1f, 0.14f));
-        }
+    private RectTransform FindRectCachedAccent()
+    {
+        if (rewardInner == null)
+            return null;
+        return rewardInner.Find("RewardKineticAccentLayer") as RectTransform;
     }
 
     private void ApplyRewardChoiceVisuals()
@@ -419,6 +493,20 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             rewardDescriptionGroup.alpha = showDescription ? 1f : 0f;
             rewardDescriptionGroup.blocksRaycasts = false;
             rewardDescriptionGroup.interactable = false;
+        }
+
+        if (rewardDescriptionBar != null)
+        {
+            Image descriptionBack = rewardDescriptionBar.GetComponent<Image>();
+            if (descriptionBack != null)
+                descriptionBack.color = new Color(0.010f, 0.011f, 0.014f, 0.86f);
+
+            Image accent = rewardDescriptionBar.Find("Accent")?.GetComponent<Image>();
+            if (accent != null && focusIndex >= 0)
+            {
+                bool selectedFocus = focusIndex == pending;
+                accent.color = selectedFocus ? selectedAccent : hoverAccent;
+            }
         }
     }
 
@@ -670,12 +758,26 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
     private Color ResolveLevelColor(int level)
     {
-        return Mathf.Clamp(level, 1, 3) switch
+        return (Mathf.Clamp(level, 1, 3)) switch
         {
             1 => level1Color,
             2 => level2Color,
             _ => level3Color
         };
+    }
+
+    private static bool IsChildOf(Transform child, Transform parent)
+    {
+        if (child == null || parent == null)
+            return false;
+        Transform current = child;
+        while (current != null)
+        {
+            if (current == parent)
+                return true;
+            current = current.parent;
+        }
+        return false;
     }
 
     private static void SetImageColor(Transform target, Color color)
