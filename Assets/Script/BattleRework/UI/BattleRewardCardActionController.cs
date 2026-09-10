@@ -1,6 +1,6 @@
 using System.Collections.Generic;
-using System.Text;
 using System.Reflection;
+using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -10,18 +10,17 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// Reward 선택 단계의 카드 액션/강조를 최종 렌더 단계에서 관리합니다.
+/// Reward 선택 단계의 카드 액션/상세 표시를 최종 렌더 단계에서 관리합니다.
 ///
 /// 규칙:
 /// - Hover는 카드 Transform을 절대 변경하지 않습니다.
-/// - 클릭되어 pendingRewardIndex가 된 카드만 크게 펼치고, 나머지 카드는 작게 줄입니다.
-/// - 선택 카드 내부 우측에 설명 / PARAMETER / TAG 정보를 직접 표시합니다.
-/// - [결정]은 선택 카드 내부 상세 영역에만 표시합니다.
-/// - [아이템 획득 포기]는 카드 내부가 아니라 하단 PlacementNotice 회색 바 우측에 고정합니다.
-/// - Reward 후보 선택 중에는 외부 EquipmentDetailPanel / RewardActiveDescriptionBar를 숨깁니다.
+/// - 클릭되어 pendingRewardIndex가 된 카드만 위/아래로 길게 펼칩니다.
+/// - 선택 카드 내부에 설명 / 효과 목록 / 태그 / [결정]을 세로로 배치합니다.
+/// - 비선택 카드는 작게 줄여 선택 카드의 정보 밀도를 확보합니다.
+/// - 하단의 기존 설명 바는 사용하지 않습니다.
+/// - PlacementNotice는 안내 바가 아니라 작은 [아이템 획득 포기하기] 버튼의 자리로만 사용합니다.
 ///
-/// 카드 확대/축소는 pendingRewardIndex에만 의존합니다. PointerEnter/Exit에 따라 크기를 바꾸지 않으므로
-/// 이전 Hover 경계 진동 문제가 다시 발생하지 않습니다.
+/// 카드 크기 변화는 pendingRewardIndex에만 의존하므로 PointerEnter/Exit 경계 진동이 없습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(44100)]
@@ -30,34 +29,36 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
 
     [Header("Selected Card")]
-    [SerializeField] private Vector2 selectedSizeMultiplier = new(1.30f, 1.12f);
-    [SerializeField, Range(1f, 1.12f)] private float selectedCardScale = 1.03f;
-    [SerializeField, Range(0.68f, 0.98f)] private float inactiveCardScale = 0.84f;
+    [SerializeField] private float selectedHeightMultiplier = 1.56f;
+    [SerializeField, Range(0.98f, 1.05f)] private float selectedCardScale = 1f;
+    [SerializeField, Range(0.68f, 0.98f)] private float inactiveCardScale = 0.82f;
     [SerializeField, Min(1f)] private float cardTransitionSharpness = 18f;
 
-    [Header("Selected Card Action")]
-    [SerializeField] private Vector2 decideSize = new(192f, 42f);
-    [SerializeField] private Vector2 decidePosition = new(0f, 24f);
+    [Header("Decision")]
+    [SerializeField] private Vector2 decideSize = new(190f, 42f);
+    [SerializeField] private Vector2 decideAnchor = new(0.5f, 0.065f);
 
-    [Header("Skip Action In Bottom Bar")]
-    [SerializeField] private Vector2 skipSize = new(238f, 40f);
-    [SerializeField] private Vector2 skipAnchor = new(0.88f, 0.5f);
+    [Header("Skip Reward")]
+    [SerializeField] private Vector2 skipSize = new(286f, 42f);
+    [SerializeField] private Vector2 skipAnchor = new(0.5f, 0.5f);
 
     [Header("Monochrome")]
     [SerializeField] private Color inkColor = new(0.015f, 0.016f, 0.019f, 0.99f);
     [SerializeField] private Color paperColor = new(0.96f, 0.96f, 0.96f, 1f);
     [SerializeField] private Color mutedColor = new(0.58f, 0.59f, 0.62f, 1f);
     [SerializeField] private Color activeColor = new(1f, 0.78f, 0.08f, 1f);
+    [SerializeField] private Color skipBackColor = new(0.20f, 0.20f, 0.21f, 0.98f);
 
     private BattleRunManager runManager;
     private BattleHUD battleHud;
     private BattleInventoryInteractionController inventoryInteraction;
-
     private FieldInfo pendingRewardIndexField;
 
     private RectTransform rewardInner;
     private RectTransform prizeChoices;
     private RectTransform placementNotice;
+    private Image placementNoticeImage;
+    private Text placementNoticeMainText;
     private RectTransform rewardDescriptionBar;
     private CanvasGroup rewardDescriptionGroup;
     private RectTransform externalDetailRoot;
@@ -66,12 +67,14 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private RectTransform decideRoot;
     private RectTransform skipRoot;
     private Button skipButton;
+    private Image skipBack;
+    private Text skipLabel;
 
     private RectTransform inlineDetailRoot;
-    private Image inlineDetailBack;
-    private Text inlineTitle;
-    private Text inlineBody;
-    private Text inlineStats;
+    private Text inlineDescriptionTitle;
+    private Text inlineDescription;
+    private Text inlineEffectsTitle;
+    private Text inlineEffects;
     private Text inlineTags;
 
     private readonly Dictionary<int, Vector2> baseCardSizes = new();
@@ -101,7 +104,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     {
         Canvas.willRenderCanvases -= HandleWillRenderCanvases;
         RestoreCardsImmediate();
-        HideActions();
+        HideChoiceUi();
     }
 
     private void OnDestroy()
@@ -121,13 +124,13 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void LateUpdate()
     {
-        ApplySelectedCardPresentation(true);
+        ApplyPresentation(true);
     }
 
     private void HandleWillRenderCanvases()
     {
         if (isActiveAndEnabled)
-            ApplySelectedCardPresentation(false);
+            ApplyPresentation(false);
     }
 
     private void ResolveReferences()
@@ -154,6 +157,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             rewardInner = resolvedInner;
             prizeChoices = null;
             placementNotice = null;
+            placementNoticeImage = null;
+            placementNoticeMainText = null;
             rewardDescriptionBar = null;
             rewardDescriptionGroup = null;
         }
@@ -163,18 +168,22 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             prizeChoices = rewardInner.Find("PrizeChoices") as RectTransform;
             placementNotice = rewardInner.Find("PlacementNotice") as RectTransform;
             rewardDescriptionBar = rewardInner.Find("RewardActiveDescriptionBar") as RectTransform;
-            rewardDescriptionGroup = rewardDescriptionBar != null
-                ? rewardDescriptionBar.GetComponent<CanvasGroup>()
-                : null;
         }
         else
         {
             prizeChoices ??= FindRect("PrizeChoices");
             placementNotice ??= FindRect("PlacementNotice");
             rewardDescriptionBar ??= FindRect("RewardActiveDescriptionBar");
-            rewardDescriptionGroup ??= rewardDescriptionBar != null
-                ? rewardDescriptionBar.GetComponent<CanvasGroup>()
-                : null;
+        }
+
+        rewardDescriptionGroup = rewardDescriptionBar != null
+            ? rewardDescriptionBar.GetComponent<CanvasGroup>()
+            : null;
+
+        if (placementNotice != null)
+        {
+            placementNoticeImage ??= placementNotice.GetComponent<Image>();
+            placementNoticeMainText ??= FindPlacementNoticeMainText();
         }
 
         RectTransform resolvedDecide = FindRect("RewardDecisionConfirm");
@@ -194,6 +203,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void EnsureSkipButton()
     {
+        if (placementNotice == null)
+            return;
+
         if (skipRoot == null)
         {
             RectTransform existing = FindRect("RewardDecisionSkip");
@@ -201,54 +213,57 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             {
                 skipRoot = existing;
                 skipButton = skipRoot.GetComponent<Button>();
+                skipBack = skipRoot.GetComponent<Image>();
+                skipLabel = skipRoot.GetComponentInChildren<Text>(true);
             }
         }
 
         if (skipRoot == null)
         {
-            if (placementNotice == null)
-                return;
-
             GameObject go = new("RewardDecisionSkip");
             go.transform.SetParent(placementNotice, false);
             skipRoot = go.AddComponent<RectTransform>();
-            skipRoot.sizeDelta = skipSize;
 
-            Image back = go.AddComponent<Image>();
-            back.color = inkColor;
-            back.raycastTarget = true;
+            skipBack = go.AddComponent<Image>();
+            skipBack.raycastTarget = true;
 
             Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.54f);
+            outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.52f);
             outline.effectDistance = new Vector2(2f, -2f);
 
             RectTransform textRect = new GameObject("Text").AddComponent<RectTransform>();
             textRect.SetParent(skipRoot, false);
             Stretch(textRect);
 
-            Text label = textRect.gameObject.AddComponent<Text>();
-            label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            label.text = "아이템 획득 포기";
-            label.fontSize = 14;
-            label.fontStyle = FontStyle.Bold;
-            label.alignment = TextAnchor.MiddleCenter;
-            label.color = paperColor;
-            label.raycastTarget = false;
+            skipLabel = textRect.gameObject.AddComponent<Text>();
+            skipLabel.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            skipLabel.fontSize = 14;
+            skipLabel.fontStyle = FontStyle.Bold;
+            skipLabel.alignment = TextAnchor.MiddleCenter;
+            skipLabel.raycastTarget = false;
 
             skipButton = go.AddComponent<Button>();
-            skipButton.targetGraphic = back;
+            skipButton.targetGraphic = skipBack;
             skipButton.onClick.AddListener(SkipReward);
 
             ColorBlock colors = skipButton.colors;
             colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(0.84f, 0.84f, 0.84f, 1f);
+            colors.highlightedColor = new Color(0.86f, 0.86f, 0.86f, 1f);
             colors.pressedColor = new Color(0.68f, 0.68f, 0.68f, 1f);
             colors.selectedColor = colors.highlightedColor;
             skipButton.colors = colors;
         }
 
-        if (placementNotice != null && skipRoot.parent != placementNotice)
+        if (skipRoot.parent != placementNotice)
             skipRoot.SetParent(placementNotice, false);
+
+        if (skipBack != null)
+            skipBack.color = skipBackColor;
+        if (skipLabel != null)
+        {
+            skipLabel.text = "아이템 획득 포기하기";
+            skipLabel.color = paperColor;
+        }
     }
 
     private void EnsureInlineDetail(RectTransform selectedCard)
@@ -257,40 +272,41 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
 
         if (inlineDetailRoot == null)
+            inlineDetailRoot = FindRect("RewardSelectedInlineDetail");
+
+        if (inlineDetailRoot == null)
         {
             GameObject go = new("RewardSelectedInlineDetail");
             go.transform.SetParent(selectedCard, false);
             inlineDetailRoot = go.AddComponent<RectTransform>();
-            inlineDetailBack = go.AddComponent<Image>();
-            inlineDetailBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
-            inlineDetailBack.raycastTarget = false;
 
-            Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.22f);
-            outline.effectDistance = new Vector2(2f, -2f);
+            inlineDescriptionTitle = CreateText(inlineDetailRoot, "DESCRIPTION", 10, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor);
+            SetAnchors(inlineDescriptionTitle.rectTransform, new Vector2(0f, 0.84f), new Vector2(1f, 1f));
 
-            inlineTitle = CreateText(inlineDetailRoot, "ITEM DATA", 11, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-            SetAnchors(inlineTitle.rectTransform, new Vector2(0.06f, 0.84f), new Vector2(0.94f, 0.96f));
+            inlineDescription = CreateText(inlineDetailRoot, string.Empty, 10, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
+            inlineDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
+            inlineDescription.verticalOverflow = VerticalWrapMode.Truncate;
+            SetAnchors(inlineDescription.rectTransform, new Vector2(0f, 0.58f), new Vector2(1f, 0.84f));
 
-            inlineBody = CreateText(inlineDetailRoot, string.Empty, 10, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
-            inlineBody.horizontalOverflow = HorizontalWrapMode.Wrap;
-            inlineBody.verticalOverflow = VerticalWrapMode.Truncate;
-            SetAnchors(inlineBody.rectTransform, new Vector2(0.06f, 0.48f), new Vector2(0.94f, 0.83f));
+            inlineEffectsTitle = CreateText(inlineDetailRoot, "EFFECTS", 10, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor);
+            SetAnchors(inlineEffectsTitle.rectTransform, new Vector2(0f, 0.48f), new Vector2(1f, 0.58f));
 
-            inlineStats = CreateText(inlineDetailRoot, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-            SetAnchors(inlineStats.rectTransform, new Vector2(0.06f, 0.31f), new Vector2(0.94f, 0.47f));
+            inlineEffects = CreateText(inlineDetailRoot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
+            inlineEffects.horizontalOverflow = HorizontalWrapMode.Wrap;
+            inlineEffects.verticalOverflow = VerticalWrapMode.Truncate;
+            SetAnchors(inlineEffects.rectTransform, new Vector2(0f, 0.16f), new Vector2(1f, 0.48f));
 
-            inlineTags = CreateText(inlineDetailRoot, string.Empty, 8, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor);
+            inlineTags = CreateText(inlineDetailRoot, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor);
             inlineTags.horizontalOverflow = HorizontalWrapMode.Wrap;
             inlineTags.verticalOverflow = VerticalWrapMode.Truncate;
-            SetAnchors(inlineTags.rectTransform, new Vector2(0.06f, 0.18f), new Vector2(0.94f, 0.31f));
+            SetAnchors(inlineTags.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0.16f));
         }
 
         if (inlineDetailRoot.parent != selectedCard)
             inlineDetailRoot.SetParent(selectedCard, false);
 
-        inlineDetailRoot.anchorMin = new Vector2(0.48f, 0.07f);
-        inlineDetailRoot.anchorMax = new Vector2(0.97f, 0.93f);
+        inlineDetailRoot.anchorMin = new Vector2(0.08f, 0.17f);
+        inlineDetailRoot.anchorMax = new Vector2(0.92f, 0.52f);
         inlineDetailRoot.offsetMin = Vector2.zero;
         inlineDetailRoot.offsetMax = Vector2.zero;
         inlineDetailRoot.localScale = Vector3.one;
@@ -298,26 +314,26 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         inlineDetailRoot.gameObject.SetActive(true);
     }
 
-    private void ApplySelectedCardPresentation(bool advanceTween)
+    private void ApplyPresentation(bool advanceTween)
     {
         if (!IsChoiceStage())
         {
             RestoreCardsImmediate();
-            HideActions();
+            HideChoiceUi();
             return;
         }
 
         ResolveUi();
         EnsureSkipButton();
         SuppressLegacyDescriptionPanels();
-        LayoutSkipInBottomBar();
+        LayoutCompactSkipButton();
 
         int selectedIndex = GetPendingRewardIndex();
         BattleEquipmentSO selectedEquipment = GetReward(selectedIndex);
         RectTransform selectedCard = FindRewardCard(selectedIndex);
         bool valid = selectedCard != null && selectedEquipment != null;
 
-        ApplyCardSizes(selectedIndex, valid, advanceTween);
+        ApplyCardTransforms(selectedIndex, valid, advanceTween);
 
         if (!valid)
         {
@@ -333,20 +349,17 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         EnsureInlineDetail(selectedCard);
         ConfigureCardContentLayout(selectedCard, selectedEquipment, true);
         RefreshInlineDetail(selectedEquipment);
-        LayoutDecideButton();
+        LayoutDecisionButton(selectedCard);
         ApplySelectedCardAccent(selectedCard);
 
         if (lastSelectedCard != null && lastSelectedCard != selectedCard)
-        {
-            BattleEquipmentSO oldEquipment = GetReward(lastSelectedIndex);
-            ConfigureCardContentLayout(lastSelectedCard, oldEquipment, false);
-        }
+            ConfigureCardContentLayout(lastSelectedCard, GetReward(lastSelectedIndex), false);
 
         lastSelectedCard = selectedCard;
         lastSelectedIndex = selectedIndex;
     }
 
-    private void ApplyCardSizes(int selectedIndex, bool hasSelection, bool advanceTween)
+    private void ApplyCardTransforms(int selectedIndex, bool hasSelection, bool advanceTween)
     {
         if (prizeChoices == null)
             return;
@@ -374,7 +387,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
             bool selected = hasSelection && drag.RewardIndex == selectedIndex;
             Vector2 targetSize = selected
-                ? new Vector2(baseSize.x * selectedSizeMultiplier.x, baseSize.y * selectedSizeMultiplier.y)
+                ? new Vector2(baseSize.x, baseSize.y * Mathf.Max(1.15f, selectedHeightMultiplier))
                 : baseSize;
             float targetScale = !hasSelection
                 ? 1f
@@ -397,9 +410,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
             card.sizeDelta = currentSize;
             card.localScale = Vector3.one * currentScale;
+            card.localRotation = Quaternion.identity;
 
-            BattleEquipmentSO equipment = GetReward(drag.RewardIndex);
-            ConfigureCardContentLayout(card, equipment, selected);
+            ConfigureCardContentLayout(card, GetReward(drag.RewardIndex), selected);
         }
     }
 
@@ -412,10 +425,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (icon != null)
         {
             icon.anchorMin = icon.anchorMax = selected
-                ? new Vector2(0.235f, 0.69f)
+                ? new Vector2(0.5f, 0.80f)
                 : new Vector2(0.5f, 0.67f);
             icon.anchoredPosition = Vector2.zero;
-            icon.sizeDelta = selected ? new Vector2(138f, 138f) : new Vector2(150f, 150f);
+            icon.sizeDelta = selected ? new Vector2(122f, 122f) : new Vector2(150f, 150f);
         }
 
         if (equipment == null)
@@ -438,7 +451,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             bool action = value.Contains("CLICK") || value.Contains("DRAG");
             bool itemName = value == displayName;
             bool itemType = value == type;
-            bool itemRarity = value == rarity || value.Contains(rarity) && value.StartsWith("LV.");
+            bool itemRarity = value == rarity || (value.Contains(rarity) && value.StartsWith("LV."));
 
             if (action)
             {
@@ -452,20 +465,22 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             if (itemRarity)
             {
                 SetAnchors(text.rectTransform,
-                    selected ? new Vector2(0.05f, 0.39f) : new Vector2(0.08f, 0.39f),
-                    selected ? new Vector2(0.43f, 0.47f) : new Vector2(0.92f, 0.47f));
+                    selected ? new Vector2(0.08f, 0.675f) : new Vector2(0.08f, 0.39f),
+                    selected ? new Vector2(0.92f, 0.72f) : new Vector2(0.92f, 0.47f));
             }
             else if (itemName)
             {
                 SetAnchors(text.rectTransform,
-                    selected ? new Vector2(0.04f, 0.22f) : new Vector2(0.06f, 0.22f),
-                    selected ? new Vector2(0.44f, 0.39f) : new Vector2(0.94f, 0.39f));
+                    selected ? new Vector2(0.06f, 0.61f) : new Vector2(0.06f, 0.22f),
+                    selected ? new Vector2(0.94f, 0.675f) : new Vector2(0.94f, 0.39f));
+                if (selected)
+                    text.fontSize = Mathf.Max(16, text.fontSize);
             }
             else if (itemType)
             {
                 SetAnchors(text.rectTransform,
-                    selected ? new Vector2(0.05f, 0.14f) : new Vector2(0.08f, 0.14f),
-                    selected ? new Vector2(0.43f, 0.22f) : new Vector2(0.92f, 0.22f));
+                    selected ? new Vector2(0.08f, 0.56f) : new Vector2(0.08f, 0.14f),
+                    selected ? new Vector2(0.92f, 0.61f) : new Vector2(0.92f, 0.22f));
             }
         }
     }
@@ -475,22 +490,21 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (equipment == null || inlineDetailRoot == null)
             return;
 
-        if (inlineTitle != null)
-            inlineTitle.text = $"LV.1  //  {equipment.rarity.ToString().ToUpperInvariant()}";
-
-        if (inlineBody != null)
+        if (inlineDescription != null)
         {
-            string body = !string.IsNullOrWhiteSpace(equipment.description)
+            inlineDescription.text = !string.IsNullOrWhiteSpace(equipment.description)
                 ? equipment.description.Trim()
-                : equipment.shootingData != null ? "Manual weapon." : "Equipment item.";
-            inlineBody.text = body;
+                : equipment.shootingData != null
+                    ? "Manual weapon."
+                    : "Equipment item.";
         }
 
-        if (inlineStats != null)
+        if (inlineEffects != null)
         {
-            inlineStats.text =
-                $"DMG ×{equipment.damageMultiplier:0.00}\n" +
-                $"MOVE ×{equipment.moveSpeedMultiplier:0.00}   RANGE ×{equipment.rangeMultiplier:0.00}";
+            inlineEffects.text =
+                $"• DAMAGE        ×{equipment.damageMultiplier:0.00}\n" +
+                $"• MOVE SPEED    ×{equipment.moveSpeedMultiplier:0.00}\n" +
+                $"• RANGE         ×{equipment.rangeMultiplier:0.00}";
         }
 
         if (inlineTags != null)
@@ -512,28 +526,48 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         return builder.ToString();
     }
 
-    private void LayoutDecideButton()
+    private void LayoutDecisionButton(RectTransform selectedCard)
     {
-        if (decideRoot == null || inlineDetailRoot == null)
+        if (decideRoot == null || selectedCard == null)
             return;
 
-        if (decideRoot.parent != inlineDetailRoot)
-            decideRoot.SetParent(inlineDetailRoot, false);
+        if (decideRoot.parent != selectedCard)
+            decideRoot.SetParent(selectedCard, false);
 
-        decideRoot.anchorMin = decideRoot.anchorMax = new Vector2(0.5f, 0f);
+        decideRoot.anchorMin = decideRoot.anchorMax = decideAnchor;
         decideRoot.pivot = new Vector2(0.5f, 0.5f);
         decideRoot.sizeDelta = decideSize;
-        decideRoot.anchoredPosition = decidePosition;
+        decideRoot.anchoredPosition = Vector2.zero;
         decideRoot.localScale = Vector3.one;
         decideRoot.localRotation = Quaternion.identity;
         decideRoot.gameObject.SetActive(true);
         decideRoot.SetAsLastSibling();
+
+        Image back = decideRoot.GetComponent<Image>();
+        if (back != null)
+            back.color = inkColor;
+
+        Text label = decideRoot.GetComponentInChildren<Text>(true);
+        if (label != null)
+        {
+            label.text = "결정";
+            label.color = paperColor;
+        }
     }
 
-    private void LayoutSkipInBottomBar()
+    private void LayoutCompactSkipButton()
     {
         if (placementNotice == null || skipRoot == null)
             return;
+
+        // 기존 넓은 회색 안내 바는 시각적으로 제거하고,
+        // 그 자리에는 작은 '아이템 획득 포기하기' 버튼만 남깁니다.
+        if (placementNoticeImage != null)
+            placementNoticeImage.color = Color.clear;
+
+        placementNoticeMainText ??= FindPlacementNoticeMainText();
+        if (placementNoticeMainText != null)
+            placementNoticeMainText.gameObject.SetActive(false);
 
         if (skipRoot.parent != placementNotice)
             skipRoot.SetParent(placementNotice, false);
@@ -546,16 +580,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         skipRoot.localRotation = Quaternion.identity;
         skipRoot.gameObject.SetActive(true);
         skipRoot.SetAsLastSibling();
-
-        Text mainText = FindPlacementNoticeMainText();
-        if (mainText != null)
-        {
-            mainText.alignment = TextAnchor.MiddleLeft;
-            mainText.rectTransform.anchorMin = new Vector2(0.025f, 0f);
-            mainText.rectTransform.anchorMax = new Vector2(0.72f, 1f);
-            mainText.rectTransform.offsetMin = Vector2.zero;
-            mainText.rectTransform.offsetMax = Vector2.zero;
-        }
     }
 
     private Text FindPlacementNoticeMainText()
@@ -599,6 +623,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void SuppressLegacyDescriptionPanels()
     {
+        // Reward 후보 설명은 이제 선택 카드 안에만 존재합니다.
+        if (rewardDescriptionBar != null && rewardDescriptionBar.gameObject.activeSelf)
+            rewardDescriptionBar.gameObject.SetActive(false);
+
         if (rewardDescriptionGroup != null)
         {
             rewardDescriptionGroup.alpha = 0f;
@@ -661,7 +689,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             pendingRewardIndexField.SetValue(battleHud, -1);
 
         RestoreCardsImmediate();
-        HideActions();
+        HideChoiceUi();
         runManager.SkipReward();
     }
 
@@ -682,6 +710,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             if (baseCardSizes.TryGetValue(id, out Vector2 baseSize))
                 card.sizeDelta = baseSize;
             card.localScale = Vector3.one;
+            card.localRotation = Quaternion.identity;
             ConfigureCardContentLayout(card, GetReward(drag.RewardIndex), false);
         }
 
@@ -691,7 +720,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         lastSelectedIndex = int.MinValue;
     }
 
-    private void HideActions()
+    private void HideChoiceUi()
     {
         if (decideRoot != null && decideRoot.gameObject.activeSelf)
             decideRoot.gameObject.SetActive(false);
@@ -699,6 +728,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             skipRoot.gameObject.SetActive(false);
         if (inlineDetailRoot != null && inlineDetailRoot.gameObject.activeSelf)
             inlineDetailRoot.gameObject.SetActive(false);
+
+        // PACK 편집 단계에서 PlacementNotice를 다시 상태 표시용으로 쓸 수 있게 복원합니다.
+        if (placementNoticeMainText != null)
+            placementNoticeMainText.gameObject.SetActive(true);
+        if (placementNoticeImage != null)
+            placementNoticeImage.color = new Color(0.035f, 0.037f, 0.042f, 0.88f);
     }
 
     private static bool IsChildOf(Transform child, Transform parent)
