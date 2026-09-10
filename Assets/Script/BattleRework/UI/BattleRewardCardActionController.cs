@@ -1,98 +1,105 @@
-using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
-/// Reward 선택 단계의 카드 액션/상세 표시를 최종 렌더 단계에서 관리합니다.
+/// Reward 후보 선택 화면의 최종 레이아웃 소유자입니다.
 ///
-/// 규칙:
-/// - Hover는 카드 Transform을 절대 변경하지 않습니다.
-/// - 클릭되어 pendingRewardIndex가 된 카드만 위/아래로 길게 펼칩니다.
-/// - 선택 카드 내부에 설명 / 효과 목록 / 태그 / [결정]을 세로로 배치합니다.
-/// - 비선택 카드는 작게 줄여 선택 카드의 정보 밀도를 확보합니다.
-/// - 하단의 기존 설명 바는 사용하지 않습니다.
-/// - PlacementNotice는 안내 바가 아니라 작은 [아이템 획득 포기하기] 버튼의 자리로만 사용합니다.
-///
-/// 카드 크기 변화는 pendingRewardIndex에만 의존하므로 PointerEnter/Exit 경계 진동이 없습니다.
+/// - Runtime host로 항상 존재합니다. Scene auto installer에 의존하지 않습니다.
+/// - Hover는 Transform을 바꾸지 않습니다.
+/// - 클릭 선택된 카드만 세로로 길게 펼치고, 나머지 카드는 작게 줄입니다.
+/// - 설명/효과/TAGS/[결정]은 선택 카드 내부에만 표시합니다.
+/// - 기존 RewardActiveDescriptionBar 및 BattleHUD의 하단 상세 텍스트는 사용하지 않습니다.
+/// - 기존 PlacementNotice 자체를 작은 [아이템 획득 포기하기] 버튼으로 재사용합니다.
 /// </summary>
 [DisallowMultipleComponent]
-[DefaultExecutionOrder(44100)]
+[DefaultExecutionOrder(50000)]
 public sealed class BattleRewardCardActionController : MonoBehaviour
 {
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
+    private static BattleRewardCardActionController instance;
 
-    [Header("Selected Card")]
-    [SerializeField] private float selectedHeightMultiplier = 1.56f;
-    [SerializeField, Range(0.98f, 1.05f)] private float selectedCardScale = 1f;
-    [SerializeField, Range(0.68f, 0.98f)] private float inactiveCardScale = 0.82f;
-    [SerializeField, Min(1f)] private float cardTransitionSharpness = 18f;
+    [Header("Cards")]
+    [SerializeField] private Vector2 normalCardSize = new(330f, 340f);
+    [SerializeField] private Vector2 selectedCardSize = new(330f, 540f);
+    [SerializeField, Range(0.65f, 0.95f)] private float inactiveCardScale = 0.80f;
+    [SerializeField] private float cardGap = 44f;
+    [SerializeField, Min(1f)] private float tweenSharpness = 17f;
 
-    [Header("Decision")]
-    [SerializeField] private Vector2 decideSize = new(190f, 42f);
-    [SerializeField] private Vector2 decideAnchor = new(0.5f, 0.065f);
+    [Header("Actions")]
+    [SerializeField] private Vector2 decideSize = new(196f, 44f);
+    [SerializeField] private Vector2 skipSize = new(286f, 44f);
 
-    [Header("Skip Reward")]
-    [SerializeField] private Vector2 skipSize = new(286f, 42f);
-    [SerializeField] private Vector2 skipAnchor = new(0.5f, 0.5f);
-
-    [Header("Monochrome")]
-    [SerializeField] private Color inkColor = new(0.015f, 0.016f, 0.019f, 0.99f);
-    [SerializeField] private Color paperColor = new(0.96f, 0.96f, 0.96f, 1f);
-    [SerializeField] private Color mutedColor = new(0.58f, 0.59f, 0.62f, 1f);
-    [SerializeField] private Color activeColor = new(1f, 0.78f, 0.08f, 1f);
-    [SerializeField] private Color skipBackColor = new(0.20f, 0.20f, 0.21f, 0.98f);
+    [Header("Theme")]
+    [SerializeField] private Color ink = new(0.018f, 0.019f, 0.022f, 0.99f);
+    [SerializeField] private Color paper = new(0.96f, 0.96f, 0.96f, 1f);
+    [SerializeField] private Color muted = new(0.60f, 0.61f, 0.64f, 1f);
+    [SerializeField] private Color selectedAccent = new(1f, 0.79f, 0.08f, 1f);
+    [SerializeField] private Color skipBackColor = new(0.24f, 0.24f, 0.25f, 0.98f);
 
     private BattleRunManager runManager;
     private BattleHUD battleHud;
     private BattleInventoryInteractionController inventoryInteraction;
+    private BattleRewardDecisionFlowController decisionFlow;
+    private BattleRewardSelectionPresentationController legacySelectionPresentation;
+
     private FieldInfo pendingRewardIndexField;
+    private FieldInfo focusedRewardNameField;
+    private FieldInfo focusedRewardStatsField;
+    private MethodInfo confirmRewardMethod;
 
     private RectTransform rewardInner;
     private RectTransform prizeChoices;
     private RectTransform placementNotice;
     private Image placementNoticeImage;
-    private Text placementNoticeMainText;
-    private RectTransform rewardDescriptionBar;
-    private CanvasGroup rewardDescriptionGroup;
-    private RectTransform externalDetailRoot;
-    private CanvasGroup externalDetailGroup;
+    private Text placementNoticeText;
+    private Button skipButton;
+    private bool skipListenerBound;
 
     private RectTransform decideRoot;
-    private RectTransform skipRoot;
-    private Button skipButton;
-    private Image skipBack;
-    private Text skipLabel;
+    private Button decideButton;
+    private bool fallbackDecideListenerBound;
 
-    private RectTransform inlineDetailRoot;
-    private Text inlineDescriptionTitle;
-    private Text inlineDescription;
-    private Text inlineEffectsTitle;
-    private Text inlineEffects;
-    private Text inlineTags;
+    private RectTransform detailRoot;
+    private Text detailDescriptionTitle;
+    private Text detailDescription;
+    private Text detailEffectsTitle;
+    private Text detailEffects;
+    private Text detailTags;
 
-    private readonly Dictionary<int, Vector2> baseCardSizes = new();
-    private readonly Dictionary<int, Vector2> animatedCardSizes = new();
-    private readonly Dictionary<int, float> animatedCardScales = new();
-
-    private RectTransform lastSelectedCard;
-    private int lastSelectedIndex = int.MinValue;
+    private bool legacyDisabledByThis;
     private float nextResolveTime;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void CreateRuntimeHost()
+    {
+        if (FindFirstObjectByType<BattleRewardCardActionController>() != null)
+            return;
+
+        GameObject host = new("BattleRewardCardActionRuntime");
+        DontDestroyOnLoad(host);
+        host.AddComponent<BattleRewardCardActionController>();
+    }
 
     private void Awake()
     {
+        if (instance != null && instance != this)
+        {
+            enabled = false;
+            return;
+        }
+
+        instance = this;
         ResolveReferences();
         ResolveUi();
     }
 
     private void OnEnable()
     {
+        if (instance != null && instance != this)
+            return;
+
         ResolveReferences();
         ResolveUi();
         nextResolveTime = 0f;
@@ -103,13 +110,16 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private void OnDisable()
     {
         Canvas.willRenderCanvases -= HandleWillRenderCanvases;
-        RestoreCardsImmediate();
-        HideChoiceUi();
+        RestoreLegacyController();
+        HideInlineUi();
     }
 
     private void OnDestroy()
     {
         Canvas.willRenderCanvases -= HandleWillRenderCanvases;
+        RestoreLegacyController();
+        if (instance == this)
+            instance = null;
     }
 
     private void Update()
@@ -120,17 +130,24 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             nextResolveTime = Time.unscaledTime + 0.08f;
             ResolveUi();
         }
+
+        bool choice = IsChoiceStage();
+        SetLegacySelectionPresentationSuppressed(choice);
+        if (choice)
+            HideLegacyDetails();
+        else
+            HideInlineUi();
     }
 
     private void LateUpdate()
     {
-        ApplyPresentation(true);
+        ApplyFinalPresentation(true);
     }
 
     private void HandleWillRenderCanvases()
     {
         if (isActiveAndEnabled)
-            ApplyPresentation(false);
+            ApplyFinalPresentation(false);
     }
 
     private void ResolveReferences()
@@ -141,233 +158,117 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             battleHud = FindFirstObjectByType<BattleHUD>(FindObjectsInactive.Include);
         if (inventoryInteraction == null)
             inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>(FindObjectsInactive.Include);
+        if (decisionFlow == null)
+            decisionFlow = FindFirstObjectByType<BattleRewardDecisionFlowController>(FindObjectsInactive.Include);
+        if (legacySelectionPresentation == null)
+            legacySelectionPresentation = FindFirstObjectByType<BattleRewardSelectionPresentationController>(FindObjectsInactive.Include);
 
-        pendingRewardIndexField ??= typeof(BattleHUD).GetField("pendingRewardIndex", PrivateInstance);
+        if (battleHud != null)
+        {
+            pendingRewardIndexField ??= typeof(BattleHUD).GetField("pendingRewardIndex", PrivateInstance);
+            focusedRewardNameField ??= typeof(BattleHUD).GetField("focusedRewardName", PrivateInstance);
+            focusedRewardStatsField ??= typeof(BattleHUD).GetField("focusedRewardStats", PrivateInstance);
+        }
+
+        if (decisionFlow != null && confirmRewardMethod == null)
+            confirmRewardMethod = typeof(BattleRewardDecisionFlowController).GetMethod("ConfirmSelectedReward", PrivateInstance);
     }
 
     private void ResolveUi()
     {
         RectTransform rewardScreen = FindRect("PrizeSelectionScreen");
-        RectTransform resolvedInner = rewardScreen != null
-            ? rewardScreen.Find("ScreenInner") as RectTransform
-            : null;
-
-        if (resolvedInner != rewardInner)
-        {
-            rewardInner = resolvedInner;
-            prizeChoices = null;
-            placementNotice = null;
-            placementNoticeImage = null;
-            placementNoticeMainText = null;
-            rewardDescriptionBar = null;
-            rewardDescriptionGroup = null;
-        }
-
-        if (rewardInner != null)
-        {
-            prizeChoices = rewardInner.Find("PrizeChoices") as RectTransform;
-            placementNotice = rewardInner.Find("PlacementNotice") as RectTransform;
-            rewardDescriptionBar = rewardInner.Find("RewardActiveDescriptionBar") as RectTransform;
-        }
-        else
-        {
-            prizeChoices ??= FindRect("PrizeChoices");
-            placementNotice ??= FindRect("PlacementNotice");
-            rewardDescriptionBar ??= FindRect("RewardActiveDescriptionBar");
-        }
-
-        rewardDescriptionGroup = rewardDescriptionBar != null
-            ? rewardDescriptionBar.GetComponent<CanvasGroup>()
-            : null;
+        rewardInner = rewardScreen != null ? rewardScreen.Find("ScreenInner") as RectTransform : null;
+        prizeChoices = rewardInner != null ? rewardInner.Find("PrizeChoices") as RectTransform : FindRect("PrizeChoices");
+        placementNotice = rewardInner != null ? rewardInner.Find("PlacementNotice") as RectTransform : FindRect("PlacementNotice");
 
         if (placementNotice != null)
         {
-            placementNoticeImage ??= placementNotice.GetComponent<Image>();
-            placementNoticeMainText ??= FindPlacementNoticeMainText();
+            placementNoticeImage = placementNotice.GetComponent<Image>();
+            placementNoticeText = ResolvePlacementNoticeText();
+            EnsureSkipButtonOnPlacementNotice();
         }
 
         RectTransform resolvedDecide = FindRect("RewardDecisionConfirm");
         if (resolvedDecide != null)
-            decideRoot = resolvedDecide;
-
-        if (externalDetailRoot == null)
         {
-            externalDetailRoot = FindRect("EquipmentDetailPanel");
-            externalDetailGroup = externalDetailRoot != null
-                ? externalDetailRoot.GetComponent<CanvasGroup>()
-                : null;
+            decideRoot = resolvedDecide;
+            decideButton = decideRoot.GetComponent<Button>();
         }
-
-        EnsureSkipButton();
     }
 
-    private void EnsureSkipButton()
+    private void SetLegacySelectionPresentationSuppressed(bool suppress)
     {
-        if (placementNotice == null)
+        if (legacySelectionPresentation == null)
             return;
 
-        if (skipRoot == null)
+        if (suppress)
         {
-            RectTransform existing = FindRect("RewardDecisionSkip");
-            if (existing != null)
+            if (legacySelectionPresentation.enabled)
             {
-                skipRoot = existing;
-                skipButton = skipRoot.GetComponent<Button>();
-                skipBack = skipRoot.GetComponent<Image>();
-                skipLabel = skipRoot.GetComponentInChildren<Text>(true);
+                legacySelectionPresentation.enabled = false;
+                legacyDisabledByThis = true;
             }
         }
-
-        if (skipRoot == null)
+        else
         {
-            GameObject go = new("RewardDecisionSkip");
-            go.transform.SetParent(placementNotice, false);
-            skipRoot = go.AddComponent<RectTransform>();
-
-            skipBack = go.AddComponent<Image>();
-            skipBack.raycastTarget = true;
-
-            Outline outline = go.AddComponent<Outline>();
-            outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.52f);
-            outline.effectDistance = new Vector2(2f, -2f);
-
-            RectTransform textRect = new GameObject("Text").AddComponent<RectTransform>();
-            textRect.SetParent(skipRoot, false);
-            Stretch(textRect);
-
-            skipLabel = textRect.gameObject.AddComponent<Text>();
-            skipLabel.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            skipLabel.fontSize = 14;
-            skipLabel.fontStyle = FontStyle.Bold;
-            skipLabel.alignment = TextAnchor.MiddleCenter;
-            skipLabel.raycastTarget = false;
-
-            skipButton = go.AddComponent<Button>();
-            skipButton.targetGraphic = skipBack;
-            skipButton.onClick.AddListener(SkipReward);
-
-            ColorBlock colors = skipButton.colors;
-            colors.normalColor = Color.white;
-            colors.highlightedColor = new Color(0.86f, 0.86f, 0.86f, 1f);
-            colors.pressedColor = new Color(0.68f, 0.68f, 0.68f, 1f);
-            colors.selectedColor = colors.highlightedColor;
-            skipButton.colors = colors;
-        }
-
-        if (skipRoot.parent != placementNotice)
-            skipRoot.SetParent(placementNotice, false);
-
-        if (skipBack != null)
-            skipBack.color = skipBackColor;
-        if (skipLabel != null)
-        {
-            skipLabel.text = "아이템 획득 포기하기";
-            skipLabel.color = paperColor;
+            RestoreLegacyController();
         }
     }
 
-    private void EnsureInlineDetail(RectTransform selectedCard)
+    private void RestoreLegacyController()
     {
-        if (selectedCard == null)
-            return;
-
-        if (inlineDetailRoot == null)
-            inlineDetailRoot = FindRect("RewardSelectedInlineDetail");
-
-        if (inlineDetailRoot == null)
-        {
-            GameObject go = new("RewardSelectedInlineDetail");
-            go.transform.SetParent(selectedCard, false);
-            inlineDetailRoot = go.AddComponent<RectTransform>();
-
-            inlineDescriptionTitle = CreateText(inlineDetailRoot, "DESCRIPTION", 10, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor);
-            SetAnchors(inlineDescriptionTitle.rectTransform, new Vector2(0f, 0.84f), new Vector2(1f, 1f));
-
-            inlineDescription = CreateText(inlineDetailRoot, string.Empty, 10, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
-            inlineDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
-            inlineDescription.verticalOverflow = VerticalWrapMode.Truncate;
-            SetAnchors(inlineDescription.rectTransform, new Vector2(0f, 0.58f), new Vector2(1f, 0.84f));
-
-            inlineEffectsTitle = CreateText(inlineDetailRoot, "EFFECTS", 10, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor);
-            SetAnchors(inlineEffectsTitle.rectTransform, new Vector2(0f, 0.48f), new Vector2(1f, 0.58f));
-
-            inlineEffects = CreateText(inlineDetailRoot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-            inlineEffects.horizontalOverflow = HorizontalWrapMode.Wrap;
-            inlineEffects.verticalOverflow = VerticalWrapMode.Truncate;
-            SetAnchors(inlineEffects.rectTransform, new Vector2(0f, 0.16f), new Vector2(1f, 0.48f));
-
-            inlineTags = CreateText(inlineDetailRoot, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor);
-            inlineTags.horizontalOverflow = HorizontalWrapMode.Wrap;
-            inlineTags.verticalOverflow = VerticalWrapMode.Truncate;
-            SetAnchors(inlineTags.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0.16f));
-        }
-
-        if (inlineDetailRoot.parent != selectedCard)
-            inlineDetailRoot.SetParent(selectedCard, false);
-
-        inlineDetailRoot.anchorMin = new Vector2(0.08f, 0.17f);
-        inlineDetailRoot.anchorMax = new Vector2(0.92f, 0.52f);
-        inlineDetailRoot.offsetMin = Vector2.zero;
-        inlineDetailRoot.offsetMax = Vector2.zero;
-        inlineDetailRoot.localScale = Vector3.one;
-        inlineDetailRoot.localRotation = Quaternion.identity;
-        inlineDetailRoot.gameObject.SetActive(true);
+        if (legacySelectionPresentation != null && legacyDisabledByThis)
+            legacySelectionPresentation.enabled = true;
+        legacyDisabledByThis = false;
     }
 
-    private void ApplyPresentation(bool advanceTween)
+    private void ApplyFinalPresentation(bool animate)
     {
         if (!IsChoiceStage())
-        {
-            RestoreCardsImmediate();
-            HideChoiceUi();
             return;
-        }
 
         ResolveUi();
-        EnsureSkipButton();
-        SuppressLegacyDescriptionPanels();
-        LayoutCompactSkipButton();
+        HideLegacyDetails();
+        ConfigureSkipButton();
 
         int selectedIndex = GetPendingRewardIndex();
         BattleEquipmentSO selectedEquipment = GetReward(selectedIndex);
-        RectTransform selectedCard = FindRewardCard(selectedIndex);
-        bool valid = selectedCard != null && selectedEquipment != null;
+        bool hasSelection = selectedEquipment != null;
 
-        ApplyCardTransforms(selectedIndex, valid, advanceTween);
+        LayoutCards(selectedIndex, hasSelection, animate);
 
-        if (!valid)
+        RectTransform selectedCard = hasSelection ? FindRewardCard(selectedIndex) : null;
+        if (selectedCard == null)
         {
-            if (inlineDetailRoot != null)
-                inlineDetailRoot.gameObject.SetActive(false);
+            if (detailRoot != null)
+                detailRoot.gameObject.SetActive(false);
             if (decideRoot != null)
                 decideRoot.gameObject.SetActive(false);
-            lastSelectedCard = null;
-            lastSelectedIndex = selectedIndex;
             return;
         }
 
         EnsureInlineDetail(selectedCard);
-        ConfigureCardContentLayout(selectedCard, selectedEquipment, true);
+        LayoutSelectedCardContent(selectedCard, selectedEquipment);
         RefreshInlineDetail(selectedEquipment);
-        LayoutDecisionButton(selectedCard);
-        ApplySelectedCardAccent(selectedCard);
-
-        if (lastSelectedCard != null && lastSelectedCard != selectedCard)
-            ConfigureCardContentLayout(lastSelectedCard, GetReward(lastSelectedIndex), false);
-
-        lastSelectedCard = selectedCard;
-        lastSelectedIndex = selectedIndex;
+        EnsureDecisionButton(selectedCard);
+        ApplySelectedAccent(selectedCard);
     }
 
-    private void ApplyCardTransforms(int selectedIndex, bool hasSelection, bool advanceTween)
+    private void LayoutCards(int selectedIndex, bool hasSelection, bool animate)
     {
         if (prizeChoices == null)
             return;
 
         RewardPrizeDrag[] cards = prizeChoices.GetComponentsInChildren<RewardPrizeDrag>(true);
-        float blend = advanceTween
-            ? 1f - Mathf.Exp(-Mathf.Max(1f, cardTransitionSharpness) * Time.unscaledDeltaTime)
-            : 0f;
+        if (cards.Length == 0)
+            return;
+
+        float width = normalCardSize.x;
+        float total = cards.Length * width + Mathf.Max(0, cards.Length - 1) * cardGap;
+        float start = -total * 0.5f + width * 0.5f;
+        float blend = animate
+            ? 1f - Mathf.Exp(-Mathf.Max(1f, tweenSharpness) * Time.unscaledDeltaTime)
+            : 1f;
 
         for (int i = 0; i < cards.Length; i++)
         {
@@ -376,47 +277,25 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             if (card == null)
                 continue;
 
-            int id = card.GetInstanceID();
-            if (!baseCardSizes.TryGetValue(id, out Vector2 baseSize))
-            {
-                baseSize = card.sizeDelta;
-                baseCardSizes[id] = baseSize;
-                animatedCardSizes[id] = baseSize;
-                animatedCardScales[id] = 1f;
-            }
-
+            int index = Mathf.Clamp(drag.RewardIndex, 0, cards.Length - 1);
             bool selected = hasSelection && drag.RewardIndex == selectedIndex;
-            Vector2 targetSize = selected
-                ? new Vector2(baseSize.x, baseSize.y * Mathf.Max(1.15f, selectedHeightMultiplier))
-                : baseSize;
-            float targetScale = !hasSelection
-                ? 1f
-                : selected ? selectedCardScale : inactiveCardScale;
+            Vector2 targetSize = selected ? selectedCardSize : normalCardSize;
+            float targetScale = !hasSelection || selected ? 1f : inactiveCardScale;
+            Vector2 targetPosition = new(start + index * (width + cardGap), 0f);
 
-            Vector2 currentSize = animatedCardSizes.TryGetValue(id, out Vector2 sizeState)
-                ? sizeState
-                : baseSize;
-            float currentScale = animatedCardScales.TryGetValue(id, out float scaleState)
-                ? scaleState
-                : 1f;
-
-            if (advanceTween)
-            {
-                currentSize = Vector2.Lerp(currentSize, targetSize, blend);
-                currentScale = Mathf.Lerp(currentScale, targetScale, blend);
-                animatedCardSizes[id] = currentSize;
-                animatedCardScales[id] = currentScale;
-            }
-
-            card.sizeDelta = currentSize;
-            card.localScale = Vector3.one * currentScale;
+            card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = Vector2.Lerp(card.sizeDelta, targetSize, blend);
+            card.localScale = Vector3.Lerp(card.localScale, Vector3.one * targetScale, blend);
+            card.anchoredPosition = Vector2.Lerp(card.anchoredPosition, targetPosition, blend);
             card.localRotation = Quaternion.identity;
 
-            ConfigureCardContentLayout(card, GetReward(drag.RewardIndex), selected);
+            if (!selected)
+                LayoutNormalCardContent(card, GetReward(drag.RewardIndex));
         }
     }
 
-    private void ConfigureCardContentLayout(RectTransform card, BattleEquipmentSO equipment, bool selected)
+    private void LayoutNormalCardContent(RectTransform card, BattleEquipmentSO equipment)
     {
         if (card == null)
             return;
@@ -424,14 +303,33 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         RectTransform icon = card.Find("PrizeIcon") as RectTransform;
         if (icon != null)
         {
-            icon.anchorMin = icon.anchorMax = selected
-                ? new Vector2(0.5f, 0.80f)
-                : new Vector2(0.5f, 0.67f);
+            icon.anchorMin = icon.anchorMax = new Vector2(0.5f, 0.67f);
             icon.anchoredPosition = Vector2.zero;
-            icon.sizeDelta = selected ? new Vector2(122f, 122f) : new Vector2(150f, 150f);
+            icon.sizeDelta = new Vector2(150f, 150f);
         }
 
         if (equipment == null)
+            return;
+
+        ConfigureBaseTexts(card, equipment, false);
+    }
+
+    private void LayoutSelectedCardContent(RectTransform card, BattleEquipmentSO equipment)
+    {
+        RectTransform icon = card.Find("PrizeIcon") as RectTransform;
+        if (icon != null)
+        {
+            icon.anchorMin = icon.anchorMax = new Vector2(0.5f, 0.815f);
+            icon.anchoredPosition = Vector2.zero;
+            icon.sizeDelta = new Vector2(126f, 126f);
+        }
+
+        ConfigureBaseTexts(card, equipment, true);
+    }
+
+    private void ConfigureBaseTexts(RectTransform card, BattleEquipmentSO equipment, bool selected)
+    {
+        if (card == null || equipment == null)
             return;
 
         string displayName = equipment.GetDisplayName();
@@ -443,15 +341,15 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         {
             Text text = texts[i];
             if (text == null ||
-                (inlineDetailRoot != null && IsChildOf(text.transform, inlineDetailRoot)) ||
-                (decideRoot != null && IsChildOf(text.transform, decideRoot)))
+                IsChildOf(text.transform, detailRoot) ||
+                IsChildOf(text.transform, decideRoot))
                 continue;
 
             string value = text.text ?? string.Empty;
             bool action = value.Contains("CLICK") || value.Contains("DRAG");
             bool itemName = value == displayName;
             bool itemType = value == type;
-            bool itemRarity = value == rarity || (value.Contains(rarity) && value.StartsWith("LV."));
+            bool itemRarity = value == rarity || (value.StartsWith("LV.") && value.Contains(rarity));
 
             if (action)
             {
@@ -465,50 +363,98 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             if (itemRarity)
             {
                 SetAnchors(text.rectTransform,
-                    selected ? new Vector2(0.08f, 0.675f) : new Vector2(0.08f, 0.39f),
-                    selected ? new Vector2(0.92f, 0.72f) : new Vector2(0.92f, 0.47f));
+                    selected ? new Vector2(0.08f, 0.705f) : new Vector2(0.08f, 0.39f),
+                    selected ? new Vector2(0.92f, 0.75f) : new Vector2(0.92f, 0.47f));
             }
             else if (itemName)
             {
                 SetAnchors(text.rectTransform,
-                    selected ? new Vector2(0.06f, 0.61f) : new Vector2(0.06f, 0.22f),
-                    selected ? new Vector2(0.94f, 0.675f) : new Vector2(0.94f, 0.39f));
+                    selected ? new Vector2(0.06f, 0.645f) : new Vector2(0.06f, 0.22f),
+                    selected ? new Vector2(0.94f, 0.705f) : new Vector2(0.94f, 0.39f));
                 if (selected)
-                    text.fontSize = Mathf.Max(16, text.fontSize);
+                    text.fontSize = Mathf.Max(text.fontSize, 16);
             }
             else if (itemType)
             {
                 SetAnchors(text.rectTransform,
-                    selected ? new Vector2(0.08f, 0.56f) : new Vector2(0.08f, 0.14f),
-                    selected ? new Vector2(0.92f, 0.61f) : new Vector2(0.92f, 0.22f));
+                    selected ? new Vector2(0.08f, 0.595f) : new Vector2(0.08f, 0.14f),
+                    selected ? new Vector2(0.92f, 0.645f) : new Vector2(0.92f, 0.22f));
             }
         }
     }
 
-    private void RefreshInlineDetail(BattleEquipmentSO equipment)
+    private void EnsureInlineDetail(RectTransform selectedCard)
     {
-        if (equipment == null || inlineDetailRoot == null)
+        if (selectedCard == null)
             return;
 
-        if (inlineDescription != null)
+        if (detailRoot == null)
+            detailRoot = FindRect("RewardSelectedVerticalDetail");
+
+        if (detailRoot == null)
         {
-            inlineDescription.text = !string.IsNullOrWhiteSpace(equipment.description)
-                ? equipment.description.Trim()
-                : equipment.shootingData != null
-                    ? "Manual weapon."
-                    : "Equipment item.";
+            GameObject root = new("RewardSelectedVerticalDetail");
+            root.transform.SetParent(selectedCard, false);
+            detailRoot = root.AddComponent<RectTransform>();
+
+            detailDescriptionTitle = CreateText(detailRoot, "DescriptionTitle", "DESCRIPTION", 10, FontStyle.Bold, TextAnchor.MiddleLeft, muted);
+            SetAnchors(detailDescriptionTitle.rectTransform, new Vector2(0f, 0.84f), new Vector2(1f, 1f));
+
+            detailDescription = CreateText(detailRoot, "Description", string.Empty, 11, FontStyle.Normal, TextAnchor.UpperLeft, paper);
+            detailDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
+            detailDescription.verticalOverflow = VerticalWrapMode.Truncate;
+            SetAnchors(detailDescription.rectTransform, new Vector2(0f, 0.58f), new Vector2(1f, 0.84f));
+
+            detailEffectsTitle = CreateText(detailRoot, "EffectsTitle", "EFFECTS", 10, FontStyle.Bold, TextAnchor.MiddleLeft, muted);
+            SetAnchors(detailEffectsTitle.rectTransform, new Vector2(0f, 0.48f), new Vector2(1f, 0.58f));
+
+            detailEffects = CreateText(detailRoot, "Effects", string.Empty, 10, FontStyle.Bold, TextAnchor.UpperLeft, paper);
+            detailEffects.horizontalOverflow = HorizontalWrapMode.Wrap;
+            detailEffects.verticalOverflow = VerticalWrapMode.Truncate;
+            SetAnchors(detailEffects.rectTransform, new Vector2(0f, 0.15f), new Vector2(1f, 0.48f));
+
+            detailTags = CreateText(detailRoot, "Tags", string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleLeft, muted);
+            detailTags.horizontalOverflow = HorizontalWrapMode.Wrap;
+            detailTags.verticalOverflow = VerticalWrapMode.Truncate;
+            SetAnchors(detailTags.rectTransform, new Vector2(0f, 0f), new Vector2(1f, 0.15f));
         }
 
-        if (inlineEffects != null)
+        if (detailRoot.parent != selectedCard)
+            detailRoot.SetParent(selectedCard, false);
+
+        detailRoot.anchorMin = new Vector2(0.08f, 0.18f);
+        detailRoot.anchorMax = new Vector2(0.92f, 0.56f);
+        detailRoot.offsetMin = Vector2.zero;
+        detailRoot.offsetMax = Vector2.zero;
+        detailRoot.localScale = Vector3.one;
+        detailRoot.localRotation = Quaternion.identity;
+        detailRoot.gameObject.SetActive(true);
+    }
+
+    private void RefreshInlineDetail(BattleEquipmentSO equipment)
+    {
+        if (equipment == null || detailRoot == null)
+            return;
+
+        if (detailDescription != null)
         {
-            inlineEffects.text =
+            detailDescription.text = !string.IsNullOrWhiteSpace(equipment.description)
+                ? equipment.description.Trim()
+                : equipment.shootingData != null
+                    ? "Manual weapon. Fires using its configured shooting pattern."
+                    : "Equipment item. Its effects apply while it is active in the loadout.";
+        }
+
+        if (detailEffects != null)
+        {
+            detailEffects.text =
                 $"• DAMAGE        ×{equipment.damageMultiplier:0.00}\n" +
                 $"• MOVE SPEED    ×{equipment.moveSpeedMultiplier:0.00}\n" +
                 $"• RANGE         ×{equipment.rangeMultiplier:0.00}";
         }
 
-        if (inlineTags != null)
-            inlineTags.text = BuildTagLine(equipment);
+        if (detailTags != null)
+            detailTags.text = BuildTagLine(equipment);
     }
 
     private static string BuildTagLine(BattleEquipmentSO equipment)
@@ -526,15 +472,45 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         return builder.ToString();
     }
 
-    private void LayoutDecisionButton(RectTransform selectedCard)
+    private void EnsureDecisionButton(RectTransform selectedCard)
     {
-        if (decideRoot == null || selectedCard == null)
+        if (selectedCard == null)
             return;
+
+        if (decideRoot == null)
+            decideRoot = FindRect("RewardDecisionConfirm");
+
+        if (decideRoot == null)
+        {
+            GameObject go = new("RewardDecisionConfirm");
+            go.transform.SetParent(selectedCard, false);
+            decideRoot = go.AddComponent<RectTransform>();
+
+            Image back = go.AddComponent<Image>();
+            back.color = ink;
+            back.raycastTarget = true;
+
+            Outline outline = go.AddComponent<Outline>();
+            outline.effectColor = selectedAccent;
+            outline.effectDistance = new Vector2(4f, -4f);
+
+            Text label = CreateText(decideRoot, "Text", "결정", 15, FontStyle.Bold, TextAnchor.MiddleCenter, paper);
+            Stretch(label.rectTransform);
+
+            decideButton = go.AddComponent<Button>();
+            decideButton.targetGraphic = back;
+            decideButton.onClick.AddListener(ConfirmRewardFallback);
+            fallbackDecideListenerBound = true;
+        }
+        else
+        {
+            decideButton ??= decideRoot.GetComponent<Button>();
+        }
 
         if (decideRoot.parent != selectedCard)
             decideRoot.SetParent(selectedCard, false);
 
-        decideRoot.anchorMin = decideRoot.anchorMax = decideAnchor;
+        decideRoot.anchorMin = decideRoot.anchorMax = new Vector2(0.5f, 0.075f);
         decideRoot.pivot = new Vector2(0.5f, 0.5f);
         decideRoot.sizeDelta = decideSize;
         decideRoot.anchoredPosition = Vector2.zero;
@@ -543,77 +519,140 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         decideRoot.gameObject.SetActive(true);
         decideRoot.SetAsLastSibling();
 
-        Image back = decideRoot.GetComponent<Image>();
-        if (back != null)
-            back.color = inkColor;
+        Image buttonBack = decideRoot.GetComponent<Image>();
+        if (buttonBack != null)
+            buttonBack.color = ink;
 
-        Text label = decideRoot.GetComponentInChildren<Text>(true);
-        if (label != null)
+        Text buttonText = decideRoot.GetComponentInChildren<Text>(true);
+        if (buttonText != null)
         {
-            label.text = "결정";
-            label.color = paperColor;
+            buttonText.text = "결정";
+            buttonText.color = paper;
         }
     }
 
-    private void LayoutCompactSkipButton()
+    private void ConfirmRewardFallback()
     {
-        if (placementNotice == null || skipRoot == null)
-            return;
-
-        // 기존 넓은 회색 안내 바는 시각적으로 제거하고,
-        // 그 자리에는 작은 '아이템 획득 포기하기' 버튼만 남깁니다.
-        if (placementNoticeImage != null)
-            placementNoticeImage.color = Color.clear;
-
-        placementNoticeMainText ??= FindPlacementNoticeMainText();
-        if (placementNoticeMainText != null)
-            placementNoticeMainText.gameObject.SetActive(false);
-
-        if (skipRoot.parent != placementNotice)
-            skipRoot.SetParent(placementNotice, false);
-
-        skipRoot.anchorMin = skipRoot.anchorMax = skipAnchor;
-        skipRoot.pivot = new Vector2(0.5f, 0.5f);
-        skipRoot.sizeDelta = skipSize;
-        skipRoot.anchoredPosition = Vector2.zero;
-        skipRoot.localScale = Vector3.one;
-        skipRoot.localRotation = Quaternion.identity;
-        skipRoot.gameObject.SetActive(true);
-        skipRoot.SetAsLastSibling();
+        ResolveReferences();
+        if (decisionFlow != null && confirmRewardMethod != null)
+            confirmRewardMethod.Invoke(decisionFlow, null);
     }
 
-    private Text FindPlacementNoticeMainText()
+    private void EnsureSkipButtonOnPlacementNotice()
+    {
+        if (placementNotice == null)
+            return;
+
+        skipButton = placementNotice.GetComponent<Button>();
+        if (skipButton == null)
+            skipButton = placementNotice.gameObject.AddComponent<Button>();
+
+        if (placementNoticeImage != null)
+            skipButton.targetGraphic = placementNoticeImage;
+
+        if (!skipListenerBound)
+        {
+            skipButton.onClick.AddListener(SkipReward);
+            skipListenerBound = true;
+        }
+
+        RectTransform staleNestedSkip = placementNotice.Find("RewardDecisionSkip") as RectTransform;
+        if (staleNestedSkip != null)
+            staleNestedSkip.gameObject.SetActive(false);
+
+        RectTransform globalStaleSkip = FindRect("RewardDecisionSkip");
+        if (globalStaleSkip != null && globalStaleSkip != placementNotice)
+            globalStaleSkip.gameObject.SetActive(false);
+    }
+
+    private void ConfigureSkipButton()
+    {
+        if (placementNotice == null)
+            return;
+
+        placementNotice.anchorMin = placementNotice.anchorMax = new Vector2(0.5f, 0.065f);
+        placementNotice.pivot = new Vector2(0.5f, 0.5f);
+        placementNotice.sizeDelta = skipSize;
+        placementNotice.anchoredPosition = Vector2.zero;
+        placementNotice.localScale = Vector3.one;
+        placementNotice.localRotation = Quaternion.identity;
+        placementNotice.gameObject.SetActive(true);
+
+        if (placementNoticeImage != null)
+            placementNoticeImage.color = skipBackColor;
+
+        if (placementNoticeText == null)
+            placementNoticeText = ResolvePlacementNoticeText();
+        if (placementNoticeText != null)
+        {
+            placementNoticeText.gameObject.SetActive(true);
+            placementNoticeText.text = "아이템 획득 포기하기";
+            placementNoticeText.fontSize = 14;
+            placementNoticeText.fontStyle = FontStyle.Bold;
+            placementNoticeText.alignment = TextAnchor.MiddleCenter;
+            placementNoticeText.color = paper;
+            Stretch(placementNoticeText.rectTransform);
+        }
+
+        if (skipButton != null)
+            skipButton.interactable = !BattlePauseController.IsPaused;
+    }
+
+    private Text ResolvePlacementNoticeText()
     {
         if (placementNotice == null)
             return null;
 
         Text[] texts = placementNotice.GetComponentsInChildren<Text>(true);
-        for (int i = 0; i < texts.Length; i++)
-        {
-            Text text = texts[i];
-            if (text == null)
-                continue;
-            if (skipRoot != null && IsChildOf(text.transform, skipRoot))
-                continue;
-            return text;
-        }
-        return null;
+        return texts.Length > 0 ? texts[0] : null;
     }
 
-    private void ApplySelectedCardAccent(RectTransform selectedCard)
+    private void HideLegacyDetails()
     {
-        if (selectedCard == null)
-            return;
+        RectTransform descriptionBar = rewardInner != null
+            ? rewardInner.Find("RewardActiveDescriptionBar") as RectTransform
+            : FindRect("RewardActiveDescriptionBar");
+        if (descriptionBar != null && descriptionBar.gameObject.activeSelf)
+            descriptionBar.gameObject.SetActive(false);
 
-        Outline outline = selectedCard.GetComponent<Outline>();
+        RectTransform oldInline = FindRect("RewardSelectedInlineDetail");
+        if (oldInline != null && oldInline != detailRoot && oldInline.gameObject.activeSelf)
+            oldInline.gameObject.SetActive(false);
+
+        if (battleHud != null)
+        {
+            Text legacyName = focusedRewardNameField?.GetValue(battleHud) as Text;
+            Text legacyStats = focusedRewardStatsField?.GetValue(battleHud) as Text;
+            if (legacyName != null && legacyName.gameObject.activeSelf)
+                legacyName.gameObject.SetActive(false);
+            if (legacyStats != null && legacyStats.gameObject.activeSelf)
+                legacyStats.gameObject.SetActive(false);
+        }
+
+        RectTransform externalDetail = FindRect("EquipmentDetailPanel");
+        if (externalDetail != null)
+        {
+            CanvasGroup group = externalDetail.GetComponent<CanvasGroup>();
+            if (group != null)
+            {
+                group.alpha = 0f;
+                group.blocksRaycasts = false;
+                group.interactable = false;
+            }
+        }
+    }
+
+    private void ApplySelectedAccent(RectTransform selectedCard)
+    {
+        Outline outline = selectedCard != null ? selectedCard.GetComponent<Outline>() : null;
         if (outline != null)
         {
             outline.enabled = true;
-            outline.effectColor = activeColor;
+            outline.effectColor = selectedAccent;
             outline.effectDistance = new Vector2(5f, -5f);
         }
 
-        Image icon = selectedCard.Find("PrizeIcon")?.GetComponent<Image>();
+        Image icon = selectedCard != null ? selectedCard.Find("PrizeIcon")?.GetComponent<Image>() : null;
         if (icon != null)
         {
             icon.material = null;
@@ -621,25 +660,39 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
     }
 
-    private void SuppressLegacyDescriptionPanels()
+    private void SkipReward()
     {
-        // Reward 후보 설명은 이제 선택 카드 안에만 존재합니다.
-        if (rewardDescriptionBar != null && rewardDescriptionBar.gameObject.activeSelf)
-            rewardDescriptionBar.gameObject.SetActive(false);
+        if (!IsChoiceStage() || runManager == null)
+            return;
 
-        if (rewardDescriptionGroup != null)
-        {
-            rewardDescriptionGroup.alpha = 0f;
-            rewardDescriptionGroup.blocksRaycasts = false;
-            rewardDescriptionGroup.interactable = false;
-        }
+        if (battleHud != null && pendingRewardIndexField != null)
+            pendingRewardIndexField.SetValue(battleHud, -1);
 
-        if (externalDetailGroup != null)
-        {
-            externalDetailGroup.alpha = 0f;
-            externalDetailGroup.blocksRaycasts = false;
-            externalDetailGroup.interactable = false;
-        }
+        HideInlineUi();
+        runManager.SkipReward();
+    }
+
+    private void HideInlineUi()
+    {
+        if (detailRoot != null && detailRoot.gameObject.activeSelf)
+            detailRoot.gameObject.SetActive(false);
+        if (decideRoot != null && decideRoot.gameObject.activeSelf)
+            decideRoot.gameObject.SetActive(false);
+    }
+
+    private int GetPendingRewardIndex()
+    {
+        if (battleHud == null || pendingRewardIndexField == null)
+            return -1;
+        object raw = pendingRewardIndexField.GetValue(battleHud);
+        return raw is int value ? value : -1;
+    }
+
+    private BattleEquipmentSO GetReward(int index)
+    {
+        if (runManager == null || index < 0 || index >= runManager.CurrentRewardChoices.Count)
+            return null;
+        return runManager.CurrentRewardChoices[index];
     }
 
     private RectTransform FindRewardCard(int rewardIndex)
@@ -657,89 +710,19 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         return null;
     }
 
-    private BattleEquipmentSO GetReward(int rewardIndex)
-    {
-        if (runManager == null || rewardIndex < 0 || rewardIndex >= runManager.CurrentRewardChoices.Count)
-            return null;
-        return runManager.CurrentRewardChoices[rewardIndex];
-    }
-
     private bool IsChoiceStage()
     {
-        if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Reward)
-            return false;
-
-        return inventoryInteraction == null || !inventoryInteraction.IsRewardPackEditing;
-    }
-
-    private int GetPendingRewardIndex()
-    {
-        if (battleHud == null || pendingRewardIndexField == null)
-            return -1;
-        object raw = pendingRewardIndexField.GetValue(battleHud);
-        return raw is int index ? index : -1;
-    }
-
-    private void SkipReward()
-    {
-        if (!IsChoiceStage() || runManager == null)
-            return;
-
-        if (pendingRewardIndexField != null && battleHud != null)
-            pendingRewardIndexField.SetValue(battleHud, -1);
-
-        RestoreCardsImmediate();
-        HideChoiceUi();
-        runManager.SkipReward();
-    }
-
-    private void RestoreCardsImmediate()
-    {
-        if (prizeChoices == null)
-            return;
-
-        RewardPrizeDrag[] cards = prizeChoices.GetComponentsInChildren<RewardPrizeDrag>(true);
-        for (int i = 0; i < cards.Length; i++)
-        {
-            RewardPrizeDrag drag = cards[i];
-            RectTransform card = drag != null ? drag.transform as RectTransform : null;
-            if (card == null)
-                continue;
-
-            int id = card.GetInstanceID();
-            if (baseCardSizes.TryGetValue(id, out Vector2 baseSize))
-                card.sizeDelta = baseSize;
-            card.localScale = Vector3.one;
-            card.localRotation = Quaternion.identity;
-            ConfigureCardContentLayout(card, GetReward(drag.RewardIndex), false);
-        }
-
-        animatedCardSizes.Clear();
-        animatedCardScales.Clear();
-        lastSelectedCard = null;
-        lastSelectedIndex = int.MinValue;
-    }
-
-    private void HideChoiceUi()
-    {
-        if (decideRoot != null && decideRoot.gameObject.activeSelf)
-            decideRoot.gameObject.SetActive(false);
-        if (skipRoot != null && skipRoot.gameObject.activeSelf)
-            skipRoot.gameObject.SetActive(false);
-        if (inlineDetailRoot != null && inlineDetailRoot.gameObject.activeSelf)
-            inlineDetailRoot.gameObject.SetActive(false);
-
-        // PACK 편집 단계에서 PlacementNotice를 다시 상태 표시용으로 쓸 수 있게 복원합니다.
-        if (placementNoticeMainText != null)
-            placementNoticeMainText.gameObject.SetActive(true);
-        if (placementNoticeImage != null)
-            placementNoticeImage.color = new Color(0.035f, 0.037f, 0.042f, 0.88f);
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.Reward &&
+               (inventoryInteraction == null || !inventoryInteraction.IsRewardPackEditing);
     }
 
     private static bool IsChildOf(Transform child, Transform parent)
     {
         if (child == null || parent == null)
             return false;
+
         Transform current = child;
         while (current != null)
         {
@@ -764,15 +747,23 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         return null;
     }
 
-    private static Text CreateText(Transform parent, string value, int fontSize, FontStyle style, TextAnchor alignment, Color color)
+    private static Text CreateText(
+        Transform parent,
+        string objectName,
+        string value,
+        int fontSize,
+        FontStyle fontStyle,
+        TextAnchor alignment,
+        Color color)
     {
-        RectTransform rect = new GameObject("Text").AddComponent<RectTransform>();
-        rect.SetParent(parent, false);
-        Text text = rect.gameObject.AddComponent<Text>();
+        GameObject go = new(objectName);
+        go.transform.SetParent(parent, false);
+        RectTransform rect = go.AddComponent<RectTransform>();
+        Text text = go.AddComponent<Text>();
         text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         text.text = value;
         text.fontSize = fontSize;
-        text.fontStyle = style;
+        text.fontStyle = fontStyle;
         text.alignment = alignment;
         text.color = color;
         text.raycastTarget = false;
@@ -791,69 +782,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private static void Stretch(RectTransform rect)
     {
+        if (rect == null)
+            return;
         rect.anchorMin = Vector2.zero;
         rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
-    }
-}
-
-public static class BattleRewardCardActionAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponent;
-    }
-
-    private static void EnsureEditorComponent()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleRewardCardActionController>() != null)
-                continue;
-
-            Undo.AddComponent<BattleRewardCardActionController>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponent()
-    {
-        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleRewardCardActionController>() == null)
-                manager.gameObject.AddComponent<BattleRewardCardActionController>();
-        }
     }
 }
