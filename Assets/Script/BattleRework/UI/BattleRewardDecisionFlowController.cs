@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -11,15 +12,17 @@ using UnityEditor.SceneManagement;
 /// <summary>
 /// Reward 획득 흐름을 '카드 선택 -> 결정 -> PACK 정리'로 고정합니다.
 ///
-/// - Reward 카드는 직접 Drag하지 않습니다. 클릭으로 후보를 고른 뒤 [결정] 버튼으로 확정합니다.
-/// - 빈 PACK 슬롯이 있으면 선택 Reward를 첫 빈 슬롯에 자동 배치하고 PACK Edit로 전환합니다.
+/// - Reward 카드는 직접 Drag하지 않습니다. 클릭으로 후보를 고른 뒤 [결정]으로 확정합니다.
+/// - 빈 PACK 슬롯이 있으면 첫 빈 슬롯에 자동 배치하고 PACK Edit로 전환합니다.
 /// - PACK이 가득 찼으면 Reward를 Hand 상태로 들고 PACK Edit로 전환합니다.
 /// - Hand 상태에서는 슬롯 클릭으로 교환하고, TRASH 클릭으로 현재 Hand를 버립니다.
 /// - DONE / NEXT는 Hand가 비어 있을 때만 활성화됩니다.
-/// - Reward 선택 카메라는 기존 TV 중심보다 아래로 내려 Player / Presenter가 같이 읽히도록 합니다.
+/// - Reward 선택 카메라는 TV만 보지 않고 Player / Presenter까지 읽히도록 아래쪽 bias를 사용합니다.
 ///
-/// 기존 BattleInventoryInteractionController의 PACK 편집/완료 기능을 재사용하되,
-/// Reward 선택 단계의 Drag 입력과 Hand가 필요한 순간의 기존 슬롯 입력만 잠시 차단합니다.
+/// 중요:
+/// PACK Edit가 시작된 뒤 실제 슬롯 선택/교환은 BattleInventoryInteractionController가 소유합니다.
+/// 이 컨트롤러는 staged reward가 어느 BattleEquipmentSlot 객체에 들어 있는지만 추적하고,
+/// selectedRewardSlot을 매 프레임 덮어쓰지 않습니다. 따라서 빈 슬롯 클릭/교환이 정상 작동합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(44000)]
@@ -27,14 +30,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
 {
     private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
-
-    [Header("Decision UI")]
-    [SerializeField] private Vector2 decideButtonSize = new(230f, 64f);
-    [SerializeField] private Vector2 decideButtonAnchor = new(0.86f, 0.09f);
-    [SerializeField] private Color inkColor = new(0.018f, 0.020f, 0.024f, 0.99f);
-    [SerializeField] private Color paperColor = new(0.96f, 0.96f, 0.96f, 1f);
-    [SerializeField] private Color activeColor = new(1f, 0.78f, 0.08f, 1f);
-    [SerializeField] private Color disabledColor = new(0.24f, 0.25f, 0.28f, 0.96f);
+    private const string ObsoleteDescriptionBarName = "RewardActiveDescriptionBar";
 
     [Header("Hand")]
     [SerializeField] private Vector2 handMouseOffset = new(72f, -72f);
@@ -43,7 +39,6 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
     [SerializeField, Range(0.05f, 0.8f)] private float padAxisReleaseThreshold = 0.22f;
 
     [Header("Reward Camera")]
-    [Tooltip("Reward 선택 중 카메라 중심을 아래로 내려 TV 아래쪽 Player와 Presenter를 같이 보이게 합니다.")]
     [SerializeField] private float rewardCameraBiasY = -0.72f;
 
     private BattleRunManager runManager;
@@ -69,29 +64,26 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
 
     private RectTransform screenInner;
     private RectTransform prizeChoices;
-    private RectTransform decideRoot;
-    private Button decideButton;
-    private Image decideBack;
-    private Text decideLabel;
-
     private RectTransform handGhost;
     private Image handGhostIcon;
     private RectTransform trashRoot;
     private BattleInventoryTrashDropTarget legacyTrashTarget;
     private RectTransform doneRoot;
     private Button doneButton;
-    private Image doneBack;
-    private Text doneLabel;
     private Text rewardEditStatus;
+
+    private readonly List<RectTransform> obsoleteChoiceBars = new();
 
     private bool decisionFlowActive;
     private BattleEquipmentSO chosenReward;
     private bool chosenRewardCommitted;
     private int chosenRewardSlot = -1;
+    private BattleEquipmentSlot chosenRewardSlotRef;
     private BattleEquipmentSlot handSlot;
     private bool handIsChosenReward;
 
     private bool inventoryDisabledByThis;
+    private bool doneBound;
     private bool padAxisLatched;
     private bool handPadMode;
     private int handPadSlot;
@@ -121,8 +113,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         SetLegacyPackHandlersEnabled(true);
         SetRewardCardDragEnabled(true);
         HideHandGhost();
-        if (decideRoot != null)
-            decideRoot.gameObject.SetActive(false);
+        HideRewardEditStatus();
     }
 
     private void Update()
@@ -147,6 +138,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
 
         wasReward = true;
         ApplyLowerRewardCameraBias();
+        HideRewardEditStatus();
 
         bool packEditing = inventoryInteraction != null && inventoryInteraction.IsRewardPackEditing;
         if (!decisionFlowActive && !packEditing)
@@ -165,10 +157,12 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
             return;
 
         ResolveUi();
+        HideRewardEditStatus();
 
         if (!decisionFlowActive && (inventoryInteraction == null || !inventoryInteraction.IsRewardPackEditing))
         {
-            ApplyChoiceCopyAndLayout();
+            HideObsoleteChoiceUi();
+            ApplyChoiceCopyOnly();
             HideLegacyPackControlsDuringChoice();
             return;
         }
@@ -222,24 +216,13 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
     private void ResolveUi()
     {
         RectTransform rewardScreen = FindRect("PrizeSelectionScreen");
-        RectTransform resolvedInner = rewardScreen != null
+        screenInner = rewardScreen != null
             ? rewardScreen.Find("ScreenInner") as RectTransform
             : FindRect("ScreenInner");
-
-        if (resolvedInner != screenInner)
-        {
-            screenInner = resolvedInner;
-            decideRoot = null;
-            decideButton = null;
-            decideBack = null;
-            decideLabel = null;
-        }
 
         prizeChoices = screenInner != null
             ? screenInner.Find("PrizeChoices") as RectTransform
             : FindRect("PrizeChoices");
-
-        EnsureDecideButton();
 
         if (handGhost == null)
         {
@@ -266,15 +249,19 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         {
             doneRoot = nextDone;
             doneButton = doneRoot != null ? doneRoot.GetComponent<Button>() : null;
-            doneBack = doneRoot != null ? doneRoot.GetComponent<Image>() : null;
-            doneLabel = doneRoot != null ? doneRoot.GetComponentInChildren<Text>(true) : null;
+            doneBound = false;
+        }
 
-            if (doneButton != null)
-                doneButton.onClick.AddListener(HandleDoneButtonPressed);
+        if (doneButton != null && !doneBound)
+        {
+            doneButton.onClick.AddListener(HandleDoneButtonPressed);
+            doneBound = true;
         }
 
         if (inventoryInteraction != null && rewardEditStatusField != null)
             rewardEditStatus = rewardEditStatusField.GetValue(inventoryInteraction) as Text;
+
+        ResolveObsoleteChoiceBars();
 
         for (int i = 0; i < SlotCount; i++)
         {
@@ -293,42 +280,43 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         }
     }
 
-    private void EnsureDecideButton()
+    private void ResolveObsoleteChoiceBars()
     {
-        if (screenInner == null)
-            return;
+        obsoleteChoiceBars.Clear();
+        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
 
-        if (decideRoot == null)
-            decideRoot = screenInner.Find("RewardDecisionConfirm") as RectTransform;
-
-        if (decideRoot == null)
+        for (int i = 0; i < all.Length; i++)
         {
-            decideRoot = CreateRect(screenInner, "RewardDecisionConfirm", decideButtonSize);
-            decideRoot.anchorMin = decideRoot.anchorMax = decideButtonAnchor;
-            decideRoot.pivot = new Vector2(0.5f, 0.5f);
-            decideRoot.anchoredPosition = Vector2.zero;
-
-            decideBack = decideRoot.gameObject.AddComponent<Image>();
-            decideBack.color = inkColor;
-            decideBack.raycastTarget = true;
-
-            Outline outline = decideRoot.gameObject.AddComponent<Outline>();
-            outline.effectColor = activeColor;
-            outline.effectDistance = new Vector2(5f, -5f);
-
-            decideLabel = CreateText(decideRoot, "결정", 18, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
-            Stretch(decideLabel.rectTransform);
-
-            decideButton = decideRoot.gameObject.AddComponent<Button>();
-            decideButton.targetGraphic = decideBack;
-            decideButton.onClick.AddListener(ConfirmSelectedReward);
-            decideRoot.gameObject.SetActive(false);
+            RectTransform rect = all[i];
+            if (rect != null && rect.name == ObsoleteDescriptionBarName)
+                obsoleteChoiceBars.Add(rect);
         }
-        else
+    }
+
+    private void HideObsoleteChoiceUi()
+    {
+        for (int i = 0; i < obsoleteChoiceBars.Count; i++)
         {
-            decideBack ??= decideRoot.GetComponent<Image>();
-            decideButton ??= decideRoot.GetComponent<Button>();
-            decideLabel ??= decideRoot.GetComponentInChildren<Text>(true);
+            RectTransform bar = obsoleteChoiceBars[i];
+            if (bar == null)
+                continue;
+
+            CanvasGroup group = bar.GetComponent<CanvasGroup>();
+            if (group != null)
+            {
+                group.alpha = 0f;
+                group.blocksRaycasts = false;
+                group.interactable = false;
+            }
+
+            Image image = bar.GetComponent<Image>();
+            if (image != null)
+                image.raycastTarget = false;
+
+            if (bar.gameObject.activeSelf)
+                bar.gameObject.SetActive(false);
         }
     }
 
@@ -340,25 +328,26 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         chosenReward = null;
         chosenRewardCommitted = false;
         chosenRewardSlot = -1;
+        chosenRewardSlotRef = null;
 
         SuppressInventoryForStaticRewardChoice();
         SetRewardCardDragEnabled(false);
         HideHandGhost();
+        HideRewardEditStatus();
+        HideObsoleteChoiceUi();
 
         int selected = GetPendingRewardIndex();
         bool valid = TryGetReward(selected, out _);
-        if (decideRoot != null)
-            decideRoot.gameObject.SetActive(valid);
-        if (decideButton != null)
-            decideButton.interactable = valid;
-
         if (valid && !BattlePauseController.IsPaused &&
-            (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space) || Input.GetKeyDown(KeyCode.JoystickButton0)))
+            (Input.GetKeyDown(KeyCode.Return) ||
+             Input.GetKeyDown(KeyCode.Space) ||
+             Input.GetKeyDown(KeyCode.JoystickButton0)))
         {
             ConfirmSelectedReward();
         }
     }
 
+    // CardActionController가 reflection으로 호출하므로 NonPublic 상태를 유지합니다.
     private void ConfirmSelectedReward()
     {
         if (decisionFlowActive || !IsReward() || equipmentSystem == null || inventoryInteraction == null)
@@ -372,6 +361,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         chosenReward = reward;
         chosenRewardCommitted = false;
         chosenRewardSlot = -1;
+        chosenRewardSlotRef = null;
         handSlot = null;
         handIsChosenReward = false;
         handPadMode = false;
@@ -383,6 +373,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         {
             chosenRewardCommitted = true;
             chosenRewardSlot = empty;
+            chosenRewardSlotRef = empty < equipmentSystem.Slots.Count ? equipmentSystem.Slots[empty] : null;
             handPadSlot = empty;
         }
         else
@@ -396,29 +387,37 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
             handIsChosenReward = true;
         }
 
-        WriteStageState();
         SetPendingRewardIndex(-1);
         SetPrizeChoicesInteractable(false);
         SetRewardCardDragEnabled(false);
 
-        if (decideRoot != null)
-            decideRoot.gameObject.SetActive(false);
-
         if (HasHand)
+        {
             SuppressInventoryForHand();
+            WriteStageState(false);
+        }
         else
+        {
+            // 자동 저장 직후에만 새 Reward 슬롯을 한 번 선택합니다.
+            // 이후 PACK 선택은 BattleInventoryInteractionController가 단독 소유합니다.
+            WriteStageState(true);
             RestoreSuppressedInventory();
+            SetLegacyPackHandlersEnabled(true);
+        }
 
-        SetStatus(HasHand
-            ? $"HAND // {handSlot.equipment.GetDisplayName().ToUpperInvariant()}  //  CLICK SLOT TO EXCHANGE  //  TRASH TO DISCARD"
-            : $"AUTO STORED // {reward.GetDisplayName().ToUpperInvariant()}  //  PACK EDIT  //  DONE WHEN READY");
+        HideRewardEditStatus();
+        HideObsoleteChoiceUi();
+        InvokeLoadoutRefresh();
     }
 
     private void MaintainDecisionPackStage()
     {
         SetPrizeChoicesInteractable(false);
         SetRewardCardDragEnabled(false);
-        WriteStageState();
+        HideRewardEditStatus();
+
+        SyncChosenRewardLocation();
+        WriteStageState(false);
 
         if (HasHand)
         {
@@ -433,6 +432,38 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
             if (!chosenRewardCommitted && !BattlePauseController.IsPaused && Input.GetKeyDown(KeyCode.JoystickButton7))
                 FinishWithoutReward();
         }
+    }
+
+    /// <summary>
+    /// BattleEquipmentSystem.SwapSlots는 BattleEquipmentSlot 객체 자체를 교환합니다.
+    /// 따라서 Reward가 처음 들어간 Slot 객체 reference를 추적하면 사용자가 PACK에서 위치를 바꿔도
+    /// stagedRewardSlot을 정확한 새 위치로 동기화할 수 있습니다.
+    /// </summary>
+    private void SyncChosenRewardLocation()
+    {
+        if (!chosenRewardCommitted || chosenRewardSlotRef == null || equipmentSystem == null)
+            return;
+
+        int found = -1;
+        for (int i = 0; i < equipmentSystem.Slots.Count && i < SlotCount; i++)
+        {
+            if (ReferenceEquals(equipmentSystem.Slots[i], chosenRewardSlotRef))
+            {
+                found = i;
+                break;
+            }
+        }
+
+        if (found >= 0 && chosenRewardSlotRef.equipment == chosenReward)
+        {
+            chosenRewardSlot = found;
+            return;
+        }
+
+        // Reward가 PACK에서 실제로 버려지거나 다른 장비로 교체된 경우입니다.
+        chosenRewardCommitted = false;
+        chosenRewardSlot = -1;
+        chosenRewardSlotRef = null;
     }
 
     private void HandleHandPadInput()
@@ -485,7 +516,9 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
             handPadMode = true;
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton0) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))
+        if (Input.GetKeyDown(KeyCode.JoystickButton0) ||
+            Input.GetKeyDown(KeyCode.Return) ||
+            Input.GetKeyDown(KeyCode.Space))
         {
             handPadMode = true;
             HandleHandSlotClick(handPadSlot);
@@ -523,19 +556,16 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         if (target == null)
             return;
 
-        // 새 Reward 한 장을 동일 아이템 Stack에 넣는 경우에는 기존 합성 규칙을 그대로 사용합니다.
         if (handIsChosenReward && target.equipment == chosenReward)
         {
             if (target.grade >= 3)
-            {
-                SetStatus("MAX LEVEL ITEM  //  CHOOSE ANOTHER SLOT OR TRASH HAND");
                 return;
-            }
 
             if (equipmentSystem.PlaceIntoSlot(slotIndex, chosenReward))
             {
                 chosenRewardCommitted = true;
                 chosenRewardSlot = slotIndex;
+                chosenRewardSlotRef = equipmentSystem.Slots[slotIndex];
                 handSlot = null;
                 handIsChosenReward = false;
                 AfterHandChanged(slotIndex);
@@ -554,13 +584,11 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
 
         BattleEquipmentSlot incoming = handSlot;
         bool incomingWasChosen = handIsChosenReward;
-        bool outgoingWasChosen = chosenRewardCommitted && slotIndex == chosenRewardSlot;
+        bool outgoingWasChosen = chosenRewardCommitted && chosenRewardSlotRef != null && ReferenceEquals(target, chosenRewardSlotRef);
 
-        bool placed;
-        if (target.equipment == null)
-            placed = equipmentSystem.PlaceIntoSlot(slotIndex, incoming.equipment);
-        else
-            placed = equipmentSystem.ReplaceSlot(slotIndex, incoming.equipment);
+        bool placed = target.equipment == null
+            ? equipmentSystem.PlaceIntoSlot(slotIndex, incoming.equipment)
+            : equipmentSystem.ReplaceSlot(slotIndex, incoming.equipment);
 
         if (!placed)
             return;
@@ -579,11 +607,13 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         {
             chosenRewardCommitted = true;
             chosenRewardSlot = slotIndex;
+            chosenRewardSlotRef = inserted;
         }
         else if (outgoingWasChosen)
         {
             chosenRewardCommitted = false;
             chosenRewardSlot = -1;
+            chosenRewardSlotRef = null;
         }
 
         AfterHandChanged(slotIndex);
@@ -608,24 +638,23 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         {
             chosenRewardCommitted = false;
             chosenRewardSlot = -1;
+            chosenRewardSlotRef = null;
         }
 
         AfterHandChanged(chosenRewardSlot);
-        SetStatus(chosenRewardCommitted
-            ? "HAND EMPTY  //  DONE / NEXT READY"
-            : "REWARD DISCARDED  //  DONE / NEXT TO CONTINUE");
     }
 
     private void AfterHandChanged(int focusSlot)
     {
         handPadSlot = focusSlot >= 0 ? focusSlot : FindFirstUnlockedSlot();
-        WriteStageState();
+        SyncChosenRewardLocation();
+        WriteStageState(!HasHand && chosenRewardCommitted);
         InvokeLoadoutRefresh();
+        HideRewardEditStatus();
 
         if (HasHand)
         {
             SuppressInventoryForHand();
-            SetStatus($"HAND // {handSlot.equipment.GetDisplayName().ToUpperInvariant()}  //  CLICK SLOT TO EXCHANGE  //  TRASH TO DISCARD");
         }
         else
         {
@@ -635,19 +664,31 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         }
     }
 
-    private void WriteStageState()
+    private void WriteStageState(bool forceRewardSelection)
     {
         if (inventoryInteraction == null || !decisionFlowActive)
             return;
 
         WriteBool(rewardStagedField, inventoryInteraction, true);
-        stagedRewardField?.SetValue(inventoryInteraction, HasHand ? null : (chosenRewardCommitted ? chosenReward : null));
-        WriteInt(stagedRewardSlotField, inventoryInteraction, chosenRewardCommitted ? chosenRewardSlot : -1);
-        WriteInt(selectedRewardSlotField, inventoryInteraction, HasHand ? -1 : (chosenRewardCommitted ? chosenRewardSlot : -1));
+        stagedRewardField?.SetValue(
+            inventoryInteraction,
+            HasHand ? null : (chosenRewardCommitted ? chosenReward : null));
+        WriteInt(
+            stagedRewardSlotField,
+            inventoryInteraction,
+            chosenRewardCommitted ? chosenRewardSlot : -1);
         WriteInt(hoveredSlotField, inventoryInteraction, -1);
         WriteInt(padSelectedSlotField, inventoryInteraction, Mathf.Clamp(handPadSlot, 0, SlotCount - 1));
         WriteInt(padPickedSlotField, inventoryInteraction, -1);
         WriteBool(padModeField, inventoryInteraction, false);
+
+        // Hand를 들고 있을 때는 PACK 자체 선택을 제거합니다.
+        // Hand가 없을 때는 첫 자동 저장/Hand 해소 순간에만 선택 슬롯을 지정하고,
+        // 이후에는 InventoryInteraction이 클릭 선택을 단독으로 관리합니다.
+        if (HasHand)
+            WriteInt(selectedRewardSlotField, inventoryInteraction, -1);
+        else if (forceRewardSelection && chosenRewardCommitted)
+            WriteInt(selectedRewardSlotField, inventoryInteraction, chosenRewardSlot);
     }
 
     private void SuppressInventoryForStaticRewardChoice()
@@ -678,8 +719,6 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
     {
         if (inventoryInteraction != null && inventoryDisabledByThis)
         {
-            // Reward 진입 직후 비활성화/재활성화되어도 기존 컨트롤러가 상태 변경으로 오인해
-            // rewardStaged를 초기화하지 않도록 현재 RunState를 동기화합니다.
             if (inventoryLastStateField != null && runManager != null)
                 inventoryLastStateField.SetValue(inventoryInteraction, runManager.State);
 
@@ -713,6 +752,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
     {
         if (slot == null)
             return;
+
         BattleInventorySlotPointer pointer = slot.GetComponent<BattleInventorySlotPointer>();
         if (pointer != null)
             pointer.enabled = enabled;
@@ -732,49 +772,29 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         }
     }
 
-    private void ApplyChoiceCopyAndLayout()
+    private void ApplyChoiceCopyOnly()
     {
-        int pending = GetPendingRewardIndex();
-        bool valid = TryGetReward(pending, out BattleEquipmentSO selected);
+        // 카드/버튼 레이아웃은 BattleRewardCardActionController가 소유합니다.
+        // 여기서는 구형 Drag 문구만 현재 선택 흐름에 맞게 정리합니다.
+        if (screenInner == null)
+            return;
 
-        if (decideRoot != null)
+        Text[] texts = screenInner.GetComponentsInChildren<Text>(true);
+        for (int i = 0; i < texts.Length; i++)
         {
-            decideRoot.anchorMin = decideRoot.anchorMax = decideButtonAnchor;
-            decideRoot.pivot = new Vector2(0.5f, 0.5f);
-            decideRoot.sizeDelta = decideButtonSize;
-            decideRoot.anchoredPosition = Vector2.zero;
-            decideRoot.localScale = Vector3.one;
-            decideRoot.localRotation = Quaternion.identity;
-            decideRoot.gameObject.SetActive(valid);
-            decideRoot.SetAsLastSibling();
+            Text text = texts[i];
+            if (text == null)
+                continue;
+
+            string value = text.text ?? string.Empty;
+            if (value.Contains("SELECT") && value.Contains("DRAG") && value.Contains("DROP"))
+                text.text = "SELECT  •  INSPECT  •  DECIDE";
+            else if (value == "CLICK / DRAG")
+                text.text = "CLICK TO SELECT";
         }
 
-        if (screenInner != null)
-        {
-            Text[] texts = screenInner.GetComponentsInChildren<Text>(true);
-            for (int i = 0; i < texts.Length; i++)
-            {
-                Text text = texts[i];
-                if (text == null)
-                    continue;
-
-                string value = text.text ?? string.Empty;
-                if (value.Contains("SELECT") && value.Contains("DRAG") && value.Contains("DROP"))
-                    text.text = "SELECT  •  INSPECT  •  DECIDE";
-                else if (value == "CLICK / DRAG")
-                    text.text = "CLICK TO SELECT";
-            }
-        }
-
-        RectTransform notice = FindRect("PlacementNotice");
-        if (notice != null)
-        {
-            Text text = notice.GetComponentInChildren<Text>(true);
-            if (text != null)
-                text.text = valid
-                    ? $"{selected.GetDisplayName().ToUpperInvariant()}  //  [결정] TO CONTINUE"
-                    : "SELECT AN ITEM  //  HOVER TO INSPECT";
-        }
+        // PlacementNotice는 현재 [아이템 획득 포기하기] 버튼으로 재사용되므로
+        // 이 컨트롤러가 상태문구를 절대 덮어쓰지 않습니다.
     }
 
     private void HideLegacyPackControlsDuringChoice()
@@ -796,13 +816,6 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
                 doneRoot.gameObject.SetActive(true);
             if (doneButton != null)
                 doneButton.interactable = ready;
-            if (doneBack != null)
-                doneBack.color = ready ? activeColor : disabledColor;
-            if (doneLabel != null)
-            {
-                doneLabel.text = "DONE / NEXT";
-                doneLabel.color = ready ? inkColor : paperColor;
-            }
         }
 
         if (trashRoot != null && !trashRoot.gameObject.activeSelf)
@@ -861,8 +874,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         if (!decisionFlowActive || HasHand || !IsReward())
             return;
 
-        // 선택 Reward를 Hand에서 바로 버린 경우에는 기존 CompleteRewardSelection을 호출하지 않고
-        // Reward를 포기한 것으로 처리합니다. 선택 Reward가 PACK에 들어가 있다면 기존 DONE listener가 완료합니다.
+        SyncChosenRewardLocation();
         if (!chosenRewardCommitted)
             FinishWithoutReward();
     }
@@ -876,6 +888,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         RestoreSuppressedInventory();
         SetLegacyPackHandlersEnabled(true);
         HideHandGhost();
+        HideRewardEditStatus();
         runManager.SkipReward();
     }
 
@@ -892,16 +905,17 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         group.interactable = interactable;
     }
 
-    private void SetStatus(string value)
+    private void HideRewardEditStatus()
     {
         if (rewardEditStatus == null && inventoryInteraction != null && rewardEditStatusField != null)
             rewardEditStatus = rewardEditStatusField.GetValue(inventoryInteraction) as Text;
 
-        if (rewardEditStatus != null)
-        {
-            rewardEditStatus.gameObject.SetActive(true);
-            rewardEditStatus.text = value;
-        }
+        if (rewardEditStatus == null)
+            return;
+
+        rewardEditStatus.text = string.Empty;
+        if (rewardEditStatus.gameObject.activeSelf)
+            rewardEditStatus.gameObject.SetActive(false);
     }
 
     private void ApplyLowerRewardCameraBias()
@@ -927,6 +941,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         chosenReward = null;
         chosenRewardCommitted = false;
         chosenRewardSlot = -1;
+        chosenRewardSlotRef = null;
         handSlot = null;
         handIsChosenReward = false;
         handPadMode = false;
@@ -937,9 +952,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         SetLegacyPackHandlersEnabled(true);
         SetRewardCardDragEnabled(true);
         HideHandGhost();
-
-        if (decideRoot != null)
-            decideRoot.gameObject.SetActive(false);
+        HideRewardEditStatus();
     }
 
     private int FindFirstEmptyUnlockedSlot()
@@ -1027,37 +1040,6 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
                 return rect;
         }
         return null;
-    }
-
-    private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
-    {
-        GameObject go = new(name);
-        go.transform.SetParent(parent, false);
-        RectTransform rect = go.AddComponent<RectTransform>();
-        rect.sizeDelta = size;
-        return rect;
-    }
-
-    private static Text CreateText(Transform parent, string value, int fontSize, FontStyle style, TextAnchor alignment, Color color)
-    {
-        RectTransform rect = CreateRect(parent, "Text", Vector2.zero);
-        Text text = rect.gameObject.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.text = value;
-        text.fontSize = fontSize;
-        text.fontStyle = style;
-        text.alignment = alignment;
-        text.color = color;
-        text.raycastTarget = false;
-        return text;
-    }
-
-    private static void Stretch(RectTransform rect)
-    {
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = Vector2.zero;
-        rect.offsetMax = Vector2.zero;
     }
 }
 
