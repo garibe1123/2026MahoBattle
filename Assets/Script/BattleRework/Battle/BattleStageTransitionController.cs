@@ -401,11 +401,11 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (outgoingBlocks.Count == 0)
         {
             Debug.LogWarning(
-                "[BattleStageFlow] RoomExiting started but no combat room movement roots were found. " +
-                "Show will remain gated until room ownership is retired.",
+                "[BattleStageFlow] RoomExiting started but BattleRoomManager owns no movement roots. " +
+                "Retiring empty room ownership before opening the show.",
                 this);
 
-            roomManager?.AbortRoom();
+            roomManager?.CompleteAnimatedStageRetirement();
             CaptureShowAnchorFromBase();
             collapseRoutine = null;
             OpenShowStage();
@@ -449,7 +449,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         float lastExitDuration = 0f;
 
         Debug.Log(
-            $"[BattleStageFlow] Retiring {outgoingBlocks.Count} combat room movement root(s) before {pendingShowState}.",
+            $"[BattleStageFlow] Retiring {outgoingBlocks.Count} owned combat room movement root(s) before {pendingShowState}.",
             this);
 
         for (int wave = 0; wave < waveCount; wave++)
@@ -496,11 +496,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             Destroy(block.gameObject);
         }
 
-        // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 stale ownership을 정리합니다.
-        // 이렇게 해야 다음 EnterRoomRoutine에서 currentRoom/activeBlocks 때문에 ClearImmediate가
-        // 다시 호출되어 타일이 점프 삭제되는 문제가 생기지 않습니다.
+        // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 ownership만 정식 retire합니다.
+        // 이 API는 타일을 다시 Destroy하지 않으므로 다음 EnterRoomRoutine의 ClearImmediate jump-cut도 막습니다.
         yield return null;
-        roomManager?.AbortRoom();
+        roomManager?.CompleteAnimatedStageRetirement();
 
         BattleDockHandleVisibilityController.RefreshNow();
 
@@ -518,13 +517,28 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (roomManager == null)
             return false;
 
+        List<MapBlock> ownedBlocks = new();
+        if (roomManager.CopyActiveRoomBlocks(ownedBlocks) > 0)
+            return true;
+
+        // currentRoom만 남고 이동 Root가 없는 특수/빈 Room도 lifecycle retirement는 필요합니다.
         if (roomManager.IsRoomActive)
             return true;
 
-        return CollectCurrentRoomExitBlocks().Count > 0;
+        return CollectCurrentRoomExitBlocksFallback().Count > 0;
     }
 
     private List<MapBlock> CollectCurrentRoomExitBlocks()
+    {
+        List<MapBlock> ownedBlocks = new();
+        if (roomManager != null && roomManager.CopyActiveRoomBlocks(ownedBlocks) > 0)
+            return ownedBlocks;
+
+        // Legacy/migration scene에서만 hierarchy scan을 fallback으로 사용합니다.
+        return CollectCurrentRoomExitBlocksFallback();
+    }
+
+    private List<MapBlock> CollectCurrentRoomExitBlocksFallback()
     {
         MapBlock[] blocks = FindObjectsByType<MapBlock>(
             FindObjectsInactive.Include,
