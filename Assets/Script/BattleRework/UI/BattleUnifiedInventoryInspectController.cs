@@ -556,7 +556,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         suppressedSourceSlot = current;
         activeInspectSlot = -1;
 
-        inventoryInteraction?.ClearInspectSelection();
         kineticLoadout?.ClearExternalSelection();
         detailController?.SelectSlotFromPointer(-1);
 
