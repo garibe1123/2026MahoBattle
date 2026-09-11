@@ -1,4 +1,3 @@
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -9,19 +8,13 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// Combat HUD 보정 패치.
-/// - 좌측 상단의 구형 BroadcastStatus를 숨깁니다.
-/// - 우측 하단 CurrentLoadoutChip에 HP/ST를 통합합니다.
-/// - Tab/LB로 연 3x3 Loadout Grid에 마우스 Hover/Click 입력을 추가합니다.
-///
-/// 기존 BattleHUD / BattleEquipment SO / Scene 직렬화 데이터는 삭제하거나 교체하지 않습니다.
+/// Combat HUD 보정과 3x3 Loadout Grid의 마우스 입력을 담당합니다.
+/// BattleKineticLoadoutUI의 공개 API만 사용하며 private field reflection에 의존하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30500)]
 public sealed class BattleCombatHudInputBridge : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
-
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
@@ -31,7 +24,6 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
     [Header("Compact Vitals")]
     [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
     [SerializeField] private Color staminaColor = new(0.18f, 0.82f, 0.95f, 1f);
-    [SerializeField] private Color barBackColor = new(0.10f, 0.09f, 0.13f, 0.96f);
     [SerializeField] private Color textColor = new(0.94f, 0.90f, 0.76f, 1f);
 
     private RectTransform compactRoot;
@@ -41,25 +33,17 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
     private Text staminaText;
     private CanvasGroup fullGridGroup;
 
-    private FieldInfo switchHeldField;
-    private FieldInfo boardWasShownField;
-    private FieldInfo selectedIndexField;
-    private FieldInfo directionMovedField;
-    private MethodInfo refreshAllMethod;
-
     private float nextResolveTime;
     private bool pointerTargetsInstalled;
 
     private void Awake()
     {
         ResolveReferences();
-        CacheLoadoutReflection();
     }
 
     private void OnEnable()
     {
         ResolveReferences();
-        CacheLoadoutReflection();
         nextResolveTime = 0f;
     }
 
@@ -87,25 +71,9 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (loadoutUI == null)
-        {
             loadoutUI = FindFirstObjectByType<BattleKineticLoadoutUI>();
-            CacheLoadoutReflection();
-        }
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
-    }
-
-    private void CacheLoadoutReflection()
-    {
-        if (loadoutUI == null)
-            return;
-
-        System.Type type = typeof(BattleKineticLoadoutUI);
-        switchHeldField = type.GetField("switchHeld", PrivateInstance);
-        boardWasShownField = type.GetField("boardWasShown", PrivateInstance);
-        selectedIndexField = type.GetField("selectedIndex", PrivateInstance);
-        directionMovedField = type.GetField("directionMoved", PrivateInstance);
-        refreshAllMethod = type.GetMethod("RefreshAll", PrivateInstance);
     }
 
     private void DisableLegacyTopLeftStatus()
@@ -117,6 +85,8 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
 
     private void ResolveCompactChip()
     {
+        if (compactRoot == null && loadoutUI != null)
+            compactRoot = loadoutUI.CompactRoot;
         if (compactRoot == null)
             compactRoot = FindRect("CurrentLoadoutChip");
         if (compactRoot == null)
@@ -125,7 +95,6 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
         if (compactRoot.Find("CompactVitals") != null)
             return;
 
-        // 기존 우측 하단 현재 무기 Chip 자체를 확장해서 HP/ST를 한 패널 안에 합칩니다.
         compactRoot.sizeDelta = new Vector2(430f, 156f);
         compactRoot.anchoredPosition = new Vector2(-28f, 22f);
 
@@ -165,6 +134,8 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
 
     private void ResolveFullGrid()
     {
+        if (fullGridGroup == null && loadoutUI != null)
+            fullGridGroup = loadoutUI.FullGroup;
         if (fullGridGroup != null)
             return;
 
@@ -173,7 +144,6 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
             return;
 
         fullGridGroup = full.GetComponent<CanvasGroup>();
-
         Canvas canvas = full.GetComponentInParent<Canvas>();
         if (canvas != null && canvas.GetComponent<GraphicRaycaster>() == null)
             canvas.gameObject.AddComponent<GraphicRaycaster>();
@@ -231,52 +201,30 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
         if (fullGridGroup == null)
             return;
 
-        bool active = IsSwitchBoardOpen() && fullGridGroup.alpha > 0.05f;
+        bool active = loadoutUI != null && loadoutUI.IsSwitchBoardOpen && fullGridGroup.alpha > 0.05f;
         fullGridGroup.blocksRaycasts = active;
         fullGridGroup.interactable = active;
     }
 
     internal void HandleSlotHover(int index)
     {
-        if (!IsSwitchBoardOpen() || equipmentSystem == null || loadoutUI == null)
+        if (loadoutUI == null || equipmentSystem == null || !loadoutUI.IsSwitchBoardOpen)
             return;
         if (!equipmentSystem.IsSlotUnlocked(index))
             return;
 
-        SetSelectedIndex(index);
+        loadoutUI.SetSelectedIndexFromExternal(index, true);
     }
 
     internal void HandleSlotClick(int index, PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left)
+        if (button != PointerEventData.InputButton.Left || loadoutUI == null || equipmentSystem == null)
             return;
-        if (!IsSwitchBoardOpen() || equipmentSystem == null || loadoutUI == null)
-            return;
-        if (!equipmentSystem.IsSlotUnlocked(index))
+        if (!loadoutUI.IsSwitchBoardOpen || !equipmentSystem.IsSlotUnlocked(index))
             return;
 
-        SetSelectedIndex(index);
+        loadoutUI.SetSelectedIndexFromExternal(index, true);
         equipmentSystem.EquipSlot(index);
-    }
-
-    private void SetSelectedIndex(int index)
-    {
-        if (selectedIndexField == null || loadoutUI == null)
-            return;
-
-        selectedIndexField.SetValue(loadoutUI, index);
-        directionMovedField?.SetValue(loadoutUI, true);
-        refreshAllMethod?.Invoke(loadoutUI, null);
-    }
-
-    private bool IsSwitchBoardOpen()
-    {
-        if (loadoutUI == null || switchHeldField == null || boardWasShownField == null)
-            return false;
-
-        object heldValue = switchHeldField.GetValue(loadoutUI);
-        object shownValue = boardWasShownField.GetValue(loadoutUI);
-        return heldValue is bool held && held && shownValue is bool shown && shown;
     }
 
     private static RectTransform FindRect(string objectName)
@@ -388,9 +336,6 @@ internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour, IPointerEn
     }
 }
 
-/// <summary>
-/// BattleSystems에 HUD/Input bridge가 빠져도 자동 보강합니다.
-/// </summary>
 public static class BattleCombatHudInputBridgeAutoInstaller
 {
 #if UNITY_EDITOR
