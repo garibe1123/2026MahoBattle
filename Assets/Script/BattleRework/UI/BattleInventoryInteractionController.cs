@@ -1,4 +1,4 @@
-using System.Reflection;
+using System;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -16,16 +16,17 @@ internal enum BattleInventorySurface
 }
 
 /// <summary>
-/// 3x3 PACK의 편집 입력을 한 곳에서 관리합니다.
+/// 3x3 PACK의 입력을 한 곳에서 관리합니다.
 ///
-/// Reward 흐름:
-/// - 보상 카드를 PACK에 Drop하면 가능한 경우 첫 빈 슬롯을 우선 사용합니다.
-/// - 획득 직후 Reward를 끝내지 않고 PACK EDIT 상태를 유지합니다.
-/// - 마우스 Drag/Drop 또는 패드 선택 -> 이동 -> A로 슬롯 위치를 교환합니다.
-/// - TRASH는 즉시 삭제하지 않고 확인 모달을 거칩니다.
-/// - 정리가 끝난 뒤 DONE으로 Reward를 확정합니다.
+/// 책임:
+/// - Combat 장비 슬롯 클릭/교환
+/// - Reward PACK 슬롯 선택/교환/Drag
+/// - Reward Hand와 슬롯 교환 입력
+/// - TRASH 및 삭제 확인 입력
+/// - 패드 PACK 커서/선택
 ///
-/// 장비 SO / Sprite / Scene 직렬화 데이터는 변경하지 않습니다.
+/// Reward의 business state는 BattleRewardFlow가 단독 소유합니다.
+/// 이 클래스는 rewardStaged / stagedReward 같은 복제 상태를 만들지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30750)]
@@ -33,11 +34,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 {
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int OverlaySortingOrder = 1550;
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [SerializeField] private BattleRewardFlow rewardFlow;
 
     [Header("Theme")]
     [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.995f);
@@ -59,8 +60,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private Text trashLabel;
 
     private RectTransform doneRoot;
+    private Button doneButton;
     private Text doneLabel;
-    private Text rewardEditStatus;
 
     private RectTransform discardConfirmRoot;
     private Text discardConfirmText;
@@ -74,6 +75,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private readonly GameObject[] miniSelectionFrames = new GameObject[SlotCount];
     private readonly Outline[] miniSelectionOutlines = new Outline[SlotCount];
 
+    // Input/presentation state only. Reward business state는 BattleRewardFlow가 소유합니다.
     private int selectedRewardSlot = -1;
     private int hoveredSlot = -1;
     private int draggingSlot = -1;
@@ -82,10 +84,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private bool padAxisLatched;
     private bool padModeActive;
 
-    private bool rewardStaged;
-    private BattleEquipmentSO stagedReward;
-    private int stagedRewardSlot = -1;
     private BattleRunState lastState = (BattleRunState)(-1);
+    private BattleRewardPhase lastRewardPhase = (BattleRewardPhase)(-1);
 
     private int pendingDiscardSlot = -1;
     private bool confirmYesSelected;
@@ -95,15 +95,23 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private float flashUntil;
     private float nextResolveTime;
 
-    private MethodInfo completeRewardSelectionMethod;
-
     public bool IsDraggingItem => draggingSlot >= 0;
-    public bool IsRewardPackEditing => IsReward() && rewardStaged;
+    public bool IsRewardPackEditing => IsReward() && rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
+    public int SelectedRewardSlot => selectedRewardSlot;
+    public int HoveredSlot => hoveredSlot;
+    public int PadSelectedSlot => padSelectedSlot;
+    public int PadPickedSlot => padPickedSlot;
+    public bool PadModeActive => padModeActive;
+
+    /// <summary>
+    /// DONE/NEXT는 입력 계층이 요청만 발생시키고, Run 완료 처리는 Reward adapter가 담당합니다.
+    /// BattleRunManager의 구형 private 완료 API와의 bridge가 제거되면 BattleRewardFlow가 직접 처리하게 됩니다.
+    /// </summary>
+    public event Action RewardDoneRequested;
 
     private void Awake()
     {
         ResolveReferences();
-        CacheRunReflection();
         EnsureOverlayCanvas();
         ResolveMiniPack();
     }
@@ -111,7 +119,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        CacheRunReflection();
         EnsureOverlayCanvas();
         nextResolveTime = 0f;
     }
@@ -120,12 +127,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     {
         HideDragVisuals();
         HideDiscardConfirm();
-        SetPrizeChoicesInteractable(true);
     }
 
     private void Update()
     {
         ResolveReferences();
+        rewardFlow?.RefreshFromRunState();
         EnsureOverlayCanvas();
 
         if (Time.unscaledTime >= nextResolveTime)
@@ -141,9 +148,25 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             lastState = runManager.State;
         }
 
-        if (IsReward())
+        BattleRewardPhase currentRewardPhase = rewardFlow != null
+            ? rewardFlow.Phase
+            : BattleRewardPhase.Inactive;
+        if (lastRewardPhase != currentRewardPhase)
         {
+            HandleRewardPhaseChanged(currentRewardPhase);
+            lastRewardPhase = currentRewardPhase;
+        }
+
+        if (IsReward())
             ShowPackForReward();
+
+        if (IsRewardPackEditing)
+        {
+            if (rewardFlow != null && rewardFlow.HasHand)
+            {
+                selectedRewardSlot = -1;
+                padPickedSlot = -1;
+            }
             HandlePadPackInput();
         }
         else
@@ -159,28 +182,39 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void HandleRunStateChanged(BattleRunState state)
     {
+        selectedRewardSlot = -1;
+        hoveredSlot = -1;
+        draggingSlot = -1;
+        padPickedSlot = -1;
+        padModeActive = false;
+        padAxisLatched = false;
+        flashedSlot = -1;
+        HideDiscardConfirm();
+
         if (state == BattleRunState.Reward)
-        {
-            rewardStaged = false;
-            stagedReward = null;
-            stagedRewardSlot = -1;
-            selectedRewardSlot = -1;
-            hoveredSlot = -1;
             padSelectedSlot = FindFirstUnlockedSlot();
-            padPickedSlot = -1;
-            SetPrizeChoicesInteractable(true);
-        }
-        else
-        {
-            rewardStaged = false;
-            stagedReward = null;
-            stagedRewardSlot = -1;
-            selectedRewardSlot = -1;
-            hoveredSlot = -1;
-            padPickedSlot = -1;
-            HideDiscardConfirm();
-            SetPrizeChoicesInteractable(true);
-        }
+    }
+
+    private void HandleRewardPhaseChanged(BattleRewardPhase phase)
+    {
+        selectedRewardSlot = -1;
+        hoveredSlot = -1;
+        padPickedSlot = -1;
+        padModeActive = false;
+        HideDiscardConfirm();
+
+        if (phase != BattleRewardPhase.PackEditing || rewardFlow == null)
+            return;
+
+        int focus = rewardFlow.ChosenRewardCommitted
+            ? rewardFlow.ChosenRewardSlot
+            : FindFirstUnlockedSlot();
+        if (focus < 0 || equipmentSystem == null || !equipmentSystem.IsSlotUnlocked(focus))
+            focus = FindFirstUnlockedSlot();
+
+        padSelectedSlot = Mathf.Max(0, focus);
+        if (!rewardFlow.HasHand && rewardFlow.ChosenRewardCommitted)
+            selectedRewardSlot = rewardFlow.ChosenRewardSlot;
     }
 
     private void ResolveReferences()
@@ -189,13 +223,14 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
-    }
-
-    private void CacheRunReflection()
-    {
-        completeRewardSelectionMethod ??= typeof(BattleRunManager).GetMethod(
-            "CompleteRewardSelection",
-            PrivateInstance);
+        if (rewardFlow == null)
+        {
+            rewardFlow = GetComponent<BattleRewardFlow>();
+            if (rewardFlow == null)
+                rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
+            if (rewardFlow == null && Application.isPlaying)
+                rewardFlow = gameObject.AddComponent<BattleRewardFlow>();
+        }
     }
 
     private bool IsReward()
@@ -224,12 +259,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         Image packImage = miniPackRoot.GetComponent<Image>();
         if (packImage != null)
-            packImage.raycastTarget = IsReward();
+            packImage.raycastTarget = IsRewardPackEditing;
 
+        // 구형 Reward card -> PACK 직접 Drop은 더 이상 사용하지 않습니다.
+        // 이미 씬에 남은 DropTarget이 있으면 입력만 죽여 marker/직렬화 호환은 유지합니다.
         BattleInventoryPackDropTarget packDrop = miniPackRoot.GetComponent<BattleInventoryPackDropTarget>();
-        if (packDrop == null)
-            packDrop = miniPackRoot.gameObject.AddComponent<BattleInventoryPackDropTarget>();
-        packDrop.Configure(this);
+        if (packDrop != null)
+            packDrop.enabled = false;
     }
 
     private void InstallSlotTargets()
@@ -266,10 +302,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void EnsureMiniSelectionFrame(RectTransform slot, int index)
     {
-        if (index < 0 || index >= SlotCount)
-            return;
-
-        if (miniSelectionFrames[index] != null)
+        if (index < 0 || index >= SlotCount || miniSelectionFrames[index] != null)
             return;
 
         Transform existing = slot.Find("InteractionSelectionFrame");
@@ -304,8 +337,18 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (discardModalOpen || equipmentSystem == null || !HasItem(slotIndex))
             return false;
 
+        if (IsReward())
+        {
+            if (!IsRewardPackEditing || rewardFlow == null || rewardFlow.HasHand)
+                return false;
+            selectedRewardSlot = slotIndex;
+        }
+        else if (!IsCombat())
+        {
+            return false;
+        }
+
         draggingSlot = slotIndex;
-        selectedRewardSlot = IsReward() ? slotIndex : selectedRewardSlot;
         flashedSlot = -1;
 
         BattleEquipmentSO equipment = equipmentSystem.Slots[slotIndex].equipment;
@@ -346,19 +389,14 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (discardModalOpen || equipmentSystem == null || eventData == null || !equipmentSystem.IsSlotUnlocked(targetIndex))
             return;
 
-        RewardPrizeDrag rewardDrag = eventData.pointerDrag != null
-            ? eventData.pointerDrag.GetComponent<RewardPrizeDrag>()
-            : null;
-        if (rewardDrag != null && IsReward())
-        {
-            TryStageReward(rewardDrag.RewardIndex, targetIndex);
-            return;
-        }
-
+        // Reward 후보 자체는 Drag하지 않습니다. 여기서는 PACK 내부 item drag만 처리합니다.
         BattleInventorySlotPointer source = eventData.pointerDrag != null
             ? eventData.pointerDrag.GetComponent<BattleInventorySlotPointer>()
             : null;
         if (source == null || !source.IsDragging)
+            return;
+
+        if (IsReward() && (!IsRewardPackEditing || rewardFlow == null || rewardFlow.HasHand))
             return;
 
         int sourceIndex = source.SlotIndex;
@@ -367,22 +405,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (equipmentSystem.SwapSlots(sourceIndex, targetIndex))
         {
-            selectedRewardSlot = IsReward() ? targetIndex : -1;
+            selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
             padSelectedSlot = targetIndex;
+            padPickedSlot = -1;
+            rewardFlow?.SyncChosenRewardLocation();
             FlashSlot(targetIndex);
         }
     }
 
+    /// <summary>
+    /// Legacy RewardInventoryPackDropTarget 호환용 no-op입니다.
+    /// Reward 후보 카드는 클릭 -> 결정 흐름이므로 PACK 배경에 직접 Drop하지 않습니다.
+    /// </summary>
     internal void HandlePackDrop(PointerEventData eventData)
     {
-        if (!IsReward() || discardModalOpen || eventData == null)
-            return;
-
-        RewardPrizeDrag rewardDrag = eventData.pointerDrag != null
-            ? eventData.pointerDrag.GetComponent<RewardPrizeDrag>()
-            : null;
-        if (rewardDrag != null)
-            TryStageReward(rewardDrag.RewardIndex, -1);
     }
 
     internal void HandleSlotClick(int slotIndex, BattleInventorySurface surface, PointerEventData.InputButton button)
@@ -393,6 +429,22 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (IsReward())
         {
+            if (!IsRewardPackEditing || rewardFlow == null)
+                return;
+
+            padSelectedSlot = slotIndex;
+
+            if (rewardFlow.HasHand)
+            {
+                if (rewardFlow.ExchangeHandWithSlot(slotIndex))
+                {
+                    selectedRewardSlot = -1;
+                    padPickedSlot = -1;
+                    FlashSlot(slotIndex);
+                }
+                return;
+            }
+
             if (selectedRewardSlot < 0)
             {
                 if (HasItem(slotIndex))
@@ -409,7 +461,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             if (equipmentSystem.SwapSlots(selectedRewardSlot, slotIndex))
             {
                 selectedRewardSlot = -1;
-                padSelectedSlot = slotIndex;
+                padPickedSlot = -1;
+                rewardFlow.SyncChosenRewardLocation();
                 FlashSlot(slotIndex);
             }
             return;
@@ -425,61 +478,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotHover(int slotIndex, bool entered)
     {
-        if (!IsReward())
+        if (!IsRewardPackEditing)
             return;
         hoveredSlot = entered ? slotIndex : (hoveredSlot == slotIndex ? -1 : hoveredSlot);
-    }
-
-    private bool TryStageReward(int rewardIndex, int preferredSlot)
-    {
-        if (!IsReward() || rewardStaged || equipmentSystem == null || runManager == null)
-            return false;
-        if (rewardIndex < 0 || rewardIndex >= runManager.CurrentRewardChoices.Count)
-            return false;
-
-        BattleEquipmentSO reward = runManager.CurrentRewardChoices[rewardIndex];
-        if (reward == null)
-            return false;
-
-        int empty = FindFirstEmptyUnlockedSlot();
-        int target = -1;
-
-        // PACK 안의 특정 빈 칸에 직접 놓았으면 그 칸을 존중합니다.
-        if (preferredSlot >= 0 && equipmentSystem.IsSlotUnlocked(preferredSlot) && !HasItem(preferredSlot))
-            target = preferredSlot;
-        else if (empty >= 0)
-            target = empty;
-
-        // 빈 칸이 없을 때 같은 장비 합성만 예외적으로 허용합니다. 다른 장비를 자동 삭제/교체하지 않습니다.
-        if (target < 0 && preferredSlot >= 0 && equipmentSystem.IsSlotUnlocked(preferredSlot))
-        {
-            BattleEquipmentSlot preferred = preferredSlot < equipmentSystem.Slots.Count ? equipmentSystem.Slots[preferredSlot] : null;
-            if (preferred != null && preferred.equipment == reward && equipmentSystem.CanPlaceIntoSlot(preferredSlot, reward))
-                target = preferredSlot;
-        }
-
-        if (target < 0)
-        {
-            SetRewardStatus("PACK FULL  //  TRASH AN ITEM FIRST");
-            return false;
-        }
-
-        if (!equipmentSystem.PlaceIntoSlot(target, reward))
-        {
-            SetRewardStatus("CANNOT PLACE HERE");
-            return false;
-        }
-
-        rewardStaged = true;
-        stagedReward = reward;
-        stagedRewardSlot = target;
-        selectedRewardSlot = target;
-        padSelectedSlot = target;
-        padPickedSlot = -1;
-        FlashSlot(target);
-        SetPrizeChoicesInteractable(false);
-        SetRewardStatus("ITEM IN PACK  //  REARRANGE OR TRASH  //  DONE WHEN READY");
-        return true;
     }
 
     internal void HandleTrashDrop(PointerEventData eventData)
@@ -498,8 +499,18 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleTrashClick(PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left || discardModalOpen || !IsReward())
+        if (button != PointerEventData.InputButton.Left || discardModalOpen || !IsRewardPackEditing || rewardFlow == null)
             return;
+
+        if (rewardFlow.HasHand)
+        {
+            if (rewardFlow.DiscardHand())
+            {
+                selectedRewardSlot = -1;
+                padPickedSlot = -1;
+            }
+            return;
+        }
 
         int target = selectedRewardSlot >= 0 ? selectedRewardSlot : padSelectedSlot;
         if (HasItem(target))
@@ -557,8 +568,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 selectedRewardSlot = -1;
             if (padPickedSlot == target)
                 padPickedSlot = -1;
+            rewardFlow?.SyncChosenRewardLocation();
             FlashSlot(target);
-            SetRewardStatus("ITEM DISCARDED  //  PACK EDIT CONTINUES");
         }
     }
 
@@ -573,7 +584,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void HandlePadPackInput()
     {
-        if (BattlePauseController.IsPaused)
+        if (!IsRewardPackEditing || rewardFlow == null || BattlePauseController.IsPaused)
             return;
 
         if (discardModalOpen)
@@ -627,15 +638,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             padModeActive = true;
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton3) && HasItem(padSelectedSlot))
+        if (Input.GetKeyDown(KeyCode.JoystickButton3))
         {
             padModeActive = true;
-            RequestDiscard(padSelectedSlot);
+            if (rewardFlow.HasHand)
+                rewardFlow.DiscardHand();
+            else if (HasItem(padSelectedSlot))
+                RequestDiscard(padSelectedSlot);
         }
 
-        // 일반적인 패드 Start 버튼. Reward를 획득한 뒤 PACK 정리가 끝났을 때 확정합니다.
-        if (rewardStaged && Input.GetKeyDown(KeyCode.JoystickButton7))
-            CompleteRewardPackEdit();
+        if (Input.GetKeyDown(KeyCode.JoystickButton7))
+            RequestRewardCompletion();
     }
 
     private void MovePadSelection(int dx, int dy)
@@ -653,12 +666,27 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void HandlePadSubmit()
     {
+        if (rewardFlow == null || equipmentSystem == null)
+            return;
+
+        if (rewardFlow.HasHand)
+        {
+            if (rewardFlow.ExchangeHandWithSlot(padSelectedSlot))
+            {
+                selectedRewardSlot = -1;
+                padPickedSlot = -1;
+                FlashSlot(padSelectedSlot);
+            }
+            return;
+        }
+
         if (!HasItem(padSelectedSlot))
         {
             if (padPickedSlot >= 0 && equipmentSystem.IsSlotUnlocked(padSelectedSlot))
             {
                 if (equipmentSystem.SwapSlots(padPickedSlot, padSelectedSlot))
                 {
+                    rewardFlow.SyncChosenRewardLocation();
                     FlashSlot(padSelectedSlot);
                     padPickedSlot = -1;
                 }
@@ -680,6 +708,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (equipmentSystem.SwapSlots(padPickedSlot, padSelectedSlot))
         {
+            rewardFlow.SyncChosenRewardLocation();
             FlashSlot(padSelectedSlot);
             padPickedSlot = -1;
         }
@@ -712,38 +741,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             ResolveDiscard(false);
     }
 
-    private void CompleteRewardPackEdit()
+    private void RequestRewardCompletion()
     {
-        if (!rewardStaged || stagedReward == null || runManager == null || !IsReward())
+        if (!IsRewardPackEditing || rewardFlow == null || !rewardFlow.CanComplete)
             return;
 
-        BattleEquipmentSO selected = stagedReward;
-        rewardStaged = false;
-        stagedReward = null;
-        stagedRewardSlot = -1;
-        selectedRewardSlot = -1;
-        padPickedSlot = -1;
-        SetPrizeChoicesInteractable(true);
-
-        if (completeRewardSelectionMethod != null)
-        {
-            completeRewardSelectionMethod.Invoke(runManager, new object[] { selected });
-        }
-        else
-        {
-            Debug.LogWarning("[BattleInventory] CompleteRewardSelection reflection fallback failed. Using SkipReward().");
-            runManager.SkipReward();
-        }
-    }
-
-    private int FindFirstEmptyUnlockedSlot()
-    {
-        if (equipmentSystem == null)
-            return -1;
-        for (int i = 0; i < SlotCount; i++)
-            if (equipmentSystem.IsSlotUnlocked(i) && !HasItem(i))
-                return i;
-        return -1;
+        RewardDoneRequested?.Invoke();
     }
 
     private int FindFirstUnlockedSlot()
@@ -771,7 +774,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void UpdateSelectionFrames()
     {
-        bool reward = IsReward();
+        bool reward = IsRewardPackEditing;
         for (int i = 0; i < SlotCount; i++)
         {
             GameObject frame = miniSelectionFrames[i];
@@ -888,17 +891,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         doneLabel = CreateText(doneRoot, "DONE  /  START", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
         Stretch(doneLabel.rectTransform);
-        Button button = doneRoot.gameObject.AddComponent<Button>();
-        button.targetGraphic = back;
-        button.onClick.AddListener(CompleteRewardPackEdit);
+        doneButton = doneRoot.gameObject.AddComponent<Button>();
+        doneButton.targetGraphic = back;
+        doneButton.onClick.AddListener(RequestRewardCompletion);
         doneRoot.gameObject.SetActive(false);
-
-        rewardEditStatus = CreateText(interactionRoot, "", 12, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        rewardEditStatus.rectTransform.anchorMin = rewardEditStatus.rectTransform.anchorMax = Vector2.zero;
-        rewardEditStatus.rectTransform.pivot = Vector2.zero;
-        rewardEditStatus.rectTransform.sizeDelta = new Vector2(420f, 54f);
-        rewardEditStatus.rectTransform.anchoredPosition = new Vector2(430f, 178f);
-        rewardEditStatus.gameObject.SetActive(false);
     }
 
     private void BuildDiscardConfirm()
@@ -964,9 +960,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         ResolveMiniPack();
         if (miniPackGroup != null)
         {
+            bool interactive = IsRewardPackEditing && !BattlePauseController.IsPaused && !discardModalOpen;
             miniPackGroup.alpha = 1f;
-            miniPackGroup.blocksRaycasts = !BattlePauseController.IsPaused && !discardModalOpen;
-            miniPackGroup.interactable = !BattlePauseController.IsPaused && !discardModalOpen;
+            miniPackGroup.blocksRaycasts = interactive;
+            miniPackGroup.interactable = interactive;
         }
 
         RectTransform oldStrip = FindRect("RewardLoadoutStrip");
@@ -987,27 +984,25 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             fullBoardOpen = fullGroup != null && fullGroup.alpha > 0.08f;
         }
 
-        bool visible = !discardModalOpen && (IsReward() || draggingSlot >= 0 || (IsCombat() && fullBoardOpen));
+        bool visible = !discardModalOpen &&
+                       (IsRewardPackEditing || draggingSlot >= 0 || (IsCombat() && fullBoardOpen));
         if (trashRoot.gameObject.activeSelf != visible)
             trashRoot.gameObject.SetActive(visible);
     }
 
     private void UpdateRewardEditUi()
     {
-        bool showDone = IsReward() && rewardStaged && !discardModalOpen;
+        bool showDone = IsRewardPackEditing && !discardModalOpen;
         if (doneRoot != null)
         {
             doneRoot.gameObject.SetActive(showDone);
             PositionRewardEditControls(doneRoot, new Vector2(0f, 92f));
         }
 
-        if (rewardEditStatus != null)
-        {
-            rewardEditStatus.gameObject.SetActive(IsReward());
-            PositionRewardEditControls(rewardEditStatus.rectTransform, new Vector2(0f, 172f));
-        }
+        if (doneButton != null)
+            doneButton.interactable = showDone && rewardFlow != null && rewardFlow.CanComplete;
 
-        if (trashRoot != null && IsReward())
+        if (trashRoot != null && IsRewardPackEditing)
             PositionRewardEditControls(trashRoot, Vector2.zero);
     }
 
@@ -1022,34 +1017,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         target.anchorMin = target.anchorMax = Vector2.zero;
         target.pivot = Vector2.zero;
         target.anchoredPosition = pos;
-    }
-
-    private void SetRewardStatus(string value)
-    {
-        if (rewardEditStatus != null)
-            rewardEditStatus.text = value;
-
-        RectTransform notice = FindRect("PlacementNotice");
-        if (notice != null)
-        {
-            Text text = notice.GetComponentInChildren<Text>(true);
-            if (text != null)
-                text.text = value;
-        }
-    }
-
-    private void SetPrizeChoicesInteractable(bool interactable)
-    {
-        RectTransform choices = FindRect("PrizeChoices");
-        if (choices == null)
-            return;
-
-        CanvasGroup group = choices.GetComponent<CanvasGroup>();
-        if (group == null)
-            group = choices.gameObject.AddComponent<CanvasGroup>();
-        group.alpha = interactable ? 1f : 0.34f;
-        group.blocksRaycasts = interactable;
-        group.interactable = interactable;
     }
 
     private void HideDragVisuals()
@@ -1197,6 +1164,9 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     }
 }
 
+/// <summary>
+/// 구형 Reward card drag 호환 marker. Phase 3부터 실제 Drop 입력은 사용하지 않습니다.
+/// </summary>
 internal sealed class BattleInventoryPackDropTarget : MonoBehaviour, IDropHandler
 {
     private BattleInventoryInteractionController owner;
