@@ -455,7 +455,7 @@ public class BattleRunManager : MonoBehaviour
         return selected != null;
     }
 
-    private void CompleteRewardSelection(BattleEquipmentSO selected)
+    public void CompleteRewardSelection(BattleEquipmentSO selected)
     {
         currentRewardChoices.Clear();
         RewardSelected?.Invoke(selected);
