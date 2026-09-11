@@ -20,6 +20,7 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
     private static BattleCombatLightPolicyController instance;
 
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleStageTransitionController stageFlow;
     [SerializeField] private PlayerController player;
     [SerializeField, Min(0.05f)] private float bindingRefreshInterval = 0.20f;
 
@@ -62,12 +63,20 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (stageFlow == null)
+            stageFlow = BattleStageTransitionController.Instance != null
+                ? BattleStageTransitionController.Instance
+                : FindFirstObjectByType<BattleStageTransitionController>();
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
     }
 
     private bool IsCombat()
     {
+        if (stageFlow != null)
+            return stageFlow.IsCombatPhase;
+
+        // Compatibility fallback for scenes that have not installed the stage flow yet.
         return runManager != null &&
                runManager.RunActive &&
                runManager.State == BattleRunState.Combat;
