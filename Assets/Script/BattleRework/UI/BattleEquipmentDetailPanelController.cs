@@ -2,11 +2,6 @@ using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
 /// PACK / Combat Tab의 공용 장비 상세 View입니다.
 ///
@@ -681,66 +676,5 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
-    }
-}
-
-public static class BattleEquipmentDetailPanelAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponent;
-    }
-
-    private static void EnsureEditorComponent()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleEquipmentDetailPanelController>() != null)
-                continue;
-
-            Undo.AddComponent<BattleEquipmentDetailPanelController>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponent()
-    {
-        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleEquipmentDetailPanelController>() == null)
-                manager.gameObject.AddComponent<BattleEquipmentDetailPanelController>();
-        }
     }
 }
