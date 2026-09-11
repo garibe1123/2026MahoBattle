@@ -16,12 +16,13 @@ internal enum BattleInventorySurface
 }
 
 /// <summary>
-/// 3x3 PACK의 입력을 한 곳에서 관리합니다.
+/// 3x3 PACK의 입력과 입력에 직접 종속된 임시 시각 상태를 한 곳에서 관리합니다.
 ///
 /// 책임:
 /// - Combat 장비 슬롯 클릭/교환
 /// - Reward PACK 슬롯 선택/교환/Drag
 /// - Reward Hand와 슬롯 교환 입력
+/// - Reward Hand Ghost 표시
 /// - TRASH 및 삭제 확인 입력
 /// - 패드 PACK 커서/선택
 ///
@@ -51,10 +52,16 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     [SerializeField, Range(0.25f, 0.95f)] private float padAxisThreshold = 0.55f;
     [SerializeField, Range(0.05f, 0.8f)] private float padAxisReleaseThreshold = 0.22f;
 
+    [Header("Reward Hand")]
+    [SerializeField] private Vector2 handMouseOffset = new(72f, -72f);
+    [SerializeField] private Vector2 handPadOffset = new(92f, 0f);
+
     private Canvas interactionCanvas;
     private RectTransform interactionRoot;
     private RectTransform dragGhostRoot;
     private Image dragGhostIcon;
+    private RectTransform handGhostRoot;
+    private Image handGhostIcon;
     private RectTransform trashRoot;
     private Image trashBack;
     private Text trashLabel;
@@ -178,6 +185,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         UpdateSelectionFrames();
         UpdateTrashVisibility();
         UpdateRewardEditUi();
+        UpdateRewardHandVisual();
     }
 
     private void HandleRunStateChanged(BattleRunState state)
@@ -193,6 +201,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (state == BattleRunState.Reward)
             padSelectedSlot = FindFirstUnlockedSlot();
+        else if (handGhostRoot != null)
+            handGhostRoot.gameObject.SetActive(false);
     }
 
     private void HandleRewardPhaseChanged(BattleRewardPhase phase)
@@ -204,7 +214,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         HideDiscardConfirm();
 
         if (phase != BattleRewardPhase.PackEditing || rewardFlow == null)
+        {
+            if (handGhostRoot != null)
+                handGhostRoot.gameObject.SetActive(false);
             return;
+        }
 
         int focus = rewardFlow.ChosenRewardCommitted
             ? rewardFlow.ChosenRewardSlot
@@ -262,7 +276,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             packImage.raycastTarget = IsRewardPackEditing;
 
         // 구형 Reward card -> PACK 직접 Drop은 더 이상 사용하지 않습니다.
-        // 이미 씬에 남은 DropTarget이 있으면 입력만 죽여 marker/직렬화 호환은 유지합니다.
         BattleInventoryPackDropTarget packDrop = miniPackRoot.GetComponent<BattleInventoryPackDropTarget>();
         if (packDrop != null)
             packDrop.enabled = false;
@@ -389,7 +402,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (discardModalOpen || equipmentSystem == null || eventData == null || !equipmentSystem.IsSlotUnlocked(targetIndex))
             return;
 
-        // Reward 후보 자체는 Drag하지 않습니다. 여기서는 PACK 내부 item drag만 처리합니다.
         BattleInventorySlotPointer source = eventData.pointerDrag != null
             ? eventData.pointerDrag.GetComponent<BattleInventorySlotPointer>()
             : null;
@@ -825,6 +837,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         Stretch(interactionRoot);
 
         BuildDragGhost();
+        BuildRewardHandGhost();
         BuildTrash();
         BuildRewardDoneUi();
         BuildDiscardConfirm();
@@ -852,6 +865,31 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         dragGhostIcon.rectTransform.anchoredPosition = Vector2.zero;
         dragGhostIcon.raycastTarget = false;
         dragGhostRoot.gameObject.SetActive(false);
+    }
+
+    private void BuildRewardHandGhost()
+    {
+        handGhostRoot = CreateRect(interactionRoot, "RewardHandGhost", new Vector2(112f, 112f));
+        Image ghostBack = handGhostRoot.gameObject.AddComponent<Image>();
+        ghostBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
+        ghostBack.raycastTarget = false;
+
+        Outline outline = handGhostRoot.gameObject.AddComponent<Outline>();
+        outline.effectColor = accentPink;
+        outline.effectDistance = new Vector2(6f, -6f);
+
+        Canvas ghostCanvas = handGhostRoot.gameObject.AddComponent<Canvas>();
+        ghostCanvas.overrideSorting = true;
+        ghostCanvas.sortingOrder = 2210;
+        CanvasGroup group = handGhostRoot.gameObject.AddComponent<CanvasGroup>();
+        group.blocksRaycasts = false;
+        group.interactable = false;
+
+        handGhostIcon = CreateImage(handGhostRoot, "Icon", new Vector2(88f, 88f));
+        handGhostIcon.rectTransform.anchorMin = handGhostIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+        handGhostIcon.rectTransform.anchoredPosition = Vector2.zero;
+        handGhostIcon.raycastTarget = false;
+        handGhostRoot.gameObject.SetActive(false);
     }
 
     private void BuildTrash()
@@ -1006,6 +1044,44 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             PositionRewardEditControls(trashRoot, Vector2.zero);
     }
 
+    private void UpdateRewardHandVisual()
+    {
+        if (handGhostRoot == null)
+            return;
+
+        bool visible = IsRewardPackEditing && rewardFlow != null && rewardFlow.HasHand;
+        if (!visible)
+        {
+            if (handGhostRoot.gameObject.activeSelf)
+                handGhostRoot.gameObject.SetActive(false);
+            return;
+        }
+
+        BattleEquipmentStack hand = rewardFlow.Hand;
+        if (!handGhostRoot.gameObject.activeSelf)
+            handGhostRoot.gameObject.SetActive(true);
+
+        if (handGhostIcon != null)
+        {
+            handGhostIcon.sprite = hand.equipment != null ? hand.equipment.icon : null;
+            handGhostIcon.enabled = hand.equipment != null && hand.equipment.icon != null;
+        }
+
+        if (padModeActive)
+        {
+            int index = Mathf.Clamp(padSelectedSlot, 0, SlotCount - 1);
+            RectTransform slot = FindRect($"GridSlot_{index}") ?? FindRect($"BackpackCell_{index}");
+            if (slot != null)
+                handGhostRoot.position = slot.position + (Vector3)handPadOffset;
+        }
+        else if (Input.mousePresent)
+        {
+            handGhostRoot.position = Input.mousePosition + (Vector3)handMouseOffset;
+        }
+
+        handGhostRoot.SetAsLastSibling();
+    }
+
     private void PositionRewardEditControls(RectTransform target, Vector2 extraOffset)
     {
         if (target == null || miniPackRoot == null)
@@ -1024,6 +1100,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         draggingSlot = -1;
         if (dragGhostRoot != null)
             dragGhostRoot.gameObject.SetActive(false);
+        if (handGhostRoot != null)
+            handGhostRoot.gameObject.SetActive(false);
         if (trashRoot != null)
             trashRoot.gameObject.SetActive(false);
     }
