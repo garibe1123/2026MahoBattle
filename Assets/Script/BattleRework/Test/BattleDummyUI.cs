@@ -26,7 +26,7 @@ public class BattleDummyUI : MonoBehaviour
     [SerializeField] private PlayerController player;
     [SerializeField] private PlayerShootingSystem shootingSystem;
     [SerializeField] private FanMissionSystem fanMissionSystem;
-    [SerializeField] private BattleInfoUI battleInfoUI;
+    [SerializeField] private BattleTimeScaleController timeScaleController;
 
     [Header("Run Setup - optional selectable assets")]
     [SerializeField] private List<ShootingThemeSO> selectableThemes = new();
@@ -44,8 +44,6 @@ public class BattleDummyUI : MonoBehaviour
     private int dummyMissionSerial;
     private bool analysisOpen;
     private bool ownsBulletTime;
-    private float previousTimeScale = 1f;
-    private float previousFixedDeltaTime = 0.02f;
     private Vector2 missionScroll;
     private Vector2 analysisScroll;
 
@@ -102,7 +100,7 @@ public class BattleDummyUI : MonoBehaviour
         if (player == null) player = FindFirstObjectByType<PlayerController>();
         if (shootingSystem == null) shootingSystem = FindFirstObjectByType<PlayerShootingSystem>();
         if (fanMissionSystem == null) fanMissionSystem = FindFirstObjectByType<FanMissionSystem>();
-        if (battleInfoUI == null) battleInfoUI = FindFirstObjectByType<BattleInfoUI>();
+        if (timeScaleController == null) timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
     }
 
     private void CollectLoadedSetupAssets()
@@ -138,20 +136,16 @@ public class BattleDummyUI : MonoBehaviour
     {
         analysisOpen = true;
 
-        // BattleInfoUI가 씬에 있으면 기존 TAB bullet-time 구현을 존중하고,
-        // 없을 때만 이 더미 UI가 fallback으로 TimeScale을 직접 관리합니다.
-        if (!enableTabBulletTimeFallback || battleInfoUI != null)
+        if (!enableTabBulletTimeFallback)
+            return;
+
+        if (timeScaleController == null)
+            timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
+        if (timeScaleController == null)
             return;
 
         ownsBulletTime = true;
-        previousTimeScale = Time.timeScale;
-        previousFixedDeltaTime = Time.fixedDeltaTime;
-
-        Time.timeScale = bulletTimeScale;
-        float ratio = previousTimeScale > 0.0001f
-            ? bulletTimeScale / previousTimeScale
-            : bulletTimeScale;
-        Time.fixedDeltaTime = Mathf.Max(0.0001f, previousFixedDeltaTime * ratio);
+        timeScaleController.Request(BattleTimeScaleController.Owner.Debug, bulletTimeScale);
     }
 
     private void CloseAnalysis()
@@ -165,8 +159,10 @@ public class BattleDummyUI : MonoBehaviour
             return;
 
         ownsBulletTime = false;
-        Time.timeScale = previousTimeScale;
-        Time.fixedDeltaTime = previousFixedDeltaTime;
+        if (timeScaleController != null)
+            timeScaleController.Release(BattleTimeScaleController.Owner.Debug);
+        else if (BattleTimeScaleController.Instance != null)
+            BattleTimeScaleController.Instance.Release(BattleTimeScaleController.Owner.Debug);
     }
 
     private void OnGUI()
