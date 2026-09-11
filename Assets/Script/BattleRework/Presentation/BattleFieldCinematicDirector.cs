@@ -2,7 +2,6 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
-using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Central battle lighting / show presentation director.
@@ -76,38 +75,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     public bool IsFieldLightingActive => fieldGlobalLight != null && fieldGlobalLight.intensity > 0.001f;
     public BattleLightingProfileSO ActiveLightingProfile => activeLightingProfile;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void InstallSceneHook()
-    {
-        SceneManager.sceneLoaded -= HandleSceneLoaded;
-        SceneManager.sceneLoaded += HandleSceneLoaded;
-    }
-
-    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        if (!scene.IsValid() || !scene.isLoaded)
-            return;
-
-        bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
-        if (!battleScene)
-        {
-            BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
-            battleScene = manager != null && manager.gameObject.scene == scene;
-        }
-
-        if (!battleScene || Object.FindFirstObjectByType<BattleFieldCinematicDirector>() != null)
-            return;
-
-        GameObject host = new("BattleFieldCinematicRuntime");
-        SceneManager.MoveGameObjectToScene(host, scene);
-        host.AddComponent<BattleFieldCinematicDirector>();
-    }
-
     private void Awake()
     {
         if (instance != null && instance != this)
         {
-            Destroy(gameObject);
+            Destroy(this);
             return;
         }
 
@@ -661,7 +633,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             activeLightingProfile.enemyTopLightStrength,
             activeLightingProfile.characterLightFadeSharpness);
 
-        // Enemies intentionally do not own a permanent key spotlight.
         visual.ConfigureKeyLight(
             false,
             activeLightingProfile.enemyPoolColor,
