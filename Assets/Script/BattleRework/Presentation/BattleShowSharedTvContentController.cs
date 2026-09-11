@@ -39,6 +39,8 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
     private const string MountedTvName = "BattleShowMountedTV";
     private const string ViewportName = "ShowContentViewport";
     private const string RewardViewName = "RewardSelectionContent";
+    private const string RewardCardRootName = "PrizeChoices";
+    private const string RewardNoticeRootName = "PlacementNotice";
     private const string TransitionRootName = "TvContentTransitionOverlay";
 
     [Header("TV Content Transition")]
@@ -65,6 +67,8 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
     private RectTransform screenInner;
     private RectTransform viewport;
     private RectTransform rewardView;
+    private RectTransform rewardCardRoot;
+    private RectTransform rewardNoticeRoot;
     private CanvasGroup viewportGroup;
 
     private RectTransform transitionRoot;
@@ -213,6 +217,9 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
             if (mapContent.parent != viewport)
                 mapContent.SetParent(viewport, false);
 
+            ResolveRewardInteractionRoots();
+            KeepRewardInteractionRootsDirect();
+
             viewportBasePosition = viewport.anchoredPosition;
             viewportBaseScale = viewport.localScale;
             return;
@@ -233,8 +240,9 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         rewardView = rewardObject.AddComponent<RectTransform>();
         Stretch(rewardView);
 
-        // 기존 Reward ScreenInner의 모든 실제 내용만 새 Reward View로 이동합니다.
-        // ScreenInner 자신의 Image/Outline은 그대로 남아 Reward/Map 공용 TV 프레임이 됩니다.
+        // 기존 Reward ScreenInner의 실제 내용은 새 Reward View로 이동합니다.
+        // 단, Reward 카드와 포기 버튼 Root는 BattleRewardCardActionController가 직접 소유하므로
+        // ScreenInner 직계 자식으로 유지해 해당 컨트롤러의 안정적인 바인딩을 보장합니다.
         for (int i = 0; i < rewardChildren.Count; i++)
         {
             Transform child = rewardChildren[i];
@@ -242,11 +250,33 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
                 child.SetParent(rewardView, false);
         }
 
+        ResolveRewardInteractionRoots();
+        KeepRewardInteractionRootsDirect();
+
         mapContent.SetParent(viewport, false);
         mapContent.SetAsLastSibling();
 
         viewportBasePosition = viewport.anchoredPosition;
         viewportBaseScale = viewport.localScale;
+    }
+
+    private void ResolveRewardInteractionRoots()
+    {
+        if (rewardCardRoot == null)
+            rewardCardRoot = FindChildRect(rewardView, RewardCardRootName) ?? FindChildRect(screenInner, RewardCardRootName);
+        if (rewardNoticeRoot == null)
+            rewardNoticeRoot = FindChildRect(rewardView, RewardNoticeRootName) ?? FindChildRect(screenInner, RewardNoticeRootName);
+    }
+
+    private void KeepRewardInteractionRootsDirect()
+    {
+        if (screenInner == null)
+            return;
+
+        if (rewardCardRoot != null && rewardCardRoot.parent != screenInner)
+            rewardCardRoot.SetParent(screenInner, false);
+        if (rewardNoticeRoot != null && rewardNoticeRoot.parent != screenInner)
+            rewardNoticeRoot.SetParent(screenInner, false);
     }
 
     private void BuildTransitionOverlay()
@@ -491,12 +521,18 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
 
     private void ApplyContentRoots(ContentMode mode)
     {
-        if (rewardView != null)
-        {
-            bool showReward = mode == ContentMode.Reward;
-            if (rewardView.gameObject.activeSelf != showReward)
-                rewardView.gameObject.SetActive(showReward);
-        }
+        bool showReward = mode == ContentMode.Reward;
+
+        if (rewardView != null && rewardView.gameObject.activeSelf != showReward)
+            rewardView.gameObject.SetActive(showReward);
+
+        if (rewardCardRoot != null && rewardCardRoot.gameObject.activeSelf != showReward)
+            rewardCardRoot.gameObject.SetActive(showReward);
+
+        // PlacementNotice는 RewardCardActionController가 Choosing/PackEditing에 따라 자체 표시를 관리합니다.
+        // Map/None에서만 강제로 숨기고 Reward에서는 해당 owner의 결정을 덮어쓰지 않습니다.
+        if (!showReward && rewardNoticeRoot != null && rewardNoticeRoot.gameObject.activeSelf)
+            rewardNoticeRoot.gameObject.SetActive(false);
 
         if (mapContent != null)
         {
@@ -504,6 +540,21 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
             if (mapContent.gameObject.activeSelf != showMap)
                 mapContent.gameObject.SetActive(showMap);
         }
+    }
+
+    private static RectTransform FindChildRect(Transform root, string targetName)
+    {
+        if (root == null)
+            return null;
+
+        RectTransform[] rects = root.GetComponentsInChildren<RectTransform>(true);
+        for (int i = 0; i < rects.Length; i++)
+        {
+            RectTransform rect = rects[i];
+            if (rect != null && rect.name == targetName)
+                return rect;
+        }
+        return null;
     }
 
     private static RectTransform FindRect(string targetName)
