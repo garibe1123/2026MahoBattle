@@ -1,4 +1,3 @@
-using System.Reflection;
 using UnityEngine;
 
 #if UNITY_EDITOR
@@ -16,14 +15,12 @@ using UnityEditor.SceneManagement;
 /// - Inventory DONE 요청을 최종 Run 진행으로 연결
 /// - Reward Show 카메라의 임시 vertical bias 적용
 ///
-/// BattleRunManager.CompleteRewardSelection이 public API로 승격되면 마지막 Reflection도 제거합니다.
+/// CompleteRewardSelection은 명시적 public API를 사용합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(44000)]
 public sealed class BattleRewardDecisionFlowController : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
-
     [Header("Reward Camera")]
     [SerializeField] private float rewardCameraBiasY = -0.72f;
 
@@ -32,20 +29,17 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
     private BattleInventoryInteractionController inventoryInteraction;
     private BattleInventoryInteractionController subscribedInventoryInteraction;
     private BattleSelectionLayoutPolicyController selectionLayout;
-    private MethodInfo completeRewardSelectionMethod;
 
     private void Awake()
     {
         ResolveReferences();
         EnsureInventorySubscription();
-        CacheCompletionBridge();
     }
 
     private void OnEnable()
     {
         ResolveReferences();
         EnsureInventorySubscription();
-        CacheCompletionBridge();
     }
 
     private void OnDisable()
@@ -57,7 +51,6 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
     {
         ResolveReferences();
         EnsureInventorySubscription();
-        CacheCompletionBridge();
         rewardFlow?.RefreshFromRunState();
 
         if (!IsReward())
@@ -105,12 +98,6 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         subscribedInventoryInteraction = null;
     }
 
-    private void CacheCompletionBridge()
-    {
-        if (runManager != null && completeRewardSelectionMethod == null)
-            completeRewardSelectionMethod = typeof(BattleRunManager).GetMethod("CompleteRewardSelection", PrivateInstance);
-    }
-
     private void HandleRewardDoneRequested()
     {
         if (!IsReward() || rewardFlow == null || !rewardFlow.CanComplete)
@@ -130,14 +117,7 @@ public sealed class BattleRewardDecisionFlowController : MonoBehaviour
         if (selected == null)
             return;
 
-        CacheCompletionBridge();
-        if (completeRewardSelectionMethod == null)
-        {
-            Debug.LogError("[BattleReward] CompleteRewardSelection bridge is unavailable. Reward completion was not advanced.");
-            return;
-        }
-
-        completeRewardSelectionMethod.Invoke(runManager, new object[] { selected });
+        runManager.CompleteRewardSelection(selected);
     }
 
     private bool IsReward()
