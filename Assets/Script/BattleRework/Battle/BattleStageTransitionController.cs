@@ -187,17 +187,14 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         ResolveSystems();
 
-        if (flowState != BattleStageFlowState.ShowEntering || showStage == null)
+        if (flowState != BattleStageFlowState.ShowEntering || showStage == null || showStage.IsTransitioning)
             return;
 
-        // HasCameraAnchor only becomes true after the carrier entry coroutine has finished
-        // and WorldSet has committed currentMode, so this is our physical "show entered" signal.
-        if (!showStage.HasCameraAnchor)
-            return;
-
-        if (runManager != null && runManager.State == BattleRunState.Reward)
+        // Stage flow is committed only after WorldSet reports the matching physical mode as settled.
+        // This keeps Reward -> Map in ShowEntering while the Presenter carrier is still exiting.
+        if (pendingShowState == BattleStageFlowState.RewardShow && showStage.IsRewardMode)
             SetFlowState(BattleStageFlowState.RewardShow);
-        else if (runManager != null && runManager.State == BattleRunState.SelectingNode)
+        else if (pendingShowState == BattleStageFlowState.MapShow && showStage.IsMapMode)
             SetFlowState(BattleStageFlowState.MapShow);
     }
 
