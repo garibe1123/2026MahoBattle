@@ -117,6 +117,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private float cameraSizeWorld = 6.1f;
 
     public bool IsShowActive => currentMode != ShowMode.None || stageTransitioning;
+    public bool IsTransitioning => stageTransitioning;
+    public bool IsRewardMode => currentMode == ShowMode.Reward && !stageTransitioning;
+    public bool IsMapMode => currentMode == ShowMode.Map && !stageTransitioning;
     public bool HasCameraAnchor => dockCaptured && !externalGate && currentMode != ShowMode.None;
     public Vector3 CameraTargetWorld => cameraTargetWorld;
     public float ShowCameraSize => Mathf.Max(0.1f, cameraSizeWorld);
