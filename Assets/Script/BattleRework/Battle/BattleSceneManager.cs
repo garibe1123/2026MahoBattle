@@ -14,10 +14,12 @@ using UnityEditor.SceneManagement;
 ///
 /// BattleSystems GameObject에 이 컴포넌트 하나를 추가하면:
 /// 1) Core System 컴포넌트는 RequireComponent로 자동 배치됩니다.
-/// 2) Edit Mode에서 RoomSystem / Navigation / Pool / Player / Camera 기본 구조를 자동 보수합니다.
-/// 3) 기존 씬에 이미 있는 시스템은 새로 만들지 않고 우선 재사용합니다.
-/// 4) NodeGraph / Starter Equipment / Reward Pool / Runtime Prefab은 이 Manager를 중앙 설정점으로 사용합니다.
-/// 5) Play Mode에서는 누락된 핵심 구조를 몰래 생성하지 않고 START BLOCKED 처리합니다.
+/// 2) 전투 UI / Reward / Show 보조 컴포넌트도 이 Manager 한 곳에서 설치합니다.
+/// 3) Edit Mode에서 RoomSystem / Navigation / Pool / Player / Camera 기본 구조를 자동 보수합니다.
+/// 4) 기존 씬에 이미 있는 시스템은 새로 만들지 않고 우선 재사용합니다.
+/// 5) NodeGraph / Starter Equipment / Reward Pool / Runtime Prefab은 이 Manager를 중앙 설정점으로 사용합니다.
+/// 6) Play Mode에서는 핵심 Scene 구조를 새로 만들지 않되, 기존 AutoInstaller가 담당하던
+///    BattleSystems 보조 컴포넌트 fallback은 이 Manager가 중앙에서 보강합니다.
 ///
 /// 현재 Player 무기 계층은 WeaponSO 마이그레이션 전까지
 /// PlayerShootingSystem + WeaponDisplay를 legacy runtime bridge로 유지합니다.
@@ -35,6 +37,8 @@ using UnityEditor.SceneManagement;
 [RequireComponent(typeof(PlayerLoadout))]
 public class BattleSceneManager : MonoBehaviour
 {
+    private const int MinimumBackpackSlots = 3;
+
     [Header("Installer")]
     [SerializeField] private bool autoInstallInEditor = true;
     [SerializeField] private bool createFallbackPlayer = true;
@@ -110,6 +114,7 @@ public class BattleSceneManager : MonoBehaviour
         {
             Instance = this;
             ResolveCoreComponents(false);
+            EnsureSupportComponents(true);
             ResolveExistingReferences();
             ImportExistingContentOnce();
             ApplyBindings();
@@ -157,6 +162,7 @@ public class BattleSceneManager : MonoBehaviour
         bool allowCreate = !Application.isPlaying;
 
         ResolveCoreComponents(allowCreate);
+        EnsureSupportComponents(allowCreate);
         ResolveExistingReferences();
 
         if (allowCreate)
@@ -315,6 +321,51 @@ public class BattleSceneManager : MonoBehaviour
         synergyManager = GetOrAddComponent<SynergyManager>(gameObject, allowCreate);
         roomBaseTemplate = GetOrAddComponent<RoomBaseTemplate>(gameObject, allowCreate);
         playerLoadout = GetOrAddComponent<PlayerLoadout>(gameObject, allowCreate);
+    }
+
+    /// <summary>
+    /// Phase 11: UI / Reward / Show 보조 컴포넌트 설치의 단일 진입점입니다.
+    /// 기존 개별 AutoInstaller가 하던 작업을 그대로 보존하되 BattleSystems에만 설치합니다.
+    /// </summary>
+    private void EnsureSupportComponents(bool allowCreate)
+    {
+        if (!allowCreate)
+            return;
+
+        if (equipmentSystem != null)
+        {
+            equipmentSystem.LegacyNumberKeyEquipEnabled = false;
+            if (equipmentSystem.UnlockedSlotCount < MinimumBackpackSlots)
+                equipmentSystem.SetUnlockedSlotCount(MinimumBackpackSlots);
+            MarkObjectDirty(equipmentSystem);
+        }
+
+        GetOrAddComponent<BattleTimeScaleController>(gameObject, true);
+        GetOrAddComponent<BattleRewardFlow>(gameObject, true);
+        GetOrAddComponent<BattleGridSynergyController>(gameObject, true);
+        GetOrAddComponent<BattleKineticLoadoutUI>(gameObject, true);
+        GetOrAddComponent<BattleKineticItemBarUI>(gameObject, true);
+
+        GetOrAddComponent<BattleCombatHudInputBridge>(gameObject, true);
+        GetOrAddComponent<BattleCombatNumberKeyEquipController>(gameObject, true);
+        GetOrAddComponent<BattlePauseController>(gameObject, true);
+
+        GetOrAddComponent<BattleInventoryInteractionController>(gameObject, true);
+        GetOrAddComponent<BattleUnifiedInventoryInspectController>(gameObject, true);
+        GetOrAddComponent<BattleEquipmentDetailPanelController>(gameObject, true);
+        GetOrAddComponent<BattleInventoryMorphTransitionController>(gameObject, true);
+        GetOrAddComponent<BattleMonochromeItemVisualController>(gameObject, true);
+
+        GetOrAddComponent<BattleRewardKineticThemeController>(gameObject, true);
+        GetOrAddComponent<BattleSelectionLayoutPolicyController>(gameObject, true);
+        GetOrAddComponent<BattleDoneNextArrowPresentationController>(gameObject, true);
+        GetOrAddComponent<BattleShowMapEquipmentPolishController>(gameObject, true);
+        GetOrAddComponent<BattleStageMapPurposefulUIController>(gameObject, true);
+
+        GetOrAddComponent<BattleShowPresentationManager>(gameObject, true);
+        GetOrAddComponent<BattleShowSetDecorationController>(gameObject, true);
+        GetOrAddComponent<BattleShowSharedTvContentController>(gameObject, true);
+        GetOrAddComponent<BattleShowScreenFocusBinder>(gameObject, true);
     }
 
     private void ResolveExistingReferences()
