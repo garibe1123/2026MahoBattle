@@ -93,11 +93,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private CanvasGroup dismissGroup;
     private RectTransform dismissRoot;
 
-    private BattleRewardFullInspectController oldRewardFullInspect;
-    private BattleEquipmentDetailContextLayoutController oldContextLayout;
-    private BattleInventoryDragPresentationController oldDragPresentation;
-    private BattleInventoryHudLayoutPolishController oldLayoutPolish;
-
     private bool selectionSuppressed;
     private int suppressedSourceSlot = -1;
     private int activeInspectSlot = -1;
@@ -111,7 +106,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         ResolveReferences();
         ResolveUi();
         EnsureDismissCanvas();
-        DisableSupersededControllers();
     }
 
     private void OnEnable()
@@ -119,7 +113,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         ResolveReferences();
         ResolveUi();
         EnsureDismissCanvas();
-        DisableSupersededControllers();
         nextResolveTime = 0f;
     }
 
@@ -140,7 +133,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             nextResolveTime = Time.unscaledTime + 0.10f;
             ResolveUi();
             EnsureFullSelectionFrames();
-            DisableSupersededControllers();
         }
 
         bool rewardEdit = IsRewardEdit();
@@ -193,27 +185,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             detailController = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
         if (timeScaleController == null)
             timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
-
-        if (oldRewardFullInspect == null)
-            oldRewardFullInspect = FindFirstObjectByType<BattleRewardFullInspectController>(FindObjectsInactive.Include);
-        if (oldContextLayout == null)
-            oldContextLayout = FindFirstObjectByType<BattleEquipmentDetailContextLayoutController>(FindObjectsInactive.Include);
-        if (oldDragPresentation == null)
-            oldDragPresentation = FindFirstObjectByType<BattleInventoryDragPresentationController>(FindObjectsInactive.Include);
-        if (oldLayoutPolish == null)
-            oldLayoutPolish = FindFirstObjectByType<BattleInventoryHudLayoutPolishController>(FindObjectsInactive.Include);
-    }
-
-    private void DisableSupersededControllers()
-    {
-        if (oldRewardFullInspect != null && oldRewardFullInspect.enabled)
-            oldRewardFullInspect.enabled = false;
-        if (oldContextLayout != null && oldContextLayout.enabled)
-            oldContextLayout.enabled = false;
-        if (oldDragPresentation != null && oldDragPresentation.enabled)
-            oldDragPresentation.enabled = false;
-        if (oldLayoutPolish != null && oldLayoutPolish.enabled)
-            oldLayoutPolish.enabled = false;
     }
 
     private bool IsCombat()
