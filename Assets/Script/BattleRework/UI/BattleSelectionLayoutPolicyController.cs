@@ -1,6 +1,5 @@
 using System.Reflection;
 using UnityEngine;
-using UnityEngine.UI;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -8,11 +7,14 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// Reward / Map Show 화면의 TV 크기, 카메라 framing, 선택 화면 레이아웃만 담당합니다.
+/// Reward / Map Show의 TV 크기와 공용 카메라 framing만 담당합니다.
 ///
-/// Phase 4부터 PACK / Full Grid / Detail / DONE / TRASH의 RectTransform은
-/// BattleUnifiedInventoryInspectController가 단독 소유합니다.
-/// 이 클래스는 Inventory RectTransform을 전혀 수정하지 않습니다.
+/// Phase 5 ownership:
+/// - Reward 카드 / 결정 / 포기 / Selection Locked: BattleRewardCardActionController
+/// - Mini PACK / Full Grid / Detail / DONE / TRASH: BattleUnifiedInventoryInspectController
+/// - 이 클래스: World TV size, Reward/Map camera frame, Map content scale
+///
+/// Reward/Inventory UI RectTransform을 직접 수정하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33480)]
@@ -29,13 +31,10 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     [SerializeField] private Vector2 rewardCameraBiasWorld = new(0.18f, 0.08f);
     [SerializeField] private Vector2 mapCameraBiasWorld = new(0f, 0.02f);
 
-    [Header("Reward Choice Layout")]
-    [SerializeField] private Vector2 rewardCardSize = new(360f, 350f);
-    [SerializeField, Min(0f)] private float rewardCardGap = 42f;
+    [Header("Map")]
     [SerializeField, Range(1f, 1.4f)] private float mapContentScale = 1.14f;
 
     private BattleRunManager runManager;
-    private BattleRewardFlow rewardFlow;
     private BattleShowWorldSetController showWorldSet;
 
     private RectTransform tvRect;
@@ -43,9 +42,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private RectTransform mapScreen;
     private RectTransform rewardInner;
     private RectTransform mapInner;
-    private RectTransform prizeChoices;
-    private RectTransform descriptionBar;
-    private RectTransform placementNotice;
     private RectTransform mapContent;
 
     private FieldInfo tvCanvasSizeField;
@@ -60,10 +56,12 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private float nextResolveTime;
     private float nextCameraRecomputeTime;
 
+    public Vector2 RewardCameraBiasWorld => rewardCameraBiasWorld;
+
     private void Awake()
     {
         ResolveReferences();
-        CacheReflection();
+        CacheWorldSetReflection();
         ResolveUi();
         ApplyWorldSetConfiguration(true);
     }
@@ -71,7 +69,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        CacheReflection();
+        CacheWorldSetReflection();
         ResolveUi();
         nextResolveTime = 0f;
         nextCameraRecomputeTime = 0f;
@@ -80,44 +78,39 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private void Update()
     {
         ResolveReferences();
-        CacheReflection();
-        rewardFlow?.RefreshFromRunState();
+        CacheWorldSetReflection();
 
         if (Time.unscaledTime >= nextResolveTime)
         {
-            nextResolveTime = Time.unscaledTime + 0.08f;
+            nextResolveTime = Time.unscaledTime + 0.10f;
             ResolveUi();
         }
 
         ApplyWorldSetConfiguration(false);
         ApplyTightShowCamera();
-
-        if (IsRewardChoicePhase())
-            DisableLegacyRewardHoverMotion();
     }
 
     private void LateUpdate()
     {
-        ResolveUi();
-
-        if (IsRewardChoicePhase())
-            ApplyRewardChoiceLayout();
-
         if (IsMapPhase())
             ApplyMapLayout();
+    }
+
+    public void SetRewardCameraBiasY(float y)
+    {
+        if (rewardCameraBiasWorld.y > y)
+            rewardCameraBiasWorld = new Vector2(rewardCameraBiasWorld.x, y);
     }
 
     private void ResolveReferences()
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (rewardFlow == null)
-            rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
         if (showWorldSet == null)
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
     }
 
-    private void CacheReflection()
+    private void CacheWorldSetReflection()
     {
         if (showWorldSet == null)
             return;
@@ -151,19 +144,13 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         rewardInner = ResolveInner(rewardScreen, rewardInner);
         mapInner = ResolveInner(mapScreen, mapInner);
 
-        if (prizeChoices == null && rewardInner != null)
-            prizeChoices = rewardInner.Find("PrizeChoices") as RectTransform;
-        if (descriptionBar == null && rewardInner != null)
-            descriptionBar = rewardInner.Find("RewardActiveDescriptionBar") as RectTransform;
-        if (placementNotice == null && rewardInner != null)
-            placementNotice = rewardInner.Find("PlacementNotice") as RectTransform;
         if (mapContent == null)
             mapContent = FindRect("MapSelectionContent");
     }
 
     private static RectTransform ResolveInner(RectTransform screen, RectTransform cached)
     {
-        if (cached != null)
+        if (cached != null && cached.parent == screen)
             return cached;
         return screen != null ? screen.Find("ScreenInner") as RectTransform : null;
     }
@@ -177,7 +164,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             Mathf.Max(960f, expandedTvCanvasSize.x),
             Mathf.Max(480f, expandedTvCanvasSize.y));
         float targetPpu = Mathf.Max(32f, expandedTvPixelsPerUnit);
-
         bool changed = false;
 
         if (tvCanvasSizeField != null)
@@ -240,6 +226,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             screen.pivot = new Vector2(0.5f, 0.5f);
             screen.sizeDelta = size;
             screen.anchoredPosition = Vector2.zero;
+            screen.localRotation = Quaternion.identity;
         }
 
         if (inner != null)
@@ -296,11 +283,8 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         float width = Mathf.Max(0.1f, maxX - minX);
         float height = Mathf.Max(0.1f, maxY - minY);
         float aspect = Mathf.Max(0.1f, camera.aspect);
-        float widthCoverage = Mathf.Clamp(showWidthCoverage, 0.65f, 0.96f);
-        float heightCoverage = Mathf.Clamp(showHeightCoverage, 0.55f, 0.94f);
-
-        float sizeByWidth = width / (2f * aspect * widthCoverage);
-        float sizeByHeight = height / (2f * heightCoverage);
+        float sizeByWidth = width / (2f * aspect * Mathf.Clamp(showWidthCoverage, 0.65f, 0.96f));
+        float sizeByHeight = height / (2f * Mathf.Clamp(showHeightCoverage, 0.55f, 0.94f));
         float cameraSize = Mathf.Max(minimumShowCameraSize, Mathf.Max(sizeByWidth, sizeByHeight));
 
         Vector3 center = new(
@@ -312,143 +296,11 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         cameraSizeField.SetValue(showWorldSet, cameraSize);
     }
 
-    private bool IsRewardChoicePhase()
-    {
-        return runManager != null &&
-               runManager.RunActive &&
-               runManager.State == BattleRunState.Reward &&
-               (rewardFlow == null || rewardFlow.Phase == BattleRewardPhase.Choosing);
-    }
-
     private bool IsMapPhase()
     {
         return runManager != null &&
                runManager.RunActive &&
                runManager.State == BattleRunState.SelectingNode;
-    }
-
-    private void DisableLegacyRewardHoverMotion()
-    {
-        if (prizeChoices == null)
-            return;
-
-        RewardCardHover[] legacyHovers = prizeChoices.GetComponentsInChildren<RewardCardHover>(true);
-        for (int i = 0; i < legacyHovers.Length; i++)
-        {
-            RewardCardHover hover = legacyHovers[i];
-            if (hover != null && hover.enabled)
-                hover.enabled = false;
-        }
-    }
-
-    private void ApplyRewardChoiceLayout()
-    {
-        if (rewardScreen == null || rewardInner == null)
-            return;
-
-        rewardScreen.localRotation = Quaternion.identity;
-        ApplyScreenSize(rewardScreen, rewardInner, expandedTvCanvasSize);
-
-        if (prizeChoices != null)
-        {
-            prizeChoices.anchorMin = new Vector2(0.055f, 0.295f);
-            prizeChoices.anchorMax = new Vector2(0.945f, 0.825f);
-            prizeChoices.offsetMin = Vector2.zero;
-            prizeChoices.offsetMax = Vector2.zero;
-
-            int count = prizeChoices.childCount;
-            if (count > 0)
-            {
-                RectTransform[] stableCards = new RectTransform[count];
-
-                for (int childIndex = 0; childIndex < count; childIndex++)
-                {
-                    RectTransform card = prizeChoices.GetChild(childIndex) as RectTransform;
-                    if (card == null)
-                        continue;
-
-                    RewardCardHover legacyHover = card.GetComponent<RewardCardHover>();
-                    if (legacyHover != null && legacyHover.enabled)
-                        legacyHover.enabled = false;
-
-                    RewardPrizeDrag drag = card.GetComponent<RewardPrizeDrag>();
-                    int stableIndex = drag != null
-                        ? Mathf.Clamp(drag.RewardIndex, 0, count - 1)
-                        : childIndex;
-
-                    if (stableCards[stableIndex] == null)
-                        stableCards[stableIndex] = card;
-                }
-
-                float usableWidth = expandedTvCanvasSize.x * 0.82f;
-                float gap = Mathf.Max(0f, rewardCardGap);
-                float width = Mathf.Min(
-                    rewardCardSize.x,
-                    Mathf.Max(220f, (usableWidth - gap * Mathf.Max(0, count - 1)) / count));
-                float total = count * width + Mathf.Max(0, count - 1) * gap;
-                float start = -total * 0.5f + width * 0.5f;
-
-                for (int i = 0; i < count; i++)
-                {
-                    RectTransform card = stableCards[i];
-                    if (card == null)
-                        continue;
-
-                    if (card.GetSiblingIndex() != i)
-                        card.SetSiblingIndex(i);
-
-                    card.anchorMin = card.anchorMax = new Vector2(0.5f, 0.5f);
-                    card.pivot = new Vector2(0.5f, 0.5f);
-                    card.sizeDelta = new Vector2(width, rewardCardSize.y);
-                    card.anchoredPosition = new Vector2(start + i * (width + gap), 0f);
-                    card.localScale = Vector3.one;
-
-                    RectTransform icon = card.Find("PrizeIcon") as RectTransform;
-                    if (icon != null)
-                        icon.sizeDelta = new Vector2(150f, 150f);
-
-                    Text[] texts = card.GetComponentsInChildren<Text>(true);
-                    for (int t = 0; t < texts.Length; t++)
-                    {
-                        Text text = texts[t];
-                        if (text == null)
-                            continue;
-
-                        string value = text.text ?? string.Empty;
-                        if (value.Contains("CLICK") || value.Contains("DRAG"))
-                            text.fontSize = 10;
-                        else if (text.fontSize >= 13)
-                            text.fontSize = 18;
-                        else if (text.fontSize >= 8)
-                            text.fontSize = Mathf.Max(text.fontSize, 10);
-                    }
-                }
-            }
-        }
-
-        if (descriptionBar != null)
-        {
-            descriptionBar.anchorMin = new Vector2(0.055f, 0.105f);
-            descriptionBar.anchorMax = new Vector2(0.945f, 0.265f);
-            descriptionBar.offsetMin = Vector2.zero;
-            descriptionBar.offsetMax = Vector2.zero;
-        }
-
-        if (placementNotice != null)
-        {
-            placementNotice.anchorMin = placementNotice.anchorMax = new Vector2(0.5f, 0.055f);
-            placementNotice.pivot = new Vector2(0.5f, 0.5f);
-            placementNotice.sizeDelta = new Vector2(expandedTvCanvasSize.x * 0.86f, 58f);
-            placementNotice.anchoredPosition = Vector2.zero;
-        }
-
-        Text[] screenTexts = rewardInner.GetComponentsInChildren<Text>(true);
-        for (int i = 0; i < screenTexts.Length; i++)
-        {
-            Text text = screenTexts[i];
-            if (text != null && (text.text ?? string.Empty).Contains("CHOOSE YOUR PRIZE"))
-                text.fontSize = 38;
-        }
     }
 
     private void ApplyMapLayout()
@@ -457,8 +309,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             return;
 
         ApplyScreenSize(mapScreen, mapInner, expandedTvCanvasSize);
-        mapScreen.localRotation = Quaternion.identity;
-
         if (mapContent != null)
         {
             mapContent.anchorMin = Vector2.zero;
@@ -475,7 +325,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
-
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
@@ -503,7 +352,6 @@ public static class BattleSelectionLayoutPolicyAutoInstaller
     {
         if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
             return;
-
         installQueued = true;
         EditorApplication.delayCall += EnsureEditorComponent;
     }
