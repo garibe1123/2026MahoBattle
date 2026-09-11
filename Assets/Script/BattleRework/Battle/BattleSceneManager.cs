@@ -324,8 +324,8 @@ public class BattleSceneManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Phase 11: UI / Reward / Show 보조 컴포넌트 설치의 단일 진입점입니다.
-    /// 기존 개별 AutoInstaller가 하던 작업을 그대로 보존하되 BattleSystems에만 설치합니다.
+    /// Phase 11: UI / Reward / Show / Field presentation 보조 컴포넌트 설치의 단일 진입점입니다.
+    /// 씬에 이미 같은 타입이 있으면 기존 직렬화 값을 보존해 재사용하고, 없을 때만 BattleSystems에 추가합니다.
     /// </summary>
     private void EnsureSupportComponents(bool allowCreate)
     {
@@ -340,32 +340,41 @@ public class BattleSceneManager : MonoBehaviour
             MarkObjectDirty(equipmentSystem);
         }
 
-        GetOrAddComponent<BattleTimeScaleController>(gameObject, true);
-        GetOrAddComponent<BattleRewardFlow>(gameObject, true);
-        GetOrAddComponent<BattleGridSynergyController>(gameObject, true);
-        GetOrAddComponent<BattleKineticLoadoutUI>(gameObject, true);
-        GetOrAddComponent<BattleKineticItemBarUI>(gameObject, true);
+        EnsureSceneSupportComponent<BattleTimeScaleController>();
+        EnsureSceneSupportComponent<BattleRewardFlow>();
+        EnsureSceneSupportComponent<BattleGridSynergyController>();
 
-        GetOrAddComponent<BattleCombatHudInputBridge>(gameObject, true);
-        GetOrAddComponent<BattleCombatNumberKeyEquipController>(gameObject, true);
-        GetOrAddComponent<BattlePauseController>(gameObject, true);
+        EnsureSceneSupportComponent<BattleHUD>();
+        EnsureSceneSupportComponent<BattleKineticLoadoutUI>();
+        EnsureSceneSupportComponent<BattleKineticItemBarUI>();
+        EnsureSceneSupportComponent<BattleCombatHudInputBridge>();
+        EnsureSceneSupportComponent<BattleCombatNumberKeyEquipController>();
+        EnsureSceneSupportComponent<BattlePauseController>();
 
-        GetOrAddComponent<BattleInventoryInteractionController>(gameObject, true);
-        GetOrAddComponent<BattleUnifiedInventoryInspectController>(gameObject, true);
-        GetOrAddComponent<BattleEquipmentDetailPanelController>(gameObject, true);
-        GetOrAddComponent<BattleInventoryMorphTransitionController>(gameObject, true);
-        GetOrAddComponent<BattleMonochromeItemVisualController>(gameObject, true);
+        EnsureSceneSupportComponent<BattleInventoryInteractionController>();
+        EnsureSceneSupportComponent<BattleUnifiedInventoryInspectController>();
+        EnsureSceneSupportComponent<BattleEquipmentDetailPanelController>();
+        EnsureSceneSupportComponent<BattleInventoryMorphTransitionController>();
+        EnsureSceneSupportComponent<BattleMonochromeItemVisualController>();
 
-        GetOrAddComponent<BattleRewardKineticThemeController>(gameObject, true);
-        GetOrAddComponent<BattleSelectionLayoutPolicyController>(gameObject, true);
-        GetOrAddComponent<BattleDoneNextArrowPresentationController>(gameObject, true);
-        GetOrAddComponent<BattleShowMapEquipmentPolishController>(gameObject, true);
-        GetOrAddComponent<BattleStageMapPurposefulUIController>(gameObject, true);
+        EnsureSceneSupportComponent<BattleRewardCardActionController>();
+        EnsureSceneSupportComponent<BattleRewardKineticThemeController>();
+        EnsureSceneSupportComponent<BattleSelectionLayoutPolicyController>();
+        EnsureSceneSupportComponent<BattleDoneNextArrowPresentationController>();
+        EnsureSceneSupportComponent<BattleShowMapEquipmentPolishController>();
+        EnsureSceneSupportComponent<BattleStageMapPurposefulUIController>();
 
-        GetOrAddComponent<BattleShowPresentationManager>(gameObject, true);
-        GetOrAddComponent<BattleShowSetDecorationController>(gameObject, true);
-        GetOrAddComponent<BattleShowSharedTvContentController>(gameObject, true);
-        GetOrAddComponent<BattleShowScreenFocusBinder>(gameObject, true);
+        EnsureSceneSupportComponent<BattleShowPresentationManager>();
+        EnsureSceneSupportComponent<BattleShowWorldSetController>();
+        EnsureSceneSupportComponent<BattleShowSetDecorationController>();
+        EnsureSceneSupportComponent<BattleShowSharedTvContentController>();
+        EnsureSceneSupportComponent<BattleShowFocusController>();
+        EnsureSceneSupportComponent<BattleFieldCinematicDirector>();
+        EnsureSceneSupportComponent<BattleCombatLightPolicyController>();
+        EnsureSceneSupportComponent<BattleCombatCornerVignetteController>();
+        EnsureSceneSupportComponent<BattleOpeningShowCameraController>();
+        EnsureSceneSupportComponent<BattlePlayerStageLightingController>();
+        EnsureSceneSupportComponent<BattleShowBroadcastNoiseController>();
     }
 
     private void ResolveExistingReferences()
@@ -762,6 +771,23 @@ public class BattleSceneManager : MonoBehaviour
         }
 
         return null;
+    }
+
+    private T EnsureSceneSupportComponent<T>() where T : Component
+    {
+        T local = GetComponent<T>();
+        if (local != null)
+            return local;
+
+        T[] existing = FindObjectsByType<T>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < existing.Length; i++)
+        {
+            T component = existing[i];
+            if (component != null && component.gameObject.scene == gameObject.scene)
+                return component;
+        }
+
+        return gameObject.AddComponent<T>();
     }
 
     private static T GetOrAddComponent<T>(GameObject target, bool allowAdd) where T : Component
