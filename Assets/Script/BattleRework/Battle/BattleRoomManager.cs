@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using DG.Tweening;
 using NavMeshPlus.Components;
 using UnityEngine;
 using UnityEngine.AI;
@@ -78,7 +77,6 @@ public class BattleRoomManager : MonoBehaviour
     private bool exitOpened;
     private bool exitRoutineStarted;
     private Coroutine navMeshRebuildRoutine;
-    private Coroutine combatFieldRetirementRoutine;
 
     private int expectedAssemblyImpacts;
     private int receivedAssemblyImpacts;
@@ -659,60 +657,7 @@ public class BattleRoomManager : MonoBehaviour
             return;
 
         combatCleared = true;
-
-        // Stage-select flow no longer uses the legacy Highlight Pad / ExitRoomRoutine path.
-        // Retire only the combat extension blocks here so the persistent 4x4 base remains in place
-        // while Reward/Map Show state can begin immediately.
-        if (combatFieldRetirementRoutine == null && activeBlocks.Count > 0)
-            combatFieldRetirementRoutine = StartCoroutine(RetireCombatExtensionBlocksRoutine());
-
         RoomCombatCleared?.Invoke(currentRoom);
-    }
-
-    private IEnumerator RetireCombatExtensionBlocksRoutine()
-    {
-        List<MapBlock> retiringBlocks = new(activeBlocks);
-        float longestExit = 0f;
-
-        for (int i = 0; i < retiringBlocks.Count; i++)
-        {
-            MapBlock block = retiringBlocks[i];
-            if (block == null)
-                continue;
-
-            block.Impacted -= HandleMapBlockImpact;
-
-            Vector2 direction = ((Vector2)block.transform.position - (Vector2)roomOrigin.position).normalized;
-            if (direction.sqrMagnitude <= 0.001f)
-            {
-                direction = (i & 3) switch
-                {
-                    0 => Vector2.right,
-                    1 => Vector2.up,
-                    2 => Vector2.left,
-                    _ => Vector2.down
-                };
-            }
-
-            Tween tween = block.PlayExit(direction);
-            tween?.SetUpdate(true);
-            longestExit = Mathf.Max(longestExit, block.ExitDuration);
-        }
-
-        if (longestExit > 0f)
-            yield return new WaitForSecondsRealtime(longestExit);
-
-        for (int i = 0; i < retiringBlocks.Count; i++)
-        {
-            MapBlock block = retiringBlocks[i];
-            if (block == null)
-                continue;
-
-            activeBlocks.Remove(block);
-            Destroy(block.gameObject);
-        }
-
-        combatFieldRetirementRoutine = null;
     }
 
     public void OpenExit()
@@ -807,7 +752,6 @@ public class BattleRoomManager : MonoBehaviour
         StopCameraShakeImmediate();
         StopAllCoroutines();
         navMeshRebuildRoutine = null;
-        combatFieldRetirementRoutine = null;
         ClearImmediate();
         ResetRoomFlags();
     }
