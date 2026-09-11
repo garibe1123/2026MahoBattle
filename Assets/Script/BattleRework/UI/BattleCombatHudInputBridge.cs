@@ -2,11 +2,6 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
 /// Combat HUD 보정과 3x3 Loadout Grid의 마우스 입력을 담당합니다.
 /// BattleKineticLoadoutUI의 공개 API만 사용하며 private field reflection에 의존하지 않습니다.
@@ -333,66 +328,5 @@ internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour, IPointerEn
     public void OnPointerClick(PointerEventData eventData)
     {
         owner?.HandleSlotClick(slotIndex, eventData.button);
-    }
-}
-
-public static class BattleCombatHudInputBridgeAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponent;
-    }
-
-    private static void EnsureEditorComponent()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleCombatHudInputBridge>() != null)
-                continue;
-
-            Undo.AddComponent<BattleCombatHudInputBridge>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponent()
-    {
-        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleCombatHudInputBridge>() == null)
-                manager.gameObject.AddComponent<BattleCombatHudInputBridge>();
-        }
     }
 }
