@@ -55,6 +55,10 @@ public class BattleCameraController : MonoBehaviour
     [FormerlySerializedAs("mapCursorTrackingSharpness")]
     [SerializeField, Min(1f)] private float showCursorTrackingSharpness = 5.6f;
 
+    [Header("Map Cursor Focus")]
+    [Tooltip("맵 선택 중 커서가 실제 TV 화면 안에 있을 때 Show 기본 줌에 곱할 비율입니다. 1보다 작을수록 화면을 더 가까이 봅니다.")]
+    [SerializeField, Range(0.65f, 1f)] private float mapCursorZoomRatio = 0.84f;
+
     [Header("Map Inspection")]
     [SerializeField] private int inspectionMouseButton = 2;
     [SerializeField, Min(0f)] private float inspectionPanMultiplier = 1f;
@@ -518,6 +522,19 @@ public class BattleCameraController : MonoBehaviour
         float showZoom = showStage != null && showStage.HasCameraAnchor
             ? showStage.ShowCameraSize
             : normalZoom;
+
+        // Map은 기본 Show 프레임을 유지하다가 실제 TV 화면 안으로 커서가 들어왔을 때만
+        // 아이템 선택 화면처럼 한 단계 가까이 들어갑니다. showCursorTracking은
+        // BattleShowWorldSetController가 Mounted TV Rect 기준으로 판정하므로 Node Hover에 종속되지 않습니다.
+        bool mapCursorFocused = showFraming &&
+                                showCursorTracking &&
+                                runManager != null &&
+                                runManager.State == BattleRunState.SelectingNode &&
+                                showStage != null &&
+                                showStage.IsMapMode;
+        if (mapCursorFocused)
+            showZoom *= Mathf.Clamp(mapCursorZoomRatio, 0.65f, 1f);
+
         float desiredZoom = Mathf.Lerp(normalZoom, Mathf.Clamp(showZoom, minZoom, maxZoom), showBlend);
         float normalZoomSpeed = activeFocus != null ? cinematicZoomSharpness : zoomSharpness;
         float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showFollowSharpness, showBlend);
