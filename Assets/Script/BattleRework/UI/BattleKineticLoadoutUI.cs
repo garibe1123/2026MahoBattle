@@ -4,17 +4,16 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Combat 장비 UI를 1~9 숫자열 대신 3x3 공간 인벤토리 + Tab/LB Switch Mode로 표시합니다.
+/// Combat 장비 전환 입력과 공용 3x3 Loadout View의 생성/내용 갱신을 담당합니다.
 ///
-/// 입력:
-/// - Tab / Gamepad LB 짧게 탭: 다음 Manual Weapon으로 즉시 순환
-/// - Tab / LB 홀드: Bullet Time + 3x3 Grid 오픈
-/// - WASD / Arrow: GetKeyDown 1회 입력으로 Grid 이동
-/// - Left Stick: 독립 Repeat 입력으로 Grid 이동
-/// - Tab / LB 릴리즈: 선택한 Manual Weapon 장착
+/// 이 클래스의 책임:
+/// - Tab / LB 전환 입력
+/// - Combat Bullet Time
+/// - 공용 LoadoutSwitchFull / GridBoard 생성
+/// - 슬롯 아이콘/이름/등급/시너지 내용 갱신
 ///
-/// 시각 방향은 특정 게임의 Asset을 복제하지 않고,
-/// 비대칭 각도, 굵은 타이포, 고대비 패널을 사용하는 kinetic Atlus-inspired layout입니다.
+/// GridBoard / Mini PACK / Detail / Reward Controls의 최종 RectTransform 배치는
+/// BattleUnifiedInventoryInspectController가 단독 소유합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30000)]
@@ -42,13 +41,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
     [SerializeField] private Color lockedColor = new(0.12f, 0.11f, 0.16f, 0.92f);
-    [SerializeField, Range(1f, 1.25f)] private float selectedScale = 1.10f;
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
-
-    [Header("Reward 3x3 Layout")]
-    [SerializeField] private bool forceRewardInventoryTo3x3 = true;
-    [SerializeField] private Vector2 rewardGridPanelSize = new(388f, 338f);
-    [SerializeField] private Vector2 rewardGridAnchor = new(0.79f, 0.26f);
 
     private Canvas canvas;
     private CanvasGroup fullGroup;
@@ -75,23 +68,29 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private readonly List<GameObject> linkVisuals = new();
 
     private RectTransform legacyEquipmentDock;
-    private RectTransform rewardLoadoutStrip;
-    private RectTransform rewardInventoryRoot;
-    private bool rewardGridApplied;
 
     private bool switchHeld;
     private bool boardWasShown;
     private bool directionMoved;
     private float switchPressedAt;
-    private int selectedIndex;
+    private int selectedIndex = -1;
     private float nextStickRepeat;
     private Vector2 lastStickDirection;
 
     private bool bulletTimeOwned;
     private float previousTimeScale = 1f;
     private float previousFixedDeltaTime = 0.02f;
-
     private bool subscribed;
+
+    public int SelectedIndex => selectedIndex;
+    public bool SwitchHeld => switchHeld;
+    public bool BoardWasShown => boardWasShown;
+    public bool IsSwitchBoardOpen => IsCombat() && switchHeld && boardWasShown;
+    public RectTransform FullRoot => fullRoot;
+    public CanvasGroup FullGroup => fullGroup;
+    public RectTransform GridBoard => boardRoot;
+    public RectTransform CompactRoot => compactRoot;
+    public CanvasGroup CompactGroup => compactGroup;
 
     private void Awake()
     {
@@ -123,7 +122,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         ResolveReferences();
         Subscribe();
         EnsureUi();
-        ResolveLegacyHudObjects();
+        ResolveLegacyCombatHud();
 
         bool combat = IsCombat();
         if (!combat && switchHeld)
@@ -131,9 +130,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         if (legacyEquipmentDock != null && combat && legacyEquipmentDock.gameObject.activeSelf)
             legacyEquipmentDock.gameObject.SetActive(false);
-
-        if (forceRewardInventoryTo3x3 && runManager != null && runManager.State == BattleRunState.Reward)
-            ApplyRewardGridLayout();
 
         if (combat)
             UpdateSwitchInput();
@@ -195,6 +191,31 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private bool IsCombat()
     {
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
+    }
+
+    public bool SetSelectedIndexFromExternal(int index, bool markMoved = true)
+    {
+        ResolveReferences();
+        if (equipmentSystem == null || !equipmentSystem.IsSlotUnlocked(index))
+            return false;
+
+        selectedIndex = index;
+        if (markMoved)
+            directionMoved = true;
+        RefreshAll();
+        return true;
+    }
+
+    public void ClearExternalSelection()
+    {
+        selectedIndex = -1;
+        directionMoved = false;
+        RefreshAll();
+    }
+
+    public void RefreshPresentation()
+    {
+        RefreshAll();
     }
 
     private void UpdateSwitchInput()
@@ -309,9 +330,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         int dx = 0;
         int dy = 0;
 
-        // Keyboard UI navigation is strictly edge-triggered. GetAxisRaw also contains
-        // keyboard Horizontal/Vertical, so letting the stick path read while WASD is held
-        // made one D press repeat like a held gamepad stick.
         if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) dx = -1;
         else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) dx = 1;
         else if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) dy = -1;
@@ -324,9 +342,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
         }
 
-        // As long as a keyboard direction remains held, completely suppress the legacy
-        // Horizontal/Vertical axis path. This keeps WASD/arrow input at exactly one move
-        // per GetKeyDown while preserving repeat behaviour for an actual analog stick.
         if (IsKeyboardNavigationHeld())
         {
             ResetStickNavigation();
@@ -510,8 +525,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         SetAnchors(synergySummary.rectTransform, new Vector2(0.07f, 0.08f), new Vector2(0.94f, 0.37f));
 
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(720f, 650f));
-        boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.72f, 0.53f);
-        boardRoot.anchoredPosition = new Vector2(0f, 0f);
+        boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
+        boardRoot.anchoredPosition = Vector2.zero;
         boardRoot.localRotation = Quaternion.Euler(0f, 0f, -4f);
 
         RectTransform boardBack = CreateRect(boardRoot, "BoardBack", new Vector2(680f, 610f));
@@ -582,7 +597,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
 
         int equipped = equipmentSystem.EquippedSlotIndex;
-        if (!switchHeld && equipped >= 0)
+        if (!switchHeld && equipped >= 0 && selectedIndex < 0)
             selectedIndex = equipped;
 
         for (int i = 0; i < SlotCount; i++)
@@ -590,23 +605,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             bool unlocked = equipmentSystem.IsSlotUnlocked(i);
             BattleEquipmentSlot slot = i < equipmentSystem.Slots.Count ? equipmentSystem.Slots[i] : null;
             BattleEquipmentSO equipment = slot?.equipment;
-            bool selected = switchHeld && boardWasShown && i == selectedIndex;
             bool isEquipped = i == equipped;
 
             if (slotBackgrounds[i] != null)
             {
-                Color color = !unlocked
+                slotBackgrounds[i].color = !unlocked
                     ? lockedColor
-                    : selected
-                        ? accentYellow
-                        : isEquipped
-                            ? new Color(accentCyan.r * 0.25f, accentCyan.g * 0.25f, accentCyan.b * 0.25f, 0.98f)
-                            : inkColor;
-                slotBackgrounds[i].color = color;
+                    : isEquipped
+                        ? new Color(accentCyan.r * 0.25f, accentCyan.g * 0.25f, accentCyan.b * 0.25f, 0.98f)
+                        : inkColor;
             }
 
             if (slotRects[i] != null)
-                slotRects[i].localScale = Vector3.one * (selected ? selectedScale : 1f);
+                slotRects[i].localScale = Vector3.one;
 
             if (slotIcons[i] != null)
             {
@@ -621,13 +632,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     : equipment != null
                         ? equipment.GetDisplayName().ToUpperInvariant()
                         : "EMPTY";
-                slotNames[i].color = selected ? inkColor : paperColor;
+                slotNames[i].color = paperColor;
             }
 
             if (slotGrades[i] != null)
             {
                 slotGrades[i].text = unlocked && equipment != null ? $"G{slot.grade}" : string.Empty;
-                slotGrades[i].color = selected ? inkColor : accentYellow;
+                slotGrades[i].color = accentYellow;
             }
 
             if (slotStates[i] != null)
@@ -638,7 +649,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     : isEquipped
                         ? "● EQUIPPED"
                         : $"{p.x + 1}-{p.y + 1}";
-                slotStates[i].color = selected ? inkColor : (isEquipped ? accentCyan : new Color(0.55f, 0.60f, 0.70f, 1f));
+                slotStates[i].color = isEquipped ? accentCyan : new Color(0.55f, 0.60f, 0.70f, 1f);
             }
         }
 
@@ -768,67 +779,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         float t = 1f - Mathf.Exp(-Mathf.Max(1f, uiSharpness) * Time.unscaledDeltaTime);
         fullGroup.alpha = Mathf.Lerp(fullGroup.alpha, wantFull ? 1f : 0f, t);
         compactGroup.alpha = Mathf.Lerp(compactGroup.alpha, combat && !wantFull ? 1f : 0f, t);
-
-        if (fullRoot != null)
-        {
-            float target = wantFull ? 1f : 0.94f;
-            fullRoot.localScale = Vector3.Lerp(fullRoot.localScale, Vector3.one * target, t);
-        }
     }
 
-    private void ResolveLegacyHudObjects()
+    private void ResolveLegacyCombatHud()
     {
         if (legacyEquipmentDock == null)
             legacyEquipmentDock = FindRectByName("EquipmentDock");
-        if (rewardLoadoutStrip == null)
-            rewardLoadoutStrip = FindRectByName("RewardLoadoutStrip");
-        if (rewardInventoryRoot == null)
-            rewardInventoryRoot = FindRectByName("RewardInventory");
-    }
-
-    private void ApplyRewardGridLayout()
-    {
-        ResolveLegacyHudObjects();
-        if (rewardGridApplied || rewardLoadoutStrip == null || rewardInventoryRoot == null)
-            return;
-
-        rewardLoadoutStrip.anchorMin = rewardLoadoutStrip.anchorMax = rewardGridAnchor;
-        rewardLoadoutStrip.pivot = new Vector2(0.5f, 0.5f);
-        rewardLoadoutStrip.sizeDelta = rewardGridPanelSize;
-        rewardLoadoutStrip.anchoredPosition = Vector2.zero;
-        rewardLoadoutStrip.localRotation = Quaternion.Euler(0f, 0f, -2.5f);
-
-        Image panelImage = rewardLoadoutStrip.GetComponent<Image>();
-        if (panelImage != null)
-            panelImage.color = inkColor;
-
-        rewardInventoryRoot.anchorMin = rewardInventoryRoot.anchorMax = new Vector2(0.5f, 0.5f);
-        rewardInventoryRoot.pivot = new Vector2(0.5f, 0.5f);
-        rewardInventoryRoot.sizeDelta = new Vector2(352f, 260f);
-        rewardInventoryRoot.anchoredPosition = new Vector2(0f, -18f);
-
-        const float cellW = 104f;
-        const float cellH = 78f;
-        const float gapX = 10f;
-        const float gapY = 8f;
-        for (int i = 0; i < SlotCount; i++)
-        {
-            Transform child = rewardInventoryRoot.Find($"RewardLoadoutSlot_{i + 1}");
-            if (child is not RectTransform rect)
-                continue;
-
-            int x = i % GridSize;
-            int y = i / GridSize;
-            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(cellW, cellH);
-            rect.anchoredPosition = new Vector2(
-                (x - 1) * (cellW + gapX),
-                (1 - y) * (cellH + gapY));
-            rect.localRotation = Quaternion.Euler(0f, 0f, (x - 1) * 1.5f);
-        }
-
-        rewardGridApplied = true;
     }
 
     private static RectTransform FindRectByName(string target)
