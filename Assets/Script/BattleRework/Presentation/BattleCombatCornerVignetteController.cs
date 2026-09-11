@@ -23,6 +23,7 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleStageTransitionController stageFlow;
 
     [Header("Corner Vignette")]
     [SerializeField] private Color vignetteColor = Color.black;
@@ -111,10 +112,19 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
             if (runManager == null)
                 runManager = FindFirstObjectByType<BattleRunManager>();
         }
+
+        if (stageFlow == null)
+            stageFlow = BattleStageTransitionController.Instance != null
+                ? BattleStageTransitionController.Instance
+                : FindFirstObjectByType<BattleStageTransitionController>();
     }
 
     private bool IsCombat()
     {
+        if (stageFlow != null)
+            return stageFlow.IsCombatPhase;
+
+        // Compatibility fallback for scenes that have not installed the stage flow yet.
         return runManager != null &&
                runManager.RunActive &&
                runManager.State == BattleRunState.Combat;
