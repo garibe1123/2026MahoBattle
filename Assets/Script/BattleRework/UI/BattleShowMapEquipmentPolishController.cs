@@ -3,11 +3,6 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
 /// Show/Map 입력과 전투 장비 전환의 마지막 보정 레이어.
 ///
@@ -187,10 +182,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.SelectingNode;
     }
 
-    // ---------------------------------------------------------------------
-    // Show Focus alignment
-    // ---------------------------------------------------------------------
-
     private void AlignShowFocusRect()
     {
         if (showFocus == null || showFocusRectField == null)
@@ -202,10 +193,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (screenInner != null && screenInner.gameObject.activeInHierarchy)
             showFocusRectField.SetValue(showFocus, screenInner);
     }
-
-    // ---------------------------------------------------------------------
-    // Map hover + room icons
-    // ---------------------------------------------------------------------
 
     private void ResolveMapNodes()
     {
@@ -250,27 +237,19 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             if (hitRect == null)
                 hitRect = node;
 
-            bool hovered = selectable && RectTransformUtility.RectangleContainsScreenPoint(
-                hitRect,
-                Input.mousePosition,
-                eventCamera);
-
+            bool hovered = selectable && RectTransformUtility.RectangleContainsScreenPoint(hitRect, Input.mousePosition, eventCamera);
             if (hovered)
                 hoveredNode = node;
 
             ApplyNodeVisual(node, selectable, hovered);
         }
 
-        // 기존 SpatialMapController는 Map 패널 전체에 커서가 들어오면 Focus를 켭니다.
-        // 여기서 마지막 정책을 덮어써 실제 선택 가능한 Node 위에 있을 때만 반응하게 합니다.
         bool hasHoveredNode = hoveredNode != null;
         battleHud?.SetMapCursorFocus(hasHoveredNode);
 
         if (battleCamera != null)
         {
-            Vector2 normalized = hasHoveredNode
-                ? ResolveNodeNormalizedPosition(hoveredNode)
-                : Vector2.zero;
+            Vector2 normalized = hasHoveredNode ? ResolveNodeNormalizedPosition(hoveredNode) : Vector2.zero;
             battleCamera.SetMapCursorTracking(hasHoveredNode, normalized);
         }
     }
@@ -284,54 +263,29 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         BattleNodeType type = ResolveNodeType(label != null ? label.text : string.Empty);
         Color accent = ResolveTypeColor(type);
 
-        bool current = runManager != null && runManager.CurrentNode != null &&
-                       node.name == $"StageNode_{runManager.CurrentNode.id}";
+        bool current = runManager != null && runManager.CurrentNode != null && node.name == $"StageNode_{runManager.CurrentNode.id}";
 
         if (background != null)
         {
-            if (hovered)
-                background.color = accent;
-            else if (current)
-                background.color = new Color(shopColor.r * 0.28f, shopColor.g * 0.28f, shopColor.b * 0.28f, 1f);
-            else if (selectable)
-                background.color = inkColor;
-            else
-                background.color = new Color(0.09f, 0.095f, 0.12f, 0.94f);
+            if (hovered) background.color = accent;
+            else if (current) background.color = new Color(shopColor.r * 0.28f, shopColor.g * 0.28f, shopColor.b * 0.28f, 1f);
+            else if (selectable) background.color = inkColor;
+            else background.color = new Color(0.09f, 0.095f, 0.12f, 0.94f);
         }
 
         if (outline != null)
         {
-            if (hovered)
-            {
-                outline.effectColor = paperColor;
-                outline.effectDistance = new Vector2(6f, -6f);
-            }
-            else if (current)
-            {
-                outline.effectColor = shopColor;
-                outline.effectDistance = new Vector2(3f, -3f);
-            }
-            else if (selectable)
-            {
-                outline.effectColor = accent;
-                outline.effectDistance = new Vector2(3f, -3f);
-            }
-            else
-            {
-                outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
-                outline.effectDistance = new Vector2(1f, -1f);
-            }
+            if (hovered) { outline.effectColor = paperColor; outline.effectDistance = new Vector2(6f, -6f); }
+            else if (current) { outline.effectColor = shopColor; outline.effectDistance = new Vector2(3f, -3f); }
+            else if (selectable) { outline.effectColor = accent; outline.effectDistance = new Vector2(3f, -3f); }
+            else { outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f); outline.effectDistance = new Vector2(1f, -1f); }
         }
 
         if (icon != null)
         {
             icon.sprite = ResolveIcon(type);
             icon.enabled = icon.sprite != null;
-            icon.color = hovered
-                ? inkColor
-                : current
-                    ? shopColor
-                    : selectable ? accent : mutedColor;
+            icon.color = hovered ? inkColor : current ? shopColor : selectable ? accent : mutedColor;
         }
 
         if (label != null)
@@ -339,11 +293,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             string typeName = type.ToString().ToUpperInvariant();
             label.text = hovered ? typeName + "\nSELECT" : typeName;
             label.fontStyle = selectable || current ? FontStyle.Bold : FontStyle.Normal;
-            label.color = hovered
-                ? inkColor
-                : current
-                    ? shopColor
-                    : selectable ? paperColor : mutedColor;
+            label.color = hovered ? inkColor : current ? shopColor : selectable ? paperColor : mutedColor;
         }
     }
 
@@ -450,108 +400,64 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
         switch (type)
         {
-            case BattleNodeType.Elite:
-                DrawCrown(pixels, size, white);
-                break;
-            case BattleNodeType.Shop:
-                DrawShopBag(pixels, size, white);
-                break;
-            case BattleNodeType.Event:
-                DrawEventSpark(pixels, size, white);
-                break;
-            default:
-                DrawCrossedSwords(pixels, size, white);
-                break;
+            case BattleNodeType.Elite: DrawCrown(pixels, size, white); break;
+            case BattleNodeType.Shop: DrawShopBag(pixels, size, white); break;
+            case BattleNodeType.Event: DrawEventSpark(pixels, size, white); break;
+            default: DrawCrossedSwords(pixels, size, white); break;
         }
 
         texture.SetPixels32(pixels);
         texture.Apply(false, true);
-
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, size, size),
-            new Vector2(0.5f, 0.5f),
-            size,
-            0,
-            SpriteMeshType.FullRect);
+        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, size, size), new Vector2(0.5f, 0.5f), size, 0, SpriteMeshType.FullRect);
         sprite.name = $"BattleMapIcon_{type}_Sprite";
         return sprite;
     }
 
     private static void DrawCrossedSwords(Color32[] pixels, int size, Color32 color)
     {
-        DrawLine(pixels, size, 8, 7, 24, 23, 2, color);
-        DrawLine(pixels, size, 24, 7, 8, 23, 2, color);
-        DrawLine(pixels, size, 7, 9, 12, 4, 2, color);
-        DrawLine(pixels, size, 25, 9, 20, 4, 2, color);
-        DrawLine(pixels, size, 18, 20, 24, 26, 1, color);
-        DrawLine(pixels, size, 14, 20, 8, 26, 1, color);
+        DrawLine(pixels, size, 8, 7, 24, 23, 2, color); DrawLine(pixels, size, 24, 7, 8, 23, 2, color);
+        DrawLine(pixels, size, 7, 9, 12, 4, 2, color); DrawLine(pixels, size, 25, 9, 20, 4, 2, color);
+        DrawLine(pixels, size, 18, 20, 24, 26, 1, color); DrawLine(pixels, size, 14, 20, 8, 26, 1, color);
     }
 
     private static void DrawCrown(Color32[] pixels, int size, Color32 color)
     {
-        DrawLine(pixels, size, 6, 11, 10, 22, 2, color);
-        DrawLine(pixels, size, 10, 22, 16, 14, 2, color);
-        DrawLine(pixels, size, 16, 14, 22, 22, 2, color);
-        DrawLine(pixels, size, 22, 22, 26, 11, 2, color);
-        DrawLine(pixels, size, 6, 11, 26, 11, 2, color);
-        DrawLine(pixels, size, 8, 8, 24, 8, 2, color);
+        DrawLine(pixels, size, 6, 11, 10, 22, 2, color); DrawLine(pixels, size, 10, 22, 16, 14, 2, color);
+        DrawLine(pixels, size, 16, 14, 22, 22, 2, color); DrawLine(pixels, size, 22, 22, 26, 11, 2, color);
+        DrawLine(pixels, size, 6, 11, 26, 11, 2, color); DrawLine(pixels, size, 8, 8, 24, 8, 2, color);
     }
 
     private static void DrawShopBag(Color32[] pixels, int size, Color32 color)
     {
-        DrawRect(pixels, size, 7, 7, 25, 21, 2, color);
-        DrawLine(pixels, size, 11, 21, 11, 25, 2, color);
-        DrawLine(pixels, size, 21, 21, 21, 25, 2, color);
-        DrawLine(pixels, size, 11, 25, 21, 25, 2, color);
-        DrawLine(pixels, size, 16, 10, 16, 18, 1, color);
-        DrawLine(pixels, size, 12, 14, 20, 14, 1, color);
+        DrawRect(pixels, size, 7, 7, 25, 21, 2, color); DrawLine(pixels, size, 11, 21, 11, 25, 2, color);
+        DrawLine(pixels, size, 21, 21, 21, 25, 2, color); DrawLine(pixels, size, 11, 25, 21, 25, 2, color);
+        DrawLine(pixels, size, 16, 10, 16, 18, 1, color); DrawLine(pixels, size, 12, 14, 20, 14, 1, color);
     }
 
     private static void DrawEventSpark(Color32[] pixels, int size, Color32 color)
     {
-        DrawLine(pixels, size, 16, 5, 16, 27, 2, color);
-        DrawLine(pixels, size, 5, 16, 27, 16, 2, color);
-        DrawLine(pixels, size, 9, 9, 23, 23, 1, color);
-        DrawLine(pixels, size, 23, 9, 9, 23, 1, color);
-        DrawLine(pixels, size, 16, 10, 11, 16, 1, color);
-        DrawLine(pixels, size, 16, 10, 21, 16, 1, color);
-        DrawLine(pixels, size, 11, 16, 16, 22, 1, color);
-        DrawLine(pixels, size, 21, 16, 16, 22, 1, color);
+        DrawLine(pixels, size, 16, 5, 16, 27, 2, color); DrawLine(pixels, size, 5, 16, 27, 16, 2, color);
+        DrawLine(pixels, size, 9, 9, 23, 23, 1, color); DrawLine(pixels, size, 23, 9, 9, 23, 1, color);
+        DrawLine(pixels, size, 16, 10, 11, 16, 1, color); DrawLine(pixels, size, 16, 10, 21, 16, 1, color);
+        DrawLine(pixels, size, 11, 16, 16, 22, 1, color); DrawLine(pixels, size, 21, 16, 16, 22, 1, color);
     }
 
     private static void DrawRect(Color32[] pixels, int size, int minX, int minY, int maxX, int maxY, int thickness, Color32 color)
     {
-        DrawLine(pixels, size, minX, minY, maxX, minY, thickness, color);
-        DrawLine(pixels, size, maxX, minY, maxX, maxY, thickness, color);
-        DrawLine(pixels, size, maxX, maxY, minX, maxY, thickness, color);
-        DrawLine(pixels, size, minX, maxY, minX, minY, thickness, color);
+        DrawLine(pixels, size, minX, minY, maxX, minY, thickness, color); DrawLine(pixels, size, maxX, minY, maxX, maxY, thickness, color);
+        DrawLine(pixels, size, maxX, maxY, minX, maxY, thickness, color); DrawLine(pixels, size, minX, maxY, minX, minY, thickness, color);
     }
 
     private static void DrawLine(Color32[] pixels, int size, int x0, int y0, int x1, int y1, int thickness, Color32 color)
     {
-        int dx = Mathf.Abs(x1 - x0);
-        int sx = x0 < x1 ? 1 : -1;
-        int dy = -Mathf.Abs(y1 - y0);
-        int sy = y0 < y1 ? 1 : -1;
-        int error = dx + dy;
-
+        int dx = Mathf.Abs(x1 - x0); int sx = x0 < x1 ? 1 : -1; int dy = -Mathf.Abs(y1 - y0); int sy = y0 < y1 ? 1 : -1; int error = dx + dy;
         while (true)
         {
             PaintPoint(pixels, size, x0, y0, thickness, color);
-            if (x0 == x1 && y0 == y1)
-                break;
+            if (x0 == x1 && y0 == y1) break;
             int doubled = 2 * error;
-            if (doubled >= dy)
-            {
-                error += dy;
-                x0 += sx;
-            }
-            if (doubled <= dx)
-            {
-                error += dx;
-                y0 += sy;
-            }
+            if (doubled >= dy) { error += dy; x0 += sx; }
+            if (doubled <= dx) { error += dx; y0 += sy; }
         }
     }
 
@@ -559,47 +465,30 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     {
         radius = Mathf.Max(0, radius - 1);
         for (int oy = -radius; oy <= radius; oy++)
-        {
             for (int ox = -radius; ox <= radius; ox++)
             {
-                int px = x + ox;
-                int py = y + oy;
-                if (px < 0 || py < 0 || px >= size || py >= size)
-                    continue;
+                int px = x + ox, py = y + oy;
+                if (px < 0 || py < 0 || px >= size || py >= size) continue;
                 pixels[py * size + px] = color;
             }
-        }
     }
-
-    // ---------------------------------------------------------------------
-    // Equipment wheel + sound
-    // ---------------------------------------------------------------------
 
     private void UpdateTabWheelInput()
     {
-        if (!IsCombat() || equipmentSystem == null || BattlePauseController.IsPaused)
-            return;
-        if (!Input.GetKey(KeyCode.Tab))
+        if (!IsCombat() || equipmentSystem == null || BattlePauseController.IsPaused || !Input.GetKey(KeyCode.Tab))
             return;
 
         float wheel = Input.mouseScrollDelta.y;
-        if (Mathf.Abs(wheel) < 0.01f)
-            return;
-
+        if (Mathf.Abs(wheel) < 0.01f) return;
         int direction = wheel > 0f ? -1 : 1;
         int next = equipmentSystem.FindNextWeaponSlot(equipmentSystem.EquippedSlotIndex, direction);
-        if (next < 0)
-            return;
-
-        if (equipmentSystem.EquipSlot(next))
-            SyncLoadoutSelection(next);
+        if (next < 0) return;
+        if (equipmentSystem.EquipSlot(next)) SyncLoadoutSelection(next);
     }
 
     private void SyncLoadoutSelection(int slotIndex)
     {
-        if (loadoutUI == null)
-            return;
-
+        if (loadoutUI == null) return;
         selectedIndexField?.SetValue(loadoutUI, slotIndex);
         directionMovedField?.SetValue(loadoutUI, true);
         boardWasShownField?.SetValue(loadoutUI, true);
@@ -608,165 +497,59 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
     private void SubscribeEquipment()
     {
-        if (equipmentSystem == subscribedEquipment)
-            return;
-
-        UnsubscribeEquipment();
-        if (equipmentSystem == null)
-            return;
-
-        subscribedEquipment = equipmentSystem;
-        lastEquippedSlot = equipmentSystem.EquippedSlotIndex;
+        if (equipmentSystem == subscribedEquipment) return;
+        UnsubscribeEquipment(); if (equipmentSystem == null) return;
+        subscribedEquipment = equipmentSystem; lastEquippedSlot = equipmentSystem.EquippedSlotIndex;
         subscribedEquipment.EquippedSlotChanged += HandleEquippedSlotChanged;
     }
 
     private void UnsubscribeEquipment()
     {
-        if (subscribedEquipment != null)
-            subscribedEquipment.EquippedSlotChanged -= HandleEquippedSlotChanged;
+        if (subscribedEquipment != null) subscribedEquipment.EquippedSlotChanged -= HandleEquippedSlotChanged;
         subscribedEquipment = null;
     }
 
     private void HandleEquippedSlotChanged(int slotIndex)
     {
-        if (slotIndex < 0)
-        {
-            lastEquippedSlot = slotIndex;
-            return;
-        }
-
-        bool changed = slotIndex != lastEquippedSlot;
-        lastEquippedSlot = slotIndex;
-        SyncLoadoutSelection(slotIndex);
-
-        if (changed && IsCombat() && !BattlePauseController.IsPaused)
-            PlaySwapSound(slotIndex);
+        if (slotIndex < 0) { lastEquippedSlot = slotIndex; return; }
+        bool changed = slotIndex != lastEquippedSlot; lastEquippedSlot = slotIndex; SyncLoadoutSelection(slotIndex);
+        if (changed && IsCombat() && !BattlePauseController.IsPaused) PlaySwapSound(slotIndex);
     }
 
     private void EnsureSwapAudio()
     {
         if (swapAudioSource == null)
         {
-            swapAudioSource = GetComponent<AudioSource>();
-            if (swapAudioSource == null)
-                swapAudioSource = gameObject.AddComponent<AudioSource>();
-            swapAudioSource.playOnAwake = false;
-            swapAudioSource.loop = false;
-            swapAudioSource.spatialBlend = 0f;
-            swapAudioSource.ignoreListenerPause = true;
-            swapAudioSource.volume = Mathf.Clamp01(swapSoundVolume);
+            swapAudioSource = GetComponent<AudioSource>() ?? gameObject.AddComponent<AudioSource>();
+            swapAudioSource.playOnAwake = false; swapAudioSource.loop = false; swapAudioSource.spatialBlend = 0f;
+            swapAudioSource.ignoreListenerPause = true; swapAudioSource.volume = Mathf.Clamp01(swapSoundVolume);
         }
-
-        if (swapClip == null)
-            swapClip = CreateSwapClip();
+        if (swapClip == null) swapClip = CreateSwapClip();
     }
 
     private AudioClip CreateSwapClip()
     {
-        const int sampleRate = 44100;
-        const float duration = 0.085f;
-        int sampleCount = Mathf.CeilToInt(sampleRate * duration);
-        float[] samples = new float[sampleCount];
-        float phase = 0f;
-
+        const int sampleRate = 44100; const float duration = 0.085f;
+        int sampleCount = Mathf.CeilToInt(sampleRate * duration); float[] samples = new float[sampleCount]; float phase = 0f;
         for (int i = 0; i < sampleCount; i++)
         {
-            float t = i / (float)sampleCount;
-            float frequency = Mathf.Lerp(620f, 980f, Mathf.SmoothStep(0f, 1f, t));
-            phase += 2f * Mathf.PI * frequency / sampleRate;
-            float envelope = Mathf.Pow(1f - t, 2.4f);
-            float click = i < 36 ? (1f - i / 36f) * 0.14f : 0f;
+            float t = i / (float)sampleCount; float frequency = Mathf.Lerp(620f, 980f, Mathf.SmoothStep(0f, 1f, t));
+            phase += 2f * Mathf.PI * frequency / sampleRate; float envelope = Mathf.Pow(1f - t, 2.4f); float click = i < 36 ? (1f - i / 36f) * 0.14f : 0f;
             samples[i] = (Mathf.Sin(phase) * 0.72f + Mathf.Sin(phase * 2.01f) * 0.16f + click) * envelope;
         }
-
-        AudioClip clip = AudioClip.Create("EquipmentSwap_Pyong", sampleCount, 1, sampleRate, false);
-        clip.SetData(samples, 0);
-        return clip;
+        AudioClip clip = AudioClip.Create("EquipmentSwap_Pyong", sampleCount, 1, sampleRate, false); clip.SetData(samples, 0); return clip;
     }
 
     private void PlaySwapSound(int slotIndex)
     {
-        EnsureSwapAudio();
-        if (swapAudioSource == null || swapClip == null)
-            return;
-
-        swapAudioSource.volume = Mathf.Clamp01(swapSoundVolume);
-        swapAudioSource.pitch = 0.96f + Mathf.Clamp(slotIndex, 0, 8) * 0.018f;
-        swapAudioSource.PlayOneShot(swapClip);
+        EnsureSwapAudio(); if (swapAudioSource == null || swapClip == null) return;
+        swapAudioSource.volume = Mathf.Clamp01(swapSoundVolume); swapAudioSource.pitch = 0.96f + Mathf.Clamp(slotIndex, 0, 8) * 0.018f; swapAudioSource.PlayOneShot(swapClip);
     }
 
     private static RectTransform FindRect(string objectName)
     {
-        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect != null && rect.name == objectName)
-                return rect;
-        }
+        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < all.Length; i++) if (all[i] != null && all[i].name == objectName) return all[i];
         return null;
-    }
-}
-
-public static class BattleShowMapEquipmentPolishAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponents;
-    }
-
-    private static void EnsureEditorComponents()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleShowMapEquipmentPolishController>() != null)
-                continue;
-
-            Undo.AddComponent<BattleShowMapEquipmentPolishController>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponents()
-    {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleShowMapEquipmentPolishController>() == null)
-                manager.gameObject.AddComponent<BattleShowMapEquipmentPolishController>();
-        }
     }
 }
