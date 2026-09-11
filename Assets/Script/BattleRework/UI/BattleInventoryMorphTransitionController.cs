@@ -2,11 +2,6 @@ using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
 /// 작은 BackpackMiniGrid와 LoadoutSwitchFull 사이를 하나의 PACK이 실제로 변형되는 것처럼 연결합니다.
 ///
@@ -86,7 +81,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private bool initialized;
     private float nextResolveTime;
 
-    // 전환 시작 때 저장한 작은 PACK의 화면 기준 Home pose.
     private bool homePoseValid;
     private Vector2 homeCenter;
     private Vector2 homeSize;
@@ -94,7 +88,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private float homeRotation;
     private float homeAlpha = 1f;
 
-    // 현재 전환의 시작 pose. 중간에 방향이 반전되어도 현재 위치부터 이어서 움직입니다.
     private Vector2 transitionStartCenter;
     private Vector3 transitionStartScale = Vector3.one;
     private float transitionStartRotation;
@@ -178,16 +171,13 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
                 elapsed += Time.unscaledDeltaTime;
                 ApplyOpening(Mathf.Clamp01(elapsed / Mathf.Max(0.01f, openDuration)));
                 break;
-
             case MorphState.Open:
                 MaintainOpenState();
                 break;
-
             case MorphState.Closing:
                 elapsed += Time.unscaledDeltaTime;
                 ApplyClosing(Mathf.Clamp01(elapsed / Mathf.Max(0.01f, closeDuration)));
                 break;
-
             case MorphState.Closed:
                 MaintainClosedState();
                 break;
@@ -196,19 +186,14 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
 
     private void ResolveReferences()
     {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
-        if (inventoryInteraction == null)
-            inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>();
-        if (kineticLoadout == null)
-            kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
+        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
+        if (inventoryInteraction == null) inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>();
+        if (kineticLoadout == null) kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
     }
 
     private void CacheReflection()
     {
-        if (kineticLoadout == null)
-            return;
-
+        if (kineticLoadout == null) return;
         loadoutSwitchHeldField ??= typeof(BattleKineticLoadoutUI).GetField("switchHeld", PrivateInstance);
         loadoutBoardShownField ??= typeof(BattleKineticLoadoutUI).GetField("boardWasShown", PrivateInstance);
     }
@@ -221,11 +206,9 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
             if (miniPackRoot != null)
             {
                 miniPackGroup = miniPackRoot.GetComponent<CanvasGroup>();
-                if (miniPackGroup == null)
-                    miniPackGroup = miniPackRoot.gameObject.AddComponent<CanvasGroup>();
+                if (miniPackGroup == null) miniPackGroup = miniPackRoot.gameObject.AddComponent<CanvasGroup>();
             }
         }
-
         if (fullRoot == null)
         {
             fullRoot = FindRect("LoadoutSwitchFull");
@@ -239,18 +222,11 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
 
     private bool IsInspectRequested(out bool isReward)
     {
-        isReward = runManager != null &&
-                   runManager.RunActive &&
-                   runManager.State == BattleRunState.Reward &&
-                   inventoryInteraction != null &&
-                   inventoryInteraction.IsRewardPackEditing;
-
-        if (isReward)
-            return true;
-
+        isReward = runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward &&
+                   inventoryInteraction != null && inventoryInteraction.IsRewardPackEditing;
+        if (isReward) return true;
         if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Combat || kineticLoadout == null)
             return false;
-
         bool held = ReadBool(loadoutSwitchHeldField, kineticLoadout);
         bool shown = ReadBool(loadoutBoardShownField, kineticLoadout);
         return held && shown;
@@ -258,596 +234,196 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
 
     private void BeginOpening(bool isReward)
     {
-        ResolveUi();
-        EnsureTransitionCanvas();
-        if (!CanMorph())
-            return;
-
+        ResolveUi(); EnsureTransitionCanvas(); if (!CanMorph()) return;
         rewardMode = isReward;
-
-        if (state == MorphState.Closed || ghostRoot == null)
-        {
-            CaptureHomePose();
-            CreateGhostFromPack();
-        }
-
-        if (ghostRoot == null)
-            return;
-
+        if (state == MorphState.Closed || ghostRoot == null) { CaptureHomePose(); CreateGhostFromPack(); }
+        if (ghostRoot == null) return;
         transitionStartCenter = ghostRoot.anchoredPosition;
         transitionStartScale = ghostRoot.localScale;
         transitionStartRotation = NormalizeAngle(ghostRoot.localEulerAngles.z);
         transitionStartGhostAlpha = ghostGroup != null ? ghostGroup.alpha : 1f;
         transitionStartFullAlpha = Mathf.Clamp01(fullGroup.alpha);
-
-        elapsed = 0f;
-        state = MorphState.Opening;
-
+        elapsed = 0f; state = MorphState.Opening;
         fullRoot.gameObject.SetActive(true);
-        fullGroup.blocksRaycasts = false;
-        fullGroup.interactable = false;
-
+        fullGroup.blocksRaycasts = false; fullGroup.interactable = false;
         HideRealMiniPack();
     }
 
     private void BeginClosing()
     {
-        ResolveUi();
-        EnsureTransitionCanvas();
-        if (!CanMorph() || !homePoseValid)
-            return;
-
-        if (ghostRoot == null)
-            CreateGhostAtBoardPose();
-
-        if (ghostRoot == null)
-            return;
-
+        ResolveUi(); EnsureTransitionCanvas(); if (!CanMorph() || !homePoseValid) return;
+        if (ghostRoot == null) CreateGhostAtBoardPose();
+        if (ghostRoot == null) return;
         transitionStartCenter = ghostRoot.anchoredPosition;
         transitionStartScale = ghostRoot.localScale;
         transitionStartRotation = NormalizeAngle(ghostRoot.localEulerAngles.z);
         transitionStartGhostAlpha = ghostGroup != null ? ghostGroup.alpha : 0f;
         transitionStartFullAlpha = Mathf.Clamp01(fullGroup.alpha);
-
-        elapsed = 0f;
-        state = MorphState.Closing;
-
-        fullGroup.blocksRaycasts = false;
-        fullGroup.interactable = false;
+        elapsed = 0f; state = MorphState.Closing;
+        fullGroup.blocksRaycasts = false; fullGroup.interactable = false;
         HideRealMiniPack();
     }
 
-    private bool CanMorph()
-    {
-        return miniPackRoot != null &&
-               miniPackGroup != null &&
-               fullRoot != null &&
-               fullGroup != null &&
-               boardRoot != null &&
-               transitionRoot != null;
-    }
+    private bool CanMorph() => miniPackRoot != null && miniPackGroup != null && fullRoot != null && fullGroup != null && boardRoot != null && transitionRoot != null;
 
     private void CaptureHomePose()
     {
-        if (miniPackRoot == null || transitionRoot == null)
-            return;
-
-        if (!TryGetRectInTransitionSpace(miniPackRoot, out Vector2 center, out Vector2 size))
-            return;
-
-        homePoseValid = true;
-        homeCenter = center;
-        homeSize = size;
-        homeRotation = GetScreenRotation(miniPackRoot);
+        if (miniPackRoot == null || transitionRoot == null) return;
+        if (!TryGetRectInTransitionSpace(miniPackRoot, out Vector2 center, out Vector2 size)) return;
+        homePoseValid = true; homeCenter = center; homeSize = size; homeRotation = GetScreenRotation(miniPackRoot);
         homeAlpha = miniPackGroup != null ? Mathf.Clamp01(miniPackGroup.alpha) : 1f;
-
         Vector2 intrinsic = GetIntrinsicSize(miniPackRoot);
-        homeGhostScale = new Vector3(
-            size.x / Mathf.Max(1f, intrinsic.x),
-            size.y / Mathf.Max(1f, intrinsic.y),
-            1f);
+        homeGhostScale = new Vector3(size.x / Mathf.Max(1f, intrinsic.x), size.y / Mathf.Max(1f, intrinsic.y), 1f);
     }
 
     private void CreateGhostFromPack()
     {
         DestroyGhost();
-        if (!homePoseValid || miniPackRoot == null || transitionRoot == null)
-            return;
-
+        if (!homePoseValid || miniPackRoot == null || transitionRoot == null) return;
         GameObject clone = Instantiate(miniPackRoot.gameObject, transitionRoot, false);
         clone.name = "BackpackMorphGhost";
         ghostRoot = clone.GetComponent<RectTransform>();
-        if (ghostRoot == null)
-        {
-            Destroy(clone);
-            return;
-        }
-
+        if (ghostRoot == null) { Destroy(clone); return; }
         PrepareGhostHierarchy(clone);
-        ghostGroup = clone.GetComponent<CanvasGroup>();
-        if (ghostGroup == null)
-            ghostGroup = clone.AddComponent<CanvasGroup>();
-        ghostGroup.alpha = Mathf.Max(0.01f, homeAlpha);
-        ghostGroup.blocksRaycasts = false;
-        ghostGroup.interactable = false;
-
-        ghostRoot.anchorMin = ghostRoot.anchorMax = new Vector2(0.5f, 0.5f);
-        ghostRoot.pivot = new Vector2(0.5f, 0.5f);
-        ghostRoot.anchoredPosition = homeCenter;
-        ghostRoot.localScale = homeGhostScale;
-        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, homeRotation);
-        ghostRoot.SetAsLastSibling();
+        ghostGroup = clone.GetComponent<CanvasGroup>() ?? clone.AddComponent<CanvasGroup>();
+        ghostGroup.alpha = Mathf.Max(0.01f, homeAlpha); ghostGroup.blocksRaycasts = false; ghostGroup.interactable = false;
+        ghostRoot.anchorMin = ghostRoot.anchorMax = new Vector2(0.5f, 0.5f); ghostRoot.pivot = new Vector2(0.5f, 0.5f);
+        ghostRoot.anchoredPosition = homeCenter; ghostRoot.localScale = homeGhostScale;
+        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, homeRotation); ghostRoot.SetAsLastSibling();
     }
 
     private void CreateGhostAtBoardPose()
     {
-        if (!homePoseValid)
-            CaptureHomePose();
-        CreateGhostFromPack();
-        if (ghostRoot == null)
-            return;
-
+        if (!homePoseValid) CaptureHomePose(); CreateGhostFromPack(); if (ghostRoot == null) return;
         GetBoardPose(out Vector2 boardCenter, out Vector3 boardScale, out float boardRotation);
-        ghostRoot.anchoredPosition = boardCenter;
-        ghostRoot.localScale = boardScale;
-        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, boardRotation);
-        if (ghostGroup != null)
-            ghostGroup.alpha = 0f;
+        ghostRoot.anchoredPosition = boardCenter; ghostRoot.localScale = boardScale;
+        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, boardRotation); if (ghostGroup != null) ghostGroup.alpha = 0f;
     }
 
     private void PrepareGhostHierarchy(GameObject clone)
     {
-        Canvas[] nestedCanvases = clone.GetComponentsInChildren<Canvas>(true);
-        for (int i = 0; i < nestedCanvases.Length; i++)
-        {
-            Canvas nested = nestedCanvases[i];
-            if (nested == null)
-                continue;
-            nested.overrideSorting = false;
-        }
-
+        Canvas[] canvases = clone.GetComponentsInChildren<Canvas>(true);
+        for (int i = 0; i < canvases.Length; i++) if (canvases[i] != null) canvases[i].overrideSorting = false;
         Graphic[] graphics = clone.GetComponentsInChildren<Graphic>(true);
-        for (int i = 0; i < graphics.Length; i++)
-            if (graphics[i] != null)
-                graphics[i].raycastTarget = false;
+        for (int i = 0; i < graphics.Length; i++) if (graphics[i] != null) graphics[i].raycastTarget = false;
     }
 
     private void ApplyOpening(float p)
     {
         bool paused = BattlePauseController.IsPaused;
         GetBoardPose(out Vector2 boardCenter, out Vector3 boardScale, out float boardRotation);
-
-        float anticipationIn = SmoothRange(0f, 0.12f, p);
-        float anticipationOut = 1f - SmoothRange(0.12f, 0.28f, p);
+        float anticipationIn = SmoothRange(0f, 0.12f, p), anticipationOut = 1f - SmoothRange(0.12f, 0.28f, p);
         float anticipation = anticipationIn * anticipationOut;
-
-        float travelP = SmoothRange(0.12f, 1f, p);
-        float move = EaseInOutCubic(travelP);
-        float scaleT = EaseOutBack(travelP, scaleOvershoot);
-
-        Vector2 anticipationVector = new(-anticipationDistance, anticipationDistance * 0.26f);
-        Vector2 center = Vector2.LerpUnclamped(transitionStartCenter, boardCenter, move);
-        center += anticipationVector * anticipation;
+        float travelP = SmoothRange(0.12f, 1f, p), move = EaseInOutCubic(travelP), scaleT = EaseOutBack(travelP, scaleOvershoot);
+        Vector2 center = Vector2.LerpUnclamped(transitionStartCenter, boardCenter, move) + new Vector2(-anticipationDistance, anticipationDistance * 0.26f) * anticipation;
         center += Vector2.up * Mathf.Sin(travelP * Mathf.PI) * arcHeight;
-
-        Vector3 anticipatedStartScale = Vector3.Scale(transitionStartScale, new Vector3(anticipationScale, anticipationScale, 1f));
-        Vector3 fromScale = Vector3.Lerp(transitionStartScale, anticipatedStartScale, anticipationIn * anticipationOut);
-        Vector3 scale = Vector3.LerpUnclamped(fromScale, boardScale, scaleT);
-
-        float rotation = Mathf.LerpAngle(transitionStartRotation, boardRotation, move);
-        rotation += Mathf.Sin(travelP * Mathf.PI) * -rotationKickDegrees;
-
+        Vector3 anticipated = Vector3.Scale(transitionStartScale, new Vector3(anticipationScale, anticipationScale, 1f));
+        Vector3 scale = Vector3.LerpUnclamped(Vector3.Lerp(transitionStartScale, anticipated, anticipationIn * anticipationOut), boardScale, scaleT);
+        float rotation = Mathf.LerpAngle(transitionStartRotation, boardRotation, move) + Mathf.Sin(travelP * Mathf.PI) * -rotationKickDegrees;
         SetGhostPose(center, scale, rotation);
-
-        float packFade = 1f - SmoothRange(packFadeStart, 0.96f, p);
-        if (ghostGroup != null)
-            ghostGroup.alpha = Mathf.Clamp01(transitionStartGhostAlpha * packFade);
-
+        if (ghostGroup != null) ghostGroup.alpha = Mathf.Clamp01(transitionStartGhostAlpha * (1f - SmoothRange(packFadeStart, 0.96f, p)));
         float fullFade = SmoothRange(fullFadeStart, 0.92f, p);
         float finalScale = rewardMode ? rewardFullScale : combatFullScale;
-        float fullScaleT = EaseOutBack(SmoothRange(0.10f, 1f, p), 1.03f);
-        float visualScale = Mathf.Lerp(fullUiStartScale, 1f, fullScaleT);
-
+        float visualScale = Mathf.Lerp(fullUiStartScale, 1f, EaseOutBack(SmoothRange(0.10f, 1f, p), 1.03f));
         fullRoot.localScale = Vector3.one * finalScale * visualScale;
         fullGroup.alpha = Mathf.Max(transitionStartFullAlpha * (1f - fullFade), fullFade);
-        fullGroup.blocksRaycasts = !paused && p >= raycastEnablePoint;
-        fullGroup.interactable = !paused && p >= raycastEnablePoint;
-
-        HideRealMiniPack();
-
-        if (p >= 1f)
-            CompleteOpening();
+        fullGroup.blocksRaycasts = !paused && p >= raycastEnablePoint; fullGroup.interactable = !paused && p >= raycastEnablePoint;
+        HideRealMiniPack(); if (p >= 1f) CompleteOpening();
     }
 
     private void CompleteOpening()
     {
-        state = MorphState.Open;
-        elapsed = 0f;
-        DestroyGhost();
-
-        if (fullGroup != null)
-        {
-            fullGroup.alpha = 1f;
-            fullGroup.blocksRaycasts = !BattlePauseController.IsPaused;
-            fullGroup.interactable = !BattlePauseController.IsPaused;
-        }
-
-        if (fullRoot != null)
-            fullRoot.localScale = Vector3.one * (rewardMode ? rewardFullScale : combatFullScale);
-
+        state = MorphState.Open; elapsed = 0f; DestroyGhost();
+        if (fullGroup != null) { fullGroup.alpha = 1f; fullGroup.blocksRaycasts = !BattlePauseController.IsPaused; fullGroup.interactable = !BattlePauseController.IsPaused; }
+        if (fullRoot != null) fullRoot.localScale = Vector3.one * (rewardMode ? rewardFullScale : combatFullScale);
         HideRealMiniPack();
     }
 
     private void MaintainOpenState()
     {
-        if (fullRoot == null || fullGroup == null || miniPackGroup == null)
-            return;
-
-        bool paused = BattlePauseController.IsPaused;
-        fullGroup.alpha = 1f;
-        fullGroup.blocksRaycasts = !paused;
-        fullGroup.interactable = !paused;
-        fullRoot.localScale = Vector3.one * (rewardMode ? rewardFullScale : combatFullScale);
-        HideRealMiniPack();
+        if (fullRoot == null || fullGroup == null || miniPackGroup == null) return;
+        bool paused = BattlePauseController.IsPaused; fullGroup.alpha = 1f; fullGroup.blocksRaycasts = !paused; fullGroup.interactable = !paused;
+        fullRoot.localScale = Vector3.one * (rewardMode ? rewardFullScale : combatFullScale); HideRealMiniPack();
     }
 
     private void ApplyClosing(float p)
     {
         bool paused = BattlePauseController.IsPaused;
-
-        float travel = EaseInOutCubic(p);
-        float ghostFade = SmoothRange(0.04f, 0.28f, p) * (1f - SmoothRange(0.82f, 1f, p));
-
-        Vector2 center = Vector2.LerpUnclamped(transitionStartCenter, homeCenter, travel);
-        center += Vector2.up * Mathf.Sin(p * Mathf.PI) * arcHeight * 0.62f;
-
+        float travel = EaseInOutCubic(p), ghostFade = SmoothRange(0.04f, 0.28f, p) * (1f - SmoothRange(0.82f, 1f, p));
+        Vector2 center = Vector2.LerpUnclamped(transitionStartCenter, homeCenter, travel) + Vector2.up * Mathf.Sin(p * Mathf.PI) * arcHeight * 0.62f;
         Vector3 scale = Vector3.LerpUnclamped(transitionStartScale, homeGhostScale, EaseInOutCubic(p));
-        float rotation = Mathf.LerpAngle(transitionStartRotation, homeRotation, travel);
-        rotation += Mathf.Sin(p * Mathf.PI) * rotationKickDegrees * 0.58f;
-
-        SetGhostPose(center, scale, rotation);
-        if (ghostGroup != null)
-            ghostGroup.alpha = Mathf.Clamp01(Mathf.Max(transitionStartGhostAlpha, ghostFade));
-
-        float fullFade = 1f - SmoothRange(0.02f, 0.72f, p);
-        float finalScale = rewardMode ? rewardFullScale : combatFullScale;
+        float rotation = Mathf.LerpAngle(transitionStartRotation, homeRotation, travel) + Mathf.Sin(p * Mathf.PI) * rotationKickDegrees * 0.58f;
+        SetGhostPose(center, scale, rotation); if (ghostGroup != null) ghostGroup.alpha = Mathf.Clamp01(Mathf.Max(transitionStartGhostAlpha, ghostFade));
+        float fullFade = 1f - SmoothRange(0.02f, 0.72f, p), finalScale = rewardMode ? rewardFullScale : combatFullScale;
         fullGroup.alpha = Mathf.Clamp01(transitionStartFullAlpha * fullFade);
         fullRoot.localScale = Vector3.one * finalScale * Mathf.Lerp(1f, fullUiStartScale, EaseInCubic(p));
-        fullGroup.blocksRaycasts = false;
-        fullGroup.interactable = false;
-
-        HideRealMiniPack();
-
-        if (p >= 1f)
-            CompleteClosing(paused);
+        fullGroup.blocksRaycasts = false; fullGroup.interactable = false; HideRealMiniPack(); if (p >= 1f) CompleteClosing(paused);
     }
 
     private void CompleteClosing(bool paused)
     {
-        state = MorphState.Closed;
-        elapsed = 0f;
-        DestroyGhost();
-
-        if (fullGroup != null)
-        {
-            fullGroup.alpha = 0f;
-            fullGroup.blocksRaycasts = false;
-            fullGroup.interactable = false;
-        }
-
-        if (fullRoot != null)
-            fullRoot.localScale = Vector3.one * fullUiStartScale;
-
-        if (miniPackGroup != null)
-        {
-            miniPackGroup.alpha = homeAlpha > 0.01f ? homeAlpha : 1f;
-            miniPackGroup.blocksRaycasts = !paused;
-            miniPackGroup.interactable = !paused;
-        }
-
+        state = MorphState.Closed; elapsed = 0f; DestroyGhost();
+        if (fullGroup != null) { fullGroup.alpha = 0f; fullGroup.blocksRaycasts = false; fullGroup.interactable = false; }
+        if (fullRoot != null) fullRoot.localScale = Vector3.one * fullUiStartScale;
+        if (miniPackGroup != null) { miniPackGroup.alpha = homeAlpha > 0.01f ? homeAlpha : 1f; miniPackGroup.blocksRaycasts = !paused; miniPackGroup.interactable = !paused; }
         homePoseValid = false;
     }
 
-    private void MaintainClosedState()
-    {
-        if (ghostRoot != null)
-            DestroyGhost();
-    }
-
-    private void HideRealMiniPack()
-    {
-        if (miniPackGroup == null)
-            return;
-
-        miniPackGroup.alpha = 0f;
-        miniPackGroup.blocksRaycasts = false;
-        miniPackGroup.interactable = false;
-    }
-
-    private void RestoreMiniPackVisibility()
-    {
-        if (miniPackGroup == null)
-            return;
-
-        miniPackGroup.alpha = homePoseValid && homeAlpha > 0.01f ? homeAlpha : 1f;
-        miniPackGroup.blocksRaycasts = !BattlePauseController.IsPaused;
-        miniPackGroup.interactable = !BattlePauseController.IsPaused;
-    }
+    private void MaintainClosedState() { if (ghostRoot != null) DestroyGhost(); }
+    private void HideRealMiniPack() { if (miniPackGroup == null) return; miniPackGroup.alpha = 0f; miniPackGroup.blocksRaycasts = false; miniPackGroup.interactable = false; }
+    private void RestoreMiniPackVisibility() { if (miniPackGroup == null) return; miniPackGroup.alpha = homePoseValid && homeAlpha > 0.01f ? homeAlpha : 1f; miniPackGroup.blocksRaycasts = !BattlePauseController.IsPaused; miniPackGroup.interactable = !BattlePauseController.IsPaused; }
 
     private void GetBoardPose(out Vector2 center, out Vector3 scale, out float rotation)
     {
-        center = Vector2.zero;
-        scale = Vector3.one;
-        rotation = 0f;
-
-        if (boardRoot == null || transitionRoot == null || ghostRoot == null)
-            return;
-
-        if (!TryGetRectInTransitionSpace(boardRoot, out center, out Vector2 boardSize))
-            return;
-
-        Vector2 intrinsic = GetIntrinsicSize(ghostRoot);
-        float cover = Mathf.Clamp(targetBoardCoverage, 0.82f, 1.02f);
-        scale = new Vector3(
-            boardSize.x * cover / Mathf.Max(1f, intrinsic.x),
-            boardSize.y * cover / Mathf.Max(1f, intrinsic.y),
-            1f);
+        center = Vector2.zero; scale = Vector3.one; rotation = 0f;
+        if (boardRoot == null || transitionRoot == null || ghostRoot == null) return;
+        if (!TryGetRectInTransitionSpace(boardRoot, out center, out Vector2 boardSize)) return;
+        Vector2 intrinsic = GetIntrinsicSize(ghostRoot); float cover = Mathf.Clamp(targetBoardCoverage, 0.82f, 1.02f);
+        scale = new Vector3(boardSize.x * cover / Mathf.Max(1f, intrinsic.x), boardSize.y * cover / Mathf.Max(1f, intrinsic.y), 1f);
         rotation = GetScreenRotation(boardRoot);
     }
 
-    private void SetGhostPose(Vector2 center, Vector3 scale, float rotation)
-    {
-        if (ghostRoot == null)
-            return;
-
-        ghostRoot.anchoredPosition = center;
-        ghostRoot.localScale = scale;
-        ghostRoot.localRotation = Quaternion.Euler(0f, 0f, rotation);
-    }
+    private void SetGhostPose(Vector2 center, Vector3 scale, float rotation) { if (ghostRoot == null) return; ghostRoot.anchoredPosition = center; ghostRoot.localScale = scale; ghostRoot.localRotation = Quaternion.Euler(0f, 0f, rotation); }
 
     private void EnsureTransitionCanvas()
     {
-        if (transitionCanvas != null)
-            return;
-
-        GameObject canvasObject = new("BattleInventoryMorphCanvas");
-        canvasObject.transform.SetParent(transform, false);
-        transitionCanvas = canvasObject.AddComponent<Canvas>();
-        transitionCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        transitionCanvas.overrideSorting = true;
-        transitionCanvas.sortingOrder = TransitionSortingOrder;
-
-        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
-
-        transitionRoot = CreateRect(canvasObject.transform, "MorphTransitionRoot", Vector2.zero);
-        Stretch(transitionRoot);
-        transitionRoot.anchorMin = transitionRoot.anchorMax = new Vector2(0.5f, 0.5f);
-        transitionRoot.pivot = new Vector2(0.5f, 0.5f);
-        transitionRoot.sizeDelta = new Vector2(1920f, 1080f);
-        transitionRoot.anchoredPosition = Vector2.zero;
-
-        CanvasGroup group = transitionRoot.gameObject.AddComponent<CanvasGroup>();
-        group.blocksRaycasts = false;
-        group.interactable = false;
+        if (transitionCanvas != null) return;
+        GameObject canvasObject = new("BattleInventoryMorphCanvas"); canvasObject.transform.SetParent(transform, false);
+        transitionCanvas = canvasObject.AddComponent<Canvas>(); transitionCanvas.renderMode = RenderMode.ScreenSpaceOverlay; transitionCanvas.overrideSorting = true; transitionCanvas.sortingOrder = TransitionSortingOrder;
+        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>(); scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize; scaler.referenceResolution = new Vector2(1920f, 1080f); scaler.matchWidthOrHeight = 0.5f;
+        transitionRoot = CreateRect(canvasObject.transform, "MorphTransitionRoot", Vector2.zero); Stretch(transitionRoot);
+        transitionRoot.anchorMin = transitionRoot.anchorMax = new Vector2(0.5f, 0.5f); transitionRoot.pivot = new Vector2(0.5f, 0.5f); transitionRoot.sizeDelta = new Vector2(1920f, 1080f); transitionRoot.anchoredPosition = Vector2.zero;
+        CanvasGroup group = transitionRoot.gameObject.AddComponent<CanvasGroup>(); group.blocksRaycasts = false; group.interactable = false;
     }
 
     private bool TryGetRectInTransitionSpace(RectTransform source, out Vector2 center, out Vector2 size)
     {
-        center = Vector2.zero;
-        size = Vector2.zero;
-        if (source == null || transitionRoot == null)
-            return false;
-
-        Vector3[] corners = new Vector3[4];
-        source.GetWorldCorners(corners);
-
-        Canvas sourceCanvas = source.GetComponentInParent<Canvas>();
-        Camera camera = sourceCanvas != null && sourceCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-            ? sourceCanvas.worldCamera
-            : null;
-
+        center = Vector2.zero; size = Vector2.zero; if (source == null || transitionRoot == null) return false;
+        Vector3[] corners = new Vector3[4]; source.GetWorldCorners(corners);
+        Canvas sourceCanvas = source.GetComponentInParent<Canvas>(); Camera camera = sourceCanvas != null && sourceCanvas.renderMode != RenderMode.ScreenSpaceOverlay ? sourceCanvas.worldCamera : null;
         Vector2[] local = new Vector2[4];
-        for (int i = 0; i < 4; i++)
-        {
-            Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, corners[i]);
-            if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(transitionRoot, screen, null, out local[i]))
-                return false;
-        }
-
-        Vector2 min = local[0];
-        Vector2 max = local[0];
-        for (int i = 1; i < 4; i++)
-        {
-            min = Vector2.Min(min, local[i]);
-            max = Vector2.Max(max, local[i]);
-        }
-
-        center = (min + max) * 0.5f;
-        size = new Vector2(Mathf.Max(1f, max.x - min.x), Mathf.Max(1f, max.y - min.y));
-        return true;
+        for (int i = 0; i < 4; i++) { Vector2 screen = RectTransformUtility.WorldToScreenPoint(camera, corners[i]); if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(transitionRoot, screen, null, out local[i])) return false; }
+        Vector2 min = local[0], max = local[0]; for (int i = 1; i < 4; i++) { min = Vector2.Min(min, local[i]); max = Vector2.Max(max, local[i]); }
+        center = (min + max) * 0.5f; size = new Vector2(Mathf.Max(1f, max.x - min.x), Mathf.Max(1f, max.y - min.y)); return true;
     }
 
-    private static Vector2 GetIntrinsicSize(RectTransform rect)
-    {
-        if (rect == null)
-            return Vector2.one;
-
-        Vector2 size = rect.rect.size;
-        if (size.x < 1f || size.y < 1f)
-            size = rect.sizeDelta;
-        return new Vector2(Mathf.Max(1f, size.x), Mathf.Max(1f, size.y));
-    }
-
-    private static float GetScreenRotation(RectTransform rect)
-    {
-        if (rect == null)
-            return 0f;
-        return NormalizeAngle(rect.eulerAngles.z);
-    }
-
-    private void DestroyGhost()
-    {
-        if (ghostRoot != null)
-            Destroy(ghostRoot.gameObject);
-        ghostRoot = null;
-        ghostGroup = null;
-    }
-
-    private static bool ReadBool(FieldInfo field, object owner)
-    {
-        if (field == null || owner == null)
-            return false;
-        object raw = field.GetValue(owner);
-        return raw is bool value && value;
-    }
+    private static Vector2 GetIntrinsicSize(RectTransform rect) { if (rect == null) return Vector2.one; Vector2 size = rect.rect.size; if (size.x < 1f || size.y < 1f) size = rect.sizeDelta; return new Vector2(Mathf.Max(1f, size.x), Mathf.Max(1f, size.y)); }
+    private static float GetScreenRotation(RectTransform rect) => rect == null ? 0f : NormalizeAngle(rect.eulerAngles.z);
+    private void DestroyGhost() { if (ghostRoot != null) Destroy(ghostRoot.gameObject); ghostRoot = null; ghostGroup = null; }
+    private static bool ReadBool(FieldInfo field, object owner) { if (field == null || owner == null) return false; object raw = field.GetValue(owner); return raw is bool value && value; }
 
     private static RectTransform FindRect(string objectName)
     {
-        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect != null && rect.name == objectName)
-                return rect;
-        }
+        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < all.Length; i++) if (all[i] != null && all[i].name == objectName) return all[i];
         return null;
     }
-
-    private static RectTransform FindChildRect(RectTransform root, string objectName)
-    {
-        if (root == null)
-            return null;
-
-        RectTransform[] all = root.GetComponentsInChildren<RectTransform>(true);
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect != null && rect.name == objectName)
-                return rect;
-        }
-        return null;
-    }
-
-    private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
-    {
-        GameObject go = new(name);
-        go.transform.SetParent(parent, false);
-        RectTransform rect = go.AddComponent<RectTransform>();
-        rect.sizeDelta = size;
-        return rect;
-    }
-
-    private static void Stretch(RectTransform rect)
-    {
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = Vector2.zero;
-        rect.offsetMax = Vector2.zero;
-    }
-
-    private static float SmoothRange(float start, float end, float value)
-    {
-        if (Mathf.Approximately(start, end))
-            return value >= end ? 1f : 0f;
-        return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(start, end, value));
-    }
-
-    private static float EaseInOutCubic(float t)
-    {
-        t = Mathf.Clamp01(t);
-        return t < 0.5f
-            ? 4f * t * t * t
-            : 1f - Mathf.Pow(-2f * t + 2f, 3f) * 0.5f;
-    }
-
-    private static float EaseInCubic(float t)
-    {
-        t = Mathf.Clamp01(t);
-        return t * t * t;
-    }
-
-    private static float EaseOutBack(float t, float overshoot)
-    {
-        t = Mathf.Clamp01(t);
-        float c1 = Mathf.Max(0.01f, overshoot);
-        float c3 = c1 + 1f;
-        float x = t - 1f;
-        return 1f + c3 * x * x * x + c1 * x * x;
-    }
-
-    private static float NormalizeAngle(float angle)
-    {
-        angle %= 360f;
-        if (angle > 180f) angle -= 360f;
-        if (angle < -180f) angle += 360f;
-        return angle;
-    }
-}
-
-public static class BattleInventoryMorphTransitionAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponent;
-    }
-
-    private static void EnsureEditorComponent()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleInventoryMorphTransitionController>() != null)
-                continue;
-
-            Undo.AddComponent<BattleInventoryMorphTransitionController>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponent()
-    {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleInventoryMorphTransitionController>() == null)
-                manager.gameObject.AddComponent<BattleInventoryMorphTransitionController>();
-        }
-    }
+    private static RectTransform FindChildRect(RectTransform root, string objectName) { if (root == null) return null; RectTransform[] all = root.GetComponentsInChildren<RectTransform>(true); for (int i = 0; i < all.Length; i++) if (all[i] != null && all[i].name == objectName) return all[i]; return null; }
+    private static RectTransform CreateRect(Transform parent, string name, Vector2 size) { GameObject go = new(name); go.transform.SetParent(parent, false); RectTransform rect = go.AddComponent<RectTransform>(); rect.sizeDelta = size; return rect; }
+    private static void Stretch(RectTransform rect) { rect.anchorMin = Vector2.zero; rect.anchorMax = Vector2.one; rect.offsetMin = Vector2.zero; rect.offsetMax = Vector2.zero; }
+    private static float SmoothRange(float start, float end, float value) { if (Mathf.Approximately(start, end)) return value >= end ? 1f : 0f; return Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(start, end, value)); }
+    private static float EaseInOutCubic(float t) { t = Mathf.Clamp01(t); return t < 0.5f ? 4f * t * t * t : 1f - Mathf.Pow(-2f * t + 2f, 3f) * 0.5f; }
+    private static float EaseInCubic(float t) { t = Mathf.Clamp01(t); return t * t * t; }
+    private static float EaseOutBack(float t, float overshoot) { t = Mathf.Clamp01(t); float c1 = Mathf.Max(0.01f, overshoot); float c3 = c1 + 1f; float x = t - 1f; return 1f + c3 * x * x * x + c1 * x * x; }
+    private static float NormalizeAngle(float angle) { angle %= 360f; if (angle > 180f) angle -= 360f; if (angle < -180f) angle += 360f; return angle; }
 }
