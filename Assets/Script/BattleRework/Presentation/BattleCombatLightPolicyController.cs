@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Combat lighting policy override.
@@ -27,38 +26,11 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
     private BattleCharacterLightVisual[] cachedVisuals = System.Array.Empty<BattleCharacterLightVisual>();
     private float nextBindingRefresh;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void InstallSceneHook()
-    {
-        SceneManager.sceneLoaded -= HandleSceneLoaded;
-        SceneManager.sceneLoaded += HandleSceneLoaded;
-    }
-
-    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        if (!scene.IsValid() || !scene.isLoaded)
-            return;
-
-        bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
-        if (!battleScene)
-        {
-            BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
-            battleScene = manager != null && manager.gameObject.scene == scene;
-        }
-
-        if (!battleScene || Object.FindFirstObjectByType<BattleCombatLightPolicyController>() != null)
-            return;
-
-        GameObject host = new("BattleCombatLightPolicyRuntime");
-        SceneManager.MoveGameObjectToScene(host, scene);
-        host.AddComponent<BattleCombatLightPolicyController>();
-    }
-
     private void Awake()
     {
         if (instance != null && instance != this)
         {
-            Destroy(gameObject);
+            Destroy(this);
             return;
         }
 
