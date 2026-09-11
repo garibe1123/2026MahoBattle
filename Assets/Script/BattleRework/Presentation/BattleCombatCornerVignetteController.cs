@@ -1,14 +1,11 @@
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
 /// Combat-only screen-space corner darkening.
 ///
 /// This component is authored on the BattleSystems GameObject so its tuning values stay
-/// visible and editable in the BattleScene Inspector before Play Mode. If another battle
-/// scene is missing the component, the runtime fallback attaches it to that scene's
-/// BattleSystems root instead of creating a separate presentation GameObject.
+/// visible and editable in the BattleScene Inspector before Play Mode.
 ///
 /// Unlike URP's circular Vignette, this overlay keeps the center almost untouched,
 /// applies only a small amount of edge falloff, and deepens the four corners more strongly.
@@ -20,7 +17,6 @@ using UnityEngine.UI;
 public sealed class BattleCombatCornerVignetteController : MonoBehaviour
 {
     private const string ShaderName = "UI/BattleCombatCornerVignette";
-    private const string BattleSystemsName = "BattleSystems";
     private const int OverlaySortingOrder = 420;
 
     private static BattleCombatCornerVignetteController instance;
@@ -53,63 +49,6 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
     private float currentBlend;
 
     public static BattleCombatCornerVignetteController Instance => instance;
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void InstallSceneHook()
-    {
-        SceneManager.sceneLoaded -= HandleSceneLoaded;
-        SceneManager.sceneLoaded += HandleSceneLoaded;
-    }
-
-    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        if (!scene.IsValid() || !scene.isLoaded)
-            return;
-
-        bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
-        BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
-
-        if (!battleScene)
-            battleScene = manager != null && manager.gameObject.scene == scene;
-
-        if (!battleScene)
-            return;
-
-        BattleCombatCornerVignetteController existing =
-            Object.FindFirstObjectByType<BattleCombatCornerVignetteController>();
-        if (existing != null && existing.gameObject.scene == scene)
-            return;
-
-        GameObject host = FindBattleSystemsRoot(scene);
-
-        if (host == null && manager != null && manager.gameObject.scene == scene)
-            host = manager.gameObject;
-
-        if (host == null)
-        {
-            host = new GameObject(BattleSystemsName);
-            SceneManager.MoveGameObjectToScene(host, scene);
-        }
-
-        if (host.GetComponent<BattleCombatCornerVignetteController>() == null)
-            host.AddComponent<BattleCombatCornerVignetteController>();
-    }
-
-    private static GameObject FindBattleSystemsRoot(Scene scene)
-    {
-        if (!scene.IsValid() || !scene.isLoaded)
-            return null;
-
-        GameObject[] roots = scene.GetRootGameObjects();
-        for (int i = 0; i < roots.Length; i++)
-        {
-            GameObject root = roots[i];
-            if (root != null && root.name == BattleSystemsName)
-                return root;
-        }
-
-        return null;
-    }
 
     private void Awake()
     {
