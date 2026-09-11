@@ -1,6 +1,5 @@
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
@@ -68,38 +67,11 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
     public static BattlePlayerStageLightingController Instance => instance;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void InstallSceneHook()
-    {
-        SceneManager.sceneLoaded -= HandleSceneLoaded;
-        SceneManager.sceneLoaded += HandleSceneLoaded;
-    }
-
-    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        if (!scene.IsValid() || !scene.isLoaded)
-            return;
-
-        bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
-        if (!battleScene)
-        {
-            BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
-            battleScene = manager != null && manager.gameObject.scene == scene;
-        }
-
-        if (!battleScene || Object.FindFirstObjectByType<BattlePlayerStageLightingController>() != null)
-            return;
-
-        GameObject host = new("BattlePlayerStageLightingRuntime");
-        SceneManager.MoveGameObjectToScene(host, scene);
-        host.AddComponent<BattlePlayerStageLightingController>();
-    }
-
     private void Awake()
     {
         if (instance != null && instance != this)
         {
-            Destroy(gameObject);
+            Destroy(this);
             return;
         }
 
