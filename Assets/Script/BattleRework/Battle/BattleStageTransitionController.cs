@@ -3,12 +3,31 @@ using System.Collections.Generic;
 using DG.Tweening;
 using UnityEngine;
 
+public enum BattleStageFlowState
+{
+    Base,
+    ShowEntering,
+    RewardShow,
+    MapShow,
+    ShowExiting,
+    RoomEntering,
+    Combat,
+    RoomExiting,
+    NonCombat,
+    Ended
+}
+
 /// <summary>
-/// 전투 종료 -> Player 기준 4x4 확정 -> 나머지 Room Field 순차 퇴장 -> Show Stage 개방
-/// 순서만 담당합니다.
+/// Battle stage physical-flow state machine.
 ///
-/// Show의 TV/사회자/쇼 바닥 배치는 BattleShowWorldSetController가 담당하고,
-/// 이 클래스는 그 컨트롤러에 확정된 4x4 중심만 전달합니다.
+/// BattleRunManager owns logical run rules. This controller owns the physical stage order:
+/// Base -> Room Enter -> Combat -> Room Exit -> Base -> Reward/Map Show -> Show Exit -> Base.
+///
+/// Important invariant:
+/// - Room field and Show carriers never enter at the same time.
+/// - Reward/Map Show opens only after the combat field collapse is complete.
+/// - A selected next Room does not begin building until the current Show has completely exited.
+/// - Persistent 4x4 is the common hand-off point between every physical stage.
 /// </summary>
 [DefaultExecutionOrder(-15000)]
 [DisallowMultipleComponent]
@@ -34,6 +53,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public Sprite sprite;
         public Color color;
     }
+
+    private static BattleStageTransitionController instance;
 
     [Header("Persistent Base")]
     [SerializeField] private int persistentBaseFloorSorting = -19;
@@ -61,9 +82,29 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private Coroutine bindRoutine;
     private Coroutine collapseRoutine;
+    private Coroutine queuedNodeEntryRoutine;
+    private BattleNodeData queuedNode;
+    private BattleStageFlowState flowState = BattleStageFlowState.Base;
+    private BattleStageFlowState pendingShowState = BattleStageFlowState.MapShow;
 
+    public static BattleStageTransitionController Instance => instance;
     public bool HasShowAnchor => hasShowAnchor;
     public Vector3 ShowAnchorCenter => showAnchorCenter;
+    public BattleStageFlowState FlowState => flowState;
+    public bool IsStageTransitioning =>
+        flowState == BattleStageFlowState.ShowEntering ||
+        flowState == BattleStageFlowState.ShowExiting ||
+        flowState == BattleStageFlowState.RoomEntering ||
+        flowState == BattleStageFlowState.RoomExiting;
+    public bool IsShowPhase =>
+        flowState == BattleStageFlowState.ShowEntering ||
+        flowState == BattleStageFlowState.RewardShow ||
+        flowState == BattleStageFlowState.MapShow ||
+        flowState == BattleStageFlowState.ShowExiting;
+    public bool IsCombatPhase => flowState == BattleStageFlowState.Combat;
+    public bool IsPreCombatPhase => flowState == BattleStageFlowState.RoomEntering;
+
+    public event System.Action<BattleStageFlowState> FlowStateChanged;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
@@ -71,9 +112,20 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (FindFirstObjectByType<BattleStageTransitionController>() != null)
             return;
 
-        GameObject host = new("BattleStageTransitionRuntime");
+        GameObject host = new("BattleStageFlowRuntime");
         DontDestroyOnLoad(host);
         host.AddComponent<BattleStageTransitionController>();
+    }
+
+    private void Awake()
+    {
+        if (instance != null && instance != this)
+        {
+            Destroy(this);
+            return;
+        }
+
+        instance = this;
     }
 
     private void OnEnable()
@@ -88,11 +140,21 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             StopCoroutine(bindRoutine);
         if (collapseRoutine != null)
             StopCoroutine(collapseRoutine);
+        if (queuedNodeEntryRoutine != null)
+            StopCoroutine(queuedNodeEntryRoutine);
 
         bindRoutine = null;
         collapseRoutine = null;
+        queuedNodeEntryRoutine = null;
+        queuedNode = null;
         ReleaseShowStageGate();
         Unsubscribe();
+    }
+
+    private void OnDestroy()
+    {
+        if (instance == this)
+            instance = null;
     }
 
     private IEnumerator BindWhenReady()
@@ -117,7 +179,26 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         CaptureShowAnchorFromBase();
         EnsureBaseVisible();
         EnsurePlayerVisible();
+        HandleStateChanged(runManager.State);
         bindRoutine = null;
+    }
+
+    private void Update()
+    {
+        ResolveSystems();
+
+        if (flowState != BattleStageFlowState.ShowEntering || showStage == null)
+            return;
+
+        // HasCameraAnchor only becomes true after the carrier entry coroutine has finished
+        // and WorldSet has committed currentMode, so this is our physical "show entered" signal.
+        if (!showStage.HasCameraAnchor)
+            return;
+
+        if (runManager != null && runManager.State == BattleRunState.Reward)
+            SetFlowState(BattleStageFlowState.RewardShow);
+        else if (runManager != null && runManager.State == BattleRunState.SelectingNode)
+            SetFlowState(BattleStageFlowState.MapShow);
     }
 
     private void ResolveSystems()
@@ -139,9 +220,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (subscribed || runManager == null)
             return;
 
+        // StateChanged is the single logical trigger for stage transitions.
+        // RewardSelectionRequested used to call collapse a second time and is intentionally not subscribed here.
         runManager.StateChanged += HandleStateChanged;
         runManager.NodeEntered += HandleNodeEntered;
-        runManager.RewardSelectionRequested += HandleRewardSelectionRequested;
         runManager.RunEnded += HandleRunEnded;
         subscribed = true;
     }
@@ -153,7 +235,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         runManager.StateChanged -= HandleStateChanged;
         runManager.NodeEntered -= HandleNodeEntered;
-        runManager.RewardSelectionRequested -= HandleRewardSelectionRequested;
         runManager.RunEnded -= HandleRunEnded;
         subscribed = false;
     }
@@ -162,64 +243,148 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         ResolveSystems();
 
-        if (next == BattleRunState.Reward)
+        switch (next)
         {
-            EnsureBaseVisible();
-            EnsurePlayerVisible();
-            BeginSelectionCollapseIfNeeded();
-            return;
-        }
+            case BattleRunState.Reward:
+                EnsureBaseVisible();
+                EnsurePlayerVisible();
+                BeginSelectionCollapseIfNeeded(BattleStageFlowState.RewardShow);
+                return;
 
-        if (next == BattleRunState.SelectingNode)
-        {
-            EnsureBaseVisible();
-            EnsurePlayerVisible();
+            case BattleRunState.SelectingNode:
+                EnsureBaseVisible();
+                EnsurePlayerVisible();
 
-            if (roomManager != null && roomManager.IsRoomActive)
-                BeginSelectionCollapseIfNeeded();
-            else
-            {
-                CaptureShowAnchorFromBase();
+                if (roomManager != null && roomManager.IsRoomActive && !selectionCollapsePrepared)
+                {
+                    BeginSelectionCollapseIfNeeded(BattleStageFlowState.MapShow);
+                }
+                else
+                {
+                    pendingShowState = BattleStageFlowState.MapShow;
+                    CaptureShowAnchorFromBase();
+                    OpenShowStage();
+                }
+                return;
+
+            case BattleRunState.EnteringNode:
+                // Normally SelectNextNode queues entry through TryQueueNodeEntry(), so the Show is already gone.
+                // This also covers legacy/direct EnterNode callers safely.
+                HoldShowStageGate();
+                SetFlowState(BattleStageFlowState.RoomEntering);
+
+                if (roomManager != null && roomManager.IsRoomActive && !preparedForIncomingNode)
+                    PromoteNextBaseAroundPlayer();
+
+                if (!hasPreservedBaseOrigin)
+                    CaptureCurrentBase();
+
+                EnsureBaseVisible();
+                EnsurePlayerVisible();
+                ApplyBaseOriginToRoomManager();
+                return;
+
+            case BattleRunState.BuildingRoom:
+                HoldShowStageGate();
+                SetFlowState(BattleStageFlowState.RoomEntering);
+                return;
+
+            case BattleRunState.Combat:
+                HoldShowStageGate();
+                SetFlowState(BattleStageFlowState.Combat);
+                return;
+
+            case BattleRunState.NonCombat:
+                HoldShowStageGate();
+                SetFlowState(BattleStageFlowState.NonCombat);
+                return;
+
+            case BattleRunState.Ended:
+                SetFlowState(BattleStageFlowState.Ended);
+                return;
+
+            case BattleRunState.None:
                 ReleaseShowStageGate();
-            }
-            return;
+                SetFlowState(BattleStageFlowState.Base);
+                return;
         }
-
-        if (next != BattleRunState.EnteringNode)
-            return;
-
-        if (roomManager != null && roomManager.IsRoomActive && !preparedForIncomingNode)
-            PromoteNextBaseAroundPlayer();
-
-        if (!hasPreservedBaseOrigin)
-            CaptureCurrentBase();
-
-        EnsureBaseVisible();
-        EnsurePlayerVisible();
-        ApplyBaseOriginToRoomManager();
     }
 
-    private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> _)
-    {
-        BeginSelectionCollapseIfNeeded();
-    }
-
-    private void BeginSelectionCollapseIfNeeded()
+    /// <summary>
+    /// Called by BattleRunManager after a map node is chosen.
+    /// Returns true when this state machine takes ownership of the physical hand-off.
+    /// The logical node is entered only after the current Show has completely left the stage.
+    /// </summary>
+    public bool TryQueueNodeEntry(BattleNodeData node)
     {
         ResolveSystems();
 
-        if (selectionCollapsePrepared || collapseRoutine != null)
+        if (node == null || runManager == null || !runManager.RunActive)
+            return false;
+        if (queuedNodeEntryRoutine != null)
+            return true;
+
+        // If no Show exists there is nothing physical to wait for; let RunManager enter immediately.
+        if (showStage == null || !showStage.IsShowActive)
+            return false;
+
+        queuedNode = node;
+        queuedNodeEntryRoutine = StartCoroutine(ExitShowThenEnterQueuedNode());
+        return true;
+    }
+
+    private IEnumerator ExitShowThenEnterQueuedNode()
+    {
+        SetFlowState(BattleStageFlowState.ShowExiting);
+        HoldShowStageGate();
+
+        // WorldSet resolves externalGate as ShowMode.None and owns its actual exit animation.
+        while (showStage != null && showStage.IsShowActive)
+            yield return null;
+
+        BattleNodeData node = queuedNode;
+        queuedNode = null;
+        queuedNodeEntryRoutine = null;
+
+        SetFlowState(BattleStageFlowState.Base);
+
+        if (node != null && runManager != null && runManager.RunActive)
+            runManager.ContinueEnterNodeFromStageFlow(node);
+    }
+
+    private void BeginSelectionCollapseIfNeeded(BattleStageFlowState showState)
+    {
+        ResolveSystems();
+        pendingShowState = showState;
+
+        if (collapseRoutine != null)
             return;
+
+        if (selectionCollapsePrepared)
+        {
+            OpenShowStage();
+            return;
+        }
 
         if (roomManager == null || !roomManager.IsRoomActive || player == null || baseTemplate == null)
         {
             CaptureShowAnchorFromBase();
-            ReleaseShowStageGate();
+            OpenShowStage();
             return;
         }
 
         HoldShowStageGate();
+        SetFlowState(BattleStageFlowState.RoomExiting);
         collapseRoutine = StartCoroutine(CollapseClearedRoomToPlayerBase());
+    }
+
+    private void OpenShowStage()
+    {
+        if (hasShowAnchor)
+            showStage?.SetStageAnchor(showAnchorCenter);
+
+        SetFlowState(BattleStageFlowState.ShowEntering);
+        ReleaseShowStageGate();
     }
 
     private IEnumerator CollapseClearedRoomToPlayerBase()
@@ -304,8 +469,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         collapseRoutine = null;
 
-        // 3) 4x4 기준점이 확정된 뒤에만 Show를 엽니다.
-        ReleaseShowStageGate();
+        // 3) 전투 Field의 실제 Exit가 끝난 뒤에만 Show를 엽니다.
+        OpenShowStage();
     }
 
     private List<MapBlock> CollectCurrentRoomExitBlocks()
@@ -736,13 +901,29 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             StopCoroutine(collapseRoutine);
             collapseRoutine = null;
         }
+        if (queuedNodeEntryRoutine != null)
+        {
+            StopCoroutine(queuedNodeEntryRoutine);
+            queuedNodeEntryRoutine = null;
+        }
 
+        queuedNode = null;
         ResolveSystems();
         EnsureBaseVisible();
         EnsurePlayerVisible();
         preparedForIncomingNode = false;
         selectionCollapsePrepared = false;
         ReleaseShowStageGate();
+        SetFlowState(BattleStageFlowState.Ended);
+    }
+
+    private void SetFlowState(BattleStageFlowState next)
+    {
+        if (flowState == next)
+            return;
+
+        flowState = next;
+        FlowStateChanged?.Invoke(next);
     }
 
     private void PromoteNextBaseAroundPlayer()
