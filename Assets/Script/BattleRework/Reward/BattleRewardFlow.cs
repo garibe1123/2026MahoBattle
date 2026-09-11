@@ -1,11 +1,6 @@
 using System;
 using UnityEngine;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 public enum BattleRewardPhase
 {
     Inactive,
@@ -425,66 +420,5 @@ public sealed class BattleRewardFlow : MonoBehaviour
     private void RaiseChanged()
     {
         Changed?.Invoke();
-    }
-}
-
-public static class BattleRewardFlowAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponent;
-    }
-
-    private static void EnsureEditorComponent()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleRewardFlow>() != null)
-                continue;
-
-            Undo.AddComponent<BattleRewardFlow>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponent()
-    {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleRewardFlow>() == null)
-                manager.gameObject.AddComponent<BattleRewardFlow>();
-        }
     }
 }
