@@ -19,6 +19,7 @@ using UnityEditor.SceneManagement;
 /// 슬롯 데이터와 교환 규칙은 BattleEquipmentSystem,
 /// Reward 상태는 BattleRewardFlow,
 /// 슬롯 입력은 BattleInventoryInteractionController가 소유합니다.
+/// Reward 편집 slow-motion은 BattleTimeScaleController에 요청하며 Time.timeScale을 직접 쓰지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33380)]
@@ -37,6 +38,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     [SerializeField] private BattleInventoryInteractionController inventoryInteraction;
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
+    [SerializeField] private BattleTimeScaleController timeScaleController;
 
     [Header("Mini PACK")]
     [SerializeField] private Vector2 miniPackSize = new(304f, 326f);
@@ -59,7 +61,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     [SerializeField] private Vector2 doneAttachOffset = new(-8f, 80f);
 
     [Header("Reward Edit Time")]
-    [SerializeField, Range(0.02f, 0.20f)] private float rewardBulletTimeScale = 0.05f;
+    [SerializeField, Range(0.02f, 0.20f)] private float rewardInventoryTimeScale = 0.05f;
 
     [Header("Selection")]
     [SerializeField] private Color selectedAccent = new(1f, 0.80f, 0.08f, 1f);
@@ -101,10 +103,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private int activeInspectSlot = -1;
     private bool mouseWasInsideBoard;
     private float nextResolveTime;
-
-    private bool bulletTimeOwned;
-    private float previousTimeScale = 1f;
-    private float previousFixedDeltaTime = 0.02f;
 
     public int ActiveInspectSlot => activeInspectSlot;
 
@@ -151,7 +149,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         if (rewardEdit)
             MaintainRewardBulletTime();
-        else if (bulletTimeOwned && !BattlePauseController.IsPaused)
+        else
             RestoreBulletTime(false);
 
         SyncSelection(rewardEdit, combatTab);
@@ -193,6 +191,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
         if (detailController == null)
             detailController = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
+        if (timeScaleController == null)
+            timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
 
         if (oldRewardFullInspect == null)
             oldRewardFullInspect = FindFirstObjectByType<BattleRewardFullInspectController>(FindObjectsInactive.Include);
@@ -732,37 +732,17 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void MaintainRewardBulletTime()
     {
-        if (BattlePauseController.IsPaused)
+        ResolveReferences();
+        if (timeScaleController == null)
             return;
 
-        if (!bulletTimeOwned)
-        {
-            previousTimeScale = Time.timeScale;
-            previousFixedDeltaTime = Time.fixedDeltaTime;
-            if (previousTimeScale <= 0f)
-                return;
-            bulletTimeOwned = true;
-        }
-
-        float scale = Mathf.Clamp(rewardBulletTimeScale, 0.02f, 0.20f);
-        float target = previousTimeScale * scale;
-        if (!Mathf.Approximately(Time.timeScale, target))
-        {
-            Time.timeScale = target;
-            Time.fixedDeltaTime = Mathf.Max(0.0001f, previousFixedDeltaTime * scale);
-        }
+        float scale = Mathf.Clamp(rewardInventoryTimeScale, 0.02f, 0.20f);
+        timeScaleController.Request(BattleTimeScaleController.Owner.RewardInventory, scale);
     }
 
     private void RestoreBulletTime(bool force)
     {
-        if (!bulletTimeOwned)
-            return;
-        if (!force && BattlePauseController.IsPaused)
-            return;
-
-        Time.timeScale = previousTimeScale;
-        Time.fixedDeltaTime = previousFixedDeltaTime;
-        bulletTimeOwned = false;
+        timeScaleController?.Release(BattleTimeScaleController.Owner.RewardInventory);
     }
 
     private bool HasItem(int slotIndex)
