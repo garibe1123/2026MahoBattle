@@ -1,7 +1,5 @@
-using System.Reflection;
 using System.Text;
 using UnityEngine;
-using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 #if UNITY_EDITOR
@@ -10,34 +8,34 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// PACK / Combat Tab / Reward 후보에서 현재 Inspect 대상의 상세 정보를 공용 패널로 표시합니다.
+/// PACK / Combat Tab의 공용 장비 상세 View입니다.
 ///
-/// 원칙:
-/// - 아무 아이템도 선택/호버하지 않았으면 패널을 숨깁니다.
-/// - Reward 후보는 PointerEnter 동안만 기존 PACK 상세 패널을 그대로 Preview로 사용합니다.
-/// - Reward Hover는 카드의 위치/크기/회전/Sibling 순서를 절대 변경하지 않습니다.
-/// - Reward PACK / Combat Tab에서는 실제 선택된 슬롯을 표시합니다.
-/// - 장착/시너지 상태만으로는 패널을 열지 않습니다.
+/// Phase 7 소유권 규칙:
+/// - 어떤 슬롯을 Inspect할지는 BattleUnifiedInventoryInspectController가 결정합니다.
+/// - Reward 후보 선택/설명은 BattleRewardCardActionController가 결정합니다.
+/// - 이 클래스는 전달받은 Equipment/Slot 내용을 렌더링하는 View 역할만 합니다.
+/// - 다른 Controller의 private field를 Reflection으로 읽지 않습니다.
+/// - 슬롯/Reward 카드에 입력 Relay를 자동 설치하지 않습니다.
+///
+/// 공개 API:
+/// - ShowSlot(slotIndex)
+/// - PreviewReward(rewardIndex)
+/// - ClearRewardPreview()
+/// - Hide()
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30920)]
 public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 {
     private const int CanvasSortingOrder = 1660;
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleGridSynergyController gridSynergy;
-    [SerializeField] private BattleInventoryInteractionController inventoryInteraction;
-    [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
 
     [Header("Panel")]
     [SerializeField] private Vector2 panelSize = new(430f, 570f);
-    [SerializeField] private Vector2 visibleOffset = new(-34f, 0f);
-    [SerializeField] private Vector2 hiddenOffset = new(54f, 0f);
-    [SerializeField, Min(1f)] private float animationSharpness = 18f;
 
     [Header("Theme")]
     [SerializeField] private Color inkColor = new(0.025f, 0.022f, 0.040f, 0.985f);
@@ -60,143 +58,45 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     private Text synergyTitle;
     private Text synergyText;
 
-    // 다른 Inventory 컨트롤러가 reflection으로 읽고 있으므로 필드명은 유지합니다.
-    private int manualSelectedSlot = -1;
-    private int hoveredRewardIndex = -1;
-    private int renderedSlot = -999;
-    private int renderedRewardIndex = -999;
-    private bool renderedRewardPreview;
-    private bool renderedVisible;
-    private BattleRunState lastState = (BattleRunState)(-1);
-    private float nextRelayInstall;
+    private BattleEquipmentSystem subscribedEquipmentSystem;
+    private BattleGridSynergyController subscribedGridSynergy;
 
-    private FieldInfo rewardSelectedSlotField;
-    private FieldInfo rewardPadSelectedSlotField;
-    private FieldInfo rewardPadModeField;
-    private FieldInfo loadoutSelectedIndexField;
-    private FieldInfo loadoutSwitchHeldField;
-    private FieldInfo loadoutBoardShownField;
+    private int displayedSlot = -1;
+    private int previewRewardIndex = -1;
+    private bool rewardPreviewActive;
+
+    public RectTransform Root => root;
+    public CanvasGroup Group => group;
+    public int DisplayedSlot => displayedSlot;
+    public bool IsRewardPreviewActive => rewardPreviewActive;
 
     private void Awake()
     {
         ResolveReferences();
-        CacheReflection();
         EnsureUi();
+        EnsureSubscriptions();
     }
 
     private void OnEnable()
     {
         ResolveReferences();
-        CacheReflection();
         EnsureUi();
-        nextRelayInstall = 0f;
+        EnsureSubscriptions();
     }
 
     private void OnDisable()
     {
-        hoveredRewardIndex = -1;
-        manualSelectedSlot = -1;
-        renderedSlot = -999;
-        renderedRewardIndex = -999;
-        renderedRewardPreview = false;
-        renderedVisible = false;
-        if (group != null)
-            group.alpha = 0f;
+        Hide();
+        Unsubscribe();
     }
 
     private void Update()
     {
-        ResolveReferences();
-        EnsureUi();
-
-        if (runManager != null && runManager.State != lastState)
+        // Runtime 설치 순서 때문에 첫 Awake에서 System을 찾지 못한 경우만 보완합니다.
+        if (equipmentSystem == null || gridSynergy == null)
         {
-            manualSelectedSlot = -1;
-            hoveredRewardIndex = -1;
-            renderedSlot = -999;
-            renderedRewardIndex = -999;
-            renderedRewardPreview = false;
-            lastState = runManager.State;
-        }
-
-        if (Time.unscaledTime >= nextRelayInstall)
-        {
-            nextRelayInstall = Time.unscaledTime + 0.12f;
-            InstallInspectRelays();
-        }
-
-        // Reward 후보 Hover가 최우선 Inspect 대상입니다.
-        // PACK에 넣기 전의 후보 SO이므로 실제 슬롯을 만들거나 데이터를 변경하지 않습니다.
-        if (TryGetHoveredReward(out int rewardIndex, out BattleEquipmentSO reward))
-        {
-            if (!renderedRewardPreview || rewardIndex != renderedRewardIndex || !renderedVisible)
-                RefreshRewardPreview(rewardIndex, reward);
-
-            renderedRewardPreview = true;
-            renderedRewardIndex = rewardIndex;
-            renderedSlot = -999;
-            renderedVisible = true;
-            Animate(true);
-            return;
-        }
-
-        renderedRewardPreview = false;
-        renderedRewardIndex = -999;
-
-        bool contextVisible = IsRewardContext() || IsCombatTabContext();
-        if (!contextVisible)
-            manualSelectedSlot = -1;
-
-        int slot = contextVisible ? ResolveSelectedSlot() : -1;
-        bool hasItem = TryGetEquipment(slot, out BattleEquipmentSlot runtimeSlot, out BattleEquipmentSO equipment);
-        bool visible = contextVisible && hasItem;
-
-        if (visible && (slot != renderedSlot || !renderedVisible))
-            RefreshPanel(slot, runtimeSlot, equipment);
-
-        renderedSlot = visible ? slot : -999;
-        renderedVisible = visible;
-        Animate(visible);
-    }
-
-    public void SelectSlotFromPointer(int slotIndex)
-    {
-        if (!IsRewardContext() && !IsCombatTabContext())
-            return;
-
-        if (!TryGetEquipment(slotIndex, out _, out _))
-        {
-            manualSelectedSlot = -1;
-            renderedSlot = -999;
-            return;
-        }
-
-        manualSelectedSlot = slotIndex;
-        renderedSlot = -999;
-    }
-
-    internal void SetRewardPreviewHover(int rewardIndex, bool entered)
-    {
-        if (!IsRewardChoiceContext())
-        {
-            hoveredRewardIndex = -1;
-            return;
-        }
-
-        if (entered)
-        {
-            if (TryGetReward(rewardIndex, out _))
-            {
-                hoveredRewardIndex = rewardIndex;
-                renderedRewardIndex = -999;
-            }
-            return;
-        }
-
-        if (hoveredRewardIndex == rewardIndex)
-        {
-            hoveredRewardIndex = -1;
-            renderedRewardIndex = -999;
+            ResolveReferences();
+            EnsureSubscriptions();
         }
     }
 
@@ -208,105 +108,191 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (gridSynergy == null)
             gridSynergy = FindFirstObjectByType<BattleGridSynergyController>();
-        if (inventoryInteraction == null)
-            inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>();
-        if (kineticLoadout == null)
-            kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
     }
 
-    private void CacheReflection()
+    private void EnsureSubscriptions()
     {
-        rewardSelectedSlotField ??= typeof(BattleInventoryInteractionController).GetField("selectedRewardSlot", PrivateInstance);
-        rewardPadSelectedSlotField ??= typeof(BattleInventoryInteractionController).GetField("padSelectedSlot", PrivateInstance);
-        rewardPadModeField ??= typeof(BattleInventoryInteractionController).GetField("padModeActive", PrivateInstance);
-
-        loadoutSelectedIndexField ??= typeof(BattleKineticLoadoutUI).GetField("selectedIndex", PrivateInstance);
-        loadoutSwitchHeldField ??= typeof(BattleKineticLoadoutUI).GetField("switchHeld", PrivateInstance);
-        loadoutBoardShownField ??= typeof(BattleKineticLoadoutUI).GetField("boardWasShown", PrivateInstance);
-    }
-
-    private bool IsRewardContext()
-    {
-        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward;
-    }
-
-    private bool IsRewardChoiceContext()
-    {
-        return IsRewardContext() &&
-               (inventoryInteraction == null || !inventoryInteraction.IsRewardPackEditing);
-    }
-
-    private bool IsCombatTabContext()
-    {
-        if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Combat || kineticLoadout == null)
-            return false;
-
-        bool held = ReadBool(loadoutSwitchHeldField, kineticLoadout);
-        bool shown = ReadBool(loadoutBoardShownField, kineticLoadout);
-        if (held && shown)
-            return true;
-
-        RectTransform full = FindRect("LoadoutSwitchFull");
-        if (full == null || !full.gameObject.activeInHierarchy)
-            return false;
-
-        CanvasGroup cg = full.GetComponent<CanvasGroup>();
-        return cg != null && cg.alpha > 0.10f;
-    }
-
-    private int ResolveSelectedSlot()
-    {
-        if (IsRewardContext())
+        if (subscribedEquipmentSystem != equipmentSystem)
         {
-            if (manualSelectedSlot >= 0 && TryGetEquipment(manualSelectedSlot, out _, out _))
-                return manualSelectedSlot;
-
-            if (inventoryInteraction != null)
+            if (subscribedEquipmentSystem != null)
             {
-                int selected = ReadInt(rewardSelectedSlotField, inventoryInteraction, -1);
-                if (selected >= 0 && TryGetEquipment(selected, out _, out _))
-                    return selected;
-
-                bool padMode = ReadBool(rewardPadModeField, inventoryInteraction);
-                int padSelected = ReadInt(rewardPadSelectedSlotField, inventoryInteraction, -1);
-                if (padMode && padSelected >= 0 && TryGetEquipment(padSelected, out _, out _))
-                    return padSelected;
+                subscribedEquipmentSystem.InventoryChanged -= HandleEquipmentChanged;
+                subscribedEquipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
+                subscribedEquipmentSystem.EquippedSlotChanged -= HandleEquippedSlotChanged;
             }
 
-            return -1;
-        }
-
-        if (IsCombatTabContext())
-        {
-            if (manualSelectedSlot >= 0 && TryGetEquipment(manualSelectedSlot, out _, out _))
-                return manualSelectedSlot;
-
-            if (kineticLoadout != null)
+            subscribedEquipmentSystem = equipmentSystem;
+            if (subscribedEquipmentSystem != null)
             {
-                int selected = ReadInt(loadoutSelectedIndexField, kineticLoadout, -1);
-                if (selected >= 0 && TryGetEquipment(selected, out _, out _))
-                    return selected;
+                subscribedEquipmentSystem.InventoryChanged += HandleEquipmentChanged;
+                subscribedEquipmentSystem.SlotCapacityChanged += HandleSlotCapacityChanged;
+                subscribedEquipmentSystem.EquippedSlotChanged += HandleEquippedSlotChanged;
             }
         }
 
-        return -1;
+        if (subscribedGridSynergy != gridSynergy)
+        {
+            if (subscribedGridSynergy != null)
+                subscribedGridSynergy.GridSynergiesChanged -= HandleGridSynergiesChanged;
+
+            subscribedGridSynergy = gridSynergy;
+            if (subscribedGridSynergy != null)
+                subscribedGridSynergy.GridSynergiesChanged += HandleGridSynergiesChanged;
+        }
     }
 
-    private bool TryGetHoveredReward(out int rewardIndex, out BattleEquipmentSO equipment)
+    private void Unsubscribe()
     {
-        rewardIndex = hoveredRewardIndex;
-        equipment = null;
+        if (subscribedEquipmentSystem != null)
+        {
+            subscribedEquipmentSystem.InventoryChanged -= HandleEquipmentChanged;
+            subscribedEquipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
+            subscribedEquipmentSystem.EquippedSlotChanged -= HandleEquippedSlotChanged;
+        }
 
-        if (!IsRewardChoiceContext() || rewardIndex < 0)
+        if (subscribedGridSynergy != null)
+            subscribedGridSynergy.GridSynergiesChanged -= HandleGridSynergiesChanged;
+
+        subscribedEquipmentSystem = null;
+        subscribedGridSynergy = null;
+    }
+
+    private void HandleEquipmentChanged()
+    {
+        RefreshCurrentContent();
+    }
+
+    private void HandleSlotCapacityChanged(int _)
+    {
+        RefreshCurrentContent();
+    }
+
+    private void HandleEquippedSlotChanged(int _)
+    {
+        RefreshCurrentContent();
+    }
+
+    private void HandleGridSynergiesChanged()
+    {
+        RefreshCurrentContent();
+    }
+
+    /// <summary>
+    /// PACK / Full Grid 슬롯을 상세 패널에 표시합니다.
+    /// 선택 상태의 소유권은 호출자에게 있으며, 이 메서드는 슬롯을 선택하지 않습니다.
+    /// </summary>
+    public bool ShowSlot(int slotIndex)
+    {
+        ResolveReferences();
+        EnsureUi();
+        EnsureSubscriptions();
+
+        if (!TryGetEquipment(slotIndex, out BattleEquipmentSlot runtimeSlot, out BattleEquipmentSO equipment))
+        {
+            Hide();
             return false;
+        }
 
-        return TryGetReward(rewardIndex, out equipment);
+        rewardPreviewActive = false;
+        previewRewardIndex = -1;
+        displayedSlot = slotIndex;
+        RefreshPanel(slotIndex, runtimeSlot, equipment);
+        return true;
+    }
+
+    /// <summary>
+    /// PACK에 아직 들어가지 않은 Reward SO를 임시 Preview합니다.
+    /// 현재 Reward UI는 카드 내부 상세를 사용하므로 기본 흐름에서는 호출하지 않습니다.
+    /// </summary>
+    public bool PreviewReward(int rewardIndex)
+    {
+        ResolveReferences();
+        EnsureUi();
+
+        if (!TryGetReward(rewardIndex, out BattleEquipmentSO equipment))
+        {
+            ClearRewardPreview();
+            return false;
+        }
+
+        displayedSlot = -1;
+        previewRewardIndex = rewardIndex;
+        rewardPreviewActive = true;
+        RefreshRewardPreview(rewardIndex, equipment);
+        return true;
+    }
+
+    public void ClearRewardPreview()
+    {
+        if (!rewardPreviewActive)
+            return;
+
+        rewardPreviewActive = false;
+        previewRewardIndex = -1;
+        displayedSlot = -1;
+    }
+
+    public void Hide()
+    {
+        displayedSlot = -1;
+        previewRewardIndex = -1;
+        rewardPreviewActive = false;
+
+        // Visibility의 최종 Layout/Context 판단은 UnifiedInventory가 담당하지만,
+        // 비활성화/명시적 Hide 시 잔상이 남지 않도록 한 번만 즉시 숨깁니다.
+        if (group != null)
+            group.alpha = 0f;
+    }
+
+    /// <summary>
+    /// Phase 4~6 호출부 호환용 wrapper입니다.
+    /// 신규 코드는 ShowSlot / Hide를 직접 사용합니다.
+    /// </summary>
+    public void SelectSlotFromPointer(int slotIndex)
+    {
+        if (slotIndex >= 0)
+            ShowSlot(slotIndex);
+        else
+            Hide();
+    }
+
+    /// <summary>
+    /// 구형 Reward Hover 호출부 호환용 wrapper입니다.
+    /// 신규 Reward 선택 화면은 BattleRewardCardActionController의 카드 내부 상세를 사용합니다.
+    /// </summary>
+    internal void SetRewardPreviewHover(int rewardIndex, bool entered)
+    {
+        if (entered)
+            PreviewReward(rewardIndex);
+        else if (rewardPreviewActive && previewRewardIndex == rewardIndex)
+            ClearRewardPreview();
+    }
+
+    private void RefreshCurrentContent()
+    {
+        if (rewardPreviewActive)
+        {
+            if (TryGetReward(previewRewardIndex, out BattleEquipmentSO reward))
+                RefreshRewardPreview(previewRewardIndex, reward);
+            else
+                ClearRewardPreview();
+            return;
+        }
+
+        if (displayedSlot < 0)
+            return;
+
+        if (TryGetEquipment(displayedSlot, out BattleEquipmentSlot runtimeSlot, out BattleEquipmentSO equipment))
+            RefreshPanel(displayedSlot, runtimeSlot, equipment);
+        else
+            Hide();
     }
 
     private bool TryGetReward(int rewardIndex, out BattleEquipmentSO equipment)
     {
         equipment = null;
-        if (runManager == null || rewardIndex < 0 || rewardIndex >= runManager.CurrentRewardChoices.Count)
+        if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Reward ||
+            rewardIndex < 0 || rewardIndex >= runManager.CurrentRewardChoices.Count)
             return false;
 
         equipment = runManager.CurrentRewardChoices[rewardIndex];
@@ -367,7 +353,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 
         if (stateLabel != null)
         {
-            stateLabel.text = "LV.1  //  HOVER PREVIEW";
+            stateLabel.text = "LV.1  //  PREVIEW";
             stateLabel.color = accentCyan;
         }
 
@@ -477,7 +463,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     private string BuildRewardPackHint(BattleEquipmentSO equipment)
     {
         if (equipmentSystem == null || equipment == null)
-            return "DROP INTO PACK TO ACQUIRE";
+            return "PLACE INTO PACK TO ACQUIRE";
 
         for (int i = 0; i < equipmentSystem.Slots.Count; i++)
         {
@@ -485,10 +471,10 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
             if (slot == null || slot.equipment != equipment)
                 continue;
 
-            return $"SAME ITEM IN PACK  //  LV.{slot.grade}  COPY {slot.copies}/3\nDROP INTO PACK TO MERGE / PLACE";
+            return $"SAME ITEM IN PACK  //  LV.{slot.grade}  COPY {slot.copies}/3\nPLACE INTO PACK TO MERGE / STORE";
         }
 
-        return "NEW ITEM  //  DROP INTO PACK TO ACQUIRE";
+        return "NEW ITEM  //  PLACE INTO PACK TO ACQUIRE";
     }
 
     private void EnsureUi()
@@ -511,8 +497,8 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         root = CreateRect(canvas.transform, "EquipmentDetailPanel", panelSize);
         root.anchorMin = root.anchorMax = new Vector2(1f, 0.5f);
         root.pivot = new Vector2(1f, 0.5f);
-        root.anchoredPosition = hiddenOffset;
-        root.localRotation = Quaternion.Euler(0f, 0f, 0.7f);
+        root.anchoredPosition = Vector2.zero;
+        root.localRotation = Quaternion.identity;
 
         Image back = root.gameObject.AddComponent<Image>();
         back.color = inkColor;
@@ -650,90 +636,6 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         bs.raycastTarget = false;
     }
 
-    private void Animate(bool visible)
-    {
-        if (root == null || group == null)
-            return;
-
-        float t = 1f - Mathf.Exp(-Mathf.Max(1f, animationSharpness) * Time.unscaledDeltaTime);
-        group.alpha = Mathf.Lerp(group.alpha, visible ? 1f : 0f, t);
-        root.anchoredPosition = Vector2.Lerp(root.anchoredPosition, visible ? visibleOffset : hiddenOffset, t);
-
-        if (!visible && group.alpha < 0.002f)
-            group.alpha = 0f;
-    }
-
-    private void InstallInspectRelays()
-    {
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            AttachSlotRelay(FindRect($"BackpackCell_{i}"), i);
-            AttachSlotRelay(FindRect($"GridSlot_{i}"), i);
-        }
-
-        RewardPrizeDrag[] rewardCards = UnityEngine.Object.FindObjectsByType<RewardPrizeDrag>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < rewardCards.Length; i++)
-        {
-            RewardPrizeDrag drag = rewardCards[i];
-            if (drag == null)
-                continue;
-
-            BattleRewardInspectHoverRelay relay = drag.GetComponent<BattleRewardInspectHoverRelay>();
-            if (relay == null)
-                relay = drag.gameObject.AddComponent<BattleRewardInspectHoverRelay>();
-            relay.Configure(this, drag.RewardIndex);
-        }
-    }
-
-    private void AttachSlotRelay(RectTransform rect, int slotIndex)
-    {
-        if (rect == null)
-            return;
-
-        Image image = rect.GetComponent<Image>();
-        if (image != null)
-            image.raycastTarget = true;
-
-        BattleEquipmentInspectClickRelay relay = rect.GetComponent<BattleEquipmentInspectClickRelay>();
-        if (relay == null)
-            relay = rect.gameObject.AddComponent<BattleEquipmentInspectClickRelay>();
-        relay.Configure(this, slotIndex);
-    }
-
-    private static int ReadInt(FieldInfo field, object owner, int fallback)
-    {
-        if (field == null || owner == null)
-            return fallback;
-        object value = field.GetValue(owner);
-        return value is int result ? result : fallback;
-    }
-
-    private static bool ReadBool(FieldInfo field, object owner)
-    {
-        if (field == null || owner == null)
-            return false;
-        object value = field.GetValue(owner);
-        return value is bool result && result;
-    }
-
-    private static RectTransform FindRect(string objectName)
-    {
-        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect != null && rect.name == objectName)
-                return rect;
-        }
-        return null;
-    }
-
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
     {
         GameObject go = new(name);
@@ -779,46 +681,6 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
-    }
-}
-
-internal sealed class BattleEquipmentInspectClickRelay : MonoBehaviour, IPointerClickHandler
-{
-    private BattleEquipmentDetailPanelController owner;
-    private int slotIndex;
-
-    public void Configure(BattleEquipmentDetailPanelController controller, int index)
-    {
-        owner = controller;
-        slotIndex = index;
-    }
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        if (eventData.button == PointerEventData.InputButton.Left)
-            owner?.SelectSlotFromPointer(slotIndex);
-    }
-}
-
-internal sealed class BattleRewardInspectHoverRelay : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
-{
-    private BattleEquipmentDetailPanelController owner;
-    private int rewardIndex;
-
-    public void Configure(BattleEquipmentDetailPanelController controller, int index)
-    {
-        owner = controller;
-        rewardIndex = index;
-    }
-
-    public void OnPointerEnter(PointerEventData eventData)
-    {
-        owner?.SetRewardPreviewHover(rewardIndex, true);
-    }
-
-    public void OnPointerExit(PointerEventData eventData)
-    {
-        owner?.SetRewardPreviewHover(rewardIndex, false);
     }
 }
 
@@ -870,7 +732,7 @@ public static class BattleEquipmentDetailPanelAutoInstaller
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeComponent()
     {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
+        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
 
