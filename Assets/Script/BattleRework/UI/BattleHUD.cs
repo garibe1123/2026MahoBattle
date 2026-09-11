@@ -85,17 +85,6 @@ public sealed class BattleHUD : MonoBehaviour
     /// <summary>Show 계층을 직접 탐색하지 않아도 되는 명시적 Map Screen 참조입니다.</summary>
     public RectTransform MapScreenRoot => mapScreenRect;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void CreateRuntimeHost()
-    {
-        if (FindFirstObjectByType<BattleHUD>() != null)
-            return;
-
-        GameObject host = new("BattleBroadcastHUDRuntime");
-        DontDestroyOnLoad(host);
-        host.AddComponent<BattleHUD>();
-    }
-
     private void Awake()
     {
         if (instance != null && instance != this)
@@ -256,7 +245,6 @@ public sealed class BattleHUD : MonoBehaviour
             return;
 
         GameObject go = new("BattleUIEventSystem");
-        DontDestroyOnLoad(go);
         go.AddComponent<EventSystem>();
         go.AddComponent<StandaloneInputModule>();
     }
