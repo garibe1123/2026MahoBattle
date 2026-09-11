@@ -252,7 +252,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 EnsureBaseVisible();
                 EnsurePlayerVisible();
 
-                if (roomManager != null && roomManager.IsRoomActive && !selectionCollapsePrepared)
+                if (!selectionCollapsePrepared && HasCurrentRoomFieldToRetire())
                 {
                     BeginSelectionCollapseIfNeeded(BattleStageFlowState.MapShow);
                 }
@@ -270,7 +270,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.RoomEntering);
 
-                if (roomManager != null && roomManager.IsRoomActive && !preparedForIncomingNode)
+                if (HasCurrentRoomFieldToRetire() && !preparedForIncomingNode)
                     PromoteNextBaseAroundPlayer();
 
                 if (!hasPreservedBaseOrigin)
@@ -363,7 +363,16 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return;
         }
 
-        if (roomManager == null || !roomManager.IsRoomActive || player == null || baseTemplate == null)
+        if (roomManager == null || player == null || baseTemplate == null)
+        {
+            CaptureShowAnchorFromBase();
+            OpenShowStage();
+            return;
+        }
+
+        // currentRoom 플래그가 아니라 실제 월드에 남아 있는 Room 이동 Root를 기준으로 판단합니다.
+        // 전투 종료 직후 논리 상태가 먼저 바뀌더라도 타일이 남아 있으면 반드시 RoomExiting을 거칩니다.
+        if (!HasCurrentRoomFieldToRetire())
         {
             CaptureShowAnchorFromBase();
             OpenShowStage();
@@ -386,6 +395,23 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private IEnumerator CollapseClearedRoomToPlayerBase()
     {
+        // 실제 RoomManager가 진입시킨 Assembly/MapBlock Root를 먼저 고정합니다.
+        // Base 재구축이나 Presentation refresh 뒤에 씬을 재검색하지 않습니다.
+        List<MapBlock> outgoingBlocks = CollectCurrentRoomExitBlocks();
+        if (outgoingBlocks.Count == 0)
+        {
+            Debug.LogWarning(
+                "[BattleStageFlow] RoomExiting started but no combat room movement roots were found. " +
+                "Show will remain gated until room ownership is retired.",
+                this);
+
+            roomManager?.AbortRoom();
+            CaptureShowAnchorFromBase();
+            collapseRoutine = null;
+            OpenShowStage();
+            yield break;
+        }
+
         // 1) Player가 실제로 설 수 있는 현재 Field 안에서 4x4를 확정합니다.
         baseTemplate.EnsurePersistentBase();
         Vector3 nextOrigin = FindBestFourByFourOrigin(player.transform.position);
@@ -393,7 +419,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         // 새 Persistent Base는 별도 GameObject를 다시 만들기 때문에,
         // 재생성 전에 지금 플레이어가 실제로 보고 있던 4x4 바닥 Sprite를 먼저 저장합니다.
-        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin);
+        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin, outgoingBlocks);
 
         preservedBaseTileOrigin = baseTemplate.PromoteToNewBaseAtTileOrigin(nextOrigin);
         hasPreservedBaseOrigin = true;
@@ -411,7 +437,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         // 2) 기존 Room Block을 4x4의 좌/우/아래/위 네 방향으로 분류합니다.
         // Procedural Room은 진입 때 사용했던 Assembly Group 자체를 퇴장시켜 조립 단위가 그대로 빠지게 합니다.
         // Legacy Room은 기존 walkable MapBlock을 그대로 사용합니다.
-        List<MapBlock> outgoingBlocks = CollectCurrentRoomExitBlocks();
         Vector2 baseCenter = showAnchorCenter;
         Bounds baseBounds = CreatePersistentBaseBounds(baseCenter);
         List<CollapseExitPlan>[] groups = BuildExitGroups(outgoingBlocks, baseBounds);
@@ -422,6 +447,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         float stagger = Mathf.Max(0f, collapseExitStagger);
         float lastExitDuration = 0f;
+
+        Debug.Log(
+            $"[BattleStageFlow] Retiring {outgoingBlocks.Count} combat room movement root(s) before {pendingShowState}.",
+            this);
 
         for (int wave = 0; wave < waveCount; wave++)
         {
@@ -439,6 +468,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
                 PushOutgoingRenderersBehindBase(plan.block);
                 DisableOutgoingWalkable(plan.block);
+
+                // MapBlock이 진입 때 사용한 entryOffset(Procedural Assembly는 기본 36u Rail)을
+                // 그대로 Exit 거리로 사용합니다. 순간 삭제/Snap 대신 반드시 화면 밖으로 이동합니다.
                 Tween exitTween = plan.block.PlayExit(plan.direction);
                 exitTween?.SetUpdate(true);
                 lastExitDuration = Mathf.Max(lastExitDuration, plan.block.ExitDuration);
@@ -449,15 +481,26 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 yield return new WaitForSecondsRealtime(stagger);
         }
 
+        // 마지막 Wave가 실제 ExitDuration을 전부 소비할 때까지 Show Gate를 유지합니다.
         if (lastExitDuration > 0f)
             yield return new WaitForSecondsRealtime(lastExitDuration);
 
+        // 화면 밖까지 이동한 뒤에만 GameObject를 제거합니다.
         for (int i = 0; i < outgoingBlocks.Count; i++)
         {
             MapBlock block = outgoingBlocks[i];
-            if (block != null)
-                Destroy(block.gameObject);
+            if (block == null)
+                continue;
+
+            block.gameObject.SetActive(false);
+            Destroy(block.gameObject);
         }
+
+        // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 stale ownership을 정리합니다.
+        // 이렇게 해야 다음 EnterRoomRoutine에서 currentRoom/activeBlocks 때문에 ClearImmediate가
+        // 다시 호출되어 타일이 점프 삭제되는 문제가 생기지 않습니다.
+        yield return null;
+        roomManager?.AbortRoom();
 
         BattleDockHandleVisibilityController.RefreshNow();
 
@@ -466,8 +509,19 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         collapseRoutine = null;
 
-        // 3) 전투 Field의 실제 Exit가 끝난 뒤에만 Show를 엽니다.
+        // 3) 전투 Field의 실제 Exit와 Room ownership 정리가 모두 끝난 뒤에만 Show를 엽니다.
         OpenShowStage();
+    }
+
+    private bool HasCurrentRoomFieldToRetire()
+    {
+        if (roomManager == null)
+            return false;
+
+        if (roomManager.IsRoomActive)
+            return true;
+
+        return CollectCurrentRoomExitBlocks().Count > 0;
     }
 
     private List<MapBlock> CollectCurrentRoomExitBlocks()
@@ -476,42 +530,82 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
         List<MapBlock> result = new();
+        HashSet<int> seen = new();
 
         for (int i = 0; i < blocks.Length; i++)
         {
             MapBlock block = blocks[i];
-            if (block == null || !block.gameObject.activeInHierarchy)
+            if (block == null)
                 continue;
 
-            string blockName = block.name;
+            // Assembly child를 발견해도 실제 진입/퇴장 이동 단위인 최상위 MapBlock 부모로 승격합니다.
+            // 이름이 바뀌어도 parent MapBlock 구조만 유지되면 같은 Root를 찾을 수 있습니다.
+            MapBlock movementRoot = ResolveMovementRoot(block);
+            if (movementRoot == null || !movementRoot.gameObject.activeInHierarchy)
+                continue;
+
+            string blockName = movementRoot.name;
             bool rawPrototype =
                 blockName.StartsWith("__RuntimeRoomPiecePrototype_", System.StringComparison.Ordinal) &&
                 !blockName.EndsWith("(Clone)", System.StringComparison.Ordinal);
             if (rawPrototype || blockName.StartsWith("Outgoing_", System.StringComparison.Ordinal))
                 continue;
 
-            if (showStage != null && block.transform.IsChildOf(showStage.transform))
+            if (showStage != null && movementRoot.transform.IsChildOf(showStage.transform))
                 continue;
 
             bool proceduralAssembly = blockName.StartsWith("ProceduralAssemblyGroup_", System.StringComparison.Ordinal);
-            bool proceduralSubPiece = blockName.StartsWith("AssemblySubPiece_", System.StringComparison.Ordinal);
+            bool hasNestedMapBlock = HasNestedMapBlock(movementRoot);
 
-            // Procedural 세부 Piece는 부모 Assembly가 한 번에 이동시키므로 중복 Exit하지 않습니다.
-            if (proceduralSubPiece)
+            // Procedural Assembly parent는 walkable=false지만 실제 이동 Root입니다.
+            // 이름 의존만 하지 않고 nested MapBlock을 가진 부모도 Assembly Root로 인정합니다.
+            if (!proceduralAssembly && !hasNestedMapBlock && !movementRoot.ContributesWalkableNavMesh)
                 continue;
 
-            // Procedural Assembly는 walkable=false인 이동용 부모이고,
-            // Legacy Room은 기존처럼 walkable MapBlock 자체가 이동 단위입니다.
-            if (!proceduralAssembly && !block.ContributesWalkableNavMesh)
-                continue;
-
-            result.Add(block);
+            int id = movementRoot.GetInstanceID();
+            if (seen.Add(id))
+                result.Add(movementRoot);
         }
 
         return result;
     }
 
-    private FloorVisualSnapshot[] CaptureFourByFourFloorVisuals(Vector3 lowerLeftTileOrigin)
+    private static MapBlock ResolveMovementRoot(MapBlock block)
+    {
+        if (block == null)
+            return null;
+
+        MapBlock result = block;
+        Transform current = block.transform.parent;
+        while (current != null)
+        {
+            MapBlock parentBlock = current.GetComponent<MapBlock>();
+            if (parentBlock != null)
+                result = parentBlock;
+            current = current.parent;
+        }
+
+        return result;
+    }
+
+    private static bool HasNestedMapBlock(MapBlock root)
+    {
+        if (root == null)
+            return false;
+
+        MapBlock[] nested = root.GetComponentsInChildren<MapBlock>(true);
+        for (int i = 0; i < nested.Length; i++)
+        {
+            if (nested[i] != null && nested[i] != root)
+                return true;
+        }
+
+        return false;
+    }
+
+    private FloorVisualSnapshot[] CaptureFourByFourFloorVisuals(
+        Vector3 lowerLeftTileOrigin,
+        List<MapBlock> knownRoomBlocks = null)
     {
         int tileCount = RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.FixedBaseTiles;
         FloorVisualSnapshot[] snapshots = new FloorVisualSnapshot[tileCount];
@@ -527,7 +621,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         // 실제 전투 Room Piece의 Tile_* Sprite는 PresentationManager가 랜덤 Floor Variant를
         // 직접 적용한 Renderer이므로, 여기서 저장하면 화면에서 보던 모양을 그대로 보존할 수 있습니다.
-        List<MapBlock> blocks = CollectCurrentRoomExitBlocks();
+        List<MapBlock> blocks = knownRoomBlocks ?? CollectCurrentRoomExitBlocks();
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock block = blocks[i];
@@ -932,7 +1026,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         Vector3 nextOrigin = FindBestFourByFourOrigin(player.transform.position);
         nextOrigin.z = baseTemplate.FixedTileOriginWorld.z;
-        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin);
+        List<MapBlock> roomBlocks = CollectCurrentRoomExitBlocks();
+        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin, roomBlocks);
 
         preservedBaseTileOrigin = baseTemplate.PromoteToNewBaseAtTileOrigin(nextOrigin);
         hasPreservedBaseOrigin = true;
