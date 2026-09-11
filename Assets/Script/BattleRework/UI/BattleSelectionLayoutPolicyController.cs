@@ -28,7 +28,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     [SerializeField, Range(0.65f, 0.96f)] private float showWidthCoverage = 0.88f;
     [SerializeField, Range(0.55f, 0.94f)] private float showHeightCoverage = 0.78f;
     [SerializeField, Min(0.5f)] private float minimumShowCameraSize = 2.8f;
-    [SerializeField] private Vector2 rewardCameraBiasWorld = new(0.18f, 0.08f);
+    [SerializeField] private Vector2 rewardCameraBiasWorld = new(0.18f, -0.72f);
     [SerializeField] private Vector2 mapCameraBiasWorld = new(0f, 0.02f);
 
     [Header("Map")]

@@ -1,6 +1,11 @@
 using System;
 using UnityEngine;
 
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditor.SceneManagement;
+#endif
+
 public enum BattleRewardPhase
 {
     Inactive,
@@ -18,6 +23,7 @@ public enum BattleRewardPhase
 /// - Reward Hand
 /// - Hand <-> PACK 교환
 /// - 선택한 Reward가 PACK에 남아 있는지 추적
+/// - Reward 완료/포기 후 Run 진행 요청
 ///
 /// PACK의 실제 데이터 변경은 BattleEquipmentSystem API만 사용합니다.
 /// 입력/레이아웃/색/애니메이션은 UI 계층의 책임입니다.
@@ -361,6 +367,30 @@ public sealed class BattleRewardFlow : MonoBehaviour
     }
 
     /// <summary>
+    /// PACK 편집을 끝내고 현재 Reward 결정을 Run 진행에 반영합니다.
+    /// 선택 Reward가 PACK에 남아 있으면 획득 완료, 남아 있지 않으면 포기로 처리합니다.
+    /// </summary>
+    public bool CompleteReward()
+    {
+        RefreshFromRunState();
+        if (runManager == null || !CanComplete)
+            return false;
+
+        SyncChosenRewardLocation();
+        if (!CanComplete)
+            return false;
+
+        if (!chosenRewardCommitted)
+            return SkipReward();
+
+        if (chosenReward == null)
+            return false;
+
+        runManager.CompleteRewardSelection(chosenReward);
+        return true;
+    }
+
+    /// <summary>
     /// Choice 화면에서 보상을 포기하는 기존 Run 흐름입니다.
     /// PACK 편집 중에는 Hand가 비어 있고 선택 Reward도 PACK에 남아 있지 않을 때만 사용합니다.
     /// </summary>
@@ -395,5 +425,66 @@ public sealed class BattleRewardFlow : MonoBehaviour
     private void RaiseChanged()
     {
         Changed?.Invoke();
+    }
+}
+
+public static class BattleRewardFlowAutoInstaller
+{
+#if UNITY_EDITOR
+    private static bool installQueued;
+
+    [InitializeOnLoadMethod]
+    private static void InitializeEditorInstaller()
+    {
+        EditorApplication.hierarchyChanged -= QueueInstall;
+        EditorApplication.hierarchyChanged += QueueInstall;
+        QueueInstall();
+    }
+
+    private static void QueueInstall()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
+            return;
+        installQueued = true;
+        EditorApplication.delayCall += EnsureEditorComponent;
+    }
+
+    private static void EnsureEditorComponent()
+    {
+        installQueued = false;
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+            return;
+
+        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
+        for (int i = 0; i < managers.Length; i++)
+        {
+            BattleSceneManager manager = managers[i];
+            if (manager == null || EditorUtility.IsPersistent(manager) ||
+                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
+                continue;
+
+            if (manager.GetComponent<BattleRewardFlow>() != null)
+                continue;
+
+            Undo.AddComponent<BattleRewardFlow>(manager.gameObject);
+            EditorUtility.SetDirty(manager.gameObject);
+            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+        }
+    }
+#endif
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void EnsureRuntimeComponent()
+    {
+        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < managers.Length; i++)
+        {
+            BattleSceneManager manager = managers[i];
+            if (manager != null && manager.GetComponent<BattleRewardFlow>() == null)
+                manager.gameObject.AddComponent<BattleRewardFlow>();
+        }
     }
 }

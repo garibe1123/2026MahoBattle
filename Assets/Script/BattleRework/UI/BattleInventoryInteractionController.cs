@@ -112,8 +112,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     public int PadPickedSlot => padPickedSlot;
     public bool PadModeActive => padModeActive;
 
-    public event Action RewardDoneRequested;
-
     private void Awake()
     {
         ResolveReferences();
@@ -743,7 +741,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (!IsRewardPackEditing || rewardFlow == null || !rewardFlow.CanComplete)
             return;
 
-        RewardDoneRequested?.Invoke();
+        rewardFlow.CompleteReward();
     }
 
     private int FindFirstUnlockedSlot()
