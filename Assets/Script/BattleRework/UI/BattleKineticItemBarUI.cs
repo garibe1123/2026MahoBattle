@@ -8,15 +8,11 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// 전투 중 좌측 하단 Mini PACK의 구조/기본 시각을 소유합니다.
+/// Mini PACK의 구조 생성과 아이템 데이터 시각 갱신을 담당합니다.
 ///
-/// 소유권 규칙:
-/// - 이 클래스는 PACK 배경, 아이콘, Grade, 작은 CellAccent만 관리합니다.
-/// - 장착/시너지 때문에 슬롯 전체 Outline이나 Scale을 변경하지 않습니다.
-/// - 전체 선택 프레임은 Inventory Interaction 계층의 InteractionSelectionFrame만 사용합니다.
-///
-/// 이렇게 해서 Equipped/Synergy 시각과 실제 UI Selection 시각이 서로 같은 RectTransform 값을
-/// 덮어쓰지 않도록 분리합니다.
+/// 이 클래스는 PACK/Expanded Grid의 최종 위치, 크기, CanvasGroup 표시 상태를 쓰지 않습니다.
+/// 해당 레이아웃은 BattleUnifiedInventoryInspectController가 단독 소유합니다.
+/// Equipped / Synergy는 작은 CellAccent로만 표시합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30150)]
@@ -39,7 +35,6 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
-    [SerializeField, Min(1f)] private float fadeSharpness = 14f;
 
     private Canvas canvas;
     private CanvasGroup group;
@@ -56,8 +51,9 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private bool equipmentSubscribed;
     private bool gridSubscribed;
-    private bool expandedGridSkinApplied;
-    private float nextExpandedSkinAttempt;
+
+    public RectTransform Root => root;
+    public CanvasGroup Group => group;
 
     private void Awake()
     {
@@ -73,33 +69,26 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         Refresh();
     }
 
-    private void OnDisable() => Unsubscribe();
+    private void OnDisable()
+    {
+        Unsubscribe();
+    }
 
     private void Update()
     {
         ResolveReferences();
         Subscribe();
         EnsureUi();
-
-        bool combat = runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
-        if (group != null)
-        {
-            float t = 1f - Mathf.Exp(-Mathf.Max(1f, fadeSharpness) * Time.unscaledDeltaTime);
-            group.alpha = Mathf.Lerp(group.alpha, combat ? 1f : 0f, t);
-        }
-
-        if (!expandedGridSkinApplied && Time.unscaledTime >= nextExpandedSkinAttempt)
-        {
-            nextExpandedSkinAttempt = Time.unscaledTime + 0.35f;
-            ApplyExpandedGridBackpackSkin();
-        }
     }
 
     private void ResolveReferences()
     {
-        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
-        if (equipmentSystem == null) equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
-        if (gridSynergy == null) gridSynergy = FindFirstObjectByType<BattleGridSynergyController>();
+        if (runManager == null)
+            runManager = FindFirstObjectByType<BattleRunManager>();
+        if (equipmentSystem == null)
+            equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        if (gridSynergy == null)
+            gridSynergy = FindFirstObjectByType<BattleGridSynergyController>();
     }
 
     private void Subscribe()
@@ -129,16 +118,25 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         }
         if (gridSubscribed && gridSynergy != null)
             gridSynergy.GridSynergiesChanged -= Refresh;
+
         equipmentSubscribed = false;
         gridSubscribed = false;
     }
 
-    private void HandleCapacityChanged(int _) => Refresh();
-    private void HandleEquippedChanged(int _) => Refresh();
+    private void HandleCapacityChanged(int _)
+    {
+        Refresh();
+    }
+
+    private void HandleEquippedChanged(int _)
+    {
+        Refresh();
+    }
 
     private void EnsureUi()
     {
-        if (canvas != null) return;
+        if (canvas != null)
+            return;
 
         GameObject canvasObject = new("BattleBackpackGridCanvas");
         canvasObject.transform.SetParent(transform, false);
@@ -152,11 +150,12 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
 
-        root = CreateRect(canvas.transform, "BackpackMiniGrid", new Vector2(224f, 242f));
-        root.anchorMin = root.anchorMax = new Vector2(0f, 0f);
-        root.pivot = new Vector2(0f, 0f);
-        root.anchoredPosition = new Vector2(20f, 20f);
-        root.localRotation = Quaternion.Euler(0f, 0f, -1.4f);
+        // 생성 시의 초기값일 뿐이며 이후 레이아웃은 Unified Inventory View가 소유합니다.
+        root = CreateRect(canvas.transform, "BackpackMiniGrid", new Vector2(304f, 326f));
+        root.anchorMin = root.anchorMax = Vector2.zero;
+        root.pivot = Vector2.zero;
+        root.anchoredPosition = new Vector2(22f, 22f);
+        root.localRotation = Quaternion.Euler(0f, 0f, -1.15f);
 
         Image back = root.gameObject.AddComponent<Image>();
         back.color = inkColor;
@@ -178,25 +177,25 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void BuildHeader()
     {
-        RectTransform tag = CreateRect(root, "PackHeaderTag", new Vector2(100f, 34f));
+        RectTransform tag = CreateRect(root, "PackHeaderTag", new Vector2(126f, 40f));
         tag.anchorMin = tag.anchorMax = new Vector2(0f, 1f);
         tag.pivot = new Vector2(0f, 1f);
-        tag.anchoredPosition = new Vector2(8f, -4f);
+        tag.anchoredPosition = new Vector2(10f, -5f);
         tag.localRotation = Quaternion.Euler(0f, 0f, -4f);
         Image tagImage = tag.gameObject.AddComponent<Image>();
         tagImage.color = accentYellow;
         tagImage.raycastTarget = false;
 
-        Text title = CreateText(tag, "PACK", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        Text title = CreateText(tag, "PACK", 18, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
         Stretch(title.rectTransform);
 
-        capacityText = CreateText(root, "3 / 9", 10, FontStyle.Bold, TextAnchor.MiddleRight, paperColor);
+        capacityText = CreateText(root, "3 / 9", 12, FontStyle.Bold, TextAnchor.MiddleRight, paperColor);
         capacityText.rectTransform.anchorMin = capacityText.rectTransform.anchorMax = new Vector2(1f, 1f);
         capacityText.rectTransform.pivot = new Vector2(1f, 1f);
         capacityText.rectTransform.sizeDelta = new Vector2(72f, 24f);
         capacityText.rectTransform.anchoredPosition = new Vector2(-12f, -8f);
 
-        Text hint = CreateText(root, "TAB / LB", 8, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
+        Text hint = CreateText(root, "TAB / LB", 9, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
         hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = new Vector2(1f, 1f);
         hint.rectTransform.pivot = new Vector2(1f, 1f);
         hint.rectTransform.sizeDelta = new Vector2(72f, 20f);
@@ -205,23 +204,25 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void BuildGrid()
     {
-        const float cell = 60f;
-        const float gap = 5f;
+        const float cell = 78f;
+        const float gap = 7f;
         const float total = cell * GridSize + gap * (GridSize - 1);
 
         RectTransform gridRoot = CreateRect(root, "BackpackCells", new Vector2(total, total));
-        gridRoot.anchorMin = gridRoot.anchorMax = new Vector2(0f, 0f);
-        gridRoot.pivot = new Vector2(0f, 0f);
-        gridRoot.anchoredPosition = new Vector2(14f, 14f);
+        gridRoot.anchorMin = gridRoot.anchorMax = Vector2.zero;
+        gridRoot.pivot = Vector2.zero;
+        gridRoot.anchoredPosition = new Vector2(20f, 18f);
 
         for (int i = 0; i < SlotCount; i++)
         {
             int x = i % GridSize;
             int y = i / GridSize;
             RectTransform slot = CreateRect(gridRoot, $"BackpackCell_{i}", new Vector2(cell, cell));
-            slot.anchorMin = slot.anchorMax = new Vector2(0f, 0f);
+            slot.anchorMin = slot.anchorMax = Vector2.zero;
             slot.pivot = new Vector2(0.5f, 0.5f);
-            slot.anchoredPosition = new Vector2(x * (cell + gap) + cell * 0.5f, total - (y * (cell + gap) + cell * 0.5f));
+            slot.anchoredPosition = new Vector2(
+                x * (cell + gap) + cell * 0.5f,
+                total - (y * (cell + gap) + cell * 0.5f));
             slotRects[i] = slot;
 
             Image cellImage = slot.gameObject.AddComponent<Image>();
@@ -234,21 +235,21 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             cellOutline.effectDistance = new Vector2(3f, -3f);
             slotOutlines[i] = cellOutline;
 
-            Image icon = CreateImage(slot, "Icon", new Vector2(49f, 49f));
+            Image icon = CreateImage(slot, "Icon", new Vector2(64f, 64f));
             icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
             icon.rectTransform.anchoredPosition = Vector2.zero;
             icon.preserveAspect = true;
             icon.raycastTarget = false;
             slotIcons[i] = icon;
 
-            Text grade = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, accentYellow);
+            Text grade = CreateText(slot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperRight, accentYellow);
             SetAnchors(grade.rectTransform, new Vector2(0.56f, 0.68f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
 
-            RectTransform accent = CreateRect(slot, "CellAccent", new Vector2(5f, cell - 8f));
+            RectTransform accent = CreateRect(slot, "CellAccent", new Vector2(6f, cell - 10f));
             accent.anchorMin = accent.anchorMax = new Vector2(0f, 0.5f);
             accent.pivot = new Vector2(0f, 0.5f);
-            accent.anchoredPosition = new Vector2(3f, 0f);
+            accent.anchoredPosition = new Vector2(4f, 0f);
             Image accentImage = accent.gameObject.AddComponent<Image>();
             accentImage.raycastTarget = false;
             slotAccents[i] = accentImage;
@@ -258,6 +259,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             RectTransform lockRect = lockMark.AddComponent<RectTransform>();
             Stretch(lockRect);
             lockMarks[i] = lockMark;
+
             CreateLockSlash(lockMark.transform, 45f);
             CreateLockSlash(lockMark.transform, -45f);
         }
@@ -265,7 +267,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void CreateLockSlash(Transform parent, float angle)
     {
-        RectTransform slash = CreateRect(parent, "LockSlash", new Vector2(38f, 4f));
+        RectTransform slash = CreateRect(parent, "LockSlash", new Vector2(50f, 5f));
         slash.anchorMin = slash.anchorMax = new Vector2(0.5f, 0.5f);
         slash.anchoredPosition = Vector2.zero;
         slash.localRotation = Quaternion.Euler(0f, 0f, angle);
@@ -295,8 +297,6 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             if (slotBackgrounds[i] != null)
                 slotBackgrounds[i].color = !unlocked ? lockedColor : occupied ? occupiedCellColor : emptyCellColor;
 
-            // 전체 프레임은 Selection 상태 전용입니다.
-            // Equipped/Synergy는 CellAccent만 사용하고 base Outline/Scale은 항상 중립으로 유지합니다.
             if (slotOutlines[i] != null)
             {
                 slotOutlines[i].effectColor = !unlocked
@@ -338,54 +338,17 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private bool IsSlotLinked(int slotIndex)
     {
-        if (gridSynergy == null) return false;
+        if (gridSynergy == null)
+            return false;
+
         IReadOnlyList<BattleGridSynergyLink> links = gridSynergy.ActiveLinks;
         for (int i = 0; i < links.Count; i++)
         {
             BattleGridSynergyLink link = links[i];
-            if (link != null && (link.slotA == slotIndex || link.slotB == slotIndex)) return true;
+            if (link != null && (link.slotA == slotIndex || link.slotB == slotIndex))
+                return true;
         }
         return false;
-    }
-
-    private void ApplyExpandedGridBackpackSkin()
-    {
-        RectTransform[] all = FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        int styled = 0;
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect == null || !rect.name.StartsWith("GridSlot_")) continue;
-
-            rect.sizeDelta = new Vector2(154f, 154f);
-            rect.localRotation = Quaternion.identity;
-
-            Outline outline = rect.GetComponent<Outline>();
-            if (outline != null) outline.effectDistance = new Vector2(4f, -4f);
-
-            Transform iconTransform = rect.Find("Icon");
-            if (iconTransform is RectTransform iconRect)
-            {
-                iconRect.sizeDelta = new Vector2(100f, 100f);
-                iconRect.anchorMin = iconRect.anchorMax = new Vector2(0.5f, 0.54f);
-                iconRect.anchoredPosition = Vector2.zero;
-            }
-
-            Text[] texts = rect.GetComponentsInChildren<Text>(true);
-            for (int t = 0; t < texts.Length; t++)
-            {
-                Text text = texts[t];
-                if (text == null) continue;
-                if (text.fontSize >= 13)
-                {
-                    text.gameObject.SetActive(false);
-                    continue;
-                }
-                text.fontSize = Mathf.Min(text.fontSize, 9);
-            }
-            styled++;
-        }
-        expandedGridSkinApplied = styled >= SlotCount;
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
@@ -449,7 +412,8 @@ public static class BattleKineticItemBarAutoInstaller
 
     private static void QueueInstall()
     {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued) return;
+        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
+            return;
         installQueued = true;
         EditorApplication.delayCall += EnsureEditorComponents;
     }
@@ -457,13 +421,19 @@ public static class BattleKineticItemBarAutoInstaller
     private static void EnsureEditorComponents()
     {
         installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        if (EditorApplication.isPlayingOrWillChangePlaymode)
+            return;
+
         BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) || !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded) continue;
-            if (manager.GetComponent<BattleKineticItemBarUI>() != null) continue;
+            if (manager == null || EditorUtility.IsPersistent(manager) ||
+                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
+                continue;
+            if (manager.GetComponent<BattleKineticItemBarUI>() != null)
+                continue;
+
             Undo.AddComponent<BattleKineticItemBarUI>(manager.gameObject);
             EditorUtility.SetDirty(manager.gameObject);
             EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
@@ -474,11 +444,14 @@ public static class BattleKineticItemBarAutoInstaller
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeComponents()
     {
-        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleKineticItemBarUI>() == null) manager.gameObject.AddComponent<BattleKineticItemBarUI>();
+            if (manager != null && manager.GetComponent<BattleKineticItemBarUI>() == null)
+                manager.gameObject.AddComponent<BattleKineticItemBarUI>();
         }
     }
 }
