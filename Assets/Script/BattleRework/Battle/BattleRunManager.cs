@@ -390,7 +390,28 @@ public class BattleRunManager : MonoBehaviour
         startAreaActive = false;
         nextNodeChoices.Clear();
         AlignRoomOriginToPersistentBase();
+
+        BattleStageTransitionController stageFlow = BattleStageTransitionController.Instance;
+        if (stageFlow == null)
+            stageFlow = FindFirstObjectByType<BattleStageTransitionController>();
+
+        if (stageFlow != null && stageFlow.TryQueueNodeEntry(selected))
+            return;
+
         EnterNode(selected);
+    }
+
+    /// <summary>
+    /// BattleStageTransitionController만 호출하는 물리 Stage hand-off 완료 지점입니다.
+    /// Map Show가 완전히 퇴장한 뒤에만 실제 Room 생성으로 진행합니다.
+    /// </summary>
+    public void ContinueEnterNodeFromStageFlow(BattleNodeData node)
+    {
+        if (!runActive || node == null)
+            return;
+
+        AlignRoomOriginToPersistentBase();
+        EnterNode(node);
     }
 
     public void ResolveNonCombatNode()
