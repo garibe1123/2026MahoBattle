@@ -8,10 +8,11 @@ using UnityEngine.UI;
 ///
 /// 이 클래스의 책임:
 /// - Tab / LB 전환 입력
-/// - Combat Bullet Time
+/// - Combat Inventory slow-motion 요청
 /// - 공용 LoadoutSwitchFull / GridBoard 생성
 /// - 슬롯 아이콘/이름/등급/시너지 내용 갱신
 ///
+/// Time.timeScale은 직접 수정하지 않고 BattleTimeScaleController에 요청합니다.
 /// GridBoard / Mini PACK / Detail / Reward Controls의 최종 RectTransform 배치는
 /// BattleUnifiedInventoryInspectController가 단독 소유합니다.
 /// </summary>
@@ -27,10 +28,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleGridSynergyController gridSynergy;
+    [SerializeField] private BattleTimeScaleController timeScaleController;
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
-    [SerializeField, Range(0.05f, 0.6f)] private float bulletTimeScale = 0.18f;
+    [SerializeField, Range(0.02f, 0.20f)] private float combatInventoryTimeScale = 0.05f;
     [SerializeField, Min(0.05f)] private float stickRepeatDelay = 0.16f;
     [SerializeField, Range(0.2f, 0.95f)] private float stickThreshold = 0.55f;
 
@@ -76,10 +78,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private int selectedIndex = -1;
     private float nextStickRepeat;
     private Vector2 lastStickDirection;
-
-    private bool bulletTimeOwned;
-    private float previousTimeScale = 1f;
-    private float previousFixedDeltaTime = 0.02f;
     private bool subscribed;
 
     public int SelectedIndex => selectedIndex;
@@ -103,6 +101,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         ResolveReferences();
         EnsureUi();
         Subscribe();
+        if (switchHeld)
+            EnterBulletTime();
         RefreshAll();
     }
 
@@ -131,7 +131,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (legacyEquipmentDock != null && combat && legacyEquipmentDock.gameObject.activeSelf)
             legacyEquipmentDock.gameObject.SetActive(false);
 
-        if (combat)
+        if (combat && !BattlePauseController.IsPaused)
             UpdateSwitchInput();
 
         UpdateUiAnimation(combat);
@@ -145,6 +145,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (gridSynergy == null)
             gridSynergy = FindFirstObjectByType<BattleGridSynergyController>();
+        if (timeScaleController == null)
+            timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
     }
 
     private void Subscribe()
@@ -300,29 +302,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void EnterBulletTime()
     {
-        if (bulletTimeOwned)
+        ResolveReferences();
+        if (timeScaleController == null)
             return;
 
-        previousTimeScale = Time.timeScale;
-        previousFixedDeltaTime = Time.fixedDeltaTime;
-        bulletTimeOwned = true;
-
-        if (previousTimeScale <= 0f)
-            return;
-
-        float scale = Mathf.Clamp(bulletTimeScale, 0.05f, 0.6f);
-        Time.timeScale = previousTimeScale * scale;
-        Time.fixedDeltaTime = Mathf.Max(0.0001f, previousFixedDeltaTime * scale);
+        float scale = Mathf.Clamp(combatInventoryTimeScale, 0.02f, 0.20f);
+        timeScaleController.Request(BattleTimeScaleController.Owner.CombatInventory, scale);
     }
 
     private void RestoreTimeScale()
     {
-        if (!bulletTimeOwned)
-            return;
-
-        Time.timeScale = previousTimeScale;
-        Time.fixedDeltaTime = previousFixedDeltaTime;
-        bulletTimeOwned = false;
+        timeScaleController?.Release(BattleTimeScaleController.Owner.CombatInventory);
     }
 
     private void UpdateGridNavigation()
