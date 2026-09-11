@@ -16,18 +16,20 @@ internal enum BattleInventorySurface
 }
 
 /// <summary>
-/// 3x3 PACK의 입력과 입력에 직접 종속된 임시 시각 상태를 한 곳에서 관리합니다.
+/// 3x3 PACK의 입력과 입력에 직접 종속된 임시 시각 상태를 관리합니다.
 ///
 /// 책임:
-/// - Combat 장비 슬롯 클릭/교환
+/// - Combat Mini PACK 클릭
 /// - Reward PACK 슬롯 선택/교환/Drag
-/// - Reward Hand와 슬롯 교환 입력
-/// - Reward Hand Ghost 표시
-/// - TRASH 및 삭제 확인 입력
+/// - Reward Hand <-> PACK 교환
+/// - Reward Hand / Drag Ghost
+/// - TRASH / 삭제 확인 입력
 /// - 패드 PACK 커서/선택
+/// - DONE 요청
 ///
-/// Reward의 business state는 BattleRewardFlow가 단독 소유합니다.
-/// 이 클래스는 rewardStaged / stagedReward 같은 복제 상태를 만들지 않습니다.
+/// 이 클래스는 Mini PACK / Full Grid / Detail / TRASH / DONE의 최종 RectTransform을 쓰지 않습니다.
+/// 레이아웃은 BattleUnifiedInventoryInspectController가 단독 소유합니다.
+/// Reward business state는 BattleRewardFlow가 단독 소유합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30750)]
@@ -58,17 +60,18 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private Canvas interactionCanvas;
     private RectTransform interactionRoot;
+
     private RectTransform dragGhostRoot;
     private Image dragGhostIcon;
     private RectTransform handGhostRoot;
     private Image handGhostIcon;
+
     private RectTransform trashRoot;
     private Image trashBack;
     private Text trashLabel;
 
     private RectTransform doneRoot;
     private Button doneButton;
-    private Text doneLabel;
 
     private RectTransform discardConfirmRoot;
     private Text discardConfirmText;
@@ -78,11 +81,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private Text confirmNoText;
 
     private RectTransform miniPackRoot;
-    private CanvasGroup miniPackGroup;
     private readonly GameObject[] miniSelectionFrames = new GameObject[SlotCount];
     private readonly Outline[] miniSelectionOutlines = new Outline[SlotCount];
 
-    // Input/presentation state only. Reward business state는 BattleRewardFlow가 소유합니다.
+    // Input state only. These names remain stable until Phase 6 removes legacy visual reflection users.
     private int selectedRewardSlot = -1;
     private int hoveredSlot = -1;
     private int draggingSlot = -1;
@@ -110,10 +112,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     public int PadPickedSlot => padPickedSlot;
     public bool PadModeActive => padModeActive;
 
-    /// <summary>
-    /// DONE/NEXT는 입력 계층이 요청만 발생시키고, Run 완료 처리는 Reward adapter가 담당합니다.
-    /// BattleRunManager의 구형 private 완료 API와의 bridge가 제거되면 BattleRewardFlow가 직접 처리하게 됩니다.
-    /// </summary>
     public event Action RewardDoneRequested;
 
     private void Awake()
@@ -132,7 +130,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void OnDisable()
     {
-        HideDragVisuals();
+        HideTransientVisuals();
         HideDiscardConfirm();
     }
 
@@ -155,17 +153,14 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             lastState = runManager.State;
         }
 
-        BattleRewardPhase currentRewardPhase = rewardFlow != null
+        BattleRewardPhase phase = rewardFlow != null
             ? rewardFlow.Phase
             : BattleRewardPhase.Inactive;
-        if (lastRewardPhase != currentRewardPhase)
+        if (lastRewardPhase != phase)
         {
-            HandleRewardPhaseChanged(currentRewardPhase);
-            lastRewardPhase = currentRewardPhase;
+            HandleRewardPhaseChanged(phase);
+            lastRewardPhase = phase;
         }
-
-        if (IsReward())
-            ShowPackForReward();
 
         if (IsRewardPackEditing)
         {
@@ -184,51 +179,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         UpdateSelectionFrames();
         UpdateTrashVisibility();
-        UpdateRewardEditUi();
+        UpdateRewardDoneState();
         UpdateRewardHandVisual();
-    }
-
-    private void HandleRunStateChanged(BattleRunState state)
-    {
-        selectedRewardSlot = -1;
-        hoveredSlot = -1;
-        draggingSlot = -1;
-        padPickedSlot = -1;
-        padModeActive = false;
-        padAxisLatched = false;
-        flashedSlot = -1;
-        HideDiscardConfirm();
-
-        if (state == BattleRunState.Reward)
-            padSelectedSlot = FindFirstUnlockedSlot();
-        else if (handGhostRoot != null)
-            handGhostRoot.gameObject.SetActive(false);
-    }
-
-    private void HandleRewardPhaseChanged(BattleRewardPhase phase)
-    {
-        selectedRewardSlot = -1;
-        hoveredSlot = -1;
-        padPickedSlot = -1;
-        padModeActive = false;
-        HideDiscardConfirm();
-
-        if (phase != BattleRewardPhase.PackEditing || rewardFlow == null)
-        {
-            if (handGhostRoot != null)
-                handGhostRoot.gameObject.SetActive(false);
-            return;
-        }
-
-        int focus = rewardFlow.ChosenRewardCommitted
-            ? rewardFlow.ChosenRewardSlot
-            : FindFirstUnlockedSlot();
-        if (focus < 0 || equipmentSystem == null || !equipmentSystem.IsSlotUnlocked(focus))
-            focus = FindFirstUnlockedSlot();
-
-        padSelectedSlot = Mathf.Max(0, focus);
-        if (!rewardFlow.HasHand && rewardFlow.ChosenRewardCommitted)
-            selectedRewardSlot = rewardFlow.ChosenRewardSlot;
     }
 
     private void ResolveReferences()
@@ -257,6 +209,54 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
     }
 
+    private void HandleRunStateChanged(BattleRunState state)
+    {
+        ClearInspectSelection();
+        draggingSlot = -1;
+        flashedSlot = -1;
+        HideDiscardConfirm();
+
+        if (state == BattleRunState.Reward)
+            padSelectedSlot = FindFirstUnlockedSlot();
+        else if (handGhostRoot != null)
+            handGhostRoot.gameObject.SetActive(false);
+    }
+
+    private void HandleRewardPhaseChanged(BattleRewardPhase phase)
+    {
+        ClearInspectSelection();
+        HideDiscardConfirm();
+
+        if (phase != BattleRewardPhase.PackEditing || rewardFlow == null)
+        {
+            if (handGhostRoot != null)
+                handGhostRoot.gameObject.SetActive(false);
+            return;
+        }
+
+        int focus = rewardFlow.ChosenRewardCommitted
+            ? rewardFlow.ChosenRewardSlot
+            : FindFirstUnlockedSlot();
+        if (focus < 0 || equipmentSystem == null || !equipmentSystem.IsSlotUnlocked(focus))
+            focus = FindFirstUnlockedSlot();
+
+        padSelectedSlot = Mathf.Max(0, focus);
+        if (!rewardFlow.HasHand && rewardFlow.ChosenRewardCommitted)
+            selectedRewardSlot = rewardFlow.ChosenRewardSlot;
+    }
+
+    /// <summary>
+    /// Detail/selection presentation만 닫습니다. PACK 데이터나 Reward 상태는 변경하지 않습니다.
+    /// </summary>
+    public void ClearInspectSelection()
+    {
+        selectedRewardSlot = -1;
+        hoveredSlot = -1;
+        padPickedSlot = -1;
+        padModeActive = false;
+        padAxisLatched = false;
+    }
+
     private void ResolveMiniPack()
     {
         if (miniPackRoot == null)
@@ -264,21 +264,18 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (miniPackRoot == null)
             return;
 
-        if (miniPackGroup == null)
-            miniPackGroup = miniPackRoot.GetComponent<CanvasGroup>();
-
         Canvas canvas = miniPackRoot.GetComponentInParent<Canvas>();
         if (canvas != null && canvas.GetComponent<GraphicRaycaster>() == null)
             canvas.gameObject.AddComponent<GraphicRaycaster>();
 
+        // 실제 상호작용 on/off는 Unified Inventory View의 CanvasGroup이 소유합니다.
         Image packImage = miniPackRoot.GetComponent<Image>();
         if (packImage != null)
-            packImage.raycastTarget = IsRewardPackEditing;
+            packImage.raycastTarget = true;
 
-        // 구형 Reward card -> PACK 직접 Drop은 더 이상 사용하지 않습니다.
-        BattleInventoryPackDropTarget packDrop = miniPackRoot.GetComponent<BattleInventoryPackDropTarget>();
-        if (packDrop != null)
-            packDrop.enabled = false;
+        BattleInventoryPackDropTarget legacyDrop = miniPackRoot.GetComponent<BattleInventoryPackDropTarget>();
+        if (legacyDrop != null)
+            legacyDrop.enabled = false;
     }
 
     private void InstallSlotTargets()
@@ -318,13 +315,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (index < 0 || index >= SlotCount || miniSelectionFrames[index] != null)
             return;
 
-        Transform existing = slot.Find("InteractionSelectionFrame");
-        RectTransform frame;
-        if (existing is RectTransform existingRect)
-        {
-            frame = existingRect;
-        }
-        else
+        RectTransform frame = slot.Find("InteractionSelectionFrame") as RectTransform;
+        if (frame == null)
         {
             frame = CreateRect(slot, "InteractionSelectionFrame", Vector2.zero);
             Stretch(frame);
@@ -347,7 +339,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal bool BeginSlotDrag(int slotIndex, BattleInventorySurface surface, PointerEventData eventData)
     {
-        if (discardModalOpen || equipmentSystem == null || !HasItem(slotIndex))
+        if (eventData == null || discardModalOpen || equipmentSystem == null || !HasItem(slotIndex))
             return false;
 
         if (IsReward())
@@ -365,7 +357,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         flashedSlot = -1;
 
         BattleEquipmentSO equipment = equipmentSystem.Slots[slotIndex].equipment;
-        EnsureOverlayCanvas();
         if (dragGhostRoot != null)
         {
             dragGhostRoot.gameObject.SetActive(true);
@@ -384,9 +375,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void UpdateSlotDrag(PointerEventData eventData)
     {
-        if (draggingSlot < 0 || dragGhostRoot == null || eventData == null)
-            return;
-        dragGhostRoot.position = eventData.position;
+        if (draggingSlot >= 0 && dragGhostRoot != null && eventData != null)
+            dragGhostRoot.position = eventData.position;
     }
 
     internal void EndSlotDrag()
@@ -399,7 +389,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotDrop(int targetIndex, PointerEventData eventData)
     {
-        if (discardModalOpen || equipmentSystem == null || eventData == null || !equipmentSystem.IsSlotUnlocked(targetIndex))
+        if (discardModalOpen || equipmentSystem == null || eventData == null ||
+            !equipmentSystem.IsSlotUnlocked(targetIndex))
             return;
 
         BattleInventorySlotPointer source = eventData.pointerDrag != null
@@ -415,20 +406,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (!equipmentSystem.IsSlotUnlocked(sourceIndex) || sourceIndex == targetIndex)
             return;
 
-        if (equipmentSystem.SwapSlots(sourceIndex, targetIndex))
-        {
-            selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
-            padSelectedSlot = targetIndex;
-            padPickedSlot = -1;
-            rewardFlow?.SyncChosenRewardLocation();
-            FlashSlot(targetIndex);
-        }
+        if (!equipmentSystem.SwapSlots(sourceIndex, targetIndex))
+            return;
+
+        selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
+        padSelectedSlot = targetIndex;
+        padPickedSlot = -1;
+        rewardFlow?.SyncChosenRewardLocation();
+        FlashSlot(targetIndex);
     }
 
-    /// <summary>
-    /// Legacy RewardInventoryPackDropTarget 호환용 no-op입니다.
-    /// Reward 후보 카드는 클릭 -> 결정 흐름이므로 PACK 배경에 직접 Drop하지 않습니다.
-    /// </summary>
+    // Legacy Reward card drag target. 클릭 -> 결정 흐름에서는 사용하지 않습니다.
     internal void HandlePackDrop(PointerEventData eventData)
     {
     }
@@ -480,7 +468,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             return;
         }
 
-        if (IsCombat())
+        // Expanded Combat Grid는 BattleCombatHudInputBridge가 단독 처리합니다.
+        if (IsCombat() && surface != BattleInventorySurface.ExpandedGrid)
         {
             BattleEquipmentSlot slot = slotIndex < equipmentSystem.Slots.Count ? equipmentSystem.Slots[slotIndex] : null;
             if (slot != null && slot.equipment != null && slot.equipment.shootingData != null)
@@ -531,11 +520,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleTrashHover(bool hovered)
     {
-        if (trashBack == null)
-            return;
-        trashBack.color = hovered
-            ? new Color(accentPink.r, accentPink.g, accentPink.b, 0.98f)
-            : inkColor;
+        if (trashBack != null)
+            trashBack.color = hovered
+                ? new Color(accentPink.r, accentPink.g, accentPink.b, 0.98f)
+                : inkColor;
         if (trashLabel != null)
             trashLabel.color = hovered ? inkColor : accentPink;
     }
@@ -607,7 +595,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         int dx = 0;
         int dy = 0;
-
         if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) dx = -1;
         else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) dx = 1;
         else if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) dy = -1;
@@ -645,8 +632,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.JoystickButton1))
         {
-            padPickedSlot = -1;
             selectedRewardSlot = -1;
+            padPickedSlot = -1;
             padModeActive = true;
         }
 
@@ -694,14 +681,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (!HasItem(padSelectedSlot))
         {
-            if (padPickedSlot >= 0 && equipmentSystem.IsSlotUnlocked(padSelectedSlot))
+            if (padPickedSlot >= 0 && equipmentSystem.IsSlotUnlocked(padSelectedSlot) &&
+                equipmentSystem.SwapSlots(padPickedSlot, padSelectedSlot))
             {
-                if (equipmentSystem.SwapSlots(padPickedSlot, padSelectedSlot))
-                {
-                    rewardFlow.SyncChosenRewardLocation();
-                    FlashSlot(padSelectedSlot);
-                    padPickedSlot = -1;
-                }
+                rewardFlow.SyncChosenRewardLocation();
+                FlashSlot(padSelectedSlot);
+                padPickedSlot = -1;
             }
             return;
         }
@@ -804,7 +789,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             Outline outline = miniSelectionOutlines[i];
             if (outline != null)
             {
-                outline.effectColor = picked ? accentPink : flashed ? accentCyan : padSelected ? accentYellow : hover ? accentCyan : accentYellow;
+                outline.effectColor = picked
+                    ? accentPink
+                    : flashed || hover
+                        ? accentCyan
+                        : accentYellow;
                 outline.effectDistance = picked ? new Vector2(7f, -7f) : new Vector2(5f, -5f);
             }
         }
@@ -813,235 +802,23 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             flashedSlot = -1;
     }
 
-    private void EnsureOverlayCanvas()
-    {
-        if (interactionCanvas != null)
-            return;
-
-        EnsureEventSystem();
-
-        GameObject canvasObject = new("BattleInventoryInteractionCanvas");
-        canvasObject.transform.SetParent(transform, false);
-        interactionCanvas = canvasObject.AddComponent<Canvas>();
-        interactionCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        interactionCanvas.overrideSorting = true;
-        interactionCanvas.sortingOrder = OverlaySortingOrder;
-
-        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
-        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-        scaler.referenceResolution = new Vector2(1920f, 1080f);
-        scaler.matchWidthOrHeight = 0.5f;
-        canvasObject.AddComponent<GraphicRaycaster>();
-
-        interactionRoot = CreateRect(canvasObject.transform, "InteractionRoot", Vector2.zero);
-        Stretch(interactionRoot);
-
-        BuildDragGhost();
-        BuildRewardHandGhost();
-        BuildTrash();
-        BuildRewardDoneUi();
-        BuildDiscardConfirm();
-    }
-
-    private void BuildDragGhost()
-    {
-        dragGhostRoot = CreateRect(interactionRoot, "InventoryDragGhost", new Vector2(106f, 106f));
-        Image ghostBack = dragGhostRoot.gameObject.AddComponent<Image>();
-        ghostBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
-        ghostBack.raycastTarget = false;
-        Outline outline = dragGhostRoot.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentYellow;
-        outline.effectDistance = new Vector2(5f, -5f);
-
-        Canvas ghostCanvas = dragGhostRoot.gameObject.AddComponent<Canvas>();
-        ghostCanvas.overrideSorting = true;
-        ghostCanvas.sortingOrder = 2200;
-        CanvasGroup ghostGroup = dragGhostRoot.gameObject.AddComponent<CanvasGroup>();
-        ghostGroup.blocksRaycasts = false;
-        ghostGroup.interactable = false;
-
-        dragGhostIcon = CreateImage(dragGhostRoot, "Icon", new Vector2(84f, 84f));
-        dragGhostIcon.rectTransform.anchorMin = dragGhostIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        dragGhostIcon.rectTransform.anchoredPosition = Vector2.zero;
-        dragGhostIcon.raycastTarget = false;
-        dragGhostRoot.gameObject.SetActive(false);
-    }
-
-    private void BuildRewardHandGhost()
-    {
-        handGhostRoot = CreateRect(interactionRoot, "RewardHandGhost", new Vector2(112f, 112f));
-        Image ghostBack = handGhostRoot.gameObject.AddComponent<Image>();
-        ghostBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
-        ghostBack.raycastTarget = false;
-
-        Outline outline = handGhostRoot.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentPink;
-        outline.effectDistance = new Vector2(6f, -6f);
-
-        Canvas ghostCanvas = handGhostRoot.gameObject.AddComponent<Canvas>();
-        ghostCanvas.overrideSorting = true;
-        ghostCanvas.sortingOrder = 2210;
-        CanvasGroup group = handGhostRoot.gameObject.AddComponent<CanvasGroup>();
-        group.blocksRaycasts = false;
-        group.interactable = false;
-
-        handGhostIcon = CreateImage(handGhostRoot, "Icon", new Vector2(88f, 88f));
-        handGhostIcon.rectTransform.anchorMin = handGhostIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        handGhostIcon.rectTransform.anchoredPosition = Vector2.zero;
-        handGhostIcon.raycastTarget = false;
-        handGhostRoot.gameObject.SetActive(false);
-    }
-
-    private void BuildTrash()
-    {
-        trashRoot = CreateRect(interactionRoot, "InventoryTrash", new Vector2(184f, 72f));
-        trashRoot.anchorMin = trashRoot.anchorMax = Vector2.zero;
-        trashRoot.pivot = Vector2.zero;
-        trashRoot.anchoredPosition = new Vector2(430f, 40f);
-        trashRoot.localRotation = Quaternion.Euler(0f, 0f, -1.6f);
-
-        trashBack = trashRoot.gameObject.AddComponent<Image>();
-        trashBack.color = inkColor;
-        trashBack.raycastTarget = true;
-        Outline outline = trashRoot.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentPink;
-        outline.effectDistance = new Vector2(4f, -4f);
-
-        trashLabel = CreateText(trashRoot, "×  TRASH", 17, FontStyle.Bold, TextAnchor.MiddleCenter, accentPink);
-        Stretch(trashLabel.rectTransform);
-
-        BattleInventoryTrashDropTarget target = trashRoot.gameObject.AddComponent<BattleInventoryTrashDropTarget>();
-        target.Configure(this);
-        trashRoot.gameObject.SetActive(false);
-    }
-
-    private void BuildRewardDoneUi()
-    {
-        doneRoot = CreateRect(interactionRoot, "RewardPackDone", new Vector2(184f, 64f));
-        doneRoot.anchorMin = doneRoot.anchorMax = Vector2.zero;
-        doneRoot.pivot = Vector2.zero;
-        Image back = doneRoot.gameObject.AddComponent<Image>();
-        back.color = accentCyan;
-        back.raycastTarget = true;
-        Outline outline = doneRoot.gameObject.AddComponent<Outline>();
-        outline.effectColor = inkColor;
-        outline.effectDistance = new Vector2(5f, -5f);
-
-        doneLabel = CreateText(doneRoot, "DONE  /  START", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
-        Stretch(doneLabel.rectTransform);
-        doneButton = doneRoot.gameObject.AddComponent<Button>();
-        doneButton.targetGraphic = back;
-        doneButton.onClick.AddListener(RequestRewardCompletion);
-        doneRoot.gameObject.SetActive(false);
-    }
-
-    private void BuildDiscardConfirm()
-    {
-        discardConfirmRoot = CreateRect(interactionRoot, "InventoryDiscardConfirm", Vector2.zero);
-        Stretch(discardConfirmRoot);
-        Image dim = discardConfirmRoot.gameObject.AddComponent<Image>();
-        dim.color = new Color(0f, 0f, 0f, 0.72f);
-        dim.raycastTarget = true;
-
-        RectTransform panel = CreateRect(discardConfirmRoot, "ConfirmPanel", new Vector2(620f, 330f));
-        panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0.5f);
-        panel.anchoredPosition = Vector2.zero;
-        Image panelBack = panel.gameObject.AddComponent<Image>();
-        panelBack.color = inkColor;
-        Outline panelOutline = panel.gameObject.AddComponent<Outline>();
-        panelOutline.effectColor = accentPink;
-        panelOutline.effectDistance = new Vector2(8f, -8f);
-
-        discardConfirmText = CreateText(panel, "이 아이템을 삭제할까요?\n정말 삭제하시겠습니까?", 24, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
-        SetAnchors(discardConfirmText.rectTransform, new Vector2(0.08f, 0.38f), new Vector2(0.92f, 0.90f));
-
-        RectTransform yes = CreateRect(panel, "ConfirmYes", new Vector2(190f, 66f));
-        yes.anchorMin = yes.anchorMax = new Vector2(0.32f, 0.17f);
-        Image yesBack = yes.gameObject.AddComponent<Image>();
-        yesBack.raycastTarget = true;
-        confirmYesBack = yesBack;
-        confirmYesText = CreateText(yes, "예", 22, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
-        Stretch(confirmYesText.rectTransform);
-        Button yesButton = yes.gameObject.AddComponent<Button>();
-        yesButton.targetGraphic = yesBack;
-        yesButton.onClick.AddListener(() => ResolveDiscard(true));
-
-        RectTransform no = CreateRect(panel, "ConfirmNo", new Vector2(190f, 66f));
-        no.anchorMin = no.anchorMax = new Vector2(0.68f, 0.17f);
-        Image noBack = no.gameObject.AddComponent<Image>();
-        noBack.raycastTarget = true;
-        confirmNoBack = noBack;
-        confirmNoText = CreateText(no, "아니요", 22, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
-        Stretch(confirmNoText.rectTransform);
-        Button noButton = no.gameObject.AddComponent<Button>();
-        noButton.targetGraphic = noBack;
-        noButton.onClick.AddListener(() => ResolveDiscard(false));
-
-        discardConfirmRoot.gameObject.SetActive(false);
-        RefreshConfirmSelection();
-    }
-
-    private void RefreshConfirmSelection()
-    {
-        if (confirmYesBack != null)
-            confirmYesBack.color = confirmYesSelected ? accentYellow : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
-        if (confirmNoBack != null)
-            confirmNoBack.color = !confirmYesSelected ? accentCyan : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
-        if (confirmYesText != null)
-            confirmYesText.color = inkColor;
-        if (confirmNoText != null)
-            confirmNoText.color = inkColor;
-    }
-
-    private void ShowPackForReward()
-    {
-        ResolveMiniPack();
-        if (miniPackGroup != null)
-        {
-            bool interactive = IsRewardPackEditing && !BattlePauseController.IsPaused && !discardModalOpen;
-            miniPackGroup.alpha = 1f;
-            miniPackGroup.blocksRaycasts = interactive;
-            miniPackGroup.interactable = interactive;
-        }
-
-        RectTransform oldStrip = FindRect("RewardLoadoutStrip");
-        if (oldStrip != null && oldStrip.gameObject.activeSelf)
-            oldStrip.gameObject.SetActive(false);
-    }
-
     private void UpdateTrashVisibility()
     {
         if (trashRoot == null)
             return;
 
-        bool fullBoardOpen = false;
-        RectTransform full = FindRect("LoadoutSwitchFull");
-        if (full != null)
-        {
-            CanvasGroup fullGroup = full.GetComponent<CanvasGroup>();
-            fullBoardOpen = fullGroup != null && fullGroup.alpha > 0.08f;
-        }
-
-        bool visible = !discardModalOpen &&
-                       (IsRewardPackEditing || draggingSlot >= 0 || (IsCombat() && fullBoardOpen));
+        bool visible = !discardModalOpen && (IsRewardPackEditing || draggingSlot >= 0);
         if (trashRoot.gameObject.activeSelf != visible)
             trashRoot.gameObject.SetActive(visible);
     }
 
-    private void UpdateRewardEditUi()
+    private void UpdateRewardDoneState()
     {
-        bool showDone = IsRewardPackEditing && !discardModalOpen;
-        if (doneRoot != null)
-        {
-            doneRoot.gameObject.SetActive(showDone);
-            PositionRewardEditControls(doneRoot, new Vector2(0f, 92f));
-        }
-
+        bool show = IsRewardPackEditing && !discardModalOpen;
+        if (doneRoot != null && doneRoot.gameObject.activeSelf != show)
+            doneRoot.gameObject.SetActive(show);
         if (doneButton != null)
-            doneButton.interactable = showDone && rewardFlow != null && rewardFlow.CanComplete;
-
-        if (trashRoot != null && IsRewardPackEditing)
-            PositionRewardEditControls(trashRoot, Vector2.zero);
+            doneButton.interactable = show && rewardFlow != null && rewardFlow.CanComplete;
     }
 
     private void UpdateRewardHandVisual()
@@ -1082,20 +859,174 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         handGhostRoot.SetAsLastSibling();
     }
 
-    private void PositionRewardEditControls(RectTransform target, Vector2 extraOffset)
+    private void EnsureOverlayCanvas()
     {
-        if (target == null || miniPackRoot == null)
+        if (interactionCanvas != null)
             return;
 
-        float scale = Mathf.Max(1f, miniPackRoot.localScale.x);
-        float packWidth = miniPackRoot.sizeDelta.x * scale;
-        Vector2 pos = miniPackRoot.anchoredPosition + new Vector2(packWidth + 24f, 0f) + extraOffset;
-        target.anchorMin = target.anchorMax = Vector2.zero;
-        target.pivot = Vector2.zero;
-        target.anchoredPosition = pos;
+        EnsureEventSystem();
+
+        GameObject canvasObject = new("BattleInventoryInteractionCanvas");
+        canvasObject.transform.SetParent(transform, false);
+        interactionCanvas = canvasObject.AddComponent<Canvas>();
+        interactionCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        interactionCanvas.overrideSorting = true;
+        interactionCanvas.sortingOrder = OverlaySortingOrder;
+
+        CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920f, 1080f);
+        scaler.matchWidthOrHeight = 0.5f;
+        canvasObject.AddComponent<GraphicRaycaster>();
+
+        interactionRoot = CreateRect(canvasObject.transform, "InteractionRoot", Vector2.zero);
+        Stretch(interactionRoot);
+
+        BuildDragGhost();
+        BuildRewardHandGhost();
+        BuildTrash();
+        BuildRewardDoneUi();
+        BuildDiscardConfirm();
     }
 
-    private void HideDragVisuals()
+    private void BuildDragGhost()
+    {
+        dragGhostRoot = CreateRect(interactionRoot, "InventoryDragGhost", new Vector2(106f, 106f));
+        Image back = dragGhostRoot.gameObject.AddComponent<Image>();
+        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
+        back.raycastTarget = false;
+        Outline outline = dragGhostRoot.gameObject.AddComponent<Outline>();
+        outline.effectColor = accentYellow;
+        outline.effectDistance = new Vector2(5f, -5f);
+
+        AddNonBlockingCanvas(dragGhostRoot.gameObject, 2200);
+        dragGhostIcon = CreateImage(dragGhostRoot, "Icon", new Vector2(84f, 84f));
+        Center(dragGhostIcon.rectTransform);
+        dragGhostIcon.raycastTarget = false;
+        dragGhostRoot.gameObject.SetActive(false);
+    }
+
+    private void BuildRewardHandGhost()
+    {
+        handGhostRoot = CreateRect(interactionRoot, "RewardHandGhost", new Vector2(112f, 112f));
+        Image back = handGhostRoot.gameObject.AddComponent<Image>();
+        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
+        back.raycastTarget = false;
+        Outline outline = handGhostRoot.gameObject.AddComponent<Outline>();
+        outline.effectColor = accentPink;
+        outline.effectDistance = new Vector2(6f, -6f);
+
+        AddNonBlockingCanvas(handGhostRoot.gameObject, 2210);
+        handGhostIcon = CreateImage(handGhostRoot, "Icon", new Vector2(88f, 88f));
+        Center(handGhostIcon.rectTransform);
+        handGhostIcon.raycastTarget = false;
+        handGhostRoot.gameObject.SetActive(false);
+    }
+
+    private static void AddNonBlockingCanvas(GameObject owner, int order)
+    {
+        Canvas canvas = owner.AddComponent<Canvas>();
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = order;
+        CanvasGroup group = owner.AddComponent<CanvasGroup>();
+        group.blocksRaycasts = false;
+        group.interactable = false;
+    }
+
+    private void BuildTrash()
+    {
+        trashRoot = CreateRect(interactionRoot, "InventoryTrash", new Vector2(184f, 72f));
+        Image back = trashRoot.gameObject.AddComponent<Image>();
+        back.color = inkColor;
+        back.raycastTarget = true;
+        trashBack = back;
+
+        Outline outline = trashRoot.gameObject.AddComponent<Outline>();
+        outline.effectColor = accentPink;
+        outline.effectDistance = new Vector2(4f, -4f);
+
+        trashLabel = CreateText(trashRoot, "×  TRASH", 17, FontStyle.Bold, TextAnchor.MiddleCenter, accentPink);
+        Stretch(trashLabel.rectTransform);
+
+        BattleInventoryTrashDropTarget target = trashRoot.gameObject.AddComponent<BattleInventoryTrashDropTarget>();
+        target.Configure(this);
+        trashRoot.gameObject.SetActive(false);
+    }
+
+    private void BuildRewardDoneUi()
+    {
+        doneRoot = CreateRect(interactionRoot, "RewardPackDone", new Vector2(184f, 64f));
+        Image back = doneRoot.gameObject.AddComponent<Image>();
+        back.color = accentCyan;
+        back.raycastTarget = true;
+        Outline outline = doneRoot.gameObject.AddComponent<Outline>();
+        outline.effectColor = inkColor;
+        outline.effectDistance = new Vector2(5f, -5f);
+
+        Text label = CreateText(doneRoot, "DONE  /  START", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        Stretch(label.rectTransform);
+        doneButton = doneRoot.gameObject.AddComponent<Button>();
+        doneButton.targetGraphic = back;
+        doneButton.onClick.AddListener(RequestRewardCompletion);
+        doneRoot.gameObject.SetActive(false);
+    }
+
+    private void BuildDiscardConfirm()
+    {
+        discardConfirmRoot = CreateRect(interactionRoot, "InventoryDiscardConfirm", Vector2.zero);
+        Stretch(discardConfirmRoot);
+        Image dim = discardConfirmRoot.gameObject.AddComponent<Image>();
+        dim.color = new Color(0f, 0f, 0f, 0.72f);
+        dim.raycastTarget = true;
+
+        RectTransform panel = CreateRect(discardConfirmRoot, "ConfirmPanel", new Vector2(620f, 330f));
+        Center(panel);
+        Image panelBack = panel.gameObject.AddComponent<Image>();
+        panelBack.color = inkColor;
+        Outline panelOutline = panel.gameObject.AddComponent<Outline>();
+        panelOutline.effectColor = accentPink;
+        panelOutline.effectDistance = new Vector2(8f, -8f);
+
+        discardConfirmText = CreateText(panel, "이 아이템을 삭제할까요?\n정말 삭제하시겠습니까?", 24, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
+        SetAnchors(discardConfirmText.rectTransform, new Vector2(0.08f, 0.38f), new Vector2(0.92f, 0.90f));
+
+        RectTransform yes = CreateRect(panel, "ConfirmYes", new Vector2(190f, 66f));
+        yes.anchorMin = yes.anchorMax = new Vector2(0.32f, 0.17f);
+        confirmYesBack = yes.gameObject.AddComponent<Image>();
+        confirmYesBack.raycastTarget = true;
+        confirmYesText = CreateText(yes, "예", 22, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        Stretch(confirmYesText.rectTransform);
+        Button yesButton = yes.gameObject.AddComponent<Button>();
+        yesButton.targetGraphic = confirmYesBack;
+        yesButton.onClick.AddListener(() => ResolveDiscard(true));
+
+        RectTransform no = CreateRect(panel, "ConfirmNo", new Vector2(190f, 66f));
+        no.anchorMin = no.anchorMax = new Vector2(0.68f, 0.17f);
+        confirmNoBack = no.gameObject.AddComponent<Image>();
+        confirmNoBack.raycastTarget = true;
+        confirmNoText = CreateText(no, "아니요", 22, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        Stretch(confirmNoText.rectTransform);
+        Button noButton = no.gameObject.AddComponent<Button>();
+        noButton.targetGraphic = confirmNoBack;
+        noButton.onClick.AddListener(() => ResolveDiscard(false));
+
+        discardConfirmRoot.gameObject.SetActive(false);
+        RefreshConfirmSelection();
+    }
+
+    private void RefreshConfirmSelection()
+    {
+        if (confirmYesBack != null)
+            confirmYesBack.color = confirmYesSelected ? accentYellow : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
+        if (confirmNoBack != null)
+            confirmNoBack.color = !confirmYesSelected ? accentCyan : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
+        if (confirmYesText != null)
+            confirmYesText.color = inkColor;
+        if (confirmNoText != null)
+            confirmNoText.color = inkColor;
+    }
+
+    private void HideTransientVisuals()
     {
         draggingSlot = -1;
         if (dragGhostRoot != null)
@@ -1104,6 +1035,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             handGhostRoot.gameObject.SetActive(false);
         if (trashRoot != null)
             trashRoot.gameObject.SetActive(false);
+        if (doneRoot != null)
+            doneRoot.gameObject.SetActive(false);
     }
 
     private static RectTransform FindRect(string objectName)
@@ -1149,6 +1082,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         text.color = color;
         text.raycastTarget = false;
         return text;
+    }
+
+    private static void Center(RectTransform rect)
+    {
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = Vector2.zero;
     }
 
     private static void SetAnchors(RectTransform rect, Vector2 min, Vector2 max)
@@ -1242,13 +1181,9 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     }
 }
 
-/// <summary>
-/// 구형 Reward card drag 호환 marker. Phase 3부터 실제 Drop 입력은 사용하지 않습니다.
-/// </summary>
 internal sealed class BattleInventoryPackDropTarget : MonoBehaviour, IDropHandler
 {
     private BattleInventoryInteractionController owner;
-
     public void Configure(BattleInventoryInteractionController controller) => owner = controller;
     public void OnDrop(PointerEventData eventData) => owner?.HandlePackDrop(eventData);
 }
@@ -1260,7 +1195,6 @@ internal sealed class BattleInventoryTrashDropTarget : MonoBehaviour,
     IPointerClickHandler
 {
     private BattleInventoryInteractionController owner;
-
     public void Configure(BattleInventoryInteractionController controller) => owner = controller;
     public void OnDrop(PointerEventData eventData) => owner?.HandleTrashDrop(eventData);
     public void OnPointerEnter(PointerEventData eventData) => owner?.HandleTrashHover(true);
