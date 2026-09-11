@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Handles only the opening Start Area -> first Map selection camera lead.
@@ -28,38 +27,11 @@ public sealed class BattleOpeningShowCameraController : MonoBehaviour
     private bool ownsCamera;
     private bool disabledBattleCameraByUs;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void InstallSceneHook()
-    {
-        SceneManager.sceneLoaded -= HandleSceneLoaded;
-        SceneManager.sceneLoaded += HandleSceneLoaded;
-    }
-
-    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        if (!scene.IsValid() || !scene.isLoaded)
-            return;
-
-        bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
-        if (!battleScene)
-        {
-            BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
-            battleScene = manager != null && manager.gameObject.scene == scene;
-        }
-
-        if (!battleScene || Object.FindFirstObjectByType<BattleOpeningShowCameraController>() != null)
-            return;
-
-        GameObject host = new("BattleOpeningShowCameraRuntime");
-        SceneManager.MoveGameObjectToScene(host, scene);
-        host.AddComponent<BattleOpeningShowCameraController>();
-    }
-
     private void Awake()
     {
         if (instance != null && instance != this)
         {
-            Destroy(gameObject);
+            Destroy(this);
             return;
         }
 
