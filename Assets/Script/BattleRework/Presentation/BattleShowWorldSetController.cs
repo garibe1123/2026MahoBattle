@@ -120,21 +120,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     public bool HasCameraAnchor => dockCaptured && !externalGate && currentMode != ShowMode.None;
     public Vector3 CameraTargetWorld => cameraTargetWorld;
     public float ShowCameraSize => Mathf.Max(0.1f, cameraSizeWorld);
+    public RectTransform MountedTvRect => tvRect;
     public Transform PresenterWorldTransform =>
         presenterRenderer != null && presenterRenderer.enabled && presenterRenderer.gameObject.activeInHierarchy
             ? presenterTransform
             : null;
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void CreateRuntimeHost()
-    {
-        if (FindFirstObjectByType<BattleShowWorldSetController>() != null)
-            return;
-
-        GameObject host = new("BattleShowWorldSetRuntime");
-        DontDestroyOnLoad(host);
-        host.AddComponent<BattleShowWorldSetController>();
-    }
 
     public void SetExternalGate(bool held)
     {
@@ -150,6 +140,43 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         hasExplicitStageAnchor = true;
     }
 
+    public void ConfigureTvPresentation(Vector2 canvasSize, float pixelsPerUnit)
+    {
+        Vector2 targetSize = new(
+            Mathf.Max(960f, canvasSize.x),
+            Mathf.Max(480f, canvasSize.y));
+        float targetPpu = Mathf.Max(32f, pixelsPerUnit);
+
+        tvCanvasSize = targetSize;
+        tvPixelsPerUnit = targetPpu;
+        float scale = 1f / targetPpu;
+        tvBaseScale = new Vector3(scale, scale, 1f);
+
+        if (tvRect != null)
+        {
+            tvRect.sizeDelta = targetSize;
+            tvRect.localScale = tvBaseScale;
+            if (tvRect.parent != null && tvRect.parent.name.StartsWith("ShowScreenCarrier_", StringComparison.Ordinal))
+                tvRect.localPosition = ResolveTvMountLocalPosition();
+        }
+
+        RecomputeSharedCameraFrame();
+    }
+
+    public void RecomputeSharedCameraFrame()
+    {
+        if (stageRoot == null)
+            return;
+        ComputeSharedCameraFrame();
+    }
+
+    public void OverrideShowCameraFrame(Vector3 targetWorld, float orthographicSize)
+    {
+        targetWorld.z = 0f;
+        cameraTargetWorld = targetWorld;
+        cameraSizeWorld = Mathf.Max(0.1f, orthographicSize);
+    }
+
     private void Awake()
     {
         if (instance != null && instance != this)
@@ -159,7 +186,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         instance = this;
-        DontDestroyOnLoad(gameObject);
     }
 
     private void OnEnable()
