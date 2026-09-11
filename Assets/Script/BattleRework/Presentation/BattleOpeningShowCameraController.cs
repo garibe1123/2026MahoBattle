@@ -94,8 +94,12 @@ public sealed class BattleOpeningShowCameraController : MonoBehaviour
         if (sceneCamera == null)
             sceneCamera = Camera.main;
 
-        if (movementRoot == null && sceneCamera != null)
-            movementRoot = ResolveMovementRoot(sceneCamera.transform);
+        if (sceneCamera != null)
+        {
+            Transform resolvedRoot = ResolveMovementRoot(sceneCamera.transform);
+            if (movementRoot != resolvedRoot)
+                movementRoot = resolvedRoot;
+        }
     }
 
     private bool ShouldOwnOpeningCamera()
