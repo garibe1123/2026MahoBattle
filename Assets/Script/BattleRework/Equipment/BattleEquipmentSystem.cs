@@ -2,6 +2,17 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 
+/// <summary>
+/// 3x3 전투 장비 인벤토리의 authoritative data owner입니다.
+///
+/// 책임:
+/// - 슬롯 잠금/해금
+/// - 장비 배치/교환/삭제/합성
+/// - 현재 장착 슬롯
+/// - PlayerShootingSystem과의 무기 등록/장착 동기화
+///
+/// UI 선택, Hover, RectTransform, Reward 화면 상태는 이 클래스가 소유하지 않습니다.
+/// </summary>
 public class BattleEquipmentSystem : MonoBehaviour
 {
     public const int MaxSlotCount = 9;
@@ -24,6 +35,10 @@ public class BattleEquipmentSystem : MonoBehaviour
     [Tooltip("기존 1~9 숫자키 직접 장착 방식. 새 Tab/LB Grid Switch UI가 기본 입력이므로 기본값은 끕니다.")]
     [SerializeField] private bool enableNumberKeyEquip;
 
+    // 같은 shootingData를 여러 슬롯이 공유할 수 있으므로 currentWeaponSO 비교만으로
+    // 장착 슬롯을 역추적하지 않습니다. 슬롯 번호 자체를 이 시스템이 authoritative하게 소유합니다.
+    [SerializeField, HideInInspector] private int equippedSlotIndex = -1;
+
     private static readonly KeyCode[] SlotKeys =
     {
         KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3,
@@ -34,22 +49,19 @@ public class BattleEquipmentSystem : MonoBehaviour
     public IReadOnlyList<BattleEquipmentSlot> Slots => slots;
     public IReadOnlyList<BattleEquipmentSO> StartingEquipment => startingEquipment;
     public int UnlockedSlotCount => unlockedSlotCount;
-    public bool LegacyNumberKeyEquipEnabled
-    {
-        get => enableNumberKeyEquip;
-        set => enableNumberKeyEquip = value;
-    }
-
     public int EquippedSlotIndex
     {
         get
         {
             EnsureSlots();
-            for (int i = 0; i < unlockedSlotCount; i++)
-                if (IsSlotEquipped(i))
-                    return i;
-            return -1;
+            return IsEquippableSlot(equippedSlotIndex) ? equippedSlotIndex : -1;
         }
+    }
+
+    public bool LegacyNumberKeyEquipEnabled
+    {
+        get => enableNumberKeyEquip;
+        set => enableNumberKeyEquip = value;
     }
 
     public event Action InventoryChanged;
@@ -59,6 +71,7 @@ public class BattleEquipmentSystem : MonoBehaviour
     private void Awake()
     {
         EnsureSlots();
+        BootstrapEquippedSlotFromShootingSystem();
     }
 
     private void Update()
@@ -121,12 +134,49 @@ public class BattleEquipmentSystem : MonoBehaviour
             slots[i] ??= new BattleEquipmentSlot();
 
         unlockedSlotCount = Mathf.Clamp(unlockedSlotCount, 1, MaxSlotCount);
+
+        if (equippedSlotIndex >= unlockedSlotCount || equippedSlotIndex >= MaxSlotCount)
+            equippedSlotIndex = -1;
+    }
+
+    /// <summary>
+    /// 구형 씬/직렬화 상태가 currentWeaponSO만 알고 있을 때 최초 1회 슬롯 번호를 복원합니다.
+    /// 동일 shootingData가 여러 슬롯에 있으면 첫 번째 일치 슬롯을 사용하며,
+    /// 이후에는 equippedSlotIndex가 단독 authoritative state입니다.
+    /// </summary>
+    private void BootstrapEquippedSlotFromShootingSystem()
+    {
+        if (equippedSlotIndex >= 0 || shootingSystem == null || shootingSystem.currentWeaponSO == null)
+            return;
+
+        for (int i = 0; i < unlockedSlotCount; i++)
+        {
+            BattleEquipmentSO equipment = slots[i].equipment;
+            if (equipment != null && equipment.shootingData == shootingSystem.currentWeaponSO)
+            {
+                equippedSlotIndex = i;
+                return;
+            }
+        }
     }
 
     public bool IsSlotUnlocked(int index)
     {
         EnsureSlots();
         return IsUnlockedIndex(index);
+    }
+
+    public bool TryGetSlot(int index, out BattleEquipmentSlot slot)
+    {
+        EnsureSlots();
+        if (!IsUnlockedIndex(index))
+        {
+            slot = null;
+            return false;
+        }
+
+        slot = slots[index];
+        return slot != null;
     }
 
     public static Vector2Int SlotIndexToGrid(int index)
@@ -160,8 +210,7 @@ public class BattleEquipmentSystem : MonoBehaviour
             if (candidate < 0)
                 candidate += unlockedSlotCount;
 
-            BattleEquipmentSO equipment = slots[candidate].equipment;
-            if (equipment != null && equipment.shootingData != null)
+            if (IsEquippableSlot(candidate))
                 return candidate;
         }
 
@@ -170,7 +219,7 @@ public class BattleEquipmentSystem : MonoBehaviour
 
     /// <summary>
     /// 3x3 공간 시너지 빌드 편집용 슬롯 교환입니다.
-    /// 장비 Asset 자체는 수정하지 않고 런타임 슬롯 위치만 교환합니다.
+    /// BattleEquipmentSlot 객체 자체를 교환하며 장착 상태도 슬롯과 함께 이동합니다.
     /// </summary>
     public bool SwapSlots(int firstIndex, int secondIndex)
     {
@@ -183,8 +232,52 @@ public class BattleEquipmentSystem : MonoBehaviour
         BattleEquipmentSlot temp = slots[firstIndex];
         slots[firstIndex] = slots[secondIndex];
         slots[secondIndex] = temp;
+
+        if (equippedSlotIndex == firstIndex)
+            equippedSlotIndex = secondIndex;
+        else if (equippedSlotIndex == secondIndex)
+            equippedSlotIndex = firstIndex;
+
         InventoryChanged?.Invoke();
         EquippedSlotChanged?.Invoke(EquippedSlotIndex);
+        return true;
+    }
+
+    /// <summary>
+    /// PACK 밖의 임시 Hand stack과 지정 슬롯을 교환합니다.
+    /// Reward UI가 슬롯 필드를 직접 복사/수정하지 않고 이 API 하나로 교환하도록 하기 위한 공용 경로입니다.
+    /// </summary>
+    public bool ExchangeWithSlot(int index, ref BattleEquipmentStack hand)
+    {
+        EnsureSlots();
+        if (!IsUnlockedIndex(index))
+            return false;
+
+        BattleEquipmentSlot target = slots[index];
+        if (target == null)
+            return false;
+
+        BattleEquipmentStack outgoing = target.ToStack();
+        if (hand.IsEmpty && outgoing.IsEmpty)
+            return false;
+
+        BattleEquipmentSO oldEquipment = target.equipment;
+        bool oldWasEquipped = equippedSlotIndex == index;
+
+        target.Apply(hand);
+        hand = outgoing;
+
+        UnregisterWeaponIfUnused(oldEquipment);
+
+        if (oldWasEquipped)
+        {
+            if (IsEquippableSlot(index))
+                EquipSlot(index);
+            else
+                EquipFirstAvailableWeapon();
+        }
+
+        InventoryChanged?.Invoke();
         return true;
     }
 
@@ -195,6 +288,7 @@ public class BattleEquipmentSystem : MonoBehaviour
     public void ResetForRun()
     {
         EnsureSlots();
+        equippedSlotIndex = -1;
         shootingSystem?.ResetRuntimeWeapons();
 
         for (int i = 0; i < slots.Length; i++)
@@ -210,16 +304,7 @@ public class BattleEquipmentSystem : MonoBehaviour
             }
         }
 
-        // 첫 번째 수동 무기를 기본 장착합니다.
-        for (int i = 0; i < unlockedSlotCount; i++)
-        {
-            if (slots[i].equipment != null && slots[i].equipment.shootingData != null)
-            {
-                EquipSlot(i);
-                break;
-            }
-        }
-
+        EquipFirstAvailableWeapon();
         InventoryChanged?.Invoke();
     }
 
@@ -241,13 +326,11 @@ public class BattleEquipmentSystem : MonoBehaviour
             return true;
         }
 
-        int empty = FindEmptyUnlockedSlot();
+        int empty = FindFirstEmptyUnlockedSlot();
         if (empty < 0)
             return false;
 
-        slots[empty].equipment = equipment;
-        slots[empty].grade = 1;
-        slots[empty].copies = 1;
+        slots[empty].Set(equipment, 1, 1);
 
         if (notify) InventoryChanged?.Invoke();
         return true;
@@ -321,24 +404,30 @@ public class BattleEquipmentSystem : MonoBehaviour
 
     public bool ReplaceSlot(int index, BattleEquipmentSO equipment)
     {
+        return ReplaceSlot(index, BattleEquipmentStack.Create(equipment));
+    }
+
+    public bool ReplaceSlot(int index, BattleEquipmentStack incoming)
+    {
         EnsureSlots();
 
-        if (!IsUnlockedIndex(index) || equipment == null)
+        if (!IsUnlockedIndex(index) || incoming.IsEmpty)
             return false;
 
-        BattleEquipmentSO old = slots[index].equipment;
-        bool oldWasEquipped = IsSlotEquipped(index);
+        BattleEquipmentSlot target = slots[index];
+        BattleEquipmentSO old = target.equipment;
+        bool oldWasEquipped = equippedSlotIndex == index;
 
-        slots[index].equipment = equipment;
-        slots[index].grade = 1;
-        slots[index].copies = 1;
-
+        target.Apply(incoming);
         UnregisterWeaponIfUnused(old);
 
-        if (oldWasEquipped && equipment.shootingData != null)
-            EquipSlot(index);
-        else if (oldWasEquipped)
-            EquipFirstAvailableWeapon();
+        if (oldWasEquipped)
+        {
+            if (IsEquippableSlot(index))
+                EquipSlot(index);
+            else
+                EquipFirstAvailableWeapon();
+        }
 
         InventoryChanged?.Invoke();
         return true;
@@ -351,9 +440,14 @@ public class BattleEquipmentSystem : MonoBehaviour
         if (!IsUnlockedIndex(index))
             return false;
 
-        BattleEquipmentSO old = slots[index].equipment;
-        bool oldWasEquipped = IsSlotEquipped(index);
-        slots[index].Clear();
+        BattleEquipmentSlot target = slots[index];
+        if (target == null || target.equipment == null)
+            return false;
+
+        BattleEquipmentSO old = target.equipment;
+        bool oldWasEquipped = equippedSlotIndex == index;
+
+        target.Clear();
         UnregisterWeaponIfUnused(old);
 
         if (oldWasEquipped)
@@ -367,48 +461,48 @@ public class BattleEquipmentSystem : MonoBehaviour
     {
         EnsureSlots();
 
-        if (!IsUnlockedIndex(index) || shootingSystem == null)
+        if (!IsEquippableSlot(index) || shootingSystem == null)
             return false;
 
         BattleEquipmentSlot slot = slots[index];
-        if (slot.equipment == null || slot.equipment.shootingData == null)
-            return false;
-
         bool equipped = shootingSystem.RegisterWeaponAndEquip(slot.equipment.shootingData);
         if (!equipped)
             return false;
 
+        equippedSlotIndex = index;
+
         // GridSynergyController가 존재하면 기존 Tag 시너지 + 3x3 인접 시너지를 이후 합산합니다.
         // 컨트롤러가 없는 씬에서도 기존 장비 배율은 그대로 동작합니다.
         shootingSystem.RuntimeDamageMultiplier = Mathf.Max(0f, slot.equipment.damageMultiplier);
-        EquippedSlotChanged?.Invoke(index);
+        EquippedSlotChanged?.Invoke(equippedSlotIndex);
         return true;
     }
 
     public bool IsSlotEquipped(int index)
     {
         EnsureSlots();
-        if (!IsUnlockedIndex(index) || shootingSystem == null)
-            return false;
+        return index >= 0 && index == EquippedSlotIndex;
+    }
 
-        BattleEquipmentSO equipment = slots[index].equipment;
-        return equipment != null &&
-               equipment.shootingData != null &&
-               shootingSystem.currentWeaponSO == equipment.shootingData;
+    private bool IsEquippableSlot(int index)
+    {
+        return IsUnlockedIndex(index) &&
+               slots[index] != null &&
+               slots[index].equipment != null &&
+               slots[index].equipment.shootingData != null;
     }
 
     private void EquipFirstAvailableWeapon()
     {
         for (int i = 0; i < unlockedSlotCount; i++)
         {
-            BattleEquipmentSO equipment = slots[i].equipment;
-            if (equipment != null && equipment.shootingData != null)
-            {
-                EquipSlot(i);
+            if (IsEquippableSlot(i) && EquipSlot(i))
                 return;
-            }
         }
 
+        equippedSlotIndex = -1;
+        if (shootingSystem != null)
+            shootingSystem.RuntimeDamageMultiplier = 1f;
         EquippedSlotChanged?.Invoke(-1);
     }
 
@@ -436,6 +530,10 @@ public class BattleEquipmentSystem : MonoBehaviour
             return;
 
         unlockedSlotCount = next;
+
+        if (!IsEquippableSlot(equippedSlotIndex))
+            EquipFirstAvailableWeapon();
+
         SlotCapacityChanged?.Invoke(unlockedSlotCount);
         InventoryChanged?.Invoke();
     }
@@ -463,10 +561,10 @@ public class BattleEquipmentSystem : MonoBehaviour
 
     public bool HasFreeUnlockedSlot()
     {
-        return FindEmptyUnlockedSlot() >= 0;
+        return FindFirstEmptyUnlockedSlot() >= 0;
     }
 
-    private int FindEmptyUnlockedSlot()
+    public int FindFirstEmptyUnlockedSlot()
     {
         EnsureSlots();
 
@@ -485,12 +583,74 @@ public class BattleEquipmentSystem : MonoBehaviour
     }
 }
 
+/// <summary>
+/// PACK 밖에서 잠시 들고 있는 장비 묶음(Reward Hand 등)을 위한 값 객체입니다.
+/// MonoBehaviour나 별도 .cs를 만들지 않고 Equipment domain 안에서만 재사용합니다.
+/// </summary>
+[Serializable]
+public struct BattleEquipmentStack
+{
+    public BattleEquipmentSO equipment;
+    [Range(1, 3)] public int grade;
+    [Range(1, 2)] public int copies;
+
+    public bool IsEmpty => equipment == null;
+
+    public static BattleEquipmentStack Create(BattleEquipmentSO equipment, int grade = 1, int copies = 1)
+    {
+        return new BattleEquipmentStack
+        {
+            equipment = equipment,
+            grade = Mathf.Clamp(grade, 1, 3),
+            copies = Mathf.Clamp(copies, 1, 2)
+        };
+    }
+
+    public void Clear()
+    {
+        equipment = null;
+        grade = 1;
+        copies = 1;
+    }
+}
+
 [Serializable]
 public class BattleEquipmentSlot
 {
     public BattleEquipmentSO equipment;
     [Range(1, 3)] public int grade = 1;
     [Range(1, 2)] public int copies = 1;
+
+    public BattleEquipmentStack ToStack()
+    {
+        return equipment == null
+            ? default
+            : BattleEquipmentStack.Create(equipment, grade, copies);
+    }
+
+    public void Apply(BattleEquipmentStack stack)
+    {
+        if (stack.IsEmpty)
+        {
+            Clear();
+            return;
+        }
+
+        Set(stack.equipment, stack.grade, stack.copies);
+    }
+
+    public void Set(BattleEquipmentSO nextEquipment, int nextGrade = 1, int nextCopies = 1)
+    {
+        equipment = nextEquipment;
+        grade = Mathf.Clamp(nextGrade, 1, 3);
+        copies = Mathf.Clamp(nextCopies, 1, 2);
+
+        if (equipment == null)
+        {
+            grade = 1;
+            copies = 1;
+        }
+    }
 
     public void Clear()
     {
