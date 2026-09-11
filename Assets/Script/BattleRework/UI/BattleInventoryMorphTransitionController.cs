@@ -1,11 +1,5 @@
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
-
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
 
 /// <summary>
 /// 작은 BackpackMiniGrid와 LoadoutSwitchFull 사이를 하나의 PACK이 실제로 변형되는 것처럼 연결합니다.
@@ -28,7 +22,6 @@ using UnityEditor.SceneManagement;
 [DefaultExecutionOrder(33680)]
 public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private const int TransitionSortingOrder = 2400;
 
     private enum MorphState
@@ -77,9 +70,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private RectTransform ghostRoot;
     private CanvasGroup ghostGroup;
 
-    private FieldInfo loadoutSwitchHeldField;
-    private FieldInfo loadoutBoardShownField;
-
     private MorphState state = MorphState.Closed;
     private float elapsed;
     private bool rewardMode;
@@ -104,7 +94,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private void Awake()
     {
         ResolveReferences();
-        CacheReflection();
         EnsureTransitionCanvas();
         ResolveUi();
     }
@@ -112,7 +101,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        CacheReflection();
         EnsureTransitionCanvas();
         ResolveUi();
         nextResolveTime = 0f;
@@ -134,7 +122,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
     private void Update()
     {
         ResolveReferences();
-        CacheReflection();
         EnsureTransitionCanvas();
 
         if (Time.unscaledTime >= nextResolveTime)
@@ -204,15 +191,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
     }
 
-    private void CacheReflection()
-    {
-        if (kineticLoadout == null)
-            return;
-
-        loadoutSwitchHeldField ??= typeof(BattleKineticLoadoutUI).GetField("switchHeld", PrivateInstance);
-        loadoutBoardShownField ??= typeof(BattleKineticLoadoutUI).GetField("boardWasShown", PrivateInstance);
-    }
-
     private void ResolveUi()
     {
         if (miniPackRoot == null)
@@ -251,9 +229,7 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
         if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Combat || kineticLoadout == null)
             return false;
 
-        bool held = ReadBool(loadoutSwitchHeldField, kineticLoadout);
-        bool shown = ReadBool(loadoutBoardShownField, kineticLoadout);
-        return held && shown;
+        return kineticLoadout.SwitchHeld && kineticLoadout.BoardWasShown;
     }
 
     private void BeginOpening(bool isReward)
@@ -696,14 +672,6 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
         ghostGroup = null;
     }
 
-    private static bool ReadBool(FieldInfo field, object owner)
-    {
-        if (field == null || owner == null)
-            return false;
-        object raw = field.GetValue(owner);
-        return raw is bool value && value;
-    }
-
     private static RectTransform FindRect(string objectName)
     {
         RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
@@ -787,67 +755,5 @@ public sealed class BattleInventoryMorphTransitionController : MonoBehaviour
         if (angle > 180f) angle -= 360f;
         if (angle < -180f) angle += 360f;
         return angle;
-    }
-}
-
-public static class BattleInventoryMorphTransitionAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponent;
-    }
-
-    private static void EnsureEditorComponent()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleInventoryMorphTransitionController>() != null)
-                continue;
-
-            Undo.AddComponent<BattleInventoryMorphTransitionController>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponent()
-    {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleInventoryMorphTransitionController>() == null)
-                manager.gameObject.AddComponent<BattleInventoryMorphTransitionController>();
-        }
     }
 }
