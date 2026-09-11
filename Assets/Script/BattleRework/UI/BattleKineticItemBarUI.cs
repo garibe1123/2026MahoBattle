@@ -7,6 +7,17 @@ using UnityEditor;
 using UnityEditor.SceneManagement;
 #endif
 
+/// <summary>
+/// 전투 중 좌측 하단 Mini PACK의 구조/기본 시각을 소유합니다.
+///
+/// 소유권 규칙:
+/// - 이 클래스는 PACK 배경, 아이콘, Grade, 작은 CellAccent만 관리합니다.
+/// - 장착/시너지 때문에 슬롯 전체 Outline이나 Scale을 변경하지 않습니다.
+/// - 전체 선택 프레임은 Inventory Interaction 계층의 InteractionSelectionFrame만 사용합니다.
+///
+/// 이렇게 해서 Equipped/Synergy 시각과 실제 UI Selection 시각이 서로 같은 RectTransform 값을
+/// 덮어쓰지 않도록 분리합니다.
+/// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30150)]
 public sealed class BattleKineticItemBarUI : MonoBehaviour
@@ -28,7 +39,6 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
-    [SerializeField, Range(1f, 1.16f)] private float equippedScale = 1.055f;
     [SerializeField, Min(1f)] private float fadeSharpness = 14f;
 
     private Canvas canvas;
@@ -266,10 +276,12 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void Refresh()
     {
-        if (equipmentSystem == null || canvas == null) return;
+        if (equipmentSystem == null || canvas == null)
+            return;
 
         int equipped = equipmentSystem.EquippedSlotIndex;
-        if (capacityText != null) capacityText.text = $"{equipmentSystem.UnlockedSlotCount} / {SlotCount}";
+        if (capacityText != null)
+            capacityText.text = $"{equipmentSystem.UnlockedSlotCount} / {SlotCount}";
 
         for (int i = 0; i < SlotCount; i++)
         {
@@ -283,15 +295,18 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             if (slotBackgrounds[i] != null)
                 slotBackgrounds[i].color = !unlocked ? lockedColor : occupied ? occupiedCellColor : emptyCellColor;
 
+            // 전체 프레임은 Selection 상태 전용입니다.
+            // Equipped/Synergy는 CellAccent만 사용하고 base Outline/Scale은 항상 중립으로 유지합니다.
             if (slotOutlines[i] != null)
             {
                 slotOutlines[i].effectColor = !unlocked
                     ? new Color(0f, 0f, 0f, 0.65f)
-                    : isEquipped ? accentYellow : linked ? accentCyan : new Color(0f, 0f, 0f, 0.92f);
-                slotOutlines[i].effectDistance = isEquipped || linked ? new Vector2(4f, -4f) : new Vector2(3f, -3f);
+                    : new Color(0f, 0f, 0f, 0.92f);
+                slotOutlines[i].effectDistance = new Vector2(3f, -3f);
             }
 
-            if (slotRects[i] != null) slotRects[i].localScale = Vector3.one * (isEquipped ? equippedScale : 1f);
+            if (slotRects[i] != null)
+                slotRects[i].localScale = Vector3.one;
 
             if (slotIcons[i] != null)
             {
@@ -303,16 +318,21 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             if (slotGrades[i] != null)
             {
                 slotGrades[i].text = unlocked && occupied ? $"G{slot.grade}" : string.Empty;
-                slotGrades[i].color = isEquipped ? accentYellow : linked ? accentCyan : paperColor;
+                slotGrades[i].color = paperColor;
             }
 
             if (slotAccents[i] != null)
             {
-                slotAccents[i].enabled = unlocked && (occupied || isEquipped || linked);
-                slotAccents[i].color = isEquipped ? accentYellow : linked ? accentCyan : new Color(accentPink.r, accentPink.g, accentPink.b, 0.48f);
+                slotAccents[i].enabled = unlocked && occupied;
+                slotAccents[i].color = isEquipped
+                    ? accentYellow
+                    : linked
+                        ? accentCyan
+                        : new Color(accentPink.r, accentPink.g, accentPink.b, 0.48f);
             }
 
-            if (lockMarks[i] != null) lockMarks[i].SetActive(!unlocked);
+            if (lockMarks[i] != null)
+                lockMarks[i].SetActive(!unlocked);
         }
     }
 
