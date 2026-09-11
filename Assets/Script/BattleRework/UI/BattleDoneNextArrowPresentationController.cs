@@ -2,11 +2,6 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
 /// Reward PACK의 기존 DONE / NEXT 입력은 그대로 두고 시각만 담당합니다.
 ///
@@ -426,66 +421,4 @@ internal sealed class BattleDoneNextArrowHoverRelay : MonoBehaviour, IPointerEnt
 
     public void OnPointerEnter(PointerEventData eventData) => owner?.SetHovered(true);
     public void OnPointerExit(PointerEventData eventData) => owner?.SetHovered(false);
-}
-
-public static class BattleDoneNextArrowPresentationAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool queued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (queued || EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        queued = true;
-        EditorApplication.delayCall += InstallEditor;
-    }
-
-    private static void InstallEditor()
-    {
-        queued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleDoneNextArrowPresentationController>() != null)
-                continue;
-
-            Undo.AddComponent<BattleDoneNextArrowPresentationController>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void InstallRuntime()
-    {
-        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleDoneNextArrowPresentationController>() == null)
-                manager.gameObject.AddComponent<BattleDoneNextArrowPresentationController>();
-        }
-    }
 }
