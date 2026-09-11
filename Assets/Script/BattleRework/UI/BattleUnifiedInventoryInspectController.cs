@@ -1,4 +1,3 @@
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -9,61 +8,84 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// Combat Tab 인벤토리와 Reward PACK 편집을 같은 LoadoutSwitchFull UI로 통합합니다.
+/// Combat Tab과 Reward PACK 편집이 공유하는 Inventory UI의 authoritative layout owner입니다.
 ///
-/// 핵심 규칙:
-/// - Reward 아이템을 PACK에 넣고 Selection Locked가 되면 기존 Combat Tab의 LoadoutSwitchFull을 그대로 사용합니다.
-/// - Reward용 별도 Full Inspect 레이아웃은 비활성화하여 RectTransform 소유권 충돌을 막습니다.
-/// - 선택 슬롯이 오른쪽 열이면 상세 패널은 왼쪽, 그 외에는 오른쪽에 배치합니다.
-/// - Grid 밖으로 마우스를 빼거나 빈 배경을 클릭하거나 패드 B를 누르면 선택/상세 패널이 해제됩니다.
-/// - Reward 편집에서는 Time.timeScale 0.05를 사용해 실제 필드 오브젝트도 함께 Bullet Time 처리합니다.
+/// 이 클래스만 다음 RectTransform / CanvasGroup 상태를 씁니다.
+/// - 좌측 하단 Mini PACK의 위치/크기/표시 상태
+/// - 공용 LoadoutSwitchFull / GridBoard의 위치와 스케일
+/// - 외부 EquipmentDetailPanel의 고정 위치
+/// - Reward TRASH / DONE의 PACK 부착 위치
+///
+/// 슬롯 데이터와 교환 규칙은 BattleEquipmentSystem,
+/// Reward 상태는 BattleRewardFlow,
+/// 슬롯 입력은 BattleInventoryInteractionController가 소유합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33380)]
 public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
+    private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int DismissCanvasSortingOrder = 779;
+    private const float MiniCellSize = 78f;
+    private const float MiniCellGap = 7f;
+    private const float MiniGridTotal = MiniCellSize * 3f + MiniCellGap * 2f;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [SerializeField] private BattleRewardFlow rewardFlow;
     [SerializeField] private BattleInventoryInteractionController inventoryInteraction;
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
 
-    [Header("Unified Full Grid")]
-    [SerializeField] private Vector2 boardAnchor = new(0.50f, 0.53f);
-    [SerializeField, Range(0.82f, 1.10f)] private float fullGridScale = 0.96f;
-    [SerializeField] private Vector2 rightDetailOffset = new(-42f, 0f);
-    [SerializeField] private Vector2 leftDetailOffset = new(42f, 0f);
-    [SerializeField, Range(0.78f, 1.08f)] private float detailScale = 0.94f;
+    [Header("Mini PACK")]
+    [SerializeField] private Vector2 miniPackSize = new(304f, 326f);
+    [SerializeField] private Vector2 combatMiniPackPosition = new(22f, 22f);
+    [SerializeField] private Vector2 rewardChoiceMiniPackPosition = new(34f, 28f);
+    [SerializeField] private Vector2 miniGridOffset = new(20f, 18f);
+    [SerializeField] private Vector2 miniHeaderSize = new(126f, 40f);
+    [SerializeField] private Vector2 miniIconSize = new(64f, 64f);
+    [SerializeField, Range(0.45f, 0.90f)] private float rewardChoiceMiniPackScale = 0.68f;
+    [SerializeField, Range(0.5f, 1f)] private float rewardChoiceMiniPackAlpha = 0.82f;
 
-    [Header("Reward Edit")]
+    [Header("Full Inventory")]
+    [SerializeField] private Vector2 boardAnchor = new(0.31f, 0.53f);
+    [SerializeField, Range(0.90f, 1.08f)] private float fullGridScale = 1f;
+    [SerializeField] private Vector2 detailAnchor = new(0.80f, 0.52f);
+    [SerializeField, Range(0.80f, 1.10f)] private float detailScale = 0.96f;
+
+    [Header("Reward Controls")]
+    [SerializeField] private Vector2 trashAttachOffset = new(-8f, 0f);
+    [SerializeField] private Vector2 doneAttachOffset = new(-8f, 80f);
+
+    [Header("Reward Edit Time")]
     [SerializeField, Range(0.02f, 0.20f)] private float rewardBulletTimeScale = 0.05f;
-    [SerializeField] private Vector2 rewardTrashPosition = new(1330f, 92f);
-    [SerializeField] private Vector2 rewardDonePosition = new(1124f, 92f);
-    [SerializeField] private Vector2 rewardStatusPosition = new(560f, 100f);
 
-    [Header("Theme")]
-    [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.08f, 1f);
-    [SerializeField] private Color accentCyan = new(0.14f, 0.92f, 0.94f, 1f);
+    [Header("Selection")]
+    [SerializeField] private Color selectedAccent = new(1f, 0.80f, 0.08f, 1f);
+    [SerializeField] private Color hoverAccent = new(0.14f, 0.92f, 0.94f, 1f);
+    [SerializeField] private Color pickedAccent = new(1f, 0.18f, 0.52f, 1f);
 
     private RectTransform fullRoot;
     private CanvasGroup fullGroup;
     private RectTransform boardRoot;
     private RectTransform builtInDetailRoot;
+
     private RectTransform miniPackRoot;
+    private RectTransform miniPackCells;
     private CanvasGroup miniPackGroup;
+
     private RectTransform detailRoot;
     private CanvasGroup detailGroup;
     private Outline detailOutline;
+
     private RectTransform trashRoot;
     private RectTransform doneRoot;
-    private RectTransform statusRoot;
-
     private Text fullTitle;
     private Text fullSubtitle;
+
+    private readonly GameObject[] fullSelectionFrames = new GameObject[SlotCount];
+    private readonly Outline[] fullSelectionOutlines = new Outline[SlotCount];
 
     private Canvas dismissCanvas;
     private CanvasGroup dismissGroup;
@@ -71,24 +93,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private BattleRewardFullInspectController oldRewardFullInspect;
     private BattleEquipmentDetailContextLayoutController oldContextLayout;
+    private BattleInventoryDragPresentationController oldDragPresentation;
+    private BattleInventoryHudLayoutPolishController oldLayoutPolish;
 
-    private FieldInfo inventoryStagedSlotField;
-    private FieldInfo inventorySelectedSlotField;
-    private FieldInfo inventoryHoveredSlotField;
-    private FieldInfo inventoryPadSelectedField;
-    private FieldInfo inventoryPadPickedField;
-    private FieldInfo inventoryPadModeField;
-
-    private FieldInfo loadoutSelectedIndexField;
-    private FieldInfo loadoutSwitchHeldField;
-    private FieldInfo loadoutBoardShownField;
-    private MethodInfo loadoutRefreshMethod;
-
-    private bool rewardReuseActive;
     private bool selectionSuppressed;
     private int suppressedSourceSlot = -1;
     private int activeInspectSlot = -1;
-    private int lastVisualSlot = -999;
     private bool mouseWasInsideBoard;
     private float nextResolveTime;
 
@@ -96,21 +106,21 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private float previousTimeScale = 1f;
     private float previousFixedDeltaTime = 0.02f;
 
+    public int ActiveInspectSlot => activeInspectSlot;
+
     private void Awake()
     {
         ResolveReferences();
-        CacheReflection();
-        EnsureDismissCanvas();
         ResolveUi();
+        EnsureDismissCanvas();
         DisableSupersededControllers();
     }
 
     private void OnEnable()
     {
         ResolveReferences();
-        CacheReflection();
-        EnsureDismissCanvas();
         ResolveUi();
+        EnsureDismissCanvas();
         DisableSupersededControllers();
         nextResolveTime = 0f;
     }
@@ -119,20 +129,19 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         RestoreBulletTime(true);
         SetDismissActive(false);
-        RestoreLegacyControllers();
     }
 
     private void Update()
     {
         ResolveReferences();
-        CacheReflection();
+        rewardFlow?.RefreshFromRunState();
         EnsureDismissCanvas();
 
         if (Time.unscaledTime >= nextResolveTime)
         {
-            nextResolveTime = Time.unscaledTime + 0.08f;
+            nextResolveTime = Time.unscaledTime + 0.10f;
             ResolveUi();
-            InstallSlotClickRelays();
+            EnsureFullSelectionFrames();
             DisableSupersededControllers();
         }
 
@@ -141,16 +150,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         bool inspectContext = rewardEdit || combatTab;
 
         if (rewardEdit)
-        {
-            rewardReuseActive = true;
             MaintainRewardBulletTime();
-        }
-        else
-        {
-            rewardReuseActive = false;
-            if (bulletTimeOwned && !BattlePauseController.IsPaused)
-                RestoreBulletTime(false);
-        }
+        else if (bulletTimeOwned && !BattlePauseController.IsPaused)
+            RestoreBulletTime(false);
 
         SyncSelection(rewardEdit, combatTab);
         HandleCancelInput(inspectContext);
@@ -162,25 +164,19 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         ResolveUi();
 
+        bool rewardChoice = IsRewardChoice();
         bool rewardEdit = IsRewardEdit();
         bool combatTab = IsCombatTabOpen();
+        bool combat = IsCombat();
         bool inspectContext = rewardEdit || combatTab;
 
-        if (rewardEdit)
-            ForceRewardToReuseTabUi();
-        else if (!combatTab)
-            RestoreNonInspectLayout();
-
-        if (inspectContext)
-        {
-            ForceSharedBoardLayout();
-            ApplySelectionVisual(rewardEdit);
-            PositionDetailPanel();
-        }
-        else
-        {
-            HideDetailIfSuppressed();
-        }
+        HideDuplicateLegacyBars();
+        ApplyMiniPackGeometry();
+        ApplyMiniPackContext(rewardChoice, rewardEdit, combatTab, combat);
+        ApplyFullInventoryLayout(rewardEdit, combatTab);
+        AttachContextControls(rewardEdit, combat);
+        ApplySelectionFrames(inspectContext, rewardEdit);
+        PositionDetailPanel(inspectContext);
     }
 
     private void ResolveReferences()
@@ -189,73 +185,68 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        if (rewardFlow == null)
+            rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
         if (inventoryInteraction == null)
-            inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>();
+            inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>(FindObjectsInactive.Include);
         if (kineticLoadout == null)
-            kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
+            kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
         if (detailController == null)
-            detailController = FindFirstObjectByType<BattleEquipmentDetailPanelController>();
+            detailController = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
 
         if (oldRewardFullInspect == null)
             oldRewardFullInspect = FindFirstObjectByType<BattleRewardFullInspectController>(FindObjectsInactive.Include);
         if (oldContextLayout == null)
             oldContextLayout = FindFirstObjectByType<BattleEquipmentDetailContextLayoutController>(FindObjectsInactive.Include);
-    }
-
-    private void CacheReflection()
-    {
-        inventoryStagedSlotField ??= typeof(BattleInventoryInteractionController).GetField("stagedRewardSlot", PrivateInstance);
-        inventorySelectedSlotField ??= typeof(BattleInventoryInteractionController).GetField("selectedRewardSlot", PrivateInstance);
-        inventoryHoveredSlotField ??= typeof(BattleInventoryInteractionController).GetField("hoveredSlot", PrivateInstance);
-        inventoryPadSelectedField ??= typeof(BattleInventoryInteractionController).GetField("padSelectedSlot", PrivateInstance);
-        inventoryPadPickedField ??= typeof(BattleInventoryInteractionController).GetField("padPickedSlot", PrivateInstance);
-        inventoryPadModeField ??= typeof(BattleInventoryInteractionController).GetField("padModeActive", PrivateInstance);
-
-        loadoutSelectedIndexField ??= typeof(BattleKineticLoadoutUI).GetField("selectedIndex", PrivateInstance);
-        loadoutSwitchHeldField ??= typeof(BattleKineticLoadoutUI).GetField("switchHeld", PrivateInstance);
-        loadoutBoardShownField ??= typeof(BattleKineticLoadoutUI).GetField("boardWasShown", PrivateInstance);
-        loadoutRefreshMethod ??= typeof(BattleKineticLoadoutUI).GetMethod("RefreshAll", PrivateInstance);
+        if (oldDragPresentation == null)
+            oldDragPresentation = FindFirstObjectByType<BattleInventoryDragPresentationController>(FindObjectsInactive.Include);
+        if (oldLayoutPolish == null)
+            oldLayoutPolish = FindFirstObjectByType<BattleInventoryHudLayoutPolishController>(FindObjectsInactive.Include);
     }
 
     private void DisableSupersededControllers()
     {
-        // Reward 편집을 별도 레이아웃으로 만들던 두 컨트롤러는 이제 이 통합 컨트롤러가 대체합니다.
         if (oldRewardFullInspect != null && oldRewardFullInspect.enabled)
             oldRewardFullInspect.enabled = false;
         if (oldContextLayout != null && oldContextLayout.enabled)
             oldContextLayout.enabled = false;
+        if (oldDragPresentation != null && oldDragPresentation.enabled)
+            oldDragPresentation.enabled = false;
+        if (oldLayoutPolish != null && oldLayoutPolish.enabled)
+            oldLayoutPolish.enabled = false;
     }
 
-    private void RestoreLegacyControllers()
+    private bool IsCombat()
     {
-        // 이 컴포넌트가 제거/비활성화될 경우에만 기존 안전망을 되살립니다.
-        if (oldRewardFullInspect != null)
-            oldRewardFullInspect.enabled = true;
-        if (oldContextLayout != null)
-            oldContextLayout.enabled = true;
+        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
+    }
+
+    private bool IsRewardChoice()
+    {
+        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward &&
+               (rewardFlow == null || rewardFlow.Phase == BattleRewardPhase.Choosing);
     }
 
     private bool IsRewardEdit()
     {
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward &&
-               inventoryInteraction != null && inventoryInteraction.IsRewardPackEditing;
+               rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
     }
 
     private bool IsCombatTabOpen()
     {
-        if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Combat)
-            return false;
-
-        bool held = ReadBool(loadoutSwitchHeldField, kineticLoadout);
-        bool shown = ReadBool(loadoutBoardShownField, kineticLoadout);
-        if (held && shown)
-            return true;
-
-        return fullGroup != null && fullGroup.alpha > 0.08f;
+        return IsCombat() && kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
     }
 
     private void ResolveUi()
     {
+        if (kineticLoadout != null)
+        {
+            fullRoot ??= kineticLoadout.FullRoot;
+            fullGroup ??= kineticLoadout.FullGroup;
+            boardRoot ??= kineticLoadout.GridBoard;
+        }
+
         if (fullRoot == null)
         {
             fullRoot = FindRect("LoadoutSwitchFull");
@@ -263,16 +254,23 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             {
                 fullGroup = fullRoot.GetComponent<CanvasGroup>();
                 boardRoot = FindChildRect(fullRoot, "GridBoard");
-                builtInDetailRoot = FindChildRect(fullRoot, "DetailPanel");
-                ResolveFullHeaderTexts();
             }
+        }
+
+        if (fullRoot != null && builtInDetailRoot == null)
+        {
+            builtInDetailRoot = FindChildRect(fullRoot, "DetailPanel");
+            ResolveFullHeaderTexts();
         }
 
         if (miniPackRoot == null)
         {
             miniPackRoot = FindRect("BackpackMiniGrid");
             if (miniPackRoot != null)
+            {
                 miniPackGroup = miniPackRoot.GetComponent<CanvasGroup>();
+                miniPackCells = miniPackRoot.Find("BackpackCells") as RectTransform;
+            }
         }
 
         if (detailRoot == null)
@@ -285,24 +283,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             }
         }
 
-        if (trashRoot == null)
-            trashRoot = FindRect("InventoryTrash");
-        if (doneRoot == null)
-            doneRoot = FindRect("RewardPackDone");
-
-        if (statusRoot == null)
-        {
-            Text[] texts = UnityEngine.Object.FindObjectsByType<Text>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            for (int i = 0; i < texts.Length; i++)
-            {
-                Text text = texts[i];
-                if (text != null && text.text != null && text.text.Contains("ITEM IN PACK"))
-                {
-                    statusRoot = text.rectTransform;
-                    break;
-                }
-            }
-        }
+        trashRoot ??= FindRect("InventoryTrash");
+        doneRoot ??= FindRect("RewardPackDone");
     }
 
     private void ResolveFullHeaderTexts()
@@ -317,129 +299,223 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             if (text == null)
                 continue;
 
-            if (text.text == "LOADOUT // SHIFT" || text.text == "PACK // EDIT")
+            string value = text.text ?? string.Empty;
+            if (value == "LOADOUT // SHIFT" || value == "PACK // EDIT")
                 fullTitle = text;
-            else if (text.text != null && (text.text.Contains("HOLD TAB / LB") || text.text.Contains("MOVE / SWAP")))
+            else if (value.Contains("HOLD TAB / LB") || value.Contains("MOVE / SWAP"))
                 fullSubtitle = text;
         }
     }
 
-    private void ForceRewardToReuseTabUi()
+    private void ApplyMiniPackGeometry()
     {
-        if (fullRoot == null || fullGroup == null)
+        if (miniPackRoot == null)
             return;
 
-        fullRoot.gameObject.SetActive(true);
-        fullGroup.alpha = 1f;
-        fullGroup.blocksRaycasts = !BattlePauseController.IsPaused;
-        fullGroup.interactable = !BattlePauseController.IsPaused;
-        fullRoot.localScale = Vector3.one * fullGridScale;
+        miniPackRoot.anchorMin = miniPackRoot.anchorMax = Vector2.zero;
+        miniPackRoot.pivot = Vector2.zero;
+        miniPackRoot.sizeDelta = miniPackSize;
+        miniPackRoot.localRotation = Quaternion.Euler(0f, 0f, -1.15f);
 
-        if (fullTitle != null)
-            fullTitle.text = "PACK // EDIT";
-        if (fullSubtitle != null)
-            fullSubtitle.text = "MOVE / SWAP  •  B CANCEL  •  TRASH  •  DONE";
+        RectTransform header = miniPackRoot.Find("PackHeaderTag") as RectTransform;
+        if (header != null)
+        {
+            header.sizeDelta = miniHeaderSize;
+            header.anchoredPosition = new Vector2(10f, -5f);
+        }
 
-        if (miniPackGroup != null)
+        Text[] headerTexts = miniPackRoot.GetComponentsInChildren<Text>(true);
+        for (int i = 0; i < headerTexts.Length; i++)
+        {
+            Text text = headerTexts[i];
+            if (text == null)
+                continue;
+            if (text.text == "PACK")
+                text.fontSize = 18;
+            else if (text.text != null && text.text.Contains("/ 9"))
+                text.fontSize = 12;
+            else if (text.text != null && (text.text.Contains("TAB") || text.text.Contains("LB")))
+                text.fontSize = 9;
+        }
+
+        miniPackCells ??= miniPackRoot.Find("BackpackCells") as RectTransform;
+        if (miniPackCells == null)
+            return;
+
+        miniPackCells.anchorMin = miniPackCells.anchorMax = Vector2.zero;
+        miniPackCells.pivot = Vector2.zero;
+        miniPackCells.sizeDelta = new Vector2(MiniGridTotal, MiniGridTotal);
+        miniPackCells.anchoredPosition = miniGridOffset;
+
+        for (int i = 0; i < SlotCount; i++)
+        {
+            RectTransform slot = miniPackCells.Find($"BackpackCell_{i}") as RectTransform;
+            if (slot == null)
+                continue;
+
+            int x = i % BattleEquipmentSystem.GridSize;
+            int y = i / BattleEquipmentSystem.GridSize;
+            slot.sizeDelta = new Vector2(MiniCellSize, MiniCellSize);
+            slot.anchorMin = slot.anchorMax = Vector2.zero;
+            slot.pivot = new Vector2(0.5f, 0.5f);
+            slot.anchoredPosition = new Vector2(
+                x * (MiniCellSize + MiniCellGap) + MiniCellSize * 0.5f,
+                MiniGridTotal - (y * (MiniCellSize + MiniCellGap) + MiniCellSize * 0.5f));
+
+            RectTransform icon = slot.Find("Icon") as RectTransform;
+            if (icon != null)
+            {
+                icon.sizeDelta = miniIconSize;
+                icon.anchorMin = icon.anchorMax = new Vector2(0.5f, 0.5f);
+                icon.anchoredPosition = Vector2.zero;
+            }
+
+            RectTransform accent = slot.Find("CellAccent") as RectTransform;
+            if (accent != null)
+            {
+                accent.sizeDelta = new Vector2(6f, MiniCellSize - 10f);
+                accent.anchoredPosition = new Vector2(4f, 0f);
+            }
+        }
+    }
+
+    private void ApplyMiniPackContext(bool rewardChoice, bool rewardEdit, bool combatTab, bool combat)
+    {
+        if (miniPackRoot == null || miniPackGroup == null)
+            return;
+
+        if (rewardEdit || combatTab)
         {
             miniPackGroup.alpha = 0f;
             miniPackGroup.blocksRaycasts = false;
             miniPackGroup.interactable = false;
+            return;
         }
 
-        if (builtInDetailRoot != null)
-            builtInDetailRoot.gameObject.SetActive(false);
+        if (rewardChoice)
+        {
+            miniPackRoot.anchoredPosition = rewardChoiceMiniPackPosition;
+            miniPackRoot.localScale = Vector3.one * rewardChoiceMiniPackScale;
+            miniPackGroup.alpha = rewardChoiceMiniPackAlpha;
+            miniPackGroup.blocksRaycasts = false;
+            miniPackGroup.interactable = false;
+            return;
+        }
 
-        PositionRewardControls();
+        if (combat)
+        {
+            miniPackRoot.anchoredPosition = combatMiniPackPosition;
+            miniPackRoot.localScale = Vector3.one;
+            miniPackGroup.alpha = 1f;
+            bool interactive = !BattlePauseController.IsPaused;
+            miniPackGroup.blocksRaycasts = interactive;
+            miniPackGroup.interactable = interactive;
+            return;
+        }
+
+        miniPackGroup.alpha = 0f;
+        miniPackGroup.blocksRaycasts = false;
+        miniPackGroup.interactable = false;
     }
 
-    private void ForceSharedBoardLayout()
+    private void ApplyFullInventoryLayout(bool rewardEdit, bool combatTab)
     {
         if (boardRoot != null)
         {
             boardRoot.anchorMin = boardRoot.anchorMax = boardAnchor;
+            boardRoot.pivot = new Vector2(0.5f, 0.5f);
             boardRoot.anchoredPosition = Vector2.zero;
         }
 
-        if (builtInDetailRoot != null)
-            builtInDetailRoot.gameObject.SetActive(false);
+        if (fullRoot != null)
+            fullRoot.localScale = Vector3.one * fullGridScale;
 
-        if (miniPackGroup != null && (rewardReuseActive || IsCombatTabOpen()))
+        if (rewardEdit && fullRoot != null && fullGroup != null)
         {
-            miniPackGroup.alpha = 0f;
-            miniPackGroup.blocksRaycasts = false;
-            miniPackGroup.interactable = false;
+            fullRoot.gameObject.SetActive(true);
+            fullGroup.alpha = 1f;
+            fullGroup.blocksRaycasts = !BattlePauseController.IsPaused;
+            fullGroup.interactable = !BattlePauseController.IsPaused;
         }
-    }
-
-    private void RestoreNonInspectLayout()
-    {
-        if (boardRoot != null)
-        {
-            boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.72f, 0.53f);
-            boardRoot.anchoredPosition = Vector2.zero;
-        }
-
-        if (builtInDetailRoot != null)
-            builtInDetailRoot.gameObject.SetActive(true);
 
         if (fullTitle != null)
-            fullTitle.text = "LOADOUT // SHIFT";
+            fullTitle.text = rewardEdit ? "PACK // EDIT" : "LOADOUT // SHIFT";
         if (fullSubtitle != null)
-            fullSubtitle.text = "HOLD TAB / LB   •   MOVE   •   RELEASE TO EQUIP";
+            fullSubtitle.text = rewardEdit
+                ? "MOVE / SWAP  •  B CANCEL  •  TRASH  •  DONE"
+                : "HOLD TAB / LB   •   MOVE   •   RELEASE TO EQUIP";
+
+        if (builtInDetailRoot != null)
+            builtInDetailRoot.gameObject.SetActive(!(rewardEdit || combatTab));
     }
 
-    private void PositionRewardControls()
+    private void HideDuplicateLegacyBars()
     {
-        if (trashRoot != null)
+        HideByName("EquipmentDock");
+        HideByName("RewardLoadoutStrip");
+    }
+
+    private static void HideByName(string objectName)
+    {
+        RectTransform rect = FindRect(objectName);
+        if (rect != null && rect.gameObject.activeSelf)
+            rect.gameObject.SetActive(false);
+    }
+
+    private void AttachContextControls(bool rewardEdit, bool combat)
+    {
+        if (rewardEdit && boardRoot != null)
         {
-            trashRoot.anchorMin = trashRoot.anchorMax = Vector2.zero;
-            trashRoot.pivot = Vector2.zero;
-            trashRoot.anchoredPosition = rewardTrashPosition;
+            AttachControl(trashRoot, boardRoot, trashAttachOffset);
+            AttachControl(doneRoot, boardRoot, doneAttachOffset);
+            return;
         }
 
-        if (doneRoot != null)
-        {
-            doneRoot.anchorMin = doneRoot.anchorMax = Vector2.zero;
-            doneRoot.pivot = Vector2.zero;
-            doneRoot.anchoredPosition = rewardDonePosition;
-        }
+        if (combat && inventoryInteraction != null && inventoryInteraction.IsDraggingItem && miniPackRoot != null)
+            AttachControl(trashRoot, miniPackRoot, trashAttachOffset);
+    }
 
-        if (statusRoot != null)
-        {
-            statusRoot.anchorMin = statusRoot.anchorMax = Vector2.zero;
-            statusRoot.pivot = Vector2.zero;
-            statusRoot.anchoredPosition = rewardStatusPosition;
-            statusRoot.sizeDelta = new Vector2(780f, 46f);
-        }
+    private static void AttachControl(RectTransform control, RectTransform parent, Vector2 localOffset)
+    {
+        if (control == null || parent == null)
+            return;
+
+        if (control.parent != parent)
+            control.SetParent(parent, false);
+
+        control.anchorMin = control.anchorMax = new Vector2(1f, 0f);
+        control.pivot = new Vector2(0f, 0f);
+        control.anchoredPosition = localOffset;
+        control.localRotation = Quaternion.identity;
+        control.localScale = Vector3.one;
+        control.SetAsLastSibling();
     }
 
     private void SyncSelection(bool rewardEdit, bool combatTab)
     {
         int source = -1;
 
-        if (rewardEdit)
+        if (rewardEdit && inventoryInteraction != null)
         {
-            bool padMode = ReadBool(inventoryPadModeField, inventoryInteraction);
-            int pad = ReadInt(inventoryPadSelectedField, inventoryInteraction, -1);
-            int mouse = ReadInt(inventorySelectedSlotField, inventoryInteraction, -1);
-            int staged = ReadInt(inventoryStagedSlotField, inventoryInteraction, -1);
+            int pad = inventoryInteraction.PadSelectedSlot;
+            int mouse = inventoryInteraction.SelectedRewardSlot;
+            int hover = inventoryInteraction.HoveredSlot;
 
-            if (padMode && HasItem(pad))
+            if (inventoryInteraction.PadModeActive && HasItem(pad))
                 source = pad;
             else if (HasItem(mouse))
                 source = mouse;
+            else if (HasItem(hover))
+                source = hover;
             else if (activeInspectSlot >= 0 && HasItem(activeInspectSlot))
                 source = activeInspectSlot;
-            else if (!selectionSuppressed && HasItem(staged))
-                source = staged;
-
-            if (source >= 0)
-                WriteInt(loadoutSelectedIndexField, kineticLoadout, source);
+            else if (!selectionSuppressed && rewardFlow != null && rewardFlow.ChosenRewardCommitted &&
+                     HasItem(rewardFlow.ChosenRewardSlot))
+                source = rewardFlow.ChosenRewardSlot;
         }
-        else if (combatTab)
+        else if (combatTab && kineticLoadout != null)
         {
-            source = ReadInt(loadoutSelectedIndexField, kineticLoadout, -1);
+            source = kineticLoadout.SelectedIndex;
         }
 
         if (selectionSuppressed)
@@ -451,67 +527,38 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             }
             else
             {
-                activeInspectSlot = -1;
+                SetActiveInspectSlot(-1);
                 return;
             }
         }
 
-        if (source >= 0 && HasItem(source))
-        {
-            if (activeInspectSlot != source)
-            {
-                activeInspectSlot = source;
-                detailController?.SelectSlotFromPointer(source);
-                lastVisualSlot = -999;
-            }
-        }
-        else
-        {
-            activeInspectSlot = -1;
-        }
+        SetActiveInspectSlot(HasItem(source) ? source : -1);
     }
 
-    public void SelectSlot(int slotIndex)
+    private void SetActiveInspectSlot(int slotIndex)
     {
-        if (!HasItem(slotIndex))
-        {
-            CancelSelection();
+        if (activeInspectSlot == slotIndex)
             return;
-        }
 
-        selectionSuppressed = false;
-        suppressedSourceSlot = -1;
         activeInspectSlot = slotIndex;
-
-        WriteInt(loadoutSelectedIndexField, kineticLoadout, slotIndex);
-        if (IsRewardEdit())
-            WriteInt(inventorySelectedSlotField, inventoryInteraction, slotIndex);
-
         detailController?.SelectSlotFromPointer(slotIndex);
-        InvokeLoadoutRefresh();
-        lastVisualSlot = -999;
     }
 
     public void CancelSelection()
     {
-        int current = activeInspectSlot >= 0
-            ? activeInspectSlot
-            : ReadInt(loadoutSelectedIndexField, kineticLoadout, -1);
+        int current = activeInspectSlot;
+        if (current < 0 && kineticLoadout != null)
+            current = kineticLoadout.SelectedIndex;
+        if (current < 0 && inventoryInteraction != null)
+            current = inventoryInteraction.SelectedRewardSlot;
 
         selectionSuppressed = true;
         suppressedSourceSlot = current;
         activeInspectSlot = -1;
-        lastVisualSlot = -999;
 
-        WriteInt(inventorySelectedSlotField, inventoryInteraction, -1);
-        WriteInt(inventoryHoveredSlotField, inventoryInteraction, -1);
-        WriteInt(inventoryPadPickedField, inventoryInteraction, -1);
-        WriteBool(inventoryPadModeField, inventoryInteraction, false);
-
-        // Combat Tab에서도 전체 선택 프레임이 즉시 사라지도록 selectedIndex 자체를 비웁니다.
-        WriteInt(loadoutSelectedIndexField, kineticLoadout, -1);
+        inventoryInteraction?.ClearInspectSelection();
+        kineticLoadout?.ClearExternalSelection();
         detailController?.SelectSlotFromPointer(-1);
-        InvokeLoadoutRefresh();
 
         if (detailGroup != null)
             detailGroup.alpha = 0f;
@@ -548,68 +595,86 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         }
     }
 
-    private void ApplySelectionVisual(bool rewardEdit)
+    private void EnsureFullSelectionFrames()
     {
-        if (!rewardEdit || kineticLoadout == null)
+        if (boardRoot == null)
             return;
 
-        if (lastVisualSlot == activeInspectSlot)
-            return;
-
-        InvokeLoadoutRefresh();
-
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
+        for (int i = 0; i < SlotCount; i++)
         {
-            RectTransform slot = FindRect($"GridSlot_{i}");
+            if (fullSelectionFrames[i] != null)
+                continue;
+
+            RectTransform slot = FindChildRect(boardRoot, $"GridSlot_{i}");
             if (slot == null)
                 continue;
 
-            if (i == activeInspectSlot && !selectionSuppressed && HasItem(i))
+            RectTransform frame = slot.Find("UnifiedSelectionFrame") as RectTransform;
+            if (frame == null)
             {
-                Image back = slot.GetComponent<Image>();
-                if (back != null)
-                    back.color = accentYellow;
-                slot.localScale = Vector3.one * 1.10f;
+                frame = CreateRect(slot, "UnifiedSelectionFrame", Vector2.zero);
+                Stretch(frame);
+                Image image = frame.gameObject.AddComponent<Image>();
+                image.color = Color.clear;
+                image.raycastTarget = false;
+                frame.SetAsLastSibling();
             }
-            else
-            {
-                slot.localScale = Vector3.one;
-            }
-        }
 
-        lastVisualSlot = activeInspectSlot;
+            Outline outline = frame.GetComponent<Outline>();
+            if (outline == null)
+                outline = frame.gameObject.AddComponent<Outline>();
+            outline.effectDistance = new Vector2(5f, -5f);
+
+            fullSelectionFrames[i] = frame.gameObject;
+            fullSelectionOutlines[i] = outline;
+            frame.gameObject.SetActive(false);
+        }
     }
 
-    private void PositionDetailPanel()
+    private void ApplySelectionFrames(bool inspectContext, bool rewardEdit)
+    {
+        EnsureFullSelectionFrames();
+
+        for (int i = 0; i < SlotCount; i++)
+        {
+            GameObject frame = fullSelectionFrames[i];
+            if (frame == null)
+                continue;
+
+            bool selected = inspectContext && !selectionSuppressed && i == activeInspectSlot && HasItem(i);
+            if (frame.activeSelf != selected)
+                frame.SetActive(selected);
+            if (!selected)
+                continue;
+
+            bool picked = rewardEdit && inventoryInteraction != null && inventoryInteraction.PadPickedSlot == i;
+            bool hovered = rewardEdit && inventoryInteraction != null && inventoryInteraction.HoveredSlot == i;
+            Outline outline = fullSelectionOutlines[i];
+            if (outline != null)
+            {
+                outline.effectColor = picked ? pickedAccent : hovered ? hoverAccent : selectedAccent;
+                outline.effectDistance = picked ? new Vector2(7f, -7f) : new Vector2(5f, -5f);
+            }
+        }
+    }
+
+    private void PositionDetailPanel(bool inspectContext)
     {
         if (detailRoot == null || detailGroup == null)
             return;
 
-        bool show = activeInspectSlot >= 0 && !selectionSuppressed && HasItem(activeInspectSlot);
+        bool show = inspectContext && activeInspectSlot >= 0 && !selectionSuppressed && HasItem(activeInspectSlot);
         if (!show)
         {
             detailGroup.alpha = 0f;
             return;
         }
 
-        int column = activeInspectSlot % BattleEquipmentSystem.GridSize;
-        bool moveLeft = column == BattleEquipmentSystem.GridSize - 1;
-
+        detailRoot.anchorMin = detailRoot.anchorMax = detailAnchor;
+        detailRoot.pivot = new Vector2(0.5f, 0.5f);
+        detailRoot.anchoredPosition = Vector2.zero;
         detailRoot.localScale = Vector3.one * detailScale;
         detailRoot.localRotation = Quaternion.identity;
-
-        if (moveLeft)
-        {
-            detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(0f, 0.5f);
-            detailRoot.pivot = new Vector2(0f, 0.5f);
-            detailRoot.anchoredPosition = leftDetailOffset;
-        }
-        else
-        {
-            detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(1f, 0.5f);
-            detailRoot.pivot = new Vector2(1f, 0.5f);
-            detailRoot.anchoredPosition = rightDetailOffset;
-        }
 
         detailGroup.alpha = 1f;
         detailGroup.blocksRaycasts = false;
@@ -617,33 +682,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         if (detailOutline != null)
         {
-            detailOutline.effectColor = moveLeft ? accentCyan : accentYellow;
+            detailOutline.effectColor = selectedAccent;
             detailOutline.effectDistance = new Vector2(6f, -6f);
-        }
-    }
-
-    private void HideDetailIfSuppressed()
-    {
-        if (selectionSuppressed && detailGroup != null)
-            detailGroup.alpha = 0f;
-    }
-
-    private void InstallSlotClickRelays()
-    {
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            RectTransform slot = FindRect($"GridSlot_{i}");
-            if (slot == null)
-                continue;
-
-            Image image = slot.GetComponent<Image>();
-            if (image != null)
-                image.raycastTarget = true;
-
-            BattleUnifiedInventorySlotRelay relay = slot.GetComponent<BattleUnifiedInventorySlotRelay>();
-            if (relay == null)
-                relay = slot.gameObject.AddComponent<BattleUnifiedInventorySlotRelay>();
-            relay.Configure(this, i);
         }
     }
 
@@ -684,9 +724,11 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         if (dismissGroup == null)
             return;
+
+        bool interactable = active && !BattlePauseController.IsPaused;
         dismissGroup.alpha = 0f;
-        dismissGroup.blocksRaycasts = active && !BattlePauseController.IsPaused;
-        dismissGroup.interactable = active && !BattlePauseController.IsPaused;
+        dismissGroup.blocksRaycasts = interactable;
+        dismissGroup.interactable = interactable;
     }
 
     private void MaintainRewardBulletTime()
@@ -731,43 +773,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                equipmentSystem.Slots[slotIndex].equipment != null;
     }
 
-    private void InvokeLoadoutRefresh()
-    {
-        if (kineticLoadout != null && loadoutRefreshMethod != null)
-            loadoutRefreshMethod.Invoke(kineticLoadout, null);
-    }
-
-    private static int ReadInt(FieldInfo field, object owner, int fallback)
-    {
-        if (field == null || owner == null)
-            return fallback;
-        object value = field.GetValue(owner);
-        return value is int result ? result : fallback;
-    }
-
-    private static bool ReadBool(FieldInfo field, object owner)
-    {
-        if (field == null || owner == null)
-            return false;
-        object value = field.GetValue(owner);
-        return value is bool result && result;
-    }
-
-    private static void WriteInt(FieldInfo field, object owner, int value)
-    {
-        if (field != null && owner != null)
-            field.SetValue(owner, value);
-    }
-
-    private static void WriteBool(FieldInfo field, object owner, bool value)
-    {
-        if (field != null && owner != null)
-            field.SetValue(owner, value);
-    }
-
     private static RectTransform FindRect(string objectName)
     {
-        RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        RectTransform[] all = Object.FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
@@ -781,6 +789,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         if (parent == null)
             return null;
+
         RectTransform[] all = parent.GetComponentsInChildren<RectTransform>(true);
         for (int i = 0; i < all.Length; i++)
             if (all[i] != null && all[i].name == objectName)
@@ -803,24 +812,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
-    }
-}
-
-internal sealed class BattleUnifiedInventorySlotRelay : MonoBehaviour, IPointerClickHandler
-{
-    private BattleUnifiedInventoryInspectController owner;
-    private int slotIndex;
-
-    public void Configure(BattleUnifiedInventoryInspectController controller, int index)
-    {
-        owner = controller;
-        slotIndex = index;
-    }
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        if (eventData.button == PointerEventData.InputButton.Left)
-            owner?.SelectSlot(slotIndex);
     }
 }
 
@@ -888,7 +879,7 @@ public static class BattleUnifiedInventoryInspectAutoInstaller
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void EnsureRuntimeComponent()
     {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        BattleSceneManager[] managers = Object.FindObjectsByType<BattleSceneManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
