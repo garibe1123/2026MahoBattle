@@ -102,6 +102,77 @@ public class BattleRoomManager : MonoBehaviour
     public bool IsExitOpen => exitOpened;
     public int AliveMonsterCount => activeMonsters.Count;
 
+    /// <summary>
+    /// 현재 Room이 실제 진입에 사용한 이동 Root를 복사합니다.
+    /// Procedural Room에서는 AssemblySubPiece가 아니라 ProceduralAssemblyGroup_* 부모가 들어옵니다.
+    /// StageFlow는 이 목록만을 authoritative exit unit으로 사용해야 합니다.
+    /// </summary>
+    public int CopyActiveRoomBlocks(List<MapBlock> destination)
+    {
+        if (destination == null)
+            return 0;
+
+        destination.Clear();
+        for (int i = 0; i < activeBlocks.Count; i++)
+        {
+            MapBlock block = activeBlocks[i];
+            if (block != null)
+                destination.Add(block);
+        }
+
+        return destination.Count;
+    }
+
+    /// <summary>
+    /// StageFlow가 activeBlocks의 PlayExit 애니메이션과 제거를 끝낸 뒤 호출합니다.
+    /// 여기서는 타일을 다시 순간 삭제하지 않고 RoomManager의 stale ownership / 장애물 / 상태만 정리합니다.
+    /// 다음 EnterRoomRoutine이 ClearImmediate를 재호출하지 않게 만드는 정식 hand-off 지점입니다.
+    /// </summary>
+    public void CompleteAnimatedStageRetirement()
+    {
+        StopCameraShakeImmediate();
+
+        if (navMeshRebuildRoutine != null)
+        {
+            StopCoroutine(navMeshRebuildRoutine);
+            navMeshRebuildRoutine = null;
+        }
+
+        for (int i = 0; i < activeMonsters.Count; i++)
+        {
+            if (activeMonsters[i] != null)
+                monsterPool?.Return(activeMonsters[i]);
+        }
+        activeMonsters.Clear();
+
+        for (int i = 0; i < activeObstacles.Count; i++)
+        {
+            BattleObstacle obstacle = activeObstacles[i];
+            if (obstacle == null)
+                continue;
+
+            obstacle.Broken -= HandleObstacleBroken;
+            Destroy(obstacle.gameObject);
+        }
+        activeObstacles.Clear();
+
+        // MapBlock GameObject 자체는 StageFlow가 화면 밖까지 PlayExit한 뒤 제거합니다.
+        // 여기서는 이벤트와 소유 목록만 비워 중복 Destroy / 다음 Room의 ClearImmediate를 막습니다.
+        for (int i = 0; i < activeBlocks.Count; i++)
+        {
+            MapBlock block = activeBlocks[i];
+            if (block != null)
+                block.Impacted -= HandleMapBlockImpact;
+        }
+        activeBlocks.Clear();
+
+        expectedAssemblyImpacts = 0;
+        receivedAssemblyImpacts = 0;
+        currentRoom = null;
+        currentContext = null;
+        ResetRoomFlags();
+    }
+
     private void Awake()
     {
         if (roomOrigin == null)
