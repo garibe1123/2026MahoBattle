@@ -1,4 +1,3 @@
-using System.Reflection;
 using UnityEngine;
 
 /// <summary>
@@ -15,8 +14,6 @@ using UnityEngine;
 [DefaultExecutionOrder(33480)]
 public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
-
     [Header("Show Screen")]
     [SerializeField] private Vector2 expandedTvCanvasSize = new(1500f, 780f);
     [SerializeField, Min(32f)] private float expandedTvPixelsPerUnit = 150f;
@@ -39,24 +36,17 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private RectTransform mapInner;
     private RectTransform mapContent;
 
-    private FieldInfo tvCanvasSizeField;
-    private FieldInfo tvPixelsPerUnitField;
-    private FieldInfo tvRectField;
-    private FieldInfo tvBaseScaleField;
-    private FieldInfo cameraTargetField;
-    private FieldInfo cameraSizeField;
-    private MethodInfo resolveTvMountLocalPositionMethod;
-    private MethodInfo computeSharedCameraFrameMethod;
-
     private float nextResolveTime;
     private float nextCameraRecomputeTime;
+    private bool tvConfigured;
+    private Vector2 configuredTvSize;
+    private float configuredTvPixelsPerUnit = -1f;
 
     public Vector2 RewardCameraBiasWorld => rewardCameraBiasWorld;
 
     private void Awake()
     {
         ResolveReferences();
-        CacheWorldSetReflection();
         ResolveUi();
         ApplyWorldSetConfiguration(true);
     }
@@ -64,16 +54,15 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        CacheWorldSetReflection();
         ResolveUi();
         nextResolveTime = 0f;
         nextCameraRecomputeTime = 0f;
+        tvConfigured = false;
     }
 
     private void Update()
     {
         ResolveReferences();
-        CacheWorldSetReflection();
 
         if (Time.unscaledTime >= nextResolveTime)
         {
@@ -105,31 +94,12 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
     }
 
-    private void CacheWorldSetReflection()
-    {
-        if (showWorldSet == null)
-            return;
-
-        System.Type type = typeof(BattleShowWorldSetController);
-        tvCanvasSizeField ??= type.GetField("tvCanvasSize", PrivateInstance);
-        tvPixelsPerUnitField ??= type.GetField("tvPixelsPerUnit", PrivateInstance);
-        tvRectField ??= type.GetField("tvRect", PrivateInstance);
-        tvBaseScaleField ??= type.GetField("tvBaseScale", PrivateInstance);
-        cameraTargetField ??= type.GetField("cameraTargetWorld", PrivateInstance);
-        cameraSizeField ??= type.GetField("cameraSizeWorld", PrivateInstance);
-        resolveTvMountLocalPositionMethod ??= type.GetMethod("ResolveTvMountLocalPosition", PrivateInstance);
-        computeSharedCameraFrameMethod ??= type.GetMethod("ComputeSharedCameraFrame", PrivateInstance);
-    }
-
     private void ResolveUi()
     {
+        if (tvRect == null && showWorldSet != null)
+            tvRect = showWorldSet.MountedTvRect;
         if (tvRect == null)
-        {
-            if (showWorldSet != null && tvRectField != null)
-                tvRect = tvRectField.GetValue(showWorldSet) as RectTransform;
-            if (tvRect == null)
-                tvRect = FindRect("BattleShowMountedTV");
-        }
+            tvRect = FindRect("BattleShowMountedTV");
 
         if (rewardScreen == null)
             rewardScreen = FindRect("PrizeSelectionScreen");
@@ -159,57 +129,27 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             Mathf.Max(960f, expandedTvCanvasSize.x),
             Mathf.Max(480f, expandedTvCanvasSize.y));
         float targetPpu = Mathf.Max(32f, expandedTvPixelsPerUnit);
-        bool changed = false;
 
-        if (tvCanvasSizeField != null)
+        bool configurationChanged = !tvConfigured ||
+                                    (configuredTvSize - targetSize).sqrMagnitude > 0.01f ||
+                                    !Mathf.Approximately(configuredTvPixelsPerUnit, targetPpu);
+
+        if (configurationChanged)
         {
-            object raw = tvCanvasSizeField.GetValue(showWorldSet);
-            if (raw is not Vector2 current || (current - targetSize).sqrMagnitude > 0.01f)
-            {
-                tvCanvasSizeField.SetValue(showWorldSet, targetSize);
-                changed = true;
-            }
-        }
-
-        if (tvPixelsPerUnitField != null)
-        {
-            object raw = tvPixelsPerUnitField.GetValue(showWorldSet);
-            float current = raw is float value ? value : 0f;
-            if (!Mathf.Approximately(current, targetPpu))
-            {
-                tvPixelsPerUnitField.SetValue(showWorldSet, targetPpu);
-                changed = true;
-            }
-        }
-
-        if (tvRect == null && tvRectField != null)
-            tvRect = tvRectField.GetValue(showWorldSet) as RectTransform;
-
-        Vector3 targetBaseScale = new(1f / targetPpu, 1f / targetPpu, 1f);
-        if (tvBaseScaleField != null)
-            tvBaseScaleField.SetValue(showWorldSet, targetBaseScale);
-
-        if (tvRect != null)
-        {
-            tvRect.sizeDelta = targetSize;
-            tvRect.localScale = targetBaseScale;
-
-            if (tvRect.parent != null && tvRect.parent.name.StartsWith("ShowScreenCarrier_"))
-            {
-                object result = resolveTvMountLocalPositionMethod?.Invoke(showWorldSet, null);
-                if (result is Vector3 localPosition)
-                    tvRect.localPosition = localPosition;
-            }
+            configuredTvSize = targetSize;
+            configuredTvPixelsPerUnit = targetPpu;
+            tvConfigured = true;
+            showWorldSet.ConfigureTvPresentation(targetSize, targetPpu);
+            tvRect = showWorldSet.MountedTvRect;
         }
 
         ApplyScreenSize(rewardScreen, rewardInner, targetSize);
         ApplyScreenSize(mapScreen, mapInner, targetSize);
 
-        if ((changed || forceCameraRecompute || Time.unscaledTime >= nextCameraRecomputeTime) &&
-            computeSharedCameraFrameMethod != null)
+        if (forceCameraRecompute || Time.unscaledTime >= nextCameraRecomputeTime)
         {
             nextCameraRecomputeTime = Time.unscaledTime + 0.20f;
-            computeSharedCameraFrameMethod.Invoke(showWorldSet, null);
+            showWorldSet.RecomputeSharedCameraFrame();
         }
     }
 
@@ -235,8 +175,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 
     private void ApplyTightShowCamera()
     {
-        if (showWorldSet == null || runManager == null || !runManager.RunActive ||
-            cameraTargetField == null || cameraSizeField == null)
+        if (showWorldSet == null || runManager == null || !runManager.RunActive)
             return;
 
         RectTransform activeScreen = null;
@@ -287,8 +226,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             (minY + maxY) * 0.5f + bias.y,
             0f);
 
-        cameraTargetField.SetValue(showWorldSet, center);
-        cameraSizeField.SetValue(showWorldSet, cameraSize);
+        showWorldSet.OverrideShowCameraFrame(center, cameraSize);
     }
 
     private bool IsMapPhase()
