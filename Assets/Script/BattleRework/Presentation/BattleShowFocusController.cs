@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 /// <summary>
@@ -19,6 +18,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
 {
     private const string ShaderName = "UI/BattleShowFocusMask";
     private const string MountedTvName = "BattleShowMountedTV";
+    private const string ScreenInnerName = "ScreenInner";
 
     private static BattleShowFocusController instance;
 
@@ -95,38 +95,11 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
     public static BattleShowFocusController Instance => instance;
 
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
-    private static void InstallSceneHook()
-    {
-        SceneManager.sceneLoaded -= HandleSceneLoaded;
-        SceneManager.sceneLoaded += HandleSceneLoaded;
-    }
-
-    private static void HandleSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        if (!scene.IsValid() || !scene.isLoaded)
-            return;
-
-        bool battleScene = scene.name == BattleSceneEntry.DefaultBattleSceneName;
-        if (!battleScene)
-        {
-            BattleSceneManager manager = Object.FindFirstObjectByType<BattleSceneManager>();
-            battleScene = manager != null && manager.gameObject.scene == scene;
-        }
-
-        if (!battleScene || Object.FindFirstObjectByType<BattleShowFocusController>() != null)
-            return;
-
-        GameObject host = new("BattleShowFocusRuntime");
-        SceneManager.MoveGameObjectToScene(host, scene);
-        host.AddComponent<BattleShowFocusController>();
-    }
-
     private void Awake()
     {
         if (instance != null && instance != this)
         {
-            Destroy(gameObject);
+            Destroy(this);
             return;
         }
 
@@ -174,12 +147,12 @@ public sealed class BattleShowFocusController : MonoBehaviour
         float now = Time.unscaledTime;
         float deltaTime = Time.unscaledDeltaTime;
 
+        if (selectionShowRequested && showStageBecameActiveAt < 0f)
+            showStageBecameActiveAt = now;
+
         bool stageActive = selectionShowRequested && showWorldSet != null && showWorldSet.IsShowActive;
         if (stageActive)
         {
-            if (showStageBecameActiveAt < 0f)
-                showStageBecameActiveAt = now;
-
             lastShowTarget = showWorldSet.CameraTargetWorld;
             lastShowZoom = showWorldSet.ShowCameraSize;
             hasLastShowFrame = true;
@@ -323,7 +296,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
         if (nextShow)
         {
             ReleaseExitCameraHold();
-            showStageBecameActiveAt = -1f;
+            showStageBecameActiveAt = Time.unscaledTime;
         }
         else
         {
@@ -392,21 +365,43 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
     private void ResolveTvFocusRect()
     {
-        if (tvFocusRect != null)
+        if (tvFocusRect != null && tvFocusRect.gameObject.activeInHierarchy)
             return;
         if (showWorldSet == null)
+        {
+            tvFocusRect = null;
             return;
+        }
 
+        RectTransform fallback = null;
         RectTransform[] rects = showWorldSet.GetComponentsInChildren<RectTransform>(true);
         for (int i = 0; i < rects.Length; i++)
         {
             RectTransform rect = rects[i];
-            if (rect != null && rect.name == MountedTvName)
+            if (rect == null || rect.name != ScreenInnerName || !IsUnderMountedTv(rect))
+                continue;
+
+            fallback ??= rect;
+            if (rect.gameObject.activeInHierarchy)
             {
                 tvFocusRect = rect;
                 return;
             }
         }
+
+        tvFocusRect = fallback != null ? fallback : showWorldSet.MountedTvRect;
+    }
+
+    private static bool IsUnderMountedTv(Transform transform)
+    {
+        Transform current = transform;
+        while (current != null)
+        {
+            if (current.name == MountedTvName)
+                return true;
+            current = current.parent;
+        }
+        return false;
     }
 
     private void EnsureOverlay()
