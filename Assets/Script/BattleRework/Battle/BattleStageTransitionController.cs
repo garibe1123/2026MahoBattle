@@ -247,9 +247,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         BattleDockHandleVisibilityController.RefreshNow();
 
         // 2) 기존 Room Block을 4x4의 좌/우/아래/위 네 방향으로 분류합니다.
-        // 각 방향은 바깥쪽 Block부터 빠지고, 한 Wave에서 각 방향 최대 1개씩 출발합니다.
-        // 따라서 한 방향으로 몰려 겹치는 현상을 줄이고, 4x4를 가로질러 반대편으로 빠지는 경로도 만들지 않습니다.
-        List<MapBlock> outgoingBlocks = CollectCurrentRoomWalkableBlocks();
+        // Procedural Room은 진입 때 사용했던 Assembly Group 자체를 퇴장시켜 조립 단위가 그대로 빠지게 합니다.
+        // Legacy Room은 기존 walkable MapBlock을 그대로 사용합니다.
+        List<MapBlock> outgoingBlocks = CollectCurrentRoomExitBlocks();
         Vector2 baseCenter = showAnchorCenter;
         Bounds baseBounds = CreatePersistentBaseBounds(baseCenter);
         List<CollapseExitPlan>[] groups = BuildExitGroups(outgoingBlocks, baseBounds);
@@ -308,7 +308,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         ReleaseShowStageGate();
     }
 
-    private List<MapBlock> CollectCurrentRoomWalkableBlocks()
+    private List<MapBlock> CollectCurrentRoomExitBlocks()
     {
         MapBlock[] blocks = FindObjectsByType<MapBlock>(
             FindObjectsInactive.Include,
@@ -320,8 +320,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             MapBlock block = blocks[i];
             if (block == null || !block.gameObject.activeInHierarchy)
                 continue;
-            if (!block.ContributesWalkableNavMesh)
-                continue;
 
             string blockName = block.name;
             bool rawPrototype =
@@ -331,6 +329,18 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 continue;
 
             if (showStage != null && block.transform.IsChildOf(showStage.transform))
+                continue;
+
+            bool proceduralAssembly = blockName.StartsWith("ProceduralAssemblyGroup_", System.StringComparison.Ordinal);
+            bool proceduralSubPiece = blockName.StartsWith("AssemblySubPiece_", System.StringComparison.Ordinal);
+
+            // Procedural 세부 Piece는 부모 Assembly가 한 번에 이동시키므로 중복 Exit하지 않습니다.
+            if (proceduralSubPiece)
+                continue;
+
+            // Procedural Assembly는 walkable=false인 이동용 부모이고,
+            // Legacy Room은 기존처럼 walkable MapBlock 자체가 이동 단위입니다.
+            if (!proceduralAssembly && !block.ContributesWalkableNavMesh)
                 continue;
 
             result.Add(block);
@@ -355,7 +365,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         // 실제 전투 Room Piece의 Tile_* Sprite는 PresentationManager가 랜덤 Floor Variant를
         // 직접 적용한 Renderer이므로, 여기서 저장하면 화면에서 보던 모양을 그대로 보존할 수 있습니다.
-        List<MapBlock> blocks = CollectCurrentRoomWalkableBlocks();
+        List<MapBlock> blocks = CollectCurrentRoomExitBlocks();
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock block = blocks[i];
