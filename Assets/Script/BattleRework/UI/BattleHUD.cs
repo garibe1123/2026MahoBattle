@@ -1,72 +1,44 @@
-using DG.Tweening;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Runtime broadcast HUD.
-/// Combat keeps a compact status/loadout HUD.
-/// Reward is staged like a quiz show: the real Player remains visible in the lower-left foreground,
-/// one medium-large prize screen occupies the upper/right background, one presenter overlaps its right edge,
-/// and the current loadout is shown as a thin drop strip below the screen.
-/// Clicking a prize only selects it; dropping it on an unlocked slot confirms acquisition.
-/// Hovering/changing a prize pulses soft bird-eye floor spotlights under Player and Presenter.
+/// 전투 중 상시 HUD와 Reward/Map Show가 사용할 최소 UI Shell만 생성합니다.
+///
+/// Phase 9 ownership:
+/// - 전투 상태/HP/ST/기본 장비 Dock: BattleHUD
+/// - Reward 카드/결정/포기: BattleRewardCardActionController
+/// - Reward business state: BattleRewardFlow
+/// - PACK/Grid/Detail: BattleUnifiedInventoryInspectController
+/// - Map 내용/노드: BattleSpatialMapController
+/// - TV/Carrier/Presenter/Show Camera: BattleShowWorldSetController
+///
+/// 이 클래스는 Reward 선택 상태, Reward Drag/Drop, Show Camera, Spotlight를 소유하지 않습니다.
+/// PrizeSelectionScreen / MapSelectionScreen은 WorldSet이 실제 World-Space TV로 옮겨 쓰는 staging shell입니다.
 /// </summary>
+[DisallowMultipleComponent]
 public sealed class BattleHUD : MonoBehaviour
 {
     private static BattleHUD instance;
 
-    [Header("Runtime Style")]
+    [Header("Combat HUD")]
     [SerializeField] private Color panelColor = new(0.022f, 0.028f, 0.043f, 0.94f);
     [SerializeField] private Color accentColor = new(1f, 0.18f, 0.58f, 1f);
     [SerializeField] private Color goldColor = new(1f, 0.80f, 0.25f, 1f);
     [SerializeField] private Color hpColor = new(0.95f, 0.22f, 0.34f, 1f);
     [SerializeField] private Color staminaColor = new(0.24f, 0.80f, 0.93f, 1f);
 
-    [Header("Reward Show")]
-    [Tooltip("Presenter artwork. Leave empty to use a plain Sprite-Default placeholder, then replace it from Inspector or SetPresenterSprite().")]
+    [Header("Show Content Shell")]
+    [SerializeField] private Vector2 showScreenSize = new(1120f, 560f);
+
+    [Header("Presenter Metadata")]
+    [Tooltip("실제 화면 표시는 BattleShowWorldSetController의 SpriteRenderer가 담당합니다. 이 값은 Presenter 소스 메타데이터로만 사용됩니다.")]
     [SerializeField] private Sprite presenterSprite;
-    [SerializeField] private Color presenterColor = new(0.34f, 0.34f, 0.40f, 1f);
+    [SerializeField] private Color presenterColor = Color.white;
     [SerializeField] private Vector2 presenterAnchor = new(0.88f, 0.49f);
     [SerializeField] private Vector2 presenterSize = new(370f, 600f);
     [SerializeField] private Vector2 presenterOffset = Vector2.zero;
     [SerializeField] private bool presenterFlipX;
-    [SerializeField] private Color rewardFieldFilter = new(0.06f, 0.035f, 0.11f, 0.025f);
-    [Tooltip("최초 맵 선택 대기실에서만 전장 위에 덮는 어두운 필터입니다. TV와 스포트라이트는 이 필터보다 앞에 그려집니다.")]
-    [SerializeField] private Color openingWaitingRoomFilter = new(0.008f, 0.012f, 0.026f, 0.52f);
-    [Tooltip("Background prize display. Intentionally leaves the lower-left Player area unobstructed.")]
-    [SerializeField] private Vector2 rewardScreenSize = new(1120f, 560f);
-    [SerializeField] private Vector2 rewardScreenAnchor = new(0.61f, 0.69f);
-    [SerializeField] private Vector2 rewardLoadoutSize = new(1120f, 150f);
-    [SerializeField] private Vector2 rewardLoadoutAnchor = new(0.61f, 0.145f);
-    [SerializeField, Range(1.02f, 1.30f)] private float rewardHoverScale = 1.10f;
-    [SerializeField, Min(0f)] private float rewardHoverLift = 12f;
-
-    [Header("Reward Floor Spotlights")]
-    [Tooltip("Soft floor glow only. No vertical cone/beam is drawn.")]
-    [SerializeField] private Color playerSpotlightColor = new(1f, 0.93f, 0.66f, 0.10f);
-    [SerializeField] private Color presenterSpotlightColor = new(0.74f, 0.92f, 1f, 0.10f);
-    [SerializeField, Range(0.08f, 0.65f)] private float spotlightPeakAlpha = 0.34f;
-    [SerializeField, Min(0.05f)] private float spotlightAttack = 0.09f;
-    [SerializeField, Min(0.05f)] private float spotlightRelease = 0.34f;
-    [Tooltip("Bird-eye floor ellipse. X should be wider than Y.")]
-    [SerializeField] private Vector2 playerSpotlightSize = new(330f, 126f);
-    [Tooltip("Bird-eye floor ellipse. X should be wider than Y.")]
-    [SerializeField] private Vector2 presenterSpotlightSize = new(410f, 154f);
-    [SerializeField] private Vector2 playerSpotlightScreenOffset = new(0f, -18f);
-    [SerializeField] private Vector2 presenterSpotlightOffset = new(0f, -278f);
-
-    [Header("Map Selection World Screen")]
-    [Tooltip("맵 화면은 아이템 선택 화면과 같은 픽셀 비율을 유지한 채 월드에 배치됩니다.")]
-    [SerializeField, Min(16f)] private float mapWorldPixelsPerUnit = 88.5f;
-    [Tooltip("플레이어 기준 맵 화면 중심입니다. 기본값은 아이템 선택 화면의 (0.61, 0.69) 구도를 월드 좌표로 환산한 위치입니다.")]
-    [SerializeField] private Vector2 mapWorldScreenOffset = new(8.1f, 4.67f);
-    [Tooltip("Persistent Base 바닥보다 뒤에 그려질 맵 World Canvas Sorting Order입니다.")]
-    [SerializeField] private int mapWorldSortingOrder = -50;
-    [Tooltip("커서가 맵 화면 안에 있을 때 화면 전체가 확대되는 배율입니다.")]
-    [SerializeField, Range(1f, 1.3f)] private float mapCursorFocusScale = 1.14f;
-    [Tooltip("맵 화면 등장/퇴장 및 커서 확대가 부드럽게 전환되는 속도입니다.")]
-    [SerializeField, Min(0.5f)] private float mapWorldTransitionSharpness = 4.2f;
 
     private BattleRunManager runManager;
     private BattleRoomManager roomManager;
@@ -91,57 +63,27 @@ public sealed class BattleHUD : MonoBehaviour
     private readonly Text[] slotLabels = new Text[BattleEquipmentSystem.MaxSlotCount];
     private readonly Text[] slotGrades = new Text[BattleEquipmentSystem.MaxSlotCount];
 
-    private GameObject rewardRoot;
-    private RectTransform rewardCardRoot;
-    private RectTransform rewardInventoryRoot;
-    private RectTransform mapSelectionRoot;
+    private GameObject showStagingRoot;
     private RectTransform rewardScreenRect;
-    private GameObject mapWorldCanvasRoot;
-    private Canvas mapWorldCanvas;
-    private RectTransform mapWorldCanvasRect;
-    private CanvasGroup mapWorldCanvasGroup;
-    private Vector3 mapWorldBaseScale;
-    private bool mapWorldVisibleTarget;
-    private bool mapCursorFocused;
-    private GameObject rewardInventoryPanel;
-    private GameObject rewardNoticePanel;
-    private Text rewardTitle;
-    private Text rewardSubtitle;
-    private Text rewardInstruction;
-    private Text focusedRewardName;
-    private Text focusedRewardStats;
-    private Text onLiveText;
-    private Image fieldBroadcastFilterImage;
-    private Image presenterImage;
-    private RectTransform presenterRect;
-    private Image playerSpotlightImage;
-    private Image presenterSpotlightImage;
+    private RectTransform rewardCardRoot;
+    private RectTransform mapScreenRect;
+    private RectTransform mapSelectionRoot;
+    private Image presenterMetadataImage;
 
-    private readonly Image[] rewardSlotBackgrounds = new Image[BattleEquipmentSystem.MaxSlotCount];
-    private readonly Image[] rewardSlotIcons = new Image[BattleEquipmentSystem.MaxSlotCount];
-    private readonly Text[] rewardSlotNames = new Text[BattleEquipmentSystem.MaxSlotCount];
-    private readonly Text[] rewardSlotGrades = new Text[BattleEquipmentSystem.MaxSlotCount];
-    private readonly Text[] rewardSlotActions = new Text[BattleEquipmentSystem.MaxSlotCount];
-
-    private int pendingRewardIndex = -1;
     private int lastRewardCount = -1;
     private BattleRunState lastObservedState = (BattleRunState)(-1);
     private float nextSlowRefresh;
     private bool legacyDummyOverlaysDisabled;
+    private bool equipmentSubscribed;
 
-    private GameObject rewardDragGhost;
-    private RectTransform rewardDragGhostRect;
-
-    /// <summary>맵 선택 노드가 아이템 선택과 동일한 토크쇼 TV 안에 그려지는 전용 영역입니다.</summary>
+    /// <summary>BattleSpatialMapController가 Stage Map을 생성하는 공용 TV 내용 Root입니다.</summary>
     public RectTransform MapSelectionRoot => mapSelectionRoot;
 
-    private static readonly Color RewardCardColor = new(0.095f, 0.080f, 0.155f, 1f);
-    private static readonly Color RewardCardSelectedColor = new(0.22f, 0.075f, 0.19f, 1f);
-    private static readonly Color RewardEmptySlotColor = new(0.055f, 0.095f, 0.12f, 1f);
-    private static readonly Color RewardOccupiedSlotColor = new(0.070f, 0.075f, 0.105f, 1f);
-    private static readonly Color RewardReplaceSlotColor = new(0.18f, 0.055f, 0.07f, 1f);
-    private static readonly Color RewardMergeSlotColor = new(0.07f, 0.15f, 0.13f, 1f);
-    private static readonly Color RewardLockedSlotColor = new(0.025f, 0.028f, 0.038f, 0.84f);
+    /// <summary>Show 계층을 직접 탐색하지 않아도 되는 명시적 Reward Screen 참조입니다.</summary>
+    public RectTransform RewardScreenRoot => rewardScreenRect;
+
+    /// <summary>Show 계층을 직접 탐색하지 않아도 되는 명시적 Map Screen 참조입니다.</summary>
+    public RectTransform MapScreenRoot => mapScreenRect;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
@@ -166,14 +108,6 @@ public sealed class BattleHUD : MonoBehaviour
         EnsureCanvas();
     }
 
-    private void OnDestroy()
-    {
-        EndRewardDrag();
-        KillSpotlightTweens();
-        if (instance == this)
-            instance = null;
-    }
-
     private void OnEnable()
     {
         ResolveSystems();
@@ -183,13 +117,21 @@ public sealed class BattleHUD : MonoBehaviour
     private void OnDisable()
     {
         UnsubscribeEquipment();
-        SetRewardVisible(false);
+    }
+
+    private void OnDestroy()
+    {
+        UnsubscribeEquipment();
+        if (instance == this)
+            instance = null;
     }
 
     private void Update()
     {
         ResolveSystems();
+        SubscribeEquipment();
         DisableLegacyDummyOverlays();
+
         if (canvas == null)
             EnsureCanvas();
 
@@ -203,12 +145,18 @@ public sealed class BattleHUD : MonoBehaviour
 
         if (!active)
         {
-            SetRewardVisible(false);
+            lastRewardCount = -1;
+            lastObservedState = (BattleRunState)(-1);
+            SetCombatHudVisible(false);
             return;
         }
 
+        bool selectionShow = runManager.State == BattleRunState.Reward ||
+                             runManager.State == BattleRunState.SelectingNode;
+        SetCombatHudVisible(!selectionShow);
+
         RefreshVitalBars();
-        RefreshRewardState();
+        RefreshRewardCardShell();
 
         if (Time.unscaledTime >= nextSlowRefresh)
         {
@@ -218,106 +166,61 @@ public sealed class BattleHUD : MonoBehaviour
         }
     }
 
-    private void LateUpdate()
-    {
-        UpdateSpotlightPositions();
-        UpdateWorldMapScreenTransition();
-        UpdateWorldMapScreenPosition();
-    }
-
-    public void SetMapCursorFocus(bool focused)
-    {
-        mapCursorFocused = focused && mapWorldVisibleTarget;
-    }
-
-    public void SetPresenterSprite(Sprite sprite)
-    {
-        presenterSprite = sprite;
-        ApplyPresenterVisual();
-    }
-
-    public void SetPresenterColor(Color color)
-    {
-        presenterColor = color;
-        ApplyPresenterVisual();
-    }
-
-    public void SetPresenterLayout(Vector2 anchor, Vector2 size, Vector2 offset, bool flipX = false)
-    {
-        presenterAnchor = anchor;
-        presenterSize = size;
-        presenterOffset = offset;
-        presenterFlipX = flipX;
-        ApplyPresenterVisual();
-        UpdatePresenterSpotlightPosition();
-    }
-
     private void ResolveSystems()
     {
-        if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
-        if (roomManager == null) roomManager = FindFirstObjectByType<BattleRoomManager>();
-        if (progress == null) progress = FindFirstObjectByType<RunProgressSystem>();
-        if (player == null) player = FindFirstObjectByType<PlayerController>();
+        if (runManager == null)
+            runManager = FindFirstObjectByType<BattleRunManager>();
+        if (roomManager == null)
+            roomManager = FindFirstObjectByType<BattleRoomManager>();
+        if (progress == null)
+            progress = FindFirstObjectByType<RunProgressSystem>();
+        if (player == null)
+            player = FindFirstObjectByType<PlayerController>();
 
-        if (equipmentSystem == null)
+        BattleEquipmentSystem found = equipmentSystem != null
+            ? equipmentSystem
+            : FindFirstObjectByType<BattleEquipmentSystem>();
+
+        if (found != equipmentSystem)
         {
-            BattleEquipmentSystem found = FindFirstObjectByType<BattleEquipmentSystem>();
-            if (found != null)
-            {
-                UnsubscribeEquipment();
-                equipmentSystem = found;
-                SubscribeEquipment();
-                RefreshEquipment();
-                RefreshRewardInventory();
-            }
+            UnsubscribeEquipment();
+            equipmentSystem = found;
         }
-    }
-
-    private void DisableLegacyDummyOverlays()
-    {
-        if (legacyDummyOverlaysDisabled)
-            return;
-
-        MonoBehaviour[] behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        for (int i = 0; i < behaviours.Length; i++)
-        {
-            MonoBehaviour behaviour = behaviours[i];
-            if (behaviour == null) continue;
-            string typeName = behaviour.GetType().Name;
-            if (typeName == "BattleDummyUI" || typeName == "BattleDummyLoadoutUI" || typeName == "SynergyDummyUI")
-                behaviour.enabled = false;
-        }
-        legacyDummyOverlaysDisabled = true;
     }
 
     private void SubscribeEquipment()
     {
-        if (equipmentSystem == null)
+        if (equipmentSubscribed || equipmentSystem == null)
             return;
-        equipmentSystem.InventoryChanged -= HandleInventoryChanged;
-        equipmentSystem.InventoryChanged += HandleInventoryChanged;
-        equipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
+
+        equipmentSystem.InventoryChanged += RefreshEquipment;
         equipmentSystem.SlotCapacityChanged += HandleSlotCapacityChanged;
+        equipmentSystem.EquippedSlotChanged += HandleEquippedSlotChanged;
+        equipmentSubscribed = true;
     }
 
     private void UnsubscribeEquipment()
     {
-        if (equipmentSystem == null)
+        if (!equipmentSubscribed || equipmentSystem == null)
+        {
+            equipmentSubscribed = false;
             return;
-        equipmentSystem.InventoryChanged -= HandleInventoryChanged;
-        equipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
-    }
+        }
 
-    private void HandleInventoryChanged()
-    {
-        RefreshEquipment();
-        RefreshRewardInventory();
+        equipmentSystem.InventoryChanged -= RefreshEquipment;
+        equipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
+        equipmentSystem.EquippedSlotChanged -= HandleEquippedSlotChanged;
+        equipmentSubscribed = false;
     }
 
     private void HandleSlotCapacityChanged(int _)
     {
         RefreshEquipment();
-        RefreshRewardInventory();
+    }
+
+    private void HandleEquippedSlotChanged(int _)
+    {
+        RefreshEquipment();
     }
 
     private void EnsureCanvas()
@@ -342,8 +245,7 @@ public sealed class BattleHUD : MonoBehaviour
 
         BuildTopStatus();
         BuildEquipmentDock();
-        BuildRewardShow();
-        BuildWorldMapScreen();
+        BuildShowContentShell();
         RefreshStatus();
         RefreshEquipment();
     }
@@ -367,48 +269,58 @@ public sealed class BattleHUD : MonoBehaviour
         rect.pivot = new Vector2(0f, 1f);
         rect.anchoredPosition = new Vector2(24f, -24f);
 
-        GameObject liveBadge = CreatePanel(combatStatusRoot.transform, "LiveBadge", new Vector2(92f, 30f), new Color(0.42f, 0.035f, 0.09f, 0.98f));
+        GameObject liveBadge = CreatePanel(
+            combatStatusRoot.transform,
+            "LiveBadge",
+            new Vector2(92f, 30f),
+            new Color(0.42f, 0.04f, 0.12f, 1f));
         RectTransform liveRect = liveBadge.GetComponent<RectTransform>();
         liveRect.anchorMin = liveRect.anchorMax = new Vector2(0f, 1f);
         liveRect.pivot = new Vector2(0f, 1f);
-        liveRect.anchoredPosition = new Vector2(18f, -14f);
-        Text onAirText = CreateText(liveBadge.transform, "●  ON AIR", 12, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-        Stretch(onAirText.rectTransform);
+        liveRect.anchoredPosition = new Vector2(16f, -14f);
+        Text live = CreateText(liveBadge.transform, "● ON AIR", 10, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        Stretch(live.rectTransform);
 
-        stageText = CreateText(combatStatusRoot.transform, "WAITING FOR TAKE", 18, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(stageText.rectTransform, new Vector2(0.28f, 0.74f), new Vector2(0.95f, 0.94f));
+        stageText = CreateText(combatStatusRoot.transform, "WAITING FOR NEXT TAKE", 17, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        SetAnchors(stageText.rectTransform, new Vector2(0.28f, 0.72f), new Vector2(0.96f, 0.94f));
 
-        enemyText = CreateText(combatStatusRoot.transform, "ENEMY --", 12, FontStyle.Bold, TextAnchor.MiddleRight, goldColor);
-        SetAnchors(enemyText.rectTransform, new Vector2(0.63f, 0.56f), new Vector2(0.94f, 0.70f));
+        enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentColor);
+        SetAnchors(enemyText.rectTransform, new Vector2(0.66f, 0.54f), new Vector2(0.96f, 0.72f));
 
-        hpText = CreateText(combatStatusRoot.transform, "HP", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.86f, 0.88f, 0.93f, 1f));
-        SetAnchors(hpText.rectTransform, new Vector2(0.05f, 0.45f), new Vector2(0.20f, 0.57f));
-        hpFill = CreateBar(combatStatusRoot.transform, "HPBar", new Vector2(0.20f, 0.47f), new Vector2(0.94f, 0.56f), hpColor);
+        hpText = CreateText(combatStatusRoot.transform, "HP", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        SetAnchors(hpText.rectTransform, new Vector2(0.05f, 0.45f), new Vector2(0.28f, 0.60f));
+        hpFill = CreateBar(combatStatusRoot.transform, "HP", new Vector2(0.28f, 0.47f), new Vector2(0.95f, 0.57f), hpColor);
 
-        staminaText = CreateText(combatStatusRoot.transform, "ST", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.86f, 0.88f, 0.93f, 1f));
-        SetAnchors(staminaText.rectTransform, new Vector2(0.05f, 0.28f), new Vector2(0.20f, 0.40f));
-        staminaFill = CreateBar(combatStatusRoot.transform, "StaminaBar", new Vector2(0.20f, 0.30f), new Vector2(0.94f, 0.39f), staminaColor);
+        staminaText = CreateText(combatStatusRoot.transform, "ST", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        SetAnchors(staminaText.rectTransform, new Vector2(0.05f, 0.27f), new Vector2(0.28f, 0.42f));
+        staminaFill = CreateBar(combatStatusRoot.transform, "ST", new Vector2(0.28f, 0.29f), new Vector2(0.95f, 0.39f), staminaColor);
 
-        audienceText = CreateText(combatStatusRoot.transform, "VIEWERS 0   •   FANS 0   •   POP 0", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.68f, 0.72f, 0.80f, 1f));
-        SetAnchors(audienceText.rectTransform, new Vector2(0.05f, 0.06f), new Vector2(0.95f, 0.20f));
+        audienceText = CreateText(combatStatusRoot.transform, "VIEWERS 0", 9, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.66f, 0.70f, 0.79f, 1f));
+        SetAnchors(audienceText.rectTransform, new Vector2(0.05f, 0.05f), new Vector2(0.96f, 0.22f));
     }
 
     private void BuildEquipmentDock()
     {
-        equipmentDockRoot = CreatePanel(canvas.transform, "EquipmentDock", new Vector2(858f, 104f), new Color(0.016f, 0.02f, 0.032f, 0.94f));
-        RectTransform dockRect = equipmentDockRoot.GetComponent<RectTransform>();
-        dockRect.anchorMin = dockRect.anchorMax = new Vector2(0.5f, 0f);
-        dockRect.pivot = new Vector2(0.5f, 0f);
-        dockRect.anchoredPosition = new Vector2(0f, 22f);
+        equipmentDockRoot = CreatePanel(canvas.transform, "EquipmentDock", new Vector2(820f, 112f), panelColor);
+        RectTransform dock = equipmentDockRoot.GetComponent<RectTransform>();
+        dock.anchorMin = dock.anchorMax = new Vector2(1f, 0f);
+        dock.pivot = new Vector2(1f, 0f);
+        dock.anchoredPosition = new Vector2(-24f, 24f);
 
-        float slotWidth = 84f;
-        float spacing = 8f;
-        float total = BattleEquipmentSystem.MaxSlotCount * slotWidth + (BattleEquipmentSystem.MaxSlotCount - 1) * spacing;
+        const float slotWidth = 78f;
+        const float slotHeight = 82f;
+        const float spacing = 8f;
+        float total = BattleEquipmentSystem.MaxSlotCount * slotWidth +
+                      (BattleEquipmentSystem.MaxSlotCount - 1) * spacing;
         float start = -total * 0.5f + slotWidth * 0.5f;
 
         for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
         {
-            GameObject slot = CreatePanel(equipmentDockRoot.transform, $"Slot_{i + 1}", new Vector2(slotWidth, 80f), new Color(0.055f, 0.062f, 0.082f, 1f));
+            GameObject slot = CreatePanel(
+                equipmentDockRoot.transform,
+                $"Slot_{i + 1}",
+                new Vector2(slotWidth, slotHeight),
+                new Color(0.055f, 0.062f, 0.082f, 1f));
             RectTransform slotRect = slot.GetComponent<RectTransform>();
             slotRect.anchorMin = slotRect.anchorMax = new Vector2(0.5f, 0.5f);
             slotRect.anchoredPosition = new Vector2(start + i * (slotWidth + spacing), 0f);
@@ -419,431 +331,137 @@ public sealed class BattleHUD : MonoBehaviour
             int captured = i;
             button.onClick.AddListener(() => equipmentSystem?.EquipSlot(captured));
 
-            Text number = CreateText(slot.transform, (i + 1).ToString(), 10, FontStyle.Bold, TextAnchor.UpperLeft, new Color(0.62f, 0.66f, 0.74f, 1f));
-            SetAnchors(number.rectTransform, new Vector2(0.08f, 0.70f), new Vector2(0.35f, 0.94f));
+            Text number = CreateText(slot.transform, (i + 1).ToString(), 9, FontStyle.Bold, TextAnchor.UpperLeft, new Color(0.62f, 0.66f, 0.74f, 1f));
+            SetAnchors(number.rectTransform, new Vector2(0.07f, 0.72f), new Vector2(0.34f, 0.94f));
 
-            slotIcons[i] = CreateImage(slot.transform, "Icon", new Vector2(44f, 44f));
+            slotIcons[i] = CreateImage(slot.transform, "Icon", new Vector2(42f, 42f));
             slotIcons[i].rectTransform.anchorMin = slotIcons[i].rectTransform.anchorMax = new Vector2(0.5f, 0.60f);
 
-            slotLabels[i] = CreateText(slot.transform, "EMPTY", 9, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.72f, 0.75f, 0.82f, 1f));
-            SetAnchors(slotLabels[i].rectTransform, new Vector2(0.05f, 0.05f), new Vector2(0.95f, 0.30f));
+            slotLabels[i] = CreateText(slot.transform, "EMPTY", 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.72f, 0.75f, 0.82f, 1f));
+            SetAnchors(slotLabels[i].rectTransform, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.28f));
 
-            slotGrades[i] = CreateText(slot.transform, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
-            SetAnchors(slotGrades[i].rectTransform, new Vector2(0.55f, 0.70f), new Vector2(0.92f, 0.94f));
+            slotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
+            SetAnchors(slotGrades[i].rectTransform, new Vector2(0.54f, 0.72f), new Vector2(0.93f, 0.94f));
         }
     }
 
-    private void BuildRewardShow()
+    private void BuildShowContentShell()
     {
-        rewardRoot = new GameObject("RewardQuizShow");
-        rewardRoot.transform.SetParent(canvas.transform, false);
-        RectTransform rootRect = rewardRoot.AddComponent<RectTransform>();
-        Stretch(rootRect);
+        showStagingRoot = new GameObject("RewardQuizShow");
+        showStagingRoot.transform.SetParent(canvas.transform, false);
+        RectTransform stagingRect = showStagingRoot.AddComponent<RectTransform>();
+        Stretch(stagingRect);
 
-        GameObject filter = new("FieldBroadcastFilter");
-        filter.transform.SetParent(rewardRoot.transform, false);
-        RectTransform filterRect = filter.AddComponent<RectTransform>();
-        Stretch(filterRect);
-        Image filterImage = filter.AddComponent<Image>();
-        filterImage.color = rewardFieldFilter;
-        filterImage.raycastTarget = false;
-        fieldBroadcastFilterImage = filterImage;
+        // Presenter는 실제 화면 Image가 아닙니다. WorldSet이 Sprite source/flip 정보를 읽는 metadata bridge입니다.
+        GameObject presenter = new("Presenter");
+        presenter.transform.SetParent(showStagingRoot.transform, false);
+        RectTransform presenterRect = presenter.AddComponent<RectTransform>();
+        presenterRect.anchorMin = presenterRect.anchorMax = presenterAnchor;
+        presenterRect.sizeDelta = presenterSize;
+        presenterRect.anchoredPosition = presenterOffset;
+        presenterMetadataImage = presenter.AddComponent<Image>();
+        presenterMetadataImage.raycastTarget = false;
+        presenterMetadataImage.enabled = false;
+        ApplyPresenterMetadata();
 
-        // Floor glows are created before screen/characters so they always read as light on the stage floor.
-        BuildPlayerSpotlight(rewardRoot.transform);
-        BuildPresenterSpotlight(rewardRoot.transform);
-        BuildRewardScreen(rewardRoot.transform);
-        BuildPresenter(rewardRoot.transform);
-        BuildRewardInventory(rewardRoot.transform);
-        rewardRoot.SetActive(false);
+        rewardScreenRect = BuildRewardScreenShell(showStagingRoot.transform);
+        mapScreenRect = BuildMapScreenShell(showStagingRoot.transform);
+
+        rewardScreenRect.gameObject.SetActive(false);
+        mapScreenRect.gameObject.SetActive(false);
     }
 
-    private void BuildPlayerSpotlight(Transform parent)
+    private RectTransform BuildRewardScreenShell(Transform parent)
     {
-        playerSpotlightImage = CreateImage(parent, "PlayerFloorSpotlight", playerSpotlightSize);
-        RectTransform rect = playerSpotlightImage.rectTransform;
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        playerSpotlightImage.sprite = BattleHudSpriteCache.FloorSpotlight;
-        playerSpotlightImage.preserveAspect = false;
-        playerSpotlightImage.color = playerSpotlightColor;
-        playerSpotlightImage.raycastTarget = false;
-    }
-
-    private void BuildPresenterSpotlight(Transform parent)
-    {
-        presenterSpotlightImage = CreateImage(parent, "PresenterFloorSpotlight", presenterSpotlightSize);
-        RectTransform rect = presenterSpotlightImage.rectTransform;
-        rect.anchorMin = rect.anchorMax = presenterAnchor;
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = presenterOffset + presenterSpotlightOffset;
-        presenterSpotlightImage.sprite = BattleHudSpriteCache.FloorSpotlight;
-        presenterSpotlightImage.preserveAspect = false;
-        presenterSpotlightImage.color = presenterSpotlightColor;
-        presenterSpotlightImage.raycastTarget = false;
-    }
-
-    private void BuildRewardScreen(Transform parent)
-    {
-        GameObject screen = CreatePanel(parent, "PrizeSelectionScreen", rewardScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
+        GameObject screen = CreatePanel(parent, "PrizeSelectionScreen", showScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
         RectTransform screenRect = screen.GetComponent<RectTransform>();
-        rewardScreenRect = screenRect;
-        screenRect.anchorMin = screenRect.anchorMax = rewardScreenAnchor;
+        screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.5f, 0.5f);
         screenRect.pivot = new Vector2(0.5f, 0.5f);
         screenRect.anchoredPosition = Vector2.zero;
 
-        GameObject inner = CreatePanel(screen.transform, "ScreenInner", rewardScreenSize - new Vector2(34f, 34f), new Color(0.055f, 0.045f, 0.105f, 1f));
+        GameObject inner = CreatePanel(
+            screen.transform,
+            "ScreenInner",
+            showScreenSize - new Vector2(34f, 34f),
+            new Color(0.055f, 0.045f, 0.105f, 1f));
         RectTransform innerRect = inner.GetComponent<RectTransform>();
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
-        inner.GetComponent<Outline>().effectColor = new Color(0.28f, 0.95f, 0.92f, 0.20f);
 
-        rewardTitle = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(rewardTitle.rectTransform, new Vector2(0.05f, 0.865f), new Vector2(0.72f, 0.96f));
+        Text title = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        SetAnchors(title.rectTransform, new Vector2(0.05f, 0.865f), new Vector2(0.72f, 0.96f));
 
-        rewardSubtitle = CreateText(inner.transform, "SELECT  •  DRAG  •  DROP", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.76f, 0.86f, 1f));
-        SetAnchors(rewardSubtitle.rectTransform, new Vector2(0.05f, 0.805f), new Vector2(0.72f, 0.86f));
+        Text subtitle = CreateText(inner.transform, "SELECT  •  CONFIRM", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.76f, 0.86f, 1f));
+        SetAnchors(subtitle.rectTransform, new Vector2(0.05f, 0.805f), new Vector2(0.72f, 0.86f));
 
         Text live = CreateText(inner.transform, "[ON LIVE]", 14, FontStyle.Bold, TextAnchor.MiddleRight, new Color(1f, 0.10f, 0.12f, 1f));
-        onLiveText = live;
         SetAnchors(live.rectTransform, new Vector2(0.77f, 0.87f), new Vector2(0.95f, 0.95f));
 
         GameObject cardRoot = new("PrizeChoices");
         cardRoot.transform.SetParent(inner.transform, false);
         rewardCardRoot = cardRoot.AddComponent<RectTransform>();
-        SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.31f), new Vector2(0.945f, 0.79f));
+        SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.20f), new Vector2(0.945f, 0.79f));
 
-        focusedRewardName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
-        SetAnchors(focusedRewardName.rectTransform, new Vector2(0.055f, 0.185f), new Vector2(0.38f, 0.28f));
+        Text focusName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
+        SetAnchors(focusName.rectTransform, new Vector2(0.055f, 0.13f), new Vector2(0.38f, 0.19f));
 
-        focusedRewardStats = CreateText(inner.transform, "Hover to inspect. Click to select, then drag it to the loadout strip below.", 11, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.78f, 0.82f, 0.90f, 1f));
-        SetAnchors(focusedRewardStats.rectTransform, new Vector2(0.38f, 0.17f), new Vector2(0.945f, 0.285f));
+        Text focusStats = CreateText(inner.transform, "Hover to inspect. Click to select.", 11, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.78f, 0.82f, 0.90f, 1f));
+        SetAnchors(focusStats.rectTransform, new Vector2(0.38f, 0.12f), new Vector2(0.945f, 0.19f));
 
-        GameObject notice = CreatePanel(inner.transform, "PlacementNotice", new Vector2(980f, 48f), new Color(0.035f, 0.11f, 0.12f, 0.92f));
-        rewardNoticePanel = notice;
+        // RewardCardActionController가 이 Root를 compact skip button으로 재사용합니다.
+        GameObject notice = CreatePanel(
+            inner.transform,
+            "PlacementNotice",
+            new Vector2(304f, 54f),
+            new Color(0.02f, 0.02f, 0.025f, 0.98f));
         RectTransform noticeRect = notice.GetComponent<RectTransform>();
-        noticeRect.anchorMin = noticeRect.anchorMax = new Vector2(0.5f, 0.085f);
+        noticeRect.anchorMin = noticeRect.anchorMax = new Vector2(0.5f, 0.055f);
         noticeRect.anchoredPosition = Vector2.zero;
-        rewardInstruction = CreateText(notice.transform, "SELECT A PRIZE FIRST", 11, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-        Stretch(rewardInstruction.rectTransform);
+        Text noticeText = CreateText(notice.transform, "아이템 획득 포기하기", 12, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        Stretch(noticeText.rectTransform);
+
+        return screenRect;
     }
 
-    private void BuildWorldMapScreen()
+    private RectTransform BuildMapScreenShell(Transform parent)
     {
-        mapWorldCanvasRoot = new GameObject("BattleMapSelectionWorldCanvas");
-        mapWorldCanvasRoot.transform.SetParent(transform, false);
-
-        mapWorldCanvas = mapWorldCanvasRoot.AddComponent<Canvas>();
-        mapWorldCanvas.renderMode = RenderMode.WorldSpace;
-        mapWorldCanvas.overrideSorting = true;
-        mapWorldCanvas.sortingOrder = mapWorldSortingOrder;
-        mapWorldCanvas.worldCamera = Camera.main;
-        mapWorldCanvasRoot.AddComponent<GraphicRaycaster>();
-        mapWorldCanvasGroup = mapWorldCanvasRoot.AddComponent<CanvasGroup>();
-        mapWorldCanvasGroup.alpha = 0f;
-        mapWorldCanvasGroup.interactable = false;
-        mapWorldCanvasGroup.blocksRaycasts = false;
-
-        mapWorldCanvasRect = mapWorldCanvasRoot.GetComponent<RectTransform>();
-        mapWorldCanvasRect.sizeDelta = rewardScreenSize;
-        mapWorldCanvasRect.pivot = new Vector2(0.5f, 0.5f);
-        float worldScale = 1f / Mathf.Max(16f, mapWorldPixelsPerUnit);
-        mapWorldBaseScale = new Vector3(worldScale, worldScale, 1f);
-        mapWorldCanvasRect.localScale = mapWorldBaseScale * 0.92f;
-
-        GameObject screen = CreatePanel(
-            mapWorldCanvasRoot.transform,
-            "MapSelectionScreen",
-            rewardScreenSize,
-            new Color(0.025f, 0.020f, 0.055f, 0.985f));
+        GameObject screen = CreatePanel(parent, "MapSelectionScreen", showScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
         RectTransform screenRect = screen.GetComponent<RectTransform>();
         screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.5f, 0.5f);
+        screenRect.pivot = new Vector2(0.5f, 0.5f);
         screenRect.anchoredPosition = Vector2.zero;
-        screen.GetComponent<Image>().raycastTarget = false;
 
         GameObject inner = CreatePanel(
             screen.transform,
             "ScreenInner",
-            rewardScreenSize - new Vector2(34f, 34f),
+            showScreenSize - new Vector2(34f, 34f),
             new Color(0.012f, 0.021f, 0.048f, 0.97f));
         RectTransform innerRect = inner.GetComponent<RectTransform>();
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
-        inner.GetComponent<Image>().raycastTarget = false;
-        inner.GetComponent<Outline>().effectColor = new Color(0.22f, 0.82f, 1f, 0.32f);
 
         GameObject mapRoot = new("MapSelectionContent");
         mapRoot.transform.SetParent(inner.transform, false);
         mapSelectionRoot = mapRoot.AddComponent<RectTransform>();
         SetAnchors(mapSelectionRoot, new Vector2(0.025f, 0.055f), new Vector2(0.975f, 0.94f));
 
-        UpdateWorldMapScreenPosition();
-        mapWorldCanvasRoot.SetActive(false);
+        return screenRect;
     }
 
-    private void UpdateWorldMapScreenTransition()
+    private void RefreshRewardCardShell()
     {
-        if (mapWorldCanvasRoot == null || mapWorldCanvasRect == null || mapWorldCanvasGroup == null)
+        if (runManager == null || rewardCardRoot == null)
             return;
 
-        if (mapWorldVisibleTarget && !mapWorldCanvasRoot.activeSelf)
-            mapWorldCanvasRoot.SetActive(true);
-        if (!mapWorldCanvasRoot.activeSelf)
-            return;
-
-        float blend = 1f - Mathf.Exp(
-            -Mathf.Max(0.5f, mapWorldTransitionSharpness) * Time.unscaledDeltaTime);
-        float targetAlpha = mapWorldVisibleTarget ? 1f : 0f;
-        float targetScale = mapWorldVisibleTarget
-            ? (mapCursorFocused ? Mathf.Max(1f, mapCursorFocusScale) : 1f)
-            : 0.92f;
-
-        mapWorldCanvasGroup.alpha = Mathf.Lerp(mapWorldCanvasGroup.alpha, targetAlpha, blend);
-        mapWorldCanvasRect.localScale = Vector3.Lerp(
-            mapWorldCanvasRect.localScale,
-            mapWorldBaseScale * targetScale,
-            blend);
-        mapWorldCanvasGroup.interactable = mapWorldVisibleTarget && mapWorldCanvasGroup.alpha >= 0.85f;
-        mapWorldCanvasGroup.blocksRaycasts = mapWorldCanvasGroup.interactable;
-
-        if (!mapWorldVisibleTarget && mapWorldCanvasGroup.alpha <= 0.01f)
-        {
-            mapWorldCanvasGroup.alpha = 0f;
-            mapWorldCanvasRect.localScale = mapWorldBaseScale * 0.92f;
-            mapWorldCanvasRoot.SetActive(false);
-        }
-    }
-
-    private void UpdateWorldMapScreenPosition()
-    {
-        if (mapWorldCanvasRect == null)
-            return;
-
-        if (mapWorldCanvas != null && mapWorldCanvas.worldCamera == null)
-            mapWorldCanvas.worldCamera = Camera.main;
-
-        if (mapWorldCanvasRoot != null && !mapWorldCanvasRoot.activeInHierarchy)
-            return;
-
-        // 다음 노드로 넘어가며 Player/Base가 이동해도, 퇴장 중인 화면은 마지막 위치에서 사라집니다.
-        if (!mapWorldVisibleTarget)
-            return;
-
-        if (player != null)
-        {
-            Vector3 position = player.transform.position + (Vector3)mapWorldScreenOffset;
-            position.z = player.transform.position.z;
-            mapWorldCanvasRect.position = position;
-            mapWorldCanvasRect.rotation = Quaternion.identity;
-        }
-
-        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
-        GameObject activeBase = baseTemplate != null ? baseTemplate.ActiveBase : null;
-        SpriteRenderer baseRenderer = activeBase != null
-            ? activeBase.GetComponentInChildren<SpriteRenderer>(true)
-            : null;
-        if (mapWorldCanvas != null && baseRenderer != null)
-        {
-            mapWorldCanvas.sortingLayerID = baseRenderer.sortingLayerID;
-            mapWorldCanvas.sortingOrder = Mathf.Min(mapWorldSortingOrder, baseRenderer.sortingOrder - 1);
-        }
-    }
-
-    private void BuildRewardInventory(Transform parent)
-    {
-        GameObject bar = CreatePanel(parent, "RewardLoadoutStrip", rewardLoadoutSize, new Color(0.018f, 0.024f, 0.040f, 0.92f));
-        rewardInventoryPanel = bar;
-        RectTransform barRect = bar.GetComponent<RectTransform>();
-        barRect.anchorMin = barRect.anchorMax = rewardLoadoutAnchor;
-        barRect.pivot = new Vector2(0.5f, 0.5f);
-        barRect.anchoredPosition = Vector2.zero;
-
-        Text label = CreateText(bar.transform, "CURRENT LOADOUT  /  DROP TARGET", 10, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.70f, 0.76f, 0.86f, 1f));
-        SetAnchors(label.rectTransform, new Vector2(0.025f, 0.79f), new Vector2(0.46f, 0.97f));
-
-        GameObject root = new("RewardInventory");
-        root.transform.SetParent(bar.transform, false);
-        rewardInventoryRoot = root.AddComponent<RectTransform>();
-        SetAnchors(rewardInventoryRoot, new Vector2(0.02f, 0.08f), new Vector2(0.98f, 0.77f));
-
-        float slotWidth = 108f;
-        float slotHeight = 92f;
-        float spacing = 8f;
-        float total = BattleEquipmentSystem.MaxSlotCount * slotWidth + (BattleEquipmentSystem.MaxSlotCount - 1) * spacing;
-        float start = -total * 0.5f + slotWidth * 0.5f;
-
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            GameObject slot = CreatePanel(rewardInventoryRoot, $"RewardLoadoutSlot_{i + 1}", new Vector2(slotWidth, slotHeight), RewardLockedSlotColor);
-            RectTransform rect = slot.GetComponent<RectTransform>();
-            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = new Vector2(start + i * (slotWidth + spacing), 0f);
-            rewardSlotBackgrounds[i] = slot.GetComponent<Image>();
-
-            RewardInventoryDropZone zone = slot.AddComponent<RewardInventoryDropZone>();
-            zone.Configure(this, i);
-
-            Text number = CreateText(slot.transform, $"{i + 1}", 9, FontStyle.Bold, TextAnchor.UpperLeft, new Color(0.70f, 0.74f, 0.82f, 1f));
-            SetAnchors(number.rectTransform, new Vector2(0.06f, 0.75f), new Vector2(0.30f, 0.95f));
-
-            rewardSlotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
-            SetAnchors(rewardSlotGrades[i].rectTransform, new Vector2(0.42f, 0.75f), new Vector2(0.94f, 0.95f));
-
-            rewardSlotIcons[i] = CreateImage(slot.transform, "CurrentItemIcon", new Vector2(38f, 38f));
-            rewardSlotIcons[i].rectTransform.anchorMin = rewardSlotIcons[i].rectTransform.anchorMax = new Vector2(0.5f, 0.60f);
-
-            rewardSlotNames[i] = CreateText(slot.transform, "LOCKED", 8, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-            SetAnchors(rewardSlotNames[i].rectTransform, new Vector2(0.05f, 0.19f), new Vector2(0.95f, 0.38f));
-
-            rewardSlotActions[i] = CreateText(slot.transform, string.Empty, 7, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
-            SetAnchors(rewardSlotActions[i].rectTransform, new Vector2(0.04f, 0.015f), new Vector2(0.96f, 0.18f));
-        }
-    }
-
-    private void BuildPresenter(Transform parent)
-    {
-        GameObject host = new("Presenter");
-        host.transform.SetParent(parent, false);
-        presenterRect = host.AddComponent<RectTransform>();
-        presenterImage = host.AddComponent<Image>();
-        presenterImage.preserveAspect = true;
-        presenterImage.raycastTarget = false;
-        ApplyPresenterVisual();
-    }
-
-    private void ApplyPresenterVisual()
-    {
-        if (presenterRect != null)
-        {
-            presenterRect.anchorMin = presenterRect.anchorMax = presenterAnchor;
-            presenterRect.pivot = new Vector2(0.5f, 0.5f);
-            presenterRect.sizeDelta = presenterSize;
-            presenterRect.anchoredPosition = presenterOffset;
-            presenterRect.localScale = new Vector3(presenterFlipX ? -1f : 1f, 1f, 1f);
-        }
-
-        if (presenterImage != null)
-        {
-            presenterImage.sprite = presenterSprite != null ? presenterSprite : BattleHudSpriteCache.DefaultSprite;
-            presenterImage.color = presenterColor;
-            presenterImage.enabled = true;
-        }
-    }
-
-    private void RefreshRewardState()
-    {
-        if (runManager == null || rewardRoot == null)
-            return;
-
-        bool rewardState = runManager.State == BattleRunState.Reward;
-        bool mapSelectionState = runManager.State == BattleRunState.SelectingNode;
-        int count = rewardState ? runManager.CurrentRewardChoices.Count : 0;
+        bool reward = runManager.RunActive && runManager.State == BattleRunState.Reward;
+        int count = reward ? runManager.CurrentRewardChoices.Count : 0;
         bool stateChanged = lastObservedState != runManager.State;
 
-        if (mapSelectionState)
-        {
-            if (!rewardRoot.activeSelf || stateChanged || mapSelectionRoot == null || !mapSelectionRoot.gameObject.activeSelf)
-            {
-                pendingRewardIndex = -1;
-                lastRewardCount = -1;
-                SetRewardVisible(true, true);
-                PulseRewardSpotlights();
-            }
-
-            lastObservedState = runManager.State;
-            return;
-        }
-
-        if (!rewardState)
-        {
-            if (rewardRoot.activeSelf)
-                SetRewardVisible(false);
-            pendingRewardIndex = -1;
-            lastRewardCount = -1;
-            lastObservedState = runManager.State;
-            return;
-        }
-
-        if (!rewardRoot.activeSelf || stateChanged || lastRewardCount != count)
-        {
-            pendingRewardIndex = -1;
+        if (reward && (stateChanged || count != lastRewardCount || rewardCardRoot.childCount != count))
             RebuildRewardCards();
-            ClearRewardFocus();
-            RefreshRewardInventory();
-            SetRewardVisible(true);
-            PulseRewardSpotlights();
-        }
 
-        lastRewardCount = count;
+        lastRewardCount = reward ? count : -1;
         lastObservedState = runManager.State;
-    }
-
-    private void SetRewardVisible(bool visible, bool mapSelection = false)
-    {
-        if (rewardRoot != null)
-            rewardRoot.SetActive(visible);
-
-        bool openingWaitingRoom = visible && mapSelection &&
-                                  runManager != null && runManager.IsInStartArea;
-        if (fieldBroadcastFilterImage != null)
-        {
-            fieldBroadcastFilterImage.color = openingWaitingRoom
-                ? openingWaitingRoomFilter
-                : rewardFieldFilter;
-        }
-        ApplySelectionShowLayout(openingWaitingRoom);
-
-        if (combatStatusRoot != null)
-            combatStatusRoot.SetActive(!visible);
-        if (equipmentDockRoot != null)
-            equipmentDockRoot.SetActive(!visible);
-
-        bool showRewardContent = visible && !mapSelection;
-        if (rewardScreenRect != null)
-            rewardScreenRect.gameObject.SetActive(showRewardContent);
-        mapWorldVisibleTarget = visible && mapSelection;
-        if (mapWorldVisibleTarget && mapWorldCanvasRoot != null && !mapWorldCanvasRoot.activeSelf)
-        {
-            if (mapWorldCanvasGroup != null)
-                mapWorldCanvasGroup.alpha = 0f;
-            if (mapWorldCanvasRect != null)
-                mapWorldCanvasRect.localScale = mapWorldBaseScale * 0.92f;
-            mapWorldCanvasRoot.SetActive(true);
-        }
-        if (!mapWorldVisibleTarget)
-            mapCursorFocused = false;
-        if (rewardTitle != null)
-            rewardTitle.gameObject.SetActive(showRewardContent);
-        if (rewardSubtitle != null)
-            rewardSubtitle.gameObject.SetActive(showRewardContent);
-        if (rewardCardRoot != null)
-            rewardCardRoot.gameObject.SetActive(showRewardContent);
-        if (focusedRewardName != null)
-            focusedRewardName.gameObject.SetActive(showRewardContent);
-        if (focusedRewardStats != null)
-            focusedRewardStats.gameObject.SetActive(showRewardContent);
-        if (rewardNoticePanel != null)
-            rewardNoticePanel.SetActive(showRewardContent);
-        if (rewardInventoryPanel != null)
-            rewardInventoryPanel.SetActive(showRewardContent);
-        if (mapSelectionRoot != null)
-            mapSelectionRoot.gameObject.SetActive(visible && mapSelection);
-
-        if (!visible)
-        {
-            EndRewardDrag();
-            KillSpotlightTweens();
-        }
-    }
-
-    private void ApplySelectionShowLayout(bool openingWaitingRoom)
-    {
-        if (presenterRect != null)
-            presenterRect.gameObject.SetActive(!openingWaitingRoom);
-        if (presenterSpotlightImage != null)
-            presenterSpotlightImage.gameObject.SetActive(!openingWaitingRoom);
-        if (onLiveText != null)
-            onLiveText.gameObject.SetActive(!openingWaitingRoom);
     }
 
     private void RebuildRewardCards()
@@ -854,40 +472,39 @@ public sealed class BattleHUD : MonoBehaviour
         for (int i = rewardCardRoot.childCount - 1; i >= 0; i--)
             Destroy(rewardCardRoot.GetChild(i).gameObject);
 
-        rewardTitle.text = "CHOOSE YOUR PRIZE";
-        rewardSubtitle.text = "SELECT  •  DRAG  •  DROP";
-
         int count = runManager.CurrentRewardChoices.Count;
         if (count <= 0)
             return;
 
         float width = Mathf.Min(275f, 835f / count);
-        float spacing = 22f;
+        const float height = 245f;
+        const float spacing = 22f;
         float total = count * width + (count - 1) * spacing;
         float start = -total * 0.5f + width * 0.5f;
 
         for (int i = 0; i < count; i++)
         {
             BattleEquipmentSO reward = runManager.CurrentRewardChoices[i];
-            if (reward == null) continue;
+            if (reward == null)
+                continue;
 
-            GameObject card = CreatePanel(rewardCardRoot, $"Prize_{i}", new Vector2(width, 245f), RewardCardColor);
+            GameObject card = CreatePanel(
+                rewardCardRoot,
+                $"Prize_{i}",
+                new Vector2(width, height),
+                new Color(0.055f, 0.057f, 0.066f, 0.995f));
             RectTransform cardRect = card.GetComponent<RectTransform>();
             cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
-            Vector2 basePosition = new(start + i * (width + spacing), 0f);
-            cardRect.anchoredPosition = basePosition;
+            cardRect.anchoredPosition = new Vector2(start + i * (width + spacing), 0f);
 
             Image cardImage = card.GetComponent<Image>();
             Button button = card.AddComponent<Button>();
             button.targetGraphic = cardImage;
-            int captured = i;
-            button.onClick.AddListener(() => SelectRewardForPlacement(captured));
 
-            RewardCardHover hover = card.AddComponent<RewardCardHover>();
-            hover.Configure(this, captured, cardRect, basePosition);
-
-            RewardPrizeDrag drag = card.AddComponent<RewardPrizeDrag>();
-            drag.Configure(this, captured);
+            // Business 입력은 BattleRewardCardActionController가 Button listener를 교체합니다.
+            // 이 컴포넌트는 stable reward index marker로만 남깁니다.
+            RewardPrizeDrag marker = card.AddComponent<RewardPrizeDrag>();
+            marker.Configure(this, i);
 
             Image icon = CreateImage(card.transform, "PrizeIcon", new Vector2(105f, 105f));
             icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.67f);
@@ -903,365 +520,17 @@ public sealed class BattleHUD : MonoBehaviour
             Text type = CreateText(card.transform, reward.type.ToString().ToUpperInvariant(), 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f));
             SetAnchors(type.rectTransform, new Vector2(0.08f, 0.14f), new Vector2(0.92f, 0.22f));
 
-            Text action = CreateText(card.transform, "CLICK / DRAG", 8, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
+            Text action = CreateText(card.transform, "CLICK TO SELECT", 8, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
             SetAnchors(action.rectTransform, new Vector2(0.08f, 0.025f), new Vector2(0.92f, 0.12f));
         }
     }
 
-    private void SelectRewardForPlacement(int index)
+    private void SetCombatHudVisible(bool visible)
     {
-        if (runManager == null || runManager.State != BattleRunState.Reward)
-            return;
-        if (index < 0 || index >= runManager.CurrentRewardChoices.Count)
-            return;
-        if (runManager.CurrentRewardChoices[index] == null)
-            return;
-
-        pendingRewardIndex = index;
-        RefreshRewardChoiceSelection();
-        ShowSelectedRewardFocus();
-        RefreshRewardInventory();
-        PulseRewardSpotlights();
-
-        BattleEquipmentSO selected = runManager.CurrentRewardChoices[index];
-        if (rewardInstruction != null)
-        {
-            rewardInstruction.text = equipmentSystem != null && !equipmentSystem.HasFreeUnlockedSlot()
-                ? $"{selected.GetDisplayName().ToUpperInvariant()}  —  LOADOUT FULL: DROP ON THE ITEM TO DISCARD"
-                : $"{selected.GetDisplayName().ToUpperInvariant()}  —  DRAG TO AN OPEN SLOT OR DROP ON AN ITEM TO REPLACE";
-        }
-    }
-
-    private void RefreshRewardChoiceSelection()
-    {
-        if (rewardCardRoot == null)
-            return;
-
-        for (int i = 0; i < rewardCardRoot.childCount; i++)
-        {
-            Transform child = rewardCardRoot.GetChild(i);
-            RewardPrizeDrag drag = child.GetComponent<RewardPrizeDrag>();
-            Image image = child.GetComponent<Image>();
-            if (drag == null || image == null)
-                continue;
-            image.color = drag.RewardIndex == pendingRewardIndex ? RewardCardSelectedColor : RewardCardColor;
-        }
-    }
-
-    internal void HandleRewardCardEnter(int index, RectTransform card, Vector2 basePosition)
-    {
-        if (runManager == null || index < 0 || index >= runManager.CurrentRewardChoices.Count)
-            return;
-
-        if (card != null)
-        {
-            card.localScale = Vector3.one * rewardHoverScale;
-            card.anchoredPosition = basePosition + Vector2.up * rewardHoverLift;
-            card.SetAsLastSibling();
-        }
-
-        ShowRewardFocus(index);
-        PulseRewardSpotlights();
-    }
-
-    internal void HandleRewardCardExit(RectTransform card, Vector2 basePosition)
-    {
-        if (card != null)
-        {
-            card.localScale = Vector3.one;
-            card.anchoredPosition = basePosition;
-        }
-
-        if (pendingRewardIndex >= 0)
-            ShowSelectedRewardFocus();
-        else
-            ClearRewardFocus();
-    }
-
-    private void ShowRewardFocus(int index)
-    {
-        if (runManager == null || index < 0 || index >= runManager.CurrentRewardChoices.Count)
-            return;
-
-        BattleEquipmentSO reward = runManager.CurrentRewardChoices[index];
-        if (reward == null)
-            return;
-
-        if (focusedRewardName != null)
-            focusedRewardName.text = reward.GetDisplayName();
-        if (focusedRewardStats != null)
-        {
-            focusedRewardStats.text =
-                $"{reward.rarity.ToString().ToUpperInvariant()}  /  {reward.type.ToString().ToUpperInvariant()}    " +
-                $"DMG ×{reward.damageMultiplier:0.00}    MOVE ×{reward.moveSpeedMultiplier:0.00}    RANGE ×{reward.rangeMultiplier:0.00}";
-        }
-    }
-
-    private void ShowSelectedRewardFocus()
-    {
-        if (pendingRewardIndex >= 0)
-            ShowRewardFocus(pendingRewardIndex);
-    }
-
-    private void ClearRewardFocus()
-    {
-        if (focusedRewardName != null)
-            focusedRewardName.text = "SELECT A PRIZE";
-        if (focusedRewardStats != null)
-            focusedRewardStats.text = "Hover to inspect. Click to select, then drag it to the loadout strip below.";
-        if (rewardInstruction != null)
-            rewardInstruction.text = "SELECT A PRIZE FIRST";
-    }
-
-    private BattleEquipmentSO GetSelectedReward()
-    {
-        if (runManager == null || pendingRewardIndex < 0 || pendingRewardIndex >= runManager.CurrentRewardChoices.Count)
-            return null;
-        return runManager.CurrentRewardChoices[pendingRewardIndex];
-    }
-
-    private void RefreshRewardInventory()
-    {
-        if (rewardSlotBackgrounds[0] == null)
-            return;
-
-        BattleEquipmentSO selected = GetSelectedReward();
-
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            bool unlocked = equipmentSystem != null && i < equipmentSystem.UnlockedSlotCount;
-            BattleEquipmentSlot slot = unlocked && i < equipmentSystem.Slots.Count ? equipmentSystem.Slots[i] : null;
-            bool occupied = slot != null && slot.equipment != null;
-            bool sameSelected = selected != null && occupied && slot.equipment == selected;
-            bool canMerge = sameSelected && slot.grade < 3;
-            bool maxedSame = sameSelected && slot.grade >= 3;
-
-            if (!unlocked)
-            {
-                rewardSlotBackgrounds[i].color = RewardLockedSlotColor;
-                rewardSlotIcons[i].sprite = null;
-                rewardSlotIcons[i].enabled = false;
-                rewardSlotNames[i].text = "LOCKED";
-                rewardSlotGrades[i].text = string.Empty;
-                rewardSlotActions[i].text = string.Empty;
-                continue;
-            }
-
-            rewardSlotIcons[i].sprite = occupied ? slot.equipment.icon : null;
-            rewardSlotIcons[i].enabled = occupied && slot.equipment.icon != null;
-            rewardSlotNames[i].text = occupied ? Shorten(slot.equipment.GetDisplayName(), 13) : "EMPTY";
-            rewardSlotGrades[i].text = occupied ? $"G{slot.grade} {slot.copies}/3" : string.Empty;
-
-            if (selected == null)
-            {
-                rewardSlotBackgrounds[i].color = occupied ? RewardOccupiedSlotColor : RewardEmptySlotColor;
-                rewardSlotActions[i].text = occupied ? "CURRENT" : "OPEN";
-                rewardSlotActions[i].color = occupied ? new Color(0.65f, 0.70f, 0.79f, 1f) : new Color(0.30f, 0.90f, 0.85f, 1f);
-            }
-            else if (canMerge)
-            {
-                rewardSlotBackgrounds[i].color = RewardMergeSlotColor;
-                rewardSlotActions[i].text = "MERGE";
-                rewardSlotActions[i].color = new Color(0.30f, 0.95f, 0.78f, 1f);
-            }
-            else if (maxedSame)
-            {
-                rewardSlotBackgrounds[i].color = RewardLockedSlotColor;
-                rewardSlotActions[i].text = "MAX";
-                rewardSlotActions[i].color = new Color(0.65f, 0.68f, 0.74f, 1f);
-            }
-            else if (!occupied)
-            {
-                rewardSlotBackgrounds[i].color = RewardEmptySlotColor;
-                rewardSlotActions[i].text = "DROP HERE";
-                rewardSlotActions[i].color = new Color(0.30f, 0.95f, 0.85f, 1f);
-            }
-            else
-            {
-                rewardSlotBackgrounds[i].color = RewardReplaceSlotColor;
-                rewardSlotActions[i].text = "REPLACE";
-                rewardSlotActions[i].color = new Color(1f, 0.42f, 0.45f, 1f);
-            }
-        }
-    }
-
-    private void UpdateSpotlightPositions()
-    {
-        UpdatePlayerSpotlightPosition();
-        UpdatePresenterSpotlightPosition();
-    }
-
-    private void UpdatePlayerSpotlightPosition()
-    {
-        if (rewardRoot == null || !rewardRoot.activeSelf || playerSpotlightImage == null || player == null)
-            return;
-
-        Camera cam = Camera.main;
-        if (cam == null)
-            return;
-
-        Vector3 screenPoint = cam.WorldToScreenPoint(player.transform.position);
-        RectTransform rootRect = rewardRoot.GetComponent<RectTransform>();
-        if (rootRect == null)
-            return;
-
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(rootRect, screenPoint, null, out Vector2 localPoint))
-            playerSpotlightImage.rectTransform.anchoredPosition = localPoint + playerSpotlightScreenOffset;
-    }
-
-    private void UpdatePresenterSpotlightPosition()
-    {
-        if (presenterSpotlightImage == null)
-            return;
-
-        RectTransform rect = presenterSpotlightImage.rectTransform;
-        rect.anchorMin = rect.anchorMax = presenterAnchor;
-        rect.sizeDelta = presenterSpotlightSize;
-        rect.anchoredPosition = presenterOffset + presenterSpotlightOffset;
-    }
-
-    private void PulseRewardSpotlights()
-    {
-        PulseSpotlight(playerSpotlightImage);
-        PulseSpotlight(presenterSpotlightImage);
-    }
-
-    private void PulseSpotlight(Image image)
-    {
-        if (image == null)
-            return;
-
-        image.DOKill();
-        image.rectTransform.DOKill();
-
-        Color idle = image.color;
-        float idleAlpha = Mathf.Clamp(idle.a, 0.02f, 0.18f);
-        idle.a = idleAlpha;
-        Color peak = idle;
-        peak.a = Mathf.Max(idleAlpha, spotlightPeakAlpha);
-
-        image.color = idle;
-        image.rectTransform.localScale = Vector3.one * 0.92f;
-
-        Sequence sequence = DOTween.Sequence().SetUpdate(true);
-        sequence.Append(image.DOColor(peak, spotlightAttack).SetEase(Ease.OutQuad));
-        sequence.Join(image.rectTransform.DOScale(1.09f, spotlightAttack).SetEase(Ease.OutQuad));
-        sequence.Append(image.DOColor(idle, spotlightRelease).SetEase(Ease.OutCubic));
-        sequence.Join(image.rectTransform.DOScale(1f, spotlightRelease).SetEase(Ease.OutCubic));
-    }
-
-    private void KillSpotlightTweens()
-    {
-        if (playerSpotlightImage != null)
-        {
-            playerSpotlightImage.DOKill();
-            playerSpotlightImage.rectTransform.DOKill();
-            playerSpotlightImage.rectTransform.localScale = Vector3.one;
-            playerSpotlightImage.color = playerSpotlightColor;
-        }
-
-        if (presenterSpotlightImage != null)
-        {
-            presenterSpotlightImage.DOKill();
-            presenterSpotlightImage.rectTransform.DOKill();
-            presenterSpotlightImage.rectTransform.localScale = Vector3.one;
-            presenterSpotlightImage.color = presenterSpotlightColor;
-        }
-    }
-
-    internal void BeginRewardDrag(int index, PointerEventData eventData)
-    {
-        SelectRewardForPlacement(index);
-        BattleEquipmentSO selected = GetSelectedReward();
-        if (selected == null || canvas == null)
-            return;
-
-        EndRewardDrag();
-
-        rewardDragGhost = CreatePanel(canvas.transform, "RewardDragGhost", new Vector2(200f, 108f), new Color(0.16f, 0.07f, 0.16f, 0.96f));
-        rewardDragGhostRect = rewardDragGhost.GetComponent<RectTransform>();
-        rewardDragGhostRect.pivot = new Vector2(0.5f, 0.5f);
-        rewardDragGhost.transform.SetAsLastSibling();
-
-        CanvasGroup ghostGroup = rewardDragGhost.AddComponent<CanvasGroup>();
-        ghostGroup.blocksRaycasts = false;
-        ghostGroup.interactable = false;
-
-        Image icon = CreateImage(rewardDragGhost.transform, "Icon", new Vector2(54f, 54f));
-        icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.20f, 0.58f);
-        icon.sprite = selected.icon;
-        icon.enabled = selected.icon != null;
-
-        Text name = CreateText(rewardDragGhost.transform, selected.GetDisplayName(), 11, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(name.rectTransform, new Vector2(0.38f, 0.45f), new Vector2(0.95f, 0.78f));
-        Text hint = CreateText(rewardDragGhost.transform, "DROP INTO SLOT", 8, FontStyle.Bold, TextAnchor.MiddleLeft, accentColor);
-        SetAnchors(hint.rectTransform, new Vector2(0.38f, 0.18f), new Vector2(0.95f, 0.43f));
-
-        UpdateRewardDrag(eventData);
-    }
-
-    internal void UpdateRewardDrag(PointerEventData eventData)
-    {
-        if (rewardDragGhostRect == null || eventData == null)
-            return;
-        rewardDragGhostRect.position = eventData.position;
-    }
-
-    internal void EndRewardDrag()
-    {
-        if (rewardDragGhost != null)
-            Destroy(rewardDragGhost);
-        rewardDragGhost = null;
-        rewardDragGhostRect = null;
-    }
-
-    internal void HandleRewardSlotEnter(int slotIndex)
-    {
-        BattleEquipmentSO selected = GetSelectedReward();
-        if (selected == null || equipmentSystem == null)
-            return;
-        if (slotIndex < 0 || slotIndex >= equipmentSystem.UnlockedSlotCount)
-            return;
-        if (!equipmentSystem.CanPlaceIntoSlot(slotIndex, selected))
-            return;
-
-        if (rewardSlotBackgrounds[slotIndex] != null)
-            rewardSlotBackgrounds[slotIndex].color = new Color(0.30f, 0.17f, 0.30f, 1f);
-    }
-
-    internal void HandleRewardSlotExit(int _)
-    {
-        RefreshRewardInventory();
-    }
-
-    internal void HandleRewardDrop(int slotIndex)
-    {
-        if (runManager == null || equipmentSystem == null || pendingRewardIndex < 0)
-            return;
-
-        BattleEquipmentSO selected = GetSelectedReward();
-        if (selected == null)
-            return;
-
-        if (!equipmentSystem.CanPlaceIntoSlot(slotIndex, selected))
-        {
-            if (rewardInstruction != null)
-                rewardInstruction.text = "THAT SLOT CANNOT TAKE THIS ITEM";
-            RefreshRewardInventory();
-            return;
-        }
-
-        if (!runManager.PlaceRewardIntoSlot(pendingRewardIndex, slotIndex))
-        {
-            if (rewardInstruction != null)
-                rewardInstruction.text = "PLACEMENT FAILED — CHOOSE ANOTHER SLOT";
-            RefreshRewardInventory();
-            return;
-        }
-
-        pendingRewardIndex = -1;
-        EndRewardDrag();
-        SetRewardVisible(false);
+        if (combatStatusRoot != null && combatStatusRoot.activeSelf != visible)
+            combatStatusRoot.SetActive(visible);
+        if (equipmentDockRoot != null && equipmentDockRoot.activeSelf != visible)
+            equipmentDockRoot.SetActive(visible);
     }
 
     private void RefreshVitalBars()
@@ -1271,10 +540,14 @@ public sealed class BattleHUD : MonoBehaviour
 
         float hpMax = Mathf.Max(1f, player.maxHp);
         float stMax = Mathf.Max(1f, player.maxStamina);
-        if (hpFill != null) hpFill.fillAmount = Mathf.Clamp01(player.CurrentHp / hpMax);
-        if (staminaFill != null) staminaFill.fillAmount = Mathf.Clamp01(player.CurrentStamina / stMax);
-        if (hpText != null) hpText.text = $"HP  {player.CurrentHp:0}/{hpMax:0}";
-        if (staminaText != null) staminaText.text = $"ST  {player.CurrentStamina:0}/{stMax:0}";
+        if (hpFill != null)
+            hpFill.fillAmount = Mathf.Clamp01(player.CurrentHp / hpMax);
+        if (staminaFill != null)
+            staminaFill.fillAmount = Mathf.Clamp01(player.CurrentStamina / stMax);
+        if (hpText != null)
+            hpText.text = $"HP  {player.CurrentHp:0}/{hpMax:0}";
+        if (staminaText != null)
+            staminaText.text = $"ST  {player.CurrentStamina:0}/{stMax:0}";
     }
 
     private void RefreshStatus()
@@ -1287,7 +560,9 @@ public sealed class BattleHUD : MonoBehaviour
         }
 
         if (enemyText != null)
-            enemyText.text = roomManager != null && roomManager.IsRoomActive ? $"ENEMY  {roomManager.AliveMonsterCount:00}" : "ENEMY  --";
+            enemyText.text = roomManager != null && roomManager.IsRoomActive
+                ? $"ENEMY  {roomManager.AliveMonsterCount:00}"
+                : "ENEMY  --";
 
         if (audienceText != null && progress != null)
             audienceText.text = $"VIEWERS {progress.Viewers:N0}   •   FANS {progress.FanPoints:N0}   •   POP {progress.Popularity:N0}";
@@ -1300,14 +575,18 @@ public sealed class BattleHUD : MonoBehaviour
 
         for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
         {
-            bool unlocked = equipmentSystem != null && i < equipmentSystem.UnlockedSlotCount;
-            BattleEquipmentSlot slot = unlocked && i < equipmentSystem.Slots.Count ? equipmentSystem.Slots[i] : null;
+            bool unlocked = equipmentSystem != null && equipmentSystem.IsSlotUnlocked(i);
+            BattleEquipmentSlot slot = unlocked && i < equipmentSystem.Slots.Count
+                ? equipmentSystem.Slots[i]
+                : null;
             bool occupied = slot != null && slot.equipment != null;
             bool equipped = occupied && equipmentSystem.IsSlotEquipped(i);
 
             slotBackgrounds[i].color = !unlocked
                 ? new Color(0.028f, 0.032f, 0.043f, 0.72f)
-                : equipped ? new Color(0.18f, 0.07f, 0.16f, 1f) : new Color(0.055f, 0.062f, 0.082f, 1f);
+                : equipped
+                    ? new Color(0.18f, 0.07f, 0.16f, 1f)
+                    : new Color(0.055f, 0.062f, 0.082f, 1f);
 
             slotIcons[i].enabled = occupied && slot.equipment.icon != null;
             slotIcons[i].sprite = occupied ? slot.equipment.icon : null;
@@ -1332,8 +611,124 @@ public sealed class BattleHUD : MonoBehaviour
                 slotGrades[i].text = $"G{slot.grade}";
             }
         }
+    }
 
-        RefreshRewardInventory();
+    private void DisableLegacyDummyOverlays()
+    {
+        if (legacyDummyOverlaysDisabled)
+            return;
+
+        MonoBehaviour[] behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        for (int i = 0; i < behaviours.Length; i++)
+        {
+            MonoBehaviour behaviour = behaviours[i];
+            if (behaviour == null)
+                continue;
+
+            string typeName = behaviour.GetType().Name;
+            if (typeName == "BattleDummyUI" ||
+                typeName == "BattleDummyLoadoutUI" ||
+                typeName == "SynergyDummyUI")
+            {
+                behaviour.enabled = false;
+            }
+        }
+
+        legacyDummyOverlaysDisabled = true;
+    }
+
+    // ---------------------------------------------------------------------
+    // Explicit metadata / compatibility API
+    // ---------------------------------------------------------------------
+
+    public void SetPresenterSprite(Sprite sprite)
+    {
+        presenterSprite = sprite;
+        ApplyPresenterMetadata();
+    }
+
+    public void SetPresenterColor(Color color)
+    {
+        presenterColor = color;
+        ApplyPresenterMetadata();
+    }
+
+    public void SetPresenterLayout(Vector2 anchor, Vector2 size, Vector2 offset, bool flipX = false)
+    {
+        presenterAnchor = anchor;
+        presenterSize = size;
+        presenterOffset = offset;
+        presenterFlipX = flipX;
+        ApplyPresenterMetadata();
+    }
+
+    private void ApplyPresenterMetadata()
+    {
+        if (presenterMetadataImage == null)
+            return;
+
+        RectTransform rect = presenterMetadataImage.rectTransform;
+        rect.anchorMin = rect.anchorMax = presenterAnchor;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.sizeDelta = presenterSize;
+        rect.anchoredPosition = presenterOffset;
+        rect.localScale = new Vector3(presenterFlipX ? -1f : 1f, 1f, 1f);
+        presenterMetadataImage.sprite = presenterSprite;
+        presenterMetadataImage.color = presenterColor;
+        presenterMetadataImage.enabled = false;
+    }
+
+    /// <summary>
+    /// 구형 HUD World-Map 확대 API 호환용입니다.
+    /// 실제 Map cursor tracking은 BattleShowWorldSetController / BattleCameraController가 소유합니다.
+    /// </summary>
+    public void SetMapCursorFocus(bool focused)
+    {
+        _ = focused;
+    }
+
+    /// <summary>Phase 9 이후 Reward drag ghost는 존재하지 않습니다. 호환 호출은 no-op입니다.</summary>
+    internal void BeginRewardDrag(int index, PointerEventData eventData)
+    {
+        _ = index;
+        _ = eventData;
+    }
+
+    internal void UpdateRewardDrag(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
+
+    internal void EndRewardDrag()
+    {
+    }
+
+    internal void HandleRewardCardEnter(int index, RectTransform card, Vector2 basePosition)
+    {
+        _ = index;
+        _ = card;
+        _ = basePosition;
+    }
+
+    internal void HandleRewardCardExit(RectTransform card, Vector2 basePosition)
+    {
+        _ = card;
+        _ = basePosition;
+    }
+
+    internal void HandleRewardSlotEnter(int slotIndex)
+    {
+        _ = slotIndex;
+    }
+
+    internal void HandleRewardSlotExit(int slotIndex)
+    {
+        _ = slotIndex;
+    }
+
+    internal void HandleRewardDrop(int slotIndex)
+    {
+        _ = slotIndex;
     }
 
     private static string Shorten(string value, int max)
@@ -1343,7 +738,12 @@ public sealed class BattleHUD : MonoBehaviour
         return value.Substring(0, Mathf.Max(1, max - 1)) + "…";
     }
 
-    private static Image CreateBar(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Color fillColor)
+    private static Image CreateBar(
+        Transform parent,
+        string name,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Color fillColor)
     {
         GameObject bg = new(name + "_BG");
         bg.transform.SetParent(parent, false);
@@ -1398,7 +798,13 @@ public sealed class BattleHUD : MonoBehaviour
         return image;
     }
 
-    private static Text CreateText(Transform parent, string content, int size, FontStyle style, TextAnchor alignment, Color color)
+    private static Text CreateText(
+        Transform parent,
+        string content,
+        int size,
+        FontStyle style,
+        TextAnchor alignment,
+        Color color)
     {
         GameObject go = new("Text");
         go.transform.SetParent(parent, false);
@@ -1418,17 +824,23 @@ public sealed class BattleHUD : MonoBehaviour
     {
         rect.anchorMin = min;
         rect.anchorMax = max;
-        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 
     private static void Stretch(RectTransform rect)
     {
         rect.anchorMin = Vector2.zero;
         rect.anchorMax = Vector2.one;
-        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        rect.offsetMin = Vector2.zero;
+        rect.offsetMax = Vector2.zero;
     }
 }
 
+/// <summary>
+/// Phase 9 compatibility marker. Reward UI는 BattleRewardCardActionController가 소유하므로
+/// Hover animation은 더 이상 이 컴포넌트에서 실행하지 않습니다.
+/// </summary>
 internal sealed class RewardCardHover : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 {
     private BattleHUD owner;
@@ -1444,42 +856,72 @@ internal sealed class RewardCardHover : MonoBehaviour, IPointerEnterHandler, IPo
         basePosition = originalPosition;
     }
 
-    public void OnPointerEnter(PointerEventData eventData) => owner?.HandleRewardCardEnter(index, card, basePosition);
-    public void OnPointerExit(PointerEventData eventData) => owner?.HandleRewardCardExit(card, basePosition);
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        owner?.HandleRewardCardEnter(index, card, basePosition);
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        owner?.HandleRewardCardExit(card, basePosition);
+    }
 }
 
+/// <summary>
+/// Reward card stable index marker입니다. 실제 Drag acquisition은 Phase 3에서 폐기되었습니다.
+/// 기존 참조 호환을 위해 인터페이스만 유지하고 입력은 no-op입니다.
+/// </summary>
 internal sealed class RewardPrizeDrag : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
-    private BattleHUD owner;
     private int rewardIndex;
 
     public int RewardIndex => rewardIndex;
 
     public void Configure(BattleHUD hud, int index)
     {
-        owner = hud;
+        _ = hud;
         rewardIndex = index;
     }
 
-    public void OnBeginDrag(PointerEventData eventData) => owner?.BeginRewardDrag(rewardIndex, eventData);
-    public void OnDrag(PointerEventData eventData) => owner?.UpdateRewardDrag(eventData);
-    public void OnEndDrag(PointerEventData eventData) => owner?.EndRewardDrag();
-}
-
-internal sealed class RewardInventoryDropZone : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPointerExitHandler
-{
-    private BattleHUD owner;
-    private int slotIndex;
-
-    public void Configure(BattleHUD hud, int index)
+    public void OnBeginDrag(PointerEventData eventData)
     {
-        owner = hud;
-        slotIndex = index;
+        _ = eventData;
     }
 
-    public void OnDrop(PointerEventData eventData) => owner?.HandleRewardDrop(slotIndex);
-    public void OnPointerEnter(PointerEventData eventData) => owner?.HandleRewardSlotEnter(slotIndex);
-    public void OnPointerExit(PointerEventData eventData) => owner?.HandleRewardSlotExit(slotIndex);
+    public void OnDrag(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
+
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
+}
+
+/// <summary>구형 Reward drop-zone 직렬화/API 호환용 no-op relay입니다.</summary>
+internal sealed class RewardInventoryDropZone : MonoBehaviour, IDropHandler, IPointerEnterHandler, IPointerExitHandler
+{
+    public void Configure(BattleHUD hud, int index)
+    {
+        _ = hud;
+        _ = index;
+    }
+
+    public void OnDrop(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
 }
 
 internal static class BattleHudSpriteCache
@@ -1518,7 +960,7 @@ internal static class BattleHudSpriteCache
         texture.Apply(false, true);
         Sprite sprite = Sprite.Create(
             texture,
-            new Rect(0, 0, pixels, pixels),
+            new Rect(0f, 0f, pixels, pixels),
             new Vector2(0.5f, 0.5f),
             pixels,
             0,
@@ -1544,7 +986,13 @@ internal static class BattleHudSpriteCache
                 texture.SetPixel(x, y, Color.white);
 
         texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, pixels, pixels), new Vector2(0.5f, 0.5f), pixels, 0, SpriteMeshType.FullRect);
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, pixels, pixels),
+            new Vector2(0.5f, 0.5f),
+            pixels,
+            0,
+            SpriteMeshType.FullRect);
         sprite.name = "RuntimeSpriteDefault";
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
@@ -1572,19 +1020,22 @@ internal static class BattleHudSpriteCache
                 float nx = (x - center.x) * invRadiusX;
                 float ny = (y - center.y) * invRadiusY;
                 float radius = Mathf.Sqrt(nx * nx + ny * ny);
-
-                // Soft radial floor pool: bright center, feathered edge, no hard crop and no upward beam.
                 float core = 1f - Mathf.SmoothStep(0.08f, 0.70f, radius);
                 float feather = 1f - Mathf.SmoothStep(0.56f, 1f, radius);
                 float alpha = Mathf.Clamp01(core * 0.52f + feather * 0.48f);
                 alpha *= Mathf.Clamp01(1f - Mathf.Pow(radius, 3.2f));
-
                 texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
             }
         }
 
         texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(texture, new Rect(0f, 0f, width, height), new Vector2(0.5f, 0.5f), 128f, 0, SpriteMeshType.FullRect);
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, width, height),
+            new Vector2(0.5f, 0.5f),
+            128f,
+            0,
+            SpriteMeshType.FullRect);
         sprite.name = "RuntimeRewardBirdEyeFloorSpotlight";
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
