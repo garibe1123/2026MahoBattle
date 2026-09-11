@@ -1,4 +1,3 @@
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -10,21 +9,22 @@ using UnityEditor.SceneManagement;
 
 /// <summary>
 /// ESC 기반 전투 Pause / Resume.
-/// Tab Loadout Bullet Time이 열린 상태에서 Pause할 경우 Loadout의 시간 소유권을 먼저 정상 해제한 뒤 완전 정지합니다.
-/// 또한 기존 씬에 직렬화된 0.18x Bullet Time도 런타임에서 0.05x로 강제 보정합니다.
+///
+/// Phase 8부터 Time.timeScale을 직접 쓰지 않습니다.
+/// BattleTimeScaleController에 Pause=0 요청을 등록하고 해제하며,
+/// Combat/Reward Inventory의 기존 slow-motion 요청은 그대로 유지됩니다.
+/// 따라서 Inventory 중 Pause -> Resume 시 자동으로 원래 Inventory slow-motion으로 복귀합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33000)]
 public sealed class BattlePauseController : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
-    private const float StrongBulletTimeScale = 0.05f;
     private const int PauseCanvasOrder = 1600;
 
     public static bool IsPaused { get; private set; }
 
     [SerializeField] private BattleRunManager runManager;
-    [SerializeField] private BattleKineticLoadoutUI loadoutUI;
+    [SerializeField] private BattleTimeScaleController timeScaleController;
 
     [Header("Pause Theme")]
     [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.995f);
@@ -35,32 +35,25 @@ public sealed class BattlePauseController : MonoBehaviour
 
     private Canvas pauseCanvas;
     private GameObject pauseRoot;
-    private float previousTimeScale = 1f;
-    private float previousFixedDeltaTime = 0.02f;
-    private bool loadoutWasEnabled;
-    private bool bulletTimePatched;
-
-    private FieldInfo bulletTimeScaleField;
-    private MethodInfo cancelSwitchModeMethod;
 
     private void Awake()
     {
         ResolveReferences();
         EnsurePauseUi();
-        ApplyStrongBulletTime();
     }
 
     private void OnEnable()
     {
         ResolveReferences();
         EnsurePauseUi();
-        ApplyStrongBulletTime();
+
+        if (IsPaused)
+            timeScaleController?.Request(BattleTimeScaleController.Owner.Pause, 0f);
     }
 
     private void Update()
     {
         ResolveReferences();
-        ApplyStrongBulletTime();
 
         if (Input.GetKeyDown(KeyCode.Escape))
         {
@@ -92,25 +85,11 @@ public sealed class BattlePauseController : MonoBehaviour
             return;
 
         ResolveReferences();
-
-        // Loadout Bullet Time을 먼저 1x로 되돌립니다. 그 뒤에 Pause가 timeScale=0을 소유합니다.
-        if (loadoutUI != null)
-        {
-            CacheLoadoutReflection();
-            cancelSwitchModeMethod?.Invoke(loadoutUI, null);
-            loadoutWasEnabled = loadoutUI.enabled;
-            loadoutUI.enabled = false;
-        }
-        else
-        {
-            loadoutWasEnabled = false;
-        }
-
-        previousTimeScale = Time.timeScale > 0f ? Time.timeScale : 1f;
-        previousFixedDeltaTime = Mathf.Max(0.0001f, Time.fixedDeltaTime);
+        if (timeScaleController == null)
+            return;
 
         IsPaused = true;
-        Time.timeScale = 0f;
+        timeScaleController.Request(BattleTimeScaleController.Owner.Pause, 0f);
 
         if (pauseRoot != null)
             pauseRoot.SetActive(true);
@@ -122,11 +101,7 @@ public sealed class BattlePauseController : MonoBehaviour
             return;
 
         IsPaused = false;
-        Time.timeScale = Mathf.Max(0.0001f, previousTimeScale);
-        Time.fixedDeltaTime = Mathf.Max(0.0001f, previousFixedDeltaTime);
-
-        if (loadoutUI != null && loadoutWasEnabled)
-            loadoutUI.enabled = true;
+        timeScaleController?.Release(BattleTimeScaleController.Owner.Pause);
 
         if (pauseRoot != null)
             pauseRoot.SetActive(false);
@@ -147,35 +122,11 @@ public sealed class BattlePauseController : MonoBehaviour
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
 
-        if (loadoutUI == null)
-        {
-            loadoutUI = FindFirstObjectByType<BattleKineticLoadoutUI>();
-            bulletTimePatched = false;
-            CacheLoadoutReflection();
-        }
-    }
+        if (timeScaleController == null)
+            timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
 
-    private void CacheLoadoutReflection()
-    {
-        if (loadoutUI == null)
-            return;
-
-        System.Type type = typeof(BattleKineticLoadoutUI);
-        bulletTimeScaleField ??= type.GetField("bulletTimeScale", PrivateInstance);
-        cancelSwitchModeMethod ??= type.GetMethod("CancelSwitchMode", PrivateInstance);
-    }
-
-    private void ApplyStrongBulletTime()
-    {
-        if (loadoutUI == null || bulletTimePatched)
-            return;
-
-        CacheLoadoutReflection();
-        if (bulletTimeScaleField == null)
-            return;
-
-        bulletTimeScaleField.SetValue(loadoutUI, StrongBulletTimeScale);
-        bulletTimePatched = true;
+        if (IsPaused)
+            timeScaleController?.Request(BattleTimeScaleController.Owner.Pause, 0f);
     }
 
     private void EnsurePauseUi()
@@ -313,8 +264,6 @@ public sealed class BattlePauseController : MonoBehaviour
 
 public static class BattlePauseControllerAutoInstaller
 {
-    private const float StrongBulletTimeScale = 0.05f;
-
 #if UNITY_EDITOR
     private static bool installQueued;
 
@@ -349,25 +298,16 @@ public static class BattlePauseControllerAutoInstaller
                 continue;
 
             bool changed = false;
+            if (manager.GetComponent<BattleTimeScaleController>() == null)
+            {
+                Undo.AddComponent<BattleTimeScaleController>(manager.gameObject);
+                changed = true;
+            }
+
             if (manager.GetComponent<BattlePauseController>() == null)
             {
                 Undo.AddComponent<BattlePauseController>(manager.gameObject);
                 changed = true;
-            }
-
-            BattleKineticLoadoutUI loadout = manager.GetComponent<BattleKineticLoadoutUI>();
-            if (loadout != null)
-            {
-                SerializedObject so = new(loadout);
-                SerializedProperty bullet = so.FindProperty("bulletTimeScale");
-                if (bullet != null && !Mathf.Approximately(bullet.floatValue, StrongBulletTimeScale))
-                {
-                    Undo.RecordObject(loadout, "Set Strong Loadout Bullet Time");
-                    bullet.floatValue = StrongBulletTimeScale;
-                    so.ApplyModifiedProperties();
-                    EditorUtility.SetDirty(loadout);
-                    changed = true;
-                }
             }
 
             if (changed)
@@ -389,7 +329,12 @@ public static class BattlePauseControllerAutoInstaller
         for (int i = 0; i < managers.Length; i++)
         {
             BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattlePauseController>() == null)
+            if (manager == null)
+                continue;
+
+            if (manager.GetComponent<BattleTimeScaleController>() == null)
+                manager.gameObject.AddComponent<BattleTimeScaleController>();
+            if (manager.GetComponent<BattlePauseController>() == null)
                 manager.gameObject.AddComponent<BattlePauseController>();
         }
     }
