@@ -979,24 +979,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (sprite == BattleHudSpriteCache.DefaultSprite)
             sprite = null;
 
-        if (sprite == null && presentation != null)
-        {
-            System.Reflection.FieldInfo field = typeof(BattleShowPresentationManager).GetField(
-                "presenterFrames",
-                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            Sprite[] frames = field != null ? field.GetValue(presentation) as Sprite[] : null;
-            if (frames != null)
-            {
-                for (int i = 0; i < frames.Length; i++)
-                {
-                    if (frames[i] == null)
-                        continue;
-                    sprite = frames[i];
-                    break;
-                }
-            }
-        }
-
         if (sprite == null)
             sprite = presenterFallbackSprite;
         if (sprite == null)
