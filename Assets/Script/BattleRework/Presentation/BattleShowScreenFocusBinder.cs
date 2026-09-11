@@ -1,11 +1,6 @@
 using System.Reflection;
 using UnityEngine;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
 /// BattleShowFocusController의 사각형 Focus를 TV 외곽이 아니라 실제 활성 ScreenInner에 고정합니다.
 /// Reward / Map 진입 시 ShowWorldSet의 도킹 타이밍이 늦더라도 Focus fade가 시작되도록 보강합니다.
@@ -128,69 +123,5 @@ public sealed class BattleShowScreenFocusBinder : MonoBehaviour
             current = current.parent;
         }
         return false;
-    }
-}
-
-#if UNITY_EDITOR
-[InitializeOnLoad]
-internal static class BattleShowScreenFocusBinderEditorInstaller
-{
-    private static bool queued;
-
-    static BattleShowScreenFocusBinderEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (queued || EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-        queued = true;
-        EditorApplication.delayCall += Install;
-    }
-
-    private static void Install()
-    {
-        queued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleShowScreenFocusBinder>() != null)
-                continue;
-
-            Undo.AddComponent<BattleShowScreenFocusBinder>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-}
-#endif
-
-internal static class BattleShowScreenFocusBinderRuntimeInstaller
-{
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void Install()
-    {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleShowScreenFocusBinder>() == null)
-                manager.gameObject.AddComponent<BattleShowScreenFocusBinder>();
-        }
     }
 }
