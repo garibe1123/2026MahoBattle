@@ -8,19 +8,11 @@ using UnityEditor.SceneManagement;
 #endif
 
 /// <summary>
-/// Reward / Map 선택 화면과 공용 Loadout Full View의 최종 레이아웃 정책입니다.
+/// Reward / Map Show 화면의 TV 크기, 카메라 framing, 선택 화면 레이아웃만 담당합니다.
 ///
-/// 목표:
-/// - Reward / Map 월드 TV가 실제 플레이 화면에서 작게 보이지 않도록 TV 캔버스 자체의 해상도/월드 크기와
-///   Show 카메라 구도를 함께 확대합니다.
-/// - Reward 후보 카드는 TV의 넓어진 면적을 실제로 사용하도록 다시 배치합니다.
-/// - Reward 카드 Hover는 위치/형제순서/스케일을 절대 바꾸지 않고 정보 강조만 담당합니다.
-/// - Combat Tab / Reward Pack Edit의 3x3 Grid는 중앙이 아니라 좌측에 고정합니다.
-/// - 장비 상세 정보 패널은 선택 열과 무관하게 항상 우측에 고정합니다.
-/// - Reward 후보 선택 중의 작은 PACK은 화면 구석에서 보조 정보 정도의 크기로 유지합니다.
-///
-/// 다른 Presentation 스크립트가 앞 단계에서 값을 다시 써도 이 컴포넌트가 후단에서 최종 레이아웃을 보장합니다.
-/// Inventory Morph보다 먼저 실행되어 작은 PACK -> Full Grid 트위닝의 목표 지점도 좌측 Grid와 일치합니다.
+/// Phase 4부터 PACK / Full Grid / Detail / DONE / TRASH의 RectTransform은
+/// BattleUnifiedInventoryInspectController가 단독 소유합니다.
+/// 이 클래스는 Inventory RectTransform을 전혀 수정하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33480)]
@@ -40,19 +32,10 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     [Header("Reward Choice Layout")]
     [SerializeField] private Vector2 rewardCardSize = new(360f, 350f);
     [SerializeField, Min(0f)] private float rewardCardGap = 42f;
-    [SerializeField] private Vector2 rewardMiniPackPosition = new(34f, 28f);
-    [SerializeField, Range(0.45f, 0.90f)] private float rewardMiniPackScale = 0.68f;
-    [SerializeField, Range(0.5f, 1f)] private float rewardMiniPackAlpha = 0.82f;
     [SerializeField, Range(1f, 1.4f)] private float mapContentScale = 1.14f;
 
-    [Header("Full Inventory Layout")]
-    [SerializeField] private Vector2 inventoryBoardAnchor = new(0.31f, 0.53f);
-    [SerializeField] private Vector2 inventoryDetailAnchor = new(0.80f, 0.52f);
-    [SerializeField, Range(0.80f, 1.10f)] private float inventoryDetailScale = 0.96f;
-    [SerializeField, Range(0.90f, 1.08f)] private float inventoryFullScale = 1f;
-
     private BattleRunManager runManager;
-    private BattleInventoryInteractionController inventoryInteraction;
+    private BattleRewardFlow rewardFlow;
     private BattleShowWorldSetController showWorldSet;
 
     private RectTransform tvRect;
@@ -64,14 +47,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private RectTransform descriptionBar;
     private RectTransform placementNotice;
     private RectTransform mapContent;
-
-    private RectTransform fullRoot;
-    private CanvasGroup fullGroup;
-    private RectTransform boardRoot;
-    private RectTransform externalDetailRoot;
-    private CanvasGroup externalDetailGroup;
-    private RectTransform miniPackRoot;
-    private CanvasGroup miniPackGroup;
 
     private FieldInfo tvCanvasSizeField;
     private FieldInfo tvPixelsPerUnitField;
@@ -106,6 +81,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     {
         ResolveReferences();
         CacheReflection();
+        rewardFlow?.RefreshFromRunState();
 
         if (Time.unscaledTime >= nextResolveTime)
         {
@@ -124,8 +100,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     {
         ResolveUi();
 
-        ApplySharedInventorySideLayout();
-
         if (IsRewardChoicePhase())
             ApplyRewardChoiceLayout();
 
@@ -137,8 +111,8 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (inventoryInteraction == null)
-            inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>();
+        if (rewardFlow == null)
+            rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
         if (showWorldSet == null)
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
     }
@@ -185,30 +159,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             placementNotice = rewardInner.Find("PlacementNotice") as RectTransform;
         if (mapContent == null)
             mapContent = FindRect("MapSelectionContent");
-
-        if (fullRoot == null)
-        {
-            fullRoot = FindRect("LoadoutSwitchFull");
-            if (fullRoot != null)
-            {
-                fullGroup = fullRoot.GetComponent<CanvasGroup>();
-                boardRoot = FindChildRect(fullRoot, "GridBoard");
-            }
-        }
-
-        if (externalDetailRoot == null)
-        {
-            externalDetailRoot = FindRect("EquipmentDetailPanel");
-            if (externalDetailRoot != null)
-                externalDetailGroup = externalDetailRoot.GetComponent<CanvasGroup>();
-        }
-
-        if (miniPackRoot == null)
-        {
-            miniPackRoot = FindRect("BackpackMiniGrid");
-            if (miniPackRoot != null)
-                miniPackGroup = miniPackRoot.GetComponent<CanvasGroup>();
-        }
     }
 
     private static RectTransform ResolveInner(RectTransform screen, RectTransform cached)
@@ -303,7 +253,8 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 
     private void ApplyTightShowCamera()
     {
-        if (showWorldSet == null || runManager == null || !runManager.RunActive || cameraTargetField == null || cameraSizeField == null)
+        if (showWorldSet == null || runManager == null || !runManager.RunActive ||
+            cameraTargetField == null || cameraSizeField == null)
             return;
 
         RectTransform activeScreen = null;
@@ -366,7 +317,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         return runManager != null &&
                runManager.RunActive &&
                runManager.State == BattleRunState.Reward &&
-               (inventoryInteraction == null || !inventoryInteraction.IsRewardPackEditing);
+               (rewardFlow == null || rewardFlow.Phase == BattleRewardPhase.Choosing);
     }
 
     private bool IsMapPhase()
@@ -495,19 +446,8 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         for (int i = 0; i < screenTexts.Length; i++)
         {
             Text text = screenTexts[i];
-            if (text == null)
-                continue;
-            if ((text.text ?? string.Empty).Contains("CHOOSE YOUR PRIZE"))
+            if (text != null && (text.text ?? string.Empty).Contains("CHOOSE YOUR PRIZE"))
                 text.fontSize = 38;
-        }
-
-        if (miniPackRoot != null && miniPackGroup != null)
-        {
-            miniPackRoot.anchorMin = miniPackRoot.anchorMax = Vector2.zero;
-            miniPackRoot.pivot = Vector2.zero;
-            miniPackRoot.anchoredPosition = rewardMiniPackPosition;
-            miniPackRoot.localScale = Vector3.one * rewardMiniPackScale;
-            miniPackGroup.alpha = rewardMiniPackAlpha;
         }
     }
 
@@ -530,49 +470,12 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         }
     }
 
-    private void ApplySharedInventorySideLayout()
-    {
-        if (boardRoot != null)
-        {
-            boardRoot.anchorMin = boardRoot.anchorMax = inventoryBoardAnchor;
-            boardRoot.pivot = new Vector2(0.5f, 0.5f);
-            boardRoot.anchoredPosition = Vector2.zero;
-        }
-
-        if (fullRoot != null && fullGroup != null && fullGroup.alpha > 0.01f)
-            fullRoot.localScale = Vector3.one * inventoryFullScale;
-
-        if (externalDetailRoot != null && externalDetailGroup != null && externalDetailGroup.alpha > 0.001f)
-        {
-            externalDetailRoot.anchorMin = externalDetailRoot.anchorMax = inventoryDetailAnchor;
-            externalDetailRoot.pivot = new Vector2(0.5f, 0.5f);
-            externalDetailRoot.anchoredPosition = Vector2.zero;
-            externalDetailRoot.localScale = Vector3.one * inventoryDetailScale;
-            externalDetailRoot.localRotation = Quaternion.identity;
-        }
-    }
-
     private static RectTransform FindRect(string objectName)
     {
         RectTransform[] all = UnityEngine.Object.FindObjectsByType<RectTransform>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
 
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect != null && rect.name == objectName)
-                return rect;
-        }
-        return null;
-    }
-
-    private static RectTransform FindChildRect(RectTransform parent, string objectName)
-    {
-        if (parent == null)
-            return null;
-
-        RectTransform[] all = parent.GetComponentsInChildren<RectTransform>(true);
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
