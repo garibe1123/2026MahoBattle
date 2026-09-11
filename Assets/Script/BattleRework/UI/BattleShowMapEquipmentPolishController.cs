@@ -1,17 +1,10 @@
 using System.Collections.Generic;
-using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 
-#if UNITY_EDITOR
-using UnityEditor;
-using UnityEditor.SceneManagement;
-#endif
-
 /// <summary>
-/// Show/Map 입력과 전투 장비 전환의 마지막 보정 레이어.
+/// Stage Map 입력과 전투 장비 전환의 마지막 보정 레이어.
 ///
-/// - Show Focus의 사각형 Cutout을 TV Root가 아니라 실제 ScreenInner에 맞춥니다.
 /// - Stage Map Hover는 PointerEnter 1프레임 효과가 아니라 커서가 노드 위에 있는 동안 계속 유지합니다.
 /// - Combat / Elite / Shop / Event를 색뿐 아니라 전용 런타임 아이콘으로 구분합니다.
 /// - 맵 카메라/포커스 반응은 선택 가능한 노드 위에 커서가 있을 때만 활성화합니다.
@@ -27,9 +20,7 @@ using UnityEditor.SceneManagement;
 [DefaultExecutionOrder(32790)]
 public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 {
-    private const BindingFlags PrivateInstance = BindingFlags.Instance | BindingFlags.NonPublic;
     private const string MapContentName = "MapSelectionContent";
-    private const string ScreenInnerName = "ScreenInner";
     private const string PointerHitAreaName = "MapPointerHitArea";
     private const string RoomIconName = "RoomTypeIcon";
 
@@ -37,7 +28,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleKineticLoadoutUI loadoutUI;
-    [SerializeField] private BattleShowFocusController showFocus;
     [SerializeField] private BattleHUD battleHud;
     [SerializeField] private BattleCameraController battleCamera;
 
@@ -58,16 +48,9 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     [SerializeField, Range(0.05f, 1f)] private float swapSoundVolume = 0.28f;
 
     private RectTransform mapContent;
-    private RectTransform screenInner;
     private readonly List<RectTransform> mapNodes = new();
     private readonly Dictionary<BattleNodeType, Sprite> iconSprites = new();
     private readonly List<Texture2D> iconTextures = new();
-
-    private FieldInfo showFocusRectField;
-    private FieldInfo selectedIndexField;
-    private FieldInfo directionMovedField;
-    private FieldInfo boardWasShownField;
-    private MethodInfo refreshLoadoutMethod;
 
     private AudioSource swapAudioSource;
     private AudioClip swapClip;
@@ -78,7 +61,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     private void Awake()
     {
         ResolveReferences();
-        CacheReflection();
         EnsureSwapAudio();
         EnsureRoomIcons();
     }
@@ -86,7 +68,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        CacheReflection();
         EnsureSwapAudio();
         EnsureRoomIcons();
         SubscribeEquipment();
@@ -121,9 +102,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     private void Update()
     {
         ResolveReferences();
-        CacheReflection();
         SubscribeEquipment();
-        AlignShowFocusRect();
 
         if (enableTabMouseWheel)
             UpdateTabWheelInput();
@@ -154,27 +133,10 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (loadoutUI == null)
             loadoutUI = FindFirstObjectByType<BattleKineticLoadoutUI>();
-        if (showFocus == null)
-            showFocus = FindFirstObjectByType<BattleShowFocusController>();
         if (battleHud == null)
             battleHud = FindFirstObjectByType<BattleHUD>();
         if (battleCamera == null)
             battleCamera = FindFirstObjectByType<BattleCameraController>();
-    }
-
-    private void CacheReflection()
-    {
-        if (showFocus != null && showFocusRectField == null)
-            showFocusRectField = typeof(BattleShowFocusController).GetField("tvFocusRect", PrivateInstance);
-
-        if (loadoutUI == null)
-            return;
-
-        System.Type type = typeof(BattleKineticLoadoutUI);
-        selectedIndexField ??= type.GetField("selectedIndex", PrivateInstance);
-        directionMovedField ??= type.GetField("directionMoved", PrivateInstance);
-        boardWasShownField ??= type.GetField("boardWasShown", PrivateInstance);
-        refreshLoadoutMethod ??= type.GetMethod("RefreshAll", PrivateInstance);
     }
 
     private bool IsCombat()
@@ -186,26 +148,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     {
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.SelectingNode;
     }
-
-    // ---------------------------------------------------------------------
-    // Show Focus alignment
-    // ---------------------------------------------------------------------
-
-    private void AlignShowFocusRect()
-    {
-        if (showFocus == null || showFocusRectField == null)
-            return;
-
-        if (screenInner == null || !screenInner.gameObject.activeInHierarchy)
-            screenInner = FindRect(ScreenInnerName);
-
-        if (screenInner != null && screenInner.gameObject.activeInHierarchy)
-            showFocusRectField.SetValue(showFocus, screenInner);
-    }
-
-    // ---------------------------------------------------------------------
-    // Map hover + room icons
-    // ---------------------------------------------------------------------
 
     private void ResolveMapNodes()
     {
@@ -597,13 +539,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
     private void SyncLoadoutSelection(int slotIndex)
     {
-        if (loadoutUI == null)
-            return;
-
-        selectedIndexField?.SetValue(loadoutUI, slotIndex);
-        directionMovedField?.SetValue(loadoutUI, true);
-        boardWasShownField?.SetValue(loadoutUI, true);
-        refreshLoadoutMethod?.Invoke(loadoutUI, null);
+        loadoutUI?.SetSelectedIndexFromExternal(slotIndex, true);
     }
 
     private void SubscribeEquipment()
@@ -707,66 +643,5 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
                 return rect;
         }
         return null;
-    }
-}
-
-public static class BattleShowMapEquipmentPolishAutoInstaller
-{
-#if UNITY_EDITOR
-    private static bool installQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorInstaller()
-    {
-        EditorApplication.hierarchyChanged -= QueueInstall;
-        EditorApplication.hierarchyChanged += QueueInstall;
-        QueueInstall();
-    }
-
-    private static void QueueInstall()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || installQueued)
-            return;
-        installQueued = true;
-        EditorApplication.delayCall += EnsureEditorComponents;
-    }
-
-    private static void EnsureEditorComponents()
-    {
-        installQueued = false;
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager == null || EditorUtility.IsPersistent(manager) ||
-                !manager.gameObject.scene.IsValid() || !manager.gameObject.scene.isLoaded)
-                continue;
-
-            if (manager.GetComponent<BattleShowMapEquipmentPolishController>() != null)
-                continue;
-
-            Undo.AddComponent<BattleShowMapEquipmentPolishController>(manager.gameObject);
-            EditorUtility.SetDirty(manager.gameObject);
-            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
-        }
-    }
-#endif
-
-    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureRuntimeComponents()
-    {
-        BattleSceneManager[] managers = UnityEngine.Object.FindObjectsByType<BattleSceneManager>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < managers.Length; i++)
-        {
-            BattleSceneManager manager = managers[i];
-            if (manager != null && manager.GetComponent<BattleShowMapEquipmentPolishController>() == null)
-                manager.gameObject.AddComponent<BattleShowMapEquipmentPolishController>();
-        }
     }
 }
