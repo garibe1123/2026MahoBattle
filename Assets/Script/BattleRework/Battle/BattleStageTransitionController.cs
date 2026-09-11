@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using DG.Tweening;
 using UnityEngine;
 
 /// <summary>
@@ -276,7 +277,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
                 PushOutgoingRenderersBehindBase(plan.block);
                 DisableOutgoingWalkable(plan.block);
-                plan.block.PlayExit(plan.direction);
+                Tween exitTween = plan.block.PlayExit(plan.direction);
+                exitTween?.SetUpdate(true);
                 lastExitDuration = Mathf.Max(lastExitDuration, plan.block.ExitDuration);
                 startedAny = true;
             }
@@ -309,7 +311,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private List<MapBlock> CollectCurrentRoomWalkableBlocks()
     {
         MapBlock[] blocks = FindObjectsByType<MapBlock>(
-            FindObjectsInactive.Exclude,
+            FindObjectsInactive.Include,
             FindObjectsSortMode.None);
         List<MapBlock> result = new();
 
