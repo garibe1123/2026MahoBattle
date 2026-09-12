@@ -687,7 +687,19 @@ public class BattleRunManager : MonoBehaviour
         lastEndReason = reason;
         currentRewardChoices.Clear();
         nextNodeChoices.Clear();
-        roomManager?.AbortRoom();
+
+        // Clear는 논리 Run 종료와 물리 Stage 수거를 분리합니다.
+        // 전투가 정상 클리어된 Room은 StageFlow가 Player 주변 4x4만 승격하고 나머지 Piece를
+        // 기존 안전 Rail 연출로 퇴장시킨 뒤 ownership을 정리해야 합니다.
+        // Death / Quit은 연출을 기다릴 이유가 없으므로 기존 즉시 Abort를 유지합니다.
+        bool preserveClearedRoomForStageRetirement =
+            reason == RunEndReason.Clear &&
+            roomManager != null &&
+            roomManager.IsRoomActive &&
+            roomManager.IsCombatCleared;
+
+        if (!preserveClearedRoomForStageRetirement)
+            roomManager?.AbortRoom();
 
         progress?.EndRun();
         SetState(BattleRunState.Ended);
