@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -8,18 +9,23 @@ using UnityEngine;
 /// 규칙:
 /// - Persistent 4x4 Base는 손잡이를 사용하지 않습니다. 생성되어 있더라도 항상 숨깁니다.
 /// - 일반 전투 MapBlock / Reward Show Floor는 다른 바닥과 맞닿는 내부 접합면의 손잡이만 숨깁니다.
-/// - 바닥 Sprite/랜덤 아트/하판은 다시 만들지 않습니다.
 /// - Floor Renderer는 같은 Sorting Layer의 Base/LowerPlate/Handle/기타 Hardware보다 항상 앞에 렌더됩니다.
-/// - RoomExiting에서 Persistent 4x4에 흡수되어 Floor가 숨겨진 셀의 LowerPlate/Handle도 같이 숨깁니다.
-///   따라서 실제 Floor가 없는 곳에 하판/손잡이만 동떨어져 남지 않습니다.
+/// - RoomExiting이 시작되는 순간, Piece가 분리/이동되기 전에 각 Floor에 Exit 전용 Base를 의무적으로 붙입니다.
+/// - Persistent 4x4에 흡수되어 Floor가 숨겨진 셀의 Base/LowerPlate/Handle도 같이 숨깁니다.
+///   따라서 퇴장 중에는 "Floor만 있는 Piece"와 "Floor 없이 하드웨어만 있는 Piece"가 모두 금지됩니다.
 /// </summary>
 [DefaultExecutionOrder(22000)]
 [DisallowMultipleComponent]
 public sealed class BattleDockHandleVisibilityController : MonoBehaviour
 {
+    private const string ExitBasePrefix = "ExitPieceBase_";
+
     [SerializeField, Min(0.02f)] private float refreshInterval = 0.06f;
 
     private float nextRefreshAt;
+    private BattleStageTransitionController boundStageFlow;
+    private Coroutine bindRoutine;
+    private bool warnedMissingExitBaseSprite;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
@@ -32,8 +38,69 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
         host.AddComponent<BattleDockHandleVisibilityController>();
     }
 
+    private void OnEnable()
+    {
+        if (bindRoutine == null)
+            bindRoutine = StartCoroutine(BindStageFlowWhenReady());
+    }
+
+    private void OnDisable()
+    {
+        if (bindRoutine != null)
+            StopCoroutine(bindRoutine);
+        bindRoutine = null;
+        UnbindStageFlow();
+    }
+
+    private IEnumerator BindStageFlowWhenReady()
+    {
+        while (enabled)
+        {
+            BattleStageTransitionController resolved = BattleStageTransitionController.Instance;
+            if (resolved != null)
+            {
+                BindStageFlow(resolved);
+                break;
+            }
+
+            yield return null;
+        }
+
+        bindRoutine = null;
+    }
+
+    private void BindStageFlow(BattleStageTransitionController stageFlow)
+    {
+        if (boundStageFlow == stageFlow)
+            return;
+
+        UnbindStageFlow();
+        boundStageFlow = stageFlow;
+        boundStageFlow.FlowStateChanged += HandleStageFlowChanged;
+    }
+
+    private void UnbindStageFlow()
+    {
+        if (boundStageFlow != null)
+            boundStageFlow.FlowStateChanged -= HandleStageFlowChanged;
+        boundStageFlow = null;
+    }
+
+    private void HandleStageFlowChanged(BattleStageFlowState next)
+    {
+        if (next != BattleStageFlowState.RoomExiting)
+            return;
+
+        // SetFlowState(RoomExiting)는 Collapse 코루틴을 시작하기 전에 동기적으로 호출됩니다.
+        // 여기서 Base를 먼저 붙이면 이후 Assembly가 Piece로 분리되어도 Base가 Piece와 함께 이동합니다.
+        PrepareMandatoryExitPieceBases();
+    }
+
     private void Update()
     {
+        if (boundStageFlow == null && bindRoutine == null)
+            bindRoutine = StartCoroutine(BindStageFlowWhenReady());
+
         if (Time.unscaledTime < nextRefreshAt)
             return;
 
@@ -48,12 +115,231 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
             return;
 
         // StageTransition이 같은 프레임에 Persistent 4x4 중복 Floor를 숨길 수 있습니다.
-        // LateUpdate에서 그 결과를 보고, Floor가 사라진 셀의 하판/손잡이까지 함께 정리합니다.
+        // LateUpdate에서 그 결과를 보고, Floor가 사라진 셀의 Base/하판/손잡이까지 함께 정리합니다.
         CullOrphanedPresentationHardware();
 
         // Exit Tween이 시작되는 바로 그 프레임에도 Floor가 Base/Handle 뒤로 내려가지 않도록
         // 최종 렌더 단계에서 Sorting invariant를 다시 적용합니다.
         EnforceFloorAboveHardware();
+    }
+
+    /// <summary>
+    /// 퇴장 시점의 실제 MapBlock Piece마다 보이는 Floor를 기준으로 Base를 사전 설치합니다.
+    /// Base는 각 Floor의 한 칸 아래에 Piece 자식으로 생성되므로 Piece 분리 후에도 반드시 같이 이동합니다.
+    /// 기존 LowerPlate는 비활성화하여 오래된 Assembly 형상과 새 Piece 형상이 겹치지 않게 합니다.
+    /// </summary>
+    private void PrepareMandatoryExitPieceBases()
+    {
+        BattleShowFloorTemplateSO template = BattleShowPresentationManager.Instance != null
+            ? BattleShowPresentationManager.Instance.ActiveFloorTemplate
+            : null;
+
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            MapBlock block = blocks[i];
+            if (!IsLiveFloorBlock(block))
+                continue;
+
+            PrepareMandatoryExitBasesForBlock(block, template);
+        }
+    }
+
+    private void PrepareMandatoryExitBasesForBlock(
+        MapBlock block,
+        BattleShowFloorTemplateSO template)
+    {
+        if (block == null)
+            return;
+
+        Transform visual = block.transform.Find("Visual");
+        if (visual == null)
+            visual = block.transform;
+
+        List<SpriteRenderer> floorRenderers = CollectOwnedFloorRenderers(block);
+        if (floorRenderers.Count == 0)
+            return;
+
+        // 이전 시도/Hot Reload에서 남은 Exit Base가 있으면 중복 생성하지 않습니다.
+        RemoveGeneratedExitBases(visual);
+
+        Sprite existingLowerPlateSprite = FindExistingLowerPlateSprite(block);
+        DisableExistingLowerPlates(block);
+
+        HashSet<Vector2Int> floorCells = new();
+        Dictionary<Vector2Int, SpriteRenderer> floorByCell = new();
+        for (int i = 0; i < floorRenderers.Count; i++)
+        {
+            SpriteRenderer floor = floorRenderers[i];
+            if (!IsActiveRenderer(floor))
+                continue;
+
+            Vector2Int cell = WorldToCell(floor.bounds.center);
+            floorCells.Add(cell);
+            floorByCell[cell] = floor;
+        }
+
+        foreach (KeyValuePair<Vector2Int, SpriteRenderer> pair in floorByCell)
+        {
+            Vector2Int cell = pair.Key;
+            SpriteRenderer floor = pair.Value;
+            bool hasLeft = floorCells.Contains(cell + Vector2Int.left);
+            bool hasRight = floorCells.Contains(cell + Vector2Int.right);
+
+            Sprite baseSprite = ResolveExitBaseSprite(
+                template,
+                existingLowerPlateSprite,
+                floor.sprite,
+                hasLeft,
+                hasRight);
+            if (baseSprite == null)
+                continue;
+
+            GameObject baseObject = new($"{ExitBasePrefix}{cell.x}_{cell.y}");
+            Transform baseTransform = baseObject.transform;
+            baseTransform.SetParent(visual, true);
+            baseTransform.position = floor.transform.position + Vector3.down * RoomBaseTemplate.TileWorldSize;
+            baseTransform.rotation = floor.transform.rotation;
+
+            SpriteRenderer baseRenderer = baseObject.AddComponent<SpriteRenderer>();
+            baseRenderer.sprite = baseSprite;
+            baseRenderer.color = template != null
+                ? template.PlateTint
+                : Color.Lerp(floor.color, Color.black, 0.25f);
+            baseRenderer.sortingLayerID = floor.sortingLayerID;
+
+            int requestedOrder = template != null
+                ? template.LowerPlateSortingOrder
+                : floor.sortingOrder - 2;
+            baseRenderer.sortingOrder = Mathf.Min(requestedOrder, floor.sortingOrder - 2);
+        }
+    }
+
+    private Sprite ResolveExitBaseSprite(
+        BattleShowFloorTemplateSO template,
+        Sprite existingLowerPlateSprite,
+        Sprite floorFallback,
+        bool hasLeft,
+        bool hasRight)
+    {
+        Sprite resolved = null;
+        if (template != null)
+        {
+            if (!hasLeft && hasRight)
+            {
+                resolved = template.LowerPlateLeftSprite32 != null
+                    ? template.LowerPlateLeftSprite32
+                    : template.LowerPlateCenterSprite32;
+            }
+            else if (hasLeft && !hasRight)
+            {
+                resolved = template.LowerPlateRightSprite32 != null
+                    ? template.LowerPlateRightSprite32
+                    : template.LowerPlateCenterSprite32;
+            }
+            else
+            {
+                resolved = template.LowerPlateCenterSprite32;
+            }
+
+            resolved ??= template.LowerPlateLeftSprite32;
+            resolved ??= template.LowerPlateRightSprite32;
+        }
+
+        resolved ??= existingLowerPlateSprite;
+        if (resolved != null)
+            return resolved;
+
+        // SO/기존 하판이 모두 비어 있어도 Floor-only Piece는 허용하지 않습니다.
+        // 최후 fallback으로 Floor sprite를 하판 위치에 사용하고 경고를 한 번 남깁니다.
+        if (!warnedMissingExitBaseSprite && floorFallback != null)
+        {
+            warnedMissingExitBaseSprite = true;
+            Debug.LogWarning(
+                "[BattleDockHandleVisibility] Exit Piece용 LowerPlate Sprite가 없어 Floor Sprite를 Base fallback으로 사용합니다. " +
+                "BattleShowFloorTemplateSO의 Lower Plate 이미지를 지정하는 것을 권장합니다.",
+                this);
+        }
+
+        return floorFallback;
+    }
+
+    private static List<SpriteRenderer> CollectOwnedFloorRenderers(MapBlock block)
+    {
+        List<SpriteRenderer> result = new();
+        if (block == null)
+            return result;
+
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (!IsActiveRenderer(renderer) || !IsFloorRenderer(renderer))
+                continue;
+            if (renderer.GetComponentInParent<MapBlock>() != block)
+                continue;
+
+            result.Add(renderer);
+        }
+
+        return result;
+    }
+
+    private static Sprite FindExistingLowerPlateSprite(MapBlock block)
+    {
+        if (block == null)
+            return null;
+
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.sprite == null)
+                continue;
+            if (renderer.GetComponentInParent<MapBlock>() != block)
+                continue;
+            if (!renderer.name.StartsWith("LowerPlate_", StringComparison.Ordinal))
+                continue;
+
+            return renderer.sprite;
+        }
+
+        return null;
+    }
+
+    private static void DisableExistingLowerPlates(MapBlock block)
+    {
+        if (block == null)
+            return;
+
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.GetComponentInParent<MapBlock>() != block)
+                continue;
+            if (renderer.name.StartsWith("LowerPlate_", StringComparison.Ordinal))
+                renderer.enabled = false;
+        }
+    }
+
+    private static void RemoveGeneratedExitBases(Transform visual)
+    {
+        if (visual == null)
+            return;
+
+        for (int i = visual.childCount - 1; i >= 0; i--)
+        {
+            Transform child = visual.GetChild(i);
+            if (child == null || !child.name.StartsWith(ExitBasePrefix, StringComparison.Ordinal))
+                continue;
+
+            child.gameObject.SetActive(false);
+            Destroy(child.gameObject);
+        }
     }
 
     public static void RefreshNow()
@@ -129,7 +415,7 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
 
     /// <summary>
     /// Room collapse에서 Floor가 Persistent 4x4로 흡수되어 renderer.enabled=false가 된 뒤에도
-    /// PresentationTemplate의 LowerPlate/Handle은 별도 오브젝트라 살아 있을 수 있습니다.
+    /// PresentationTemplate의 LowerPlate/Handle 또는 Exit Base는 별도 오브젝트라 살아 있을 수 있습니다.
     /// 각 Hardware가 실제로 기대하는 "지원 Floor 셀"이 같은 MapBlock에 보이는지 검사하여
     /// 지원 Floor가 없으면 Hardware renderer도 즉시 숨깁니다.
     /// </summary>
@@ -196,8 +482,9 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
         if (rendererTransform == null)
             return false;
 
-        // LowerPlate_*은 자신보다 한 칸 위의 Floor가 있어야만 존재할 수 있습니다.
-        if (rendererTransform.name.StartsWith("LowerPlate_", StringComparison.Ordinal))
+        // LowerPlate_*과 퇴장용 ExitPieceBase_*는 자신보다 한 칸 위의 Floor가 있어야만 존재할 수 있습니다.
+        if (rendererTransform.name.StartsWith("LowerPlate_", StringComparison.Ordinal) ||
+            rendererTransform.name.StartsWith(ExitBasePrefix, StringComparison.Ordinal))
         {
             supportOffset = Vector2Int.up;
             return true;
