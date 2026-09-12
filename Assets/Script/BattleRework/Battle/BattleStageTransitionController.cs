@@ -746,7 +746,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 SpriteRenderer renderer = renderers[r];
                 if (renderer == null || !renderer.enabled || renderer.sprite == null)
                     continue;
-                if (!IsFloorVisualName(renderer.gameObject.name))
+
+                bool floor = IsFloorVisualName(renderer.gameObject.name) ||
+                             renderer.GetComponent<BattleWalkableField>() != null;
+                if (!floor)
                     continue;
 
                 Vector3 center = renderer.bounds.center;
@@ -864,11 +867,14 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (plan == null || plan.block == null || direction.sqrMagnitude <= 0.001f)
             return false;
 
+        // Persistent 4x4로 흡수되어 보이는 Floor가 하나도 남지 않은 Root는
+        // 화면상 관통할 대상이 없으므로 순차 퇴장 허용합니다.
+        if (plan.floorBounds == null || plan.floorBounds.Count == 0)
+            return true;
+
         Vector2 dir = direction.normalized;
         float distance = Mathf.Max(0.01f, plan.block.ExitTravelDistance);
-        List<Bounds> movingBounds = plan.floorBounds != null && plan.floorBounds.Count > 0
-            ? plan.floorBounds
-            : new List<Bounds> { plan.bounds };
+        List<Bounds> movingBounds = plan.floorBounds;
 
         for (int i = 0; i < movingBounds.Count; i++)
         {
@@ -879,18 +885,14 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         for (int r = 0; r < remaining.Count; r++)
         {
             CollapseExitPlan blocker = remaining[r];
-            if (blocker == null || blocker == plan)
+            if (blocker == null || blocker == plan || blocker.floorBounds == null || blocker.floorBounds.Count == 0)
                 continue;
-
-            List<Bounds> blockerBounds = blocker.floorBounds != null && blocker.floorBounds.Count > 0
-                ? blocker.floorBounds
-                : new List<Bounds> { blocker.bounds };
 
             for (int m = 0; m < movingBounds.Count; m++)
             {
-                for (int b = 0; b < blockerBounds.Count; b++)
+                for (int b = 0; b < blocker.floorBounds.Count; b++)
                 {
-                    if (!PathDoesNotEnterObstacle(movingBounds[m], blockerBounds[b], dir, distance, false))
+                    if (!PathDoesNotEnterObstacle(movingBounds[m], blocker.floorBounds[b], dir, distance, false))
                         return false;
                 }
             }
@@ -906,9 +908,14 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         float distance,
         bool requireOutwardWhenOverlapping)
     {
-        const int samples = 14;
-        const float clearance = 0.06f;
+        const float clearance = 0.035f;
         const float overlapEpsilon = 0.0005f;
+
+        float tileSize = Mathf.Max(0.1f, RoomBaseTemplate.TileWorldSize);
+        int samples = Mathf.Clamp(
+            Mathf.CeilToInt(distance / Mathf.Max(0.05f, tileSize * 0.28f)),
+            14,
+            256);
 
         float initialOverlap = OverlapArea2D(movingStart, obstacle, clearance);
         if (initialOverlap > overlapEpsilon && requireOutwardWhenOverlapping)
@@ -967,6 +974,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (block == null)
             return result;
 
+        float tileSize = Mathf.Max(0.1f, RoomBaseTemplate.TileWorldSize);
+        float logicalSize = tileSize * 0.82f;
+        HashSet<Vector2Int> occupiedCells = new();
+
         SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
         for (int i = 0; i < renderers.Length; i++)
         {
@@ -976,8 +987,20 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
             bool floor = IsFloorVisualName(renderer.gameObject.name) ||
                          renderer.GetComponent<BattleWalkableField>() != null;
-            if (floor)
-                result.Add(renderer.bounds);
+            if (!floor)
+                continue;
+
+            Vector2Int cell = WorldToTile(renderer.bounds.center);
+            if (!occupiedCells.Add(cell))
+                continue;
+
+            Vector3 center = new(
+                cell.x * tileSize,
+                cell.y * tileSize,
+                renderer.bounds.center.z);
+            result.Add(new Bounds(
+                center,
+                new Vector3(logicalSize, logicalSize, 0.1f)));
         }
 
         return result;
