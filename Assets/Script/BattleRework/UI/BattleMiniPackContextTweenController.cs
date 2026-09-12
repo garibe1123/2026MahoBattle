@@ -9,7 +9,7 @@ using UnityEngine.UI;
 /// - 목표값의 소유권은 UnifiedInventoryInspectController에 그대로 있습니다.
 /// - 이 컴포넌트는 Unified가 LateUpdate에서 기록한 목표값을 읽고, 그 프레임의 최종 표시값만 보간합니다.
 /// - Reward PackEditing / Combat Tab Morph가 시작되면 즉시 제어권을 놓아 기존 Morph Controller와 충돌하지 않습니다.
-/// - 매 프레임 전체 UI를 검색하지 않고, 참조가 끊겼을 때만 다시 Resolve합니다.
+/// - Mini PACK 검색은 Run이 실제로 시작된 뒤에만 수행하여 초기 Scene bootstrap 비용에 보태지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33420)]
@@ -39,6 +39,7 @@ public sealed class BattleMiniPackContextTweenController : MonoBehaviour
     private bool initialized;
     private bool tweening;
     private float elapsed;
+    private float nextUiResolveAt;
 
     private Vector2 currentPosition;
     private Vector3 currentScale = Vector3.one;
@@ -55,22 +56,24 @@ public sealed class BattleMiniPackContextTweenController : MonoBehaviour
     private void Awake()
     {
         ResolveReferences();
-        ResolveMiniPack();
     }
 
     private void OnEnable()
     {
         ResolveReferences();
-        ResolveMiniPack();
         initialized = false;
         tweening = false;
         context = MiniPackContext.Unknown;
+        nextUiResolveAt = 0f;
     }
 
     private void LateUpdate()
     {
         ResolveReferences();
-        ResolveMiniPack();
+        if (runManager == null || !runManager.RunActive)
+            return;
+
+        ResolveMiniPackWhenNeeded();
         if (miniPackRoot == null || miniPackGroup == null)
             return;
 
@@ -209,11 +212,14 @@ public sealed class BattleMiniPackContextTweenController : MonoBehaviour
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
     }
 
-    private void ResolveMiniPack()
+    private void ResolveMiniPackWhenNeeded()
     {
         if (miniPackRoot != null && miniPackGroup != null)
             return;
+        if (Time.unscaledTime < nextUiResolveAt)
+            return;
 
+        nextUiResolveAt = Time.unscaledTime + 0.10f;
         RectTransform[] all = FindObjectsByType<RectTransform>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
