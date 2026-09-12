@@ -230,6 +230,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 
         bool gridVisible = fullGroup != null && fullGroup.alpha > 0.05f;
         int focusedIndex = unifiedInventory != null ? unifiedInventory.ActiveInspectSlot : -1;
+        bool rewardEditing = inventoryInteraction != null && inventoryInteraction.IsRewardPackEditing;
 
         for (int i = 0; i < SlotCount; i++)
         {
@@ -240,19 +241,30 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             bool unlocked = equipmentSystem.IsSlotUnlocked(i);
             BattleEquipmentSlot runtimeSlot = GetRuntimeSlot(i);
             bool occupied = unlocked && runtimeSlot != null && runtimeSlot.equipment != null;
-            bool picked = inventoryInteraction != null &&
-                          inventoryInteraction.IsRewardPackEditing &&
-                          inventoryInteraction.PadPickedSlot == i;
-            bool focused = gridVisible && occupied && (focusedIndex == i || picked);
 
-            // Selection frame은 배경 강조만 담당하고 아이콘/텍스트보다 항상 뒤에 둡니다.
-            // 투명 Image + Outline 조합이 선택색 전체 Quad처럼 보이더라도 정보 레이어를 가리지 않습니다.
-            PushSelectionFrameBehind(slotRect, "InteractionFullSelectionFrame");
+            bool picked = rewardEditing && inventoryInteraction.PadPickedSlot == i;
+            bool padSelected = rewardEditing && inventoryInteraction.PadModeActive &&
+                               inventoryInteraction.PadSelectedSlot == i;
+            bool mouseSelected = rewardEditing && !inventoryInteraction.PadModeActive &&
+                                 inventoryInteraction.SelectedRewardSlot == i;
+
+            // Hover/Inspect와 실제 Selected는 시각 의미를 분리합니다.
+            // Hover는 원본 아이콘을 보여주지만 배경을 노랗게 채우지 않습니다.
+            bool selectedVisual = gridVisible && occupied &&
+                                  (rewardEditing
+                                      ? (picked || padSelected || mouseSelected)
+                                      : focusedIndex == i);
+            bool inspected = gridVisible && occupied && (focusedIndex == i || selectedVisual);
+
             PushSelectionFrameBehind(slotRect, "UnifiedSelectionFrame");
 
             Image background = slotRect.GetComponent<Image>();
             if (background != null)
-                background.color = !unlocked ? lockedCell : darkCell;
+                background.color = !unlocked
+                    ? lockedCell
+                    : selectedVisual
+                        ? equippedAccent
+                        : darkCell;
 
             Outline baseOutline = slotRect.GetComponent<Outline>();
             if (baseOutline != null)
@@ -263,9 +275,14 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
                 baseOutline.effectDistance = new Vector2(3f, -3f);
             }
 
-            ApplyIconVisual(slotRect, occupied, focused);
-            ApplyLevelLabel(slotRect, runtimeSlot, focused);
-            ApplyGridTextTone(slotRect, runtimeSlot, focused, i == equipmentSystem.EquippedSlotIndex);
+            ApplyIconVisual(slotRect, occupied, inspected);
+            ApplyLevelLabel(slotRect, runtimeSlot, selectedVisual);
+            ApplyGridTextTone(
+                slotRect,
+                runtimeSlot,
+                selectedVisual,
+                inspected,
+                i == equipmentSystem.EquippedSlotIndex);
             ApplyRecentChangeStroke(slotRect);
         }
     }
@@ -282,14 +299,14 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             return;
         }
 
-        // 선택 중에는 Monochrome을 해제하고 원본 아이콘을 100% 불투명으로 유지합니다.
+        // Hover/선택 중에는 Monochrome을 해제하고 원본 아이콘을 100% 불투명으로 유지합니다.
         icon.material = focused ? null : monochromeMaterial;
         icon.color = focused
             ? Color.white
             : new Color(0.82f, 0.82f, 0.82f, 0.76f);
     }
 
-    private void ApplyLevelLabel(RectTransform slotRect, BattleEquipmentSlot runtimeSlot, bool focused)
+    private void ApplyLevelLabel(RectTransform slotRect, BattleEquipmentSlot runtimeSlot, bool selected)
     {
         if (slotRect == null)
             return;
@@ -310,7 +327,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
                 continue;
 
             text.text = $"LV.{Mathf.Clamp(runtimeSlot.grade, 1, 3)}";
-            text.color = focused ? black : tier;
+            text.color = selected ? black : tier;
             return;
         }
     }
@@ -318,7 +335,8 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
     private void ApplyGridTextTone(
         RectTransform slotRect,
         BattleEquipmentSlot runtimeSlot,
-        bool focused,
+        bool selected,
+        bool inspected,
         bool equipped)
     {
         if (slotRect == null)
@@ -335,10 +353,15 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             if (value.StartsWith("LV."))
                 continue;
 
-            if (focused)
+            if (selected)
             {
                 // 노란 선택 배경에서는 모든 슬롯 정보가 검정으로 읽히게 합니다.
                 text.color = black;
+            }
+            else if (inspected)
+            {
+                // Hover/Inspect는 배경을 유지하고 정보만 한 단계 밝힙니다.
+                text.color = white;
             }
             else if (value.Contains("EQUIPPED"))
             {
