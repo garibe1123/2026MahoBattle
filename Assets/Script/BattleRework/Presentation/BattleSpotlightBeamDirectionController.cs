@@ -19,7 +19,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         /// <summary>Screen result should read as a narrow source above and broad footprint below.</summary>
         NarrowAtTop,
 
-        /// <summary>Inverse orientation, useful when the renderer/material path presents the texture flipped.</summary>
+        /// <summary>Inverse orientation: broad at the top and narrow at the bottom.</summary>
         NarrowAtBottom
     }
 
@@ -28,28 +28,36 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     [SerializeField, Range(-180f, 180f)] private float beamRotationDegrees;
     [SerializeField] private Vector2 beamLocalOffset = Vector2.zero;
 
-    [Header("Runtime")]
-    [SerializeField, Min(0.02f)] private float rescanInterval = 0.20f;
-
     private BattleCharacterLightVisual[] lightVisuals;
-    private float nextRescanTime;
 
     public BeamShapeDirection Direction
     {
         get => beamShapeDirection;
-        set => beamShapeDirection = value;
+        set
+        {
+            beamShapeDirection = value;
+            ApplyToAll();
+        }
     }
 
     public float RotationDegrees
     {
         get => beamRotationDegrees;
-        set => beamRotationDegrees = Mathf.Repeat(value + 180f, 360f) - 180f;
+        set
+        {
+            beamRotationDegrees = Mathf.Repeat(value + 180f, 360f) - 180f;
+            ApplyToAll();
+        }
     }
 
     public Vector2 LocalOffset
     {
         get => beamLocalOffset;
-        set => beamLocalOffset = value;
+        set
+        {
+            beamLocalOffset = value;
+            ApplyToAll();
+        }
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -66,37 +74,34 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
     private void OnEnable()
     {
-        nextRescanTime = 0f;
-        ResolveVisuals();
+        RefreshTargets();
         ApplyToAll();
     }
 
     private void LateUpdate()
     {
-        if (Time.unscaledTime >= nextRescanTime)
-        {
-            nextRescanTime = Time.unscaledTime + Mathf.Max(0.02f, rescanInterval);
-            ResolveVisuals();
-        }
-
         // BattleCharacterLightVisual also updates in LateUpdate. This controller has a much
         // later execution order, so the Inspector-selected orientation is the final result.
+        // Target discovery is NOT repeated here; only the cached references are used.
         ApplyToAll();
     }
 
     private void OnValidate()
     {
-        rescanInterval = Mathf.Max(0.02f, rescanInterval);
         beamRotationDegrees = Mathf.Repeat(beamRotationDegrees + 180f, 360f) - 180f;
 
         if (!Application.isPlaying)
             return;
 
-        ResolveVisuals();
+        RefreshTargets();
         ApplyToAll();
     }
 
-    private void ResolveVisuals()
+    /// <summary>
+    /// Refreshes spotlight targets once. Call this only when character light rigs are spawned
+    /// after scene initialization; it intentionally avoids recurring FindObjects scans.
+    /// </summary>
+    public void RefreshTargets()
     {
         lightVisuals = FindObjectsByType<BattleCharacterLightVisual>(
             FindObjectsInactive.Include,
@@ -111,7 +116,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         for (int i = 0; i < lightVisuals.Length; i++)
         {
             BattleCharacterLightVisual visual = lightVisuals[i];
-            if (visual == null)
+            if (visual == null || !visual.isActiveAndEnabled || !visual.gameObject.activeInHierarchy)
                 continue;
 
             Transform beam = visual.transform.Find(BattleCharacterLightVisual.KeyRendererName);
@@ -123,20 +128,19 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
                 continue;
 
             // Current authored runtime beam is broad at texture Y=0 and narrow at Y=1.
-            // In this project's renderer/material path, flipY=true has been the screen-side
-            // correction for NarrowAtTop. The enum exposes both possibilities so art can decide.
+            // The project renderer/material path currently needs flipY=true for NarrowAtTop,
+            // but the enum exposes both orientations so the art-side result can be chosen directly.
             renderer.flipY = beamShapeDirection == BeamShapeDirection.NarrowAtTop;
 
-            Vector3 euler = beam.localEulerAngles;
-            euler.z = beamRotationDegrees;
-            beam.localEulerAngles = euler;
+            // BattleCharacterLightVisual resets the beam rotation each frame. Apply the artist
+            // override afterwards so this value is the final visible direction.
+            beam.rotation = Quaternion.Euler(0f, 0f, beamRotationDegrees);
 
             if (beamLocalOffset != Vector2.zero)
             {
-                Vector3 position = beam.localPosition;
-                position.x += beamLocalOffset.x;
-                position.y += beamLocalOffset.y;
-                beam.localPosition = position;
+                Vector3 right = beam.right * beamLocalOffset.x;
+                Vector3 up = beam.up * beamLocalOffset.y;
+                beam.position += right + up;
             }
         }
     }
