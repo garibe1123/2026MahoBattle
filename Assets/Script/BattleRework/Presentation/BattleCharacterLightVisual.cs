@@ -244,7 +244,12 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         // Beam and pool intentionally use the same additive light material so they read as one lamp.
         Material spotlightMaterial = GetOrCreateKeyLightMaterial();
         if (keyRenderer != null)
+        {
             keyRenderer.sharedMaterial = spotlightMaterial;
+            // Runtime cone texture renders vertically opposite to the intended stage-light orientation.
+            // Force the visible cone to be narrow at the source/top and wide where it meets the floor.
+            keyRenderer.flipY = true;
+        }
         if (poolRenderer != null)
             poolRenderer.sharedMaterial = spotlightMaterial;
 
