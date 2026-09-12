@@ -18,6 +18,7 @@ using UnityEngine.UI;
 ///
 /// Map Node의 Graphic/Text는 Hover 대상이 실제로 바뀌었을 때만 다시 씁니다.
 /// 커서가 같은 노드 위에 머무는 동안에는 World Space Canvas를 매 프레임 dirty시키지 않습니다.
+/// 카메라/포커스 override만 WorldSet의 일반 TV 커서 추적보다 늦게 매 프레임 유지합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32790)]
@@ -243,25 +244,27 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             }
         }
 
-        if (hoveredNode == lastHoveredNode)
-            return;
-
-        if (lastHoveredNode != null)
+        bool hoverChanged = hoveredNode != lastHoveredNode;
+        if (hoverChanged)
         {
-            Button oldButton = lastHoveredNode.GetComponent<Button>();
-            ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+            if (lastHoveredNode != null)
+            {
+                Button oldButton = lastHoveredNode.GetComponent<Button>();
+                ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+            }
+
+            if (hoveredNode != null)
+            {
+                Button newButton = hoveredNode.GetComponent<Button>();
+                ApplyNodeVisual(hoveredNode, newButton != null && newButton.interactable, true);
+            }
+
+            lastHoveredNode = hoveredNode;
         }
 
-        if (hoveredNode != null)
-        {
-            Button newButton = hoveredNode.GetComponent<Button>();
-            ApplyNodeVisual(hoveredNode, newButton != null && newButton.interactable, true);
-        }
-
-        lastHoveredNode = hoveredNode;
-
-        // 기존 SpatialMapController는 Map 패널 전체에 커서가 들어오면 Focus를 켭니다.
-        // 여기서 실제 선택 가능한 Node가 바뀌는 순간에만 마지막 정책을 갱신합니다.
+        // WorldSet은 일반 TV 영역 기준 커서 추적을 Update에서 매 프레임 갱신합니다.
+        // 이 Controller는 더 늦은 LateUpdate에서 "실제 선택 가능 Node 위일 때만" 정책을 유지하되,
+        // Graphic/Text는 hoverChanged일 때만 수정해 Canvas rebuild를 만들지 않습니다.
         bool hasHoveredNode = hoveredNode != null;
         battleHud?.SetMapCursorFocus(hasHoveredNode);
 
