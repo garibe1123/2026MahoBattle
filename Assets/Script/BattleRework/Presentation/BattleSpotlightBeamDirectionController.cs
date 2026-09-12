@@ -1,5 +1,11 @@
 using UnityEngine;
 
+#if UNITY_EDITOR
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine.SceneManagement;
+#endif
+
 /// <summary>
 /// Artist-facing control for the trapezoid/cone part of character spotlights.
 ///
@@ -11,8 +17,9 @@ using UnityEngine;
 /// - Apply Beam Settings Now is invoked,
 /// - a BattleCharacterLightVisual creates its beam later and registers itself.
 ///
-/// Direction/rotation/offset are applied directly to BattleCharacterLightVisual instead of
-/// being routed through shader UV manipulation. This keeps one clear owner for beam orientation.
+/// The component is automatically installed on BattleSceneManager's GameObject in the editor.
+/// If a battle scene reaches Play Mode without it, the runtime fallback also attaches it to
+/// BattleSceneManager instead of creating a separate settings GameObject.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
@@ -79,6 +86,57 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         }
     }
 
+#if UNITY_EDITOR
+    [InitializeOnLoadMethod]
+    private static void InstallEditorHook()
+    {
+        EditorApplication.delayCall -= EnsureInstalledOnBattleSceneManagerInEditor;
+        EditorApplication.delayCall += EnsureInstalledOnBattleSceneManagerInEditor;
+
+        EditorSceneManager.sceneOpened -= HandleEditorSceneOpened;
+        EditorSceneManager.sceneOpened += HandleEditorSceneOpened;
+    }
+
+    private static void HandleEditorSceneOpened(Scene scene, OpenSceneMode mode)
+    {
+        EditorApplication.delayCall -= EnsureInstalledOnBattleSceneManagerInEditor;
+        EditorApplication.delayCall += EnsureInstalledOnBattleSceneManagerInEditor;
+    }
+
+    /// <summary>
+    /// Keeps the artist settings visible directly on the BattleSceneManager object.
+    /// Runs only after editor/script/scene changes, never every editor frame.
+    /// </summary>
+    private static void EnsureInstalledOnBattleSceneManagerInEditor()
+    {
+        if (Application.isPlaying)
+            return;
+
+        BattleSceneManager manager =
+            Object.FindFirstObjectByType<BattleSceneManager>(FindObjectsInactive.Include);
+        if (manager == null)
+            return;
+
+        BattleSpotlightBeamDirectionController local =
+            manager.GetComponent<BattleSpotlightBeamDirectionController>();
+        if (local != null)
+            return;
+
+        // If an older copy exists elsewhere, do not silently duplicate it. Move authority to the
+        // BattleSceneManager only when there is no existing scene-authored controller.
+        BattleSpotlightBeamDirectionController existing =
+            Object.FindFirstObjectByType<BattleSpotlightBeamDirectionController>(FindObjectsInactive.Include);
+        if (existing != null)
+            return;
+
+        Undo.AddComponent<BattleSpotlightBeamDirectionController>(manager.gameObject);
+        EditorUtility.SetDirty(manager.gameObject);
+
+        if (manager.gameObject.scene.IsValid())
+            EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+    }
+#endif
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void InstallRuntimeDefault()
     {
@@ -87,14 +145,17 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         if (existing != null)
             return;
 
-        GameObject host = new("BattleSpotlightBeamDirectionSettings");
-        host.AddComponent<BattleSpotlightBeamDirectionController>();
+        BattleSceneManager manager =
+            FindFirstObjectByType<BattleSceneManager>(FindObjectsInactive.Include);
+        if (manager == null)
+            return;
+
+        manager.gameObject.AddComponent<BattleSpotlightBeamDirectionController>();
     }
 
     private void OnEnable()
     {
-        // If a controller is explicitly placed on a scene System object, that enabled component
-        // becomes authoritative. The runtime fallback exists only when the scene has none.
+        // A controller explicitly present on BattleSceneManager becomes authoritative.
         activeInstance = this;
         RefreshTargets();
         ApplyToAll();
@@ -128,7 +189,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
     /// <summary>
     /// Called by BattleCharacterLightVisual when a runtime beam is created after this controller.
-    /// This fixes the old ordering bug where OnEnable ran before CharacterKeySpotlight existed.
+    /// This fixes the ordering case where the controller exists before CharacterKeySpotlight does.
     /// </summary>
     public static void ApplyCurrentSettingsTo(BattleCharacterLightVisual visual)
     {
