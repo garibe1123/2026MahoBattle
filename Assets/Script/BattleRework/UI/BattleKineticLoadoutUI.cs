@@ -730,7 +730,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private Color ResolveLinkColor(BattleGridSynergyKind kind)
     {
-        return link.kind switch
+        return kind switch
         {
             BattleGridSynergyKind.DetonationChain => accentPink,
             BattleGridSynergyKind.PrecisionCircuit => accentYellow,
