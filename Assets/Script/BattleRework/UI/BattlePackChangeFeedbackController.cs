@@ -91,10 +91,14 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
     private readonly CanvasGroup[] slotGroups = new CanvasGroup[SlotCount];
     private readonly GameObject[] changeMarkers = new GameObject[SlotCount];
     private readonly SlotSnapshot[] snapshots = new SlotSnapshot[SlotCount];
+    private readonly SlotSnapshot[] mutationStartSnapshots = new SlotSnapshot[SlotCount];
     private readonly List<GameObject> transientVisuals = new();
 
     private BattleEquipmentSystem subscribedEquipmentSystem;
     private Coroutine presentationRoutine;
+    private Coroutine inventoryCoalesceRoutine;
+    private int inventoryMutationVersion;
+    private bool mutationStartValid;
     private bool snapshotInitialized;
     private bool wasPackEditing;
     private float nextResolveTime;
@@ -120,6 +124,7 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
 
     private void OnDisable()
     {
+        StopPendingMutation();
         UnsubscribeEquipment();
         StopPresentation(true, true);
         wasPackEditing = false;
@@ -127,6 +132,7 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
 
     private void OnDestroy()
     {
+        StopPendingMutation();
         UnsubscribeEquipment();
         StopPresentation(true, true);
     }
@@ -145,7 +151,10 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
 
         bool packEditing = IsPackEditing();
         if (wasPackEditing && !packEditing)
+        {
+            StopPendingMutation();
             StopPresentation(true, true);
+        }
 
         wasPackEditing = packEditing;
     }
@@ -167,6 +176,7 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
         if (subscribedEquipmentSystem == equipmentSystem)
             return;
 
+        StopPendingMutation();
         UnsubscribeEquipment();
         subscribedEquipmentSystem = equipmentSystem;
         if (subscribedEquipmentSystem == null)
@@ -194,11 +204,57 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
             return;
         }
 
+        // Reward 밖에서 발생한 변경은 피드백 대상으로 잡지 않고 기준 스냅샷만 갱신합니다.
+        if (!IsRewardMutationWindow())
+        {
+            StopPendingMutation();
+            CaptureSnapshot();
+            return;
+        }
+
+        // Drag/Swap은 내부적으로 source 제거 -> destination 추가처럼 InventoryChanged가
+        // 여러 번 나뉘어 올 수 있습니다. 첫 이벤트 직전 상태만 보존하고 모든 이벤트가 잠잠해진 뒤
+        // 최종 상태와 한 번만 비교해야 중간 EMPTY 상태를 NEW/REMOVED로 오인하지 않습니다.
+        if (!mutationStartValid)
+        {
+            for (int i = 0; i < SlotCount; i++)
+                mutationStartSnapshots[i] = snapshots[i];
+            mutationStartValid = true;
+        }
+
+        inventoryMutationVersion++;
+        if (inventoryCoalesceRoutine == null)
+            inventoryCoalesceRoutine = StartCoroutine(CoalesceInventoryChanges());
+    }
+
+    private IEnumerator CoalesceInventoryChanges()
+    {
+        int observedVersion = inventoryMutationVersion;
+        int quietFrames = 0;
+
+        // 두 프레임 연속 InventoryChanged가 더 오지 않을 때까지 기다립니다.
+        // 같은 Drag/Swap 안에서 나뉘어 발생하는 remove/add 이벤트를 하나의 트랜잭션으로 합칩니다.
+        for (int frame = 0; frame < 12 && quietFrames < 2; frame++)
+        {
+            yield return null;
+
+            if (observedVersion == inventoryMutationVersion)
+            {
+                quietFrames++;
+            }
+            else
+            {
+                observedVersion = inventoryMutationVersion;
+                quietFrames = 0;
+            }
+        }
+
         List<SlotChange> changes = new();
         for (int i = 0; i < SlotCount; i++)
         {
             SlotSnapshot current = ReadSlot(i);
-            SlotSnapshot previous = snapshots[i];
+            SlotSnapshot previous = mutationStartValid ? mutationStartSnapshots[i] : snapshots[i];
+
             if (!previous.SameAs(current))
             {
                 ChangeKind? kind = ResolveChangeKind(previous, current);
@@ -217,22 +273,39 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
             snapshots[i] = current;
         }
 
-        if (changes.Count == 0 || !IsRewardMutationWindow())
-            return;
+        mutationStartValid = false;
+        inventoryCoalesceRoutine = null;
 
-        // Drag 이동/Swap은 슬롯 위치만 달라질 뿐 PACK 안의 실제 아이템 멀티셋은 동일합니다.
-        // 이 경우 NEW/CHANGED 연출을 새로 만들지 않고, 기존 마커가 있으면 그 아이템을 따라 이동만 합니다.
+        if (changes.Count == 0 || !IsRewardMutationWindow())
+            yield break;
+
+        ResolveUi();
+
+        // 조작 전/완료 후 PACK의 멀티셋이 같다면 순수 위치 변경입니다.
+        // NEW/CHANGED 효과를 새로 만들지 않고 기존 NEW 마커만 실제 아이템을 따라 이동시킵니다.
         if (IsPureRearrangement(changes))
         {
             StopPresentation(false, false);
             TransferMarkersForRearrangement(changes);
             RestoreSlotAlphas();
-            return;
+            yield break;
         }
 
         if (presentationRoutine != null)
             StopCoroutine(presentationRoutine);
         presentationRoutine = StartCoroutine(PresentWhenPackReady(changes));
+    }
+
+    private void StopPendingMutation()
+    {
+        if (inventoryCoalesceRoutine != null)
+        {
+            StopCoroutine(inventoryCoalesceRoutine);
+            inventoryCoalesceRoutine = null;
+        }
+
+        mutationStartValid = false;
+        inventoryMutationVersion = 0;
     }
 
     private bool IsRewardMutationWindow()
