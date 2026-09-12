@@ -348,16 +348,15 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         if (sharedArrowSprite != null)
             return sharedArrowSprite;
 
-        // 왼쪽 전체 높이 -> 오른쪽 몸통 56% 높이 -> 화살촉.
+        // 화살촉 없이, 왼쪽은 전체 높이이고 오른쪽으로 갈수록 좁아지는 4점 사다리꼴입니다.
         Vector2[] polygon =
         {
             new(0.00f, 0.00f),
-            new(0.76f, 0.22f),
-            new(1.00f, 0.50f),
-            new(0.76f, 0.78f),
+            new(1.00f, 0.22f),
+            new(1.00f, 0.78f),
             new(0.00f, 1.00f)
         };
-        sharedArrowSprite = CreatePolygonSprite("RuntimeDoneNextTaperedArrow", 256, 96, polygon);
+        sharedArrowSprite = CreatePolygonSprite("RuntimeDoneNextTaperedTrapezoid", 256, 96, polygon);
         return sharedArrowSprite;
     }
 
