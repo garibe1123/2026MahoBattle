@@ -22,6 +22,10 @@ internal enum BattleInventorySurface
 /// - 패드 PACK 커서/선택
 /// - DONE 요청
 ///
+/// Mouse/Keyboard와 Gamepad는 서로 다른 조작 규칙을 사용합니다.
+/// - Mouse/Keyboard: Hover/Click으로 Inspect, Drag & Drop으로 이동/교환
+/// - Gamepad: Stick 1회 입력으로 커서 이동, A로 Pick/Place
+///
 /// 이 클래스는 Mini PACK / Full Grid / Detail / TRASH / DONE의 최종 RectTransform을 쓰지 않습니다.
 /// 레이아웃은 BattleUnifiedInventoryInspectController가 단독 소유합니다.
 /// Reward business state는 BattleRewardFlow가 단독 소유합니다.
@@ -78,6 +82,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private RectTransform miniPackRoot;
     private readonly GameObject[] miniSelectionFrames = new GameObject[SlotCount];
     private readonly Outline[] miniSelectionOutlines = new Outline[SlotCount];
+    private readonly GameObject[] fullSelectionFrames = new GameObject[SlotCount];
+    private readonly Outline[] fullSelectionOutlines = new Outline[SlotCount];
 
     // Input state only. These names remain stable until Phase 6 removes legacy visual reflection users.
     private int selectedRewardSlot = -1;
@@ -233,9 +239,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (focus < 0 || equipmentSystem == null || !equipmentSystem.IsSlotUnlocked(focus))
             focus = FindFirstUnlockedSlot();
 
+        // 패드 커서의 시작 위치만 준비합니다. Mouse/Keyboard에서는 자동으로 슬롯을 Pick하지 않습니다.
         padSelectedSlot = Mathf.Max(0, focus);
-        if (!rewardFlow.HasHand && rewardFlow.ChosenRewardCommitted)
-            selectedRewardSlot = rewardFlow.ChosenRewardSlot;
     }
 
     /// <summary>
@@ -248,6 +253,31 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         padPickedSlot = -1;
         padModeActive = false;
         padAxisLatched = false;
+    }
+
+    private void ActivateMouseMode()
+    {
+        padModeActive = false;
+        padAxisLatched = false;
+        padPickedSlot = -1;
+    }
+
+    private void ActivatePadMode()
+    {
+        if (!padModeActive)
+        {
+            hoveredSlot = -1;
+            selectedRewardSlot = -1;
+        }
+        padModeActive = true;
+    }
+
+    private static bool IsKeyboardDirectionalInputHeld()
+    {
+        return Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.D) ||
+               Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.S) ||
+               Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) ||
+               Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow);
     }
 
     private void ResolveMiniPack()
@@ -301,6 +331,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (surface == BattleInventorySurface.MiniPack)
             EnsureMiniSelectionFrame(rect, index);
+        else if (surface == BattleInventorySurface.ExpandedGrid)
+            EnsureFullSelectionFrame(rect, index);
     }
 
     private void EnsureMiniSelectionFrame(RectTransform slot, int index)
@@ -324,9 +356,38 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             outline = frame.gameObject.AddComponent<Outline>();
         outline.effectColor = accentYellow;
         outline.effectDistance = new Vector2(5f, -5f);
+        outline.useGraphicAlpha = false;
 
         miniSelectionFrames[index] = frame.gameObject;
         miniSelectionOutlines[index] = outline;
+        frame.gameObject.SetActive(false);
+    }
+
+    private void EnsureFullSelectionFrame(RectTransform slot, int index)
+    {
+        if (index < 0 || index >= SlotCount || fullSelectionFrames[index] != null)
+            return;
+
+        RectTransform frame = slot.Find("InteractionFullSelectionFrame") as RectTransform;
+        if (frame == null)
+        {
+            frame = CreateRect(slot, "InteractionFullSelectionFrame", Vector2.zero);
+            Stretch(frame);
+            Image image = frame.gameObject.AddComponent<Image>();
+            image.color = Color.clear;
+            image.raycastTarget = false;
+            frame.SetAsLastSibling();
+        }
+
+        Outline outline = frame.GetComponent<Outline>();
+        if (outline == null)
+            outline = frame.gameObject.AddComponent<Outline>();
+        outline.effectColor = accentYellow;
+        outline.effectDistance = new Vector2(5f, -5f);
+        outline.useGraphicAlpha = false;
+
+        fullSelectionFrames[index] = frame.gameObject;
+        fullSelectionOutlines[index] = outline;
         frame.gameObject.SetActive(false);
     }
 
@@ -334,6 +395,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     {
         if (eventData == null || discardModalOpen || equipmentSystem == null || !HasItem(slotIndex))
             return false;
+
+        ActivateMouseMode();
 
         if (IsReward())
         {
@@ -386,6 +449,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             !equipmentSystem.IsSlotUnlocked(targetIndex))
             return;
 
+        ActivateMouseMode();
+
         BattleInventorySlotPointer source = eventData.pointerDrag != null
             ? eventData.pointerDrag.GetComponent<BattleInventorySlotPointer>()
             : null;
@@ -420,44 +485,27 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             !equipmentSystem.IsSlotUnlocked(slotIndex))
             return;
 
+        ActivateMouseMode();
+
         if (IsReward())
         {
             if (!IsRewardPackEditing || rewardFlow == null)
                 return;
 
-            padSelectedSlot = slotIndex;
-
+            // Hand가 있으면 클릭한 슬롯에 바로 배치/교환합니다.
             if (rewardFlow.HasHand)
             {
                 if (rewardFlow.ExchangeHandWithSlot(slotIndex))
                 {
-                    selectedRewardSlot = -1;
-                    padPickedSlot = -1;
+                    selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
                     FlashSlot(slotIndex);
                 }
                 return;
             }
 
-            if (selectedRewardSlot < 0)
-            {
-                if (HasItem(slotIndex))
-                    selectedRewardSlot = slotIndex;
-                return;
-            }
-
-            if (selectedRewardSlot == slotIndex)
-            {
-                selectedRewardSlot = -1;
-                return;
-            }
-
-            if (equipmentSystem.SwapSlots(selectedRewardSlot, slotIndex))
-            {
-                selectedRewardSlot = -1;
-                padPickedSlot = -1;
-                rewardFlow.SyncChosenRewardLocation();
-                FlashSlot(slotIndex);
-            }
+            // Mouse/Keyboard 모드에서는 클릭이 위치 변경을 일으키지 않습니다.
+            // 클릭은 Inspect/Selection만 하고, 이동/교환은 Drag & Drop으로만 수행합니다.
+            selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
             return;
         }
 
@@ -474,6 +522,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     {
         if (!IsRewardPackEditing)
             return;
+
+        if (entered)
+            ActivateMouseMode();
         hoveredSlot = entered ? slotIndex : (hoveredSlot == slotIndex ? -1 : hoveredSlot);
     }
 
@@ -481,6 +532,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     {
         if (discardModalOpen || equipmentSystem == null || eventData == null)
             return;
+
+        ActivateMouseMode();
 
         BattleInventorySlotPointer source = eventData.pointerDrag != null
             ? eventData.pointerDrag.GetComponent<BattleInventorySlotPointer>()
@@ -496,23 +549,25 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (button != PointerEventData.InputButton.Left || discardModalOpen || !IsRewardPackEditing || rewardFlow == null)
             return;
 
+        ActivateMouseMode();
+
         if (rewardFlow.HasHand)
         {
             if (rewardFlow.DiscardHand())
-            {
                 selectedRewardSlot = -1;
-                padPickedSlot = -1;
-            }
             return;
         }
 
-        int target = selectedRewardSlot >= 0 ? selectedRewardSlot : padSelectedSlot;
+        int target = selectedRewardSlot;
         if (HasItem(target))
             RequestDiscard(target);
     }
 
     internal void HandleTrashHover(bool hovered)
     {
+        if (hovered)
+            ActivateMouseMode();
+
         if (trashBack != null)
             trashBack.color = hovered
                 ? new Color(accentPink.r, accentPink.g, accentPink.b, 0.98f)
@@ -586,53 +641,48 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             return;
         }
 
-        int dx = 0;
-        int dy = 0;
-        if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) dx = -1;
-        else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) dx = 1;
-        else if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) dy = -1;
-        else if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) dy = 1;
-
-        float axisX = Input.GetAxisRaw("Horizontal");
-        float axisY = Input.GetAxisRaw("Vertical");
+        // Legacy Horizontal/Vertical axis에는 키보드와 패드가 함께 묶여 있으므로,
+        // 키보드 방향 입력이 눌린 동안에는 axis를 패드 입력으로 해석하지 않습니다.
+        bool keyboardDirectionHeld = IsKeyboardDirectionalInputHeld();
+        float axisX = keyboardDirectionHeld ? 0f : Input.GetAxisRaw("Horizontal");
+        float axisY = keyboardDirectionHeld ? 0f : Input.GetAxisRaw("Vertical");
         float magnitude = Mathf.Max(Mathf.Abs(axisX), Mathf.Abs(axisY));
 
         if (!padAxisLatched && magnitude >= padAxisThreshold)
         {
+            int dx = 0;
+            int dy = 0;
             if (Mathf.Abs(axisX) >= Mathf.Abs(axisY))
                 dx = axisX > 0f ? 1 : -1;
             else
                 dy = axisY > 0f ? -1 : 1;
+
+            ActivatePadMode();
+            MovePadSelection(dx, dy);
             padAxisLatched = true;
-            padModeActive = true;
         }
         else if (padAxisLatched && magnitude <= padAxisReleaseThreshold)
         {
+            // Stick이 중립으로 돌아와야 다음 1회 이동을 받을 수 있습니다.
             padAxisLatched = false;
         }
 
-        if (dx != 0 || dy != 0)
+        if (Input.GetKeyDown(KeyCode.JoystickButton0))
         {
-            MovePadSelection(dx, dy);
-            padModeActive = true;
-        }
-
-        if (Input.GetKeyDown(KeyCode.JoystickButton0) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))
-        {
-            padModeActive = true;
+            ActivatePadMode();
             HandlePadSubmit();
         }
 
         if (Input.GetKeyDown(KeyCode.JoystickButton1))
         {
+            ActivatePadMode();
             selectedRewardSlot = -1;
             padPickedSlot = -1;
-            padModeActive = true;
         }
 
         if (Input.GetKeyDown(KeyCode.JoystickButton3))
         {
-            padModeActive = true;
+            ActivatePadMode();
             if (rewardFlow.HasHand)
                 rewardFlow.DiscardHand();
             else if (HasItem(padSelectedSlot))
@@ -640,7 +690,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         }
 
         if (Input.GetKeyDown(KeyCode.JoystickButton7))
+        {
+            ActivatePadMode();
             RequestRewardCompletion();
+        }
     }
 
     private void MovePadSelection(int dx, int dy)
@@ -706,16 +759,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void HandlePadConfirmInput()
     {
-        if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.RightArrow) ||
-            Input.GetKeyDown(KeyCode.A) || Input.GetKeyDown(KeyCode.D))
-        {
-            confirmYesSelected = !confirmYesSelected;
-            RefreshConfirmSelection();
-        }
-
-        float x = Input.GetAxisRaw("Horizontal");
+        bool keyboardDirectionHeld = IsKeyboardDirectionalInputHeld();
+        float x = keyboardDirectionHeld ? 0f : Input.GetAxisRaw("Horizontal");
         if (!padAxisLatched && Mathf.Abs(x) >= padAxisThreshold)
         {
+            ActivatePadMode();
             confirmYesSelected = x < 0f;
             padAxisLatched = true;
             RefreshConfirmSelection();
@@ -725,10 +773,22 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             padAxisLatched = false;
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton0) || Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.Space))
+        if (Input.GetKeyDown(KeyCode.JoystickButton0))
+        {
+            ActivatePadMode();
             ResolveDiscard(confirmYesSelected);
-        else if (Input.GetKeyDown(KeyCode.JoystickButton1) || Input.GetKeyDown(KeyCode.Escape))
+        }
+        else if (Input.GetKeyDown(KeyCode.JoystickButton1))
+        {
+            ActivatePadMode();
             ResolveDiscard(false);
+        }
+        else if (Input.GetKeyDown(KeyCode.Escape))
+        {
+            // KBM에서는 방향 선택 없이 Escape만 취소 shortcut으로 허용합니다.
+            ActivateMouseMode();
+            ResolveDiscard(false);
+        }
     }
 
     private void RequestRewardCompletion()
@@ -765,34 +825,89 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private void UpdateSelectionFrames()
     {
         bool reward = IsRewardPackEditing;
+        float pulse01 = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 7f);
+
         for (int i = 0; i < SlotCount; i++)
         {
-            GameObject frame = miniSelectionFrames[i];
-            if (frame == null)
-                continue;
-
             bool flashed = i == flashedSlot && Time.unscaledTime < flashUntil;
             bool picked = reward && i == padPickedSlot;
             bool padSelected = reward && padModeActive && i == padSelectedSlot;
-            bool mouseSelected = reward && i == selectedRewardSlot;
-            bool hover = reward && i == hoveredSlot;
+            bool mouseSelected = reward && !padModeActive && i == selectedRewardSlot;
+            bool hover = reward && !padModeActive && i == hoveredSlot;
             bool active = flashed || picked || padSelected || mouseSelected || hover;
-            frame.SetActive(active);
 
-            Outline outline = miniSelectionOutlines[i];
-            if (outline != null)
-            {
-                outline.effectColor = picked
-                    ? accentPink
-                    : flashed || hover
-                        ? accentCyan
-                        : accentYellow;
-                outline.effectDistance = picked ? new Vector2(7f, -7f) : new Vector2(5f, -5f);
-            }
+            ApplySelectionStroke(
+                miniSelectionFrames[i],
+                miniSelectionOutlines[i],
+                active,
+                picked,
+                padSelected || mouseSelected,
+                hover,
+                flashed,
+                pulse01);
+
+            ApplySelectionStroke(
+                fullSelectionFrames[i],
+                fullSelectionOutlines[i],
+                active,
+                picked,
+                padSelected || mouseSelected,
+                hover,
+                flashed,
+                pulse01);
         }
 
         if (flashedSlot >= 0 && Time.unscaledTime >= flashUntil)
             flashedSlot = -1;
+    }
+
+    private void ApplySelectionStroke(
+        GameObject frame,
+        Outline outline,
+        bool active,
+        bool picked,
+        bool selected,
+        bool hover,
+        bool flashed,
+        float pulse01)
+    {
+        if (frame == null)
+            return;
+
+        if (frame.activeSelf != active)
+            frame.SetActive(active);
+        if (!active || outline == null)
+            return;
+
+        Color color;
+        float distance;
+
+        if (picked)
+        {
+            color = accentPink;
+            distance = Mathf.Lerp(6.5f, 8f, pulse01);
+        }
+        else if (selected)
+        {
+            color = accentYellow;
+            color.a = Mathf.Lerp(0.72f, 1f, pulse01);
+            distance = Mathf.Lerp(4.8f, 6.2f, pulse01);
+        }
+        else if (flashed)
+        {
+            color = accentCyan;
+            distance = 6f;
+        }
+        else
+        {
+            color = hover ? accentCyan : accentYellow;
+            color.a = hover ? 0.88f : 0.82f;
+            distance = hover ? 4.2f : 4.8f;
+        }
+
+        outline.useGraphicAlpha = false;
+        outline.effectColor = color;
+        outline.effectDistance = new Vector2(distance, -distance);
     }
 
     private void UpdateTrashVisibility()
