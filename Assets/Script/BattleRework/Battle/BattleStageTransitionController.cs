@@ -56,6 +56,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public bool directPieceTween;
         public bool hasPreferredExitDirection;
         public Vector2 preferredExitDirection;
+        public int exitWave;
     }
 
     private sealed class FloorVisualSnapshot
@@ -457,8 +458,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         // Piece 자체의 Rail을 검사해야 작은 잔여 조각이 Assembly 부모 때문에 막히지 않습니다.
         List<CollapseExitPlan> exitUnits = ExpandRoomExitUnits(outgoingBlocks);
 
-        // 연속 Bounds 샘플링 대신 Tile Cell HashSet으로 Cardinal Rail을 검사합니다.
-        // 실제 타일은 정수 Grid에 있기 때문에 같은 안전성을 훨씬 적은 연산으로 보장할 수 있습니다.
+        // Tile Cell 기반으로 안전한 Wave를 만듭니다.
+        // 같은 Wave의 Piece는 서로 시작 Cell/이동 Rail이 겹치지 않으므로 동시에 빠질 수 있습니다.
         List<CollapseExitPlan> exitOrder = BuildFastSafeExitOrder(exitUnits, baseBounds);
         if (exitOrder.Count != exitUnits.Count)
         {
@@ -471,54 +472,68 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         Debug.Log(
-            $"[BattleStageFlow] Retiring {exitOrder.Count} visible combat room piece(s) sequentially before {pendingShowState}.",
+            $"[BattleStageFlow] Retiring {exitOrder.Count} visible combat room piece(s) in safe exit waves before {pendingShowState}.",
             this);
 
-        float stagger = Mathf.Max(0f, collapseExitStagger);
-        for (int i = 0; i < exitOrder.Count; i++)
+        float wavePieceStagger = Mathf.Min(0.04f, Mathf.Max(0f, collapseExitStagger) * 0.35f);
+        int cursor = 0;
+        while (cursor < exitOrder.Count)
         {
-            CollapseExitPlan plan = exitOrder[i];
-            if (plan == null || plan.block == null)
-                continue;
+            int wave = exitOrder[cursor].exitWave;
+            List<CollapseExitPlan> wavePlans = new();
+            float waveDuration = 0f;
+            int waveIndex = 0;
 
-            PushOutgoingRenderersBehindBase(plan.block);
-            DisableOutgoingWalkable(plan.block);
-
-            Debug.Log(
-                $"[BattleStageFlow] Safe piece exit {i + 1}/{exitOrder.Count}: '{plan.block.name}' -> {plan.side}.",
-                plan.block);
-
-            Tween exitTween;
-            if (plan.directPieceTween)
+            while (cursor < exitOrder.Count && exitOrder[cursor].exitWave == wave)
             {
-                plan.block.transform.DOKill();
-                Vector3 destination = plan.block.transform.position +
-                                      (Vector3)(plan.direction.normalized * Mathf.Max(0.01f, plan.exitTravelDistance));
-                exitTween = plan.block.transform
-                    .DOMove(destination, Mathf.Max(0.01f, plan.exitDuration))
-                    .SetEase(Ease.InQuad)
-                    .SetUpdate(true);
+                CollapseExitPlan plan = exitOrder[cursor++];
+                if (plan == null || plan.block == null)
+                    continue;
+
+                PushOutgoingRenderersBehindBase(plan.block);
+                DisableOutgoingWalkable(plan.block);
+
+                float delay = plan.directPieceTween ? wavePieceStagger * waveIndex : 0f;
+                Debug.Log(
+                    $"[BattleStageFlow] Safe piece exit wave {wave}: '{plan.block.name}' -> {plan.side}, delay {delay:0.000}s.",
+                    plan.block);
+
+                if (plan.directPieceTween)
+                {
+                    plan.block.transform.DOKill();
+                    Vector3 destination = plan.block.transform.position +
+                                          (Vector3)(plan.direction.normalized * Mathf.Max(0.01f, plan.exitTravelDistance));
+                    Sequence sequence = DOTween.Sequence().SetUpdate(true);
+                    if (delay > 0f)
+                        sequence.AppendInterval(delay);
+                    sequence.Append(
+                        plan.block.transform
+                            .DOMove(destination, Mathf.Max(0.01f, plan.exitDuration))
+                            .SetEase(Ease.InOutCubic));
+                }
+                else
+                {
+                    Tween exitTween = plan.block.PlayExit(plan.direction);
+                    exitTween?.SetUpdate(true);
+                }
+
+                waveDuration = Mathf.Max(waveDuration, delay + Mathf.Max(0.01f, plan.exitDuration));
+                wavePlans.Add(plan);
+                waveIndex++;
             }
-            else
-            {
-                exitTween = plan.block.PlayExit(plan.direction);
-                exitTween?.SetUpdate(true);
-            }
 
-            // 안전 Rail은 이전 Piece가 완전히 빠진 상태를 기준으로 다음 Piece를 계산합니다.
-            // Procedural Piece는 별도의 고속 duration을 사용하므로 순차성을 유지해도 전체 수거가 길어지지 않습니다.
-            if (plan.exitDuration > 0f)
-                yield return new WaitForSecondsRealtime(plan.exitDuration);
+            if (waveDuration > 0f)
+                yield return new WaitForSecondsRealtime(waveDuration);
 
-            if (plan.block != null)
+            for (int i = 0; i < wavePlans.Count; i++)
             {
+                CollapseExitPlan plan = wavePlans[i];
+                if (plan?.block == null)
+                    continue;
+
                 plan.block.gameObject.SetActive(false);
                 Destroy(plan.block.gameObject);
             }
-
-            float resolvedStagger = plan.directPieceTween ? 0f : stagger;
-            if (resolvedStagger > 0f && i < exitOrder.Count - 1)
-                yield return new WaitForSecondsRealtime(resolvedStagger);
         }
 
         // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 ownership만 정식 retire합니다.
@@ -829,6 +844,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             bool hasPreferred = root.HasEntrySourceDirection;
             Vector2 preferred = root.LastEntrySourceDirection;
             float travelDistance = Mathf.Max(0.01f, root.ExitTravelDistance);
+            // Runtime Assembly는 ConfigureRuntimeDockingBlock에서 Entry/Exit 시간을 동일하게 맞춥니다.
             float duration = Mathf.Max(0.01f, root.ExitDuration);
 
             for (int pieceIndex = 0; pieceIndex < pieces.Count; pieceIndex++)
@@ -882,10 +898,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector2 preferredDirection)
     {
         Bounds aggregate = ResolveAggregateBounds(floorBounds, ResolveBlockBounds(block));
-        float resolvedDuration = directPieceTween
-            ? Mathf.Clamp(duration * 0.22f, 0.09f, 0.14f)
-            : Mathf.Max(0.01f, duration);
-
         return new CollapseExitPlan
         {
             block = block,
@@ -893,10 +905,11 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             floorBounds = floorBounds,
             entryOrder = entryOrder,
             exitTravelDistance = Mathf.Max(0.01f, travelDistance),
-            exitDuration = resolvedDuration,
+            exitDuration = Mathf.Max(0.01f, duration),
             directPieceTween = directPieceTween,
             hasPreferredExitDirection = hasPreferredDirection,
-            preferredExitDirection = preferredDirection
+            preferredExitDirection = preferredDirection,
+            exitWave = 0
         };
     }
 
@@ -941,15 +954,16 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         List<CollapseExitPlan> result = new();
         int[] sideUsage = new int[4];
         float baseSpan = Mathf.Max(baseBounds.size.x, baseBounds.size.y);
+        int waveIndex = 0;
 
         while (remaining.Count > 0)
         {
             HashSet<Vector2Int> occupiedCells = BuildExitOccupiedCells(remaining);
-            CollapseExitPlan chosen = null;
-            CollapseExitSide chosenSide = CollapseExitSide.Left;
+            HashSet<Vector2Int> reservedPathCells = new();
+            List<CollapseExitPlan> wavePlans = new();
 
-            // 진입 역순을 우선합니다. 해당 Piece가 지금 빠질 수 없으면 그 앞 Piece를 검사합니다.
-            // 모든 Piece/장애물 Bounds를 연속 샘플링하지 않고 정수 Tile Cell만 조회합니다.
+            // 현재 점유 상태에서 독립적으로 빠질 수 있는 Piece를 한 Wave로 묶습니다.
+            // 같은 Wave끼리는 다른 Piece가 먼저 사라진다고 가정하지 않으며 이동 Rail도 서로 예약합니다.
             for (int index = remaining.Count - 1; index >= 0; index--)
             {
                 CollapseExitPlan plan = remaining[index];
@@ -960,7 +974,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 for (int sideIndex = 0; sideIndex < 4; sideIndex++)
                 {
                     CollapseExitSide side = (CollapseExitSide)sideIndex;
-                    if (!IsDiscreteExitPathSafe(plan, side, baseBounds, occupiedCells))
+                    if (!IsDiscreteExitPathSafe(plan, side, baseBounds, occupiedCells, reservedPathCells))
                         continue;
 
                     float score = ResolveSafeExitScore(plan, side, baseBounds, sideUsage, baseSpan);
@@ -975,20 +989,26 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 if (!foundSide)
                     continue;
 
-                chosen = plan;
-                chosenSide = bestSide;
-                break;
+                plan.side = bestSide;
+                plan.direction = DirectionFor(bestSide);
+                plan.outwardDistance = ResolveOutwardDistance(plan.bounds, baseBounds, bestSide);
+                plan.exitWave = waveIndex;
+                ReserveDiscreteExitPath(plan, bestSide, reservedPathCells);
+                wavePlans.Add(plan);
+                sideUsage[(int)bestSide]++;
             }
 
-            if (chosen == null)
+            if (wavePlans.Count == 0)
                 break;
 
-            chosen.side = chosenSide;
-            chosen.direction = DirectionFor(chosenSide);
-            chosen.outwardDistance = ResolveOutwardDistance(chosen.bounds, baseBounds, chosenSide);
-            result.Add(chosen);
-            sideUsage[(int)chosenSide]++;
-            remaining.Remove(chosen);
+            for (int i = 0; i < wavePlans.Count; i++)
+            {
+                CollapseExitPlan plan = wavePlans[i];
+                result.Add(plan);
+                remaining.Remove(plan);
+            }
+
+            waveIndex++;
         }
 
         return result;
@@ -1017,7 +1037,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         CollapseExitPlan plan,
         CollapseExitSide side,
         Bounds baseBounds,
-        HashSet<Vector2Int> occupiedCells)
+        HashSet<Vector2Int> occupiedCells,
+        HashSet<Vector2Int> reservedPathCells)
     {
         if (plan == null || plan.block == null || plan.floorBounds == null || plan.floorBounds.Count == 0)
             return false;
@@ -1038,10 +1059,34 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
                 if (occupiedCells.Contains(targetCell) && !PlanContainsCell(plan, targetCell))
                     return false;
+
+                if (reservedPathCells != null && reservedPathCells.Contains(targetCell))
+                    return false;
             }
         }
 
         return true;
+    }
+
+    private static void ReserveDiscreteExitPath(
+        CollapseExitPlan plan,
+        CollapseExitSide side,
+        HashSet<Vector2Int> reservedPathCells)
+    {
+        if (plan == null || plan.floorBounds == null || reservedPathCells == null)
+            return;
+
+        Vector2Int stepDirection = CellDirectionFor(side);
+        float tileSize = Mathf.Max(0.0001f, RoomBaseTemplate.TileWorldSize);
+        int steps = Mathf.Max(1, Mathf.CeilToInt(plan.exitTravelDistance / tileSize));
+
+        for (int b = 0; b < plan.floorBounds.Count; b++)
+        {
+            Vector2Int sourceCell = WorldToTile(plan.floorBounds[b].center);
+            reservedPathCells.Add(sourceCell);
+            for (int step = 1; step <= steps; step++)
+                reservedPathCells.Add(sourceCell + stepDirection * step);
+        }
     }
 
     private static bool PlanContainsCell(CollapseExitPlan plan, Vector2Int cell)
@@ -1080,58 +1125,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
     }
 
-    private List<CollapseExitPlan> BuildSafeExitOrder(List<CollapseExitPlan> exitUnits, Bounds baseBounds)
-    {
-        List<CollapseExitPlan> remaining = exitUnits != null
-            ? new List<CollapseExitPlan>(exitUnits)
-            : new List<CollapseExitPlan>();
-
-        List<CollapseExitPlan> result = new();
-        int[] sideUsage = new int[4];
-        float baseSpan = Mathf.Max(baseBounds.size.x, baseBounds.size.y);
-
-        while (remaining.Count > 0)
-        {
-            CollapseExitPlan chosen = null;
-            CollapseExitSide chosenSide = CollapseExitSide.Left;
-            float chosenScore = float.PositiveInfinity;
-
-            // Piece가 속했던 Assembly의 실제 진입 Rail을 우선하되,
-            // 현재 4x4와 아직 남아 있는 Piece를 통과하지 않는 Rail만 후보로 사용합니다.
-            for (int index = remaining.Count - 1; index >= 0; index--)
-            {
-                CollapseExitPlan plan = remaining[index];
-                for (int sideIndex = 0; sideIndex < 4; sideIndex++)
-                {
-                    CollapseExitSide side = (CollapseExitSide)sideIndex;
-                    Vector2 direction = DirectionFor(side);
-                    if (!IsExitPathSafe(plan, direction, baseBounds, remaining))
-                        continue;
-
-                    float score = ResolveSafeExitScore(plan, side, baseBounds, sideUsage, baseSpan);
-                    if (score >= chosenScore)
-                        continue;
-
-                    chosen = plan;
-                    chosenSide = side;
-                    chosenScore = score;
-                }
-            }
-
-            if (chosen == null)
-                break;
-
-            chosen.side = chosenSide;
-            chosen.direction = DirectionFor(chosenSide);
-            chosen.outwardDistance = ResolveOutwardDistance(chosen.bounds, baseBounds, chosenSide);
-            result.Add(chosen);
-            sideUsage[(int)chosenSide]++;
-            remaining.Remove(chosen);
-        }
-
-        return result;
-    }
-
     private static float ResolveSafeExitScore(
         CollapseExitPlan plan,
         CollapseExitSide side,
@@ -1160,116 +1153,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         // 같은 조건이면 나중에 들어온 Assembly/Piece를 먼저 빼서 진입 역순을 유지합니다.
         score -= plan.entryOrder * baseSpan * 0.00008f;
         return score;
-    }
-
-    private static bool IsExitPathSafe(
-        CollapseExitPlan plan,
-        Vector2 direction,
-        Bounds baseBounds,
-        List<CollapseExitPlan> remaining)
-    {
-        if (plan == null || plan.block == null || direction.sqrMagnitude <= 0.001f)
-            return false;
-
-        // Persistent 4x4로 흡수되어 보이는 Floor가 하나도 남지 않은 Piece는
-        // ExpandRoomExitUnits에서 이미 제거되므로 여기에는 실제 이동할 Floor만 들어옵니다.
-        if (plan.floorBounds == null || plan.floorBounds.Count == 0)
-            return true;
-
-        Vector2 dir = direction.normalized;
-        float distance = Mathf.Max(0.01f, plan.exitTravelDistance);
-        List<Bounds> movingBounds = plan.floorBounds;
-
-        for (int i = 0; i < movingBounds.Count; i++)
-        {
-            if (!PathDoesNotEnterObstacle(movingBounds[i], baseBounds, dir, distance, true))
-                return false;
-        }
-
-        for (int r = 0; r < remaining.Count; r++)
-        {
-            CollapseExitPlan blocker = remaining[r];
-            if (blocker == null || blocker == plan || blocker.floorBounds == null || blocker.floorBounds.Count == 0)
-                continue;
-
-            for (int m = 0; m < movingBounds.Count; m++)
-            {
-                for (int b = 0; b < blocker.floorBounds.Count; b++)
-                {
-                    if (!PathDoesNotEnterObstacle(movingBounds[m], blocker.floorBounds[b], dir, distance, false))
-                        return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    private static bool PathDoesNotEnterObstacle(
-        Bounds movingStart,
-        Bounds obstacle,
-        Vector2 direction,
-        float distance,
-        bool requireOutwardWhenOverlapping)
-    {
-        const float clearance = 0.035f;
-        const float overlapEpsilon = 0.0005f;
-
-        float tileSize = Mathf.Max(0.1f, RoomBaseTemplate.TileWorldSize);
-        int samples = Mathf.Clamp(
-            Mathf.CeilToInt(distance / Mathf.Max(0.05f, tileSize * 0.28f)),
-            14,
-            256);
-
-        float initialOverlap = OverlapArea2D(movingStart, obstacle, clearance);
-        if (initialOverlap > overlapEpsilon && requireOutwardWhenOverlapping)
-        {
-            Vector2 fromObstacle = (Vector2)movingStart.center - (Vector2)obstacle.center;
-            if (fromObstacle.sqrMagnitude > 0.0001f && Vector2.Dot(fromObstacle.normalized, direction) <= 0.05f)
-                return false;
-        }
-
-        float previousOverlap = initialOverlap;
-        for (int sample = 1; sample <= samples; sample++)
-        {
-            float t = sample / (float)samples;
-            Bounds shifted = movingStart;
-            shifted.center += (Vector3)(direction * (distance * t));
-            float overlap = OverlapArea2D(shifted, obstacle, clearance);
-
-            if (initialOverlap <= overlapEpsilon)
-            {
-                if (overlap > overlapEpsilon)
-                    return false;
-            }
-            else if (overlap > previousOverlap + overlapEpsilon)
-            {
-                return false;
-            }
-
-            previousOverlap = overlap;
-        }
-
-        return true;
-    }
-
-    private static float OverlapArea2D(Bounds a, Bounds b, float clearance)
-    {
-        float safe = Mathf.Max(0f, clearance);
-        float aMinX = a.min.x + safe;
-        float aMaxX = a.max.x - safe;
-        float aMinY = a.min.y + safe;
-        float aMaxY = a.max.y - safe;
-        float bMinX = b.min.x + safe;
-        float bMaxX = b.max.x - safe;
-        float bMinY = b.min.y + safe;
-        float bMaxY = b.max.y - safe;
-
-        float width = Mathf.Min(aMaxX, bMaxX) - Mathf.Max(aMinX, bMinX);
-        float height = Mathf.Min(aMaxY, bMaxY) - Mathf.Max(aMinY, bMinY);
-        if (width <= 0f || height <= 0f)
-            return 0f;
-        return width * height;
     }
 
     private static List<Bounds> CollectExitFloorBounds(MapBlock block)
