@@ -2,6 +2,7 @@ Shader "UI/BattleAnalogTvOverlay"
 {
     Properties
     {
+        [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
         _Strength ("Strength", Range(0,1)) = 1
         _ScanlineStrength ("Scanline Strength", Range(0,0.25)) = 0.035
         _ScanlineSpacing ("Scanline Spacing Pixels", Range(1,12)) = 3
@@ -44,6 +45,7 @@ Shader "UI/BattleAnalogTvOverlay"
                 float2 uv : TEXCOORD0;
             };
 
+            sampler2D _MainTex;
             float _Strength;
             float _ScanlineStrength;
             float _ScanlineSpacing;
@@ -87,9 +89,10 @@ Shader "UI/BattleAnalogTvOverlay"
                 float2 edgeUv = (uv - 0.5) * float2(1.0, 0.82);
                 float edgeGlass = smoothstep(0.43, 0.68, length(edgeUv)) * 0.012;
 
+                float sourceAlpha = tex2D(_MainTex, uv).a;
                 float alpha = saturate(
                     _Strength *
-                    (scanline + noise + rollingBand + edgeGlass));
+                    (scanline + noise + rollingBand + edgeGlass)) * sourceAlpha;
 
                 return fixed4(_OverlayTint.rgb, alpha);
             }
