@@ -9,13 +9,14 @@ using UnityEngine.UI;
 /// Battle scene-level broadcast transition.
 ///
 /// This is intentionally NOT a room/stage transition effect.
-/// - Once when the battle scene itself loads: black screen -> diagonal reveal wipe while a very
-///   strong LensDistortion pulse settles like a broadcast/camera powering on.
+/// - The scene is covered in black immediately.
+/// - The intro reveal starts only after the battle runtime has finished its bootstrap work.
+/// - Once ready: diagonal reveal wipe + strong LensDistortion settles like a broadcast/camera powering on.
 /// - During the entire battle run: no scanline, static, CRT noise, LIVE bug, or per-stage effect.
 /// - Once when the whole battle run reaches Ended: diagonal black wipe covers the scene and stays black.
 ///
-/// The controller never changes Time.timeScale, camera transforms, world positions, tile motion,
-/// Room/Show state, or input. The distortion is a temporary global URP Volume override only.
+/// The black plate doubles as a bootstrap cover: runtime component installation, first-run setup,
+/// and the first Canvas rebuild happen before the player sees the scene.
 /// </summary>
 [DefaultExecutionOrder(34000)]
 [DisallowMultipleComponent]
@@ -25,9 +26,12 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
     private static BattleBroadcastTransitionController instance;
 
     [Header("Scene Start")]
-    [SerializeField, Min(0f)] private float sceneStartBlackHold = 0.06f;
+    [Tooltip("Bootstrap ready 이후에도 검정을 추가 유지할 시간입니다. 보통 0이면 충분합니다.")]
+    [SerializeField, Min(0f)] private float sceneStartBlackHold = 0f;
     [SerializeField, Min(0.01f)] private float sceneRevealWipeDuration = 0.24f;
     [SerializeField, Min(0.01f)] private float distortionSettleDuration = 0.72f;
+    [Tooltip("이 시간 안에 전투 Runtime이 준비되지 않으면 화면을 열지 않고 오류만 기록합니다.")]
+    [SerializeField, Min(1f)] private float bootstrapReadyTimeout = 10f;
 
     [Header("Strong Broadcast Distortion")]
     [SerializeField, Range(-1f, 1f)] private float distortionPeak = -0.92f;
@@ -47,6 +51,7 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
 
     private BattleStageTransitionController stageFlow;
     private Coroutine bindRoutine;
+    private Coroutine bootstrapRoutine;
     private Coroutine transitionRoutine;
 
     private Canvas overlayCanvas;
@@ -88,7 +93,6 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
         if (!scene.IsValid() || !scene.isLoaded)
             return;
 
-        // Only battle scenes own BattleSceneManager. Do not put the broadcast transition on menus/other scenes.
         BattleSceneManager[] managers = FindObjectsByType<BattleSceneManager>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
@@ -135,13 +139,15 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
 
     private void Start()
     {
-        PlaySceneStartOnce();
+        if (bootstrapRoutine == null)
+            bootstrapRoutine = StartCoroutine(WaitForBootstrapThenReveal());
     }
 
     private void OnEnable()
     {
         EnsureOverlay();
         EnsureDistortionVolume();
+        SetBlackImmediate(true);
 
         if (bindRoutine == null)
             bindRoutine = StartCoroutine(BindWhenReady());
@@ -151,10 +157,13 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
     {
         if (bindRoutine != null)
             StopCoroutine(bindRoutine);
+        if (bootstrapRoutine != null)
+            StopCoroutine(bootstrapRoutine);
         if (transitionRoutine != null)
             StopCoroutine(transitionRoutine);
 
         bindRoutine = null;
+        bootstrapRoutine = null;
         transitionRoutine = null;
         UnbindStageFlow();
         ResetDistortion();
@@ -170,6 +179,84 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
 
         if (instance == this)
             instance = null;
+    }
+
+    private IEnumerator WaitForBootstrapThenReveal()
+    {
+        SetBlackImmediate(true);
+        ResetDistortion();
+
+        float timeoutAt = Time.realtimeSinceStartup + Mathf.Max(1f, bootstrapReadyTimeout);
+        while (enabled && !sceneOutroStarted && Time.realtimeSinceStartup < timeoutAt)
+        {
+            if (IsBattleRuntimeReady())
+                break;
+
+            yield return null;
+        }
+
+        if (!enabled || sceneOutroStarted)
+        {
+            bootstrapRoutine = null;
+            yield break;
+        }
+
+        if (!IsBattleRuntimeReady())
+        {
+            Debug.LogError(
+                "[BattleBroadcastTransition] Battle runtime did not become ready before timeout. " +
+                "Keeping the scene covered in black instead of revealing an incomplete frame.",
+                this);
+            bootstrapRoutine = null;
+            yield break;
+        }
+
+        // Flush the first expensive UI rebuild while the scene is still completely covered.
+        Canvas.ForceUpdateCanvases();
+        yield return new WaitForEndOfFrame();
+
+        if (!enabled || sceneOutroStarted)
+        {
+            bootstrapRoutine = null;
+            yield break;
+        }
+
+        bootstrapRoutine = null;
+        PlaySceneStartOnce();
+    }
+
+    private bool IsBattleRuntimeReady()
+    {
+        BattleSceneManager manager = BattleSceneManager.Instance != null
+            ? BattleSceneManager.Instance
+            : FindFirstObjectByType<BattleSceneManager>(FindObjectsInactive.Include);
+        if (manager == null || manager.RunManager == null || manager.Player == null)
+            return false;
+
+        // Normal battle entry is auto-started by BattleSceneEntry. Requiring RunActive here means
+        // all synchronous StartRun work (including initial room setup) finishes under the black cover.
+        if (!manager.RunManager.RunActive)
+            return false;
+
+        if (Camera.main == null)
+            return false;
+
+        BattleStageTransitionController resolvedStageFlow = BattleStageTransitionController.Instance != null
+            ? BattleStageTransitionController.Instance
+            : FindFirstObjectByType<BattleStageTransitionController>(FindObjectsInactive.Include);
+        if (resolvedStageFlow == null)
+            return false;
+
+        if (FindFirstObjectByType<BattleCameraController>(FindObjectsInactive.Include) == null)
+            return false;
+        if (FindFirstObjectByType<BattleHUD>(FindObjectsInactive.Include) == null)
+            return false;
+        if (FindFirstObjectByType<BattleShowWorldSetController>(FindObjectsInactive.Include) == null)
+            return false;
+        if (FindFirstObjectByType<BattleSpotlightBeamDirectionController>(FindObjectsInactive.Include) == null)
+            return false;
+
+        return true;
     }
 
     private IEnumerator BindWhenReady()
@@ -201,7 +288,6 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
         stageFlow = resolved;
         stageFlow.FlowStateChanged += HandleFlowStateChanged;
 
-        // Late binding must still respect a run that already reached its terminal state.
         if (stageFlow.FlowState == BattleStageFlowState.Ended)
             PlaySceneEndWipeOnce();
     }
@@ -215,8 +301,6 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
 
     private void HandleFlowStateChanged(BattleStageFlowState next)
     {
-        // Deliberately ignore RoomEntering / Combat / RoomExiting / Reward / Map etc.
-        // This effect belongs to the entire battle scene, not to individual stage changes.
         if (next == BattleStageFlowState.Ended)
             PlaySceneEndWipeOnce();
     }
@@ -237,6 +321,13 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
             return;
 
         sceneOutroStarted = true;
+
+        if (bootstrapRoutine != null)
+        {
+            StopCoroutine(bootstrapRoutine);
+            bootstrapRoutine = null;
+        }
+
         StopTransition();
         transitionRoutine = StartCoroutine(SceneEndRoutine());
     }
@@ -260,8 +351,6 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
         if (sceneStartBlackHold > 0f)
             yield return WaitRealtime(sceneStartBlackHold);
 
-        // The whole scene starts as black. The black plate then wipes away while the camera image
-        // underneath begins heavily warped and settles with a damped "woooom" visual pulse.
         blackFill.gameObject.SetActive(false);
         wipeImage.gameObject.SetActive(true);
         wipeRect.localRotation = Quaternion.Euler(0f, 0f, wipeRotation);
@@ -319,7 +408,6 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
             yield return null;
         }
 
-        // Keep the final frame fully black until the battle scene is actually unloaded/replaced.
         SetBlackImmediate(true);
         wipeImage.gameObject.SetActive(false);
         transitionRoutine = null;
