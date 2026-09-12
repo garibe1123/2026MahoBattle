@@ -90,6 +90,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private bool selectionCollapsePrepared;
     private bool subscribed;
     private bool showStageGateHeld;
+    private bool collapseOpenShowOnComplete = true;
 
     private Coroutine bindRoutine;
     private Coroutine collapseRoutine;
@@ -308,7 +309,18 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 return;
 
             case BattleRunState.Ended:
-                SetFlowState(BattleStageFlowState.Ended);
+                // Clear End는 논리 Run이 먼저 끝나더라도 현재 Room의 물리 퇴장을 생략하지 않습니다.
+                // RunEnded 이벤트가 곧 Collapse를 시작하므로 그 사이에도 RoomExiting gate를 유지합니다.
+                if (HasCurrentRoomFieldToRetire())
+                {
+                    HoldShowStageGate();
+                    SetFlowState(BattleStageFlowState.RoomExiting);
+                }
+                else
+                {
+                    ReleaseShowStageGate();
+                    SetFlowState(BattleStageFlowState.Ended);
+                }
                 return;
 
             case BattleRunState.None:
@@ -364,6 +376,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         ResolveSystems();
         pendingShowState = showState;
+        collapseOpenShowOnComplete = true;
 
         if (collapseRoutine != null)
             return;
@@ -404,6 +417,23 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         ReleaseShowStageGate();
     }
 
+    private void CompleteCollapseDestination()
+    {
+        bool openShow = collapseOpenShowOnComplete;
+        collapseOpenShowOnComplete = true;
+
+        if (openShow)
+        {
+            OpenShowStage();
+            return;
+        }
+
+        preparedForIncomingNode = false;
+        selectionCollapsePrepared = false;
+        ReleaseShowStageGate();
+        SetFlowState(BattleStageFlowState.Ended);
+    }
+
     private IEnumerator CollapseClearedRoomToPlayerBase()
     {
         // 실제 RoomManager가 진입시킨 Assembly/MapBlock Root를 먼저 고정합니다.
@@ -413,13 +443,13 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         {
             Debug.LogWarning(
                 "[BattleStageFlow] RoomExiting started but BattleRoomManager owns no movement roots. " +
-                "Retiring empty room ownership before opening the show.",
+                "Retiring empty room ownership before completing the stage transition.",
                 this);
 
             roomManager?.CompleteAnimatedStageRetirement();
             CaptureShowAnchorFromBase();
             collapseRoutine = null;
-            OpenShowStage();
+            CompleteCollapseDestination();
             yield break;
         }
 
@@ -472,7 +502,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         Debug.Log(
-            $"[BattleStageFlow] Retiring {exitOrder.Count} visible combat room piece(s) in safe exit waves before {pendingShowState}.",
+            $"[BattleStageFlow] Retiring {exitOrder.Count} visible combat room piece(s) in safe exit waves before {(collapseOpenShowOnComplete ? pendingShowState.ToString() : "run end")}.",
             this);
 
         float wavePieceStagger = Mathf.Min(0.04f, Mathf.Max(0f, collapseExitStagger) * 0.35f);
@@ -548,8 +578,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         collapseRoutine = null;
 
-        // 3) 전투 Field의 실제 Exit와 Room ownership 정리가 모두 끝난 뒤에만 Show를 엽니다.
-        OpenShowStage();
+        // 3) 전투 Field의 실제 Exit와 Room ownership 정리가 모두 끝난 뒤 Show 또는 Ended로 진행합니다.
+        CompleteCollapseDestination();
     }
 
     private bool HasCurrentRoomFieldToRetire()
@@ -1404,13 +1434,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         selectionCollapsePrepared = false;
     }
 
-    private void HandleRunEnded(RunEndReason _)
+    private void HandleRunEnded(RunEndReason reason)
     {
-        if (collapseRoutine != null)
-        {
-            StopCoroutine(collapseRoutine);
-            collapseRoutine = null;
-        }
         if (queuedNodeEntryRoutine != null)
         {
             StopCoroutine(queuedNodeEntryRoutine);
@@ -1421,8 +1446,29 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         ResolveSystems();
         EnsureBaseVisible();
         EnsurePlayerVisible();
+
+        if (reason == RunEndReason.Clear && HasCurrentRoomFieldToRetire())
+        {
+            // 마지막 Node라도 정상 Combat Clear이면 다른 Stage와 동일한 4x4 승격/수거를 반드시 수행합니다.
+            // BattleRunManager는 Clear일 때 Room ownership을 여기까지 보존합니다.
+            collapseOpenShowOnComplete = false;
+            HoldShowStageGate();
+            SetFlowState(BattleStageFlowState.RoomExiting);
+
+            if (collapseRoutine == null)
+                collapseRoutine = StartCoroutine(CollapseClearedRoomToPlayerBase());
+            return;
+        }
+
+        if (collapseRoutine != null)
+        {
+            StopCoroutine(collapseRoutine);
+            collapseRoutine = null;
+        }
+
         preparedForIncomingNode = false;
         selectionCollapsePrepared = false;
+        collapseOpenShowOnComplete = true;
         ReleaseShowStageGate();
         SetFlowState(BattleStageFlowState.Ended);
     }
