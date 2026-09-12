@@ -18,29 +18,42 @@ public class RoomBaseTemplate : MonoBehaviour
     public const int FixedBaseTiles = 4;
     public const float TileWorldSize = 1f;
 
-    [Header("Systems")]
+    [Header("SYSTEM REFERENCES — 자동 연결")]
+    [Tooltip("현재 Run/Node 상태를 읽는 시스템입니다. 일반적으로 비워두면 BattleSceneManager가 자동 연결합니다.")]
     [SerializeField] private BattleRunManager runManager;
+    [Tooltip("Room 생성/퇴장 상태를 읽는 시스템입니다. 일반적으로 비워두면 BattleSceneManager가 자동 연결합니다.")]
     [SerializeField] private BattleRoomManager roomManager;
 
-    [Header("Base Transform")]
+    [Header("BASE TRANSFORM — 생성 위치")]
+    [Tooltip("Persistent 4x4의 기준 원점입니다. 일반적으로 RoomSystem/RoomOrigin이 자동 연결됩니다.")]
     [SerializeField] private Transform baseOrigin;
+    [Tooltip("Persistent 4x4 오브젝트가 실제로 생성될 부모입니다. 일반적으로 RoomSystem/MapRoot가 자동 연결됩니다.")]
     [SerializeField] private Transform baseRoot;
 
-    [Header("Persistent Start Base")]
+    [Header("PERSISTENT 4x4 — 유지 / 이동 규칙")]
+    [Tooltip("Room이 바뀌어도 현재 4x4 Base를 유지합니다. 이 프로젝트에서는 기본적으로 켜두는 값입니다.")]
     [SerializeField] private bool keepAcrossRooms = true;
+    [Tooltip("4x4 Base 자체를 NavMesh에서 걸을 수 있는 바닥으로 사용할지 결정합니다. 끄면 Base 위 이동이 막힐 수 있습니다.")]
     [SerializeField] private bool baseProvidesWalkableNavMesh = true;
 
-    [Header("Real Base Visual - both null = runtime dummy")]
+    [Header("BASE VISUAL — Prefab / Sprite / Material")]
+    [Tooltip("4x4 Base 전체를 하나의 Prefab으로 사용할 때 지정합니다. 지정하면 Base Sprite보다 우선합니다.")]
     [SerializeField] private GameObject basePrefab;
+    [Tooltip("Prefab을 사용하지 않을 때 4x4 Base에 반복해서 표시할 Sprite입니다. Prefab과 Sprite가 모두 비어 있으면 Runtime Dummy를 사용합니다.")]
     [SerializeField] private Sprite baseSprite;
+    [Tooltip("Base SpriteRenderer에 사용할 Material입니다. 비어 있으면 SpriteRenderer 기본 Material을 사용합니다.")]
     [SerializeField] private Material baseMaterial;
+    [Tooltip("Persistent Base 기본 Sorting Order입니다. Floor/Handle PresentationTemplate은 자체 Sorting 규칙을 우선합니다.")]
     [SerializeField] private int sortingOrder = -19;
 
-    [Header("Sizing")]
+    [Header("BASE SIZING — 4x4 맞춤 방식")]
+    [Tooltip("SpriteRenderer를 Tiled 방식으로 정확히 4x4 월드 크기에 맞춥니다. 32px 타일 Sprite에는 켜두는 것을 권장합니다.")]
     [SerializeField] private bool tileSpriteToTemplate = true;
+    [Tooltip("Base Prefab 사용 시 Renderer Bounds가 정확히 4x4가 되도록 Prefab 전체 Scale을 자동 보정합니다.")]
     [SerializeField] private bool scalePrefabToTemplate = true;
 
-    [Header("Dummy Base")]
+    [Header("DUMMY BASE — 아트 미지정 fallback")]
+    [Tooltip("Base Prefab과 Base Sprite가 모두 비어 있을 때 생성되는 Runtime Dummy 4x4의 색상입니다.")]
     [SerializeField] private Color dummyBaseColor = new(0.18f, 0.21f, 0.25f, 1f);
 
     private GameObject activeBase;
