@@ -497,12 +497,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         synergySummary = CreateText(detailRoot, "GRID LINK 0", 15, FontStyle.Bold, TextAnchor.LowerLeft, accentYellow);
         SetAnchors(synergySummary.rectTransform, new Vector2(0.07f, 0.08f), new Vector2(0.94f, 0.37f));
 
-        boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(720f, 650f));
+        // PACK은 카드 목록이 아니라 3x3 장비 타일 보드이므로 Board와 Cell 모두 정사각형 비율을 유지합니다.
+        boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
         boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
         boardRoot.anchoredPosition = Vector2.zero;
         boardRoot.localRotation = Quaternion.Euler(0f, 0f, -4f);
 
-        RectTransform boardBack = CreateRect(boardRoot, "BoardBack", new Vector2(680f, 610f));
+        RectTransform boardBack = CreateRect(boardRoot, "BoardBack", new Vector2(632f, 632f));
         boardBack.anchorMin = boardBack.anchorMax = new Vector2(0.5f, 0.5f);
         Image boardBackImage = boardBack.gameObject.AddComponent<Image>();
         boardBackImage.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.96f);
@@ -511,27 +512,24 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardOutline.effectColor = inkColor;
         boardOutline.effectDistance = new Vector2(8f, -8f);
 
-        linkRoot = CreateRect(boardRoot, "SynergyLinks", new Vector2(680f, 610f));
+        linkRoot = CreateRect(boardRoot, "SynergyLinks", new Vector2(632f, 632f));
         linkRoot.anchorMin = linkRoot.anchorMax = new Vector2(0.5f, 0.5f);
 
-        const float cellW = 184f;
-        const float cellH = 158f;
-        const float spacingX = 22f;
-        const float spacingY = 20f;
-        float totalW = GridSize * cellW + (GridSize - 1) * spacingX;
-        float totalH = GridSize * cellH + (GridSize - 1) * spacingY;
-        float left = -totalW * 0.5f + cellW * 0.5f;
-        float top = totalH * 0.5f - cellH * 0.5f;
+        const float cellSize = 184f;
+        const float spacing = 18f;
+        float totalSize = GridSize * cellSize + (GridSize - 1) * spacing;
+        float left = -totalSize * 0.5f + cellSize * 0.5f;
+        float top = totalSize * 0.5f - cellSize * 0.5f;
 
         for (int i = 0; i < SlotCount; i++)
         {
             int x = i % GridSize;
             int y = i / GridSize;
-            RectTransform slot = CreateRect(boardRoot, $"GridSlot_{i}", new Vector2(cellW, cellH));
+            RectTransform slot = CreateRect(boardRoot, $"GridSlot_{i}", new Vector2(cellSize, cellSize));
             slot.anchorMin = slot.anchorMax = new Vector2(0.5f, 0.5f);
             slot.anchoredPosition = new Vector2(
-                left + x * (cellW + spacingX),
-                top - y * (cellH + spacingY));
+                left + x * (cellSize + spacing),
+                top - y * (cellSize + spacing));
             slot.localRotation = Quaternion.Euler(0f, 0f, ((i % 3) - 1) * 1.4f);
             slotRects[i] = slot;
 
@@ -544,22 +542,22 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             outline.effectColor = new Color(0f, 0f, 0f, 0.75f);
             outline.effectDistance = new Vector2(4f, -4f);
 
-            Image icon = CreateImage(slot, "Icon", new Vector2(78f, 78f));
-            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.28f, 0.60f);
+            Image icon = CreateImage(slot, "Icon", new Vector2(88f, 88f));
+            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.30f, 0.64f);
             icon.preserveAspect = true;
             icon.raycastTarget = false;
             slotIcons[i] = icon;
 
             Text name = CreateText(slot, "EMPTY", 13, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-            SetAnchors(name.rectTransform, new Vector2(0.50f, 0.42f), new Vector2(0.96f, 0.80f));
+            SetAnchors(name.rectTransform, new Vector2(0.52f, 0.43f), new Vector2(0.94f, 0.80f));
             slotNames[i] = name;
 
             Text grade = CreateText(slot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperRight, accentYellow);
-            SetAnchors(grade.rectTransform, new Vector2(0.63f, 0.76f), new Vector2(0.94f, 0.94f));
+            SetAnchors(grade.rectTransform, new Vector2(0.64f, 0.80f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
 
             Text state = CreateText(slot, $"{x + 1}-{y + 1}", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
-            SetAnchors(state.rectTransform, new Vector2(0.08f, 0.08f), new Vector2(0.94f, 0.30f));
+            SetAnchors(state.rectTransform, new Vector2(0.08f, 0.07f), new Vector2(0.94f, 0.27f));
             slotStates[i] = state;
         }
     }
@@ -732,7 +730,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private Color ResolveLinkColor(BattleGridSynergyKind kind)
     {
-        return kind switch
+        return link.kind switch
         {
             BattleGridSynergyKind.DetonationChain => accentPink,
             BattleGridSynergyKind.PrecisionCircuit => accentYellow,
