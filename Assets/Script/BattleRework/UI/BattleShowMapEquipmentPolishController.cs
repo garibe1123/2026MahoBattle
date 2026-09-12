@@ -15,6 +15,9 @@ using UnityEngine.UI;
 /// 기존 SO / Sprite / Scene 직렬화 데이터를 삭제하거나 교체하지 않습니다.
 /// 장비 위치 변경은 기존 BattleEquipmentSystem.SwapSlots를 그대로 사용하므로
 /// 대상 칸에 장비가 있으면 서로 자리를 맞바꿉니다.
+///
+/// Map Node의 Graphic/Text는 Hover 대상이 실제로 바뀌었을 때만 다시 씁니다.
+/// 커서가 같은 노드 위에 머무는 동안에는 World Space Canvas를 매 프레임 dirty시키지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32790)]
@@ -55,6 +58,8 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     private AudioSource swapAudioSource;
     private AudioClip swapClip;
     private BattleEquipmentSystem subscribedEquipment;
+    private RectTransform lastHoveredNode;
+    private bool wasMapSelection;
     private int lastEquippedSlot = -2;
     private float nextMapResolve;
 
@@ -72,13 +77,15 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         EnsureRoomIcons();
         SubscribeEquipment();
         nextMapResolve = 0f;
+        wasMapSelection = false;
+        lastHoveredNode = null;
     }
 
     private void OnDisable()
     {
         UnsubscribeEquipment();
-        battleHud?.SetMapCursorFocus(false);
-        battleCamera?.SetMapCursorTracking(false, Vector2.zero);
+        ClearMapHoverState();
+        wasMapSelection = false;
     }
 
     private void OnDestroy()
@@ -107,13 +114,30 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (enableTabMouseWheel)
             UpdateTabWheelInput();
 
-        if (!IsMapSelection())
+        bool mapSelection = IsMapSelection();
+        if (!mapSelection)
+        {
+            if (wasMapSelection)
+                ClearMapHoverState();
+            wasMapSelection = false;
             return;
+        }
 
+        if (!wasMapSelection)
+        {
+            wasMapSelection = true;
+            nextMapResolve = 0f;
+            ResolveMapNodes();
+            nextMapResolve = Time.unscaledTime + Mathf.Max(0.03f, mapResolveInterval);
+            return;
+        }
+
+        // Map hierarchy는 선택 화면 동안 정적입니다. 실제 참조가 사라졌을 때만 저주기로 다시 바인딩합니다.
         if (Time.unscaledTime >= nextMapResolve)
         {
             nextMapResolve = Time.unscaledTime + Mathf.Max(0.03f, mapResolveInterval);
-            ResolveMapNodes();
+            if (NeedsMapNodeResolve())
+                ResolveMapNodes();
         }
     }
 
@@ -149,12 +173,25 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.SelectingNode;
     }
 
+    private bool NeedsMapNodeResolve()
+    {
+        if (mapContent == null || !mapContent.gameObject.activeInHierarchy || mapNodes.Count == 0)
+            return true;
+
+        for (int i = 0; i < mapNodes.Count; i++)
+            if (mapNodes[i] == null)
+                return true;
+
+        return false;
+    }
+
     private void ResolveMapNodes()
     {
         if (mapContent == null || !mapContent.gameObject.activeInHierarchy)
             mapContent = FindRect(MapContentName);
 
         mapNodes.Clear();
+        lastHoveredNode = null;
         if (mapContent == null)
             return;
 
@@ -167,6 +204,10 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
             mapNodes.Add(rect);
             EnsureNodeIcon(rect);
+
+            Button button = rect.GetComponent<Button>();
+            bool selectable = button != null && button.interactable;
+            ApplyNodeVisual(rect, selectable, false);
         }
     }
 
@@ -188,23 +229,39 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
             Button button = node.GetComponent<Button>();
             bool selectable = button != null && button.interactable;
+            if (!selectable)
+                continue;
+
             RectTransform hitRect = node.Find(PointerHitAreaName) as RectTransform;
             if (hitRect == null)
                 hitRect = node;
 
-            bool hovered = selectable && RectTransformUtility.RectangleContainsScreenPoint(
-                hitRect,
-                Input.mousePosition,
-                eventCamera);
-
-            if (hovered)
+            if (RectTransformUtility.RectangleContainsScreenPoint(hitRect, Input.mousePosition, eventCamera))
+            {
                 hoveredNode = node;
-
-            ApplyNodeVisual(node, selectable, hovered);
+                break;
+            }
         }
 
+        if (hoveredNode == lastHoveredNode)
+            return;
+
+        if (lastHoveredNode != null)
+        {
+            Button oldButton = lastHoveredNode.GetComponent<Button>();
+            ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+        }
+
+        if (hoveredNode != null)
+        {
+            Button newButton = hoveredNode.GetComponent<Button>();
+            ApplyNodeVisual(hoveredNode, newButton != null && newButton.interactable, true);
+        }
+
+        lastHoveredNode = hoveredNode;
+
         // 기존 SpatialMapController는 Map 패널 전체에 커서가 들어오면 Focus를 켭니다.
-        // 여기서 마지막 정책을 덮어써 실제 선택 가능한 Node 위에 있을 때만 반응하게 합니다.
+        // 여기서 실제 선택 가능한 Node가 바뀌는 순간에만 마지막 정책을 갱신합니다.
         bool hasHoveredNode = hoveredNode != null;
         battleHud?.SetMapCursorFocus(hasHoveredNode);
 
@@ -215,6 +272,19 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
                 : Vector2.zero;
             battleCamera.SetMapCursorTracking(hasHoveredNode, normalized);
         }
+    }
+
+    private void ClearMapHoverState()
+    {
+        if (lastHoveredNode != null)
+        {
+            Button oldButton = lastHoveredNode.GetComponent<Button>();
+            ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+            lastHoveredNode = null;
+        }
+
+        battleHud?.SetMapCursorFocus(false);
+        battleCamera?.SetMapCursorTracking(false, Vector2.zero);
     }
 
     private void ApplyNodeVisual(RectTransform node, bool selectable, bool hovered)
@@ -267,8 +337,10 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
         if (icon != null)
         {
-            icon.sprite = ResolveIcon(type);
-            icon.enabled = icon.sprite != null;
+            Sprite targetSprite = ResolveIcon(type);
+            if (icon.sprite != targetSprite)
+                icon.sprite = targetSprite;
+            icon.enabled = targetSprite != null;
             icon.color = hovered
                 ? inkColor
                 : current
