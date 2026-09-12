@@ -122,6 +122,8 @@ public class MapBlock : MonoBehaviour
         entryType = MapBlockEntryType.WheelSlide;
         entryDuration = Mathf.Max(0.05f, duration);
         entryOffset = Mathf.Max(0f, offset);
+        exitDuration = entryDuration;
+        exitEase = Ease.InOutCubic;
         impactStrength = Mathf.Max(0f, strength);
         approachRumbleDegrees = Mathf.Min(approachRumbleDegrees, 0.35f);
         impactReboundDistance = Mathf.Min(impactReboundDistance, 0.04f);
