@@ -11,6 +11,7 @@ using UnityEngine.UI;
 /// - PACK 위치는 기존 Inventory 시스템이 계속 소유합니다. 이 Controller는 PACK의 Scale/Rotation/Alpha만 보정합니다.
 /// - Mission은 FanMissionSystem의 기존 Runtime 데이터를 읽기만 합니다.
 /// - 댓글 문자열은 출력하지 않고 RunProgressSystem의 Viewers / Likes만 우측 상단 Bar에 표시합니다.
+/// - Layout Tween은 Focus가 바뀐 동안에만 실행하고 목표값에 도달하면 RectTransform 쓰기를 완전히 멈춥니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33440)]
@@ -118,9 +119,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private DashboardFocus focus = DashboardFocus.Pack;
     private int selectedMissionIndex = -1;
     private int hoveredMissionIndex = -1;
-    private bool subscribed;
     private bool dashboardWasOpen;
-    private float nextResolveAt;
+    private bool layoutDirty;
+    private float nextReferenceResolveAt;
+    private float nextUiResolveAt;
+    private float nextTimerRefreshAt;
+
+    private FanMissionSystem subscribedMissionSystem;
+    private RunProgressSystem subscribedRunProgress;
 
     private void Awake()
     {
@@ -132,8 +138,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         ResolveReferences();
         Subscribe();
-        nextResolveAt = 0f;
+        nextReferenceResolveAt = 0f;
+        nextUiResolveAt = 0f;
+        nextTimerRefreshAt = 0f;
         dashboardWasOpen = false;
+        layoutDirty = true;
         focus = DashboardFocus.Pack;
     }
 
@@ -159,6 +168,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 dashboardWasOpen = false;
                 focus = DashboardFocus.Pack;
                 hoveredMissionIndex = -1;
+                layoutDirty = true;
                 ResetPackVisual();
                 if (dashboardRoot != null)
                     dashboardRoot.gameObject.SetActive(false);
@@ -170,6 +180,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         {
             dashboardWasOpen = true;
             focus = DashboardFocus.Pack;
+            layoutDirty = true;
             if (dashboardRoot != null)
                 dashboardRoot.gameObject.SetActive(true);
             RefreshMissionData();
@@ -177,7 +188,15 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         }
 
         TrackCursorFocus();
-        AnimateLayout();
+
+        if (layoutDirty)
+            AnimateLayout();
+
+        if (focus == DashboardFocus.Mission && Time.unscaledTime >= nextTimerRefreshAt)
+        {
+            nextTimerRefreshAt = Time.unscaledTime + 0.10f;
+            RefreshMissionDetail();
+        }
     }
 
     private bool IsDashboardOpen()
@@ -260,7 +279,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         if (focus == next)
             return;
+
         focus = next;
+        layoutDirty = true;
+        nextTimerRefreshAt = 0f;
         RefreshMissionRowVisuals();
     }
 
@@ -272,6 +294,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
 
         selectedMissionIndex = index;
+        nextTimerRefreshAt = 0f;
         RefreshMissionDetail();
         RefreshMissionRowVisuals();
     }
@@ -280,48 +303,104 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         float t = 1f - Mathf.Exp(-Mathf.Max(1f, layoutSharpness) * Time.unscaledDeltaTime);
         bool missionFocused = focus == DashboardFocus.Mission;
+        bool settled = true;
+
+        float targetPackScale = missionFocused ? missionFocusedPackScale : packFocusedScale;
+        float targetPackAlpha = missionFocused ? missionFocusedPackAlpha : packFocusedAlpha;
+        float targetPackRotation = missionFocused ? missionFocusedPackRotation : packFocusedRotation;
+        Vector2 targetMissionSize = missionFocused ? focusedMissionSize : compactMissionSize;
+        float targetMissionAlpha = missionFocused ? 1f : compactMissionAlpha;
+        float targetDetailAlpha = missionFocused && selectedMissionIndex >= 0 ? 1f : 0f;
 
         if (packBoard != null)
         {
-            float targetScale = missionFocused ? missionFocusedPackScale : packFocusedScale;
-            Vector3 target = Vector3.one * targetScale;
-            packBoard.localScale = Vector3.Lerp(packBoard.localScale, target, t);
+            Vector3 targetScale = Vector3.one * targetPackScale;
+            Vector3 nextScale = Vector3.Lerp(packBoard.localScale, targetScale, t);
+            if ((nextScale - targetScale).sqrMagnitude <= 0.000001f)
+                nextScale = targetScale;
+            else
+                settled = false;
+            if ((packBoard.localScale - nextScale).sqrMagnitude > 0.0000001f)
+                packBoard.localScale = nextScale;
 
-            float targetRotation = missionFocused ? missionFocusedPackRotation : packFocusedRotation;
             float currentRotation = NormalizeAngle(packBoard.localEulerAngles.z);
-            float nextRotation = Mathf.LerpAngle(currentRotation, targetRotation, t);
-            packBoard.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
+            float nextRotation = Mathf.LerpAngle(currentRotation, targetPackRotation, t);
+            if (Mathf.Abs(Mathf.DeltaAngle(nextRotation, targetPackRotation)) <= 0.01f)
+                nextRotation = targetPackRotation;
+            else
+                settled = false;
+            if (Mathf.Abs(Mathf.DeltaAngle(currentRotation, nextRotation)) > 0.001f)
+                packBoard.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
         }
 
         if (packBoardGroup != null)
         {
-            float targetAlpha = missionFocused ? missionFocusedPackAlpha : packFocusedAlpha;
-            packBoardGroup.alpha = Mathf.Lerp(packBoardGroup.alpha, targetAlpha, t);
+            float nextAlpha = Mathf.Lerp(packBoardGroup.alpha, targetPackAlpha, t);
+            if (Mathf.Abs(nextAlpha - targetPackAlpha) <= 0.001f)
+                nextAlpha = targetPackAlpha;
+            else
+                settled = false;
+            if (!Mathf.Approximately(packBoardGroup.alpha, nextAlpha))
+                packBoardGroup.alpha = nextAlpha;
         }
 
         if (missionPanel != null)
         {
-            Vector2 targetSize = missionFocused ? focusedMissionSize : compactMissionSize;
-            missionPanel.sizeDelta = Vector2.Lerp(missionPanel.sizeDelta, targetSize, t);
-            missionPanel.anchoredPosition = Vector2.Lerp(missionPanel.anchoredPosition, missionPanelOffset, t);
-            missionPanel.localRotation = Quaternion.Euler(0f, 0f, missionPanelRotation);
+            Vector2 nextSize = Vector2.Lerp(missionPanel.sizeDelta, targetMissionSize, t);
+            if ((nextSize - targetMissionSize).sqrMagnitude <= 0.01f)
+                nextSize = targetMissionSize;
+            else
+                settled = false;
+            if ((missionPanel.sizeDelta - nextSize).sqrMagnitude > 0.0001f)
+                missionPanel.sizeDelta = nextSize;
+
+            Vector2 nextPosition = Vector2.Lerp(missionPanel.anchoredPosition, missionPanelOffset, t);
+            if ((nextPosition - missionPanelOffset).sqrMagnitude <= 0.01f)
+                nextPosition = missionPanelOffset;
+            else
+                settled = false;
+            if ((missionPanel.anchoredPosition - nextPosition).sqrMagnitude > 0.0001f)
+                missionPanel.anchoredPosition = nextPosition;
+
+            float currentRotation = NormalizeAngle(missionPanel.localEulerAngles.z);
+            if (Mathf.Abs(Mathf.DeltaAngle(currentRotation, missionPanelRotation)) > 0.001f)
+                missionPanel.localRotation = Quaternion.Euler(0f, 0f, missionPanelRotation);
         }
 
         if (missionPanelGroup != null)
         {
-            float targetAlpha = missionFocused ? 1f : compactMissionAlpha;
-            missionPanelGroup.alpha = Mathf.Lerp(missionPanelGroup.alpha, targetAlpha, t);
+            float nextAlpha = Mathf.Lerp(missionPanelGroup.alpha, targetMissionAlpha, t);
+            if (Mathf.Abs(nextAlpha - targetMissionAlpha) <= 0.001f)
+                nextAlpha = targetMissionAlpha;
+            else
+                settled = false;
+            if (!Mathf.Approximately(missionPanelGroup.alpha, nextAlpha))
+                missionPanelGroup.alpha = nextAlpha;
         }
 
-        if (missionDetailGroup != null)
+        if (missionDetailGroup != null && missionDetailRoot != null)
         {
-            float targetAlpha = missionFocused && selectedMissionIndex >= 0 ? 1f : 0f;
-            missionDetailGroup.alpha = Mathf.Lerp(missionDetailGroup.alpha, targetAlpha, t);
-            float detailScale = Mathf.Lerp(0.92f, 1f, missionDetailGroup.alpha);
-            missionDetailRoot.localScale = Vector3.one * detailScale;
+            float nextAlpha = Mathf.Lerp(missionDetailGroup.alpha, targetDetailAlpha, t);
+            if (Mathf.Abs(nextAlpha - targetDetailAlpha) <= 0.001f)
+                nextAlpha = targetDetailAlpha;
+            else
+                settled = false;
+            if (!Mathf.Approximately(missionDetailGroup.alpha, nextAlpha))
+                missionDetailGroup.alpha = nextAlpha;
+
+            float targetDetailScale = targetDetailAlpha > 0.5f ? 1f : 0.92f;
+            Vector3 detailTarget = Vector3.one * targetDetailScale;
+            Vector3 nextScale = Vector3.Lerp(missionDetailRoot.localScale, detailTarget, t);
+            if ((nextScale - detailTarget).sqrMagnitude <= 0.000001f)
+                nextScale = detailTarget;
+            else
+                settled = false;
+            if ((missionDetailRoot.localScale - nextScale).sqrMagnitude > 0.0000001f)
+                missionDetailRoot.localScale = nextScale;
         }
 
         LayoutMissionRows(missionFocused);
+        layoutDirty = !settled;
     }
 
     private void ResetPackVisual()
@@ -339,10 +418,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         if (runManager != null && fanMissionSystem != null && runProgress != null && kineticLoadout != null)
             return;
-        if (Time.unscaledTime < nextResolveAt)
+        if (Time.unscaledTime < nextReferenceResolveAt)
             return;
 
-        nextResolveAt = Time.unscaledTime + 0.25f;
+        nextReferenceResolveAt = Time.unscaledTime + 0.25f;
         ResolveReferences();
     }
 
@@ -362,10 +441,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         if (fullRoot != null && packBoard != null && dashboardRoot != null)
             return;
-        if (Time.unscaledTime < nextResolveAt)
+        if (Time.unscaledTime < nextUiResolveAt)
             return;
 
-        nextResolveAt = Time.unscaledTime + 0.10f;
+        nextUiResolveAt = Time.unscaledTime + 0.10f;
         TryResolveUi();
     }
 
@@ -659,34 +738,44 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             if (row == null)
                 continue;
 
-            row.sizeDelta = new Vector2(availableWidth, rowHeight);
-            row.anchoredPosition = new Vector2(0f, -i * (rowHeight + gap));
+            Vector2 targetSize = new(availableWidth, rowHeight);
+            Vector2 targetPosition = new(0f, -i * (rowHeight + gap));
+            if ((row.sizeDelta - targetSize).sqrMagnitude > 0.01f)
+                row.sizeDelta = targetSize;
+            if ((row.anchoredPosition - targetPosition).sqrMagnitude > 0.01f)
+                row.anchoredPosition = targetPosition;
         }
     }
 
     private void Subscribe()
     {
-        if (subscribed)
-            return;
+        if (subscribedMissionSystem != fanMissionSystem)
+        {
+            if (subscribedMissionSystem != null)
+                subscribedMissionSystem.MissionsChanged -= RefreshMissionData;
+            subscribedMissionSystem = fanMissionSystem;
+            if (subscribedMissionSystem != null)
+                subscribedMissionSystem.MissionsChanged += RefreshMissionData;
+        }
 
-        if (fanMissionSystem != null)
-            fanMissionSystem.MissionsChanged += RefreshMissionData;
-        if (runProgress != null)
-            runProgress.BroadcastMetricsChanged += HandleBroadcastMetricsChanged;
-
-        subscribed = fanMissionSystem != null || runProgress != null;
+        if (subscribedRunProgress != runProgress)
+        {
+            if (subscribedRunProgress != null)
+                subscribedRunProgress.BroadcastMetricsChanged -= HandleBroadcastMetricsChanged;
+            subscribedRunProgress = runProgress;
+            if (subscribedRunProgress != null)
+                subscribedRunProgress.BroadcastMetricsChanged += HandleBroadcastMetricsChanged;
+        }
     }
 
     private void Unsubscribe()
     {
-        if (!subscribed)
-            return;
-
-        if (fanMissionSystem != null)
-            fanMissionSystem.MissionsChanged -= RefreshMissionData;
-        if (runProgress != null)
-            runProgress.BroadcastMetricsChanged -= HandleBroadcastMetricsChanged;
-        subscribed = false;
+        if (subscribedMissionSystem != null)
+            subscribedMissionSystem.MissionsChanged -= RefreshMissionData;
+        if (subscribedRunProgress != null)
+            subscribedRunProgress.BroadcastMetricsChanged -= HandleBroadcastMetricsChanged;
+        subscribedMissionSystem = null;
+        subscribedRunProgress = null;
     }
 
     private void RefreshMissionData()
@@ -712,12 +801,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             if (definition == null)
                 continue;
 
-            if (missionRowTitles[i] != null)
-                missionRowTitles[i].text = string.IsNullOrWhiteSpace(definition.missionName)
-                    ? $"MISSION {i + 1}"
-                    : definition.missionName.ToUpperInvariant();
-            if (missionRowProgress[i] != null)
-                missionRowProgress[i].text = $"{runtime.Progress} / {Mathf.Max(1, definition.targetCount)}";
+            string title = string.IsNullOrWhiteSpace(definition.missionName)
+                ? $"MISSION {i + 1}"
+                : definition.missionName.ToUpperInvariant();
+            string progress = $"{runtime.Progress} / {Mathf.Max(1, definition.targetCount)}";
+            if (missionRowTitles[i] != null && missionRowTitles[i].text != title)
+                missionRowTitles[i].text = title;
+            if (missionRowProgress[i] != null && missionRowProgress[i].text != progress)
+                missionRowProgress[i].text = progress;
         }
 
         if (count <= 0)
@@ -729,6 +820,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             selectedMissionIndex = 0;
         }
 
+        layoutDirty = true;
         RefreshMissionDetail();
         RefreshMissionRowVisuals();
     }
@@ -741,12 +833,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         int count = fanMissionSystem != null ? fanMissionSystem.ActiveMissions.Count : 0;
         if (selectedMissionIndex < 0 || selectedMissionIndex >= count)
         {
-            missionDetailTitle.text = "NO ACTIVE MISSION";
-            missionDetailType.text = "STANDBY";
-            missionDetailDescription.text = "FAN MISSION FEED IS EMPTY.";
-            missionDetailProgress.text = "PROGRESS  -- / --";
-            missionDetailReward.text = "SUCCESS  --";
-            missionDetailFailure.text = "FAIL  --";
+            SetTextIfChanged(missionDetailTitle, "NO ACTIVE MISSION");
+            SetTextIfChanged(missionDetailType, "STANDBY");
+            SetTextIfChanged(missionDetailDescription, "FAN MISSION FEED IS EMPTY.");
+            SetTextIfChanged(missionDetailProgress, "PROGRESS  -- / --");
+            SetTextIfChanged(missionDetailReward, "SUCCESS  --");
+            SetTextIfChanged(missionDetailFailure, "FAIL  --");
             return;
         }
 
@@ -755,18 +847,20 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (definition == null)
             return;
 
-        missionDetailTitle.text = string.IsNullOrWhiteSpace(definition.missionName)
+        string title = string.IsNullOrWhiteSpace(definition.missionName)
             ? $"MISSION {selectedMissionIndex + 1}"
             : definition.missionName.ToUpperInvariant();
-        missionDetailType.text = definition.type.ToString().ToUpperInvariant();
-        missionDetailDescription.text = string.IsNullOrWhiteSpace(definition.description)
+        string description = string.IsNullOrWhiteSpace(definition.description)
             ? "NO DESCRIPTION"
             : definition.description;
-
         string timer = definition.duration > 0f ? $"   TIME {runtime.RemainingTime:0.0}s" : string.Empty;
-        missionDetailProgress.text = $"PROGRESS  {runtime.Progress} / {Mathf.Max(1, definition.targetCount)}{timer}";
-        missionDetailReward.text = $"SUCCESS  POP {Signed(definition.successPopularity)}   FP {Signed(definition.successFanPoints)}";
-        missionDetailFailure.text = $"FAIL     POP {Signed(definition.failPopularity)}   FP {Signed(definition.failFanPoints)}";
+
+        SetTextIfChanged(missionDetailTitle, title);
+        SetTextIfChanged(missionDetailType, definition.type.ToString().ToUpperInvariant());
+        SetTextIfChanged(missionDetailDescription, description);
+        SetTextIfChanged(missionDetailProgress, $"PROGRESS  {runtime.Progress} / {Mathf.Max(1, definition.targetCount)}{timer}");
+        SetTextIfChanged(missionDetailReward, $"SUCCESS  POP {Signed(definition.successPopularity)}   FP {Signed(definition.successFanPoints)}");
+        SetTextIfChanged(missionDetailFailure, $"FAIL     POP {Signed(definition.failPopularity)}   FP {Signed(definition.failFanPoints)}");
     }
 
     private void RefreshMissionRowVisuals()
@@ -794,9 +888,17 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 missionRowOutlines[i].effectColor = outlineColor;
 
             if (missionRowTitles[i] != null)
-                missionRowTitles[i].color = hovered ? inkColor : paperColor;
+            {
+                Color target = hovered ? inkColor : paperColor;
+                if (missionRowTitles[i].color != target)
+                    missionRowTitles[i].color = target;
+            }
             if (missionRowProgress[i] != null)
-                missionRowProgress[i].color = hovered ? inkColor : accentYellow;
+            {
+                Color target = hovered ? inkColor : accentYellow;
+                if (missionRowProgress[i].color != target)
+                    missionRowProgress[i].color = target;
+            }
         }
     }
 
@@ -813,10 +915,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void ApplyBroadcastMetricText(int viewers, int likes)
     {
-        if (viewersText != null)
-            viewersText.text = Mathf.Max(0, viewers).ToString("N0");
-        if (likesText != null)
-            likesText.text = Mathf.Max(0, likes).ToString("N0");
+        SetTextIfChanged(viewersText, Mathf.Max(0, viewers).ToString("N0"));
+        SetTextIfChanged(likesText, Mathf.Max(0, likes).ToString("N0"));
+    }
+
+    private static void SetTextIfChanged(Text text, string value)
+    {
+        if (text != null && text.text != value)
+            text.text = value;
     }
 
     private static string Signed(int value)
