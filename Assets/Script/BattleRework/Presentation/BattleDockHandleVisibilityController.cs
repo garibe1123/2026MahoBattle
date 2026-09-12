@@ -10,7 +10,8 @@ using UnityEngine;
 /// - 일반 전투 MapBlock / Reward Show Floor는 다른 바닥과 맞닿는 내부 접합면의 손잡이만 숨깁니다.
 /// - 바닥 Sprite/랜덤 아트/하판은 다시 만들지 않습니다.
 /// - Floor Renderer는 같은 Sorting Layer의 Base/LowerPlate/Handle/기타 Hardware보다 항상 앞에 렌더됩니다.
-///   RoomExiting 중 StageTransition이 Piece 전체 Sorting을 낮춰도 LateUpdate에서 이 규칙을 다시 강제합니다.
+/// - RoomExiting에서 Persistent 4x4에 흡수되어 Floor가 숨겨진 셀의 LowerPlate/Handle도 같이 숨깁니다.
+///   따라서 실제 Floor가 없는 곳에 하판/손잡이만 동떨어져 남지 않습니다.
 /// </summary>
 [DefaultExecutionOrder(22000)]
 [DisallowMultipleComponent]
@@ -46,8 +47,12 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
         if (stageFlow == null || stageFlow.FlowState != BattleStageFlowState.RoomExiting)
             return;
 
+        // StageTransition이 같은 프레임에 Persistent 4x4 중복 Floor를 숨길 수 있습니다.
+        // LateUpdate에서 그 결과를 보고, Floor가 사라진 셀의 하판/손잡이까지 함께 정리합니다.
+        CullOrphanedPresentationHardware();
+
         // Exit Tween이 시작되는 바로 그 프레임에도 Floor가 Base/Handle 뒤로 내려가지 않도록
-        // 최종 렌더 단계에서 Sorting invariant만 가볍게 다시 적용합니다.
+        // 최종 렌더 단계에서 Sorting invariant를 다시 적용합니다.
         EnforceFloorAboveHardware();
     }
 
@@ -115,7 +120,112 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
                 ApplyContactVisibility(template, pair.Value, occupied);
         }
 
+        BattleStageTransitionController stageFlow = BattleStageTransitionController.Instance;
+        if (stageFlow != null && stageFlow.FlowState == BattleStageFlowState.RoomExiting)
+            CullOrphanedPresentationHardware();
+
         EnforceFloorAboveHardware();
+    }
+
+    /// <summary>
+    /// Room collapse에서 Floor가 Persistent 4x4로 흡수되어 renderer.enabled=false가 된 뒤에도
+    /// PresentationTemplate의 LowerPlate/Handle은 별도 오브젝트라 살아 있을 수 있습니다.
+    /// 각 Hardware가 실제로 기대하는 "지원 Floor 셀"이 같은 MapBlock에 보이는지 검사하여
+    /// 지원 Floor가 없으면 Hardware renderer도 즉시 숨깁니다.
+    /// </summary>
+    private static void CullOrphanedPresentationHardware()
+    {
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            MapBlock block = blocks[i];
+            if (!IsLiveFloorBlock(block))
+                continue;
+
+            CullOrphanedHardwareForBlock(block);
+        }
+    }
+
+    private static void CullOrphanedHardwareForBlock(MapBlock block)
+    {
+        if (block == null)
+            return;
+
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+        HashSet<Vector2Int> visibleFloorCells = new();
+
+        // Assembly root가 nested Piece까지 포함해 검색해도, renderer의 가장 가까운 MapBlock이
+        // 현재 block인 경우만 취급합니다. 따라서 Piece끼리 서로의 Floor를 지원 셀로 오인하지 않습니다.
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (!IsActiveRenderer(renderer) || !IsFloorRenderer(renderer))
+                continue;
+            if (renderer.GetComponentInParent<MapBlock>() != block)
+                continue;
+
+            visibleFloorCells.Add(WorldToCell(renderer.bounds.center));
+        }
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || renderer.sprite == null || IsFloorRenderer(renderer))
+                continue;
+            if (renderer.GetComponentInParent<MapBlock>() != block)
+                continue;
+            if (!TryResolveHardwareSupportOffset(renderer.transform, block.transform, out Vector2Int supportOffset))
+                continue;
+
+            Vector2Int hardwareCell = WorldToCell(renderer.bounds.center);
+            Vector2Int supportCell = hardwareCell + supportOffset;
+            if (!visibleFloorCells.Contains(supportCell))
+                renderer.enabled = false;
+        }
+    }
+
+    private static bool TryResolveHardwareSupportOffset(
+        Transform rendererTransform,
+        Transform blockRoot,
+        out Vector2Int supportOffset)
+    {
+        supportOffset = Vector2Int.zero;
+        if (rendererTransform == null)
+            return false;
+
+        // LowerPlate_*은 자신보다 한 칸 위의 Floor가 있어야만 존재할 수 있습니다.
+        if (rendererTransform.name.StartsWith("LowerPlate_", StringComparison.Ordinal))
+        {
+            supportOffset = Vector2Int.up;
+            return true;
+        }
+
+        Transform current = rendererTransform.parent;
+        while (current != null && current != blockRoot)
+        {
+            switch (current.name)
+            {
+                case "DockHandle_Lower":
+                    supportOffset = Vector2Int.up;
+                    return true;
+                case "DockHandle_Upper":
+                    supportOffset = Vector2Int.down;
+                    return true;
+                case "DockHandle_Left":
+                    supportOffset = Vector2Int.right;
+                    return true;
+                case "DockHandle_Right":
+                    supportOffset = Vector2Int.left;
+                    return true;
+            }
+
+            current = current.parent;
+        }
+
+        return false;
     }
 
     /// <summary>
@@ -240,6 +350,14 @@ public sealed class BattleDockHandleVisibilityController : MonoBehaviour
         {
             Transform tile = transforms[i];
             if (!IsFloorTile(tile))
+                continue;
+
+            SpriteRenderer renderer = tile.GetComponent<SpriteRenderer>();
+            if (renderer == null || !renderer.enabled || renderer.sprite == null || !tile.gameObject.activeInHierarchy)
+                continue;
+
+            // nested Piece를 가진 Assembly root가 다른 Piece의 Tile까지 자기 셀로 잡지 않게 합니다.
+            if (tile.GetComponentInParent<MapBlock>() != block)
                 continue;
 
             Vector3 world = tile.position;
