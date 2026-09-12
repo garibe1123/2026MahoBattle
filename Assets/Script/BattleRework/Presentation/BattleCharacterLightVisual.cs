@@ -246,9 +246,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (keyRenderer != null)
         {
             keyRenderer.sharedMaterial = spotlightMaterial;
-            // Texture Y already maps bottom -> top in SpriteRenderer space. Keep the authored
-            // cone orientation directly: narrow source above, broad footprint at the floor.
-            keyRenderer.flipY = false;
+            // Runtime verification shows the SpriteRenderer + spotlight shader path presents the
+            // authored cone vertically inverted. Flip only the beam so the screen result is
+            // definitively narrow at the source (top) and broad at the floor (bottom).
+            keyRenderer.flipY = true;
         }
         if (poolRenderer != null)
             poolRenderer.sharedMaterial = spotlightMaterial;
@@ -551,8 +552,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             float verticalFadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.82f, 1f, v));
             float vertical = verticalFadeIn * verticalFadeOut;
 
-            // Texture Y=0 is the floor side and Y=1 is the source side.
-            // Exaggerate the trapezoid so the lower footprint clearly reads wider than the lamp opening.
+            // Texture Y=0 is authored as the broad floor side and Y=1 as the narrow source side.
+            // The renderer is flipped in EnsureRig because the runtime shader path presents this texture upside-down.
             float widthAtHeight = Mathf.Lerp(1.00f, 0.32f, v);
 
             for (int x = 0; x < width; x++)
