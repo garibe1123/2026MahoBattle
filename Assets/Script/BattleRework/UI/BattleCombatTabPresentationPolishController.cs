@@ -101,13 +101,25 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private static void TryInstall()
     {
-        BattleBroadcastDashboardController dashboard =
-            Object.FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
-        if (dashboard == null)
+        if (Object.FindFirstObjectByType<BattleCombatTabPresentationPolishController>(FindObjectsInactive.Include) != null)
             return;
 
-        if (dashboard.GetComponent<BattleCombatTabPresentationPolishController>() == null)
-            dashboard.gameObject.AddComponent<BattleCombatTabPresentationPolishController>();
+        BattleBroadcastDashboardController dashboard =
+            Object.FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
+        BattleKineticLoadoutUI loadout =
+            Object.FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
+        BattleRunManager run = Object.FindFirstObjectByType<BattleRunManager>(FindObjectsInactive.Include);
+
+        GameObject host = dashboard != null
+            ? dashboard.gameObject
+            : loadout != null
+                ? loadout.gameObject
+                : run != null
+                    ? run.gameObject
+                    : GameObject.Find("BattleSystems");
+
+        if (host != null)
+            host.AddComponent<BattleCombatTabPresentationPolishController>();
     }
 
     private void Awake()
