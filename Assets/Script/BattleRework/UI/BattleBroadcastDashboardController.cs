@@ -24,6 +24,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private const int MaxMissionSlots = 6;
     private const int DashboardSortingOrder = 1685;
+    private const int CurrentLayoutVersion = 1;
 
     [Header("REFERENCES — 자동 연결")]
     [Tooltip("현재 Combat 상태를 확인하는 Run Manager입니다. 비어 있으면 자동으로 찾습니다.")]
@@ -45,9 +46,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     [Header("PACK DOCK — 좌측 사선 바 결합")]
     [Tooltip("PACK Focus 상태에서 기존 GridBoard 전체를 좌측 사선 바 쪽으로 이동시키는 화면 픽셀 Offset입니다. 기존 GridBoard Anchor는 건드리지 않습니다.")]
-    [SerializeField] private Vector2 packFocusedDockOffset = new(-150f, 4f);
+    [SerializeField] private Vector2 packFocusedDockOffset = new(-260f, 4f);
     [Tooltip("Mission Focus 상태에서 PACK이 더 왼쪽으로 물러나는 화면 픽셀 Offset입니다.")]
-    [SerializeField] private Vector2 missionFocusedDockOffset = new(-245f, 4f);
+    [SerializeField] private Vector2 missionFocusedDockOffset = new(-360f, 4f);
     [Tooltip("PACK Focus 상태에서 GridBoard의 시각 Scale입니다.")]
     [SerializeField, Range(0.70f, 1.15f)] private float packFocusedScale = 1f;
     [Tooltip("Mission Focus 상태에서 PACK이 물러날 때의 Scale입니다.")]
@@ -66,8 +67,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField] private Vector2 compactMissionSize = new(540f, 380f);
     [Tooltip("Mission Focus일 때 상세 정보까지 펼쳐지는 FAN MISSION 패널 크기입니다.")]
     [SerializeField] private Vector2 focusedMissionSize = new(760f, 700f);
-    [Tooltip("화면 우측 상단 기준 Mission Panel 위치입니다. Metric Bar 아래에 배치됩니다.")]
+    [Tooltip("PACK Focus 상태에서 화면 우측 상단 기준 Mission Panel 위치입니다.")]
     [SerializeField] private Vector2 missionPanelOffset = new(-54f, -126f);
+    [Tooltip("Mission Focus 상태에서 확장된 Panel이 이동할 화면 우측 상단 기준 위치입니다. 크기 변화와 함께 이 위치까지 Tween됩니다.")]
+    [SerializeField] private Vector2 focusedMissionPanelOffset = new(-78f, -154f);
     [Tooltip("Mission Panel 전체의 사선 회전 각도입니다.")]
     [SerializeField, Range(-10f, 10f)] private float missionPanelRotation = 2.2f;
     [Tooltip("PACK Focus 상태에서도 Mission Bar가 확실히 보이도록 유지할 Alpha입니다.")]
@@ -86,12 +89,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField] private Color inkColor = new(0.025f, 0.028f, 0.045f, 0.985f);
     [Tooltip("텍스트/외곽선에 사용하는 밝은 종이 색입니다.")]
     [SerializeField] private Color paperColor = new(0.94f, 0.95f, 0.97f, 1f);
-    [Tooltip("Mission Focus와 방송 지표에 사용하는 청록 Accent입니다.")]
+    [Tooltip("Mission Focus와 방송 지표에 사용하는 청록 Accent입니다. 굵은 장식선에는 사용하지 않고 Hover/아이콘/텍스트 포인트에만 사용합니다.")]
     [SerializeField] private Color accentCyan = new(0.10f, 0.88f, 0.95f, 1f);
     [Tooltip("진행률/성공 보상에 사용하는 노란 Accent입니다.")]
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [Tooltip("실패/위험 정보에 사용하는 핑크 Accent입니다.")]
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
+
+    [SerializeField, HideInInspector] private int serializedLayoutVersion;
 
     private RectTransform fullRoot;
     private RectTransform packBoard;
@@ -139,12 +144,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void Awake()
     {
+        UpgradeSerializedLayoutIfNeeded();
         ResolveReferences();
         TryResolveUi();
     }
 
     private void OnEnable()
     {
+        UpgradeSerializedLayoutIfNeeded();
         ResolveReferences();
         Subscribe();
         nextReferenceResolveAt = 0f;
@@ -153,6 +160,25 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         dashboardWasOpen = false;
         layoutDirty = true;
         focus = DashboardFocus.Pack;
+    }
+
+    private void OnValidate()
+    {
+        UpgradeSerializedLayoutIfNeeded();
+    }
+
+    private void UpgradeSerializedLayoutIfNeeded()
+    {
+        if (serializedLayoutVersion >= CurrentLayoutVersion)
+            return;
+
+        // 이전 자동 기본값만 새 배치로 이동합니다. 사용자가 Inspector에서 이미 커스텀한 값은 보존합니다.
+        if (Approximately(packFocusedDockOffset, new Vector2(-150f, 4f)))
+            packFocusedDockOffset = new Vector2(-260f, 4f);
+        if (Approximately(missionFocusedDockOffset, new Vector2(-245f, 4f)))
+            missionFocusedDockOffset = new Vector2(-360f, 4f);
+
+        serializedLayoutVersion = CurrentLayoutVersion;
     }
 
     private void OnDisable()
@@ -330,6 +356,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         float targetPackAlpha = missionFocused ? missionFocusedPackAlpha : packFocusedAlpha;
         float targetPackRotation = missionFocused ? missionFocusedPackRotation : packFocusedRotation;
         Vector2 targetMissionSize = missionFocused ? focusedMissionSize : compactMissionSize;
+        Vector2 targetMissionPosition = missionFocused ? focusedMissionPanelOffset : missionPanelOffset;
         float targetMissionAlpha = missionFocused ? 1f : compactMissionAlpha;
         float targetDetailAlpha = missionFocused && selectedMissionIndex >= 0 ? 1f : 0f;
 
@@ -387,9 +414,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             if ((missionPanel.sizeDelta - nextSize).sqrMagnitude > 0.0001f)
                 missionPanel.sizeDelta = nextSize;
 
-            Vector2 nextPosition = Vector2.Lerp(missionPanel.anchoredPosition, missionPanelOffset, t);
-            if ((nextPosition - missionPanelOffset).sqrMagnitude <= 0.01f)
-                nextPosition = missionPanelOffset;
+            Vector2 nextPosition = Vector2.Lerp(missionPanel.anchoredPosition, targetMissionPosition, t);
+            if ((nextPosition - targetMissionPosition).sqrMagnitude <= 0.01f)
+                nextPosition = targetMissionPosition;
             else
                 settled = false;
             if ((missionPanel.anchoredPosition - nextPosition).sqrMagnitude > 0.0001f)
@@ -591,6 +618,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionDetailRoot = missionPanel != null ? missionPanel.Find("MissionDetail") as RectTransform : null;
         missionDetailGroup = missionDetailRoot != null ? missionDetailRoot.GetComponent<CanvasGroup>() : null;
 
+        // 이전 버전에서 만들어진 굵은 Cyan 장식선은 새 디자인에서 사용하지 않습니다.
+        Transform oldMetricSlash = root.Find("BroadcastMetricBar/AccentSlash");
+        if (oldMetricSlash != null && oldMetricSlash.gameObject.activeSelf)
+            oldMetricSlash.gameObject.SetActive(false);
+        Transform oldMissionSlash = root.Find("MissionPanel/MissionSlash");
+        if (oldMissionSlash != null && oldMissionSlash.gameObject.activeSelf)
+            oldMissionSlash.gameObject.SetActive(false);
+
         if (metricBar != null)
         {
             viewersText = metricBar.Find("Viewers/Count")?.GetComponent<Text>();
@@ -635,12 +670,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Outline outline = metricBar.gameObject.AddComponent<Outline>();
         outline.effectColor = paperColor;
         outline.effectDistance = new Vector2(3f, -3f);
-
-        RectTransform accent = CreateRect(metricBar, "AccentSlash", new Vector2(18f, metricBarSize.y + 18f));
-        accent.anchorMin = accent.anchorMax = new Vector2(0f, 0.5f);
-        accent.anchoredPosition = new Vector2(10f, 0f);
-        accent.localRotation = Quaternion.Euler(0f, 0f, 12f);
-        SetImage(accent, accentCyan);
 
         Text live = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentPink, "LiveLabel");
         SetAnchors(live.rectTransform, new Vector2(0.055f, 0.12f), new Vector2(0.17f, 0.88f));
@@ -713,8 +742,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         back.color = inkColor;
         back.raycastTarget = false;
         Outline outline = missionPanel.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentCyan;
-        outline.effectDistance = new Vector2(6f, -6f);
+        outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.70f);
+        outline.effectDistance = new Vector2(4f, -4f);
 
         missionPanelGroup = missionPanel.gameObject.AddComponent<CanvasGroup>();
         missionPanelGroup.alpha = compactMissionAlpha;
@@ -727,12 +756,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         whitePlate.offsetMax = new Vector2(10f, 10f);
         whitePlate.SetAsFirstSibling();
         SetImage(whitePlate, new Color(paperColor.r, paperColor.g, paperColor.b, 0.14f));
-
-        RectTransform cyanSlash = CreateRect(missionPanel, "MissionSlash", new Vector2(20f, compactMissionSize.y + 30f));
-        cyanSlash.anchorMin = cyanSlash.anchorMax = new Vector2(0f, 0.5f);
-        cyanSlash.anchoredPosition = new Vector2(8f, 0f);
-        cyanSlash.localRotation = Quaternion.Euler(0f, 0f, 12f);
-        SetImage(cyanSlash, accentCyan);
 
         missionHeader = CreateText(missionPanel, "FAN MISSION // STANDBY", 27, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Header");
         SetAnchors(missionHeader.rectTransform, new Vector2(0.07f, 0.84f), new Vector2(0.78f, 0.97f));
@@ -1043,6 +1066,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private static float NormalizeAngle(float degrees)
     {
         return Mathf.Repeat(degrees + 180f, 360f) - 180f;
+    }
+
+    private static bool Approximately(Vector2 a, Vector2 b)
+    {
+        return (a - b).sqrMagnitude <= 0.0001f;
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
