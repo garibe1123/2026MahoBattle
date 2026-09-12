@@ -12,6 +12,7 @@ using UnityEngine.UI;
 /// - 작은 노드 비주얼은 유지하면서 더 큰 투명 Pointer Hit Area를 사용합니다.
 /// - World Space Canvas의 GraphicRaycaster / worldCamera / CanvasGroup 입력 상태를 보강합니다.
 /// - 항상 화려한 장식 대신 selectable/current/hover 상태에만 강한 Accent를 사용합니다.
+/// - 정적인 Map Frame/Hierarchy는 매 프레임 다시 쓰지 않고 진입/저주기 refresh 때만 갱신합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32580)]
@@ -53,6 +54,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private Canvas tvCanvas;
 
     private bool wasMapActive;
+    private bool rewardAccentsResolved;
     private float nextRefresh;
 
     private bool frameStateCaptured;
@@ -101,33 +103,24 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             return;
         }
 
+        bool enteringMap = !wasMapActive;
+        if (!enteringMap && Time.unscaledTime < nextRefresh)
+            return;
+
+        nextRefresh = Time.unscaledTime + Mathf.Max(0.02f, refreshInterval);
         ResolveUi();
 
-        if (!wasMapActive)
+        if (enteringMap)
         {
             CaptureFrameState();
             wasMapActive = true;
         }
 
+        // 이 UI는 대부분 정적인 상태입니다. 이전처럼 Update + LateUpdate에서 같은 Graphic/Rect를
+        // 매 프레임 다시 쓰면 World Space TV Canvas가 계속 rebuild됩니다.
         ApplyMapFrame();
         MaintainInteraction();
-
-        if (Time.unscaledTime < nextRefresh)
-            return;
-
-        nextRefresh = Time.unscaledTime + Mathf.Max(0.02f, refreshInterval);
         ApplyMapHierarchy();
-    }
-
-    private void LateUpdate()
-    {
-        if (!IsMapActive())
-            return;
-
-        // Reward Theme / Shared TV가 같은 Frame을 늦게 다시 만져도 Map 정책이 마지막에 적용되게 합니다.
-        ResolveUi();
-        ApplyMapFrame();
-        MaintainInteraction();
     }
 
     private bool IsMapActive()
@@ -569,6 +562,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private void DisableRewardAccentsDuringMap()
     {
+        if (rewardAccentsResolved)
+            return;
+
+        rewardAccentsResolved = true;
         RectTransform[] all = FindObjectsByType<RectTransform>(
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
@@ -635,6 +632,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 pair.Key.SetActive(pair.Value);
         }
         rewardAccentStates.Clear();
+        rewardAccentsResolved = false;
     }
 
     private static RectTransform FindRect(string objectName)
@@ -664,7 +662,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null)
+        if (EventSystem.current != null)
             return;
 
         GameObject go = new("BattleStageMapEventSystem");
