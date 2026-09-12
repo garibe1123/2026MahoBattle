@@ -1,11 +1,12 @@
 using UnityEngine;
 
 /// <summary>
-/// Character presentation lighting.
-/// - Key light: a tall soft additive shaft behind Player / Presenter, visibly reading as light from above.
-/// - Foot pool: a compressed ellipse at the sprite's lower edge for contact.
-/// - Top light: a weak additive copy of the sprite, strongest near its upper half.
-/// Enemies normally use only the contact pool.
+/// Character presentation spotlight.
+///
+/// Beam / floor pool / sprite top-light are one visual rig and are always driven by the
+/// same normalized spotlight strength. The strength changes both brightness and aperture,
+/// so the light opens/closes like a stage spotlight instead of independently fading layers.
+/// Enemies can still disable the key beam and use only their configured contact light.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleCharacterLightVisual : MonoBehaviour
@@ -16,6 +17,12 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
     private const string TopLightShaderName = "Sprites/BattleCharacterTopLight";
     private const string KeyLightShaderName = "Sprites/BattleSoftKeyLight";
+
+    // A stage spotlight should visually open/close, not only change alpha.
+    // Beam and floor pool share this same aperture value.
+    private const float ClosedApertureScale = 0.26f;
+    private const float ClosedBeamHeightScale = 0.82f;
+    private const float ClosedPoolHeightScale = 0.42f;
 
     private static Sprite sharedPoolSprite;
     private static Sprite sharedKeyLightSprite;
@@ -49,6 +56,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private float targetVisibility;
     private float targetStrength = 1f;
     private float currentVisibility;
+
+    public float CurrentSpotlightStrength => Mathf.Clamp01(currentVisibility);
 
     public void Configure(
         SpriteRenderer spriteRenderer,
@@ -104,6 +113,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     {
         currentVisibility = Mathf.Clamp01(visibility);
         targetVisibility = currentVisibility;
+        targetStrength = 1f;
         ApplyVisualState();
     }
 
@@ -231,6 +241,13 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             poolRenderer.sprite = GetOrCreatePoolSprite();
         }
 
+        // Beam and pool intentionally use the same additive light material so they read as one lamp.
+        Material spotlightMaterial = GetOrCreateKeyLightMaterial();
+        if (keyRenderer != null)
+            keyRenderer.sharedMaterial = spotlightMaterial;
+        if (poolRenderer != null)
+            poolRenderer.sharedMaterial = spotlightMaterial;
+
         if (targetRenderer != null &&
             (glowRenderer == null || glowTransform == null || glowTransform.parent != targetRenderer.transform))
         {
@@ -263,10 +280,18 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         float spriteWidth = Mathf.Max(0.2f, bounds.size.x);
         float spriteHeight = Mathf.Max(0.2f, bounds.size.y);
 
+        // One aperture drives both the cone and its footprint.
+        float aperture = ResolveSpotlightAperture();
+        float widthScale = Mathf.Lerp(ClosedApertureScale, 1f, aperture);
+        float beamHeightScale = Mathf.Lerp(ClosedBeamHeightScale, 1f, aperture);
+        float poolHeightScale = Mathf.Lerp(ClosedPoolHeightScale, 1f, aperture);
+
         if (keyTransform != null && keyRenderer != null && keyRenderer.sprite != null)
         {
-            float keyWidth = Mathf.Max(0.9f, spriteWidth * keyLightWidthMultiplier);
-            float keyHeight = Mathf.Max(1.1f, spriteHeight * keyLightHeightMultiplier);
+            float baseKeyWidth = Mathf.Max(0.9f, spriteWidth * keyLightWidthMultiplier);
+            float baseKeyHeight = Mathf.Max(1.1f, spriteHeight * keyLightHeightMultiplier);
+            float keyWidth = baseKeyWidth * widthScale;
+            float keyHeight = baseKeyHeight * beamHeightScale;
             float keyY = bounds.center.y + spriteHeight * keyLightVerticalOffsetRatio;
 
             keyTransform.position = new Vector3(
@@ -285,8 +310,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             keyRenderer.sortingOrder = targetRenderer.sortingOrder - 2;
         }
 
-        float poolWidth = Mathf.Max(0.72f, spriteWidth * poolWidthMultiplier);
-        float poolHeight = Mathf.Max(0.11f, poolWidth * poolHeightRatio);
+        float basePoolWidth = Mathf.Max(0.72f, spriteWidth * poolWidthMultiplier);
+        float basePoolHeight = Mathf.Max(0.11f, basePoolWidth * poolHeightRatio);
+        float poolWidth = basePoolWidth * widthScale;
+        float poolHeight = basePoolHeight * poolHeightScale;
         float poolY = bounds.min.y + Mathf.Max(0.02f, spriteHeight * 0.035f);
 
         if (poolTransform != null && poolRenderer != null && poolRenderer.sprite != null)
@@ -306,6 +333,12 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             poolRenderer.sortingLayerID = targetRenderer.sortingLayerID;
             poolRenderer.sortingOrder = targetRenderer.sortingOrder - 1;
         }
+    }
+
+    private float ResolveSpotlightAperture()
+    {
+        float value = Mathf.Clamp01(currentVisibility);
+        return value * value * (3f - 2f * value);
     }
 
     private void ApplyWorldSizeToChild(
@@ -356,17 +389,18 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
     private void ApplyVisualState()
     {
-        float visibility = Mathf.Clamp01(currentVisibility);
+        float visibility = ResolveSpotlightAperture();
+        Material spotlightMaterial = GetOrCreateKeyLightMaterial();
 
         if (keyRenderer != null)
         {
             Color color = keyLightColor;
             color.a = keyLightEnabled ? keyLightMaxAlpha * visibility : 0f;
             keyRenderer.color = color;
-            keyRenderer.sharedMaterial = GetOrCreateKeyLightMaterial();
+            keyRenderer.sharedMaterial = spotlightMaterial;
             keyRenderer.enabled =
                 keyLightEnabled &&
-                keyRenderer.sharedMaterial != null &&
+                spotlightMaterial != null &&
                 color.a > 0.001f;
         }
 
@@ -375,7 +409,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             Color color = poolColor;
             color.a = poolMaxAlpha * visibility;
             poolRenderer.color = color;
-            poolRenderer.enabled = color.a > 0.001f;
+            poolRenderer.sharedMaterial = spotlightMaterial;
+            poolRenderer.enabled = spotlightMaterial != null && color.a > 0.001f;
         }
 
         if (glowRenderer != null)
@@ -507,18 +542,18 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         for (int y = 0; y < height; y++)
         {
             float v = (y + 0.5f) / height;
-            float verticalFadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.02f, 0.22f, v));
-            float verticalFadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.78f, 1f, v));
+            float verticalFadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.02f, 0.20f, v));
+            float verticalFadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.82f, 1f, v));
             float vertical = verticalFadeIn * verticalFadeOut;
 
-            // Wider near the source, narrower near the feet.
-            float widthAtHeight = Mathf.Lerp(0.56f, 0.92f, v);
+            // The lamp/source is above: narrow at the top, broad where the cone meets the floor.
+            float widthAtHeight = Mathf.Lerp(0.94f, 0.46f, v);
 
             for (int x = 0; x < width; x++)
             {
                 float nx = Mathf.Abs(((x + 0.5f) / width) * 2f - 1f);
                 float normalizedX = nx / Mathf.Max(0.001f, widthAtHeight);
-                float horizontal = 1f - Mathf.SmoothStep(0.42f, 1f, normalizedX);
+                float horizontal = 1f - Mathf.SmoothStep(0.40f, 1f, normalizedX);
                 float centerLift = Mathf.Lerp(0.82f, 1f, 1f - Mathf.Clamp01(normalizedX));
                 float alpha = Mathf.Clamp01(horizontal * vertical * centerLift);
 
