@@ -3,12 +3,14 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward PACK의 기존 DONE / NEXT 입력은 그대로 두고 시각만 담당합니다.
+/// Reward PACK의 NEXT STAGE 버튼 시각만 담당합니다.
 ///
-/// 버튼 Root/클릭 판정은 기존 UI가 계속 소유합니다. 이 컴포넌트는 내부 Visual만 생성하며:
-/// - DONE/NEXT 본체를 오른쪽으로 갈수록 좁아지는 사다리꼴 몸통 + 화살촉 Mesh로 그립니다.
-/// - 좌측 두 Motion Accent도 단순 직사각형 Image가 아니라 오른쪽이 좁은 사다리꼴 Mesh입니다.
-/// - 두 Accent는 서로 다른 위상으로 길이/두께가 계속 변해 정적인 "--"처럼 보이지 않습니다.
+/// 버튼 Root/클릭 판정은 기존 UI가 계속 소유합니다.
+/// 커스텀 MaskableGraphic은 일부 Canvas/Mask 조합에서 통째로 사라질 수 있으므로 사용하지 않습니다.
+/// 대신 런타임에서 흰색 사다리꼴/화살표 Sprite를 생성하고 일반 Image로 렌더합니다.
+/// - 본체: 왼쪽은 높고 오른쪽으로 갈수록 좁아지는 몸통 + 화살촉
+/// - 좌측 Accent 2개: 오른쪽 끝이 가는 사다리꼴
+/// - Accent의 길이/두께는 서로 다른 위상으로 계속 변합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(45000)]
@@ -23,9 +25,6 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
     [Header("Arrow")]
     [SerializeField] private Vector2 buttonSize = new(232f, 72f);
-    [SerializeField, Range(0.2f, 0.9f)] private float bodyRightHeightRatio = 0.56f;
-    [SerializeField, Range(0.08f, 0.4f)] private float arrowHeadLengthRatio = 0.24f;
-    [SerializeField, Range(0.2f, 1f)] private float arrowHeadBaseHeightRatio = 0.68f;
     [SerializeField] private Color readyColor = new(1f, 0.80f, 0.08f, 1f);
     [SerializeField] private Color disabledColor = new(0.22f, 0.23f, 0.26f, 0.96f);
     [SerializeField] private Color inkColor = new(0.018f, 0.020f, 0.024f, 1f);
@@ -37,7 +36,6 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
     [SerializeField] private Vector2 mainAccentThicknessRange = new(3.5f, 6.5f);
     [SerializeField] private Vector2 smallAccentWidthRange = new(18f, 38f);
     [SerializeField] private Vector2 smallAccentThicknessRange = new(2.5f, 5f);
-    [SerializeField, Range(0.12f, 0.8f)] private float accentRightHeightRatio = 0.24f;
     [SerializeField, Range(1f, 1.5f)] private float hoverAccentScale = 1.12f;
 
     [Header("Squish")]
@@ -48,15 +46,18 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
     [SerializeField, Range(0f, 4f)] private float travelY = 1.4f;
     [SerializeField, Range(0f, 4f)] private float wobbleDegrees = 0.9f;
 
+    private static Sprite sharedArrowSprite;
+    private static Sprite sharedAccentSprite;
+
     private RectTransform doneRoot;
     private RectTransform visualRoot;
     private RectTransform shadowGroup;
     private RectTransform fillGroup;
 
-    private BattleDoneNextArrowGraphic shadowGraphic;
-    private BattleDoneNextArrowGraphic fillGraphic;
-    private BattleDoneNextArrowGraphic speedLine;
-    private BattleDoneNextArrowGraphic speedLineSmall;
+    private Image shadowImage;
+    private Image fillImage;
+    private Image speedLine;
+    private Image speedLineSmall;
 
     private Button button;
     private Image baseImage;
@@ -120,6 +121,8 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         baseImage ??= doneRoot.GetComponent<Image>();
         baseOutline ??= doneRoot.GetComponent<Outline>();
 
+        ResolveLabel();
+
         if (visualRoot == null)
             visualRoot = doneRoot.Find(VisualName) as RectTransform;
 
@@ -128,24 +131,6 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         else
             ResolveArrowPieces();
 
-        if (label == null)
-        {
-            Text[] texts = doneRoot.GetComponentsInChildren<Text>(true);
-            for (int i = 0; i < texts.Length; i++)
-            {
-                Text text = texts[i];
-                if (text == null)
-                    continue;
-
-                string value = text.text ?? string.Empty;
-                if (value.Contains("DONE") || value.Contains("NEXT") || value.Contains("START"))
-                {
-                    label = text;
-                    break;
-                }
-            }
-        }
-
         if (label != null && visualRoot != null && label.transform.parent != visualRoot)
             label.transform.SetParent(visualRoot, false);
 
@@ -153,6 +138,34 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         if (relay == null)
             relay = doneRoot.gameObject.AddComponent<BattleDoneNextArrowHoverRelay>();
         relay.Configure(this);
+    }
+
+    private void ResolveLabel()
+    {
+        if (label != null)
+            return;
+
+        Text[] texts = doneRoot.GetComponentsInChildren<Text>(true);
+        for (int i = 0; i < texts.Length; i++)
+        {
+            Text text = texts[i];
+            if (text == null)
+                continue;
+
+            string value = text.text ?? string.Empty;
+            if (value.Contains("DONE") || value.Contains("NEXT") || value.Contains("START"))
+            {
+                label = text;
+                break;
+            }
+        }
+
+        if (label != null)
+            return;
+
+        RectTransform labelRect = CreateRect(doneRoot, "NextStageLabel", Vector2.zero);
+        label = labelRect.gameObject.AddComponent<Text>();
+        label.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
     }
 
     private void BuildArrowVisual()
@@ -171,19 +184,19 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
         shadowGroup = CreateGroup(visualRoot, ShadowGroupName);
         shadowGroup.anchoredPosition = new Vector2(5f, -5f);
-        shadowGraphic = BuildArrowGraphic(shadowGroup);
+        shadowImage = BuildArrowImage(shadowGroup);
 
         fillGroup = CreateGroup(visualRoot, FillGroupName);
-        fillGraphic = BuildArrowGraphic(fillGroup);
+        fillImage = BuildArrowImage(fillGroup);
 
-        speedLine = BuildAccentGraphic(
+        speedLine = BuildAccentImage(
             visualRoot,
             MainAccentName,
             new Vector2(42f, 5f),
             new Vector2(-7f, 12f),
             -13f);
 
-        speedLineSmall = BuildAccentGraphic(
+        speedLineSmall = BuildAccentImage(
             visualRoot,
             SmallAccentName,
             new Vector2(28f, 4f),
@@ -191,19 +204,17 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             8f);
     }
 
-    private BattleDoneNextArrowGraphic BuildArrowGraphic(RectTransform group)
+    private static Image BuildArrowImage(RectTransform group)
     {
-        BattleDoneNextArrowGraphic graphic = group.gameObject.AddComponent<BattleDoneNextArrowGraphic>();
-        graphic.ConfigureShape(
-            true,
-            bodyRightHeightRatio,
-            arrowHeadLengthRatio,
-            arrowHeadBaseHeightRatio);
-        graphic.raycastTarget = false;
-        return graphic;
+        Image image = group.gameObject.AddComponent<Image>();
+        image.sprite = GetOrCreateArrowSprite();
+        image.type = Image.Type.Simple;
+        image.preserveAspect = false;
+        image.raycastTarget = false;
+        return image;
     }
 
-    private BattleDoneNextArrowGraphic BuildAccentGraphic(
+    private static Image BuildAccentImage(
         Transform parent,
         string name,
         Vector2 size,
@@ -216,10 +227,12 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         rect.anchoredPosition = anchoredPosition;
         rect.localRotation = Quaternion.Euler(0f, 0f, rotation);
 
-        BattleDoneNextArrowGraphic graphic = rect.gameObject.AddComponent<BattleDoneNextArrowGraphic>();
-        graphic.ConfigureShape(false, accentRightHeightRatio, 0f, accentRightHeightRatio);
-        graphic.raycastTarget = false;
-        return graphic;
+        Image image = rect.gameObject.AddComponent<Image>();
+        image.sprite = GetOrCreateAccentSprite();
+        image.type = Image.Type.Simple;
+        image.preserveAspect = false;
+        image.raycastTarget = false;
+        return image;
     }
 
     private RectTransform CreateGroup(Transform parent, string name)
@@ -236,28 +249,28 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
         shadowGroup ??= visualRoot.Find(ShadowGroupName) as RectTransform;
         fillGroup ??= visualRoot.Find(FillGroupName) as RectTransform;
-        shadowGraphic = shadowGroup != null ? shadowGroup.GetComponent<BattleDoneNextArrowGraphic>() : null;
-        fillGraphic = fillGroup != null ? fillGroup.GetComponent<BattleDoneNextArrowGraphic>() : null;
-        speedLine = visualRoot.Find(MainAccentName)?.GetComponent<BattleDoneNextArrowGraphic>();
-        speedLineSmall = visualRoot.Find(SmallAccentName)?.GetComponent<BattleDoneNextArrowGraphic>();
+        shadowImage = shadowGroup != null ? shadowGroup.GetComponent<Image>() : null;
+        fillImage = fillGroup != null ? fillGroup.GetComponent<Image>() : null;
+        speedLine = visualRoot.Find(MainAccentName)?.GetComponent<Image>();
+        speedLineSmall = visualRoot.Find(SmallAccentName)?.GetComponent<Image>();
 
         bool legacyOrIncomplete =
             shadowGroup == null ||
             fillGroup == null ||
-            shadowGraphic == null ||
-            fillGraphic == null ||
+            shadowImage == null ||
+            fillImage == null ||
             speedLine == null ||
             speedLineSmall == null;
 
         if (!legacyOrIncomplete)
             return;
 
-        // 이전 Image 조합 버전이 Play Mode 재진입 없이 남아 있어도 즉시 새 Mesh 버전으로 교체합니다.
+        // 이전 Custom Mesh 버전이 런타임 Hot Reload로 남아 있어도 Image 버전으로 즉시 교체합니다.
         DestroyVisualChildrenExceptLabel();
         shadowGroup = null;
         fillGroup = null;
-        shadowGraphic = null;
-        fillGraphic = null;
+        shadowImage = null;
+        fillImage = null;
         speedLine = null;
         speedLineSmall = null;
         BuildArrowVisualIntoExistingRoot();
@@ -277,6 +290,7 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             if (isLabel)
                 continue;
 
+            child.name += "_LegacyRetired";
             child.gameObject.SetActive(false);
             Destroy(child.gameObject);
         }
@@ -290,7 +304,7 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
         doneRoot.sizeDelta = buttonSize;
 
-        // Root Image는 클릭 판정만 담당합니다. 실제 색/Shape는 커스텀 Graphic이 그립니다.
+        // Root Image는 클릭 판정만 담당합니다. 실제 Shape는 일반 Image + 런타임 Sprite가 그립니다.
         if (baseImage != null)
         {
             baseImage.color = Color.clear;
@@ -305,17 +319,8 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             fill = Color.Lerp(readyColor, Color.white, 0.14f);
 
         Color shadow = new(inkColor.r, inkColor.g, inkColor.b, ready ? 1f : 0.74f);
-        SetGraphicColor(shadowGraphic, shadow);
-        SetGraphicColor(fillGraphic, fill);
-
-        if (shadowGraphic != null)
-            shadowGraphic.ConfigureShape(true, bodyRightHeightRatio, arrowHeadLengthRatio, arrowHeadBaseHeightRatio);
-        if (fillGraphic != null)
-            fillGraphic.ConfigureShape(true, bodyRightHeightRatio, arrowHeadLengthRatio, arrowHeadBaseHeightRatio);
-        if (speedLine != null)
-            speedLine.ConfigureShape(false, accentRightHeightRatio, 0f, accentRightHeightRatio);
-        if (speedLineSmall != null)
-            speedLineSmall.ConfigureShape(false, accentRightHeightRatio, 0f, accentRightHeightRatio);
+        SetImageColor(shadowImage, shadow);
+        SetImageColor(fillImage, fill);
 
         Color mainAccentColor = ready
             ? new Color(1f, 1f, 1f, hovered ? 0.92f : 0.76f)
@@ -323,21 +328,22 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         Color smallAccentColor = ready
             ? new Color(1f, 1f, 1f, hovered ? 0.68f : 0.48f)
             : new Color(1f, 1f, 1f, 0.08f);
-        SetGraphicColor(speedLine, mainAccentColor);
-        SetGraphicColor(speedLineSmall, smallAccentColor);
+        SetImageColor(speedLine, mainAccentColor);
+        SetImageColor(speedLineSmall, smallAccentColor);
 
         if (label != null)
         {
             label.gameObject.SetActive(true);
-            label.text = "DONE / NEXT";
+            label.text = "NEXT STAGE";
             label.fontStyle = FontStyle.Bold;
-            label.fontSize = 15;
+            label.fontSize = 16;
             label.alignment = TextAnchor.MiddleCenter;
             label.color = ready ? inkColor : disabledTextColor;
+            label.raycastTarget = false;
 
             RectTransform labelRect = label.rectTransform;
-            labelRect.anchorMin = new Vector2(0.08f, 0.12f);
-            labelRect.anchorMax = new Vector2(0.72f, 0.88f);
+            labelRect.anchorMin = new Vector2(0.07f, 0.08f);
+            labelRect.anchorMax = new Vector2(0.73f, 0.92f);
             labelRect.offsetMin = Vector2.zero;
             labelRect.offsetMax = Vector2.zero;
             labelRect.localScale = Vector3.one;
@@ -387,13 +393,13 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
     }
 
     private static void ApplyAccentSize(
-        BattleDoneNextArrowGraphic graphic,
+        Image image,
         Vector2 widthRange,
         Vector2 thicknessRange,
         float pulse,
         float scale)
     {
-        if (graphic == null)
+        if (image == null)
             return;
 
         float t = Mathf.Clamp01(pulse);
@@ -406,18 +412,107 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             Mathf.Max(thicknessRange.x, thicknessRange.y),
             1f - t * 0.45f) * Mathf.Max(0.1f, scale);
 
-        graphic.rectTransform.sizeDelta = new Vector2(width, thickness);
-        graphic.SetVerticesDirty();
+        image.rectTransform.sizeDelta = new Vector2(width, thickness);
     }
 
-    private static void SetGraphicColor(Graphic graphic, Color color)
+    private static void SetImageColor(Image image, Color color)
     {
-        if (graphic == null)
+        if (image == null)
             return;
 
-        graphic.enabled = true;
-        graphic.color = color;
-        graphic.raycastTarget = false;
+        image.enabled = true;
+        image.color = color;
+        image.raycastTarget = false;
+    }
+
+    private static Sprite GetOrCreateArrowSprite()
+    {
+        if (sharedArrowSprite != null)
+            return sharedArrowSprite;
+
+        // 왼쪽은 전체 높이, 몸통 오른쪽은 약 56% 높이. 끝 24%는 화살촉입니다.
+        Vector2[] polygon =
+        {
+            new(0.00f, 0.00f),
+            new(0.76f, 0.22f),
+            new(1.00f, 0.50f),
+            new(0.76f, 0.78f),
+            new(0.00f, 1.00f)
+        };
+        sharedArrowSprite = CreatePolygonSprite("RuntimeDoneNextTaperedArrow", 256, 96, polygon);
+        return sharedArrowSprite;
+    }
+
+    private static Sprite GetOrCreateAccentSprite()
+    {
+        if (sharedAccentSprite != null)
+            return sharedAccentSprite;
+
+        // 오른쪽 높이가 왼쪽의 약 24%인 사다리꼴.
+        Vector2[] polygon =
+        {
+            new(0.00f, 0.00f),
+            new(1.00f, 0.38f),
+            new(1.00f, 0.62f),
+            new(0.00f, 1.00f)
+        };
+        sharedAccentSprite = CreatePolygonSprite("RuntimeDoneNextTaperedAccent", 128, 32, polygon);
+        return sharedAccentSprite;
+    }
+
+    private static Sprite CreatePolygonSprite(string name, int width, int height, Vector2[] polygon)
+    {
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false, true)
+        {
+            name = name + "Texture",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        Color[] pixels = new Color[width * height];
+        for (int y = 0; y < height; y++)
+        {
+            float py = (y + 0.5f) / height;
+            for (int x = 0; x < width; x++)
+            {
+                float px = (x + 0.5f) / width;
+                bool inside = PointInPolygon(new Vector2(px, py), polygon);
+                pixels[y * width + x] = inside ? Color.white : Color.clear;
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, width, height),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect);
+        sprite.name = name + "Sprite";
+        sprite.hideFlags = HideFlags.HideAndDontSave;
+        return sprite;
+    }
+
+    private static bool PointInPolygon(Vector2 point, Vector2[] polygon)
+    {
+        bool inside = false;
+        int j = polygon.Length - 1;
+        for (int i = 0; i < polygon.Length; i++)
+        {
+            Vector2 a = polygon[i];
+            Vector2 b = polygon[j];
+            bool crosses =
+                ((a.y > point.y) != (b.y > point.y)) &&
+                point.x < (b.x - a.x) * (point.y - a.y) / Mathf.Max(0.000001f, b.y - a.y) + a.x;
+            if (crosses)
+                inside = !inside;
+            j = i;
+        }
+        return inside;
     }
 
     internal void SetHovered(bool value)
