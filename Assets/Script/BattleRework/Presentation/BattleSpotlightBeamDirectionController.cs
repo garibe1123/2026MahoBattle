@@ -16,10 +16,6 @@ using UnityEngine.SceneManagement;
 /// - a public property changes,
 /// - Apply Beam Settings Now is invoked,
 /// - a BattleCharacterLightVisual creates its beam later and registers itself.
-///
-/// The component is automatically installed on BattleSceneManager's GameObject in the editor.
-/// If a battle scene reaches Play Mode without it, the runtime fallback also attaches it to
-/// BattleSceneManager instead of creating a separate settings GameObject.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
@@ -35,10 +31,14 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
     private static BattleSpotlightBeamDirectionController activeInstance;
 
-    [Header("Beam Direction")]
+    [Header("SPOTLIGHT BEAM — 방향 / 형태")]
+    [Tooltip("사다리꼴 Beam의 좁은 쪽이 어느 방향을 향할지 정합니다. Narrow At Top은 위쪽 광원이 좁고 바닥 쪽이 넓은 일반적인 스포트라이트 형태입니다.")]
     [SerializeField] private BeamShapeDirection beamShapeDirection = BeamShapeDirection.NarrowAtTop;
+
+    [Tooltip("Beam 전체를 Z축으로 회전시키는 각도입니다. 0은 세로, 90은 오른쪽으로 눕힌 상태입니다. 단위는 도(°)입니다.")]
     [SerializeField, Range(-180f, 180f)] private float beamRotationDegrees;
-    [Tooltip("World-unit offset added to the beam after it is positioned on the character.")]
+
+    [Tooltip("캐릭터를 기준으로 계산된 Beam 위치에 추가하는 월드 좌표 오프셋입니다. X는 좌우, Y는 위아래 이동입니다.")]
     [SerializeField] private Vector2 beamLocalOffset = Vector2.zero;
 
     private BattleCharacterLightVisual[] lightVisuals;
@@ -104,8 +104,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     }
 
     /// <summary>
-    /// Keeps the artist settings visible directly on the BattleSceneManager object.
-    /// Runs only after editor/script/scene changes, never every editor frame.
+    /// 기존 씬 호환용 fallback입니다. SpriteManager Organizer가 있으면 최종적으로 SpriteManager 아래에 정리됩니다.
     /// </summary>
     private static void EnsureInstalledOnBattleSceneManagerInEditor()
     {
@@ -117,20 +116,15 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         if (manager == null)
             return;
 
-        BattleSpotlightBeamDirectionController local =
-            manager.GetComponent<BattleSpotlightBeamDirectionController>();
-        if (local != null)
-            return;
-
-        // If an older copy exists elsewhere, do not silently duplicate it. Move authority to the
-        // BattleSceneManager only when there is no existing scene-authored controller.
         BattleSpotlightBeamDirectionController existing =
             Object.FindFirstObjectByType<BattleSpotlightBeamDirectionController>(FindObjectsInactive.Include);
         if (existing != null)
             return;
 
-        Undo.AddComponent<BattleSpotlightBeamDirectionController>(manager.gameObject);
-        EditorUtility.SetDirty(manager.gameObject);
+        Transform spriteManager = manager.transform.Find(BattleSpriteManagerOrganizer.SpriteManagerObjectName);
+        GameObject target = spriteManager != null ? spriteManager.gameObject : manager.gameObject;
+        Undo.AddComponent<BattleSpotlightBeamDirectionController>(target);
+        EditorUtility.SetDirty(target);
 
         if (manager.gameObject.scene.IsValid())
             EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
@@ -150,12 +144,13 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         if (manager == null)
             return;
 
-        manager.gameObject.AddComponent<BattleSpotlightBeamDirectionController>();
+        Transform spriteManager = manager.transform.Find(BattleSpriteManagerOrganizer.SpriteManagerObjectName);
+        GameObject target = spriteManager != null ? spriteManager.gameObject : manager.gameObject;
+        target.AddComponent<BattleSpotlightBeamDirectionController>();
     }
 
     private void OnEnable()
     {
-        // A controller explicitly present on BattleSceneManager becomes authoritative.
         activeInstance = this;
         RefreshTargets();
         ApplyToAll();
@@ -177,8 +172,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     {
         beamRotationDegrees = NormalizeDegrees(beamRotationDegrees);
 
-        // During Play Mode the Inspector calls OnValidate only when the serialized value changes.
-        // No per-frame polling is used.
+        // Play Mode에서 Inspector 값이 실제로 바뀐 순간에만 적용합니다.
         if (!Application.isPlaying || !isActiveAndEnabled)
             return;
 
@@ -189,7 +183,6 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
     /// <summary>
     /// Called by BattleCharacterLightVisual when a runtime beam is created after this controller.
-    /// This fixes the ordering case where the controller exists before CharacterKeySpotlight does.
     /// </summary>
     public static void ApplyCurrentSettingsTo(BattleCharacterLightVisual visual)
     {
