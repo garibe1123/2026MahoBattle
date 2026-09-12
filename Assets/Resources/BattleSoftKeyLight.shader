@@ -3,6 +3,9 @@ Shader "Sprites/BattleSoftKeyLight"
     Properties
     {
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
+        [PerRendererData] _BeamFlipY ("Beam Flip Y", Float) = 0
+        [PerRendererData] _BeamRotationDegrees ("Beam Rotation Degrees", Float) = 0
+        [PerRendererData] _BeamUvOffset ("Beam UV Offset", Vector) = (0,0,0,0)
     }
 
     SubShader
@@ -44,6 +47,9 @@ Shader "Sprites/BattleSoftKeyLight"
             };
 
             sampler2D _MainTex;
+            float _BeamFlipY;
+            float _BeamRotationDegrees;
+            float4 _BeamUvOffset;
 
             v2f vert(appdata_t v)
             {
@@ -56,10 +62,20 @@ Shader "Sprites/BattleSoftKeyLight"
 
             fixed4 frag(v2f i) : SV_Target
             {
-                // The procedural source texture is authored with its broad end at UV.y = 1.
-                // Flip it here so the narrow source stays above the character and the beam
-                // opens toward the floor, matching an actual ceiling spotlight.
-                float2 beamUv = float2(i.uv.x, 1.0 - i.uv.y);
+                float2 beamUv = i.uv;
+
+                if (_BeamFlipY > 0.5)
+                    beamUv.y = 1.0 - beamUv.y;
+
+                float radiansValue = radians(_BeamRotationDegrees);
+                float sinValue = sin(radiansValue);
+                float cosValue = cos(radiansValue);
+                float2 centered = beamUv - 0.5;
+                centered = float2(
+                    centered.x * cosValue - centered.y * sinValue,
+                    centered.x * sinValue + centered.y * cosValue);
+                beamUv = centered + 0.5 + _BeamUvOffset.xy;
+
                 fixed4 tex = tex2D(_MainTex, beamUv);
                 return fixed4(i.color.rgb, tex.a * i.color.a);
             }
