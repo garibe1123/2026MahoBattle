@@ -246,9 +246,9 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (keyRenderer != null)
         {
             keyRenderer.sharedMaterial = spotlightMaterial;
-            // Runtime cone texture renders vertically opposite to the intended stage-light orientation.
-            // Force the visible cone to be narrow at the source/top and wide where it meets the floor.
-            keyRenderer.flipY = true;
+            // Texture Y already maps bottom -> top in SpriteRenderer space. Keep the authored
+            // cone orientation directly: narrow source above, broad footprint at the floor.
+            keyRenderer.flipY = false;
         }
         if (poolRenderer != null)
             poolRenderer.sharedMaterial = spotlightMaterial;
@@ -551,8 +551,9 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             float verticalFadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.82f, 1f, v));
             float vertical = verticalFadeIn * verticalFadeOut;
 
-            // The lamp/source is above: narrow at the top, broad where the cone meets the floor.
-            float widthAtHeight = Mathf.Lerp(0.94f, 0.46f, v);
+            // Texture Y=0 is the floor side and Y=1 is the source side.
+            // Exaggerate the trapezoid so the lower footprint clearly reads wider than the lamp opening.
+            float widthAtHeight = Mathf.Lerp(1.00f, 0.32f, v);
 
             for (int x = 0; x < width; x++)
             {
