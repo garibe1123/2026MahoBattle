@@ -9,7 +9,8 @@ using UnityEngine.UI;
 /// - 좌측 하단 Mini PACK의 위치/크기/표시 상태
 /// - 공용 LoadoutSwitchFull / GridBoard의 위치와 스케일
 /// - 외부 EquipmentDetailPanel의 고정 위치
-/// - Reward TRASH / DONE의 PACK 부착 위치
+/// - Reward TRASH / DONE의 화면 안전영역 위치
+/// - Full Grid의 단일 선택/호버 Stroke
 ///
 /// 슬롯 데이터와 교환 규칙은 BattleEquipmentSystem,
 /// Reward 상태는 BattleRewardFlow,
@@ -54,6 +55,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     [Header("Reward Controls")]
     [SerializeField] private Vector2 trashAttachOffset = new(-8f, 0f);
     [SerializeField] private Vector2 doneAttachOffset = new(-8f, 80f);
+    [SerializeField] private Vector2 rewardTrashScreenOffset = new(-28f, -54f);
+    [SerializeField] private Vector2 rewardDoneScreenOffset = new(-28f, 44f);
 
     [Header("Reward Edit Time")]
     [SerializeField, Range(0.02f, 0.20f)] private float rewardInventoryTimeScale = 0.05f;
@@ -82,7 +85,11 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private Text fullSubtitle;
 
     private readonly GameObject[] fullSelectionFrames = new GameObject[SlotCount];
-    private readonly Outline[] fullSelectionOutlines = new Outline[SlotCount];
+    private readonly RectTransform[] fullSlotRects = new RectTransform[SlotCount];
+
+    private RectTransform legacyEquipmentDock;
+    private RectTransform legacyRewardLoadoutStrip;
+    private bool legacyBarsResolved;
 
     private Canvas dismissCanvas;
     private CanvasGroup dismissGroup;
@@ -251,6 +258,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         trashRoot ??= FindRect("InventoryTrash");
         doneRoot ??= FindRect("RewardPackDone");
+
+        if (!legacyBarsResolved && fullRoot != null)
+        {
+            legacyEquipmentDock = FindRect("EquipmentDock");
+            legacyRewardLoadoutStrip = FindRect("RewardLoadoutStrip");
+            legacyBarsResolved = true;
+        }
     }
 
     private void ResolveFullHeaderTexts()
@@ -268,7 +282,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             string value = text.text ?? string.Empty;
             if (value == "LOADOUT // SHIFT" || value == "PACK // EDIT")
                 fullTitle = text;
-            else if (value.Contains("HOLD TAB / LB") || value.Contains("MOVE / SWAP"))
+            else if (value.Contains("HOLD TAB / LB") || value.Contains("MOVE / SWAP") ||
+                     value.Contains("CLICK INSPECT") || value.Contains("STICK MOVE"))
                 fullSubtitle = text;
         }
     }
@@ -406,10 +421,21 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         if (fullTitle != null)
             fullTitle.text = rewardEdit ? "PACK // EDIT" : "LOADOUT // SHIFT";
+
         if (fullSubtitle != null)
-            fullSubtitle.text = rewardEdit
-                ? "MOVE / SWAP  •  B CANCEL  •  TRASH  •  DONE"
-                : "HOLD TAB / LB   •   MOVE   •   RELEASE TO EQUIP";
+        {
+            if (rewardEdit)
+            {
+                bool pad = inventoryInteraction != null && inventoryInteraction.PadModeActive;
+                fullSubtitle.text = pad
+                    ? "STICK MOVE  •  A PICK / PLACE  •  B CANCEL  •  Y TRASH  •  MENU DONE"
+                    : "CLICK INSPECT  •  DRAG MOVE / SWAP  •  TRASH  •  DONE";
+            }
+            else
+            {
+                fullSubtitle.text = "HOLD TAB  •  MOUSE SELECT  •  RELEASE TO EQUIP";
+            }
+        }
 
         if (builtInDetailRoot != null)
             builtInDetailRoot.gameObject.SetActive(!(rewardEdit || combatTab));
@@ -417,28 +443,39 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void HideDuplicateLegacyBars()
     {
-        HideByName("EquipmentDock");
-        HideByName("RewardLoadoutStrip");
-    }
-
-    private static void HideByName(string objectName)
-    {
-        RectTransform rect = FindRect(objectName);
-        if (rect != null && rect.gameObject.activeSelf)
-            rect.gameObject.SetActive(false);
+        if (legacyEquipmentDock != null && legacyEquipmentDock.gameObject.activeSelf)
+            legacyEquipmentDock.gameObject.SetActive(false);
+        if (legacyRewardLoadoutStrip != null && legacyRewardLoadoutStrip.gameObject.activeSelf)
+            legacyRewardLoadoutStrip.gameObject.SetActive(false);
     }
 
     private void AttachContextControls(bool rewardEdit, bool combat)
     {
-        if (rewardEdit && boardRoot != null)
+        if (rewardEdit && fullRoot != null)
         {
-            AttachControl(trashRoot, boardRoot, trashAttachOffset);
-            AttachControl(doneRoot, boardRoot, doneAttachOffset);
+            AttachScreenControl(trashRoot, fullRoot, rewardTrashScreenOffset);
+            AttachScreenControl(doneRoot, fullRoot, rewardDoneScreenOffset);
             return;
         }
 
         if (combat && inventoryInteraction != null && inventoryInteraction.IsDraggingItem && miniPackRoot != null)
             AttachControl(trashRoot, miniPackRoot, trashAttachOffset);
+    }
+
+    private static void AttachScreenControl(RectTransform control, RectTransform screenRoot, Vector2 screenOffset)
+    {
+        if (control == null || screenRoot == null)
+            return;
+
+        if (control.parent != screenRoot)
+            control.SetParent(screenRoot, false);
+
+        control.anchorMin = control.anchorMax = new Vector2(1f, 0.5f);
+        control.pivot = new Vector2(1f, 0.5f);
+        control.anchoredPosition = screenOffset;
+        control.localRotation = Quaternion.identity;
+        control.localScale = Vector3.one;
+        control.SetAsLastSibling();
     }
 
     private static void AttachControl(RectTransform control, RectTransform parent, Vector2 localOffset)
@@ -467,17 +504,26 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             int mouse = inventoryInteraction.SelectedRewardSlot;
             int hover = inventoryInteraction.HoveredSlot;
 
-            if (inventoryInteraction.PadModeActive && HasItem(pad))
-                source = pad;
+            if (inventoryInteraction.PadModeActive)
+            {
+                source = HasItem(pad) ? pad : -1;
+            }
+            else if (hover >= 0)
+            {
+                // Mouse/Keyboard에서는 현재 마우스 아래 슬롯이 가장 우선입니다.
+                // EMPTY/LOCKED 위에 있으면 상세 선택도 즉시 비웁니다.
+                source = HasItem(hover) ? hover : -1;
+            }
             else if (HasItem(mouse))
+            {
+                // 클릭한 아이템은 Hover가 없을 때만 고정 선택으로 남습니다.
                 source = mouse;
-            else if (HasItem(hover))
-                source = hover;
-            else if (activeInspectSlot >= 0 && HasItem(activeInspectSlot))
-                source = activeInspectSlot;
+            }
             else if (!selectionSuppressed && rewardFlow != null && rewardFlow.ChosenRewardCommitted &&
                      HasItem(rewardFlow.ChosenRewardSlot))
+            {
                 source = rewardFlow.ChosenRewardSlot;
+            }
         }
         else if (combatTab && kineticLoadout != null)
         {
@@ -546,6 +592,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             return;
         }
 
+        if (inventoryInteraction != null && inventoryInteraction.PadModeActive)
+        {
+            mouseWasInsideBoard = false;
+            return;
+        }
+
         bool inside = RectTransformUtility.RectangleContainsScreenPoint(boardRoot, Input.mousePosition, null);
         if (inside)
         {
@@ -567,11 +619,22 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         for (int i = 0; i < SlotCount; i++)
         {
-            if (fullSelectionFrames[i] != null)
+            RectTransform slot = fullSlotRects[i];
+            if (slot == null)
+            {
+                slot = FindChildRect(boardRoot, $"GridSlot_{i}");
+                fullSlotRects[i] = slot;
+            }
+            if (slot == null)
                 continue;
 
-            RectTransform slot = FindChildRect(boardRoot, $"GridSlot_{i}");
-            if (slot == null)
+            // 이전 Interaction controller가 만들던 Full Grid selection frame은 더 이상 렌더하지 않습니다.
+            // Full Grid 선택 표현은 이 클래스의 UnifiedSelectionFrame 하나만 소유합니다.
+            Transform legacyInteractionFrame = slot.Find("InteractionFullSelectionFrame");
+            if (legacyInteractionFrame != null && legacyInteractionFrame.gameObject.activeSelf)
+                legacyInteractionFrame.gameObject.SetActive(false);
+
+            if (fullSelectionFrames[i] != null)
                 continue;
 
             RectTransform frame = slot.Find("UnifiedSelectionFrame") as RectTransform;
@@ -579,19 +642,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             {
                 frame = CreateRect(slot, "UnifiedSelectionFrame", Vector2.zero);
                 Stretch(frame);
-                Image image = frame.gameObject.AddComponent<Image>();
-                image.color = Color.clear;
-                image.raycastTarget = false;
-                frame.SetAsLastSibling();
             }
 
-            Outline outline = frame.GetComponent<Outline>();
-            if (outline == null)
-                outline = frame.gameObject.AddComponent<Outline>();
-            outline.effectDistance = new Vector2(5f, -5f);
+            DisableLegacyOutlineFrame(frame);
+            EnsureStrokeEdges(frame);
 
             fullSelectionFrames[i] = frame.gameObject;
-            fullSelectionOutlines[i] = outline;
             frame.gameObject.SetActive(false);
         }
     }
@@ -599,9 +655,18 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private void ApplySelectionFrames(bool inspectContext, bool rewardEdit)
     {
         EnsureFullSelectionFrames();
+        float pulse01 = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 6.2f);
 
         for (int i = 0; i < SlotCount; i++)
         {
+            RectTransform slot = fullSlotRects[i];
+            if (slot != null)
+            {
+                Transform legacyInteractionFrame = slot.Find("InteractionFullSelectionFrame");
+                if (legacyInteractionFrame != null && legacyInteractionFrame.gameObject.activeSelf)
+                    legacyInteractionFrame.gameObject.SetActive(false);
+            }
+
             GameObject frame = fullSelectionFrames[i];
             if (frame == null)
                 continue;
@@ -613,13 +678,117 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                 continue;
 
             bool picked = rewardEdit && inventoryInteraction != null && inventoryInteraction.PadPickedSlot == i;
-            bool hovered = rewardEdit && inventoryInteraction != null && inventoryInteraction.HoveredSlot == i;
-            Outline outline = fullSelectionOutlines[i];
-            if (outline != null)
-            {
-                outline.effectColor = picked ? pickedAccent : hovered ? hoverAccent : selectedAccent;
-                outline.effectDistance = picked ? new Vector2(7f, -7f) : new Vector2(5f, -5f);
-            }
+            bool mouseSelected = rewardEdit && inventoryInteraction != null &&
+                                 !inventoryInteraction.PadModeActive && inventoryInteraction.SelectedRewardSlot == i;
+            bool hovered = rewardEdit && inventoryInteraction != null &&
+                           !inventoryInteraction.PadModeActive && inventoryInteraction.HoveredSlot == i;
+
+            Color color = picked
+                ? pickedAccent
+                : mouseSelected
+                    ? selectedAccent
+                    : hovered
+                        ? hoverAccent
+                        : selectedAccent;
+
+            float thickness = picked
+                ? Mathf.Lerp(5.5f, 7f, pulse01)
+                : mouseSelected
+                    ? Mathf.Lerp(4f, 5.4f, pulse01)
+                    : hovered
+                        ? 3f
+                        : Mathf.Lerp(3.8f, 5f, pulse01);
+
+            ApplyStrokeEdges(frame.GetComponent<RectTransform>(), color, thickness);
+        }
+    }
+
+    private static void DisableLegacyOutlineFrame(RectTransform frame)
+    {
+        if (frame == null)
+            return;
+
+        Image image = frame.GetComponent<Image>();
+        if (image != null)
+            image.enabled = false;
+
+        Outline outline = frame.GetComponent<Outline>();
+        if (outline != null)
+            outline.enabled = false;
+    }
+
+    private static void EnsureStrokeEdges(RectTransform frame)
+    {
+        if (frame == null)
+            return;
+
+        ConfigureStrokeEdge(frame, "Top", Color.white, 4f,
+            new Vector2(0f, 1f), new Vector2(1f, 1f),
+            new Vector2(0f, -4f), Vector2.zero);
+        ConfigureStrokeEdge(frame, "Bottom", Color.white, 4f,
+            Vector2.zero, new Vector2(1f, 0f),
+            Vector2.zero, new Vector2(0f, 4f));
+        ConfigureStrokeEdge(frame, "Left", Color.white, 4f,
+            Vector2.zero, new Vector2(0f, 1f),
+            Vector2.zero, new Vector2(4f, 0f));
+        ConfigureStrokeEdge(frame, "Right", Color.white, 4f,
+            new Vector2(1f, 0f), Vector2.one,
+            new Vector2(-4f, 0f), Vector2.zero);
+    }
+
+    private static void ApplyStrokeEdges(RectTransform frame, Color color, float thickness)
+    {
+        if (frame == null)
+            return;
+
+        thickness = Mathf.Max(1f, thickness);
+        ConfigureStrokeEdge(frame, "Top", color, thickness,
+            new Vector2(0f, 1f), new Vector2(1f, 1f),
+            new Vector2(0f, -thickness), Vector2.zero);
+        ConfigureStrokeEdge(frame, "Bottom", color, thickness,
+            Vector2.zero, new Vector2(1f, 0f),
+            Vector2.zero, new Vector2(0f, thickness));
+        ConfigureStrokeEdge(frame, "Left", color, thickness,
+            Vector2.zero, new Vector2(0f, 1f),
+            Vector2.zero, new Vector2(thickness, 0f));
+        ConfigureStrokeEdge(frame, "Right", color, thickness,
+            new Vector2(1f, 0f), Vector2.one,
+            new Vector2(-thickness, 0f), Vector2.zero);
+    }
+
+    private static void ConfigureStrokeEdge(
+        RectTransform root,
+        string edgeName,
+        Color color,
+        float thickness,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 offsetMin,
+        Vector2 offsetMax)
+    {
+        RectTransform edge = root.Find(edgeName) as RectTransform;
+        if (edge == null)
+        {
+            GameObject edgeObject = new(edgeName);
+            edgeObject.transform.SetParent(root, false);
+            edge = edgeObject.AddComponent<RectTransform>();
+            Image edgeImage = edgeObject.AddComponent<Image>();
+            edgeImage.raycastTarget = false;
+        }
+
+        edge.anchorMin = anchorMin;
+        edge.anchorMax = anchorMax;
+        edge.offsetMin = offsetMin;
+        edge.offsetMax = offsetMax;
+        edge.localScale = Vector3.one;
+        edge.localRotation = Quaternion.identity;
+
+        Image image = edge.GetComponent<Image>();
+        if (image != null)
+        {
+            image.enabled = true;
+            image.color = color;
+            image.raycastTarget = false;
         }
     }
 
