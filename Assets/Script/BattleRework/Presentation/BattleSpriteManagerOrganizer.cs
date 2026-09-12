@@ -7,8 +7,13 @@ using UnityEngine.SceneManagement;
 #endif
 
 /// <summary>
-/// BattleSystems 루트에 흩어져 있던 Sprite / Show / Lighting presentation 컴포넌트를
-/// BattleSystems/SpriteManager 자식으로 정리하는 Editor-only organizer입니다.
+/// BattleSystems 하위의 에디터 관리용 계층을 정리합니다.
+///
+/// BattleSystems/SpriteManager:
+/// - Sprite / Show / Lighting / visual presentation 컴포넌트
+///
+/// BattleSystems/BattleTemplate:
+/// - Persistent 4x4 전투 Base Template
 ///
 /// 런타임에 hierarchy를 재구축하지 않습니다. 씬을 열거나 스크립트가 리컴파일될 때
 /// Editor에서 한 번 정리하고 Scene에 저장되므로 첫 전투 프레임의 AddComponent 비용을 만들지 않습니다.
@@ -34,7 +39,7 @@ public static class BattleSpriteManagerOrganizer
         EditorApplication.delayCall += OrganizeLoadedBattleScenes;
     }
 
-    [MenuItem("Tools/Battle/Organize Sprite Manager")]
+    [MenuItem("Tools/Battle/Organize Battle Managers")]
     private static void OrganizeLoadedBattleScenesFromMenu()
     {
         OrganizeLoadedBattleScenes();
@@ -65,26 +70,8 @@ public static class BattleSpriteManagerOrganizer
             return;
 
         bool changed = false;
-        Transform spriteRoot = manager.transform.Find(SpriteManagerObjectName);
-        if (spriteRoot == null)
-        {
-            GameObject rootObject = new(SpriteManagerObjectName);
-            Undo.RegisterCreatedObjectUndo(rootObject, "Create Battle SpriteManager");
-            rootObject.transform.SetParent(manager.transform, false);
-            spriteRoot = rootObject.transform;
-            changed = true;
-        }
-
-        if (spriteRoot.localPosition != Vector3.zero ||
-            spriteRoot.localRotation != Quaternion.identity ||
-            spriteRoot.localScale != Vector3.one)
-        {
-            Undo.RecordObject(spriteRoot, "Reset Battle SpriteManager Transform");
-            spriteRoot.localPosition = Vector3.zero;
-            spriteRoot.localRotation = Quaternion.identity;
-            spriteRoot.localScale = Vector3.one;
-            changed = true;
-        }
+        Transform spriteRoot = EnsureChildRoot(manager.transform, SpriteManagerObjectName, ref changed);
+        Transform templateRoot = EnsureChildRoot(manager.transform, BattleSceneManager.BattleTemplateObjectName, ref changed);
 
         // World Sprite / Show Set
         changed |= EnsureOnSpriteManager<BattleShowPresentationManager>(manager, spriteRoot);
@@ -103,12 +90,42 @@ public static class BattleSpriteManagerOrganizer
         // PACK의 Combat <-> Reward Choice 시각 전환도 visual presentation 설정이므로 함께 관리합니다.
         changed |= EnsureOnSpriteManager<BattleMiniPackContextTweenController>(manager, spriteRoot);
 
+        // Persistent 4x4 Base 설정은 Sprite/Show와 분리된 전투 템플릿 오브젝트에서 관리합니다.
+        changed |= EnsureBattleTemplate(manager, templateRoot);
+
         if (!changed)
             return;
 
         EditorUtility.SetDirty(manager.gameObject);
         EditorUtility.SetDirty(spriteRoot.gameObject);
+        EditorUtility.SetDirty(templateRoot.gameObject);
         EditorSceneManager.MarkSceneDirty(manager.gameObject.scene);
+    }
+
+    private static Transform EnsureChildRoot(Transform parent, string objectName, ref bool changed)
+    {
+        Transform root = parent != null ? parent.Find(objectName) : null;
+        if (root == null)
+        {
+            GameObject rootObject = new(objectName);
+            Undo.RegisterCreatedObjectUndo(rootObject, $"Create Battle {objectName}");
+            rootObject.transform.SetParent(parent, false);
+            root = rootObject.transform;
+            changed = true;
+        }
+
+        if (root.localPosition != Vector3.zero ||
+            root.localRotation != Quaternion.identity ||
+            root.localScale != Vector3.one)
+        {
+            Undo.RecordObject(root, $"Reset Battle {objectName} Transform");
+            root.localPosition = Vector3.zero;
+            root.localRotation = Quaternion.identity;
+            root.localScale = Vector3.one;
+            changed = true;
+        }
+
+        return root;
     }
 
     /// <summary>
@@ -147,6 +164,44 @@ public static class BattleSpriteManagerOrganizer
         }
 
         T created = Undo.AddComponent<T>(spriteRoot.gameObject);
+        EditorUtility.SetDirty(created);
+        return true;
+    }
+
+    /// <summary>
+    /// RoomBaseTemplate은 BattleSystems 루트에서 BattleTemplate 자식으로 실제 이동합니다.
+    /// 직렬화된 Sprite / Material / Sorting / Sizing 설정은 그대로 복사합니다.
+    /// </summary>
+    private static bool EnsureBattleTemplate(BattleSceneManager manager, Transform templateRoot)
+    {
+        if (manager == null || templateRoot == null)
+            return false;
+
+        RoomBaseTemplate organized = templateRoot.GetComponent<RoomBaseTemplate>();
+        if (organized != null)
+            return false;
+
+        RoomBaseTemplate rootTemplate = manager.GetComponent<RoomBaseTemplate>();
+        if (rootTemplate != null)
+        {
+            RoomBaseTemplate moved = Undo.AddComponent<RoomBaseTemplate>(templateRoot.gameObject);
+            EditorUtility.CopySerialized(rootTemplate, moved);
+            Undo.DestroyObjectImmediate(rootTemplate);
+            EditorUtility.SetDirty(moved);
+            return true;
+        }
+
+        RoomBaseTemplate[] existing = Object.FindObjectsByType<RoomBaseTemplate>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (int i = 0; i < existing.Length; i++)
+        {
+            RoomBaseTemplate component = existing[i];
+            if (component != null && component.gameObject.scene == manager.gameObject.scene)
+                return false;
+        }
+
+        RoomBaseTemplate created = Undo.AddComponent<RoomBaseTemplate>(templateRoot.gameObject);
         EditorUtility.SetDirty(created);
         return true;
     }
