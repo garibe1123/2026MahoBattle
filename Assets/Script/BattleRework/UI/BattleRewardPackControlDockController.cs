@@ -8,7 +8,8 @@ using UnityEngine;
 /// 두 버튼은 PACK 하단에 가로 한 줄로 붙고, GridBoard의 회전/스케일을 그대로 따라갑니다.
 /// 상세 패널이나 Screen Safe Area에는 의존하지 않습니다.
 ///
-/// DONE/NEXT의 좌측 Motion Accent는 긴 물결처럼 보이지 않도록 짧고 비스듬한 2개의 사선으로 정리합니다.
+/// DONE/NEXT 좌측 Accent의 위치/각도만 여기서 PACK 레이아웃 기준으로 고정합니다.
+/// 실제 사다리꼴 Shape와 길이/두께 애니메이션은 BattleDoneNextArrowPresentationController가 소유합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(65040)]
@@ -17,11 +18,9 @@ public sealed class BattleRewardPackControlDockController : MonoBehaviour
     [SerializeField, Min(0f)] private float boardEdgeGap = 8f;
     [SerializeField, Min(0f)] private float controlGap = 8f;
 
-    [Header("DONE / NEXT Accent")]
-    [SerializeField] private Vector2 accentMainSize = new(34f, 5f);
+    [Header("DONE / NEXT Accent Placement")]
     [SerializeField] private Vector2 accentMainPosition = new(-7f, 12f);
     [SerializeField, Range(-30f, 30f)] private float accentMainRotation = -13f;
-    [SerializeField] private Vector2 accentSmallSize = new(22f, 4f);
     [SerializeField] private Vector2 accentSmallPosition = new(-1f, -11f);
     [SerializeField, Range(-30f, 30f)] private float accentSmallRotation = 8f;
 
@@ -62,7 +61,7 @@ public sealed class BattleRewardPackControlDockController : MonoBehaviour
             return;
 
         DockControlsUnderBoard();
-        PolishDoneAccent();
+        PolishDoneAccentPlacement();
     }
 
     private void ResolveReferences()
@@ -118,7 +117,7 @@ public sealed class BattleRewardPackControlDockController : MonoBehaviour
             new Vector2(left + trashWidth + gap + doneWidth * 0.5f, centerY));
     }
 
-    private void PolishDoneAccent()
+    private void PolishDoneAccentPlacement()
     {
         if (doneRoot == null)
             return;
@@ -127,12 +126,12 @@ public sealed class BattleRewardPackControlDockController : MonoBehaviour
         if (visual == null)
             return;
 
+        // sizeDelta는 건드리지 않습니다. PresentationController가 매 프레임 길이/두께를 애니메이션합니다.
         RectTransform main = visual.Find("ArrowSpeedLine") as RectTransform;
         if (main != null)
         {
             main.anchorMin = main.anchorMax = new Vector2(0f, 0.5f);
             main.pivot = new Vector2(1f, 0.5f);
-            main.sizeDelta = accentMainSize;
             main.anchoredPosition = accentMainPosition;
             main.localRotation = Quaternion.Euler(0f, 0f, accentMainRotation);
         }
@@ -142,7 +141,6 @@ public sealed class BattleRewardPackControlDockController : MonoBehaviour
         {
             small.anchorMin = small.anchorMax = new Vector2(0f, 0.5f);
             small.pivot = new Vector2(1f, 0.5f);
-            small.sizeDelta = accentSmallSize;
             small.anchoredPosition = accentSmallPosition;
             small.localRotation = Quaternion.Euler(0f, 0f, accentSmallRotation);
         }
