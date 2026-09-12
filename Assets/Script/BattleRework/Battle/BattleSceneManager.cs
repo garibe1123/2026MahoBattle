@@ -254,7 +254,7 @@ public class BattleSceneManager : MonoBehaviour
 
         if (nodeGraph == null)
         {
-            errors.Add("NodeGraphSO is not assigned on BattleSceneManager.");
+            errors.Add("NodeGraphSO is not assigned. Current PlayerAnimator requires it.");
         }
         else if (!nodeGraph.ValidateGraph(out string graphReport))
         {
@@ -353,6 +353,7 @@ public class BattleSceneManager : MonoBehaviour
 
         EnsureSceneSupportComponent<BattleInventoryInteractionController>();
         EnsureSceneSupportComponent<BattleUnifiedInventoryInspectController>();
+        EnsureSceneSupportComponent<BattlePackChangeFeedbackController>();
         EnsureSceneSupportComponent<BattleEquipmentDetailPanelController>();
         EnsureSceneSupportComponent<BattleInventoryMorphTransitionController>();
         EnsureSceneSupportComponent<BattleMonochromeItemVisualController>();
