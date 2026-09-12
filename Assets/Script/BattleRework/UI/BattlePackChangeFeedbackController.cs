@@ -9,6 +9,7 @@ using UnityEngine.UI;
 ///
 /// BattleEquipmentSystem의 authoritative 데이터를 수정하지 않습니다.
 /// InventoryChanged 전/후 3x3 슬롯 스냅샷을 비교해 변경 슬롯만 연출합니다.
+/// 단순 Drag 이동/Swap처럼 PACK 안의 아이템 구성이 그대로인 재배치는 새 변경으로 취급하지 않습니다.
 ///
 /// 기본 연출:
 /// - 변경되지 않은 슬롯을 잠깐 어둡게 눌러 시선을 한 곳으로 모읍니다.
@@ -16,7 +17,8 @@ using UnityEngine.UI;
 /// - 교체/삭제 시 기존 아이콘은 고스트로 빠져나갑니다.
 /// - 추가/교체/합성 시 현재 아이콘은 슬롯 안으로 짧게 들어와 정착합니다.
 /// - 슬롯 위에는 짧은 OLD -> NEW 비교를 표시합니다.
-/// - 작은 최근 변경 마커는 PACK을 닫을 때까지 유지합니다.
+/// - Reward로 실제 유입/교체/합성된 아이템의 최근 변경 마커는 PACK을 닫을 때까지 유지합니다.
+/// - 그 아이템을 PACK 안에서 이동하면 마커는 새 슬롯을 따라가며 새 마커를 만들지 않습니다.
 ///
 /// 카메라, TimeScale, Reward 규칙은 소유하지 않습니다.
 /// </summary>
@@ -218,6 +220,16 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
         if (changes.Count == 0 || !IsRewardMutationWindow())
             return;
 
+        // Drag 이동/Swap은 슬롯 위치만 달라질 뿐 PACK 안의 실제 아이템 멀티셋은 동일합니다.
+        // 이 경우 NEW/CHANGED 연출을 새로 만들지 않고, 기존 마커가 있으면 그 아이템을 따라 이동만 합니다.
+        if (IsPureRearrangement(changes))
+        {
+            StopPresentation(false, false);
+            TransferMarkersForRearrangement(changes);
+            RestoreSlotAlphas();
+            return;
+        }
+
         if (presentationRoutine != null)
             StopCoroutine(presentationRoutine);
         presentationRoutine = StartCoroutine(PresentWhenPackReady(changes));
@@ -297,20 +309,20 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
                 .SetUpdate(true);
         }
 
-        bool swapPair = IsPureSwapPair(changes);
         for (int i = 0; i < changes.Count; i++)
         {
             SlotChange change = changes[i];
             if (change.index < 0 || change.index >= SlotCount || slotRects[change.index] == null)
                 continue;
 
-            EnsureChangeMarker(change.index, change.kind);
+            // EMPTY가 된 슬롯은 '새 아이템' 마커를 남기지 않습니다.
+            if (change.kind != ChangeKind.Removed && change.after.equipment != null)
+                EnsureChangeMarker(change.index, change.kind);
+
             PlaySlotImpact(change.index);
             PlayOutgoingGhost(change);
             PlayIncomingIcon(change);
-
-            if (!swapPair)
-                CreateComparisonCard(change);
+            CreateComparisonCard(change);
         }
 
         Sequence restore = DOTween.Sequence().SetUpdate(true);
@@ -515,6 +527,72 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
             .SetUpdate(true);
     }
 
+    private void TransferMarkersForRearrangement(List<SlotChange> changes)
+    {
+        if (changes == null || changes.Count == 0)
+            return;
+
+        GameObject[] sourceMarkers = new GameObject[changes.Count];
+        bool[] consumed = new bool[changes.Count];
+
+        for (int i = 0; i < changes.Count; i++)
+        {
+            int index = changes[i].index;
+            if (index < 0 || index >= SlotCount)
+                continue;
+
+            sourceMarkers[i] = changeMarkers[index];
+            changeMarkers[index] = null;
+        }
+
+        for (int target = 0; target < changes.Count; target++)
+        {
+            SlotChange targetChange = changes[target];
+            if (targetChange.after.equipment == null ||
+                targetChange.index < 0 || targetChange.index >= SlotCount ||
+                slotRects[targetChange.index] == null)
+                continue;
+
+            for (int source = 0; source < changes.Count; source++)
+            {
+                if (consumed[source] || sourceMarkers[source] == null)
+                    continue;
+                if (!changes[source].before.SameAs(targetChange.after))
+                    continue;
+
+                GameObject marker = sourceMarkers[source];
+                consumed[source] = true;
+                marker.transform.DOKill();
+                marker.transform.SetParent(slotRects[targetChange.index], false);
+
+                RectTransform rect = marker.GetComponent<RectTransform>();
+                if (rect != null)
+                {
+                    rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
+                    rect.pivot = new Vector2(0.5f, 0.5f);
+                    rect.sizeDelta = new Vector2(15f, 15f);
+                    rect.anchoredPosition = new Vector2(-8f, -8f);
+                    rect.localRotation = Quaternion.Euler(0f, 0f, 45f);
+                    rect.localScale = Vector3.one;
+                }
+
+                marker.SetActive(true);
+                marker.transform.SetAsLastSibling();
+                changeMarkers[targetChange.index] = marker;
+                break;
+            }
+        }
+
+        for (int i = 0; i < sourceMarkers.Length; i++)
+        {
+            GameObject marker = sourceMarkers[i];
+            if (marker == null || consumed[i])
+                continue;
+            marker.transform.DOKill();
+            Destroy(marker);
+        }
+    }
+
     private void RestoreSlotAlphas()
     {
         for (int i = 0; i < SlotCount; i++)
@@ -695,20 +773,33 @@ public sealed class BattlePackChangeFeedbackController : MonoBehaviour
         return null;
     }
 
-    private static bool IsPureSwapPair(List<SlotChange> changes)
+    private static bool IsPureRearrangement(List<SlotChange> changes)
     {
-        if (changes == null || changes.Count != 2)
+        if (changes == null || changes.Count < 2)
             return false;
 
-        SlotChange a = changes[0];
-        SlotChange b = changes[1];
-        return a.before.equipment != null && b.before.equipment != null &&
-               a.before.equipment == b.after.equipment &&
-               b.before.equipment == a.after.equipment &&
-               a.before.grade == b.after.grade &&
-               a.before.copies == b.after.copies &&
-               b.before.grade == a.after.grade &&
-               b.before.copies == a.after.copies;
+        bool[] matchedAfter = new bool[changes.Count];
+        for (int beforeIndex = 0; beforeIndex < changes.Count; beforeIndex++)
+        {
+            bool matched = false;
+            SlotSnapshot before = changes[beforeIndex].before;
+            for (int afterIndex = 0; afterIndex < changes.Count; afterIndex++)
+            {
+                if (matchedAfter[afterIndex])
+                    continue;
+                if (!before.SameAs(changes[afterIndex].after))
+                    continue;
+
+                matchedAfter[afterIndex] = true;
+                matched = true;
+                break;
+            }
+
+            if (!matched)
+                return false;
+        }
+
+        return true;
     }
 
     private string BuildComparisonLabel(SlotChange change)
