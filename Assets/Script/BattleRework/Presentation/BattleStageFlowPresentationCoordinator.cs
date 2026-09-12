@@ -9,12 +9,13 @@ using UnityEngine.SceneManagement;
 ///
 /// 핵심 규칙:
 /// - RoomExiting부터 Show Focus의 배경 암전만 먼저 허용해 다음 Show가 들어오기 전에 무대를 어둡게 만듭니다.
-/// - TV Content / Broadcast / Reward 입력은 기존처럼 실제 Show 단계에서만 허용합니다.
+/// - TV Content / Reward 입력은 실제 Show 단계에서만 허용합니다.
+/// - Show 전용 풀스크린 Analog Broadcast Noise/PostProcess는 사용하지 않습니다. 방송 전환은 Battle Scene 시작/종료 전환이 소유합니다.
 /// - Character Spotlight를 소유한 Field Cinematic은 ShowEntering 동안 정지하고 RewardShow / MapShow settle 뒤에 복귀합니다.
 /// - Reward 카드 입력은 실제 WorldSet이 RewardShow로 settle된 뒤에만 허용합니다.
 /// - Map 버튼 입력은 실제 WorldSet이 MapShow로 settle된 뒤에만 허용합니다.
 /// - Reward PACK 편집 중에는 뒤쪽 Show 카메라의 커서 추적을 중지합니다.
-/// - ShowExiting 동안에는 Focus/TV/Broadcast를 유지해 Carrier 퇴장 중 화면이 갑자기 꺼지지 않게 합니다.
+/// - ShowExiting 동안에는 Focus/TV를 유지해 Carrier 퇴장 중 화면이 갑자기 꺼지지 않게 합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(65000)]
@@ -225,7 +226,11 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
         // BattleShowFocusController 내부에서 실제 Spotlight는 WorldSet이 settle되기 전까지 0으로 유지합니다.
         SetEnabled(showFocus, preShowDim || showVisuals);
         SetEnabled(sharedTvContent, showVisuals);
-        SetEnabled(broadcastNoise, showVisuals);
+
+        // 예전 Reward/Map 전용 BroadcastNoise는 풀스크린 FilmGrain/CA/LensDistortion/Vignette와
+        // Analog Overlay를 동시에 사용해 Show에서만 큰 GPU 비용을 만들었습니다.
+        // 방송 ON/OFF 연출은 이제 BattleBroadcastTransitionController가 Scene 진입/종료에만 담당합니다.
+        SetEnabled(broadcastNoise, false);
 
         // Player / Presenter의 실제 Character Spotlight는 Field Cinematic이 소유합니다.
         // RoomExiting / ShowEntering에서는 꺼 둔 채 먼저 암전하고,
