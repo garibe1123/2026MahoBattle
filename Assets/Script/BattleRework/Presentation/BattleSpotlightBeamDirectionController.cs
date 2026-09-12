@@ -1,27 +1,32 @@
 using UnityEngine;
 
 /// <summary>
-/// Global presentation override for the trapezoid/cone part of character spotlights.
+/// Event-driven artist control for the trapezoid/cone part of character spotlights.
 ///
-/// BattleCharacterLightVisual owns strength, size and floor-pool coupling.
-/// This component owns only the final beam orientation so the artist can choose the
-/// visually correct direction from the Inspector without changing code.
+/// No per-frame orientation update is used. Values are pushed only when:
+/// - this component is enabled,
+/// - an Inspector value changes (OnValidate),
+/// - a property is changed from code,
+/// - RefreshTargets() is called explicitly.
 ///
-/// Add this component to a persistent Battle scene object if you want the values to be
-/// serialized with the scene. If none exists, a runtime default is created automatically.
+/// Beam direction/rotation/offset are shader properties, so BattleCharacterLightVisual can
+/// continue updating position/size without overwriting the artist-selected beam orientation.
 /// </summary>
 [DisallowMultipleComponent]
-[DefaultExecutionOrder(59000)]
 public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 {
     public enum BeamShapeDirection
     {
-        /// <summary>Screen result should read as a narrow source above and broad footprint below.</summary>
+        /// <summary>Narrow source at the top, broad footprint at the bottom.</summary>
         NarrowAtTop,
 
-        /// <summary>Inverse orientation: broad at the top and narrow at the bottom.</summary>
+        /// <summary>Broad at the top, narrow at the bottom.</summary>
         NarrowAtBottom
     }
+
+    private static readonly int BeamFlipYId = Shader.PropertyToID("_BeamFlipY");
+    private static readonly int BeamRotationId = Shader.PropertyToID("_BeamRotationDegrees");
+    private static readonly int BeamOffsetId = Shader.PropertyToID("_BeamUvOffset");
 
     [Header("Beam Direction")]
     [SerializeField] private BeamShapeDirection beamShapeDirection = BeamShapeDirection.NarrowAtTop;
@@ -29,13 +34,18 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     [SerializeField] private Vector2 beamLocalOffset = Vector2.zero;
 
     private BattleCharacterLightVisual[] lightVisuals;
+    private MaterialPropertyBlock propertyBlock;
 
     public BeamShapeDirection Direction
     {
         get => beamShapeDirection;
         set
         {
+            if (beamShapeDirection == value)
+                return;
+
             beamShapeDirection = value;
+            RefreshTargets();
             ApplyToAll();
         }
     }
@@ -45,7 +55,12 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         get => beamRotationDegrees;
         set
         {
-            beamRotationDegrees = Mathf.Repeat(value + 180f, 360f) - 180f;
+            float normalized = NormalizeDegrees(value);
+            if (Mathf.Approximately(beamRotationDegrees, normalized))
+                return;
+
+            beamRotationDegrees = normalized;
+            RefreshTargets();
             ApplyToAll();
         }
     }
@@ -55,7 +70,11 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         get => beamLocalOffset;
         set
         {
+            if (beamLocalOffset == value)
+                return;
+
             beamLocalOffset = value;
+            RefreshTargets();
             ApplyToAll();
         }
     }
@@ -74,32 +93,28 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
     private void OnEnable()
     {
+        propertyBlock ??= new MaterialPropertyBlock();
         RefreshTargets();
-        ApplyToAll();
-    }
-
-    private void LateUpdate()
-    {
-        // BattleCharacterLightVisual also updates in LateUpdate. This controller has a much
-        // later execution order, so the Inspector-selected orientation is the final result.
-        // Target discovery is NOT repeated here; only the cached references are used.
         ApplyToAll();
     }
 
     private void OnValidate()
     {
-        beamRotationDegrees = Mathf.Repeat(beamRotationDegrees + 180f, 360f) - 180f;
+        beamRotationDegrees = NormalizeDegrees(beamRotationDegrees);
 
+        // Inspector changes during Play Mode arrive here once per value edit/drag.
+        // No Update/LateUpdate loop is used for these settings.
         if (!Application.isPlaying)
             return;
 
+        propertyBlock ??= new MaterialPropertyBlock();
         RefreshTargets();
         ApplyToAll();
     }
 
     /// <summary>
-    /// Refreshes spotlight targets once. Call this only when character light rigs are spawned
-    /// after scene initialization; it intentionally avoids recurring FindObjects scans.
+    /// Refreshes currently existing character spotlight rigs once and immediately applies
+    /// the current Inspector values. This is intentionally not called every frame.
     /// </summary>
     public void RefreshTargets()
     {
@@ -108,15 +123,25 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             FindObjectsSortMode.None);
     }
 
+    [ContextMenu("Apply Beam Settings Now")]
+    public void ApplyNow()
+    {
+        propertyBlock ??= new MaterialPropertyBlock();
+        RefreshTargets();
+        ApplyToAll();
+    }
+
     private void ApplyToAll()
     {
         if (lightVisuals == null)
             return;
 
+        propertyBlock ??= new MaterialPropertyBlock();
+
         for (int i = 0; i < lightVisuals.Length; i++)
         {
             BattleCharacterLightVisual visual = lightVisuals[i];
-            if (visual == null || !visual.isActiveAndEnabled || !visual.gameObject.activeInHierarchy)
+            if (visual == null)
                 continue;
 
             Transform beam = visual.transform.Find(BattleCharacterLightVisual.KeyRendererName);
@@ -127,20 +152,20 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             if (renderer == null)
                 continue;
 
-            // Runtime screen verification: the current hard-coded flipY=true result is inverted.
-            // Therefore NarrowAtTop deliberately uses flipY=false, while NarrowAtBottom uses true.
-            renderer.flipY = beamShapeDirection == BeamShapeDirection.NarrowAtBottom;
-
-            // BattleCharacterLightVisual resets the beam rotation each frame. Apply the artist
-            // override afterwards so this value is the final visible direction.
-            beam.rotation = Quaternion.Euler(0f, 0f, beamRotationDegrees);
-
-            if (beamLocalOffset != Vector2.zero)
-            {
-                Vector3 right = beam.right * beamLocalOffset.x;
-                Vector3 up = beam.up * beamLocalOffset.y;
-                beam.position += right + up;
-            }
+            renderer.GetPropertyBlock(propertyBlock);
+            propertyBlock.SetFloat(
+                BeamFlipYId,
+                beamShapeDirection == BeamShapeDirection.NarrowAtBottom ? 1f : 0f);
+            propertyBlock.SetFloat(BeamRotationId, beamRotationDegrees);
+            propertyBlock.SetVector(
+                BeamOffsetId,
+                new Vector4(beamLocalOffset.x, beamLocalOffset.y, 0f, 0f));
+            renderer.SetPropertyBlock(propertyBlock);
         }
+    }
+
+    private static float NormalizeDegrees(float degrees)
+    {
+        return Mathf.Repeat(degrees + 180f, 360f) - 180f;
     }
 }
