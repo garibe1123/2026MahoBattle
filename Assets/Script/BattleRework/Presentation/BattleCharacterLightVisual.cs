@@ -53,6 +53,11 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private float keyLightHeightMultiplier = 1.6f;
     private float keyLightVerticalOffsetRatio = 0.15f;
 
+    // Artist beam controls are owned here so the normal placement pass cannot overwrite them.
+    private bool beamNarrowAtTop = true;
+    private float beamRotationDegrees;
+    private Vector2 beamWorldOffset = Vector2.zero;
+
     private float targetVisibility;
     private float targetStrength = 1f;
     private float currentVisibility;
@@ -103,6 +108,23 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         ApplyVisualState();
     }
 
+    /// <summary>
+    /// Artist-facing beam controls supplied by BattleSpotlightBeamDirectionController.
+    /// This stores the values once; the normal placement pass then respects them instead of
+    /// resetting rotation/direction every LateUpdate.
+    /// </summary>
+    public void ApplyBeamArtistSettings(bool narrowAtTop, float rotationDegrees, Vector2 worldOffset)
+    {
+        beamNarrowAtTop = narrowAtTop;
+        beamRotationDegrees = Mathf.Repeat(rotationDegrees + 180f, 360f) - 180f;
+        beamWorldOffset = worldOffset;
+
+        if (keyRenderer != null)
+            keyRenderer.flipY = !beamNarrowAtTop;
+
+        ApplyBeamOrientation();
+    }
+
     public void SetTarget(bool active, float strength = 1f)
     {
         targetVisibility = active ? 1f : 0f;
@@ -125,12 +147,14 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             targetRenderer = ResolveRenderer();
 
         EnsureRig();
+        BattleSpotlightBeamDirectionController.ApplyCurrentSettingsTo(this);
         ApplyVisualState();
     }
 
     private void OnEnable()
     {
         EnsureRig();
+        BattleSpotlightBeamDirectionController.ApplyCurrentSettingsTo(this);
         ApplyVisualState();
     }
 
@@ -206,6 +230,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
     private void EnsureRig()
     {
+        bool beamCreated = false;
+
         if (keyRenderer == null)
         {
             Transform existing = transform.Find(KeyRendererName);
@@ -222,6 +248,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
             keyRenderer.sprite = GetOrCreateKeyLightSprite();
             keyRenderer.sharedMaterial = GetOrCreateKeyLightMaterial();
+            keyRenderer.flipY = !beamNarrowAtTop;
+            beamCreated = true;
         }
 
         if (poolRenderer == null)
@@ -244,13 +272,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         // Beam and pool intentionally use the same additive light material so they read as one lamp.
         Material spotlightMaterial = GetOrCreateKeyLightMaterial();
         if (keyRenderer != null)
-        {
             keyRenderer.sharedMaterial = spotlightMaterial;
-            // Runtime verification shows the SpriteRenderer + spotlight shader path presents the
-            // authored cone vertically inverted. Flip only the beam so the screen result is
-            // definitively narrow at the source (top) and broad at the floor (bottom).
-            keyRenderer.flipY = true;
-        }
         if (poolRenderer != null)
             poolRenderer.sharedMaterial = spotlightMaterial;
 
@@ -278,6 +300,11 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             poolTransform = poolRenderer.transform;
 
         glowProperties ??= new MaterialPropertyBlock();
+
+        // Critical ordering fix: if the beam is created after the settings controller has already
+        // run OnEnable, immediately pull the current controller values now.
+        if (beamCreated)
+            BattleSpotlightBeamDirectionController.ApplyCurrentSettingsTo(this);
     }
 
     private void UpdatePlacement()
@@ -301,10 +328,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             float keyY = bounds.center.y + spriteHeight * keyLightVerticalOffsetRatio;
 
             keyTransform.position = new Vector3(
-                bounds.center.x,
-                keyY,
+                bounds.center.x + beamWorldOffset.x,
+                keyY + beamWorldOffset.y,
                 targetRenderer.transform.position.z);
-            keyTransform.rotation = Quaternion.identity;
+            ApplyBeamOrientation();
 
             ApplyWorldSizeToChild(
                 keyTransform,
@@ -339,6 +366,15 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             poolRenderer.sortingLayerID = targetRenderer.sortingLayerID;
             poolRenderer.sortingOrder = targetRenderer.sortingOrder - 1;
         }
+    }
+
+    private void ApplyBeamOrientation()
+    {
+        if (keyRenderer != null)
+            keyRenderer.flipY = !beamNarrowAtTop;
+
+        if (keyTransform != null)
+            keyTransform.rotation = Quaternion.Euler(0f, 0f, beamRotationDegrees);
     }
 
     private float ResolveSpotlightAperture()
@@ -552,8 +588,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             float verticalFadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.82f, 1f, v));
             float vertical = verticalFadeIn * verticalFadeOut;
 
-            // Texture Y=0 is authored as the broad floor side and Y=1 as the narrow source side.
-            // The renderer is flipped in EnsureRig because the runtime shader path presents this texture upside-down.
+            // Texture Y=0 is the broad floor side and Y=1 is the narrow source side.
+            // SpriteRenderer.flipY is now owned by BattleSpotlightBeamDirectionController settings.
             float widthAtHeight = Mathf.Lerp(1.00f, 0.32f, v);
 
             for (int x = 0; x < width; x++)
