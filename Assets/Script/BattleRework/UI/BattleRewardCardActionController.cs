@@ -17,6 +17,9 @@ using UnityEngine.UI;
 /// Reward business state는 BattleRewardFlow가 단독 소유합니다.
 /// 이 클래스는 BattleHUD.pendingRewardIndex나 다른 Controller의 private field를 Reflection으로 읽지 않습니다.
 /// RewardPrizeDrag는 BattleHUD가 아직 생성하므로 stable index marker로만 읽고 즉시 비활성화합니다.
+///
+/// 정적인 카드 Text/Layout/Graphic은 선택/Hover 상태가 바뀔 때만 다시 적용합니다.
+/// 카드 크기/위치 Tween만 필요한 동안 프레임 단위로 갱신하여 World Space TV Canvas rebuild 비용을 제한합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(60000)]
@@ -92,6 +95,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private int cachedCardCount = -1;
     private float nextResolveTime;
 
+    private bool choicePresentationDirty = true;
+    private int lastChoiceSelectedIndex = int.MinValue;
+    private int lastChoiceHoveredIndex = int.MinValue;
+    private bool lastChoiceHadSelection;
+    private BattleRewardPhase lastPresentationPhase = (BattleRewardPhase)(-1);
+
     private readonly List<CardRef> cards = new();
     private readonly Dictionary<int, Vector2> animatedSizes = new();
     private readonly Dictionary<int, Vector2> animatedPositions = new();
@@ -152,6 +161,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         ResolveReferences();
         ResolveUi(true);
         nextResolveTime = 0f;
+        choicePresentationDirty = true;
+        lastChoiceSelectedIndex = int.MinValue;
+        lastChoiceHoveredIndex = int.MinValue;
+        lastChoiceHadSelection = false;
+        lastPresentationPhase = (BattleRewardPhase)(-1);
     }
 
     private void OnDisable()
@@ -182,18 +196,29 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (!IsReward())
         {
             hoveredRewardIndex = -1;
+            lastPresentationPhase = BattleRewardPhase.Inactive;
+            choicePresentationDirty = true;
             SetLockedVisible(false);
             SetEquipmentDetailPanelSuppressed(false);
             HideChoiceOnlyUi();
             return;
         }
 
-        bool choice = rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.Choosing;
-        bool packEdit = rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
+        BattleRewardPhase phase = rewardFlow != null
+            ? rewardFlow.Phase
+            : BattleRewardPhase.Inactive;
+        bool phaseChanged = phase != lastPresentationPhase;
+        if (phaseChanged)
+        {
+            lastPresentationPhase = phase;
+            choicePresentationDirty = true;
+            DisableLegacyCardMotionAndDrag();
+        }
+
+        bool choice = phase == BattleRewardPhase.Choosing;
+        bool packEdit = phase == BattleRewardPhase.PackEditing;
 
         SetEquipmentDetailPanelSuppressed(choice);
-        DisableLegacyCardMotionAndDrag();
-        HideLegacyChoiceDescription();
 
         if (choice)
         {
@@ -207,7 +232,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             SetChoiceInteractable(false);
             HideChoiceOnlyUi();
             SetLockedVisible(true);
-            AnimateLockedOverlay();
         }
     }
 
@@ -216,11 +240,27 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (!IsReward() || rewardFlow == null)
             return;
 
-        ResolveUi(false);
         if (rewardFlow.Phase == BattleRewardPhase.Choosing)
-            ApplyChoicePresentation();
+        {
+            int selectedIndex = rewardFlow.SelectedChoiceIndex;
+            bool hasSelection = rewardFlow.SelectedChoice != null;
+            bool refreshStatic =
+                choicePresentationDirty ||
+                selectedIndex != lastChoiceSelectedIndex ||
+                hoveredRewardIndex != lastChoiceHoveredIndex ||
+                hasSelection != lastChoiceHadSelection;
+
+            ApplyChoicePresentation(refreshStatic);
+
+            lastChoiceSelectedIndex = selectedIndex;
+            lastChoiceHoveredIndex = hoveredRewardIndex;
+            lastChoiceHadSelection = hasSelection;
+            choicePresentationDirty = false;
+        }
         else if (rewardFlow.Phase == BattleRewardPhase.PackEditing)
+        {
             AnimateLockedOverlay();
+        }
     }
 
     private void ResolveReferences()
@@ -237,7 +277,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void ResolveUi(bool forceCards)
     {
-        RectTransform resolvedScreen = FindRect("PrizeSelectionScreen");
+        // PrizeSelectionScreen은 Show 동안 같은 공용 TV Frame을 유지합니다.
+        // 이미 바인딩된 뒤에는 전체 RectTransform을 다시 검색하지 않습니다.
+        RectTransform resolvedScreen = rewardScreen;
+        if (resolvedScreen == null)
+            resolvedScreen = FindRect("PrizeSelectionScreen");
+
         if (resolvedScreen != rewardScreen)
         {
             rewardScreen = resolvedScreen;
@@ -255,6 +300,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             cachedCardRoot = null;
             cachedCardCount = -1;
             forceCards = true;
+            choicePresentationDirty = true;
         }
 
         if (rewardScreen == null)
@@ -272,6 +318,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             if (rewardCardRoot != null && rewardCardGroup == null)
                 rewardCardGroup = rewardCardRoot.gameObject.AddComponent<CanvasGroup>();
             forceCards = true;
+            choicePresentationDirty = true;
         }
 
         rewardNoticeRect = rewardInner.Find("PlacementNotice") as RectTransform;
@@ -313,6 +360,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         hoveredRewardIndex = -1;
         cachedCardRoot = rewardCardRoot;
         cachedCardCount = rewardCardRoot != null ? rewardCardRoot.childCount : -1;
+        choicePresentationDirty = true;
 
         if (rewardCardRoot == null)
             return;
@@ -379,6 +427,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         cards.Sort((a, b) => a.index.CompareTo(b.index));
+        DisableLegacyCardMotionAndDrag();
     }
 
     private static void DisableOtherRewardHoverRelays(RectTransform card)
@@ -418,15 +467,18 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
     }
 
-    private void ApplyChoicePresentation()
+    private void ApplyChoicePresentation(bool refreshStatic)
     {
         if (rewardCardRoot == null || rewardInner == null || rewardFlow == null)
             return;
 
-        LayoutRewardCardArea();
-        LayoutSkipButton();
-        HideLegacyChoiceDescription();
-        SetChoiceInteractable(true);
+        if (refreshStatic)
+        {
+            LayoutRewardCardArea();
+            LayoutSkipButton();
+            HideLegacyChoiceDescription();
+            SetChoiceInteractable(true);
+        }
 
         int selectedIndex = rewardFlow.SelectedChoiceIndex;
         bool hasSelection = rewardFlow.SelectedChoice != null;
@@ -467,44 +519,60 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
             currentSize = Vector2.Lerp(currentSize, targetSize, blend);
             currentPosition = Vector2.Lerp(currentPosition, targetPosition, blend);
+
+            // Lerp의 미세한 꼬리를 매 프레임 Canvas dirty로 만들지 않도록 목표 근처에서 정확히 스냅합니다.
+            if ((currentSize - targetSize).sqrMagnitude <= 0.01f)
+                currentSize = targetSize;
+            if ((currentPosition - targetPosition).sqrMagnitude <= 0.01f)
+                currentPosition = targetPosition;
+
             animatedSizes[id] = currentSize;
             animatedPositions[id] = currentPosition;
 
-            card.rect.anchorMin = card.rect.anchorMax = new Vector2(0.5f, 0.5f);
-            card.rect.pivot = new Vector2(0.5f, 0.5f);
-            card.rect.sizeDelta = currentSize;
-            card.rect.anchoredPosition = currentPosition;
-            card.rect.localScale = Vector3.one;
-            card.rect.localRotation = Quaternion.identity;
-
-            RestoreChildLayout(card);
-            BattleEquipmentSO equipment = GetReward(card.index);
-            ConfigureBuiltInCardContent(card.rect, equipment, selected);
-
-            if (card.group != null)
-                card.group.alpha = !hasSelection ? 0.82f : selected ? 1f : 0.46f;
-            if (card.background != null)
-                card.background.color = selected ? this.selectedCard : neutralCard;
-
-            if (card.outline != null)
+            if (refreshStatic)
             {
-                card.outline.enabled = selected || hovered;
-                if (selected)
-                {
-                    card.outline.effectColor = selectAccent;
-                    card.outline.effectDistance = new Vector2(5f, -5f);
-                }
-                else if (hovered)
-                {
-                    card.outline.effectColor = hoverCyan;
-                    card.outline.effectDistance = new Vector2(4f, -4f);
-                }
+                card.rect.anchorMin = card.rect.anchorMax = new Vector2(0.5f, 0.5f);
+                card.rect.pivot = new Vector2(0.5f, 0.5f);
+                card.rect.localScale = Vector3.one;
+                card.rect.localRotation = Quaternion.identity;
             }
 
-            if (card.icon != null)
+            if ((card.rect.sizeDelta - currentSize).sqrMagnitude > 0.0001f)
+                card.rect.sizeDelta = currentSize;
+            if ((card.rect.anchoredPosition - currentPosition).sqrMagnitude > 0.0001f)
+                card.rect.anchoredPosition = currentPosition;
+
+            if (refreshStatic)
             {
-                card.icon.material = null;
-                card.icon.color = selected || hovered ? Color.white : inactiveIconColor;
+                RestoreChildLayout(card);
+                BattleEquipmentSO equipment = GetReward(card.index);
+                ConfigureBuiltInCardContent(card.rect, equipment, selected);
+
+                if (card.group != null)
+                    card.group.alpha = !hasSelection ? 0.82f : selected ? 1f : 0.46f;
+                if (card.background != null)
+                    card.background.color = selected ? this.selectedCard : neutralCard;
+
+                if (card.outline != null)
+                {
+                    card.outline.enabled = selected || hovered;
+                    if (selected)
+                    {
+                        card.outline.effectColor = selectAccent;
+                        card.outline.effectDistance = new Vector2(5f, -5f);
+                    }
+                    else if (hovered)
+                    {
+                        card.outline.effectColor = hoverCyan;
+                        card.outline.effectDistance = new Vector2(4f, -4f);
+                    }
+                }
+
+                if (card.icon != null)
+                {
+                    card.icon.material = null;
+                    card.icon.color = selected || hovered ? Color.white : inactiveIconColor;
+                }
             }
 
             if (selected)
@@ -513,17 +581,23 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         if (!hasSelection || selectedCardRef == null)
         {
-            if (inlineDetailRoot != null)
-                inlineDetailRoot.gameObject.SetActive(false);
-            if (decideRoot != null)
-                decideRoot.gameObject.SetActive(false);
+            if (refreshStatic)
+            {
+                if (inlineDetailRoot != null && inlineDetailRoot.gameObject.activeSelf)
+                    inlineDetailRoot.gameObject.SetActive(false);
+                if (decideRoot != null && decideRoot.gameObject.activeSelf)
+                    decideRoot.gameObject.SetActive(false);
+            }
             return;
         }
 
-        BattleEquipmentSO selectedEquipment = GetReward(selectedIndex);
-        EnsureInlineDetail(selectedCardRef.rect);
-        RefreshInlineDetail(selectedEquipment);
-        EnsureDecisionButton(selectedCardRef.rect);
+        if (refreshStatic || inlineDetailRoot == null || decideRoot == null || inlineDetailRoot.parent != selectedCardRef.rect)
+        {
+            BattleEquipmentSO selectedEquipment = GetReward(selectedIndex);
+            EnsureInlineDetail(selectedCardRef.rect);
+            RefreshInlineDetail(selectedEquipment);
+            EnsureDecisionButton(selectedCardRef.rect);
+        }
     }
 
     private void LayoutRewardCardArea()
@@ -732,6 +806,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (!IsChoiceStage() || rewardFlow == null)
             return;
         rewardFlow.SelectChoice(index);
+        choicePresentationDirty = true;
     }
 
     private void ConfirmSelectedReward()
@@ -742,6 +817,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (rewardFlow.ConfirmSelectedChoice())
         {
             hoveredRewardIndex = -1;
+            choicePresentationDirty = true;
             HideChoiceOnlyUi();
             SetChoiceInteractable(false);
             SetLockedVisible(true);
@@ -856,8 +932,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     internal void SetSkipHover(bool hovered)
     {
+        if (skipHovered == hovered)
+            return;
+
         skipHovered = hovered;
-        ApplySkipDecor();
+        LayoutSkipButton();
     }
 
     private void SkipReward()
@@ -867,6 +946,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         rewardFlow.ClearChoice();
         rewardFlow.SkipReward();
+        choicePresentationDirty = true;
     }
 
     internal void SetCardHover(int rewardIndex, bool entered)
@@ -874,16 +954,22 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (!IsChoiceStage())
             return;
 
+        int previous = hoveredRewardIndex;
         if (rewardFlow != null && rewardFlow.SelectedChoiceIndex >= 0)
         {
             hoveredRewardIndex = -1;
-            return;
+        }
+        else if (entered)
+        {
+            hoveredRewardIndex = rewardIndex;
+        }
+        else if (hoveredRewardIndex == rewardIndex)
+        {
+            hoveredRewardIndex = -1;
         }
 
-        if (entered)
-            hoveredRewardIndex = rewardIndex;
-        else if (hoveredRewardIndex == rewardIndex)
-            hoveredRewardIndex = -1;
+        if (previous != hoveredRewardIndex)
+            choicePresentationDirty = true;
     }
 
     private void SetChoiceInteractable(bool interactable)
@@ -914,17 +1000,17 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             descriptionBar.gameObject.SetActive(false);
 
         RectTransform oldDecide = FindChildByName(rewardInner, "RewardDecisionConfirm");
-        if (oldDecide != null && oldDecide != decideRoot)
+        if (oldDecide != null && oldDecide != decideRoot && oldDecide.gameObject.activeSelf)
             oldDecide.gameObject.SetActive(false);
     }
 
     private void HideChoiceOnlyUi()
     {
-        if (inlineDetailRoot != null)
+        if (inlineDetailRoot != null && inlineDetailRoot.gameObject.activeSelf)
             inlineDetailRoot.gameObject.SetActive(false);
-        if (decideRoot != null)
+        if (decideRoot != null && decideRoot.gameObject.activeSelf)
             decideRoot.gameObject.SetActive(false);
-        if (rewardNoticeObject != null)
+        if (rewardNoticeObject != null && rewardNoticeObject.activeSelf)
             rewardNoticeObject.SetActive(false);
         skipHovered = false;
     }
@@ -1001,9 +1087,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (lockedOverlay == null)
             return;
 
-        if (lockedOverlay.gameObject.activeSelf != visible)
+        bool changed = lockedOverlay.gameObject.activeSelf != visible;
+        if (changed)
             lockedOverlay.gameObject.SetActive(visible);
-        if (visible)
+
+        if (visible && lockedOverlay.GetSiblingIndex() != lockedOverlay.parent.childCount - 1)
             lockedOverlay.SetAsLastSibling();
     }
 
