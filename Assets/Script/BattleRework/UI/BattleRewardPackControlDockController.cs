@@ -1,10 +1,11 @@
 using UnityEngine;
 
 /// <summary>
-/// Reward PACK 편집의 DONE/NEXT 및 TRASH를 실제 GridBoard 오른쪽 Edge에 고정합니다.
+/// Reward PACK 편집의 DONE/NEXT 및 TRASH를 실제 GridBoard 하단 Edge에 고정합니다.
 ///
 /// BattleUnifiedInventoryInspectController가 버튼의 기능/가시성을 계속 소유하고,
 /// 이 컴포넌트는 최종 Presentation 좌표만 GridBoard 기준으로 보정합니다.
+/// 두 버튼은 PACK 하단에 가로 한 줄로 붙고, GridBoard의 회전/스케일을 그대로 따라갑니다.
 /// 상세 패널이나 Screen Safe Area에는 의존하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -50,7 +51,7 @@ public sealed class BattleRewardPackControlDockController : MonoBehaviour
         if (!IsRewardPackEditing() || boardRoot == null || doneRoot == null || trashRoot == null)
             return;
 
-        DockControlsToBoard();
+        DockControlsUnderBoard();
     }
 
     private void ResolveReferences()
@@ -75,35 +76,55 @@ public sealed class BattleRewardPackControlDockController : MonoBehaviour
                rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
     }
 
-    private void DockControlsToBoard()
+    private void DockControlsUnderBoard()
     {
-        float doneHeight = Mathf.Max(1f, doneRoot.rect.height);
-        float trashHeight = Mathf.Max(1f, trashRoot.rect.height);
+        if (boardRoot == null || doneRoot == null || trashRoot == null)
+            return;
+
+        // UnifiedInventoryInspectController가 먼저 fullRoot 기준으로 배치하더라도
+        // 이 컨트롤러가 더 늦게 실행되어 두 버튼을 실제 PACK 보드의 자식으로 되돌립니다.
+        // 따라서 PACK의 기울기/스케일/이동을 그대로 따라갑니다.
+        ReparentToBoard(trashRoot);
+        ReparentToBoard(doneRoot);
+
+        float trashWidth = Mathf.Max(1f, trashRoot.rect.width);
+        float doneWidth = Mathf.Max(1f, doneRoot.rect.width);
+        float maxHeight = Mathf.Max(
+            Mathf.Max(1f, trashRoot.rect.height),
+            Mathf.Max(1f, doneRoot.rect.height));
         float gap = Mathf.Max(0f, controlGap);
 
-        // 두 버튼 묶음 전체를 PACK 오른쪽 중앙에 맞춥니다.
-        float doneCenterY = (trashHeight + gap) * 0.5f;
-        float trashCenterY = -(doneHeight + gap) * 0.5f;
+        float totalWidth = trashWidth + gap + doneWidth;
+        float left = -totalWidth * 0.5f;
+        float centerY = boardRoot.rect.yMin - Mathf.Max(0f, boardEdgeGap) - maxHeight * 0.5f;
 
-        DockControl(doneRoot, doneCenterY);
-        DockControl(trashRoot, trashCenterY);
+        // PACK 하단에 TRASH | DONE/NEXT 순서로 한 줄 배치합니다.
+        PlaceControl(
+            trashRoot,
+            new Vector2(left + trashWidth * 0.5f, centerY));
+        PlaceControl(
+            doneRoot,
+            new Vector2(left + trashWidth + gap + doneWidth * 0.5f, centerY));
     }
 
-    private void DockControl(RectTransform control, float boardLocalY)
+    private void ReparentToBoard(RectTransform control)
     {
         if (control == null || boardRoot == null)
             return;
 
-        // Pivot을 왼쪽 중앙으로 두어 PACK 오른쪽 Edge + gap 지점이 버튼의 왼쪽 Edge가 됩니다.
-        control.pivot = new Vector2(0f, 0.5f);
+        if (control.parent != boardRoot)
+            control.SetParent(boardRoot, false);
+    }
 
-        Vector3 boardLocalPoint = new(
-            boardRoot.rect.xMax + Mathf.Max(0f, boardEdgeGap),
-            boardLocalY,
-            0f);
+    private static void PlaceControl(RectTransform control, Vector2 localCenter)
+    {
+        if (control == null)
+            return;
 
-        control.position = boardRoot.TransformPoint(boardLocalPoint);
-        control.rotation = boardRoot.rotation;
+        control.anchorMin = control.anchorMax = new Vector2(0.5f, 0.5f);
+        control.pivot = new Vector2(0.5f, 0.5f);
+        control.anchoredPosition = localCenter;
+        control.localRotation = Quaternion.identity;
         control.localScale = Vector3.one;
         control.SetAsLastSibling();
     }
