@@ -87,8 +87,9 @@ public static class BattleSpriteManagerOrganizer
         changed |= EnsureOnSpriteManager<BattleShowBroadcastNoiseController>(manager, spriteRoot);
         changed |= EnsureOnSpriteManager<BattleSpotlightBeamDirectionController>(manager, spriteRoot);
 
-        // PACK의 Combat <-> Reward Choice 시각 전환도 visual presentation 설정이므로 함께 관리합니다.
+        // PACK / Broadcast Dashboard presentation
         changed |= EnsureOnSpriteManager<BattleMiniPackContextTweenController>(manager, spriteRoot);
+        changed |= EnsureOnSpriteManager<BattleBroadcastDashboardController>(manager, spriteRoot);
 
         // Persistent 4x4 Base 설정은 Sprite/Show와 분리된 전투 템플릿 오브젝트에서 관리합니다.
         changed |= EnsureBattleTemplate(manager, templateRoot);
