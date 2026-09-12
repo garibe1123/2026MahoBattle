@@ -179,7 +179,7 @@ public static class BattleSpriteManagerOrganizer
 
         RoomBaseTemplate organized = templateRoot.GetComponent<RoomBaseTemplate>();
         if (organized != null)
-            return false;
+            return AssignBattleTemplateReference(manager, organized);
 
         RoomBaseTemplate rootTemplate = manager.GetComponent<RoomBaseTemplate>();
         if (rootTemplate != null)
@@ -188,6 +188,7 @@ public static class BattleSpriteManagerOrganizer
             EditorUtility.CopySerialized(rootTemplate, moved);
             Undo.DestroyObjectImmediate(rootTemplate);
             EditorUtility.SetDirty(moved);
+            AssignBattleTemplateReference(manager, moved);
             return true;
         }
 
@@ -197,12 +198,32 @@ public static class BattleSpriteManagerOrganizer
         for (int i = 0; i < existing.Length; i++)
         {
             RoomBaseTemplate component = existing[i];
-            if (component != null && component.gameObject.scene == manager.gameObject.scene)
-                return false;
+            if (component == null || component.gameObject.scene != manager.gameObject.scene)
+                continue;
+
+            // 사용자가 별도 위치에 명시적으로 둔 Template은 이동하지 않지만 Manager 참조는 정확히 맞춥니다.
+            return AssignBattleTemplateReference(manager, component);
         }
 
         RoomBaseTemplate created = Undo.AddComponent<RoomBaseTemplate>(templateRoot.gameObject);
         EditorUtility.SetDirty(created);
+        AssignBattleTemplateReference(manager, created);
+        return true;
+    }
+
+    private static bool AssignBattleTemplateReference(BattleSceneManager manager, RoomBaseTemplate template)
+    {
+        if (manager == null)
+            return false;
+
+        SerializedObject serializedManager = new(manager);
+        SerializedProperty property = serializedManager.FindProperty("roomBaseTemplate");
+        if (property == null || property.objectReferenceValue == template)
+            return false;
+
+        property.objectReferenceValue = template;
+        serializedManager.ApplyModifiedProperties();
+        EditorUtility.SetDirty(manager);
         return true;
     }
 #endif
