@@ -385,32 +385,81 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             stroke.anchorMax = Vector2.one;
             stroke.offsetMin = new Vector2(-6f, -6f);
             stroke.offsetMax = new Vector2(6f, 6f);
-
-            Image strokeImage = strokeObject.AddComponent<Image>();
-            strokeImage.color = Color.clear;
-            strokeImage.raycastTarget = false;
-
-            Outline outline = strokeObject.AddComponent<Outline>();
-            outline.useGraphicAlpha = false;
         }
 
         if (!stroke.gameObject.activeSelf)
             stroke.gameObject.SetActive(true);
 
-        // 선택/호버 Stroke보다 바깥에 그려서 두 상태가 동시에 보이게 합니다.
-        stroke.SetAsLastSibling();
-        Outline negativeOutline = stroke.GetComponent<Outline>();
-        if (negativeOutline == null)
-            negativeOutline = stroke.gameObject.AddComponent<Outline>();
+        // 이전 버전의 투명 Image + Outline은 사각형 전체를 색으로 덮을 수 있으므로 즉시 비활성화합니다.
+        Image legacyFill = stroke.GetComponent<Image>();
+        if (legacyFill != null)
+            legacyFill.enabled = false;
+        Outline legacyOutline = stroke.GetComponent<Outline>();
+        if (legacyOutline != null)
+            legacyOutline.enabled = false;
 
+        // 실제 정보 레이어 위에는 4개의 얇은 Edge만 렌더합니다.
+        stroke.SetAsLastSibling();
         float pulse01 = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 5.4f);
         Color negative = ResolveNegativeStrokeColor(sourceColor);
-        negative.a = Mathf.Lerp(0.78f, 1f, pulse01);
-        float distance = Mathf.Lerp(4.5f, 6.2f, pulse01);
+        negative.a = Mathf.Lerp(0.82f, 1f, pulse01);
+        float thickness = Mathf.Lerp(3.4f, 4.8f, pulse01);
+        ApplyEdgeStroke(stroke, negative, thickness);
+    }
 
-        negativeOutline.useGraphicAlpha = false;
-        negativeOutline.effectColor = negative;
-        negativeOutline.effectDistance = new Vector2(distance, -distance);
+    private static void ApplyEdgeStroke(RectTransform root, Color color, float thickness)
+    {
+        if (root == null)
+            return;
+
+        thickness = Mathf.Max(1f, thickness);
+        ConfigureEdge(root, "Top", color,
+            new Vector2(0f, 1f), new Vector2(1f, 1f),
+            new Vector2(0f, -thickness), Vector2.zero);
+        ConfigureEdge(root, "Bottom", color,
+            Vector2.zero, new Vector2(1f, 0f),
+            Vector2.zero, new Vector2(0f, thickness));
+        ConfigureEdge(root, "Left", color,
+            Vector2.zero, new Vector2(0f, 1f),
+            Vector2.zero, new Vector2(thickness, 0f));
+        ConfigureEdge(root, "Right", color,
+            new Vector2(1f, 0f), Vector2.one,
+            new Vector2(-thickness, 0f), Vector2.zero);
+    }
+
+    private static void ConfigureEdge(
+        RectTransform root,
+        string edgeName,
+        Color color,
+        Vector2 anchorMin,
+        Vector2 anchorMax,
+        Vector2 offsetMin,
+        Vector2 offsetMax)
+    {
+        RectTransform edge = root.Find(edgeName) as RectTransform;
+        if (edge == null)
+        {
+            GameObject edgeObject = new(edgeName);
+            edgeObject.transform.SetParent(root, false);
+            edge = edgeObject.AddComponent<RectTransform>();
+            Image image = edgeObject.AddComponent<Image>();
+            image.raycastTarget = false;
+        }
+
+        edge.anchorMin = anchorMin;
+        edge.anchorMax = anchorMax;
+        edge.offsetMin = offsetMin;
+        edge.offsetMax = offsetMax;
+        edge.localScale = Vector3.one;
+        edge.localRotation = Quaternion.identity;
+
+        Image edgeImage = edge.GetComponent<Image>();
+        if (edgeImage != null)
+        {
+            edgeImage.enabled = true;
+            edgeImage.color = color;
+            edgeImage.raycastTarget = false;
+        }
     }
 
     private static Color ResolveNegativeStrokeColor(Color source)
