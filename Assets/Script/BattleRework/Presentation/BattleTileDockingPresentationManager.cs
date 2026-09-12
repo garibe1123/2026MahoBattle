@@ -106,6 +106,10 @@ public sealed class BattleTileDockingPresentationManager : MonoBehaviour
         if (sequence == null || movingTransform == null)
             return;
 
+        // Reward / Map Show는 BattleTimeScaleController에 의해 scaled time이 멈출 수 있습니다.
+        // 도킹은 Stage Presentation이므로 전투/Show 모두 같은 물리감을 유지하도록 항상 unscaled로 재생합니다.
+        sequence.SetUpdate(true);
+
         Vector2 direction = travelDirection.sqrMagnitude > 0.001f
             ? travelDirection.normalized
             : Vector2.down;
