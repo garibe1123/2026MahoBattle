@@ -254,7 +254,7 @@ public class BattleSceneManager : MonoBehaviour
 
         if (nodeGraph == null)
         {
-            errors.Add("NodeGraphSO is not assigned. Current PlayerAnimator requires it.");
+            errors.Add("NodeGraphSO is not assigned on BattleSceneManager.");
         }
         else if (!nodeGraph.ValidateGraph(out string graphReport))
         {
