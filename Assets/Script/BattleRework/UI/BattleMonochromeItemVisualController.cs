@@ -8,6 +8,8 @@ using UnityEngine.UI;
 /// - Reward 카드 외형은 BattleRewardCardActionController만 소유합니다.
 /// - Mini PACK의 InteractionSelectionFrame은 BattleInventoryInteractionController가 소유합니다.
 /// - Full Grid의 UnifiedSelectionFrame은 BattleUnifiedInventoryInspectController가 소유합니다.
+/// - 최근 변경 상태의 수명은 BattlePackChangeFeedbackController가 소유하고,
+///   이 클래스는 기존 태그를 숨긴 뒤 바깥쪽 Negative Stroke로만 표현합니다.
 /// - 이 클래스는 슬롯 배경, 아이콘 monochrome, 텍스트 톤, 합성 LV 색상만 적용합니다.
 /// - RectTransform 위치/크기/Scale, 선택 Frame 활성 상태는 변경하지 않습니다.
 ///
@@ -19,6 +21,8 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
 {
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const string MonochromeShaderName = "UI/BattleItemMonochrome";
+    private const string RecentChangeMarkerName = "PackRecentChangeMarker";
+    private const string RecentChangeStrokeName = "PackRecentChangeNegativeStroke";
 
     [Header("Inventory Base")]
     [SerializeField] private Color black = new(0.018f, 0.020f, 0.024f, 0.99f);
@@ -262,6 +266,7 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
             ApplyIconVisual(slotRect, occupied, focused);
             ApplyLevelLabel(slotRect, runtimeSlot, focused);
             ApplyGridTextTone(slotRect, runtimeSlot, focused, i == equipmentSystem.EquippedSlotIndex);
+            ApplyRecentChangeStroke(slotRect);
         }
     }
 
@@ -344,6 +349,84 @@ public sealed class BattleMonochromeItemVisualController : MonoBehaviour
                 text.color = muted;
             }
         }
+    }
+
+    private void ApplyRecentChangeStroke(RectTransform slotRect)
+    {
+        if (slotRect == null)
+            return;
+
+        Transform marker = slotRect.Find(RecentChangeMarkerName);
+        RectTransform stroke = slotRect.Find(RecentChangeStrokeName) as RectTransform;
+
+        if (marker == null)
+        {
+            if (stroke != null && stroke.gameObject.activeSelf)
+                stroke.gameObject.SetActive(false);
+            return;
+        }
+
+        Image markerImage = marker.GetComponent<Image>();
+        Outline markerOutline = marker.GetComponent<Outline>();
+        Color sourceColor = markerImage != null ? markerImage.color : equippedAccent;
+
+        // 기존 우측 상단 다이아 태그는 상태 보존용으로만 남기고 화면에는 그리지 않습니다.
+        if (markerImage != null)
+            markerImage.enabled = false;
+        if (markerOutline != null)
+            markerOutline.enabled = false;
+
+        if (stroke == null)
+        {
+            GameObject strokeObject = new(RecentChangeStrokeName);
+            strokeObject.transform.SetParent(slotRect, false);
+            stroke = strokeObject.AddComponent<RectTransform>();
+            stroke.anchorMin = Vector2.zero;
+            stroke.anchorMax = Vector2.one;
+            stroke.offsetMin = new Vector2(-6f, -6f);
+            stroke.offsetMax = new Vector2(6f, 6f);
+
+            Image strokeImage = strokeObject.AddComponent<Image>();
+            strokeImage.color = Color.clear;
+            strokeImage.raycastTarget = false;
+
+            Outline outline = strokeObject.AddComponent<Outline>();
+            outline.useGraphicAlpha = false;
+        }
+
+        if (!stroke.gameObject.activeSelf)
+            stroke.gameObject.SetActive(true);
+
+        // 선택/호버 Stroke보다 바깥에 그려서 두 상태가 동시에 보이게 합니다.
+        stroke.SetAsLastSibling();
+        Outline negativeOutline = stroke.GetComponent<Outline>();
+        if (negativeOutline == null)
+            negativeOutline = stroke.gameObject.AddComponent<Outline>();
+
+        float pulse01 = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 5.4f);
+        Color negative = ResolveNegativeStrokeColor(sourceColor);
+        negative.a = Mathf.Lerp(0.78f, 1f, pulse01);
+        float distance = Mathf.Lerp(4.5f, 6.2f, pulse01);
+
+        negativeOutline.useGraphicAlpha = false;
+        negativeOutline.effectColor = negative;
+        negativeOutline.effectDistance = new Vector2(distance, -distance);
+    }
+
+    private static Color ResolveNegativeStrokeColor(Color source)
+    {
+        Color inverted = new(1f - source.r, 1f - source.g, 1f - source.b, 1f);
+        Color.RGBToHSV(inverted, out float h, out float s, out float v);
+
+        // 무채색의 단순 반전은 어두운 슬롯 위에서 다시 묻힐 수 있으므로 밝은 Negative로 보정합니다.
+        if (s < 0.18f)
+            return new Color(0.96f, 0.96f, 0.96f, 1f);
+
+        s = Mathf.Max(0.72f, s);
+        v = Mathf.Max(0.90f, v);
+        Color result = Color.HSVToRGB(h, s, v);
+        result.a = 1f;
+        return result;
     }
 
     private bool IsMiniSlotFocused(RectTransform slotRect, int index)
