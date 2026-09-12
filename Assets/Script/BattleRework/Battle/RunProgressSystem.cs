@@ -3,14 +3,22 @@ using UnityEngine;
 
 /// <summary>
 /// 인런 진행 수치를 한 곳에서 보관합니다.
-/// Popularity/FanPoint/MonsterKillPoint를 개별 Manager로 쪼개지 않고 런 상태로 묶습니다.
+/// Popularity/FanPoint/MonsterKillPoint/Broadcast Metrics를 개별 Manager로 쪼개지 않고 런 상태로 묶습니다.
 /// </summary>
 public class RunProgressSystem : MonoBehaviour
 {
+    [Header("RUN PROGRESS — 인런 성장 수치")]
+    [Tooltip("현재 인기도입니다. Villain Grade 계산과 Fan Mission 보상/페널티에 사용됩니다.")]
     [SerializeField] private int popularity;
+    [Tooltip("현재 Fan Point입니다.")]
     [SerializeField] private int fanPoints;
+    [Tooltip("현재 Run에서 획득한 Monster Kill Point입니다. Run 종료 시 초기화됩니다.")]
     [SerializeField] private int monsterKillPoints;
+
+    [Header("BROADCAST METRICS — 방송 표시 수치")]
+    [Tooltip("우측 상단 방송 UI에 표시할 현재 실시간 시청자 수입니다.")]
     [SerializeField] private int viewers;
+    [Tooltip("우측 상단 방송 UI에 표시할 현재 좋아요 수입니다.")]
     [SerializeField] private int likes;
 
     public int Popularity => popularity;
@@ -24,12 +32,14 @@ public class RunProgressSystem : MonoBehaviour
     public event Action<int> FanPointsChanged;
     public event Action<int> MonsterKillPointsChanged;
     public event Action<VillainGrade> VillainGradeChanged;
+    public event Action<int, int> BroadcastMetricsChanged;
 
     public void BeginRun()
     {
         popularity = Mathf.Max(0, popularity);
         monsterKillPoints = 0;
         MonsterKillPointsChanged?.Invoke(monsterKillPoints);
+        BroadcastMetricsChanged?.Invoke(viewers, likes);
     }
 
     public void AddPopularity(int amount)
@@ -67,8 +77,14 @@ public class RunProgressSystem : MonoBehaviour
 
     public void SetBroadcastMetrics(int currentViewers, int currentLikes)
     {
-        viewers = Mathf.Max(0, currentViewers);
-        likes = Mathf.Max(0, currentLikes);
+        int nextViewers = Mathf.Max(0, currentViewers);
+        int nextLikes = Mathf.Max(0, currentLikes);
+        if (viewers == nextViewers && likes == nextLikes)
+            return;
+
+        viewers = nextViewers;
+        likes = nextLikes;
+        BroadcastMetricsChanged?.Invoke(viewers, likes);
     }
 
     public void EndRun()
