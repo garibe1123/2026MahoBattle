@@ -13,6 +13,7 @@ using UnityEngine.SceneManagement;
 /// - Character Spotlight를 소유한 Field Cinematic은 ShowEntering 동안 정지하고 RewardShow / MapShow settle 뒤에 복귀합니다.
 /// - Reward 카드 입력은 실제 WorldSet이 RewardShow로 settle된 뒤에만 허용합니다.
 /// - Map 버튼 입력은 실제 WorldSet이 MapShow로 settle된 뒤에만 허용합니다.
+/// - Reward PACK 편집 중에는 뒤쪽 Show 카메라의 커서 추적을 중지합니다.
 /// - ShowExiting 동안에는 Focus/TV/Broadcast를 유지해 Carrier 퇴장 중 화면이 갑자기 꺼지지 않게 합니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -31,6 +32,8 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
     private BattleShowSharedTvContentController sharedTvContent;
     private BattleShowBroadcastNoiseController broadcastNoise;
     private BattleFieldCinematicDirector fieldCinematic;
+    private BattleRewardFlow rewardFlow;
+    private BattleCameraController battleCamera;
 
     private RectTransform rewardCardRoot;
     private RectTransform rewardNoticeRoot;
@@ -118,6 +121,11 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
 
     private void Update()
     {
+        // WorldSet(20000)이 먼저 TV 커서 추적을 갱신한 뒤 이 Coordinator(65000)가
+        // PACK 편집 중에는 같은 프레임 안에서 다시 끕니다. Camera LateUpdate 전에 적용되므로
+        // PACK 뒤쪽 카메라가 화면 밖 마우스 좌표를 따라 버벅이지 않습니다.
+        ApplyRewardPackCameraGate();
+
         if (Time.unscaledTime < nextResolveTime)
             return;
 
@@ -125,6 +133,7 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
         ResolveReferences(false);
         SubscribeFlow();
         ApplyFlowPolicy();
+        ApplyRewardPackCameraGate();
     }
 
     private void LateUpdate()
@@ -153,6 +162,10 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
             broadcastNoise = FindFirstObjectByType<BattleShowBroadcastNoiseController>(FindObjectsInactive.Include);
         if (fieldCinematic == null)
             fieldCinematic = FindFirstObjectByType<BattleFieldCinematicDirector>(FindObjectsInactive.Include);
+        if (rewardFlow == null)
+            rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
+        if (battleCamera == null)
+            battleCamera = FindFirstObjectByType<BattleCameraController>(FindObjectsInactive.Include);
 
         if (forceUiResolve || rewardCardRoot == null || rewardNoticeRoot == null || mapContentRoot == null)
             ResolveInputRoots();
@@ -224,6 +237,17 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
         SetEnabled(fieldCinematic, fieldDirectorAllowed);
 
         ApplyInputGate();
+    }
+
+    private void ApplyRewardPackCameraGate()
+    {
+        if (rewardFlow == null || battleCamera == null)
+            return;
+
+        if (rewardFlow.Phase != BattleRewardPhase.PackEditing)
+            return;
+
+        battleCamera.SetShowCursorTracking(false, Vector2.zero);
     }
 
     private void ApplyInputGate()
