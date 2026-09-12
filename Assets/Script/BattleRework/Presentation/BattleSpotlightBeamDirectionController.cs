@@ -127,10 +127,9 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             if (renderer == null)
                 continue;
 
-            // Current authored runtime beam is broad at texture Y=0 and narrow at Y=1.
-            // The project renderer/material path currently needs flipY=true for NarrowAtTop,
-            // but the enum exposes both orientations so the art-side result can be chosen directly.
-            renderer.flipY = beamShapeDirection == BeamShapeDirection.NarrowAtTop;
+            // Runtime screen verification: the current hard-coded flipY=true result is inverted.
+            // Therefore NarrowAtTop deliberately uses flipY=false, while NarrowAtBottom uses true.
+            renderer.flipY = beamShapeDirection == BeamShapeDirection.NarrowAtBottom;
 
             // BattleCharacterLightVisual resets the beam rotation each frame. Apply the artist
             // override afterwards so this value is the final visible direction.
