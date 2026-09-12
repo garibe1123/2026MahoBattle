@@ -13,13 +13,12 @@ using UnityEditor.SceneManagement;
 /// 전투 씬의 설치 / 자동 배선 / 시작 전 검증을 담당하는 최상위 Manager.
 ///
 /// BattleSystems GameObject에 이 컴포넌트 하나를 추가하면:
-/// 1) Core System 컴포넌트는 RequireComponent로 자동 배치됩니다.
-/// 2) 전투 UI / Reward / Show 보조 컴포넌트도 이 Manager 한 곳에서 설치합니다.
-/// 3) Edit Mode에서 RoomSystem / Navigation / Pool / Player / Camera 기본 구조를 자동 보수합니다.
-/// 4) 기존 씬에 이미 있는 시스템은 새로 만들지 않고 우선 재사용합니다.
-/// 5) NodeGraph / Starter Equipment / Reward Pool / Runtime Prefab은 이 Manager를 중앙 설정점으로 사용합니다.
-/// 6) Play Mode에서는 핵심 Scene 구조를 새로 만들지 않되, 기존 AutoInstaller가 담당하던
-///    BattleSystems 보조 컴포넌트 fallback은 이 Manager가 중앙에서 보강합니다.
+/// 1) Core System 컴포넌트는 BattleSystems에 자동 배치됩니다.
+/// 2) Persistent 4x4 전투 템플릿은 BattleSystems/BattleTemplate 자식에 분리됩니다.
+/// 3) 전투 UI / Reward / Show 보조 컴포넌트도 이 Manager 한 곳에서 설치합니다.
+/// 4) Edit Mode에서 RoomSystem / Navigation / Pool / Player / Camera 기본 구조를 자동 보수합니다.
+/// 5) 기존 씬에 이미 있는 시스템은 새로 만들지 않고 우선 재사용합니다.
+/// 6) NodeGraph / Starter Equipment / Reward Pool / Runtime Prefab은 이 Manager를 중앙 설정점으로 사용합니다.
 ///
 /// 현재 Player 무기 계층은 WeaponSO 마이그레이션 전까지
 /// PlayerShootingSystem + WeaponDisplay를 legacy runtime bridge로 유지합니다.
@@ -33,68 +32,104 @@ using UnityEditor.SceneManagement;
 [RequireComponent(typeof(BattleRewardSystem))]
 [RequireComponent(typeof(FanMissionSystem))]
 [RequireComponent(typeof(SynergyManager))]
-[RequireComponent(typeof(RoomBaseTemplate))]
 [RequireComponent(typeof(PlayerLoadout))]
 public class BattleSceneManager : MonoBehaviour
 {
+    public const string BattleTemplateObjectName = "BattleTemplate";
     private const int MinimumBackpackSlots = 3;
 
-    [Header("Installer")]
+    [Header("INSTALLER — 씬 자동 구성")]
+    [Tooltip("Edit Mode에서 BattleSystems 하위 구조와 필수 컴포넌트를 자동으로 설치/복구합니다.")]
     [SerializeField] private bool autoInstallInEditor = true;
+    [Tooltip("Player가 없을 때 테스트용 Player 구조를 자동 생성할지 결정합니다.")]
     [SerializeField] private bool createFallbackPlayer = true;
+    [Tooltip("Main Camera가 없을 때 테스트용 카메라를 자동 생성할지 결정합니다.")]
     [SerializeField] private bool createFallbackCamera = true;
     [SerializeField, HideInInspector] private bool importedLegacyContent;
 
-    [Header("Required Run Content - 중앙 설정")]
+    [Header("RUN CONTENT — 전투 진행 데이터")]
+    [Tooltip("전투 진행 경로와 각 노드의 RoomDefinitionSO를 보유한 Node Graph입니다.")]
     [SerializeField] private NodeGraphSO nodeGraph;
+    [Tooltip("현재 Run에 적용할 세력/클랜 정의입니다.")]
     [SerializeField] private ClanDefinitionSO clan;
+    [Tooltip("Player 사격 테마/탄막 스타일 데이터입니다.")]
     [SerializeField] private ShootingThemeSO shootingTheme;
+    [Tooltip("Player의 기본 Sprite/Animation 데이터입니다.")]
     [SerializeField] private PlayerSpriteSO playerSprite;
 
-    [Header("Required Equipment Content - 중앙 설정")]
+    [Header("EQUIPMENT CONTENT — 시작 장비 / 보상 풀")]
+    [Tooltip("Run 시작 시 PACK에 지급되는 장비 목록입니다.")]
     [SerializeField] private List<BattleEquipmentSO> startingEquipment = new();
+    [Tooltip("Reward 선택 화면에서 후보로 사용할 장비 풀입니다.")]
     [SerializeField] private List<BattleEquipmentSO> rewardPool = new();
 
-    [Header("Required Runtime Prefabs - 중앙 설정")]
+    [Header("RUNTIME PREFABS — 전투 생성 Prefab")]
+    [Tooltip("일반 몬스터를 생성할 때 사용하는 기본 MonsterController Prefab입니다.")]
     [SerializeField] private MonsterController monsterPrefab;
+    [Tooltip("Player 공격용 Projectile Prefab입니다.")]
     [SerializeField] private Projectile playerProjectilePrefab;
+    [Tooltip("Enemy 공격용 Projectile Prefab입니다.")]
     [SerializeField] private Projectile enemyProjectilePrefab;
 
-    [Header("Core Systems - 자동 배치")]
+    [Header("CORE SYSTEMS — 자동 연결 / 직접 수정 비권장")]
+    [Tooltip("Run 상태와 Node 진행을 소유하는 중앙 시스템입니다. 자동 연결됩니다.")]
     [SerializeField] private BattleRunManager runManager;
+    [Tooltip("Run 진행도/누적 상태 시스템입니다. 자동 연결됩니다.")]
     [SerializeField] private RunProgressSystem progressSystem;
+    [Tooltip("3x3 PACK 및 장비 상태 시스템입니다. 자동 연결됩니다.")]
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [Tooltip("Reward 후보 생성/선택 시스템입니다. 자동 연결됩니다.")]
     [SerializeField] private BattleRewardSystem rewardSystem;
+    [Tooltip("팬 미션 진행 시스템입니다. 자동 연결됩니다.")]
     [SerializeField] private FanMissionSystem fanMissionSystem;
+    [Tooltip("장비 시너지 시스템입니다. 자동 연결됩니다.")]
     [SerializeField] private SynergyManager synergyManager;
+    [Tooltip("BattleSystems/BattleTemplate에 배치되는 Persistent 4x4 전투 템플릿입니다.")]
     [SerializeField] private RoomBaseTemplate roomBaseTemplate;
+    [Tooltip("Player Loadout 데이터 브리지입니다. 자동 연결됩니다.")]
     [SerializeField] private PlayerLoadout playerLoadout;
 
-    [Header("Scene Runtime - 자동 배치")]
+    [Header("SCENE RUNTIME — 자동 연결 / 직접 수정 비권장")]
+    [Tooltip("Room 생성/몬스터 생성/퇴장 상태를 담당하는 RoomSystem입니다.")]
     [SerializeField] private BattleRoomManager roomManager;
+    [Tooltip("Monster Object Pool입니다.")]
     [SerializeField] private MonsterPool monsterPool;
+    [Tooltip("2D NavMesh를 굽는 NavMeshSurface입니다.")]
     [SerializeField] private NavMeshSurface navSurface;
+    [Tooltip("현재 전투 Player Controller입니다.")]
     [SerializeField] private PlayerController playerController;
+    [Tooltip("Player 사격 시스템입니다.")]
     [SerializeField] private PlayerShootingSystem playerShootingSystem;
+    [Tooltip("Player Projectile Pool입니다.")]
     [SerializeField] private ProjectilePooler playerProjectilePool;
+    [Tooltip("Enemy Projectile Pool입니다.")]
     [SerializeField] private ProjectilePooler enemyProjectilePool;
+    [Tooltip("현재 무기 Sprite를 표시하는 Legacy WeaponDisplay입니다.")]
     [SerializeField] private WeaponDisplay weaponDisplay;
 
-    [Header("Generated Scene Roots")]
+    [Header("GENERATED ROOTS — 자동 생성된 씬 루트")]
+    [Tooltip("Room 월드 좌표의 기준 Transform입니다.")]
     [SerializeField] private Transform roomOrigin;
+    [Tooltip("전투 Floor/MapBlock이 생성되는 부모 Transform입니다.")]
     [SerializeField] private Transform mapRoot;
+    [Tooltip("Obstacle이 생성되는 부모 Transform입니다.")]
     [SerializeField] private Transform obstacleRoot;
+    [Tooltip("Monster가 생성되는 부모 Transform입니다.")]
     [SerializeField] private Transform monsterRoot;
+    [Tooltip("Dock Impact VFX가 생성되는 부모 Transform입니다.")]
     [SerializeField] private Transform impactVfxRoot;
+    [Tooltip("카메라 Impact/Shake를 적용할 Transform입니다.")]
     [SerializeField] private Transform cameraShakeTarget;
 
-    [Header("Runtime Validation")]
+    [Header("VALIDATION — 시작 가능 여부")]
+    [Tooltip("마지막 전투 시작 검증 결과입니다. READY가 아니면 누락된 설정을 확인하세요.")]
     [SerializeField, TextArea(5, 16)] private string lastValidationReport;
 
     public static BattleSceneManager Instance { get; private set; }
 
     public BattleRunManager RunManager => runManager;
     public BattleRoomManager RoomManager => roomManager;
+    public RoomBaseTemplate BaseTemplate => roomBaseTemplate;
     public PlayerController Player => playerController;
     public MonsterPool MonsterPool => monsterPool;
     public bool ReadyToStart => ValidateStartGate(out _);
@@ -231,7 +266,7 @@ public class BattleSceneManager : MonoBehaviour
         if (rewardSystem == null) errors.Add("BattleRewardSystem is missing.");
         if (fanMissionSystem == null) errors.Add("FanMissionSystem is missing.");
         if (synergyManager == null) errors.Add("SynergyManager is missing.");
-        if (roomBaseTemplate == null) errors.Add("RoomBaseTemplate is missing.");
+        if (roomBaseTemplate == null) errors.Add("RoomBaseTemplate is missing from BattleTemplate.");
         if (playerLoadout == null) errors.Add("PlayerLoadout is missing.");
 
         if (roomManager == null) errors.Add("BattleRoomManager is missing.");
@@ -319,8 +354,43 @@ public class BattleSceneManager : MonoBehaviour
         rewardSystem = GetOrAddComponent<BattleRewardSystem>(gameObject, allowCreate);
         fanMissionSystem = GetOrAddComponent<FanMissionSystem>(gameObject, allowCreate);
         synergyManager = GetOrAddComponent<SynergyManager>(gameObject, allowCreate);
-        roomBaseTemplate = GetOrAddComponent<RoomBaseTemplate>(gameObject, allowCreate);
+        roomBaseTemplate = ResolveRoomBaseTemplate(allowCreate);
         playerLoadout = GetOrAddComponent<PlayerLoadout>(gameObject, allowCreate);
+    }
+
+    private RoomBaseTemplate ResolveRoomBaseTemplate(bool allowCreate)
+    {
+        if (roomBaseTemplate != null && roomBaseTemplate.gameObject.scene == gameObject.scene)
+            return roomBaseTemplate;
+
+        Transform templateRoot = transform.Find(BattleTemplateObjectName);
+        if (templateRoot != null)
+        {
+            RoomBaseTemplate organized = templateRoot.GetComponent<RoomBaseTemplate>();
+            if (organized != null)
+                return organized;
+        }
+
+        // Editor migration 전의 기존 씬도 한 번은 안전하게 읽습니다.
+        RoomBaseTemplate legacyRoot = GetComponent<RoomBaseTemplate>();
+        if (legacyRoot != null)
+            return legacyRoot;
+
+        RoomBaseTemplate[] existing = FindObjectsByType<RoomBaseTemplate>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (int i = 0; i < existing.Length; i++)
+        {
+            RoomBaseTemplate candidate = existing[i];
+            if (candidate != null && candidate.gameObject.scene == gameObject.scene)
+                return candidate;
+        }
+
+        if (!allowCreate)
+            return null;
+
+        GameObject templateObject = GetOrCreateChildObject(gameObject, BattleTemplateObjectName);
+        return GetOrAddComponent<RoomBaseTemplate>(templateObject, true);
     }
 
     /// <summary>
@@ -380,6 +450,8 @@ public class BattleSceneManager : MonoBehaviour
 
     private void ResolveExistingReferences()
     {
+        if (roomBaseTemplate == null)
+            roomBaseTemplate = ResolveRoomBaseTemplate(false);
         if (roomManager == null)
             roomManager = FindFirstObjectByType<BattleRoomManager>();
         if (monsterPool == null)
