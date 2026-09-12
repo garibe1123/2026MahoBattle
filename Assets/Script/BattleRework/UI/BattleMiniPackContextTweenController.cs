@@ -23,13 +23,18 @@ public sealed class BattleMiniPackContextTweenController : MonoBehaviour
         Passthrough
     }
 
-    [Header("References")]
+    [Header("REFERENCES — 자동 연결")]
+    [Tooltip("현재 Run 상태를 읽어 Combat인지 Reward인지 판정합니다. 비워두면 자동으로 찾습니다.")]
     [SerializeField] private BattleRunManager runManager;
+    [Tooltip("Reward가 카드 선택 단계인지 PACK 편집 단계인지 판정합니다. 비워두면 자동으로 찾습니다.")]
     [SerializeField] private BattleRewardFlow rewardFlow;
+    [Tooltip("Combat 중 Full PACK이 열렸는지 확인합니다. 비워두면 자동으로 찾습니다.")]
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
 
-    [Header("Combat <-> Reward Choice Tween")]
+    [Header("PACK TRANSITION — 전투 ↔ 아이템 선택")]
+    [Tooltip("Combat Mini PACK이 Reward 선택용 크기/위치/투명도로 변하는 시간입니다. 값이 클수록 천천히 변합니다. Unscaled Time을 사용합니다.")]
     [SerializeField, Range(0.08f, 0.60f)] private float transitionDuration = 0.24f;
+    [Tooltip("전환 진행률 0~1에 적용할 Ease 곡선입니다. 기본 EaseInOut은 시작과 끝을 부드럽게 만들어 갑작스러운 축소/페이드를 방지합니다.")]
     [SerializeField] private AnimationCurve transitionCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
 
     private RectTransform miniPackRoot;
