@@ -28,7 +28,7 @@ public enum BattleStageFlowState
 /// - Reward/Map Show opens only after the combat field collapse is complete.
 /// - A selected next Room does not begin building until the current Show has completely exited.
 /// - Persistent 4x4 is the common hand-off point between every physical stage.
-/// - Procedural Assembly is an Entry transport only. Exit planning is performed on the actual nested MapBlock pieces.
+/// - Procedural Assembly is an Entry transport only; Room Exit uses the nested MapBlock pieces.
 /// </summary>
 [DefaultExecutionOrder(-15000)]
 [DisallowMultipleComponent]
@@ -200,6 +200,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (flowState != BattleStageFlowState.ShowEntering || showStage == null || showStage.IsTransitioning)
             return;
 
+        // Stage flow is committed only after WorldSet reports the matching physical mode as settled.
+        // This keeps Reward -> Map in ShowEntering while the Presenter carrier is still exiting.
         if (pendingShowState == BattleStageFlowState.RewardShow && showStage.IsRewardMode)
             SetFlowState(BattleStageFlowState.RewardShow);
         else if (pendingShowState == BattleStageFlowState.MapShow && showStage.IsMapMode)
@@ -225,6 +227,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (subscribed || runManager == null)
             return;
 
+        // StateChanged is the single logical trigger for stage transitions.
+        // RewardSelectionRequested used to call collapse a second time and is intentionally not subscribed here.
         runManager.StateChanged += HandleStateChanged;
         runManager.NodeEntered += HandleNodeEntered;
         runManager.RunEnded += HandleRunEnded;
@@ -271,6 +275,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 return;
 
             case BattleRunState.EnteringNode:
+                // Normally SelectNextNode queues entry through TryQueueNodeEntry(), so the Show is already gone.
+                // This also covers legacy/direct EnterNode callers safely.
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.RoomEntering);
 
@@ -311,6 +317,11 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Called by BattleRunManager after a map node is chosen.
+    /// Returns true when this state machine takes ownership of the physical hand-off.
+    /// The logical node is entered only after the current Show has completely left the stage.
+    /// </summary>
     public bool TryQueueNodeEntry(BattleNodeData node)
     {
         ResolveSystems();
@@ -320,6 +331,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (queuedNodeEntryRoutine != null)
             return true;
 
+        // If no Show exists there is nothing physical to wait for; let RunManager enter immediately.
         if (showStage == null || !showStage.IsShowActive)
             return false;
 
@@ -333,6 +345,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         SetFlowState(BattleStageFlowState.ShowExiting);
         HoldShowStageGate();
 
+        // WorldSet resolves externalGate as ShowMode.None and owns its actual exit animation.
         while (showStage != null && showStage.IsShowActive)
             yield return null;
 
@@ -367,6 +380,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return;
         }
 
+        // currentRoom 플래그가 아니라 실제 월드에 남아 있는 Room 이동 Root를 기준으로 판단합니다.
+        // 전투 종료 직후 논리 상태가 먼저 바뀌더라도 타일이 남아 있으면 반드시 RoomExiting을 거칩니다.
         if (!HasCurrentRoomFieldToRetire())
         {
             CaptureShowAnchorFromBase();
@@ -390,8 +405,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private IEnumerator CollapseClearedRoomToPlayerBase()
     {
-        List<MapBlock> outgoingRoots = CollectCurrentRoomExitBlocks();
-        if (outgoingRoots.Count == 0)
+        // 실제 RoomManager가 진입시킨 Assembly/MapBlock Root를 먼저 고정합니다.
+        // Base 재구축이나 Presentation refresh 뒤에 씬을 재검색하지 않습니다.
+        List<MapBlock> outgoingBlocks = CollectCurrentRoomExitBlocks();
+        if (outgoingBlocks.Count == 0)
         {
             Debug.LogWarning(
                 "[BattleStageFlow] RoomExiting started but BattleRoomManager owns no movement roots. " +
@@ -405,11 +422,14 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield break;
         }
 
+        // 1) Player가 실제로 설 수 있는 현재 Field 안에서 4x4를 확정합니다.
         baseTemplate.EnsurePersistentBase();
         Vector3 nextOrigin = FindBestFourByFourOrigin(player.transform.position);
         nextOrigin.z = baseTemplate.FixedTileOriginWorld.z;
 
-        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin, outgoingRoots);
+        // 새 Persistent Base는 별도 GameObject를 다시 만들기 때문에,
+        // 재생성 전에 지금 플레이어가 실제로 보고 있던 4x4 바닥 Sprite를 먼저 저장합니다.
+        FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin, outgoingBlocks);
 
         preservedBaseTileOrigin = baseTemplate.PromoteToNewBaseAtTileOrigin(nextOrigin);
         hasPreservedBaseOrigin = true;
@@ -427,13 +447,19 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector2 baseCenter = showAnchorCenter;
         Bounds baseBounds = CreatePersistentBaseBounds(baseCenter);
 
-        MaskPersistentBaseFloorDuplicates(outgoingRoots, baseBounds);
+        // 새 Persistent 4x4가 이미 같은 Floor 외형을 복제해 보존했으므로,
+        // 기존 Room 쪽의 동일 위치 Floor Renderer는 퇴장 대상에서 시각적으로 제거합니다.
+        // 이 중복 Floor가 Assembly와 함께 끌려가면서 새 4x4를 뚫는 것처럼 보이는 현상을 막습니다.
+        MaskPersistentBaseFloorDuplicates(outgoingBlocks, baseBounds);
 
-        // Entry용 Procedural Assembly는 여기서 역할이 끝납니다.
-        // 실제 Exit 단위는 1x1 / L / 자유형 AssemblySubPiece MapBlock입니다.
-        List<CollapseExitPlan> exitUnits = ExpandRoomExitUnits(outgoingRoots);
+        // Entry Transport/Assembly는 도킹 후 역할이 끝났습니다.
+        // 4x4 보존 셀을 가린 뒤 실제 남은 1x1 / L / 자유형 MapBlock Piece로 분해해
+        // Piece 자체의 Rail을 검사해야 작은 잔여 조각이 Assembly 부모 때문에 막히지 않습니다.
+        List<CollapseExitPlan> exitUnits = ExpandRoomExitUnits(outgoingBlocks);
+
+        // 실제 안전 Rail만 사용해 퇴장 순서를 계산합니다.
+        // later-entered Piece를 우선하며, 가능하면 그 Piece가 속했던 Assembly의 진입 Rail을 역주행합니다.
         List<CollapseExitPlan> exitOrder = BuildSafeExitOrder(exitUnits, baseBounds);
-
         if (exitOrder.Count != exitUnits.Count)
         {
             Debug.LogError(
@@ -479,6 +505,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 exitTween?.SetUpdate(true);
             }
 
+            // 하나가 완전히 Rail 밖으로 빠진 뒤에만 다음 Piece를 출발시킵니다.
+            // 따라서 서로 다른 방향이라도 동시에 교차하지 않습니다.
             if (plan.exitDuration > 0f)
                 yield return new WaitForSecondsRealtime(plan.exitDuration);
 
@@ -492,6 +520,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 yield return new WaitForSecondsRealtime(stagger);
         }
 
+        // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 ownership만 정식 retire합니다.
+        // 이 API는 타일을 다시 Destroy하지 않으므로 다음 EnterRoomRoutine의 ClearImmediate jump-cut도 막습니다.
         yield return null;
         roomManager?.CompleteAnimatedStageRetirement();
 
@@ -501,6 +531,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield return new WaitForSecondsRealtime(showOpenDelayAfterCollapse);
 
         collapseRoutine = null;
+
+        // 3) 전투 Field의 실제 Exit와 Room ownership 정리가 모두 끝난 뒤에만 Show를 엽니다.
         OpenShowStage();
     }
 
@@ -513,6 +545,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (roomManager.CopyActiveRoomBlocks(ownedBlocks) > 0)
             return true;
 
+        // currentRoom만 남고 이동 Root가 없는 특수/빈 Room도 lifecycle retirement는 필요합니다.
         if (roomManager.IsRoomActive)
             return true;
 
@@ -525,6 +558,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (roomManager != null && roomManager.CopyActiveRoomBlocks(ownedBlocks) > 0)
             return ownedBlocks;
 
+        // Legacy/migration scene에서만 hierarchy scan을 fallback으로 사용합니다.
         return CollectCurrentRoomExitBlocksFallback();
     }
 
@@ -542,6 +576,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             if (block == null)
                 continue;
 
+            // Assembly child를 발견해도 실제 진입/퇴장 이동 단위인 최상위 MapBlock 부모로 승격합니다.
+            // 이름이 바뀌어도 parent MapBlock 구조만 유지되면 같은 Root를 찾을 수 있습니다.
             MapBlock movementRoot = ResolveMovementRoot(block);
             if (movementRoot == null || !movementRoot.gameObject.activeInHierarchy)
                 continue;
@@ -559,6 +595,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             bool proceduralAssembly = blockName.StartsWith("ProceduralAssemblyGroup_", System.StringComparison.Ordinal);
             bool hasNestedMapBlock = HasNestedMapBlock(movementRoot);
 
+            // Procedural Assembly parent는 walkable=false지만 실제 진입 이동 Root입니다.
+            // Exit에서는 CollapseClearedRoomToPlayerBase가 nested MapBlock Piece로 분해합니다.
             if (!proceduralAssembly && !hasNestedMapBlock && !movementRoot.ContributesWalkableNavMesh)
                 continue;
 
@@ -615,9 +653,12 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         Vector2Int originCell = WorldToTile(lowerLeftTileOrigin);
 
+        // 기존 Persistent Base가 선택 영역에 포함된 경우도 현재 보이는 Sprite를 후보로 넣습니다.
         if (baseTemplate != null && baseTemplate.ActiveBase != null)
             CaptureFloorRenderers(baseTemplate.ActiveBase, originCell, snapshots, ranks);
 
+        // 실제 전투 Room Piece의 Tile_* Sprite는 PresentationManager가 랜덤 Floor Variant를
+        // 직접 적용한 Renderer이므로, 여기서 저장하면 화면에서 보던 모양을 그대로 보존할 수 있습니다.
         List<MapBlock> blocks = knownRoomBlocks ?? CollectCurrentRoomExitBlocks();
         for (int i = 0; i < blocks.Count; i++)
         {
@@ -802,7 +843,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 if (floorBounds.Count == 0)
                 {
                     // 이 Piece의 Floor는 전부 새 Persistent 4x4로 흡수된 상태입니다.
-                    // 기존 복제본은 더 이상 퇴장시킬 시각 정보가 없으므로 즉시 정리합니다.
+                    // 복제된 Persistent Floor가 이미 같은 외형을 보존하므로 기존 Piece만 정리합니다.
                     piece.gameObject.SetActive(false);
                     Destroy(piece.gameObject);
                     continue;
@@ -819,7 +860,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                     preferred));
             }
 
-            // Entry Transport 부모는 Piece를 모두 분리한 뒤 더 이상 이동/렌더 단위가 아닙니다.
+            // ProceduralAssemblyGroup_* 부모는 Entry transport였을 뿐입니다.
+            // Piece를 월드 좌표 유지 상태로 분리한 뒤 빈 부모는 즉시 retire합니다.
             root.transform.DOKill();
             root.gameObject.SetActive(false);
             Destroy(root.gameObject);
@@ -901,6 +943,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             CollapseExitSide chosenSide = CollapseExitSide.Left;
             float chosenScore = float.PositiveInfinity;
 
+            // Piece가 속했던 Assembly의 실제 진입 Rail을 우선하되,
+            // 현재 4x4와 아직 남아 있는 Piece를 통과하지 않는 Rail만 후보로 사용합니다.
             for (int index = remaining.Count - 1; index >= 0; index--)
             {
                 CollapseExitPlan plan = remaining[index];
@@ -953,12 +997,14 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         score += (1f - Mathf.Max(0f, alignment)) * baseSpan * 0.45f;
         score += sideUsage[(int)side] * baseSpan * 0.35f;
 
+        // 실제 Assembly 진입 시 충돌 검사를 통과했던 Source Rail이 현재 Piece에도 안전하다면 최우선으로 되돌아갑니다.
         if (plan.hasPreferredExitDirection &&
             SameCardinalDirection(plan.preferredExitDirection, direction))
         {
             score -= baseSpan * 8f;
         }
 
+        // 같은 조건이면 나중에 들어온 Assembly/Piece를 먼저 빼서 진입 역순을 유지합니다.
         score -= plan.entryOrder * baseSpan * 0.00008f;
         return score;
     }
@@ -972,6 +1018,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (plan == null || plan.block == null || direction.sqrMagnitude <= 0.001f)
             return false;
 
+        // Persistent 4x4로 흡수되어 보이는 Floor가 하나도 남지 않은 Piece는
+        // ExpandRoomExitUnits에서 이미 제거되므로 여기에는 실제 이동할 Floor만 들어옵니다.
         if (plan.floorBounds == null || plan.floorBounds.Count == 0)
             return true;
 
