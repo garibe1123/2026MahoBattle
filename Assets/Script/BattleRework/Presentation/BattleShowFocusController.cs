@@ -9,7 +9,8 @@ using UnityEngine.UI;
 /// - Player / Presenter는 캐릭터 하부 쪽으로 내려간 타원형 Stage Focus.
 /// - TV / Screen은 실제 WorldSpace RectTransform을 기준으로 사각형 Focus.
 /// - Reward Item / Map 대상에는 별도 천장 Spotlight를 만들지 않음.
-/// - 첫 Map 선택은 TV 도킹 완료를 기다리지 않고 카메라 이동과 암전을 먼저 시작.
+/// - 배경 암전은 RoomExiting / Show 전환 시작부터 먼저 진행합니다.
+/// - Player / Presenter / Screen Focus는 실제 WorldSet 전환이 끝나 화면이 자리잡은 뒤에만 켭니다.
 /// - Reward는 기존보다 강한 쇼 암전을 유지하고, 첫 Map은 Base가 조금 더 읽히도록 약하게 암전.
 /// </summary>
 [DefaultExecutionOrder(26000)]
@@ -36,14 +37,16 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [Header("Reward / Normal Map Enter")]
     [SerializeField, Min(0f)] private float cameraLeadBeforeDim = 0.10f;
     [SerializeField, Min(0.01f)] private float dimFadeInDuration = 0.20f;
-    [SerializeField, Min(0f)] private float focusLeadAfterDim = 0.08f;
+    [Tooltip("실제 TV/Carrier가 자리잡은 뒤 Spotlight가 켜지기 시작하기까지의 짧은 간격입니다.")]
+    [SerializeField, Min(0f)] private float focusLeadAfterDim = 0.02f;
     [SerializeField, Min(0.01f)] private float focusFadeInDuration = 0.16f;
 
     [Header("Opening Map Enter")]
     [Tooltip("첫 맵 선택은 TV Carrier가 도킹하기 전부터 카메라/암전이 시작됩니다.")]
     [SerializeField, Min(0f)] private float openingMapCameraLeadBeforeDim = 0.025f;
     [SerializeField, Min(0.01f)] private float openingMapDimFadeInDuration = 0.30f;
-    [SerializeField, Min(0f)] private float openingMapFocusLeadAfterDim = 0.09f;
+    [Tooltip("첫 맵 TV가 자리잡은 뒤 Spotlight가 켜지기 시작하기까지의 짧은 간격입니다.")]
+    [SerializeField, Min(0f)] private float openingMapFocusLeadAfterDim = 0.02f;
     [SerializeField, Min(0.01f)] private float openingMapFocusFadeInDuration = 0.19f;
 
     [Header("Show Exit Order")]
@@ -85,6 +88,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
     private bool runSubscribed;
     private bool selectionShowRequested;
     private float showStageBecameActiveAt = -1f;
+    private float showScreenBecameReadyAt = -1f;
     private float currentDimBlend;
     private float currentFocusBlend;
 
@@ -159,31 +163,61 @@ public sealed class BattleShowFocusController : MonoBehaviour
         }
 
         bool openingMap = IsOpeningMapShow();
+        bool screenReady = IsPhysicalShowScreenReady();
+        if (screenReady)
+        {
+            if (showScreenBecameReadyAt < 0f)
+                showScreenBecameReadyAt = now;
+        }
+        else
+        {
+            showScreenBecameReadyAt = -1f;
+        }
 
         if (selectionShowRequested && showStageBecameActiveAt >= 0f)
         {
+            // 암전은 Show 요청/Room Exit가 시작되는 순간부터 독립적으로 진행합니다.
+            // Screen Carrier가 아직 화면 밖에 있어도 먼저 무대를 거의 어둡게 만듭니다.
             float elapsed = now - showStageBecameActiveAt;
             float lead = openingMap ? openingMapCameraLeadBeforeDim : cameraLeadBeforeDim;
             float dimDuration = openingMap ? openingMapDimFadeInDuration : dimFadeInDuration;
-            float focusLead = openingMap ? openingMapFocusLeadAfterDim : focusLeadAfterDim;
-            float focusDuration = openingMap ? openingMapFocusFadeInDuration : focusFadeInDuration;
-
             float dimTarget = SmoothRange(
                 elapsed,
                 lead,
                 lead + Mathf.Max(0.01f, dimDuration));
 
-            float focusStart = lead + Mathf.Max(0f, focusLead);
-            float focusTarget = SmoothRange(
-                elapsed,
-                focusStart,
-                focusStart + Mathf.Max(0.01f, focusDuration));
-
             currentDimBlend = MoveTowards01(currentDimBlend, dimTarget, dimDuration, deltaTime);
-            currentFocusBlend = MoveTowards01(currentFocusBlend, focusTarget, focusDuration, deltaTime);
+
+            // Spotlight / TV Rect Focus는 WorldSet의 물리 전환이 끝난 뒤에만 시작합니다.
+            // Reward -> Map처럼 같은 TV를 유지하는 전환도 Presenter/Content 전환 중에는 잠깐 Focus를 내립니다.
+            if (screenReady && showScreenBecameReadyAt >= 0f)
+            {
+                float focusElapsed = now - showScreenBecameReadyAt;
+                float focusLead = openingMap ? openingMapFocusLeadAfterDim : focusLeadAfterDim;
+                float focusDuration = openingMap ? openingMapFocusFadeInDuration : focusFadeInDuration;
+                float focusTarget = SmoothRange(
+                    focusElapsed,
+                    Mathf.Max(0f, focusLead),
+                    Mathf.Max(0f, focusLead) + Mathf.Max(0.01f, focusDuration));
+
+                currentFocusBlend = MoveTowards01(
+                    currentFocusBlend,
+                    focusTarget,
+                    focusDuration,
+                    deltaTime);
+            }
+            else
+            {
+                currentFocusBlend = MoveTowards01(
+                    currentFocusBlend,
+                    0f,
+                    exitFocusFadeDuration,
+                    deltaTime);
+            }
         }
         else if (!selectionShowRequested)
         {
+            showScreenBecameReadyAt = -1f;
             currentFocusBlend = MoveTowards01(
                 currentFocusBlend,
                 0f,
@@ -297,11 +331,13 @@ public sealed class BattleShowFocusController : MonoBehaviour
         {
             ReleaseExitCameraHold();
             showStageBecameActiveAt = Time.unscaledTime;
+            showScreenBecameReadyAt = -1f;
         }
         else
         {
             HoldLastShowCameraFrame();
             showStageBecameActiveAt = -1f;
+            showScreenBecameReadyAt = -1f;
         }
 
         selectionShowRequested = nextShow;
@@ -322,6 +358,14 @@ public sealed class BattleShowFocusController : MonoBehaviour
                runManager.RunActive &&
                runManager.State == BattleRunState.SelectingNode &&
                runManager.IsInStartArea;
+    }
+
+    private bool IsPhysicalShowScreenReady()
+    {
+        if (!selectionShowRequested || showWorldSet == null || showWorldSet.IsTransitioning)
+            return false;
+
+        return showWorldSet.IsRewardMode || showWorldSet.IsMapMode;
     }
 
     private void HoldLastShowCameraFrame()
@@ -550,6 +594,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
         currentDimBlend = 0f;
         currentFocusBlend = 0f;
         showStageBecameActiveAt = -1f;
+        showScreenBecameReadyAt = -1f;
 
         if (runtimeMaterial != null)
         {
