@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -8,11 +9,14 @@ using UnityEngine.UI;
 ///
 /// 범위:
 /// - PACK 선택 장비 Detail을 Grid 쪽으로 당기고, FAN MISSION보다 위에 렌더합니다.
-/// - FAN MISSION 바로 아래에 닉네임 + 코멘트가 누적되는 LIVE CHAT을 표시합니다.
+/// - FAN MISSION 아래에는 배경 없는 Text-only 채팅을 표시합니다.
+/// - 채팅 발생 속도는 RunProgressSystem.Viewers에 비례합니다.
+/// - 우측 상단에 현재 Viewers / Likes를 Text-only로 표시합니다.
 ///
 /// 비소유 범위:
 /// - 장비 선택/장착/Swap/Reward 데이터는 변경하지 않습니다.
 /// - FanMission 진행/판정 데이터는 변경하지 않습니다.
+/// - Viewers / Likes 값을 생성하거나 보정하지 않고 기존 RunProgressSystem 값을 읽기만 합니다.
 /// - Reward 화면의 Detail 배치는 기존 BattleUnifiedInventoryInspectController가 계속 소유합니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -24,47 +28,67 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private const float DetailScale = 0.92f;
     private const int DetailSortingPadding = 15;
 
-    private const float ChatHeight = 184f;
+    private const float ChatHeight = 172f;
     private const float ChatGap = 14f;
-    private const float ChatRotation = -1.1f;
-    private const float ChatInterval = 2.2f;
+    private const float ZeroViewerChatInterval = 45f;
+    private const float HighViewerChatInterval = 0.70f;
     private const int MaxChatLines = 5;
 
     private static readonly string[] ChatNames =
     {
         "MahoFan_17",
-        "clipHunter",
-        "RoomWatcher",
-        "zeroHPclub",
-        "pack_rat",
-        "livewire",
-        "missionEnjoyer",
-        "noReload"
+        "하루_404",
+        "LunaMX",
+        "cafezinhoBR",
+        "Camille_FR",
+        "BerlinByte",
+        "pixelina",
+        "kopiSusu",
+        "AnkaraAim",
+        "WarsawCrit",
+        "SeoulWatcher",
+        "clipHunter"
     };
 
-    private static readonly string[] FallbackComments =
+    // 일부러 여러 언어를 섞습니다. 현재 프로젝트에는 전용 다국어 Font Asset이 없으므로
+    // Runtime에서는 OS의 다국어 Font를 우선 사용하고 없으면 Unity 기본 Font로 fallback 합니다.
+    private static readonly string[] ChatComments =
     {
         "that PACK is getting scary",
-        "keep that one, trust",
-        "clean slot swap",
-        "fan mission when??",
-        "that build actually works",
-        "don't throw that item away",
-        "clip that!",
-        "one more room!",
-        "the grid link is online",
-        "okay this run is cooking"
+        "방금 교체 진짜 깔끔했다",
+        "esa build sí funciona",
+        "isso ficou forte demais",
+        "garde cet objet !",
+        "das war knapp",
+        "questa combo funziona davvero",
+        "jangan buang item itu",
+        "bu eşya kalsın, güçlü",
+        "ten build zaczyna działać",
+        "한 방 더 가자",
+        "clean swap, keep going"
+    };
+
+    private static readonly string[] PreferredMultilingualFonts =
+    {
+        "Malgun Gothic",
+        "Arial Unicode MS",
+        "Noto Sans CJK KR",
+        "Segoe UI",
+        "Arial"
     };
 
     [Header("AUTO REFERENCES")]
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private RunProgressSystem runProgress;
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
     [SerializeField] private BattleBroadcastDashboardController dashboardController;
 
-    [Header("LIVE CHAT")]
-    [Tooltip("채팅 새 줄이 들어오는 간격입니다. 실제 게임 시간 정지와 무관하게 UI 시간으로 갱신됩니다.")]
-    [SerializeField, Range(0.8f, 8f)] private float chatInterval = ChatInterval;
+    [Header("LIVE CHAT — VIEWER PACED")]
+    [Tooltip("시청자가 0명일 때 채팅 한 줄이 새로 생기는 기본 간격입니다. 거의 멈춘 상태를 의도합니다.")]
+    [SerializeField, Range(20f, 90f)] private float zeroViewerChatInterval = ZeroViewerChatInterval;
+    [Tooltip("시청자가 매우 많을 때 도달하는 최소 채팅 간격입니다.")]
+    [SerializeField, Range(0.35f, 4f)] private float highViewerChatInterval = HighViewerChatInterval;
     [Tooltip("한 번에 화면에 유지할 최근 채팅 줄 수입니다.")]
     [SerializeField, Range(3, 7)] private int maxChatLines = MaxChatLines;
 
@@ -74,8 +98,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private RectTransform chatPanel;
     private CanvasGroup chatGroup;
-    private Text chatHeader;
     private Text chatBody;
+
+    private RectTransform legacyMetricBar;
+    private Text broadcastMetricText;
 
     private Canvas detailCanvas;
     private int originalDetailSortingOrder;
@@ -85,6 +111,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private int chatSequence;
     private float nextChatAt;
     private float nextResolveAt;
+
+    private static Font multilingualFont;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
@@ -138,6 +166,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         RestoreDetailSorting();
         SetChatVisible(false);
+
+        // 이 보정 컴포넌트 자체가 꺼지는 경우에는 원래 Dashboard Metric Bar를 복구합니다.
+        if (legacyMetricBar != null)
+            legacyMetricBar.gameObject.SetActive(true);
     }
 
     private void Update()
@@ -154,8 +186,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (!open)
             return;
 
+        EnsureMetricText();
         EnsureChatPanel();
-        UpdateChatHeader();
+        SetChatVisible(true);
+        UpdateBroadcastMetricText();
         UpdateChatFeed();
     }
 
@@ -168,8 +202,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         ResolveDashboardUi();
+        EnsureMetricText();
         EnsureChatPanel();
         ApplyDetailPresentation();
+        ApplyMetricLayout();
         ApplyChatLayout();
     }
 
@@ -184,6 +220,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (force || runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (force || runProgress == null)
+            runProgress = FindFirstObjectByType<RunProgressSystem>();
         if (force || kineticLoadout == null)
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
         if (force || detailController == null)
@@ -204,8 +242,21 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (dashboardRoot == null)
             return;
 
-        dashboardCanvas ??= dashboardRoot.GetComponent<Canvas>();
-        missionPanel ??= dashboardRoot.Find("MissionPanel") as RectTransform;
+        if (dashboardCanvas == null)
+            dashboardCanvas = dashboardRoot.GetComponent<Canvas>();
+        if (missionPanel == null)
+            missionPanel = dashboardRoot.Find("MissionPanel") as RectTransform;
+
+        legacyMetricBar = dashboardRoot.Find("BroadcastMetricBar") as RectTransform;
+        if (legacyMetricBar != null && legacyMetricBar.gameObject.activeSelf)
+            legacyMetricBar.gameObject.SetActive(false);
+
+        if (broadcastMetricText == null)
+        {
+            RectTransform metricRoot = dashboardRoot.Find("BroadcastMetricText") as RectTransform;
+            if (metricRoot != null)
+                broadcastMetricText = metricRoot.GetComponent<Text>();
+        }
 
         if (chatPanel == null)
         {
@@ -254,55 +305,96 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         detailCanvas = null;
     }
 
-    private void EnsureChatPanel()
+    private void EnsureMetricText()
     {
-        if (chatPanel != null || dashboardRoot == null)
+        if (broadcastMetricText != null || dashboardRoot == null)
             return;
 
-        chatPanel = CreateRect(dashboardRoot, "LiveChatPanel", new Vector2(540f, ChatHeight));
-        chatPanel.anchorMin = chatPanel.anchorMax = Vector2.one;
-        chatPanel.pivot = Vector2.one;
-        chatPanel.localRotation = Quaternion.Euler(0f, 0f, ChatRotation);
-        chatPanel.SetAsLastSibling();
+        RectTransform metricRect = CreateRect(dashboardRoot, "BroadcastMetricText", new Vector2(480f, 42f));
+        metricRect.anchorMin = metricRect.anchorMax = Vector2.one;
+        metricRect.pivot = Vector2.one;
+        metricRect.SetAsLastSibling();
 
-        Image back = chatPanel.gameObject.AddComponent<Image>();
-        back.color = new Color(0.025f, 0.028f, 0.045f, 0.955f);
-        back.raycastTarget = false;
+        broadcastMetricText = metricRect.gameObject.AddComponent<Text>();
+        broadcastMetricText.font = ResolveMultilingualFont();
+        broadcastMetricText.fontSize = 16;
+        broadcastMetricText.fontStyle = FontStyle.Bold;
+        broadcastMetricText.alignment = TextAnchor.UpperRight;
+        broadcastMetricText.color = new Color(0.94f, 0.95f, 0.97f, 1f);
+        broadcastMetricText.raycastTarget = false;
+        broadcastMetricText.supportRichText = true;
 
-        Outline outline = chatPanel.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0.62f);
-        outline.effectDistance = new Vector2(3f, -3f);
+        Shadow shadow = metricRect.gameObject.AddComponent<Shadow>();
+        shadow.effectColor = new Color(0f, 0f, 0f, 0.78f);
+        shadow.effectDistance = new Vector2(1.5f, -1.5f);
 
-        chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
-        chatGroup.alpha = 0f;
-        chatGroup.blocksRaycasts = false;
-        chatGroup.interactable = false;
+        ApplyMetricLayout();
+        UpdateBroadcastMetricText();
+    }
 
-        RectTransform accent = CreateRect(chatPanel, "LiveAccent", Vector2.zero);
-        accent.anchorMin = new Vector2(0f, 0f);
-        accent.anchorMax = new Vector2(0.012f, 1f);
-        accent.offsetMin = Vector2.zero;
-        accent.offsetMax = Vector2.zero;
-        Image accentImage = accent.gameObject.AddComponent<Image>();
-        accentImage.color = new Color(0.10f, 0.88f, 0.95f, 1f);
-        accentImage.raycastTarget = false;
+    private void ApplyMetricLayout()
+    {
+        if (broadcastMetricText == null)
+            return;
 
-        chatHeader = CreateText(chatPanel, "LIVE CHAT // FAN FEED", 15, FontStyle.Bold, TextAnchor.MiddleLeft,
-            new Color(0.94f, 0.95f, 0.97f, 1f), "Header");
-        SetAnchors(chatHeader.rectTransform, new Vector2(0.055f, 0.76f), new Vector2(0.94f, 0.95f));
+        RectTransform rect = broadcastMetricText.rectTransform;
+        rect.anchorMin = rect.anchorMax = Vector2.one;
+        rect.pivot = Vector2.one;
+        rect.sizeDelta = new Vector2(480f, 42f);
+        rect.anchoredPosition = new Vector2(-38f, -28f);
+        rect.localRotation = Quaternion.identity;
+    }
 
-        Text live = CreateText(chatPanel, "● LIVE", 10, FontStyle.Bold, TextAnchor.MiddleRight,
-            new Color(1f, 0.18f, 0.52f, 1f), "Live");
-        SetAnchors(live.rectTransform, new Vector2(0.76f, 0.78f), new Vector2(0.94f, 0.95f));
+    private void UpdateBroadcastMetricText()
+    {
+        if (broadcastMetricText == null)
+            return;
 
-        chatBody = CreateText(chatPanel, string.Empty, 13, FontStyle.Normal, TextAnchor.UpperLeft,
-            new Color(0.94f, 0.95f, 0.97f, 0.96f), "Body");
-        SetAnchors(chatBody.rectTransform, new Vector2(0.055f, 0.08f), new Vector2(0.95f, 0.76f));
-        chatBody.horizontalOverflow = HorizontalWrapMode.Wrap;
-        chatBody.verticalOverflow = VerticalWrapMode.Truncate;
-        chatBody.lineSpacing = 1.12f;
-        chatBody.supportRichText = true;
+        int viewers = CurrentViewers;
+        int likes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
+        string value =
+            $"<color=#19E0F2>VIEWERS</color>  {viewers:N0}    //    <color=#FFD11A>LIKES</color>  {likes:N0}";
 
+        if (broadcastMetricText.text != value)
+            broadcastMetricText.text = value;
+    }
+
+    private void EnsureChatPanel()
+    {
+        if (dashboardRoot == null)
+            return;
+
+        if (chatPanel == null)
+        {
+            chatPanel = CreateRect(dashboardRoot, "LiveChatPanel", new Vector2(540f, ChatHeight));
+            chatPanel.anchorMin = chatPanel.anchorMax = Vector2.one;
+            chatPanel.pivot = Vector2.one;
+            chatPanel.localRotation = Quaternion.identity;
+            chatPanel.SetAsLastSibling();
+
+            chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
+            chatGroup.alpha = 0f;
+            chatGroup.blocksRaycasts = false;
+            chatGroup.interactable = false;
+
+            chatBody = CreateText(chatPanel, string.Empty, 14, FontStyle.Normal, TextAnchor.UpperLeft,
+                new Color(0.94f, 0.95f, 0.97f, 0.96f), "Body", ResolveMultilingualFont());
+            Stretch(chatBody.rectTransform);
+            chatBody.horizontalOverflow = HorizontalWrapMode.Wrap;
+            chatBody.verticalOverflow = VerticalWrapMode.Truncate;
+            chatBody.lineSpacing = 1.15f;
+            chatBody.supportRichText = true;
+
+            Shadow shadow = chatBody.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.82f);
+            shadow.effectDistance = new Vector2(1.5f, -1.5f);
+        }
+        else
+        {
+            ResolveExistingChatPanel();
+        }
+
+        StripLegacyChatChrome();
         SeedChatIfNeeded();
         ApplyChatLayout();
     }
@@ -313,8 +405,52 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         chatGroup = chatPanel.GetComponent<CanvasGroup>();
-        chatHeader = chatPanel.Find("Header")?.GetComponent<Text>();
+        if (chatGroup == null)
+        {
+            chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
+            chatGroup.blocksRaycasts = false;
+            chatGroup.interactable = false;
+        }
+
         chatBody = chatPanel.Find("Body")?.GetComponent<Text>();
+        if (chatBody != null)
+        {
+            chatBody.font = ResolveMultilingualFont();
+            chatBody.fontSize = 14;
+            chatBody.alignment = TextAnchor.UpperLeft;
+            Stretch(chatBody.rectTransform);
+        }
+    }
+
+    private void StripLegacyChatChrome()
+    {
+        if (chatPanel == null)
+            return;
+
+        Image rootImage = chatPanel.GetComponent<Image>();
+        if (rootImage != null)
+            rootImage.enabled = false;
+
+        Outline rootOutline = chatPanel.GetComponent<Outline>();
+        if (rootOutline != null)
+            rootOutline.enabled = false;
+
+        DisableChild("Header");
+        DisableChild("Live");
+        DisableChild("LiveAccent");
+
+        if (chatBody != null)
+        {
+            Stretch(chatBody.rectTransform);
+            chatBody.color = new Color(0.94f, 0.95f, 0.97f, 0.96f);
+        }
+    }
+
+    private void DisableChild(string childName)
+    {
+        Transform child = chatPanel != null ? chatPanel.Find(childName) : null;
+        if (child != null && child.gameObject.activeSelf)
+            child.gameObject.SetActive(false);
     }
 
     private void ApplyChatLayout()
@@ -329,7 +465,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatPanel.anchoredPosition = new Vector2(
             missionPanel.anchoredPosition.x,
             missionPanel.anchoredPosition.y - missionPanel.sizeDelta.y - ChatGap);
-        chatPanel.localRotation = Quaternion.Euler(0f, 0f, ChatRotation);
+        chatPanel.localRotation = Quaternion.identity;
     }
 
     private void SetChatVisible(bool visible)
@@ -342,33 +478,29 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatGroup.interactable = false;
     }
 
-    private void UpdateChatHeader()
-    {
-        if (chatHeader == null)
-            return;
-
-        ShootingThemeSO theme = runManager != null ? runManager.ShootingTheme : null;
-        string suffix = theme != null && !string.IsNullOrWhiteSpace(theme.displayName)
-            ? theme.displayName.Trim().ToUpperInvariant()
-            : "FAN FEED";
-        string value = $"LIVE CHAT // {suffix}";
-        if (chatHeader.text != value)
-            chatHeader.text = value;
-    }
+    private int CurrentViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
 
     private void SeedChatIfNeeded()
     {
+        if (chatBody == null)
+            return;
+
         if (chatHistory.Count > 0)
         {
             RefreshChatBody();
             return;
         }
 
-        int seedCount = Mathf.Min(4, Mathf.Clamp(maxChatLines, 3, 7));
+        // 0명이어도 완전히 빈 UI처럼 보이지 않도록 오래된 한 줄만 남겨 둡니다.
+        // 이후 새 채팅은 0명 기준 약 45초 간격이라 사실상 정지에 가깝습니다.
+        int viewers = CurrentViewers;
+        int seedCount = viewers >= 1000 ? 4 : viewers >= 100 ? 3 : viewers >= 10 ? 2 : 1;
+        seedCount = Mathf.Min(seedCount, Mathf.Clamp(maxChatLines, 3, 7));
+
         for (int i = 0; i < seedCount; i++)
             AppendNextChatLine();
 
-        nextChatAt = Time.unscaledTime + Mathf.Max(0.8f, chatInterval);
+        ScheduleNextChat();
     }
 
     private void UpdateChatFeed()
@@ -381,15 +513,54 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         AppendNextChatLine();
-        nextChatAt = Time.unscaledTime + Mathf.Max(0.8f, chatInterval);
+        ScheduleNextChat();
+    }
+
+    private void ScheduleNextChat()
+    {
+        nextChatAt = Time.unscaledTime + CalculateViewerPacedInterval(CurrentViewers);
+    }
+
+    private float CalculateViewerPacedInterval(int viewers)
+    {
+        viewers = Mathf.Max(0, viewers);
+        float slow = Mathf.Max(20f, zeroViewerChatInterval);
+        float fast = Mathf.Clamp(highViewerChatInterval, 0.35f, 4f);
+        float baseInterval;
+
+        if (viewers <= 0)
+        {
+            baseInterval = slow;
+        }
+        else if (viewers < 10)
+        {
+            baseInterval = Mathf.Lerp(slow * 0.78f, 24f, viewers / 10f);
+        }
+        else if (viewers < 100)
+        {
+            baseInterval = Mathf.Lerp(24f, 10f, (viewers - 10f) / 90f);
+        }
+        else if (viewers < 1000)
+        {
+            baseInterval = Mathf.Lerp(10f, 2.5f, (viewers - 100f) / 900f);
+        }
+        else
+        {
+            baseInterval = Mathf.Lerp(2.5f, fast, Mathf.Clamp01((viewers - 1000f) / 9000f));
+        }
+
+        // Gameplay Random state를 건드리지 않도록 sequence/viewer 값으로 작은 deterministic jitter만 만듭니다.
+        int hash = unchecked((chatSequence + 1) * 73856093 ^ (viewers + 17) * 19349663);
+        float normalized = Mathf.Abs(hash % 1000) / 999f;
+        float jitter = Mathf.Lerp(0.88f, 1.12f, normalized);
+        return Mathf.Max(fast, baseInterval * jitter);
     }
 
     private void AppendNextChatLine()
     {
-        int nameIndex = chatSequence % ChatNames.Length;
-        int commentIndex = (chatSequence * 3 + 1) % FallbackComments.Length;
-        string nickname = ChatNames[nameIndex];
-        string comment = FallbackComments[commentIndex];
+        int index = chatSequence % Mathf.Min(ChatNames.Length, ChatComments.Length);
+        string nickname = ChatNames[index];
+        string comment = ChatComments[index];
         chatSequence++;
 
         chatHistory.Add($"<color=#19E0F2><b>{nickname}</b></color>  {comment}");
@@ -405,6 +576,30 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (chatBody != null)
             chatBody.text = string.Join("\n", chatHistory);
+    }
+
+    private static Font ResolveMultilingualFont()
+    {
+        if (multilingualFont != null)
+            return multilingualFont;
+
+        string[] installed = Font.GetOSInstalledFontNames();
+        for (int i = 0; i < PreferredMultilingualFonts.Length; i++)
+        {
+            string preferred = PreferredMultilingualFonts[i];
+            for (int j = 0; j < installed.Length; j++)
+            {
+                if (!string.Equals(installed[j], preferred, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                multilingualFont = Font.CreateDynamicFontFromOSFont(installed[j], 16);
+                if (multilingualFont != null)
+                    return multilingualFont;
+            }
+        }
+
+        multilingualFont = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        return multilingualFont;
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
@@ -423,11 +618,12 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         FontStyle style,
         TextAnchor alignment,
         Color color,
-        string objectName)
+        string objectName,
+        Font font = null)
     {
         RectTransform rect = CreateRect(parent, objectName, Vector2.zero);
         Text text = rect.gameObject.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = font != null ? font : Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         text.text = value;
         text.fontSize = fontSize;
         text.fontStyle = style;
@@ -437,10 +633,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         return text;
     }
 
-    private static void SetAnchors(RectTransform rect, Vector2 min, Vector2 max)
+    private static void Stretch(RectTransform rect)
     {
-        rect.anchorMin = min;
-        rect.anchorMax = max;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
     }
