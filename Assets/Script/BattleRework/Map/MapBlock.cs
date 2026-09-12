@@ -74,6 +74,8 @@ public class MapBlock : MonoBehaviour
     private Vector3 wheelBaseEuler;
     private Vector3 entryDestination;
     private bool hasEntryDestination;
+    private Vector2 lastEntrySourceDirection;
+    private bool hasEntrySourceDirection;
 
     public MapBlockEntryType EntryType => entryType;
     public bool WillImpact => entryType != MapBlockEntryType.Static;
@@ -82,8 +84,11 @@ public class MapBlock : MonoBehaviour
         ? 0f
         : entryDuration + ResolveDockSettleDuration();
     public float ExitDuration => exitDuration;
+    public float ExitTravelDistance => entryOffset;
     public bool HasEntryDestination => hasEntryDestination;
     public Vector3 EntryDestination => hasEntryDestination ? entryDestination : transform.position;
+    public bool HasEntrySourceDirection => hasEntrySourceDirection;
+    public Vector2 LastEntrySourceDirection => hasEntrySourceDirection ? lastEntrySourceDirection : Vector2.zero;
 
     public event Action<MapBlock, Vector3, Vector2, float> Impacted;
 
@@ -540,6 +545,8 @@ public class MapBlock : MonoBehaviour
         RestorePresentationPose();
         entryDestination = destination;
         hasEntryDestination = true;
+        hasEntrySourceDirection = false;
+        lastEntrySourceDirection = Vector2.zero;
 
         if (entryType == MapBlockEntryType.Static)
         {
@@ -575,6 +582,12 @@ public class MapBlock : MonoBehaviour
                 }
                 start += (Vector3)(sourceDirection * entryOffset);
                 break;
+        }
+
+        if (sourceDirection.sqrMagnitude > 0.001f)
+        {
+            lastEntrySourceDirection = Cardinalize(sourceDirection);
+            hasEntrySourceDirection = true;
         }
 
         Vector2 travelDirection = ((Vector2)destination - (Vector2)start).normalized;
