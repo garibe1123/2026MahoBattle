@@ -8,12 +8,12 @@ using UnityEngine.SceneManagement;
 /// BattleRunState가 먼저 바뀌었다는 이유만으로 Room Exit 이전에 Show/Reward 입력이 선행 실행되지 않게 합니다.
 ///
 /// 핵심 규칙:
-/// - RoomExiting 동안 Reward 카드 입력 / Show Focus / TV Content / Broadcast 처리를 막습니다.
-/// - ShowEntering부터 Show 관련 시각 처리를 허용합니다.
+/// - RoomExiting부터 Show Focus의 배경 암전만 먼저 허용해 다음 Show가 들어오기 전에 무대를 어둡게 만듭니다.
+/// - TV Content / Broadcast / Reward 입력은 기존처럼 실제 Show 단계에서만 허용합니다.
+/// - Character Spotlight를 소유한 Field Cinematic은 ShowEntering 동안 정지하고 RewardShow / MapShow settle 뒤에 복귀합니다.
 /// - Reward 카드 입력은 실제 WorldSet이 RewardShow로 settle된 뒤에만 허용합니다.
 /// - Map 버튼 입력은 실제 WorldSet이 MapShow로 settle된 뒤에만 허용합니다.
 /// - ShowExiting 동안에는 Focus/TV/Broadcast를 유지해 Carrier 퇴장 중 화면이 갑자기 꺼지지 않게 합니다.
-/// - Combat field cinematic은 RoomExiting 동안 중지했다가 ShowEntering에서 다시 Show lighting owner로 복귀합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(65000)]
@@ -203,18 +203,23 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
 
         BattleStageFlowState state = stageFlow.FlowState;
         bool showVisuals = stageFlow.IsShowPhase;
+        bool preShowDim = state == BattleStageFlowState.RoomExiting;
         bool rewardInteractive = state == BattleStageFlowState.RewardShow;
 
         SetEnabled(rewardCards, rewardInteractive);
-        SetEnabled(showFocus, showVisuals);
+
+        // 배경 암전은 Room이 빠지기 시작할 때부터 선행합니다.
+        // BattleShowFocusController 내부에서 실제 Spotlight는 WorldSet이 settle되기 전까지 0으로 유지합니다.
+        SetEnabled(showFocus, preShowDim || showVisuals);
         SetEnabled(sharedTvContent, showVisuals);
         SetEnabled(broadcastNoise, showVisuals);
 
-        // Field director는 Combat과 Show의 실제 Lighting executor입니다.
-        // 다만 Combat clear 직후 Room 타일이 빠지는 동안 RunState=Reward를 먼저 읽어
-        // Show lighting을 조기 적용하지 못하도록 RoomExiting 구간만 정지합니다.
+        // Player / Presenter의 실제 Character Spotlight는 Field Cinematic이 소유합니다.
+        // RoomExiting / ShowEntering에서는 꺼 둔 채 먼저 암전하고,
+        // TV/Carrier가 settle된 RewardShow / MapShow부터 다시 켭니다.
         bool fieldDirectorAllowed =
             state != BattleStageFlowState.RoomExiting &&
+            state != BattleStageFlowState.ShowEntering &&
             state != BattleStageFlowState.Ended;
         SetEnabled(fieldCinematic, fieldDirectorAllowed);
 
