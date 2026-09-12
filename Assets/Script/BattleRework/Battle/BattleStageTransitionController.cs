@@ -457,9 +457,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         // Piece 자체의 Rail을 검사해야 작은 잔여 조각이 Assembly 부모 때문에 막히지 않습니다.
         List<CollapseExitPlan> exitUnits = ExpandRoomExitUnits(outgoingBlocks);
 
-        // 실제 안전 Rail만 사용해 퇴장 순서를 계산합니다.
-        // later-entered Piece를 우선하며, 가능하면 그 Piece가 속했던 Assembly의 진입 Rail을 역주행합니다.
-        List<CollapseExitPlan> exitOrder = BuildSafeExitOrder(exitUnits, baseBounds);
+        // 연속 Bounds 샘플링 대신 Tile Cell HashSet으로 Cardinal Rail을 검사합니다.
+        // 실제 타일은 정수 Grid에 있기 때문에 같은 안전성을 훨씬 적은 연산으로 보장할 수 있습니다.
+        List<CollapseExitPlan> exitOrder = BuildFastSafeExitOrder(exitUnits, baseBounds);
         if (exitOrder.Count != exitUnits.Count)
         {
             Debug.LogError(
@@ -505,8 +505,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 exitTween?.SetUpdate(true);
             }
 
-            // 하나가 완전히 Rail 밖으로 빠진 뒤에만 다음 Piece를 출발시킵니다.
-            // 따라서 서로 다른 방향이라도 동시에 교차하지 않습니다.
+            // 안전 Rail은 이전 Piece가 완전히 빠진 상태를 기준으로 다음 Piece를 계산합니다.
+            // Procedural Piece는 별도의 고속 duration을 사용하므로 순차성을 유지해도 전체 수거가 길어지지 않습니다.
             if (plan.exitDuration > 0f)
                 yield return new WaitForSecondsRealtime(plan.exitDuration);
 
@@ -516,8 +516,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 Destroy(plan.block.gameObject);
             }
 
-            if (stagger > 0f && i < exitOrder.Count - 1)
-                yield return new WaitForSecondsRealtime(stagger);
+            float resolvedStagger = plan.directPieceTween ? 0f : stagger;
+            if (resolvedStagger > 0f && i < exitOrder.Count - 1)
+                yield return new WaitForSecondsRealtime(resolvedStagger);
         }
 
         // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 ownership만 정식 retire합니다.
@@ -881,6 +882,10 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector2 preferredDirection)
     {
         Bounds aggregate = ResolveAggregateBounds(floorBounds, ResolveBlockBounds(block));
+        float resolvedDuration = directPieceTween
+            ? Mathf.Clamp(duration * 0.22f, 0.09f, 0.14f)
+            : Mathf.Max(0.01f, duration);
+
         return new CollapseExitPlan
         {
             block = block,
@@ -888,7 +893,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             floorBounds = floorBounds,
             entryOrder = entryOrder,
             exitTravelDistance = Mathf.Max(0.01f, travelDistance),
-            exitDuration = Mathf.Max(0.01f, duration),
+            exitDuration = resolvedDuration,
             directPieceTween = directPieceTween,
             hasPreferredExitDirection = hasPreferredDirection,
             preferredExitDirection = preferredDirection
@@ -925,6 +930,154 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         return result;
+    }
+
+    private List<CollapseExitPlan> BuildFastSafeExitOrder(List<CollapseExitPlan> exitUnits, Bounds baseBounds)
+    {
+        List<CollapseExitPlan> remaining = exitUnits != null
+            ? new List<CollapseExitPlan>(exitUnits)
+            : new List<CollapseExitPlan>();
+
+        List<CollapseExitPlan> result = new();
+        int[] sideUsage = new int[4];
+        float baseSpan = Mathf.Max(baseBounds.size.x, baseBounds.size.y);
+
+        while (remaining.Count > 0)
+        {
+            HashSet<Vector2Int> occupiedCells = BuildExitOccupiedCells(remaining);
+            CollapseExitPlan chosen = null;
+            CollapseExitSide chosenSide = CollapseExitSide.Left;
+
+            // 진입 역순을 우선합니다. 해당 Piece가 지금 빠질 수 없으면 그 앞 Piece를 검사합니다.
+            // 모든 Piece/장애물 Bounds를 연속 샘플링하지 않고 정수 Tile Cell만 조회합니다.
+            for (int index = remaining.Count - 1; index >= 0; index--)
+            {
+                CollapseExitPlan plan = remaining[index];
+                float bestSideScore = float.PositiveInfinity;
+                CollapseExitSide bestSide = CollapseExitSide.Left;
+                bool foundSide = false;
+
+                for (int sideIndex = 0; sideIndex < 4; sideIndex++)
+                {
+                    CollapseExitSide side = (CollapseExitSide)sideIndex;
+                    if (!IsDiscreteExitPathSafe(plan, side, baseBounds, occupiedCells))
+                        continue;
+
+                    float score = ResolveSafeExitScore(plan, side, baseBounds, sideUsage, baseSpan);
+                    if (score >= bestSideScore)
+                        continue;
+
+                    bestSideScore = score;
+                    bestSide = side;
+                    foundSide = true;
+                }
+
+                if (!foundSide)
+                    continue;
+
+                chosen = plan;
+                chosenSide = bestSide;
+                break;
+            }
+
+            if (chosen == null)
+                break;
+
+            chosen.side = chosenSide;
+            chosen.direction = DirectionFor(chosenSide);
+            chosen.outwardDistance = ResolveOutwardDistance(chosen.bounds, baseBounds, chosenSide);
+            result.Add(chosen);
+            sideUsage[(int)chosenSide]++;
+            remaining.Remove(chosen);
+        }
+
+        return result;
+    }
+
+    private static HashSet<Vector2Int> BuildExitOccupiedCells(List<CollapseExitPlan> plans)
+    {
+        HashSet<Vector2Int> occupied = new();
+        if (plans == null)
+            return occupied;
+
+        for (int i = 0; i < plans.Count; i++)
+        {
+            CollapseExitPlan plan = plans[i];
+            if (plan == null || plan.floorBounds == null)
+                continue;
+
+            for (int b = 0; b < plan.floorBounds.Count; b++)
+                occupied.Add(WorldToTile(plan.floorBounds[b].center));
+        }
+
+        return occupied;
+    }
+
+    private static bool IsDiscreteExitPathSafe(
+        CollapseExitPlan plan,
+        CollapseExitSide side,
+        Bounds baseBounds,
+        HashSet<Vector2Int> occupiedCells)
+    {
+        if (plan == null || plan.block == null || plan.floorBounds == null || plan.floorBounds.Count == 0)
+            return false;
+
+        Vector2Int stepDirection = CellDirectionFor(side);
+        float tileSize = Mathf.Max(0.0001f, RoomBaseTemplate.TileWorldSize);
+        int steps = Mathf.Max(1, Mathf.CeilToInt(plan.exitTravelDistance / tileSize));
+
+        for (int b = 0; b < plan.floorBounds.Count; b++)
+        {
+            Vector2Int sourceCell = WorldToTile(plan.floorBounds[b].center);
+            for (int step = 1; step <= steps; step++)
+            {
+                Vector2Int targetCell = sourceCell + stepDirection * step;
+
+                if (IsCellInsidePersistentBase(targetCell, baseBounds))
+                    return false;
+
+                if (occupiedCells.Contains(targetCell) && !PlanContainsCell(plan, targetCell))
+                    return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool PlanContainsCell(CollapseExitPlan plan, Vector2Int cell)
+    {
+        if (plan == null || plan.floorBounds == null)
+            return false;
+
+        for (int i = 0; i < plan.floorBounds.Count; i++)
+        {
+            if (WorldToTile(plan.floorBounds[i].center) == cell)
+                return true;
+        }
+
+        return false;
+    }
+
+    private static bool IsCellInsidePersistentBase(Vector2Int cell, Bounds baseBounds)
+    {
+        float tileSize = Mathf.Max(0.0001f, RoomBaseTemplate.TileWorldSize);
+        Vector2 center = new(cell.x * tileSize, cell.y * tileSize);
+        const float epsilon = 0.001f;
+        return center.x >= baseBounds.min.x - epsilon &&
+               center.x <= baseBounds.max.x + epsilon &&
+               center.y >= baseBounds.min.y - epsilon &&
+               center.y <= baseBounds.max.y + epsilon;
+    }
+
+    private static Vector2Int CellDirectionFor(CollapseExitSide side)
+    {
+        switch (side)
+        {
+            case CollapseExitSide.Left: return Vector2Int.left;
+            case CollapseExitSide.Right: return Vector2Int.right;
+            case CollapseExitSide.Up: return Vector2Int.up;
+            default: return Vector2Int.down;
+        }
     }
 
     private List<CollapseExitPlan> BuildSafeExitOrder(List<CollapseExitPlan> exitUnits, Bounds baseBounds)
