@@ -33,8 +33,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
     [SerializeField, Range(0.02f, 0.20f)] private float combatInventoryTimeScale = 0.05f;
-    [SerializeField, Min(0.05f)] private float stickRepeatDelay = 0.16f;
     [SerializeField, Range(0.2f, 0.95f)] private float stickThreshold = 0.55f;
+    [SerializeField, Range(0.05f, 0.8f)] private float stickReleaseThreshold = 0.22f;
 
     [Header("Kinetic UI")]
     [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.98f);
@@ -76,8 +76,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private bool directionMoved;
     private float switchPressedAt;
     private int selectedIndex = -1;
-    private float nextStickRepeat;
-    private Vector2 lastStickDirection;
+    private bool stickAxisLatched;
     private bool subscribed;
 
     public int SelectedIndex => selectedIndex;
@@ -255,8 +254,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardWasShown = false;
         directionMoved = false;
         switchPressedAt = Time.unscaledTime;
-        nextStickRepeat = 0f;
-        lastStickDirection = Vector2.zero;
+        stickAxisLatched = false;
 
         int equipped = equipmentSystem.EquippedSlotIndex;
         selectedIndex = equipped >= 0 ? equipped : equipmentSystem.FindNextWeaponSlot(-1, 1);
@@ -287,6 +285,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         switchHeld = false;
         boardWasShown = false;
         directionMoved = false;
+        stickAxisLatched = false;
         RestoreTimeScale();
         RefreshAll();
     }
@@ -296,6 +295,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         switchHeld = false;
         boardWasShown = false;
         directionMoved = false;
+        stickAxisLatched = false;
         RestoreTimeScale();
         RefreshAll();
     }
@@ -317,47 +317,36 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void UpdateGridNavigation()
     {
-        int dx = 0;
-        int dy = 0;
-
-        if (Input.GetKeyDown(KeyCode.LeftArrow) || Input.GetKeyDown(KeyCode.A)) dx = -1;
-        else if (Input.GetKeyDown(KeyCode.RightArrow) || Input.GetKeyDown(KeyCode.D)) dx = 1;
-        else if (Input.GetKeyDown(KeyCode.UpArrow) || Input.GetKeyDown(KeyCode.W)) dy = -1;
-        else if (Input.GetKeyDown(KeyCode.DownArrow) || Input.GetKeyDown(KeyCode.S)) dy = 1;
-
-        if (dx != 0 || dy != 0)
-        {
-            ResetStickNavigation();
-            MoveSelection(dx, dy);
-            return;
-        }
-
+        // Mouse/Keyboard 모드에서는 WASD/방향키로 Grid 선택을 이동시키지 않습니다.
+        // Legacy Horizontal/Vertical axis가 키보드와 패드를 공유하므로 키보드 방향 입력이 눌리면 무시합니다.
         if (IsKeyboardNavigationHeld())
         {
-            ResetStickNavigation();
+            stickAxisLatched = false;
             return;
         }
 
         Vector2 stick = new(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
-        bool stickActive = Mathf.Abs(stick.x) >= stickThreshold || Mathf.Abs(stick.y) >= stickThreshold;
-        if (!stickActive)
+        float magnitude = Mathf.Max(Mathf.Abs(stick.x), Mathf.Abs(stick.y));
+
+        if (stickAxisLatched)
         {
-            ResetStickNavigation();
+            if (magnitude <= stickReleaseThreshold)
+                stickAxisLatched = false;
             return;
         }
 
-        if (Time.unscaledTime < nextStickRepeat)
+        if (magnitude < stickThreshold)
             return;
 
+        int dx = 0;
+        int dy = 0;
         if (Mathf.Abs(stick.x) >= Mathf.Abs(stick.y))
             dx = stick.x >= 0f ? 1 : -1;
         else
             dy = stick.y >= 0f ? -1 : 1;
 
-        bool newDirection = lastStickDirection.sqrMagnitude <= 0.001f ||
-                            Vector2.Dot(stick.normalized, lastStickDirection) < 0.8f;
-        nextStickRepeat = Time.unscaledTime + (newDirection ? 0.06f : Mathf.Max(0.05f, stickRepeatDelay));
-        lastStickDirection = stick.normalized;
+        // Stick이 중립 -> 임계값을 넘는 순간에만 1회 이동합니다.
+        stickAxisLatched = true;
         MoveSelection(dx, dy);
     }
 
@@ -367,12 +356,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.S) ||
                Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) ||
                Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow);
-    }
-
-    private void ResetStickNavigation()
-    {
-        lastStickDirection = Vector2.zero;
-        nextStickRepeat = 0f;
     }
 
     private void MoveSelection(int dx, int dy)
@@ -490,7 +473,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         titleRect.anchoredPosition = new Vector2(76f, -74f);
         titleRect.localRotation = Quaternion.Euler(0f, 0f, -4f);
 
-        Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   MOVE   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, inkColor);
+        Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   MOUSE OR STICK   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, inkColor);
         RectTransform subRect = sub.rectTransform;
         subRect.anchorMin = subRect.anchorMax = new Vector2(0f, 1f);
         subRect.pivot = new Vector2(0f, 1f);
