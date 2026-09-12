@@ -6,23 +6,21 @@ using UnityEngine.UI;
 /// Owns only the dark pre-combat stage language.
 ///
 /// State rules:
-/// - None / EnteringNode / BuildingRoom: dark stage + Player focus + floor spotlight.
+/// - None / EnteringNode / BuildingRoom: dark stage + the same unified Player spotlight rig used by Show.
 /// - Combat: all Player-specific spotlights are removed; the bright world light / Volume own the image.
-/// - Reward / SelectingNode: BattleShowFocusController and the existing show lighting remain authoritative.
+/// - Reward / SelectingNode: BattleInverseWorldSpotlightController drives the same rig from World Light intensity.
 ///
-/// It also makes sure a scene Global Light2D cannot remain disabled during battle setup.
+/// There is intentionally no separate pre-combat floor-only light anymore. Beam and floor pool are always
+/// BattleCharacterLightVisual children and therefore open/close together.
 /// </summary>
 [DefaultExecutionOrder(-3200)]
 [DisallowMultipleComponent]
 public sealed class BattlePlayerStageLightingController : MonoBehaviour
 {
     private const string FocusShaderName = "UI/BattleShowFocusMask";
-    private const string AdditiveLightShaderName = "Sprites/BattleSoftKeyLight";
-    private const string FloorSpotlightName = "BattlePlayerFloorSpotlight";
+    private const string LegacyFloorSpotlightName = "BattlePlayerFloorSpotlight";
 
     private static BattlePlayerStageLightingController instance;
-    private static Sprite sharedFloorSprite;
-    private static Material sharedFloorMaterial;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
@@ -32,13 +30,6 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     [Tooltip("Battle scene의 Global Light2D가 비활성 상태로 남아 있으면 다시 활성화합니다.")]
     [SerializeField] private bool forceGlobalLightActive = true;
     [SerializeField, Min(0.05f)] private float globalLightProbeInterval = 0.25f;
-
-    [Header("Pre-Combat Player Floor Spotlight")]
-    [SerializeField] private Color floorSpotlightColor = new(1f, 0.92f, 0.76f, 1f);
-    [Tooltip("전투가 실제로 시작되기 전 어두운 Stage에서만 사용합니다.")]
-    [SerializeField, Range(0f, 1f)] private float preCombatFloorAlpha = 0.46f;
-    [SerializeField, Min(0.1f)] private float floorWidthMultiplier = 1.85f;
-    [SerializeField, Range(0.05f, 0.55f)] private float floorHeightRatio = 0.20f;
 
     [Header("Pre-Combat Dark Stage")]
     [Tooltip("BattleHUD보다 뒤, 기존 Show Focus보다 살짝 뒤에 둡니다.")]
@@ -58,9 +49,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     private Image overlayImage;
     private Material overlayMaterial;
 
-    private SpriteRenderer floorRenderer;
-    private Transform floorTransform;
-    private PlayerController boundPlayer;
+    private BattleCharacterLightVisual playerSpotlightVisual;
+    private PlayerController spotlightBoundPlayer;
 
     private float currentStageDim;
     private float nextGlobalLightProbe;
@@ -78,7 +68,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         instance = this;
         ResolveReferences();
         EnsureOverlay();
-        EnsureFloorSpotlight();
+        DisableLegacyFloorSpotlight();
         ApplyOverlayImmediate(0f);
     }
 
@@ -86,16 +76,14 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     {
         ResolveReferences();
         EnsureOverlay();
-        EnsureFloorSpotlight();
+        DisableLegacyFloorSpotlight();
     }
 
     private void OnDisable()
     {
         SetExistingPlayerPresentationLightsSuppressed(false);
+        DisableLegacyFloorSpotlight();
         ApplyOverlayImmediate(0f);
-
-        if (floorRenderer != null)
-            floorRenderer.enabled = false;
     }
 
     private void OnDestroy()
@@ -111,7 +99,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     {
         ResolveReferences();
         EnsureOverlay();
-        EnsureFloorSpotlight();
+        DisableLegacyFloorSpotlight();
 
         if (forceGlobalLightActive && Time.unscaledTime >= nextGlobalLightProbe)
         {
@@ -132,25 +120,51 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
             stageTarget,
             Time.unscaledDeltaTime / stageDuration);
 
-        SetExistingPlayerPresentationLightsSuppressed(preCombat || combat);
+        // Pre-combat now uses the exact same Beam + Pool rig as Reward/Map.
+        if (preCombat)
+        {
+            SetExistingPlayerPresentationLightsSuppressed(false);
+            DriveUnifiedPlayerSpotlight(currentStageDim);
+        }
+        else if (combat)
+        {
+            SetExistingPlayerPresentationLightsSuppressed(true);
+        }
     }
 
     private void LateUpdate()
     {
         ResolveReferences();
-        EnsureFloorSpotlight();
-        UpdateFloorSpotlight();
+        DisableLegacyFloorSpotlight();
         UpdatePreCombatOverlay();
 
-        SetExistingPlayerPresentationLightsSuppressed(IsPreCombatStage() || IsCombat());
+        bool preCombat = IsPreCombatStage();
+        bool combat = IsCombat();
+
+        if (preCombat)
+        {
+            SetExistingPlayerPresentationLightsSuppressed(false);
+            DriveUnifiedPlayerSpotlight(currentStageDim);
+        }
+        else if (combat)
+        {
+            SetExistingPlayerPresentationLightsSuppressed(true);
+        }
     }
 
     private void ResolveReferences()
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
+
+        if (spotlightBoundPlayer != player)
+        {
+            spotlightBoundPlayer = player;
+            playerSpotlightVisual = null;
+        }
     }
 
     private bool IsPreCombatStage()
@@ -211,81 +225,37 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         target.enabled = true;
     }
 
-    private void EnsureFloorSpotlight()
+    private void DriveUnifiedPlayerSpotlight(float strength)
+    {
+        if (player == null || !player.IsAlive || !player.gameObject.activeInHierarchy)
+            return;
+
+        if (playerSpotlightVisual == null)
+            playerSpotlightVisual = player.GetComponent<BattleCharacterLightVisual>();
+
+        // BattleFieldCinematicDirector owns configuration/profile values and creates this component.
+        // Until it is bound, do not create a second partially-configured light rig here.
+        if (playerSpotlightVisual == null)
+            return;
+
+        playerSpotlightVisual.SetTarget(true, Mathf.Clamp01(strength));
+    }
+
+    private void DisableLegacyFloorSpotlight()
     {
         if (player == null)
             return;
 
-        if (boundPlayer != player)
-        {
-            if (floorRenderer != null)
-                Destroy(floorRenderer.gameObject);
-            floorRenderer = null;
-            floorTransform = null;
-            boundPlayer = player;
-        }
-
-        if (floorRenderer != null)
+        Transform legacy = FindRecursive(player.transform, LegacyFloorSpotlightName);
+        if (legacy == null)
             return;
 
-        Transform existing = player.transform.Find(FloorSpotlightName);
-        GameObject floorObject = existing != null ? existing.gameObject : new GameObject(FloorSpotlightName);
-        floorObject.transform.SetParent(player.transform, true);
-        floorTransform = floorObject.transform;
+        SpriteRenderer renderer = legacy.GetComponent<SpriteRenderer>();
+        if (renderer != null)
+            renderer.enabled = false;
 
-        floorRenderer = floorObject.GetComponent<SpriteRenderer>();
-        if (floorRenderer == null)
-            floorRenderer = floorObject.AddComponent<SpriteRenderer>();
-
-        floorRenderer.sprite = GetOrCreateFloorSprite();
-        floorRenderer.sharedMaterial = GetOrCreateFloorMaterial();
-        floorRenderer.enabled = false;
-    }
-
-    private void UpdateFloorSpotlight()
-    {
-        if (floorRenderer == null || floorTransform == null || player == null)
-            return;
-
-        float alpha = Mathf.Clamp01(preCombatFloorAlpha * currentStageDim);
-        if (alpha <= 0.001f)
-        {
-            floorRenderer.enabled = false;
-            return;
-        }
-
-        SpriteRenderer targetRenderer = ResolvePrimarySpriteRenderer(player.gameObject);
-        if (targetRenderer == null || !targetRenderer.gameObject.activeInHierarchy)
-        {
-            floorRenderer.enabled = false;
-            return;
-        }
-
-        Bounds bounds = targetRenderer.bounds;
-        float spriteWidth = Mathf.Max(0.2f, bounds.size.x);
-        float spriteHeight = Mathf.Max(0.2f, bounds.size.y);
-        float poolWidth = Mathf.Max(0.85f, spriteWidth * floorWidthMultiplier);
-        float poolHeight = Mathf.Max(0.13f, poolWidth * floorHeightRatio);
-        float poolY = bounds.min.y + Mathf.Max(0.015f, spriteHeight * 0.025f);
-
-        floorTransform.position = new Vector3(bounds.center.x, poolY, targetRenderer.transform.position.z);
-        floorTransform.rotation = Quaternion.identity;
-
-        ApplyWorldSizeToChild(
-            floorTransform,
-            floorRenderer.sprite,
-            poolWidth,
-            poolHeight,
-            player.transform.lossyScale);
-
-        floorRenderer.sortingLayerID = targetRenderer.sortingLayerID;
-        floorRenderer.sortingOrder = targetRenderer.sortingOrder - 1;
-        floorRenderer.sharedMaterial = GetOrCreateFloorMaterial();
-
-        Color color = floorSpotlightColor;
-        color.a = alpha;
-        floorRenderer.color = color;
-        floorRenderer.enabled = true;
+        if (legacy.gameObject.activeSelf)
+            legacy.gameObject.SetActive(false);
     }
 
     private void SetExistingPlayerPresentationLightsSuppressed(bool suppressed)
@@ -300,12 +270,27 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
     private static void SetChildActiveIfFound(Transform root, string childName, bool active)
     {
-        if (root == null || string.IsNullOrWhiteSpace(childName))
-            return;
-
-        Transform child = root.Find(childName);
+        Transform child = FindRecursive(root, childName);
         if (child != null && child.gameObject.activeSelf != active)
             child.gameObject.SetActive(active);
+    }
+
+    private static Transform FindRecursive(Transform root, string targetName)
+    {
+        if (root == null || string.IsNullOrWhiteSpace(targetName))
+            return null;
+
+        if (root.name == targetName)
+            return root;
+
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform found = FindRecursive(root.GetChild(i), targetName);
+            if (found != null)
+                return found;
+        }
+
+        return null;
     }
 
     private void EnsureOverlay()
@@ -424,75 +409,12 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         Vector3 edgeWorld = target.position + camera.transform.right * Mathf.Max(0.01f, radiusWorld);
         Vector3 edgeScreen = camera.WorldToScreenPoint(edgeWorld);
 
-        float width = Mathf.Max(1f, Screen.width);
         float height = Mathf.Max(1f, Screen.height);
-        centerUv = new Vector2(Mathf.Clamp01(centerScreen.x / width), Mathf.Clamp01(centerScreen.y / height));
+        centerUv = new Vector2(
+            Mathf.Clamp01(centerScreen.x / Mathf.Max(1f, Screen.width)),
+            Mathf.Clamp01(centerScreen.y / height));
         radiusUv = Mathf.Max(0.0001f, Mathf.Abs(edgeScreen.x - centerScreen.x) / height);
         return true;
-    }
-
-    private static SpriteRenderer ResolvePrimarySpriteRenderer(GameObject target)
-    {
-        if (target == null)
-            return null;
-
-        SpriteRenderer direct = target.GetComponent<SpriteRenderer>();
-        if (IsUsableRenderer(direct))
-            return direct;
-
-        SpriteRenderer[] renderers = target.GetComponentsInChildren<SpriteRenderer>(true);
-        SpriteRenderer best = null;
-        float bestArea = -1f;
-
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            SpriteRenderer renderer = renderers[i];
-            if (!IsUsableRenderer(renderer))
-                continue;
-
-            float area = Mathf.Abs(renderer.bounds.size.x * renderer.bounds.size.y);
-            if (area <= bestArea)
-                continue;
-
-            best = renderer;
-            bestArea = area;
-        }
-
-        return best;
-    }
-
-    private static bool IsUsableRenderer(SpriteRenderer renderer)
-    {
-        if (renderer == null)
-            return false;
-
-        string objectName = renderer.name;
-        return objectName != FloorSpotlightName &&
-               objectName != BattleCharacterLightVisual.KeyRendererName &&
-               objectName != BattleCharacterLightVisual.PoolRendererName &&
-               objectName != BattleCharacterLightVisual.GlowRendererName;
-    }
-
-    private static void ApplyWorldSizeToChild(
-        Transform child,
-        Sprite sprite,
-        float width,
-        float height,
-        Vector3 parentWorldScale)
-    {
-        if (child == null || sprite == null)
-            return;
-
-        float inverseX = Mathf.Abs(parentWorldScale.x) > 0.0001f ? 1f / Mathf.Abs(parentWorldScale.x) : 1f;
-        float inverseY = Mathf.Abs(parentWorldScale.y) > 0.0001f ? 1f / Mathf.Abs(parentWorldScale.y) : 1f;
-        Vector2 spriteSize = sprite.bounds.size;
-        float sourceWidth = Mathf.Max(0.0001f, spriteSize.x);
-        float sourceHeight = Mathf.Max(0.0001f, spriteSize.y);
-
-        child.localScale = new Vector3(
-            width / sourceWidth * inverseX,
-            height / sourceHeight * inverseY,
-            1f);
     }
 
     private void ApplyOverlayImmediate(float value)
@@ -509,69 +431,5 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
         if (overlayImage != null)
             overlayImage.enabled = currentStageDim > 0.0001f;
-    }
-
-    private static Material GetOrCreateFloorMaterial()
-    {
-        if (sharedFloorMaterial != null)
-            return sharedFloorMaterial;
-
-        Shader shader = Shader.Find(AdditiveLightShaderName);
-        if (shader == null)
-            shader = Resources.Load<Shader>("BattleSoftKeyLight");
-        if (shader == null)
-            return null;
-
-        sharedFloorMaterial = new Material(shader)
-        {
-            name = "BattlePlayerFloorSpotlight_Runtime",
-            hideFlags = HideFlags.HideAndDontSave
-        };
-        return sharedFloorMaterial;
-    }
-
-    private static Sprite GetOrCreateFloorSprite()
-    {
-        if (sharedFloorSprite != null)
-            return sharedFloorSprite;
-
-        const int width = 96;
-        const int height = 32;
-        Texture2D texture = new(width, height, TextureFormat.RGBA32, false, true)
-        {
-            name = "BattlePlayerFloorSpotlightTexture_Runtime",
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        Color[] pixels = new Color[width * height];
-        for (int y = 0; y < height; y++)
-        {
-            float ny = ((y + 0.5f) / height) * 2f - 1f;
-            for (int x = 0; x < width; x++)
-            {
-                float nx = ((x + 0.5f) / width) * 2f - 1f;
-                float distance = Mathf.Sqrt(nx * nx + ny * ny);
-                float edge = Mathf.Clamp01(1f - distance);
-                float alpha = Mathf.SmoothStep(0f, 1f, edge);
-                alpha = alpha * alpha * (0.84f + 0.16f * edge);
-                pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
-            }
-        }
-
-        texture.SetPixels(pixels);
-        texture.Apply(false, true);
-
-        sharedFloorSprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, width, height),
-            new Vector2(0.5f, 0.5f),
-            32f,
-            0,
-            SpriteMeshType.FullRect);
-        sharedFloorSprite.name = "BattlePlayerFloorSpotlightSprite_Runtime";
-        sharedFloorSprite.hideFlags = HideFlags.HideAndDontSave;
-        return sharedFloorSprite;
     }
 }
