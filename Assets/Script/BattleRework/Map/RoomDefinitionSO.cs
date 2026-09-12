@@ -17,25 +17,35 @@ public enum RoomLargePieceShape
 [Serializable]
 public class MapBlockPlacement
 {
+    [Tooltip("Legacy/Custom Room에서 배치할 MapBlock Prefab입니다.")]
     public MapBlock prefab;
+    [Tooltip("Legacy 2x2 MapBlock Grid 기준 배치 좌표입니다.")]
     public Vector2Int gridPosition;
+    [Tooltip("해당 Block이 화면 밖에서 진입할 기본 방향입니다.")]
     public Vector2 entryDirection = Vector2.right;
 }
 
 [Serializable]
 public class ObstaclePlacement
 {
+    [Tooltip("Room에 생성할 장애물 Prefab입니다.")]
     public BattleObstacle prefab;
+    [Tooltip("RoomOrigin 기준 로컬 위치입니다.")]
     public Vector2 localPosition;
+    [Tooltip("장애물의 Z축 회전 각도입니다. 단위는 도(°)입니다.")]
     public float rotationZ;
 }
 
 [Serializable]
 public class MonsterSpawnEntry
 {
+    [Tooltip("이 Spawn Entry에서 생성할 MonsterDefinitionSO입니다.")]
     public MonsterDefinitionSO monster;
+    [Tooltip("RoomOrigin 기준 몬스터 생성 중심 위치입니다.")]
     public Vector2 localPosition;
+    [Tooltip("이 Entry에서 생성할 몬스터 수입니다.")]
     [Min(1)] public int count = 1;
+    [Tooltip("여러 마리를 생성할 때 중심 위치 주변으로 흩어질 최대 반경입니다. 0이면 같은 위치를 기준으로 생성합니다.")]
     [Min(0f)] public float scatterRadius;
 }
 
@@ -56,77 +66,91 @@ public class RoomDefinitionSO : ScriptableObject
     public const float ProceduralTileWorldSize = 1f;
     public const int MinimumStartBaseTiles = 4;
     public const int MinimumPassageTiles = 2;
-
-    // This is intentionally larger than MinimumPassageTiles.
-    // Passage safety answers "can the player move through it?" while this value answers
-    // "does an auto-generated L/T/Cross read as a room rather than a narrow hallway?"
     public const int MinimumRoomChunkTiles = 7;
     public const int MinimumCombatRoomTiles = 20;
     public const int MinimumPreferredMaxRoomTiles = 30;
     public const int MinimumRoomSizeVariation = 8;
 
-    [Header("Legacy Persistent Base Compatibility")]
-    [Tooltip("Compatibility flag only. RoomBaseTemplate owns the real persistent 4x4 Base.")]
+    [Header("COMPATIBILITY — 기존 데이터 호환")]
+    [Tooltip("호환용 플래그입니다. 실제 Persistent 4x4 Base의 생성과 유지 규칙은 BattleTemplate의 RoomBaseTemplate이 소유합니다.")]
     public bool usePersistentStartBase = true;
 
     [HideInInspector] public bool forbidMonsterSpawnInsideStartBase = false;
 
-    [Header("Room Identity / Legacy Template")]
+    [Header("ROOM IDENTITY — 전투 템플릿 식별")]
+    [Tooltip("Room을 로그/검증/Seed 계산에서 구분하기 위한 ID입니다. 같은 역할의 Room끼리도 가능하면 고유하게 지정하세요.")]
     public string roomId;
-    [Tooltip("Legacy 2x2 MapBlock grid size. Separate from the 32px procedural tile size.")]
+    [Tooltip("Legacy 2x2 MapBlock 방식에서 사용하는 권장 Grid 크기입니다. Procedural 32px Tile 크기와는 별개입니다.")]
     public Vector2Int recommendedGridSize = new(4, 4);
 
-    [Header("32px Tile / Persistent Base")]
-    [Tooltip("Compatibility value. Runtime persistent Base is fixed to 4x4 tiles.")]
+    [Header("PERSISTENT BASE — 32px / 4x4 호환값")]
+    [Tooltip("호환용 값입니다. Runtime Persistent Base는 항상 4x4로 강제됩니다.")]
     public Vector2Int startBaseTileSize = new(4, 4);
 
-    [Header("Procedural Gameplay Room")]
-    [Tooltip("Build the Room from an integer 32px tile mask.")]
+    [Header("PROCEDURAL ROOM — 전투 필드 크기 / 복잡도")]
+    [Tooltip("켜면 32px 정수 Tile Mask를 기반으로 Procedural 전투 Room을 생성합니다. 현재 일반 Combat/Elite의 기본 방식입니다.")]
     public bool useProceduralRoom = true;
-    [Tooltip("Combat / Elite runtime minimum is 20x20. Smaller serialized values are safely clamped.")]
+    [Tooltip("Procedural Room의 최소 가로/세로 Tile 수입니다. Runtime은 Combat/Elite에서 최소 20x20을 보장합니다.")]
     public Vector2Int proceduralMinTileSize = new(20, 20);
-    [Tooltip("Preferred upper range. Width/height are independent; default rooms can reach roughly 30 tiles or more per axis.")]
+    [Tooltip("Procedural Room의 선호 최대 가로/세로 Tile 수입니다. 실제 생성 시 최소값과 함께 안전 범위로 보정됩니다.")]
     public Vector2Int proceduralMaxTileSize = new(32, 30);
-    [Tooltip("Automatic silhouette body thickness. Runtime keeps this at 7+ while passages themselves only require 2 tiles.")]
+    [Tooltip("L/T/Cross/Irregular 같은 자동 실루엣의 몸통 최소 두께입니다. 너무 낮으면 복도처럼 보이므로 Runtime에서 7 이상을 보장합니다.")]
     [Min(MinimumRoomChunkTiles)] public int proceduralMinChunkTileSize = MinimumRoomChunkTiles;
-    [Tooltip("0 uses deterministic node/room IDs. Non-zero is mixed into the seed.")]
+    [Tooltip("Procedural Seed 보정값입니다. 0이면 Node/Room ID 기반 결정적 Seed를 사용하고, 0이 아니면 이 값을 추가로 섞습니다.")]
     public int proceduralSeed;
+    [Tooltip("Room 실루엣이 얼마나 복합적으로 분기/굴곡될지 결정하는 전체 복잡도입니다. 0은 단순, 1은 복잡한 형태에 가깝습니다.")]
     [Range(0f, 1f)] public float proceduralComplexity = 0.35f;
+    [Tooltip("기본 실루엣에서 안쪽으로 파인 영역이 생길 확률입니다. 값이 높을수록 오목한 모양이 늘어납니다.")]
     [Range(0f, 0.45f)] public float proceduralIndentChance = 0.20f;
+    [Tooltip("기본 실루엣 바깥으로 추가 덩어리가 확장될 확률입니다. 값이 높을수록 외곽 돌출이 늘어납니다.")]
     [Range(0f, 0.65f)] public float proceduralExtensionChance = 0.28f;
 
-    [Header("Large Room Piece Presentation")]
+    [Header("ENTRY PRESENTATION — 큰 타일 조립 / 진입")]
+    [Tooltip("Room을 화면 밖에서 큰 Assembly Piece 단위로 조립하는 진입 연출을 사용할지 결정합니다.")]
     public bool useLargeRoomPiece = true;
-    [Tooltip("Auto intentionally varies the final stage silhouette. Explicit shapes remain deterministic choices.")]
+    [Tooltip("전투 필드의 대표 실루엣 형태입니다. Auto는 Rectangle/L/T/Cross/Irregular 중 안전한 형태를 자동 선택합니다.")]
     public RoomLargePieceShape largePieceShape = RoomLargePieceShape.Auto;
-    [Tooltip("Legacy/non-procedural large-piece size.")]
+    [Tooltip("Legacy/non-procedural 방식에서 사용할 큰 Piece Grid 크기입니다. Procedural Room에서는 Procedural 크기 규칙이 우선합니다.")]
     public Vector2Int largePieceGridSize = new(4, 4);
-    [Tooltip("Custom 32px integer cells. Invalid one-tile-thin or disconnected layouts fall back safely.")]
+    [Tooltip("Large Piece Shape이 Custom일 때 사용할 32px 정수 Tile Cell 목록입니다. 끊기거나 1칸 두께로만 구성된 잘못된 형태는 Runtime에서 안전하게 보정됩니다.")]
     public List<Vector2Int> customLargePieceCells = new();
+    [Tooltip("큰 Piece의 기본 진입 방향입니다. (1,0)=오른쪽 방향 기준, (-1,0)=왼쪽, (0,1)=위쪽, (0,-1)=아래쪽입니다. Vector2.zero면 자동 결정할 수 있습니다.")]
     public Vector2 largePieceEntryDirection = Vector2.zero;
+    [Tooltip("화면 밖 Rail에서 도킹 지점까지 이동하는 접근 시간입니다. Dock 반동/정착 시간은 별도입니다.")]
     [Min(0.05f)] public float largePieceEntryDuration = 0.72f;
+    [Tooltip("큰 Piece가 도킹 지점에서 얼마나 멀리 떨어진 화면 밖 Rail에서 시작할지 결정하는 월드 거리입니다.")]
     [Min(0.5f)] public float largePieceEntryOffset = 8f;
 
-    [Header("Runtime Base Compatibility")]
+    [Header("RUNTIME BASE COMPATIBILITY — Legacy Base 보정")]
+    [Tooltip("Legacy Room에서 Runtime Base 크기 보정 경로를 사용할지 결정합니다. Persistent 4x4 자체의 존재 여부와는 별개입니다.")]
     public bool useRuntimeBase = true;
+    [Tooltip("Legacy Runtime Base 바깥에 추가할 월드 단위 여백입니다. 음수는 허용하지 않습니다.")]
     public Vector2 basePaddingWorld = Vector2.zero;
+    [Tooltip("Legacy Runtime Base 중심에 추가할 월드 단위 위치 오프셋입니다.")]
     public Vector2 baseOffset = Vector2.zero;
 
-    [Header("Player Entry")]
+    [Header("PLAYER ENTRY — 전투 시작 위치")]
+    [Tooltip("RoomOrigin을 기준으로 Player를 배치할 로컬 위치 오프셋입니다.")]
     public Vector2 playerEntryOffset = Vector2.zero;
+    [Tooltip("Room 진입 때 Player를 Player Entry Offset 위치로 재배치할지 결정합니다.")]
     public bool repositionPlayerOnEnter = true;
 
-    [Header("Legacy / Custom Prefab Room Pieces")]
+    [Header("CUSTOM ROOM PIECES — Legacy / 직접 배치")]
+    [Tooltip("Procedural Room을 사용하지 않을 때 직접 배치할 MapBlock 목록입니다.")]
     public List<MapBlockPlacement> blocks = new();
 
-    [Header("Obstacles")]
+    [Header("OBSTACLES — 장애물 배치")]
+    [Tooltip("RoomOrigin 기준으로 생성할 장애물 목록입니다.")]
     public List<ObstaclePlacement> obstacles = new();
 
-    [Header("Monster Spawn Points")]
+    [Header("MONSTER SPAWNS — 적 생성")]
+    [Tooltip("이 Room에서 생성할 몬스터 종류/위치/수량 목록입니다. 비어 있으면 전투가 즉시 Clear될 수 있습니다.")]
     public List<MonsterSpawnEntry> monsterSpawns = new();
 
-    [Header("Clear Presentation")]
+    [Header("CLEAR PRESENTATION — 클리어 표시")]
+    [Tooltip("Legacy Clear Highlight에 사용할 MapBlock Prefab입니다. 비어 있으면 해당 Highlight 연출을 생략할 수 있습니다.")]
     public MapBlock highlightBlockPrefab;
+    [Tooltip("Clear Highlight Block의 RoomOrigin 기준 위치 오프셋입니다.")]
     public Vector2 highlightBlockOffset = new(4f, 0f);
 
     public int GetMinimumPassageTiles() => MinimumPassageTiles;
@@ -155,8 +179,6 @@ public class RoomDefinitionSO : ScriptableObject
     {
         Vector2Int min = GetProceduralMinTileSize();
 
-        // Old/test Room assets may still serialize the previous 14~22 range.
-        // Do not let those stale values silently shrink the new battle-space scale.
         int requiredX = Mathf.Max(MinimumPreferredMaxRoomTiles, min.x + MinimumRoomSizeVariation);
         int requiredY = Mathf.Max(MinimumPreferredMaxRoomTiles, min.y + MinimumRoomSizeVariation);
         return new Vector2Int(
