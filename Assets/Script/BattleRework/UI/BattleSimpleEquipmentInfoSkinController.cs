@@ -9,6 +9,7 @@ using UnityEngine.UI;
 /// 데이터/선택/Reward 규칙은 건드리지 않습니다.
 /// - BattleEquipmentDetailPanelController가 만든 PACK 상세 패널의 장식을 정리합니다.
 /// - BattleRewardCardActionController가 만든 선택 카드 내부 설명을 더 단순한 정보 블록으로 정리합니다.
+/// - 선택된 Reward 카드는 배경 변화만이 아니라 얇은 Stroke의 직접적인 맥동으로 상태를 표시합니다.
 ///
 /// 별도 DDOL Host를 만들지 않고 현재 BattleSceneManager GameObject에만 설치합니다.
 /// </summary>
@@ -23,7 +24,14 @@ public sealed class BattleSimpleEquipmentInfoSkinController : MonoBehaviour
     [SerializeField] private Color primaryText = new(0.92f, 0.92f, 0.92f, 1f);
     [SerializeField] private Color secondaryText = new(0.61f, 0.63f, 0.68f, 1f);
 
+    [Header("Selected Reward Stroke")]
+    [SerializeField] private Color selectedRewardStroke = new(1f, 0.80f, 0.08f, 1f);
+    [SerializeField, Range(2f, 8f)] private float selectedStrokeMin = 4.5f;
+    [SerializeField, Range(3f, 10f)] private float selectedStrokeMax = 6.5f;
+    [SerializeField, Range(1f, 12f)] private float selectedStrokePulseSpeed = 5.5f;
+
     private BattleEquipmentDetailPanelController detailController;
+    private BattleRewardFlow rewardFlow;
     private RectTransform detailRoot;
     private Image detailBack;
     private Outline detailOutline;
@@ -48,6 +56,7 @@ public sealed class BattleSimpleEquipmentInfoSkinController : MonoBehaviour
     private Text rewardEffectsHeader;
     private Text rewardEffects;
     private Text rewardTags;
+    private RectTransform rewardCardRoot;
 
     private int styledDetailRootId;
     private int styledRewardInlineId;
@@ -102,12 +111,14 @@ public sealed class BattleSimpleEquipmentInfoSkinController : MonoBehaviour
 
         MaintainDetailStyle();
         MaintainRewardInlineStyle();
+        MaintainRewardSelectionStroke();
     }
 
     private void ResolveAndStyle()
     {
         ResolveDetailPanel();
         ResolveRewardInline();
+        ResolveRewardSelection();
     }
 
     private void ResolveDetailPanel()
@@ -367,6 +378,49 @@ public sealed class BattleSimpleEquipmentInfoSkinController : MonoBehaviour
 
         if (rewardEffects != null && rewardEffects.text.Contains("\n"))
             rewardEffects.text = FlattenRewardEffects(rewardEffects.text);
+    }
+
+    private void ResolveRewardSelection()
+    {
+        if (rewardFlow == null)
+            rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
+        if (rewardCardRoot == null)
+            rewardCardRoot = FindRect("PrizeChoices");
+    }
+
+    private void MaintainRewardSelectionStroke()
+    {
+        if (rewardFlow == null || rewardCardRoot == null ||
+            rewardFlow.Phase != BattleRewardPhase.Choosing || rewardFlow.SelectedChoiceIndex < 0)
+            return;
+
+        int selectedIndex = rewardFlow.SelectedChoiceIndex;
+        float pulse01 = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * selectedStrokePulseSpeed);
+        float width = Mathf.Lerp(selectedStrokeMin, Mathf.Max(selectedStrokeMin, selectedStrokeMax), pulse01);
+        Color color = selectedRewardStroke;
+        color.a = Mathf.Lerp(0.74f, 1f, pulse01);
+
+        for (int i = 0; i < rewardCardRoot.childCount; i++)
+        {
+            RectTransform card = rewardCardRoot.GetChild(i) as RectTransform;
+            if (card == null)
+                continue;
+
+            RewardPrizeDrag drag = card.GetComponent<RewardPrizeDrag>();
+            int stableIndex = drag != null ? drag.RewardIndex : i;
+            if (stableIndex != selectedIndex)
+                continue;
+
+            Outline outline = card.GetComponent<Outline>();
+            if (outline == null)
+                outline = card.gameObject.AddComponent<Outline>();
+
+            outline.enabled = true;
+            outline.useGraphicAlpha = false;
+            outline.effectColor = color;
+            outline.effectDistance = new Vector2(width, -width);
+            break;
+        }
     }
 
     private static string FlattenStatLine(string value)
