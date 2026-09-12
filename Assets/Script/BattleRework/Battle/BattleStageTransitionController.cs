@@ -44,6 +44,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private sealed class CollapseExitPlan
     {
         public MapBlock block;
+        public Bounds bounds;
+        public CollapseExitSide side;
         public Vector2 direction;
         public float outwardDistance;
     }
@@ -190,8 +192,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (flowState != BattleStageFlowState.ShowEntering || showStage == null || showStage.IsTransitioning)
             return;
 
-        // Stage flow is committed only after WorldSet reports the matching physical mode as settled.
-        // This keeps Reward -> Map in ShowEntering while the Presenter carrier is still exiting.
         if (pendingShowState == BattleStageFlowState.RewardShow && showStage.IsRewardMode)
             SetFlowState(BattleStageFlowState.RewardShow);
         else if (pendingShowState == BattleStageFlowState.MapShow && showStage.IsMapMode)
@@ -217,8 +217,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (subscribed || runManager == null)
             return;
 
-        // StateChanged is the single logical trigger for stage transitions.
-        // RewardSelectionRequested used to call collapse a second time and is intentionally not subscribed here.
         runManager.StateChanged += HandleStateChanged;
         runManager.NodeEntered += HandleNodeEntered;
         runManager.RunEnded += HandleRunEnded;
@@ -253,9 +251,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 EnsurePlayerVisible();
 
                 if (!selectionCollapsePrepared && HasCurrentRoomFieldToRetire())
-                {
                     BeginSelectionCollapseIfNeeded(BattleStageFlowState.MapShow);
-                }
                 else
                 {
                     pendingShowState = BattleStageFlowState.MapShow;
@@ -265,8 +261,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 return;
 
             case BattleRunState.EnteringNode:
-                // Normally SelectNextNode queues entry through TryQueueNodeEntry(), so the Show is already gone.
-                // This also covers legacy/direct EnterNode callers safely.
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.RoomEntering);
 
@@ -307,11 +301,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Called by BattleRunManager after a map node is chosen.
-    /// Returns true when this state machine takes ownership of the physical hand-off.
-    /// The logical node is entered only after the current Show has completely left the stage.
-    /// </summary>
     public bool TryQueueNodeEntry(BattleNodeData node)
     {
         ResolveSystems();
@@ -320,8 +309,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return false;
         if (queuedNodeEntryRoutine != null)
             return true;
-
-        // If no Show exists there is nothing physical to wait for; let RunManager enter immediately.
         if (showStage == null || !showStage.IsShowActive)
             return false;
 
@@ -335,7 +322,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         SetFlowState(BattleStageFlowState.ShowExiting);
         HoldShowStageGate();
 
-        // WorldSet resolves externalGate as ShowMode.None and owns its actual exit animation.
         while (showStage != null && showStage.IsShowActive)
             yield return null;
 
@@ -356,22 +342,17 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         if (collapseRoutine != null)
             return;
-
         if (selectionCollapsePrepared)
         {
             OpenShowStage();
             return;
         }
-
         if (roomManager == null || player == null || baseTemplate == null)
         {
             CaptureShowAnchorFromBase();
             OpenShowStage();
             return;
         }
-
-        // currentRoom 플래그가 아니라 실제 월드에 남아 있는 Room 이동 Root를 기준으로 판단합니다.
-        // 전투 종료 직후 논리 상태가 먼저 바뀌더라도 타일이 남아 있으면 반드시 RoomExiting을 거칩니다.
         if (!HasCurrentRoomFieldToRetire())
         {
             CaptureShowAnchorFromBase();
@@ -395,8 +376,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private IEnumerator CollapseClearedRoomToPlayerBase()
     {
-        // 실제 RoomManager가 진입시킨 Assembly/MapBlock Root를 먼저 고정합니다.
-        // Base 재구축이나 Presentation refresh 뒤에 씬을 재검색하지 않습니다.
         List<MapBlock> outgoingBlocks = CollectCurrentRoomExitBlocks();
         if (outgoingBlocks.Count == 0)
         {
@@ -412,13 +391,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             yield break;
         }
 
-        // 1) Player가 실제로 설 수 있는 현재 Field 안에서 4x4를 확정합니다.
         baseTemplate.EnsurePersistentBase();
         Vector3 nextOrigin = FindBestFourByFourOrigin(player.transform.position);
         nextOrigin.z = baseTemplate.FixedTileOriginWorld.z;
-
-        // 새 Persistent Base는 별도 GameObject를 다시 만들기 때문에,
-        // 재생성 전에 지금 플레이어가 실제로 보고 있던 4x4 바닥 Sprite를 먼저 저장합니다.
         FloorVisualSnapshot[] preservedFloorVisuals = CaptureFourByFourFloorVisuals(nextOrigin, outgoingBlocks);
 
         preservedBaseTileOrigin = baseTemplate.PromoteToNewBaseAtTileOrigin(nextOrigin);
@@ -434,9 +409,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         CaptureShowAnchorFromBase();
         BattleDockHandleVisibilityController.RefreshNow();
 
-        // 2) 기존 Room Block을 4x4의 좌/우/아래/위 네 방향으로 분류합니다.
-        // Procedural Room은 진입 때 사용했던 Assembly Group 자체를 퇴장시켜 조립 단위가 그대로 빠지게 합니다.
-        // Legacy Room은 기존 walkable MapBlock을 그대로 사용합니다.
         Vector2 baseCenter = showAnchorCenter;
         Bounds baseBounds = CreatePersistentBaseBounds(baseCenter);
         List<CollapseExitPlan>[] groups = BuildExitGroups(outgoingBlocks, baseBounds);
@@ -455,7 +427,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         for (int wave = 0; wave < waveCount; wave++)
         {
             bool startedAny = false;
-
             for (int side = 0; side < groups.Length; side++)
             {
                 List<CollapseExitPlan> group = groups[side];
@@ -469,8 +440,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 PushOutgoingRenderersBehindBase(plan.block);
                 DisableOutgoingWalkable(plan.block);
 
-                // MapBlock이 진입 때 사용한 entryOffset(Procedural Assembly는 기본 36u Rail)을
-                // 그대로 Exit 거리로 사용합니다. 순간 삭제/Snap 대신 반드시 화면 밖으로 이동합니다.
                 Tween exitTween = plan.block.PlayExit(plan.direction);
                 exitTween?.SetUpdate(true);
                 lastExitDuration = Mathf.Max(lastExitDuration, plan.block.ExitDuration);
@@ -481,34 +450,26 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 yield return new WaitForSecondsRealtime(stagger);
         }
 
-        // 마지막 Wave가 실제 ExitDuration을 전부 소비할 때까지 Show Gate를 유지합니다.
         if (lastExitDuration > 0f)
             yield return new WaitForSecondsRealtime(lastExitDuration);
 
-        // 화면 밖까지 이동한 뒤에만 GameObject를 제거합니다.
         for (int i = 0; i < outgoingBlocks.Count; i++)
         {
             MapBlock block = outgoingBlocks[i];
             if (block == null)
                 continue;
-
             block.gameObject.SetActive(false);
             Destroy(block.gameObject);
         }
 
-        // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 ownership만 정식 retire합니다.
-        // 이 API는 타일을 다시 Destroy하지 않으므로 다음 EnterRoomRoutine의 ClearImmediate jump-cut도 막습니다.
         yield return null;
         roomManager?.CompleteAnimatedStageRetirement();
-
         BattleDockHandleVisibilityController.RefreshNow();
 
         if (showOpenDelayAfterCollapse > 0f)
             yield return new WaitForSecondsRealtime(showOpenDelayAfterCollapse);
 
         collapseRoutine = null;
-
-        // 3) 전투 Field의 실제 Exit와 Room ownership 정리가 모두 끝난 뒤에만 Show를 엽니다.
         OpenShowStage();
     }
 
@@ -520,11 +481,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         List<MapBlock> ownedBlocks = new();
         if (roomManager.CopyActiveRoomBlocks(ownedBlocks) > 0)
             return true;
-
-        // currentRoom만 남고 이동 Root가 없는 특수/빈 Room도 lifecycle retirement는 필요합니다.
         if (roomManager.IsRoomActive)
             return true;
-
         return CollectCurrentRoomExitBlocksFallback().Count > 0;
     }
 
@@ -533,16 +491,12 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         List<MapBlock> ownedBlocks = new();
         if (roomManager != null && roomManager.CopyActiveRoomBlocks(ownedBlocks) > 0)
             return ownedBlocks;
-
-        // Legacy/migration scene에서만 hierarchy scan을 fallback으로 사용합니다.
         return CollectCurrentRoomExitBlocksFallback();
     }
 
     private List<MapBlock> CollectCurrentRoomExitBlocksFallback()
     {
-        MapBlock[] blocks = FindObjectsByType<MapBlock>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         List<MapBlock> result = new();
         HashSet<int> seen = new();
 
@@ -552,8 +506,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             if (block == null)
                 continue;
 
-            // Assembly child를 발견해도 실제 진입/퇴장 이동 단위인 최상위 MapBlock 부모로 승격합니다.
-            // 이름이 바뀌어도 parent MapBlock 구조만 유지되면 같은 Root를 찾을 수 있습니다.
             MapBlock movementRoot = ResolveMovementRoot(block);
             if (movementRoot == null || !movementRoot.gameObject.activeInHierarchy)
                 continue;
@@ -564,15 +516,11 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 !blockName.EndsWith("(Clone)", System.StringComparison.Ordinal);
             if (rawPrototype || blockName.StartsWith("Outgoing_", System.StringComparison.Ordinal))
                 continue;
-
             if (showStage != null && movementRoot.transform.IsChildOf(showStage.transform))
                 continue;
 
             bool proceduralAssembly = blockName.StartsWith("ProceduralAssemblyGroup_", System.StringComparison.Ordinal);
             bool hasNestedMapBlock = HasNestedMapBlock(movementRoot);
-
-            // Procedural Assembly parent는 walkable=false지만 실제 이동 Root입니다.
-            // 이름 의존만 하지 않고 nested MapBlock을 가진 부모도 Assembly Root로 인정합니다.
             if (!proceduralAssembly && !hasNestedMapBlock && !movementRoot.ContributesWalkableNavMesh)
                 continue;
 
@@ -598,7 +546,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 result = parentBlock;
             current = current.parent;
         }
-
         return result;
     }
 
@@ -609,17 +556,12 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         MapBlock[] nested = root.GetComponentsInChildren<MapBlock>(true);
         for (int i = 0; i < nested.Length; i++)
-        {
             if (nested[i] != null && nested[i] != root)
                 return true;
-        }
-
         return false;
     }
 
-    private FloorVisualSnapshot[] CaptureFourByFourFloorVisuals(
-        Vector3 lowerLeftTileOrigin,
-        List<MapBlock> knownRoomBlocks = null)
+    private FloorVisualSnapshot[] CaptureFourByFourFloorVisuals(Vector3 lowerLeftTileOrigin, List<MapBlock> knownRoomBlocks = null)
     {
         int tileCount = RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.FixedBaseTiles;
         FloorVisualSnapshot[] snapshots = new FloorVisualSnapshot[tileCount];
@@ -628,29 +570,18 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             ranks[i] = int.MinValue;
 
         Vector2Int originCell = WorldToTile(lowerLeftTileOrigin);
-
-        // 기존 Persistent Base가 선택 영역에 포함된 경우도 현재 보이는 Sprite를 후보로 넣습니다.
         if (baseTemplate != null && baseTemplate.ActiveBase != null)
             CaptureFloorRenderers(baseTemplate.ActiveBase, originCell, snapshots, ranks);
 
-        // 실제 전투 Room Piece의 Tile_* Sprite는 PresentationManager가 랜덤 Floor Variant를
-        // 직접 적용한 Renderer이므로, 여기서 저장하면 화면에서 보던 모양을 그대로 보존할 수 있습니다.
         List<MapBlock> blocks = knownRoomBlocks ?? CollectCurrentRoomExitBlocks();
         for (int i = 0; i < blocks.Count; i++)
-        {
-            MapBlock block = blocks[i];
-            if (block != null)
-                CaptureFloorRenderers(block.gameObject, originCell, snapshots, ranks);
-        }
+            if (blocks[i] != null)
+                CaptureFloorRenderers(blocks[i].gameObject, originCell, snapshots, ranks);
 
         return snapshots;
     }
 
-    private static void CaptureFloorRenderers(
-        GameObject root,
-        Vector2Int originCell,
-        FloorVisualSnapshot[] snapshots,
-        int[] ranks)
+    private static void CaptureFloorRenderers(GameObject root, Vector2Int originCell, FloorVisualSnapshot[] snapshots, int[] ranks)
     {
         if (root == null || snapshots == null || ranks == null)
             return;
@@ -678,11 +609,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 continue;
 
             ranks[index] = rank;
-            snapshots[index] = new FloorVisualSnapshot
-            {
-                sprite = renderer.sprite,
-                color = renderer.color
-            };
+            snapshots[index] = new FloorVisualSnapshot { sprite = renderer.sprite, color = renderer.color };
         }
     }
 
@@ -708,7 +635,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 SpriteRenderer renderer = floor != null ? floor.GetComponent<SpriteRenderer>() : null;
                 if (renderer == null)
                     continue;
-
                 renderer.sprite = snapshot.sprite;
                 renderer.color = snapshot.color;
             }
@@ -719,7 +645,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         if (string.IsNullOrEmpty(objectName))
             return false;
-
         return objectName.StartsWith("Tile_", System.StringComparison.Ordinal) ||
                objectName.StartsWith("ShowTile_", System.StringComparison.Ordinal) ||
                objectName.StartsWith("BaseFloor_", System.StringComparison.Ordinal);
@@ -728,9 +653,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private Bounds CreatePersistentBaseBounds(Vector2 baseCenter)
     {
         float size = RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.TileWorldSize;
-        return new Bounds(
-            new Vector3(baseCenter.x, baseCenter.y, 0f),
-            new Vector3(size, size, 0.1f));
+        return new Bounds(new Vector3(baseCenter.x, baseCenter.y, 0f), new Vector3(size, size, 0.1f));
     }
 
     private List<CollapseExitPlan>[] BuildExitGroups(List<MapBlock> blocks, Bounds baseBounds)
@@ -743,28 +666,134 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             new List<CollapseExitPlan>()
         };
 
+        List<CollapseExitPlan> pending = new();
         for (int i = 0; i < blocks.Count; i++)
         {
             MapBlock block = blocks[i];
             if (block == null)
                 continue;
 
-            Bounds blockBounds = ResolveBlockBounds(block);
-            CollapseExitSide side = ResolveExitSide(blockBounds, baseBounds);
-            Vector2 direction = DirectionFor(side);
-
-            groups[(int)side].Add(new CollapseExitPlan
+            Bounds bounds = ResolveBlockBounds(block);
+            pending.Add(new CollapseExitPlan
             {
                 block = block,
-                direction = direction,
-                outwardDistance = ResolveOutwardDistance(blockBounds, baseBounds, side)
+                bounds = bounds,
+                outwardDistance = ((Vector2)bounds.center - (Vector2)baseBounds.center).sqrMagnitude
             });
+        }
+
+        // 바깥쪽 Piece부터 방향을 예약합니다. 안쪽 Piece가 먼저 한 Rail을 독점해
+        // 외곽 Piece가 반대편으로 가로질러 나가는 상황을 막습니다.
+        pending.Sort((a, b) =>
+        {
+            int radial = b.outwardDistance.CompareTo(a.outwardDistance);
+            return radial != 0 ? radial : a.block.GetInstanceID().CompareTo(b.block.GetInstanceID());
+        });
+
+        float baseSpan = Mathf.Max(baseBounds.size.x, baseBounds.size.y);
+        for (int i = 0; i < pending.Count; i++)
+        {
+            CollapseExitPlan plan = pending[i];
+            float bestScore = float.PositiveInfinity;
+            CollapseExitSide bestSide = CollapseExitSide.Left;
+
+            for (int sideIndex = 0; sideIndex < 4; sideIndex++)
+            {
+                CollapseExitSide side = (CollapseExitSide)sideIndex;
+                float score = ResolveExitAssignmentScore(plan.bounds, baseBounds, side, groups, baseSpan);
+
+                // 완전히 같은 비용이면 기존의 Left 고정 tie 대신 현재 덜 사용한 방향을 우선합니다.
+                if (score < bestScore - 0.001f ||
+                    Mathf.Abs(score - bestScore) <= 0.001f &&
+                    groups[sideIndex].Count < groups[(int)bestSide].Count)
+                {
+                    bestScore = score;
+                    bestSide = side;
+                }
+            }
+
+            plan.side = bestSide;
+            plan.direction = DirectionFor(bestSide);
+            plan.outwardDistance = ResolveOutwardDistance(plan.bounds, baseBounds, bestSide);
+            groups[(int)bestSide].Add(plan);
+
+            Debug.Log(
+                $"[BattleStageFlow] Exit rail '{plan.block.name}' -> {bestSide} " +
+                $"(score {bestScore:0.00}, lane {groups[(int)bestSide].Count}).",
+                plan.block);
         }
 
         for (int i = 0; i < groups.Length; i++)
             groups[i].Sort((a, b) => b.outwardDistance.CompareTo(a.outwardDistance));
 
         return groups;
+    }
+
+    private static float ResolveExitAssignmentScore(
+        Bounds blockBounds,
+        Bounds baseBounds,
+        CollapseExitSide side,
+        List<CollapseExitPlan>[] groups,
+        float baseSpan)
+    {
+        Vector2 direction = DirectionFor(side);
+        Vector2 fromBase = (Vector2)blockBounds.center - (Vector2)baseBounds.center;
+        float distanceFromBase = fromBase.magnitude;
+        Vector2 radial = distanceFromBase > 0.001f ? fromBase / distanceFromBase : Vector2.zero;
+        float alignment = Vector2.Dot(radial, direction);
+
+        // 실제 4x4를 완전히 벗어나기 위해 필요한 최소 이동량.
+        float score = ResolveClearanceTravel(blockBounds, baseBounds, side);
+
+        // Piece 중심이 있는 쪽으로 빠지는 것을 우선합니다. 반대편 방향은 4x4를 가로지르는
+        // Rail이 될 가능성이 높으므로 강한 패널티를 줍니다.
+        if (distanceFromBase > 0.05f)
+        {
+            score += (1f - Mathf.Max(0f, alignment)) * baseSpan * 0.30f;
+            if (alignment < -0.15f)
+                score += -alignment * baseSpan * 3.25f;
+        }
+
+        List<CollapseExitPlan> sameSide = groups[(int)side];
+
+        // 같은 방향으로 몰리는 기존 문제를 막습니다. 단순 랜덤이 아니라 실제 기하 비용이
+        // 충분히 작을 때만 다른 Rail이 선택되도록 base 크기에 비례한 균형 패널티를 씁니다.
+        score += sameSide.Count * baseSpan * 1.15f;
+
+        // 같은 Side에서 이동 축과 수직인 폭이 겹치면 사실상 같은 Rail입니다.
+        // 그런 Piece는 가능하면 다른 방향을 고르게 하고, 불가피할 때만 다음 Wave로 보냅니다.
+        for (int i = 0; i < sameSide.Count; i++)
+        {
+            CollapseExitPlan existing = sameSide[i];
+            if (existing != null && ExitLanesOverlap(blockBounds, existing.bounds, side))
+                score += baseSpan * 1.85f;
+        }
+
+        return score;
+    }
+
+    private static float ResolveClearanceTravel(Bounds blockBounds, Bounds baseBounds, CollapseExitSide side)
+    {
+        switch (side)
+        {
+            case CollapseExitSide.Left:
+                return Mathf.Max(0f, blockBounds.max.x - baseBounds.min.x);
+            case CollapseExitSide.Right:
+                return Mathf.Max(0f, baseBounds.max.x - blockBounds.min.x);
+            case CollapseExitSide.Up:
+                return Mathf.Max(0f, baseBounds.max.y - blockBounds.min.y);
+            default:
+                return Mathf.Max(0f, blockBounds.max.y - baseBounds.min.y);
+        }
+    }
+
+    private static bool ExitLanesOverlap(Bounds a, Bounds b, CollapseExitSide side)
+    {
+        const float clearance = 0.08f;
+        if (side == CollapseExitSide.Left || side == CollapseExitSide.Right)
+            return a.min.y < b.max.y - clearance && a.max.y > b.min.y + clearance;
+
+        return a.min.x < b.max.x - clearance && a.max.x > b.min.x + clearance;
     }
 
     private static CollapseExitSide ResolveExitSide(Bounds blockBounds, Bounds baseBounds)
@@ -780,7 +809,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         {
             float bestGap = float.NegativeInfinity;
             CollapseExitSide bestSide = CollapseExitSide.Down;
-
             if (fullyLeft)
                 SelectIfGreater(baseBounds.min.x - blockBounds.max.x, CollapseExitSide.Left, ref bestGap, ref bestSide);
             if (fullyRight)
@@ -789,7 +817,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 SelectIfGreater(baseBounds.min.y - blockBounds.max.y, CollapseExitSide.Down, ref bestGap, ref bestSide);
             if (fullyUp)
                 SelectIfGreater(blockBounds.min.y - baseBounds.max.y, CollapseExitSide.Up, ref bestGap, ref bestSide);
-
             return bestSide;
         }
 
@@ -797,21 +824,15 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         float moveRight = Mathf.Max(0f, baseBounds.max.x - blockBounds.min.x);
         float moveDown = Mathf.Max(0f, blockBounds.max.y - baseBounds.min.y);
         float moveUp = Mathf.Max(0f, baseBounds.max.y - blockBounds.min.y);
-
         float bestMove = moveLeft;
         CollapseExitSide result = CollapseExitSide.Left;
-
         SelectIfSmaller(moveRight, CollapseExitSide.Right, ref bestMove, ref result);
         SelectIfSmaller(moveDown, CollapseExitSide.Down, ref bestMove, ref result);
         SelectIfSmaller(moveUp, CollapseExitSide.Up, ref bestMove, ref result);
         return result;
     }
 
-    private static void SelectIfGreater(
-        float value,
-        CollapseExitSide side,
-        ref float bestValue,
-        ref CollapseExitSide bestSide)
+    private static void SelectIfGreater(float value, CollapseExitSide side, ref float bestValue, ref CollapseExitSide bestSide)
     {
         if (value <= bestValue)
             return;
@@ -819,11 +840,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         bestSide = side;
     }
 
-    private static void SelectIfSmaller(
-        float value,
-        CollapseExitSide side,
-        ref float bestValue,
-        ref CollapseExitSide bestSide)
+    private static void SelectIfSmaller(float value, CollapseExitSide side, ref float bestValue, ref CollapseExitSide bestSide)
     {
         if (value >= bestValue)
             return;
@@ -918,10 +935,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         int highest = int.MinValue;
         for (int i = 0; i < renderers.Length; i++)
-        {
             if (renderers[i] != null)
                 highest = Mathf.Max(highest, renderers[i].sortingOrder);
-        }
 
         if (highest == int.MinValue)
             return;
@@ -932,10 +947,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return;
 
         for (int i = 0; i < renderers.Length; i++)
-        {
             if (renderers[i] != null)
                 renderers[i].sortingOrder += shift;
-        }
     }
 
     private static void DisableOutgoingWalkable(MapBlock block)
@@ -945,10 +958,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         BattleWalkableField[] fields = block.GetComponentsInChildren<BattleWalkableField>(true);
         for (int i = 0; i < fields.Length; i++)
-        {
             if (fields[i] != null)
                 fields[i].enabled = false;
-        }
     }
 
     private void HoldShowStageGate()
@@ -961,10 +972,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private void ReleaseShowStageGate()
     {
         ResolveSystems();
-
         if (hasShowAnchor)
             showStage?.SetStageAnchor(showAnchorCenter);
-
         showStageGateHeld = false;
         showStage?.SetExternalGate(false);
     }
@@ -993,7 +1002,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         EnsureBaseVisible();
         EnsurePlayerVisible();
         BattleDockHandleVisibilityController.RefreshNow();
-
         node.room.repositionPlayerOnEnter = false;
         preparedForIncomingNode = false;
         selectionCollapsePrepared = false;
@@ -1026,7 +1034,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         if (flowState == next)
             return;
-
         flowState = next;
         FlowStateChanged?.Invoke(next);
     }
@@ -1037,7 +1044,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return;
 
         baseTemplate.EnsurePersistentBase();
-
         Vector3 nextOrigin = FindBestFourByFourOrigin(player.transform.position);
         nextOrigin.z = baseTemplate.FixedTileOriginWorld.z;
         List<MapBlock> roomBlocks = CollectCurrentRoomExitBlocks();
@@ -1096,7 +1102,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         GameObject baseObject = baseTemplate.ActiveBase;
         if (baseObject == null)
             return;
-
         if (!baseObject.activeSelf)
             baseObject.SetActive(true);
 
@@ -1129,7 +1134,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         if (!player.gameObject.activeSelf)
             player.gameObject.SetActive(true);
-
         SpriteRenderer[] renderers = player.GetComponentsInChildren<SpriteRenderer>(true);
         for (int i = 0; i < renderers.Length; i++)
             if (renderers[i] != null)
@@ -1140,7 +1144,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         float tileSize = RoomBaseTemplate.TileWorldSize;
         Vector2Int playerTile = WorldToTile(playerWorld);
-
         Vector2Int bestOrigin = new(playerTile.x - 1, playerTile.y - 1);
         int bestCoverage = -1;
         float bestDistance = float.MaxValue;
@@ -1165,8 +1168,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                     (oy + (RoomBaseTemplate.FixedBaseTiles - 1) * 0.5f) * tileSize);
                 float distance = ((Vector2)playerWorld - candidateCenter).sqrMagnitude;
 
-                if (coverage > bestCoverage ||
-                    coverage == bestCoverage && distance < bestDistance)
+                if (coverage > bestCoverage || coverage == bestCoverage && distance < bestDistance)
                 {
                     bestCoverage = coverage;
                     bestDistance = distance;
