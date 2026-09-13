@@ -1,16 +1,12 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <summary>
 /// SpriteManager에 저장되는 Universal Stage Dressing의 씬별 Authoring 컴포넌트입니다.
-///
-/// Profile Asset을 별도로 만들지 않아도 Camera / Light / Cable 등의 Sprite 또는 Prefab을
-/// 이 컴포넌트 Inspector에 직접 넣고 Scene에 저장할 수 있습니다.
-/// 실행 시 저장된 직접 소스들을 transient BattleUniversalStageDecorProfileSO로 변환하여
-/// 공용 BattleUniversalStageDecorController에 공급합니다.
-///
-/// Chair는 Reward / Map Show 전용이므로 이 Config에는 의도적으로 포함하지 않습니다.
+/// Camera/Light 등의 실제 Carrier 소스와 Cable 장식을 분리합니다.
+/// Cable은 절대 독립 Carrier로 Spawn되지 않고 Camera/Light Carrier 내부의 Floor 장식으로만 사용됩니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
@@ -25,36 +21,33 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
     [Header("CARRIER / COMMON")]
     [Tooltip("0이면 Profile의 CellWorldSize 또는 실제 Floor 크기를 사용합니다. 보통 기본값 0을 유지하면 됩니다.")]
     [SerializeField, Min(0f)] private float cellWorldSizeOverride;
-    [Tooltip("아래 직접 Sprite/Prefab 소스에 공통으로 적용할 Sorting Order Offset입니다.")]
     [SerializeField] private int directSourceSortingOrderOffset = 12;
-    [Tooltip("아래 직접 소스의 공통 Scale입니다. 개별 보정이 필요하면 Custom Sources를 사용하세요.")]
     [SerializeField] private Vector2 directSourceScale = Vector2.one;
-    [Tooltip("장식물이 반대 방향으로 180도 회전되어 배치되는 것을 허용합니다.")]
-    [SerializeField] private bool allowHalfTurn = true;
 
-    [Header("1x1 SPRITE SOURCES")]
+    [Header("CABLE DECORATION ONLY - NEVER SPAWNS ALONE")]
+    [Tooltip("Camera/Light Carrier의 Floor 위, 장비 아래에 랜덤 배치되는 전선 Sprite입니다. 독립 타일/Carrier로 생성되지 않습니다.")]
     [SerializeField] private List<Sprite> cableSprites = new();
-    [SerializeField] private List<Sprite> lightSprites = new();
+
+    [Header("1x1 PROP SOURCES")]
     [SerializeField] private List<Sprite> equipmentSprites = new();
     [SerializeField] private List<Sprite> caseSprites = new();
     [SerializeField] private List<Sprite> miscSprites = new();
 
-    [Header("2x3 SPRITE SOURCES")]
-    [Tooltip("카메라/삼각대 계열. Carrier는 2x3 또는 회전된 3x2로 배치됩니다.")]
+    [Header("2x2 CAMERA / LIGHT SOURCES")]
+    [Tooltip("카메라는 2x2 Carrier 안에 배치됩니다. 좌우 반전만 허용하며 180도 회전하지 않습니다.")]
     [SerializeField] private List<Sprite> cameraSprites = new();
-    [SerializeField] private List<Sprite> lightStandSprites = new();
+    [Tooltip("Light는 Base + Head 연결 Anchor를 가진 Light Rig SO로만 구성하는 것을 권장합니다.")]
+    [SerializeField] private List<BattleUniversalStageLightRigSO> lightRigs = new();
+
+    [Header("2x3 PROP SOURCES")]
     [SerializeField] private List<Sprite> monitorSprites = new();
 
-    [Header("3x3 SPRITE SOURCES")]
+    [Header("3x3 PROP SOURCES")]
     [SerializeField] private List<Sprite> fenceSprites = new();
     [SerializeField] private List<Sprite> largeEquipmentSprites = new();
 
     [Header("OPTIONAL PREFAB SOURCES")]
-    [Tooltip("Sprite 하나로 표현하기 어려운 카메라 세트/애니메이션 오브젝트를 넣습니다.")]
     [SerializeField] private List<GameObject> cameraPrefabs = new();
-    [SerializeField] private List<GameObject> lightStandPrefabs = new();
-    [SerializeField] private List<GameObject> lightPrefabs = new();
-    [SerializeField] private List<GameObject> cablePrefabs = new();
     [SerializeField] private List<GameObject> monitorPrefabs = new();
     [SerializeField] private List<GameObject> equipmentPrefabs = new();
     [SerializeField] private List<GameObject> casePrefabs = new();
@@ -62,23 +55,27 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
     [SerializeField] private List<GameObject> miscPrefabs = new();
 
     [Header("CUSTOM SOURCES")]
-    [Tooltip("기본 1x1/2x3/3x3 분류와 다른 Offset/Scale/Weight가 필요한 소스만 여기에 추가합니다.")]
+    [Tooltip("기본 분류와 다른 Offset/Scale/Weight가 필요한 소스만 사용합니다. Cable은 여기 넣어도 독립 Spawn에서 제외됩니다.")]
     [SerializeField] private List<BattleUniversalStageDecorCustomSource> customSources = new();
+
+    // 기존 Scene 직렬화 호환용입니다. 더 이상 독립 Light/Stand/Cable Prefab으로 Spawn하지 않습니다.
+    [FormerlySerializedAs("lightSprites"), SerializeField, HideInInspector] private List<Sprite> legacyLightSprites = new();
+    [FormerlySerializedAs("lightStandSprites"), SerializeField, HideInInspector] private List<Sprite> legacyLightStandSprites = new();
+    [FormerlySerializedAs("lightPrefabs"), SerializeField, HideInInspector] private List<GameObject> legacyLightPrefabs = new();
+    [FormerlySerializedAs("lightStandPrefabs"), SerializeField, HideInInspector] private List<GameObject> legacyLightStandPrefabs = new();
+    [FormerlySerializedAs("cablePrefabs"), SerializeField, HideInInspector] private List<GameObject> legacyCablePrefabs = new();
 
     [NonSerialized] private BattleUniversalStageDecorProfileSO runtimeDirectProfile;
     [NonSerialized] private readonly List<BattleUniversalStageDecorEntry> runtimeEntries = new();
 
     public bool DisableUniversalStageDecor => disableUniversalStageDecor;
+    public IReadOnlyList<Sprite> CableDecorationSprites => cableSprites;
 
-    /// <summary>
-    /// Universal Runtime Manager가 읽는 최종 Profile입니다.
-    /// 직접 소스가 있으면 Scene에 저장된 값으로 runtime profile을 만들어 반환합니다.
-    /// </summary>
     public BattleUniversalStageDecorProfileSO Profile
     {
         get
         {
-            if (!HasAnyDirectSource())
+            if (!HasAnyDirectSpawnSource())
                 return profile;
 
             EnsureRuntimeDirectProfile();
@@ -89,7 +86,7 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
 
     private void OnEnable()
     {
-        if (Application.isPlaying && HasAnyDirectSource())
+        if (Application.isPlaying && HasAnyDirectSpawnSource())
         {
             EnsureRuntimeDirectProfile();
             RebuildRuntimeDirectProfile();
@@ -125,7 +122,7 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
         if (!Application.isPlaying)
             return;
 
-        if (HasAnyDirectSource())
+        if (HasAnyDirectSpawnSource())
         {
             EnsureRuntimeDirectProfile();
             RebuildRuntimeDirectProfile();
@@ -157,7 +154,10 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
             for (int i = 0; i < profileEntries.Count; i++)
             {
                 BattleUniversalStageDecorEntry entry = profileEntries[i];
-                if (entry == null || entry.Category == BattleUniversalStageDecorCategory.Chair || !entry.HasVisual)
+                if (entry == null ||
+                    entry.Category == BattleUniversalStageDecorCategory.Chair ||
+                    entry.Category == BattleUniversalStageDecorCategory.Cable ||
+                    !entry.HasVisual)
                     continue;
 
                 runtimeEntries.Add(BattleUniversalStageDecorEntry.CreateRuntime(
@@ -171,31 +171,26 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
                     entry.LocalScale,
                     entry.SortingOrderOffset,
                     entry.RandomFlipX,
-                    entry.AllowHalfTurn));
+                    false,
+                    entry.LightRig));
             }
         }
 
-        // 1x1
-        AppendSprites(cableSprites, BattleUniversalStageDecorCategory.Cable, Vector2Int.one, true);
-        AppendSprites(lightSprites, BattleUniversalStageDecorCategory.Light, Vector2Int.one, false);
+        // 1x1 props. Cable은 여기서 절대 추가하지 않습니다.
         AppendSprites(equipmentSprites, BattleUniversalStageDecorCategory.Equipment, Vector2Int.one, false);
         AppendSprites(caseSprites, BattleUniversalStageDecorCategory.Case, Vector2Int.one, false);
         AppendSprites(miscSprites, BattleUniversalStageDecorCategory.Misc, Vector2Int.one, false);
 
-        // 2x3 / 3x2 Carrier
-        AppendSprites(cameraSprites, BattleUniversalStageDecorCategory.Camera, new Vector2Int(2, 3), false);
-        AppendSprites(lightStandSprites, BattleUniversalStageDecorCategory.LightStand, new Vector2Int(2, 3), false);
-        AppendSprites(monitorSprites, BattleUniversalStageDecorCategory.Monitor, new Vector2Int(2, 3), false);
+        // Camera / Light = 2x2.
+        AppendSprites(cameraSprites, BattleUniversalStageDecorCategory.Camera, new Vector2Int(2, 2), true);
+        AppendLightRigs(lightRigs);
 
-        // 3x3
+        // 기타 Props.
+        AppendSprites(monitorSprites, BattleUniversalStageDecorCategory.Monitor, new Vector2Int(2, 3), false);
         AppendSprites(fenceSprites, BattleUniversalStageDecorCategory.Fence, new Vector2Int(3, 3), false);
         AppendSprites(largeEquipmentSprites, BattleUniversalStageDecorCategory.Equipment, new Vector2Int(3, 3), false);
 
-        // Prefab defaults
-        AppendPrefabs(cameraPrefabs, BattleUniversalStageDecorCategory.Camera, new Vector2Int(2, 3), false);
-        AppendPrefabs(lightStandPrefabs, BattleUniversalStageDecorCategory.LightStand, new Vector2Int(2, 3), false);
-        AppendPrefabs(lightPrefabs, BattleUniversalStageDecorCategory.Light, Vector2Int.one, false);
-        AppendPrefabs(cablePrefabs, BattleUniversalStageDecorCategory.Cable, Vector2Int.one, true);
+        AppendPrefabs(cameraPrefabs, BattleUniversalStageDecorCategory.Camera, new Vector2Int(2, 2), true);
         AppendPrefabs(monitorPrefabs, BattleUniversalStageDecorCategory.Monitor, new Vector2Int(2, 3), false);
         AppendPrefabs(equipmentPrefabs, BattleUniversalStageDecorCategory.Equipment, Vector2Int.one, false);
         AppendPrefabs(casePrefabs, BattleUniversalStageDecorCategory.Case, Vector2Int.one, false);
@@ -207,7 +202,9 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
             for (int i = 0; i < customSources.Count; i++)
             {
                 BattleUniversalStageDecorCustomSource source = customSources[i];
-                if (source == null || !source.HasVisual || source.Category == BattleUniversalStageDecorCategory.Chair)
+                if (source == null || !source.HasVisual ||
+                    source.Category == BattleUniversalStageDecorCategory.Chair ||
+                    source.Category == BattleUniversalStageDecorCategory.Cable)
                     continue;
                 runtimeEntries.Add(source.CreateRuntimeEntry());
             }
@@ -220,6 +217,33 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
                 : 1f;
 
         runtimeDirectProfile.ConfigureRuntime(cell, runtimeEntries);
+    }
+
+    private void AppendLightRigs(List<BattleUniversalStageLightRigSO> rigs)
+    {
+        if (rigs == null)
+            return;
+
+        for (int i = 0; i < rigs.Count; i++)
+        {
+            BattleUniversalStageLightRigSO rig = rigs[i];
+            if (rig == null || !rig.IsValid)
+                continue;
+
+            runtimeEntries.Add(BattleUniversalStageDecorEntry.CreateRuntime(
+                $"LightRig_{rig.name}",
+                BattleUniversalStageDecorCategory.Light,
+                null,
+                null,
+                new Vector2Int(2, 2),
+                1,
+                Vector2.zero,
+                directSourceScale,
+                directSourceSortingOrderOffset,
+                false,
+                false,
+                rig));
+        }
     }
 
     private void AppendSprites(
@@ -248,7 +272,7 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
                 directSourceScale,
                 directSourceSortingOrderOffset,
                 randomFlipX,
-                allowHalfTurn));
+                false));
         }
     }
 
@@ -278,18 +302,16 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
                 directSourceScale,
                 directSourceSortingOrderOffset,
                 randomFlipX,
-                allowHalfTurn));
+                false));
         }
     }
 
-    private bool HasAnyDirectSource()
+    private bool HasAnyDirectSpawnSource()
     {
-        return HasAny(cameraSprites) || HasAny(lightStandSprites) || HasAny(lightSprites) ||
-               HasAny(cableSprites) || HasAny(monitorSprites) || HasAny(equipmentSprites) ||
-               HasAny(caseSprites) || HasAny(fenceSprites) || HasAny(miscSprites) ||
-               HasAny(largeEquipmentSprites) ||
-               HasAny(cameraPrefabs) || HasAny(lightStandPrefabs) || HasAny(lightPrefabs) ||
-               HasAny(cablePrefabs) || HasAny(monitorPrefabs) || HasAny(equipmentPrefabs) ||
+        return HasAny(cameraSprites) || HasAny(lightRigs) || HasAny(monitorSprites) ||
+               HasAny(equipmentSprites) || HasAny(caseSprites) || HasAny(fenceSprites) ||
+               HasAny(miscSprites) || HasAny(largeEquipmentSprites) ||
+               HasAny(cameraPrefabs) || HasAny(monitorPrefabs) || HasAny(equipmentPrefabs) ||
                HasAny(casePrefabs) || HasAny(fencePrefabs) || HasAny(miscPrefabs) ||
                HasAnyCustomSource();
     }
@@ -300,12 +322,15 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
             return false;
 
         for (int i = 0; i < customSources.Count; i++)
-            if (customSources[i] != null && customSources[i].HasVisual)
+        {
+            BattleUniversalStageDecorCustomSource source = customSources[i];
+            if (source != null && source.HasVisual && source.Category != BattleUniversalStageDecorCategory.Cable)
                 return true;
+        }
         return false;
     }
 
-    private static bool HasAny<T>(List<T> list) where T : UnityEngine.Object
+    private static bool HasAny<T>(IReadOnlyList<T> list) where T : UnityEngine.Object
     {
         if (list == null)
             return false;
@@ -317,9 +342,6 @@ public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
     }
 }
 
-/// <summary>
-/// SpriteManager의 기본 카테고리 슬롯으로 표현하기 어려운 개별 Stage Decor 소스용 설정입니다.
-/// </summary>
 [Serializable]
 public sealed class BattleUniversalStageDecorCustomSource
 {
@@ -333,7 +355,6 @@ public sealed class BattleUniversalStageDecorCustomSource
     [SerializeField] private Vector2 localScale = Vector2.one;
     [SerializeField] private int sortingOrderOffset = 12;
     [SerializeField] private bool randomFlipX;
-    [SerializeField] private bool allowHalfTurn = true;
 
     public BattleUniversalStageDecorCategory Category => category;
     public bool HasVisual => sprite != null || prefab != null;
@@ -351,6 +372,6 @@ public sealed class BattleUniversalStageDecorCustomSource
             localScale,
             sortingOrderOffset,
             randomFlipX,
-            allowHalfTurn);
+            false);
     }
 }
