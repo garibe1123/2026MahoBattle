@@ -83,17 +83,3 @@ public sealed class BattleUniversalStageDecorEntry
         return Vector2Int.one;
     }
 }
-
-/// <summary>
-/// 씬별로 같은 공용 Manager에 Profile만 공급하고 싶을 때 사용하는 선택 컴포넌트입니다.
-/// 이 컴포넌트가 없어도 Universal Stage Dressing은 Floor를 발견하면 기본 모드로 동작합니다.
-/// </summary>
-[DisallowMultipleComponent]
-public sealed class BattleUniversalStageDecorSceneConfig : MonoBehaviour
-{
-    [SerializeField] private BattleUniversalStageDecorProfileSO profile;
-    [SerializeField] private bool disableUniversalStageDecor;
-
-    public BattleUniversalStageDecorProfileSO Profile => profile;
-    public bool DisableUniversalStageDecor => disableUniversalStageDecor;
-}
