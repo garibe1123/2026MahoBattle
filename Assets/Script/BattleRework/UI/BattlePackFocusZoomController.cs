@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -5,9 +6,10 @@ using UnityEngine.UI;
 /// <summary>
 /// Combat TAB PACK의 focus zoom / detail callout presentation을 담당합니다.
 ///
-/// - GridBoard의 authoritative anchor / layout은 BattleUnifiedInventoryInspectController가 그대로 소유합니다.
-/// - Combat TAB에서는 BattleCombatHudInputBridge의 명시적인 Hover 슬롯만 확대 기준점으로 사용합니다.
-/// - 입력을 받는 GridSlot RectTransform 자체는 Scale / sibling 순서를 변경하지 않습니다.
+/// 핵심 규칙:
+/// - GridBoard / GridSlot은 Pointer hitbox이므로 Scale / Position을 절대 변경하지 않습니다.
+/// - 확대 연출은 BoardBack / SynergyLinks / 슬롯 내부 Graphic에만 visual-only transform으로 적용합니다.
+/// - BattleCombatHudInputBridge의 명시적인 Hover 슬롯만 확대 기준점으로 사용합니다.
 /// - 우측 Mission / Chat 포커스에서는 Focus Zoom을 안정적으로 해제합니다.
 /// - 포커스 슬롯과 Equipment Detail 사이에 말풍선 꼬리 형태의 삼각형 연결선을 표시합니다.
 /// - Reward PACK / 슬롯 데이터 / Equip 규칙은 변경하지 않습니다.
@@ -19,6 +21,7 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const float RightPanelEnterX = 0.61f;
     private const float RightPanelReturnX = 0.50f;
+    private const string VisualBackName = "FocusZoomVisualBack";
 
     [Header("AUTO REFERENCES")]
     [SerializeField] private BattleRunManager runManager;
@@ -28,8 +31,10 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
     [SerializeField] private BattleCombatHudInputBridge inputBridge;
 
     [Header("COMBAT PACK FOCUS ZOOM")]
-    [Tooltip("커서가 실제 아이템 슬롯 위에 있을 때 Combat PACK 전체 확대 배율입니다.")]
+    [Tooltip("커서가 실제 아이템 슬롯 위에 있을 때 PACK이 시각적으로 확대되는 배율입니다. 입력 Rect는 커지지 않습니다.")]
     [SerializeField, Range(1.00f, 1.24f)] private float focusedBoardScale = 1.11f;
+    [Tooltip("현재 Hover 슬롯의 시각 요소만 추가로 강조하는 배율입니다. 입력 Rect에는 적용되지 않습니다.")]
+    [SerializeField, Range(1.00f, 1.20f)] private float focusedSlotExtraScale = 1.08f;
     [Tooltip("확대/복귀 반응 속도입니다. 높을수록 빠르게 따라옵니다.")]
     [SerializeField, Range(4f, 30f)] private float focusTweenSharpness = 16f;
     [Tooltip("커서를 다른 슬롯으로 옮겼을 때 확대 기준점이 새 슬롯으로 따라가는 속도입니다.")]
@@ -45,12 +50,35 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
     [SerializeField] private Color calloutColor = new(1f, 0.80f, 0.08f, 0.72f);
     [SerializeField] private Color calloutShadowColor = new(0.025f, 0.022f, 0.040f, 0.82f);
 
+    private sealed class VisualChildState
+    {
+        public RectTransform rect;
+        public Vector3 baseLocalPosition;
+        public Vector3 baseLocalScale;
+    }
+
     private RectTransform boardRoot;
+    private RectTransform boardBack;
+    private RectTransform synergyLinks;
+    private Vector3 boardBackBasePosition;
+    private Vector3 boardBackBaseScale = Vector3.one;
+    private Vector3 synergyBasePosition;
+    private Vector3 synergyBaseScale = Vector3.one;
+    private bool boardVisualBaseCaptured;
+
     private RectTransform missionPanel;
     private RectTransform chatPanel;
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
-    private float nextResolveAt;
+    private readonly Image[] slotHitImages = new Image[SlotCount];
+    private readonly Outline[] slotHitOutlines = new Outline[SlotCount];
+    private readonly Image[] slotVisualBacks = new Image[SlotCount];
+    private readonly Outline[] slotVisualBackOutlines = new Outline[SlotCount];
+    private readonly Color[] slotLastVisualColors = new Color[SlotCount];
+    private readonly bool[] slotVisualColorCaptured = new bool[SlotCount];
+    private readonly List<VisualChildState>[] slotVisualChildren = new List<VisualChildState>[SlotCount];
 
+    private float nextResolveAt;
+    private float visualPackScale = 1f;
     private Vector3 focusAnchorLocal;
     private bool focusAnchorInitialized;
     private bool rightPanelSuppressed;
@@ -111,6 +139,7 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         ResolveReferences(true);
         ResolveUi(true);
         nextResolveAt = 0f;
+        visualPackScale = 1f;
         focusAnchorInitialized = false;
         rightPanelSuppressed = false;
         connectorVisualInitialized = false;
@@ -138,6 +167,11 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         if (boardRoot == null)
             return;
 
+        // Pointer hitbox의 부모는 매 프레임 완전히 고정합니다.
+        // 이 값은 다음 프레임 EventSystem.Update에서도 그대로 유지됩니다.
+        boardRoot.localScale = Vector3.one;
+        boardRoot.anchoredPosition = Vector2.zero;
+
         bool combatTabOpen = runManager != null && runManager.RunActive &&
                              runManager.State == BattleRunState.Combat &&
                              kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
@@ -151,7 +185,7 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         float anchorT = 1f - Mathf.Exp(-Mathf.Max(4f, focusAnchorTweenSharpness) * Time.unscaledDeltaTime);
 
         UpdateFocusAnchor(focusSlot, focused, anchorT);
-        ApplyBoardScaleAroundFocus(focused, scaleT);
+        ApplyVisualOnlyZoom(focusSlot, focused, scaleT);
         UpdateDetailConnector(focusSlot, focused);
     }
 
@@ -175,8 +209,7 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
             return;
         }
 
-        // PACK 판정은 확대된 Board Rect를 다시 계산하지 않고 실제 Pointer Enter/Exit 상태만 사용합니다.
-        // 따라서 Zoom 자체가 Hover 판정을 바꾸는 피드백 루프가 생기지 않습니다.
+        // PACK focus의 단일 기준은 고정 hitbox에서 발생한 Pointer Enter/Exit 상태입니다.
         if (inputBridge != null && inputBridge.HoveredSlot >= 0)
         {
             rightPanelSuppressed = false;
@@ -208,31 +241,206 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
             focusAnchorLocal = targetAnchor;
     }
 
-    private void ApplyBoardScaleAroundFocus(bool focused, float t)
+    private void ApplyVisualOnlyZoom(int focusSlot, bool focused, float t)
     {
         float targetScale = focused ? Mathf.Max(1f, focusedBoardScale) : 1f;
-        float nextScale = Mathf.Lerp(boardRoot.localScale.x, targetScale, t);
-        if (Mathf.Abs(nextScale - targetScale) <= 0.001f)
-            nextScale = targetScale;
+        visualPackScale = Mathf.Lerp(visualPackScale, targetScale, t);
+        if (Mathf.Abs(visualPackScale - targetScale) <= 0.001f)
+            visualPackScale = targetScale;
 
-        boardRoot.localScale = Vector3.one * nextScale;
+        Vector3 anchor = focusAnchorInitialized ? focusAnchorLocal : Vector3.zero;
+        Vector3 boardCompensation = anchor * (1f - visualPackScale);
 
-        // 입력 슬롯의 Transform은 건드리지 않습니다. Board만 선택 슬롯 위치를 축으로 확대합니다.
-        // 기준 위치는 항상 anchoredPosition 0에서 재계산해 이전 프레임 보정이 누적되지 않게 합니다.
-        Vector2 visualOffset = Vector2.zero;
-        if (focusAnchorInitialized)
+        ApplyBoardDecorZoom(boardCompensation, visualPackScale);
+
+        for (int i = 0; i < SlotCount; i++)
+            ApplySlotVisualZoom(i, focusSlot, focused, anchor, visualPackScale);
+
+        if (!focused && Mathf.Abs(visualPackScale - 1f) <= 0.001f)
         {
-            Vector3 compensation = boardRoot.localRotation * (focusAnchorLocal * (1f - nextScale));
-            visualOffset = new Vector2(compensation.x, compensation.y);
-        }
-
-        boardRoot.anchoredPosition = visualOffset;
-
-        if (!focused && Mathf.Abs(nextScale - 1f) <= 0.001f)
-        {
-            boardRoot.anchoredPosition = Vector2.zero;
+            visualPackScale = 1f;
             focusAnchorInitialized = false;
         }
+    }
+
+    private void ApplyBoardDecorZoom(Vector3 compensation, float scale)
+    {
+        if (boardBack != null && boardVisualBaseCaptured)
+        {
+            boardBack.localPosition = boardBackBasePosition + compensation;
+            boardBack.localScale = boardBackBaseScale * scale;
+        }
+
+        if (synergyLinks != null && boardVisualBaseCaptured)
+        {
+            synergyLinks.localPosition = synergyBasePosition + compensation;
+            synergyLinks.localScale = synergyBaseScale * scale;
+        }
+    }
+
+    private void ApplySlotVisualZoom(int index, int focusSlot, bool focused, Vector3 anchor, float packScale)
+    {
+        if (index < 0 || index >= SlotCount)
+            return;
+
+        RectTransform slot = slotRects[index];
+        if (slot == null)
+            return;
+
+        EnsureSlotVisualLayer(index);
+        CaptureNewDirectVisualChildren(index);
+        SyncSlotBackground(index);
+
+        Vector3 slotCenter = slot.localPosition;
+        Vector3 targetCenter = anchor + (slotCenter - anchor) * packScale;
+        Vector3 deltaBoard = targetCenter - slotCenter;
+        Vector3 deltaLocal = Quaternion.Inverse(slot.localRotation) * deltaBoard;
+
+        float extra = focused && index == focusSlot ? Mathf.Max(1f, focusedSlotExtraScale) : 1f;
+        float visualScale = packScale * extra;
+
+        Image visualBack = slotVisualBacks[index];
+        if (visualBack != null)
+        {
+            RectTransform backRect = visualBack.rectTransform;
+            backRect.localPosition = deltaLocal;
+            backRect.localScale = Vector3.one * visualScale;
+        }
+
+        List<VisualChildState> children = slotVisualChildren[index];
+        if (children == null)
+            return;
+
+        for (int i = children.Count - 1; i >= 0; i--)
+        {
+            VisualChildState state = children[i];
+            if (state == null || state.rect == null)
+            {
+                children.RemoveAt(i);
+                continue;
+            }
+
+            state.rect.localPosition = deltaLocal + state.baseLocalPosition * visualScale;
+            state.rect.localScale = state.baseLocalScale * visualScale;
+        }
+    }
+
+    private void EnsureSlotVisualLayer(int index)
+    {
+        if (index < 0 || index >= SlotCount || slotRects[index] == null)
+            return;
+
+        RectTransform slot = slotRects[index];
+        Image hitImage = slot.GetComponent<Image>();
+        slotHitImages[index] = hitImage;
+
+        Outline hitOutline = slot.GetComponent<Outline>();
+        slotHitOutlines[index] = hitOutline;
+
+        if (slotVisualBacks[index] == null)
+        {
+            RectTransform existing = slot.Find(VisualBackName) as RectTransform;
+            if (existing == null)
+            {
+                GameObject go = new(VisualBackName);
+                go.transform.SetParent(slot, false);
+                existing = go.AddComponent<RectTransform>();
+                existing.anchorMin = Vector2.zero;
+                existing.anchorMax = Vector2.one;
+                existing.offsetMin = Vector2.zero;
+                existing.offsetMax = Vector2.zero;
+                existing.localRotation = Quaternion.identity;
+                existing.SetAsFirstSibling();
+            }
+
+            Image visualBack = existing.GetComponent<Image>();
+            if (visualBack == null)
+                visualBack = existing.gameObject.AddComponent<Image>();
+            visualBack.raycastTarget = false;
+            slotVisualBacks[index] = visualBack;
+
+            Outline visualOutline = existing.GetComponent<Outline>();
+            if (visualOutline == null)
+                visualOutline = existing.gameObject.AddComponent<Outline>();
+            visualOutline.useGraphicAlpha = false;
+            slotVisualBackOutlines[index] = visualOutline;
+        }
+
+        if (hitOutline != null)
+        {
+            Outline visualOutline = slotVisualBackOutlines[index];
+            if (visualOutline != null)
+            {
+                visualOutline.effectColor = hitOutline.effectColor;
+                visualOutline.effectDistance = hitOutline.effectDistance;
+                visualOutline.useGraphicAlpha = hitOutline.useGraphicAlpha;
+                visualOutline.enabled = true;
+            }
+            hitOutline.enabled = false;
+        }
+
+        if (slotVisualChildren[index] == null)
+            slotVisualChildren[index] = new List<VisualChildState>();
+    }
+
+    private void CaptureNewDirectVisualChildren(int index)
+    {
+        RectTransform slot = slotRects[index];
+        List<VisualChildState> list = slotVisualChildren[index];
+        if (slot == null || list == null)
+            return;
+
+        for (int childIndex = 0; childIndex < slot.childCount; childIndex++)
+        {
+            RectTransform child = slot.GetChild(childIndex) as RectTransform;
+            if (child == null || child.name == VisualBackName)
+                continue;
+
+            bool known = false;
+            for (int i = 0; i < list.Count; i++)
+            {
+                if (list[i] != null && list[i].rect == child)
+                {
+                    known = true;
+                    break;
+                }
+            }
+
+            if (known)
+                continue;
+
+            list.Add(new VisualChildState
+            {
+                rect = child,
+                baseLocalPosition = child.localPosition,
+                baseLocalScale = child.localScale
+            });
+        }
+    }
+
+    private void SyncSlotBackground(int index)
+    {
+        Image hitImage = slotHitImages[index];
+        Image visualBack = slotVisualBacks[index];
+        if (hitImage == null || visualBack == null)
+            return;
+
+        Color source = hitImage.color;
+        if (source.a > 0.001f)
+        {
+            slotLastVisualColors[index] = source;
+            slotVisualColorCaptured[index] = true;
+        }
+
+        if (slotVisualColorCaptured[index])
+            visualBack.color = slotLastVisualColors[index];
+
+        // 투명한 Image도 raycastTarget=true이면 Pointer hitbox로 동작합니다.
+        // 따라서 입력 Rect는 그대로 두고 시각 배경만 별도 Image가 담당합니다.
+        Color hidden = hitImage.color;
+        hidden.a = 0f;
+        hitImage.color = hidden;
+        hitImage.raycastTarget = true;
     }
 
     private int ResolveFocusSlot(bool combatTabOpen)
@@ -244,8 +452,6 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         if (hovered < 0 || hovered >= SlotCount || slotRects[hovered] == null)
             return -1;
 
-        // 마우스 포커스의 단일 소유자는 Pointer Enter/Exit 상태입니다.
-        // Detail alpha / SelectedIndex / Board bounds를 다시 읽어 판정을 뒤집지 않습니다.
         return hovered;
     }
 
@@ -263,6 +469,7 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         if (connectorRoot == null || connectorGraphic == null)
             return;
 
+        // Focus 슬롯의 시각 중심은 visual-only zoom에서도 기준점 자리에 유지됩니다.
         RectTransform slot = slotRects[focusSlot];
         Vector3 slotCenterWorld = slot.TransformPoint(slot.rect.center);
 
@@ -380,11 +587,42 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
 
         if (boardRoot != null)
         {
+            // 이전 버전의 transform zoom 잔상을 즉시 제거합니다.
+            boardRoot.localScale = Vector3.one;
+            boardRoot.anchoredPosition = Vector2.zero;
+
+            if (force || boardBack == null)
+                boardBack = boardRoot.Find("BoardBack") as RectTransform;
+            if (force || synergyLinks == null)
+                synergyLinks = boardRoot.Find("SynergyLinks") as RectTransform;
+
+            if (!boardVisualBaseCaptured)
+            {
+                if (boardBack != null)
+                {
+                    boardBackBasePosition = boardBack.localPosition;
+                    boardBackBaseScale = boardBack.localScale;
+                }
+                if (synergyLinks != null)
+                {
+                    synergyBasePosition = synergyLinks.localPosition;
+                    synergyBaseScale = synergyLinks.localScale;
+                }
+                boardVisualBaseCaptured = true;
+            }
+
             for (int i = 0; i < SlotCount; i++)
             {
-                if (!force && slotRects[i] != null)
+                if (force || slotRects[i] == null)
+                    slotRects[i] = boardRoot.Find($"GridSlot_{i}") as RectTransform;
+
+                if (slotRects[i] == null)
                     continue;
-                slotRects[i] = boardRoot.Find($"GridSlot_{i}") as RectTransform;
+
+                // 입력 RectTransform은 항상 원래 상태로 고정합니다.
+                slotRects[i].localScale = Vector3.one;
+                EnsureSlotVisualLayer(i);
+                CaptureNewDirectVisualChildren(i);
             }
         }
 
@@ -407,11 +645,52 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
             boardRoot.anchoredPosition = Vector2.zero;
         }
 
-        // 이전 버전이 GridSlot 자체를 확대했을 수 있으므로 종료 시 한 번만 정규화합니다.
-        for (int i = 0; i < SlotCount; i++)
-            if (slotRects[i] != null)
-                slotRects[i].localScale = Vector3.one;
+        if (boardBack != null && boardVisualBaseCaptured)
+        {
+            boardBack.localPosition = boardBackBasePosition;
+            boardBack.localScale = boardBackBaseScale;
+        }
+        if (synergyLinks != null && boardVisualBaseCaptured)
+        {
+            synergyLinks.localPosition = synergyBasePosition;
+            synergyLinks.localScale = synergyBaseScale;
+        }
 
+        for (int i = 0; i < SlotCount; i++)
+        {
+            RectTransform slot = slotRects[i];
+            if (slot != null)
+                slot.localScale = Vector3.one;
+
+            if (slotVisualBacks[i] != null)
+                slotVisualBacks[i].gameObject.SetActive(false);
+
+            Image hitImage = slotHitImages[i];
+            if (hitImage != null && slotVisualColorCaptured[i])
+            {
+                hitImage.color = slotLastVisualColors[i];
+                hitImage.raycastTarget = true;
+            }
+
+            Outline hitOutline = slotHitOutlines[i];
+            if (hitOutline != null)
+                hitOutline.enabled = true;
+
+            List<VisualChildState> children = slotVisualChildren[i];
+            if (children == null)
+                continue;
+
+            for (int j = 0; j < children.Count; j++)
+            {
+                VisualChildState state = children[j];
+                if (state == null || state.rect == null)
+                    continue;
+                state.rect.localPosition = state.baseLocalPosition;
+                state.rect.localScale = state.baseLocalScale;
+            }
+        }
+
+        visualPackScale = 1f;
         focusAnchorInitialized = false;
         rightPanelSuppressed = false;
         connectorVisualInitialized = false;
