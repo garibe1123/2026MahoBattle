@@ -32,10 +32,6 @@ public sealed class BattleUniversalStageDecorProfileSO : ScriptableObject
     public float CellWorldSize => Mathf.Max(0.25f, cellWorldSize);
     public IReadOnlyList<BattleUniversalStageDecorEntry> Entries => entries;
 
-    /// <summary>
-    /// Scene에 직렬화된 직접 소스들을 기존 Profile 소비 경로로 넘기기 위한 runtime-only 설정 API입니다.
-    /// Asset 원본에는 사용하지 않고 ScriptableObject.CreateInstance로 생성한 transient profile에만 사용합니다.
-    /// </summary>
     public void ConfigureRuntime(float cellSize, IList<BattleUniversalStageDecorEntry> runtimeEntries)
     {
         cellWorldSize = Mathf.Max(0.25f, cellSize);
@@ -65,9 +61,11 @@ public sealed class BattleUniversalStageDecorEntry
     [SerializeField] private Sprite sprite;
     [Tooltip("여러 Sprite / 애니메이션으로 구성된 장식이면 Prefab을 사용합니다. Presentation 전용 Prefab을 권장합니다.")]
     [SerializeField] private GameObject prefab;
+    [Tooltip("Light는 Base가 필수이므로 단일 Sprite 대신 이 Rig SO 사용을 권장합니다.")]
+    [SerializeField] private BattleUniversalStageLightRigSO lightRig;
 
     [Header("Carrier Footprint")]
-    [Tooltip("Universal Field Dressing은 1x1 / 2x3 / 3x2 / 3x3만 사용합니다.")]
+    [Tooltip("Universal Field Dressing은 1x1 / 2x2 / 2x3 / 3x2 / 3x3을 지원합니다.")]
     [SerializeField] private Vector2Int footprint = Vector2Int.one;
     [SerializeField, Min(1)] private int weight = 1;
 
@@ -76,12 +74,14 @@ public sealed class BattleUniversalStageDecorEntry
     [SerializeField] private Vector2 localScale = Vector2.one;
     [SerializeField] private int sortingOrderOffset = 12;
     [SerializeField] private bool randomFlipX;
-    [SerializeField] private bool allowHalfTurn = true;
+    [Tooltip("Legacy 옵션입니다. Universal Decor에서는 더 이상 180도 회전을 사용하지 않습니다.")]
+    [SerializeField] private bool allowHalfTurn;
 
     public string Label => string.IsNullOrWhiteSpace(label) ? category.ToString() : label;
     public BattleUniversalStageDecorCategory Category => category;
     public Sprite Sprite => sprite;
     public GameObject Prefab => prefab;
+    public BattleUniversalStageLightRigSO LightRig => lightRig;
     public Vector2Int Footprint => ResolveFootprint(footprint);
     public int Weight => Mathf.Max(1, weight);
     public Vector2 LocalOffset => localOffset;
@@ -90,8 +90,8 @@ public sealed class BattleUniversalStageDecorEntry
         Mathf.Approximately(localScale.y, 0f) ? 1f : localScale.y);
     public int SortingOrderOffset => sortingOrderOffset;
     public bool RandomFlipX => randomFlipX;
-    public bool AllowHalfTurn => allowHalfTurn;
-    public bool HasVisual => sprite != null || prefab != null;
+    public bool AllowHalfTurn => false;
+    public bool HasVisual => sprite != null || prefab != null || (lightRig != null && lightRig.IsValid);
 
     public static BattleUniversalStageDecorEntry CreateRuntime(
         string sourceLabel,
@@ -104,13 +104,15 @@ public sealed class BattleUniversalStageDecorEntry
         Vector2 sourceLocalScale = default,
         int sourceSortingOrderOffset = 12,
         bool sourceRandomFlipX = false,
-        bool sourceAllowHalfTurn = true)
+        bool sourceAllowHalfTurn = false,
+        BattleUniversalStageLightRigSO sourceLightRig = null)
     {
         BattleUniversalStageDecorEntry entry = new();
         entry.label = string.IsNullOrWhiteSpace(sourceLabel) ? sourceCategory.ToString() : sourceLabel;
         entry.category = sourceCategory;
         entry.sprite = sourceSprite;
         entry.prefab = sourcePrefab;
+        entry.lightRig = sourceLightRig;
         entry.footprint = ResolveFootprint(sourceFootprint);
         entry.weight = Mathf.Max(1, sourceWeight);
         entry.localOffset = sourceLocalOffset;
@@ -119,7 +121,7 @@ public sealed class BattleUniversalStageDecorEntry
             Mathf.Approximately(sourceLocalScale.y, 0f) ? 1f : sourceLocalScale.y);
         entry.sortingOrderOffset = sourceSortingOrderOffset;
         entry.randomFlipX = sourceRandomFlipX;
-        entry.allowHalfTurn = sourceAllowHalfTurn;
+        entry.allowHalfTurn = false;
         return entry;
     }
 
@@ -131,8 +133,12 @@ public sealed class BattleUniversalStageDecorEntry
         if (x >= 3 && y >= 3)
             return new Vector2Int(3, 3);
 
-        if ((x >= 3 && y >= 2) || (x >= 2 && y >= 3))
-            return x >= y ? new Vector2Int(3, 2) : new Vector2Int(2, 3);
+        if (x >= 2 && y >= 2)
+        {
+            if (x >= 3 || y >= 3)
+                return x >= y ? new Vector2Int(3, 2) : new Vector2Int(2, 3);
+            return new Vector2Int(2, 2);
+        }
 
         return Vector2Int.one;
     }
