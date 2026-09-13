@@ -8,7 +8,8 @@ using UnityEngine.UI;
 /// Combat TAB의 Presentation 보정만 담당합니다.
 /// - 기존 BroadcastMetricBar(LIVE / Viewers / Likes)는 그대로 유지합니다.
 /// - FAN MISSION 아래에 방송 스타일 Live Chat을 표시합니다.
-/// - Combat TAB에서 PACK Grid만 약간 오른쪽으로 이동합니다.
+/// - Combat TAB의 PACK 위치를 보정합니다.
+/// - 우측 Mission / Chat 포커스 중에는 Equipment Detail을 숨깁니다.
 /// - Reward / Equipment 데이터 소유권은 건드리지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -25,6 +26,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private const float ZeroViewerChatInterval = 45f;
     private const float HighViewerChatInterval = 0.70f;
     private const int MaxChatLines = 5;
+
+    // BattleBroadcastDashboardController의 Focus hysteresis와 동일한 기준을 사용합니다.
+    private const float RightPanelEnterX = 0.61f;
+    private const float RightPanelReturnX = 0.50f;
 
     private static readonly string[] ChatNames =
     {
@@ -74,8 +79,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
 
     [Header("COMBAT PACK POSITION")]
-    [Tooltip("Combat TAB에서만 PACK Grid를 기존 위치보다 오른쪽으로 추가 이동시키는 값입니다.")]
-    [SerializeField, Range(-240f, 320f)] private float combatPackRightShift = 110f;
+    [Tooltip("Combat TAB에서 PACK Grid를 authoritative anchor 기준으로 추가 이동시키는 X 값입니다. 값이 작을수록 더 왼쪽입니다.")]
+    [SerializeField, Range(-240f, 320f)] private float combatPackRightShift = 45f;
 
     [Header("LIVE CHAT — VIEWER PACED")]
     [SerializeField, Range(20f, 90f)] private float zeroViewerChatInterval = ZeroViewerChatInterval;
@@ -96,6 +101,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private int originalDetailSortingOrder;
     private bool originalDetailOverrideSorting;
     private bool detailSortingCaptured;
+    private bool rightPanelFocused;
 
     private readonly List<string> chatHistory = new();
     private int chatSequence;
@@ -151,10 +157,12 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         ResolveReferences(true);
         nextResolveAt = 0f;
         nextChatAt = 0f;
+        rightPanelFocused = false;
     }
 
     private void OnDisable()
     {
+        rightPanelFocused = false;
         RestoreDetailSorting();
         SetChatVisible(false);
         RestoreMetricFrame();
@@ -172,6 +180,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         bool open = IsCombatTabOpen();
         if (!open)
         {
+            rightPanelFocused = false;
             SetChatVisible(false);
             return;
         }
@@ -186,6 +195,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (!IsCombatTabOpen())
         {
+            rightPanelFocused = false;
             RestoreDetailSorting();
             return;
         }
@@ -193,6 +203,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         ResolveDashboardUi();
         RestoreMetricFrame();
         EnsureChatPanel();
+        UpdateRightPanelFocus();
         ApplyCombatPackPosition();
         ApplyDetailPresentation();
         ApplyChatLayout();
@@ -246,10 +257,46 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (metricBar != null && !metricBar.gameObject.activeSelf)
             metricBar.gameObject.SetActive(true);
 
-        // 이전 보정 코드가 만든 Text-only 지표가 남아 있으면 숨깁니다.
         Transform textOnlyMetric = dashboardRoot.Find("BroadcastMetricText");
         if (textOnlyMetric != null && textOnlyMetric.gameObject.activeSelf)
             textOnlyMetric.gameObject.SetActive(false);
+    }
+
+    private void UpdateRightPanelFocus()
+    {
+        if (!Input.mousePresent)
+        {
+            rightPanelFocused = false;
+            return;
+        }
+
+        Vector2 mouse = Input.mousePosition;
+
+        bool insideMission = missionPanel != null && missionPanel.gameObject.activeInHierarchy &&
+                             RectTransformUtility.RectangleContainsScreenPoint(missionPanel, mouse, null);
+        bool insideChat = chatPanel != null && chatPanel.gameObject.activeInHierarchy &&
+                          RectTransformUtility.RectangleContainsScreenPoint(chatPanel, mouse, null);
+
+        if (insideMission || insideChat)
+        {
+            rightPanelFocused = true;
+            return;
+        }
+
+        RectTransform packBoard = kineticLoadout != null ? kineticLoadout.GridBoard : null;
+        bool insidePack = packBoard != null && packBoard.gameObject.activeInHierarchy &&
+                          RectTransformUtility.RectangleContainsScreenPoint(packBoard, mouse, null);
+        if (insidePack)
+        {
+            rightPanelFocused = false;
+            return;
+        }
+
+        float normalizedX = Screen.width > 0 ? mouse.x / Screen.width : 0f;
+        if (!rightPanelFocused && normalizedX >= RightPanelEnterX)
+            rightPanelFocused = true;
+        else if (rightPanelFocused && normalizedX <= RightPanelReturnX)
+            rightPanelFocused = false;
     }
 
     private void ApplyCombatPackPosition()
@@ -267,6 +314,28 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (detailController == null || detailController.Root == null)
             return;
+
+        CanvasGroup detailGroup = detailController.Group;
+        if (rightPanelFocused)
+        {
+            if (detailGroup != null)
+            {
+                detailGroup.alpha = 0f;
+                detailGroup.blocksRaycasts = false;
+                detailGroup.interactable = false;
+            }
+
+            RestoreDetailSorting();
+            return;
+        }
+
+        if (detailGroup != null)
+        {
+            bool shouldShow = detailController.DisplayedSlot >= 0;
+            detailGroup.alpha = shouldShow ? 1f : 0f;
+            detailGroup.blocksRaycasts = false;
+            detailGroup.interactable = false;
+        }
 
         RectTransform detailRoot = detailController.Root;
         detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(DetailAnchorX, DetailAnchorY);
@@ -396,7 +465,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         float width = Mathf.Clamp(missionPanel.sizeDelta.x, 420f, 620f);
         float desiredY = missionPanel.anchoredPosition.y - missionPanel.sizeDelta.y - ChatGap;
 
-        // 작은 화면에서도 채팅 전체가 화면 밖으로 빠지지 않도록 하단만 제한합니다.
         float rootHeight = Mathf.Max(720f, dashboardRoot.rect.height);
         float minimumTopY = -rootHeight + ChatHeight + 24f;
         float chatY = Mathf.Max(desiredY, minimumTopY);
@@ -435,7 +503,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
         }
 
-        // 최근 채팅 기록처럼 최소 2줄은 즉시 보여주고, 이후 신규 채팅 속도만 Viewers에 연동합니다.
         int viewers = CurrentViewers;
         int seedCount = viewers >= 1000 ? 5 : viewers >= 100 ? 4 : viewers >= 10 ? 3 : 2;
         seedCount = Mathf.Min(seedCount, Mathf.Clamp(maxChatLines, 3, 7));
