@@ -9,7 +9,7 @@ using UnityEngine.UI;
 /// - LIVE / Viewers / Likes는 전투 중 우측 상단에 항상 유지합니다.
 /// - 평소에는 작은 Metric Bar, TAB을 열면 같은 자리에서 부드럽게 확대합니다.
 /// - FAN MISSION 아래에 방송 스타일 Live Chat을 표시합니다.
-/// - Combat TAB의 PACK을 더 왼쪽으로 보정합니다.
+/// - Combat TAB의 PACK은 GridBoard 자체가 아니라 BroadcastPackDock 부모를 좌측 Rail에 맞춰 이동합니다.
 /// - Equipment Detail은 PACK 가까이에 붙이고, 우측 Mission / Chat 포커스 중에는 숨깁니다.
 /// - 우측 하단 CurrentLoadoutChip의 빨간 AccentSlash 장식은 숨깁니다.
 /// - Reward / Equipment 데이터 소유권은 건드리지 않습니다.
@@ -88,9 +88,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
 
-    [Header("COMBAT PACK POSITION")]
-    [Tooltip("Combat TAB에서 PACK Grid를 authoritative anchor 기준으로 추가 이동시키는 X 값입니다. 음수일수록 더 왼쪽입니다.")]
-    [SerializeField, Range(-240f, 320f)] private float combatPackRightShift = -90f;
+    [Header("COMBAT PACK DOCK POSITION")]
+    [Tooltip("PACK Focus일 때 BroadcastPackDock 부모를 좌측 사선 Rail에 붙이는 X Offset입니다.")]
+    [SerializeField] private float packFocusedDockX = -420f;
+    [Tooltip("Mission/Chat Focus에서 PACK이 더 왼쪽으로 물러나는 BroadcastPackDock X Offset입니다.")]
+    [SerializeField] private float missionFocusedDockX = -480f;
+    [SerializeField] private float packDockY = 4f;
+    [SerializeField, Range(4f, 30f)] private float packDockTweenSharpness = 16f;
 
     [Header("LIVE CHAT — VIEWER PACED")]
     [SerializeField, Range(20f, 90f)] private float zeroViewerChatInterval = ZeroViewerChatInterval;
@@ -98,6 +102,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField, Range(3, 7)] private int maxChatLines = MaxChatLines;
 
     private RectTransform fullRoot;
+    private RectTransform packDockRoot;
     private RectTransform dashboardRoot;
     private RectTransform missionPanel;
     private Canvas dashboardCanvas;
@@ -118,6 +123,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private bool originalDetailOverrideSorting;
     private bool detailSortingCaptured;
     private bool rightPanelFocused;
+    private bool packDockTweenInitialized;
+    private float packDockVisualX;
 
     private readonly List<string> chatHistory = new();
     private int chatSequence;
@@ -174,11 +181,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         nextResolveAt = 0f;
         nextChatAt = 0f;
         rightPanelFocused = false;
+        packDockTweenInitialized = false;
     }
 
     private void OnDisable()
     {
         rightPanelFocused = false;
+        packDockTweenInitialized = false;
         RestoreDetailSorting();
         SetChatVisible(false);
         SetMetricVisible(false);
@@ -201,6 +210,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (!tabOpen)
         {
             rightPanelFocused = false;
+            packDockTweenInitialized = false;
             SetChatVisible(false);
             return;
         }
@@ -215,6 +225,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (!IsCombatTabOpen())
         {
             rightPanelFocused = false;
+            packDockTweenInitialized = false;
             RestoreDetailSorting();
             return;
         }
@@ -222,7 +233,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         ResolveDashboardUi();
         EnsureChatPanel();
         UpdateRightPanelFocus();
-        ApplyCombatPackPosition();
+        ApplyCombatPackDockPosition();
         ApplyDetailPresentation();
         ApplyChatLayout();
     }
@@ -253,6 +264,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (fullRoot == null && kineticLoadout != null)
             fullRoot = kineticLoadout.FullRoot;
+
+        if (packDockRoot == null && fullRoot != null)
+            packDockRoot = fullRoot.Find("BroadcastPackDock") as RectTransform;
 
         if (dashboardRoot == null && fullRoot != null)
             dashboardRoot = fullRoot.Find("BroadcastDashboard") as RectTransform;
@@ -413,15 +427,33 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             rightPanelFocused = false;
     }
 
-    private void ApplyCombatPackPosition()
+    private void ApplyCombatPackDockPosition()
     {
-        if (kineticLoadout == null || kineticLoadout.GridBoard == null)
+        if (kineticLoadout == null || kineticLoadout.GridBoard == null || fullRoot == null)
             return;
 
         RectTransform board = kineticLoadout.GridBoard;
-        Vector2 target = new(combatPackRightShift, 0f);
-        if ((board.anchoredPosition - target).sqrMagnitude > 0.001f)
-            board.anchoredPosition = target;
+        if (board.anchoredPosition.sqrMagnitude > 0.001f)
+            board.anchoredPosition = Vector2.zero;
+
+        if (packDockRoot == null)
+            packDockRoot = fullRoot.Find("BroadcastPackDock") as RectTransform;
+        if (packDockRoot == null)
+            return;
+
+        if (!packDockTweenInitialized)
+        {
+            packDockVisualX = packDockRoot.localPosition.x;
+            packDockTweenInitialized = true;
+        }
+
+        float targetX = rightPanelFocused ? missionFocusedDockX : packFocusedDockX;
+        float t = 1f - Mathf.Exp(-Mathf.Max(4f, packDockTweenSharpness) * Time.unscaledDeltaTime);
+        packDockVisualX = Mathf.Lerp(packDockVisualX, targetX, t);
+        if (Mathf.Abs(packDockVisualX - targetX) <= 0.25f)
+            packDockVisualX = targetX;
+
+        packDockRoot.localPosition = new Vector3(packDockVisualX, packDockY, 0f);
     }
 
     private void ApplyDetailPresentation()
