@@ -12,6 +12,7 @@ using UnityEngine.SceneManagement;
 /// BattleSystems/SpriteManager:
 /// - Sprite / Show / Lighting / visual presentation 컴포넌트
 /// - Universal Stage Decor의 씬 저장용 Source Config
+/// - Universal Stage Decor Carrier 전용 Floor SO / Frame / Auto Fit 설정
 ///
 /// BattleSystems/BattleTemplate:
 /// - Persistent 4x4 전투 Base Template
@@ -82,8 +83,9 @@ public static class BattleSpriteManagerOrganizer
         changed |= EnsureOnSpriteManager<BattleShowFocusController>(manager, spriteRoot);
 
         // Universal Field Stage Dressing Authoring
-        // Runtime Manager는 DontDestroy 공용 Host로 유지하고, SpriteManager에는 Scene에 저장되는 Source Config만 둡니다.
+        // Runtime Manager는 DontDestroy 공용 Host로 유지하고, SpriteManager에는 Scene에 저장되는 Source / Skin 설정만 둡니다.
         changed |= EnsureOnSpriteManager<BattleUniversalStageDecorSceneConfig>(manager, spriteRoot);
+        changed |= EnsureOnSpriteManager<BattleUniversalStageDecorCarrierSkinController>(manager, spriteRoot);
 
         // Lighting / screen presentation
         changed |= EnsureOnSpriteManager<BattleCombatLightPolicyController>(manager, spriteRoot);
@@ -110,7 +112,7 @@ public static class BattleSpriteManagerOrganizer
 
     private static Transform EnsureChildRoot(Transform parent, string objectName, ref bool changed)
     {
-        Transform root = parent != null ? parent.Find(objectName) : null;
+        Transform root = parent != null ? parent.Find(SpriteManagerObjectName == objectName ? SpriteManagerObjectName : objectName) : null;
         if (root == null)
         {
             GameObject rootObject = new(objectName);
