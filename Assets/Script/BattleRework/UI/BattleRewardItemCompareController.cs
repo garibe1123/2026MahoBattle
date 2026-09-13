@@ -30,7 +30,7 @@ public sealed class BattleRewardItemCompareController : MonoBehaviour
 
     [Header("COMPARE DETAIL")]
     [SerializeField] private Vector2 preferredPanelSize = new(900f, 610f);
-    [SerializeField, Range(680f, 900f)] private float minimumPanelWidth = 720f;
+    [SerializeField, Range(620f, 900f)] private float minimumPanelWidth = 720f;
     [SerializeField, Range(0.75f, 1.10f)] private float compareScale = 0.96f;
     [SerializeField, Range(8f, 30f)] private float compareTweenSharpness = 18f;
     [SerializeField, Range(16f, 70f)] private float screenMargin = 28f;
@@ -70,6 +70,7 @@ public sealed class BattleRewardItemCompareController : MonoBehaviour
     private float lastAppliedPackShift;
     private Vector2 lastAppliedBoardPosition;
     private bool compareWasActive;
+    private bool legacyBottomRemoved;
 
     private int lastTargetIndex = int.MinValue;
     private BattleEquipmentSO lastCurrentEquipment;
@@ -142,6 +143,7 @@ public sealed class BattleRewardItemCompareController : MonoBehaviour
     {
         ResolveReferences(true);
         ResolveUi(true);
+        legacyBottomRemoved = false;
         RemoveLegacyBottomCompareCanvas();
         nextResolveAt = 0f;
         compareVisualAlpha = 0f;
@@ -167,7 +169,6 @@ public sealed class BattleRewardItemCompareController : MonoBehaviour
         nextResolveAt = Time.unscaledTime + 0.15f;
         ResolveReferences(false);
         ResolveUi(false);
-        RemoveLegacyBottomCompareCanvas();
     }
 
     private void LateUpdate()
@@ -554,7 +555,9 @@ public sealed class BattleRewardItemCompareController : MonoBehaviour
         iconBackImage.color = new Color(0f, 0f, 0f, 0.42f);
         iconBackImage.raycastTarget = false;
 
-        side.icon = iconBack.gameObject.AddComponent<Image>();
+        RectTransform iconRect = CreateRect(iconBack, "Icon", Vector2.zero);
+        SetAnchors(iconRect, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.92f));
+        side.icon = iconRect.gameObject.AddComponent<Image>();
         side.icon.color = paper;
         side.icon.preserveAspect = true;
         side.icon.raycastTarget = false;
@@ -605,9 +608,15 @@ public sealed class BattleRewardItemCompareController : MonoBehaviour
             return;
 
         float safeMargin = Mathf.Max(DefaultScreenMarginPixels, screenMargin);
-        float availableWidth = Mathf.Max(minimumPanelWidth, canvasRoot.rect.width - safeMargin * 2f);
-        float width = Mathf.Clamp(Mathf.Min(preferredPanelSize.x, availableWidth), minimumPanelWidth, preferredPanelSize.x);
-        float height = Mathf.Min(preferredPanelSize.y, Mathf.Max(480f, canvasRoot.rect.height - safeMargin * 2f));
+        float physicalAvailableWidth = Mathf.Max(520f, canvasRoot.rect.width - safeMargin * 2f);
+        float dynamicMinimum = Mathf.Min(minimumPanelWidth, physicalAvailableWidth);
+        float width = Mathf.Clamp(
+            Mathf.Min(preferredPanelSize.x, physicalAvailableWidth),
+            dynamicMinimum,
+            preferredPanelSize.x);
+        float height = Mathf.Min(
+            preferredPanelSize.y,
+            Mathf.Max(450f, canvasRoot.rect.height - safeMargin * 2f));
 
         compareRoot.sizeDelta = new Vector2(width, height);
         compareRoot.anchorMin = compareRoot.anchorMax = new Vector2(1f, 0.5f);
@@ -777,6 +786,10 @@ public sealed class BattleRewardItemCompareController : MonoBehaviour
 
     private void RemoveLegacyBottomCompareCanvas()
     {
+        if (legacyBottomRemoved)
+            return;
+
+        legacyBottomRemoved = true;
         Canvas[] canvases = FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         for (int i = 0; i < canvases.Length; i++)
         {
