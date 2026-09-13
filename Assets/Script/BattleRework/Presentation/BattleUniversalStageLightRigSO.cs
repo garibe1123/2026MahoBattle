@@ -40,8 +40,10 @@ public sealed class BattleUniversalStageLightRigSO : ScriptableObject
     [SerializeField] private Vector2 overallScale = Vector2.one;
     [Tooltip("Rig 전체를 좌우 반전할 수 있습니다. 상하 반전이나 180도 회전은 하지 않습니다.")]
     [SerializeField] private bool allowRandomMirrorX;
-    [SerializeField] private int baseSortingOffset = 10;
-    [SerializeField] private int headSortingOffset = 12;
+    [Tooltip("Stage Decor 기본 Sorting Offset에 더해지는 Base 상대값입니다.")]
+    [SerializeField] private int baseSortingOffset = 0;
+    [Tooltip("Base보다 Light Head가 앞에 보이도록 하는 상대값입니다.")]
+    [SerializeField] private int headSortingOffset = 2;
 
     public Sprite BaseSprite => baseSprite;
     public Sprite[] LightHeadVariants => lightHeadVariants;
