@@ -11,14 +11,14 @@ using UnityEngine.SceneManagement;
 ///
 /// BattleSystems/SpriteManager:
 /// - Sprite / Show / Lighting / visual presentation 컴포넌트
-/// - Universal Stage Decor의 씬 저장용 Source Config
-/// - Universal Stage Decor Carrier 전용 Floor SO / Frame / Auto Fit / Cable Underlay 설정
+/// - BattleUniversalStageDecorCarrierSkinController 하나가 모든 Universal Decor Runtime을 소유합니다.
+///   실제 디자인 데이터는 List<BattleDecorSO>만 사용합니다.
 ///
 /// BattleSystems/BattleTemplate:
 /// - Persistent 4x4 전투 Base Template
 ///
 /// 런타임에 hierarchy를 재구축하지 않습니다. 씬을 열거나 스크립트가 리컴파일될 때
-/// Editor에서 한 번 정리하고 Scene에 저장되므로 첫 전투 프레임의 AddComponent 비용을 만들지 않습니다.
+/// Editor에서 한 번 정리하고 Scene에 저장합니다.
 /// </summary>
 public static class BattleSpriteManagerOrganizer
 {
@@ -75,6 +75,15 @@ public static class BattleSpriteManagerOrganizer
         Transform spriteRoot = EnsureChildRoot(manager.transform, SpriteManagerObjectName, ref changed);
         Transform templateRoot = EnsureChildRoot(manager.transform, BattleSceneManager.BattleTemplateObjectName, ref changed);
 
+        // 이전 Universal Decor 스크립트가 삭제된 뒤 씬에 Missing MonoBehaviour로 남아 있으면 정리합니다.
+        int missing = GameObjectUtility.GetMonoBehavioursWithMissingScriptCount(spriteRoot.gameObject);
+        if (missing > 0)
+        {
+            Undo.RegisterCompleteObjectUndo(spriteRoot.gameObject, "Remove Legacy Battle Decor Components");
+            GameObjectUtility.RemoveMonoBehavioursWithMissingScript(spriteRoot.gameObject);
+            changed = true;
+        }
+
         // World Sprite / Show Set
         changed |= EnsureOnSpriteManager<BattleShowPresentationManager>(manager, spriteRoot);
         changed |= EnsureOnSpriteManager<BattleShowWorldSetController>(manager, spriteRoot);
@@ -82,11 +91,8 @@ public static class BattleSpriteManagerOrganizer
         changed |= EnsureOnSpriteManager<BattleShowSharedTvContentController>(manager, spriteRoot);
         changed |= EnsureOnSpriteManager<BattleShowFocusController>(manager, spriteRoot);
 
-        // Universal Field Stage Dressing Authoring
-        // Runtime Manager는 DontDestroy 공용 Host로 유지하고, SpriteManager에는 Scene에 저장되는 Source / Skin 설정만 둡니다.
-        changed |= EnsureOnSpriteManager<BattleUniversalStageDecorSceneConfig>(manager, spriteRoot);
+        // Universal Field Stage Dressing: 단일 Owner + BattleDecorSO 리스트만 사용합니다.
         changed |= EnsureOnSpriteManager<BattleUniversalStageDecorCarrierSkinController>(manager, spriteRoot);
-        changed |= EnsureOnSpriteManager<BattleUniversalStageDecorCableUnderlayController>(manager, spriteRoot);
 
         // Lighting / screen presentation
         changed |= EnsureOnSpriteManager<BattleCombatLightPolicyController>(manager, spriteRoot);
@@ -210,7 +216,6 @@ public static class BattleSpriteManagerOrganizer
             if (component == null || component.gameObject.scene != manager.gameObject.scene)
                 continue;
 
-            // 사용자가 별도 위치에 명시적으로 둔 Template은 이동하지 않지만 Manager 참조는 정확히 맞춥니다.
             return AssignBattleTemplateReference(manager, component);
         }
 
