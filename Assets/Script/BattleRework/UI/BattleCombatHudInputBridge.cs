@@ -21,6 +21,10 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
     [SerializeField] private Color staminaColor = new(0.18f, 0.82f, 0.95f, 1f);
     [SerializeField] private Color textColor = new(0.94f, 0.90f, 0.76f, 1f);
 
+    [Header("Grid Hover")]
+    [Tooltip("인접 슬롯 경계에서 PointerExit/Enter가 같은 순간 발생할 때 포커스가 한 프레임 끊기는 것을 막는 유예 시간입니다.")]
+    [SerializeField, Range(0.02f, 0.20f)] private float hoverExitGrace = 0.08f;
+
     private RectTransform compactRoot;
     private RectTransform hpFillRect;
     private RectTransform staminaFillRect;
@@ -30,6 +34,11 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
 
     private float nextResolveTime;
     private bool pointerTargetsInstalled;
+    private int hoveredSlot = -1;
+    private int pendingHoverExitSlot = -1;
+    private float hoverExitAt;
+
+    public int HoveredSlot => hoveredSlot;
 
     private void Awake()
     {
@@ -40,12 +49,19 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
     {
         ResolveReferences();
         nextResolveTime = 0f;
+        ClearHoverState();
+    }
+
+    private void OnDisable()
+    {
+        ClearHoverState();
     }
 
     private void Update()
     {
         ResolveReferences();
         DisableLegacyTopLeftStatus();
+        UpdateHoverExitGrace();
 
         if (Time.unscaledTime >= nextResolveTime)
         {
@@ -199,16 +215,36 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
         bool active = loadoutUI != null && loadoutUI.IsSwitchBoardOpen && fullGridGroup.alpha > 0.05f;
         fullGridGroup.blocksRaycasts = active;
         fullGridGroup.interactable = active;
+
+        if (!active)
+            ClearHoverState();
     }
 
-    internal void HandleSlotHover(int index)
+    internal void HandleSlotHover(int index, bool entered)
     {
+        if (!entered)
+        {
+            if (hoveredSlot == index)
+            {
+                pendingHoverExitSlot = index;
+                hoverExitAt = Time.unscaledTime + Mathf.Clamp(hoverExitGrace, 0.02f, 0.20f);
+            }
+            return;
+        }
+
         if (loadoutUI == null || equipmentSystem == null || !loadoutUI.IsSwitchBoardOpen)
             return;
         if (!equipmentSystem.IsSlotUnlocked(index))
             return;
 
-        loadoutUI.SetSelectedIndexFromExternal(index, true);
+        hoveredSlot = index;
+        pendingHoverExitSlot = -1;
+        hoverExitAt = 0f;
+
+        // 동일 슬롯의 PointerEnter가 반복되어도 RefreshAll을 다시 호출하지 않습니다.
+        // RefreshAll은 GridSlot localScale을 1로 초기화하므로 Focus Zoom과 충돌할 수 있습니다.
+        if (loadoutUI.SelectedIndex != index)
+            loadoutUI.SetSelectedIndexFromExternal(index, true);
     }
 
     internal void HandleSlotClick(int index, PointerEventData.InputButton button)
@@ -218,8 +254,31 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
         if (!loadoutUI.IsSwitchBoardOpen || !equipmentSystem.IsSlotUnlocked(index))
             return;
 
-        loadoutUI.SetSelectedIndexFromExternal(index, true);
+        hoveredSlot = index;
+        pendingHoverExitSlot = -1;
+
+        if (loadoutUI.SelectedIndex != index)
+            loadoutUI.SetSelectedIndexFromExternal(index, true);
         equipmentSystem.EquipSlot(index);
+    }
+
+    private void UpdateHoverExitGrace()
+    {
+        if (pendingHoverExitSlot < 0 || Time.unscaledTime < hoverExitAt)
+            return;
+
+        if (hoveredSlot == pendingHoverExitSlot)
+            hoveredSlot = -1;
+
+        pendingHoverExitSlot = -1;
+        hoverExitAt = 0f;
+    }
+
+    private void ClearHoverState()
+    {
+        hoveredSlot = -1;
+        pendingHoverExitSlot = -1;
+        hoverExitAt = 0f;
     }
 
     private static RectTransform FindRect(string objectName)
@@ -309,7 +368,10 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
     }
 }
 
-internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour, IPointerEnterHandler, IPointerClickHandler
+internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler,
+    IPointerClickHandler
 {
     private BattleCombatHudInputBridge owner;
     private int slotIndex;
@@ -322,7 +384,12 @@ internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour, IPointerEn
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        owner?.HandleSlotHover(slotIndex);
+        owner?.HandleSlotHover(slotIndex, true);
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        owner?.HandleSlotHover(slotIndex, false);
     }
 
     public void OnPointerClick(PointerEventData eventData)
