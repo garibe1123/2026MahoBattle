@@ -11,6 +11,7 @@ using UnityEngine.SceneManagement;
 ///
 /// BattleSystems/SpriteManager:
 /// - Sprite / Show / Lighting / visual presentation 컴포넌트
+/// - Universal Stage Decor의 씬 저장용 Source Config
 ///
 /// BattleSystems/BattleTemplate:
 /// - Persistent 4x4 전투 Base Template
@@ -79,6 +80,10 @@ public static class BattleSpriteManagerOrganizer
         changed |= EnsureOnSpriteManager<BattleShowSetDecorationController>(manager, spriteRoot);
         changed |= EnsureOnSpriteManager<BattleShowSharedTvContentController>(manager, spriteRoot);
         changed |= EnsureOnSpriteManager<BattleShowFocusController>(manager, spriteRoot);
+
+        // Universal Field Stage Dressing Authoring
+        // Runtime Manager는 DontDestroy 공용 Host로 유지하고, SpriteManager에는 Scene에 저장되는 Source Config만 둡니다.
+        changed |= EnsureOnSpriteManager<BattleUniversalStageDecorSceneConfig>(manager, spriteRoot);
 
         // Lighting / screen presentation
         changed |= EnsureOnSpriteManager<BattleCombatLightPolicyController>(manager, spriteRoot);
@@ -187,7 +192,7 @@ public static class BattleSpriteManagerOrganizer
         {
             RoomBaseTemplate moved = Undo.AddComponent<RoomBaseTemplate>(templateRoot.gameObject);
             EditorUtility.CopySerialized(rootTemplate, moved);
-            Undo.DestroyObjectImmediate(rootTemplate);
+            Undo.DestroyObjectImmediate(rootComponent: rootTemplate);
             EditorUtility.SetDirty(moved);
             AssignBattleTemplateReference(manager, moved);
             return true;
