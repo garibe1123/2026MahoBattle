@@ -149,7 +149,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         if (tiles.Count == 0)
             return;
 
-        if (!TryResolveCarrierGeometry(visual, tiles, out CarrierGeometry geometry))
+        if (!TryResolveCarrierGeometry(tiles, out CarrierGeometry geometry))
             return;
 
         ApplyFloorTemplate(visual, tiles, geometry);
@@ -173,6 +173,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
         Sprite[] floorVariants = template.FloorVariants;
         bool hasFloorVariants = HasAnySprite(floorVariants);
+        int sourceFloorSorting = tiles[0] != null ? tiles[0].sortingOrder : template.FloorSortingOrder;
+        int resolvedFloorSorting = Mathf.Max(sourceFloorSorting, template.FloorSortingOrder);
+        int templateSortingOffset = resolvedFloorSorting - template.FloorSortingOrder;
 
         for (int i = 0; i < tiles.Count; i++)
         {
@@ -191,21 +194,22 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 tile.color = template.FloorTint;
             }
 
-            tile.sortingOrder = Mathf.Max(tile.sortingOrder, template.FloorSortingOrder);
+            tile.sortingOrder = resolvedFloorSorting;
         }
 
         RemoveExistingFrame(visual);
         if (!buildMechanicalFrame)
             return;
 
-        BuildMechanicalFrame(visual, tiles[0], geometry, template);
+        BuildMechanicalFrame(visual, tiles[0], geometry, template, templateSortingOffset);
     }
 
     private void BuildMechanicalFrame(
         Transform visual,
         SpriteRenderer reference,
         CarrierGeometry geometry,
-        BattleShowFloorTemplateSO template)
+        BattleShowFloorTemplateSO template,
+        int sortingOffset)
     {
         if (visual == null || reference == null || template == null)
             return;
@@ -219,6 +223,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         float maxX = geometry.localBounds.max.x - cell * 0.5f;
         float minY = geometry.localBounds.min.y + cell * 0.5f;
         float maxY = geometry.localBounds.max.y - cell * 0.5f;
+        int lowerSorting = template.LowerPlateSortingOrder + sortingOffset;
+        int handleSorting = template.HandleSortingOrder + sortingOffset;
 
         // 하판: 기존 Show Floor Template과 동일하게 Carrier 아래 한 줄에 좌/중앙/우를 조립합니다.
         int columns = Mathf.Max(1, geometry.columns);
@@ -238,7 +244,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 new Vector3(px, geometry.localBounds.min.y - cell * 0.5f, 0f),
                 reference,
                 template.PlateTint,
-                template.LowerPlateSortingOrder,
+                lowerSorting,
                 cell);
         }
 
@@ -259,7 +265,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             maxX,
             reference,
             template.HandleTint,
-            template.HandleSortingOrder,
+            handleSorting,
             cell);
 
         CreateHorizontalFaceHandles(
@@ -271,7 +277,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             maxX,
             reference,
             template.HandleTint,
-            template.HandleSortingOrder,
+            handleSorting,
             cell);
 
         // 좌/우 면: 최하/최상만. 한 칸 높이면 중앙 하나만.
@@ -284,7 +290,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             maxY,
             reference,
             template.HandleTint,
-            template.HandleSortingOrder,
+            handleSorting,
             cell);
 
         CreateVerticalFaceHandles(
@@ -296,7 +302,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             maxY,
             reference,
             template.HandleTint,
-            template.HandleSortingOrder,
+            handleSorting,
             cell);
     }
 
@@ -362,12 +368,11 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     }
 
     private static bool TryResolveCarrierGeometry(
-        Transform visual,
         List<SpriteRenderer> tiles,
         out CarrierGeometry geometry)
     {
         geometry = default;
-        if (visual == null || tiles == null || tiles.Count == 0)
+        if (tiles == null || tiles.Count == 0)
             return false;
 
         bool initialized = false;
@@ -382,12 +387,15 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (tile == null || tile.sprite == null)
                 continue;
 
-            Vector3 localCenter = visual.InverseTransformPoint(tile.bounds.center);
-            Vector3 worldSize = tile.bounds.size;
-            float candidateCell = Mathf.Max(0.01f, Mathf.Min(worldSize.x, worldSize.y));
+            Vector3 spriteSize = tile.sprite.bounds.size;
+            Vector3 localScale = tile.transform.localScale;
+            float localWidth = Mathf.Abs(spriteSize.x * localScale.x);
+            float localHeight = Mathf.Abs(spriteSize.y * localScale.y);
+            float candidateCell = Mathf.Max(0.01f, Mathf.Min(localWidth, localHeight));
             cell = cell <= 0f ? candidateCell : Mathf.Min(cell, candidateCell);
 
-            Bounds b = new(localCenter, new Vector3(worldSize.x, worldSize.y, 0.01f));
+            Vector3 localCenter = tile.transform.localPosition;
+            Bounds b = new(localCenter, new Vector3(localWidth, localHeight, 0.01f));
             if (!initialized)
             {
                 localBounds = b;
