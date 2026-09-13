@@ -11,6 +11,7 @@ using UnityEngine.UI;
 /// - FAN MISSION 아래에 방송 스타일 Live Chat을 표시합니다.
 /// - Combat TAB의 PACK을 더 왼쪽으로 보정합니다.
 /// - Equipment Detail은 PACK 가까이에 붙이고, 우측 Mission / Chat 포커스 중에는 숨깁니다.
+/// - 우측 하단 CurrentLoadoutChip의 빨간 AccentSlash 장식은 숨깁니다.
 /// - Reward / Equipment 데이터 소유권은 건드리지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -103,6 +104,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private RectTransform metricBar;
     private Canvas metricCanvas;
+    private CanvasGroup metricGroup;
     private Text metricViewersText;
     private Text metricLikesText;
 
@@ -189,6 +191,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             nextResolveAt = Time.unscaledTime + 0.20f;
             ResolveReferences(false);
             ResolveDashboardUi();
+            RemoveCompactAccentSlash();
         }
 
         bool combatActive = IsCombatActive();
@@ -292,6 +295,14 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         metricCanvas.overrideSorting = true;
         metricCanvas.sortingOrder = MetricSortingOrder;
 
+        metricGroup = metricBar.GetComponent<CanvasGroup>();
+        if (metricGroup == null)
+            metricGroup = metricBar.gameObject.AddComponent<CanvasGroup>();
+        metricGroup.ignoreParentGroups = true;
+        metricGroup.alpha = 1f;
+        metricGroup.blocksRaycasts = false;
+        metricGroup.interactable = false;
+
         metricViewersText ??= metricBar.Find("Viewers/Count")?.GetComponent<Text>();
         metricLikesText ??= metricBar.Find("Likes/Count")?.GetComponent<Text>();
 
@@ -350,6 +361,14 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             metricViewersText.text = viewers;
         if (metricLikesText != null && metricLikesText.text != likes)
             metricLikesText.text = likes;
+    }
+
+    private void RemoveCompactAccentSlash()
+    {
+        RectTransform compactRoot = kineticLoadout != null ? kineticLoadout.CompactRoot : null;
+        Transform accentSlash = compactRoot != null ? compactRoot.Find("AccentSlash") : null;
+        if (accentSlash != null && accentSlash.gameObject.activeSelf)
+            accentSlash.gameObject.SetActive(false);
     }
 
     private static float NormalizeAngle(float degrees)
