@@ -112,7 +112,7 @@ public static class BattleSpriteManagerOrganizer
 
     private static Transform EnsureChildRoot(Transform parent, string objectName, ref bool changed)
     {
-        Transform root = parent != null ? parent.Find(SpriteManagerObjectName == objectName ? SpriteManagerObjectName : objectName) : null;
+        Transform root = parent != null ? parent.Find(objectName) : null;
         if (root == null)
         {
             GameObject rootObject = new(objectName);
