@@ -1,247 +1,661 @@
 using System;
 using System.Collections.Generic;
+using DG.Tweening;
 using UnityEngine;
 
 /// <summary>
-/// SpriteManager에 저장되는 Universal Stage Decor Carrier의 외형 설정/적용 컴포넌트입니다.
+/// Universal Stage Decor의 단일 Runtime Owner입니다.
 ///
-/// BattleUniversalStageDecorController는 배치/진입/퇴장 lifecycle만 소유하고,
-/// 이 컴포넌트는 생성된 UniversalStageDecor_* Carrier에 다음 presentation만 적용합니다.
-/// - 별도 BattleShowFloorTemplateSO의 Floor Variant
-/// - 하판 / 4방향 Handle로 이루어진 기계식 외곽 Frame
-/// - DecorObject_*의 실제 Renderer bounds를 footprint 안에 자동 Fit / Center
+/// Inspector에는 BattleDecorSO 리스트만 넣습니다.
+/// 각 SO는 Floor / Frame / Camera / Light / Cable 등 완성된 데코 배치를 Prefab처럼 저장하며,
+/// 이 Controller는 다음만 담당합니다.
+/// - 현재 Field 외곽에 BattleDecorSO를 랜덤 선택/배치
+/// - 화면 밖 Entry Rail에서 굴러와 정착
+/// - 가까운 MapBlock이 빠질 때 같은 방향으로 자연 퇴장
+/// - SO의 Floor Template으로 Carrier Floor / Mechanical Frame 생성
+/// - SO Parts를 저장된 Position / Rotation / Scale / Sorting 그대로 조립
 ///
-/// 실제 Grid / NavMesh / MapBlock 위치는 변경하지 않습니다.
+/// 별도의 SceneConfig / Profile / LightRig / Cable Runtime Manager는 사용하지 않습니다.
+/// Runtime 랜덤 변형은 선택적으로 전체 좌우 Mirror만 허용하며 상하 반전/랜덤 180도 회전은 하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
-[DefaultExecutionOrder(30220)]
+[DefaultExecutionOrder(30150)]
 public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehaviour
 {
-    private const string ClusterPrefix = "UniversalStageDecor_";
+    private const string ClusterPrefix = "BattleDecorRuntime_";
     private const string VisualRootName = "Visual";
+    private const string PartsRootName = "DecorParts";
+    private const string FrameRootName = "DecorMechanicalFrame";
     private const string CarrierTilePrefix = "DecorCarrierTile_";
-    private const string DecorObjectPrefix = "DecorObject_";
-    private const string FrameRootName = "UniversalDecorCarrierFrame";
 
-    [Header("DECOR CARRIER FLOOR SO")]
-    [Tooltip("카메라/조명/케이블 장식 Carrier에만 사용할 별도 바닥 SO입니다. 비어 있으면 기존 Field Floor를 그대로 유지합니다.")]
-    [SerializeField] private BattleShowFloorTemplateSO decorCarrierFloorTemplate;
+    [Header("BATTLE DECOR DESIGNS")]
+    [Tooltip("여기에 완성된 BattleDecorSO만 넣습니다. Camera / Light / Cable 등은 각 SO 내부 Parts에서 직접 조립합니다.")]
+    [SerializeField] private List<BattleDecorSO> battleDecorDesigns = new();
 
-    [Header("DECOR ↔ CARRIER FIT")]
-    [Tooltip("장식 Sprite/Prefab의 실제 Renderer Bounds를 읽어 1x1 / 2x3 / 3x3 Carrier 안에 자동으로 맞춥니다.")]
-    [SerializeField] private bool autoFitDecorToCarrier = true;
-    [Tooltip("Carrier 외곽에서 이 비율만큼 안쪽으로 여유를 둡니다. 0.10이면 가로/세로 각각 양 끝에 10%씩 비웁니다.")]
-    [SerializeField, Range(0f, 0.30f)] private float decorFitPadding = 0.10f;
-    [Tooltip("Auto Fit 이후 전체 장식에 추가로 적용할 배율입니다. 기본은 1입니다.")]
-    [SerializeField, Range(0.50f, 1.35f)] private float fittedDecorScaleMultiplier = 1f;
-    [Tooltip("Auto Fit 후 Carrier 중심 기준으로 추가 이동합니다. World Tile 단위가 아니라 Carrier local world-unit입니다.")]
-    [SerializeField] private Vector2 fittedDecorOffset = Vector2.zero;
-    [Tooltip("켜면 Sprite Pivot이 치우쳐 있어도 실제 보이는 Renderer Bounds 중심이 Carrier 중앙에 오도록 보정합니다.")]
-    [SerializeField] private bool centerUsingRendererBounds = true;
+    [Header("PLACEMENT")]
+    [Tooltip("현재 Field와 Decor Carrier 사이에 비워둘 최소 Floor 칸 수입니다.")]
+    [SerializeField, Min(1f)] private float fieldGapTiles = 1f;
+    [SerializeField, Range(0, 8)] private int minimumDecorCount = 2;
+    [SerializeField, Range(0, 10)] private int maximumDecorCount = 4;
+    [SerializeField, Range(0f, 1f)] private float placementPaddingTiles = 0.25f;
+    [SerializeField, Range(8, 64)] private int placementAttempts = 28;
+    [SerializeField, Min(0.25f)] private float fallbackCellWorldSize = 1f;
 
-    [Header("FRAME")]
-    [Tooltip("Floor SO의 하판/핸들을 사용해 Carrier 외곽 프레임을 만듭니다.")]
-    [SerializeField] private bool buildMechanicalFrame = true;
-    [Tooltip("Frame Sprite가 32px 기준이어도 현재 Carrier 1칸 크기에 맞게 자동 Scale합니다.")]
-    [SerializeField] private bool fitFramePartsToCell = true;
+    [Header("ENTRY")]
+    [SerializeField, Range(0.20f, 1.5f)] private float entryDuration = 0.58f;
+    [SerializeField, Min(8f)] private float minimumOffscreenRail = 24f;
+    [SerializeField, Range(0.25f, 4f)] private float offscreenMargin = 1.5f;
+    [SerializeField, Range(0f, 2f)] private float entryRumbleDegrees = 0.38f;
+    [SerializeField, Range(1, 20)] private int entryRumbleVibrato = 7;
 
-    [Header("RUNTIME REFRESH")]
-    [SerializeField, Range(0.04f, 0.50f)] private float scanInterval = 0.10f;
+    [Header("EXIT")]
+    [SerializeField, Range(0.04f, 0.25f)] private float exitAnticipationDuration = 0.085f;
+    [SerializeField, Range(0.02f, 0.30f)] private float exitAnticipationDistance = 0.10f;
+    [SerializeField, Range(0.25f, 1.8f)] private float fallbackExitDuration = 0.58f;
+    [SerializeField, Range(0.002f, 0.08f)] private float ownerExitMotionThreshold = 0.012f;
+    [SerializeField, Range(0.05f, 0.5f)] private float transitionExitFallbackDelay = 0.16f;
 
-    private readonly HashSet<int> processedClusters = new();
-    private float nextScanAt;
-    private BattleShowFloorTemplateSO lastTemplate;
-    private float lastPadding;
-    private float lastFitScale;
-    private Vector2 lastFitOffset;
-    private bool lastAutoFit;
-    private bool lastBuildFrame;
+    [Header("FIELD WATCH")]
+    [SerializeField, Range(0.05f, 0.75f)] private float fieldScanInterval = 0.15f;
+    [SerializeField, Range(0.05f, 1.0f)] private float postTransitionRebuildDelay = 0.12f;
 
-    public BattleShowFloorTemplateSO DecorCarrierFloorTemplate => decorCarrierFloorTemplate;
+    private sealed class FloorSource
+    {
+        public SpriteRenderer renderer;
+        public MapBlock owner;
+        public Bounds bounds;
+    }
+
+    private sealed class DecorCluster
+    {
+        public GameObject rootObject;
+        public Transform root;
+        public Transform visualRoot;
+        public MapBlock owner;
+        public Vector3 ownerLastPosition;
+        public Vector3 finalPosition;
+        public Vector2 outwardDirection;
+        public Bounds carrierBounds;
+        public Vector2Int footprint;
+        public bool exiting;
+        public Sequence sequence;
+    }
+
+    private readonly List<DecorCluster> clusters = new();
+    private readonly List<Bounds> placementBounds = new();
+    private readonly List<BattleDecorSO> validDesigns = new();
+
+    private BattleRoomManager roomManager;
+    private float nextFieldScanAt;
+    private int lastFieldSignature = int.MinValue;
+    private bool rebuildPending;
+    private float rebuildAt;
+    private bool transitionStateInitialized;
+    private bool lastTransitioning;
+    private float transitionFallbackExitAt = float.PositiveInfinity;
+    private int serial;
+
+    public IReadOnlyList<BattleDecorSO> BattleDecorDesigns => battleDecorDesigns;
+
+    private void Awake()
+    {
+        ResolveRoomManager();
+        RefreshDesignCache();
+    }
 
     private void OnEnable()
     {
-        InvalidateAll();
+        ResolveRoomManager();
+        RefreshDesignCache();
+        nextFieldScanAt = 0f;
+        lastFieldSignature = int.MinValue;
+        rebuildPending = true;
+        rebuildAt = Time.unscaledTime + 0.10f;
+        transitionStateInitialized = roomManager != null;
+        lastTransitioning = roomManager != null && roomManager.IsTransitioning;
+        transitionFallbackExitAt = float.PositiveInfinity;
     }
 
     private void OnDisable()
     {
-        processedClusters.Clear();
+        for (int i = clusters.Count - 1; i >= 0; i--)
+        {
+            DecorCluster cluster = clusters[i];
+            if (cluster == null)
+                continue;
+            cluster.sequence?.Kill(false);
+            if (cluster.root != null)
+                cluster.root.DOKill(false);
+            if (cluster.rootObject != null)
+                Destroy(cluster.rootObject);
+        }
+        clusters.Clear();
+        placementBounds.Clear();
     }
 
     private void OnValidate()
     {
-        scanInterval = Mathf.Max(0.04f, scanInterval);
-        fittedDecorScaleMultiplier = Mathf.Clamp(fittedDecorScaleMultiplier, 0.50f, 1.35f);
-        decorFitPadding = Mathf.Clamp(decorFitPadding, 0f, 0.30f);
+        minimumDecorCount = Mathf.Max(0, minimumDecorCount);
+        maximumDecorCount = Mathf.Max(minimumDecorCount, maximumDecorCount);
+        fallbackCellWorldSize = Mathf.Max(0.25f, fallbackCellWorldSize);
+        placementAttempts = Mathf.Clamp(placementAttempts, 8, 64);
 
         if (Application.isPlaying)
-            InvalidateAll();
-    }
-
-    private void LateUpdate()
-    {
-        if (SettingsChanged())
-            InvalidateAll();
-
-        if (Time.unscaledTime < nextScanAt)
-            return;
-
-        nextScanAt = Time.unscaledTime + Mathf.Max(0.04f, scanInterval);
-        ProcessNewClusters();
-    }
-
-    private bool SettingsChanged()
-    {
-        return lastTemplate != decorCarrierFloorTemplate ||
-               !Mathf.Approximately(lastPadding, decorFitPadding) ||
-               !Mathf.Approximately(lastFitScale, fittedDecorScaleMultiplier) ||
-               lastFitOffset != fittedDecorOffset ||
-               lastAutoFit != autoFitDecorToCarrier ||
-               lastBuildFrame != buildMechanicalFrame;
-    }
-
-    private void CacheSettings()
-    {
-        lastTemplate = decorCarrierFloorTemplate;
-        lastPadding = decorFitPadding;
-        lastFitScale = fittedDecorScaleMultiplier;
-        lastFitOffset = fittedDecorOffset;
-        lastAutoFit = autoFitDecorToCarrier;
-        lastBuildFrame = buildMechanicalFrame;
-    }
-
-    private void InvalidateAll()
-    {
-        processedClusters.Clear();
-        nextScanAt = 0f;
-        CacheSettings();
-    }
-
-    private void ProcessNewClusters()
-    {
-        BattleUniversalStageDecorController universal = BattleUniversalStageDecorController.Instance;
-        if (universal == null)
-            return;
-
-        Transform runtimeRoot = universal.transform;
-        for (int i = 0; i < runtimeRoot.childCount; i++)
         {
-            Transform cluster = runtimeRoot.GetChild(i);
-            if (cluster == null || !cluster.name.StartsWith(ClusterPrefix, StringComparison.Ordinal))
-                continue;
-
-            int id = cluster.GetInstanceID();
-            if (!processedClusters.Add(id))
-                continue;
-
-            ApplyCarrierPresentation(cluster);
+            RefreshDesignCache();
+            QueueRebuild(0.05f, true);
         }
     }
 
-    private void ApplyCarrierPresentation(Transform cluster)
+    private void Update()
     {
-        Transform visual = cluster != null ? cluster.Find(VisualRootName) : null;
-        if (visual == null)
+        CleanupDestroyedClusters();
+        MonitorClusterOwners();
+        UpdateRoomTransitionState();
+
+        bool transitioning = roomManager != null && roomManager.IsTransitioning;
+        if (transitioning)
             return;
 
-        List<SpriteRenderer> tiles = CollectCarrierTiles(visual);
-        if (tiles.Count == 0)
-            return;
-
-        if (!TryResolveCarrierGeometry(tiles, out CarrierGeometry geometry))
-            return;
-
-        ApplyFloorTemplate(visual, tiles, geometry);
-
-        Transform decor = FindDirectChildByPrefix(visual, DecorObjectPrefix);
-        if (decor != null && autoFitDecorToCarrier)
-            FitDecorToCarrier(visual, decor, geometry);
-    }
-
-    private void ApplyFloorTemplate(
-        Transform visual,
-        List<SpriteRenderer> tiles,
-        CarrierGeometry geometry)
-    {
-        BattleShowFloorTemplateSO template = decorCarrierFloorTemplate;
-        if (template == null)
+        if (rebuildPending && Time.unscaledTime >= rebuildAt)
         {
-            RemoveExistingFrame(visual);
+            rebuildPending = false;
+            ReconcileCurrentField(true);
             return;
         }
 
-        Sprite[] floorVariants = template.FloorVariants;
-        bool hasFloorVariants = HasAnySprite(floorVariants);
-        int sourceFloorSorting = tiles[0] != null ? tiles[0].sortingOrder : template.FloorSortingOrder;
-        int resolvedFloorSorting = Mathf.Max(sourceFloorSorting, template.FloorSortingOrder);
-        int templateSortingOffset = resolvedFloorSorting - template.FloorSortingOrder;
+        if (Time.unscaledTime < nextFieldScanAt)
+            return;
 
-        for (int i = 0; i < tiles.Count; i++)
+        nextFieldScanAt = Time.unscaledTime + Mathf.Max(0.05f, fieldScanInterval);
+        if (roomManager == null)
+            ResolveRoomManager();
+        ReconcileCurrentField(false);
+    }
+
+    private void ResolveRoomManager()
+    {
+        roomManager = null;
+        BattleRoomManager[] managers = FindObjectsByType<BattleRoomManager>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < managers.Length; i++)
         {
-            SpriteRenderer tile = tiles[i];
-            if (tile == null)
-                continue;
-
-            if (hasFloorVariants)
+            BattleRoomManager candidate = managers[i];
+            if (candidate != null && candidate.gameObject.scene == gameObject.scene)
             {
-                Sprite chosen = PickRandomSprite(floorVariants);
-                if (chosen != null)
-                {
-                    tile.sprite = chosen;
-                    ScaleRendererToCell(tile, geometry.cell);
-                }
-                tile.color = template.FloorTint;
+                roomManager = candidate;
+                return;
+            }
+        }
+    }
+
+    private void RefreshDesignCache()
+    {
+        validDesigns.Clear();
+        if (battleDecorDesigns == null)
+            return;
+
+        for (int i = 0; i < battleDecorDesigns.Count; i++)
+        {
+            BattleDecorSO design = battleDecorDesigns[i];
+            if (design == null || !design.HasVisual)
+                continue;
+            validDesigns.Add(design);
+        }
+    }
+
+    private void QueueRebuild(float delay, bool forceSignatureReset)
+    {
+        rebuildPending = true;
+        rebuildAt = Time.unscaledTime + Mathf.Max(0f, delay);
+        if (forceSignatureReset)
+            lastFieldSignature = int.MinValue;
+    }
+
+    private void UpdateRoomTransitionState()
+    {
+        if (roomManager == null)
+            return;
+
+        bool transitioning = roomManager.IsTransitioning;
+        if (!transitionStateInitialized)
+        {
+            transitionStateInitialized = true;
+            lastTransitioning = transitioning;
+            return;
+        }
+
+        if (transitioning == lastTransitioning)
+        {
+            if (transitioning && Time.unscaledTime >= transitionFallbackExitAt)
+            {
+                BeginExitAll(Vector2.zero, fallbackExitDuration);
+                transitionFallbackExitAt = float.PositiveInfinity;
+            }
+            return;
+        }
+
+        lastTransitioning = transitioning;
+        if (transitioning)
+        {
+            transitionFallbackExitAt = Time.unscaledTime + Mathf.Max(0.05f, transitionExitFallbackDelay);
+            return;
+        }
+
+        transitionFallbackExitAt = float.PositiveInfinity;
+        QueueRebuild(postTransitionRebuildDelay, true);
+    }
+
+    private void MonitorClusterOwners()
+    {
+        float threshold = Mathf.Max(0.002f, ownerExitMotionThreshold);
+        float thresholdSqr = threshold * threshold;
+
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            DecorCluster cluster = clusters[i];
+            if (cluster == null || cluster.exiting || cluster.root == null)
+                continue;
+
+            if (cluster.owner == null)
+            {
+                if (roomManager != null && roomManager.IsTransitioning)
+                    PlayExit(cluster, cluster.outwardDirection, fallbackExitDuration);
+                continue;
             }
 
-            tile.sortingOrder = resolvedFloorSorting;
+            if (!cluster.owner.gameObject.activeInHierarchy)
+            {
+                PlayExit(cluster, cluster.outwardDirection, cluster.owner.ExitDuration);
+                continue;
+            }
+
+            Vector3 current = cluster.owner.transform.position;
+            Vector3 delta = current - cluster.ownerLastPosition;
+            cluster.ownerLastPosition = current;
+            if (delta.sqrMagnitude <= thresholdSqr)
+                continue;
+
+            PlayExit(cluster, Cardinalize(delta), cluster.owner.ExitDuration);
         }
-
-        RemoveExistingFrame(visual);
-        if (!buildMechanicalFrame)
-            return;
-
-        BuildMechanicalFrame(visual, tiles[0], geometry, template, templateSortingOffset);
     }
 
-    private void BuildMechanicalFrame(
-        Transform visual,
-        SpriteRenderer reference,
-        CarrierGeometry geometry,
-        BattleShowFloorTemplateSO template,
-        int sortingOffset)
+    private void ReconcileCurrentField(bool force)
     {
-        if (visual == null || reference == null || template == null)
+        RefreshDesignCache();
+        if (validDesigns.Count == 0)
+        {
+            BeginExitAll(Vector2.zero, fallbackExitDuration);
+            return;
+        }
+
+        List<FloorSource> sources = CollectFloorSources();
+        if (sources.Count == 0)
+        {
+            BeginExitAll(Vector2.zero, fallbackExitDuration);
+            lastFieldSignature = int.MinValue;
+            return;
+        }
+
+        int signature = ComputeFieldSignature(sources);
+        bool living = HasLivingClusters();
+
+        if (!force && signature == lastFieldSignature && living)
             return;
 
+        if (clusters.Count > 0)
+        {
+            BeginExitAll(Vector2.zero, fallbackExitDuration);
+            QueueRebuild(fallbackExitDuration + exitAnticipationDuration + 0.08f, true);
+            return;
+        }
+
+        BuildDressing(sources, signature);
+    }
+
+    private void BuildDressing(List<FloorSource> sources, int signature)
+    {
+        if (sources == null || sources.Count == 0 || validDesigns.Count == 0)
+            return;
+
+        Bounds fieldBounds = sources[0].bounds;
+        for (int i = 1; i < sources.Count; i++)
+            fieldBounds.Encapsulate(sources[i].bounds);
+
+        SpriteRenderer floorReference = ResolveFloorReference(sources);
+        float cell = ResolveCellWorldSize(sources, floorReference);
+        int minCount = Mathf.Min(minimumDecorCount, maximumDecorCount);
+        int maxCount = Mathf.Max(minimumDecorCount, maximumDecorCount);
+
+        System.Random random = new(unchecked(
+            gameObject.scene.handle * 73856093 ^ signature * 19349663 ^ Environment.TickCount));
+        int targetCount = maxCount <= minCount ? minCount : random.Next(minCount, maxCount + 1);
+        placementBounds.Clear();
+
+        for (int i = 0; i < targetCount; i++)
+        {
+            BattleDecorSO design = PickWeightedDesign(random);
+            if (design == null)
+                continue;
+
+            Vector2Int footprint = design.Footprint;
+            if (!TryResolvePlacement(
+                    fieldBounds,
+                    footprint,
+                    cell,
+                    random,
+                    out Vector3 target,
+                    out Vector2 outward,
+                    out Bounds carrierBounds))
+                continue;
+
+            MapBlock owner = ResolveClosestOwner(target, sources);
+            DecorCluster cluster = CreateCluster(
+                design,
+                target,
+                outward,
+                carrierBounds,
+                footprint,
+                cell,
+                floorReference,
+                owner,
+                random);
+
+            if (cluster == null)
+                continue;
+
+            clusters.Add(cluster);
+            placementBounds.Add(carrierBounds);
+            PlayEnter(cluster);
+        }
+
+        lastFieldSignature = signature;
+    }
+
+    private BattleDecorSO PickWeightedDesign(System.Random random)
+    {
+        int totalWeight = 0;
+        for (int i = 0; i < validDesigns.Count; i++)
+            totalWeight += Mathf.Max(1, validDesigns[i].Weight);
+
+        if (totalWeight <= 0)
+            return null;
+
+        int roll = random.Next(0, totalWeight);
+        for (int i = 0; i < validDesigns.Count; i++)
+        {
+            BattleDecorSO design = validDesigns[i];
+            roll -= Mathf.Max(1, design.Weight);
+            if (roll < 0)
+                return design;
+        }
+
+        return validDesigns[validDesigns.Count - 1];
+    }
+
+    private bool TryResolvePlacement(
+        Bounds field,
+        Vector2Int footprint,
+        float cell,
+        System.Random random,
+        out Vector3 target,
+        out Vector2 outward,
+        out Bounds candidateBounds)
+    {
+        target = Vector3.zero;
+        outward = Vector2.zero;
+        candidateBounds = default;
+
+        float width = Mathf.Max(cell, footprint.x * cell);
+        float height = Mathf.Max(cell, footprint.y * cell);
+        float gap = Mathf.Max(cell, fieldGapTiles * cell);
+        int attempts = Mathf.Clamp(placementAttempts, 8, 64);
+
+        for (int attempt = 0; attempt < attempts; attempt++)
+        {
+            switch (random.Next(0, 4))
+            {
+                case 0:
+                    outward = Vector2.left;
+                    target = new Vector3(
+                        field.min.x - gap - width * 0.5f,
+                        SnapToCell(RandomRange(random, field.min.y, field.max.y), cell),
+                        field.center.z);
+                    break;
+                case 1:
+                    outward = Vector2.right;
+                    target = new Vector3(
+                        field.max.x + gap + width * 0.5f,
+                        SnapToCell(RandomRange(random, field.min.y, field.max.y), cell),
+                        field.center.z);
+                    break;
+                case 2:
+                    outward = Vector2.up;
+                    target = new Vector3(
+                        SnapToCell(RandomRange(random, field.min.x, field.max.x), cell),
+                        field.max.y + gap + height * 0.5f,
+                        field.center.z);
+                    break;
+                default:
+                    outward = Vector2.down;
+                    target = new Vector3(
+                        SnapToCell(RandomRange(random, field.min.x, field.max.x), cell),
+                        field.min.y - gap - height * 0.5f,
+                        field.center.z);
+                    break;
+            }
+
+            candidateBounds = new Bounds(target, new Vector3(width, height, 0.20f));
+            if (!OverlapsExistingPlacement(candidateBounds, cell))
+                return true;
+        }
+
+        return false;
+    }
+
+    private bool OverlapsExistingPlacement(Bounds candidate, float cell)
+    {
+        float padding = Mathf.Max(0f, placementPaddingTiles) * cell;
+        for (int i = 0; i < placementBounds.Count; i++)
+        {
+            Bounds other = placementBounds[i];
+            bool overlapX = Mathf.Abs(candidate.center.x - other.center.x) <
+                            candidate.extents.x + other.extents.x + padding;
+            bool overlapY = Mathf.Abs(candidate.center.y - other.center.y) <
+                            candidate.extents.y + other.extents.y + padding;
+            if (overlapX && overlapY)
+                return true;
+        }
+        return false;
+    }
+
+    private DecorCluster CreateCluster(
+        BattleDecorSO design,
+        Vector3 target,
+        Vector2 outward,
+        Bounds carrierBounds,
+        Vector2Int footprint,
+        float cell,
+        SpriteRenderer floorReference,
+        MapBlock owner,
+        System.Random random)
+    {
+        if (design == null || floorReference == null)
+            return null;
+
+        GameObject rootObject = new($"{ClusterPrefix}{++serial:000}_{design.name}");
+        rootObject.transform.SetParent(transform, true);
+        rootObject.transform.position = target;
+
+        GameObject visualObject = new(VisualRootName);
+        visualObject.transform.SetParent(rootObject.transform, false);
+        Transform visualRoot = visualObject.transform;
+
+        int floorSorting = BuildCarrierFloor(
+            visualRoot,
+            design,
+            footprint,
+            cell,
+            floorReference,
+            random);
+
+        if (design.FloorTemplate != null)
+            BuildMechanicalFrame(
+                visualRoot,
+                design.FloorTemplate,
+                footprint,
+                cell,
+                floorReference,
+                floorSorting);
+
+        BuildAuthoredParts(
+            visualRoot,
+            design,
+            cell,
+            floorReference,
+            floorSorting,
+            random);
+
+        return new DecorCluster
+        {
+            rootObject = rootObject,
+            root = rootObject.transform,
+            visualRoot = visualRoot,
+            owner = owner,
+            ownerLastPosition = owner != null ? owner.transform.position : Vector3.zero,
+            finalPosition = target,
+            outwardDirection = Cardinalize(outward),
+            carrierBounds = carrierBounds,
+            footprint = footprint
+        };
+    }
+
+    private static int BuildCarrierFloor(
+        Transform visualRoot,
+        BattleDecorSO design,
+        Vector2Int footprint,
+        float cell,
+        SpriteRenderer source,
+        System.Random random)
+    {
+        BattleShowFloorTemplateSO template = design.FloorTemplate;
+        Sprite[] variants = template != null ? template.FloorVariants : null;
+        int floorSorting = source.sortingOrder;
+
+        if (template != null)
+        {
+            int highestPart = Mathf.Max(
+                template.UpperPlateSortingOrder,
+                Mathf.Max(template.LowerPlateSortingOrder, template.HandleSortingOrder));
+            floorSorting = Mathf.Max(source.sortingOrder, Mathf.Max(template.FloorSortingOrder, highestPart + 1));
+        }
+
+        float x0 = -(footprint.x - 1) * cell * 0.5f;
+        float y0 = -(footprint.y - 1) * cell * 0.5f;
+
+        for (int y = 0; y < footprint.y; y++)
+        {
+            for (int x = 0; x < footprint.x; x++)
+            {
+                Sprite sprite = PickFloorSprite(variants, source.sprite, random);
+                if (sprite == null)
+                    continue;
+
+                GameObject tileObject = new($"{CarrierTilePrefix}{x}_{y}");
+                tileObject.transform.SetParent(visualRoot, false);
+                tileObject.transform.localPosition = new Vector3(x0 + x * cell, y0 + y * cell, 0f);
+
+                SpriteRenderer renderer = tileObject.AddComponent<SpriteRenderer>();
+                renderer.sprite = sprite;
+                renderer.color = template != null ? template.FloorTint : source.color;
+                renderer.sharedMaterial = source.sharedMaterial;
+                renderer.sortingLayerID = source.sortingLayerID;
+                renderer.sortingOrder = floorSorting;
+                ScaleRendererToSize(renderer, cell, cell);
+            }
+        }
+
+        return floorSorting;
+    }
+
+    private static void BuildAuthoredParts(
+        Transform visualRoot,
+        BattleDecorSO design,
+        float cell,
+        SpriteRenderer floorReference,
+        int floorSorting,
+        System.Random random)
+    {
+        GameObject partsObject = new(PartsRootName);
+        partsObject.transform.SetParent(visualRoot, false);
+        Transform partsRoot = partsObject.transform;
+
+        bool mirror = design.AllowRandomMirrorX && random.NextDouble() < 0.5;
+        partsRoot.localScale = new Vector3(mirror ? -cell : cell, cell, 1f);
+
+        IReadOnlyList<BattleDecorPart> parts = design.Parts;
+        if (parts == null)
+            return;
+
+        for (int i = 0; i < parts.Count; i++)
+        {
+            BattleDecorPart part = parts[i];
+            if (part == null || part.Sprite == null)
+                continue;
+
+            GameObject partObject = new($"Part_{i:00}_{SafeName(part.Label)}");
+            partObject.transform.SetParent(partsRoot, false);
+            partObject.transform.localPosition = new Vector3(part.LocalPosition.x, part.LocalPosition.y, -0.01f);
+            partObject.transform.localRotation = Quaternion.Euler(0f, 0f, part.RotationDegrees);
+            Vector2 localScale = part.LocalScale;
+            partObject.transform.localScale = new Vector3(localScale.x, localScale.y, 1f);
+
+            SpriteRenderer renderer = partObject.AddComponent<SpriteRenderer>();
+            renderer.sprite = part.Sprite;
+            renderer.color = part.Tint;
+            renderer.flipX = part.FlipX;
+            renderer.sharedMaterial = floorReference.sharedMaterial;
+            renderer.sortingLayerID = floorReference.sortingLayerID;
+            renderer.sortingOrder = floorSorting + part.SortingOffset;
+        }
+    }
+
+    private static void BuildMechanicalFrame(
+        Transform visualRoot,
+        BattleShowFloorTemplateSO template,
+        Vector2Int footprint,
+        float cell,
+        SpriteRenderer reference,
+        int floorSorting)
+    {
         GameObject frameObject = new(FrameRootName);
-        frameObject.transform.SetParent(visual, false);
+        frameObject.transform.SetParent(visualRoot, false);
         Transform frame = frameObject.transform;
 
-        float cell = geometry.cell;
-        float minX = geometry.localBounds.min.x + cell * 0.5f;
-        float maxX = geometry.localBounds.max.x - cell * 0.5f;
-        float minY = geometry.localBounds.min.y + cell * 0.5f;
-        float maxY = geometry.localBounds.max.y - cell * 0.5f;
-        int lowerSorting = template.LowerPlateSortingOrder + sortingOffset;
-        int handleSorting = template.HandleSortingOrder + sortingOffset;
+        float minCenterX = -(footprint.x - 1) * cell * 0.5f;
+        float maxCenterX = (footprint.x - 1) * cell * 0.5f;
+        float minCenterY = -(footprint.y - 1) * cell * 0.5f;
+        float maxCenterY = (footprint.y - 1) * cell * 0.5f;
 
-        // 하판: 기존 Show Floor Template과 동일하게 Carrier 아래 한 줄에 좌/중앙/우를 조립합니다.
-        int columns = Mathf.Max(1, geometry.columns);
-        for (int x = 0; x < columns; x++)
+        int lowerSorting = Mathf.Min(floorSorting - 2, template.LowerPlateSortingOrder);
+        int handleSorting = Mathf.Clamp(template.HandleSortingOrder, lowerSorting + 1, floorSorting - 1);
+
+        for (int x = 0; x < footprint.x; x++)
         {
-            Sprite lower = ResolveLowerPlateSprite(template, x, columns);
+            Sprite lower = ResolveLowerPlateSprite(template, x, footprint.x);
             if (lower == null)
                 continue;
 
-            float px = columns == 1
-                ? (minX + maxX) * 0.5f
-                : Mathf.Lerp(minX, maxX, x / (float)(columns - 1));
+            float px = footprint.x <= 1
+                ? 0f
+                : Mathf.Lerp(minCenterX, maxCenterX, x / (float)(footprint.x - 1));
             CreateFramePart(
                 frame,
                 $"LowerPlate_{x}",
                 lower,
-                new Vector3(px, geometry.localBounds.min.y - cell * 0.5f, 0f),
+                new Vector3(px, minCenterY - cell, 0f),
                 reference,
                 template.PlateTint,
                 lowerSorting,
@@ -255,262 +669,431 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             ? template.UpperHandleSprite32
             : template.UpperPlateSprite32;
 
-        // 위/아래 면: 최좌/최우만. 한 칸 폭이면 중앙 하나만.
         CreateHorizontalFaceHandles(
-            frame,
-            "UpperHandle",
-            upper,
-            geometry.localBounds.max.y + cell * 0.5f,
-            minX,
-            maxX,
-            reference,
-            template.HandleTint,
-            handleSorting,
-            cell);
+            frame, "UpperHandle", upper,
+            maxCenterY + cell,
+            minCenterX, maxCenterX,
+            reference, template.HandleTint, handleSorting, cell);
 
         CreateHorizontalFaceHandles(
-            frame,
-            "LowerHandle",
-            template.LowerHandleSprite32,
-            geometry.localBounds.min.y - cell * 0.5f,
-            minX,
-            maxX,
-            reference,
-            template.HandleTint,
-            handleSorting,
-            cell);
-
-        // 좌/우 면: 최하/최상만. 한 칸 높이면 중앙 하나만.
-        CreateVerticalFaceHandles(
-            frame,
-            "LeftHandle",
-            template.LeftHandleSprite32,
-            geometry.localBounds.min.x - cell * 0.5f,
-            minY,
-            maxY,
-            reference,
-            template.HandleTint,
-            handleSorting,
-            cell);
+            frame, "LowerHandle", template.LowerHandleSprite32,
+            minCenterY - cell,
+            minCenterX, maxCenterX,
+            reference, template.HandleTint, handleSorting, cell);
 
         CreateVerticalFaceHandles(
-            frame,
-            "RightHandle",
-            template.RightHandleSprite32,
-            geometry.localBounds.max.x + cell * 0.5f,
-            minY,
-            maxY,
-            reference,
-            template.HandleTint,
-            handleSorting,
-            cell);
+            frame, "LeftHandle", template.LeftHandleSprite32,
+            minCenterX - cell,
+            minCenterY, maxCenterY,
+            reference, template.HandleTint, handleSorting, cell);
+
+        CreateVerticalFaceHandles(
+            frame, "RightHandle", template.RightHandleSprite32,
+            maxCenterX + cell,
+            minCenterY, maxCenterY,
+            reference, template.HandleTint, handleSorting, cell);
     }
 
-    private void FitDecorToCarrier(
-        Transform visualRoot,
-        Transform decor,
-        CarrierGeometry geometry)
+    private void PlayEnter(DecorCluster cluster)
     {
-        if (visualRoot == null || decor == null)
+        if (cluster == null || cluster.root == null)
             return;
 
-        if (!TryGetRendererBounds(decor, out Bounds before))
-            return;
+        Vector2 outward = Cardinalize(cluster.outwardDirection);
+        float distance = ResolveOffscreenDistance(cluster.carrierBounds, outward);
+        Vector3 start = cluster.finalPosition + (Vector3)(outward * distance);
+        Vector2 travel = -outward;
 
-        float padding = Mathf.Clamp(decorFitPadding, 0f, 0.30f);
-        float targetWidth = Mathf.Max(0.05f, geometry.localBounds.size.x * (1f - padding * 2f));
-        float targetHeight = Mathf.Max(0.05f, geometry.localBounds.size.y * (1f - padding * 2f));
-        float sourceWidth = Mathf.Max(0.001f, before.size.x);
-        float sourceHeight = Mathf.Max(0.001f, before.size.y);
+        cluster.root.position = start;
+        cluster.sequence?.Kill(false);
 
-        float fit = Mathf.Min(targetWidth / sourceWidth, targetHeight / sourceHeight);
-        fit *= Mathf.Max(0.01f, fittedDecorScaleMultiplier);
+        float area = Mathf.Max(1f, cluster.footprint.x * cluster.footprint.y);
+        float duration = Mathf.Max(0.20f, entryDuration) *
+                         Mathf.Lerp(0.92f, 1.12f, Mathf.InverseLerp(1f, 9f, area));
 
-        decor.localScale = new Vector3(
-            decor.localScale.x * fit,
-            decor.localScale.y * fit,
-            decor.localScale.z);
+        Sequence sequence = DOTween.Sequence().SetUpdate(true);
+        sequence.Append(cluster.root.DOMove(cluster.finalPosition, duration).SetEase(Ease.InCubic));
 
-        if (!centerUsingRendererBounds)
+        BattleTileDockingPresentationManager docking = BattleTileDockingPresentationManager.Instance;
+        if (docking != null)
         {
-            decor.localPosition += new Vector3(fittedDecorOffset.x, fittedDecorOffset.y, 0f);
-            return;
+            docking.AppendDockSettle(
+                sequence,
+                cluster.root,
+                cluster.finalPosition,
+                travel,
+                ResolveContactPoint(cluster.carrierBounds, travel),
+                Mathf.Lerp(0.45f, 0.76f, Mathf.InverseLerp(1f, 9f, area)),
+                false,
+                false);
+        }
+        else
+        {
+            Vector3 rebound = cluster.finalPosition - (Vector3)(travel * 0.045f);
+            sequence.Append(cluster.root.DOMove(rebound, 0.035f).SetEase(Ease.OutQuad));
+            sequence.Append(cluster.root.DOMove(cluster.finalPosition, 0.055f).SetEase(Ease.OutCubic));
         }
 
-        if (!TryGetRendererBounds(decor, out Bounds after))
-            return;
+        if (cluster.visualRoot != null && entryRumbleDegrees > 0f)
+        {
+            cluster.visualRoot
+                .DOShakeRotation(
+                    duration,
+                    new Vector3(0f, 0f, entryRumbleDegrees),
+                    Mathf.Max(1, entryRumbleVibrato),
+                    18f,
+                    false)
+                .SetEase(Ease.Linear)
+                .SetUpdate(true);
+        }
 
-        Vector3 currentCenterLocal = visualRoot.InverseTransformPoint(after.center);
-        Vector3 desiredCenterLocal = geometry.localBounds.center +
-                                     new Vector3(fittedDecorOffset.x, fittedDecorOffset.y, 0f);
-        Vector3 delta = desiredCenterLocal - currentCenterLocal;
-        delta.z = 0f;
-        decor.localPosition += delta;
+        sequence.OnComplete(() =>
+        {
+            if (cluster.root == null)
+                return;
+            cluster.root.position = cluster.finalPosition;
+            if (cluster.visualRoot != null)
+                cluster.visualRoot.localRotation = Quaternion.identity;
+            if (cluster.owner != null)
+                cluster.ownerLastPosition = cluster.owner.transform.position;
+        });
+
+        cluster.sequence = sequence;
     }
 
-    private static List<SpriteRenderer> CollectCarrierTiles(Transform visual)
+    private void PlayExit(DecorCluster cluster, Vector2 requestedDirection, float requestedDuration)
     {
-        List<SpriteRenderer> result = new();
-        if (visual == null)
-            return result;
+        if (cluster == null || cluster.exiting || cluster.root == null)
+            return;
 
-        for (int i = 0; i < visual.childCount; i++)
+        cluster.exiting = true;
+        cluster.sequence?.Kill(false);
+        cluster.root.DOKill(false);
+        if (cluster.visualRoot != null)
+            cluster.visualRoot.DOKill(false);
+
+        Vector2 direction = requestedDirection.sqrMagnitude > 0.001f
+            ? Cardinalize(requestedDirection)
+            : Cardinalize(cluster.outwardDirection);
+
+        Bounds bounds = cluster.carrierBounds;
+        bounds.center = cluster.root.position;
+        float distance = ResolveOffscreenDistance(bounds, direction);
+        Vector3 current = cluster.root.position;
+        Vector3 anticipation = current - (Vector3)(direction * Mathf.Max(0.02f, exitAnticipationDistance));
+        Vector3 destination = current + (Vector3)(direction * distance);
+        float duration = Mathf.Max(0.20f, requestedDuration > 0.01f ? requestedDuration : fallbackExitDuration);
+
+        Sequence sequence = DOTween.Sequence().SetUpdate(true);
+        sequence.Append(
+            cluster.root.DOMove(anticipation, Mathf.Max(0.04f, exitAnticipationDuration))
+                .SetEase(Ease.OutQuad));
+        sequence.Append(cluster.root.DOMove(destination, duration).SetEase(Ease.InCubic));
+
+        if (cluster.visualRoot != null)
         {
-            Transform child = visual.GetChild(i);
-            if (child == null || !child.name.StartsWith(CarrierTilePrefix, StringComparison.Ordinal))
+            float sign = direction.x + direction.y >= 0f ? -1f : 1f;
+            cluster.visualRoot
+                .DOLocalRotate(new Vector3(0f, 0f, sign * 1.2f), duration + exitAnticipationDuration)
+                .SetEase(Ease.InQuad)
+                .SetUpdate(true);
+        }
+
+        sequence.OnComplete(() =>
+        {
+            cluster.sequence = null;
+            if (cluster.rootObject != null)
+                Destroy(cluster.rootObject);
+        });
+        cluster.sequence = sequence;
+    }
+
+    private void BeginExitAll(Vector2 preferredDirection, float duration)
+    {
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            DecorCluster cluster = clusters[i];
+            if (cluster == null || cluster.root == null || cluster.exiting)
                 continue;
 
-            SpriteRenderer renderer = child.GetComponent<SpriteRenderer>();
-            if (renderer != null)
-                result.Add(renderer);
+            Vector2 direction = preferredDirection.sqrMagnitude > 0.001f
+                ? preferredDirection
+                : cluster.outwardDirection;
+            PlayExit(cluster, direction, duration);
         }
+    }
+
+    private void CleanupDestroyedClusters()
+    {
+        for (int i = clusters.Count - 1; i >= 0; i--)
+        {
+            DecorCluster cluster = clusters[i];
+            if (cluster == null || cluster.root == null)
+                clusters.RemoveAt(i);
+        }
+    }
+
+    private bool HasLivingClusters()
+    {
+        for (int i = 0; i < clusters.Count; i++)
+        {
+            DecorCluster cluster = clusters[i];
+            if (cluster != null && cluster.root != null && !cluster.exiting)
+                return true;
+        }
+        return false;
+    }
+
+    private List<FloorSource> CollectFloorSources()
+    {
+        List<FloorSource> result = new();
+        HashSet<int> rendererIds = new();
+
+        BattleWalkableField[] fields = FindObjectsByType<BattleWalkableField>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < fields.Length; i++)
+        {
+            BattleWalkableField field = fields[i];
+            if (field == null || field.gameObject.scene != gameObject.scene)
+                continue;
+
+            SpriteRenderer renderer = field.GetComponent<SpriteRenderer>();
+            if (renderer == null || !renderer.enabled || renderer.sprite == null)
+                continue;
+
+            AddFloorSource(result, rendererIds, renderer, ResolveOutermostMapBlock(renderer.transform));
+        }
+
+        if (result.Count > 0)
+            return result;
+
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            MapBlock block = blocks[i];
+            if (block == null || block.gameObject.scene != gameObject.scene || !block.ContributesWalkableNavMesh)
+                continue;
+
+            SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+            for (int r = 0; r < renderers.Length; r++)
+            {
+                SpriteRenderer renderer = renderers[r];
+                if (renderer == null || !renderer.enabled || renderer.sprite == null)
+                    continue;
+
+                string n = renderer.name;
+                if (!n.StartsWith("Tile_", StringComparison.Ordinal) &&
+                    !n.StartsWith("ShowTile_", StringComparison.Ordinal) &&
+                    renderer.GetComponent<BattleWalkableField>() == null)
+                    continue;
+
+                AddFloorSource(result, rendererIds, renderer, ResolveOutermostMapBlock(renderer.transform));
+            }
+        }
+
+        if (result.Count > 0)
+            return result;
+
+        SpriteRenderer[] generic = FindObjectsByType<SpriteRenderer>(
+            FindObjectsInactive.Exclude,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < generic.Length; i++)
+        {
+            SpriteRenderer renderer = generic[i];
+            if (renderer == null || renderer.gameObject.scene != gameObject.scene ||
+                !renderer.enabled || renderer.sprite == null)
+                continue;
+
+            string n = renderer.name;
+            if (!n.StartsWith("Tile_", StringComparison.Ordinal) &&
+                !n.StartsWith("Floor_", StringComparison.Ordinal) &&
+                !n.StartsWith("ShowTile_", StringComparison.Ordinal))
+                continue;
+
+            AddFloorSource(result, rendererIds, renderer, ResolveOutermostMapBlock(renderer.transform));
+        }
+
         return result;
     }
 
-    private static bool TryResolveCarrierGeometry(
-        List<SpriteRenderer> tiles,
-        out CarrierGeometry geometry)
+    private static void AddFloorSource(
+        List<FloorSource> output,
+        HashSet<int> rendererIds,
+        SpriteRenderer renderer,
+        MapBlock owner)
     {
-        geometry = default;
-        if (tiles == null || tiles.Count == 0)
-            return false;
+        if (renderer == null || !rendererIds.Add(renderer.GetInstanceID()))
+            return;
 
-        bool initialized = false;
-        Bounds localBounds = default;
-        float cell = 0f;
-        int maxColumn = -1;
-        int maxRow = -1;
-
-        for (int i = 0; i < tiles.Count; i++)
+        output.Add(new FloorSource
         {
-            SpriteRenderer tile = tiles[i];
-            if (tile == null || tile.sprite == null)
+            renderer = renderer,
+            owner = owner,
+            bounds = renderer.bounds
+        });
+    }
+
+    private static MapBlock ResolveOutermostMapBlock(Transform source)
+    {
+        if (source == null)
+            return null;
+
+        MapBlock[] parents = source.GetComponentsInParent<MapBlock>(true);
+        return parents == null || parents.Length == 0 ? null : parents[parents.Length - 1];
+    }
+
+    private static SpriteRenderer ResolveFloorReference(List<FloorSource> sources)
+    {
+        for (int i = 0; i < sources.Count; i++)
+        {
+            SpriteRenderer renderer = sources[i]?.renderer;
+            if (renderer != null && renderer.sprite != null)
+                return renderer;
+        }
+        return null;
+    }
+
+    private float ResolveCellWorldSize(List<FloorSource> sources, SpriteRenderer fallback)
+    {
+        float best = float.PositiveInfinity;
+        for (int i = 0; i < sources.Count; i++)
+        {
+            SpriteRenderer renderer = sources[i]?.renderer;
+            if (renderer == null || renderer.sprite == null)
                 continue;
 
-            Vector3 spriteSize = tile.sprite.bounds.size;
-            Vector3 localScale = tile.transform.localScale;
-            float localWidth = Mathf.Abs(spriteSize.x * localScale.x);
-            float localHeight = Mathf.Abs(spriteSize.y * localScale.y);
-            float candidateCell = Mathf.Max(0.01f, Mathf.Min(localWidth, localHeight));
-            cell = cell <= 0f ? candidateCell : Mathf.Min(cell, candidateCell);
+            string n = renderer.name;
+            if (!n.StartsWith("Tile_", StringComparison.Ordinal) &&
+                !n.StartsWith("ShowTile_", StringComparison.Ordinal))
+                continue;
 
-            Vector3 localCenter = tile.transform.localPosition;
-            Bounds b = new(localCenter, new Vector3(localWidth, localHeight, 0.01f));
-            if (!initialized)
+            float size = Mathf.Min(
+                Mathf.Abs(renderer.bounds.size.x),
+                Mathf.Abs(renderer.bounds.size.y));
+            if (size >= 0.20f)
+                best = Mathf.Min(best, size);
+        }
+
+        if (!float.IsInfinity(best) && best <= 4f)
+            return best;
+
+        if (fallback != null)
+        {
+            float size = Mathf.Min(
+                Mathf.Abs(fallback.bounds.size.x),
+                Mathf.Abs(fallback.bounds.size.y));
+            if (size >= 0.25f && size <= 2f)
+                return size;
+        }
+
+        return Mathf.Max(0.25f, fallbackCellWorldSize);
+    }
+
+    private static MapBlock ResolveClosestOwner(Vector3 target, List<FloorSource> sources)
+    {
+        MapBlock best = null;
+        float bestDistance = float.PositiveInfinity;
+        HashSet<int> seen = new();
+
+        for (int i = 0; i < sources.Count; i++)
+        {
+            FloorSource source = sources[i];
+            MapBlock owner = source?.owner;
+            if (owner == null || !seen.Add(owner.GetInstanceID()))
+                continue;
+
+            float distance = (source.bounds.ClosestPoint(target) - target).sqrMagnitude;
+            if (distance >= bestDistance)
+                continue;
+
+            bestDistance = distance;
+            best = owner;
+        }
+
+        return best;
+    }
+
+    private int ComputeFieldSignature(List<FloorSource> sources)
+    {
+        unchecked
+        {
+            int sum = sources.Count * 486187739;
+            int xor = 0;
+            for (int i = 0; i < sources.Count; i++)
             {
-                localBounds = b;
-                initialized = true;
+                FloorSource source = sources[i];
+                Bounds b = source.bounds;
+                int h = 17;
+                h = h * 31 + Mathf.RoundToInt(b.center.x * 10f);
+                h = h * 31 + Mathf.RoundToInt(b.center.y * 10f);
+                h = h * 31 + Mathf.RoundToInt(b.size.x * 10f);
+                h = h * 31 + Mathf.RoundToInt(b.size.y * 10f);
+                if (source.owner != null)
+                    h = h * 31 + source.owner.GetInstanceID();
+                sum += h;
+                xor ^= h;
             }
+            return sum ^ (xor * 16777619);
+        }
+    }
+
+    private float ResolveOffscreenDistance(Bounds bounds, Vector2 direction)
+    {
+        Vector2 dir = Cardinalize(direction);
+        float distance = Mathf.Max(8f, minimumOffscreenRail);
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic)
+            return distance;
+
+        float halfHeight = camera.orthographicSize;
+        float halfWidth = halfHeight * Mathf.Max(0.1f, camera.aspect);
+        Vector3 center = camera.transform.position;
+        float margin = Mathf.Max(0.25f, offscreenMargin);
+
+        if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y))
+        {
+            if (dir.x >= 0f)
+                distance = Mathf.Max(distance, center.x + halfWidth + margin - bounds.min.x);
             else
-            {
-                localBounds.Encapsulate(b);
-            }
-
-            ParseTileCoordinate(tile.name, out int x, out int y);
-            maxColumn = Mathf.Max(maxColumn, x);
-            maxRow = Mathf.Max(maxRow, y);
+                distance = Mathf.Max(distance, bounds.max.x - (center.x - halfWidth - margin));
+        }
+        else
+        {
+            if (dir.y >= 0f)
+                distance = Mathf.Max(distance, center.y + halfHeight + margin - bounds.min.y);
+            else
+                distance = Mathf.Max(distance, bounds.max.y - (center.y - halfHeight - margin));
         }
 
-        if (!initialized)
-            return false;
-
-        geometry = new CarrierGeometry
-        {
-            localBounds = localBounds,
-            cell = Mathf.Max(0.01f, cell),
-            columns = Mathf.Max(1, maxColumn + 1),
-            rows = Mathf.Max(1, maxRow + 1)
-        };
-        return true;
+        return Mathf.Max(0.5f, distance);
     }
 
-    private void CreateFramePart(
-        Transform parent,
-        string objectName,
-        Sprite sprite,
-        Vector3 localPosition,
-        SpriteRenderer reference,
-        Color tint,
-        int sortingOrder,
-        float cell)
+    private static Vector3 ResolveContactPoint(Bounds bounds, Vector2 travelDirection)
     {
-        if (parent == null || sprite == null)
-            return;
-
-        GameObject go = new(objectName);
-        go.transform.SetParent(parent, false);
-        go.transform.localPosition = localPosition;
-
-        SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
-        renderer.sprite = sprite;
-        renderer.color = tint;
-        renderer.sharedMaterial = reference != null ? reference.sharedMaterial : null;
-        renderer.sortingLayerID = reference != null ? reference.sortingLayerID : 0;
-        renderer.sortingOrder = sortingOrder;
-
-        if (fitFramePartsToCell)
-            ScaleRendererToCell(renderer, cell);
+        Vector2 direction = travelDirection.sqrMagnitude > 0.001f
+            ? travelDirection.normalized
+            : Vector2.down;
+        float support = Mathf.Abs(direction.x) * bounds.extents.x +
+                        Mathf.Abs(direction.y) * bounds.extents.y;
+        return bounds.center + (Vector3)(direction * Mathf.Max(0f, support - 0.02f));
     }
 
-    private void CreateHorizontalFaceHandles(
-        Transform parent,
-        string prefix,
-        Sprite sprite,
-        float y,
-        float leftX,
-        float rightX,
-        SpriteRenderer reference,
-        Color tint,
-        int sortingOrder,
-        float cell)
+    private static Sprite PickFloorSprite(Sprite[] variants, Sprite fallback, System.Random random)
     {
-        if (sprite == null)
-            return;
+        if (variants == null || variants.Length == 0)
+            return fallback;
 
-        if (Mathf.Abs(rightX - leftX) < cell * 0.5f)
+        int start = random.Next(0, variants.Length);
+        for (int i = 0; i < variants.Length; i++)
         {
-            CreateFramePart(parent, prefix, sprite, new Vector3((leftX + rightX) * 0.5f, y, 0f), reference, tint, sortingOrder, cell);
-            return;
+            Sprite sprite = variants[(start + i) % variants.Length];
+            if (sprite != null)
+                return sprite;
         }
-
-        CreateFramePart(parent, prefix + "_L", sprite, new Vector3(leftX, y, 0f), reference, tint, sortingOrder, cell);
-        CreateFramePart(parent, prefix + "_R", sprite, new Vector3(rightX, y, 0f), reference, tint, sortingOrder, cell);
-    }
-
-    private void CreateVerticalFaceHandles(
-        Transform parent,
-        string prefix,
-        Sprite sprite,
-        float x,
-        float bottomY,
-        float topY,
-        SpriteRenderer reference,
-        Color tint,
-        int sortingOrder,
-        float cell)
-    {
-        if (sprite == null)
-            return;
-
-        if (Mathf.Abs(topY - bottomY) < cell * 0.5f)
-        {
-            CreateFramePart(parent, prefix, sprite, new Vector3(x, (bottomY + topY) * 0.5f, 0f), reference, tint, sortingOrder, cell);
-            return;
-        }
-
-        CreateFramePart(parent, prefix + "_B", sprite, new Vector3(x, bottomY, 0f), reference, tint, sortingOrder, cell);
-        CreateFramePart(parent, prefix + "_T", sprite, new Vector3(x, topY, 0f), reference, tint, sortingOrder, cell);
-    }
-
-    private static void ScaleRendererToCell(SpriteRenderer renderer, float cell)
-    {
-        if (renderer == null || renderer.sprite == null)
-            return;
-
-        Vector3 size = renderer.sprite.bounds.size;
-        float sx = cell / Mathf.Max(0.001f, size.x);
-        float sy = cell / Mathf.Max(0.001f, size.y);
-        renderer.transform.localScale = new Vector3(sx, sy, 1f);
+        return fallback;
     }
 
     private static Sprite ResolveLowerPlateSprite(BattleShowFloorTemplateSO template, int x, int columns)
@@ -538,104 +1121,119 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         return template.LowerPlateCenterSprite32;
     }
 
-    private static Sprite PickRandomSprite(Sprite[] sprites)
+    private static void CreateHorizontalFaceHandles(
+        Transform parent,
+        string prefix,
+        Sprite sprite,
+        float y,
+        float leftX,
+        float rightX,
+        SpriteRenderer reference,
+        Color tint,
+        int sortingOrder,
+        float cell)
     {
-        if (sprites == null || sprites.Length == 0)
-            return null;
-
-        int start = UnityEngine.Random.Range(0, sprites.Length);
-        for (int i = 0; i < sprites.Length; i++)
-        {
-            Sprite sprite = sprites[(start + i) % sprites.Length];
-            if (sprite != null)
-                return sprite;
-        }
-        return null;
-    }
-
-    private static bool HasAnySprite(Sprite[] sprites)
-    {
-        if (sprites == null)
-            return false;
-        for (int i = 0; i < sprites.Length; i++)
-            if (sprites[i] != null)
-                return true;
-        return false;
-    }
-
-    private static bool TryGetRendererBounds(Transform root, out Bounds bounds)
-    {
-        bounds = default;
-        if (root == null)
-            return false;
-
-        Renderer[] renderers = root.GetComponentsInChildren<Renderer>(true);
-        bool found = false;
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            Renderer renderer = renderers[i];
-            if (renderer == null || !renderer.enabled)
-                continue;
-
-            if (!found)
-            {
-                bounds = renderer.bounds;
-                found = true;
-            }
-            else
-            {
-                bounds.Encapsulate(renderer.bounds);
-            }
-        }
-        return found;
-    }
-
-    private static Transform FindDirectChildByPrefix(Transform parent, string prefix)
-    {
-        if (parent == null)
-            return null;
-        for (int i = 0; i < parent.childCount; i++)
-        {
-            Transform child = parent.GetChild(i);
-            if (child != null && child.name.StartsWith(prefix, StringComparison.Ordinal))
-                return child;
-        }
-        return null;
-    }
-
-    private static void RemoveExistingFrame(Transform visual)
-    {
-        if (visual == null)
-            return;
-        Transform old = visual.Find(FrameRootName);
-        if (old == null)
+        if (sprite == null)
             return;
 
-        old.name = FrameRootName + "_Removing";
-        old.gameObject.SetActive(false);
-        Destroy(old.gameObject);
+        if (Mathf.Abs(rightX - leftX) < cell * 0.5f)
+        {
+            CreateFramePart(parent, prefix, sprite, new Vector3(0f, y, 0f), reference, tint, sortingOrder, cell);
+            return;
+        }
+
+        CreateFramePart(parent, prefix + "_L", sprite, new Vector3(leftX, y, 0f), reference, tint, sortingOrder, cell);
+        CreateFramePart(parent, prefix + "_R", sprite, new Vector3(rightX, y, 0f), reference, tint, sortingOrder, cell);
     }
 
-    private static void ParseTileCoordinate(string objectName, out int x, out int y)
+    private static void CreateVerticalFaceHandles(
+        Transform parent,
+        string prefix,
+        Sprite sprite,
+        float x,
+        float bottomY,
+        float topY,
+        SpriteRenderer reference,
+        Color tint,
+        int sortingOrder,
+        float cell)
     {
-        x = 0;
-        y = 0;
-        if (string.IsNullOrEmpty(objectName) || !objectName.StartsWith(CarrierTilePrefix, StringComparison.Ordinal))
+        if (sprite == null)
             return;
 
-        string suffix = objectName.Substring(CarrierTilePrefix.Length);
-        string[] split = suffix.Split('_');
-        if (split.Length > 0)
-            int.TryParse(split[0], out x);
-        if (split.Length > 1)
-            int.TryParse(split[1], out y);
+        if (Mathf.Abs(topY - bottomY) < cell * 0.5f)
+        {
+            CreateFramePart(parent, prefix, sprite, new Vector3(x, 0f, 0f), reference, tint, sortingOrder, cell);
+            return;
+        }
+
+        CreateFramePart(parent, prefix + "_B", sprite, new Vector3(x, bottomY, 0f), reference, tint, sortingOrder, cell);
+        CreateFramePart(parent, prefix + "_T", sprite, new Vector3(x, topY, 0f), reference, tint, sortingOrder, cell);
     }
 
-    private struct CarrierGeometry
+    private static void CreateFramePart(
+        Transform parent,
+        string objectName,
+        Sprite sprite,
+        Vector3 localPosition,
+        SpriteRenderer reference,
+        Color tint,
+        int sortingOrder,
+        float cell)
     {
-        public Bounds localBounds;
-        public float cell;
-        public int columns;
-        public int rows;
+        if (parent == null || sprite == null)
+            return;
+
+        GameObject go = new(objectName);
+        go.transform.SetParent(parent, false);
+        go.transform.localPosition = localPosition;
+
+        SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
+        renderer.sprite = sprite;
+        renderer.color = tint;
+        renderer.sharedMaterial = reference.sharedMaterial;
+        renderer.sortingLayerID = reference.sortingLayerID;
+        renderer.sortingOrder = sortingOrder;
+        ScaleRendererToSize(renderer, cell, cell);
+    }
+
+    private static void ScaleRendererToSize(SpriteRenderer renderer, float width, float height)
+    {
+        if (renderer == null || renderer.sprite == null)
+            return;
+
+        Vector3 size = renderer.sprite.bounds.size;
+        renderer.transform.localScale = new Vector3(
+            width / Mathf.Max(0.001f, size.x),
+            height / Mathf.Max(0.001f, size.y),
+            1f);
+    }
+
+    private static Vector2 Cardinalize(Vector2 direction)
+    {
+        if (direction.sqrMagnitude <= 0.001f)
+            return Vector2.right;
+
+        return Mathf.Abs(direction.x) >= Mathf.Abs(direction.y)
+            ? (direction.x >= 0f ? Vector2.right : Vector2.left)
+            : (direction.y >= 0f ? Vector2.up : Vector2.down);
+    }
+
+    private static float RandomRange(System.Random random, float min, float max)
+    {
+        return max <= min ? min : min + (float)random.NextDouble() * (max - min);
+    }
+
+    private static float SnapToCell(float value, float cell)
+    {
+        float safe = Mathf.Max(0.01f, cell);
+        return Mathf.Round(value / safe) * safe;
+    }
+
+    private static string SafeName(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return "Decor";
+        return value.Replace('/', '_').Replace('\\', '_').Replace(' ', '_');
     }
 }
