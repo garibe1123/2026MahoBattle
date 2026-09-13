@@ -2,11 +2,12 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// Combat TAB PACK의 focus scale presentation만 담당합니다.
+/// Combat TAB PACK의 focus zoom presentation만 담당합니다.
 ///
-/// - GridBoard의 authoritative anchor / position은 BattleUnifiedInventoryInspectController가 그대로 소유합니다.
-/// - 이 클래스는 Combat TAB에서 Equipment Detail이 실제로 표시 중일 때 localScale만 후처리합니다.
-/// - PACK 전체가 확대되고, 현재 Detail을 띄우는 슬롯은 한 번 더 확대됩니다.
+/// - GridBoard의 authoritative anchor / layout은 BattleUnifiedInventoryInspectController가 그대로 소유합니다.
+/// - Combat TAB에서 Equipment Detail이 실제로 표시 중인 슬롯을 확대의 기준점으로 사용합니다.
+/// - 포커스 슬롯의 위치는 거의 고정된 채 PACK 전체가 그 칸을 중심으로 바깥쪽으로 확대됩니다.
+/// - 현재 Detail 대상 슬롯은 PACK 확대에 더해 한 번 더 크게 팝업됩니다.
 /// - Reward PACK / 슬롯 데이터 / Equip 규칙은 변경하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -23,15 +24,20 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
 
     [Header("COMBAT PACK FOCUS ZOOM")]
     [Tooltip("설명 패널이 떠 있는 동안 Combat PACK 전체 확대 배율입니다.")]
-    [SerializeField, Range(1.00f, 1.20f)] private float focusedBoardScale = 1.10f;
+    [SerializeField, Range(1.00f, 1.24f)] private float focusedBoardScale = 1.11f;
     [Tooltip("PACK 전체 확대에 더해 현재 설명 대상 슬롯에 추가로 적용되는 배율입니다.")]
-    [SerializeField, Range(1.00f, 1.18f)] private float focusedSlotScale = 1.08f;
+    [SerializeField, Range(1.00f, 1.25f)] private float focusedSlotScale = 1.16f;
     [Tooltip("확대/복귀 반응 속도입니다. 높을수록 빠르게 따라옵니다.")]
-    [SerializeField, Range(4f, 30f)] private float focusTweenSharpness = 15f;
+    [SerializeField, Range(4f, 30f)] private float focusTweenSharpness = 16f;
+    [Tooltip("커서를 다른 슬롯으로 옮겼을 때 확대 기준점이 새 슬롯으로 따라가는 속도입니다.")]
+    [SerializeField, Range(4f, 30f)] private float focusAnchorTweenSharpness = 20f;
 
     private RectTransform boardRoot;
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private float nextResolveAt;
+
+    private Vector3 focusAnchorLocal;
+    private bool focusAnchorInitialized;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void Bootstrap()
@@ -81,11 +87,13 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         ResolveReferences(true);
         ResolveBoard(true);
         nextResolveAt = 0f;
+        focusAnchorInitialized = false;
     }
 
     private void OnDisable()
     {
         RestoreScales();
+        focusAnchorInitialized = false;
     }
 
     private void OnDestroy()
@@ -112,25 +120,77 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         int focusSlot = ResolveFocusSlot(combatTabOpen);
         bool focused = focusSlot >= 0;
 
-        float t = 1f - Mathf.Exp(-Mathf.Max(4f, focusTweenSharpness) * Time.unscaledDeltaTime);
-        float boardTarget = focused ? Mathf.Max(1f, focusedBoardScale) : 1f;
-        float boardScale = Mathf.Lerp(boardRoot.localScale.x, boardTarget, t);
-        if (Mathf.Abs(boardScale - boardTarget) <= 0.001f)
-            boardScale = boardTarget;
-        boardRoot.localScale = Vector3.one * boardScale;
+        float scaleT = 1f - Mathf.Exp(-Mathf.Max(4f, focusTweenSharpness) * Time.unscaledDeltaTime);
+        float anchorT = 1f - Mathf.Exp(-Mathf.Max(4f, focusAnchorTweenSharpness) * Time.unscaledDeltaTime);
 
+        UpdateFocusAnchor(focusSlot, focused, anchorT);
+        ApplyBoardScaleAroundFocus(focused, scaleT);
+        ApplyFocusedSlotScale(focusSlot, focused, scaleT);
+    }
+
+    private void UpdateFocusAnchor(int focusSlot, bool focused, float t)
+    {
+        if (!focused || focusSlot < 0 || focusSlot >= SlotCount || slotRects[focusSlot] == null)
+            return;
+
+        Vector3 targetAnchor = slotRects[focusSlot].localPosition;
+        if (!focusAnchorInitialized)
+        {
+            focusAnchorLocal = targetAnchor;
+            focusAnchorInitialized = true;
+            return;
+        }
+
+        focusAnchorLocal = Vector3.Lerp(focusAnchorLocal, targetAnchor, t);
+        if ((focusAnchorLocal - targetAnchor).sqrMagnitude <= 0.01f)
+            focusAnchorLocal = targetAnchor;
+    }
+
+    private void ApplyBoardScaleAroundFocus(bool focused, float t)
+    {
+        // UnifiedInventory / CombatPresentation이 이 Controller보다 먼저 authoritative 위치를 적용합니다.
+        // 여기서 읽은 localPosition을 기준 위치로 보고, 확대 때문에 생기는 이동량만 마지막에 더합니다.
+        Vector3 authoritativeLocalPosition = boardRoot.localPosition;
+
+        float targetScale = focused ? Mathf.Max(1f, focusedBoardScale) : 1f;
+        float nextScale = Mathf.Lerp(boardRoot.localScale.x, targetScale, t);
+        if (Mathf.Abs(nextScale - targetScale) <= 0.001f)
+            nextScale = targetScale;
+
+        boardRoot.localScale = Vector3.one * nextScale;
+
+        if (!focusAnchorInitialized)
+            return;
+
+        // local point A를 기준으로 S배 확대할 때 pivot 이동량은 R * A * (1-S)입니다.
+        // 따라서 선택 슬롯의 중심은 화면상 거의 같은 자리에 남고 나머지 PACK이 그 칸에서 퍼져나갑니다.
+        Vector3 compensation = boardRoot.localRotation * (focusAnchorLocal * (1f - nextScale));
+        boardRoot.localPosition = authoritativeLocalPosition + compensation;
+
+        if (!focused && Mathf.Abs(nextScale - 1f) <= 0.001f)
+            focusAnchorInitialized = false;
+    }
+
+    private void ApplyFocusedSlotScale(int focusSlot, bool focused, float t)
+    {
         for (int i = 0; i < SlotCount; i++)
         {
             RectTransform slot = slotRects[i];
             if (slot == null)
                 continue;
 
-            float slotTarget = focused && i == focusSlot ? Mathf.Max(1f, focusedSlotScale) : 1f;
-            float slotScale = Mathf.Lerp(slot.localScale.x, slotTarget, t);
-            if (Mathf.Abs(slotScale - slotTarget) <= 0.001f)
-                slotScale = slotTarget;
-            slot.localScale = Vector3.one * slotScale;
+            bool isFocusedSlot = focused && i == focusSlot;
+            float targetScale = isFocusedSlot ? Mathf.Max(1f, focusedSlotScale) : 1f;
+            float nextScale = Mathf.Lerp(slot.localScale.x, targetScale, t);
+            if (Mathf.Abs(nextScale - targetScale) <= 0.001f)
+                nextScale = targetScale;
+
+            slot.localScale = Vector3.one * nextScale;
         }
+
+        // 커진 슬롯이 인접 칸 아래에 깔리지 않도록 현재 포커스 슬롯만 최상단으로 올립니다.
+        if (focused && focusSlot >= 0 && focusSlot < SlotCount && slotRects[focusSlot] != null)
+            slotRects[focusSlot].SetAsLastSibling();
     }
 
     private int ResolveFocusSlot(bool combatTabOpen)
