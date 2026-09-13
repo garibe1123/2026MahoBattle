@@ -23,6 +23,9 @@ public sealed class BattleCombatEmptyMoveDetailController : MonoBehaviour
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
 
     private BattleInventorySlotPointer[] slotPointers;
+    private readonly RectTransform[] swapPreviewFrames =
+        new RectTransform[BattleEquipmentSystem.MaxSlotCount];
+
     private RectTransform compareRoot;
     private CanvasGroup compareGroup;
     private CanvasGroup detailGroup;
@@ -67,6 +70,7 @@ public sealed class BattleCombatEmptyMoveDetailController : MonoBehaviour
         ResolveReferences(true);
         ResolveRuntimeUi(true);
         ResolveSlotPointers();
+        ResolveSwapPreviewFrames();
     }
 
     private void OnEnable()
@@ -74,6 +78,7 @@ public sealed class BattleCombatEmptyMoveDetailController : MonoBehaviour
         ResolveReferences(true);
         ResolveRuntimeUi(true);
         ResolveSlotPointers();
+        ResolveSwapPreviewFrames();
         nextResolveAt = 0f;
         lastSourceIndex = -1;
     }
@@ -89,11 +94,12 @@ public sealed class BattleCombatEmptyMoveDetailController : MonoBehaviour
 
         if (slotPointers == null || slotPointers.Length == 0)
             ResolveSlotPointers();
+        ResolveSwapPreviewFrames();
     }
 
     private void LateUpdate()
     {
-        if (!TryResolveEmptyMove(out int sourceIndex, out int targetIndex))
+        if (!TryResolveEmptyMove(out int sourceIndex, out _))
         {
             lastSourceIndex = -1;
             return;
@@ -191,6 +197,24 @@ public sealed class BattleCombatEmptyMoveDetailController : MonoBehaviour
             FindObjectsSortMode.None);
     }
 
+    private void ResolveSwapPreviewFrames()
+    {
+        RectTransform board = kineticLoadout != null ? kineticLoadout.GridBoard : null;
+        if (board == null)
+            return;
+
+        for (int i = 0; i < swapPreviewFrames.Length; i++)
+        {
+            if (swapPreviewFrames[i] != null)
+                continue;
+
+            RectTransform slot = board.Find($"GridSlot_{i}") as RectTransform;
+            swapPreviewFrames[i] = slot != null
+                ? slot.Find("CombatSwapPreviewFrame") as RectTransform
+                : null;
+        }
+    }
+
     private void ResolveReferences(bool force)
     {
         if (force || runManager == null)
@@ -221,20 +245,24 @@ public sealed class BattleCombatEmptyMoveDetailController : MonoBehaviour
         compareGroup = compareRoot != null ? compareRoot.GetComponent<CanvasGroup>() : null;
     }
 
-    private static void HideSwapPreviewFrames()
+    private void HideSwapPreviewFrames()
     {
-        RectTransform[] all = FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+        RectTransform board = kineticLoadout != null ? kineticLoadout.GridBoard : null;
+        if (board == null)
+            return;
 
-        for (int i = 0; i < all.Length; i++)
+        for (int i = 0; i < swapPreviewFrames.Length; i++)
         {
-            RectTransform rect = all[i];
-            if (rect == null || rect.name != "CombatSwapPreviewFrame")
-                continue;
+            RectTransform frame = swapPreviewFrames[i];
+            if (frame == null)
+            {
+                RectTransform slot = board.Find($"GridSlot_{i}") as RectTransform;
+                frame = slot != null ? slot.Find("CombatSwapPreviewFrame") as RectTransform : null;
+                swapPreviewFrames[i] = frame;
+            }
 
-            if (rect.gameObject.activeSelf)
-                rect.gameObject.SetActive(false);
+            if (frame != null && frame.gameObject.activeSelf)
+                frame.gameObject.SetActive(false);
         }
     }
 }
