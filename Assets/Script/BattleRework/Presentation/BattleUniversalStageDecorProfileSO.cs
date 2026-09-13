@@ -19,6 +19,9 @@ public enum BattleUniversalStageDecorCategory
 /// <summary>
 /// 모든 Field Scene에서 공용으로 사용하는 촬영장 치장물 풀입니다.
 /// Chair는 Reward / Map Show 전용으로 남겨 두기 위해 Universal Field Dressing에서는 자동 제외됩니다.
+///
+/// Scene의 SpriteManager에 저장된 BattleUniversalStageDecorSceneConfig가 직접 Sprite/Prefab 소스를 가지고 있는 경우,
+/// 런타임에 이 SO의 transient instance를 만들어 기존 Universal Dressing 파이프라인에 그대로 공급할 수 있습니다.
 /// </summary>
 [CreateAssetMenu(menuName = "MahoBattle/Presentation/Universal Stage Decor Profile", fileName = "BattleUniversalStageDecorProfile")]
 public sealed class BattleUniversalStageDecorProfileSO : ScriptableObject
@@ -28,6 +31,27 @@ public sealed class BattleUniversalStageDecorProfileSO : ScriptableObject
 
     public float CellWorldSize => Mathf.Max(0.25f, cellWorldSize);
     public IReadOnlyList<BattleUniversalStageDecorEntry> Entries => entries;
+
+    /// <summary>
+    /// Scene에 직렬화된 직접 소스들을 기존 Profile 소비 경로로 넘기기 위한 runtime-only 설정 API입니다.
+    /// Asset 원본에는 사용하지 않고 ScriptableObject.CreateInstance로 생성한 transient profile에만 사용합니다.
+    /// </summary>
+    public void ConfigureRuntime(float cellSize, IList<BattleUniversalStageDecorEntry> runtimeEntries)
+    {
+        cellWorldSize = Mathf.Max(0.25f, cellSize);
+        entries ??= new List<BattleUniversalStageDecorEntry>();
+        entries.Clear();
+
+        if (runtimeEntries == null)
+            return;
+
+        for (int i = 0; i < runtimeEntries.Count; i++)
+        {
+            BattleUniversalStageDecorEntry entry = runtimeEntries[i];
+            if (entry != null)
+                entries.Add(entry);
+        }
+    }
 }
 
 [Serializable]
@@ -68,6 +92,36 @@ public sealed class BattleUniversalStageDecorEntry
     public bool RandomFlipX => randomFlipX;
     public bool AllowHalfTurn => allowHalfTurn;
     public bool HasVisual => sprite != null || prefab != null;
+
+    public static BattleUniversalStageDecorEntry CreateRuntime(
+        string sourceLabel,
+        BattleUniversalStageDecorCategory sourceCategory,
+        Sprite sourceSprite,
+        GameObject sourcePrefab,
+        Vector2Int sourceFootprint,
+        int sourceWeight = 1,
+        Vector2 sourceLocalOffset = default,
+        Vector2 sourceLocalScale = default,
+        int sourceSortingOrderOffset = 12,
+        bool sourceRandomFlipX = false,
+        bool sourceAllowHalfTurn = true)
+    {
+        BattleUniversalStageDecorEntry entry = new();
+        entry.label = string.IsNullOrWhiteSpace(sourceLabel) ? sourceCategory.ToString() : sourceLabel;
+        entry.category = sourceCategory;
+        entry.sprite = sourceSprite;
+        entry.prefab = sourcePrefab;
+        entry.footprint = ResolveFootprint(sourceFootprint);
+        entry.weight = Mathf.Max(1, sourceWeight);
+        entry.localOffset = sourceLocalOffset;
+        entry.localScale = new Vector2(
+            Mathf.Approximately(sourceLocalScale.x, 0f) ? 1f : sourceLocalScale.x,
+            Mathf.Approximately(sourceLocalScale.y, 0f) ? 1f : sourceLocalScale.y);
+        entry.sortingOrderOffset = sourceSortingOrderOffset;
+        entry.randomFlipX = sourceRandomFlipX;
+        entry.allowHalfTurn = sourceAllowHalfTurn;
+        return entry;
+    }
 
     public static Vector2Int ResolveFootprint(Vector2Int value)
     {
