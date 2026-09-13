@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 /// BattleSystems/SpriteManager:
 /// - Sprite / Show / Lighting / visual presentation 컴포넌트
 /// - Universal Stage Decor의 씬 저장용 Source Config
-/// - Universal Stage Decor Carrier 전용 Floor SO / Frame / Auto Fit 설정
+/// - Universal Stage Decor Carrier 전용 Floor SO / Frame / Auto Fit / Cable Underlay 설정
 ///
 /// BattleSystems/BattleTemplate:
 /// - Persistent 4x4 전투 Base Template
@@ -86,6 +86,7 @@ public static class BattleSpriteManagerOrganizer
         // Runtime Manager는 DontDestroy 공용 Host로 유지하고, SpriteManager에는 Scene에 저장되는 Source / Skin 설정만 둡니다.
         changed |= EnsureOnSpriteManager<BattleUniversalStageDecorSceneConfig>(manager, spriteRoot);
         changed |= EnsureOnSpriteManager<BattleUniversalStageDecorCarrierSkinController>(manager, spriteRoot);
+        changed |= EnsureOnSpriteManager<BattleUniversalStageDecorCableUnderlayController>(manager, spriteRoot);
 
         // Lighting / screen presentation
         changed |= EnsureOnSpriteManager<BattleCombatLightPolicyController>(manager, spriteRoot);
