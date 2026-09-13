@@ -9,6 +9,8 @@ using UnityEngine.UI;
 /// - LIVE / Viewers / Likes는 전투 중 우측 상단에 항상 유지합니다.
 /// - 평소에는 작은 Metric Bar, TAB을 열면 같은 자리에서 부드럽게 확대합니다.
 /// - FAN MISSION 아래에 방송 스타일 Live Chat을 표시합니다.
+/// - 실제 Viewer가 0명일 때는 채팅을 생성하지 않습니다.
+/// - 0명 구간에서는 표시용 1~2명 유입이 간헐적으로 들어왔다가 빠지며, 가끔 짧은 이탈성 댓글을 남깁니다.
 /// - Combat TAB의 PACK은 GridBoard 자체가 아니라 BroadcastPackDock 부모를 좌측 Rail에 맞춰 이동합니다.
 /// - Equipment Detail은 PACK 가까이에 붙이고, 우측 Mission / Chat 포커스 중에는 숨깁니다.
 /// - 우측 하단 CurrentLoadoutChip의 빨간 AccentSlash 장식은 숨깁니다.
@@ -73,6 +75,26 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         "clean swap, keep going"
     };
 
+    private static readonly string[] DriveByChatNames =
+    {
+        "guest_031",
+        "지나가던사람",
+        "wrong_tab",
+        "noSignal",
+        "ㅇㅇ",
+        "justPassing"
+    };
+
+    private static readonly string[] DriveByChatComments =
+    {
+        "아 잘못 들어왔네",
+        "아 노잼",
+        "뭐야 아무도 없네",
+        "잘못 눌렀다 ㅂㅂ",
+        "음... 그냥 나갈게",
+        "이 방송 뭐 하는 데임?"
+    };
+
     private static readonly string[] PreferredMultilingualFonts =
     {
         "Malgun Gothic",
@@ -100,6 +122,18 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField, Range(20f, 90f)] private float zeroViewerChatInterval = ZeroViewerChatInterval;
     [SerializeField, Range(0.35f, 4f)] private float highViewerChatInterval = HighViewerChatInterval;
     [SerializeField, Range(3, 7)] private int maxChatLines = MaxChatLines;
+
+    [Header("ZERO VIEWER — AMBIENT DROP-IN")]
+    [Tooltip("실제 Viewer가 0명일 때 1~2명이 들어오기까지의 최소 대기 시간입니다.")]
+    [SerializeField, Range(2f, 30f)] private float ambientViewerIdleMin = 6f;
+    [Tooltip("실제 Viewer가 0명일 때 1~2명이 들어오기까지의 최대 대기 시간입니다.")]
+    [SerializeField, Range(3f, 45f)] private float ambientViewerIdleMax = 15f;
+    [Tooltip("들어온 1~2명이 머무는 최소 시간입니다.")]
+    [SerializeField, Range(1f, 12f)] private float ambientViewerStayMin = 3f;
+    [Tooltip("들어온 1~2명이 머무는 최대 시간입니다.")]
+    [SerializeField, Range(2f, 20f)] private float ambientViewerStayMax = 7f;
+    [Tooltip("짧게 들어온 Viewer가 이탈성 댓글 하나를 남길 확률입니다.")]
+    [SerializeField, Range(0f, 1f)] private float ambientDriveByCommentChance = 0.48f;
 
     private RectTransform fullRoot;
     private RectTransform packDockRoot;
@@ -130,6 +164,14 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private int chatSequence;
     private float nextChatAt;
     private float nextResolveAt;
+
+    private bool ambientViewerScheduled;
+    private int ambientViewerCount;
+    private float nextAmbientViewerAt;
+    private float ambientViewerLeaveAt;
+    private bool ambientCommentPending;
+    private int ambientSequence;
+    private int driveByChatSequence;
 
     private static Font multilingualFont;
 
@@ -182,12 +224,14 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         nextChatAt = 0f;
         rightPanelFocused = false;
         packDockTweenInitialized = false;
+        ResetAmbientAudience();
     }
 
     private void OnDisable()
     {
         rightPanelFocused = false;
         packDockTweenInitialized = false;
+        ResetAmbientAudience();
         RestoreDetailSorting();
         SetChatVisible(false);
         SetMetricVisible(false);
@@ -204,6 +248,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         bool combatActive = IsCombatActive();
+        UpdateAmbientAudience(combatActive);
+
         bool tabOpen = IsCombatTabOpen();
         UpdateMetricOverlay(combatActive, tabOpen);
 
@@ -368,13 +414,79 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         metricViewersText ??= metricBar != null ? metricBar.Find("Viewers/Count")?.GetComponent<Text>() : null;
         metricLikesText ??= metricBar != null ? metricBar.Find("Likes/Count")?.GetComponent<Text>() : null;
 
-        string viewers = Mathf.Max(0, runProgress.Viewers).ToString("N0");
+        string viewers = CurrentViewers.ToString("N0");
         string likes = Mathf.Max(0, runProgress.Likes).ToString("N0");
 
         if (metricViewersText != null && metricViewersText.text != viewers)
             metricViewersText.text = viewers;
         if (metricLikesText != null && metricLikesText.text != likes)
             metricLikesText.text = likes;
+    }
+
+    private void UpdateAmbientAudience(bool combatActive)
+    {
+        if (!combatActive || runProgress == null)
+        {
+            ResetAmbientAudience();
+            return;
+        }
+
+        if (runProgress.Viewers > 0)
+        {
+            ResetAmbientAudience();
+            return;
+        }
+
+        float now = Time.unscaledTime;
+        if (!ambientViewerScheduled)
+        {
+            ambientViewerScheduled = true;
+            nextAmbientViewerAt = now + NextAmbientRange(ambientViewerIdleMin, ambientViewerIdleMax);
+        }
+
+        if (ambientViewerCount > 0)
+        {
+            if (now < ambientViewerLeaveAt)
+                return;
+
+            ambientViewerCount = 0;
+            ambientCommentPending = false;
+            nextAmbientViewerAt = now + NextAmbientRange(ambientViewerIdleMin, ambientViewerIdleMax);
+            return;
+        }
+
+        if (now < nextAmbientViewerAt)
+            return;
+
+        ambientViewerCount = NextAmbient01() < 0.72f ? 1 : 2;
+        ambientViewerLeaveAt = now + NextAmbientRange(ambientViewerStayMin, ambientViewerStayMax);
+        ambientCommentPending = NextAmbient01() < Mathf.Clamp01(ambientDriveByCommentChance);
+    }
+
+    private void ResetAmbientAudience()
+    {
+        ambientViewerScheduled = false;
+        ambientViewerCount = 0;
+        nextAmbientViewerAt = 0f;
+        ambientViewerLeaveAt = 0f;
+        ambientCommentPending = false;
+    }
+
+    private float NextAmbientRange(float min, float max)
+    {
+        min = Mathf.Max(0f, min);
+        max = Mathf.Max(min, max);
+        return Mathf.Lerp(min, max, NextAmbient01());
+    }
+
+    private float NextAmbient01()
+    {
+        unchecked
+        {
+            ambientSequence++;
+            int hash = ambientSequence * 1103515245 + 12345;
+            return (hash & 0x7fffffff) / (float)int.MaxValue;
+        }
     }
 
     private void RemoveCompactAccentSlash()
@@ -636,11 +748,17 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatGroup.interactable = false;
     }
 
-    private int CurrentViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+    private int BaseViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+    private bool IsAmbientViewerVisit => BaseViewers <= 0 && ambientViewerCount > 0;
+    private int CurrentViewers => BaseViewers > 0 ? BaseViewers : Mathf.Max(0, ambientViewerCount);
 
     private void SeedChatIfNeeded()
     {
         if (chatBody == null)
+            return;
+
+        int viewers = CurrentViewers;
+        if (viewers <= 0 || IsAmbientViewerVisit)
             return;
 
         if (chatHistory.Count > 0)
@@ -649,8 +767,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
         }
 
-        int viewers = CurrentViewers;
-        int seedCount = viewers >= 1000 ? 5 : viewers >= 100 ? 4 : viewers >= 10 ? 3 : 2;
+        int seedCount = viewers >= 1000 ? 5 : viewers >= 100 ? 4 : viewers >= 10 ? 3 : 1;
         seedCount = Mathf.Min(seedCount, Mathf.Clamp(maxChatLines, 3, 7));
 
         for (int i = 0; i < seedCount; i++)
@@ -664,6 +781,20 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (chatBody == null)
             return;
 
+        int viewers = CurrentViewers;
+        if (viewers <= 0)
+            return;
+
+        if (IsAmbientViewerVisit)
+        {
+            if (ambientCommentPending)
+            {
+                AppendDriveByChatLine();
+                ambientCommentPending = false;
+            }
+            return;
+        }
+
         SeedChatIfNeeded();
         if (Time.unscaledTime < nextChatAt)
             return;
@@ -674,19 +805,27 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void ScheduleNextChat()
     {
-        nextChatAt = Time.unscaledTime + CalculateViewerPacedInterval(CurrentViewers);
+        int viewers = CurrentViewers;
+        if (viewers <= 0)
+        {
+            nextChatAt = float.PositiveInfinity;
+            return;
+        }
+
+        nextChatAt = Time.unscaledTime + CalculateViewerPacedInterval(viewers);
     }
 
     private float CalculateViewerPacedInterval(int viewers)
     {
         viewers = Mathf.Max(0, viewers);
+        if (viewers <= 0)
+            return float.PositiveInfinity;
+
         float slow = Mathf.Max(20f, zeroViewerChatInterval);
         float fast = Mathf.Clamp(highViewerChatInterval, 0.35f, 4f);
         float baseInterval;
 
-        if (viewers <= 0)
-            baseInterval = slow;
-        else if (viewers < 10)
+        if (viewers < 10)
             baseInterval = Mathf.Lerp(slow * 0.78f, 24f, viewers / 10f);
         else if (viewers < 100)
             baseInterval = Mathf.Lerp(24f, 10f, (viewers - 10f) / 90f);
@@ -708,6 +847,22 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         string comment = ChatComments[index];
         chatSequence++;
 
+        AppendChatLine(nickname, comment);
+    }
+
+    private void AppendDriveByChatLine()
+    {
+        int count = Mathf.Min(DriveByChatNames.Length, DriveByChatComments.Length);
+        if (count <= 0)
+            return;
+
+        int index = driveByChatSequence % count;
+        driveByChatSequence++;
+        AppendChatLine(DriveByChatNames[index], DriveByChatComments[index]);
+    }
+
+    private void AppendChatLine(string nickname, string comment)
+    {
         chatHistory.Add($"<color=#19E0F2><b>{nickname}</b></color>  {comment}");
 
         int keep = Mathf.Clamp(maxChatLines, 3, 7);
