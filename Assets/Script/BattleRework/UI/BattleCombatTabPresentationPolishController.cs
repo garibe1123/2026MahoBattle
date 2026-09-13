@@ -8,6 +8,7 @@ using UnityEngine.UI;
 /// Combat TAB의 최종 Presentation 보정만 담당합니다.
 ///
 /// 범위:
+/// - PACK Grid를 Combat TAB에서만 약간 오른쪽으로 보정합니다.
 /// - PACK 선택 장비 Detail을 Grid 쪽으로 당기고, FAN MISSION보다 위에 렌더합니다.
 /// - FAN MISSION 아래에는 배경 없는 Text-only 채팅을 표시합니다.
 /// - 채팅 발생 속도는 RunProgressSystem.Viewers에 비례합니다.
@@ -50,8 +51,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         "clipHunter"
     };
 
-    // 일부러 여러 언어를 섞습니다. 현재 프로젝트에는 전용 다국어 Font Asset이 없으므로
-    // Runtime에서는 OS의 다국어 Font를 우선 사용하고 없으면 Unity 기본 Font로 fallback 합니다.
     private static readonly string[] ChatComments =
     {
         "that PACK is getting scary",
@@ -83,6 +82,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
     [SerializeField] private BattleBroadcastDashboardController dashboardController;
+
+    [Header("COMBAT PACK POSITION")]
+    [Tooltip("Combat TAB이 열려 있을 때 GridBoard를 기존 authoritative anchor 기준에서 오른쪽으로 추가 이동시키는 픽셀 값입니다. Reward PACK에는 적용하지 않습니다.")]
+    [SerializeField, Range(-240f, 320f)] private float combatPackRightShift = 110f;
 
     [Header("LIVE CHAT — VIEWER PACED")]
     [Tooltip("시청자가 0명일 때 채팅 한 줄이 새로 생기는 기본 간격입니다. 거의 멈춘 상태를 의도합니다.")]
@@ -129,14 +132,15 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private static void TryInstall()
     {
-        if (Object.FindFirstObjectByType<BattleCombatTabPresentationPolishController>(FindObjectsInactive.Include) != null)
+        if (UnityEngine.Object.FindFirstObjectByType<BattleCombatTabPresentationPolishController>(FindObjectsInactive.Include) != null)
             return;
 
         BattleBroadcastDashboardController dashboard =
-            Object.FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
+            UnityEngine.Object.FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
         BattleKineticLoadoutUI loadout =
-            Object.FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
-        BattleRunManager run = Object.FindFirstObjectByType<BattleRunManager>(FindObjectsInactive.Include);
+            UnityEngine.Object.FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
+        BattleRunManager run =
+            UnityEngine.Object.FindFirstObjectByType<BattleRunManager>(FindObjectsInactive.Include);
 
         GameObject host = dashboard != null
             ? dashboard.gameObject
@@ -167,7 +171,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         RestoreDetailSorting();
         SetChatVisible(false);
 
-        // 이 보정 컴포넌트 자체가 꺼지는 경우에는 원래 Dashboard Metric Bar를 복구합니다.
         if (legacyMetricBar != null)
             legacyMetricBar.gameObject.SetActive(true);
     }
@@ -204,6 +207,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         ResolveDashboardUi();
         EnsureMetricText();
         EnsureChatPanel();
+        ApplyCombatPackPosition();
         ApplyDetailPresentation();
         ApplyMetricLayout();
         ApplyChatLayout();
@@ -264,6 +268,17 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             if (chatPanel != null)
                 ResolveExistingChatPanel();
         }
+    }
+
+    private void ApplyCombatPackPosition()
+    {
+        if (kineticLoadout == null || kineticLoadout.GridBoard == null)
+            return;
+
+        RectTransform board = kineticLoadout.GridBoard;
+        Vector2 target = new(combatPackRightShift, 0f);
+        if ((board.anchoredPosition - target).sqrMagnitude > 0.001f)
+            board.anchoredPosition = target;
     }
 
     private void ApplyDetailPresentation()
@@ -371,29 +386,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             chatPanel.pivot = Vector2.one;
             chatPanel.localRotation = Quaternion.identity;
             chatPanel.SetAsLastSibling();
-
-            chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
-            chatGroup.alpha = 0f;
-            chatGroup.blocksRaycasts = false;
-            chatGroup.interactable = false;
-
-            chatBody = CreateText(chatPanel, string.Empty, 14, FontStyle.Normal, TextAnchor.UpperLeft,
-                new Color(0.94f, 0.95f, 0.97f, 0.96f), "Body", ResolveMultilingualFont());
-            Stretch(chatBody.rectTransform);
-            chatBody.horizontalOverflow = HorizontalWrapMode.Wrap;
-            chatBody.verticalOverflow = VerticalWrapMode.Truncate;
-            chatBody.lineSpacing = 1.15f;
-            chatBody.supportRichText = true;
-
-            Shadow shadow = chatBody.gameObject.AddComponent<Shadow>();
-            shadow.effectColor = new Color(0f, 0f, 0f, 0.82f);
-            shadow.effectDistance = new Vector2(1.5f, -1.5f);
-        }
-        else
-        {
-            ResolveExistingChatPanel();
         }
 
+        ResolveExistingChatPanel();
         StripLegacyChatChrome();
         SeedChatIfNeeded();
         ApplyChatLayout();
@@ -404,22 +399,38 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (chatPanel == null)
             return;
 
+        chatPanel.SetAsLastSibling();
+
         chatGroup = chatPanel.GetComponent<CanvasGroup>();
         if (chatGroup == null)
         {
             chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
+            chatGroup.alpha = 0f;
             chatGroup.blocksRaycasts = false;
             chatGroup.interactable = false;
         }
 
         chatBody = chatPanel.Find("Body")?.GetComponent<Text>();
-        if (chatBody != null)
+        if (chatBody == null)
         {
-            chatBody.font = ResolveMultilingualFont();
-            chatBody.fontSize = 14;
-            chatBody.alignment = TextAnchor.UpperLeft;
-            Stretch(chatBody.rectTransform);
+            chatBody = CreateText(chatPanel, string.Empty, 14, FontStyle.Normal, TextAnchor.UpperLeft,
+                new Color(0.94f, 0.95f, 0.97f, 0.96f), "Body", ResolveMultilingualFont());
+
+            Shadow shadow = chatBody.gameObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.82f);
+            shadow.effectDistance = new Vector2(1.5f, -1.5f);
         }
+
+        chatBody.font = ResolveMultilingualFont();
+        chatBody.fontSize = 14;
+        chatBody.fontStyle = FontStyle.Normal;
+        chatBody.alignment = TextAnchor.UpperLeft;
+        chatBody.horizontalOverflow = HorizontalWrapMode.Wrap;
+        chatBody.verticalOverflow = VerticalWrapMode.Truncate;
+        chatBody.lineSpacing = 1.15f;
+        chatBody.supportRichText = true;
+        chatBody.raycastTarget = false;
+        Stretch(chatBody.rectTransform);
     }
 
     private void StripLegacyChatChrome()
@@ -470,6 +481,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void SetChatVisible(bool visible)
     {
+        if (chatPanel != null && chatPanel.gameObject.activeSelf != visible)
+            chatPanel.gameObject.SetActive(visible);
+
         if (chatGroup == null)
             return;
 
@@ -491,8 +505,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
         }
 
-        // 0명이어도 완전히 빈 UI처럼 보이지 않도록 오래된 한 줄만 남겨 둡니다.
-        // 이후 새 채팅은 0명 기준 약 45초 간격이라 사실상 정지에 가깝습니다.
         int viewers = CurrentViewers;
         int seedCount = viewers >= 1000 ? 4 : viewers >= 100 ? 3 : viewers >= 10 ? 2 : 1;
         seedCount = Mathf.Min(seedCount, Mathf.Clamp(maxChatLines, 3, 7));
@@ -549,7 +561,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             baseInterval = Mathf.Lerp(2.5f, fast, Mathf.Clamp01((viewers - 1000f) / 9000f));
         }
 
-        // Gameplay Random state를 건드리지 않도록 sequence/viewer 값으로 작은 deterministic jitter만 만듭니다.
         int hash = unchecked((chatSequence + 1) * 73856093 ^ (viewers + 17) * 19349663);
         float normalized = Mathf.Abs(hash % 1000) / 999f;
         float jitter = Mathf.Lerp(0.88f, 1.12f, normalized);
