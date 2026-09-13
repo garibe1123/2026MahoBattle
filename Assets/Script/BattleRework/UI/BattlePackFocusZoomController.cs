@@ -6,8 +6,9 @@ using UnityEngine.UI;
 /// Combat TAB PACK의 focus zoom / detail callout presentation을 담당합니다.
 ///
 /// - GridBoard의 authoritative anchor / layout은 BattleUnifiedInventoryInspectController가 그대로 소유합니다.
-/// - Combat TAB에서 현재 Inspect 슬롯을 확대 기준점으로 사용합니다.
-/// - 우측 Mission / Chat 포커스에서는 Detail alpha와 무관하게 Focus Zoom을 안정적으로 해제합니다.
+/// - Combat TAB에서는 BattleCombatHudInputBridge의 명시적인 Hover 슬롯만 확대 기준점으로 사용합니다.
+/// - 입력을 받는 GridSlot RectTransform 자체는 Scale / sibling 순서를 변경하지 않습니다.
+/// - 우측 Mission / Chat 포커스에서는 Focus Zoom을 안정적으로 해제합니다.
 /// - 포커스 슬롯과 Equipment Detail 사이에 말풍선 꼬리 형태의 삼각형 연결선을 표시합니다.
 /// - Reward PACK / 슬롯 데이터 / Equip 규칙은 변경하지 않습니다.
 /// </summary>
@@ -24,12 +25,11 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleUnifiedInventoryInspectController unifiedInspect;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
+    [SerializeField] private BattleCombatHudInputBridge inputBridge;
 
     [Header("COMBAT PACK FOCUS ZOOM")]
-    [Tooltip("설명 패널이 떠 있는 동안 Combat PACK 전체 확대 배율입니다.")]
+    [Tooltip("커서가 실제 아이템 슬롯 위에 있을 때 Combat PACK 전체 확대 배율입니다.")]
     [SerializeField, Range(1.00f, 1.24f)] private float focusedBoardScale = 1.11f;
-    [Tooltip("PACK 전체 확대에 더해 현재 설명 대상 슬롯에 추가로 적용되는 배율입니다.")]
-    [SerializeField, Range(1.00f, 1.25f)] private float focusedSlotScale = 1.16f;
     [Tooltip("확대/복귀 반응 속도입니다. 높을수록 빠르게 따라옵니다.")]
     [SerializeField, Range(4f, 30f)] private float focusTweenSharpness = 16f;
     [Tooltip("커서를 다른 슬롯으로 옮겼을 때 확대 기준점이 새 슬롯으로 따라가는 속도입니다.")]
@@ -152,7 +152,6 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
 
         UpdateFocusAnchor(focusSlot, focused, anchorT);
         ApplyBoardScaleAroundFocus(focused, scaleT);
-        ApplyFocusedSlotScale(focusSlot, focused, scaleT);
         UpdateDetailConnector(focusSlot, focused);
     }
 
@@ -170,17 +169,15 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         bool insideChat = chatPanel != null && chatPanel.gameObject.activeInHierarchy &&
                           RectTransformUtility.RectangleContainsScreenPoint(chatPanel, mouse, null);
 
-        // 우측 패널 위에서는 PACK의 현재 크기/경계와 상관없이 우측 포커스를 우선합니다.
-        // 확대된 PACK이 패널 아래까지 겹쳐도 Focus가 매 프레임 뒤집히지 않습니다.
         if (insideMission || insideChat)
         {
             rightPanelSuppressed = true;
             return;
         }
 
-        bool insidePack = boardRoot.gameObject.activeInHierarchy &&
-                          RectTransformUtility.RectangleContainsScreenPoint(boardRoot, mouse, null);
-        if (insidePack)
+        // PACK 판정은 확대된 Board Rect를 다시 계산하지 않고 실제 Pointer Enter/Exit 상태만 사용합니다.
+        // 따라서 Zoom 자체가 Hover 판정을 바꾸는 피드백 루프가 생기지 않습니다.
+        if (inputBridge != null && inputBridge.HoveredSlot >= 0)
         {
             rightPanelSuppressed = false;
             return;
@@ -220,8 +217,8 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
 
         boardRoot.localScale = Vector3.one * nextScale;
 
-        // Combat Grid의 authoritative anchoredPosition은 Unified/Polish 단계에서 항상 0입니다.
-        // 이전 프레임의 시각 보정 위치를 다시 읽어 누적하지 않고, 0을 기준으로 매 프레임 재계산합니다.
+        // 입력 슬롯의 Transform은 건드리지 않습니다. Board만 선택 슬롯 위치를 축으로 확대합니다.
+        // 기준 위치는 항상 anchoredPosition 0에서 재계산해 이전 프레임 보정이 누적되지 않게 합니다.
         Vector2 visualOffset = Vector2.zero;
         if (focusAnchorInitialized)
         {
@@ -238,39 +235,18 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
         }
     }
 
-    private void ApplyFocusedSlotScale(int focusSlot, bool focused, float t)
-    {
-        for (int i = 0; i < SlotCount; i++)
-        {
-            RectTransform slot = slotRects[i];
-            if (slot == null)
-                continue;
-
-            bool isFocusedSlot = focused && i == focusSlot;
-            float targetScale = isFocusedSlot ? Mathf.Max(1f, focusedSlotScale) : 1f;
-            float nextScale = Mathf.Lerp(slot.localScale.x, targetScale, t);
-            if (Mathf.Abs(nextScale - targetScale) <= 0.001f)
-                nextScale = targetScale;
-
-            slot.localScale = Vector3.one * nextScale;
-        }
-
-        if (focused && focusSlot >= 0 && focusSlot < SlotCount && slotRects[focusSlot] != null)
-            slotRects[focusSlot].SetAsLastSibling();
-    }
-
     private int ResolveFocusSlot(bool combatTabOpen)
     {
-        if (!combatTabOpen || rightPanelSuppressed || unifiedInspect == null || detailController == null)
+        if (!combatTabOpen || rightPanelSuppressed || inputBridge == null)
             return -1;
 
-        int active = unifiedInspect.ActiveInspectSlot;
-        if (active < 0 || active >= SlotCount || detailController.DisplayedSlot != active)
+        int hovered = inputBridge.HoveredSlot;
+        if (hovered < 0 || hovered >= SlotCount || slotRects[hovered] == null)
             return -1;
 
-        // Detail alpha는 BattleCombatTabPresentationPolishController가 우측 포커스에서 변경합니다.
-        // 여기서는 alpha를 Focus 조건으로 다시 사용하지 않아 두 시스템이 서로 토글시키는 루프를 막습니다.
-        return slotRects[active] != null ? active : -1;
+        // 마우스 포커스의 단일 소유자는 Pointer Enter/Exit 상태입니다.
+        // Detail alpha / SelectedIndex / Board bounds를 다시 읽어 판정을 뒤집지 않습니다.
+        return hovered;
     }
 
     private void UpdateDetailConnector(int focusSlot, bool focused)
@@ -393,6 +369,8 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
             unifiedInspect = FindFirstObjectByType<BattleUnifiedInventoryInspectController>(FindObjectsInactive.Include);
         if (force || detailController == null)
             detailController = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
+        if (force || inputBridge == null)
+            inputBridge = FindFirstObjectByType<BattleCombatHudInputBridge>(FindObjectsInactive.Include);
     }
 
     private void ResolveUi(bool force)
@@ -429,6 +407,7 @@ public sealed class BattlePackFocusZoomController : MonoBehaviour
             boardRoot.anchoredPosition = Vector2.zero;
         }
 
+        // 이전 버전이 GridSlot 자체를 확대했을 수 있으므로 종료 시 한 번만 정규화합니다.
         for (int i = 0; i < SlotCount; i++)
             if (slotRects[i] != null)
                 slotRects[i].localScale = Vector3.one;
