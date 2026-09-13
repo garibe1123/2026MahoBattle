@@ -11,7 +11,8 @@ using UnityEngine.UI;
 /// - Map 전용 Mask/RectMask를 잠시 풀어 가장자리 노드 잘림을 줄입니다.
 /// - 작은 노드 비주얼은 유지하면서 더 큰 투명 Pointer Hit Area를 사용합니다.
 /// - World Space Canvas의 GraphicRaycaster / worldCamera / CanvasGroup 입력 상태를 보강합니다.
-/// - 항상 화려한 장식 대신 selectable/current/hover 상태에만 강한 Accent를 사용합니다.
+/// - selectable/current/hover 상태에만 강한 Accent를 사용합니다.
+/// - Hover 시 노드가 커지고, 밝은 박스 + 어두운 아이콘/라벨로 반전되어 커서 위치를 즉시 읽을 수 있게 합니다.
 /// - 정적인 Map Frame/Hierarchy는 매 프레임 다시 쓰지 않고 진입/저주기 refresh 때만 갱신합니다.
 /// </summary>
 [DisallowMultipleComponent]
@@ -116,8 +117,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             wasMapActive = true;
         }
 
-        // 이 UI는 대부분 정적인 상태입니다. 이전처럼 Update + LateUpdate에서 같은 Graphic/Rect를
-        // 매 프레임 다시 쓰면 World Space TV Canvas가 계속 rebuild됩니다.
         ApplyMapFrame();
         MaintainInteraction();
         ApplyMapHierarchy();
@@ -389,6 +388,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
         if (selectable)
         {
+            image.enabled = true;
             image.color = inkColor;
             outline.effectColor = accent;
             outline.effectDistance = new Vector2(3f, -3f);
@@ -408,6 +408,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         }
         else if (current)
         {
+            image.enabled = true;
             image.color = new Color(
                 accentCyan.r * 0.28f,
                 accentCyan.g * 0.28f,
@@ -426,6 +427,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         }
         else
         {
+            image.enabled = true;
             image.color = new Color(0.10f, 0.105f, 0.13f, 0.92f);
             outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
             outline.effectDistance = new Vector2(1f, -1f);
@@ -673,19 +675,25 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
 /// <summary>
 /// 실제 노드는 작게 유지하고 Pointer Target만 넓게 잡습니다.
-/// Hover 때만 노드가 강하게 반응합니다.
+/// Hover 시 노드를 확대하고 박스/아이콘·라벨 명암을 반전합니다.
 /// </summary>
 internal sealed class BattleStageMapNodePointerFeedback :
     MonoBehaviour,
     IPointerEnterHandler,
     IPointerExitHandler
 {
+    private const float HoverScale = 1.18f;
+    private const float HoverScaleSharpness = 18f;
+
+    private RectTransform nodeRect;
     private Image nodeImage;
+    private Image nodeIcon;
     private Outline nodeOutline;
     private Text label;
     private Color accent;
     private Color baseColor;
     private Color paperColor;
+    private Color baseIconColor = Color.white;
     private string baseLabel = "STAGE";
     private bool hovered;
 
@@ -698,17 +706,46 @@ internal sealed class BattleStageMapNodePointerFeedback :
         Color textColor)
     {
         nodeImage = image;
+        nodeRect = image != null ? image.rectTransform : null;
         nodeOutline = outline;
         label = nodeLabel;
         accent = accentColor;
         baseColor = normalColor;
         paperColor = textColor;
 
+        Image resolvedIcon = FindNodeIcon(nodeRect, nodeImage);
+        if (resolvedIcon != nodeIcon)
+        {
+            nodeIcon = resolvedIcon;
+            if (nodeIcon != null)
+                baseIconColor = nodeIcon.color;
+        }
+        else if (!hovered && nodeIcon != null)
+        {
+            baseIconColor = nodeIcon.color;
+        }
+
         if (label != null)
             baseLabel = ExtractLabel(label.text);
 
         if (!hovered)
             ApplyNormal();
+        else
+            ApplyHover();
+    }
+
+    private void Update()
+    {
+        if (nodeRect == null)
+            return;
+
+        float targetScale = hovered ? HoverScale : 1f;
+        float t = 1f - Mathf.Exp(-HoverScaleSharpness * Time.unscaledDeltaTime);
+        Vector3 target = Vector3.one * targetScale;
+        nodeRect.localScale = Vector3.Lerp(nodeRect.localScale, target, t);
+
+        if ((nodeRect.localScale - target).sqrMagnitude <= 0.00001f)
+            nodeRect.localScale = target;
     }
 
     public void OnPointerEnter(PointerEventData eventData)
@@ -726,21 +763,34 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private void OnDisable()
     {
         hovered = false;
+        ApplyNormal();
+        if (nodeRect != null)
+            nodeRect.localScale = Vector3.one;
     }
 
     private void ApplyHover()
     {
         if (nodeImage != null)
-            nodeImage.color = accent;
+        {
+            nodeImage.enabled = true;
+            nodeImage.color = paperColor;
+        }
 
         if (nodeOutline != null)
         {
-            nodeOutline.effectColor = paperColor;
-            nodeOutline.effectDistance = new Vector2(6f, -6f);
+            nodeOutline.effectColor = accent;
+            nodeOutline.effectDistance = new Vector2(5f, -5f);
+        }
+
+        if (nodeIcon != null)
+        {
+            nodeIcon.enabled = true;
+            nodeIcon.color = baseColor;
         }
 
         if (label != null)
         {
+            label.gameObject.SetActive(true);
             label.text = baseLabel + "\nSELECT";
             label.color = baseColor;
             label.fontStyle = FontStyle.Bold;
@@ -750,7 +800,10 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private void ApplyNormal()
     {
         if (nodeImage != null)
+        {
+            nodeImage.enabled = true;
             nodeImage.color = baseColor;
+        }
 
         if (nodeOutline != null)
         {
@@ -758,12 +811,39 @@ internal sealed class BattleStageMapNodePointerFeedback :
             nodeOutline.effectDistance = new Vector2(3f, -3f);
         }
 
+        if (nodeIcon != null)
+        {
+            nodeIcon.enabled = true;
+            nodeIcon.color = baseIconColor;
+        }
+
         if (label != null)
         {
+            label.gameObject.SetActive(true);
             label.text = baseLabel;
             label.color = paperColor;
             label.fontStyle = FontStyle.Bold;
         }
+    }
+
+    private static Image FindNodeIcon(RectTransform node, Image rootImage)
+    {
+        if (node == null)
+            return null;
+
+        Image[] images = node.GetComponentsInChildren<Image>(true);
+        for (int i = 0; i < images.Length; i++)
+        {
+            Image candidate = images[i];
+            if (candidate == null || candidate == rootImage)
+                continue;
+            if (candidate.name == "MapPointerHitArea")
+                continue;
+            if (candidate.name.IndexOf("Icon", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                return candidate;
+        }
+
+        return null;
     }
 
     private static string ExtractLabel(string source)
