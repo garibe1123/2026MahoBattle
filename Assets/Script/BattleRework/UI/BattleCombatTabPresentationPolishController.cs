@@ -6,20 +6,22 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Combat TAB의 Presentation 보정만 담당합니다.
-/// - 기존 BroadcastMetricBar(LIVE / Viewers / Likes)는 그대로 유지합니다.
+/// - LIVE / Viewers / Likes는 전투 중 우측 상단에 항상 유지합니다.
+/// - 평소에는 작은 Metric Bar, TAB을 열면 같은 자리에서 부드럽게 확대합니다.
 /// - FAN MISSION 아래에 방송 스타일 Live Chat을 표시합니다.
-/// - Combat TAB의 PACK 위치를 보정합니다.
-/// - 우측 Mission / Chat 포커스 중에는 Equipment Detail을 숨깁니다.
+/// - Combat TAB의 PACK을 더 왼쪽으로 보정합니다.
+/// - Equipment Detail은 PACK 가까이에 붙이고, 우측 Mission / Chat 포커스 중에는 숨깁니다.
 /// - Reward / Equipment 데이터 소유권은 건드리지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33520)]
 public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 {
-    private const float DetailAnchorX = 0.72f;
+    private const float DetailAnchorX = 0.55f;
     private const float DetailAnchorY = 0.52f;
     private const float DetailScale = 0.92f;
     private const int DetailSortingPadding = 15;
+    private const int MetricSortingOrder = 1695;
 
     private const float ChatHeight = 184f;
     private const float ChatGap = 16f;
@@ -27,9 +29,16 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private const float HighViewerChatInterval = 0.70f;
     private const int MaxChatLines = 5;
 
-    // BattleBroadcastDashboardController의 Focus hysteresis와 동일한 기준을 사용합니다.
     private const float RightPanelEnterX = 0.61f;
     private const float RightPanelReturnX = 0.50f;
+
+    private static readonly Vector2 MetricCompactOffset = new(-24f, -22f);
+    private static readonly Vector2 MetricOpenOffset = new(-42f, -38f);
+    private const float MetricCompactScale = 0.68f;
+    private const float MetricOpenScale = 1f;
+    private const float MetricCompactRotation = -0.8f;
+    private const float MetricOpenRotation = -1.6f;
+    private const float MetricTweenSharpness = 13f;
 
     private static readonly string[] ChatNames =
     {
@@ -79,18 +88,23 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
 
     [Header("COMBAT PACK POSITION")]
-    [Tooltip("Combat TAB에서 PACK Grid를 authoritative anchor 기준으로 추가 이동시키는 X 값입니다. 값이 작을수록 더 왼쪽입니다.")]
-    [SerializeField, Range(-240f, 320f)] private float combatPackRightShift = 45f;
+    [Tooltip("Combat TAB에서 PACK Grid를 authoritative anchor 기준으로 추가 이동시키는 X 값입니다. 음수일수록 더 왼쪽입니다.")]
+    [SerializeField, Range(-240f, 320f)] private float combatPackRightShift = -90f;
 
     [Header("LIVE CHAT — VIEWER PACED")]
     [SerializeField, Range(20f, 90f)] private float zeroViewerChatInterval = ZeroViewerChatInterval;
     [SerializeField, Range(0.35f, 4f)] private float highViewerChatInterval = HighViewerChatInterval;
     [SerializeField, Range(3, 7)] private int maxChatLines = MaxChatLines;
 
+    private RectTransform fullRoot;
     private RectTransform dashboardRoot;
     private RectTransform missionPanel;
     private Canvas dashboardCanvas;
+
     private RectTransform metricBar;
+    private Canvas metricCanvas;
+    private Text metricViewersText;
+    private Text metricLikesText;
 
     private RectTransform chatPanel;
     private CanvasGroup chatGroup;
@@ -165,7 +179,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         rightPanelFocused = false;
         RestoreDetailSorting();
         SetChatVisible(false);
-        RestoreMetricFrame();
+        SetMetricVisible(false);
     }
 
     private void Update()
@@ -177,15 +191,17 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             ResolveDashboardUi();
         }
 
-        bool open = IsCombatTabOpen();
-        if (!open)
+        bool combatActive = IsCombatActive();
+        bool tabOpen = IsCombatTabOpen();
+        UpdateMetricOverlay(combatActive, tabOpen);
+
+        if (!tabOpen)
         {
             rightPanelFocused = false;
             SetChatVisible(false);
             return;
         }
 
-        RestoreMetricFrame();
         EnsureChatPanel();
         SetChatVisible(true);
         UpdateChatFeed();
@@ -201,7 +217,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         ResolveDashboardUi();
-        RestoreMetricFrame();
         EnsureChatPanel();
         UpdateRightPanelFocus();
         ApplyCombatPackPosition();
@@ -209,11 +224,14 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         ApplyChatLayout();
     }
 
+    private bool IsCombatActive()
+    {
+        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
+    }
+
     private bool IsCombatTabOpen()
     {
-        return runManager != null && runManager.RunActive &&
-               runManager.State == BattleRunState.Combat &&
-               kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
+        return IsCombatActive() && kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
     }
 
     private void ResolveReferences(bool force)
@@ -230,36 +248,113 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void ResolveDashboardUi()
     {
-        if (dashboardRoot == null)
+        if (fullRoot == null && kineticLoadout != null)
+            fullRoot = kineticLoadout.FullRoot;
+
+        if (dashboardRoot == null && fullRoot != null)
+            dashboardRoot = fullRoot.Find("BroadcastDashboard") as RectTransform;
+
+        if (dashboardRoot != null)
         {
-            RectTransform fullRoot = kineticLoadout != null ? kineticLoadout.FullRoot : null;
-            if (fullRoot != null)
-                dashboardRoot = fullRoot.Find("BroadcastDashboard") as RectTransform;
+            dashboardCanvas ??= dashboardRoot.GetComponent<Canvas>();
+            missionPanel ??= dashboardRoot.Find("MissionPanel") as RectTransform;
+
+            if (chatPanel == null)
+                chatPanel = dashboardRoot.Find("LiveChatPanel") as RectTransform;
         }
 
-        if (dashboardRoot == null)
-            return;
+        if (metricBar == null)
+        {
+            if (fullRoot != null)
+                metricBar = fullRoot.Find("BroadcastMetricBar") as RectTransform;
+            if (metricBar == null && dashboardRoot != null)
+                metricBar = dashboardRoot.Find("BroadcastMetricBar") as RectTransform;
+        }
 
-        dashboardCanvas ??= dashboardRoot.GetComponent<Canvas>();
-        missionPanel ??= dashboardRoot.Find("MissionPanel") as RectTransform;
-        metricBar ??= dashboardRoot.Find("BroadcastMetricBar") as RectTransform;
-
-        if (chatPanel == null)
-            chatPanel = dashboardRoot.Find("LiveChatPanel") as RectTransform;
+        EnsureMetricDetached();
     }
 
-    private void RestoreMetricFrame()
+    private void EnsureMetricDetached()
     {
-        if (dashboardRoot == null)
+        if (metricBar == null || fullRoot == null)
             return;
 
-        metricBar ??= dashboardRoot.Find("BroadcastMetricBar") as RectTransform;
-        if (metricBar != null && !metricBar.gameObject.activeSelf)
-            metricBar.gameObject.SetActive(true);
+        if (metricBar.parent != fullRoot)
+            metricBar.SetParent(fullRoot, false);
 
-        Transform textOnlyMetric = dashboardRoot.Find("BroadcastMetricText");
+        metricBar.anchorMin = metricBar.anchorMax = Vector2.one;
+        metricBar.pivot = Vector2.one;
+        metricBar.SetAsLastSibling();
+
+        metricCanvas = metricBar.GetComponent<Canvas>();
+        if (metricCanvas == null)
+            metricCanvas = metricBar.gameObject.AddComponent<Canvas>();
+        metricCanvas.overrideSorting = true;
+        metricCanvas.sortingOrder = MetricSortingOrder;
+
+        metricViewersText ??= metricBar.Find("Viewers/Count")?.GetComponent<Text>();
+        metricLikesText ??= metricBar.Find("Likes/Count")?.GetComponent<Text>();
+
+        Transform textOnlyMetric = dashboardRoot != null ? dashboardRoot.Find("BroadcastMetricText") : null;
         if (textOnlyMetric != null && textOnlyMetric.gameObject.activeSelf)
             textOnlyMetric.gameObject.SetActive(false);
+    }
+
+    private void UpdateMetricOverlay(bool combatActive, bool tabOpen)
+    {
+        if (metricBar == null)
+        {
+            ResolveDashboardUi();
+            if (metricBar == null)
+                return;
+        }
+
+        SetMetricVisible(combatActive);
+        if (!combatActive)
+            return;
+
+        EnsureMetricDetached();
+        UpdateMetricCounts();
+
+        float t = 1f - Mathf.Exp(-MetricTweenSharpness * Time.unscaledDeltaTime);
+        Vector2 targetPosition = tabOpen ? MetricOpenOffset : MetricCompactOffset;
+        float targetScale = tabOpen ? MetricOpenScale : MetricCompactScale;
+        float targetRotation = tabOpen ? MetricOpenRotation : MetricCompactRotation;
+
+        metricBar.anchoredPosition = Vector2.Lerp(metricBar.anchoredPosition, targetPosition, t);
+        metricBar.localScale = Vector3.Lerp(metricBar.localScale, Vector3.one * targetScale, t);
+
+        float currentRotation = NormalizeAngle(metricBar.localEulerAngles.z);
+        float nextRotation = Mathf.LerpAngle(currentRotation, targetRotation, t);
+        metricBar.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
+    }
+
+    private void SetMetricVisible(bool visible)
+    {
+        if (metricBar != null && metricBar.gameObject.activeSelf != visible)
+            metricBar.gameObject.SetActive(visible);
+    }
+
+    private void UpdateMetricCounts()
+    {
+        if (runProgress == null)
+            return;
+
+        metricViewersText ??= metricBar != null ? metricBar.Find("Viewers/Count")?.GetComponent<Text>() : null;
+        metricLikesText ??= metricBar != null ? metricBar.Find("Likes/Count")?.GetComponent<Text>() : null;
+
+        string viewers = Mathf.Max(0, runProgress.Viewers).ToString("N0");
+        string likes = Mathf.Max(0, runProgress.Likes).ToString("N0");
+
+        if (metricViewersText != null && metricViewersText.text != viewers)
+            metricViewersText.text = viewers;
+        if (metricLikesText != null && metricLikesText.text != likes)
+            metricLikesText.text = likes;
+    }
+
+    private static float NormalizeAngle(float degrees)
+    {
+        return Mathf.Repeat(degrees + 180f, 360f) - 180f;
     }
 
     private void UpdateRightPanelFocus()
