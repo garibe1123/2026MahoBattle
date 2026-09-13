@@ -192,7 +192,7 @@ public static class BattleSpriteManagerOrganizer
         {
             RoomBaseTemplate moved = Undo.AddComponent<RoomBaseTemplate>(templateRoot.gameObject);
             EditorUtility.CopySerialized(rootTemplate, moved);
-            Undo.DestroyObjectImmediate(rootComponent: rootTemplate);
+            Undo.DestroyObjectImmediate(rootTemplate);
             EditorUtility.SetDirty(moved);
             AssignBattleTemplateReference(manager, moved);
             return true;
