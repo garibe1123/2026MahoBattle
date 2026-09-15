@@ -54,6 +54,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public float exitTravelDistance;
         public float exitDuration;
         public bool directPieceTween;
+        public bool fallbackFade;
         public bool hasPreferredExitDirection;
         public Vector2 preferredExitDirection;
         public int exitWave;
@@ -203,12 +204,20 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (flowState != BattleStageFlowState.ShowEntering || showStage == null || showStage.IsTransitioning)
             return;
 
-        // Stage flow is committed only after WorldSet reports the matching physical mode as settled.
-        // This keeps Reward -> Map in ShowEntering while the Presenter carrier is still exiting.
+        // Show Carrier가 실제 도킹을 끝낸 뒤에만 Decor gate를 엽니다.
+        // 이동 중인 Screen/Presenter Floor를 읽고 Decor가 잘못 배치되는 것을 막습니다.
         if (pendingShowState == BattleStageFlowState.RewardShow && showStage.IsRewardMode)
+        {
             SetFlowState(BattleStageFlowState.RewardShow);
+            if (decorStage != null && decorStage.StageRetirementRequested)
+                decorStage.ReleaseStageRetirementGate();
+        }
         else if (pendingShowState == BattleStageFlowState.MapShow && showStage.IsMapMode)
+        {
             SetFlowState(BattleStageFlowState.MapShow);
+            if (decorStage != null && decorStage.StageRetirementRequested)
+                decorStage.ReleaseStageRetirementGate();
+        }
     }
 
     private void ResolveSystems()
@@ -280,8 +289,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 return;
 
             case BattleRunState.EnteringNode:
-                // Decor retirement gate는 BuildingRoom 직전까지 유지합니다.
-                // 따라서 이전 Decor가 사라진 뒤에도 새 Room 물리 진입 전에 Decor가 재생성되지 않습니다.
+                // 이전 Stage의 Decor는 새 Room이 실제로 완성될 때까지 다시 생성하지 않습니다.
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.RoomEntering);
 
@@ -297,12 +305,16 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 return;
 
             case BattleRunState.BuildingRoom:
-                decorStage?.ReleaseStageRetirementGate();
+                // BuildingRoom에서는 아직 MapBlock이 이동/도킹 중입니다.
+                // 이 시점에 Decor를 만들면 Persistent 4x4만 읽거나 이동 중인 Floor를 Owner로 잡을 수 있으므로 gate를 유지합니다.
+                decorStage?.RequestStageRetirement();
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.RoomEntering);
                 return;
 
             case BattleRunState.Combat:
+                // BattleRoomManager가 roomTransitioning=false로 만든 뒤 RoomCombatStarted를 보낸 시점입니다.
+                // 완성된 Combat Floor 전체를 이때 다시 조회해 Decor를 생성합니다.
                 decorStage?.ReleaseStageRetirementGate();
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.Combat);
@@ -387,9 +399,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         SetFlowState(BattleStageFlowState.Base);
 
-        // Decor gate는 BuildingRoom 상태에서 해제합니다.
-        // 여기서 먼저 해제하면 다음 Room이 실제로 Build되기 전 한 Frame 동안 이전 Field를 다시 읽어
-        // Decor가 재생성될 수 있기 때문입니다.
+        // Decor gate는 Combat/NonCombat처럼 실제 다음 Stage가 안정된 시점에만 해제합니다.
         if (node != null && runManager != null && runManager.RunActive)
             runManager.ContinueEnterNodeFromStageFlow(node);
     }
@@ -526,12 +536,31 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         List<CollapseExitPlan> exitOrder = BuildFastSafeExitOrder(exitUnits, baseBounds);
         if (exitOrder.Count != exitUnits.Count)
         {
-            Debug.LogError(
-                $"[BattleStageFlow] Could only resolve {exitOrder.Count}/{exitUnits.Count} safe PIECE exit rails. " +
-                "Assembly roots are no longer used for this check; an actual visible MapBlock piece has no clear cardinal rail.",
+            int resolvedCount = exitOrder.Count;
+            HashSet<CollapseExitPlan> resolved = new(exitOrder);
+            int fallbackWave = 0;
+            for (int i = 0; i < exitOrder.Count; i++)
+                fallbackWave = Mathf.Max(fallbackWave, exitOrder[i].exitWave + 1);
+
+            // Persistent 4x4에 의해 네 방향 Rail이 모두 막힌 자유형 Piece는 더 이상 Stage 전체를 중단하지 않습니다.
+            // 정상 Piece는 기존 Rail 퇴장을 유지하고, 정말 Rail이 없는 Piece만 Base 뒤에서 짧게 Fade 후 제거합니다.
+            // 이 fallback은 Base를 관통시키지 않으면서 Reward/Map 전환 deadlock을 방지합니다.
+            for (int i = 0; i < exitUnits.Count; i++)
+            {
+                CollapseExitPlan plan = exitUnits[i];
+                if (plan == null || resolved.Contains(plan))
+                    continue;
+
+                plan.fallbackFade = true;
+                plan.direction = Vector2.zero;
+                plan.exitWave = fallbackWave++;
+                exitOrder.Add(plan);
+            }
+
+            Debug.LogWarning(
+                $"[BattleStageFlow] {exitUnits.Count - resolvedCount} visible PIECE(s) had no safe cardinal rail around the preserved 4x4. " +
+                "Those pieces will use the non-penetrating fade fallback instead of aborting the stage transition.",
                 this);
-            collapseRoutine = null;
-            yield break;
         }
 
         Debug.Log(
@@ -556,12 +585,48 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 PushOutgoingRenderersBehindBase(plan.block);
                 DisableOutgoingWalkable(plan.block);
 
-                float delay = plan.directPieceTween ? wavePieceStagger * waveIndex : 0f;
+                float delay = (plan.directPieceTween || plan.fallbackFade)
+                    ? wavePieceStagger * waveIndex
+                    : 0f;
+                string exitDescription = plan.fallbackFade ? "fade fallback" : plan.side.ToString();
                 Debug.Log(
-                    $"[BattleStageFlow] Safe piece exit wave {wave}: '{plan.block.name}' -> {plan.side}, delay {delay:0.000}s.",
+                    $"[BattleStageFlow] Piece exit wave {wave}: '{plan.block.name}' -> {exitDescription}, delay {delay:0.000}s.",
                     plan.block);
 
-                if (plan.directPieceTween)
+                if (plan.fallbackFade)
+                {
+                    plan.block.transform.DOKill();
+                    float fadeDuration = Mathf.Clamp(plan.exitDuration * 0.35f, 0.10f, 0.24f);
+                    Sequence sequence = DOTween.Sequence().SetUpdate(true);
+                    if (delay > 0f)
+                        sequence.AppendInterval(delay);
+
+                    SpriteRenderer[] fadeRenderers = plan.block.GetComponentsInChildren<SpriteRenderer>(true);
+                    bool addedFade = false;
+                    for (int r = 0; r < fadeRenderers.Length; r++)
+                    {
+                        SpriteRenderer fadeRenderer = fadeRenderers[r];
+                        if (fadeRenderer == null || !fadeRenderer.enabled)
+                            continue;
+
+                        Tween fadeTween = fadeRenderer
+                            .DOFade(0f, fadeDuration)
+                            .SetEase(Ease.InQuad);
+                        if (!addedFade)
+                        {
+                            sequence.Append(fadeTween);
+                            addedFade = true;
+                        }
+                        else
+                        {
+                            sequence.Join(fadeTween);
+                        }
+                    }
+
+                    if (!addedFade)
+                        sequence.AppendInterval(fadeDuration);
+                }
+                else if (plan.directPieceTween)
                 {
                     plan.block.transform.DOKill();
                     Vector3 destination = plan.block.transform.position +
