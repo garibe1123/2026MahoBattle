@@ -54,10 +54,6 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     [SerializeField, Range(0.002f, 0.08f)] private float ownerExitMotionThreshold = 0.012f;
     [SerializeField, Range(0.05f, 0.5f)] private float transitionExitFallbackDelay = 0.16f;
 
-    [Header("SAFE EXIT PATH")]
-    [SerializeField, Range(256, 8192)] private int exitPathSearchNodeLimit = 4096;
-    [SerializeField, Range(0f, 0.25f)] private float exitCollisionClearanceTiles = 0.06f;
-
     [Header("FIELD WATCH")]
     [SerializeField, Range(0.10f, 1.0f)] private float fieldScanInterval = 0.25f;
     [SerializeField, Min(0f)] private float stableFieldRescanInterval = 0f;
@@ -108,7 +104,6 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private bool warnedNoFloorSources;
     private bool warnedZeroDecorCount;
     private bool warnedNoPlacement;
-    private bool warnedNoSafeExitRoute;
     private int serial;
 
     public IReadOnlyList<BattleDecorSO> BattleDecorDesigns => battleDecorDesigns;
@@ -133,7 +128,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         stageRetirementRequested = true;
         rebuildPending = false;
         transitionFallbackExitAt = float.PositiveInfinity;
-        BeginExitAll(Vector2.zero, fallbackExitDuration);
+        BeginExitAll(fallbackExitDuration);
     }
 
     public void ReleaseStageRetirementGate()
@@ -170,7 +165,6 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         warnedNoFloorSources = false;
         warnedZeroDecorCount = false;
         warnedNoPlacement = false;
-        warnedNoSafeExitRoute = false;
     }
 
     private void OnDisable()
@@ -202,8 +196,6 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         exposedEdgeTilesPerDecor = Mathf.Max(1f, exposedEdgeTilesPerDecor);
         maximumScaledDecorCount = Mathf.Max(minimumDecorCount, maximumScaledDecorCount);
         scaledDecorCountJitter = Mathf.Clamp(scaledDecorCountJitter, 0, 3);
-        exitPathSearchNodeLimit = Mathf.Clamp(exitPathSearchNodeLimit, 256, 8192);
-        exitCollisionClearanceTiles = Mathf.Clamp(exitCollisionClearanceTiles, 0f, 0.25f);
         fallbackCellWorldSize = Mathf.Max(0.25f, fallbackCellWorldSize);
         placementAttempts = Mathf.Clamp(placementAttempts, 8, 64);
         fieldScanInterval = Mathf.Max(0.10f, fieldScanInterval);
@@ -334,7 +326,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         {
             if (transitioning && Time.unscaledTime >= transitionFallbackExitAt)
             {
-                BeginExitAll(Vector2.zero, fallbackExitDuration);
+                BeginExitAll(fallbackExitDuration);
                 transitionFallbackExitAt = float.PositiveInfinity;
             }
             return;
@@ -362,19 +354,19 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (cluster.owner == null)
             {
                 if (roomManager != null && roomManager.IsTransitioning)
-                    PlayExit(cluster, cluster.outwardDirection, fallbackExitDuration);
+                    PlayExit(cluster, fallbackExitDuration);
                 continue;
             }
             if (!cluster.owner.gameObject.activeInHierarchy)
             {
-                PlayExit(cluster, cluster.outwardDirection, cluster.owner.ExitDuration);
+                PlayExit(cluster, cluster.owner.ExitDuration);
                 continue;
             }
             Vector3 current = cluster.owner.transform.position;
             Vector3 delta = current - cluster.ownerLastPosition;
             cluster.ownerLastPosition = current;
             if (delta.sqrMagnitude > thresholdSqr)
-                PlayExit(cluster, Cardinalize(delta), cluster.owner.ExitDuration);
+                PlayExit(cluster, cluster.owner.ExitDuration);
         }
     }
 
@@ -390,7 +382,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 warnedNoValidDesigns = true;
                 Debug.LogWarning("[BattleDecor] Decor를 생성하지 못했습니다. Battle Decor Designs 또는 Sprite Part를 확인합니다.", this);
             }
-            BeginExitAll(Vector2.zero, fallbackExitDuration);
+            BeginExitAll(fallbackExitDuration);
             return;
         }
         warnedNoValidDesigns = false;
@@ -403,7 +395,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 warnedNoFloorSources = true;
                 Debug.LogWarning("[BattleDecor] 활성 Field/Floor source를 찾지 못했습니다.", this);
             }
-            BeginExitAll(Vector2.zero, fallbackExitDuration);
+            BeginExitAll(fallbackExitDuration);
             lastFieldSignature = int.MinValue;
             return;
         }
@@ -415,7 +407,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             return;
         if (clusters.Count > 0)
         {
-            BeginExitAll(Vector2.zero, fallbackExitDuration);
+            BeginExitAll(fallbackExitDuration);
             QueueRebuild(fallbackExitDuration + exitAnticipationDuration + 0.08f, true);
             return;
         }
@@ -816,111 +808,67 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         cluster.sequence = sequence;
     }
 
-    private void PlayExit(DecorCluster cluster, Vector2 requestedDirection, float requestedDuration, IReadOnlyList<Bounds> preparedObstacles = null)
+    /// <summary>
+    /// Decor는 Entry 때 사용한 outward rail을 그대로 역방향으로 되짚어 화면 밖으로 복귀합니다.
+    /// 전투/Show Floor는 Decor 퇴장 이후에 움직이므로 Exit에서 Floor 검색이나 경로 탐색을 하지 않습니다.
+    /// </summary>
+    private void PlayExit(DecorCluster cluster, float requestedDuration)
     {
         if (cluster == null || cluster.exiting || cluster.root == null)
             return;
+
         cluster.exiting = true;
         cluster.sequence?.Kill(false);
         cluster.root.DOKill(false);
         if (cluster.visualRoot != null)
             cluster.visualRoot.DOKill(false);
 
-        Vector2 preferred = requestedDirection.sqrMagnitude > 0.001f ? Cardinalize(requestedDirection) : Cardinalize(cluster.outwardDirection);
-        float cell = ResolveClusterCellSize(cluster);
-        IReadOnlyList<Bounds> obstacles = preparedObstacles ?? CopyFloorBounds(CollectFloorSources());
-        if (!BattleDecorSpatialPlanner.TryResolveShortestExitRoute(
-                cluster.carrierBounds, cluster.root.position, preferred, obstacles, cell,
-                Camera.main, offscreenMargin, exitPathSearchNodeLimit, exitCollisionClearanceTiles,
-                out List<Vector3> route))
-        {
-            PlayExitFadeFallback(cluster, requestedDuration);
-            return;
-        }
-
-        float duration = Mathf.Max(0.20f, requestedDuration > 0.01f ? requestedDuration : fallbackExitDuration);
+        Vector2 outward = Cardinalize(cluster.outwardDirection);
         Vector3 current = cluster.root.position;
-        Vector3 first = route.Count > 0 ? route[0] : current;
-        Vector2 firstDirection = ((Vector2)(first - current)).sqrMagnitude > 0.001f ? ((Vector2)(first - current)).normalized : preferred;
+        Bounds currentBounds = cluster.carrierBounds;
+        currentBounds.center = current;
+        float distance = ResolveOffscreenDistance(currentBounds, outward);
+        Vector3 destination = current + (Vector3)(outward * distance);
+        float duration = Mathf.Max(0.20f, requestedDuration > 0.01f ? requestedDuration : fallbackExitDuration);
+
         Sequence sequence = DOTween.Sequence().SetUpdate(true);
-
-        Vector3 anticipation = current - (Vector3)(firstDirection * Mathf.Max(0.02f, exitAnticipationDistance));
-        Bounds anticipationBounds = cluster.carrierBounds;
-        anticipationBounds.center = anticipation;
-        float clearance = exitCollisionClearanceTiles * cell;
-        bool useAnticipation = BattleDecorSpatialPlanner.CanOccupy(anticipationBounds, obstacles, clearance);
-        if (useAnticipation)
-            sequence.Append(cluster.root.DOMove(anticipation, Mathf.Max(0.04f, exitAnticipationDuration)).SetEase(Ease.OutQuad));
-
-        float totalDistance = 0f;
-        Vector3 previous = useAnticipation ? anticipation : current;
-        for (int i = 0; i < route.Count; i++)
+        if (exitAnticipationDistance > 0.001f && exitAnticipationDuration > 0.001f)
         {
-            totalDistance += Vector2.Distance(previous, route[i]);
-            previous = route[i];
+            Vector3 anticipation = current - (Vector3)(outward * Mathf.Max(0.02f, exitAnticipationDistance));
+            sequence.Append(
+                cluster.root.DOMove(anticipation, Mathf.Max(0.04f, exitAnticipationDuration))
+                    .SetEase(Ease.OutQuad));
         }
-        totalDistance = Mathf.Max(0.01f, totalDistance);
-        previous = useAnticipation ? anticipation : current;
-        for (int i = 0; i < route.Count; i++)
-        {
-            float segmentDistance = Mathf.Max(0.001f, Vector2.Distance(previous, route[i]));
-            float segmentDuration = Mathf.Max(0.025f, duration * segmentDistance / totalDistance);
-            sequence.Append(cluster.root.DOMove(route[i], segmentDuration).SetEase(i == route.Count - 1 ? Ease.InCubic : Ease.Linear));
-            previous = route[i];
-        }
+
+        sequence.Append(cluster.root.DOMove(destination, duration).SetEase(Ease.InCubic));
 
         if (cluster.visualRoot != null)
         {
-            float sign = firstDirection.x + firstDirection.y >= 0f ? -1f : 1f;
-            cluster.visualRoot.DOLocalRotate(new Vector3(0f, 0f, sign * 1.2f), duration + exitAnticipationDuration)
-                .SetEase(Ease.InQuad).SetUpdate(true);
+            float sign = outward.x + outward.y >= 0f ? -1f : 1f;
+            cluster.visualRoot
+                .DOLocalRotate(new Vector3(0f, 0f, sign * 1.2f), duration + exitAnticipationDuration)
+                .SetEase(Ease.InQuad)
+                .SetUpdate(true);
         }
+
         sequence.OnComplete(() =>
         {
             cluster.sequence = null;
-            if (cluster.rootObject != null) Destroy(cluster.rootObject);
+            if (cluster.rootObject != null)
+                Destroy(cluster.rootObject);
         });
         cluster.sequence = sequence;
     }
 
-    private void PlayExitFadeFallback(DecorCluster cluster, float requestedDuration)
+    private void BeginExitAll(float duration)
     {
-        if (!warnedNoSafeExitRoute)
-        {
-            warnedNoSafeExitRoute = true;
-            Debug.LogWarning("[BattleDecor] 안전한 퇴장 경로가 없는 Decor는 타일을 관통하지 않고 제자리 Fade 제거합니다.", this);
-        }
-        float duration = Mathf.Clamp((requestedDuration > 0.01f ? requestedDuration : fallbackExitDuration) * 0.35f, 0.10f, 0.28f);
-        Sequence sequence = DOTween.Sequence().SetUpdate(true);
-        SpriteRenderer[] renderers = cluster.root.GetComponentsInChildren<SpriteRenderer>(true);
-        bool added = false;
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            SpriteRenderer renderer = renderers[i];
-            if (renderer == null || !renderer.enabled) continue;
-            Tween fade = renderer.DOFade(0f, duration).SetEase(Ease.InQuad);
-            if (!added) { sequence.Append(fade); added = true; }
-            else sequence.Join(fade);
-        }
-        if (!added) sequence.AppendInterval(duration);
-        sequence.OnComplete(() =>
-        {
-            cluster.sequence = null;
-            if (cluster.rootObject != null) Destroy(cluster.rootObject);
-        });
-        cluster.sequence = sequence;
-    }
-
-    private void BeginExitAll(Vector2 preferredDirection, float duration)
-    {
-        IReadOnlyList<Bounds> obstacles = CopyFloorBounds(CollectFloorSources());
         for (int i = 0; i < clusters.Count; i++)
         {
             DecorCluster cluster = clusters[i];
             if (cluster == null || cluster.root == null || cluster.exiting)
                 continue;
-            Vector2 direction = preferredDirection.sqrMagnitude > 0.001f ? preferredDirection : cluster.outwardDirection;
-            PlayExit(cluster, direction, duration, obstacles);
+
+            PlayExit(cluster, duration);
         }
     }
 
@@ -928,15 +876,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     {
         floorBoundsBuffer.Clear();
         if (sources != null)
-            for (int i = 0; i < sources.Count; i++) floorBoundsBuffer.Add(sources[i].bounds);
+            for (int i = 0; i < sources.Count; i++)
+                floorBoundsBuffer.Add(sources[i].bounds);
         return floorBoundsBuffer;
-    }
-
-    private static float ResolveClusterCellSize(DecorCluster cluster)
-    {
-        float x = cluster.carrierBounds.size.x / Mathf.Max(1, cluster.footprint.x);
-        float y = cluster.carrierBounds.size.y / Mathf.Max(1, cluster.footprint.y);
-        return Mathf.Max(0.25f, Mathf.Min(Mathf.Abs(x), Mathf.Abs(y)));
     }
 
     private void CleanupDestroyedClusters()
