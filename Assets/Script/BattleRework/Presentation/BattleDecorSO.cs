@@ -203,16 +203,22 @@ public sealed class BattleDecorPart
 /// BattleDecorSO를 작은 2D Prefab Editor처럼 사용하기 위한 Inspector Preview입니다.
 /// Sprite Part를 Preview에서 직접 클릭/드래그하면 localPosition이 Asset에 저장됩니다.
 /// Project의 Sprite를 Preview 위에 Drop하면 새 Part가 생성됩니다.
-/// 선택된 Part는 Delete/Backspace로 제거할 수 있습니다.
+/// Shift+Click으로 여러 Part를 선택하고, 선택 그룹을 함께 이동/삭제할 수 있습니다.
 /// </summary>
 [CustomEditor(typeof(BattleDecorSO))]
 public sealed class BattleDecorSOEditor : Editor
 {
     private const float PreviewHeight = 390f;
     private const float HeaderHeight = 24f;
+
+    private readonly HashSet<int> selectedPartIndices = new();
+    private readonly Dictionary<int, Vector2> dragStartPositions = new();
+
     private int selectedPartIndex = -1;
     private bool dragging;
+    private bool dragUndoRecorded;
     private int previewControlId;
+    private Vector2 dragStartLocalMouse;
 
     public override void OnInspectorGUI()
     {
@@ -224,7 +230,8 @@ public sealed class BattleDecorSOEditor : Editor
         EditorGUILayout.LabelField("BATTLE DECOR PREFAB PREVIEW", EditorStyles.boldLabel);
         EditorGUILayout.HelpBox(
             "Preview 안의 Sprite Part를 클릭/드래그하면 Position이 바로 저장됩니다. " +
-            "Project의 Sprite를 Preview에 Drop하면 새 Part가 생성되고, 선택된 Part는 Delete/Backspace로 제거할 수 있습니다. " +
+            "Shift+Click으로 여러 Part를 선택한 뒤 하나를 드래그하면 선택 그룹 전체가 같은 거리만큼 이동합니다. " +
+            "Project의 Sprite를 Preview에 Drop하면 새 Part가 생성되고, 선택된 Part들은 Delete/Backspace로 함께 제거할 수 있습니다. " +
             "위치는 Editor Position Snap 단위로 맞춰집니다.",
             MessageType.Info);
 
@@ -235,15 +242,27 @@ public sealed class BattleDecorSOEditor : Editor
     private void DrawPreview(Rect rect)
     {
         BattleDecorSO decor = (BattleDecorSO)target;
+        PruneSelection(decor.Parts?.Count ?? 0);
+
         GUI.Box(rect, GUIContent.none, EditorStyles.helpBox);
 
         Rect header = new(rect.x + 8f, rect.y + 4f, rect.width - 16f, HeaderHeight);
-        GUI.Label(
-            header,
-            selectedPartIndex >= 0 && selectedPartIndex < decor.Parts.Count
-                ? $"Selected: {decor.Parts[selectedPartIndex].Label}   |   Drag = Move   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}"
-                : $"Drop Sprite = Add   |   Click = Select   |   Snap {decor.EditorPositionSnap:0.###}",
-            EditorStyles.miniBoldLabel);
+        int selectionCount = selectedPartIndices.Count;
+        string headerText;
+        if (selectionCount > 1)
+        {
+            headerText = $"Selected: {selectionCount} Parts   |   Shift+Click = Add/Remove   |   Drag = Move Group   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}";
+        }
+        else if (selectedPartIndex >= 0 && selectedPartIndex < decor.Parts.Count)
+        {
+            headerText = $"Selected: {decor.Parts[selectedPartIndex].Label}   |   Shift+Click = Multi Select   |   Drag = Move   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}";
+        }
+        else
+        {
+            headerText = $"Drop Sprite = Add   |   Click = Select   |   Shift+Click = Multi Select   |   Snap {decor.EditorPositionSnap:0.###}";
+        }
+
+        GUI.Label(header, headerText, EditorStyles.miniBoldLabel);
 
         Rect canvas = new(rect.x + 8f, rect.y + HeaderHeight + 6f, rect.width - 16f, rect.height - HeaderHeight - 14f);
         EditorGUI.DrawRect(canvas, new Color(0.055f, 0.06f, 0.07f, 1f));
@@ -334,11 +353,13 @@ public sealed class BattleDecorSOEditor : Editor
             DrawSpriteInRect(part.Sprite, drawRect, part.Flip, part.Tint);
             GUI.matrix = oldMatrix;
 
-            if (i == selectedPartIndex)
+            if (selectedPartIndices.Contains(i))
             {
                 Handles.BeginGUI();
-                Handles.color = new Color(1f, 0.80f, 0.08f, 1f);
-                Handles.DrawAAPolyLine(2f,
+                Handles.color = i == selectedPartIndex
+                    ? new Color(1f, 0.80f, 0.08f, 1f)
+                    : new Color(1f, 0.55f, 0.08f, 0.90f);
+                Handles.DrawAAPolyLine(i == selectedPartIndex ? 2.5f : 2f,
                     new Vector3(drawRect.xMin, drawRect.yMin),
                     new Vector3(drawRect.xMax, drawRect.yMin),
                     new Vector3(drawRect.xMax, drawRect.yMax),
@@ -346,9 +367,12 @@ public sealed class BattleDecorSOEditor : Editor
                     new Vector3(drawRect.xMin, drawRect.yMin));
                 Handles.EndGUI();
 
-                string coord = $"({part.LocalPosition.x:0.###}, {part.LocalPosition.y:0.###})";
-                Rect coordRect = new(drawRect.x, drawRect.y - 18f, Mathf.Max(90f, drawRect.width), 18f);
-                GUI.Label(coordRect, coord, EditorStyles.whiteMiniLabel);
+                if (i == selectedPartIndex)
+                {
+                    string coord = $"({part.LocalPosition.x:0.###}, {part.LocalPosition.y:0.###})";
+                    Rect coordRect = new(drawRect.x, drawRect.y - 18f, Mathf.Max(90f, drawRect.width), 18f);
+                    GUI.Label(coordRect, coord, EditorStyles.whiteMiniLabel);
+                }
             }
         }
     }
@@ -414,11 +438,17 @@ public sealed class BattleDecorSOEditor : Editor
                 Vector2 dropPosition = GuiPointToLocalPosition(e.mousePosition, center, zoom, decor.EditorPositionSnap);
 
                 Undo.RecordObject(decor, "Add Battle Decor Part");
+                selectedPartIndices.Clear();
                 int lastAdded = -1;
                 for (int i = 0; i < draggedSprites.Count; i++)
                 {
                     Vector2 position = dropPosition + new Vector2(i * decor.EditorPositionSnap, 0f);
-                    lastAdded = decor.EditorAddPart(draggedSprites[i], position);
+                    int added = decor.EditorAddPart(draggedSprites[i], position);
+                    if (added >= 0)
+                    {
+                        selectedPartIndices.Add(added);
+                        lastAdded = added;
+                    }
                 }
 
                 if (lastAdded >= 0)
@@ -437,17 +467,24 @@ public sealed class BattleDecorSOEditor : Editor
 
         if (e.type == EventType.KeyDown &&
             GUIUtility.keyboardControl == previewControlId &&
-            selectedPartIndex >= 0 && selectedPartIndex < decor.Parts.Count &&
+            selectedPartIndices.Count > 0 &&
             (e.keyCode == KeyCode.Delete || e.keyCode == KeyCode.Backspace))
         {
-            Undo.RecordObject(decor, "Delete Battle Decor Part");
-            if (decor.EditorRemovePartAt(selectedPartIndex))
-            {
-                selectedPartIndex = -1;
-                dragging = false;
-                EditorUtility.SetDirty(decor);
-                serializedObject.Update();
-            }
+            Undo.RecordObject(decor, selectedPartIndices.Count > 1
+                ? "Delete Battle Decor Parts"
+                : "Delete Battle Decor Part");
+
+            List<int> indices = new(selectedPartIndices);
+            indices.Sort((a, b) => b.CompareTo(a));
+            for (int i = 0; i < indices.Count; i++)
+                decor.EditorRemovePartAt(indices[i]);
+
+            selectedPartIndices.Clear();
+            selectedPartIndex = -1;
+            dragging = false;
+            dragStartPositions.Clear();
+            EditorUtility.SetDirty(decor);
+            serializedObject.Update();
 
             e.Use();
             Repaint();
@@ -456,33 +493,78 @@ public sealed class BattleDecorSOEditor : Editor
 
         if (e.type == EventType.MouseDown && e.button == 0 && canvas.Contains(e.mousePosition))
         {
-            selectedPartIndex = FindPartAtPoint(decor, e.mousePosition, center, zoom);
-            dragging = selectedPartIndex >= 0;
+            int hitIndex = FindPartAtPoint(decor, e.mousePosition, center, zoom);
+
+            if (e.shift)
+            {
+                if (hitIndex >= 0)
+                {
+                    if (selectedPartIndices.Contains(hitIndex))
+                    {
+                        selectedPartIndices.Remove(hitIndex);
+                        if (selectedPartIndex == hitIndex)
+                            selectedPartIndex = ResolvePrimarySelection();
+                    }
+                    else
+                    {
+                        selectedPartIndices.Add(hitIndex);
+                        selectedPartIndex = hitIndex;
+                    }
+                }
+            }
+            else
+            {
+                if (hitIndex < 0)
+                {
+                    selectedPartIndices.Clear();
+                    selectedPartIndex = -1;
+                }
+                else if (!selectedPartIndices.Contains(hitIndex))
+                {
+                    selectedPartIndices.Clear();
+                    selectedPartIndices.Add(hitIndex);
+                    selectedPartIndex = hitIndex;
+                }
+                else
+                {
+                    // 이미 선택된 Part를 다시 클릭한 경우에는 Multi Selection을 유지합니다.
+                    // 그래야 선택 그룹 중 하나를 잡아 전체를 함께 Drag할 수 있습니다.
+                    selectedPartIndex = hitIndex;
+                }
+            }
+
             GUIUtility.keyboardControl = previewControlId;
+            dragging = hitIndex >= 0 && selectedPartIndices.Contains(hitIndex);
+            dragUndoRecorded = false;
+
             if (dragging)
+            {
+                CaptureDragStart(decor, e.mousePosition, center, zoom);
                 GUIUtility.hotControl = previewControlId;
+            }
+            else
+            {
+                dragStartPositions.Clear();
+            }
+
             e.Use();
             Repaint();
             return;
         }
 
         if (e.type == EventType.MouseDrag && e.button == 0 && dragging &&
-            GUIUtility.hotControl == previewControlId &&
-            selectedPartIndex >= 0 && selectedPartIndex < decor.Parts.Count)
+            GUIUtility.hotControl == previewControlId && selectedPartIndices.Count > 0)
         {
-            BattleDecorPart part = decor.Parts[selectedPartIndex];
-            if (part != null)
+            if (!dragUndoRecorded)
             {
-                Vector2 delta = new(e.delta.x / zoom, -e.delta.y / zoom);
-                Vector2 next = part.LocalPosition + delta;
-                float snap = decor.EditorPositionSnap;
-                next.x = Mathf.Round(next.x / snap) * snap;
-                next.y = Mathf.Round(next.y / snap) * snap;
-
-                Undo.RecordObject(decor, "Move Battle Decor Part");
-                part.SetLocalPosition(next);
-                EditorUtility.SetDirty(decor);
+                Undo.RecordObject(decor, selectedPartIndices.Count > 1
+                    ? "Move Battle Decor Parts"
+                    : "Move Battle Decor Part");
+                dragUndoRecorded = true;
             }
+
+            MoveSelectedParts(decor, e.mousePosition, center, zoom);
+            EditorUtility.SetDirty(decor);
 
             e.Use();
             Repaint();
@@ -492,11 +574,67 @@ public sealed class BattleDecorSOEditor : Editor
         if (e.type == EventType.MouseUp && e.button == 0 && dragging)
         {
             dragging = false;
+            dragUndoRecorded = false;
+            dragStartPositions.Clear();
             if (GUIUtility.hotControl == previewControlId)
                 GUIUtility.hotControl = 0;
             e.Use();
             Repaint();
         }
+    }
+
+    private void CaptureDragStart(BattleDecorSO decor, Vector2 mousePosition, Vector2 center, float zoom)
+    {
+        dragStartPositions.Clear();
+        dragStartLocalMouse = GuiPointToLocalPositionUnsnapped(mousePosition, center, zoom);
+
+        foreach (int index in selectedPartIndices)
+        {
+            if (index < 0 || index >= decor.Parts.Count)
+                continue;
+
+            BattleDecorPart part = decor.Parts[index];
+            if (part != null)
+                dragStartPositions[index] = part.LocalPosition;
+        }
+    }
+
+    private void MoveSelectedParts(BattleDecorSO decor, Vector2 mousePosition, Vector2 center, float zoom)
+    {
+        if (dragStartPositions.Count == 0)
+            return;
+
+        Vector2 currentMouse = GuiPointToLocalPositionUnsnapped(mousePosition, center, zoom);
+        Vector2 delta = currentMouse - dragStartLocalMouse;
+        float snap = decor.EditorPositionSnap;
+        delta.x = Mathf.Round(delta.x / snap) * snap;
+        delta.y = Mathf.Round(delta.y / snap) * snap;
+
+        foreach (KeyValuePair<int, Vector2> entry in dragStartPositions)
+        {
+            int index = entry.Key;
+            if (index < 0 || index >= decor.Parts.Count)
+                continue;
+
+            BattleDecorPart part = decor.Parts[index];
+            if (part != null)
+                part.SetLocalPosition(entry.Value + delta);
+        }
+    }
+
+    private void PruneSelection(int partCount)
+    {
+        selectedPartIndices.RemoveWhere(index => index < 0 || index >= partCount);
+
+        if (selectedPartIndex < 0 || selectedPartIndex >= partCount || !selectedPartIndices.Contains(selectedPartIndex))
+            selectedPartIndex = ResolvePrimarySelection();
+    }
+
+    private int ResolvePrimarySelection()
+    {
+        foreach (int index in selectedPartIndices)
+            return index;
+        return -1;
     }
 
     private static bool TryGetDraggedSprites(out List<Sprite> sprites)
@@ -517,15 +655,19 @@ public sealed class BattleDecorSOEditor : Editor
 
     private static Vector2 GuiPointToLocalPosition(Vector2 guiPoint, Vector2 center, float zoom, float snap)
     {
-        float safeZoom = Mathf.Max(0.0001f, zoom);
-        Vector2 local = new(
-            (guiPoint.x - center.x) / safeZoom,
-            -(guiPoint.y - center.y) / safeZoom);
-
+        Vector2 local = GuiPointToLocalPositionUnsnapped(guiPoint, center, zoom);
         float safeSnap = Mathf.Max(0.01f, snap);
         local.x = Mathf.Round(local.x / safeSnap) * safeSnap;
         local.y = Mathf.Round(local.y / safeSnap) * safeSnap;
         return local;
+    }
+
+    private static Vector2 GuiPointToLocalPositionUnsnapped(Vector2 guiPoint, Vector2 center, float zoom)
+    {
+        float safeZoom = Mathf.Max(0.0001f, zoom);
+        return new Vector2(
+            (guiPoint.x - center.x) / safeZoom,
+            -(guiPoint.y - center.y) / safeZoom);
     }
 
     private int FindPartAtPoint(BattleDecorSO decor, Vector2 mouse, Vector2 center, float zoom)
