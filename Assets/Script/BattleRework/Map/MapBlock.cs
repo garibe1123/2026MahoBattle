@@ -142,6 +142,8 @@ public class MapBlock : MonoBehaviour
     {
         presentationRoot = visualRoot != null ? visualRoot : transform;
         contributesWalkableNavMesh = walkable;
+        if (!walkable)
+            BattleDecorFloorHierarchyRegistrar.Ensure(presentationRoot);
         entryType = MapBlockEntryType.WheelSlide;
         entryDuration = Mathf.Max(0.05f, duration);
         entryOffset = Mathf.Max(0f, offset);
@@ -819,6 +821,9 @@ public sealed class BattleWalkableField : MonoBehaviour
     private void OnEnable()
     {
         ActiveFields.Add(this);
+        SpriteRenderer renderer = GetComponent<SpriteRenderer>();
+        if (renderer != null && renderer.sprite != null)
+            BattleDecorFloorSource.Ensure(renderer);
     }
 
     private void OnDisable()
@@ -859,6 +864,7 @@ public sealed class BattleWalkableField : MonoBehaviour
             marker.supportCollider = support;
         }
 
+        BattleDecorFloorSource.Ensure(renderer);
         ActiveFields.Add(marker);
         return marker;
     }
