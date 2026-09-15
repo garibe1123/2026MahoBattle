@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using DG.Tweening;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
@@ -21,15 +20,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private const string CarrierTilePrefix = "DecorCarrierTile_";
     private const string LightObjectName = "RuntimeLight2D";
 
-    // URP 17의 Light2D는 Runtime AddComponent 시 Target Sorting Layers가 비어 있을 수 있습니다.
-    // 프로젝트는 현재 Default Sorting Layer 하나를 사용하므로 Runtime Light 생성 직후 명시적으로 연결합니다.
-    private static readonly FieldInfo LightSortingLayersField = typeof(Light2D).GetField(
-        "m_ApplyToSortingLayers",
-        BindingFlags.Instance | BindingFlags.NonPublic);
-    // Unity의 built-in Default Sorting Layer ID는 0입니다.
-    // SortingLayer.NameToID는 MonoBehaviour type initializer에서 호출할 수 없으므로 Unity API 호출 없이 사용합니다.
-    private const int DefaultSortingLayerId = 0;
-    private static bool warnedMissingLightSortingField;
+    // Light2D는 Decor의 부가 표현입니다. Light 설정 실패가 Carrier 자체 생성까지 막아서는 안 됩니다.
+    private static bool warnedRuntimeLightFailure;
 
     [Header("BATTLE DECOR DESIGNS")]
     [Tooltip("여기에 완성된 BattleDecorSO만 넣습니다. Camera / Light / Cable 등은 각 SO 내부 Parts에서 직접 조립합니다.")]
@@ -97,6 +89,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private readonly HashSet<int> floorRendererIdBuffer = new();
 
     private BattleRoomManager roomManager;
+    private BattleRunManager runManager;
     private float nextFieldScanAt;
     private float nextRoomManagerResolveAt;
     private int lastFieldSignature = int.MinValue;
@@ -106,6 +99,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private bool lastTransitioning;
     private float transitionFallbackExitAt = float.PositiveInfinity;
     private bool stageRetirementRequested;
+    private bool warnedNoValidDesigns;
+    private bool warnedNoFloorSources;
+    private bool warnedZeroDecorCount;
+    private bool warnedNoPlacement;
     private int serial;
 
     public IReadOnlyList<BattleDecorSO> BattleDecorDesigns => battleDecorDesigns;
@@ -143,25 +140,29 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     }
 
     /// <summary>
-    /// 다음 Room Entry를 시작하기 직전에 Stage Flow가 호출합니다.
+    /// 다음 Room Entry 또는 새 Start Area가 시작될 때 Stage Flow / 자체 복구가 호출합니다.
+    /// 해제 직후 즉시 Rebuild를 예약해 이전 Retirement 상태가 Decor 생성을 계속 막지 않도록 합니다.
     /// </summary>
     public void ReleaseStageRetirementGate()
     {
         stageRetirementRequested = false;
-        rebuildPending = false;
         nextFieldScanAt = 0f;
         lastFieldSignature = int.MinValue;
+        rebuildPending = true;
+        rebuildAt = Time.unscaledTime;
     }
 
     private void Awake()
     {
         ResolveRoomManager();
+        ResolveRunManager();
         RefreshDesignCache();
     }
 
     private void OnEnable()
     {
         ResolveRoomManager();
+        ResolveRunManager();
         RefreshDesignCache();
         nextFieldScanAt = 0f;
         nextRoomManagerResolveAt = 0f;
@@ -172,6 +173,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         lastTransitioning = roomManager != null && roomManager.IsTransitioning;
         transitionFallbackExitAt = float.PositiveInfinity;
         stageRetirementRequested = false;
+        warnedNoValidDesigns = false;
+        warnedNoFloorSources = false;
+        warnedZeroDecorCount = false;
+        warnedNoPlacement = false;
     }
 
     private void OnDisable()
@@ -218,10 +223,18 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     {
         CleanupDestroyedClusters();
 
-        // 명시적 Stage retirement 동안에는 DOTween Exit 완료만 기다립니다.
-        // Owner 감시나 Field 재검색이 새 Decor를 다시 만들지 못하게 막습니다.
+        // 이전 Run / Ended에서 남은 retirement gate가 새 대기실까지 막는 경우를 자동 복구합니다.
+        // 전투 후 Map Show에서는 IsInStartArea가 false이므로 gate를 유지합니다.
         if (stageRetirementRequested)
-            return;
+        {
+            if (runManager == null)
+                ResolveRunManager();
+
+            if (runManager != null && runManager.IsInStartArea)
+                ReleaseStageRetirementGate();
+            else
+                return;
+        }
 
         MonitorClusterOwners();
         UpdateRoomTransitionState();
@@ -286,6 +299,24 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (candidate != null && candidate.gameObject.scene == gameObject.scene)
             {
                 roomManager = candidate;
+                return;
+            }
+        }
+    }
+
+    private void ResolveRunManager()
+    {
+        runManager = null;
+        BattleRunManager[] managers = FindObjectsByType<BattleRunManager>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < managers.Length; i++)
+        {
+            BattleRunManager candidate = managers[i];
+            if (candidate != null && candidate.gameObject.scene == gameObject.scene)
+            {
+                runManager = candidate;
                 return;
             }
         }
@@ -395,17 +426,37 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         RefreshDesignCache();
         if (validDesigns.Count == 0)
         {
+            if (!warnedNoValidDesigns)
+            {
+                warnedNoValidDesigns = true;
+                Debug.LogWarning(
+                    "[BattleDecor] Decor를 생성하지 못했습니다. SpriteManager의 Battle Decor Designs가 비어 있거나, 등록된 BattleDecorSO에 유효한 Sprite Part가 없습니다.",
+                    this);
+            }
+
             BeginExitAll(Vector2.zero, fallbackExitDuration);
             return;
         }
 
+        warnedNoValidDesigns = false;
+
         List<FloorSource> sources = CollectFloorSources();
         if (sources.Count == 0)
         {
+            if (!warnedNoFloorSources)
+            {
+                warnedNoFloorSources = true;
+                Debug.LogWarning(
+                    "[BattleDecor] Decor를 붙일 활성 Field/Floor source를 찾지 못했습니다. Persistent 4x4의 BattleWalkableField 및 SpriteRenderer 상태를 확인합니다.",
+                    this);
+            }
+
             BeginExitAll(Vector2.zero, fallbackExitDuration);
             lastFieldSignature = int.MinValue;
             return;
         }
+
+        warnedNoFloorSources = false;
 
         int signature = ComputeFieldSignature(sources);
         bool living = HasLivingClusters();
@@ -445,6 +496,23 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         int targetCount = maxCount <= minCount ? minCount : random.Next(minCount, maxCount + 1);
         placementBounds.Clear();
 
+        if (targetCount <= 0)
+        {
+            if (!warnedZeroDecorCount)
+            {
+                warnedZeroDecorCount = true;
+                Debug.LogWarning(
+                    "[BattleDecor] Minimum/Maximum Decor Count가 모두 0이라 Decor가 생성되지 않습니다.",
+                    this);
+            }
+
+            lastFieldSignature = signature;
+            return;
+        }
+
+        warnedZeroDecorCount = false;
+        int createdCount = 0;
+
         for (int i = 0; i < targetCount; i++)
         {
             BattleDecorSO design = PickWeightedDesign(random);
@@ -481,6 +549,22 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             clusters.Add(cluster);
             placementBounds.Add(carrierBounds);
             PlayEnter(cluster);
+            createdCount++;
+        }
+
+        if (createdCount == 0)
+        {
+            if (!warnedNoPlacement)
+            {
+                warnedNoPlacement = true;
+                Debug.LogWarning(
+                    "[BattleDecor] 유효한 Decor Design과 Field는 찾았지만 배치 가능한 위치를 만들지 못했습니다. Footprint / Padding / Attach 설정을 확인합니다.",
+                    this);
+            }
+        }
+        else
+        {
+            warnedNoPlacement = false;
         }
 
         lastFieldSignature = signature;
@@ -717,6 +801,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         // Light2D가 negative scale 아래에 들어가 생길 수 있는 변형/렌더 문제도 피합니다.
         partsRoot.localScale = new Vector3(cell, cell, 1f);
         bool mirrorForRightSide = Cardinalize(outward).x > 0.5f;
+        int targetSortingLayerId = floorReference.sortingLayerID;
 
         IReadOnlyList<BattleDecorPart> parts = design.Parts;
         if (parts == null)
@@ -729,10 +814,17 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 continue;
 
             // Preview에서 추가한 독립 Light는 placeholder Sprite를 Runtime에 만들지 않습니다.
-            // Light 자체의 Position/Direction만 authored Part 좌표계에서 생성합니다.
+            // Light 실패는 optional presentation 실패로 취급하고 Carrier/Sprite 생성은 계속 진행합니다.
             if (part.IsStandaloneLight)
             {
-                BuildStandaloneLight2D(partsRoot, part, mirrorForRightSide, i);
+                try
+                {
+                    BuildStandaloneLight2D(partsRoot, part, mirrorForRightSide, i, targetSortingLayerId);
+                }
+                catch (Exception exception)
+                {
+                    ReportRuntimeLightFailure(exception);
+                }
                 continue;
             }
 
@@ -765,7 +857,16 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
             // 구 SO 호환: 이전 Part 종속 Light도 계속 지원합니다.
             if (part.AddLight2D)
-                BuildPartLight2D(partObject.transform, part, mirrorForRightSide);
+            {
+                try
+                {
+                    BuildPartLight2D(partObject.transform, part, mirrorForRightSide, targetSortingLayerId);
+                }
+                catch (Exception exception)
+                {
+                    ReportRuntimeLightFailure(exception);
+                }
+            }
         }
     }
 
@@ -773,7 +874,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         Transform partsRoot,
         BattleDecorPart part,
         bool mirrorForRightSide,
-        int index)
+        int index,
+        int targetSortingLayerId)
     {
         Vector2 position = part.LocalPosition;
         float rotation = part.LightRotationDegrees;
@@ -789,13 +891,14 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         lightObject.transform.localRotation = Quaternion.Euler(0f, 0f, rotation);
 
         Light2D light = lightObject.AddComponent<Light2D>();
-        ConfigureLight2D(light, part);
+        ConfigureLight2D(light, part, targetSortingLayerId);
     }
 
     private static void BuildPartLight2D(
         Transform partTransform,
         BattleDecorPart part,
-        bool mirrorForRightSide)
+        bool mirrorForRightSide,
+        int targetSortingLayerId)
     {
         GameObject lightObject = new(LightObjectName);
         lightObject.transform.SetParent(partTransform, false);
@@ -812,10 +915,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         lightObject.transform.localRotation = Quaternion.Euler(0f, 0f, lightRotation);
 
         Light2D light = lightObject.AddComponent<Light2D>();
-        ConfigureLight2D(light, part);
+        ConfigureLight2D(light, part, targetSortingLayerId);
     }
 
-    private static void ConfigureLight2D(Light2D light, BattleDecorPart part)
+    private static void ConfigureLight2D(Light2D light, BattleDecorPart part, int targetSortingLayerId)
     {
         if (light == null || part == null)
             return;
@@ -832,29 +935,21 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         light.lightOrder = part.LightOrder;
         light.shadowsEnabled = part.LightShadowsEnabled;
         light.shadowIntensity = part.LightShadowIntensity;
-        light.enabled = true;
 
-        ApplyDefaultSortingLayerToRuntimeLight(light);
+        // URP 17은 public targetSortingLayers API를 제공합니다.
+        // Reflection/static Unity API 없이 실제 Floor가 쓰는 Sorting Layer를 그대로 대상으로 지정합니다.
+        light.targetSortingLayers = new[] { targetSortingLayerId };
+        light.enabled = true;
     }
 
-    private static void ApplyDefaultSortingLayerToRuntimeLight(Light2D light)
+    private static void ReportRuntimeLightFailure(Exception exception)
     {
-        if (light == null)
+        if (warnedRuntimeLightFailure)
             return;
 
-        if (LightSortingLayersField != null)
-        {
-            // Light2D가 생성될 때 Target Sorting Layers가 비어 있는 Runtime 경로를 보정합니다.
-            LightSortingLayersField.SetValue(light, new[] { DefaultSortingLayerId });
-            return;
-        }
-
-        if (warnedMissingLightSortingField)
-            return;
-
-        warnedMissingLightSortingField = true;
-        Debug.LogWarning(
-            "[BattleDecor] URP Light2D target sorting-layer field was not found. Runtime decor lights may not affect Sprite-Lit renderers on this URP version.");
+        warnedRuntimeLightFailure = true;
+        Debug.LogError(
+            $"[BattleDecor] Runtime Light2D 생성/설정에 실패했습니다. Decor Carrier와 Sprite는 계속 생성합니다.\n{exception}");
     }
 
     private static void BuildMechanicalFrame(
@@ -1149,7 +1244,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             string n = renderer.name;
             if (!n.StartsWith("Tile_", StringComparison.Ordinal) &&
                 !n.StartsWith("Floor_", StringComparison.Ordinal) &&
-                !n.StartsWith("ShowTile_", StringComparison.Ordinal))
+                !n.StartsWith("ShowTile_", StringComparison.Ordinal) &&
+                !n.StartsWith("BaseFloor_", StringComparison.Ordinal))
                 continue;
 
             AddFloorSource(floorSourceBuffer, floorRendererIdBuffer, renderer, ResolveOutermostMapBlock(renderer.transform));
@@ -1207,7 +1303,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
             string n = renderer.name;
             if (!n.StartsWith("Tile_", StringComparison.Ordinal) &&
-                !n.StartsWith("ShowTile_", StringComparison.Ordinal))
+                !n.StartsWith("ShowTile_", StringComparison.Ordinal) &&
+                !n.StartsWith("BaseFloor_", StringComparison.Ordinal))
                 continue;
 
             float size = Mathf.Min(
@@ -1225,7 +1322,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             float size = Mathf.Min(
                 Mathf.Abs(fallback.bounds.size.x),
                 Mathf.Abs(fallback.bounds.size.y));
-            if (size >= 0.25f && size <= 2f)
+            if (size >= 0.25f && size <= 4f)
                 return size;
         }
 
