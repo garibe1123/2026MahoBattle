@@ -10,6 +10,8 @@ using UnityEngine.Rendering.Universal;
 /// Universal Stage Decor의 단일 Runtime Owner입니다.
 /// Side Authoring 기준은 Field 왼쪽 설치 + 장비가 오른쪽을 바라보는 모습입니다.
 /// 오른쪽 Side에서는 authored Part의 Position / Rotation / Sprite Flip / Light2D가 자동 Mirror됩니다.
+/// Auto 배치는 가능한 4방향의 사용 횟수를 균등하게 맞추고, 같은 Visual이 같은 방향에 반복되면
+/// 두 번째부터 원본/좌우반전을 번갈아 사용해 반복감을 줄입니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30150)]
@@ -37,6 +39,12 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     [SerializeField, Range(0f, 1f)] private float placementPaddingTiles = 0.25f;
     [SerializeField, Range(8, 64)] private int placementAttempts = 28;
     [SerializeField, Min(0.25f)] private float fallbackCellWorldSize = 1f;
+
+    [Header("DISTRIBUTION")]
+    [Tooltip("Auto는 상/하/좌/우, Side는 좌/우 중 현재 사용 횟수가 적은 방향부터 배치를 시도합니다.")]
+    [SerializeField] private bool balanceAcrossAvailableDirections = true;
+    [Tooltip("같은 대표 Sprite를 쓰는 Decor가 같은 방향에 반복되면 원본/좌우반전을 번갈아 사용합니다.")]
+    [SerializeField] private bool alternateDuplicateHorizontalFlip = true;
 
     [Header("FIELD SCALED DECOR COUNT")]
     [SerializeField] private bool scaleDecorCountWithFloor = true;
@@ -88,6 +96,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         public Vector2Int footprint;
         public MapBlock owner;
         public int randomSeed;
+        public bool variantFlipX;
     }
 
     private readonly struct DecorPoolKey : IEquatable<DecorPoolKey>
@@ -100,12 +109,14 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         private readonly int colorRgba;
         private readonly int cellMilli;
         private readonly bool mirrorRight;
+        private readonly bool variantFlipX;
 
         public DecorPoolKey(
             BattleDecorSO design,
             SpriteRenderer floorReference,
             float cell,
-            Vector2 outward)
+            Vector2 outward,
+            bool flipVariantX)
         {
             designId = design != null ? design.GetInstanceID() : 0;
             materialId = floorReference != null && floorReference.sharedMaterial != null
@@ -119,6 +130,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             colorRgba = floorReference != null ? PackColor(floorReference.color) : 0;
             cellMilli = Mathf.RoundToInt(Mathf.Max(0.01f, cell) * 1000f);
             mirrorRight = Cardinalize(outward).x > 0.5f;
+            variantFlipX = flipVariantX;
         }
 
         public bool Equals(DecorPoolKey other)
@@ -130,7 +142,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                    sortingOrder == other.sortingOrder &&
                    colorRgba == other.colorRgba &&
                    cellMilli == other.cellMilli &&
-                   mirrorRight == other.mirrorRight;
+                   mirrorRight == other.mirrorRight &&
+                   variantFlipX == other.variantFlipX;
         }
 
         public override bool Equals(object obj)
@@ -151,6 +164,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 hash = hash * 31 + colorRgba;
                 hash = hash * 31 + cellMilli;
                 hash = hash * 31 + (mirrorRight ? 1 : 0);
+                hash = hash * 31 + (variantFlipX ? 1 : 0);
                 return hash;
             }
         }
@@ -182,6 +196,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private readonly List<DecorSpawnPlan> spawnPlanBuffer = new();
     private readonly HashSet<int> ownerIdBuffer = new();
     private readonly Dictionary<DecorPoolKey, Stack<DecorCluster>> decorPool = new();
+    private readonly int[] placementDirectionCounts = new int[4];
+    private readonly List<Vector2> placementDirectionOrder = new(4);
+    private readonly Dictionary<ulong, int> visualDirectionUseCounts = new();
 
     private BattleRoomManager roomManager;
     private BattleRunManager runManager;
@@ -263,6 +280,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         decorBuildRoutine = null;
         decorBuildInProgress = false;
         spawnPlanBuffer.Clear();
+        ResetDistributionState();
         warnedNoValidDesigns = false;
         warnedNoFloorSources = false;
         warnedZeroDecorCount = false;
@@ -291,6 +309,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         floorBoundsBuffer.Clear();
         spawnPlanBuffer.Clear();
         ownerIdBuffer.Clear();
+        ResetDistributionState();
         stageRetirementRequested = false;
     }
 
@@ -561,6 +580,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             maximumScaledDecorCount, scaledDecorCountJitter, random);
         placementBounds.Clear();
         spawnPlanBuffer.Clear();
+        ResetDistributionState();
 
         if (targetCount <= 0)
         {
@@ -579,10 +599,23 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             BattleDecorSO design = PickWeightedDesign(random);
             if (design == null)
                 continue;
+
             Vector2Int footprint = design.Footprint;
-            if (!TryResolvePlacement(design, fieldBounds, footprint, cell, random,
-                    out Vector3 target, out Vector2 outward, out Bounds carrierBounds))
+            if (!TryResolvePlacement(
+                    design,
+                    fieldBounds,
+                    footprint,
+                    cell,
+                    random,
+                    out Vector3 target,
+                    out Vector2 outward,
+                    out Bounds carrierBounds))
+            {
                 continue;
+            }
+
+            int directionIndex = GetDirectionIndex(outward);
+            placementDirectionCounts[directionIndex]++;
 
             MapBlock owner = ResolveClosestOwner(target, sources);
             spawnPlanBuffer.Add(new DecorSpawnPlan
@@ -593,7 +626,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 carrierBounds = carrierBounds,
                 footprint = footprint,
                 owner = owner,
-                randomSeed = random.Next()
+                randomSeed = random.Next(),
+                variantFlipX = alternateDuplicateHorizontalFlip && ResolveDuplicateVariantFlip(design, outward)
             });
             placementBounds.Add(carrierBounds);
         }
@@ -671,8 +705,15 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         return validDesigns[validDesigns.Count - 1];
     }
 
-    private bool TryResolvePlacement(BattleDecorSO design, Bounds field, Vector2Int footprint, float cell,
-        System.Random random, out Vector3 target, out Vector2 outward, out Bounds candidateBounds)
+    private bool TryResolvePlacement(
+        BattleDecorSO design,
+        Bounds field,
+        Vector2Int footprint,
+        float cell,
+        System.Random random,
+        out Vector3 target,
+        out Vector2 outward,
+        out Bounds candidateBounds)
     {
         target = Vector3.zero;
         outward = Vector2.zero;
@@ -686,29 +727,169 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         int attempts = Mathf.Clamp(placementAttempts, 8, 64);
         Vector2 authoredOffset = design.AttachOffsetTiles * cell;
 
-        for (int attempt = 0; attempt < attempts; attempt++)
+        BuildPlacementDirectionOrder(design.AttachSide, random);
+        if (placementDirectionOrder.Count == 0)
+            return false;
+
+        int attemptsPerDirection = Mathf.Max(2, Mathf.CeilToInt(attempts / (float)placementDirectionOrder.Count));
+        for (int directionIndex = 0; directionIndex < placementDirectionOrder.Count; directionIndex++)
         {
-            outward = ResolveAttachDirection(design.AttachSide, random);
-            float sidePosition = design.UseFixedAttachPosition ? design.AttachPosition01 : (float)random.NextDouble();
-            if (Mathf.Abs(outward.x) > 0.5f)
+            outward = placementDirectionOrder[directionIndex];
+
+            for (int attempt = 0; attempt < attemptsPerDirection; attempt++)
             {
-                float y = SnapToCell(Mathf.Lerp(field.min.y, field.max.y, sidePosition), cell);
-                target = new Vector3(outward.x < 0f ? field.min.x - gap - width * 0.5f : field.max.x + gap + width * 0.5f, y, field.center.z);
+                float sidePosition = design.UseFixedAttachPosition
+                    ? design.AttachPosition01
+                    : (float)random.NextDouble();
+
+                if (Mathf.Abs(outward.x) > 0.5f)
+                {
+                    float y = SnapToCell(Mathf.Lerp(field.min.y, field.max.y, sidePosition), cell);
+                    target = new Vector3(
+                        outward.x < 0f ? field.min.x - gap - width * 0.5f : field.max.x + gap + width * 0.5f,
+                        y,
+                        field.center.z);
+                }
+                else
+                {
+                    float x = SnapToCell(Mathf.Lerp(field.min.x, field.max.x, sidePosition), cell);
+                    target = new Vector3(
+                        x,
+                        outward.y < 0f ? field.min.y - gap - height * 0.5f : field.max.y + gap + height * 0.5f,
+                        field.center.z);
+                }
+
+                Vector2 placementOffset = authoredOffset;
+                if (outward.x > 0.5f)
+                    placementOffset.x = -placementOffset.x;
+                target += new Vector3(placementOffset.x, placementOffset.y, 0f);
+
+                candidateBounds = new Bounds(target, new Vector3(width, height, 0.20f));
+                if (!OverlapsExistingPlacement(candidateBounds, cell))
+                    return true;
+
+                // Fixed Position은 같은 방향에서 반복 시도해도 같은 결과이므로 바로 다음 방향으로 넘어갑니다.
+                if (design.UseFixedAttachPosition)
+                    break;
             }
-            else
-            {
-                float x = SnapToCell(Mathf.Lerp(field.min.x, field.max.x, sidePosition), cell);
-                target = new Vector3(x, outward.y < 0f ? field.min.y - gap - height * 0.5f : field.max.y + gap + height * 0.5f, field.center.z);
-            }
-            Vector2 placementOffset = authoredOffset;
-            if (outward.x > 0.5f)
-                placementOffset.x = -placementOffset.x;
-            target += new Vector3(placementOffset.x, placementOffset.y, 0f);
-            candidateBounds = new Bounds(target, new Vector3(width, height, 0.20f));
-            if (!OverlapsExistingPlacement(candidateBounds, cell))
-                return true;
         }
+
         return false;
+    }
+
+    private void BuildPlacementDirectionOrder(BattleDecorAttachSide side, System.Random random)
+    {
+        placementDirectionOrder.Clear();
+        switch (side)
+        {
+            case BattleDecorAttachSide.Top:
+                placementDirectionOrder.Add(Vector2.up);
+                break;
+            case BattleDecorAttachSide.Bottom:
+                placementDirectionOrder.Add(Vector2.down);
+                break;
+            case BattleDecorAttachSide.Side:
+                placementDirectionOrder.Add(Vector2.left);
+                placementDirectionOrder.Add(Vector2.right);
+                break;
+            default:
+                placementDirectionOrder.Add(Vector2.left);
+                placementDirectionOrder.Add(Vector2.right);
+                placementDirectionOrder.Add(Vector2.up);
+                placementDirectionOrder.Add(Vector2.down);
+                break;
+        }
+
+        ShuffleDirections(placementDirectionOrder, random);
+        if (!balanceAcrossAvailableDirections || placementDirectionOrder.Count <= 1)
+            return;
+
+        // 먼저 Shuffle해 동률일 때 특정 방향이 항상 앞서는 편향을 제거한 뒤,
+        // 현재 Stage에서 실제 사용 횟수가 적은 방향부터 시도합니다.
+        for (int i = 0; i < placementDirectionOrder.Count - 1; i++)
+        {
+            int best = i;
+            int bestCount = placementDirectionCounts[GetDirectionIndex(placementDirectionOrder[i])];
+            for (int j = i + 1; j < placementDirectionOrder.Count; j++)
+            {
+                int candidateCount = placementDirectionCounts[GetDirectionIndex(placementDirectionOrder[j])];
+                if (candidateCount >= bestCount)
+                    continue;
+                best = j;
+                bestCount = candidateCount;
+            }
+
+            if (best == i)
+                continue;
+            Vector2 temp = placementDirectionOrder[i];
+            placementDirectionOrder[i] = placementDirectionOrder[best];
+            placementDirectionOrder[best] = temp;
+        }
+    }
+
+    private static void ShuffleDirections(List<Vector2> directions, System.Random random)
+    {
+        if (directions == null || random == null)
+            return;
+
+        for (int i = directions.Count - 1; i > 0; i--)
+        {
+            int swapIndex = random.Next(0, i + 1);
+            Vector2 temp = directions[i];
+            directions[i] = directions[swapIndex];
+            directions[swapIndex] = temp;
+        }
+    }
+
+    private bool ResolveDuplicateVariantFlip(BattleDecorSO design, Vector2 outward)
+    {
+        int visualId = ResolvePrimaryVisualId(design);
+        int directionIndex = GetDirectionIndex(outward);
+        ulong key = ((ulong)(uint)visualId << 3) | (uint)directionIndex;
+
+        visualDirectionUseCounts.TryGetValue(key, out int useCount);
+        visualDirectionUseCounts[key] = useCount + 1;
+        return (useCount & 1) == 1;
+    }
+
+    private static int ResolvePrimaryVisualId(BattleDecorSO design)
+    {
+        if (design == null)
+            return 0;
+
+        IReadOnlyList<BattleDecorPart> parts = design.Parts;
+        if (parts != null)
+        {
+            for (int i = 0; i < parts.Count; i++)
+            {
+                BattleDecorPart part = parts[i];
+                if (part == null || part.IsStandaloneLight || part.Sprite == null)
+                    continue;
+                return part.Sprite.GetInstanceID();
+            }
+        }
+
+        return design.GetInstanceID();
+    }
+
+    private void ResetDistributionState()
+    {
+        for (int i = 0; i < placementDirectionCounts.Length; i++)
+            placementDirectionCounts[i] = 0;
+        placementDirectionOrder.Clear();
+        visualDirectionUseCounts.Clear();
+    }
+
+    private static int GetDirectionIndex(Vector2 direction)
+    {
+        Vector2 cardinal = Cardinalize(direction);
+        if (cardinal.x < -0.5f)
+            return 0; // Left
+        if (cardinal.x > 0.5f)
+            return 1; // Right
+        if (cardinal.y > 0.5f)
+            return 2; // Up
+        return 3; // Down
     }
 
     private bool OverlapsExistingPlacement(Bounds candidate, float cell)
@@ -734,7 +915,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         if (plan.design == null || floorReference == null)
             return null;
 
-        DecorPoolKey key = new(plan.design, floorReference, cell, plan.outward);
+        DecorPoolKey key = new(plan.design, floorReference, cell, plan.outward, plan.variantFlipX);
         if (decorPool.TryGetValue(key, out Stack<DecorCluster> stack))
         {
             while (stack.Count > 0)
@@ -759,6 +940,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             floorReference,
             plan.owner,
             random,
+            plan.variantFlipX,
             key);
     }
 
@@ -792,8 +974,18 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         cluster.rootObject.SetActive(true);
     }
 
-    private DecorCluster CreateCluster(BattleDecorSO design, Vector3 target, Vector2 outward, Bounds carrierBounds,
-        Vector2Int footprint, float cell, SpriteRenderer floorReference, MapBlock owner, System.Random random, DecorPoolKey poolKey)
+    private DecorCluster CreateCluster(
+        BattleDecorSO design,
+        Vector3 target,
+        Vector2 outward,
+        Bounds carrierBounds,
+        Vector2Int footprint,
+        float cell,
+        SpriteRenderer floorReference,
+        MapBlock owner,
+        System.Random random,
+        bool variantFlipX,
+        DecorPoolKey poolKey)
     {
         if (design == null || floorReference == null)
             return null;
@@ -807,7 +999,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         int floorSorting = BuildCarrierFloor(visualRoot, design, footprint, cell, floorReference, random);
         if (design.FloorTemplate != null)
             BuildMechanicalFrame(visualRoot, design.FloorTemplate, footprint, cell, floorReference, floorSorting);
-        BuildAuthoredParts(visualRoot, design, outward, cell, floorReference, floorSorting);
+        BuildAuthoredParts(visualRoot, design, outward, variantFlipX, cell, floorReference, floorSorting);
 
         return new DecorCluster
         {
@@ -859,14 +1051,22 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         return floorSorting;
     }
 
-    private static void BuildAuthoredParts(Transform visualRoot, BattleDecorSO design, Vector2 outward, float cell,
-        SpriteRenderer floorReference, int floorSorting)
+    private static void BuildAuthoredParts(
+        Transform visualRoot,
+        BattleDecorSO design,
+        Vector2 outward,
+        bool variantFlipX,
+        float cell,
+        SpriteRenderer floorReference,
+        int floorSorting)
     {
         GameObject partsObject = new(PartsRootName);
         partsObject.transform.SetParent(visualRoot, false);
         Transform partsRoot = partsObject.transform;
         partsRoot.localScale = new Vector3(cell, cell, 1f);
+
         bool mirrorForRightSide = Cardinalize(outward).x > 0.5f;
+        bool mirrorVisualHorizontally = mirrorForRightSide ^ variantFlipX;
         int targetSortingLayerId = floorReference.sortingLayerID;
         IReadOnlyList<BattleDecorPart> parts = design.Parts;
         if (parts == null)
@@ -879,19 +1079,27 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 continue;
             if (part.IsStandaloneLight)
             {
-                try { BuildStandaloneLight2D(partsRoot, part, mirrorForRightSide, i, targetSortingLayerId); }
-                catch (Exception exception) { ReportRuntimeLightFailure(exception); }
+                try
+                {
+                    BuildStandaloneLight2D(partsRoot, part, mirrorVisualHorizontally, i, targetSortingLayerId);
+                }
+                catch (Exception exception)
+                {
+                    ReportRuntimeLightFailure(exception);
+                }
                 continue;
             }
             if (part.Sprite == null)
                 continue;
+
             Vector2 authoredPosition = part.LocalPosition;
             float authoredRotation = part.RotationDegrees;
-            if (mirrorForRightSide)
+            if (mirrorVisualHorizontally)
             {
                 authoredPosition.x = -authoredPosition.x;
                 authoredRotation = -authoredRotation;
             }
+
             GameObject partObject = new($"Part_{i:00}_{SafeName(part.Label)}");
             partObject.transform.SetParent(partsRoot, false);
             partObject.transform.localPosition = new Vector3(authoredPosition.x, authoredPosition.y, -0.01f);
@@ -901,24 +1109,38 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             SpriteRenderer renderer = partObject.AddComponent<SpriteRenderer>();
             renderer.sprite = part.Sprite;
             renderer.color = part.Tint;
-            renderer.flipX = part.FlipX ^ mirrorForRightSide;
+            renderer.flipX = part.FlipX ^ mirrorVisualHorizontally;
             renderer.sharedMaterial = floorReference.sharedMaterial;
             renderer.sortingLayerID = floorReference.sortingLayerID;
             renderer.sortingOrder = floorSorting + part.SortingOffset;
             if (part.AddLight2D)
             {
-                try { BuildPartLight2D(partObject.transform, part, mirrorForRightSide, targetSortingLayerId); }
-                catch (Exception exception) { ReportRuntimeLightFailure(exception); }
+                try
+                {
+                    BuildPartLight2D(partObject.transform, part, mirrorVisualHorizontally, targetSortingLayerId);
+                }
+                catch (Exception exception)
+                {
+                    ReportRuntimeLightFailure(exception);
+                }
             }
         }
     }
 
-    private static void BuildStandaloneLight2D(Transform partsRoot, BattleDecorPart part, bool mirrorForRightSide,
-        int index, int targetSortingLayerId)
+    private static void BuildStandaloneLight2D(
+        Transform partsRoot,
+        BattleDecorPart part,
+        bool mirrorHorizontally,
+        int index,
+        int targetSortingLayerId)
     {
         Vector2 position = part.LocalPosition;
         float rotation = part.LightRotationDegrees;
-        if (mirrorForRightSide) { position.x = -position.x; rotation = -rotation; }
+        if (mirrorHorizontally)
+        {
+            position.x = -position.x;
+            rotation = -rotation;
+        }
         GameObject lightObject = new($"{LightObjectName}_{index:00}_{SafeName(part.Label)}");
         lightObject.transform.SetParent(partsRoot, false);
         lightObject.transform.localPosition = new Vector3(position.x, position.y, -0.02f);
@@ -926,13 +1148,21 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         ConfigureLight2D(lightObject.AddComponent<Light2D>(), part, targetSortingLayerId);
     }
 
-    private static void BuildPartLight2D(Transform partTransform, BattleDecorPart part, bool mirrorForRightSide, int targetSortingLayerId)
+    private static void BuildPartLight2D(
+        Transform partTransform,
+        BattleDecorPart part,
+        bool mirrorHorizontally,
+        int targetSortingLayerId)
     {
         GameObject lightObject = new(LightObjectName);
         lightObject.transform.SetParent(partTransform, false);
         Vector2 offset = part.LightLocalOffset;
         float rotation = part.LightRotationDegrees;
-        if (mirrorForRightSide) { offset.x = -offset.x; rotation = -rotation; }
+        if (mirrorHorizontally)
+        {
+            offset.x = -offset.x;
+            rotation = -rotation;
+        }
         lightObject.transform.localPosition = new Vector3(offset.x, offset.y, -0.02f);
         lightObject.transform.localRotation = Quaternion.Euler(0f, 0f, rotation);
         ConfigureLight2D(lightObject.AddComponent<Light2D>(), part, targetSortingLayerId);
@@ -966,7 +1196,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         {
             LightSortingLayersField.SetValue(light, new[] { targetSortingLayerId });
         }
-        catch (Exception exception) { ReportRuntimeLightFailure(exception); }
+        catch (Exception exception)
+        {
+            ReportRuntimeLightFailure(exception);
+        }
     }
 
     private static void ReportRuntimeLightFailure(Exception exception)
@@ -977,8 +1210,13 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         Debug.LogError($"[BattleDecor] Runtime Light2D 생성/설정에 실패했습니다. Decor는 계속 생성합니다.\n{exception}");
     }
 
-    private static void BuildMechanicalFrame(Transform visualRoot, BattleShowFloorTemplateSO template, Vector2Int footprint,
-        float cell, SpriteRenderer reference, int floorSorting)
+    private static void BuildMechanicalFrame(
+        Transform visualRoot,
+        BattleShowFloorTemplateSO template,
+        Vector2Int footprint,
+        float cell,
+        SpriteRenderer reference,
+        int floorSorting)
     {
         GameObject frameObject = new(FrameRootName);
         frameObject.transform.SetParent(visualRoot, false);
@@ -1035,10 +1273,13 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 .SetEase(Ease.Linear).SetUpdate(true);
         sequence.OnComplete(() =>
         {
-            if (cluster.root == null) return;
+            if (cluster.root == null)
+                return;
             cluster.root.position = cluster.finalPosition;
-            if (cluster.visualRoot != null) cluster.visualRoot.localRotation = Quaternion.identity;
-            if (cluster.owner != null) cluster.ownerLastPosition = cluster.owner.transform.position;
+            if (cluster.visualRoot != null)
+                cluster.visualRoot.localRotation = Quaternion.identity;
+            if (cluster.owner != null)
+                cluster.ownerLastPosition = cluster.owner.transform.position;
         });
         cluster.sequence = sequence;
     }
@@ -1218,7 +1459,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         for (int i = 0; i < sources.Count; i++)
         {
             SpriteRenderer renderer = sources[i].renderer;
-            if (renderer != null && renderer.sprite != null) return renderer;
+            if (renderer != null && renderer.sprite != null)
+                return renderer;
         }
         return null;
     }
@@ -1257,9 +1499,14 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         {
             FloorSource source = sources[i];
             MapBlock owner = source.owner;
-            if (owner == null || !ownerIdBuffer.Add(owner.GetInstanceID())) continue;
+            if (owner == null || !ownerIdBuffer.Add(owner.GetInstanceID()))
+                continue;
             float distance = (source.bounds.ClosestPoint(target) - target).sqrMagnitude;
-            if (distance < bestDistance) { bestDistance = distance; best = owner; }
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                best = owner;
+            }
         }
         return best;
     }
@@ -1279,7 +1526,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 h = h * 31 + Mathf.RoundToInt(b.center.y * 10f);
                 h = h * 31 + Mathf.RoundToInt(b.size.x * 10f);
                 h = h * 31 + Mathf.RoundToInt(b.size.y * 10f);
-                if (source.owner != null) h = h * 31 + source.owner.GetInstanceID();
+                if (source.owner != null)
+                    h = h * 31 + source.owner.GetInstanceID();
                 sum += h;
                 xor ^= h;
             }
@@ -1292,15 +1540,20 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         Vector2 dir = Cardinalize(direction);
         float distance = Mathf.Max(8f, minimumOffscreenRail);
         Camera camera = Camera.main;
-        if (camera == null || !camera.orthographic) return distance;
+        if (camera == null || !camera.orthographic)
+            return distance;
         float halfHeight = camera.orthographicSize;
         float halfWidth = halfHeight * Mathf.Max(0.1f, camera.aspect);
         Vector3 center = camera.transform.position;
         float margin = Mathf.Max(0.25f, offscreenMargin);
         if (Mathf.Abs(dir.x) >= Mathf.Abs(dir.y))
-            distance = dir.x >= 0f ? Mathf.Max(distance, center.x + halfWidth + margin - bounds.min.x) : Mathf.Max(distance, bounds.max.x - (center.x - halfWidth - margin));
+            distance = dir.x >= 0f
+                ? Mathf.Max(distance, center.x + halfWidth + margin - bounds.min.x)
+                : Mathf.Max(distance, bounds.max.x - (center.x - halfWidth - margin));
         else
-            distance = dir.y >= 0f ? Mathf.Max(distance, center.y + halfHeight + margin - bounds.min.y) : Mathf.Max(distance, bounds.max.y - (center.y - halfHeight - margin));
+            distance = dir.y >= 0f
+                ? Mathf.Max(distance, center.y + halfHeight + margin - bounds.min.y)
+                : Mathf.Max(distance, bounds.max.y - (center.y - halfHeight - margin));
         return Mathf.Max(0.5f, distance);
     }
 
@@ -1313,30 +1566,49 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private static Sprite PickFloorSprite(Sprite[] variants, Sprite fallback, System.Random random)
     {
-        if (variants == null || variants.Length == 0) return fallback;
+        if (variants == null || variants.Length == 0)
+            return fallback;
         int start = random.Next(0, variants.Length);
         for (int i = 0; i < variants.Length; i++)
         {
             Sprite sprite = variants[(start + i) % variants.Length];
-            if (sprite != null) return sprite;
+            if (sprite != null)
+                return sprite;
         }
         return fallback;
     }
 
     private static Sprite ResolveLowerPlateSprite(BattleShowFloorTemplateSO template, int x, int columns)
     {
-        if (template == null) return null;
+        if (template == null)
+            return null;
         if (columns <= 1)
-            return template.LowerPlateCenterSprite32 != null ? template.LowerPlateCenterSprite32 : template.LowerPlateLeftSprite32 != null ? template.LowerPlateLeftSprite32 : template.LowerPlateRightSprite32;
-        if (x <= 0) return template.LowerPlateLeftSprite32 != null ? template.LowerPlateLeftSprite32 : template.LowerPlateCenterSprite32;
-        if (x >= columns - 1) return template.LowerPlateRightSprite32 != null ? template.LowerPlateRightSprite32 : template.LowerPlateCenterSprite32;
+            return template.LowerPlateCenterSprite32 != null
+                ? template.LowerPlateCenterSprite32
+                : template.LowerPlateLeftSprite32 != null
+                    ? template.LowerPlateLeftSprite32
+                    : template.LowerPlateRightSprite32;
+        if (x <= 0)
+            return template.LowerPlateLeftSprite32 != null ? template.LowerPlateLeftSprite32 : template.LowerPlateCenterSprite32;
+        if (x >= columns - 1)
+            return template.LowerPlateRightSprite32 != null ? template.LowerPlateRightSprite32 : template.LowerPlateCenterSprite32;
         return template.LowerPlateCenterSprite32;
     }
 
-    private static void CreateHorizontalFaceHandles(Transform parent, string prefix, Sprite sprite, float y, float leftX, float rightX,
-        SpriteRenderer reference, Color tint, int sortingOrder, float cell)
+    private static void CreateHorizontalFaceHandles(
+        Transform parent,
+        string prefix,
+        Sprite sprite,
+        float y,
+        float leftX,
+        float rightX,
+        SpriteRenderer reference,
+        Color tint,
+        int sortingOrder,
+        float cell)
     {
-        if (sprite == null) return;
+        if (sprite == null)
+            return;
         if (Mathf.Abs(rightX - leftX) < cell * 0.5f)
         {
             CreateFramePart(parent, prefix, sprite, new Vector3(0f, y, 0f), reference, tint, sortingOrder, cell);
@@ -1346,10 +1618,20 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         CreateFramePart(parent, prefix + "_R", sprite, new Vector3(rightX, y, 0f), reference, tint, sortingOrder, cell);
     }
 
-    private static void CreateVerticalFaceHandles(Transform parent, string prefix, Sprite sprite, float x, float bottomY, float topY,
-        SpriteRenderer reference, Color tint, int sortingOrder, float cell)
+    private static void CreateVerticalFaceHandles(
+        Transform parent,
+        string prefix,
+        Sprite sprite,
+        float x,
+        float bottomY,
+        float topY,
+        SpriteRenderer reference,
+        Color tint,
+        int sortingOrder,
+        float cell)
     {
-        if (sprite == null) return;
+        if (sprite == null)
+            return;
         if (Mathf.Abs(topY - bottomY) < cell * 0.5f)
         {
             CreateFramePart(parent, prefix, sprite, new Vector3(x, 0f, 0f), reference, tint, sortingOrder, cell);
@@ -1359,10 +1641,18 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         CreateFramePart(parent, prefix + "_T", sprite, new Vector3(x, topY, 0f), reference, tint, sortingOrder, cell);
     }
 
-    private static void CreateFramePart(Transform parent, string objectName, Sprite sprite, Vector3 localPosition,
-        SpriteRenderer reference, Color tint, int sortingOrder, float cell)
+    private static void CreateFramePart(
+        Transform parent,
+        string objectName,
+        Sprite sprite,
+        Vector3 localPosition,
+        SpriteRenderer reference,
+        Color tint,
+        int sortingOrder,
+        float cell)
     {
-        if (parent == null || sprite == null) return;
+        if (parent == null || sprite == null)
+            return;
         GameObject go = new(objectName);
         go.transform.SetParent(parent, false);
         go.transform.localPosition = localPosition;
@@ -1377,32 +1667,44 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private static void ScaleRendererToSize(SpriteRenderer renderer, float width, float height)
     {
-        if (renderer == null || renderer.sprite == null) return;
+        if (renderer == null || renderer.sprite == null)
+            return;
         Vector3 size = renderer.sprite.bounds.size;
-        renderer.transform.localScale = new Vector3(width / Mathf.Max(0.001f, size.x), height / Mathf.Max(0.001f, size.y), 1f);
+        renderer.transform.localScale = new Vector3(
+            width / Mathf.Max(0.001f, size.x),
+            height / Mathf.Max(0.001f, size.y),
+            1f);
     }
 
     private static Vector2 ResolveAttachDirection(BattleDecorAttachSide side, System.Random random)
     {
         switch (side)
         {
-            case BattleDecorAttachSide.Top: return Vector2.up;
-            case BattleDecorAttachSide.Side: return random.Next(0, 2) == 0 ? Vector2.left : Vector2.right;
-            case BattleDecorAttachSide.Bottom: return Vector2.down;
+            case BattleDecorAttachSide.Top:
+                return Vector2.up;
+            case BattleDecorAttachSide.Side:
+                return random.Next(0, 2) == 0 ? Vector2.left : Vector2.right;
+            case BattleDecorAttachSide.Bottom:
+                return Vector2.down;
             default:
                 switch (random.Next(0, 4))
                 {
-                    case 0: return Vector2.left;
-                    case 1: return Vector2.right;
-                    case 2: return Vector2.up;
-                    default: return Vector2.down;
+                    case 0:
+                        return Vector2.left;
+                    case 1:
+                        return Vector2.right;
+                    case 2:
+                        return Vector2.up;
+                    default:
+                        return Vector2.down;
                 }
         }
     }
 
     private static Vector2 Cardinalize(Vector2 direction)
     {
-        if (direction.sqrMagnitude <= 0.001f) return Vector2.right;
+        if (direction.sqrMagnitude <= 0.001f)
+            return Vector2.right;
         return Mathf.Abs(direction.x) >= Mathf.Abs(direction.y)
             ? (direction.x >= 0f ? Vector2.right : Vector2.left)
             : (direction.y >= 0f ? Vector2.up : Vector2.down);
@@ -1425,7 +1727,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private static string SafeName(string value)
     {
-        if (string.IsNullOrWhiteSpace(value)) return "Decor";
+        if (string.IsNullOrWhiteSpace(value))
+            return "Decor";
         return value.Replace('/', '_').Replace('\\', '_').Replace(' ', '_');
     }
 }
