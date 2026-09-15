@@ -6,7 +6,8 @@ using UnityEngine;
 /// 목적:
 /// - 이전 Stage Decor는 기존 StageFlow가 퇴장을 요청하고 실제 소멸까지 기다립니다.
 /// - 새 Stage가 물리적으로 안정된 뒤에만 Decor retirement gate를 해제합니다.
-/// - BuildingRoom에서 너무 일찍 해제된 경우에도 Combat/NonCombat 확정 시점에 강제로 한 번 재빌드합니다.
+/// - EnteringNode / BuildingRoom 동안에는 gate를 다시 닫아 부분 조립 Field에 Decor가 먼저 생기는 것을 막습니다.
+/// - Combat / NonCombat 확정 시 실제 완성된 Field 기준으로 한 번 재빌드합니다.
 /// - Reward / Map Show도 Show 진입이 끝난 뒤 Decor를 다시 생성합니다.
 ///
 /// Scene 전체 검색은 참조가 없을 때만 낮은 빈도로 수행합니다.
@@ -65,8 +66,21 @@ public sealed class BattleDecorStageLifecycleSync : MonoBehaviour
             return;
 
         // 새 Run의 대기실은 기존 retirement gate가 남아 있을 이유가 없습니다.
-        if (runManager != null && runManager.IsInStartArea && decorStage.StageRetirementRequested)
-            decorStage.ReleaseStageRetirementGate();
+        if (runManager != null && runManager.IsInStartArea)
+        {
+            if (decorStage.StageRetirementRequested)
+                decorStage.ReleaseStageRetirementGate();
+        }
+        // 기존 StageFlow가 BuildingRoom 진입 순간 gate를 먼저 풀더라도 실제 Room 조립이 끝나기 전에는
+        // Decor를 만들지 않습니다. 이 구간은 다음 Combat / NonCombat 확정 상태까지 닫힌 채 유지합니다.
+        else if (runManager != null &&
+                 (runManager.State == BattleRunState.EnteringNode ||
+                  runManager.State == BattleRunState.BuildingRoom))
+        {
+            if (!decorStage.StageRetirementRequested)
+                decorStage.RequestStageRetirement();
+            return;
+        }
 
         if (stageFlow != null)
         {
@@ -116,9 +130,8 @@ public sealed class BattleDecorStageLifecycleSync : MonoBehaviour
 
             case BattleStageFlowState.Combat:
             case BattleStageFlowState.NonCombat:
-                // 기존 StageFlow는 BuildingRoom에서 gate를 한 번 일찍 풀 수 있습니다.
-                // Room이 완전히 들어온 확정 상태에서 다시 호출해 Field Signature를 리셋하고
-                // 실제 완성된 전투 Field 기준으로 Decor를 재빌드합니다.
+                // 완성된 Room 상태에서 다시 호출해 Field Signature를 리셋합니다.
+                // BuildingRoom 시점에 발생할 수 있는 조기 Release도 여기서 최종 정리됩니다.
                 decorStage.ReleaseStageRetirementGate();
                 break;
         }
@@ -140,6 +153,9 @@ public sealed class BattleDecorStageLifecycleSync : MonoBehaviour
 
         nextResolveAt = Time.unscaledTime + ResolveRetryInterval;
 
+        bool stageFlowWasMissing = stageFlow == null;
+        bool runManagerWasMissing = runManager == null;
+
         if (stageFlow == null)
         {
             stageFlow = BattleStageTransitionController.Instance != null
@@ -153,10 +169,10 @@ public sealed class BattleDecorStageLifecycleSync : MonoBehaviour
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
 
-        // 새 Scene / 새 Controller가 연결된 직후 현재 상태를 한 번 반드시 처리합니다.
-        if (stageFlow != null)
+        // 참조가 새로 연결된 순간에만 현재 상태를 한 번 다시 처리합니다.
+        if (stageFlowWasMissing && stageFlow != null)
             lastFlowState = (BattleStageFlowState)(-1);
-        if (runManager != null)
+        if (runManagerWasMissing && runManager != null)
             lastRunState = (BattleRunState)(-1);
     }
 }
