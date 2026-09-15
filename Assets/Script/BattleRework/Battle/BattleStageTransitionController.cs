@@ -25,8 +25,8 @@ public enum BattleStageFlowState
 ///
 /// Important invariant:
 /// - Room field and Show carriers never enter at the same time.
-/// - Reward/Map Show opens only after the combat field collapse is complete.
-/// - A selected next Room does not begin building until the current Show has completely exited.
+/// - Reward/Map Show opens only after the combat field collapse and BattleDecor retirement are complete.
+/// - A selected next Room does not begin building until the current Show and BattleDecor have completely exited.
 /// - Persistent 4x4 is the common hand-off point between every physical stage.
 /// - Procedural Assembly is an Entry transport only; Room Exit uses the nested MapBlock pieces.
 /// </summary>
@@ -81,6 +81,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private RoomBaseTemplate baseTemplate;
     private PlayerController player;
     private BattleShowWorldSetController showStage;
+    private BattleUniversalStageDecorCarrierSkinController decorStage;
 
     private Vector3 preservedBaseTileOrigin;
     private Vector3 showAnchorCenter;
@@ -222,6 +223,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             player = FindFirstObjectByType<PlayerController>();
         if (showStage == null)
             showStage = FindFirstObjectByType<BattleShowWorldSetController>();
+        if (decorStage == null)
+            decorStage = FindFirstObjectByType<BattleUniversalStageDecorCarrierSkinController>();
     }
 
     private void Subscribe()
@@ -277,8 +280,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 return;
 
             case BattleRunState.EnteringNode:
-                // Normally SelectNextNode queues entry through TryQueueNodeEntry(), so the Show is already gone.
-                // This also covers legacy/direct EnterNode callers safely.
+                // Decor retirement gate는 BuildingRoom 직전까지 유지합니다.
+                // 따라서 이전 Decor가 사라진 뒤에도 새 Room 물리 진입 전에 Decor가 재생성되지 않습니다.
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.RoomEntering);
 
@@ -294,16 +297,19 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 return;
 
             case BattleRunState.BuildingRoom:
+                decorStage?.ReleaseStageRetirementGate();
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.RoomEntering);
                 return;
 
             case BattleRunState.Combat:
+                decorStage?.ReleaseStageRetirementGate();
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.Combat);
                 return;
 
             case BattleRunState.NonCombat:
+                decorStage?.ReleaseStageRetirementGate();
                 HoldShowStageGate();
                 SetFlowState(BattleStageFlowState.NonCombat);
                 return;
@@ -318,6 +324,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 }
                 else
                 {
+                    decorStage?.RequestStageRetirement();
                     ReleaseShowStageGate();
                     SetFlowState(BattleStageFlowState.Ended);
                 }
@@ -333,7 +340,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     /// <summary>
     /// Called by BattleRunManager after a map node is chosen.
     /// Returns true when this state machine takes ownership of the physical hand-off.
-    /// The logical node is entered only after the current Show has completely left the stage.
+    /// The logical node is entered only after the current Show and BattleDecor have completely left the stage.
     /// </summary>
     public bool TryQueueNodeEntry(BattleNodeData node)
     {
@@ -344,8 +351,12 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         if (queuedNodeEntryRoutine != null)
             return true;
 
-        // If no Show exists there is nothing physical to wait for; let RunManager enter immediately.
-        if (showStage == null || !showStage.IsShowActive)
+        bool showNeedsExit = showStage != null && showStage.IsShowActive;
+        bool decorNeedsHandoff = decorStage != null &&
+                                (decorStage.HasActiveDecor || decorStage.StageRetirementRequested);
+
+        // Show도 Decor도 남아 있지 않을 때만 기존 즉시 진입 경로를 허용합니다.
+        if (!showNeedsExit && !decorNeedsHandoff)
             return false;
 
         queuedNode = node;
@@ -355,12 +366,20 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private IEnumerator ExitShowThenEnterQueuedNode()
     {
-        SetFlowState(BattleStageFlowState.ShowExiting);
+        ResolveSystems();
+        bool waitingForShow = showStage != null && showStage.IsShowActive;
+        SetFlowState(waitingForShow ? BattleStageFlowState.ShowExiting : BattleStageFlowState.RoomExiting);
         HoldShowStageGate();
 
-        // WorldSet resolves externalGate as ShowMode.None and owns its actual exit animation.
-        while (showStage != null && showStage.IsShowActive)
+        // 이미 Combat Clear에서 퇴장을 요청했더라도 idempotent하게 다시 확인합니다.
+        decorStage?.RequestStageRetirement();
+
+        // Show와 Decor가 모두 실제 월드에서 사라져야 다음 Room 논리 진입을 허용합니다.
+        while ((showStage != null && showStage.IsShowActive) ||
+               (decorStage != null && decorStage.HasActiveDecor))
+        {
             yield return null;
+        }
 
         BattleNodeData node = queuedNode;
         queuedNode = null;
@@ -368,6 +387,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         SetFlowState(BattleStageFlowState.Base);
 
+        // Decor gate는 BuildingRoom 상태에서 해제합니다.
+        // 여기서 먼저 해제하면 다음 Room이 실제로 Build되기 전 한 Frame 동안 이전 Field를 다시 읽어
+        // Decor가 재생성될 수 있기 때문입니다.
         if (node != null && runManager != null && runManager.RunActive)
             runManager.ContinueEnterNodeFromStageFlow(node);
     }
@@ -389,6 +411,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         if (roomManager == null || player == null || baseTemplate == null)
         {
+            decorStage?.RequestStageRetirement();
             CaptureShowAnchorFromBase();
             OpenShowStage();
             return;
@@ -398,6 +421,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         // 전투 종료 직후 논리 상태가 먼저 바뀌더라도 타일이 남아 있으면 반드시 RoomExiting을 거칩니다.
         if (!HasCurrentRoomFieldToRetire())
         {
+            decorStage?.RequestStageRetirement();
             CaptureShowAnchorFromBase();
             OpenShowStage();
             return;
@@ -436,6 +460,12 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
     private IEnumerator CollapseClearedRoomToPlayerBase()
     {
+        ResolveSystems();
+
+        // Combat Room Piece와 Decor Carrier를 같은 RoomExiting 구간에서 동시에 퇴장시킵니다.
+        // Decor는 별도 async Tween이므로 이후 실제 소멸까지 명시적으로 기다립니다.
+        decorStage?.RequestStageRetirement();
+
         // 실제 RoomManager가 진입시킨 Assembly/MapBlock Root를 먼저 고정합니다.
         // Base 재구축이나 Presentation refresh 뒤에 씬을 재검색하지 않습니다.
         List<MapBlock> outgoingBlocks = CollectCurrentRoomExitBlocks();
@@ -445,6 +475,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 "[BattleStageFlow] RoomExiting started but BattleRoomManager owns no movement roots. " +
                 "Retiring empty room ownership before completing the stage transition.",
                 this);
+
+            while (decorStage != null && decorStage.HasActiveDecor)
+                yield return null;
 
             roomManager?.CompleteAnimatedStageRetirement();
             CaptureShowAnchorFromBase();
@@ -569,6 +602,11 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 ownership만 정식 retire합니다.
         // 이 API는 타일을 다시 Destroy하지 않으므로 다음 EnterRoomRoutine의 ClearImmediate jump-cut도 막습니다.
         yield return null;
+
+        // 전투 Tile Wave가 먼저 끝났더라도 Decor Carrier가 아직 Rail 밖으로 나가는 중이면 여기서 기다립니다.
+        while (decorStage != null && decorStage.HasActiveDecor)
+            yield return null;
+
         roomManager?.CompleteAnimatedStageRetirement();
 
         BattleDockHandleVisibilityController.RefreshNow();
@@ -578,7 +616,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         collapseRoutine = null;
 
-        // 3) 전투 Field의 실제 Exit와 Room ownership 정리가 모두 끝난 뒤 Show 또는 Ended로 진행합니다.
+        // 3) 전투 Field와 Decor의 실제 Exit 및 Room ownership 정리가 모두 끝난 뒤 Show 또는 Ended로 진행합니다.
         CompleteCollapseDestination();
     }
 
@@ -1446,6 +1484,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         ResolveSystems();
         EnsureBaseVisible();
         EnsurePlayerVisible();
+        decorStage?.RequestStageRetirement();
 
         if (reason == RunEndReason.Clear && HasCurrentRoomFieldToRetire())
         {
