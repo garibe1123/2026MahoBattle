@@ -1207,6 +1207,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         floorSourceBuffer.Clear();
         floorRendererIdBuffer.Clear();
 
+        // Persistent 4x4와 명시적으로 등록된 Walkable Field를 먼저 수집하되,
+        // 여기서 끝내지 않습니다. Combat MapBlock / Show Floor까지 모두 합쳐 현재 Stage 전체를 계산합니다.
         BattleWalkableField[] fields = FindObjectsByType<BattleWalkableField>(
             FindObjectsInactive.Exclude,
             FindObjectsSortMode.None);
@@ -1224,9 +1226,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             AddFloorSource(floorSourceBuffer, floorRendererIdBuffer, renderer, ResolveOutermostMapBlock(renderer.transform));
         }
 
-        if (floorSourceBuffer.Count > 0)
-            return floorSourceBuffer;
-
+        // 전투 Room의 실제 MapBlock Floor도 항상 합산합니다.
         MapBlock[] blocks = FindObjectsByType<MapBlock>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
         for (int i = 0; i < blocks.Length; i++)
         {
@@ -1238,7 +1238,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             for (int r = 0; r < renderers.Length; r++)
             {
                 SpriteRenderer renderer = renderers[r];
-                if (renderer == null || !renderer.enabled || renderer.sprite == null)
+                if (renderer == null || !renderer.gameObject.activeInHierarchy ||
+                    !renderer.enabled || renderer.sprite == null)
                     continue;
 
                 string n = renderer.name;
@@ -1251,9 +1252,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             }
         }
 
-        if (floorSourceBuffer.Count > 0)
-            return floorSourceBuffer;
-
+        // Reward / Map Show 및 이름 기반 일반 Floor까지 함께 수집합니다.
+        // AddFloorSource가 Renderer InstanceID로 중복 제거하므로 앞 단계에서 이미 잡힌 Floor는 다시 들어가지 않습니다.
         SpriteRenderer[] generic = FindObjectsByType<SpriteRenderer>(
             FindObjectsInactive.Exclude,
             FindObjectsSortMode.None);
