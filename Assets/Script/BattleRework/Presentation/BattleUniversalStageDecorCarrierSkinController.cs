@@ -15,8 +15,9 @@ using UnityEngine;
 /// - SO의 Floor Template으로 Carrier Floor / Mechanical Frame 생성
 /// - SO Parts를 저장된 Position / Rotation / Scale / Sorting 그대로 조립
 ///
-/// 별도의 SceneConfig / Profile / LightRig / Cable Runtime Manager는 사용하지 않습니다.
-/// Runtime 랜덤 변형은 선택적으로 전체 좌우 Mirror만 허용하며 상하 반전/랜덤 180도 회전은 하지 않습니다.
+/// Side 디자인의 Authoring 기준은 항상 Field 왼쪽 설치 + 장비가 오른쪽을 바라보는 모습입니다.
+/// 실제 배치가 오른쪽 Side로 결정되면 Parts Root 전체를 자동으로 좌우 Mirror합니다.
+/// 별도의 좌/우 BattleDecorSO나 랜덤 Mirror 옵션은 사용하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30150)]
@@ -450,7 +451,11 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                     field.center.z);
             }
 
-            target += new Vector3(authoredOffset.x, authoredOffset.y, 0f);
+            Vector2 placementOffset = authoredOffset;
+            if (outward.x > 0.5f)
+                placementOffset.x = -placementOffset.x;
+
+            target += new Vector3(placementOffset.x, placementOffset.y, 0f);
             candidateBounds = new Bounds(target, new Vector3(width, height, 0.20f));
             if (!OverlapsExistingPlacement(candidateBounds, cell))
                 return true;
@@ -517,10 +522,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         BuildAuthoredParts(
             visualRoot,
             design,
+            outward,
             cell,
             floorReference,
-            floorSorting,
-            random);
+            floorSorting);
 
         return new DecorCluster
         {
@@ -587,17 +592,18 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private static void BuildAuthoredParts(
         Transform visualRoot,
         BattleDecorSO design,
+        Vector2 outward,
         float cell,
         SpriteRenderer floorReference,
-        int floorSorting,
-        System.Random random)
+        int floorSorting)
     {
         GameObject partsObject = new(PartsRootName);
         partsObject.transform.SetParent(visualRoot, false);
         Transform partsRoot = partsObject.transform;
 
-        bool mirror = design.AllowRandomMirrorX && random.NextDouble() < 0.5;
-        partsRoot.localScale = new Vector3(mirror ? -cell : cell, cell, 1f);
+        Vector2 resolvedSide = Cardinalize(outward);
+        bool mirrorForRightSide = resolvedSide.x > 0.5f;
+        partsRoot.localScale = new Vector3(mirrorForRightSide ? -cell : cell, cell, 1f);
 
         IReadOnlyList<BattleDecorPart> parts = design.Parts;
         if (parts == null)
@@ -1219,12 +1225,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         {
             case BattleDecorAttachSide.Top:
                 return Vector2.up;
-            case BattleDecorAttachSide.Right:
-                return Vector2.right;
+            case BattleDecorAttachSide.Side:
+                return random.Next(0, 2) == 0 ? Vector2.left : Vector2.right;
             case BattleDecorAttachSide.Bottom:
                 return Vector2.down;
-            case BattleDecorAttachSide.Left:
-                return Vector2.left;
             default:
                 switch (random.Next(0, 4))
                 {
