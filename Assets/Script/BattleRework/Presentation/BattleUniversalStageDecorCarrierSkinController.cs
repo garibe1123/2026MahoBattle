@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Reflection;
 using DG.Tweening;
@@ -21,6 +22,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private const string CarrierTilePrefix = "DecorCarrierTile_";
     private const string LightObjectName = "RuntimeLight2D";
 
+    private static readonly FieldInfo LightSortingLayersField = typeof(Light2D).GetField(
+        "m_ApplyToSortingLayers",
+        BindingFlags.Instance | BindingFlags.NonPublic);
     private static bool warnedRuntimeLightFailure;
 
     [Header("BATTLE DECOR DESIGNS")]
@@ -39,6 +43,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     [SerializeField, Min(1f)] private float exposedEdgeTilesPerDecor = 5f;
     [SerializeField, Range(1, 32)] private int maximumScaledDecorCount = 16;
     [SerializeField, Range(0, 3)] private int scaledDecorCountJitter = 1;
+
+    [Header("BUILD BUDGET")]
+    [Tooltip("한 프레임에 실제 GameObject/SpriteRenderer/Light2D를 생성할 Decor 수입니다. 큰 Stage에서 생성 Spike를 여러 프레임으로 분산합니다.")]
+    [SerializeField, Range(1, 8)] private int maxDecorCreatesPerFrame = 4;
 
     [Header("ENTRY")]
     [SerializeField, Range(0.20f, 1.5f)] private float entryDuration = 0.58f;
@@ -67,6 +75,17 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         public Bounds bounds;
     }
 
+    private struct DecorSpawnPlan
+    {
+        public BattleDecorSO design;
+        public Vector3 target;
+        public Vector2 outward;
+        public Bounds carrierBounds;
+        public Vector2Int footprint;
+        public MapBlock owner;
+        public int randomSeed;
+    }
+
     private sealed class DecorCluster
     {
         public GameObject rootObject;
@@ -88,9 +107,13 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private readonly List<FloorSource> floorSourceBuffer = new();
     private readonly HashSet<int> floorRendererIdBuffer = new();
     private readonly List<Bounds> floorBoundsBuffer = new();
+    private readonly List<DecorSpawnPlan> spawnPlanBuffer = new();
+    private readonly HashSet<int> ownerIdBuffer = new();
 
     private BattleRoomManager roomManager;
     private BattleRunManager runManager;
+    private Coroutine decorBuildRoutine;
+    private bool decorBuildInProgress;
     private float nextFieldScanAt;
     private float nextRoomManagerResolveAt;
     private int lastFieldSignature = int.MinValue;
@@ -128,6 +151,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         stageRetirementRequested = true;
         rebuildPending = false;
         transitionFallbackExitAt = float.PositiveInfinity;
+        CancelDecorBuild();
         BeginExitAll(fallbackExitDuration);
     }
 
@@ -161,6 +185,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         lastTransitioning = roomManager != null && roomManager.IsTransitioning;
         transitionFallbackExitAt = float.PositiveInfinity;
         stageRetirementRequested = false;
+        decorBuildRoutine = null;
+        decorBuildInProgress = false;
+        spawnPlanBuffer.Clear();
         warnedNoValidDesigns = false;
         warnedNoFloorSources = false;
         warnedZeroDecorCount = false;
@@ -169,6 +196,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private void OnDisable()
     {
+        CancelDecorBuild();
         for (int i = clusters.Count - 1; i >= 0; i--)
         {
             DecorCluster cluster = clusters[i];
@@ -185,6 +213,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         floorSourceBuffer.Clear();
         floorRendererIdBuffer.Clear();
         floorBoundsBuffer.Clear();
+        spawnPlanBuffer.Clear();
+        ownerIdBuffer.Clear();
         stageRetirementRequested = false;
     }
 
@@ -196,6 +226,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         exposedEdgeTilesPerDecor = Mathf.Max(1f, exposedEdgeTilesPerDecor);
         maximumScaledDecorCount = Mathf.Max(minimumDecorCount, maximumScaledDecorCount);
         scaledDecorCountJitter = Mathf.Clamp(scaledDecorCountJitter, 0, 3);
+        maxDecorCreatesPerFrame = Mathf.Clamp(maxDecorCreatesPerFrame, 1, 8);
         fallbackCellWorldSize = Mathf.Max(0.25f, fallbackCellWorldSize);
         placementAttempts = Mathf.Clamp(placementAttempts, 8, 64);
         fieldScanInterval = Mathf.Max(0.10f, fieldScanInterval);
@@ -246,7 +277,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             return;
         }
 
-        if (clusters.Count > 0 || now < nextFieldScanAt)
+        if (decorBuildInProgress || clusters.Count > 0 || now < nextFieldScanAt)
             return;
 
         nextFieldScanAt = now + Mathf.Max(0.10f, fieldScanInterval);
@@ -309,6 +340,15 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         rebuildAt = Time.unscaledTime + Mathf.Max(0f, delay);
         if (forceSignatureReset)
             lastFieldSignature = int.MinValue;
+    }
+
+    private void CancelDecorBuild()
+    {
+        if (decorBuildRoutine != null)
+            StopCoroutine(decorBuildRoutine);
+        decorBuildRoutine = null;
+        decorBuildInProgress = false;
+        spawnPlanBuffer.Clear();
     }
 
     private void UpdateRoomTransitionState()
@@ -374,6 +414,14 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     {
         if (stageRetirementRequested)
             return;
+
+        if (decorBuildInProgress)
+        {
+            if (!force)
+                return;
+            CancelDecorBuild();
+        }
+
         RefreshDesignCache();
         if (validDesigns.Count == 0)
         {
@@ -416,7 +464,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private void BuildDressing(List<FloorSource> sources, int signature)
     {
-        if (stageRetirementRequested || sources == null || sources.Count == 0 || validDesigns.Count == 0)
+        if (stageRetirementRequested || decorBuildInProgress || sources == null || sources.Count == 0 || validDesigns.Count == 0)
             return;
 
         Bounds fieldBounds = sources[0].bounds;
@@ -435,6 +483,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             scaleDecorCountWithFloor, exposedEdgeTilesPerDecor,
             maximumScaledDecorCount, scaledDecorCountJitter, random);
         placementBounds.Clear();
+        spawnPlanBuffer.Clear();
 
         if (targetCount <= 0)
         {
@@ -448,7 +497,6 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         }
 
         warnedZeroDecorCount = false;
-        int createdCount = 0;
         for (int i = 0; i < targetCount; i++)
         {
             BattleDecorSO design = PickWeightedDesign(random);
@@ -460,31 +508,81 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 continue;
 
             MapBlock owner = ResolveClosestOwner(target, sources);
-            DecorCluster cluster = CreateCluster(design, target, outward, carrierBounds, footprint, cell, floorReference, owner, random);
-            if (cluster == null)
-                continue;
-            clusters.Add(cluster);
+            spawnPlanBuffer.Add(new DecorSpawnPlan
+            {
+                design = design,
+                target = target,
+                outward = outward,
+                carrierBounds = carrierBounds,
+                footprint = footprint,
+                owner = owner,
+                randomSeed = random.Next()
+            });
             placementBounds.Add(carrierBounds);
-            PlayEnter(cluster);
-            createdCount++;
         }
 
-        if (createdCount == 0)
+        if (spawnPlanBuffer.Count == 0)
         {
             if (!warnedNoPlacement)
             {
                 warnedNoPlacement = true;
                 Debug.LogWarning("[BattleDecor] 배치 가능한 Decor 위치를 만들지 못했습니다.", this);
             }
-        }
-        else
-        {
-            warnedNoPlacement = false;
+            lastFieldSignature = signature;
+            return;
         }
 
+        warnedNoPlacement = false;
         lastFieldSignature = signature;
         if (stableFieldRescanInterval > 0f)
             nextFieldScanAt = Time.unscaledTime + stableFieldRescanInterval;
+
+        decorBuildInProgress = true;
+        Coroutine routine = StartCoroutine(BuildDressingRoutine(floorReference, cell));
+        if (decorBuildInProgress)
+            decorBuildRoutine = routine;
+    }
+
+    private IEnumerator BuildDressingRoutine(SpriteRenderer floorReference, float cell)
+    {
+        int budget = Mathf.Clamp(maxDecorCreatesPerFrame, 1, 8);
+        int createdThisFrame = 0;
+
+        for (int i = 0; i < spawnPlanBuffer.Count; i++)
+        {
+            if (stageRetirementRequested || floorReference == null)
+                break;
+
+            DecorSpawnPlan plan = spawnPlanBuffer[i];
+            System.Random spawnRandom = new(plan.randomSeed);
+            DecorCluster cluster = CreateCluster(
+                plan.design,
+                plan.target,
+                plan.outward,
+                plan.carrierBounds,
+                plan.footprint,
+                cell,
+                floorReference,
+                plan.owner,
+                spawnRandom);
+
+            if (cluster != null)
+            {
+                clusters.Add(cluster);
+                PlayEnter(cluster);
+            }
+
+            createdThisFrame++;
+            if (createdThisFrame >= budget && i < spawnPlanBuffer.Count - 1)
+            {
+                createdThisFrame = 0;
+                yield return null;
+            }
+        }
+
+        spawnPlanBuffer.Clear();
+        decorBuildInProgress = false;
+        decorBuildRoutine = null;
     }
 
     private BattleDecorSO PickWeightedDesign(System.Random random)
@@ -724,12 +822,11 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private static void TryApplyTargetSortingLayer(Light2D light, int targetSortingLayerId)
     {
-        if (light == null)
+        if (light == null || LightSortingLayersField == null)
             return;
         try
         {
-            FieldInfo field = typeof(Light2D).GetField("m_ApplyToSortingLayers", BindingFlags.Instance | BindingFlags.NonPublic);
-            field?.SetValue(light, new[] { targetSortingLayerId });
+            LightSortingLayersField.SetValue(light, new[] { targetSortingLayerId });
         }
         catch (Exception exception) { ReportRuntimeLightFailure(exception); }
     }
@@ -986,16 +1083,16 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         return Mathf.Max(0.25f, fallbackCellWorldSize);
     }
 
-    private static MapBlock ResolveClosestOwner(Vector3 target, List<FloorSource> sources)
+    private MapBlock ResolveClosestOwner(Vector3 target, List<FloorSource> sources)
     {
         MapBlock best = null;
         float bestDistance = float.PositiveInfinity;
-        HashSet<int> seen = new();
+        ownerIdBuffer.Clear();
         for (int i = 0; i < sources.Count; i++)
         {
             FloorSource source = sources[i];
             MapBlock owner = source.owner;
-            if (owner == null || !seen.Add(owner.GetInstanceID())) continue;
+            if (owner == null || !ownerIdBuffer.Add(owner.GetInstanceID())) continue;
             float distance = (source.bounds.ClosestPoint(target) - target).sqrMagnitude;
             if (distance < bestDistance) { bestDistance = distance; best = owner; }
         }
