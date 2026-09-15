@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using DG.Tweening;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
@@ -936,10 +937,33 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         light.shadowsEnabled = part.LightShadowsEnabled;
         light.shadowIntensity = part.LightShadowIntensity;
 
-        // URP 17은 public targetSortingLayers API를 제공합니다.
-        // Reflection/static Unity API 없이 실제 Floor가 쓰는 Sorting Layer를 그대로 대상으로 지정합니다.
-        light.targetSortingLayers = new[] { targetSortingLayerId };
+        // URP 17.0.3은 Target Sorting Layers를 Inspector에는 노출하지만 public setter는 제공하지 않습니다.
+        // Runtime AddComponent 경로에서는 m_ApplyToSortingLayers가 비어 있을 수 있으므로
+        // 실제 Floor의 Sorting Layer ID를 private serialized field에 best-effort로 주입합니다.
+        TryApplyTargetSortingLayer(light, targetSortingLayerId);
         light.enabled = true;
+    }
+
+    private static void TryApplyTargetSortingLayer(Light2D light, int targetSortingLayerId)
+    {
+        if (light == null)
+            return;
+
+        try
+        {
+            FieldInfo sortingLayersField = typeof(Light2D).GetField(
+                "m_ApplyToSortingLayers",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+
+            if (sortingLayersField == null)
+                return;
+
+            sortingLayersField.SetValue(light, new[] { targetSortingLayerId });
+        }
+        catch (Exception exception)
+        {
+            ReportRuntimeLightFailure(exception);
+        }
     }
 
     private static void ReportRuntimeLightFailure(Exception exception)
