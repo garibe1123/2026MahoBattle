@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 #if UNITY_EDITOR
 using UnityEditor;
@@ -142,7 +143,9 @@ public sealed class BattleDecorPart
     [Tooltip("Carrier Floor Sorting Order에 더해지는 값입니다. 예: Cable +1, Base +4, Camera/Light Head +6")]
     [SerializeField] private int sortingOffset = 4;
     [SerializeField] private Color tint = Color.white;
-    [SerializeField] private bool flipX;
+    [FormerlySerializedAs("flipX")]
+    [Tooltip("체크하면 이 Part Sprite를 좌우 반전합니다. Scale X를 음수로 바꿀 필요가 없습니다.")]
+    [SerializeField] private bool flip;
 
     public BattleDecorPart()
     {
@@ -167,7 +170,8 @@ public sealed class BattleDecorPart
     public float RotationDegrees => rotationDegrees;
     public int SortingOffset => sortingOffset;
     public Color Tint => IsLegacyUnsetTint(tint) ? Color.white : tint;
-    public bool FlipX => flipX;
+    public bool Flip => flip;
+    public bool FlipX => flip;
 
     public void SetLocalPosition(Vector2 value)
     {
@@ -327,7 +331,7 @@ public sealed class BattleDecorSOEditor : Editor
             Vector2 pivot = drawRect.center;
             Matrix4x4 oldMatrix = GUI.matrix;
             GUIUtility.RotateAroundPivot(-part.RotationDegrees, pivot);
-            DrawSpriteInRect(part.Sprite, drawRect, part.FlipX, part.Tint);
+            DrawSpriteInRect(part.Sprite, drawRect, part.Flip, part.Tint);
             GUI.matrix = oldMatrix;
 
             if (i == selectedPartIndex)
