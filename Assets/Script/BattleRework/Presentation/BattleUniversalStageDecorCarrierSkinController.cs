@@ -12,6 +12,7 @@ using UnityEngine.Rendering.Universal;
 /// 오른쪽 Side에서는 authored Part의 Position / Rotation / Sprite Flip / Light2D가 자동 Mirror됩니다.
 /// Auto 배치는 가능한 4방향의 사용 횟수를 균등하게 맞추고, 같은 Visual이 같은 방향에 반복되면
 /// 두 번째부터 원본/좌우반전을 번갈아 사용해 반복감을 줄입니다.
+/// Field와 Decor 사이 간격은 1~3 Tile 범위에서 Decor마다 랜덤하게 선택됩니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30150)]
@@ -33,7 +34,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     [SerializeField] private List<BattleDecorSO> battleDecorDesigns = new();
 
     [Header("PLACEMENT")]
-    [SerializeField, Min(0f)] private float fieldGapTiles = 0f;
+    [Tooltip("Field 외곽에서 Decor까지 떨어질 최소 거리입니다. Tile 단위이며 1~3 범위에서 사용합니다.")]
+    [SerializeField, Range(1, 3)] private int minimumFieldGapTiles = 1;
+    [Tooltip("Field 외곽에서 Decor까지 떨어질 최대 거리입니다. 각 Decor는 최소~최대 사이의 정수 Tile 거리를 랜덤하게 사용합니다.")]
+    [SerializeField, Range(1, 3)] private int maximumFieldGapTiles = 3;
     [SerializeField, Range(0, 8)] private int minimumDecorCount = 2;
     [SerializeField, Range(0, 10)] private int maximumDecorCount = 4;
     [SerializeField, Range(0f, 1f)] private float placementPaddingTiles = 0.25f;
@@ -315,7 +319,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private void OnValidate()
     {
-        fieldGapTiles = Mathf.Max(0f, fieldGapTiles);
+        minimumFieldGapTiles = Mathf.Clamp(minimumFieldGapTiles, 1, 3);
+        maximumFieldGapTiles = Mathf.Clamp(maximumFieldGapTiles, minimumFieldGapTiles, 3);
         minimumDecorCount = Mathf.Max(0, minimumDecorCount);
         maximumDecorCount = Mathf.Max(minimumDecorCount, maximumDecorCount);
         exposedEdgeTilesPerDecor = Mathf.Max(1f, exposedEdgeTilesPerDecor);
@@ -723,9 +728,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
         float width = Mathf.Max(cell, footprint.x * cell);
         float height = Mathf.Max(cell, footprint.y * cell);
-        float gap = Mathf.Max(0f, fieldGapTiles * cell);
         int attempts = Mathf.Clamp(placementAttempts, 8, 64);
         Vector2 authoredOffset = design.AttachOffsetTiles * cell;
+        int minGapTiles = Mathf.Clamp(minimumFieldGapTiles, 1, 3);
+        int maxGapTiles = Mathf.Clamp(maximumFieldGapTiles, minGapTiles, 3);
 
         BuildPlacementDirectionOrder(design.AttachSide, random);
         if (placementDirectionOrder.Count == 0)
@@ -741,6 +747,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 float sidePosition = design.UseFixedAttachPosition
                     ? design.AttachPosition01
                     : (float)random.NextDouble();
+                int gapTiles = random.Next(minGapTiles, maxGapTiles + 1);
+                float gap = gapTiles * cell;
 
                 if (Mathf.Abs(outward.x) > 0.5f)
                 {
@@ -767,10 +775,6 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 candidateBounds = new Bounds(target, new Vector3(width, height, 0.20f));
                 if (!OverlapsExistingPlacement(candidateBounds, cell))
                     return true;
-
-                // Fixed Position은 같은 방향에서 반복 시도해도 같은 결과이므로 바로 다음 방향으로 넘어갑니다.
-                if (design.UseFixedAttachPosition)
-                    break;
             }
         }
 
