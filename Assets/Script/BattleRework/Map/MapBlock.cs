@@ -20,6 +20,9 @@ public enum MapBlockEntryType
 /// WheelSlide는 이미 도킹 예정/도킹 완료된 바닥과 Persistent 4x4를 관통하는 Rail을 사용하지 않습니다.
 /// 기본 방향이 막히면 다른 Cardinal Rail을 찾고, 네 방향 모두 막히면 관통 대신 제자리 Snap을 사용합니다.
 ///
+/// Entry Rail 판정은 Scene 전체를 후보 방향마다 재검색하지 않습니다.
+/// 활성 MapBlock Registry와 각 Block의 최종 Floor Bounds Cache를 공유하여 Stage 변환 시 반복 Hierarchy Scan을 줄입니다.
+///
 /// 목적지에 닿은 뒤의 반동/VFX/카메라 충격은 BattleTileDockingPresentationManager가 공통 관리합니다.
 /// 따라서 전투 필드, 대기실 Screen Carrier, Reward/Map Show Carrier가 동일한 도킹 감각을 사용합니다.
 /// </summary>
@@ -27,6 +30,10 @@ public class MapBlock : MonoBehaviour
 {
     public const float UnitWorldSize = 1f;
     public static readonly Vector2 BlockWorldSize = new(2f, 2f);
+
+    private static readonly HashSet<MapBlock> ActiveBlocks = new();
+    private static RoomBaseTemplate cachedRoomBaseTemplate;
+    private static int cachedRoomBaseSceneHandle = int.MinValue;
 
     [Header("Entry")]
     [SerializeField] private MapBlockEntryType entryType = MapBlockEntryType.WheelSlide;
@@ -69,6 +76,8 @@ public class MapBlock : MonoBehaviour
     [SerializeField, Min(0f)] private float exitDuration = 0.6f;
     [SerializeField] private Ease exitEase = Ease.InQuad;
 
+    private readonly List<Bounds> entryBlockerBuffer = new();
+
     private Quaternion presentationBaseRotation;
     private Vector3 presentationBaseScale = Vector3.one;
     private Vector3 wheelBaseEuler;
@@ -76,6 +85,10 @@ public class MapBlock : MonoBehaviour
     private bool hasEntryDestination;
     private Vector2 lastEntrySourceDirection;
     private bool hasEntrySourceDirection;
+
+    private bool cachedFinalFloorBoundsValid;
+    private Vector3 cachedFinalFloorRootPosition;
+    private Bounds cachedFinalFloorBounds;
 
     public MapBlockEntryType EntryType => entryType;
     public bool WillImpact => entryType != MapBlockEntryType.Static;
@@ -97,17 +110,27 @@ public class MapBlock : MonoBehaviour
         ResolvePresentationRoot();
         EnsureWalkableNavMeshSource();
         CachePresentationPose();
+        InvalidateFinalFloorBoundsCache();
     }
 
     private void OnEnable()
     {
+        ActiveBlocks.Add(this);
+        InvalidateFinalFloorBoundsCache();
+
         if (contributesWalkableNavMesh)
             EnsureWalkableNavMeshSource();
     }
 
     private void OnDisable()
     {
+        ActiveBlocks.Remove(this);
         KillTweens();
+    }
+
+    private void OnDestroy()
+    {
+        ActiveBlocks.Remove(this);
     }
 
     public void ConfigureRuntimeDockingBlock(
@@ -131,6 +154,7 @@ public class MapBlock : MonoBehaviour
         ResolvePresentationRoot();
         EnsureWalkableNavMeshSource();
         CachePresentationPose();
+        InvalidateFinalFloorBoundsCache();
     }
 
     private void ResolvePresentationRoot()
@@ -248,6 +272,7 @@ public class MapBlock : MonoBehaviour
         hasEntryDestination = true;
         transform.position = worldPosition;
         RestorePresentationPose();
+        InvalidateFinalFloorBoundsCache();
     }
 
     private float ResolveEntryDelay(float requestedDelay)
@@ -380,6 +405,13 @@ public class MapBlock : MonoBehaviour
         if (!avoidExistingTilePenetration || entryOffset <= 0.01f)
             return primary;
 
+        if (!TryGetCachedFloorBoundsAtRootPosition(destination, out Bounds ownFinalBounds))
+            return primary;
+
+        CollectFinalFloorBlockers(entryBlockerBuffer);
+        if (entryBlockerBuffer.Count == 0)
+            return primary;
+
         Vector2 perpendicularA = new(-primary.y, primary.x);
         Vector2 perpendicularB = -perpendicularA;
         Vector2 opposite = -primary;
@@ -394,7 +426,7 @@ public class MapBlock : MonoBehaviour
 
         for (int i = 0; i < candidates.Length; i++)
         {
-            if (IsEntryPathClear(destination, candidates[i]))
+            if (IsEntryPathClear(destination, candidates[i], ownFinalBounds, entryBlockerBuffer))
                 return candidates[i];
         }
 
@@ -405,16 +437,16 @@ public class MapBlock : MonoBehaviour
         return Vector2.zero;
     }
 
-    private bool IsEntryPathClear(Vector3 destination, Vector2 sourceDirection)
+    private bool IsEntryPathClear(
+        Vector3 destination,
+        Vector2 sourceDirection,
+        Bounds ownFinalBounds,
+        IReadOnlyList<Bounds> blockers)
     {
+        if (blockers == null || blockers.Count == 0)
+            return true;
+
         Vector2 direction = Cardinalize(sourceDirection);
-        if (!TryGetFloorBoundsAtRootPosition(this, destination, out Bounds ownFinalBounds))
-            return true;
-
-        List<Bounds> blockers = CollectFinalFloorBlockers();
-        if (blockers.Count == 0)
-            return true;
-
         Vector3 startRoot = destination + (Vector3)(direction * entryOffset);
         int samples = Mathf.Clamp(entryPathSamples, 4, 16);
 
@@ -438,11 +470,11 @@ public class MapBlock : MonoBehaviour
         return true;
     }
 
-    private List<Bounds> CollectFinalFloorBlockers()
+    private void CollectFinalFloorBlockers(List<Bounds> blockers)
     {
-        List<Bounds> blockers = new();
+        blockers.Clear();
 
-        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        RoomBaseTemplate baseTemplate = ResolveRoomBaseTemplate();
         if (baseTemplate != null && baseTemplate.HasPersistentBase)
         {
             blockers.Add(new Bounds(
@@ -453,14 +485,11 @@ public class MapBlock : MonoBehaviour
                     0.1f)));
         }
 
-        MapBlock[] blocks = FindObjectsByType<MapBlock>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < blocks.Length; i++)
+        foreach (MapBlock other in ActiveBlocks)
         {
-            MapBlock other = blocks[i];
             if (other == null || other == this || !other.gameObject.activeInHierarchy)
+                continue;
+            if (other.gameObject.scene != gameObject.scene)
                 continue;
 
             // Procedural 3-Group은 세부 Piece MapBlock을 부모 Assembly MapBlock 아래에 묶습니다.
@@ -472,14 +501,64 @@ public class MapBlock : MonoBehaviour
                 ? other.EntryDestination
                 : other.transform.position;
 
-            if (TryGetFloorBoundsAtRootPosition(other, finalRoot, out Bounds bounds))
+            if (other.TryGetCachedFloorBoundsAtRootPosition(finalRoot, out Bounds bounds))
                 blockers.Add(bounds);
         }
-
-        return blockers;
     }
 
-    private static bool TryGetFloorBoundsAtRootPosition(MapBlock block, Vector3 rootPosition, out Bounds bounds)
+    private RoomBaseTemplate ResolveRoomBaseTemplate()
+    {
+        int sceneHandle = gameObject.scene.handle;
+        if (cachedRoomBaseTemplate != null &&
+            cachedRoomBaseSceneHandle == sceneHandle &&
+            cachedRoomBaseTemplate.gameObject.scene == gameObject.scene)
+        {
+            return cachedRoomBaseTemplate;
+        }
+
+        cachedRoomBaseTemplate = null;
+        cachedRoomBaseSceneHandle = sceneHandle;
+
+        RoomBaseTemplate[] templates = FindObjectsByType<RoomBaseTemplate>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+        for (int i = 0; i < templates.Length; i++)
+        {
+            RoomBaseTemplate candidate = templates[i];
+            if (candidate == null || candidate.gameObject.scene != gameObject.scene)
+                continue;
+
+            cachedRoomBaseTemplate = candidate;
+            break;
+        }
+
+        return cachedRoomBaseTemplate;
+    }
+
+    private void InvalidateFinalFloorBoundsCache()
+    {
+        cachedFinalFloorBoundsValid = false;
+    }
+
+    private bool TryGetCachedFloorBoundsAtRootPosition(Vector3 rootPosition, out Bounds bounds)
+    {
+        if (cachedFinalFloorBoundsValid &&
+            (cachedFinalFloorRootPosition - rootPosition).sqrMagnitude <= 0.0000001f)
+        {
+            bounds = cachedFinalFloorBounds;
+            return true;
+        }
+
+        if (!TryGetFloorBoundsAtRootPositionUncached(this, rootPosition, out bounds))
+            return false;
+
+        cachedFinalFloorBounds = bounds;
+        cachedFinalFloorRootPosition = rootPosition;
+        cachedFinalFloorBoundsValid = true;
+        return true;
+    }
+
+    private static bool TryGetFloorBoundsAtRootPositionUncached(MapBlock block, Vector3 rootPosition, out Bounds bounds)
     {
         bounds = default;
         if (block == null)
@@ -549,6 +628,7 @@ public class MapBlock : MonoBehaviour
         hasEntryDestination = true;
         hasEntrySourceDirection = false;
         lastEntrySourceDirection = Vector2.zero;
+        InvalidateFinalFloorBoundsCache();
 
         if (entryType == MapBlockEntryType.Static)
         {
