@@ -6,6 +6,15 @@ using UnityEngine;
 using UnityEditor;
 #endif
 
+public enum BattleDecorAttachSide
+{
+    Auto = 0,
+    Top = 1,
+    Right = 2,
+    Bottom = 3,
+    Left = 4
+}
+
 /// <summary>
 /// 하나의 완성된 전투 데코 세트를 저장합니다.
 /// Runtime에서는 사실상 Prefab 설계도처럼 사용되며,
@@ -30,6 +39,16 @@ public sealed class BattleDecorSO : ScriptableObject
     [Tooltip("런타임에서 세트 전체를 좌우 Mirror할 수 있습니다. 상하 반전/랜덤 180도 회전은 하지 않습니다.")]
     [SerializeField] private bool allowRandomMirrorX;
 
+    [Header("FIELD ATTACHMENT")]
+    [Tooltip("Decor Carrier가 Field 어느 면에 붙을지 지정합니다. Top은 Field 위쪽, Right는 오른쪽입니다. Auto는 기존처럼 면을 랜덤 선택합니다.")]
+    [SerializeField] private BattleDecorAttachSide attachSide = BattleDecorAttachSide.Auto;
+    [Tooltip("체크하면 선택된 면의 특정 지점에 붙습니다. 해제하면 해당 면의 실제 외곽 Floor 타일 중 하나를 랜덤 선택합니다.")]
+    [SerializeField] private bool useFixedAttachPosition;
+    [Tooltip("선택 면 안에서의 부착 지점입니다. Top/Bottom은 0=왼쪽, 1=오른쪽. Left/Right는 0=아래, 1=위입니다.")]
+    [SerializeField, Range(0f, 1f)] private float attachPosition01 = 0.5f;
+    [Tooltip("선택된 Floor 부착 위치에서 추가로 움직일 보정값입니다. 타일 크기 단위입니다.")]
+    [SerializeField] private Vector2 attachOffsetTiles;
+
     [Header("DESIGN PARTS")]
     [Tooltip("Camera / Light Base / Light Head / Cable 등을 모두 여기서 직접 조립합니다. 리스트 순서는 Preview 선택 편의를 위한 것이고, 실제 앞뒤는 Sorting Offset이 결정합니다.")]
     [SerializeField] private List<BattleDecorPart> parts = new();
@@ -46,6 +65,10 @@ public sealed class BattleDecorSO : ScriptableObject
     public BattleShowFloorTemplateSO FloorTemplate => floorTemplate;
     public int Weight => Mathf.Max(1, weight);
     public bool AllowRandomMirrorX => allowRandomMirrorX;
+    public BattleDecorAttachSide AttachSide => attachSide;
+    public bool UseFixedAttachPosition => useFixedAttachPosition;
+    public float AttachPosition01 => Mathf.Clamp01(attachPosition01);
+    public Vector2 AttachOffsetTiles => attachOffsetTiles;
     public IReadOnlyList<BattleDecorPart> Parts => parts;
     public float EditorPositionSnap => Mathf.Max(0.01f, editorPositionSnap);
     public float EditorPreviewMargin => Mathf.Max(0.25f, editorPreviewMargin);
@@ -68,6 +91,7 @@ public sealed class BattleDecorSO : ScriptableObject
         footprint.x = Mathf.Clamp(footprint.x, 1, 3);
         footprint.y = Mathf.Clamp(footprint.y, 1, 3);
         weight = Mathf.Max(1, weight);
+        attachPosition01 = Mathf.Clamp01(attachPosition01);
         editorPositionSnap = Mathf.Max(0.01f, editorPositionSnap);
 
         if (parts == null)
@@ -104,7 +128,7 @@ public sealed class BattleDecorPart
         Mathf.Approximately(localScale.y, 0f) ? 1f : localScale.y);
     public float RotationDegrees => rotationDegrees;
     public int SortingOffset => sortingOffset;
-    public Color Tint => tint;
+    public Color Tint => IsLegacyUnsetTint(tint) ? Color.white : tint;
     public bool FlipX => flipX;
 
     public void SetLocalPosition(Vector2 value)
@@ -118,7 +142,17 @@ public sealed class BattleDecorPart
             localScale.x = 1f;
         if (Mathf.Approximately(localScale.y, 0f))
             localScale.y = 1f;
+        if (IsLegacyUnsetTint(tint))
+            tint = Color.white;
         rotationDegrees = Mathf.Repeat(rotationDegrees + 180f, 360f) - 180f;
+    }
+
+    private static bool IsLegacyUnsetTint(Color color)
+    {
+        return Mathf.Approximately(color.r, 0f) &&
+               Mathf.Approximately(color.g, 0f) &&
+               Mathf.Approximately(color.b, 0f) &&
+               Mathf.Approximately(color.a, 0f);
     }
 }
 
@@ -178,6 +212,7 @@ public sealed class BattleDecorSOEditor : Editor
 
         DrawGridAndFloor(decor, canvas, center, zoom);
         DrawParts(decor, canvas, center, zoom);
+        DrawAttachmentGuide(decor, center, zoom);
         HandleInput(decor, canvas, center, zoom);
 
         EditorGUI.DrawRect(new Rect(canvas.x, canvas.y, canvas.width, 1f), new Color(1f, 1f, 1f, 0.15f));
@@ -271,6 +306,49 @@ public sealed class BattleDecorSOEditor : Editor
                 GUI.Label(coordRect, coord, EditorStyles.whiteMiniLabel);
             }
         }
+    }
+
+    private static void DrawAttachmentGuide(BattleDecorSO decor, Vector2 center, float zoom)
+    {
+        if (decor.AttachSide == BattleDecorAttachSide.Auto)
+            return;
+
+        Vector2Int footprint = decor.Footprint;
+        float halfWidth = footprint.x * 0.5f;
+        float halfHeight = footprint.y * 0.5f;
+        float t = decor.UseFixedAttachPosition ? decor.AttachPosition01 : 0.5f;
+        Vector2 point;
+        Vector2 outward;
+
+        switch (decor.AttachSide)
+        {
+            case BattleDecorAttachSide.Top:
+                point = new Vector2(Mathf.Lerp(-halfWidth, halfWidth, t), halfHeight);
+                outward = Vector2.up;
+                break;
+            case BattleDecorAttachSide.Right:
+                point = new Vector2(halfWidth, Mathf.Lerp(-halfHeight, halfHeight, t));
+                outward = Vector2.right;
+                break;
+            case BattleDecorAttachSide.Bottom:
+                point = new Vector2(Mathf.Lerp(-halfWidth, halfWidth, t), -halfHeight);
+                outward = Vector2.down;
+                break;
+            default:
+                point = new Vector2(-halfWidth, Mathf.Lerp(-halfHeight, halfHeight, t));
+                outward = Vector2.left;
+                break;
+        }
+
+        Vector2 guiPoint = new(center.x + point.x * zoom, center.y - point.y * zoom);
+        Vector2 guiOutward = new(outward.x, -outward.y);
+        Vector2 guiEnd = guiPoint + guiOutward * 20f;
+
+        Handles.BeginGUI();
+        Handles.color = new Color(1f, 0.35f, 0.85f, 1f);
+        Handles.DrawAAPolyLine(3f, guiPoint, guiEnd);
+        Handles.DrawSolidDisc(guiPoint, Vector3.forward, 4f);
+        Handles.EndGUI();
     }
 
     private void HandleInput(BattleDecorSO decor, Rect canvas, Vector2 center, float zoom)
