@@ -2,22 +2,12 @@ using System;
 using System.Collections.Generic;
 using DG.Tweening;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 /// <summary>
 /// Universal Stage Decor의 단일 Runtime Owner입니다.
-///
-/// Inspector에는 BattleDecorSO 리스트만 넣습니다.
-/// 각 SO는 Floor / Frame / Camera / Light / Cable 등 완성된 데코 배치를 Prefab처럼 저장하며,
-/// 이 Controller는 다음만 담당합니다.
-/// - 현재 Field 외곽에 BattleDecorSO를 랜덤 선택/배치
-/// - 화면 밖 Entry Rail에서 굴러와 정착
-/// - 가까운 MapBlock이 빠질 때 같은 방향으로 자연 퇴장
-/// - SO의 Floor Template으로 Carrier Floor / Mechanical Frame 생성
-/// - SO Parts를 저장된 Position / Rotation / Scale / Sorting 그대로 조립
-///
-/// Side 디자인의 Authoring 기준은 항상 Field 왼쪽 설치 + 장비가 오른쪽을 바라보는 모습입니다.
-/// 실제 배치가 오른쪽 Side로 결정되면 Parts Root 전체를 자동으로 좌우 Mirror합니다.
-/// 별도의 좌/우 BattleDecorSO나 랜덤 Mirror 옵션은 사용하지 않습니다.
+/// Side Authoring 기준은 Field 왼쪽 설치 + 장비가 오른쪽을 바라보는 모습입니다.
+/// 오른쪽 Side에서는 authored Part의 Position / Rotation / Sprite Flip / Light2D가 자동 Mirror됩니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30150)]
@@ -28,6 +18,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private const string PartsRootName = "DecorParts";
     private const string FrameRootName = "DecorMechanicalFrame";
     private const string CarrierTilePrefix = "DecorCarrierTile_";
+    private const string LightObjectName = "RuntimeLight2D";
 
     [Header("BATTLE DECOR DESIGNS")]
     [Tooltip("여기에 완성된 BattleDecorSO만 넣습니다. Camera / Light / Cable 등은 각 SO 내부 Parts에서 직접 조립합니다.")]
@@ -57,10 +48,14 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     [SerializeField, Range(0.05f, 0.5f)] private float transitionExitFallbackDelay = 0.16f;
 
     [Header("FIELD WATCH")]
-    [SerializeField, Range(0.05f, 0.75f)] private float fieldScanInterval = 0.15f;
+    [Tooltip("Decor가 아직 없을 때 Field를 다시 찾는 간격입니다. Scene 전체 검색이므로 너무 낮추지 않는 것이 좋습니다.")]
+    [SerializeField, Range(0.10f, 1.0f)] private float fieldScanInterval = 0.25f;
+    [Tooltip("Decor가 정상 배치된 뒤 Scene 전체 Field 재검색 간격입니다. 0이면 재검색하지 않고 Room Transition / Owner 이동 이벤트에만 반응합니다. 성능상 기본 0을 권장합니다.")]
+    [SerializeField, Min(0f)] private float stableFieldRescanInterval = 0f;
     [SerializeField, Range(0.05f, 1.0f)] private float postTransitionRebuildDelay = 0.12f;
+    [SerializeField, Range(0.25f, 5f)] private float missingRoomManagerRetryInterval = 1f;
 
-    private sealed class FloorSource
+    private struct FloorSource
     {
         public SpriteRenderer renderer;
         public MapBlock owner;
@@ -86,8 +81,13 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private readonly List<Bounds> placementBounds = new();
     private readonly List<BattleDecorSO> validDesigns = new();
 
+    // Scene-wide 검색 시 매번 List/HashSet을 새로 만들지 않도록 재사용합니다.
+    private readonly List<FloorSource> floorSourceBuffer = new();
+    private readonly HashSet<int> floorRendererIdBuffer = new();
+
     private BattleRoomManager roomManager;
     private float nextFieldScanAt;
+    private float nextRoomManagerResolveAt;
     private int lastFieldSignature = int.MinValue;
     private bool rebuildPending;
     private float rebuildAt;
@@ -109,6 +109,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         ResolveRoomManager();
         RefreshDesignCache();
         nextFieldScanAt = 0f;
+        nextRoomManagerResolveAt = 0f;
         lastFieldSignature = int.MinValue;
         rebuildPending = true;
         rebuildAt = Time.unscaledTime + 0.10f;
@@ -124,14 +125,18 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             DecorCluster cluster = clusters[i];
             if (cluster == null)
                 continue;
+
             cluster.sequence?.Kill(false);
             if (cluster.root != null)
                 cluster.root.DOKill(false);
             if (cluster.rootObject != null)
                 Destroy(cluster.rootObject);
         }
+
         clusters.Clear();
         placementBounds.Clear();
+        floorSourceBuffer.Clear();
+        floorRendererIdBuffer.Clear();
     }
 
     private void OnValidate()
@@ -141,6 +146,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         maximumDecorCount = Mathf.Max(minimumDecorCount, maximumDecorCount);
         fallbackCellWorldSize = Mathf.Max(0.25f, fallbackCellWorldSize);
         placementAttempts = Mathf.Clamp(placementAttempts, 8, 64);
+        fieldScanInterval = Mathf.Max(0.10f, fieldScanInterval);
+        stableFieldRescanInterval = Mathf.Max(0f, stableFieldRescanInterval);
+        missingRoomManagerRetryInterval = Mathf.Max(0.25f, missingRoomManagerRetryInterval);
 
         if (Application.isPlaying)
         {
@@ -155,23 +163,50 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         MonitorClusterOwners();
         UpdateRoomTransitionState();
 
+        float now = Time.unscaledTime;
         bool transitioning = roomManager != null && roomManager.IsTransitioning;
         if (transitioning)
             return;
 
-        if (rebuildPending && Time.unscaledTime >= rebuildAt)
+        if (rebuildPending && now >= rebuildAt)
         {
             rebuildPending = false;
             ReconcileCurrentField(true);
             return;
         }
 
-        if (Time.unscaledTime < nextFieldScanAt)
+        bool hasLivingDecor = HasLivingClusters();
+
+        // 정상 배치 중에는 기존처럼 0.15초마다 FindObjectsByType를 돌리지 않습니다.
+        // 동적 Field 감시가 정말 필요한 씬만 stableFieldRescanInterval을 0보다 크게 설정합니다.
+        if (hasLivingDecor)
+        {
+            if (stableFieldRescanInterval <= 0f)
+                return;
+
+            if (now < nextFieldScanAt)
+                return;
+
+            nextFieldScanAt = now + stableFieldRescanInterval;
+            ReconcileCurrentField(false);
+            return;
+        }
+
+        // 퇴장 Tween 중에는 새 Scene 검색/재조립을 시작하지 않습니다.
+        if (clusters.Count > 0)
             return;
 
-        nextFieldScanAt = Time.unscaledTime + Mathf.Max(0.05f, fieldScanInterval);
-        if (roomManager == null)
+        if (now < nextFieldScanAt)
+            return;
+
+        nextFieldScanAt = now + Mathf.Max(0.10f, fieldScanInterval);
+
+        if (roomManager == null && now >= nextRoomManagerResolveAt)
+        {
             ResolveRoomManager();
+            nextRoomManagerResolveAt = now + missingRoomManagerRetryInterval;
+        }
+
         ReconcileCurrentField(false);
     }
 
@@ -204,6 +239,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             BattleDecorSO design = battleDecorDesigns[i];
             if (design == null || !design.HasVisual)
                 continue;
+
             validDesigns.Add(design);
         }
     }
@@ -247,6 +283,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         }
 
         transitionFallbackExitAt = float.PositiveInfinity;
+        nextFieldScanAt = 0f;
         QueueRebuild(postTransitionRebuildDelay, true);
     }
 
@@ -327,6 +364,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             fieldBounds.Encapsulate(sources[i].bounds);
 
         SpriteRenderer floorReference = ResolveFloorReference(sources);
+        if (floorReference == null)
+            return;
+
         float cell = ResolveCellWorldSize(sources, floorReference);
         int minCount = Mathf.Min(minimumDecorCount, maximumDecorCount);
         int maxCount = Mathf.Max(minimumDecorCount, maximumDecorCount);
@@ -375,6 +415,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         }
 
         lastFieldSignature = signature;
+        if (stableFieldRescanInterval > 0f)
+            nextFieldScanAt = Time.unscaledTime + stableFieldRescanInterval;
     }
 
     private BattleDecorSO PickWeightedDesign(System.Random random)
@@ -430,8 +472,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
             if (Mathf.Abs(outward.x) > 0.5f)
             {
-                float y = Mathf.Lerp(field.min.y, field.max.y, sidePosition);
-                y = SnapToCell(y, cell);
+                float y = SnapToCell(Mathf.Lerp(field.min.y, field.max.y, sidePosition), cell);
                 target = new Vector3(
                     outward.x < 0f
                         ? field.min.x - gap - width * 0.5f
@@ -441,8 +482,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             }
             else
             {
-                float x = Mathf.Lerp(field.min.x, field.max.x, sidePosition);
-                x = SnapToCell(x, cell);
+                float x = SnapToCell(Mathf.Lerp(field.min.x, field.max.x, sidePosition), cell);
                 target = new Vector3(
                     x,
                     outward.y < 0f
@@ -477,6 +517,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (overlapX && overlapY)
                 return true;
         }
+
         return false;
     }
 
@@ -511,6 +552,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             random);
 
         if (design.FloorTemplate != null)
+        {
             BuildMechanicalFrame(
                 visualRoot,
                 design.FloorTemplate,
@@ -518,6 +560,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 cell,
                 floorReference,
                 floorSorting);
+        }
 
         BuildAuthoredParts(
             visualRoot,
@@ -601,9 +644,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         partsObject.transform.SetParent(visualRoot, false);
         Transform partsRoot = partsObject.transform;
 
-        Vector2 resolvedSide = Cardinalize(outward);
-        bool mirrorForRightSide = resolvedSide.x > 0.5f;
-        partsRoot.localScale = new Vector3(mirrorForRightSide ? -cell : cell, cell, 1f);
+        // 음수 Root Scale 대신 각 Part를 명시적으로 Mirror합니다.
+        // Light2D가 negative scale 아래에 들어가 생길 수 있는 변형/렌더 문제도 피합니다.
+        partsRoot.localScale = new Vector3(cell, cell, 1f);
+        bool mirrorForRightSide = Cardinalize(outward).x > 0.5f;
 
         IReadOnlyList<BattleDecorPart> parts = design.Parts;
         if (parts == null)
@@ -615,21 +659,67 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (part == null || part.Sprite == null)
                 continue;
 
+            Vector2 authoredPosition = part.LocalPosition;
+            float authoredRotation = part.RotationDegrees;
+            if (mirrorForRightSide)
+            {
+                authoredPosition.x = -authoredPosition.x;
+                authoredRotation = -authoredRotation;
+            }
+
             GameObject partObject = new($"Part_{i:00}_{SafeName(part.Label)}");
             partObject.transform.SetParent(partsRoot, false);
-            partObject.transform.localPosition = new Vector3(part.LocalPosition.x, part.LocalPosition.y, -0.01f);
-            partObject.transform.localRotation = Quaternion.Euler(0f, 0f, part.RotationDegrees);
+            partObject.transform.localPosition = new Vector3(authoredPosition.x, authoredPosition.y, -0.01f);
+            partObject.transform.localRotation = Quaternion.Euler(0f, 0f, authoredRotation);
+
             Vector2 localScale = part.LocalScale;
             partObject.transform.localScale = new Vector3(localScale.x, localScale.y, 1f);
 
             SpriteRenderer renderer = partObject.AddComponent<SpriteRenderer>();
             renderer.sprite = part.Sprite;
             renderer.color = part.Tint;
-            renderer.flipX = part.FlipX;
+            renderer.flipX = part.FlipX ^ mirrorForRightSide;
             renderer.sharedMaterial = floorReference.sharedMaterial;
             renderer.sortingLayerID = floorReference.sortingLayerID;
             renderer.sortingOrder = floorSorting + part.SortingOffset;
+
+            if (part.AddLight2D)
+                BuildPartLight2D(partObject.transform, part, mirrorForRightSide);
         }
+    }
+
+    private static void BuildPartLight2D(
+        Transform partTransform,
+        BattleDecorPart part,
+        bool mirrorForRightSide)
+    {
+        GameObject lightObject = new(LightObjectName);
+        lightObject.transform.SetParent(partTransform, false);
+
+        Vector2 offset = part.LightLocalOffset;
+        float lightRotation = part.LightRotationDegrees;
+        if (mirrorForRightSide)
+        {
+            offset.x = -offset.x;
+            lightRotation = -lightRotation;
+        }
+
+        lightObject.transform.localPosition = new Vector3(offset.x, offset.y, -0.02f);
+        lightObject.transform.localRotation = Quaternion.Euler(0f, 0f, lightRotation);
+
+        Light2D light = lightObject.AddComponent<Light2D>();
+        light.lightType = Light2D.LightType.Point;
+        light.color = part.LightColor;
+        light.intensity = part.LightIntensity;
+        light.falloffIntensity = part.LightFalloffIntensity;
+        light.pointLightOuterRadius = part.LightOuterRadius;
+        light.pointLightInnerRadius = part.LightInnerRadius;
+        light.pointLightOuterAngle = part.LightOuterAngle;
+        light.pointLightInnerAngle = part.LightInnerAngle;
+        light.blendStyleIndex = part.LightBlendStyleIndex;
+        light.lightOrder = part.LightOrder;
+        light.shadowsEnabled = part.LightShadowsEnabled;
+        light.shadowIntensity = part.LightShadowIntensity;
     }
 
     private static void BuildMechanicalFrame(
@@ -661,6 +751,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             float px = footprint.x <= 1
                 ? 0f
                 : Mathf.Lerp(minCenterX, maxCenterX, x / (float)(footprint.x - 1));
+
             CreateFramePart(
                 frame,
                 $"LowerPlate_{x}",
@@ -761,6 +852,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         {
             if (cluster.root == null)
                 return;
+
             cluster.root.position = cluster.finalPosition;
             if (cluster.visualRoot != null)
                 cluster.visualRoot.localRotation = Quaternion.identity;
@@ -815,6 +907,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (cluster.rootObject != null)
                 Destroy(cluster.rootObject);
         });
+
         cluster.sequence = sequence;
     }
 
@@ -851,13 +944,14 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (cluster != null && cluster.root != null && !cluster.exiting)
                 return true;
         }
+
         return false;
     }
 
     private List<FloorSource> CollectFloorSources()
     {
-        List<FloorSource> result = new();
-        HashSet<int> rendererIds = new();
+        floorSourceBuffer.Clear();
+        floorRendererIdBuffer.Clear();
 
         BattleWalkableField[] fields = FindObjectsByType<BattleWalkableField>(
             FindObjectsInactive.Exclude,
@@ -873,11 +967,11 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (renderer == null || !renderer.enabled || renderer.sprite == null)
                 continue;
 
-            AddFloorSource(result, rendererIds, renderer, ResolveOutermostMapBlock(renderer.transform));
+            AddFloorSource(floorSourceBuffer, floorRendererIdBuffer, renderer, ResolveOutermostMapBlock(renderer.transform));
         }
 
-        if (result.Count > 0)
-            return result;
+        if (floorSourceBuffer.Count > 0)
+            return floorSourceBuffer;
 
         MapBlock[] blocks = FindObjectsByType<MapBlock>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
         for (int i = 0; i < blocks.Length; i++)
@@ -899,12 +993,12 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                     renderer.GetComponent<BattleWalkableField>() == null)
                     continue;
 
-                AddFloorSource(result, rendererIds, renderer, ResolveOutermostMapBlock(renderer.transform));
+                AddFloorSource(floorSourceBuffer, floorRendererIdBuffer, renderer, ResolveOutermostMapBlock(renderer.transform));
             }
         }
 
-        if (result.Count > 0)
-            return result;
+        if (floorSourceBuffer.Count > 0)
+            return floorSourceBuffer;
 
         SpriteRenderer[] generic = FindObjectsByType<SpriteRenderer>(
             FindObjectsInactive.Exclude,
@@ -923,10 +1017,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 !n.StartsWith("ShowTile_", StringComparison.Ordinal))
                 continue;
 
-            AddFloorSource(result, rendererIds, renderer, ResolveOutermostMapBlock(renderer.transform));
+            AddFloorSource(floorSourceBuffer, floorRendererIdBuffer, renderer, ResolveOutermostMapBlock(renderer.transform));
         }
 
-        return result;
+        return floorSourceBuffer;
     }
 
     private static void AddFloorSource(
@@ -959,10 +1053,11 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     {
         for (int i = 0; i < sources.Count; i++)
         {
-            SpriteRenderer renderer = sources[i]?.renderer;
+            SpriteRenderer renderer = sources[i].renderer;
             if (renderer != null && renderer.sprite != null)
                 return renderer;
         }
+
         return null;
     }
 
@@ -971,7 +1066,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         float best = float.PositiveInfinity;
         for (int i = 0; i < sources.Count; i++)
         {
-            SpriteRenderer renderer = sources[i]?.renderer;
+            SpriteRenderer renderer = sources[i].renderer;
             if (renderer == null || renderer.sprite == null)
                 continue;
 
@@ -1011,7 +1106,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         for (int i = 0; i < sources.Count; i++)
         {
             FloorSource source = sources[i];
-            MapBlock owner = source?.owner;
+            MapBlock owner = source.owner;
             if (owner == null || !seen.Add(owner.GetInstanceID()))
                 continue;
 
@@ -1032,6 +1127,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         {
             int sum = sources.Count * 486187739;
             int xor = 0;
+
             for (int i = 0; i < sources.Count; i++)
             {
                 FloorSource source = sources[i];
@@ -1046,6 +1142,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 sum += h;
                 xor ^= h;
             }
+
             return sum ^ (xor * 16777619);
         }
     }
@@ -1103,6 +1200,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (sprite != null)
                 return sprite;
         }
+
         return fallback;
     }
 
@@ -1112,21 +1210,27 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             return null;
 
         if (columns <= 1)
+        {
             return template.LowerPlateCenterSprite32 != null
                 ? template.LowerPlateCenterSprite32
                 : template.LowerPlateLeftSprite32 != null
                     ? template.LowerPlateLeftSprite32
                     : template.LowerPlateRightSprite32;
+        }
 
         if (x <= 0)
+        {
             return template.LowerPlateLeftSprite32 != null
                 ? template.LowerPlateLeftSprite32
                 : template.LowerPlateCenterSprite32;
+        }
 
         if (x >= columns - 1)
+        {
             return template.LowerPlateRightSprite32 != null
                 ? template.LowerPlateRightSprite32
                 : template.LowerPlateCenterSprite32;
+        }
 
         return template.LowerPlateCenterSprite32;
     }
@@ -1250,11 +1354,6 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             : (direction.y >= 0f ? Vector2.up : Vector2.down);
     }
 
-    private static float RandomRange(System.Random random, float min, float max)
-    {
-        return max <= min ? min : min + (float)random.NextDouble() * (max - min);
-    }
-
     private static float SnapToCell(float value, float cell)
     {
         float safe = Mathf.Max(0.01f, cell);
@@ -1265,6 +1364,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     {
         if (string.IsNullOrWhiteSpace(value))
             return "Decor";
+
         return value.Replace('/', '_').Replace('\\', '_').Replace(' ', '_');
     }
 }
