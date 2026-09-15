@@ -33,8 +33,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     [SerializeField] private List<BattleDecorSO> battleDecorDesigns = new();
 
     [Header("PLACEMENT")]
-    [Tooltip("현재 Field와 Decor Carrier 사이에 비워둘 최소 Floor 칸 수입니다.")]
-    [SerializeField, Min(1f)] private float fieldGapTiles = 1f;
+    [Tooltip("현재 Field와 Decor Carrier 사이에 비워둘 Floor 칸 수입니다. 0이면 Field Floor에 바로 붙습니다.")]
+    [SerializeField, Min(0f)] private float fieldGapTiles = 0f;
     [SerializeField, Range(0, 8)] private int minimumDecorCount = 2;
     [SerializeField, Range(0, 10)] private int maximumDecorCount = 4;
     [SerializeField, Range(0f, 1f)] private float placementPaddingTiles = 0.25f;
@@ -135,6 +135,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
     private void OnValidate()
     {
+        fieldGapTiles = Mathf.Max(0f, fieldGapTiles);
         minimumDecorCount = Mathf.Max(0, minimumDecorCount);
         maximumDecorCount = Mathf.Max(minimumDecorCount, maximumDecorCount);
         fallbackCellWorldSize = Mathf.Max(0.25f, fallbackCellWorldSize);
@@ -342,6 +343,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
 
             Vector2Int footprint = design.Footprint;
             if (!TryResolvePlacement(
+                    design,
                     fieldBounds,
                     footprint,
                     cell,
@@ -396,6 +398,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     }
 
     private bool TryResolvePlacement(
+        BattleDecorSO design,
         Bounds field,
         Vector2Int footprint,
         float cell,
@@ -408,45 +411,46 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         outward = Vector2.zero;
         candidateBounds = default;
 
+        if (design == null)
+            return false;
+
         float width = Mathf.Max(cell, footprint.x * cell);
         float height = Mathf.Max(cell, footprint.y * cell);
-        float gap = Mathf.Max(cell, fieldGapTiles * cell);
+        float gap = Mathf.Max(0f, fieldGapTiles * cell);
         int attempts = Mathf.Clamp(placementAttempts, 8, 64);
+        Vector2 authoredOffset = design.AttachOffsetTiles * cell;
 
         for (int attempt = 0; attempt < attempts; attempt++)
         {
-            switch (random.Next(0, 4))
+            outward = ResolveAttachDirection(design.AttachSide, random);
+            float sidePosition = design.UseFixedAttachPosition
+                ? design.AttachPosition01
+                : (float)random.NextDouble();
+
+            if (Mathf.Abs(outward.x) > 0.5f)
             {
-                case 0:
-                    outward = Vector2.left;
-                    target = new Vector3(
-                        field.min.x - gap - width * 0.5f,
-                        SnapToCell(RandomRange(random, field.min.y, field.max.y), cell),
-                        field.center.z);
-                    break;
-                case 1:
-                    outward = Vector2.right;
-                    target = new Vector3(
-                        field.max.x + gap + width * 0.5f,
-                        SnapToCell(RandomRange(random, field.min.y, field.max.y), cell),
-                        field.center.z);
-                    break;
-                case 2:
-                    outward = Vector2.up;
-                    target = new Vector3(
-                        SnapToCell(RandomRange(random, field.min.x, field.max.x), cell),
-                        field.max.y + gap + height * 0.5f,
-                        field.center.z);
-                    break;
-                default:
-                    outward = Vector2.down;
-                    target = new Vector3(
-                        SnapToCell(RandomRange(random, field.min.x, field.max.x), cell),
-                        field.min.y - gap - height * 0.5f,
-                        field.center.z);
-                    break;
+                float y = Mathf.Lerp(field.min.y, field.max.y, sidePosition);
+                y = SnapToCell(y, cell);
+                target = new Vector3(
+                    outward.x < 0f
+                        ? field.min.x - gap - width * 0.5f
+                        : field.max.x + gap + width * 0.5f,
+                    y,
+                    field.center.z);
+            }
+            else
+            {
+                float x = Mathf.Lerp(field.min.x, field.max.x, sidePosition);
+                x = SnapToCell(x, cell);
+                target = new Vector3(
+                    x,
+                    outward.y < 0f
+                        ? field.min.y - gap - height * 0.5f
+                        : field.max.y + gap + height * 0.5f,
+                    field.center.z);
             }
 
+            target += new Vector3(authoredOffset.x, authoredOffset.y, 0f);
             candidateBounds = new Bounds(target, new Vector3(width, height, 0.20f));
             if (!OverlapsExistingPlacement(candidateBounds, cell))
                 return true;
@@ -1207,6 +1211,29 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             width / Mathf.Max(0.001f, size.x),
             height / Mathf.Max(0.001f, size.y),
             1f);
+    }
+
+    private static Vector2 ResolveAttachDirection(BattleDecorAttachSide side, System.Random random)
+    {
+        switch (side)
+        {
+            case BattleDecorAttachSide.Top:
+                return Vector2.up;
+            case BattleDecorAttachSide.Right:
+                return Vector2.right;
+            case BattleDecorAttachSide.Bottom:
+                return Vector2.down;
+            case BattleDecorAttachSide.Left:
+                return Vector2.left;
+            default:
+                switch (random.Next(0, 4))
+                {
+                    case 0: return Vector2.left;
+                    case 1: return Vector2.right;
+                    case 2: return Vector2.up;
+                    default: return Vector2.down;
+                }
+        }
     }
 
     private static Vector2 Cardinalize(Vector2 direction)
