@@ -26,7 +26,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private static readonly FieldInfo LightSortingLayersField = typeof(Light2D).GetField(
         "m_ApplyToSortingLayers",
         BindingFlags.Instance | BindingFlags.NonPublic);
-    private static readonly int DefaultSortingLayerId = SortingLayer.NameToID("Default");
+    // Unity의 built-in Default Sorting Layer ID는 0입니다.
+    // SortingLayer.NameToID는 MonoBehaviour type initializer에서 호출할 수 없으므로 Unity API 호출 없이 사용합니다.
+    private const int DefaultSortingLayerId = 0;
     private static bool warnedMissingLightSortingField;
 
     [Header("BATTLE DECOR DESIGNS")]
