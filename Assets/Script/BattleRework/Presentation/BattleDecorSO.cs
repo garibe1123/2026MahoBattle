@@ -56,8 +56,8 @@ public sealed class BattleDecorSO : ScriptableObject
     [Header("EDITOR PREVIEW")]
     [Tooltip("Preview에서 Drag할 때 Position이 맞춰지는 단위입니다. 기본 0.1f입니다.")]
     [SerializeField, Min(0.01f)] private float editorPositionSnap = 0.1f;
-    [Tooltip("Preview에서 Carrier 바깥을 추가로 보여주는 여백입니다.")]
-    [SerializeField, Range(0.25f, 2f)] private float editorPreviewMargin = 0.75f;
+    [Tooltip("Preview에서 Carrier 바깥을 추가로 보여주는 여백입니다. 새 BattleDecorSO의 기본값은 2입니다.")]
+    [SerializeField, Range(0.25f, 2f)] private float editorPreviewMargin = 2f;
 
     public Vector2Int Footprint => new(
         Mathf.Clamp(footprint.x, 1, 3),
@@ -71,7 +71,7 @@ public sealed class BattleDecorSO : ScriptableObject
     public Vector2 AttachOffsetTiles => attachOffsetTiles;
     public IReadOnlyList<BattleDecorPart> Parts => parts;
     public float EditorPositionSnap => Mathf.Max(0.01f, editorPositionSnap);
-    public float EditorPreviewMargin => Mathf.Max(0.25f, editorPreviewMargin);
+    public float EditorPreviewMargin => Mathf.Clamp(editorPreviewMargin, 0.25f, 2f);
 
     public bool HasVisual
     {
@@ -86,6 +86,29 @@ public sealed class BattleDecorSO : ScriptableObject
         }
     }
 
+#if UNITY_EDITOR
+    public int EditorAddPart(Sprite sprite, Vector2 localPosition)
+    {
+        if (sprite == null)
+            return -1;
+
+        parts ??= new List<BattleDecorPart>();
+        BattleDecorPart part = new(sprite, localPosition);
+        part.Validate();
+        parts.Add(part);
+        return parts.Count - 1;
+    }
+
+    public bool EditorRemovePartAt(int index)
+    {
+        if (parts == null || index < 0 || index >= parts.Count)
+            return false;
+
+        parts.RemoveAt(index);
+        return true;
+    }
+#endif
+
     private void OnValidate()
     {
         footprint.x = Mathf.Clamp(footprint.x, 1, 3);
@@ -93,6 +116,7 @@ public sealed class BattleDecorSO : ScriptableObject
         weight = Mathf.Max(1, weight);
         attachPosition01 = Mathf.Clamp01(attachPosition01);
         editorPositionSnap = Mathf.Max(0.01f, editorPositionSnap);
+        editorPreviewMargin = Mathf.Clamp(editorPreviewMargin, 0.25f, 2f);
 
         if (parts == null)
             return;
@@ -119,6 +143,20 @@ public sealed class BattleDecorPart
     [SerializeField] private int sortingOffset = 4;
     [SerializeField] private Color tint = Color.white;
     [SerializeField] private bool flipX;
+
+    public BattleDecorPart()
+    {
+    }
+
+    public BattleDecorPart(Sprite sourceSprite, Vector2 position)
+    {
+        sprite = sourceSprite;
+        localPosition = position;
+        label = sourceSprite != null ? sourceSprite.name : "Decor Part";
+        localScale = Vector2.one;
+        sortingOffset = 4;
+        tint = Color.white;
+    }
 
     public string Label => string.IsNullOrWhiteSpace(label) ? "Decor Part" : label;
     public Sprite Sprite => sprite;
@@ -160,6 +198,8 @@ public sealed class BattleDecorPart
 /// <summary>
 /// BattleDecorSO를 작은 2D Prefab Editor처럼 사용하기 위한 Inspector Preview입니다.
 /// Sprite Part를 Preview에서 직접 클릭/드래그하면 localPosition이 Asset에 저장됩니다.
+/// Project의 Sprite를 Preview 위에 Drop하면 새 Part가 생성됩니다.
+/// 선택된 Part는 Delete/Backspace로 제거할 수 있습니다.
 /// </summary>
 [CustomEditor(typeof(BattleDecorSO))]
 public sealed class BattleDecorSOEditor : Editor
@@ -179,8 +219,9 @@ public sealed class BattleDecorSOEditor : Editor
         EditorGUILayout.Space(10f);
         EditorGUILayout.LabelField("BATTLE DECOR PREFAB PREVIEW", EditorStyles.boldLabel);
         EditorGUILayout.HelpBox(
-            "Preview 안의 Sprite를 클릭하고 드래그하면 Position이 BattleDecorSO에 바로 저장됩니다. " +
-            "위치는 Editor Position Snap 단위로 맞춰집니다. Runtime에서는 이 배치를 그대로 사용합니다.",
+            "Preview 안의 Sprite Part를 클릭/드래그하면 Position이 바로 저장됩니다. " +
+            "Project의 Sprite를 Preview에 Drop하면 새 Part가 생성되고, 선택된 Part는 Delete/Backspace로 제거할 수 있습니다. " +
+            "위치는 Editor Position Snap 단위로 맞춰집니다.",
             MessageType.Info);
 
         Rect previewRect = GUILayoutUtility.GetRect(10f, PreviewHeight, GUILayout.ExpandWidth(true));
@@ -196,8 +237,8 @@ public sealed class BattleDecorSOEditor : Editor
         GUI.Label(
             header,
             selectedPartIndex >= 0 && selectedPartIndex < decor.Parts.Count
-                ? $"Selected: {decor.Parts[selectedPartIndex].Label}   |   Drag = Move   |   Snap {decor.EditorPositionSnap:0.###}"
-                : $"Click a part to move it   |   Snap {decor.EditorPositionSnap:0.###}",
+                ? $"Selected: {decor.Parts[selectedPartIndex].Label}   |   Drag = Move   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}"
+                : $"Drop Sprite = Add   |   Click = Select   |   Snap {decor.EditorPositionSnap:0.###}",
             EditorStyles.miniBoldLabel);
 
         Rect canvas = new(rect.x + 8f, rect.y + HeaderHeight + 6f, rect.width - 16f, rect.height - HeaderHeight - 14f);
@@ -354,13 +395,66 @@ public sealed class BattleDecorSOEditor : Editor
     private void HandleInput(BattleDecorSO decor, Rect canvas, Vector2 center, float zoom)
     {
         Event e = Event.current;
-        previewControlId = GUIUtility.GetControlID("BattleDecorPreview".GetHashCode(), FocusType.Passive, canvas);
+        previewControlId = GUIUtility.GetControlID("BattleDecorPreview".GetHashCode(), FocusType.Keyboard, canvas);
         EditorGUIUtility.AddCursorRect(canvas, dragging ? MouseCursor.Pan : MouseCursor.MoveArrow);
+
+        if ((e.type == EventType.DragUpdated || e.type == EventType.DragPerform) &&
+            canvas.Contains(e.mousePosition) &&
+            TryGetDraggedSprites(out List<Sprite> draggedSprites))
+        {
+            DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+
+            if (e.type == EventType.DragPerform)
+            {
+                DragAndDrop.AcceptDrag();
+                Vector2 dropPosition = GuiPointToLocalPosition(e.mousePosition, center, zoom, decor.EditorPositionSnap);
+
+                Undo.RecordObject(decor, "Add Battle Decor Part");
+                int lastAdded = -1;
+                for (int i = 0; i < draggedSprites.Count; i++)
+                {
+                    Vector2 position = dropPosition + new Vector2(i * decor.EditorPositionSnap, 0f);
+                    lastAdded = decor.EditorAddPart(draggedSprites[i], position);
+                }
+
+                if (lastAdded >= 0)
+                {
+                    selectedPartIndex = lastAdded;
+                    GUIUtility.keyboardControl = previewControlId;
+                    EditorUtility.SetDirty(decor);
+                    serializedObject.Update();
+                }
+            }
+
+            e.Use();
+            Repaint();
+            return;
+        }
+
+        if (e.type == EventType.KeyDown &&
+            GUIUtility.keyboardControl == previewControlId &&
+            selectedPartIndex >= 0 && selectedPartIndex < decor.Parts.Count &&
+            (e.keyCode == KeyCode.Delete || e.keyCode == KeyCode.Backspace))
+        {
+            Undo.RecordObject(decor, "Delete Battle Decor Part");
+            if (decor.EditorRemovePartAt(selectedPartIndex))
+            {
+                selectedPartIndex = -1;
+                dragging = false;
+                EditorUtility.SetDirty(decor);
+                serializedObject.Update();
+            }
+
+            e.Use();
+            Repaint();
+            return;
+        }
 
         if (e.type == EventType.MouseDown && e.button == 0 && canvas.Contains(e.mousePosition))
         {
             selectedPartIndex = FindPartAtPoint(decor, e.mousePosition, center, zoom);
             dragging = selectedPartIndex >= 0;
+            GUIUtility.keyboardControl = previewControlId;
             if (dragging)
                 GUIUtility.hotControl = previewControlId;
             e.Use();
@@ -399,6 +493,35 @@ public sealed class BattleDecorSOEditor : Editor
             e.Use();
             Repaint();
         }
+    }
+
+    private static bool TryGetDraggedSprites(out List<Sprite> sprites)
+    {
+        sprites = new List<Sprite>();
+        UnityEngine.Object[] references = DragAndDrop.objectReferences;
+        if (references == null || references.Length == 0)
+            return false;
+
+        for (int i = 0; i < references.Length; i++)
+        {
+            if (references[i] is Sprite sprite && sprite != null)
+                sprites.Add(sprite);
+        }
+
+        return sprites.Count > 0;
+    }
+
+    private static Vector2 GuiPointToLocalPosition(Vector2 guiPoint, Vector2 center, float zoom, float snap)
+    {
+        float safeZoom = Mathf.Max(0.0001f, zoom);
+        Vector2 local = new(
+            (guiPoint.x - center.x) / safeZoom,
+            -(guiPoint.y - center.y) / safeZoom);
+
+        float safeSnap = Mathf.Max(0.01f, snap);
+        local.x = Mathf.Round(local.x / safeSnap) * safeSnap;
+        local.y = Mathf.Round(local.y / safeSnap) * safeSnap;
+        return local;
     }
 
     private int FindPartAtPoint(BattleDecorSO decor, Vector2 mouse, Vector2 center, float zoom)
