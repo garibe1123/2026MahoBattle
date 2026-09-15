@@ -11,9 +11,8 @@ public enum BattleDecorAttachSide
 {
     Auto = 0,
     Top = 1,
-    Right = 2,
-    Bottom = 3,
-    Left = 4
+    Side = 2,
+    Bottom = 3
 }
 
 /// <summary>
@@ -21,8 +20,8 @@ public enum BattleDecorAttachSide
 /// Runtime에서는 사실상 Prefab 설계도처럼 사용되며,
 /// Floor + Frame + 여러 Sprite Part의 위치/회전/스케일/Sorting을 한 Asset 안에 저장합니다.
 ///
-/// Cable / Camera / Light / Base 같은 의미 구분은 코드에서 하지 않습니다.
-/// 어떤 Sprite를 어떤 위치/Sorting으로 둘지는 이 SO에서 완성된 디자인으로 직접 결정합니다.
+/// Side 디자인은 항상 "Field 왼쪽에 붙고, Camera/Light가 오른쪽을 바라보는 모습"을 원본 기준으로 저장합니다.
+/// Runtime에서 실제 배치가 오른쪽 Side로 결정되면 Parts 전체를 자동으로 좌우 Mirror합니다.
 /// </summary>
 [CreateAssetMenu(
     fileName = "BattleDecor_New",
@@ -37,21 +36,24 @@ public sealed class BattleDecorSO : ScriptableObject
     [SerializeField] private BattleShowFloorTemplateSO floorTemplate;
     [Tooltip("랜덤 선택 가중치입니다.")]
     [SerializeField, Min(1)] private int weight = 1;
-    [Tooltip("런타임에서 세트 전체를 좌우 Mirror할 수 있습니다. 상하 반전/랜덤 180도 회전은 하지 않습니다.")]
-    [SerializeField] private bool allowRandomMirrorX;
+
+    // 예전 랜덤 Mirror 옵션의 직렬화 값만 보존합니다.
+    // Side 방향이 이제 Mirror를 결정하므로 Runtime에서는 사용하지 않습니다.
+    [FormerlySerializedAs("allowRandomMirrorX")]
+    [SerializeField, HideInInspector] private bool legacyAllowRandomMirrorX;
 
     [Header("FIELD ATTACHMENT")]
-    [Tooltip("Decor Carrier가 Field 어느 면에 붙을지 지정합니다. Top은 Field 위쪽, Right는 오른쪽입니다. Auto는 기존처럼 면을 랜덤 선택합니다.")]
+    [Tooltip("Auto = 상/하/좌/우 중 랜덤. Top/Bottom = 해당 면 고정. Side = 좌/우 중 랜덤입니다. Side Sprite는 항상 왼쪽 설치 + 오른쪽을 바라보는 원본으로 제작하며, 오른쪽에 배치되면 자동 Flip됩니다.")]
     [SerializeField] private BattleDecorAttachSide attachSide = BattleDecorAttachSide.Auto;
-    [Tooltip("체크하면 선택된 면의 특정 지점에 붙습니다. 해제하면 해당 면의 실제 외곽 Floor 타일 중 하나를 랜덤 선택합니다.")]
+    [Tooltip("체크하면 선택된 면의 특정 지점에 붙습니다. 해제하면 해당 면 안에서 위치를 랜덤 선택합니다.")]
     [SerializeField] private bool useFixedAttachPosition;
-    [Tooltip("선택 면 안에서의 부착 지점입니다. Top/Bottom은 0=왼쪽, 1=오른쪽. Left/Right는 0=아래, 1=위입니다.")]
+    [Tooltip("Top/Bottom은 0=왼쪽, 1=오른쪽. Side는 0=아래, 1=위입니다.")]
     [SerializeField, Range(0f, 1f)] private float attachPosition01 = 0.5f;
-    [Tooltip("선택된 Floor 부착 위치에서 추가로 움직일 보정값입니다. 타일 크기 단위입니다.")]
+    [Tooltip("선택된 Floor 부착 위치에서 추가로 움직일 보정값입니다. 타일 크기 단위입니다. Side가 오른쪽에 배치될 때 X 보정값도 함께 Mirror됩니다.")]
     [SerializeField] private Vector2 attachOffsetTiles;
 
     [Header("DESIGN PARTS")]
-    [Tooltip("Camera / Light Base / Light Head / Cable 등을 모두 여기서 직접 조립합니다. 리스트 순서는 Preview 선택 편의를 위한 것이고, 실제 앞뒤는 Sorting Offset이 결정합니다.")]
+    [Tooltip("Camera / Light Base / Light Head / Cable 등을 모두 여기서 직접 조립합니다. Side용 디자인은 반드시 왼쪽 설치 기준으로 배치합니다.")]
     [SerializeField] private List<BattleDecorPart> parts = new();
 
     [Header("EDITOR PREVIEW")]
@@ -65,8 +67,7 @@ public sealed class BattleDecorSO : ScriptableObject
         Mathf.Clamp(footprint.y, 1, 3));
     public BattleShowFloorTemplateSO FloorTemplate => floorTemplate;
     public int Weight => Mathf.Max(1, weight);
-    public bool AllowRandomMirrorX => allowRandomMirrorX;
-    public BattleDecorAttachSide AttachSide => attachSide;
+    public BattleDecorAttachSide AttachSide => NormalizeAttachSide(attachSide);
     public bool UseFixedAttachPosition => useFixedAttachPosition;
     public float AttachPosition01 => Mathf.Clamp01(attachPosition01);
     public Vector2 AttachOffsetTiles => attachOffsetTiles;
@@ -85,6 +86,12 @@ public sealed class BattleDecorSO : ScriptableObject
                     return true;
             return false;
         }
+    }
+
+    private static BattleDecorAttachSide NormalizeAttachSide(BattleDecorAttachSide value)
+    {
+        // 구 버전 Left = 4 Asset을 Side로 자동 마이그레이션합니다.
+        return (int)value == 4 ? BattleDecorAttachSide.Side : value;
     }
 
 #if UNITY_EDITOR
@@ -115,6 +122,7 @@ public sealed class BattleDecorSO : ScriptableObject
         footprint.x = Mathf.Clamp(footprint.x, 1, 3);
         footprint.y = Mathf.Clamp(footprint.y, 1, 3);
         weight = Mathf.Max(1, weight);
+        attachSide = NormalizeAttachSide(attachSide);
         attachPosition01 = Mathf.Clamp01(attachPosition01);
         editorPositionSnap = Mathf.Max(0.01f, editorPositionSnap);
         editorPreviewMargin = Mathf.Clamp(editorPreviewMargin, 0.25f, 2f);
@@ -144,7 +152,7 @@ public sealed class BattleDecorPart
     [SerializeField] private int sortingOffset = 4;
     [SerializeField] private Color tint = Color.white;
     [FormerlySerializedAs("flipX")]
-    [Tooltip("체크하면 이 Part Sprite를 좌우 반전합니다. Scale X를 음수로 바꿀 필요가 없습니다.")]
+    [Tooltip("이 Part만 추가로 좌우 반전합니다. Side 자동 Mirror와 별도로 적용됩니다. Scale X를 음수로 둘 필요가 없습니다.")]
     [SerializeField] private bool flip;
 
     public BattleDecorPart()
@@ -165,8 +173,8 @@ public sealed class BattleDecorPart
     public Sprite Sprite => sprite;
     public Vector2 LocalPosition => localPosition;
     public Vector2 LocalScale => new(
-        Mathf.Approximately(localScale.x, 0f) ? 1f : localScale.x,
-        Mathf.Approximately(localScale.y, 0f) ? 1f : localScale.y);
+        Mathf.Approximately(localScale.x, 0f) ? 1f : Mathf.Abs(localScale.x),
+        Mathf.Approximately(localScale.y, 0f) ? 1f : Mathf.Abs(localScale.y));
     public float RotationDegrees => rotationDegrees;
     public int SortingOffset => sortingOffset;
     public Color Tint => IsLegacyUnsetTint(tint) ? Color.white : tint;
@@ -180,10 +188,8 @@ public sealed class BattleDecorPart
 
     public void Validate()
     {
-        if (Mathf.Approximately(localScale.x, 0f))
-            localScale.x = 1f;
-        if (Mathf.Approximately(localScale.y, 0f))
-            localScale.y = 1f;
+        localScale.x = Mathf.Approximately(localScale.x, 0f) ? 1f : Mathf.Abs(localScale.x);
+        localScale.y = Mathf.Approximately(localScale.y, 0f) ? 1f : Mathf.Abs(localScale.y);
         if (IsLegacyUnsetTint(tint))
             tint = Color.white;
         rotationDegrees = Mathf.Repeat(rotationDegrees + 180f, 360f) - 180f;
@@ -204,6 +210,7 @@ public sealed class BattleDecorPart
 /// Sprite Part를 Preview에서 직접 클릭/드래그하면 localPosition이 Asset에 저장됩니다.
 /// Project의 Sprite를 Preview 위에 Drop하면 새 Part가 생성됩니다.
 /// Shift+Click으로 여러 Part를 선택하고, 선택 그룹을 함께 이동/삭제할 수 있습니다.
+/// Side는 왼쪽 설치 기준 원본을 Preview합니다. Runtime 오른쪽 배치는 자동 Mirror됩니다.
 /// </summary>
 [CustomEditor(typeof(BattleDecorSO))]
 public sealed class BattleDecorSOEditor : Editor
@@ -232,7 +239,7 @@ public sealed class BattleDecorSOEditor : Editor
             "Preview 안의 Sprite Part를 클릭/드래그하면 Position이 바로 저장됩니다. " +
             "Shift+Click으로 여러 Part를 선택한 뒤 하나를 드래그하면 선택 그룹 전체가 같은 거리만큼 이동합니다. " +
             "Project의 Sprite를 Preview에 Drop하면 새 Part가 생성되고, 선택된 Part들은 Delete/Backspace로 함께 제거할 수 있습니다. " +
-            "위치는 Editor Position Snap 단위로 맞춰집니다.",
+            "Side는 왼쪽 설치 + 오른쪽을 바라보는 원본으로 편집하며, Runtime에서 오른쪽 Side가 선택되면 전체가 자동 Flip됩니다.",
             MessageType.Info);
 
         Rect previewRect = GUILayoutUtility.GetRect(10f, PreviewHeight, GUILayout.ExpandWidth(true));
@@ -248,18 +255,19 @@ public sealed class BattleDecorSOEditor : Editor
 
         Rect header = new(rect.x + 8f, rect.y + 4f, rect.width - 16f, HeaderHeight);
         int selectionCount = selectedPartIndices.Count;
+        string sideLabel = decor.AttachSide == BattleDecorAttachSide.Side ? "   |   Side Basis = Left" : string.Empty;
         string headerText;
         if (selectionCount > 1)
         {
-            headerText = $"Selected: {selectionCount} Parts   |   Shift+Click = Add/Remove   |   Drag = Move Group   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}";
+            headerText = $"Selected: {selectionCount} Parts   |   Shift+Click = Add/Remove   |   Drag = Move Group   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}{sideLabel}";
         }
         else if (selectedPartIndex >= 0 && selectedPartIndex < decor.Parts.Count)
         {
-            headerText = $"Selected: {decor.Parts[selectedPartIndex].Label}   |   Shift+Click = Multi Select   |   Drag = Move   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}";
+            headerText = $"Selected: {decor.Parts[selectedPartIndex].Label}   |   Shift+Click = Multi Select   |   Drag = Move   |   Delete = Remove   |   Snap {decor.EditorPositionSnap:0.###}{sideLabel}";
         }
         else
         {
-            headerText = $"Drop Sprite = Add   |   Click = Select   |   Shift+Click = Multi Select   |   Snap {decor.EditorPositionSnap:0.###}";
+            headerText = $"Drop Sprite = Add   |   Click = Select   |   Shift+Click = Multi Select   |   Snap {decor.EditorPositionSnap:0.###}{sideLabel}";
         }
 
         GUI.Label(header, headerText, EditorStyles.miniBoldLabel);
@@ -395,15 +403,13 @@ public sealed class BattleDecorSOEditor : Editor
                 point = new Vector2(Mathf.Lerp(-halfWidth, halfWidth, t), halfHeight);
                 outward = Vector2.up;
                 break;
-            case BattleDecorAttachSide.Right:
-                point = new Vector2(halfWidth, Mathf.Lerp(-halfHeight, halfHeight, t));
-                outward = Vector2.right;
-                break;
             case BattleDecorAttachSide.Bottom:
                 point = new Vector2(Mathf.Lerp(-halfWidth, halfWidth, t), -halfHeight);
                 outward = Vector2.down;
                 break;
+            case BattleDecorAttachSide.Side:
             default:
+                // Side의 Authoring 기준은 항상 Field 왼쪽입니다.
                 point = new Vector2(-halfWidth, Mathf.Lerp(-halfHeight, halfHeight, t));
                 outward = Vector2.left;
                 break;
@@ -527,8 +533,6 @@ public sealed class BattleDecorSOEditor : Editor
                 }
                 else
                 {
-                    // 이미 선택된 Part를 다시 클릭한 경우에는 Multi Selection을 유지합니다.
-                    // 그래야 선택 그룹 중 하나를 잡아 전체를 함께 Drag할 수 있습니다.
                     selectedPartIndex = hitIndex;
                 }
             }
