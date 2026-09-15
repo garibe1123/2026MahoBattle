@@ -4,9 +4,9 @@ using UnityEngine.Rendering.Universal;
 using UnityEngine.SceneManagement;
 
 /// <summary>
-/// 전투 중 Field 바깥 BattleDecor를 한 톤 눌러 실제 플레이 영역과 구분합니다.
-/// Decor 생성/Pooling 구조는 건드리지 않고, Decor hierarchy가 바뀌거나 전투 상태가 바뀔 때만
-/// SpriteRenderer / Light2D 캐시를 갱신합니다.
+/// 전투 중 Field 바깥 BattleDecor를 강하게 어둡게 눌러 실제 플레이 영역과 분리합니다.
+/// Light2D가 연결된 Part와 Decor Light는 상대적으로 밝게 유지해 무대 기계의 실루엣과 광원만 읽히게 합니다.
+/// Decor 생성/Pooling 구조는 건드리지 않고, hierarchy 또는 전투 상태가 바뀔 때만 캐시를 갱신합니다.
 /// </summary>
 [DefaultExecutionOrder(32650)]
 [DisallowMultipleComponent]
@@ -29,31 +29,37 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
         public SpriteRenderer renderer;
         public Color baseColor;
         public VisualKind kind;
+        public bool hasConnectedLight;
     }
 
     private struct LightTarget
     {
         public Light2D light;
         public float baseIntensity;
+        public bool standalone;
     }
 
     private static bool sceneHookInstalled;
 
     [Header("COMBAT READABILITY")]
     [SerializeField] private bool dimDecorDuringCombat = true;
-    [Tooltip("Decor Carrier의 바닥 밝기. 실제 전투 Floor보다 한 단계만 어둡게 유지합니다.")]
-    [SerializeField, Range(0.20f, 1f)] private float combatFloorBrightness = 0.84f;
+    [Tooltip("Decor Carrier 바닥 밝기. 전투 Floor와 명확히 분리되도록 강하게 어둡게 합니다.")]
+    [SerializeField, Range(0.05f, 1f)] private float combatFloorBrightness = 0.34f;
     [Tooltip("기계 프레임/손잡이 밝기.")]
-    [SerializeField, Range(0.20f, 1f)] private float combatFrameBrightness = 0.70f;
-    [Tooltip("카메라/소품 등 authored Decor Part 밝기.")]
-    [SerializeField, Range(0.20f, 1f)] private float combatPartBrightness = 0.64f;
-    [Tooltip("Decor 자체 Light2D 강도 배율. 전투 주체보다 주변 기계 장식이 밝아지는 것을 막습니다.")]
-    [SerializeField, Range(0f, 1f)] private float combatDecorLightIntensity = 0.50f;
+    [SerializeField, Range(0.05f, 1f)] private float combatFrameBrightness = 0.16f;
+    [Tooltip("일반 authored Decor Part 밝기.")]
+    [SerializeField, Range(0.05f, 1f)] private float combatPartBrightness = 0.12f;
+    [Tooltip("자식 Light2D가 연결된 Part는 광원 하우징이 읽히도록 일반 Part보다 밝게 유지합니다.")]
+    [SerializeField, Range(0.05f, 1f)] private float combatLitPartBrightness = 0.30f;
+    [Tooltip("Part에 연결된 Decor Light2D 강도 배율입니다.")]
+    [SerializeField, Range(0f, 3f)] private float combatDecorLightIntensity = 1.35f;
+    [Tooltip("독립적으로 배치된 Decor Light2D 강도 배율입니다.")]
+    [SerializeField, Range(0f, 3f)] private float combatStandaloneLightIntensity = 1.55f;
 
     [Header("PRESENTATION")]
     [Tooltip("대기실/Reward/Map Show에서는 기존 Spotlight 연출을 살리기 위해 원래 밝기를 유지합니다.")]
     [SerializeField, Range(0.50f, 1f)] private float presentationBrightness = 1f;
-    [SerializeField, Range(0f, 1f)] private float presentationDecorLightIntensity = 1f;
+    [SerializeField, Range(0f, 2f)] private float presentationDecorLightIntensity = 1f;
 
     [Header("BINDING")]
     [SerializeField] private BattleUniversalStageDecorCarrierSkinController decorOwner;
@@ -135,12 +141,14 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
 
     private void OnValidate()
     {
-        combatFloorBrightness = Mathf.Clamp(combatFloorBrightness, 0.20f, 1f);
-        combatFrameBrightness = Mathf.Clamp(combatFrameBrightness, 0.20f, 1f);
-        combatPartBrightness = Mathf.Clamp(combatPartBrightness, 0.20f, 1f);
-        combatDecorLightIntensity = Mathf.Clamp01(combatDecorLightIntensity);
+        combatFloorBrightness = Mathf.Clamp(combatFloorBrightness, 0.05f, 1f);
+        combatFrameBrightness = Mathf.Clamp(combatFrameBrightness, 0.05f, 1f);
+        combatPartBrightness = Mathf.Clamp(combatPartBrightness, 0.05f, 1f);
+        combatLitPartBrightness = Mathf.Clamp(combatLitPartBrightness, 0.05f, 1f);
+        combatDecorLightIntensity = Mathf.Clamp(combatDecorLightIntensity, 0f, 3f);
+        combatStandaloneLightIntensity = Mathf.Clamp(combatStandaloneLightIntensity, 0f, 3f);
         presentationBrightness = Mathf.Clamp(presentationBrightness, 0.50f, 1f);
-        presentationDecorLightIntensity = Mathf.Clamp01(presentationDecorLightIntensity);
+        presentationDecorLightIntensity = Mathf.Clamp(presentationDecorLightIntensity, 0f, 2f);
         missingRunManagerRetryInterval = Mathf.Max(0.25f, missingRunManagerRetryInterval);
 
         if (Application.isPlaying)
@@ -208,8 +216,7 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
 
     private void RebuildVisualCache()
     {
-        // 기존 캐시가 이미 어두워진 상태라면 먼저 원본 색/강도로 복구한 뒤 다시 샘플링합니다.
-        // 그래야 새 Cluster가 생길 때 밝기 배율이 누적되지 않습니다.
+        // 이전 배율이 누적되지 않게 원본값으로 되돌린 뒤 새 hierarchy를 다시 샘플링합니다.
         RestoreCachedVisuals();
         spriteTargets.Clear();
         lightTargets.Clear();
@@ -225,7 +232,8 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
             {
                 renderer = renderer,
                 baseColor = renderer.color,
-                kind = kind
+                kind = kind,
+                hasConnectedLight = kind == VisualKind.Part && HasConnectedLight(renderer.transform)
             });
         }
 
@@ -239,7 +247,8 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
             lightTargets.Add(new LightTarget
             {
                 light = light,
-                baseIntensity = light.intensity
+                baseIntensity = light.intensity,
+                standalone = IsStandaloneDecorLight(light.transform)
             });
         }
     }
@@ -289,6 +298,22 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
         return false;
     }
 
+    private static bool HasConnectedLight(Transform source)
+    {
+        if (source == null)
+            return false;
+
+        Light2D connected = source.GetComponentInChildren<Light2D>(true);
+        return connected != null;
+    }
+
+    private static bool IsStandaloneDecorLight(Transform lightTransform)
+    {
+        if (lightTransform == null || lightTransform.parent == null)
+            return false;
+        return lightTransform.parent.name == PartsRootName;
+    }
+
     private void ApplyReadability(bool combatMode)
     {
         for (int i = 0; i < spriteTargets.Count; i++)
@@ -297,23 +322,34 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
             if (target.renderer == null)
                 continue;
 
-            float multiplier = combatMode
-                ? ResolveCombatBrightness(target.kind)
-                : presentationBrightness;
+            float multiplier;
+            if (!combatMode)
+            {
+                multiplier = presentationBrightness;
+            }
+            else if (target.kind == VisualKind.Part && target.hasConnectedLight)
+            {
+                multiplier = combatLitPartBrightness;
+            }
+            else
+            {
+                multiplier = ResolveCombatBrightness(target.kind);
+            }
 
             target.renderer.color = MultiplyRgb(target.baseColor, multiplier);
         }
-
-        float lightMultiplier = combatMode
-            ? combatDecorLightIntensity
-            : presentationDecorLightIntensity;
 
         for (int i = 0; i < lightTargets.Count; i++)
         {
             LightTarget target = lightTargets[i];
             if (target.light == null)
                 continue;
-            target.light.intensity = Mathf.Max(0f, target.baseIntensity * lightMultiplier);
+
+            float multiplier = combatMode
+                ? (target.standalone ? combatStandaloneLightIntensity : combatDecorLightIntensity)
+                : presentationDecorLightIntensity;
+
+            target.light.intensity = Mathf.Max(0f, target.baseIntensity * multiplier);
         }
     }
 
