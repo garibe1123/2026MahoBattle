@@ -1322,7 +1322,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             float size = Mathf.Min(
                 Mathf.Abs(fallback.bounds.size.x),
                 Mathf.Abs(fallback.bounds.size.y));
-            if (size >= 0.25f && size <= 4f)
+            if (size >= 0.25f && size <= 2f)
                 return size;
         }
 
