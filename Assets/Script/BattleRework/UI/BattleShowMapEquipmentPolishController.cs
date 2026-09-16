@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
@@ -8,8 +9,7 @@ using UnityEngine.UI;
 /// - Stage Map Hover는 PointerEnter 1프레임 효과가 아니라 커서가 노드 위에 있는 동안 계속 유지합니다.
 /// - Combat / Elite / Shop / Event를 색뿐 아니라 전용 런타임 아이콘으로 구분합니다.
 /// - 맵 카메라/포커스 반응은 선택 가능한 노드 위에 커서가 있을 때만 활성화합니다.
-/// - 1~9 숫자키 전환은 BattleEquipmentSystem의 기존 입력을 다시 사용합니다.
-/// - Tab을 누른 상태에서 Mouse Wheel로 이전/다음 Manual Weapon을 순환합니다.
+/// - Tab/LB 소유권은 BattleInputRouter에 두고, Mouse pointer/wheel은 Input System device API만 사용합니다.
 /// - 실제 장착 슬롯이 바뀔 때 짧은 합성 UI 사운드를 재생합니다.
 ///
 /// 기존 SO / Sprite / Scene 직렬화 데이터를 삭제하거나 교체하지 않습니다.
@@ -34,6 +34,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     [SerializeField] private BattleKineticLoadoutUI loadoutUI;
     [SerializeField] private BattleHUD battleHud;
     [SerializeField] private BattleCameraController battleCamera;
+    [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Map Node Theme")]
     [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.040f, 0.995f);
@@ -133,7 +134,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             return;
         }
 
-        // Map hierarchy는 선택 화면 동안 정적입니다. 실제 참조가 사라졌을 때만 저주기로 다시 바인딩합니다.
         if (Time.unscaledTime >= nextMapResolve)
         {
             nextMapResolve = Time.unscaledTime + Mathf.Max(0.03f, mapResolveInterval);
@@ -162,6 +162,8 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             battleHud = FindFirstObjectByType<BattleHUD>();
         if (battleCamera == null)
             battleCamera = FindFirstObjectByType<BattleCameraController>();
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
     }
 
     private bool IsCombat()
@@ -221,6 +223,9 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
         Camera eventCamera = Camera.main;
         RectTransform hoveredNode = null;
+        Vector2 pointerPosition = Pointer.current != null
+            ? Pointer.current.position.ReadValue()
+            : Vector2.zero;
 
         for (int i = 0; i < mapNodes.Count; i++)
         {
@@ -237,7 +242,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             if (hitRect == null)
                 hitRect = node;
 
-            if (RectTransformUtility.RectangleContainsScreenPoint(hitRect, Input.mousePosition, eventCamera))
+            if (Pointer.current != null && RectTransformUtility.RectangleContainsScreenPoint(hitRect, pointerPosition, eventCamera))
             {
                 hoveredNode = node;
                 break;
@@ -262,9 +267,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             lastHoveredNode = hoveredNode;
         }
 
-        // WorldSet은 일반 TV 영역 기준 커서 추적을 Update에서 매 프레임 갱신합니다.
-        // 이 Controller는 더 늦은 LateUpdate에서 "실제 선택 가능 Node 위일 때만" 정책을 유지하되,
-        // Graphic/Text는 hoverChanged일 때만 수정해 Canvas rebuild를 만들지 않습니다.
         bool hasHoveredNode = hoveredNode != null;
         battleHud?.SetMapCursorFocus(hasHoveredNode);
 
@@ -588,18 +590,14 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         }
     }
 
-    // ---------------------------------------------------------------------
-    // Equipment wheel + sound
-    // ---------------------------------------------------------------------
-
     private void UpdateTabWheelInput()
     {
-        if (!IsCombat() || equipmentSystem == null || BattlePauseController.IsPaused)
+        if (!IsCombat() || equipmentSystem == null || BattlePauseController.IsPaused || inputRouter == null)
             return;
-        if (!Input.GetKey(KeyCode.Tab))
+        if (!inputRouter.TabHeld || Mouse.current == null)
             return;
 
-        float wheel = Input.mouseScrollDelta.y;
+        float wheel = Mouse.current.scroll.ReadValue().y;
         if (Mathf.Abs(wheel) < 0.01f)
             return;
 
