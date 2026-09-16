@@ -18,6 +18,8 @@ public class Effect : MonoBehaviour
     private float mineDelayTimer;
 
     private static readonly List<Effect> activeMines = new();
+    private readonly HashSet<IDamageable> damagedTargets = new();
+    private readonly List<Effect> mineSnapshot = new();
     private bool mineTriggered;
     private bool isEnding;
 
@@ -52,7 +54,7 @@ public class Effect : MonoBehaviour
         if (effectSO == null)
         {
             Debug.LogError($"[Effect] Setup failed on '{name}': EffectSO is null.");
-            Destroy(gameObject);
+            ReleaseToPool();
             return;
         }
 
@@ -71,28 +73,43 @@ public class Effect : MonoBehaviour
         lookTarget = target;
         currentLaserLength = 0f;
         isEnding = false;
+        damagedTargets.Clear();
+        mineSnapshot.Clear();
+
+        if (lr != null)
+            lr.enabled = false;
 
         if (lookTarget != null)
             FaceTarget(lookTarget.position);
 
-        if (so.visual != null)
-            anim.SetupVisual(so.visual);
+        anim.SetupVisual(so.visual);
 
         contactFilter.useTriggers = true;
         contactFilter.SetLayerMask(so.targetLayer);
         contactFilter.useLayerMask = true;
 
-        hitResults = new Collider2D[Mathf.Max(1, so.maxTargetsPerTick)];
+        int requiredHitCapacity = Mathf.Max(1, so.maxTargetsPerTick);
+        if (hitResults == null || hitResults.Length < requiredHitCapacity)
+            hitResults = new Collider2D[requiredHitCapacity];
+
+        bool hasStartAnimation = so.visual != null &&
+                                 so.visual.startSprites != null &&
+                                 so.visual.startSprites.Length > 0;
+        if (myCollider != null)
+            myCollider.enabled = so.effectType != EffectTypeEnum.Laser && !hasStartAnimation;
+
         transform.localScale = Vector3.one * (so.startScale * this.scaleMultiplier);
 
         if (so.effectType == EffectTypeEnum.Mine && !activeMines.Contains(this))
             activeMines.Add(this);
 
-        if (so.visual != null && so.visual.startSprites != null && so.visual.startSprites.Length > 0)
+        if (hasStartAnimation)
         {
             anim.PlayOnce(AnimPhase.Start, so.visual.startSprites, so.visual.fps, () =>
             {
-                if (so == null || so.visual == null) return;
+                if (so == null || so.visual == null)
+                    return;
+
                 if (so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
                     anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.fps);
             });
@@ -109,7 +126,8 @@ public class Effect : MonoBehaviour
             return;
 
         HandleLifeAndModifiers();
-        if (isEnding) return;
+        if (isEnding)
+            return;
 
         HandleMovement();
         HandleRotation();
@@ -212,10 +230,12 @@ public class Effect : MonoBehaviour
         for (int i = 0; i < hits; i++)
         {
             Collider2D hit = hitResults[i];
-            if (hit == null) continue;
+            if (hit == null)
+                continue;
 
             float dist = Vector2.SqrMagnitude((Vector2)transform.position - (Vector2)hit.transform.position);
-            if (dist >= minDistance) continue;
+            if (dist >= minDistance)
+                continue;
 
             minDistance = dist;
             nearest = hit.transform;
@@ -346,17 +366,22 @@ public class Effect : MonoBehaviour
 
         if (so.chainReaction)
         {
-            // TriggerMine/EndEffect가 activeMines를 수정할 수 있으므로 snapshot을 사용합니다.
-            Effect[] snapshot = activeMines.ToArray();
-            for (int i = 0; i < snapshot.Length; i++)
+            mineSnapshot.Clear();
+            for (int i = 0; i < activeMines.Count; i++)
+                mineSnapshot.Add(activeMines[i]);
+
+            float radiusSq = currentRadius * currentRadius;
+            for (int i = 0; i < mineSnapshot.Count; i++)
             {
-                Effect mine = snapshot[i];
+                Effect mine = mineSnapshot[i];
                 if (mine == null || mine == this || mine.mineTriggered)
                     continue;
 
-                if (Vector2.Distance(transform.position, mine.transform.position) <= currentRadius)
+                if (((Vector2)transform.position - (Vector2)mine.transform.position).sqrMagnitude <= radiusSq)
                     mine.TriggerMine();
             }
+
+            mineSnapshot.Clear();
         }
 
         EndEffect();
@@ -371,6 +396,7 @@ public class Effect : MonoBehaviour
         if (spawnTimer < interval)
             return;
 
+        // spawnPrefab에는 수명/반납 계약이 없으므로 여기서는 임의로 PoolService에 넣지 않습니다.
         if (so.spawnPrefab != null)
             Instantiate(so.spawnPrefab, transform.position, transform.rotation);
 
@@ -390,7 +416,7 @@ public class Effect : MonoBehaviour
             runtimeFanMissionModifier,
             kind);
 
-        HashSet<IDamageable> damagedTargets = new();
+        damagedTargets.Clear();
 
         for (int i = 0; i < hitCount; i++)
         {
@@ -427,12 +453,37 @@ public class Effect : MonoBehaviour
                 AnimPhase.End,
                 so.visual.endSprites,
                 so.visual.fps,
-                () => Destroy(gameObject));
+                ReleaseToPool);
         }
         else
         {
-            Destroy(gameObject);
+            ReleaseToPool();
         }
+    }
+
+    private void ReleaseToPool()
+    {
+        activeMines.Remove(this);
+        damagedTargets.Clear();
+        mineSnapshot.Clear();
+        attachTarget = null;
+        lookTarget = null;
+        damageSource = null;
+        so = null;
+        isEnding = true;
+
+        if (myCollider != null)
+            myCollider.enabled = false;
+        if (lr != null)
+            lr.enabled = false;
+
+        anim?.ResetForPool();
+        PoolService.Release(gameObject);
+    }
+
+    private void OnDisable()
+    {
+        activeMines.Remove(this);
     }
 
     private void OnDestroy()
