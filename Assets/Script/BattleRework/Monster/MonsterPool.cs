@@ -38,10 +38,15 @@ public class MonsterPool : MonoBehaviour
     [SerializeField] private int telegraphSortingOrder = 90;
 
     private readonly Queue<MonsterController> pool = new();
+    private readonly HashSet<MonsterController> pooledMonsters = new();
     private readonly List<PendingSpawn> pendingBatch = new();
+    private readonly List<PendingSpawn> dispatchBuffer = new();
     private readonly HashSet<MonsterController> pendingMonsters = new();
+    private readonly List<MonsterController> pendingCancelBuffer = new();
     private readonly Dictionary<MonsterController, Coroutine> revealRoutines = new();
     private readonly Dictionary<MonsterController, GameObject> warningObjects = new();
+    private readonly Queue<GameObject> warningPool = new();
+    private readonly NavMeshPath spawnValidationPath = new();
 
     private Coroutine batchRoutine;
     private bool initialized;
@@ -146,7 +151,17 @@ public class MonsterPool : MonoBehaviour
             return null;
         }
 
-        MonsterController monster = pool.Count > 0 ? pool.Dequeue() : CreateNew();
+        MonsterController monster;
+        if (pool.Count > 0)
+        {
+            monster = pool.Dequeue();
+            pooledMonsters.Remove(monster);
+        }
+        else
+        {
+            monster = CreateNew();
+        }
+
         if (monster == null)
             return null;
 
@@ -187,23 +202,24 @@ public class MonsterPool : MonoBehaviour
     {
         yield return null;
 
-        List<PendingSpawn> batch = new(pendingBatch);
+        dispatchBuffer.Clear();
+        dispatchBuffer.AddRange(pendingBatch);
         pendingBatch.Clear();
         batchRoutine = null;
 
-        for (int i = batch.Count - 1; i > 0; i--)
+        for (int i = dispatchBuffer.Count - 1; i > 0; i--)
         {
             int j = UnityEngine.Random.Range(0, i + 1);
-            (batch[i], batch[j]) = (batch[j], batch[i]);
+            (dispatchBuffer[i], dispatchBuffer[j]) = (dispatchBuffer[j], dispatchBuffer[i]);
         }
 
         float accumulatedDelay = Mathf.Max(0f, firstWarningDelay);
         float minStagger = Mathf.Max(0.02f, Mathf.Min(warningStaggerRange.x, warningStaggerRange.y));
         float maxStagger = Mathf.Max(minStagger, Mathf.Max(warningStaggerRange.x, warningStaggerRange.y));
 
-        for (int i = 0; i < batch.Count; i++)
+        for (int i = 0; i < dispatchBuffer.Count; i++)
         {
-            PendingSpawn request = batch[i];
+            PendingSpawn request = dispatchBuffer[i];
             if (request.monster == null || !pendingMonsters.Contains(request.monster))
                 continue;
 
@@ -213,6 +229,8 @@ public class MonsterPool : MonoBehaviour
             Coroutine routine = StartCoroutine(RevealMonsterRoutine(request, accumulatedDelay));
             revealRoutines[request.monster] = routine;
         }
+
+        dispatchBuffer.Clear();
     }
 
     private IEnumerator RevealMonsterRoutine(PendingSpawn request, float warningDelay)
@@ -221,8 +239,15 @@ public class MonsterPool : MonoBehaviour
         if (monster == null)
             yield break;
 
-        if (warningDelay > 0f)
-            yield return new WaitForSeconds(warningDelay);
+        float delayElapsed = 0f;
+        while (delayElapsed < warningDelay)
+        {
+            if (monster == null || !pendingMonsters.Contains(monster))
+                yield break;
+
+            delayElapsed += Time.deltaTime;
+            yield return null;
+        }
 
         if (monster == null || !pendingMonsters.Contains(monster))
             yield break;
@@ -240,7 +265,7 @@ public class MonsterPool : MonoBehaviour
         {
             if (monster == null || !pendingMonsters.Contains(monster))
             {
-                DestroyWarning(monster);
+                ReleaseWarning(monster);
                 yield break;
             }
 
@@ -264,7 +289,7 @@ public class MonsterPool : MonoBehaviour
             yield return null;
         }
 
-        DestroyWarning(monster);
+        ReleaseWarning(monster);
         if (monster == null || !pendingMonsters.Remove(monster))
             yield break;
 
@@ -285,30 +310,51 @@ public class MonsterPool : MonoBehaviour
         {
             Debug.LogError(
                 $"[MonsterPool] '{request.definition.displayName}' appeared off NavMesh after telegraph. Returning it to pool.");
-            // This should be prevented by TryResolveSpawnPosition. Keep the object safe if prefab Setup changes.
             Return(monster);
         }
     }
 
     private GameObject CreateSpawnWarning(Vector3 position)
     {
-        GameObject go = new("MonsterSpawnTelegraph");
+        GameObject go = null;
+        while (warningPool.Count > 0 && go == null)
+            go = warningPool.Dequeue();
+
+        SpriteRenderer renderer;
+        if (go == null)
+        {
+            go = new GameObject("MonsterSpawnTelegraph");
+            renderer = go.AddComponent<SpriteRenderer>();
+            renderer.sprite = MonsterSpawnRuntimeSpriteCache.WarningRing;
+        }
+        else
+        {
+            renderer = go.GetComponent<SpriteRenderer>();
+        }
+
         go.transform.SetParent(transform, true);
-        go.transform.position = new Vector3(position.x, position.y, 0f);
+        go.transform.SetPositionAndRotation(
+            new Vector3(position.x, position.y, 0f),
+            Quaternion.identity);
 
-        SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
-        renderer.sprite = MonsterSpawnRuntimeSpriteCache.WarningRing;
-        renderer.color = telegraphOuterColor;
-        renderer.sortingOrder = telegraphSortingOrder;
+        if (renderer != null)
+        {
+            renderer.sprite = MonsterSpawnRuntimeSpriteCache.WarningRing;
+            renderer.color = telegraphOuterColor;
+            renderer.sortingOrder = telegraphSortingOrder;
+        }
 
-        Vector2 spriteSize = renderer.sprite != null ? renderer.sprite.bounds.size : Vector2.one;
+        Vector2 spriteSize = renderer != null && renderer.sprite != null
+            ? renderer.sprite.bounds.size
+            : Vector2.one;
         float max = Mathf.Max(0.001f, Mathf.Max(spriteSize.x, spriteSize.y));
         float scale = Mathf.Max(0.01f, telegraphWorldSize / max);
         go.transform.localScale = new Vector3(scale, scale, 1f);
+        go.SetActive(true);
         return go;
     }
 
-    private void DestroyWarning(MonsterController monster)
+    private void ReleaseWarning(MonsterController monster)
     {
         if (monster == null)
             return;
@@ -317,8 +363,12 @@ public class MonsterPool : MonoBehaviour
             return;
 
         warningObjects.Remove(monster);
-        if (warning != null)
-            Destroy(warning);
+        if (warning == null)
+            return;
+
+        warning.SetActive(false);
+        warning.transform.SetParent(transform, false);
+        warningPool.Enqueue(warning);
     }
 
     private bool TryResolveSpawnPosition(
@@ -367,14 +417,14 @@ public class MonsterPool : MonoBehaviour
                 return true;
             }
 
-            NavMeshPath path = new();
+            spawnValidationPath.ClearCorners();
             bool pathCalculated = NavMesh.CalculatePath(
                 spawnHit.position,
                 targetHit.position,
                 NavMesh.AllAreas,
-                path);
+                spawnValidationPath);
 
-            if (!pathCalculated || path.status != NavMeshPathStatus.PathComplete)
+            if (!pathCalculated || spawnValidationPath.status != NavMeshPathStatus.PathComplete)
                 continue;
 
             resolved = spawnHit.position;
@@ -405,12 +455,13 @@ public class MonsterPool : MonoBehaviour
             return;
 
         CancelPendingSpawn(monster);
+        if (!pooledMonsters.Add(monster))
+            return;
+
         monster.PrepareForPool();
         monster.gameObject.SetActive(false);
         monster.transform.SetParent(transform);
-
-        if (!pool.Contains(monster))
-            pool.Enqueue(monster);
+        pool.Enqueue(monster);
     }
 
     private void CancelPendingSpawn(MonsterController monster)
@@ -432,7 +483,7 @@ public class MonsterPool : MonoBehaviour
                 StopCoroutine(routine);
         }
 
-        DestroyWarning(monster);
+        ReleaseWarning(monster);
     }
 
     private void CancelAllPendingSpawns()
@@ -443,10 +494,15 @@ public class MonsterPool : MonoBehaviour
             batchRoutine = null;
         }
 
-        List<MonsterController> monsters = new(pendingMonsters);
-        for (int i = 0; i < monsters.Count; i++)
-            CancelPendingSpawn(monsters[i]);
+        pendingCancelBuffer.Clear();
+        foreach (MonsterController monster in pendingMonsters)
+            pendingCancelBuffer.Add(monster);
 
+        for (int i = 0; i < pendingCancelBuffer.Count; i++)
+            CancelPendingSpawn(pendingCancelBuffer[i]);
+
+        pendingCancelBuffer.Clear();
+        dispatchBuffer.Clear();
         pendingBatch.Clear();
         pendingMonsters.Clear();
     }
