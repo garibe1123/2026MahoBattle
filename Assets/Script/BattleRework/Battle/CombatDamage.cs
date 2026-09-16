@@ -3,6 +3,7 @@ using UnityEngine;
 public enum DamageKind
 {
     Projectile,
+    Melee,
     Area,
     Contact,
     Hazard,
