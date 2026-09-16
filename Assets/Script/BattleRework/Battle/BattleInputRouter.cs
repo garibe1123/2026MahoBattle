@@ -13,9 +13,10 @@ public enum BattleInputDevice
 /// BattleScene 입력의 단일 소유자입니다.
 ///
 /// - Combat / UI / Debug action map의 활성 상태를 BattleRunState와 modal stack으로 결정합니다.
-/// - Player, Equipment, Pause, Reward/UI는 Legacy Input.* 대신 이 Router의 값/이벤트를 사용합니다.
+/// - Player, Equipment, Pause, Reward/UI는 Legacy Input API를 직접 읽지 않고 이 Router의 값/이벤트를 사용합니다.
+/// - Pointer / Wheel / UI submit-cancel / 개발용 토글도 이 Router에서 한 번만 읽어 노출합니다.
 /// - Inspector에 InputActionAsset이 연결되어 있으면 런타임 복제본을 사용합니다.
-/// - 아직 씬 배선이 끝나지 않은 BattleScene도 동작하도록 동일한 binding의 런타임 fallback asset을 만들 수 있습니다.
+/// - 씬 배선이 아직 없는 경우 동일 binding의 런타임 fallback asset을 생성합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(-9500)]
@@ -61,13 +62,36 @@ public sealed class BattleInputRouter : MonoBehaviour
     public Vector2 Navigate => navigate;
     public Vector2 LastAimDirection => lastAimDirection;
     public BattleInputDevice LastDevice { get; private set; } = BattleInputDevice.KeyboardMouse;
-    public bool FireHeld => combatMap != null && combatMap.enabled && fireAction != null && fireAction.IsPressed();
-    public bool RollPressedThisFrame => combatMap != null && combatMap.enabled && rollAction != null && rollAction.WasPressedThisFrame();
-    public bool ReloadPressedThisFrame => combatMap != null && combatMap.enabled && reloadAction != null && reloadAction.WasPressedThisFrame();
-    public bool TabHeld => combatMap != null && combatMap.enabled && openTabAction != null && openTabAction.IsPressed();
-    public bool SubmitPressedThisFrame => uiMap != null && uiMap.enabled && submitAction != null && submitAction.WasPressedThisFrame();
-    public bool CancelPressedThisFrame => uiMap != null && uiMap.enabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame();
+
+    public bool CombatEnabled => combatMap != null && combatMap.enabled;
+    public bool UiEnabled => uiMap != null && uiMap.enabled;
     public bool HasModal => modals.Count > 0;
+
+    public bool FireHeld => CombatEnabled && fireAction != null && fireAction.IsPressed();
+    public bool RollPressedThisFrame => CombatEnabled && rollAction != null && rollAction.WasPressedThisFrame();
+    public bool ReloadPressedThisFrame => CombatEnabled && reloadAction != null && reloadAction.WasPressedThisFrame();
+    public bool TabHeld => CombatEnabled && openTabAction != null && openTabAction.IsPressed();
+    public bool SubmitPressedThisFrame => UiEnabled && submitAction != null && submitAction.WasPressedThisFrame();
+    public bool CancelPressedThisFrame => UiEnabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame();
+
+    public bool PointerPresent => Pointer.current != null;
+    public Vector2 PointerPosition => Pointer.current != null ? Pointer.current.position.ReadValue() : Vector2.zero;
+    public Vector2 ScrollDelta => Mouse.current != null ? Mouse.current.scroll.ReadValue() : Vector2.zero;
+
+    /// <summary>Reward PACK 전용 보조 액션. Gamepad Y / North.</summary>
+    public bool DiscardPressedThisFrame => UiEnabled && Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame;
+    /// <summary>Reward PACK 완료 보조 액션. Gamepad Start.</summary>
+    public bool DonePressedThisFrame => UiEnabled && Gamepad.current != null && Gamepad.current.startButton.wasPressedThisFrame;
+
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+    public bool DebugTogglePressedThisFrame => debugMap != null && debugMap.enabled && Keyboard.current != null && Keyboard.current.f1Key.wasPressedThisFrame;
+    public bool DummyTogglePressedThisFrame => debugMap != null && debugMap.enabled && Keyboard.current != null && Keyboard.current.f2Key.wasPressedThisFrame;
+    public bool SynergyTogglePressedThisFrame => debugMap != null && debugMap.enabled && Keyboard.current != null && Keyboard.current.f3Key.wasPressedThisFrame;
+#else
+    public bool DebugTogglePressedThisFrame => false;
+    public bool DummyTogglePressedThisFrame => false;
+    public bool SynergyTogglePressedThisFrame => false;
+#endif
 
     public event Action FirePressed;
     public event Action RollPressed;
@@ -176,15 +200,15 @@ public sealed class BattleInputRouter : MonoBehaviour
 
     private void Update()
     {
-        move = combatMap != null && combatMap.enabled && moveAction != null
+        move = CombatEnabled && moveAction != null
             ? Vector2.ClampMagnitude(moveAction.ReadValue<Vector2>(), 1f)
             : Vector2.zero;
 
-        navigate = uiMap != null && uiMap.enabled && navigateAction != null
+        navigate = UiEnabled && navigateAction != null
             ? Vector2.ClampMagnitude(navigateAction.ReadValue<Vector2>(), 1f)
             : Vector2.zero;
 
-        if (combatMap != null && combatMap.enabled)
+        if (CombatEnabled)
         {
             if (fireAction != null && fireAction.WasPressedThisFrame())
                 FirePressed?.Invoke();
@@ -214,10 +238,10 @@ public sealed class BattleInputRouter : MonoBehaviour
                 HandleCancel();
         }
 
-        if (uiMap != null && uiMap.enabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame())
+        if (UiEnabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame())
             HandleCancel();
 
-        if (uiMap != null && uiMap.enabled && closeTabAction != null && closeTabAction.WasPressedThisFrame())
+        if (UiEnabled && closeTabAction != null && closeTabAction.WasPressedThisFrame())
             TabClosed?.Invoke();
     }
 
@@ -225,7 +249,7 @@ public sealed class BattleInputRouter : MonoBehaviour
     {
         if (LastDevice == BattleInputDevice.Gamepad)
         {
-            Vector2 stick = aimStickAction != null && combatMap != null && combatMap.enabled
+            Vector2 stick = aimStickAction != null && CombatEnabled
                 ? aimStickAction.ReadValue<Vector2>()
                 : Vector2.zero;
 
@@ -240,7 +264,7 @@ public sealed class BattleInputRouter : MonoBehaviour
             return true;
         }
 
-        if (camera == null || aimPointAction == null || combatMap == null || !combatMap.enabled)
+        if (camera == null || aimPointAction == null || !CombatEnabled)
         {
             worldPoint = playerWorldPosition + lastAimDirection;
             return false;
@@ -430,18 +454,18 @@ public sealed class BattleInputRouter : MonoBehaviour
 
         InputActionMap combat = asset.AddActionMap("Combat");
 
-        InputAction move = combat.AddAction("Move", InputActionType.Value, expectedControlLayout: "Vector2");
-        move.AddCompositeBinding("2DVector")
+        InputAction moveAction = combat.AddAction("Move", InputActionType.Value, expectedControlLayout: "Vector2");
+        moveAction.AddCompositeBinding("2DVector")
             .With("Up", "<Keyboard>/w")
             .With("Down", "<Keyboard>/s")
             .With("Left", "<Keyboard>/a")
             .With("Right", "<Keyboard>/d");
-        move.AddCompositeBinding("2DVector")
+        moveAction.AddCompositeBinding("2DVector")
             .With("Up", "<Keyboard>/upArrow")
             .With("Down", "<Keyboard>/downArrow")
             .With("Left", "<Keyboard>/leftArrow")
             .With("Right", "<Keyboard>/rightArrow");
-        move.AddBinding("<Gamepad>/leftStick");
+        moveAction.AddBinding("<Gamepad>/leftStick");
 
         combat.AddAction("AimPoint", InputActionType.Value, "<Pointer>/position", expectedControlLayout: "Vector2");
         combat.AddAction("AimStick", InputActionType.Value, "<Gamepad>/rightStick", expectedControlLayout: "Vector2");
