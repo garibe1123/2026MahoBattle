@@ -34,6 +34,8 @@ public class Projectile : MonoBehaviour
     private RaycastHit2D[] sweptHitResults;
     private Collider2D[] explosionHitResults;
     private readonly HashSet<IDamageable> explosionDamagedTargets = new();
+    private System.Action startVisualCompleteCallback;
+    private System.Action returnToPoolCallback;
 
     [Header("BulletType")]
     [SerializeField] private LayerMask HitLayer;
@@ -44,6 +46,8 @@ public class Projectile : MonoBehaviour
             col = GetComponent<CircleCollider2D>();
 
         anim = GetComponent<ProjectileAnimator>();
+        startVisualCompleteCallback = HandleStartVisualComplete;
+        returnToPoolCallback = ReturnToProjectilePool;
     }
 
     public void Setup(
@@ -148,19 +152,22 @@ public class Projectile : MonoBehaviour
         ProjectileVisualSO v = so.visual;
         if (v.startSprites != null && v.startSprites.Length > 0)
         {
-            anim.PlayOnce(v.startSprites, v.fps, () =>
-            {
-                if (so == null || dying)
-                    return;
-
-                if (v.idleSprites != null && v.idleSprites.Length > 0)
-                    anim.PlayLoop(v.idleSprites, v.fps);
-            });
+            anim.PlayOnce(v.startSprites, v.fps, startVisualCompleteCallback);
         }
         else if (v.idleSprites != null && v.idleSprites.Length > 0)
         {
             anim.PlayLoop(v.idleSprites, v.fps);
         }
+    }
+
+    private void HandleStartVisualComplete()
+    {
+        if (so == null || dying || so.visual == null)
+            return;
+
+        ProjectileVisualSO v = so.visual;
+        if (v.idleSprites != null && v.idleSprites.Length > 0)
+            anim.PlayLoop(v.idleSprites, v.fps);
     }
 
     private void Update()
@@ -633,12 +640,20 @@ public class Projectile : MonoBehaviour
         if (anim != null && so.visual != null &&
             so.visual.hitSprites != null && so.visual.hitSprites.Length > 0)
         {
-            anim.PlayOnce(so.visual.hitSprites, so.visual.fps, () => pool.Return(this));
+            anim.PlayOnce(so.visual.hitSprites, so.visual.fps, returnToPoolCallback);
         }
         else
         {
-            pool.Return(this);
+            ReturnToProjectilePool();
         }
+    }
+
+    private void ReturnToProjectilePool()
+    {
+        if (pool != null)
+            pool.Return(this);
+        else
+            gameObject.SetActive(false);
     }
 
     private DamageContext BuildDamageContext(DamageKind kind)
