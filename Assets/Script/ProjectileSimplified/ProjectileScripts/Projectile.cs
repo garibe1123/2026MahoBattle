@@ -20,6 +20,7 @@ public class Projectile : MonoBehaviour
     private Vector2 startPos;
     private Vector2 targetPos;
     private float travelTime;
+    private float travelDistance;
 
     private Transform homingTarget;
     private int bounceCount;
@@ -29,6 +30,10 @@ public class Projectile : MonoBehaviour
     private GameObject damageSource;
     private float damageMultiplier = 1f;
     private float fanMissionModifier;
+
+    private RaycastHit2D[] sweptHitResults;
+    private Collider2D[] explosionHitResults;
+    private readonly HashSet<IDamageable> explosionDamagedTargets = new();
 
     [Header("BulletType")]
     [SerializeField] private LayerMask HitLayer;
@@ -75,6 +80,8 @@ public class Projectile : MonoBehaviour
         sineTime = 0f;
         dying = false;
         velocity = Vector2.zero;
+        travelDistance = 0f;
+        explosionDamagedTargets.Clear();
 
         if (col == null)
             col = GetComponent<CircleCollider2D>();
@@ -82,7 +89,10 @@ public class Projectile : MonoBehaviour
         if (col == null)
         {
             Debug.LogError("[Projectile] CircleCollider2D is missing.");
-            gameObject.SetActive(false);
+            if (pool != null)
+                pool.Return(this);
+            else
+                gameObject.SetActive(false);
             return;
         }
 
@@ -105,13 +115,18 @@ public class Projectile : MonoBehaviour
             targetPos = explicitTargetPos ??
                         (target != null ? (Vector2)target.position : startPos + baseDir * 5f);
 
-            float distance = Vector2.Distance(startPos, targetPos);
-            travelTime = Mathf.Max(0.05f, distance / Mathf.Max(0.01f, so.speed));
+            travelDistance = Vector2.Distance(startPos, targetPos);
+            travelTime = Mathf.Max(0.05f, travelDistance / Mathf.Max(0.01f, so.speed));
 
             if (so.telegraphPrefab != null)
             {
-                GameObject telegraph = Instantiate(so.telegraphPrefab, targetPos, Quaternion.identity);
-                Destroy(telegraph, Mathf.Max(0f, so.telegraphDuration));
+                GameObject telegraph = PoolService.Spawn(
+                    so.telegraphPrefab,
+                    targetPos,
+                    Quaternion.identity);
+
+                if (telegraph != null)
+                    PoolService.Release(telegraph, Mathf.Max(0f, so.telegraphDuration));
             }
         }
         else if (so.movement == MovementType.Arc)
@@ -127,14 +142,17 @@ public class Projectile : MonoBehaviour
 
     private void StartVisual()
     {
-        if (anim == null || so == null || so.visual == null) return;
+        if (anim == null || so == null || so.visual == null)
+            return;
 
         ProjectileVisualSO v = so.visual;
         if (v.startSprites != null && v.startSprites.Length > 0)
         {
             anim.PlayOnce(v.startSprites, v.fps, () =>
             {
-                if (so == null || dying) return;
+                if (so == null || dying)
+                    return;
+
                 if (v.idleSprites != null && v.idleSprites.Length > 0)
                     anim.PlayLoop(v.idleSprites, v.fps);
             });
@@ -147,7 +165,8 @@ public class Projectile : MonoBehaviour
 
     private void Update()
     {
-        if (dying || so == null) return;
+        if (dying || so == null)
+            return;
 
         timer += Time.deltaTime;
 
@@ -211,8 +230,7 @@ public class Projectile : MonoBehaviour
         float t = Mathf.Clamp01(Mathf.SmoothStep(0f, 1f, rawT));
 
         Vector2 groundPos = Vector2.Lerp(startPos, targetPos, t);
-        float distance = Vector2.Distance(startPos, targetPos);
-        float height = distance * 0.25f * Mathf.Sin(t * Mathf.PI);
+        float height = travelDistance * 0.25f * Mathf.Sin(t * Mathf.PI);
 
         transform.position = groundPos + Vector2.up * height;
 
@@ -224,7 +242,8 @@ public class Projectile : MonoBehaviour
             visual.localScale = new Vector3(scale, scale * 0.5f, 1f);
         }
 
-        if (t < 1f) return;
+        if (t < 1f)
+            return;
 
         if (visual != null)
         {
@@ -244,7 +263,7 @@ public class Projectile : MonoBehaviour
             if (toTarget.sqrMagnitude > 0.0001f)
                 baseDir = toTarget.normalized;
 
-            if (Vector2.Distance(transform.position, homingTarget.position) <= 0.1f)
+            if (toTarget.sqrMagnitude <= 0.01f)
             {
                 Impact();
                 return;
@@ -346,7 +365,7 @@ public class Projectile : MonoBehaviour
         if (mask == 0)
             return null;
 
-        RaycastHit2D[] hits = Physics2D.CircleCastAll(
+        int hitCount = CircleCastNonAllocGrowing(
             transform.position,
             GetWorldColliderRadius(),
             dir,
@@ -356,9 +375,10 @@ public class Projectile : MonoBehaviour
         Collider2D best = null;
         float bestDistance = float.MaxValue;
 
-        for (int i = 0; i < hits.Length; i++)
+        for (int i = 0; i < hitCount; i++)
         {
-            Collider2D candidate = hits[i].collider;
+            RaycastHit2D hit = sweptHitResults[i];
+            Collider2D candidate = hit.collider;
             if (candidate == null || candidate == col)
                 continue;
 
@@ -372,14 +392,61 @@ public class Projectile : MonoBehaviour
             if (obstacle != null && !obstacle.BlocksProjectiles)
                 continue;
 
-            if (hits[i].distance < bestDistance)
+            if (hit.distance < bestDistance)
             {
-                bestDistance = hits[i].distance;
+                bestDistance = hit.distance;
                 best = candidate;
             }
         }
 
         return best;
+    }
+
+    private int CircleCastNonAllocGrowing(
+        Vector2 origin,
+        float radius,
+        Vector2 direction,
+        float distance,
+        int layerMask)
+    {
+        if (sweptHitResults == null || sweptHitResults.Length == 0)
+            sweptHitResults = new RaycastHit2D[8];
+
+        while (true)
+        {
+            int count = Physics2D.CircleCastNonAlloc(
+                origin,
+                radius,
+                direction,
+                sweptHitResults,
+                distance,
+                layerMask);
+
+            if (count < sweptHitResults.Length)
+                return count;
+
+            sweptHitResults = new RaycastHit2D[sweptHitResults.Length * 2];
+        }
+    }
+
+    private int OverlapExplosionNonAllocGrowing(Vector2 center, float radius, int layerMask)
+    {
+        if (explosionHitResults == null || explosionHitResults.Length == 0)
+            explosionHitResults = new Collider2D[16];
+
+        while (true)
+        {
+            int count = Physics2D.OverlapCircleNonAlloc(
+                center,
+                radius,
+                explosionHitResults,
+                layerMask);
+
+            if (count < explosionHitResults.Length)
+                return count;
+
+            explosionHitResults = new Collider2D[explosionHitResults.Length * 2];
+        }
     }
 
     private float GetWorldColliderRadius()
@@ -452,7 +519,8 @@ public class Projectile : MonoBehaviour
 
     private void Impact()
     {
-        if (dying || so == null) return;
+        if (dying || so == null)
+            return;
 
         dying = true;
         if (col != null)
@@ -470,23 +538,23 @@ public class Projectile : MonoBehaviour
         if (!explosiveImpact || so.explosionRadius <= 0f)
             return;
 
-        Collider2D[] hits = Physics2D.OverlapCircleAll(
+        int hitCount = OverlapExplosionNonAllocGrowing(
             transform.position,
             so.explosionRadius,
             so.damageLayer);
 
-        HashSet<IDamageable> damagedTargets = new();
+        explosionDamagedTargets.Clear();
         DamageContext context = BuildDamageContext(DamageKind.Area);
 
-        for (int i = 0; i < hits.Length; i++)
+        for (int i = 0; i < hitCount; i++)
         {
-            Collider2D hit = hits[i];
+            Collider2D hit = explosionHitResults[i];
             if (hit == null)
                 continue;
 
             if (!CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable) ||
                 !damageable.IsAlive ||
-                !damagedTargets.Add(damageable))
+                !explosionDamagedTargets.Add(damageable))
             {
                 continue;
             }
@@ -509,7 +577,8 @@ public class Projectile : MonoBehaviour
 
             Vector2 newDir = Rotate(baseDir, angle);
             Projectile child = pool.Get();
-            if (child == null) continue;
+            if (child == null)
+                continue;
 
             child.transform.position = transform.position;
             child.Setup(
