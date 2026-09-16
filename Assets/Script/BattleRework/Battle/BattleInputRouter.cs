@@ -61,6 +61,8 @@ public sealed class BattleInputRouter : MonoBehaviour
     public Vector2 LastAimDirection => lastAimDirection;
     public BattleInputDevice LastDevice { get; private set; } = BattleInputDevice.KeyboardMouse;
     public bool FireHeld => combatMap != null && combatMap.enabled && fireAction != null && fireAction.IsPressed();
+    public bool RollPressedThisFrame => combatMap != null && combatMap.enabled && rollAction != null && rollAction.WasPressedThisFrame();
+    public bool ReloadPressedThisFrame => combatMap != null && combatMap.enabled && reloadAction != null && reloadAction.WasPressedThisFrame();
     public bool TabHeld => combatMap != null && combatMap.enabled && openTabAction != null && openTabAction.IsPressed();
     public bool HasModal => modals.Count > 0;
 
@@ -333,6 +335,9 @@ public sealed class BattleInputRouter : MonoBehaviour
         if (modals.Count > 0)
         {
             uiMap.Enable();
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+            debugMap?.Enable();
+#endif
             return;
         }
 
