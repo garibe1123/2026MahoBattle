@@ -17,6 +17,7 @@ public class EffectAnimator : MonoBehaviour
     private float timer;
     private System.Action onComplete;
 
+    private Sprite defaultSprite;
     private Material defaultSpriteMaterial;
     private Material defaultLineMaterial;
 
@@ -40,6 +41,7 @@ public class EffectAnimator : MonoBehaviour
         lr = GetComponent<LineRenderer>();
         mpb = new MaterialPropertyBlock();
 
+        defaultSprite = sr != null ? sr.sprite : null;
         defaultSpriteMaterial = sr != null ? sr.sharedMaterial : null;
         defaultLineMaterial = lr != null ? lr.sharedMaterial : null;
     }
@@ -98,7 +100,7 @@ public class EffectAnimator : MonoBehaviour
 
         if (sr != null)
         {
-            sr.sprite = null;
+            sr.sprite = defaultSprite;
             sr.sharedMaterial = defaultSpriteMaterial;
             sr.SetPropertyBlock(null);
         }
