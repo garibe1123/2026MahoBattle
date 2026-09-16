@@ -4,6 +4,7 @@ using UnityEngine;
 /// Legacy weapon visual bridge.
 /// WeaponPivot는 항상 Player 중심을 기준으로 회전하고,
 /// WeaponVisual은 Player root scale과 무관하게 일정한 world-space margin만 유지합니다.
+/// 조준 입력은 BattleInputRouter가 단독 소유합니다.
 /// </summary>
 public class WeaponDisplay : MonoBehaviour
 {
@@ -16,6 +17,9 @@ public class WeaponDisplay : MonoBehaviour
     [Tooltip("Placeholder/기본 총 Sprite가 지나치게 커지지 않도록 world 최대 변 길이를 정규화합니다.")]
     [SerializeField] private bool normalizeWeaponWorldSize = true;
     [SerializeField, Min(0.1f)] private float weaponMaxWorldSize = 0.72f;
+
+    [Header("Input")]
+    [SerializeField] private BattleInputRouter inputRouter;
 
     public void UpdateWeaponSprite(Sprite newSprite)
     {
@@ -41,20 +45,17 @@ public class WeaponDisplay : MonoBehaviour
     private void Update()
     {
         ResolveReferences();
-        if (pivot == null || weaponSpriteRenderer == null)
+        if (pivot == null || weaponSpriteRenderer == null || inputRouter == null)
             return;
 
         // Player Root가 48px 기준으로 scale 보정되어도 총이 멀리 밀려나지 않게 매 frame world offset을 역보정합니다.
         ApplyVisualPlacement();
 
-        Camera main = Camera.main;
-        if (main == null)
+        Vector2 origin = pivot.position;
+        if (!inputRouter.TryGetAimWorldPoint(origin, Camera.main, out Vector2 aimPoint))
             return;
 
-        Vector3 mousePos = main.ScreenToWorldPoint(Input.mousePosition);
-        mousePos.z = pivot.position.z;
-
-        Vector3 aimDirection = mousePos - pivot.position;
+        Vector2 aimDirection = aimPoint - origin;
         if (aimDirection.sqrMagnitude <= 0.0001f)
             return;
 
@@ -70,6 +71,9 @@ public class WeaponDisplay : MonoBehaviour
 
         if (pivot == null)
             pivot = transform.parent != null ? transform.parent : transform;
+
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
     }
 
     private void ApplyVisualPlacement()
