@@ -1,41 +1,51 @@
 using UnityEngine;
 
 /// <summary>
-/// 1~9 숫자키를 전투 중 장비 직접 선택에만 사용합니다.
-/// BattleEquipmentSystem의 Legacy 입력은 Reward/Map에서도 반응할 수 있으므로 끄고,
-/// 이 컨트롤러가 Combat 상태에서만 같은 EquipSlot API를 호출합니다.
+/// Combat 장비 슬롯 입력을 BattleInputRouter에서 받아 EquipSlot API로 전달합니다.
+/// 숫자키를 직접 읽지 않으므로 Reward/Map/UI 상태에서 전투 장비 입력이 새어 나오지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30100)]
 public sealed class BattleCombatNumberKeyEquipController : MonoBehaviour
 {
-    private static readonly KeyCode[] SlotKeys =
-    {
-        KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3,
-        KeyCode.Alpha4, KeyCode.Alpha5, KeyCode.Alpha6,
-        KeyCode.Alpha7, KeyCode.Alpha8, KeyCode.Alpha9
-    };
-
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [SerializeField] private BattleInputRouter inputRouter;
+
+    private bool subscribed;
+
+    private void OnEnable()
+    {
+        ResolveReferences();
+        Subscribe();
+    }
+
+    private void OnDisable()
+    {
+        Unsubscribe();
+    }
 
     private void Update()
+    {
+        // Runtime self-repair로 Router가 늦게 생성되는 경우만 복구합니다.
+        if (inputRouter == null || !subscribed)
+        {
+            ResolveReferences();
+            Subscribe();
+        }
+    }
+
+    private void HandleSlotPressed(int index)
     {
         ResolveReferences();
         if (runManager == null || equipmentSystem == null || BattlePauseController.IsPaused)
             return;
         if (!runManager.RunActive || runManager.State != BattleRunState.Combat)
             return;
+        if (index < 0 || index >= equipmentSystem.UnlockedSlotCount)
+            return;
 
-        int count = Mathf.Min(equipmentSystem.UnlockedSlotCount, SlotKeys.Length);
-        for (int i = 0; i < count; i++)
-        {
-            if (!Input.GetKeyDown(SlotKeys[i]))
-                continue;
-
-            equipmentSystem.EquipSlot(i);
-            break;
-        }
+        equipmentSystem.EquipSlot(index);
     }
 
     private void ResolveReferences()
@@ -44,5 +54,26 @@ public sealed class BattleCombatNumberKeyEquipController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        if (inputRouter == null)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
+    }
+
+    private void Subscribe()
+    {
+        if (subscribed || inputRouter == null)
+            return;
+
+        inputRouter.SlotPressed += HandleSlotPressed;
+        subscribed = true;
+    }
+
+    private void Unsubscribe()
+    {
+        if (!subscribed)
+            return;
+
+        if (inputRouter != null)
+            inputRouter.SlotPressed -= HandleSlotPressed;
+        subscribed = false;
     }
 }
