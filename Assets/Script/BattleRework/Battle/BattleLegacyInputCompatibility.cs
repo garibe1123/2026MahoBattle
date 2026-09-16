@@ -36,7 +36,7 @@ internal static class Input
             if (Mouse.current != null &&
                 (Mouse.current.leftButton.isPressed || Mouse.current.rightButton.isPressed || Mouse.current.middleButton.isPressed))
                 return true;
-            return Gamepad.current != null && Gamepad.current.allControls.Exists(control => control is ButtonControl button && button.isPressed);
+            return AnyGamepadButton(pressedThisFrameOnly: false);
         }
     }
 
@@ -49,7 +49,7 @@ internal static class Input
             if (Mouse.current != null &&
                 (Mouse.current.leftButton.wasPressedThisFrame || Mouse.current.rightButton.wasPressedThisFrame || Mouse.current.middleButton.wasPressedThisFrame))
                 return true;
-            return Gamepad.current != null && Gamepad.current.allControls.Exists(control => control is ButtonControl button && button.wasPressedThisFrame);
+            return AnyGamepadButton(pressedThisFrameOnly: true);
         }
     }
 
@@ -57,20 +57,9 @@ internal static class Input
     public static bool GetKeyDown(KeyCode key) => ResolveButton(key)?.wasPressedThisFrame ?? false;
     public static bool GetKeyUp(KeyCode key) => ResolveButton(key)?.wasReleasedThisFrame ?? false;
 
-    public static bool GetKey(string name)
-    {
-        return TryResolveNamedKey(name, out KeyCode key) && GetKey(key);
-    }
-
-    public static bool GetKeyDown(string name)
-    {
-        return TryResolveNamedKey(name, out KeyCode key) && GetKeyDown(key);
-    }
-
-    public static bool GetKeyUp(string name)
-    {
-        return TryResolveNamedKey(name, out KeyCode key) && GetKeyUp(key);
-    }
+    public static bool GetKey(string name) => TryResolveNamedKey(name, out KeyCode key) && GetKey(key);
+    public static bool GetKeyDown(string name) => TryResolveNamedKey(name, out KeyCode key) && GetKeyDown(key);
+    public static bool GetKeyUp(string name) => TryResolveNamedKey(name, out KeyCode key) && GetKeyUp(key);
 
     public static float GetAxis(string axisName) => GetAxisRaw(axisName);
 
@@ -103,6 +92,25 @@ internal static class Input
     public static bool GetMouseButton(int button) => ResolveMouseButton(button)?.isPressed ?? false;
     public static bool GetMouseButtonDown(int button) => ResolveMouseButton(button)?.wasPressedThisFrame ?? false;
     public static bool GetMouseButtonUp(int button) => ResolveMouseButton(button)?.wasReleasedThisFrame ?? false;
+
+    private static bool AnyGamepadButton(bool pressedThisFrameOnly)
+    {
+        Gamepad gamepad = Gamepad.current;
+        if (gamepad == null)
+            return false;
+
+        var controls = gamepad.allControls;
+        for (int i = 0; i < controls.Count; i++)
+        {
+            if (controls[i] is not ButtonControl button)
+                continue;
+
+            if (pressedThisFrameOnly ? button.wasPressedThisFrame : button.isPressed)
+                return true;
+        }
+
+        return false;
+    }
 
     private static float ResolveMoveAxis(bool horizontal)
     {
