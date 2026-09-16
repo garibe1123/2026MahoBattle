@@ -40,6 +40,18 @@ public sealed class PoolService : MonoBehaviour
         service = null;
     }
 
+    private void Awake()
+    {
+        if (service == null)
+        {
+            service = this;
+            return;
+        }
+
+        if (service != this)
+            enabled = false;
+    }
+
     public static GameObject Spawn(
         GameObject prefab,
         Vector3 position,
@@ -200,9 +212,6 @@ public sealed class PoolService : MonoBehaviour
             if (pending.instance == null)
             {
                 timedReleases.RemoveAt(i);
-                prefabByInstance.Remove(pending.instance);
-                generationByInstance.Remove(pending.instance);
-                inactiveInstances.Remove(pending.instance);
                 continue;
             }
 
