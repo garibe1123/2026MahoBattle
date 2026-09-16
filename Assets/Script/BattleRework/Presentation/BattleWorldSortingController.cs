@@ -135,7 +135,7 @@ public sealed class BattleWorldSortingController : MonoBehaviour
 
         RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         GameObject activeBase = baseTemplate != null ? baseTemplate.ActiveBase : null;
-        bool activeBaseHasPresentationFloor = activeBase != null && HasPresentationTemplate(activeBase.transform);
+        bool activeBaseHasPresentationFloor = activeBase != null && HasPresentationFloor(activeBase.transform);
 
         if (activeBase != null)
             AddRenderers(activeBase);
@@ -219,6 +219,20 @@ public sealed class BattleWorldSortingController : MonoBehaviour
         Transform target = renderer.transform;
         string objectName = target.name;
 
+        // Persistent Base의 원본 Renderer는 Walkable marker가 붙어 있어도
+        // Presentation Floor가 존재할 때는 Base 층으로 남겨야 합니다.
+        if (activeBase != null && target.IsChildOf(activeBase.transform))
+        {
+            bool underPresentation = IsUnderPresentationTemplate(target);
+            if (!underPresentation)
+            {
+                order = activeBaseHasPresentationFloor
+                    ? BattleWorldSorting.BaseOrder
+                    : BattleWorldSorting.FloorOrder;
+                return true;
+            }
+        }
+
         if (IsFloorRenderer(renderer))
         {
             order = BattleWorldSorting.FloorOrder;
@@ -241,18 +255,6 @@ public sealed class BattleWorldSortingController : MonoBehaviour
         {
             order = BattleWorldSorting.BaseOrder;
             return true;
-        }
-
-        if (activeBase != null && target.IsChildOf(activeBase.transform))
-        {
-            bool underPresentation = IsUnderPresentationTemplate(target);
-            if (!underPresentation)
-            {
-                order = activeBaseHasPresentationFloor
-                    ? BattleWorldSorting.BaseOrder
-                    : BattleWorldSorting.FloorOrder;
-                return true;
-            }
         }
 
         return false;
@@ -304,22 +306,19 @@ public sealed class BattleWorldSortingController : MonoBehaviour
             return true;
         }
 
-        // Persistent Base의 원본 Renderer는 Presentation Floor가 있을 때 Base 층으로 남겨야 하므로
-        // BattleWalkableField 여부만으로 여기서 즉시 Floor로 분류하지 않습니다.
-        return renderer.GetComponent<BattleWalkableField>() != null &&
-               !renderer.gameObject.name.StartsWith("PersistentStartBase_", StringComparison.Ordinal);
+        return renderer.GetComponent<BattleWalkableField>() != null;
     }
 
-    private static bool HasPresentationTemplate(Transform root)
+    private static bool HasPresentationFloor(Transform root)
     {
         if (root == null)
             return false;
 
-        Transform[] transforms = root.GetComponentsInChildren<Transform>(true);
-        for (int i = 0; i < transforms.Length; i++)
+        SpriteRenderer[] renderers = root.GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
         {
-            Transform current = transforms[i];
-            if (current != null && current.name.StartsWith("PresentationTemplate", StringComparison.Ordinal))
+            SpriteRenderer renderer = renderers[i];
+            if (renderer != null && renderer.name.StartsWith("BaseFloor_", StringComparison.Ordinal))
                 return true;
         }
 
