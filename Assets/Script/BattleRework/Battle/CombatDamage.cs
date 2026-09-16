@@ -3,40 +3,52 @@ using UnityEngine;
 public enum DamageKind
 {
     Projectile,
-    Melee,
     Area,
-    Environment
+    Contact,
+    Hazard,
+    Other
 }
 
+/// <summary>
+/// Source metadata for the unified combat damage pipeline.
+/// BaseDamage is the source-authored value. The runtime modifiers are applied by CombatDamage.Calculate.
+/// WeaponId / EquipmentTag are optional semantic identifiers for systems such as FanMission.
+/// </summary>
 public readonly struct DamageContext
 {
     public readonly GameObject Source;
-    public readonly Vector2 SourcePosition;
+    public readonly Vector2 HitPoint;
     public readonly float BaseDamage;
     public readonly float DamageMultiplier;
     public readonly float FanMissionModifier;
     public readonly DamageKind Kind;
-    public readonly bool IgnoreDefense;
+    public readonly string WeaponId;
+    public readonly string EquipmentTag;
 
     public DamageContext(
         GameObject source,
-        Vector2 sourcePosition,
+        Vector2 hitPoint,
         float baseDamage,
         float damageMultiplier = 1f,
         float fanMissionModifier = 0f,
-        DamageKind kind = DamageKind.Projectile,
-        bool ignoreDefense = false)
+        DamageKind kind = DamageKind.Other,
+        string weaponId = null,
+        string equipmentTag = null)
     {
         Source = source;
-        SourcePosition = sourcePosition;
+        HitPoint = hitPoint;
         BaseDamage = Mathf.Max(0f, baseDamage);
         DamageMultiplier = Mathf.Max(0f, damageMultiplier);
         FanMissionModifier = fanMissionModifier;
         Kind = kind;
-        IgnoreDefense = ignoreDefense;
+        WeaponId = weaponId ?? string.Empty;
+        EquipmentTag = equipmentTag ?? string.Empty;
     }
 }
 
+/// <summary>
+/// Implemented by every runtime target that participates in shared projectile/effect damage.
+/// </summary>
 public interface IDamageable
 {
     bool IsAlive { get; }
@@ -44,79 +56,55 @@ public interface IDamageable
     void ReceiveDamage(DamageContext context, float finalDamage);
 }
 
-/// <summary>
-/// 공통 데미지 계산과 IDamageable 탐색을 한 곳에서 처리합니다.
-/// Final = Base × Runtime Multiplier × (1 + FanMission Modifier) - Defense
-/// </summary>
 public static class CombatDamage
 {
-    public static float Calculate(DamageContext context, float defense)
+    public static float Calculate(in DamageContext context, float defense)
     {
-        float raw = context.BaseDamage
-                    * context.DamageMultiplier
-                    * Mathf.Max(0f, 1f + context.FanMissionModifier);
-
-        if (!context.IgnoreDefense)
-            raw -= Mathf.Max(0f, defense);
-
-        return Mathf.Max(0f, raw);
-    }
-
-    public static bool TryApply(Collider2D target, DamageContext context)
-    {
-        if (target == null) return false;
-        return TryApply(target.transform, context);
-    }
-
-    public static bool TryApply(GameObject target, DamageContext context)
-    {
-        if (target == null) return false;
-        return TryApply(target.transform, context);
-    }
-
-    public static bool TryApply(Component target, DamageContext context)
-    {
-        if (target == null) return false;
-        return TryApply(target.transform, context);
-    }
-
-    private static bool TryApply(Transform targetTransform, DamageContext context)
-    {
-        if (!TryFindDamageable(targetTransform, out IDamageable damageable))
-            return false;
-
-        if (!damageable.IsAlive)
-            return false;
-
-        float finalDamage = Calculate(context, damageable.Defense);
-        damageable.ReceiveDamage(context, finalDamage);
-        return true;
+        float scaled = context.BaseDamage * context.DamageMultiplier;
+        float afterDefense = Mathf.Max(0f, scaled - Mathf.Max(0f, defense));
+        return Mathf.Max(0f, afterDefense + context.FanMissionModifier);
     }
 
     /// <summary>
-    /// Collider가 자식 오브젝트에 붙어 있어도 부모의 Player/Monster IDamageable을 찾습니다.
+    /// Finds the nearest IDamageable without allocating a MonoBehaviour array for every hit.
+    /// The non-generic Component lookup accepts interface types and returns the implementing Component.
     /// </summary>
     public static bool TryFindDamageable(Transform start, out IDamageable damageable)
     {
-        damageable = null;
-        if (start == null) return false;
-
-        Transform current = start;
-        while (current != null)
+        if (start == null)
         {
-            MonoBehaviour[] behaviours = current.GetComponents<MonoBehaviour>();
-            for (int i = 0; i < behaviours.Length; i++)
-            {
-                if (behaviours[i] is IDamageable found)
-                {
-                    damageable = found;
-                    return true;
-                }
-            }
-
-            current = current.parent;
+            damageable = null;
+            return false;
         }
 
-        return false;
+        Component component = start.GetComponentInParent(typeof(IDamageable));
+        damageable = component as IDamageable;
+        return damageable != null;
+    }
+
+    /// <summary>
+    /// Applies one resolved DamageContext to an already identified target and emits the shared result events.
+    /// Returns false only when there is no live target to receive the damage.
+    /// </summary>
+    public static bool Apply(IDamageable target, in DamageContext context)
+    {
+        if (target == null || !target.IsAlive)
+            return false;
+
+        float finalDamage = Calculate(context, target.Defense);
+        target.ReceiveDamage(context, finalDamage);
+        CombatEvents.Damaged(context, target, finalDamage);
+
+        if (!target.IsAlive)
+            CombatEvents.Killed(context, target);
+
+        return true;
+    }
+
+    public static bool TryApply(Collider2D target, in DamageContext context)
+    {
+        return target != null &&
+               TryFindDamageable(target.transform, out IDamageable damageable) &&
+               Apply(damageable, context);
     }
 }
