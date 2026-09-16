@@ -4,14 +4,16 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// 엔진 테스트용 IMGUI입니다.
-/// 좌측 레거시 디버그 패널은 F1로 켜고 끌 수 있으며,
+/// 좌측 레거시 디버그 패널은 Debug Action Map의 F1로 켜고 끌 수 있으며,
 /// 우측 상단 KILL ALL ENEMY 퀵 액션은 살아 있는 적이 있을 때만 표시됩니다.
+/// 릴리스 빌드에서는 입력과 UI가 모두 비활성입니다.
 /// </summary>
 public class BattleDebugUI : MonoBehaviour
 {
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
+    [SerializeField] private BattleInputRouter inputRouter;
     [SerializeField] private bool visible = false;
 
     private static bool sceneHookInstalled;
@@ -54,8 +56,6 @@ public class BattleDebugUI : MonoBehaviour
         if (existing.Length > 0)
             return;
 
-        // 테스트 씬 이름에 의존하지 않습니다. 이 Host 자체는 아무것도 표시하지 않고,
-        // 실제 살아 있는 MonsterController가 생겼을 때만 우측 상단 버튼을 그립니다.
         GameObject host = new("BattleEngineTestDebugUI");
         BattleDebugUI ui = host.AddComponent<BattleDebugUI>();
         ui.visible = false;
@@ -68,9 +68,12 @@ public class BattleDebugUI : MonoBehaviour
 
     private void Update()
     {
+        if (!Application.isEditor && !Debug.isDebugBuild)
+            return;
+
         ResolveReferences();
 
-        if (Input.GetKeyDown(KeyCode.F1))
+        if (inputRouter != null && inputRouter.DebugTogglePressedThisFrame)
             visible = !visible;
     }
 
@@ -82,10 +85,15 @@ public class BattleDebugUI : MonoBehaviour
             roomManager = FindFirstObjectByType<BattleRoomManager>();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
     }
 
     private void OnGUI()
     {
+        if (!Application.isEditor && !Debug.isDebugBuild)
+            return;
+
         DrawKillAllEnemyButton();
 
         if (!visible)
