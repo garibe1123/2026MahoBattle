@@ -437,8 +437,7 @@ public class MonsterController : MonoBehaviour, IDamageable
                 continue;
             }
 
-            float finalDamage = CombatDamage.Calculate(damage, damageable.Defense);
-            damageable.ReceiveDamage(damage, finalDamage);
+            CombatDamage.Apply(damageable, damage);
         }
     }
 
