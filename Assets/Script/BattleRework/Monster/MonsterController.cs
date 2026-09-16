@@ -19,6 +19,16 @@ public class MonsterController : MonoBehaviour, IDamageable
     private NavMeshAgent agent;
     private EnemyAnimator animator;
 
+    [Header("Navigation Budget")]
+    [Tooltip("추적 목적지를 NavMeshAgent에 다시 제출하는 최소 간격입니다.")]
+    [SerializeField, Min(0.02f)] private float repathInterval = 0.12f;
+    [Tooltip("이 거리 이상 목적지가 움직였을 때만 새 경로를 요청합니다.")]
+    [SerializeField, Min(0f)] private float repathDestinationThreshold = 0.18f;
+
+    private float nextRepathTime;
+    private Vector2 lastPathDestination;
+    private bool hasPathDestination;
+
     private float currentHp;
     private float currentDefense;
     private float runtimeDamageMultiplier = 1f;
@@ -38,6 +48,10 @@ public class MonsterController : MonoBehaviour, IDamageable
     private bool shieldEnabled;
     private float shieldDurability;
     private MonsterSkillConfig shieldConfig;
+    private bool conditionalInvincibleWhileDashing;
+
+    private Collider2D[] meleeHitResults;
+    private readonly HashSet<IDamageable> meleeDamagedTargets = new();
 
     public MonsterDefinitionSO Definition => definition;
     public bool IsAlive => !dying && currentHp > 0f;
@@ -83,6 +97,9 @@ public class MonsterController : MonoBehaviour, IDamageable
         runtimeDamageMultiplier = 1f;
         runtimeMoveMultiplier = 1f;
         facing = Vector2.right;
+        hasPathDestination = false;
+        nextRepathTime = 0f;
+        meleeDamagedTargets.Clear();
 
         float hpMultiplier = context != null
             ? context.GetMonsterHpMultiplier(definition.category)
@@ -100,6 +117,9 @@ public class MonsterController : MonoBehaviour, IDamageable
     {
         if (agent == null || definition == null)
             return;
+
+        hasPathDestination = false;
+        nextRepathTime = 0f;
 
         if (definition.moveType == MonsterMoveType.Stationary)
         {
@@ -120,6 +140,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         shieldEnabled = false;
         shieldDurability = 0f;
         shieldConfig = null;
+        conditionalInvincibleWhileDashing = false;
 
         if (definition.skills == null)
             return;
@@ -129,11 +150,18 @@ public class MonsterController : MonoBehaviour, IDamageable
             MonsterSkillConfig skill = definition.skills[i];
             skillCooldowns.Add(0f);
 
-            if (skill != null && skill.type == MonsterSkillType.Shield && shieldConfig == null)
+            if (skill == null)
+                continue;
+
+            if (skill.type == MonsterSkillType.Shield && shieldConfig == null)
             {
                 shieldConfig = skill;
                 shieldDurability = Mathf.Max(0f, skill.shieldDurability);
                 shieldEnabled = shieldDurability > 0f;
+            }
+            else if (skill.type == MonsterSkillType.ConditionalInvincible)
+            {
+                conditionalInvincibleWhileDashing = true;
             }
         }
     }
@@ -157,16 +185,20 @@ public class MonsterController : MonoBehaviour, IDamageable
             return;
 
         TickCooldowns();
-        UpdateFacing();
 
-        float distance = Vector2.Distance(transform.position, target.position);
-        if (distance > definition.detectionRange)
+        Vector2 toTarget = (Vector2)target.position - (Vector2)transform.position;
+        UpdateFacing(toTarget);
+
+        float distanceSq = toTarget.sqrMagnitude;
+        float detectionRange = Mathf.Max(0f, definition.detectionRange);
+        if (distanceSq > detectionRange * detectionRange)
         {
             StopMovement();
             UpdateAnimation(false);
             return;
         }
 
+        float distance = Mathf.Sqrt(distanceSq);
         if (isDashing)
         {
             UpdateDash();
@@ -194,9 +226,8 @@ public class MonsterController : MonoBehaviour, IDamageable
         actionLockTimer = Mathf.Max(0f, actionLockTimer - Time.deltaTime);
     }
 
-    private void UpdateFacing()
+    private void UpdateFacing(Vector2 toTarget)
     {
-        Vector2 toTarget = (Vector2)target.position - (Vector2)transform.position;
         if (toTarget.sqrMagnitude <= 0.001f)
             return;
 
@@ -242,9 +273,9 @@ public class MonsterController : MonoBehaviour, IDamageable
         {
             MoveTo(target.position);
         }
-        else if (agent.isOnNavMesh)
+        else
         {
-            agent.ResetPath();
+            StopMovement();
         }
     }
 
@@ -254,13 +285,36 @@ public class MonsterController : MonoBehaviour, IDamageable
             return;
 
         agent.speed = Mathf.Max(0f, definition.moveSpeed * runtimeMoveMultiplier);
-        agent.SetDestination(destination);
+
+        float now = Time.time;
+        if (hasPathDestination && now < nextRepathTime)
+            return;
+
+        float threshold = Mathf.Max(0f, repathDestinationThreshold);
+        bool destinationChanged = !hasPathDestination ||
+                                  (destination - lastPathDestination).sqrMagnitude >= threshold * threshold;
+
+        nextRepathTime = now + Mathf.Max(0.02f, repathInterval);
+        if (!destinationChanged && agent.hasPath)
+            return;
+
+        if (agent.SetDestination(destination))
+        {
+            lastPathDestination = destination;
+            hasPathDestination = true;
+        }
     }
 
     private void StopMovement()
     {
-        if (agent.enabled && agent.isOnNavMesh)
+        if (!agent.enabled || !agent.isOnNavMesh)
+            return;
+
+        if (agent.hasPath)
             agent.ResetPath();
+
+        hasPathDestination = false;
+        nextRepathTime = 0f;
     }
 
     private void BeginDash()
@@ -274,6 +328,8 @@ public class MonsterController : MonoBehaviour, IDamageable
         dashDirection = direction;
         dashStartPosition = transform.position;
         facing = direction;
+        hasPathDestination = false;
+        nextRepathTime = 0f;
         animator?.SetFacing(facing.x);
         animator?.Play(EnemyAnimState.Dash, true, restart: true);
 
@@ -312,6 +368,8 @@ public class MonsterController : MonoBehaviour, IDamageable
     {
         isDashing = false;
         dashCooldown = 1f;
+        hasPathDestination = false;
+        nextRepathTime = 0f;
 
         if (NavMesh.SamplePosition(transform.position, out NavMeshHit hit, 2f, NavMesh.AllAreas))
         {
@@ -398,7 +456,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         if (!IsAlive || target == null || definition == null)
             yield break;
 
-        Collider2D[] hits = Physics2D.OverlapCircleAll(
+        int hitCount = OverlapMeleeNonAllocGrowing(
             transform.position,
             Mathf.Max(0.05f, skill.range),
             skill.targetLayer);
@@ -419,25 +477,46 @@ public class MonsterController : MonoBehaviour, IDamageable
             ? attackFacing.normalized
             : facing.normalized;
 
-        HashSet<IDamageable> damagedTargets = new();
-        for (int i = 0; i < hits.Length; i++)
+        meleeDamagedTargets.Clear();
+        for (int i = 0; i < hitCount; i++)
         {
-            Collider2D hit = hits[i];
+            Collider2D hit = meleeHitResults[i];
             if (hit == null)
                 continue;
             if (!CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable))
                 continue;
-            if (!damageable.IsAlive || !damagedTargets.Add(damageable))
+            if (!damageable.IsAlive || !meleeDamagedTargets.Add(damageable))
                 continue;
 
-            Vector2 toTarget = ((Vector2)hit.bounds.center - (Vector2)transform.position).normalized;
-            if (toTarget.sqrMagnitude > 0.001f &&
-                Vector2.Dot(normalizedFacing, toTarget) < skill.meleeFrontDot)
+            Vector2 toTarget = (Vector2)hit.bounds.center - (Vector2)transform.position;
+            if (toTarget.sqrMagnitude > 0.001f)
             {
-                continue;
+                toTarget.Normalize();
+                if (Vector2.Dot(normalizedFacing, toTarget) < skill.meleeFrontDot)
+                    continue;
             }
 
             CombatDamage.Apply(damageable, damage);
+        }
+    }
+
+    private int OverlapMeleeNonAllocGrowing(Vector2 center, float radius, int layerMask)
+    {
+        if (meleeHitResults == null || meleeHitResults.Length == 0)
+            meleeHitResults = new Collider2D[8];
+
+        while (true)
+        {
+            int count = Physics2D.OverlapCircleNonAlloc(
+                center,
+                radius,
+                meleeHitResults,
+                layerMask);
+
+            if (count < meleeHitResults.Length)
+                return count;
+
+            meleeHitResults = new Collider2D[meleeHitResults.Length * 2];
         }
     }
 
@@ -461,7 +540,12 @@ public class MonsterController : MonoBehaviour, IDamageable
         bool useSpriteFrame = skill.impactFrame >= 0 && animator != null && HasAnimation(state);
         if (!useSpriteFrame)
         {
-            yield return new WaitForSeconds(Mathf.Max(0f, skill.windup));
+            float remaining = Mathf.Max(0f, skill.windup);
+            while (IsAlive && remaining > 0f)
+            {
+                remaining -= Time.deltaTime;
+                yield return null;
+            }
             yield break;
         }
 
@@ -520,7 +604,12 @@ public class MonsterController : MonoBehaviour, IDamageable
         runtimeMoveMultiplier *= multiplier;
         runtimeDamageMultiplier *= multiplier;
 
-        yield return new WaitForSeconds(Mathf.Max(0f, skill.duration));
+        float remaining = Mathf.Max(0f, skill.duration);
+        while (IsAlive && remaining > 0f)
+        {
+            remaining -= Time.deltaTime;
+            yield return null;
+        }
 
         if (!IsAlive)
             yield break;
@@ -534,7 +623,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         if (!IsAlive || finalDamage <= 0f)
             return;
 
-        if (HasConditionalInvincibility() && isDashing)
+        if (conditionalInvincibleWhileDashing && isDashing)
             return;
 
         if (TryBlockWithShield(damageContext, finalDamage))
@@ -579,23 +668,6 @@ public class MonsterController : MonoBehaviour, IDamageable
         return true;
     }
 
-    private bool HasConditionalInvincibility()
-    {
-        if (definition == null || definition.skills == null)
-            return false;
-
-        for (int i = 0; i < definition.skills.Count; i++)
-        {
-            if (definition.skills[i] != null &&
-                definition.skills[i].type == MonsterSkillType.ConditionalInvincible)
-            {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
     private void Die()
     {
         if (dying)
@@ -603,6 +675,7 @@ public class MonsterController : MonoBehaviour, IDamageable
 
         dying = true;
         actionLockTimer = 0f;
+        hasPathDestination = false;
         StopAllCoroutines();
 
         if (agent.enabled)
@@ -793,9 +866,13 @@ public class MonsterController : MonoBehaviour, IDamageable
         shieldEnabled = false;
         shieldDurability = 0f;
         shieldConfig = null;
+        conditionalInvincibleWhileDashing = false;
         isDashing = false;
         actionLockTimer = 0f;
+        hasPathDestination = false;
+        nextRepathTime = 0f;
         skillCooldowns.Clear();
+        meleeDamagedTargets.Clear();
 
         animator?.Stop(false);
 
