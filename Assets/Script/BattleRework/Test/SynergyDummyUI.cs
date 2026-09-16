@@ -2,31 +2,44 @@ using UnityEngine;
 
 /// <summary>
 /// Synergy Resolver와 VFX 교체 경로만 독립적으로 확인하는 개발용 UI입니다.
-/// F3로 표시/숨김. 실제 Sprite가 연결돼 있으면 Sprite VFX,
+/// Debug Action Map의 F3로 표시/숨김. 실제 Sprite가 연결돼 있으면 Sprite VFX,
 /// 없으면 SynergyManager의 코드 기반 Dummy VFX가 재생됩니다.
+/// 릴리스 빌드에서는 입력과 UI가 비활성입니다.
 /// </summary>
 public class SynergyDummyUI : MonoBehaviour
 {
     [SerializeField] private SynergyManager synergyManager;
+    [SerializeField] private BattleInputRouter inputRouter;
     [SerializeField] private bool visible = true;
 
     private Vector2 scroll;
 
     private void Awake()
     {
-        if (synergyManager == null)
-            synergyManager = FindFirstObjectByType<SynergyManager>();
+        ResolveReferences();
     }
 
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.F3))
+        if (!Application.isEditor && !Debug.isDebugBuild)
+            return;
+
+        ResolveReferences();
+        if (inputRouter != null && inputRouter.SynergyTogglePressedThisFrame)
             visible = !visible;
+    }
+
+    private void ResolveReferences()
+    {
+        if (synergyManager == null)
+            synergyManager = FindFirstObjectByType<SynergyManager>();
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
     }
 
     private void OnGUI()
     {
-        if (!visible)
+        if ((!Application.isEditor && !Debug.isDebugBuild) || !visible)
             return;
 
         float width = 410f;
