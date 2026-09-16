@@ -44,10 +44,23 @@ public class PlayerController : MonoBehaviour, IDamageable
     [Header("References")]
     public PlayerShootingSystem shootingSystem;
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Input Gate")]
     [SerializeField] private bool useRunStateInputGate = true;
     [SerializeField] private bool allowMovementDuringRoomBuild = true;
+
+    private static readonly Vector2[] WalkableFootprintProbes =
+    {
+        Vector2.right,
+        Vector2.left,
+        Vector2.up,
+        Vector2.down,
+        new(0.7071068f, 0.7071068f),
+        new(-0.7071068f, 0.7071068f),
+        new(0.7071068f, -0.7071068f),
+        new(-0.7071068f, -0.7071068f)
+    };
 
     private Rigidbody2D rb;
     private PlayerAnimator anim;
@@ -89,6 +102,8 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (inputRouter == null)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
 
         ResetForRun();
         EnsureStartBaseWalkableFieldFallback(true);
@@ -111,6 +126,8 @@ public class PlayerController : MonoBehaviour, IDamageable
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
 
         if (runManager != null)
             runManager.StateChanged += HandleRunStateChanged;
@@ -126,7 +143,8 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     private void Update()
     {
-        if (currentState == PlayerState.Dead) return;
+        if (currentState == PlayerState.Dead)
+            return;
 
         if (rollLockTimer > 0f)
             rollLockTimer = Mathf.Max(0f, rollLockTimer - Time.deltaTime);
@@ -157,10 +175,6 @@ public class PlayerController : MonoBehaviour, IDamageable
         rb.linearVelocity = ResolveFieldSupportedVelocity(desiredVelocity);
     }
 
-    /// <summary>
-    /// 대각선 이동이 허공에 걸렸을 때 X/Y 축을 각각 검사해 벽/필드 끝을 따라 자연스럽게 미끄러질 수 있게 합니다.
-    /// 어떤 방향에도 실제 Field가 없으면 속도를 0으로 만듭니다.
-    /// </summary>
     private Vector2 ResolveFieldSupportedVelocity(Vector2 desiredVelocity)
     {
         if (!requireWalkableField || desiredVelocity.sqrMagnitude <= 0.0001f)
@@ -204,22 +218,9 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (radius <= 0.02f)
             return true;
 
-        // 몸 전체가 필드 끝을 크게 넘어가지 않도록 8방향 발자국을 검사합니다.
-        Vector2[] probes =
+        for (int i = 0; i < WalkableFootprintProbes.Length; i++)
         {
-            Vector2.right,
-            Vector2.left,
-            Vector2.up,
-            Vector2.down,
-            new Vector2(0.7071068f, 0.7071068f),
-            new Vector2(-0.7071068f, 0.7071068f),
-            new Vector2(0.7071068f, -0.7071068f),
-            new Vector2(-0.7071068f, -0.7071068f)
-        };
-
-        for (int i = 0; i < probes.Length; i++)
-        {
-            if (!BattleWalkableField.HasSupport(center + probes[i] * radius))
+            if (!BattleWalkableField.HasSupport(center + WalkableFootprintProbes[i] * radius))
                 return false;
         }
 
@@ -239,10 +240,6 @@ public class PlayerController : MonoBehaviour, IDamageable
         return Mathf.Max(0.05f, bodyCircle.radius * scaleMax);
     }
 
-    /// <summary>
-    /// Start Base는 MapBlock이 아니므로 가장 큰 바닥 SpriteRenderer를 WalkableField로 한 번 등록합니다.
-    /// 이 fallback은 바닥을 새로 만드는 것이 아니라 이미 존재하는 Start Base Renderer에 판정용 Trigger만 붙입니다.
-    /// </summary>
     private void EnsureStartBaseWalkableFieldFallback(bool force)
     {
         if (!requireWalkableField)
@@ -285,28 +282,26 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     private void HandleInput()
     {
-        if (movementInputEnabled)
-        {
-            moveInput = new Vector2(
-                Input.GetAxisRaw("Horizontal"),
-                Input.GetAxisRaw("Vertical")).normalized;
-        }
-        else
-        {
-            moveInput = Vector2.zero;
-        }
+        if (inputRouter == null)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
+
+        moveInput = movementInputEnabled && inputRouter != null
+            ? inputRouter.Move.normalized
+            : Vector2.zero;
 
         bool pointerOverUi = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
 
-        if (combatInputEnabled && !pointerOverUi && Input.GetMouseButton(0) && shootingSystem != null)
+        if (combatInputEnabled &&
+            !pointerOverUi &&
+            inputRouter != null &&
+            inputRouter.FireHeld &&
+            shootingSystem != null)
         {
             Camera mainCamera = Camera.main;
-            if (mainCamera != null)
+            if (inputRouter.TryGetAimWorldPoint(transform.position, mainCamera, out Vector2 aimPoint))
             {
-                Vector3 mousePos = mainCamera.ScreenToWorldPoint(Input.mousePosition);
-                mousePos.z = 0f;
-                anim?.SetFacing((Vector2)(mousePos - transform.position));
-                shootingSystem.TryShoot(mousePos);
+                anim?.SetFacing(aimPoint - (Vector2)transform.position);
+                shootingSystem.TryShoot(aimPoint);
             }
         }
 
@@ -316,16 +311,24 @@ public class PlayerController : MonoBehaviour, IDamageable
             currentStamina >= rollStaminaCost &&
             rollLockTimer <= 0f;
 
-        if (Input.GetKeyDown(KeyCode.Space) && canRoll)
+        if (inputRouter != null && inputRouter.RollPressedThisFrame && canRoll)
             StartCoroutine(RollRoutine());
 
-        if (combatInputEnabled && Input.GetKeyDown(KeyCode.R) && currentState != PlayerState.Roll && shootingSystem != null)
+        if (combatInputEnabled &&
+            inputRouter != null &&
+            inputRouter.ReloadPressedThisFrame &&
+            currentState != PlayerState.Roll &&
+            shootingSystem != null)
+        {
             shootingSystem.ReloadFuncCall();
+        }
     }
 
     private void UpdateState()
     {
-        if (currentState == PlayerState.Roll) return;
+        if (currentState == PlayerState.Roll)
+            return;
+
         currentState = movementInputEnabled && moveInput.sqrMagnitude > 0f
             ? PlayerState.Move
             : PlayerState.Idle;
@@ -333,7 +336,8 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     private void HandleStamina()
     {
-        if (currentState == PlayerState.Roll) return;
+        if (currentState == PlayerState.Roll)
+            return;
 
         float before = currentStamina;
         currentStamina = Mathf.MoveTowards(currentStamina, maxStamina, staminaRegen * Time.deltaTime);
@@ -465,10 +469,12 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     public void TakeDamage(float damage)
     {
-        if (!IsAlive || hitInvincible || rollInvincible) return;
+        if (!IsAlive || hitInvincible || rollInvincible)
+            return;
 
         float applied = Mathf.Max(0f, damage);
-        if (applied <= 0f) return;
+        if (applied <= 0f)
+            return;
 
         currentHp = Mathf.Max(0f, currentHp - applied);
         HpChanged?.Invoke(currentHp, maxHp);
@@ -494,7 +500,8 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     private void Die()
     {
-        if (currentState == PlayerState.Dead) return;
+        if (currentState == PlayerState.Dead)
+            return;
 
         currentState = PlayerState.Dead;
         hitInvincible = false;
@@ -535,14 +542,18 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     public void Heal(float amount)
     {
-        if (!IsAlive) return;
+        if (!IsAlive)
+            return;
+
         currentHp = Mathf.Min(currentHp + Mathf.Max(0f, amount), maxHp);
         HpChanged?.Invoke(currentHp, maxHp);
     }
 
     public void RestoreStamina(float amount)
     {
-        if (!IsAlive) return;
+        if (!IsAlive)
+            return;
+
         currentStamina = Mathf.Min(currentStamina + Mathf.Max(0f, amount), maxStamina);
         StaminaChanged?.Invoke(currentStamina, maxStamina);
     }
@@ -554,7 +565,9 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     public void StartInvincible(float duration)
     {
-        if (!IsAlive) return;
+        if (!IsAlive)
+            return;
+
         StartCoroutine(HitInvincibleRoutine(duration));
     }
 }
