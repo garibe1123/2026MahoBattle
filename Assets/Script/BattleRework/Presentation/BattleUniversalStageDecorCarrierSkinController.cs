@@ -12,7 +12,7 @@ using UnityEngine.Rendering.Universal;
 /// 오른쪽 Side에서는 authored Part의 Position / Rotation / Sprite Flip / Light2D가 자동 Mirror됩니다.
 /// Auto 배치는 가능한 4방향의 사용 횟수를 균등하게 맞추고, 같은 Visual이 같은 방향에 반복되면
 /// 두 번째부터 원본/좌우반전을 번갈아 사용해 반복감을 줄입니다.
-/// Field와 Decor 사이 간격은 1~3 Tile 범위에서 Decor마다 랜덤하게 선택됩니다.
+/// 좌/우/아래 Decor는 Field와 1~3 Tile 랜덤 간격을 사용하고, 위쪽 Decor는 Field에서 정확히 1 Tile 간격으로 고정합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30150)]
@@ -24,6 +24,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private const string FrameRootName = "DecorMechanicalFrame";
     private const string CarrierTilePrefix = "DecorCarrierTile_";
     private const string LightObjectName = "RuntimeLight2D";
+    private const int UpwardFieldGapTiles = 1;
 
     private static readonly FieldInfo LightSortingLayersField = typeof(Light2D).GetField(
         "m_ApplyToSortingLayers",
@@ -34,9 +35,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     [SerializeField] private List<BattleDecorSO> battleDecorDesigns = new();
 
     [Header("PLACEMENT")]
-    [Tooltip("Field 외곽에서 Decor까지 떨어질 최소 거리입니다. Tile 단위이며 1~3 범위에서 사용합니다.")]
+    [Tooltip("좌/우/아래 Decor가 Field 외곽에서 떨어질 최소 거리입니다. Tile 단위이며 1~3 범위에서 사용합니다. 위쪽 Decor는 이 값과 무관하게 1칸으로 고정됩니다.")]
     [SerializeField, Range(1, 3)] private int minimumFieldGapTiles = 1;
-    [Tooltip("Field 외곽에서 Decor까지 떨어질 최대 거리입니다. 각 Decor는 최소~최대 사이의 정수 Tile 거리를 랜덤하게 사용합니다.")]
+    [Tooltip("좌/우/아래 Decor가 Field 외곽에서 떨어질 최대 거리입니다. 위쪽 Decor는 TV/화면 쪽으로 과도하게 올라가지 않도록 1칸으로 고정됩니다.")]
     [SerializeField, Range(1, 3)] private int maximumFieldGapTiles = 3;
     [SerializeField, Range(0, 8)] private int minimumDecorCount = 2;
     [SerializeField, Range(0, 10)] private int maximumDecorCount = 4;
@@ -747,7 +748,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 float sidePosition = design.UseFixedAttachPosition
                     ? design.AttachPosition01
                     : (float)random.NextDouble();
-                int gapTiles = random.Next(minGapTiles, maxGapTiles + 1);
+                bool upwardPlacement = outward.y > 0.5f;
+                int gapTiles = upwardPlacement
+                    ? UpwardFieldGapTiles
+                    : random.Next(minGapTiles, maxGapTiles + 1);
                 float gap = gapTiles * cell;
 
                 if (Mathf.Abs(outward.x) > 0.5f)
@@ -770,6 +774,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
                 Vector2 placementOffset = authoredOffset;
                 if (outward.x > 0.5f)
                     placementOffset.x = -placementOffset.x;
+                if (upwardPlacement)
+                    placementOffset.y = 0f;
                 target += new Vector3(placementOffset.x, placementOffset.y, 0f);
 
                 candidateBounds = new Bounds(target, new Vector3(width, height, 0.20f));
