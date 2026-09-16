@@ -2,17 +2,42 @@ using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
-/// Lightweight scene-local pool for short-lived prefab instances such as combat effects and telegraphs.
+/// Scene-local pool for short-lived prefab instances such as combat effects and telegraphs.
 /// Specialized pools (ProjectilePooler / MonsterPool) remain responsible for their own gameplay objects.
 /// </summary>
-public static class PoolService
+public sealed class PoolService : MonoBehaviour
 {
-    private static PoolServiceHost host;
+    private sealed class PoolBucket
+    {
+        public readonly Queue<GameObject> inactive = new();
+    }
+
+    private readonly struct TimedRelease
+    {
+        public readonly GameObject instance;
+        public readonly int generation;
+        public readonly float releaseAt;
+
+        public TimedRelease(GameObject instance, int generation, float releaseAt)
+        {
+            this.instance = instance;
+            this.generation = generation;
+            this.releaseAt = releaseAt;
+        }
+    }
+
+    private static PoolService service;
+
+    private readonly Dictionary<GameObject, PoolBucket> buckets = new();
+    private readonly Dictionary<GameObject, GameObject> prefabByInstance = new();
+    private readonly Dictionary<GameObject, int> generationByInstance = new();
+    private readonly HashSet<GameObject> inactiveInstances = new();
+    private readonly List<TimedRelease> timedReleases = new();
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics()
     {
-        host = null;
+        service = null;
     }
 
     public static GameObject Spawn(
@@ -24,7 +49,7 @@ public static class PoolService
         if (prefab == null)
             return null;
 
-        return GetHost().Spawn(prefab, position, rotation, parent);
+        return GetOrCreate().SpawnInternal(prefab, position, rotation, parent);
     }
 
     public static T Spawn<T>(
@@ -46,7 +71,7 @@ public static class PoolService
         if (instance == null)
             return;
 
-        if (host != null && host.Release(instance))
+        if (service != null && service.ReleaseInternal(instance))
             return;
 
         Object.Destroy(instance);
@@ -63,58 +88,24 @@ public static class PoolService
             return;
         }
 
-        PoolServiceHost currentHost = GetHost();
-        if (currentHost.ScheduleRelease(instance, delay))
+        PoolService current = GetOrCreate();
+        if (current.ScheduleReleaseInternal(instance, delay))
             return;
 
         Object.Destroy(instance, delay);
     }
 
-    internal static void NotifyHostDestroyed(PoolServiceHost destroyedHost)
+    private static PoolService GetOrCreate()
     {
-        if (host == destroyedHost)
-            host = null;
-    }
-
-    private static PoolServiceHost GetHost()
-    {
-        if (host != null)
-            return host;
+        if (service != null)
+            return service;
 
         GameObject go = new("[PoolService]");
-        host = go.AddComponent<PoolServiceHost>();
-        return host;
-    }
-}
-
-internal sealed class PoolServiceHost : MonoBehaviour
-{
-    private sealed class PoolBucket
-    {
-        public readonly Queue<GameObject> inactive = new();
+        service = go.AddComponent<PoolService>();
+        return service;
     }
 
-    private readonly struct TimedRelease
-    {
-        public readonly GameObject instance;
-        public readonly int generation;
-        public readonly float releaseAt;
-
-        public TimedRelease(GameObject instance, int generation, float releaseAt)
-        {
-            this.instance = instance;
-            this.generation = generation;
-            this.releaseAt = releaseAt;
-        }
-    }
-
-    private readonly Dictionary<GameObject, PoolBucket> buckets = new();
-    private readonly Dictionary<GameObject, GameObject> prefabByInstance = new();
-    private readonly Dictionary<GameObject, int> generationByInstance = new();
-    private readonly HashSet<GameObject> inactiveInstances = new();
-    private readonly List<TimedRelease> timedReleases = new();
-
-    public GameObject Spawn(
+    private GameObject SpawnInternal(
         GameObject prefab,
         Vector3 position,
         Quaternion rotation,
@@ -144,10 +135,9 @@ internal sealed class PoolServiceHost : MonoBehaviour
             instance.transform.SetPositionAndRotation(position, rotation);
         }
 
-        int generation = generationByInstance.TryGetValue(instance, out int previous)
+        generationByInstance[instance] = generationByInstance.TryGetValue(instance, out int previous)
             ? previous + 1
             : 1;
-        generationByInstance[instance] = generation;
 
         if (!instance.activeSelf)
             instance.SetActive(true);
@@ -155,7 +145,7 @@ internal sealed class PoolServiceHost : MonoBehaviour
         return instance;
     }
 
-    public bool Release(GameObject instance)
+    private bool ReleaseInternal(GameObject instance)
     {
         if (instance == null || !prefabByInstance.TryGetValue(instance, out GameObject prefab))
             return false;
@@ -181,7 +171,7 @@ internal sealed class PoolServiceHost : MonoBehaviour
         return true;
     }
 
-    public bool ScheduleRelease(GameObject instance, float delay)
+    private bool ScheduleReleaseInternal(GameObject instance, float delay)
     {
         if (instance == null ||
             !prefabByInstance.ContainsKey(instance) ||
@@ -210,6 +200,9 @@ internal sealed class PoolServiceHost : MonoBehaviour
             if (pending.instance == null)
             {
                 timedReleases.RemoveAt(i);
+                prefabByInstance.Remove(pending.instance);
+                generationByInstance.Remove(pending.instance);
+                inactiveInstances.Remove(pending.instance);
                 continue;
             }
 
@@ -223,7 +216,7 @@ internal sealed class PoolServiceHost : MonoBehaviour
                 continue;
             }
 
-            Release(pending.instance);
+            ReleaseInternal(pending.instance);
         }
     }
 
@@ -234,6 +227,8 @@ internal sealed class PoolServiceHost : MonoBehaviour
         prefabByInstance.Clear();
         generationByInstance.Clear();
         inactiveInstances.Clear();
-        PoolService.NotifyHostDestroyed(this);
+
+        if (service == this)
+            service = null;
     }
 }
