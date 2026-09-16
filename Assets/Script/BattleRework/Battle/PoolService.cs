@@ -142,13 +142,16 @@ internal sealed class PoolServiceHost : MonoBehaviour
             inactiveInstances.Remove(instance);
             instance.transform.SetParent(parent, true);
             instance.transform.SetPositionAndRotation(position, rotation);
-            instance.SetActive(true);
         }
 
         int generation = generationByInstance.TryGetValue(instance, out int previous)
             ? previous + 1
             : 1;
         generationByInstance[instance] = generation;
+
+        if (!instance.activeSelf)
+            instance.SetActive(true);
+
         return instance;
     }
 
