@@ -13,7 +13,7 @@ public enum BattleInputDevice
 /// BattleScene 입력의 단일 소유자입니다.
 ///
 /// - Combat / UI / Debug action map의 활성 상태를 BattleRunState와 modal stack으로 결정합니다.
-/// - Player, Equipment, Pause, Reward/UI는 Input.*을 직접 읽지 않고 이 Router의 값/이벤트만 사용합니다.
+/// - Player, Equipment, Pause, Reward/UI는 Legacy Input.* 대신 이 Router의 값/이벤트를 사용합니다.
 /// - Inspector에 InputActionAsset이 연결되어 있으면 런타임 복제본을 사용합니다.
 /// - 아직 씬 배선이 끝나지 않은 BattleScene도 동작하도록 동일한 binding의 런타임 fallback asset을 만들 수 있습니다.
 /// </summary>
@@ -46,6 +46,7 @@ public sealed class BattleInputRouter : MonoBehaviour
     private InputAction openTabAction;
     private InputAction pauseAction;
     private InputAction navigateAction;
+    private InputAction submitAction;
     private InputAction uiCancelAction;
     private InputAction closeTabAction;
 
@@ -64,6 +65,8 @@ public sealed class BattleInputRouter : MonoBehaviour
     public bool RollPressedThisFrame => combatMap != null && combatMap.enabled && rollAction != null && rollAction.WasPressedThisFrame();
     public bool ReloadPressedThisFrame => combatMap != null && combatMap.enabled && reloadAction != null && reloadAction.WasPressedThisFrame();
     public bool TabHeld => combatMap != null && combatMap.enabled && openTabAction != null && openTabAction.IsPressed();
+    public bool SubmitPressedThisFrame => uiMap != null && uiMap.enabled && submitAction != null && submitAction.WasPressedThisFrame();
+    public bool CancelPressedThisFrame => uiMap != null && uiMap.enabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame();
     public bool HasModal => modals.Count > 0;
 
     public event Action FirePressed;
@@ -131,6 +134,7 @@ public sealed class BattleInputRouter : MonoBehaviour
     {
         if (Instance != null && Instance != this)
         {
+            enabled = false;
             Destroy(this);
             return;
         }
@@ -210,13 +214,11 @@ public sealed class BattleInputRouter : MonoBehaviour
                 HandleCancel();
         }
 
-        if (uiMap != null && uiMap.enabled)
-        {
-            if (uiCancelAction != null && uiCancelAction.WasPressedThisFrame())
-                HandleCancel();
-            if (closeTabAction != null && closeTabAction.WasPressedThisFrame())
-                TabClosed?.Invoke();
-        }
+        if (uiMap != null && uiMap.enabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame())
+            HandleCancel();
+
+        if (uiMap != null && uiMap.enabled && closeTabAction != null && closeTabAction.WasPressedThisFrame())
+            TabClosed?.Invoke();
     }
 
     public bool TryGetAimWorldPoint(Vector2 playerWorldPosition, Camera camera, out Vector2 worldPoint)
@@ -414,6 +416,7 @@ public sealed class BattleInputRouter : MonoBehaviour
             slotActions[i] = combatMap.FindAction($"Slot{i + 1}", true);
 
         navigateAction = uiMap.FindAction("Navigate", true);
+        submitAction = uiMap.FindAction("Submit", true);
         uiCancelAction = uiMap.FindAction("Cancel", true);
         closeTabAction = uiMap.FindAction("CloseTab", true);
 
@@ -425,10 +428,9 @@ public sealed class BattleInputRouter : MonoBehaviour
         InputActionAsset asset = ScriptableObject.CreateInstance<InputActionAsset>();
         asset.name = "BattleInputRouter_RuntimeActions";
 
-        InputActionMap combat = new("Combat");
-        asset.AddActionMap(combat);
+        InputActionMap combat = asset.AddActionMap("Combat");
 
-        InputAction move = combat.AddAction("Move", InputActionType.Value, expectedControlType: "Vector2");
+        InputAction move = combat.AddAction("Move", InputActionType.Value, expectedControlLayout: "Vector2");
         move.AddCompositeBinding("2DVector")
             .With("Up", "<Keyboard>/w")
             .With("Down", "<Keyboard>/s")
@@ -441,8 +443,8 @@ public sealed class BattleInputRouter : MonoBehaviour
             .With("Right", "<Keyboard>/rightArrow");
         move.AddBinding("<Gamepad>/leftStick");
 
-        combat.AddAction("AimPoint", InputActionType.Value, "<Pointer>/position", expectedControlType: "Vector2");
-        combat.AddAction("AimStick", InputActionType.Value, "<Gamepad>/rightStick", expectedControlType: "Vector2");
+        combat.AddAction("AimPoint", InputActionType.Value, "<Pointer>/position", expectedControlLayout: "Vector2");
+        combat.AddAction("AimStick", InputActionType.Value, "<Gamepad>/rightStick", expectedControlLayout: "Vector2");
 
         InputAction fire = combat.AddAction("Fire", InputActionType.Button);
         fire.AddBinding("<Mouse>/leftButton");
@@ -474,10 +476,9 @@ public sealed class BattleInputRouter : MonoBehaviour
         pause.AddBinding("<Keyboard>/escape");
         pause.AddBinding("<Gamepad>/start");
 
-        InputActionMap ui = new("UI");
-        asset.AddActionMap(ui);
+        InputActionMap ui = asset.AddActionMap("UI");
 
-        InputAction navigate = ui.AddAction("Navigate", InputActionType.Value, expectedControlType: "Vector2");
+        InputAction navigate = ui.AddAction("Navigate", InputActionType.Value, expectedControlLayout: "Vector2");
         navigate.AddCompositeBinding("2DVector")
             .With("Up", "<Keyboard>/upArrow")
             .With("Down", "<Keyboard>/downArrow")
@@ -495,16 +496,15 @@ public sealed class BattleInputRouter : MonoBehaviour
         cancel.AddBinding("<Keyboard>/escape");
         cancel.AddBinding("<Gamepad>/buttonEast");
 
-        ui.AddAction("Point", InputActionType.PassThrough, "<Pointer>/position", expectedControlType: "Vector2");
-        ui.AddAction("Click", InputActionType.PassThrough, "<Pointer>/press", expectedControlType: "Button");
-        ui.AddAction("ScrollWheel", InputActionType.PassThrough, "<Mouse>/scroll", expectedControlType: "Vector2");
+        ui.AddAction("Point", InputActionType.PassThrough, "<Pointer>/position", expectedControlLayout: "Vector2");
+        ui.AddAction("Click", InputActionType.PassThrough, "<Pointer>/press", expectedControlLayout: "Button");
+        ui.AddAction("ScrollWheel", InputActionType.PassThrough, "<Mouse>/scroll", expectedControlLayout: "Vector2");
 
         InputAction closeTab = ui.AddAction("CloseTab", InputActionType.Button);
         closeTab.AddBinding("<Keyboard>/tab");
         closeTab.AddBinding("<Gamepad>/leftShoulder");
 
-        InputActionMap debug = new("Debug");
-        asset.AddActionMap(debug);
+        InputActionMap debug = asset.AddActionMap("Debug");
         debug.AddAction("ToggleDebug", InputActionType.Button, "<Keyboard>/f1");
         debug.AddAction("ToggleDummy", InputActionType.Button, "<Keyboard>/f2");
         debug.AddAction("ToggleSynergy", InputActionType.Button, "<Keyboard>/f3");
