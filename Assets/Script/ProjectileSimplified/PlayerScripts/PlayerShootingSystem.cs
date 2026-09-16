@@ -42,6 +42,12 @@ public class PlayerShootingSystem : MonoBehaviour
     private float nextFireTime;
     private Coroutine currentAnimCoroutine;
     private Coroutine reloadCoroutine;
+    private Action shootAnimationCompleteCallback;
+
+    private void Awake()
+    {
+        shootAnimationCompleteCallback = HandleShootAnimationComplete;
+    }
 
     private void Start()
     {
@@ -174,8 +180,6 @@ public class PlayerShootingSystem : MonoBehaviour
             ammoInventory[currentWeaponIndex] = currentAmmo;
         }
 
-        // 무기 전환은 기존 무기의 재장전/애니메이션/발사 쿨다운 상태를 새 무기로 넘기지 않습니다.
-        // 특히 재장전 중 0탄창 상태에서 다른 무기로 갔다 돌아오면 영구적으로 발사가 막히던 경로를 차단합니다.
         CancelReload();
         StopWeaponAnimation();
 
@@ -186,8 +190,6 @@ public class PlayerShootingSystem : MonoBehaviour
 
         WeaponChanged?.Invoke(currentWeaponSO);
 
-        // 재장전 도중 무기를 바꾸면 해당 무기의 저장 탄약이 0일 수 있습니다.
-        // 다시 장착한 순간 자동 재장전을 시작해 '무기 변경 후 총이 죽는' 상태를 만들지 않습니다.
         if (currentAmmo <= 0 && currentWeaponSO.maxAmmo > 0)
             ReloadFuncCall();
         else
@@ -199,8 +201,6 @@ public class PlayerShootingSystem : MonoBehaviour
         if (currentWeaponSO == null || isReloading || Time.time < nextFireTime)
             return;
 
-        // 0탄창 상태를 단순 return으로 방치하면 전환 후 다시는 발사 입력이 회복되지 않을 수 있습니다.
-        // 발사 입력 자체가 안전하게 재장전을 시작하도록 보장합니다.
         if (currentAmmo <= 0)
         {
             ReloadFuncCall();
@@ -218,18 +218,26 @@ public class PlayerShootingSystem : MonoBehaviour
 
     private void Shoot(Vector3 mousePos, Transform target)
     {
+        PlayerShootingSO weapon = currentWeaponSO;
+        if (weapon == null)
+            return;
+
         currentAmmo--;
         if (currentWeaponIndex >= 0 && currentWeaponIndex < ammoInventory.Count)
             ammoInventory[currentWeaponIndex] = currentAmmo;
 
-        nextFireTime = Time.time + Mathf.Max(0f, currentWeaponSO.fireRate);
+        nextFireTime = Time.time + Mathf.Max(0f, weapon.fireRate);
 
         Vector2 baseDir = (mousePos - transform.position).normalized;
         if (baseDir.sqrMagnitude <= 0.0001f)
             baseDir = Vector2.right;
 
-        int shotCount = Mathf.Max(1, currentWeaponSO.projectilesPerShot);
-        float spread = currentWeaponSO.spreadAngle;
+        int shotCount = Mathf.Max(1, weapon.projectilesPerShot);
+        float spread = weapon.spreadAngle;
+        Vector3 spawnPosition = weaponDisplay != null
+            ? weaponDisplay.transform.position
+            : transform.position;
+        int pierceBonus = Mathf.Max(0, extraPierce);
 
         for (int i = 0; i < shotCount; i++)
         {
@@ -239,15 +247,12 @@ public class PlayerShootingSystem : MonoBehaviour
 
             Vector2 finalDir = Quaternion.Euler(0f, 0f, angleOffset) * baseDir;
             Projectile projectile = playerProjectilePool.Get();
-            if (projectile == null) continue;
-
-            Vector3 spawnPosition = weaponDisplay != null
-                ? weaponDisplay.transform.position
-                : transform.position;
+            if (projectile == null)
+                continue;
 
             projectile.transform.position = spawnPosition;
             projectile.Setup(
-                currentWeaponSO.projectileData,
+                weapon.projectileData,
                 finalDir,
                 playerProjectilePool,
                 target,
@@ -256,7 +261,7 @@ public class PlayerShootingSystem : MonoBehaviour
                 runtimeDamageMultiplier,
                 runtimeFanMissionModifier);
 
-            projectile.AddExtraPierce(Mathf.Max(0, extraPierce));
+            projectile.AddExtraPierce(pierceBonus);
         }
 
         if (currentAmmo <= 0)
@@ -265,12 +270,14 @@ public class PlayerShootingSystem : MonoBehaviour
         }
         else
         {
-            PlayWeaponAnimation(currentWeaponSO.shootSprites, false, () =>
-            {
-                if (!isReloading)
-                    PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
-            });
+            PlayWeaponAnimation(weapon.shootSprites, false, shootAnimationCompleteCallback);
         }
+    }
+
+    private void HandleShootAnimationComplete()
+    {
+        if (!isReloading && currentWeaponSO != null)
+            PlayWeaponAnimation(currentWeaponSO.idleSprites, true);
     }
 
     public void ReloadFuncCall()
@@ -289,7 +296,12 @@ public class PlayerShootingSystem : MonoBehaviour
         isReloading = true;
         PlayWeaponAnimation(currentWeaponSO.reloadSprites, true);
 
-        yield return new WaitForSeconds(Mathf.Max(0f, currentWeaponSO.reloadTime));
+        float remaining = Mathf.Max(0f, currentWeaponSO.reloadTime);
+        while (remaining > 0f)
+        {
+            remaining -= Time.deltaTime;
+            yield return null;
+        }
 
         if (currentWeaponSO != null)
         {
@@ -344,7 +356,7 @@ public class PlayerShootingSystem : MonoBehaviour
     private IEnumerator AnimRoutine(Sprite[] frames, bool loop, Action onComplete)
     {
         float fps = currentWeaponSO != null ? Mathf.Max(1f, currentWeaponSO.animFps) : 12f;
-        float delay = 1f / fps;
+        float frameDuration = 1f / fps;
         int index = 0;
 
         while (frames != null && frames.Length > 0)
@@ -352,9 +364,14 @@ public class PlayerShootingSystem : MonoBehaviour
             if (weaponDisplay != null)
                 weaponDisplay.UpdateWeaponSprite(frames[index]);
 
-            yield return new WaitForSeconds(delay);
-            index++;
+            float elapsed = 0f;
+            while (elapsed < frameDuration)
+            {
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
 
+            index++;
             if (index < frames.Length)
                 continue;
 
