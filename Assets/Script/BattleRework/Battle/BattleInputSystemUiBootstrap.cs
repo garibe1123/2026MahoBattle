@@ -5,22 +5,27 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// BattleScene의 EventSystem을 New Input System UI 모듈로 통일합니다.
-/// 레거시 UI 코드가 StandaloneInputModule을 생성하더라도 다음 씬 로드/런타임 초기화에서 제거합니다.
+/// 레거시 UI 코드가 StandaloneInputModule을 생성하더라도 씬 초기화 시 제거합니다.
 /// </summary>
-[DefaultExecutionOrder(-9900)]
 public static class BattleInputSystemUiBootstrap
 {
     private static bool sceneHookInstalled;
 
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        sceneHookInstalled = false;
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void Install()
     {
-        if (!sceneHookInstalled)
-        {
-            SceneManager.sceneLoaded -= HandleSceneLoaded;
-            SceneManager.sceneLoaded += HandleSceneLoaded;
-            sceneHookInstalled = true;
-        }
+        if (sceneHookInstalled)
+            return;
+
+        SceneManager.sceneLoaded -= HandleSceneLoaded;
+        SceneManager.sceneLoaded += HandleSceneLoaded;
+        sceneHookInstalled = true;
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
