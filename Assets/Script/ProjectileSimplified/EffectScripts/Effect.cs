@@ -391,26 +391,21 @@ public class Effect : MonoBehaviour
             kind);
 
         HashSet<IDamageable> damagedTargets = new();
-        HashSet<Enemy> damagedLegacyEnemies = new();
 
         for (int i = 0; i < hitCount; i++)
         {
             Collider2D hit = hitResults[i];
-            if (hit == null) continue;
+            if (hit == null)
+                continue;
 
-            if (CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable))
+            if (!CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable) ||
+                !damageable.IsAlive ||
+                !damagedTargets.Add(damageable))
             {
-                if (!damageable.IsAlive || !damagedTargets.Add(damageable))
-                    continue;
-
-                float finalDamage = CombatDamage.Calculate(context, damageable.Defense);
-                damageable.ReceiveDamage(context, finalDamage);
                 continue;
             }
 
-            Enemy legacyEnemy = hit.GetComponentInParent<Enemy>();
-            if (legacyEnemy != null && damagedLegacyEnemies.Add(legacyEnemy))
-                legacyEnemy.TakeDamage(CombatDamage.Calculate(context, 0f));
+            CombatDamage.Apply(damageable, context);
         }
     }
 
