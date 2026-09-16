@@ -1,18 +1,16 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
 /// <summary>
-/// ESC 기반 전투 Pause / Resume.
-///
-/// Phase 8부터 Time.timeScale을 직접 쓰지 않습니다.
-/// BattleTimeScaleController에 Pause=0 요청을 등록하고 해제하며,
-/// Combat/Reward Inventory의 기존 slow-motion 요청은 그대로 유지됩니다.
-/// 따라서 Inventory 중 Pause -> Resume 시 자동으로 원래 Inventory slow-motion으로 복귀합니다.
+/// BattleInputRouter 기반 전투 Pause / Resume.
+/// ESC/게임패드 Cancel의 소유권은 Router modal stack이 결정합니다.
+/// Time.timeScale은 직접 수정하지 않고 BattleTimeScaleController에 요청합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33000)]
-public sealed class BattlePauseController : MonoBehaviour
+public sealed class BattlePauseController : MonoBehaviour, IInputModal
 {
     private const int PauseCanvasOrder = 1600;
 
@@ -20,6 +18,7 @@ public sealed class BattlePauseController : MonoBehaviour
 
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleTimeScaleController timeScaleController;
+    [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Pause Theme")]
     [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.995f);
@@ -30,6 +29,7 @@ public sealed class BattlePauseController : MonoBehaviour
 
     private Canvas pauseCanvas;
     private GameObject pauseRoot;
+    private bool inputSubscribed;
 
     private void Awake()
     {
@@ -41,22 +41,19 @@ public sealed class BattlePauseController : MonoBehaviour
     {
         ResolveReferences();
         EnsurePauseUi();
+        SubscribeInput();
 
         if (IsPaused)
+        {
             timeScaleController?.Request(BattleTimeScaleController.Owner.Pause, 0f);
+            inputRouter?.PushModal(this);
+        }
     }
 
     private void Update()
     {
         ResolveReferences();
-
-        if (Input.GetKeyDown(KeyCode.Escape))
-        {
-            if (IsPaused)
-                Resume();
-            else if (CanPause())
-                Pause();
-        }
+        SubscribeInput();
 
         if (IsPaused && !CanRemainPaused())
             Resume();
@@ -64,11 +61,31 @@ public sealed class BattlePauseController : MonoBehaviour
 
     private void OnDisable()
     {
+        UnsubscribeInput();
         if (IsPaused)
             Resume();
     }
 
     private void OnDestroy()
+    {
+        UnsubscribeInput();
+        if (IsPaused)
+            Resume();
+    }
+
+    private void HandlePauseRequested()
+    {
+        if (IsPaused)
+        {
+            Resume();
+            return;
+        }
+
+        if (CanPause())
+            Pause();
+    }
+
+    public void RequestClose()
     {
         if (IsPaused)
             Resume();
@@ -85,6 +102,7 @@ public sealed class BattlePauseController : MonoBehaviour
 
         IsPaused = true;
         timeScaleController.Request(BattleTimeScaleController.Owner.Pause, 0f);
+        inputRouter?.PushModal(this);
 
         if (pauseRoot != null)
             pauseRoot.SetActive(true);
@@ -96,6 +114,7 @@ public sealed class BattlePauseController : MonoBehaviour
             return;
 
         IsPaused = false;
+        inputRouter?.PopModal(this);
         timeScaleController?.Release(BattleTimeScaleController.Owner.Pause);
 
         if (pauseRoot != null)
@@ -116,12 +135,32 @@ public sealed class BattlePauseController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-
         if (timeScaleController == null)
             timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
 
         if (IsPaused)
             timeScaleController?.Request(BattleTimeScaleController.Owner.Pause, 0f);
+    }
+
+    private void SubscribeInput()
+    {
+        if (inputSubscribed || inputRouter == null)
+            return;
+
+        inputRouter.PauseRequested += HandlePauseRequested;
+        inputSubscribed = true;
+    }
+
+    private void UnsubscribeInput()
+    {
+        if (!inputSubscribed)
+            return;
+
+        if (inputRouter != null)
+            inputRouter.PauseRequested -= HandlePauseRequested;
+        inputSubscribed = false;
     }
 
     private void EnsurePauseUi()
@@ -201,13 +240,24 @@ public sealed class BattlePauseController : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null)
-            return;
+        EventSystem eventSystem = FindFirstObjectByType<EventSystem>();
+        if (eventSystem == null)
+        {
+            GameObject go = new("BattlePauseEventSystem");
+            DontDestroyOnLoad(go);
+            eventSystem = go.AddComponent<EventSystem>();
+        }
 
-        GameObject go = new("BattlePauseEventSystem");
-        DontDestroyOnLoad(go);
-        go.AddComponent<EventSystem>();
-        go.AddComponent<StandaloneInputModule>();
+        StandaloneInputModule legacy = eventSystem.GetComponent<StandaloneInputModule>();
+        if (legacy != null)
+            Destroy(legacy);
+
+        InputSystemUIInputModule module = eventSystem.GetComponent<InputSystemUIInputModule>();
+        if (module == null)
+        {
+            module = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+            module.AssignDefaultActions();
+        }
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
