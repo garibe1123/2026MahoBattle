@@ -4,7 +4,7 @@ using UnityEngine;
 /// <summary>
 /// Unity Animator / AnimatorController / AnimationClip을 사용하지 않는 Sprite 전용 Animator입니다.
 /// MonsterDefinitionSO.visual에 연결된 Sprite 배열을 프레임 단위로 직접 재생합니다.
-/// 기존 EnemyAnimator 이름은 Prefab 직렬화 호환 때문에 유지합니다.
+/// 실제 프레임 타이밍은 공통 SpriteClipPlayer가 담당하며, 기존 EnemyAnimator 이름은 Prefab 직렬화 호환 때문에 유지합니다.
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
 public class EnemyAnimator : MonoBehaviour
@@ -19,27 +19,22 @@ public class EnemyAnimator : MonoBehaviour
     private SpriteRenderer spriteRenderer;
     private SpriteRenderer facingIndicatorRenderer;
     private MonsterVisualConfig visual;
-
-    private Sprite[] currentFrames;
-    private float currentFps = 10f;
-    private bool currentLoop;
-    private int frameIndex;
-    private float frameTimer;
-    private Action onComplete;
+    private SpriteClipPlayer clipPlayer;
 
     private float flashTimer;
     private Color normalColor = Color.white;
     private Vector2 facing = Vector2.right;
 
     public EnemyAnimState currentState { get; private set; } = EnemyAnimState.Idle;
-    public int CurrentFrameIndex => frameIndex;
-    public bool IsPlaying => currentFrames != null && currentFrames.Length > 0;
+    public int CurrentFrameIndex => clipPlayer != null ? clipPlayer.CurrentFrameIndex : 0;
+    public bool IsPlaying => clipPlayer != null && clipPlayer.IsPlaying;
     public SpriteRenderer SpriteRenderer => spriteRenderer;
     public Vector2 Facing => facing;
 
     private void Awake()
     {
         spriteRenderer = GetComponent<SpriteRenderer>();
+        clipPlayer = new SpriteClipPlayer(ApplySprite);
         EnsureFacingIndicator();
         ApplyFacingVisual();
     }
@@ -112,37 +107,28 @@ public class EnemyAnimator : MonoBehaviour
         bool restart = false)
     {
         Sprite[] resolvedFrames = ResolveFrames(state, sprites);
+        EnsureClipPlayer();
 
         if (!restart &&
             currentState == state &&
-            currentLoop == loop &&
-            ReferenceEquals(currentFrames, resolvedFrames))
+            clipPlayer.IsPlaying &&
+            clipPlayer.IsLooping == loop &&
+            ReferenceEquals(clipPlayer.CurrentFrames, resolvedFrames))
         {
             return;
         }
 
         currentState = state;
-        currentFrames = resolvedFrames;
-        currentFps = Mathf.Max(1f, fps);
-        currentLoop = loop;
-        onComplete = complete;
-        frameIndex = 0;
-        frameTimer = 0f;
 
-        if (currentFrames != null && currentFrames.Length > 0)
-        {
-            ApplyFrame(0);
-            return;
-        }
+        if (resolvedFrames == null || resolvedFrames.Length == 0)
+            ApplyFallbackSprite();
 
-        ApplyFallbackSprite();
-
-        if (!loop)
-        {
-            Action callback = onComplete;
-            onComplete = null;
-            callback?.Invoke();
-        }
+        clipPlayer.Play(
+            resolvedFrames,
+            Mathf.Max(1f, fps),
+            loop,
+            complete,
+            completeEmptyImmediately: true);
     }
 
     public void PlayIdle()
@@ -152,10 +138,8 @@ public class EnemyAnimator : MonoBehaviour
 
     public void Stop(bool keepCurrentSprite = true)
     {
-        currentFrames = null;
-        frameIndex = 0;
-        frameTimer = 0f;
-        onComplete = null;
+        EnsureClipPlayer();
+        clipPlayer.Stop(clearClip: true);
 
         if (!keepCurrentSprite)
             ApplyFallbackSprite();
@@ -274,7 +258,7 @@ public class EnemyAnimator : MonoBehaviour
         // Runtime scale 보정이 바뀌어도 방향점 world offset은 일정하게 유지합니다.
         ApplyFacingVisual();
         UpdateFlash();
-        UpdateFrames();
+        clipPlayer?.Tick(Time.deltaTime);
     }
 
     private void UpdateFlash()
@@ -285,42 +269,6 @@ public class EnemyAnimator : MonoBehaviour
         flashTimer -= Time.deltaTime;
         if (flashTimer <= 0f)
             spriteRenderer.color = normalColor;
-    }
-
-    private void UpdateFrames()
-    {
-        if (currentFrames == null || currentFrames.Length == 0)
-            return;
-
-        frameTimer += Time.deltaTime;
-        float frameDuration = 1f / Mathf.Max(1f, currentFps);
-
-        while (frameTimer >= frameDuration)
-        {
-            frameTimer -= frameDuration;
-            frameIndex++;
-
-            if (frameIndex >= currentFrames.Length)
-            {
-                if (currentLoop)
-                {
-                    frameIndex = 0;
-                }
-                else
-                {
-                    frameIndex = currentFrames.Length - 1;
-                    ApplyFrame(frameIndex);
-
-                    Action callback = onComplete;
-                    onComplete = null;
-                    currentFrames = null;
-                    callback?.Invoke();
-                    return;
-                }
-            }
-
-            ApplyFrame(frameIndex);
-        }
     }
 
     private Sprite[] ResolveFrames(EnemyAnimState state, Sprite[] requested)
@@ -341,14 +289,15 @@ public class EnemyAnimator : MonoBehaviour
         return requested;
     }
 
-    private void ApplyFrame(int index)
+    private void EnsureClipPlayer()
     {
-        if (spriteRenderer == null || currentFrames == null || currentFrames.Length == 0)
-            return;
+        if (clipPlayer == null)
+            clipPlayer = new SpriteClipPlayer(ApplySprite);
+    }
 
-        int safeIndex = Mathf.Clamp(index, 0, currentFrames.Length - 1);
-        Sprite sprite = currentFrames[safeIndex];
-        if (sprite != null)
+    private void ApplySprite(Sprite sprite)
+    {
+        if (spriteRenderer != null && sprite != null)
             spriteRenderer.sprite = sprite;
     }
 

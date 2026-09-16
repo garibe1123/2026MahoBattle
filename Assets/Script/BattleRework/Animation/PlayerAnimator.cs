@@ -5,7 +5,7 @@ using UnityEngine;
 /// <summary>
 /// Unity Animator를 사용하지 않는 Player Sprite Animator.
 /// SpriteRenderer.flipX만 사용해 좌우를 뒤집으므로 Player Transform/Collider 크기는 유지됩니다.
-/// 테스트 방향점은 Player root scale과 무관하게 항상 캐릭터 중심 가까운 world-space 거리를 유지합니다.
+/// 실제 Sprite[] 프레임 재생은 공통 SpriteClipPlayer가 담당합니다.
 /// </summary>
 [RequireComponent(typeof(SpriteRenderer))]
 public class PlayerAnimator : MonoBehaviour
@@ -21,19 +21,15 @@ public class PlayerAnimator : MonoBehaviour
     private SpriteRenderer sr;
     private SpriteRenderer facingIndicatorRenderer;
     private Vector2 facing = Vector2.right;
-
-    private Sprite[] currentFrames;
-    private float timer;
-    private int frameIndex;
+    private SpriteClipPlayer clipPlayer;
     private float fps = 10f;
-    private bool isLooping;
-    private Action onComplete;
 
     public Vector2 Facing => facing;
 
     private void Awake()
     {
         sr = GetComponent<SpriteRenderer>();
+        clipPlayer = new SpriteClipPlayer(ApplySprite);
         EnsureFacingIndicator();
         ApplyFacingVisual();
     }
@@ -135,58 +131,43 @@ public class PlayerAnimator : MonoBehaviour
     }
 
     private void PlayLoop(Sprite[] frames) => PlayInternal(frames, true);
-    private void PlayOnce(Sprite[] frames, Action callback = null) => PlayInternal(frames, false, callback);
+
+    private void PlayOnce(Sprite[] frames, Action callback = null) =>
+        PlayInternal(frames, false, callback);
 
     private void PlayInternal(Sprite[] frames, bool loop, Action callback = null)
     {
-        if (ReferenceEquals(currentFrames, frames))
+        EnsureClipPlayer();
+
+        // 기존 동작과 동일하게 같은 Sprite[] 참조면 상태 갱신 호출이 반복되어도 재시작하지 않습니다.
+        if (ReferenceEquals(clipPlayer.CurrentFrames, frames))
             return;
 
-        currentFrames = frames;
-        isLooping = loop;
-        onComplete = callback;
-        frameIndex = 0;
-        timer = 0f;
-
-        if (frames != null && frames.Length > 0 && frames[0] != null && sr != null)
-            sr.sprite = frames[0];
+        clipPlayer.Play(
+            frames,
+            fps,
+            loop,
+            callback,
+            completeEmptyImmediately: false);
     }
 
     private void Update()
     {
         // Player root scale이 런타임 테스트 보정으로 변경되어도 방향점 world offset이 즉시 유지되게 합니다.
         ApplyFacingVisual();
+        clipPlayer?.Tick(Time.deltaTime);
+    }
 
-        if (currentFrames == null || currentFrames.Length <= 1 || sr == null)
-            return;
+    private void EnsureClipPlayer()
+    {
+        if (clipPlayer == null)
+            clipPlayer = new SpriteClipPlayer(ApplySprite);
+    }
 
-        timer += Time.deltaTime;
-        float frameDuration = 1f / Mathf.Max(1f, fps);
-
-        while (timer >= frameDuration)
-        {
-            timer -= frameDuration;
-            frameIndex++;
-
-            if (frameIndex >= currentFrames.Length)
-            {
-                if (isLooping)
-                {
-                    frameIndex = 0;
-                }
-                else
-                {
-                    frameIndex = currentFrames.Length - 1;
-                    onComplete?.Invoke();
-                    onComplete = null;
-                    return;
-                }
-            }
-
-            Sprite next = currentFrames[frameIndex];
-            if (next != null)
-                sr.sprite = next;
-        }
+    private void ApplySprite(Sprite sprite)
+    {
+        if (sr != null && sprite != null)
+            sr.sprite = sprite;
     }
 
     public void StartBlink(float duration)

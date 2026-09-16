@@ -24,6 +24,7 @@ public class PlayerShootingSystem : MonoBehaviour
 
     public int currentAmmo { get; private set; }
     public bool IsReloading => isReloading;
+
     public float RuntimeDamageMultiplier
     {
         get => runtimeDamageMultiplier;
@@ -40,13 +41,14 @@ public class PlayerShootingSystem : MonoBehaviour
 
     private bool isReloading;
     private float nextFireTime;
-    private Coroutine currentAnimCoroutine;
     private Coroutine reloadCoroutine;
     private Action shootAnimationCompleteCallback;
+    private SpriteClipPlayer weaponClipPlayer;
 
     private void Awake()
     {
         shootAnimationCompleteCallback = HandleShootAnimationComplete;
+        weaponClipPlayer = new SpriteClipPlayer(ApplyWeaponSprite);
     }
 
     private void Start()
@@ -55,6 +57,11 @@ public class PlayerShootingSystem : MonoBehaviour
 
         if (unlockedWeapons.Count > 0)
             EquipWeapon(Mathf.Clamp(currentWeaponIndex, 0, unlockedWeapons.Count - 1));
+    }
+
+    private void Update()
+    {
+        weaponClipPlayer?.Tick(Time.deltaTime);
     }
 
     private void EnsureWeaponInventoryInitialized()
@@ -170,8 +177,10 @@ public class PlayerShootingSystem : MonoBehaviour
     public void EquipWeapon(int index)
     {
         EnsureWeaponInventoryInitialized();
-        if (index < 0 || index >= unlockedWeapons.Count) return;
-        if (unlockedWeapons[index] == null) return;
+        if (index < 0 || index >= unlockedWeapons.Count)
+            return;
+        if (unlockedWeapons[index] == null)
+            return;
 
         if (currentWeaponSO != null &&
             currentWeaponIndex >= 0 &&
@@ -330,16 +339,14 @@ public class PlayerShootingSystem : MonoBehaviour
 
     private void StopWeaponAnimation()
     {
-        if (currentAnimCoroutine == null)
-            return;
-
-        StopCoroutine(currentAnimCoroutine);
-        currentAnimCoroutine = null;
+        EnsureWeaponClipPlayer();
+        weaponClipPlayer.Stop(clearClip: true);
     }
 
     private void PlayWeaponAnimation(Sprite[] frames, bool loop, Action onComplete = null)
     {
-        StopWeaponAnimation();
+        EnsureWeaponClipPlayer();
+        weaponClipPlayer.Stop(clearClip: true);
 
         if (frames == null || frames.Length == 0)
         {
@@ -350,38 +357,27 @@ public class PlayerShootingSystem : MonoBehaviour
             return;
         }
 
-        currentAnimCoroutine = StartCoroutine(AnimRoutine(frames, loop, onComplete));
+        float fps = currentWeaponSO != null
+            ? Mathf.Max(1f, currentWeaponSO.animFps)
+            : 12f;
+
+        weaponClipPlayer.Play(
+            frames,
+            fps,
+            loop,
+            onComplete,
+            completeEmptyImmediately: true);
     }
 
-    private IEnumerator AnimRoutine(Sprite[] frames, bool loop, Action onComplete)
+    private void EnsureWeaponClipPlayer()
     {
-        float fps = currentWeaponSO != null ? Mathf.Max(1f, currentWeaponSO.animFps) : 12f;
-        float frameDuration = 1f / fps;
-        int index = 0;
+        if (weaponClipPlayer == null)
+            weaponClipPlayer = new SpriteClipPlayer(ApplyWeaponSprite);
+    }
 
-        while (frames != null && frames.Length > 0)
-        {
-            if (weaponDisplay != null)
-                weaponDisplay.UpdateWeaponSprite(frames[index]);
-
-            float elapsed = 0f;
-            while (elapsed < frameDuration)
-            {
-                elapsed += Time.deltaTime;
-                yield return null;
-            }
-
-            index++;
-            if (index < frames.Length)
-                continue;
-
-            if (loop)
-                index = 0;
-            else
-                break;
-        }
-
-        currentAnimCoroutine = null;
-        onComplete?.Invoke();
+    private void ApplyWeaponSprite(Sprite sprite)
+    {
+        if (weaponDisplay != null && sprite != null)
+            weaponDisplay.UpdateWeaponSprite(sprite);
     }
 }
