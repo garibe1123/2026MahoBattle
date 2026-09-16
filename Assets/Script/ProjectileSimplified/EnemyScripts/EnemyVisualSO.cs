@@ -13,5 +13,5 @@ public class EnemyVisualSO : ScriptableObject
     [Header("Material & Flash")]
     public Material customMaterial;
     [ColorUsage(true, true)]
-    public Color hitFlashColor = Color.white; // ÇÇ°İ ½Ã ¹øÂ½ÀÏ »ö»ó
+    public Color hitFlashColor = Color.white; // í”¼ê²© ì‹œ ë²ˆì©ì¼ ìƒ‰ìƒ
 }
