@@ -72,18 +72,10 @@ public static class CombatDamage
 
     /// <summary>
     /// Finds the nearest IDamageable without allocating a MonoBehaviour array for every hit.
-    /// The non-generic Component lookup accepts interface types and returns the implementing Component.
     /// </summary>
     public static bool TryFindDamageable(Transform start, out IDamageable damageable)
     {
-        if (start == null)
-        {
-            damageable = null;
-            return false;
-        }
-
-        Component component = start.GetComponentInParent(typeof(IDamageable));
-        damageable = component as IDamageable;
+        damageable = start != null ? start.GetComponentInParent<IDamageable>() : null;
         return damageable != null;
     }
 
