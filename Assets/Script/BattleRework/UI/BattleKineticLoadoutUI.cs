@@ -5,16 +5,7 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Combat 장비 전환 입력과 공용 3x3 Loadout View의 생성/내용 갱신을 담당합니다.
-///
-/// 이 클래스의 책임:
-/// - Tab / LB 전환 입력
-/// - Combat Inventory slow-motion 요청
-/// - 공용 LoadoutSwitchFull / GridBoard 생성
-/// - 슬롯 아이콘/이름/등급/시너지 내용 갱신
-///
-/// Time.timeScale은 직접 수정하지 않고 BattleTimeScaleController에 요청합니다.
-/// GridBoard / Mini PACK / Detail / Reward Controls의 최종 RectTransform 배치는
-/// BattleUnifiedInventoryInspectController가 단독 소유합니다.
+/// Tab/LB 입력은 BattleInputRouter가 소유하며 이 클래스는 이벤트와 읽기 전용 입력 값만 사용합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30000)]
@@ -29,6 +20,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleGridSynergyController gridSynergy;
     [SerializeField] private BattleTimeScaleController timeScaleController;
+    [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
@@ -78,6 +70,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private int selectedIndex = -1;
     private bool stickAxisLatched;
     private bool subscribed;
+    private bool inputSubscribed;
 
     public int SelectedIndex => selectedIndex;
     public bool SwitchHeld => switchHeld;
@@ -100,6 +93,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         ResolveReferences();
         EnsureUi();
         Subscribe();
+        SubscribeInput();
         if (switchHeld)
             EnterBulletTime();
         RefreshAll();
@@ -107,12 +101,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void OnDisable()
     {
+        UnsubscribeInput();
         Unsubscribe();
         RestoreTimeScale();
     }
 
     private void OnDestroy()
     {
+        UnsubscribeInput();
         RestoreTimeScale();
     }
 
@@ -120,11 +116,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         ResolveReferences();
         Subscribe();
+        SubscribeInput();
         EnsureUi();
         ResolveLegacyCombatHud();
 
         bool combat = IsCombat();
-        if (!combat && switchHeld)
+        if ((!combat || BattlePauseController.IsPaused) && switchHeld)
             CancelSwitchMode();
 
         if (legacyEquipmentDock != null && combat && legacyEquipmentDock.gameObject.activeSelf)
@@ -146,6 +143,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             gridSynergy = FindFirstObjectByType<BattleGridSynergyController>();
         if (timeScaleController == null)
             timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
     }
 
     private void Subscribe()
@@ -175,6 +174,45 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (gridSynergy != null)
             gridSynergy.GridSynergiesChanged -= RefreshAll;
         subscribed = false;
+    }
+
+    private void SubscribeInput()
+    {
+        if (inputSubscribed || inputRouter == null)
+            return;
+
+        inputRouter.TabOpened += HandleTabOpened;
+        inputRouter.TabClosed += HandleTabClosed;
+        inputSubscribed = true;
+    }
+
+    private void UnsubscribeInput()
+    {
+        if (!inputSubscribed)
+            return;
+
+        if (inputRouter != null)
+        {
+            inputRouter.TabOpened -= HandleTabOpened;
+            inputRouter.TabClosed -= HandleTabClosed;
+        }
+        inputSubscribed = false;
+    }
+
+    private void HandleTabOpened()
+    {
+        if (!IsCombat() || BattlePauseController.IsPaused || switchHeld)
+            return;
+
+        BeginSwitchMode();
+    }
+
+    private void HandleTabClosed()
+    {
+        if (!switchHeld)
+            return;
+
+        CompleteSwitchMode(Time.unscaledTime - switchPressedAt);
     }
 
     private void HandleCapacityChanged(int _)
@@ -221,14 +259,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void UpdateSwitchInput()
     {
-        bool pressed = Input.GetKeyDown(KeyCode.Tab) || Input.GetKeyDown(KeyCode.JoystickButton4);
-        bool held = Input.GetKey(KeyCode.Tab) || Input.GetKey(KeyCode.JoystickButton4);
-        bool released = Input.GetKeyUp(KeyCode.Tab) || Input.GetKeyUp(KeyCode.JoystickButton4);
-
-        if (pressed && !switchHeld)
-            BeginSwitchMode();
-
-        if (!switchHeld)
+        if (!switchHeld || inputRouter == null)
             return;
 
         float heldDuration = Time.unscaledTime - switchPressedAt;
@@ -238,10 +269,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             RefreshAll();
         }
 
-        if (boardWasShown && held)
+        if (boardWasShown && inputRouter.TabHeld)
             UpdateGridNavigation();
 
-        if (released || !held)
+        // Map disable/Scene gate 등으로 release 이벤트가 사라진 경우의 안전 복구입니다.
+        if (!inputRouter.TabHeld)
             CompleteSwitchMode(heldDuration);
     }
 
@@ -317,15 +349,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void UpdateGridNavigation()
     {
-        // Mouse/Keyboard 모드에서는 WASD/방향키로 Grid 선택을 이동시키지 않습니다.
-        // Legacy Horizontal/Vertical axis가 키보드와 패드를 공유하므로 키보드 방향 입력이 눌리면 무시합니다.
-        if (IsKeyboardNavigationHeld())
+        if (inputRouter == null || inputRouter.LastDevice != BattleInputDevice.Gamepad)
         {
             stickAxisLatched = false;
             return;
         }
 
-        Vector2 stick = new(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
+        Vector2 stick = inputRouter.Move;
         float magnitude = Mathf.Max(Mathf.Abs(stick.x), Mathf.Abs(stick.y));
 
         if (stickAxisLatched)
@@ -345,17 +375,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         else
             dy = stick.y >= 0f ? -1 : 1;
 
-        // Stick이 중립 -> 임계값을 넘는 순간에만 1회 이동합니다.
         stickAxisLatched = true;
         MoveSelection(dx, dy);
-    }
-
-    private static bool IsKeyboardNavigationHeld()
-    {
-        return Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.D) ||
-               Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.S) ||
-               Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) ||
-               Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow);
     }
 
     private void MoveSelection(int dx, int dy)
@@ -497,7 +518,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         synergySummary = CreateText(detailRoot, "GRID LINK 0", 15, FontStyle.Bold, TextAnchor.LowerLeft, accentYellow);
         SetAnchors(synergySummary.rectTransform, new Vector2(0.07f, 0.08f), new Vector2(0.94f, 0.37f));
 
-        // PACK은 카드 목록이 아니라 3x3 장비 타일 보드이므로 Board와 Cell 모두 정사각형 비율을 유지합니다.
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
         boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
         boardRoot.anchoredPosition = Vector2.zero;
@@ -527,9 +547,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             int y = i / GridSize;
             RectTransform slot = CreateRect(boardRoot, $"GridSlot_{i}", new Vector2(cellSize, cellSize));
             slot.anchorMin = slot.anchorMax = new Vector2(0.5f, 0.5f);
-            slot.anchoredPosition = new Vector2(
-                left + x * (cellSize + spacing),
-                top - y * (cellSize + spacing));
+            slot.anchoredPosition = new Vector2(left + x * (cellSize + spacing), top - y * (cellSize + spacing));
             slot.localRotation = Quaternion.Euler(0f, 0f, ((i % 3) - 1) * 1.4f);
             slotRects[i] = slot;
 
@@ -598,11 +616,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             if (slotNames[i] != null)
             {
-                slotNames[i].text = !unlocked
-                    ? "LOCKED"
-                    : equipment != null
-                        ? equipment.GetDisplayName().ToUpperInvariant()
-                        : "EMPTY";
+                slotNames[i].text = !unlocked ? "LOCKED" : equipment != null ? equipment.GetDisplayName().ToUpperInvariant() : "EMPTY";
                 slotNames[i].color = paperColor;
             }
 
@@ -617,9 +631,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 Vector2Int p = BattleEquipmentSystem.SlotIndexToGrid(i);
                 slotStates[i].text = !unlocked
                     ? $"{p.x + 1}-{p.y + 1}  // LOCK"
-                    : isEquipped
-                        ? "● EQUIPPED"
-                        : $"{p.x + 1}-{p.y + 1}";
+                    : isEquipped ? "● EQUIPPED" : $"{p.x + 1}-{p.y + 1}";
                 slotStates[i].color = isEquipped ? accentCyan : new Color(0.55f, 0.60f, 0.70f, 1f);
             }
         }
@@ -782,13 +794,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         return rect.gameObject.AddComponent<Image>();
     }
 
-    private static Text CreateText(
-        Transform parent,
-        string value,
-        int fontSize,
-        FontStyle style,
-        TextAnchor alignment,
-        Color color)
+    private static Text CreateText(Transform parent, string value, int fontSize, FontStyle style, TextAnchor alignment, Color color)
     {
         RectTransform rect = CreateRect(parent, "Text", Vector2.zero);
         Text text = rect.gameObject.AddComponent<Text>();
