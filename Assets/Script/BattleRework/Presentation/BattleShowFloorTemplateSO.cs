@@ -64,18 +64,12 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
     [Tooltip("좌/우/위/아래 핸들에 곱해지는 색입니다. 원본 색을 그대로 쓰려면 흰색으로 둡니다.")]
     [SerializeField] private Color handleTint = Color.white;
 
-    [Header("Sorting Order")]
-    [Tooltip("바닥 본체의 SpriteRenderer Sorting Order 기준값입니다. 코드에서 핸들·상판·하판보다 항상 앞에 보이도록 자동 보정됩니다.")]
-    [SerializeField] private int floorSortingOrder = -18;
-
-    [Tooltip("하판의 Sorting Order입니다. 코드에서 바닥 본체와 핸들보다 뒤에 보이도록 자동 보정됩니다.")]
-    [SerializeField] private int lowerPlateSortingOrder = -19;
-
-    [Tooltip("위 판의 Sorting Order 기준값입니다. 바닥 본체보다 뒤에 보이도록 자동 보정됩니다.")]
-    [SerializeField] private int upperPlateSortingOrder = -15;
-
-    [Tooltip("핸들의 Sorting Order 기준값입니다. 하판보다 앞, 바닥 본체보다 뒤에 보이도록 자동 보정됩니다.")]
-    [SerializeField] private int handleSortingOrder = -14;
+    // 기존 SO Asset의 직렬화 호환을 위해 필드는 유지합니다.
+    // Runtime Sorting Owner는 BattleWorldSorting이며 Inspector에서 개별 수정하지 않습니다.
+    [SerializeField, HideInInspector] private int floorSortingOrder = BattleWorldSorting.FloorOrder;
+    [SerializeField, HideInInspector] private int lowerPlateSortingOrder = BattleWorldSorting.LowerBaseOrder;
+    [SerializeField, HideInInspector] private int upperPlateSortingOrder = BattleWorldSorting.BaseOrder;
+    [SerializeField, HideInInspector] private int handleSortingOrder = BattleWorldSorting.HandleOrder;
 
     [Header("찰칵 연결 반동")]
     [Tooltip("판이 도착해 연결되는 순간 실제 접촉 핸들이 잠깐 튀는 크기입니다. 0이면 핸들 반동을 사용하지 않습니다.")]
@@ -100,10 +94,10 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
     public Color FloorTint => floorTint;
     public Color PlateTint => plateTint;
     public Color HandleTint => handleTint;
-    public int FloorSortingOrder => floorSortingOrder;
-    public int LowerPlateSortingOrder => lowerPlateSortingOrder;
-    public int UpperPlateSortingOrder => upperPlateSortingOrder;
-    public int HandleSortingOrder => handleSortingOrder;
+    public int FloorSortingOrder => BattleWorldSorting.FloorOrder;
+    public int LowerPlateSortingOrder => BattleWorldSorting.LowerBaseOrder;
+    public int UpperPlateSortingOrder => BattleWorldSorting.BaseOrder;
+    public int HandleSortingOrder => BattleWorldSorting.HandleOrder;
     public float DockHandlePunch => dockHandlePunch;
     public float DockHandlePunchDuration => dockHandlePunchDuration;
     public int DockHandlePunchVibrato => dockHandlePunchVibrato;
@@ -111,6 +105,12 @@ public sealed class BattleShowFloorTemplateSO : ScriptableObject
 #if UNITY_EDITOR
     private void OnValidate()
     {
+        // 오래된 SO에 저장된 개별 Sorting 값을 통합 규칙으로 마이그레이션합니다.
+        floorSortingOrder = BattleWorldSorting.FloorOrder;
+        lowerPlateSortingOrder = BattleWorldSorting.LowerBaseOrder;
+        upperPlateSortingOrder = BattleWorldSorting.BaseOrder;
+        handleSortingOrder = BattleWorldSorting.HandleOrder;
+
         Validate32PxSprite(upperPlateSprite32, "위 판");
         Validate32PxSprite(lowerPlateLeftSprite32, "하판 좌측 끝");
         Validate32PxSprite(lowerPlateCenterSprite32, "하판 중앙");
