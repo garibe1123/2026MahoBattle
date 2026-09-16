@@ -65,7 +65,10 @@ public class EffectSO : ScriptableObject
         float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
         Quaternion startRotation = Quaternion.Euler(0f, 0f, angle);
 
-        Effect instance = Instantiate(prefab, position, startRotation);
+        Effect instance = PoolService.Spawn(prefab, position, startRotation);
+        if (instance == null)
+            return null;
+
         instance.Setup(
             this,
             target,
