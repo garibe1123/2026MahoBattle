@@ -10,6 +10,7 @@ using UnityEngine.UI;
 /// - 이 클래스: PrizeSelectionScreen + ScreenInner의 정적 화면 chrome만
 ///
 /// 카드, PlacementNotice, PACK, 선택 상태는 절대 수정하지 않습니다.
+/// 단, 아이템 획득 포기 칸의 외곽 돌출 Accent 장식은 화면 Chrome 정책으로 숨깁니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30600)]
@@ -29,6 +30,8 @@ public sealed class BattleRewardKineticThemeController : MonoBehaviour
     private RectTransform screenInner;
     private RectTransform prizeChoices;
     private RectTransform placementNotice;
+    private Transform skipAccentLeft;
+    private Transform skipAccentRight;
     private float nextResolveTime;
 
     private void Awake()
@@ -81,6 +84,8 @@ public sealed class BattleRewardKineticThemeController : MonoBehaviour
             screenInner = null;
             prizeChoices = null;
             placementNotice = null;
+            skipAccentLeft = null;
+            skipAccentRight = null;
             return;
         }
 
@@ -91,6 +96,8 @@ public sealed class BattleRewardKineticThemeController : MonoBehaviour
         placementNotice = screenInner != null
             ? screenInner.Find("PlacementNotice") as RectTransform
             : null;
+
+        ResolveSkipAccents();
     }
 
     private void ApplyScreenChrome()
@@ -110,6 +117,8 @@ public sealed class BattleRewardKineticThemeController : MonoBehaviour
         if (obsoleteAccent != null && obsoleteAccent.gameObject.activeSelf)
             obsoleteAccent.gameObject.SetActive(false);
 
+        HideSkipAccents();
+
         Text[] texts = screenInner.GetComponentsInChildren<Text>(true);
         for (int i = 0; i < texts.Length; i++)
         {
@@ -122,6 +131,27 @@ public sealed class BattleRewardKineticThemeController : MonoBehaviour
                 ? titleColor
                 : secondaryTextColor;
         }
+    }
+
+    private void ResolveSkipAccents()
+    {
+        if (placementNotice == null)
+            return;
+
+        if (skipAccentLeft == null)
+            skipAccentLeft = placementNotice.Find("SkipAccentLeft");
+        if (skipAccentRight == null)
+            skipAccentRight = placementNotice.Find("SkipAccentRight");
+    }
+
+    private void HideSkipAccents()
+    {
+        ResolveSkipAccents();
+
+        if (skipAccentLeft != null && skipAccentLeft.gameObject.activeSelf)
+            skipAccentLeft.gameObject.SetActive(false);
+        if (skipAccentRight != null && skipAccentRight.gameObject.activeSelf)
+            skipAccentRight.gameObject.SetActive(false);
     }
 
     private static void StylePanel(RectTransform target, Color backgroundColor, Color outlineColor, Vector2 outlineDistance)
