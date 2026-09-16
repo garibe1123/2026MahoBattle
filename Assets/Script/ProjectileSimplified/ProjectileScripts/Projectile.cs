@@ -431,22 +431,10 @@ public class Projectile : MonoBehaviour
 
         DamageContext hitContext = BuildDamageContext(DamageKind.Projectile);
         bool applied = CombatDamage.TryApply(other, hitContext);
-
-        if (!applied)
-        {
-            Enemy legacyEnemy = other.GetComponentInParent<Enemy>();
-            if (legacyEnemy != null)
-            {
-                legacyEnemy.TakeDamage(CombatDamage.Calculate(hitContext, 0f));
-                applied = true;
-            }
-        }
-
         if (!applied)
             return;
 
-        bool enemyTarget = other.GetComponentInParent<MonsterController>() != null ||
-                           other.GetComponentInParent<Enemy>() != null;
+        bool enemyTarget = other.GetComponentInParent<MonsterController>() != null;
 
         if (enemyTarget && currentPierce > 0)
         {
@@ -488,27 +476,22 @@ public class Projectile : MonoBehaviour
             so.damageLayer);
 
         HashSet<IDamageable> damagedTargets = new();
-        HashSet<Enemy> damagedLegacyEnemies = new();
         DamageContext context = BuildDamageContext(DamageKind.Area);
 
         for (int i = 0; i < hits.Length; i++)
         {
             Collider2D hit = hits[i];
-            if (hit == null) continue;
+            if (hit == null)
+                continue;
 
-            if (CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable))
+            if (!CombatDamage.TryFindDamageable(hit.transform, out IDamageable damageable) ||
+                !damageable.IsAlive ||
+                !damagedTargets.Add(damageable))
             {
-                if (!damageable.IsAlive || !damagedTargets.Add(damageable))
-                    continue;
-
-                float finalDamage = CombatDamage.Calculate(context, damageable.Defense);
-                damageable.ReceiveDamage(context, finalDamage);
                 continue;
             }
 
-            Enemy legacyEnemy = hit.GetComponentInParent<Enemy>();
-            if (legacyEnemy != null && damagedLegacyEnemies.Add(legacyEnemy))
-                legacyEnemy.TakeDamage(CombatDamage.Calculate(context, 0f));
+            CombatDamage.Apply(damageable, context);
         }
     }
 
