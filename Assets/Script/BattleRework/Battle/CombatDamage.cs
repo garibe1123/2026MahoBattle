@@ -25,6 +25,10 @@ public readonly struct DamageContext
     public readonly string WeaponId;
     public readonly string EquipmentTag;
 
+    public Vector2 SourcePosition => Source != null
+        ? (Vector2)Source.transform.position
+        : HitPoint;
+
     public DamageContext(
         GameObject source,
         Vector2 hitPoint,
