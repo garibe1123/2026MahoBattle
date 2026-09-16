@@ -31,6 +31,8 @@ public class Effect : MonoBehaviour
     private GameObject damageSource;
     private float runtimeDamageMultiplier = 1f;
     private float runtimeFanMissionModifier;
+    private System.Action startAnimationCompleteCallback;
+    private System.Action releaseToPoolCallback;
 
     private void Awake()
     {
@@ -41,6 +43,9 @@ public class Effect : MonoBehaviour
         lr = GetComponent<LineRenderer>();
         if (lr != null)
             lr.enabled = false;
+
+        startAnimationCompleteCallback = HandleStartAnimationComplete;
+        releaseToPoolCallback = ReleaseToPool;
     }
 
     public void Setup(
@@ -105,19 +110,25 @@ public class Effect : MonoBehaviour
 
         if (hasStartAnimation)
         {
-            anim.PlayOnce(AnimPhase.Start, so.visual.startSprites, so.visual.fps, () =>
-            {
-                if (so == null || so.visual == null)
-                    return;
-
-                if (so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
-                    anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.fps);
-            });
+            anim.PlayOnce(
+                AnimPhase.Start,
+                so.visual.startSprites,
+                so.visual.fps,
+                startAnimationCompleteCallback);
         }
         else if (so.visual != null && so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
         {
             anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.fps);
         }
+    }
+
+    private void HandleStartAnimationComplete()
+    {
+        if (so == null || so.visual == null)
+            return;
+
+        if (so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
+            anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.fps);
     }
 
     private void Update()
@@ -453,7 +464,7 @@ public class Effect : MonoBehaviour
                 AnimPhase.End,
                 so.visual.endSprites,
                 so.visual.fps,
-                ReleaseToPool);
+                releaseToPoolCallback);
         }
         else
         {
