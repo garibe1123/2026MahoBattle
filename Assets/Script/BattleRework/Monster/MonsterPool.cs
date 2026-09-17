@@ -63,8 +63,10 @@ public class MonsterPool : MonoBehaviour
 
     private void Awake()
     {
+        // Do not instantiate NavMeshAgent prefabs here. Awake runs before the first Room NavMesh bake,
+        // and creating enabled agents at that point produces the Unity "no valid NavMesh" warning.
+        // The first Get()/Configure after a valid bake performs the one-time prewarm instead.
         spawnValidationPath = new NavMeshPath();
-        TryInitialize();
     }
 
     private void OnDisable()
@@ -82,9 +84,13 @@ public class MonsterPool : MonoBehaviour
         TryInitialize();
     }
 
+    /// <summary>
+    /// Prewarms only after Unity has actual NavMesh data. This keeps pooled NavMeshAgent creation
+    /// out of scene Awake/installer timing while preserving the existing initialPoolSize behavior.
+    /// </summary>
     private void TryInitialize()
     {
-        if (initialized || monsterPrefab == null)
+        if (initialized || monsterPrefab == null || !HasUsableNavMesh())
             return;
 
         int preloadCount = Mathf.Max(0, initialPoolSize);
@@ -94,10 +100,16 @@ public class MonsterPool : MonoBehaviour
             if (monster == null)
                 break;
 
-            Return(monster);
+            ReturnToPoolInternal(monster);
         }
 
         initialized = true;
+    }
+
+    private static bool HasUsableNavMesh()
+    {
+        NavMeshTriangulation triangulation = NavMesh.CalculateTriangulation();
+        return triangulation.vertices != null && triangulation.vertices.Length > 0;
     }
 
     private MonsterController CreateNew()
@@ -457,7 +469,12 @@ public class MonsterPool : MonoBehaviour
             return;
 
         CancelPendingSpawn(monster);
-        if (!pooledMonsters.Add(monster))
+        ReturnToPoolInternal(monster);
+    }
+
+    private void ReturnToPoolInternal(MonsterController monster)
+    {
+        if (monster == null || !pooledMonsters.Add(monster))
             return;
 
         monster.PrepareForPool();
@@ -501,7 +518,11 @@ public class MonsterPool : MonoBehaviour
             pendingCancelBuffer.Add(monster);
 
         for (int i = 0; i < pendingCancelBuffer.Count; i++)
-            CancelPendingSpawn(pendingCancelBuffer[i]);
+        {
+            MonsterController monster = pendingCancelBuffer[i];
+            CancelPendingSpawn(monster);
+            ReturnToPoolInternal(monster);
+        }
 
         pendingCancelBuffer.Clear();
         dispatchBuffer.Clear();
