@@ -7,7 +7,6 @@ using UnityEngine.AI;
 [RequireComponent(typeof(NavMeshAgent))]
 [RequireComponent(typeof(Collider2D))]
 [RequireComponent(typeof(SpriteRenderer))]
-[RequireComponent(typeof(EnemyAnimator))]
 public class MonsterController : MonoBehaviour, IDamageable
 {
     private MonsterDefinitionSO definition;
@@ -65,6 +64,13 @@ public class MonsterController : MonoBehaviour, IDamageable
     {
         agent = GetComponent<NavMeshAgent>();
         animator = GetComponent<EnemyAnimator>();
+        if (animator == null)
+        {
+            animator = gameObject.AddComponent<EnemyAnimator>();
+            Debug.LogWarning(
+                $"[Monster] '{name}' was missing EnemyAnimator. Added it at runtime as a safety fallback.",
+                this);
+        }
 
         agent.updateRotation = false;
         agent.updateUpAxis = false;
@@ -205,7 +211,6 @@ public class MonsterController : MonoBehaviour, IDamageable
         }
         else if (actionLockTimer > 0f)
         {
-            // 공격/스킬 애니메이션 중에는 NavMesh 이동을 멈춰 Sprite가 미끄러지지 않게 합니다.
             StopMovement();
         }
         else
@@ -409,8 +414,7 @@ public class MonsterController : MonoBehaviour, IDamageable
             if (distance > skill.range)
                 continue;
 
-            if (!ExecuteSkill(skill))
-                continue;
+            if (!ExecuteSkill(skill))n                continue;
 
             skillCooldowns[i] = Mathf.Max(0.01f, skill.cooldown);
             EnemyAnimState state = GetSkillAnimationState(skill.type);
@@ -439,7 +443,6 @@ public class MonsterController : MonoBehaviour, IDamageable
 
             case MonsterSkillType.AreaBuff:
             case MonsterSkillType.AreaDebuff:
-                // 실제 Area 효과 로직이 구현될 때 Skill Sprite 상태를 사용합니다.
                 return false;
 
             default:
