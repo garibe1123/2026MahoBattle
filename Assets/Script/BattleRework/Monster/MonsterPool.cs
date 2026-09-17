@@ -46,7 +46,7 @@ public class MonsterPool : MonoBehaviour
     private readonly Dictionary<MonsterController, Coroutine> revealRoutines = new();
     private readonly Dictionary<MonsterController, GameObject> warningObjects = new();
     private readonly Queue<GameObject> warningPool = new();
-    private readonly NavMeshPath spawnValidationPath = new();
+    private NavMeshPath spawnValidationPath;
 
     private Coroutine batchRoutine;
     private bool initialized;
@@ -63,6 +63,7 @@ public class MonsterPool : MonoBehaviour
 
     private void Awake()
     {
+        spawnValidationPath = new NavMeshPath();
         TryInitialize();
     }
 
@@ -417,6 +418,7 @@ public class MonsterPool : MonoBehaviour
                 return true;
             }
 
+            spawnValidationPath ??= new NavMeshPath();
             spawnValidationPath.ClearCorners();
             bool pathCalculated = NavMesh.CalculatePath(
                 spawnHit.position,
