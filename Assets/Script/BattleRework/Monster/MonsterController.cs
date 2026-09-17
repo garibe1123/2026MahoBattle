@@ -211,6 +211,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         }
         else if (actionLockTimer > 0f)
         {
+            // 공격/스킬 애니메이션 중에는 NavMesh 이동을 멈춰 Sprite가 미끄러지지 않게 합니다.
             StopMovement();
         }
         else
@@ -414,7 +415,8 @@ public class MonsterController : MonoBehaviour, IDamageable
             if (distance > skill.range)
                 continue;
 
-            if (!ExecuteSkill(skill))n                continue;
+            if (!ExecuteSkill(skill))
+                continue;
 
             skillCooldowns[i] = Mathf.Max(0.01f, skill.cooldown);
             EnemyAnimState state = GetSkillAnimationState(skill.type);
@@ -443,6 +445,7 @@ public class MonsterController : MonoBehaviour, IDamageable
 
             case MonsterSkillType.AreaBuff:
             case MonsterSkillType.AreaDebuff:
+                // 실제 Area 효과 로직이 구현될 때 Skill Sprite 상태를 사용합니다.
                 return false;
 
             default:
