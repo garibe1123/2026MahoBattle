@@ -23,6 +23,8 @@ public sealed class BattleRuleDefinition
     public string id;
     public string displayName;
     [TextArea] public string description;
+    [Tooltip("룰 슬롯에 표시할 아이콘. 비어 있으면 짧은 룰 이름을 표시합니다.")]
+    public Sprite icon;
     public BattleRulePolarity polarity;
     public string exclusiveGroup;
     [Range(1, 5)] public int minimumStars = 1;
@@ -109,39 +111,44 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [Header("Rules")]
     [SerializeField] private List<BattleRuleDefinition> rules = new();
 
-    [Header("Optional Slot Machine Art")]
-    [Tooltip("비어 있으면 현재 단색 Placeholder 패널을 사용합니다.")]
-    [SerializeField] private Sprite machineFrameSprite;
-    [SerializeField] private Sprite reelWindowSprite;
-    [SerializeField] private Sprite winningRuleBannerSprite;
-    [SerializeField] private Sprite resultListPanelSprite;
+    [Header("Optional Rule UI Art")]
+    [SerializeField] private Sprite ruleSlotFrameSprite;
     [SerializeField] private Sprite spinButtonSprite;
     [SerializeField] private Sprite starOffSprite;
     [SerializeField] private Sprite starOnSprite;
+
+    [Header("Rule Slot Layout")]
+    [SerializeField, Min(48f)] private float ruleSlotSize = 104f;
+    [SerializeField, Min(0f)] private float ruleSlotSpacing = 14f;
 
     private GameObject uiRoot;
     private RectTransform machineTab;
     private RectTransform winningRuleTab;
     private RectTransform resultListTab;
     private RectTransform controlTab;
+    private RectTransform ruleSlotRow;
 
-    private Image machineFrameImage;
-    private Image winningRuleBannerImage;
-    private Image resultListPanelImage;
-    private Image spinButtonImage;
     private readonly List<Image> ratingStarImages = new();
+    private readonly List<RuleSlotView> ruleSlotViews = new();
 
     private Text ratingText;
     private Text progressText;
-    private Text reelText;
     private Text winningRuleTypeText;
     private Text winningRuleNameText;
     private Text winningRuleDescriptionText;
-    private Text summaryText;
     private Text spinButtonText;
     private Button spinButton;
+    private Image spinButtonImage;
     private bool cancelRequested;
     private bool startBattleConfirmed;
+
+    private sealed class RuleSlotView
+    {
+        public RectTransform root;
+        public Image frame;
+        public Image icon;
+        public Text fallbackLabel;
+    }
 
     public IReadOnlyList<BattleRuleDefinition> Rules => rules;
     public RectTransform MachineTab => machineTab;
@@ -194,22 +201,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         BattleRuleSet result = Roll(stars);
 
         uiRoot.SetActive(true);
-        ApplyOptionalArt();
-        SetTabsForIntro();
         SetRating(stars);
-        SetSpinButtonInteractable(false);
+        BuildRuleSlots(stars);
+        ClearWinningRule();
 
         ratingText.text = $"BATTLE RATING\n{BuildStars(stars)}";
         progressText.text = "RULE ROULETTE";
-        reelText.text = "READY";
-        reelText.color = Color.white;
-        summaryText.text = string.Empty;
         SetSpinButtonLabel("RULE SPIN");
+        SetSpinButtonInteractable(false);
 
         if (ratingIntroDuration > 0f)
             yield return new WaitForSecondsRealtime(ratingIntroDuration);
 
-        // 룰 추첨 자체는 전부 자동으로 진행합니다.
         for (int i = 0; i < result.SelectedRules.Count; i++)
         {
             if (cancelRequested)
@@ -217,8 +220,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
             BattleRuleDefinition selected = result.SelectedRules[i];
             progressText.text = $"RULE {i + 1} / {result.SelectedRules.Count}";
-            SetTabVisible(winningRuleTab, false);
-            SetTabVisible(resultListTab, i > 0);
             SetSpinButtonLabel("SPINNING");
 
             float end = Time.unscaledTime + Mathf.Max(0.05f, spinDurationPerRule);
@@ -226,7 +227,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             {
                 BattleRuleDefinition preview = GetRandomPreview(stars);
                 if (preview != null)
-                    reelText.text = preview.displayName.ToUpperInvariant();
+                    ShowRuleInSlot(i, preview, previewOnly: true);
 
                 yield return new WaitForSecondsRealtime(0.055f);
             }
@@ -234,12 +235,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             if (cancelRequested)
                 yield break;
 
-            reelText.text = selected.displayName.ToUpperInvariant();
+            ShowRuleInSlot(i, selected, previewOnly: false);
             ShowWinningRule(selected);
-            summaryText.text = BuildSummary(result, i + 1);
-
-            SetTabVisible(winningRuleTab, true);
-            SetTabVisible(resultListTab, true);
 
             SetSpinButtonLabel(
                 i + 1 < result.SelectedRules.Count
@@ -253,17 +250,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (cancelRequested)
             yield break;
 
-        // 최종 결과를 모두 보여준 뒤에는 자동으로 전투를 시작하지 않습니다.
-        // 플레이어가 내용을 확인하고 START BATTLE 버튼을 눌러야 다음 단계로 넘어갑니다.
+        // 최종 상태에서는 확정된 가로 룰 슬롯과 현재 룰 정보만 유지합니다.
         progressText.text = "THIS BATTLE";
-        reelText.text = $"{BuildStars(stars)}\nRULES LOCKED";
-        reelText.color = Color.white;
-        summaryText.text = BuildSummary(result, result.SelectedRules.Count);
-
-        SetTabVisible(winningRuleTab, false);
-        SetTabVisible(resultListTab, true);
-        SetTabVisible(controlTab, true);
-
         SetSpinButtonLabel("START BATTLE");
         SetSpinButtonInteractable(true);
 
@@ -280,7 +268,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         SetSpinButtonInteractable(false);
 
-        // 버튼 입력 직후 약간의 확인 템포만 둡니다.
         if (summaryDuration > 0f)
             yield return new WaitForSecondsRealtime(Mathf.Min(summaryDuration, 0.18f));
 
@@ -517,102 +504,76 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         RectTransform backdrop = CreateRect(uiRoot.transform, "Backdrop");
         Stretch(backdrop);
+
         Image backdropImage = backdrop.gameObject.AddComponent<Image>();
-        backdropImage.color = new Color(0.015f, 0.016f, 0.022f, 0.82f);
+        backdropImage.color = new Color(0f, 0f, 0f, 0.68f);
         backdropImage.raycastTarget = true;
 
-        // 각 영역은 같은 부모 아래의 독립 탭입니다.
-        // 추후 Sprite Sheet / Animator를 탭별로 따로 연결할 수 있도록 서로 중첩 소유하지 않습니다.
-        machineTab = CreatePanelTab(
+        machineTab = CreateBareTab(
             backdrop,
             "MachineTab",
-            new Vector2(0.5f, 0.62f),
-            new Vector2(940f, 500f),
-            new Color(0.035f, 0.038f, 0.052f, 0.985f),
-            out machineFrameImage);
+            new Vector2(0.5f, 0.70f),
+            new Vector2(680f, 150f));
 
-        winningRuleTab = CreatePanelTab(
-            backdrop,
-            "WinningRuleTab",
-            new Vector2(0.50f, 0.29f),
-            new Vector2(760f, 150f),
-            new Color(0.055f, 0.058f, 0.074f, 0.98f),
-            out winningRuleBannerImage);
-
-        resultListTab = CreatePanelTab(
+        resultListTab = CreateBareTab(
             backdrop,
             "ResultListTab",
-            new Vector2(0.17f, 0.32f),
-            new Vector2(420f, 300f),
-            new Color(0.030f, 0.032f, 0.042f, 0.96f),
-            out resultListPanelImage);
+            new Vector2(0.5f, 0.53f),
+            new Vector2(680f, Mathf.Max(48f, ruleSlotSize)));
 
-        controlTab = CreatePanelTab(
+        winningRuleTab = CreateBareTab(
+            backdrop,
+            "WinningRuleTab",
+            new Vector2(0.5f, 0.36f),
+            new Vector2(620f, 100f));
+
+        controlTab = CreateBareTab(
             backdrop,
             "ControlTab",
-            new Vector2(0.83f, 0.18f),
-            new Vector2(300f, 150f),
-            Color.clear,
-            out _);
+            new Vector2(0.5f, 0.20f),
+            new Vector2(260f, 86f));
 
-        // MachineTab: Battle Rating + 룰렛 릴만 담당.
-        ratingText = CreateText(machineTab, "Rating", 34, FontStyle.Bold, TextAnchor.MiddleCenter);
-        SetRect(ratingText.rectTransform, new Vector2(0.08f, 0.72f), new Vector2(0.92f, 0.95f));
+        ratingText = CreateText(machineTab, "Rating", 28, FontStyle.Bold, TextAnchor.MiddleCenter);
+        SetRect(ratingText.rectTransform, new Vector2(0.05f, 0.48f), new Vector2(0.95f, 0.96f));
 
         RectTransform starsRoot = CreateRect(machineTab, "RatingStars");
-        starsRoot.anchorMin = starsRoot.anchorMax = new Vector2(0.5f, 0.68f);
+        starsRoot.anchorMin = starsRoot.anchorMax = new Vector2(0.5f, 0.45f);
         starsRoot.pivot = new Vector2(0.5f, 0.5f);
-        starsRoot.sizeDelta = new Vector2(360f, 52f);
+        starsRoot.sizeDelta = new Vector2(330f, 40f);
         starsRoot.anchoredPosition = Vector2.zero;
         BuildStarImages(starsRoot);
 
-        progressText = CreateText(machineTab, "Progress", 18, FontStyle.Bold, TextAnchor.MiddleCenter);
+        progressText = CreateText(machineTab, "Progress", 15, FontStyle.Bold, TextAnchor.MiddleCenter);
         progressText.color = new Color(0.16f, 0.86f, 0.92f, 1f);
-        SetRect(progressText.rectTransform, new Vector2(0.08f, 0.55f), new Vector2(0.92f, 0.65f));
+        SetRect(progressText.rectTransform, new Vector2(0.10f, 0.02f), new Vector2(0.90f, 0.25f));
 
-        RectTransform reelWindow = CreateRect(machineTab, "ReelWindow");
-        reelWindow.anchorMin = new Vector2(0.12f, 0.12f);
-        reelWindow.anchorMax = new Vector2(0.88f, 0.53f);
-        reelWindow.offsetMin = Vector2.zero;
-        reelWindow.offsetMax = Vector2.zero;
+        ruleSlotRow = resultListTab;
+        HorizontalLayoutGroup layout = resultListTab.gameObject.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = Mathf.Max(0f, ruleSlotSpacing);
+        layout.childAlignment = TextAnchor.MiddleLeft;
+        layout.childControlWidth = false;
+        layout.childControlHeight = false;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = false;
 
-        Image reelWindowImage = reelWindow.gameObject.AddComponent<Image>();
-        reelWindowImage.color = new Color(0.82f, 0.80f, 0.72f, 0.98f);
-        reelWindowImage.raycastTarget = false;
-        if (reelWindowSprite != null)
-        {
-            reelWindowImage.sprite = reelWindowSprite;
-            reelWindowImage.type = Image.Type.Sliced;
-            reelWindowImage.color = Color.white;
-        }
+        winningRuleTypeText = CreateText(winningRuleTab, "RuleType", 13, FontStyle.Bold, TextAnchor.MiddleCenter);
+        SetRect(winningRuleTypeText.rectTransform, new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.94f));
 
-        reelText = CreateText(reelWindow, "ReelText", 30, FontStyle.Bold, TextAnchor.MiddleCenter);
-        Stretch(reelText.rectTransform);
+        winningRuleNameText = CreateText(winningRuleTab, "RuleName", 20, FontStyle.Bold, TextAnchor.MiddleCenter);
+        SetRect(winningRuleNameText.rectTransform, new Vector2(0.05f, 0.34f), new Vector2(0.95f, 0.70f));
 
-        // WinningRuleTab: 당첨된 한 개 룰만 표시.
-        winningRuleTypeText = CreateText(winningRuleTab, "RuleType", 16, FontStyle.Bold, TextAnchor.MiddleLeft);
-        SetRect(winningRuleTypeText.rectTransform, new Vector2(0.06f, 0.68f), new Vector2(0.94f, 0.94f));
+        winningRuleDescriptionText = CreateText(winningRuleTab, "RuleDescription", 13, FontStyle.Normal, TextAnchor.MiddleCenter);
+        SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.38f));
 
-        winningRuleNameText = CreateText(winningRuleTab, "RuleName", 26, FontStyle.Bold, TextAnchor.MiddleLeft);
-        SetRect(winningRuleNameText.rectTransform, new Vector2(0.06f, 0.34f), new Vector2(0.94f, 0.72f));
-
-        winningRuleDescriptionText = CreateText(winningRuleTab, "RuleDescription", 15, FontStyle.Normal, TextAnchor.MiddleLeft);
-        SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.06f, 0.06f), new Vector2(0.94f, 0.38f));
-
-        // ResultListTab: 누적 결과만 표시.
-        summaryText = CreateText(resultListTab, "ResultList", 15, FontStyle.Bold, TextAnchor.UpperLeft);
-        summaryText.color = new Color(0.86f, 0.84f, 0.76f, 1f);
-        SetRect(summaryText.rectTransform, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.92f));
-
-        // ControlTab: 추첨은 자동이지만 최종 전투 진입은 플레이어 확인 버튼으로만 진행합니다.
-        RectTransform buttonRect = CreateRect(controlTab, "RuleSpinButton");
-        buttonRect.anchorMin = buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
-        buttonRect.pivot = new Vector2(0.5f, 0.5f);
-        buttonRect.sizeDelta = new Vector2(280f, 110f);
-        buttonRect.anchoredPosition = Vector2.zero;
+        RectTransform buttonRect = CreateRect(controlTab, "StartBattleButton");
+        Stretch(buttonRect);
 
         spinButtonImage = buttonRect.gameObject.AddComponent<Image>();
-        spinButtonImage.color = new Color(0.92f, 0.25f, 0.12f, 1f);
+        spinButtonImage.sprite = spinButtonSprite;
+        spinButtonImage.type = spinButtonSprite != null ? Image.Type.Sliced : Image.Type.Simple;
+        spinButtonImage.color = spinButtonSprite != null
+            ? Color.white
+            : new Color(0.92f, 0.25f, 0.12f, 1f);
         spinButtonImage.raycastTarget = true;
 
         spinButton = buttonRect.gameObject.AddComponent<Button>();
@@ -620,32 +581,137 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         spinButton.transition = Selectable.Transition.None;
         spinButton.onClick.AddListener(ConfirmStartBattle);
 
-        spinButtonText = CreateText(buttonRect, "Label", 24, FontStyle.Bold, TextAnchor.MiddleCenter);
+        spinButtonText = CreateText(buttonRect, "Label", 20, FontStyle.Bold, TextAnchor.MiddleCenter);
         Stretch(spinButtonText.rectTransform);
 
-        ApplyOptionalArt();
-        SetTabsForIntro();
         uiRoot.SetActive(false);
     }
 
-    private RectTransform CreatePanelTab(
+    private static RectTransform CreateBareTab(
         Transform parent,
         string name,
         Vector2 normalizedAnchor,
-        Vector2 size,
-        Color fallbackColor,
-        out Image image)
+        Vector2 size)
     {
         RectTransform rect = CreateRect(parent, name);
         rect.anchorMin = rect.anchorMax = normalizedAnchor;
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.sizeDelta = size;
         rect.anchoredPosition = Vector2.zero;
-
-        image = rect.gameObject.AddComponent<Image>();
-        image.color = fallbackColor;
-        image.raycastTarget = false;
         return rect;
+    }
+
+    private void BuildRuleSlots(int count)
+    {
+        count = Mathf.Clamp(count, 1, 5);
+
+        for (int i = ruleSlotViews.Count - 1; i >= 0; i--)
+        {
+            RuleSlotView view = ruleSlotViews[i];
+            if (view?.root != null)
+                Destroy(view.root.gameObject);
+        }
+        ruleSlotViews.Clear();
+
+        if (ruleSlotRow == null)
+            return;
+
+        for (int i = 0; i < count; i++)
+        {
+            RectTransform root = CreateRect(ruleSlotRow, $"RuleSlot_{i + 1}");
+            root.sizeDelta = Vector2.one * Mathf.Max(48f, ruleSlotSize);
+
+            LayoutElement element = root.gameObject.AddComponent<LayoutElement>();
+            element.minWidth = ruleSlotSize;
+            element.preferredWidth = ruleSlotSize;
+            element.minHeight = ruleSlotSize;
+            element.preferredHeight = ruleSlotSize;
+
+            Image frame = root.gameObject.AddComponent<Image>();
+            frame.sprite = ruleSlotFrameSprite;
+            frame.type = ruleSlotFrameSprite != null ? Image.Type.Sliced : Image.Type.Simple;
+            frame.color = ruleSlotFrameSprite != null
+                ? Color.white
+                : new Color(0.08f, 0.085f, 0.11f, 0.98f);
+            frame.raycastTarget = false;
+
+            RectTransform iconRect = CreateRect(root, "Icon");
+            iconRect.anchorMin = new Vector2(0.16f, 0.16f);
+            iconRect.anchorMax = new Vector2(0.84f, 0.84f);
+            iconRect.offsetMin = Vector2.zero;
+            iconRect.offsetMax = Vector2.zero;
+
+            Image icon = iconRect.gameObject.AddComponent<Image>();
+            icon.preserveAspect = true;
+            icon.raycastTarget = false;
+            icon.enabled = false;
+
+            Text fallbackLabel = CreateText(root, "FallbackLabel", 11, FontStyle.Bold, TextAnchor.MiddleCenter);
+            SetRect(fallbackLabel.rectTransform, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.92f));
+            fallbackLabel.text = "?";
+            fallbackLabel.color = new Color(1f, 1f, 1f, 0.30f);
+
+            ruleSlotViews.Add(new RuleSlotView
+            {
+                root = root,
+                frame = frame,
+                icon = icon,
+                fallbackLabel = fallbackLabel
+            });
+        }
+    }
+
+    private void ShowRuleInSlot(int index, BattleRuleDefinition rule, bool previewOnly)
+    {
+        if (rule == null || index < 0 || index >= ruleSlotViews.Count)
+            return;
+
+        RuleSlotView view = ruleSlotViews[index];
+        if (view == null)
+            return;
+
+        Color polarityColor = GetPolarityColor(rule.polarity);
+
+        if (view.frame != null && ruleSlotFrameSprite == null)
+        {
+            float mix = previewOnly ? 0.10f : 0.24f;
+            view.frame.color = new Color(
+                Mathf.Lerp(0.08f, polarityColor.r, mix),
+                Mathf.Lerp(0.085f, polarityColor.g, mix),
+                Mathf.Lerp(0.11f, polarityColor.b, mix),
+                0.98f);
+        }
+
+        if (view.icon != null)
+        {
+            view.icon.sprite = rule.icon;
+            view.icon.enabled = rule.icon != null;
+            view.icon.color = previewOnly
+                ? new Color(1f, 1f, 1f, 0.48f)
+                : Color.white;
+        }
+
+        if (view.fallbackLabel != null)
+        {
+            bool fallback = rule.icon == null;
+            view.fallbackLabel.gameObject.SetActive(fallback);
+            if (fallback)
+            {
+                view.fallbackLabel.text = ShortRuleLabel(rule.displayName);
+                view.fallbackLabel.color = previewOnly
+                    ? new Color(1f, 1f, 1f, 0.42f)
+                    : Color.white;
+            }
+        }
+    }
+
+    private static string ShortRuleLabel(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            return "?";
+
+        string text = source.Trim().ToUpperInvariant();
+        return text.Length <= 12 ? text : text.Substring(0, 12);
     }
 
     private void BuildStarImages(Transform parent)
@@ -653,13 +719,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         ratingStarImages.Clear();
 
         const int count = 5;
-        const float spacing = 62f;
+        const float spacing = 56f;
         for (int i = 0; i < count; i++)
         {
             RectTransform starRect = CreateRect(parent, $"Star_{i + 1}");
             starRect.anchorMin = starRect.anchorMax = new Vector2(0.5f, 0.5f);
             starRect.pivot = new Vector2(0.5f, 0.5f);
-            starRect.sizeDelta = new Vector2(48f, 48f);
+            starRect.sizeDelta = new Vector2(40f, 40f);
             starRect.anchoredPosition = new Vector2((i - 2) * spacing, 0f);
 
             Image star = starRect.gameObject.AddComponent<Image>();
@@ -667,24 +733,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             star.preserveAspect = true;
             ratingStarImages.Add(star);
         }
-    }
-
-    private void ApplyOptionalArt()
-    {
-        ApplySprite(machineFrameImage, machineFrameSprite, new Color(0.035f, 0.038f, 0.052f, 0.985f));
-        ApplySprite(winningRuleBannerImage, winningRuleBannerSprite, new Color(0.055f, 0.058f, 0.074f, 0.98f));
-        ApplySprite(resultListPanelImage, resultListPanelSprite, new Color(0.030f, 0.032f, 0.042f, 0.96f));
-        ApplySprite(spinButtonImage, spinButtonSprite, new Color(0.92f, 0.25f, 0.12f, 1f));
-    }
-
-    private static void ApplySprite(Image image, Sprite sprite, Color fallbackColor)
-    {
-        if (image == null)
-            return;
-
-        image.sprite = sprite;
-        image.type = sprite != null ? Image.Type.Sliced : Image.Type.Simple;
-        image.color = sprite != null ? Color.white : fallbackColor;
     }
 
     private void SetRating(int stars)
@@ -704,15 +752,23 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 continue;
             }
 
-            bool enabledStar = i < stars;
+            bool on = i < stars;
             star.enabled = true;
-            star.sprite = enabledStar
+            star.sprite = on
                 ? (starOnSprite != null ? starOnSprite : starOffSprite)
                 : (starOffSprite != null ? starOffSprite : starOnSprite);
-            star.color = enabledStar
-                ? Color.white
-                : new Color(1f, 1f, 1f, 0.32f);
+            star.color = on ? Color.white : new Color(1f, 1f, 1f, 0.28f);
         }
+    }
+
+    private void ClearWinningRule()
+    {
+        if (winningRuleTypeText != null)
+            winningRuleTypeText.text = string.Empty;
+        if (winningRuleNameText != null)
+            winningRuleNameText.text = string.Empty;
+        if (winningRuleDescriptionText != null)
+            winningRuleDescriptionText.text = string.Empty;
     }
 
     private void ShowWinningRule(BattleRuleDefinition rule)
@@ -720,12 +776,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (rule == null)
             return;
 
-        Color polarityColor = GetPolarityColor(rule.polarity);
+        Color color = GetPolarityColor(rule.polarity);
 
         if (winningRuleTypeText != null)
         {
             winningRuleTypeText.text = GetPolarityLabel(rule.polarity);
-            winningRuleTypeText.color = polarityColor;
+            winningRuleTypeText.color = color;
         }
 
         if (winningRuleNameText != null)
@@ -739,29 +795,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             winningRuleDescriptionText.text = rule.description;
             winningRuleDescriptionText.color = new Color(0.86f, 0.84f, 0.76f, 1f);
         }
-
-        if (winningRuleBannerSprite == null && winningRuleBannerImage != null)
-        {
-            winningRuleBannerImage.color = new Color(
-                polarityColor.r * 0.22f,
-                polarityColor.g * 0.22f,
-                polarityColor.b * 0.22f,
-                0.98f);
-        }
-    }
-
-    private void SetTabsForIntro()
-    {
-        SetTabVisible(machineTab, true);
-        SetTabVisible(winningRuleTab, false);
-        SetTabVisible(resultListTab, false);
-        SetTabVisible(controlTab, true);
-    }
-
-    private static void SetTabVisible(RectTransform tab, bool visible)
-    {
-        if (tab != null && tab.gameObject.activeSelf != visible)
-            tab.gameObject.SetActive(visible);
     }
 
     private void SetSpinButtonLabel(string label)
@@ -781,19 +814,17 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         {
             spinButtonImage.raycastTarget = interactable;
             spinButtonImage.color = interactable
-                ? (spinButtonSprite != null
-                    ? Color.white
-                    : new Color(0.92f, 0.25f, 0.12f, 1f))
+                ? (spinButtonSprite != null ? Color.white : new Color(0.92f, 0.25f, 0.12f, 1f))
                 : (spinButtonSprite != null
-                    ? new Color(1f, 1f, 1f, 0.45f)
-                    : new Color(0.34f, 0.20f, 0.18f, 0.82f));
+                    ? new Color(1f, 1f, 1f, 0.42f)
+                    : new Color(0.34f, 0.20f, 0.18f, 0.80f));
         }
 
         if (spinButtonText != null)
         {
             spinButtonText.color = interactable
                 ? Color.white
-                : new Color(1f, 1f, 1f, 0.50f);
+                : new Color(1f, 1f, 1f, 0.48f);
         }
     }
 
