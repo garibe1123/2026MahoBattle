@@ -27,13 +27,33 @@ public class BattleContext
     [SerializeField] private float nodeTypeHpMultiplier = 1f;
     [SerializeField] private float nodeTypeDamageMultiplier = 1f;
 
+    [Header("Battle Rule Roulette")]
+    [SerializeField] private float ruleEnemyHpMultiplier = 1f;
+    [SerializeField] private float ruleEnemyDamageMultiplier = 1f;
+    [SerializeField] private float ruleEnemyMoveSpeedMultiplier = 1f;
+    [SerializeField] private float rulePlayerDamageMultiplier = 1f;
+    [SerializeField] private float rulePlayerMoveSpeedMultiplier = 1f;
+    [SerializeField] private float ruleHealingMultiplier = 1f;
+    [SerializeField] private float ruleKillPointMultiplier = 1f;
+
+    [NonSerialized] private BattleRuleSet battleRules;
+
     public int NodeDepth => nodeDepth;
     public VillainGrade VillainGrade => villainGrade;
     public ClanDefinitionSO Clan => clan;
     public ShootingThemeSO ShootingTheme => shootingTheme;
 
-    public float BaseMonsterHpMultiplier => depthHpMultiplier * nodeTypeHpMultiplier;
-    public float BaseMonsterDamageMultiplier => depthDamageMultiplier * nodeTypeDamageMultiplier;
+    public BattleRuleSet BattleRules => battleRules;
+    public float PlayerDamageMultiplier => rulePlayerDamageMultiplier;
+    public float PlayerMoveSpeedMultiplier => rulePlayerMoveSpeedMultiplier;
+    public float HealingMultiplier => ruleHealingMultiplier;
+    public float KillPointMultiplier => ruleKillPointMultiplier;
+    public float MonsterMoveSpeedMultiplier => ruleEnemyMoveSpeedMultiplier;
+
+    public float BaseMonsterHpMultiplier =>
+        depthHpMultiplier * nodeTypeHpMultiplier * ruleEnemyHpMultiplier;
+    public float BaseMonsterDamageMultiplier =>
+        depthDamageMultiplier * nodeTypeDamageMultiplier * ruleEnemyDamageMultiplier;
 
     public float GetMonsterHpMultiplier(MonsterCategory category)
     {
@@ -69,6 +89,19 @@ public class BattleContext
         depthDamageMultiplier = Mathf.Max(0.01f, depthDamage);
         nodeTypeHpMultiplier = Mathf.Max(0.01f, nodeHp);
         nodeTypeDamageMultiplier = Mathf.Max(0.01f, nodeDamage);
+        ApplyBattleRules(null);
+    }
+
+    public void ApplyBattleRules(BattleRuleSet rules)
+    {
+        battleRules = rules;
+        ruleEnemyHpMultiplier = rules != null ? Mathf.Max(0.01f, rules.EnemyHpMultiplier) : 1f;
+        ruleEnemyDamageMultiplier = rules != null ? Mathf.Max(0f, rules.EnemyDamageMultiplier) : 1f;
+        ruleEnemyMoveSpeedMultiplier = rules != null ? Mathf.Max(0f, rules.EnemyMoveSpeedMultiplier) : 1f;
+        rulePlayerDamageMultiplier = rules != null ? Mathf.Max(0f, rules.PlayerDamageMultiplier) : 1f;
+        rulePlayerMoveSpeedMultiplier = rules != null ? Mathf.Max(0f, rules.PlayerMoveSpeedMultiplier) : 1f;
+        ruleHealingMultiplier = rules != null ? Mathf.Max(0f, rules.HealingMultiplier) : 1f;
+        ruleKillPointMultiplier = rules != null ? Mathf.Max(0f, rules.KillPointMultiplier) : 1f;
     }
 
     public static float GetVillainGradeMultiplier(VillainGrade grade)

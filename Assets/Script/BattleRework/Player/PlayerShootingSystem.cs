@@ -18,6 +18,7 @@ public class PlayerShootingSystem : MonoBehaviour
 
     [Header("Runtime Modifiers")]
     [SerializeField] private float runtimeDamageMultiplier = 1f;
+    [SerializeField] private float battleRuleDamageMultiplier = 1f;
     [SerializeField] private float runtimeFanMissionModifier;
 
     private readonly List<int> ammoInventory = new();
@@ -29,6 +30,12 @@ public class PlayerShootingSystem : MonoBehaviour
     {
         get => runtimeDamageMultiplier;
         set => runtimeDamageMultiplier = Mathf.Max(0f, value);
+    }
+
+    public float BattleRuleDamageMultiplier
+    {
+        get => battleRuleDamageMultiplier;
+        set => battleRuleDamageMultiplier = Mathf.Max(0f, value);
     }
 
     public float RuntimeFanMissionModifier
@@ -92,6 +99,7 @@ public class PlayerShootingSystem : MonoBehaviour
         currentAmmo = 0;
         nextFireTime = 0f;
         runtimeDamageMultiplier = 1f;
+        battleRuleDamageMultiplier = 1f;
         runtimeFanMissionModifier = 0f;
 
         WeaponChanged?.Invoke(null);
@@ -267,7 +275,7 @@ public class PlayerShootingSystem : MonoBehaviour
                 target,
                 mousePos,
                 gameObject,
-                runtimeDamageMultiplier,
+                runtimeDamageMultiplier * battleRuleDamageMultiplier,
                 runtimeFanMissionModifier);
 
             projectile.AddExtraPierce(pierceBonus);

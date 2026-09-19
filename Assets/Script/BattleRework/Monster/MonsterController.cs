@@ -134,7 +134,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         }
 
         agent.enabled = true;
-        agent.speed = Mathf.Max(0f, definition.moveSpeed);
+        agent.speed = Mathf.Max(0f, definition.moveSpeed * GetBattleMoveMultiplier());
         agent.acceleration = Mathf.Max(0f, definition.acceleration);
         agent.stoppingDistance = Mathf.Max(0f, definition.stoppingDistance);
         agent.isStopped = false;
@@ -290,7 +290,9 @@ public class MonsterController : MonoBehaviour, IDamageable
         if (!agent.enabled || !agent.isOnNavMesh)
             return;
 
-        agent.speed = Mathf.Max(0f, definition.moveSpeed * runtimeMoveMultiplier);
+        agent.speed = Mathf.Max(
+            0f,
+            definition.moveSpeed * runtimeMoveMultiplier * GetBattleMoveMultiplier());
 
         float now = Time.time;
         if (hasPathDestination && now < nextRepathTime)
@@ -309,6 +311,13 @@ public class MonsterController : MonoBehaviour, IDamageable
             lastPathDestination = destination;
             hasPathDestination = true;
         }
+    }
+
+    private float GetBattleMoveMultiplier()
+    {
+        return context != null
+            ? Mathf.Max(0f, context.MonsterMoveSpeedMultiplier)
+            : 1f;
     }
 
     private void StopMovement()
@@ -345,7 +354,7 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void UpdateDash()
     {
-        float step = Mathf.Max(0f, definition.dashSpeed) * Time.deltaTime;
+        float step = Mathf.Max(0f, definition.dashSpeed) * GetBattleMoveMultiplier() * Time.deltaTime;
         float castRadius = agent != null ? Mathf.Max(0.08f, agent.radius * 0.5f) : 0.12f;
 
         RaycastHit2D wallHit = Physics2D.CircleCast(

@@ -70,6 +70,8 @@ public class PlayerController : MonoBehaviour, IDamageable
     private float currentHp;
     private float currentStamina;
     private Vector2 moveInput;
+    private float battleRuleMoveSpeedMultiplier = 1f;
+    private float battleRuleHealingMultiplier = 1f;
 
     private bool hitInvincible;
     private bool rollInvincible;
@@ -83,6 +85,7 @@ public class PlayerController : MonoBehaviour, IDamageable
 
     public bool IsAlive => currentState != PlayerState.Dead && currentHp > 0f;
     public float Defense => Mathf.Max(0f, baseDefense);
+    public float MaxHp => Mathf.Max(1f, maxHp);
     public float CurrentHp => currentHp;
     public float CurrentStamina => currentStamina;
     public PlayerState CurrentState => currentState;
@@ -171,7 +174,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (currentState == PlayerState.Roll)
             return;
 
-        Vector2 desiredVelocity = moveInput * moveSpeed;
+        Vector2 desiredVelocity = moveInput * moveSpeed * battleRuleMoveSpeedMultiplier;
         rb.linearVelocity = ResolveFieldSupportedVelocity(desiredVelocity);
     }
 
@@ -368,14 +371,15 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         while (timer < rollDuration && currentState == PlayerState.Roll && movementInputEnabled)
         {
-            Vector2 next = rb.position + rollDir * rollSpeed * Time.fixedDeltaTime;
+            float resolvedRollSpeed = rollSpeed * battleRuleMoveSpeedMultiplier;
+            Vector2 next = rb.position + rollDir * resolvedRollSpeed * Time.fixedDeltaTime;
             if (requireWalkableField && !CanOccupyWalkableField(next))
             {
                 rb.linearVelocity = Vector2.zero;
                 break;
             }
 
-            rb.linearVelocity = rollDir * rollSpeed;
+            rb.linearVelocity = rollDir * resolvedRollSpeed;
             timer += Time.deltaTime;
 
             if (timer >= rollIFrameDuration)
@@ -525,6 +529,7 @@ public class PlayerController : MonoBehaviour, IDamageable
         rollInvincible = false;
         rollLockTimer = 0f;
         consecutiveRolls = 0;
+        ClearBattleRuleModifiers();
 
         if (rb == null)
             rb = GetComponent<Rigidbody2D>();
@@ -545,8 +550,34 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (!IsAlive)
             return;
 
-        currentHp = Mathf.Min(currentHp + Mathf.Max(0f, amount), maxHp);
+        float resolvedAmount = Mathf.Max(0f, amount) * battleRuleHealingMultiplier;
+        currentHp = Mathf.Min(currentHp + resolvedAmount, maxHp);
         HpChanged?.Invoke(currentHp, maxHp);
+    }
+
+    public void ApplyBattleRuleModifiers(BattleContext context)
+    {
+        battleRuleMoveSpeedMultiplier = context != null
+            ? Mathf.Max(0f, context.PlayerMoveSpeedMultiplier)
+            : 1f;
+        battleRuleHealingMultiplier = context != null
+            ? Mathf.Max(0f, context.HealingMultiplier)
+            : 1f;
+
+        if (shootingSystem != null)
+        {
+            shootingSystem.BattleRuleDamageMultiplier = context != null
+                ? Mathf.Max(0f, context.PlayerDamageMultiplier)
+                : 1f;
+        }
+    }
+
+    public void ClearBattleRuleModifiers()
+    {
+        battleRuleMoveSpeedMultiplier = 1f;
+        battleRuleHealingMultiplier = 1f;
+        if (shootingSystem != null)
+            shootingSystem.BattleRuleDamageMultiplier = 1f;
     }
 
     public void RestoreStamina(float amount)

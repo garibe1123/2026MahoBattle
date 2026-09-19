@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -14,6 +15,7 @@ public enum BattleRunState
     None,
     EnteringNode,
     BuildingRoom,
+    RuleRoulette,
     Combat,
     Reward,
     ExitingRoom, // legacy compatibility; stage-select flow does not use physical room exits.
@@ -49,6 +51,7 @@ public class BattleRunManager : MonoBehaviour
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private FanMissionSystem fanMissionSystem;
     [SerializeField] private PlayerController playerController;
+    [SerializeField] private BattleRuleRouletteController battleRuleRoulette;
 
     [Header("Start Stage Selection")]
     [Tooltip("Run starts on an empty non-combat 4x4 Base and asks the player to click one of the configured start nodes.")]
@@ -68,6 +71,8 @@ public class BattleRunManager : MonoBehaviour
     private readonly List<BattleEquipmentSO> currentRewardChoices = new();
 
     private BattleNodeData currentNode;
+    private BattleRuleSet currentBattleRules;
+    private Coroutine nodeEntryRoutine;
     private BattleContext currentContext;
     private BattleRunState state = BattleRunState.None;
     private bool runActive;
@@ -79,6 +84,7 @@ public class BattleRunManager : MonoBehaviour
 
     public BattleNodeData CurrentNode => currentNode;
     public BattleContext CurrentContext => currentContext;
+    public BattleRuleSet CurrentBattleRules => currentBattleRules;
     public BattleRunState State => state;
     public bool RunActive => runActive;
     public bool WaitingForNodeSelection => state == BattleRunState.SelectingNode;
@@ -91,12 +97,16 @@ public class BattleRunManager : MonoBehaviour
     public BattleSceneManager SceneManager => sceneManager;
     public bool IsInStartArea => startAreaActive;
 
+    public BattleNodeData FindNode(string nodeId) =>
+        nodeGraph != null ? nodeGraph.FindNode(nodeId) : null;
+
     public event Action<BattleRunState> StateChanged;
     public event Action<BattleNodeData> NodeEntered;
     public event Action<IReadOnlyList<BattleNodeData>> NextNodeSelectionRequested;
     public event Action<BattleNodeData> NonCombatNodeEntered;
     public event Action<IReadOnlyList<BattleEquipmentSO>> RewardSelectionRequested;
     public event Action<BattleEquipmentSO> RewardSelected;
+    public event Action<BattleRuleSet> BattleRulesRolled;
     public event Action<RunEndReason> RunEnded;
 
     private void Awake()
@@ -105,6 +115,8 @@ public class BattleRunManager : MonoBehaviour
             sceneManager = FindFirstObjectByType<BattleSceneManager>();
         if (fanMissionSystem == null)
             fanMissionSystem = FindFirstObjectByType<FanMissionSystem>();
+        if (battleRuleRoulette == null)
+            battleRuleRoulette = BattleRuleRouletteController.ResolveOrCreate(this);
         CaptureStartRoomOrigin();
     }
 
@@ -226,6 +238,7 @@ public class BattleRunManager : MonoBehaviour
         nextNodeChoices.Clear();
         currentNode = null;
         currentContext = null;
+        currentBattleRules = null;
         roomStartedWithMonsters = false;
         startAreaActive = false;
         lastEndReason = null;
@@ -233,6 +246,7 @@ public class BattleRunManager : MonoBehaviour
         equipmentSystem.ResetForRun();
         fanMissionSystem?.ResetForRun();
         playerController.ResetForRun();
+        playerController.ClearBattleRuleModifiers();
         progress.BeginRun();
         runActive = true;
 
@@ -514,24 +528,88 @@ public class BattleRunManager : MonoBehaviour
             return;
         }
 
-        roomStartedWithMonsters = false;
-        SetState(BattleRunState.EnteringNode);
-        currentNode = node;
-        currentContext = BuildContext(node);
+        if (nodeEntryRoutine != null)
+        {
+            StopCoroutine(nodeEntryRoutine);
+            nodeEntryRoutine = null;
+        }
 
+        battleRuleRoulette?.CancelPresentation();
+        playerController?.ClearBattleRuleModifiers();
+
+        roomStartedWithMonsters = false;
+        currentNode = node;
+        currentContext = null;
+        currentBattleRules = null;
+
+        bool combatNode = node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite;
+        if (combatNode)
+        {
+            if (node.room == null)
+            {
+                Debug.LogError($"[BattleRun] Combat node '{node.id}' has no RoomDefinitionSO.");
+                EndRun(RunEndReason.Quit);
+                return;
+            }
+
+            if (battleRuleRoulette == null)
+                battleRuleRoulette = BattleRuleRouletteController.ResolveOrCreate(this);
+
+            SetState(BattleRunState.RuleRoulette);
+            nodeEntryRoutine = StartCoroutine(RollBattleRulesThenEnter(node));
+            return;
+        }
+
+        currentContext = BuildContext(node);
+        ContinueNodeEntryAfterRules(node);
+    }
+
+    private IEnumerator RollBattleRulesThenEnter(BattleNodeData node)
+    {
+        int stars = node != null ? node.GetBattleRatingStars() : 1;
+        BattleRuleSet rolled = null;
+
+        if (battleRuleRoulette != null)
+        {
+            yield return battleRuleRoulette.PlayRoulette(
+                stars,
+                result => rolled = result);
+        }
+
+        nodeEntryRoutine = null;
+
+        if (!runActive || node == null || currentNode != node)
+            yield break;
+
+        rolled ??= new BattleRuleSet(stars);
+        currentBattleRules = rolled;
+        currentContext = BuildContext(node);
+        currentContext.ApplyBattleRules(currentBattleRules);
+
+        playerController?.ApplyBattleRuleModifiers(currentContext);
+
+        if (playerController != null && currentBattleRules.PreCombatHealFraction > 0f)
+            playerController.Heal(playerController.MaxHp * currentBattleRules.PreCombatHealFraction);
+
+        BattleRulesRolled?.Invoke(currentBattleRules);
+        ContinueNodeEntryAfterRules(node);
+    }
+
+    private void ContinueNodeEntryAfterRules(BattleNodeData node)
+    {
+        if (!runActive || node == null || currentNode != node)
+            return;
+
+        if (currentContext == null)
+            currentContext = BuildContext(node);
+
+        SetState(BattleRunState.EnteringNode);
         NodeEntered?.Invoke(node);
 
         switch (node.type)
         {
             case BattleNodeType.Combat:
             case BattleNodeType.Elite:
-                if (node.room == null)
-                {
-                    Debug.LogError($"[BattleRun] Combat node '{node.id}' has no RoomDefinitionSO.");
-                    EndRun(RunEndReason.Quit);
-                    return;
-                }
-
                 SetState(BattleRunState.BuildingRoom);
                 AlignRoomOriginToPersistentBase();
 
@@ -579,6 +657,10 @@ public class BattleRunManager : MonoBehaviour
             depthDamage,
             nodeHp,
             nodeDamage);
+
+        if (currentBattleRules != null)
+            context.ApplyBattleRules(currentBattleRules);
+
         return context;
     }
 
@@ -604,6 +686,8 @@ public class BattleRunManager : MonoBehaviour
             SetState(BattleRunState.Combat);
             return;
         }
+
+        playerController?.ClearBattleRuleModifiers();
 
         currentRewardChoices.Clear();
         List<BattleEquipmentSO> generated = rewardSystem.GenerateChoices(shootingTheme);
@@ -637,10 +721,14 @@ public class BattleRunManager : MonoBehaviour
         if (!runActive || monster == null)
             return;
 
-        int point = monster.Definition != null
+        int basePoint = monster.Definition != null
             ? Mathf.Max(0, monster.Definition.killPointReward)
             : 1;
-        progress?.AddMonsterKillPoints(point);
+        float multiplier = currentContext != null
+            ? Mathf.Max(0f, currentContext.KillPointMultiplier)
+            : 1f;
+        int resolvedPoint = Mathf.Max(0, Mathf.RoundToInt(basePoint * multiplier));
+        progress?.AddMonsterKillPoints(resolvedPoint);
     }
 
     // Legacy compatibility only. The stage-select flow never opens a physical room exit.
@@ -687,6 +775,14 @@ public class BattleRunManager : MonoBehaviour
         lastEndReason = reason;
         currentRewardChoices.Clear();
         nextNodeChoices.Clear();
+
+        if (nodeEntryRoutine != null)
+        {
+            StopCoroutine(nodeEntryRoutine);
+            nodeEntryRoutine = null;
+        }
+        battleRuleRoulette?.CancelPresentation();
+        playerController?.ClearBattleRuleModifiers();
 
         // Clear는 논리 Run 종료와 물리 Stage 수거를 분리합니다.
         // 전투가 정상 클리어된 Room은 StageFlow가 Player 주변 4x4만 승격하고 나머지 Piece를

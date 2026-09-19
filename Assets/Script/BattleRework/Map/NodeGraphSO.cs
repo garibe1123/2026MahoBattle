@@ -27,6 +27,21 @@ public class BattleNodeData
     [Header("Combat Room")]
     public RoomDefinitionSO room;
 
+    [Header("Battle Rating")]
+    [Tooltip("0이면 depth와 node type으로 자동 계산합니다. 실제 전투 표시는 항상 1~5성입니다.")]
+    [Range(0, 5)] public int battleRatingStars;
+
+    public int GetBattleRatingStars()
+    {
+        if (battleRatingStars > 0)
+            return Mathf.Clamp(battleRatingStars, 1, 5);
+
+        int automatic = depth + 1;
+        if (type == BattleNodeType.Elite)
+            automatic += 1;
+        return Mathf.Clamp(automatic, 1, 5);
+    }
+
     [Header("Branch")]
     public List<string> nextNodeIds = new();
 }
