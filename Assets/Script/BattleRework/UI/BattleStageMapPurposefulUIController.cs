@@ -385,6 +385,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                        rect.name == $"StageNode_{runManager.CurrentNode.id}";
 
         Color accent = elite ? accentPink : accentYellow;
+        string nodeLabel = BuildNodeLabel(rect, label != null ? label.text : string.Empty);
 
         if (selectable)
         {
@@ -392,15 +393,18 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             image.color = inkColor;
             outline.effectColor = accent;
             outline.effectDistance = new Vector2(3f, -3f);
-            rect.sizeDelta = Vector2.one * (elite ? eliteNodeSize : selectableNodeSize);
+            float resolvedSize = elite
+                ? Mathf.Max(70f, eliteNodeSize)
+                : Mathf.Max(64f, selectableNodeSize);
+            rect.sizeDelta = Vector2.one * resolvedSize;
             button.transition = Selectable.Transition.None;
             image.raycastTarget = true;
 
             if (label != null)
             {
-                label.text = ExtractNodeType(label.text);
+                label.text = nodeLabel;
                 label.fontStyle = FontStyle.Bold;
-                label.fontSize = 10;
+                label.fontSize = 9;
                 label.color = paperColor;
             }
 
@@ -419,7 +423,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
             if (label != null)
             {
-                label.text = ExtractNodeType(label.text);
+                label.text = nodeLabel;
                 label.color = accentCyan;
                 label.fontStyle = FontStyle.Bold;
                 label.fontSize = 10;
@@ -434,7 +438,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
             if (label != null)
             {
-                label.text = ExtractNodeType(label.text);
+                label.text = nodeLabel;
                 label.color = mutedColor;
                 label.fontStyle = FontStyle.Normal;
                 label.fontSize = 9;
@@ -474,7 +478,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             hit.transform.SetAsLastSibling();
         }
 
-        hitRect.sizeDelta = Vector2.one * Mathf.Max(56f, pointerHitSize);
+        hitRect.sizeDelta = Vector2.one * Mathf.Max(104f, pointerHitSize);
         if (hitImage != null)
             hitImage.raycastTarget = true;
 
@@ -525,6 +529,34 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.alignment = TextAnchor.MiddleRight;
         text.color = accentCyan;
         text.raycastTarget = false;
+    }
+
+    private string BuildNodeLabel(RectTransform rect, string source)
+    {
+        string typeName = ExtractNodeType(source);
+        BattleNodeData node = ResolveNodeData(rect);
+        if (node == null || (node.type != BattleNodeType.Combat && node.type != BattleNodeType.Elite))
+            return typeName;
+
+        return typeName + "\n" + BuildStars(node.GetBattleRatingStars());
+    }
+
+    private BattleNodeData ResolveNodeData(RectTransform rect)
+    {
+        if (runManager == null || rect == null)
+            return null;
+
+        const string prefix = "StageNode_";
+        if (!rect.name.StartsWith(prefix, System.StringComparison.Ordinal))
+            return null;
+
+        return runManager.FindNode(rect.name.Substring(prefix.Length));
+    }
+
+    private static string BuildStars(int stars)
+    {
+        stars = Mathf.Clamp(stars, 1, 5);
+        return new string('★', stars) + new string('☆', 5 - stars);
     }
 
     private static string ExtractNodeType(string source)
@@ -852,9 +884,9 @@ internal sealed class BattleStageMapNodePointerFeedback :
             return "STAGE";
 
         string normalized = source.Replace("\r", string.Empty);
-        int newline = normalized.IndexOf('\n');
-        if (newline >= 0)
-            normalized = normalized.Substring(0, newline);
+        int selectLine = normalized.IndexOf("\nSELECT", System.StringComparison.OrdinalIgnoreCase);
+        if (selectLine >= 0)
+            normalized = normalized.Substring(0, selectLine);
 
         return normalized.Trim().ToUpperInvariant();
     }

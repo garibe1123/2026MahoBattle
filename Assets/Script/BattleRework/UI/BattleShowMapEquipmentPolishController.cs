@@ -356,14 +356,40 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (label != null)
         {
             string typeName = type.ToString().ToUpperInvariant();
-            label.text = hovered ? typeName + "\nSELECT" : typeName;
+            string rating = ResolveBattleRatingText(node, type);
+            string baseLabel = string.IsNullOrEmpty(rating)
+                ? typeName
+                : typeName + "\n" + rating;
+
+            label.text = hovered ? baseLabel + "\nSELECT" : baseLabel;
             label.fontStyle = selectable || current ? FontStyle.Bold : FontStyle.Normal;
+            label.fontSize = string.IsNullOrEmpty(rating) ? 10 : 9;
             label.color = hovered
                 ? inkColor
                 : current
                     ? shopColor
                     : selectable ? paperColor : mutedColor;
         }
+    }
+
+    private string ResolveBattleRatingText(RectTransform nodeRect, BattleNodeType type)
+    {
+        if (runManager == null || nodeRect == null ||
+            (type != BattleNodeType.Combat && type != BattleNodeType.Elite))
+        {
+            return string.Empty;
+        }
+
+        const string prefix = "StageNode_";
+        if (!nodeRect.name.StartsWith(prefix, System.StringComparison.Ordinal))
+            return string.Empty;
+
+        BattleNodeData node = runManager.FindNode(nodeRect.name.Substring(prefix.Length));
+        if (node == null)
+            return string.Empty;
+
+        int stars = node.GetBattleRatingStars();
+        return new string('★', stars) + new string('☆', 5 - stars);
     }
 
     private void EnsureNodeIcon(RectTransform node)
