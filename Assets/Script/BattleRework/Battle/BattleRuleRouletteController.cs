@@ -141,6 +141,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Text spinButtonText;
     private Button spinButton;
     private bool cancelRequested;
+    private bool startBattleConfirmed;
 
     public IReadOnlyList<BattleRuleDefinition> Rules => rules;
     public RectTransform MachineTab => machineTab;
@@ -174,6 +175,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     public void CancelPresentation()
     {
         cancelRequested = true;
+        startBattleConfirmed = false;
+        SetSpinButtonInteractable(false);
+
         if (uiRoot != null)
             uiRoot.SetActive(false);
     }
@@ -181,6 +185,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     public IEnumerator PlayRoulette(int requestedStars, Action<BattleRuleSet> onComplete)
     {
         cancelRequested = false;
+        startBattleConfirmed = false;
+
         EnsureDefaultRules();
         EnsureUi();
 
@@ -191,6 +197,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         ApplyOptionalArt();
         SetTabsForIntro();
         SetRating(stars);
+        SetSpinButtonInteractable(false);
 
         ratingText.text = $"BATTLE RATING\n{BuildStars(stars)}";
         progressText.text = "RULE ROULETTE";
@@ -202,6 +209,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (ratingIntroDuration > 0f)
             yield return new WaitForSecondsRealtime(ratingIntroDuration);
 
+        // 룰 추첨 자체는 전부 자동으로 진행합니다.
         for (int i = 0; i < result.SelectedRules.Count; i++)
         {
             if (cancelRequested)
@@ -229,9 +237,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             reelText.text = selected.displayName.ToUpperInvariant();
             ShowWinningRule(selected);
             summaryText.text = BuildSummary(result, i + 1);
+
             SetTabVisible(winningRuleTab, true);
             SetTabVisible(resultListTab, true);
-            SetSpinButtonLabel(i + 1 < result.SelectedRules.Count ? "NEXT SPIN" : "LOCK");
+
+            SetSpinButtonLabel(
+                i + 1 < result.SelectedRules.Count
+                    ? "NEXT SPIN"
+                    : "CHECK RULES");
 
             if (revealDurationPerRule > 0f)
                 yield return new WaitForSecondsRealtime(revealDurationPerRule);
@@ -240,16 +253,36 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (cancelRequested)
             yield break;
 
+        // 최종 결과를 모두 보여준 뒤에는 자동으로 전투를 시작하지 않습니다.
+        // 플레이어가 내용을 확인하고 START BATTLE 버튼을 눌러야 다음 단계로 넘어갑니다.
         progressText.text = "THIS BATTLE";
         reelText.text = $"{BuildStars(stars)}\nRULES LOCKED";
         reelText.color = Color.white;
         summaryText.text = BuildSummary(result, result.SelectedRules.Count);
+
         SetTabVisible(winningRuleTab, false);
         SetTabVisible(resultListTab, true);
-        SetSpinButtonLabel("RULES LOCKED");
+        SetTabVisible(controlTab, true);
 
+        SetSpinButtonLabel("START BATTLE");
+        SetSpinButtonInteractable(true);
+
+        while (!startBattleConfirmed)
+        {
+            if (cancelRequested)
+            {
+                SetSpinButtonInteractable(false);
+                yield break;
+            }
+
+            yield return null;
+        }
+
+        SetSpinButtonInteractable(false);
+
+        // 버튼 입력 직후 약간의 확인 템포만 둡니다.
         if (summaryDuration > 0f)
-            yield return new WaitForSecondsRealtime(summaryDuration);
+            yield return new WaitForSecondsRealtime(Mathf.Min(summaryDuration, 0.18f));
 
         if (uiRoot != null)
             uiRoot.SetActive(false);
@@ -571,7 +604,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         summaryText.color = new Color(0.86f, 0.84f, 0.76f, 1f);
         SetRect(summaryText.rectTransform, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.92f));
 
-        // ControlTab: 버튼만 담당. 현재 룰렛은 자동 진행이므로 버튼은 시각용/애니메이션 슬롯으로 유지합니다.
+        // ControlTab: 추첨은 자동이지만 최종 전투 진입은 플레이어 확인 버튼으로만 진행합니다.
         RectTransform buttonRect = CreateRect(controlTab, "RuleSpinButton");
         buttonRect.anchorMin = buttonRect.anchorMax = new Vector2(0.5f, 0.5f);
         buttonRect.pivot = new Vector2(0.5f, 0.5f);
@@ -580,11 +613,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         spinButtonImage = buttonRect.gameObject.AddComponent<Image>();
         spinButtonImage.color = new Color(0.92f, 0.25f, 0.12f, 1f);
-        spinButtonImage.raycastTarget = false;
+        spinButtonImage.raycastTarget = true;
 
         spinButton = buttonRect.gameObject.AddComponent<Button>();
         spinButton.interactable = false;
         spinButton.transition = Selectable.Transition.None;
+        spinButton.onClick.AddListener(ConfirmStartBattle);
 
         spinButtonText = CreateText(buttonRect, "Label", 24, FontStyle.Bold, TextAnchor.MiddleCenter);
         Stretch(spinButtonText.rectTransform);
@@ -734,6 +768,43 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         if (spinButtonText != null)
             spinButtonText.text = label ?? string.Empty;
+    }
+
+    private void SetSpinButtonInteractable(bool interactable)
+    {
+        if (spinButton == null)
+            return;
+
+        spinButton.interactable = interactable;
+
+        if (spinButtonImage != null)
+        {
+            spinButtonImage.raycastTarget = interactable;
+            spinButtonImage.color = interactable
+                ? (spinButtonSprite != null
+                    ? Color.white
+                    : new Color(0.92f, 0.25f, 0.12f, 1f))
+                : (spinButtonSprite != null
+                    ? new Color(1f, 1f, 1f, 0.45f)
+                    : new Color(0.34f, 0.20f, 0.18f, 0.82f));
+        }
+
+        if (spinButtonText != null)
+        {
+            spinButtonText.color = interactable
+                ? Color.white
+                : new Color(1f, 1f, 1f, 0.50f);
+        }
+    }
+
+    private void ConfirmStartBattle()
+    {
+        if (cancelRequested || spinButton == null || !spinButton.interactable)
+            return;
+
+        startBattleConfirmed = true;
+        SetSpinButtonInteractable(false);
+        SetSpinButtonLabel("STARTING");
     }
 
     private static RectTransform CreateRect(Transform parent, string name)
