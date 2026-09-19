@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 public enum BattleRulePolarity
@@ -121,6 +122,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(48f)] private float ruleSlotSize = 104f;
     [SerializeField, Min(0f)] private float ruleSlotSpacing = 14f;
 
+    [Header("Combat HUD Transition")]
+    [SerializeField, Min(0.05f)] private float hudTransitionDuration = 0.28f;
+    [SerializeField, Range(0.45f, 1f)] private float combatHudScale = 0.72f;
+    [SerializeField] private Vector2 combatHudMargin = new(42f, 38f);
+    [SerializeField, Range(1f, 1.35f)] private float ruleHoverScale = 1.14f;
+
     private GameObject uiRoot;
     private RectTransform machineTab;
     private RectTransform winningRuleTab;
@@ -139,8 +146,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Text spinButtonText;
     private Button spinButton;
     private Image spinButtonImage;
+    private Image backdropImage;
+    private BattleRuleDefinition lastRevealedRule;
     private bool cancelRequested;
     private bool startBattleConfirmed;
+    private bool combatHudMode;
 
     private sealed class RuleSlotView
     {
@@ -148,6 +158,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         public Image frame;
         public Image icon;
         public Text fallbackLabel;
+        public BattleRuleSlotPointerFeedback pointerFeedback;
     }
 
     public IReadOnlyList<BattleRuleDefinition> Rules => rules;
@@ -183,6 +194,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         cancelRequested = true;
         startBattleConfirmed = false;
+        combatHudMode = false;
+        lastRevealedRule = null;
         SetSpinButtonInteractable(false);
 
         if (uiRoot != null)
@@ -201,6 +214,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         BattleRuleSet result = Roll(stars);
 
         uiRoot.SetActive(true);
+        ResetPresentationLayout();
         SetRating(stars);
         BuildRuleSlots(stars);
         ClearWinningRule();
@@ -268,11 +282,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         SetSpinButtonInteractable(false);
 
-        if (summaryDuration > 0f)
-            yield return new WaitForSecondsRealtime(Mathf.Min(summaryDuration, 0.18f));
-
-        if (uiRoot != null)
-            uiRoot.SetActive(false);
+        // 결과 아이콘은 꺼버리지 않고 좌측 상단 HUD로 자연스럽게 이동시킵니다.
+        yield return TransitionToCombatHud();
 
         onComplete?.Invoke(result);
     }
@@ -505,7 +516,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         RectTransform backdrop = CreateRect(uiRoot.transform, "Backdrop");
         Stretch(backdrop);
 
-        Image backdropImage = backdrop.gameObject.AddComponent<Image>();
+        backdropImage = backdrop.gameObject.AddComponent<Image>();
         backdropImage.color = new Color(0f, 0f, 0f, 0.68f);
         backdropImage.raycastTarget = true;
 
@@ -526,6 +537,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             "WinningRuleTab",
             new Vector2(0.5f, 0.36f),
             new Vector2(620f, 100f));
+
+        Image detailBar = winningRuleTab.gameObject.AddComponent<Image>();
+        detailBar.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
+        detailBar.raycastTarget = false;
 
         controlTab = CreateBareTab(
             backdrop,
@@ -635,7 +650,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             frame.color = ruleSlotFrameSprite != null
                 ? Color.white
                 : new Color(0.08f, 0.085f, 0.11f, 0.98f);
-            frame.raycastTarget = false;
+            frame.raycastTarget = true;
+
+            BattleRuleSlotPointerFeedback pointerFeedback =
+                root.gameObject.AddComponent<BattleRuleSlotPointerFeedback>();
+            pointerFeedback.Configure(this, root);
 
             RectTransform iconRect = CreateRect(root, "Icon");
             iconRect.anchorMin = new Vector2(0.16f, 0.16f);
@@ -658,7 +677,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 root = root,
                 frame = frame,
                 icon = icon,
-                fallbackLabel = fallbackLabel
+                fallbackLabel = fallbackLabel,
+                pointerFeedback = pointerFeedback
             });
         }
     }
@@ -705,6 +725,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                     : Color.white;
             }
         }
+
+        if (!previewOnly && view.pointerFeedback != null)
+            view.pointerFeedback.Bind(rule);
     }
 
     private static string ShortRuleLabel(string source)
@@ -778,6 +801,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (rule == null)
             return;
 
+        lastRevealedRule = rule;
         Color color = GetPolarityColor(rule.polarity);
 
         if (winningRuleTypeText != null)
@@ -797,6 +821,202 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             winningRuleDescriptionText.text = rule.description;
             winningRuleDescriptionText.color = new Color(0.86f, 0.84f, 0.76f, 1f);
         }
+    }
+
+    private void ResetPresentationLayout()
+    {
+        combatHudMode = false;
+        lastRevealedRule = null;
+
+        if (backdropImage != null)
+        {
+            backdropImage.color = new Color(0f, 0f, 0f, 0.68f);
+            backdropImage.raycastTarget = true;
+        }
+
+        if (machineTab != null)
+        {
+            machineTab.gameObject.SetActive(true);
+            machineTab.localScale = Vector3.one;
+        }
+
+        if (controlTab != null)
+        {
+            controlTab.gameObject.SetActive(true);
+            controlTab.localScale = Vector3.one;
+        }
+
+        if (resultListTab != null)
+        {
+            resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0.5f, 0.53f);
+            resultListTab.pivot = new Vector2(0.5f, 0.5f);
+            resultListTab.anchoredPosition = Vector2.zero;
+            resultListTab.sizeDelta = new Vector2(680f, Mathf.Max(48f, ruleSlotSize));
+            resultListTab.localScale = Vector3.one;
+
+            HorizontalLayoutGroup layout = resultListTab.GetComponent<HorizontalLayoutGroup>();
+            if (layout != null)
+            {
+                layout.spacing = Mathf.Max(0f, ruleSlotSpacing);
+                layout.childAlignment = TextAnchor.MiddleCenter;
+            }
+        }
+
+        if (winningRuleTab != null)
+        {
+            winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.36f);
+            winningRuleTab.pivot = new Vector2(0.5f, 0.5f);
+            winningRuleTab.anchoredPosition = Vector2.zero;
+            winningRuleTab.sizeDelta = new Vector2(620f, 100f);
+            winningRuleTab.localScale = Vector3.one;
+            winningRuleTab.gameObject.SetActive(true);
+        }
+    }
+
+    private IEnumerator TransitionToCombatHud()
+    {
+        if (resultListTab == null || winningRuleTab == null)
+            yield break;
+
+        combatHudMode = true;
+
+        int count = Mathf.Max(1, ruleSlotViews.Count);
+        float activeWidth =
+            count * Mathf.Max(48f, ruleSlotSize) +
+            Mathf.Max(0, count - 1) * Mathf.Max(0f, ruleSlotSpacing);
+        float targetScale = Mathf.Clamp(combatHudScale, 0.45f, 1f);
+
+        Vector2 resultTargetSize = new(activeWidth, Mathf.Max(48f, ruleSlotSize));
+        Vector2 detailTargetSize = new(Mathf.Max(340f, activeWidth), 86f);
+
+        RectTransform backdrop = resultListTab.parent as RectTransform;
+        if (backdrop == null)
+            yield break;
+
+        HorizontalLayoutGroup layout = resultListTab.GetComponent<HorizontalLayoutGroup>();
+        if (layout != null)
+            layout.childAlignment = TextAnchor.MiddleLeft;
+
+        Vector3 startResultWorld = resultListTab.position;
+        Vector3 startDetailWorld = winningRuleTab.position;
+        Vector3 startResultScale = resultListTab.localScale;
+        Vector3 startDetailScale = winningRuleTab.localScale;
+
+        Vector2 resultTargetLocal = new(
+            -backdrop.rect.width * 0.5f +
+            Mathf.Max(0f, combatHudMargin.x) +
+            resultTargetSize.x * targetScale * 0.5f,
+            backdrop.rect.height * 0.5f -
+            Mathf.Max(0f, combatHudMargin.y) -
+            resultTargetSize.y * targetScale * 0.5f);
+
+        Vector2 detailTargetLocal = new(
+            -backdrop.rect.width * 0.5f +
+            Mathf.Max(0f, combatHudMargin.x) +
+            detailTargetSize.x * targetScale * 0.5f,
+            backdrop.rect.height * 0.5f -
+            Mathf.Max(0f, combatHudMargin.y) -
+            resultTargetSize.y * targetScale -
+            12f -
+            detailTargetSize.y * targetScale * 0.5f);
+
+        Vector3 resultTargetWorld = backdrop.TransformPoint(resultTargetLocal);
+        Vector3 detailTargetWorld = backdrop.TransformPoint(detailTargetLocal);
+        Color backdropStart = backdropImage != null
+            ? backdropImage.color
+            : Color.clear;
+
+        float duration = Mathf.Max(0.05f, hudTransitionDuration);
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float eased = 1f - Mathf.Pow(1f - t, 3f);
+
+            resultListTab.position = Vector3.Lerp(startResultWorld, resultTargetWorld, eased);
+            winningRuleTab.position = Vector3.Lerp(startDetailWorld, detailTargetWorld, eased);
+            resultListTab.localScale = Vector3.Lerp(
+                startResultScale,
+                Vector3.one * targetScale,
+                eased);
+            winningRuleTab.localScale = Vector3.Lerp(
+                startDetailScale,
+                Vector3.one * targetScale,
+                eased);
+
+            if (backdropImage != null)
+            {
+                Color faded = backdropStart;
+                faded.a = Mathf.Lerp(backdropStart.a, 0f, eased);
+                backdropImage.color = faded;
+            }
+
+            yield return null;
+        }
+
+        // 해상도가 바뀌어도 좌측 상단 여백을 유지하도록 최종 Anchor를 고정합니다.
+        resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0f, 1f);
+        resultListTab.pivot = new Vector2(0.5f, 0.5f);
+        resultListTab.sizeDelta = resultTargetSize;
+        resultListTab.localScale = Vector3.one * targetScale;
+        resultListTab.anchoredPosition = new Vector2(
+            Mathf.Max(0f, combatHudMargin.x) + resultTargetSize.x * targetScale * 0.5f,
+            -Mathf.Max(0f, combatHudMargin.y) - resultTargetSize.y * targetScale * 0.5f);
+
+        winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0f, 1f);
+        winningRuleTab.pivot = new Vector2(0.5f, 0.5f);
+        winningRuleTab.sizeDelta = detailTargetSize;
+        winningRuleTab.localScale = Vector3.one * targetScale;
+        winningRuleTab.anchoredPosition = new Vector2(
+            Mathf.Max(0f, combatHudMargin.x) + detailTargetSize.x * targetScale * 0.5f,
+            -Mathf.Max(0f, combatHudMargin.y) -
+            resultTargetSize.y * targetScale -
+            12f -
+            detailTargetSize.y * targetScale * 0.5f);
+
+        if (machineTab != null)
+            machineTab.gameObject.SetActive(false);
+        if (controlTab != null)
+            controlTab.gameObject.SetActive(false);
+
+        if (backdropImage != null)
+        {
+            backdropImage.color = Color.clear;
+            backdropImage.raycastTarget = false;
+        }
+
+        SetHoverDetailPrompt();
+    }
+
+    private void SetHoverDetailPrompt()
+    {
+        if (winningRuleTypeText != null)
+            winningRuleTypeText.text = string.Empty;
+        if (winningRuleNameText != null)
+            winningRuleNameText.text = "RULE DETAILS";
+        if (winningRuleDescriptionText != null)
+            winningRuleDescriptionText.text = "Hover a rule icon to view its effect.";
+    }
+
+    internal float GetRuleHoverScale() => Mathf.Max(1f, ruleHoverScale);
+
+    internal void HandleRuleSlotPointerEnter(BattleRuleDefinition rule)
+    {
+        if (rule != null)
+            ShowWinningRule(rule);
+    }
+
+    internal void HandleRuleSlotPointerExit(BattleRuleDefinition rule)
+    {
+        if (combatHudMode)
+        {
+            SetHoverDetailPrompt();
+            return;
+        }
+
+        if (lastRevealedRule != null)
+            ShowWinningRule(lastRevealedRule);
     }
 
     private void SetSpinButtonLabel(string label)
@@ -935,5 +1155,65 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             BattleRulePolarity.Mixed => new Color(1f, 0.80f, 0.10f, 1f),
             _ => new Color(0.30f, 0.82f, 1f, 1f)
         };
+    }
+}
+
+public sealed class BattleRuleSlotPointerFeedback :
+    MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler
+{
+    private BattleRuleRouletteController owner;
+    private RectTransform root;
+    private BattleRuleDefinition rule;
+    private bool hovered;
+
+    public void Configure(BattleRuleRouletteController controller, RectTransform targetRoot)
+    {
+        owner = controller;
+        root = targetRoot;
+    }
+
+    public void Bind(BattleRuleDefinition boundRule)
+    {
+        rule = boundRule;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        if (rule == null)
+            return;
+
+        hovered = true;
+        owner?.HandleRuleSlotPointerEnter(rule);
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        hovered = false;
+        owner?.HandleRuleSlotPointerExit(rule);
+    }
+
+    private void Update()
+    {
+        if (root == null)
+            return;
+
+        float target = hovered && rule != null && owner != null
+            ? owner.GetRuleHoverScale()
+            : 1f;
+
+        float blend = 1f - Mathf.Exp(-18f * Time.unscaledDeltaTime);
+        root.localScale = Vector3.Lerp(
+            root.localScale,
+            Vector3.one * target,
+            blend);
+    }
+
+    private void OnDisable()
+    {
+        hovered = false;
+        if (root != null)
+            root.localScale = Vector3.one;
     }
 }

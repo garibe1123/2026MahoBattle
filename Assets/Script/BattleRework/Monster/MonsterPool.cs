@@ -50,6 +50,7 @@ public class MonsterPool : MonoBehaviour
 
     private Coroutine batchRoutine;
     private bool initialized;
+    private bool hierarchyDisabling;
 
     public bool ValidateConfiguration(out string report)
     {
@@ -69,8 +70,17 @@ public class MonsterPool : MonoBehaviour
         spawnValidationPath = new NavMeshPath();
     }
 
+    private void OnEnable()
+    {
+        hierarchyDisabling = false;
+    }
+
     private void OnDisable()
     {
+        // Unity forbids Transform.SetParent while this parent hierarchy is in the middle of
+        // activation/deactivation. Pending objects are already deactivated below, so only the
+        // ownership bookkeeping needs to complete during this callback.
+        hierarchyDisabling = true;
         CancelAllPendingSpawns();
     }
 
@@ -380,7 +390,14 @@ public class MonsterPool : MonoBehaviour
             return;
 
         warning.SetActive(false);
-        warning.transform.SetParent(transform, false);
+
+        if (!hierarchyDisabling &&
+            gameObject.activeInHierarchy &&
+            warning.transform.parent != transform)
+        {
+            warning.transform.SetParent(transform, false);
+        }
+
         warningPool.Enqueue(warning);
     }
 
@@ -479,7 +496,16 @@ public class MonsterPool : MonoBehaviour
 
         monster.PrepareForPool();
         monster.gameObject.SetActive(false);
-        monster.transform.SetParent(transform);
+
+        // Most pooled monsters are already children of MonsterRoot. Never reparent while
+        // MonsterRoot itself is being disabled; Unity rejects that operation during OnDisable.
+        if (!hierarchyDisabling &&
+            gameObject.activeInHierarchy &&
+            monster.transform.parent != transform)
+        {
+            monster.transform.SetParent(transform, false);
+        }
+
         pool.Enqueue(monster);
     }
 
