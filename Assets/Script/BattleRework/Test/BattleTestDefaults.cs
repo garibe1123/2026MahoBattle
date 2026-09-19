@@ -36,39 +36,50 @@ public static class BattleTestDefaults
     private static bool busy;
 
 #if UNITY_EDITOR
-    private static double nextEditorCheck;
+    private static bool editorEnsureQueued;
 
     [InitializeOnLoadMethod]
     private static void InitializeEditorWatcher()
     {
-        EditorApplication.update -= EditorTick;
-        EditorApplication.update += EditorTick;
         EditorApplication.hierarchyChanged -= ScheduleSoon;
         EditorApplication.hierarchyChanged += ScheduleSoon;
-        EditorApplication.delayCall += EnsureEditorDefaults;
+        ScheduleSoon();
     }
 
     private static void ScheduleSoon()
     {
-        nextEditorCheck = 0d;
+        if (EditorApplication.isPlayingOrWillChangePlaymode || editorEnsureQueued)
+            return;
+
+        editorEnsureQueued = true;
+        EditorApplication.delayCall += RunQueuedEditorDefaults;
     }
 
-    private static void EditorTick()
+    private static void RunQueuedEditorDefaults()
     {
-        if (EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
+        editorEnsureQueued = false;
 
-        if (EditorApplication.timeSinceStartup < nextEditorCheck)
+        // Asset creation is owned by the import-safe migration while Unity is compiling/importing.
+        // Do not spin an EditorApplication.update watcher here.
+        if (EditorApplication.isPlayingOrWillChangePlaymode ||
+            EditorApplication.isCompiling ||
+            EditorApplication.isUpdating)
+        {
             return;
+        }
 
-        nextEditorCheck = EditorApplication.timeSinceStartup + 0.8d;
         EnsureEditorDefaults();
     }
 
     private static void EnsureEditorDefaults()
     {
-        if (busy || EditorApplication.isPlayingOrWillChangePlaymode)
+        if (busy ||
+            EditorApplication.isPlayingOrWillChangePlaymode ||
+            EditorApplication.isCompiling ||
+            EditorApplication.isUpdating)
+        {
             return;
+        }
 
         BattleSceneManager[] managers = Resources.FindObjectsOfTypeAll<BattleSceneManager>();
         bool anyNeedsDefaults = false;
@@ -437,7 +448,7 @@ public static class BattleTestDefaults
         ConfigureRoom(roomElite, "TEST_ROOM_ELITE", mapBlock, exitBlock, melee, ranged, elite, 2);
 
         NodeGraphSO graph = GetOrCreateAsset<NodeGraphSO>("TEST_NodeGraph.asset");
-        ConfigureGraph(graph, roomA, roomB, roomElite);
+        ConfigureGeneratedTestGraph(graph, roomA, roomB, roomElite);
 
         ClanDefinitionSO clan = GetOrCreateAsset<ClanDefinitionSO>("TEST_Clan.asset");
         clan.clanId = "TEST_DEFAULT_CLAN";
@@ -808,44 +819,109 @@ public static class BattleTestDefaults
         return placements;
     }
 
-    private static void ConfigureGraph(
+    internal static void ConfigureGeneratedTestGraph(
         NodeGraphSO graph,
         RoomDefinitionSO roomA,
         RoomDefinitionSO roomB,
         RoomDefinitionSO roomElite)
     {
-        graph.startNodeId = "TEST_A";
+        if (graph == null)
+            return;
+
+        graph.startNodeId = "TEST_A_LEFT";
+        graph.startNodeIds = new List<string>
+        {
+            "TEST_A_LEFT",
+            "TEST_B_RIGHT"
+        };
+
         graph.nodes = new List<BattleNodeData>
         {
-            new()
-            {
-                id = "TEST_A",
-                type = BattleNodeType.Combat,
-                depth = 0,
-                room = roomA,
-                isTerminal = false,
-                nextNodeIds = new List<string> { "TEST_B" }
-            },
-            new()
-            {
-                id = "TEST_B",
-                type = BattleNodeType.Combat,
-                depth = 1,
-                room = roomB,
-                isTerminal = false,
-                nextNodeIds = new List<string> { "TEST_ELITE" }
-            },
-            new()
-            {
-                id = "TEST_ELITE",
-                type = BattleNodeType.Elite,
-                depth = 2,
-                room = roomElite,
-                isTerminal = true,
-                nextNodeIds = new List<string>()
-            }
+            MakeGeneratedNode(
+                "TEST_A_LEFT",
+                BattleNodeType.Combat,
+                0,
+                roomA,
+                false,
+                -1,
+                "TEST_A_MID",
+                "TEST_ELITE_MID"),
+            MakeGeneratedNode(
+                "TEST_B_RIGHT",
+                BattleNodeType.Combat,
+                0,
+                roomB,
+                false,
+                1,
+                "TEST_B_MID",
+                "TEST_ELITE_MID"),
+
+            MakeGeneratedNode(
+                "TEST_A_MID",
+                BattleNodeType.Combat,
+                1,
+                roomA,
+                false,
+                -1,
+                "TEST_FINAL_A",
+                "TEST_FINAL_ELITE"),
+            MakeGeneratedNode(
+                "TEST_ELITE_MID",
+                BattleNodeType.Elite,
+                1,
+                roomElite,
+                false,
+                0,
+                "TEST_FINAL_ELITE"),
+            MakeGeneratedNode(
+                "TEST_B_MID",
+                BattleNodeType.Combat,
+                1,
+                roomB,
+                false,
+                1,
+                "TEST_FINAL_A",
+                "TEST_FINAL_ELITE"),
+
+            MakeGeneratedNode(
+                "TEST_FINAL_A",
+                BattleNodeType.Combat,
+                2,
+                roomB,
+                true,
+                -1),
+            MakeGeneratedNode(
+                "TEST_FINAL_ELITE",
+                BattleNodeType.Elite,
+                2,
+                roomElite,
+                true,
+                1)
         };
+
         Dirty(graph);
+    }
+
+    private static BattleNodeData MakeGeneratedNode(
+        string id,
+        BattleNodeType type,
+        int depth,
+        RoomDefinitionSO room,
+        bool terminal,
+        int lane,
+        params string[] next)
+    {
+        return new BattleNodeData
+        {
+            id = id,
+            type = type,
+            depth = depth,
+            room = room,
+            isTerminal = terminal,
+            useExplicitMapPosition = true,
+            mapPosition = new Vector2Int(lane, 0),
+            nextNodeIds = next != null ? new List<string>(next) : new List<string>()
+        };
     }
 
     private static GameObject BuildOrRefreshMapBlockPrefab(Sprite sprite, bool exitPad)

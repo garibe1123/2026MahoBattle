@@ -268,28 +268,54 @@ internal static class BattleTestGeneratedPrefabMigration
                 Debug.Log(
                     "[BattleTestDefaults] Removed unreadable generated TEST_NodeGraph.asset. " +
                     "It will be recreated from the current schema.");
+                return true;
             }
+
             return false;
         }
 
-        bool changed = graph.startNodeId != "TEST_A" ||
-                       graph.startNodeIds == null ||
-                       graph.startNodeIds.Count != 1 ||
-                       graph.startNodeIds[0] != "TEST_A";
+        RoomDefinitionSO roomA = AssetDatabase.LoadAssetAtPath<RoomDefinitionSO>(GeneratedRoomAPath);
+        RoomDefinitionSO roomB = AssetDatabase.LoadAssetAtPath<RoomDefinitionSO>(GeneratedRoomBPath);
+        RoomDefinitionSO roomElite = AssetDatabase.LoadAssetAtPath<RoomDefinitionSO>(GeneratedRoomElitePath);
 
-        if (!changed)
+        if (roomA == null || roomB == null || roomElite == null)
             return false;
 
-        graph.startNodeIds ??= new List<string>();
-        graph.startNodeIds.Clear();
-        graph.startNodeIds.Add("TEST_A");
-        graph.startNodeId = "TEST_A";
+        if (GeneratedNodeGraphIsReady(graph))
+            return false;
+
+        BattleTestDefaults.ConfigureGeneratedTestGraph(graph, roomA, roomB, roomElite);
         EditorUtility.SetDirty(graph);
 
         Debug.Log(
-            "[BattleTestDefaults] Repaired TEST_NodeGraph start IDs to TEST_A. " +
-            "Removed stale TEST_A_LEFT / TEST_B_RIGHT references.");
+            "[BattleTestDefaults] Repaired TEST_NodeGraph to the canonical two-start branching graph. " +
+            "Removed incompatible legacy TEST_A start data.");
         return true;
+    }
+
+    private static bool GeneratedNodeGraphIsReady(NodeGraphSO graph)
+    {
+        if (graph == null ||
+            graph.startNodeIds == null ||
+            graph.startNodeIds.Count != 2 ||
+            graph.startNodeIds[0] != "TEST_A_LEFT" ||
+            graph.startNodeIds[1] != "TEST_B_RIGHT")
+        {
+            return false;
+        }
+
+        if (graph.FindNode("TEST_A_LEFT") == null ||
+            graph.FindNode("TEST_B_RIGHT") == null ||
+            graph.FindNode("TEST_A_MID") == null ||
+            graph.FindNode("TEST_ELITE_MID") == null ||
+            graph.FindNode("TEST_B_MID") == null ||
+            graph.FindNode("TEST_FINAL_A") == null ||
+            graph.FindNode("TEST_FINAL_ELITE") == null)
+        {
+            return false;
+        }
+
+        return graph.ValidateGraph(out _);
     }
 
     private static bool RepairGeneratedRoom(string roomPath)
@@ -362,11 +388,7 @@ internal static class BattleTestGeneratedPrefabMigration
             AssetDatabase.LoadAssetAtPath<GameObject>(GeneratedEnemyProjectilePrefabPath);
 
         return playerSprite != null &&
-               graph != null &&
-               graph.FindNode("TEST_A") != null &&
-               graph.startNodeIds != null &&
-               graph.startNodeIds.Count == 1 &&
-               graph.startNodeIds[0] == "TEST_A" &&
+               GeneratedNodeGraphIsReady(graph) &&
                monster != null && monster.GetComponent<MonsterController>() != null &&
                playerProjectile != null && playerProjectile.GetComponent<Projectile>() != null &&
                enemyProjectile != null && enemyProjectile.GetComponent<Projectile>() != null;
