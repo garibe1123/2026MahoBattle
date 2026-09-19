@@ -128,6 +128,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField] private Vector2 combatHudMargin = new(42f, 38f);
     [SerializeField, Range(1f, 1.35f)] private float ruleHoverScale = 1.14f;
 
+    [Header("Rule Confirm Punch")]
+    [SerializeField, Range(1f, 1.4f)] private float ruleConfirmScale = 1.18f;
+    [SerializeField, Min(0.04f)] private float ruleConfirmGrowDuration = 0.08f;
+    [SerializeField, Min(0.04f)] private float ruleConfirmReturnDuration = 0.14f;
+
     private GameObject uiRoot;
     private RectTransform machineTab;
     private RectTransform winningRuleTab;
@@ -159,6 +164,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         public Image icon;
         public Text fallbackLabel;
         public BattleRuleSlotPointerFeedback pointerFeedback;
+        public Coroutine confirmPunchRoutine;
     }
 
     public IReadOnlyList<BattleRuleDefinition> Rules => rules;
@@ -625,6 +631,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         for (int i = ruleSlotViews.Count - 1; i >= 0; i--)
         {
             RuleSlotView view = ruleSlotViews[i];
+            if (view?.confirmPunchRoutine != null)
+                StopCoroutine(view.confirmPunchRoutine);
             if (view?.root != null)
                 Destroy(view.root.gameObject);
         }
@@ -726,8 +734,64 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             }
         }
 
-        if (!previewOnly && view.pointerFeedback != null)
-            view.pointerFeedback.Bind(rule);
+        if (!previewOnly)
+        {
+            if (view.pointerFeedback != null)
+                view.pointerFeedback.Bind(rule);
+
+            PlayRuleConfirmPunch(view);
+        }
+    }
+
+    private void PlayRuleConfirmPunch(RuleSlotView view)
+    {
+        if (view?.root == null)
+            return;
+
+        if (view.confirmPunchRoutine != null)
+            StopCoroutine(view.confirmPunchRoutine);
+
+        view.confirmPunchRoutine = StartCoroutine(RuleConfirmPunchRoutine(view));
+    }
+
+    private IEnumerator RuleConfirmPunchRoutine(RuleSlotView view)
+    {
+        if (view?.root == null)
+            yield break;
+
+        RectTransform root = view.root;
+        Vector3 baseScale = Vector3.one;
+        Vector3 peakScale = Vector3.one * Mathf.Max(1f, ruleConfirmScale);
+
+        float growDuration = Mathf.Max(0.04f, ruleConfirmGrowDuration);
+        float elapsed = 0f;
+
+        while (elapsed < growDuration && root != null)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / growDuration);
+            float eased = 1f - Mathf.Pow(1f - t, 3f);
+            root.localScale = Vector3.Lerp(baseScale, peakScale, eased);
+            yield return null;
+        }
+
+        float returnDuration = Mathf.Max(0.04f, ruleConfirmReturnDuration);
+        elapsed = 0f;
+
+        while (elapsed < returnDuration && root != null)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / returnDuration);
+            float eased = t * t * (3f - 2f * t);
+            root.localScale = Vector3.Lerp(peakScale, baseScale, eased);
+            yield return null;
+        }
+
+        if (root != null)
+            root.localScale = baseScale;
+
+        if (view != null)
+            view.confirmPunchRoutine = null;
     }
 
     private static string ShortRuleLabel(string source)
