@@ -21,7 +21,8 @@ public enum MapBlockEntryType
 /// 기본 방향이 막히면 다른 Cardinal Rail을 찾고, 네 방향 모두 막히면 관통 대신 제자리 Snap을 사용합니다.
 ///
 /// Entry Rail 판정은 Scene 전체를 후보 방향마다 재검색하지 않습니다.
-/// 활성 MapBlock Registry와 각 Block의 최종 Floor Bounds Cache를 공유하여 Stage 변환 시 반복 Hierarchy Scan을 줄입니다.
+/// 활성 MapBlock Registry와 실제 Floor Cell Bounds를 공유하여 자유형/Assembly의 빈 공간을
+/// 하나의 거대한 사각 충돌체로 오인하지 않도록 합니다.
 ///
 /// 목적지에 닿은 뒤의 반동/VFX/카메라 충격은 BattleTileDockingPresentationManager가 공통 관리합니다.
 /// 따라서 전투 필드, 대기실 Screen Carrier, Reward/Map Show Carrier가 동일한 도킹 감각을 사용합니다.
@@ -77,6 +78,7 @@ public class MapBlock : MonoBehaviour
     [SerializeField] private Ease exitEase = Ease.InQuad;
 
     private readonly List<Bounds> entryBlockerBuffer = new();
+    private readonly List<Bounds> entryMovingFloorBuffer = new();
 
     private Quaternion presentationBaseRotation;
     private Vector3 presentationBaseScale = Vector3.one;
@@ -407,7 +409,8 @@ public class MapBlock : MonoBehaviour
         if (!avoidExistingTilePenetration || entryOffset <= 0.01f)
             return primary;
 
-        if (!TryGetCachedFloorBoundsAtRootPosition(destination, out Bounds ownFinalBounds))
+        entryMovingFloorBuffer.Clear();
+        if (!AppendFloorBoundsAtRootPosition(this, destination, entryMovingFloorBuffer))
             return primary;
 
         CollectFinalFloorBlockers(entryBlockerBuffer);
@@ -428,7 +431,7 @@ public class MapBlock : MonoBehaviour
 
         for (int i = 0; i < candidates.Length; i++)
         {
-            if (IsEntryPathClear(destination, candidates[i], ownFinalBounds, entryBlockerBuffer))
+            if (IsEntryPathClear(destination, candidates[i], entryMovingFloorBuffer, entryBlockerBuffer))
                 return candidates[i];
         }
 
@@ -443,10 +446,12 @@ public class MapBlock : MonoBehaviour
     private bool IsEntryPathClear(
         Vector3 destination,
         Vector2 sourceDirection,
-        Bounds ownFinalBounds,
+        IReadOnlyList<Bounds> ownFinalFloorBounds,
         IReadOnlyList<Bounds> blockers)
     {
         if (blockers == null || blockers.Count == 0)
+            return true;
+        if (ownFinalFloorBounds == null || ownFinalFloorBounds.Count == 0)
             return true;
 
         Vector2 direction = Cardinalize(sourceDirection);
@@ -460,13 +465,17 @@ public class MapBlock : MonoBehaviour
             float t = i / (float)samples;
             Vector3 rootPosition = Vector3.Lerp(startRoot, destination, t);
             Vector3 delta = rootPosition - destination;
-            Bounds moving = ownFinalBounds;
-            moving.center += delta;
 
-            for (int b = 0; b < blockers.Count; b++)
+            for (int m = 0; m < ownFinalFloorBounds.Count; m++)
             {
-                if (Overlaps2D(moving, blockers[b], entryPathClearance))
-                    return false;
+                Bounds moving = ownFinalFloorBounds[m];
+                moving.center += delta;
+
+                for (int b = 0; b < blockers.Count; b++)
+                {
+                    if (Overlaps2D(moving, blockers[b], entryPathClearance))
+                        return false;
+                }
             }
         }
 
@@ -480,12 +489,16 @@ public class MapBlock : MonoBehaviour
         RoomBaseTemplate baseTemplate = ResolveRoomBaseTemplate();
         if (baseTemplate != null && baseTemplate.HasPersistentBase)
         {
-            blockers.Add(new Bounds(
-                baseTemplate.FixedCenterWorld,
-                new Vector3(
-                    RoomBaseTemplate.FixedBaseTiles,
-                    RoomBaseTemplate.FixedBaseTiles,
-                    0.1f)));
+            Vector3 baseOrigin = baseTemplate.FixedTileOriginWorld;
+            for (int y = 0; y < RoomBaseTemplate.FixedBaseTiles; y++)
+            {
+                for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
+                {
+                    blockers.Add(new Bounds(
+                        baseOrigin + new Vector3(x, y, 0f),
+                        new Vector3(UnitWorldSize, UnitWorldSize, 0.1f)));
+                }
+            }
         }
 
         foreach (MapBlock other in ActiveBlocks)
@@ -495,8 +508,7 @@ public class MapBlock : MonoBehaviour
             if (other.gameObject.scene != gameObject.scene)
                 continue;
 
-            // Procedural 3-Group은 세부 Piece MapBlock을 부모 Assembly MapBlock 아래에 묶습니다.
-            // 같은 Assembly 내부 구성요소를 외부 장애물로 취급하면 자기 자신 때문에 Rail이 막히므로 제외합니다.
+            // Procedural Assembly 내부 구성요소를 자기 자신의 외부 장애물로 취급하지 않습니다.
             if (other.transform.IsChildOf(transform) || transform.IsChildOf(other.transform))
                 continue;
 
@@ -504,9 +516,56 @@ public class MapBlock : MonoBehaviour
                 ? other.EntryDestination
                 : other.transform.position;
 
-            if (other.TryGetCachedFloorBoundsAtRootPosition(finalRoot, out Bounds bounds))
-                blockers.Add(bounds);
+            AppendFloorBoundsAtRootPosition(other, finalRoot, blockers);
         }
+    }
+
+    /// <summary>
+    /// Appends the actual floor-cell bounds instead of one aggregate rectangle. This is important for
+    /// L/freeform/assembly shapes: an aggregate rectangle can cover the empty persistent-base hole and
+    /// falsely report every cardinal rail as blocked.
+    /// </summary>
+    private static bool AppendFloorBoundsAtRootPosition(
+        MapBlock block,
+        Vector3 rootPosition,
+        List<Bounds> output)
+    {
+        if (block == null || output == null)
+            return false;
+
+        int before = output.Count;
+        Vector3 delta = rootPosition - block.transform.position;
+        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null || !renderer.enabled || renderer.sprite == null)
+                continue;
+
+            string rendererName = renderer.name;
+            bool floorRenderer =
+                rendererName.StartsWith("Tile_", StringComparison.Ordinal) ||
+                rendererName.StartsWith("ShowTile_", StringComparison.Ordinal) ||
+                renderer.GetComponent<BattleWalkableField>() != null;
+
+            if (!floorRenderer)
+                continue;
+
+            Bounds shifted = renderer.bounds;
+            shifted.center += delta;
+            output.Add(shifted);
+        }
+
+        if (output.Count > before)
+            return true;
+
+        if (!block.TryGetPresentationBounds(out Bounds fallback))
+            return false;
+
+        fallback.center += delta;
+        output.Add(fallback);
+        return true;
     }
 
     private RoomBaseTemplate ResolveRoomBaseTemplate()

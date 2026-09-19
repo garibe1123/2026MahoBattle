@@ -12,6 +12,7 @@ using UnityEngine;
 ///   is allowed to reserve / hide its center cells.
 /// - On stage clear the base can be re-anchored around the player's current tile.
 /// - Gameplay Room pieces attach around / over this anchor; the base itself never exits.
+/// - Runtime re-anchors move the existing base instance; they do not destroy/recreate it.
 /// </summary>
 public class RoomBaseTemplate : MonoBehaviour
 {
@@ -183,10 +184,7 @@ public class RoomBaseTemplate : MonoBehaviour
             ResolveZ());
         hasRuntimeAnchor = true;
 
-        BuildBaseInternal(activeRoom, activeBase == null);
-        MoveExistingBaseToResolvedAnchor();
-        EnsureVisibleBase();
-        EnsureWalkableBaseSource();
+        ReusePersistentBaseAtResolvedAnchor();
         return HasPersistentBase;
     }
 
@@ -199,12 +197,13 @@ public class RoomBaseTemplate : MonoBehaviour
         if (room == null && roomManager != null && roomManager.CurrentRoom != null)
             room = roomManager.CurrentRoom;
 
+        // Explicit author/debug rebuild is the only normal path that intentionally replaces the instance.
         BuildBaseInternal(room, true);
     }
 
     /// <summary>
-    /// Promotes the 4x4 tile area around the player's current tile into the next persistent base.
-    /// Returns the world position of the lower-left tile CENTER of that 4x4 base.
+    /// Re-anchors the existing persistent 4x4 around the player's current tile.
+    /// The GameObject and its presentation children are preserved.
     /// </summary>
     public Vector3 ReanchorAroundPlayer(Vector3 playerWorldPosition)
     {
@@ -225,7 +224,7 @@ public class RoomBaseTemplate : MonoBehaviour
         if (room != null)
             activeRoom = room;
 
-        BuildBaseInternal(activeRoom, true);
+        ReusePersistentBaseAtResolvedAnchor();
         return runtimeTileOrigin;
     }
 
@@ -237,16 +236,13 @@ public class RoomBaseTemplate : MonoBehaviour
             ResolveZ());
         hasRuntimeAnchor = true;
 
-        BuildBaseInternal(activeRoom, activeBase == null);
-        MoveExistingBaseToResolvedAnchor();
-        EnsureVisibleBase();
-        EnsureWalkableBaseSource();
+        ReusePersistentBaseAtResolvedAnchor();
         return runtimeTileOrigin;
     }
 
     /// <summary>
     /// 클리어된 Room에서 선택한 4x4 위치를 다음 Start Base로 승격합니다.
-    /// 기존 최초 Base를 이동해 재사용하지 않고 해당 위치에 새 Base 인스턴스를 구축합니다.
+    /// 기존 Persistent Base 인스턴스를 유지한 채 해당 Tile Origin으로 이동합니다.
     /// </summary>
     public Vector3 PromoteToNewBaseAtTileOrigin(Vector3 lowerLeftTileCenterWorld)
     {
@@ -256,11 +252,22 @@ public class RoomBaseTemplate : MonoBehaviour
             ResolveZ());
         hasRuntimeAnchor = true;
 
-        BuildBaseInternal(activeRoom, true);
+        ReusePersistentBaseAtResolvedAnchor();
+        return runtimeTileOrigin;
+    }
+
+    private void ReusePersistentBaseAtResolvedAnchor()
+    {
+        if (activeBase == null)
+        {
+            BuildBaseInternal(activeRoom, false);
+            return;
+        }
+
+        activeWorldSize = new Vector2(FixedBaseTiles, FixedBaseTiles);
         MoveExistingBaseToResolvedAnchor();
         EnsureVisibleBase();
         EnsureWalkableBaseSource();
-        return runtimeTileOrigin;
     }
 
     private void BuildBaseInternal(RoomDefinitionSO room, bool forceRebuild)
