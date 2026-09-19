@@ -1,0 +1,38 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 769e796d85490ff4d98770a3c9536da4, type: 3}
+  m_Name: CameraFloor
+  m_EditorClassIdentifier: 
+  floorVariants:
+  - {fileID: 377465425, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+  - {fileID: 341975576, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+  - {fileID: 1760739381, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+  - {fileID: 433796344867873071, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+  upperPlateSprite32: {fileID: 0}
+  lowerPlateLeftSprite32: {fileID: -849908263, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
+  lowerPlateCenterSprite32: {fileID: 206385867, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
+  lowerPlateRightSprite32: {fileID: -1515914004, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
+  leftHandleSprite32: {fileID: -2056086165, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
+  rightHandleSprite32: {fileID: -1403711875, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
+  upperHandleSprite32: {fileID: 57867436, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
+  lowerHandleSprite32: {fileID: -1703495570, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
+  handlePlacement: 0
+  floorTint: {r: 1, g: 1, b: 1, a: 1}
+  plateTint: {r: 1, g: 1, b: 1, a: 1}
+  handleTint: {r: 1, g: 1, b: 1, a: 1}
+  floorSortingOrder: -18
+  lowerPlateSortingOrder: -19
+  upperPlateSortingOrder: -15
+  handleSortingOrder: -14
+  dockHandlePunch: 0.14
+  dockHandlePunchDuration: 0.14
+  dockHandlePunchVibrato: 4

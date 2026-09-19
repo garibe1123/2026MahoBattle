@@ -1,0 +1,41 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7a7f16ead2d701c4f8cc5391f5afe149, type: 3}
+  m_Name: TopObj 2
+  m_EditorClassIdentifier: 
+  footprint: {x: 2, y: 1}
+  floorTemplate: {fileID: 11400000, guid: 1578a2a39841b3846a886fb516f9edc0, type: 2}
+  weight: 1
+  allowRandomMirrorX: 0
+  attachSide: 1
+  useFixedAttachPosition: 0
+  attachPosition01: 0.5
+  attachOffsetTiles: {x: 0, y: 0}
+  parts:
+  - label: 
+    sprite: {fileID: -3729798758702689194, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: 0.099999994, y: 1.2}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 0
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    flip: 0
+  - label: 
+    sprite: {fileID: -7086256849229817352, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: 0.4, y: 0.1}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 2
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    flip: 0
+  editorPositionSnap: 0.1
+  editorPreviewMargin: 1.999

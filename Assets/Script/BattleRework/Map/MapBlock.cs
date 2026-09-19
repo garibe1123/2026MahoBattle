@@ -436,6 +436,7 @@ public class MapBlock : MonoBehaviour
             $"[MapBlock] '{name}' has no clear cardinal entry rail. " +
             "To preserve the no-tunneling rule it will snap to its destination instead of crossing existing tiles.",
             this);
+
         return Vector2.zero;
     }
 

@@ -1,0 +1,37 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3569e0d902f2ba24195617fb20a301af, type: 3}
+  m_Name: TEST_Weapon_Scatter
+  m_EditorClassIdentifier: 
+  weaponName: '[TEST] Scatter Gun'
+  weaponSprite: {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  description: "\uC790\uB3D9 \uC0DD\uC131\uB41C Battle Test \uAE30\uBCF8 \uBB34\uAE30"
+  idleSprites:
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  shootSprites:
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  reloadSprites:
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 10905, guid: 0000000000000000f000000000000000, type: 0}
+  animFps: 12
+  projectileData: {fileID: 11400000, guid: 875e19f0edae35641a3ea2b9926628b3, type: 2}
+  maxAmmo: 5
+  reloadTime: 1.45
+  fireRate: 0.62
+  knockbackForce: 1
+  projectilesPerShot: 5
+  spreadAngle: 20

@@ -1,0 +1,84 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d77238c3590d1fd4fa66013e7e1f69cf, type: 3}
+  m_Name: TEST_NodeGraph
+  m_EditorClassIdentifier: 
+  startNodeIds:
+  - TEST_A_LEFT
+  - TEST_B_RIGHT
+  startNodeId: TEST_A_LEFT
+  nodes:
+  - id: TEST_A_LEFT
+    type: 0
+    depth: 0
+    isTerminal: 0
+    useExplicitMapPosition: 1
+    mapPosition: {x: -1, y: 0}
+    room: {fileID: 11400000, guid: cd53c86f328bb414290a5f2402172b89, type: 2}
+    nextNodeIds:
+    - TEST_A_MID
+    - TEST_ELITE_MID
+  - id: TEST_B_RIGHT
+    type: 0
+    depth: 0
+    isTerminal: 0
+    useExplicitMapPosition: 1
+    mapPosition: {x: 1, y: 0}
+    room: {fileID: 11400000, guid: 172042a14ecc22149ae530f32cfe7933, type: 2}
+    nextNodeIds:
+    - TEST_B_MID
+    - TEST_ELITE_MID
+  - id: TEST_A_MID
+    type: 0
+    depth: 1
+    isTerminal: 0
+    useExplicitMapPosition: 1
+    mapPosition: {x: -1, y: 0}
+    room: {fileID: 11400000, guid: cd53c86f328bb414290a5f2402172b89, type: 2}
+    nextNodeIds:
+    - TEST_FINAL_A
+    - TEST_FINAL_ELITE
+  - id: TEST_ELITE_MID
+    type: 1
+    depth: 1
+    isTerminal: 0
+    useExplicitMapPosition: 1
+    mapPosition: {x: 0, y: 0}
+    room: {fileID: 11400000, guid: ed33fad1eeef4574cbd32be64ba1ef3e, type: 2}
+    nextNodeIds:
+    - TEST_FINAL_ELITE
+  - id: TEST_B_MID
+    type: 0
+    depth: 1
+    isTerminal: 0
+    useExplicitMapPosition: 1
+    mapPosition: {x: 1, y: 0}
+    room: {fileID: 11400000, guid: 172042a14ecc22149ae530f32cfe7933, type: 2}
+    nextNodeIds:
+    - TEST_FINAL_A
+    - TEST_FINAL_ELITE
+  - id: TEST_FINAL_A
+    type: 0
+    depth: 2
+    isTerminal: 1
+    useExplicitMapPosition: 1
+    mapPosition: {x: -1, y: 0}
+    room: {fileID: 11400000, guid: 172042a14ecc22149ae530f32cfe7933, type: 2}
+    nextNodeIds: []
+  - id: TEST_FINAL_ELITE
+    type: 1
+    depth: 2
+    isTerminal: 1
+    useExplicitMapPosition: 1
+    mapPosition: {x: 1, y: 0}
+    room: {fileID: 11400000, guid: ed33fad1eeef4574cbd32be64ba1ef3e, type: 2}
+    nextNodeIds: []

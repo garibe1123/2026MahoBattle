@@ -1,0 +1,163 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7a7f16ead2d701c4f8cc5391f5afe149, type: 3}
+  m_Name: DownCamera02
+  m_EditorClassIdentifier: 
+  footprint: {x: 2, y: 1}
+  floorTemplate: {fileID: 11400000, guid: d4015096e94622645b48a32603911cb6, type: 2}
+  weight: 1
+  legacyAllowRandomMirrorX: 0
+  attachSide: 3
+  useFixedAttachPosition: 0
+  attachPosition01: 0.5
+  attachOffsetTiles: {x: 0, y: 0}
+  parts:
+  - label: 
+    sprite: {fileID: 7710313920294275204, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: 0.51000005, y: 0.3}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 10
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    flip: 0
+    standaloneLight: 0
+    addLight2D: 0
+    lightLocalOffset: {x: 0, y: 0}
+    lightRotationDegrees: 0
+    lightColor: {r: 1, g: 1, b: 1, a: 1}
+    lightIntensity: 1
+    lightInnerRadius: 0.15
+    lightOuterRadius: 1.25
+    lightInnerAngle: 360
+    lightOuterAngle: 360
+    lightFalloffIntensity: 0.5
+    lightBlendStyleIndex: 0
+    lightOrder: 0
+    lightShadowsEnabled: 0
+    lightShadowIntensity: 0.75
+  - label: 
+    sprite: {fileID: 6339769767535627143, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: 0.74, y: 0.44}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 5
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    flip: 0
+    standaloneLight: 0
+    addLight2D: 0
+    lightLocalOffset: {x: 0, y: 0}
+    lightRotationDegrees: 0
+    lightColor: {r: 1, g: 1, b: 1, a: 1}
+    lightIntensity: 1
+    lightInnerRadius: 0.15
+    lightOuterRadius: 1.25
+    lightInnerAngle: 360
+    lightOuterAngle: 360
+    lightFalloffIntensity: 0.5
+    lightBlendStyleIndex: 0
+    lightOrder: 0
+    lightShadowsEnabled: 0
+    lightShadowIntensity: 0.75
+  - label: 
+    sprite: {fileID: -6916242947914455927, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: -0.5800001, y: 0.7}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 5
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    flip: 0
+    standaloneLight: 0
+    addLight2D: 0
+    lightLocalOffset: {x: 0, y: 0}
+    lightRotationDegrees: 0
+    lightColor: {r: 1, g: 1, b: 1, a: 1}
+    lightIntensity: 1
+    lightInnerRadius: 0.15
+    lightOuterRadius: 1.25
+    lightInnerAngle: 360
+    lightOuterAngle: 360
+    lightFalloffIntensity: 0.5
+    lightBlendStyleIndex: 0
+    lightOrder: 0
+    lightShadowsEnabled: 0
+    lightShadowIntensity: 0.75
+  - label: 
+    sprite: {fileID: 7270618374243455451, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: -0.61000013, y: 1.72}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 10
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    flip: 0
+    standaloneLight: 0
+    addLight2D: 1
+    lightLocalOffset: {x: 0, y: 0}
+    lightRotationDegrees: -3.8300018
+    lightColor: {r: 1, g: 1, b: 1, a: 1}
+    lightIntensity: 1
+    lightInnerRadius: 0.15
+    lightOuterRadius: 1.25
+    lightInnerAngle: 360
+    lightOuterAngle: 360
+    lightFalloffIntensity: 0.5
+    lightBlendStyleIndex: 0
+    lightOrder: 0
+    lightShadowsEnabled: 0
+    lightShadowIntensity: 0.75
+  - label: 
+    sprite: {fileID: -3150359152280781822, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: 0.19, y: -0.31}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 2
+    tint: {r: 1, g: 1, b: 1, a: 1}
+    flip: 1
+    standaloneLight: 0
+    addLight2D: 0
+    lightLocalOffset: {x: 0, y: 0}
+    lightRotationDegrees: 0
+    lightColor: {r: 1, g: 1, b: 1, a: 1}
+    lightIntensity: 1
+    lightInnerRadius: 0.15
+    lightOuterRadius: 1.25
+    lightInnerAngle: 360
+    lightOuterAngle: 360
+    lightFalloffIntensity: 0.5
+    lightBlendStyleIndex: 0
+    lightOrder: 0
+    lightShadowsEnabled: 0
+    lightShadowIntensity: 0.75
+  - label: Light 2D 01
+    sprite: {fileID: 7710313920294275204, guid: d1363b2d7e3b4824d86e73a626589353, type: 3}
+    localPosition: {x: -0.8, y: 1.7}
+    localScale: {x: 1, y: 1}
+    rotationDegrees: 0
+    sortingOffset: 0
+    tint: {r: 1, g: 1, b: 1, a: 0}
+    flip: 0
+    standaloneLight: 1
+    addLight2D: 1
+    lightLocalOffset: {x: 0, y: 0}
+    lightRotationDegrees: 153.9
+    lightColor: {r: 1, g: 1, b: 1, a: 1}
+    lightIntensity: 1
+    lightInnerRadius: 0.15
+    lightOuterRadius: 1.25
+    lightInnerAngle: 360
+    lightOuterAngle: 360
+    lightFalloffIntensity: 0.5
+    lightBlendStyleIndex: 0
+    lightOrder: 0
+    lightShadowsEnabled: 0
+    lightShadowIntensity: 0.75
+  editorPositionSnap: 0.1
+  editorPreviewMargin: 2

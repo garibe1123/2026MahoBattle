@@ -1,0 +1,100 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ee2f9aef3d805bb47866a033b31a462e, type: 3}
+  m_Name: TEST_Room_B
+  m_EditorClassIdentifier: 
+  usePersistentStartBase: 1
+  forbidMonsterSpawnInsideStartBase: 0
+  roomId: TEST_ROOM_B
+  recommendedGridSize: {x: 4, y: 4}
+  startBaseTileSize: {x: 4, y: 4}
+  useProceduralRoom: 1
+  proceduralMinTileSize: {x: 20, y: 20}
+  proceduralMaxTileSize: {x: 30, y: 30}
+  proceduralMinChunkTileSize: 7
+  proceduralSeed: 0
+  proceduralComplexity: 0.35
+  proceduralIndentChance: 0.2
+  proceduralExtensionChance: 0.28
+  useLargeRoomPiece: 1
+  largePieceShape: 0
+  largePieceGridSize: {x: 4, y: 4}
+  customLargePieceCells: []
+  largePieceEntryDirection: {x: 0, y: 0}
+  largePieceEntryDuration: 0.72
+  largePieceEntryOffset: 8
+  useRuntimeBase: 1
+  basePaddingWorld: {x: 0, y: 0}
+  baseOffset: {x: 0, y: 0}
+  playerEntryOffset: {x: 3, y: 3}
+  repositionPlayerOnEnter: 0
+  blocks:
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 0, y: 0}
+    entryDirection: {x: -1, y: 0}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 1, y: 0}
+    entryDirection: {x: 0, y: -1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 2, y: 0}
+    entryDirection: {x: 0, y: -1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 3, y: 0}
+    entryDirection: {x: 1, y: 0}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 0, y: 1}
+    entryDirection: {x: -1, y: 0}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 1, y: 1}
+    entryDirection: {x: 0, y: 1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 2, y: 1}
+    entryDirection: {x: 0, y: 1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 3, y: 1}
+    entryDirection: {x: 1, y: 0}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 0, y: 2}
+    entryDirection: {x: -1, y: 0}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 1, y: 2}
+    entryDirection: {x: 0, y: -1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 2, y: 2}
+    entryDirection: {x: 0, y: -1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 3, y: 2}
+    entryDirection: {x: 1, y: 0}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 0, y: 3}
+    entryDirection: {x: -1, y: 0}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 1, y: 3}
+    entryDirection: {x: 0, y: 1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 2, y: 3}
+    entryDirection: {x: 0, y: 1}
+  - prefab: {fileID: 2906497013248146028, guid: 4a704a674bbefb74dab84b33ead7d748, type: 3}
+    gridPosition: {x: 3, y: 3}
+    entryDirection: {x: 1, y: 0}
+  obstacles: []
+  monsterSpawns:
+  - monster: {fileID: 11400000, guid: 0af94a6cd4f672c4999fb985fa2ed1f4, type: 2}
+    localPosition: {x: 1.4, y: 4.8}
+    count: 3
+    scatterRadius: 0.85
+  - monster: {fileID: 11400000, guid: cc051e4f018ca504bb33a68cec09f833, type: 2}
+    localPosition: {x: 5.2, y: 2}
+    count: 2
+    scatterRadius: 0.8
+  highlightBlockPrefab: {fileID: 4814281604723443531, guid: 4e80fc5c0aa46d248b9b3575de480629, type: 3}
+  highlightBlockOffset: {x: 3, y: 0}
