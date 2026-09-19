@@ -37,6 +37,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private const int ScreenCarrierDepth = 2;
     private const int PresenterCarrierWidth = 6;
     private const int PresenterCarrierDepth = 4;
+    // World-space TV must always render above battle field / carrier / decor sprites.
+    // BattleWorldSorting actor range tops out at 10000, so this leaves a large protected gap.
+    private const int ProtectedShowCanvasOrder = 20000;
 
     private static BattleShowWorldSetController instance;
 
@@ -56,6 +59,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [Header("Shared Camera From Docked Screen")]
     [SerializeField, Min(0f)] private float rewardCameraPadding = 0.85f;
     [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 5.4f;
+
+    [Header("Map Camera Focus")]
+    [Tooltip("Map 선택에서는 Persistent Base/Carrier 전체가 아니라 TV 화면을 주 피사체로 잡습니다.")]
+    [SerializeField, Min(0f)] private float mapCameraPadding = 0.22f;
+    [Tooltip("16:9 기준 1120x560 TV가 화면 대부분을 채우되 가장자리가 잘리지 않는 최소 Orthographic Size입니다.")]
+    [SerializeField, Min(0.1f)] private float mapCameraMinSize = 2.85f;
 
     [Header("Presenter")]
     [SerializeField] private Sprite presenterFallbackSprite;
@@ -856,34 +865,51 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void ComputeSharedCameraFrame()
     {
-        Bounds bounds = new(
-            new Vector3(stageAnchorWorld.x, stageAnchorWorld.y, 0f),
-            new Vector3(RoomBaseTemplate.FixedBaseTiles, RoomBaseTemplate.FixedBaseTiles, 0.1f));
-
-        Bounds screenBounds = CreateTileUnitBounds(
-            screenCarrierDestination,
-            ScreenCarrierWidth,
-            ScreenCarrierDepth);
-        bounds.Encapsulate(screenBounds);
-
         tvMountedWorld = ResolveMountedTvWorld();
         Vector2 tvWorldSize = new(
             tvCanvasSize.x / Mathf.Max(32f, tvPixelsPerUnit),
             tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit));
-        bounds.Encapsulate(new Bounds(
-            tvMountedWorld,
-            new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f)));
+
+        bool mapFocus = currentMode == ShowMode.Map || desiredMode == ShowMode.Map;
+        Bounds bounds;
+
+        if (mapFocus)
+        {
+            // Map selection is a decision screen. Frame the TV itself almost full-screen,
+            // like the item/reward inspection view, instead of wasting composition on the
+            // persistent 4x4 and the 10x2 carrier underneath it.
+            bounds = new Bounds(
+                tvMountedWorld,
+                new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f));
+        }
+        else
+        {
+            bounds = new Bounds(
+                new Vector3(stageAnchorWorld.x, stageAnchorWorld.y, 0f),
+                new Vector3(RoomBaseTemplate.FixedBaseTiles, RoomBaseTemplate.FixedBaseTiles, 0.1f));
+
+            Bounds screenBounds = CreateTileUnitBounds(
+                screenCarrierDestination,
+                ScreenCarrierWidth,
+                ScreenCarrierDepth);
+            bounds.Encapsulate(screenBounds);
+
+            bounds.Encapsulate(new Bounds(
+                tvMountedWorld,
+                new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f)));
+        }
 
         cameraTargetWorld = new Vector3(bounds.center.x, bounds.center.y, 0f);
 
-        float padding = Mathf.Max(0f, rewardCameraPadding);
+        float padding = Mathf.Max(0f, mapFocus ? mapCameraPadding : rewardCameraPadding);
         float aspect = Camera.main != null && Camera.main.aspect > 0.01f
             ? Camera.main.aspect
             : 16f / 9f;
 
         float sizeByHeight = bounds.extents.y + padding;
         float sizeByWidth = (bounds.extents.x + padding) / Mathf.Max(0.1f, aspect);
-        cameraSizeWorld = Mathf.Max(rewardCameraMinSize, Mathf.Max(sizeByHeight, sizeByWidth));
+        float minSize = mapFocus ? mapCameraMinSize : rewardCameraMinSize;
+        cameraSizeWorld = Mathf.Max(minSize, Mathf.Max(sizeByHeight, sizeByWidth));
     }
 
     private static Bounds CreateTileUnitBounds(Vector3 lowerLeftTileCenter, int width, int height)
@@ -1017,18 +1043,24 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         int fieldOrder = GetHighestFieldOrder(playerRenderer.sortingLayerID);
         int playerOrder = playerRenderer.sortingOrder;
+        int resolvedTvOrder = Mathf.Max(
+            ProtectedShowCanvasOrder,
+            Mathf.Max(fieldOrder + 2, playerOrder + 1));
 
         if (tvCanvas != null)
         {
             tvCanvas.sortingLayerID = playerRenderer.sortingLayerID;
-            int highestFloorOrder = Mathf.Max(fieldOrder, carrierFloorSortingOrder);
-            tvCanvas.sortingOrder = Mathf.Max(highestFloorOrder + 2, playerOrder + 1);
+            tvCanvas.sortingOrder = resolvedTvOrder;
         }
 
         if (presenterRenderer != null)
         {
             presenterRenderer.sortingLayerID = playerRenderer.sortingLayerID;
-            presenterRenderer.sortingOrder = playerOrder + Mathf.Max(1, presenterFrontOrder);
+            // Presenter is a world sprite and may overlap the physical TV edge, so keep it
+            // intentionally in front of the protected TV canvas while all floor/decor stays behind.
+            presenterRenderer.sortingOrder = Mathf.Min(
+                32000,
+                resolvedTvOrder + Mathf.Max(1, presenterFrontOrder));
         }
     }
 
