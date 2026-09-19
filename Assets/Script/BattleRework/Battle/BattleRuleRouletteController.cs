@@ -550,7 +550,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         ruleSlotRow = resultListTab;
         HorizontalLayoutGroup layout = resultListTab.gameObject.AddComponent<HorizontalLayoutGroup>();
         layout.spacing = Mathf.Max(0f, ruleSlotSpacing);
-        layout.childAlignment = TextAnchor.MiddleLeft;
+        // 슬롯 개수와 관계없이 "슬롯 묶음 전체"를 중앙 기준으로 배치합니다.
+        // 1개면 정중앙, 2개면 중앙을 기준으로 좌우 대칭, 5개면 동일 간격으로 펼쳐집니다.
+        layout.childAlignment = TextAnchor.MiddleCenter;
         layout.childControlWidth = false;
         layout.childControlHeight = false;
         layout.childForceExpandWidth = false;
