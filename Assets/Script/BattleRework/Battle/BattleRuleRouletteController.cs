@@ -134,7 +134,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0.04f)] private float ruleConfirmReturnDuration = 0.14f;
 
     [Header("Rule Detail Hover")]
-    [SerializeField, Min(12f)] private float ruleDetailButtonDrop = 140f;
+    [SerializeField, Min(12f)] private float ruleDetailButtonDrop = 172f;
     [SerializeField, Min(0.05f)] private float ruleDetailTweenDuration = 0.18f;
 
     private GameObject uiRoot;
