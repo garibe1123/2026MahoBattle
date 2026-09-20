@@ -266,29 +266,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
             if (!combatTabOpen)
             {
-                combatRulePanelFocused = false;
+                combatTabPresentation?.NotifyRulePointerExit();
+                ApplyCombatRuleFocusFromCoordinator(false);
                 HideRuleDetailImmediate();
-                combatTabPresentation?.SetRuleDetailFocus(false);
             }
         }
 
-        bool pointerInsidePanel =
-            combatTabOpen &&
-            combatRulePanel.gameObject.activeInHierarchy &&
-            Input.mousePresent &&
-            IsPointerInsideCombatRuleZone();
-
-        if (combatRulePanelFocused != pointerInsidePanel)
-        {
-            combatRulePanelFocused = pointerInsidePanel;
-            combatTabPresentation?.SetRuleDetailFocus(combatRulePanelFocused);
-
-            if (combatRulePanelFocused)
-                ShowCombatRuleDetailDefault();
-            else
-                HideRuleDetail();
-        }
-
+        // Focus 소유권은 Pointer Enter/Exit 이벤트 기반 상태머신이 결정합니다.
+        // Update는 위치/크기/Alpha의 시각 보간만 수행합니다.
         AnimateCombatRulePanel();
 
         if (combatRulePanelGroup != null)
@@ -296,6 +281,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanelGroup.blocksRaycasts = combatTabOpen;
             combatRulePanelGroup.interactable = combatTabOpen;
         }
+
+        if (combatRulePanelBack != null)
+            combatRulePanelBack.raycastTarget = combatTabOpen;
 
         if (ruleHudGroup != null)
         {
@@ -312,6 +300,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatHudMode = false;
         finalReviewMode = false;
         combatTabOpen = false;
+        combatTabPresentation?.NotifyRulePointerExit();
         combatRulePanelFocused = false;
         combatRuleDrawerVisualAlpha = 0f;
         combatLastInspectedRule = null;
@@ -1507,7 +1496,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatRulePanelBack = panel.gameObject.AddComponent<Image>();
         combatRulePanelBack.color = new Color(0.025f, 0.028f, 0.045f, 0f);
-        combatRulePanelBack.raycastTarget = false;
+        combatRulePanelBack.raycastTarget = true;
+
+        BattleCombatRuleFocusPointerRelay focusRelay =
+            panel.gameObject.AddComponent<BattleCombatRuleFocusPointerRelay>();
+        focusRelay.Configure(this);
 
         combatRulePanelOutline = panel.gameObject.AddComponent<Outline>();
         combatRulePanelOutline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0f);
@@ -1723,6 +1716,43 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                     : new Vector2(0f, 10f),
                 t);
         }
+    }
+
+    internal void HandleCombatRulePanelPointerEnter()
+    {
+        if (!combatHudMode || !combatTabOpen)
+            return;
+
+        ResolveCombatTabReferences();
+
+        if (combatTabPresentation != null)
+            combatTabPresentation.NotifyRulePointerEnter();
+        else
+            ApplyCombatRuleFocusFromCoordinator(true);
+    }
+
+    internal void HandleCombatRulePanelPointerExit()
+    {
+        ResolveCombatTabReferences();
+
+        if (combatTabPresentation != null)
+            combatTabPresentation.NotifyRulePointerExit();
+        else
+            ApplyCombatRuleFocusFromCoordinator(false);
+    }
+
+    public void ApplyCombatRuleFocusFromCoordinator(bool focused)
+    {
+        bool resolved = focused && combatHudMode && combatTabOpen;
+        if (combatRulePanelFocused == resolved)
+            return;
+
+        combatRulePanelFocused = resolved;
+
+        if (combatRulePanelFocused)
+            ShowCombatRuleDetailDefault();
+        else
+            HideRuleDetail();
     }
 
     private bool IsPointerInsideCombatRuleZone()
@@ -2267,5 +2297,28 @@ internal static class BattleRuleRuntimeUiSprites
         sprite.name = "RuntimeBattleRuleRoundedButton";
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
+    }
+}
+
+
+internal sealed class BattleCombatRuleFocusPointerRelay : MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler
+{
+    private BattleRuleRouletteController owner;
+
+    public void Configure(BattleRuleRouletteController controller)
+    {
+        owner = controller;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        owner?.HandleCombatRulePanelPointerEnter();
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        owner?.HandleCombatRulePanelPointerExit();
     }
 }
