@@ -46,9 +46,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     [Header("PACK DOCK — 좌측 사선 바 결합")]
     [Tooltip("PACK Focus 상태에서 기존 GridBoard 전체를 좌측 사선 바 쪽으로 이동시키는 화면 픽셀 Offset입니다. 기존 GridBoard Anchor는 건드리지 않습니다.")]
-    [SerializeField] private Vector2 packFocusedDockOffset = new(-260f, 4f);
+    [SerializeField] private Vector2 packFocusedDockOffset = new(-300f, 10f);
     [Tooltip("Mission Focus 상태에서 PACK이 더 왼쪽으로 물러나는 화면 픽셀 Offset입니다.")]
-    [SerializeField] private Vector2 missionFocusedDockOffset = new(-360f, 4f);
+    [SerializeField] private Vector2 missionFocusedDockOffset = new(-405f, 18f);
     [Tooltip("PACK Focus 상태에서 GridBoard의 시각 Scale입니다.")]
     [SerializeField, Range(0.70f, 1.15f)] private float packFocusedScale = 1f;
     [Tooltip("Mission Focus 상태에서 PACK이 물러날 때의 Scale입니다.")]
@@ -58,31 +58,31 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Tooltip("Mission Focus 상태에서 PACK이 배경으로 물러날 때의 불투명도입니다.")]
     [SerializeField, Range(0f, 1f)] private float missionFocusedPackAlpha = 0.70f;
     [Tooltip("PACK Focus 상태의 기울기입니다.")]
-    [SerializeField, Range(-15f, 15f)] private float packFocusedRotation = -4f;
+    [SerializeField, Range(-15f, 15f)] private float packFocusedRotation = -2.8f;
     [Tooltip("Mission Focus 상태에서 PACK 기울기를 완화하는 각도입니다.")]
-    [SerializeField, Range(-15f, 15f)] private float missionFocusedPackRotation = -1.5f;
+    [SerializeField, Range(-15f, 15f)] private float missionFocusedPackRotation = -0.8f;
 
     [Header("MISSION BAR — 항상 표시")]
     [Tooltip("PACK Focus일 때 우측에 유지되는 FAN MISSION 패널 크기입니다. 미션이 없어도 이 프레임은 사라지지 않습니다.")]
-    [SerializeField] private Vector2 compactMissionSize = new(540f, 380f);
+    [SerializeField] private Vector2 compactMissionSize = new(610f, 360f);
     [Tooltip("Mission Focus일 때 상세 정보까지 펼쳐지는 FAN MISSION 패널 크기입니다.")]
-    [SerializeField] private Vector2 focusedMissionSize = new(760f, 700f);
+    [SerializeField] private Vector2 focusedMissionSize = new(820f, 660f);
     [Tooltip("PACK Focus 상태에서 화면 우측 상단 기준 Mission Panel 위치입니다.")]
-    [SerializeField] private Vector2 missionPanelOffset = new(-54f, -126f);
+    [SerializeField] private Vector2 missionPanelOffset = new(-36f, -118f);
     [Tooltip("Mission Focus 상태에서 확장된 Panel이 이동할 화면 우측 상단 기준 위치입니다. 크기 변화와 함께 이 위치까지 Tween됩니다.")]
-    [SerializeField] private Vector2 focusedMissionPanelOffset = new(-78f, -154f);
+    [SerializeField] private Vector2 focusedMissionPanelOffset = new(-44f, -138f);
     [Tooltip("Mission Panel 전체의 사선 회전 각도입니다.")]
-    [SerializeField, Range(-10f, 10f)] private float missionPanelRotation = 2.2f;
+    [SerializeField, Range(-10f, 10f)] private float missionPanelRotation = 0.8f;
     [Tooltip("PACK Focus 상태에서도 Mission Bar가 확실히 보이도록 유지할 Alpha입니다.")]
     [SerializeField, Range(0.5f, 1f)] private float compactMissionAlpha = 0.95f;
 
     [Header("LIVE METRICS — 우측 상단")]
     [Tooltip("시청자/좋아요 Bar의 크기입니다.")]
-    [SerializeField] private Vector2 metricBarSize = new(430f, 68f);
+    [SerializeField] private Vector2 metricBarSize = new(470f, 72f);
     [Tooltip("화면 우측 상단 기준 Metric Bar 위치입니다.")]
-    [SerializeField] private Vector2 metricBarOffset = new(-42f, -38f);
+    [SerializeField] private Vector2 metricBarOffset = new(-28f, -26f);
     [Tooltip("Metric Bar의 기울기입니다.")]
-    [SerializeField, Range(-8f, 8f)] private float metricBarRotation = -1.6f;
+    [SerializeField, Range(-8f, 8f)] private float metricBarRotation = -0.6f;
 
     [Header("THEME — 기하학 UI 색상")]
     [Tooltip("주 패널과 Mission Row에 사용하는 거의 검은 잉크 색입니다.")]
@@ -700,11 +700,16 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBar.localRotation = Quaternion.Euler(0f, 0f, metricBarRotation);
 
         Image back = metricBar.gameObject.AddComponent<Image>();
-        back.color = inkColor;
+        back.color = Color.clear;
         back.raycastTarget = false;
-        Outline outline = metricBar.gameObject.AddComponent<Outline>();
-        outline.effectColor = paperColor;
-        outline.effectDistance = new Vector2(3f, -3f);
+        ApplyPersonaFrame(
+            metricBar.gameObject,
+            inkColor,
+            paperColor,
+            accentYellow,
+            false,
+            0.16f,
+            new Vector2(-6f, 6f));
 
         Text live = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentPink, "LiveLabel");
         SetAnchors(live.rectTransform, new Vector2(0.055f, 0.12f), new Vector2(0.17f, 0.88f));
@@ -774,11 +779,16 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionPanel.localRotation = Quaternion.Euler(0f, 0f, missionPanelRotation);
 
         Image back = missionPanel.gameObject.AddComponent<Image>();
-        back.color = inkColor;
+        back.color = Color.clear;
         back.raycastTarget = false;
-        Outline outline = missionPanel.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.70f);
-        outline.effectDistance = new Vector2(4f, -4f);
+        ApplyPersonaFrame(
+            missionPanel.gameObject,
+            inkColor,
+            new Color(paperColor.r, paperColor.g, paperColor.b, 0.96f),
+            accentYellow,
+            true,
+            0.12f,
+            new Vector2(8f, -8f));
 
         missionPanelGroup = missionPanel.gameObject.AddComponent<CanvasGroup>();
         missionPanelGroup.alpha = compactMissionAlpha;
@@ -786,11 +796,13 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionPanelGroup.interactable = false;
 
         RectTransform whitePlate = CreateRect(missionPanel, "WhitePlate", Vector2.zero);
-        Stretch(whitePlate);
-        whitePlate.offsetMin = new Vector2(-10f, -10f);
-        whitePlate.offsetMax = new Vector2(10f, 10f);
+        whitePlate.anchorMin = new Vector2(0.70f, 0f);
+        whitePlate.anchorMax = Vector2.one;
+        whitePlate.offsetMin = new Vector2(-18f, -6f);
+        whitePlate.offsetMax = new Vector2(14f, 8f);
         whitePlate.SetAsFirstSibling();
-        SetImage(whitePlate, new Color(paperColor.r, paperColor.g, paperColor.b, 0.14f));
+        BattlePersona4PanelGraphic whiteShape = whitePlate.gameObject.AddComponent<BattlePersona4PanelGraphic>();
+        whiteShape.Configure(new Color(paperColor.r, paperColor.g, paperColor.b, 0.16f), 0f, 42f, 8f, 28f);
 
         missionHeader = CreateText(missionPanel, "FAN MISSION // STANDBY", 27, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Header");
         SetAnchors(missionHeader.rectTransform, new Vector2(0.07f, 0.84f), new Vector2(0.78f, 0.97f));
@@ -819,14 +831,24 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         RectTransform row = CreateRect(missionListRoot, $"MissionRow_{index}", new Vector2(0f, 40f));
         row.anchorMin = row.anchorMax = new Vector2(0.5f, 1f);
         row.pivot = new Vector2(0.5f, 1f);
-        row.localRotation = Quaternion.Euler(0f, 0f, index % 2 == 0 ? -1.2f : 1.0f);
+        row.localRotation = Quaternion.identity;
 
         Image background = row.gameObject.AddComponent<Image>();
         background.color = new Color(0.07f, 0.075f, 0.10f, 0.98f);
         background.raycastTarget = false;
         Outline outline = row.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.28f);
-        outline.effectDistance = new Vector2(2f, -2f);
+        outline.effectColor = Color.clear;
+        outline.effectDistance = Vector2.zero;
+
+        BattlePersona4FrameDecorator rowFrame = row.gameObject.AddComponent<BattlePersona4FrameDecorator>();
+        rowFrame.Configure(
+            new Color(0.07f, 0.075f, 0.10f, 0.98f),
+            new Color(paperColor.r, paperColor.g, paperColor.b, 0.16f),
+            index % 2 == 0 ? accentYellow : accentCyan,
+            true,
+            0.075f,
+            new Vector2(4f, -4f));
+        background.color = Color.clear;
 
         Text title = CreateText(row, $"MISSION {index + 1}", 14, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Title");
         SetAnchors(title.rectTransform, new Vector2(0.05f, 0.10f), new Vector2(0.72f, 0.90f));
@@ -848,14 +870,19 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionDetailRoot.anchorMax = new Vector2(0.95f, 0.80f);
         missionDetailRoot.offsetMin = Vector2.zero;
         missionDetailRoot.offsetMax = Vector2.zero;
-        missionDetailRoot.localRotation = Quaternion.Euler(0f, 0f, -1.2f);
+        missionDetailRoot.localRotation = Quaternion.identity;
 
         Image back = missionDetailRoot.gameObject.AddComponent<Image>();
-        back.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.965f);
+        back.color = Color.clear;
         back.raycastTarget = false;
-        Outline outline = missionDetailRoot.gameObject.AddComponent<Outline>();
-        outline.effectColor = inkColor;
-        outline.effectDistance = new Vector2(5f, -5f);
+        ApplyPersonaFrame(
+            missionDetailRoot.gameObject,
+            new Color(paperColor.r, paperColor.g, paperColor.b, 0.98f),
+            inkColor,
+            accentPink,
+            false,
+            0.10f,
+            new Vector2(-7f, 7f));
 
         missionDetailGroup = missionDetailRoot.gameObject.AddComponent<CanvasGroup>();
         missionDetailGroup.alpha = 0f;
@@ -1106,6 +1133,31 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private static bool Approximately(Vector2 a, Vector2 b)
     {
         return (a - b).sqrMagnitude <= 0.0001f;
+    }
+
+    private static void ApplyPersonaFrame(
+        GameObject root,
+        Color body,
+        Color backPlate,
+        Color accentPlate,
+        bool accentOnLeft,
+        float accentFraction,
+        Vector2 plateOffset)
+    {
+        if (root == null)
+            return;
+
+        BattlePersona4FrameDecorator decorator = root.GetComponent<BattlePersona4FrameDecorator>();
+        if (decorator == null)
+            decorator = root.AddComponent<BattlePersona4FrameDecorator>();
+
+        decorator.Configure(
+            body,
+            backPlate,
+            accentPlate,
+            accentOnLeft,
+            accentFraction,
+            plateOffset);
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
