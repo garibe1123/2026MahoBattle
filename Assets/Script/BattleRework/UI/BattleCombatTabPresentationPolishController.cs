@@ -122,11 +122,11 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [Tooltip("룰 패널 Focus 시 PACK을 오른쪽으로 비워주는 추가 X 이동량입니다.")]
     [SerializeField, Min(0f)] private float ruleDetailPackShiftX = 118f;
     [Tooltip("룰 패널 Focus 시 PACK 전체를 아래로 내려 시야에서 비워주는 Y 이동량입니다.")]
-    [SerializeField, Min(0f)] private float ruleDetailPackDropY = 112f;
+    [SerializeField, Min(0f)] private float ruleDetailPackDropY = 150f;
     [Tooltip("룰 패널 Focus 시 PACK GridBoard가 뒤로 물러나는 Scale 배율입니다.")]
-    [SerializeField, Range(0.45f, 1f)] private float ruleDetailPackScale = 0.62f;
+    [SerializeField, Range(0.45f, 1f)] private float ruleDetailPackScale = 0.72f;
     [Tooltip("룰 패널 Focus 시 PACK의 비활성 상태 Alpha 배율입니다.")]
-    [SerializeField, Range(0.20f, 1f)] private float ruleDetailPackAlpha = 0.46f;
+    [SerializeField, Range(0.20f, 1f)] private float ruleDetailPackAlpha = 0.62f;
     [Tooltip("룰 패널 Focus 시 방송 Dashboard를 오른쪽으로 비워주는 추가 X 이동량입니다.")]
     [SerializeField, Min(0f)] private float ruleDetailDashboardShiftX = 150f;
     [Tooltip("룰 패널 Focus 시 방송 Dashboard 전체가 뒤로 물러나는 Scale입니다.")]
@@ -598,8 +598,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         RectTransform board = kineticLoadout.GridBoard;
-        if (board.anchoredPosition.sqrMagnitude > 0.001f)
-            board.anchoredPosition = Vector2.zero;
 
         if (packDockRoot == null)
             packDockRoot = fullRoot.Find("BroadcastPackDock") as RectTransform;
@@ -613,8 +611,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             packDockTweenInitialized = true;
         }
 
-        // RULES는 이제 PACK 바로 위에 붙는 같은 정보군입니다.
-        // 룰 Focus가 PACK을 밀거나 축소하지 않고 Mission/Chat Focus만 기존 Dock 이동을 소유합니다.
+        // PackDock 자체는 기존 PACK/Mission 배치만 담당합니다.
+        // RULE Focus에서는 RULE 모듈을 고정한 채 GridBoard만 아래로 물러납니다.
         float targetX = rightPanelFocused ? missionFocusedDockX : packFocusedDockX;
         float targetY = packDockY;
 
@@ -632,12 +630,34 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         packDockRoot.localPosition =
             new Vector3(packDockVisualX, packDockVisualY, 0f);
 
-        // 이전 버전의 RULE Focus Scale/Alpha가 남아 있으면 자연스럽게 원복합니다.
+        Vector2 targetBoardPosition = ruleDetailFocused
+            ? new Vector2(0f, -Mathf.Max(0f, ruleDetailPackDropY))
+            : Vector2.zero;
+
+        board.anchoredPosition = Vector2.Lerp(
+            board.anchoredPosition,
+            targetBoardPosition,
+            t);
+
+        if ((board.anchoredPosition - targetBoardPosition).sqrMagnitude <= 0.0625f)
+            board.anchoredPosition = targetBoardPosition;
+
+        // Dashboard Controller가 만든 원래 PACK scale 위에 RULE Focus 배율만 합성합니다.
         float previousRuleScale = Mathf.Max(0.001f, packRuleVisualScale);
         Vector3 dashboardScale = board.localScale / previousRuleScale;
-        packRuleVisualScale = Mathf.Lerp(packRuleVisualScale, 1f, t);
-        if (Mathf.Abs(packRuleVisualScale - 1f) <= 0.002f)
-            packRuleVisualScale = 1f;
+
+        float targetRuleScale = ruleDetailFocused
+            ? Mathf.Clamp(ruleDetailPackScale, 0.45f, 1f)
+            : 1f;
+
+        packRuleVisualScale = Mathf.Lerp(
+            packRuleVisualScale,
+            targetRuleScale,
+            t);
+
+        if (Mathf.Abs(packRuleVisualScale - targetRuleScale) <= 0.002f)
+            packRuleVisualScale = targetRuleScale;
+
         board.localScale = dashboardScale * packRuleVisualScale;
 
         if (packRuleGroup != null)
@@ -645,9 +665,17 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             float previousRuleAlpha = Mathf.Max(0.001f, packRuleVisualAlpha);
             float dashboardAlpha = packRuleGroup.alpha / previousRuleAlpha;
 
-            packRuleVisualAlpha = Mathf.Lerp(packRuleVisualAlpha, 1f, t);
-            if (Mathf.Abs(packRuleVisualAlpha - 1f) <= 0.002f)
-                packRuleVisualAlpha = 1f;
+            float targetRuleAlpha = ruleDetailFocused
+                ? Mathf.Clamp01(ruleDetailPackAlpha)
+                : 1f;
+
+            packRuleVisualAlpha = Mathf.Lerp(
+                packRuleVisualAlpha,
+                targetRuleAlpha,
+                t);
+
+            if (Mathf.Abs(packRuleVisualAlpha - targetRuleAlpha) <= 0.002f)
+                packRuleVisualAlpha = targetRuleAlpha;
 
             packRuleGroup.alpha =
                 Mathf.Clamp01(dashboardAlpha * packRuleVisualAlpha);
@@ -707,6 +735,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
                     Mathf.Clamp01(packRuleGroup.alpha / safeAlpha);
             }
         }
+
+        if (kineticLoadout != null && kineticLoadout.GridBoard != null)
+            kineticLoadout.GridBoard.anchoredPosition = Vector2.zero;
 
         packRuleVisualScale = 1f;
         packRuleVisualAlpha = 1f;

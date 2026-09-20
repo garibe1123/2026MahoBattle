@@ -134,16 +134,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(70f)] private float combatRuleCompactMinWidth = 88f;
     [SerializeField, Min(70f)] private float combatRuleCompactHeight = 94f;
     [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 36f;
-    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 320f;
-    [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 238f;
-    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 58f;
+    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 520f;
+    [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 320f;
+    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 120f;
     [Tooltip("평상시 룰 아이콘 Row의 화면 좌측 상단 여백입니다.")]
     [SerializeField] private Vector2 combatRulePersistentTopLeftMargin = new(34f, 34f);
     [Tooltip("TAB에서 PACK GridBoard 윗면과 룰 모듈 사이 여백입니다.")]
     [SerializeField, Min(0f)] private float combatRulePackGap = 22f;
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
-    [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.78f;
+    [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
 
     [Header("Rule Confirm Punch")]
     [SerializeField, Range(1f, 1.4f)] private float ruleConfirmScale = 1.18f;
@@ -1570,18 +1570,38 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             targetSize,
             t);
 
-        Vector2 targetPosition = combatTabOpen
-            ? new Vector2(0f, Mathf.Max(0f, combatRulePackGap))
-            : ResolveCombatRulePersistentPosition();
+        Vector2 targetPosition;
+        float targetRotation;
+
+        if (combatTabOpen && kineticLoadout != null && kineticLoadout.GridBoard != null)
+        {
+            RectTransform board = kineticLoadout.GridBoard;
+
+            // PACK이 아래로 물러나도 RULES는 원래 PACK 윗면 위치에 남습니다.
+            float boardTop =
+                board.rect.height * (1f - board.pivot.y) +
+                Mathf.Max(0f, combatRulePackGap);
+
+            targetPosition = new Vector2(0f, boardTop);
+            targetRotation = Mathf.Repeat(board.localEulerAngles.z + 180f, 360f) - 180f;
+        }
+        else
+        {
+            targetPosition = ResolveCombatRulePersistentPosition();
+            targetRotation = 0f;
+        }
 
         combatRulePanel.anchoredPosition = Vector2.Lerp(
             combatRulePanel.anchoredPosition,
             targetPosition,
             t);
 
-        // TAB에서는 GridBoard의 자식이므로 PACK의 회전/Scale을 부모로부터 그대로 상속합니다.
-        // localRotation은 항상 0으로 두어 회전을 이중 적용하지 않습니다.
-        combatRulePanel.localRotation = Quaternion.identity;
+        float currentPanelRotation =
+            Mathf.Repeat(combatRulePanel.localEulerAngles.z + 180f, 360f) - 180f;
+        float nextPanelRotation =
+            Mathf.LerpAngle(currentPanelRotation, targetRotation, t);
+        combatRulePanel.localRotation =
+            Quaternion.Euler(0f, 0f, nextPanelRotation);
         combatRulePanel.localScale = Vector3.one;
 
         if (combatRulePanelGroup != null)
@@ -1650,7 +1670,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0.5f, 1f);
                 resultListTab.pivot = new Vector2(0.5f, 1f);
                 rowTarget = focused
-                    ? new Vector2(0f, -42f)
+                    ? new Vector2(0f, -30f)
                     : new Vector2(0f, -20f);
             }
             else
@@ -1672,8 +1692,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (winningRuleTab != null)
         {
             Vector2 detailSize = new(
-                Mathf.Max(240f, combatRulePanel.sizeDelta.x - 48f),
-                focused ? 104f : 82f);
+                Mathf.Max(280f, combatRulePanel.sizeDelta.x - 56f),
+                focused ? 148f : 82f);
 
             winningRuleTab.sizeDelta = Vector2.Lerp(
                 winningRuleTab.sizeDelta,
@@ -1705,23 +1725,37 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             RectTransform board = kineticLoadout != null
                 ? kineticLoadout.GridBoard
                 : null;
+            RectTransform packDock = ResolveCombatRulePackDockRoot();
 
-            if (board == null)
+            if (board == null || packDock == null)
                 return;
 
-            if (combatRulePanel.parent != board)
+            if (combatRulePanel.parent != packDock)
             {
-                combatRulePanel.SetParent(board, false);
+                combatRulePanel.SetParent(packDock, false);
                 combatRulePanel.SetAsLastSibling();
             }
 
-            // PACK 상단 중앙에 모듈의 하단 중앙을 붙입니다.
-            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 1f);
+            // GridBoard와 같은 anchor 지점을 공유하되 서로 형제 관계로 둡니다.
+            // 따라서 PACK만 축소/하강시켜도 RULES는 크기와 위치를 유지할 수 있습니다.
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = board.anchorMin;
             combatRulePanel.pivot = new Vector2(0.5f, 0f);
             return;
         }
 
         RestoreCombatRulePanelToOverlay();
+    }
+
+    private RectTransform ResolveCombatRulePackDockRoot()
+    {
+        RectTransform full = kineticLoadout != null
+            ? kineticLoadout.FullRoot
+            : null;
+
+        if (full == null)
+            return null;
+
+        return full.Find("BroadcastPackDock") as RectTransform;
     }
 
     private void RestoreCombatRulePanelToOverlay()
@@ -1816,6 +1850,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private void ApplyRuleDetailVisualMode(bool combatTabStyle)
     {
+        if (winningRuleTypeText != null)
+            winningRuleTypeText.fontSize = combatTabStyle ? 16 : 13;
+        if (winningRuleNameText != null)
+            winningRuleNameText.fontSize = combatTabStyle ? 28 : 20;
+        if (winningRuleDescriptionText != null)
+            winningRuleDescriptionText.fontSize = combatTabStyle ? 17 : 13;
+
         if (ruleDetailBarImage != null)
         {
             ruleDetailBarImage.color = combatTabStyle
@@ -1835,11 +1876,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatTabStyle)
         {
             if (winningRuleTypeText != null)
-                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.94f));
+                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.06f, 0.74f), new Vector2(0.94f, 0.94f));
             if (winningRuleNameText != null)
-                SetRect(winningRuleNameText.rectTransform, new Vector2(0.05f, 0.34f), new Vector2(0.95f, 0.70f));
+                SetRect(winningRuleNameText.rectTransform, new Vector2(0.06f, 0.43f), new Vector2(0.94f, 0.76f));
             if (winningRuleDescriptionText != null)
-                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.38f));
+                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.06f, 0.06f), new Vector2(0.94f, 0.44f));
         }
         else
         {
