@@ -28,6 +28,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField] private BattleShowWorldSetController showWorldSet;
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private PlayerController player;
+    [SerializeField] private BattlePlayerStageLightingController stageLighting;
 
     [Header("Overlay")]
     [Tooltip("BattleHUD(기본 500)보다 뒤에 두어 월드만 암전시키고 HUD는 그대로 유지합니다.")]
@@ -256,9 +257,23 @@ public sealed class BattleShowFocusController : MonoBehaviour
         Vector4 screenRect = new(0.5f, 0.5f, 0.5f, 0.5f);
         bool screenVisible = TryProjectScreenRect(camera, out screenRect);
 
-        float activeNearDim = openingMap ? openingMapNearDimAlpha : nearDimAlpha;
-        float activeFarDim = openingMap ? openingMapFarDimAlpha : farDimAlpha;
-        float activeDimRadius = openingMap ? openingMapDimFalloffRadius : dimFalloffRadius;
+        bool mapSelection =
+            runManager != null &&
+            runManager.RunActive &&
+            runManager.State == BattleRunState.SelectingNode;
+        bool useUnifiedStageStyle = mapSelection && stageLighting != null;
+
+        // 맵 선택은 전투 Room이 붙을 때의 강한 Stage Spotlight 언어를 그대로 사용합니다.
+        // Reward는 기존 Show 스타일을 유지합니다.
+        float activeNearDim = useUnifiedStageStyle
+            ? stageLighting.UnifiedNearDimAlpha
+            : openingMap ? openingMapNearDimAlpha : nearDimAlpha;
+        float activeFarDim = useUnifiedStageStyle
+            ? stageLighting.UnifiedFarDimAlpha
+            : openingMap ? openingMapFarDimAlpha : farDimAlpha;
+        float activeDimRadius = useUnifiedStageStyle
+            ? stageLighting.UnifiedDimFalloffRadius
+            : openingMap ? openingMapDimFalloffRadius : dimFalloffRadius;
 
         runtimeMaterial.SetColor("_MaskColor", dimColor);
         runtimeMaterial.SetFloat("_Presentation", currentDimBlend);
@@ -267,6 +282,16 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetFloat("_NearDimAlpha", activeNearDim);
         runtimeMaterial.SetFloat("_FarDimAlpha", activeFarDim);
         runtimeMaterial.SetFloat("_DimRadius", Mathf.Max(0.001f, activeDimRadius));
+
+        if (useUnifiedStageStyle && camera != null && player != null && player.IsAlive)
+        {
+            TryProjectCharacter(
+                camera,
+                player.transform,
+                stageLighting.UnifiedPlayerFocusRadiusWorld,
+                out playerUv,
+                out playerRadiusUv);
+        }
 
         runtimeMaterial.SetVector("_PlayerCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
         runtimeMaterial.SetFloat("_PlayerRadius", playerRadiusUv);
@@ -279,9 +304,19 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetVector("_ScreenRect", screenRect);
         runtimeMaterial.SetFloat("_ScreenStrength", screenVisible ? currentFocusBlend : 0f);
 
-        runtimeMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(characterVerticalRatio, 0.2f, 1f));
-        runtimeMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(characterLowerOffset));
-        runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, characterFeather));
+        float activeVerticalRatio = useUnifiedStageStyle
+            ? stageLighting.UnifiedCharacterVerticalRatio
+            : characterVerticalRatio;
+        float activeLowerOffset = useUnifiedStageStyle
+            ? stageLighting.UnifiedCharacterLowerOffset
+            : characterLowerOffset;
+        float activeCharacterFeather = useUnifiedStageStyle
+            ? stageLighting.UnifiedCharacterFeather
+            : characterFeather;
+
+        runtimeMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(activeVerticalRatio, 0.2f, 1f));
+        runtimeMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(activeLowerOffset));
+        runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, activeCharacterFeather));
         runtimeMaterial.SetFloat("_RectFeather", Mathf.Max(0.0001f, rectFeather));
 
         if (overlayImage != null)
@@ -298,6 +333,10 @@ public sealed class BattleShowFocusController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
+        if (stageLighting == null)
+            stageLighting = BattlePlayerStageLightingController.Instance != null
+                ? BattlePlayerStageLightingController.Instance
+                : FindFirstObjectByType<BattlePlayerStageLightingController>(FindObjectsInactive.Include);
     }
 
     private void SubscribeRunState()
