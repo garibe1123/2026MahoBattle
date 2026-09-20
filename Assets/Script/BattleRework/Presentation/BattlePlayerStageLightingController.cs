@@ -108,6 +108,7 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         }
 
         bool preCombat = IsPreCombatStage();
+        bool showSpotlightStage = IsShowSpotlightStage();
         bool combat = IsCombat();
 
         float stageTarget = preCombat ? 1f : 0f;
@@ -126,6 +127,13 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
             SetExistingPlayerPresentationLightsSuppressed(false);
             DriveUnifiedPlayerSpotlight(currentStageDim);
         }
+        else if (showSpotlightStage)
+        {
+            // Combat에서 Pool/Beam/Glow 자식 GameObject를 꺼 둔 뒤에도
+            // RuleRoulette / Reward / Map Show에서는 다시 활성화해야 합니다.
+            // 실제 strength는 BattleInverseWorldSpotlightController가 World Light에 맞춰 소유합니다.
+            SetExistingPlayerPresentationLightsSuppressed(false);
+        }
         else if (combat)
         {
             SetExistingPlayerPresentationLightsSuppressed(true);
@@ -139,12 +147,17 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         UpdatePreCombatOverlay();
 
         bool preCombat = IsPreCombatStage();
+        bool showSpotlightStage = IsShowSpotlightStage();
         bool combat = IsCombat();
 
         if (preCombat)
         {
             SetExistingPlayerPresentationLightsSuppressed(false);
             DriveUnifiedPlayerSpotlight(currentStageDim);
+        }
+        else if (showSpotlightStage)
+        {
+            SetExistingPlayerPresentationLightsSuppressed(false);
         }
         else if (combat)
         {
@@ -180,6 +193,17 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
         return state == BattleRunState.EnteringNode ||
                state == BattleRunState.BuildingRoom;
+    }
+
+    private bool IsShowSpotlightStage()
+    {
+        if (runManager == null || !runManager.RunActive)
+            return false;
+
+        BattleRunState state = runManager.State;
+        return state == BattleRunState.RuleRoulette ||
+               state == BattleRunState.Reward ||
+               state == BattleRunState.SelectingNode;
     }
 
     private bool IsCombat()
