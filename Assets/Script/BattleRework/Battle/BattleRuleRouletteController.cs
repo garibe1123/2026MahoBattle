@@ -137,8 +137,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 320f;
     [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 238f;
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 58f;
-    [Tooltip("전투 룰 HUD의 화면 하단 중앙 기준 위치입니다.")]
+    [Tooltip("TAB에서 룰 Row가 머무는 화면 하단 중앙 위치입니다.")]
     [SerializeField] private Vector2 combatRuleBottomCenterOffset = new(0f, 28f);
+    [Tooltip("평상시 룰 아이콘 Row를 CurrentLoadoutChip 위에 띄우는 간격입니다.")]
+    [SerializeField, Min(0f)] private float combatRulePersistentGap = 12f;
+    [Tooltip("CurrentLoadoutChip을 찾지 못했을 때의 평상시 아이콘 Row 위치입니다.")]
+    [SerializeField] private Vector2 combatRulePersistentFallback = new(700f, 188f);
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.78f;
@@ -158,6 +162,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private RectTransform rouletteBackdrop;
     private RectTransform combatRulePanel;
     private CanvasGroup combatRulePanelGroup;
+    private Image combatRulePanelBack;
+    private Outline combatRulePanelOutline;
+    private Image combatRulePanelPlate;
     private RectTransform machineTab;
     private RectTransform winningRuleTab;
     private RectTransform resultListTab;
@@ -190,6 +197,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private bool finalReviewMode;
     private bool combatTabOpen;
     private bool combatRulePanelFocused;
+    private float combatRuleDrawerVisualAlpha;
+    private BattleRuleDefinition combatLastInspectedRule;
     private Vector2 resolvedCombatRuleCompactSize;
     private Vector2 resolvedCombatRuleFocusedSize;
 
@@ -199,6 +208,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         public Image frame;
         public Image icon;
         public Text fallbackLabel;
+        public BattleRuleDefinition boundRule;
         public BattleRuleSlotPointerFeedback pointerFeedback;
         public Coroutine confirmPunchRoutine;
     }
@@ -268,7 +278,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanelFocused = pointerInsidePanel;
             combatTabPresentation?.SetRuleDetailFocus(combatRulePanelFocused);
 
-            if (!combatRulePanelFocused)
+            if (combatRulePanelFocused)
+                ShowCombatRuleDetailDefault();
+            else
                 HideRuleDetail();
         }
 
@@ -296,6 +308,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         finalReviewMode = false;
         combatTabOpen = false;
         combatRulePanelFocused = false;
+        combatRuleDrawerVisualAlpha = 0f;
+        combatLastInspectedRule = null;
         resolvedCombatRuleCompactSize = Vector2.zero;
         resolvedCombatRuleFocusedSize = Vector2.zero;
         combatTabPresentation?.SetRuleDetailFocus(false);
@@ -863,6 +877,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         if (!previewOnly)
         {
+            view.boundRule = rule;
+
             if (view.pointerFeedback != null)
                 view.pointerFeedback.Bind(rule);
 
@@ -1022,6 +1038,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         finalReviewMode = false;
         combatTabOpen = false;
         combatRulePanelFocused = false;
+        combatRuleDrawerVisualAlpha = 0f;
+        combatLastInspectedRule = null;
         combatTabPresentation?.SetRuleDetailFocus(false);
         ApplyRuleDetailVisualMode(false);
 
@@ -1031,13 +1049,32 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanel.sizeDelta = ResolveCombatRuleCompactSize();
             combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
             combatRulePanel.pivot = new Vector2(0.5f, 0f);
-            combatRulePanel.anchoredPosition = combatRuleBottomCenterOffset;
+            combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
             combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
             combatRulePanel.localScale = Vector3.one;
         }
 
         if (combatRulePanelGroup != null)
             combatRulePanelGroup.alpha = 0f;
+
+        if (combatRulePanelBack != null)
+        {
+            Color color = combatRulePanelBack.color;
+            color.a = 0f;
+            combatRulePanelBack.color = color;
+        }
+        if (combatRulePanelOutline != null)
+        {
+            Color color = combatRulePanelOutline.effectColor;
+            color.a = 0f;
+            combatRulePanelOutline.effectColor = color;
+        }
+        if (combatRulePanelPlate != null)
+        {
+            Color color = combatRulePanelPlate.color;
+            color.a = 0f;
+            combatRulePanelPlate.color = color;
+        }
 
         if (rouletteBackdrop != null)
         {
@@ -1125,6 +1162,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatHudMode = true;
         combatRulePanelFocused = false;
+        combatRuleDrawerVisualAlpha = 0f;
+        ResolveCombatTabReferences();
 
         int count = Mathf.Max(1, ruleSlotViews.Count);
         float activeWidth =
@@ -1145,7 +1184,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanel.sizeDelta = resolvedCombatRuleCompactSize;
         combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
         combatRulePanel.pivot = new Vector2(0.5f, 0f);
-        combatRulePanel.anchoredPosition = combatRuleBottomCenterOffset;
+        combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
         combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
         combatRulePanel.localScale = Vector3.one;
 
@@ -1232,6 +1271,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         ResolveCombatTabReferences();
         combatTabOpen = kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
+        combatRulePanelFocused = false;
+        combatRuleDrawerVisualAlpha = 0f;
         ApplyRuleDetailVisualMode(true);
 
         if (combatRulePanelGroup != null)
@@ -1421,6 +1462,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatHudMode && !combatTabOpen)
             return;
 
+        if (combatHudMode)
+            combatLastInspectedRule = rule;
+
         ShowRuleDetail(rule);
 
         if (finalReviewMode)
@@ -1429,6 +1473,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     internal void HandleRuleSlotPointerExit(BattleRuleDefinition rule)
     {
+        // Combat TAB에서는 Drawer 영역 안에 있는 동안 마지막으로 본 룰 설명을 유지합니다.
+        if (combatHudMode)
+            return;
+
         HideRuleDetail();
 
         if (finalReviewMode)
@@ -1441,16 +1489,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0f);
         panel.pivot = new Vector2(0.5f, 0f);
         panel.sizeDelta = ResolveCombatRuleCompactSize();
-        panel.anchoredPosition = combatRuleBottomCenterOffset;
+        panel.anchoredPosition = combatRulePersistentFallback;
         panel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
 
-        Image back = panel.gameObject.AddComponent<Image>();
-        back.color = new Color(0.025f, 0.028f, 0.045f, 0.985f);
-        back.raycastTarget = false;
+        combatRulePanelBack = panel.gameObject.AddComponent<Image>();
+        combatRulePanelBack.color = new Color(0.025f, 0.028f, 0.045f, 0f);
+        combatRulePanelBack.raycastTarget = false;
 
-        Outline outline = panel.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0.70f);
-        outline.effectDistance = new Vector2(4f, -4f);
+        combatRulePanelOutline = panel.gameObject.AddComponent<Outline>();
+        combatRulePanelOutline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0f);
+        combatRulePanelOutline.effectDistance = new Vector2(4f, -4f);
 
         combatRulePanelGroup = panel.gameObject.AddComponent<CanvasGroup>();
         combatRulePanelGroup.alpha = 0f;
@@ -1463,9 +1511,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         whitePlate.offsetMax = new Vector2(8f, 8f);
         whitePlate.SetAsFirstSibling();
 
-        Image plateImage = whitePlate.gameObject.AddComponent<Image>();
-        plateImage.color = new Color(0.94f, 0.95f, 0.97f, 0.12f);
-        plateImage.raycastTarget = false;
+        combatRulePanelPlate = whitePlate.gameObject.AddComponent<Image>();
+        combatRulePanelPlate.color = new Color(0.94f, 0.95f, 0.97f, 0f);
+        combatRulePanelPlate.raycastTarget = false;
 
         // Compact HUD는 별도 문구/사선 장식 없이
         // PACK 계열의 어두운 판 + 흰 Stroke + 기울기만 유지합니다.
@@ -1507,9 +1555,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             targetSize,
             t);
 
+        Vector2 targetPosition = combatTabOpen
+            ? combatRuleBottomCenterOffset
+            : ResolveCombatRulePersistentPosition();
+
         combatRulePanel.anchoredPosition = Vector2.Lerp(
             combatRulePanel.anchoredPosition,
-            combatRuleBottomCenterOffset,
+            targetPosition,
             t);
 
         float currentRotation = Mathf.Repeat(
@@ -1526,6 +1578,43 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 combatRulePanelGroup.alpha,
                 targetAlpha,
                 t);
+
+        // 평상시와 TAB 진입 직후에는 아이콘만 노출하고,
+        // 룰 영역에 Focus가 들어왔을 때만 Drawer Shell을 페이드인합니다.
+        float drawerTarget = focused ? 1f : 0f;
+        combatRuleDrawerVisualAlpha = Mathf.Lerp(
+            combatRuleDrawerVisualAlpha,
+            drawerTarget,
+            t);
+
+        if (Mathf.Abs(combatRuleDrawerVisualAlpha - drawerTarget) <= 0.002f)
+            combatRuleDrawerVisualAlpha = drawerTarget;
+
+        if (combatRulePanelBack != null)
+        {
+            Color color = combatRulePanelBack.color;
+            color.r = 0.025f;
+            color.g = 0.028f;
+            color.b = 0.045f;
+            color.a = 0.985f * combatRuleDrawerVisualAlpha;
+            combatRulePanelBack.color = color;
+        }
+
+        if (combatRulePanelOutline != null)
+        {
+            Color color = new(0.94f, 0.95f, 0.97f, 0.70f * combatRuleDrawerVisualAlpha);
+            combatRulePanelOutline.effectColor = color;
+        }
+
+        if (combatRulePanelPlate != null)
+        {
+            Color color = combatRulePanelPlate.color;
+            color.r = 0.94f;
+            color.g = 0.95f;
+            color.b = 0.97f;
+            color.a = 0.12f * combatRuleDrawerVisualAlpha;
+            combatRulePanelPlate.color = color;
+        }
 
         if (resultListTab != null)
         {
@@ -1558,6 +1647,54 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                     ? new Vector2(0f, 18f)
                     : new Vector2(0f, 10f),
                 t);
+        }
+    }
+
+    private Vector2 ResolveCombatRulePersistentPosition()
+    {
+        RectTransform compact = kineticLoadout != null
+            ? kineticLoadout.CompactRoot
+            : null;
+
+        if (compact == null || rouletteBackdrop == null)
+            return combatRulePersistentFallback;
+
+        // 두 Canvas 모두 1920x1080 기준 ScaleWithScreenSize를 사용하므로
+        // CurrentLoadoutChip의 bottom-right anchored layout을
+        // 이 Overlay의 bottom-center anchored layout으로 변환합니다.
+        float parentHalfWidth = rouletteBackdrop.rect.width * 0.5f;
+        float compactCenterX =
+            parentHalfWidth +
+            compact.anchoredPosition.x -
+            compact.rect.width * 0.5f;
+        float aboveCompactY =
+            compact.anchoredPosition.y +
+            compact.rect.height +
+            Mathf.Max(0f, combatRulePersistentGap);
+
+        return new Vector2(compactCenterX, aboveCompactY);
+    }
+
+    private void ShowCombatRuleDetailDefault()
+    {
+        if (!combatHudMode || !combatTabOpen || !combatRulePanelFocused)
+            return;
+
+        if (combatLastInspectedRule != null)
+        {
+            ShowRuleDetail(combatLastInspectedRule);
+            return;
+        }
+
+        for (int i = 0; i < ruleSlotViews.Count; i++)
+        {
+            BattleRuleDefinition rule = ruleSlotViews[i]?.boundRule;
+            if (rule == null)
+                continue;
+
+            combatLastInspectedRule = rule;
+            ShowRuleDetail(rule);
+            return;
         }
     }
 
