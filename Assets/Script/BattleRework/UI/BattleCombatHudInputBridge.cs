@@ -274,6 +274,11 @@ public sealed class BattleCombatHudInputBridge : MonoBehaviour
         hoverExitAt = 0f;
     }
 
+    public void ClearPackHoverImmediate()
+    {
+        ClearHoverState();
+    }
+
     private void ClearHoverState()
     {
         hoveredSlot = -1;
