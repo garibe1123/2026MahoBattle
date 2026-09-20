@@ -251,11 +251,20 @@ public sealed class BattleHUD : MonoBehaviour
 
     private void BuildTopStatus()
     {
-        combatStatusRoot = CreatePanel(canvas.transform, "BroadcastStatus", new Vector2(430f, 174f), panelColor);
+        combatStatusRoot = CreatePanel(canvas.transform, "BroadcastStatus", new Vector2(560f, 152f), panelColor);
+        ApplyPersonaFrame(
+            combatStatusRoot,
+            panelColor,
+            new Color(0.96f, 0.88f, 0.14f, 1f),
+            new Color(1f, 0.76f, 0.04f, 1f),
+            true,
+            0.13f,
+            new Vector2(8f, -8f));
+
         RectTransform rect = combatStatusRoot.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
         rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(24f, -24f);
+        rect.anchoredPosition = new Vector2(28f, -26f);
 
         GameObject liveBadge = CreatePanel(
             combatStatusRoot.transform,
@@ -265,35 +274,44 @@ public sealed class BattleHUD : MonoBehaviour
         RectTransform liveRect = liveBadge.GetComponent<RectTransform>();
         liveRect.anchorMin = liveRect.anchorMax = new Vector2(0f, 1f);
         liveRect.pivot = new Vector2(0f, 1f);
-        liveRect.anchoredPosition = new Vector2(16f, -14f);
+        liveRect.anchoredPosition = new Vector2(20f, -12f);
         Text live = CreateText(liveBadge.transform, "● ON AIR", 10, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
         Stretch(live.rectTransform);
 
         stageText = CreateText(combatStatusRoot.transform, "WAITING FOR NEXT TAKE", 17, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(stageText.rectTransform, new Vector2(0.28f, 0.72f), new Vector2(0.96f, 0.94f));
+        SetAnchors(stageText.rectTransform, new Vector2(0.23f, 0.70f), new Vector2(0.95f, 0.95f));
 
         enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentColor);
-        SetAnchors(enemyText.rectTransform, new Vector2(0.66f, 0.54f), new Vector2(0.96f, 0.72f));
+        SetAnchors(enemyText.rectTransform, new Vector2(0.68f, 0.51f), new Vector2(0.95f, 0.69f));
 
         hpText = CreateText(combatStatusRoot.transform, "HP", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(hpText.rectTransform, new Vector2(0.05f, 0.45f), new Vector2(0.28f, 0.60f));
-        hpFill = CreateBar(combatStatusRoot.transform, "HP", new Vector2(0.28f, 0.47f), new Vector2(0.95f, 0.57f), hpColor);
+        SetAnchors(hpText.rectTransform, new Vector2(0.05f, 0.41f), new Vector2(0.25f, 0.57f));
+        hpFill = CreateBar(combatStatusRoot.transform, "HP", new Vector2(0.25f, 0.43f), new Vector2(0.94f, 0.54f), hpColor);
 
         staminaText = CreateText(combatStatusRoot.transform, "ST", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(staminaText.rectTransform, new Vector2(0.05f, 0.27f), new Vector2(0.28f, 0.42f));
-        staminaFill = CreateBar(combatStatusRoot.transform, "ST", new Vector2(0.28f, 0.29f), new Vector2(0.95f, 0.39f), staminaColor);
+        SetAnchors(staminaText.rectTransform, new Vector2(0.05f, 0.22f), new Vector2(0.25f, 0.38f));
+        staminaFill = CreateBar(combatStatusRoot.transform, "ST", new Vector2(0.25f, 0.24f), new Vector2(0.94f, 0.35f), staminaColor);
 
-        audienceText = CreateText(combatStatusRoot.transform, "VIEWERS 0", 9, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.66f, 0.70f, 0.79f, 1f));
-        SetAnchors(audienceText.rectTransform, new Vector2(0.05f, 0.05f), new Vector2(0.96f, 0.22f));
+        audienceText = CreateText(combatStatusRoot.transform, "VIEWERS 0", 9, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.74f, 0.74f, 0.68f, 1f));
+        SetAnchors(audienceText.rectTransform, new Vector2(0.05f, 0.035f), new Vector2(0.94f, 0.19f));
     }
 
     private void BuildEquipmentDock()
     {
-        equipmentDockRoot = CreatePanel(canvas.transform, "EquipmentDock", new Vector2(820f, 112f), panelColor);
+        equipmentDockRoot = CreatePanel(canvas.transform, "EquipmentDock", new Vector2(780f, 116f), panelColor);
+        ApplyPersonaFrame(
+            equipmentDockRoot,
+            panelColor,
+            new Color(0.94f, 0.94f, 0.90f, 1f),
+            new Color(1f, 0.76f, 0.04f, 1f),
+            false,
+            0.10f,
+            new Vector2(-7f, 7f));
+
         RectTransform dock = equipmentDockRoot.GetComponent<RectTransform>();
         dock.anchorMin = dock.anchorMax = new Vector2(1f, 0f);
         dock.pivot = new Vector2(1f, 0f);
-        dock.anchoredPosition = new Vector2(-24f, 24f);
+        dock.anchoredPosition = new Vector2(-30f, 26f);
 
         const float slotWidth = 78f;
         const float slotHeight = 82f;
@@ -726,6 +744,43 @@ public sealed class BattleHUD : MonoBehaviour
         return value.Substring(0, Mathf.Max(1, max - 1)) + "…";
     }
 
+    private static void ApplyPersonaFrame(
+        GameObject root,
+        Color body,
+        Color backPlate,
+        Color accentPlate,
+        bool accentOnLeft,
+        float accentFraction,
+        Vector2 plateOffset)
+    {
+        if (root == null)
+            return;
+
+        BattlePersona4FrameDecorator decorator = root.GetComponent<BattlePersona4FrameDecorator>();
+        if (decorator == null)
+            decorator = root.AddComponent<BattlePersona4FrameDecorator>();
+
+        decorator.Configure(
+            body,
+            backPlate,
+            accentPlate,
+            accentOnLeft,
+            accentFraction,
+            plateOffset);
+
+        Image legacyImage = root.GetComponent<Image>();
+        if (legacyImage != null)
+        {
+            Color legacy = legacyImage.color;
+            legacy.a = 0f;
+            legacyImage.color = legacy;
+        }
+
+        Outline legacyOutline = root.GetComponent<Outline>();
+        if (legacyOutline != null)
+            legacyOutline.enabled = false;
+    }
+
     private static Image CreateBar(
         Transform parent,
         string name,
@@ -898,134 +953,3 @@ internal sealed class RewardInventoryDropZone : MonoBehaviour, IDropHandler, IPo
 
     public void OnDrop(PointerEventData eventData)
     {
-        _ = eventData;
-    }
-
-    public void OnPointerEnter(PointerEventData eventData)
-    {
-        _ = eventData;
-    }
-
-    public void OnPointerExit(PointerEventData eventData)
-    {
-        _ = eventData;
-    }
-}
-
-internal static class BattleHudSpriteCache
-{
-    private static Sprite roundedPanel;
-    private static Sprite defaultSprite;
-    private static Sprite floorSpotlight;
-
-    public static Sprite RoundedPanel => roundedPanel != null ? roundedPanel : roundedPanel = CreateRoundedPanel();
-    public static Sprite DefaultSprite => defaultSprite != null ? defaultSprite : defaultSprite = CreateDefaultSprite();
-    public static Sprite FloorSpotlight => floorSpotlight != null ? floorSpotlight : floorSpotlight = CreateFloorSpotlight();
-
-    private static Sprite CreateRoundedPanel()
-    {
-        const int pixels = 32;
-        const float radius = 7f;
-        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        for (int y = 0; y < pixels; y++)
-        {
-            for (int x = 0; x < pixels; x++)
-            {
-                float dx = Mathf.Max(Mathf.Abs(x - 15.5f) - (15.5f - radius), 0f);
-                float dy = Mathf.Max(Mathf.Abs(y - 15.5f) - (15.5f - radius), 0f);
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                float a = Mathf.Clamp01(radius + 0.5f - d);
-                texture.SetPixel(x, y, new Color(1f, 1f, 1f, a));
-            }
-        }
-
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, pixels, pixels),
-            new Vector2(0.5f, 0.5f),
-            pixels,
-            0,
-            SpriteMeshType.FullRect,
-            new Vector4(8f, 8f, 8f, 8f));
-        sprite.name = "RuntimeHudRoundedPanel";
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        return sprite;
-    }
-
-    private static Sprite CreateDefaultSprite()
-    {
-        const int pixels = 16;
-        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        for (int y = 0; y < pixels; y++)
-            for (int x = 0; x < pixels; x++)
-                texture.SetPixel(x, y, Color.white);
-
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, pixels, pixels),
-            new Vector2(0.5f, 0.5f),
-            pixels,
-            0,
-            SpriteMeshType.FullRect);
-        sprite.name = "RuntimeSpriteDefault";
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        return sprite;
-    }
-
-    private static Sprite CreateFloorSpotlight()
-    {
-        const int width = 256;
-        const int height = 128;
-        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        Vector2 center = new((width - 1) * 0.5f, (height - 1) * 0.5f);
-        float invRadiusX = 1f / Mathf.Max(1f, center.x);
-        float invRadiusY = 1f / Mathf.Max(1f, center.y);
-
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                float nx = (x - center.x) * invRadiusX;
-                float ny = (y - center.y) * invRadiusY;
-                float radius = Mathf.Sqrt(nx * nx + ny * ny);
-                float core = 1f - Mathf.SmoothStep(0.08f, 0.70f, radius);
-                float feather = 1f - Mathf.SmoothStep(0.56f, 1f, radius);
-                float alpha = Mathf.Clamp01(core * 0.52f + feather * 0.48f);
-                alpha *= Mathf.Clamp01(1f - Mathf.Pow(radius, 3.2f));
-                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
-            }
-        }
-
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, width, height),
-            new Vector2(0.5f, 0.5f),
-            128f,
-            0,
-            SpriteMeshType.FullRect);
-        sprite.name = "RuntimeRewardBirdEyeFloorSpotlight";
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        return sprite;
-    }
-}
