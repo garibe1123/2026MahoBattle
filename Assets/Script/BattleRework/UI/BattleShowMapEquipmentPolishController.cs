@@ -388,7 +388,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (node == null)
             return string.Empty;
 
-        int stars = node.GetBattleRatingStars();
+        int stars = runManager.ResolveBattleRatingStars(node);
         return new string('★', stars) + new string('☆', 5 - stars);
     }
 

@@ -82,6 +82,10 @@ public class BattleRunManager : MonoBehaviour
     private Vector3 startRoomOriginPosition;
     private RunEndReason? lastEndReason;
 
+    // Engine Play Mode test override. 0 = authored/automatic rating.
+    // This never mutates NodeGraphSO/BattleNodeData assets.
+    private int debugBattleRatingOverride;
+
     public BattleNodeData CurrentNode => currentNode;
     public BattleContext CurrentContext => currentContext;
     public BattleRuleSet CurrentBattleRules => currentBattleRules;
@@ -96,9 +100,31 @@ public class BattleRunManager : MonoBehaviour
     public RunEndReason? LastEndReason => lastEndReason;
     public BattleSceneManager SceneManager => sceneManager;
     public bool IsInStartArea => startAreaActive;
+    public int DebugBattleRatingOverride => debugBattleRatingOverride;
 
     public BattleNodeData FindNode(string nodeId) =>
         nodeGraph != null ? nodeGraph.FindNode(nodeId) : null;
+
+    public int ResolveBattleRatingStars(BattleNodeData node)
+    {
+        if (node == null)
+            return 1;
+
+        if (Application.isPlaying && debugBattleRatingOverride > 0)
+            return Mathf.Clamp(debugBattleRatingOverride, 1, 5);
+
+        return node.GetBattleRatingStars();
+    }
+
+    public void SetDebugBattleRatingOverride(int stars)
+    {
+        if (!Application.isPlaying)
+            return;
+
+        debugBattleRatingOverride = stars <= 0
+            ? 0
+            : Mathf.Clamp(stars, 1, 5);
+    }
 
     public event Action<BattleRunState> StateChanged;
     public event Action<BattleNodeData> NodeEntered;
@@ -566,7 +592,7 @@ public class BattleRunManager : MonoBehaviour
 
     private IEnumerator RollBattleRulesThenEnter(BattleNodeData node)
     {
-        int stars = node != null ? node.GetBattleRatingStars() : 1;
+        int stars = ResolveBattleRatingStars(node);
         BattleRuleSet rolled = null;
 
         if (battleRuleRoulette != null)

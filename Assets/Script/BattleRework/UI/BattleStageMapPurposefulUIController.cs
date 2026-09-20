@@ -538,7 +538,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (node == null || (node.type != BattleNodeType.Combat && node.type != BattleNodeType.Elite))
             return typeName;
 
-        return typeName + "\n" + BuildStars(node.GetBattleRatingStars());
+        int stars = runManager != null
+            ? runManager.ResolveBattleRatingStars(node)
+            : node.GetBattleRatingStars();
+
+        return typeName + "\n" + BuildStars(stars);
     }
 
     private BattleNodeData ResolveNodeData(RectTransform rect)

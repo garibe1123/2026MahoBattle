@@ -5,7 +5,8 @@ using UnityEngine.SceneManagement;
 /// <summary>
 /// 엔진 테스트용 IMGUI입니다.
 /// 좌측 레거시 디버그 패널은 Debug Action Map의 F1로 켜고 끌 수 있으며,
-/// 우측 상단 KILL ALL ENEMY 퀵 액션은 살아 있는 적이 있을 때만 표시됩니다.
+/// 우측 상단 KILL ALL ENEMY 퀵 액션과 맵 선택용 BATTLE RATING 테스트 선택기를 제공합니다.
+/// 테스트 선택기는 Play Mode에서만 보이며 NodeGraphSO 값을 수정하지 않습니다.
 /// 릴리스 빌드에서는 입력과 UI가 모두 비활성입니다.
 /// </summary>
 public class BattleDebugUI : MonoBehaviour
@@ -94,6 +95,7 @@ public class BattleDebugUI : MonoBehaviour
         if (!Application.isEditor && !Debug.isDebugBuild)
             return;
 
+        DrawBattleRatingTestSelector();
         DrawKillAllEnemyButton();
 
         if (!visible)
@@ -169,8 +171,13 @@ public class BattleDebugUI : MonoBehaviour
                 if (node == null)
                     continue;
 
-                if (GUILayout.Button($"{node.id} / {node.type} / Depth {node.depth}", GUILayout.Height(28f)))
+                int stars = runManager.ResolveBattleRatingStars(node);
+                if (GUILayout.Button(
+                        $"{node.id} / {node.type} / Depth {node.depth} / {BuildDebugStars(stars)}",
+                        GUILayout.Height(28f)))
+                {
                     runManager.SelectNextNode(node.id);
+                }
             }
         }
 
@@ -191,6 +198,66 @@ public class BattleDebugUI : MonoBehaviour
         GUILayout.EndArea();
     }
 
+    private void DrawBattleRatingTestSelector()
+    {
+        if (!Application.isPlaying ||
+            runManager == null ||
+            runManager.State != BattleRunState.SelectingNode)
+        {
+            return;
+        }
+
+        const float width = 350f;
+        const float height = 86f;
+        const float rightMargin = 12f;
+        const float top = 72f;
+
+        Rect area = new(
+            Screen.width - width - rightMargin,
+            top,
+            width,
+            height);
+
+        GUILayout.BeginArea(area, GUI.skin.box);
+        GUILayout.Label(
+            runManager.DebugBattleRatingOverride <= 0
+                ? "BATTLE RATING TEST : AUTO"
+                : $"BATTLE RATING TEST : {BuildDebugStars(runManager.DebugBattleRatingOverride)}");
+
+        GUILayout.BeginHorizontal();
+
+        DrawBattleRatingOverrideButton("AUTO", 0);
+        for (int stars = 1; stars <= 5; stars++)
+            DrawBattleRatingOverrideButton($"★{stars}", stars);
+
+        GUILayout.EndHorizontal();
+        GUILayout.EndArea();
+    }
+
+    private void DrawBattleRatingOverrideButton(string label, int stars)
+    {
+        if (runManager == null)
+            return;
+
+        int current = runManager.DebugBattleRatingOverride;
+        bool selected = current == stars;
+
+        Color previous = GUI.backgroundColor;
+        if (selected)
+            GUI.backgroundColor = new Color(0.25f, 0.75f, 1f, 1f);
+
+        if (GUILayout.Button(label, GUILayout.Height(30f)))
+            runManager.SetDebugBattleRatingOverride(stars);
+
+        GUI.backgroundColor = previous;
+    }
+
+    private static string BuildDebugStars(int stars)
+    {
+        stars = Mathf.Clamp(stars, 1, 5);
+        return new string('★', stars) + new string('☆', 5 - stars);
+    }
+
     private void DrawKillAllEnemyButton()
     {
         int aliveCount = CountAliveMonsters();
@@ -199,7 +266,10 @@ public class BattleDebugUI : MonoBehaviour
 
         const float width = 220f;
         const float height = 48f;
-        Rect area = new(Screen.width - width - 12f, 12f, width, height);
+        float top = runManager != null && runManager.State == BattleRunState.SelectingNode
+            ? 166f
+            : 12f;
+        Rect area = new(Screen.width - width - 12f, top, width, height);
 
         Color previousBackground = GUI.backgroundColor;
         bool previousEnabled = GUI.enabled;
