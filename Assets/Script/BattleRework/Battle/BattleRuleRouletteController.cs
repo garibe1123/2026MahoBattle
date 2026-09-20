@@ -265,10 +265,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanel.gameObject.activeInHierarchy &&
             Input.mousePresent)
         {
+            Canvas panelCanvas = combatRulePanel.GetComponentInParent<Canvas>();
+            Camera eventCamera =
+                panelCanvas != null && panelCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                    ? panelCanvas.worldCamera
+                    : null;
+
             pointerInsidePanel = RectTransformUtility.RectangleContainsScreenPoint(
                 combatRulePanel,
                 Input.mousePosition,
-                null);
+                eventCamera);
         }
 
         if (combatRulePanelFocused != pointerInsidePanel)
@@ -325,6 +331,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
 
         SetSpinButtonInteractable(false);
+
+        RestoreCombatRulePanelToOverlay();
+
+        if (combatRulePanel != null)
+            combatRulePanel.gameObject.SetActive(false);
 
         if (uiRoot != null)
             uiRoot.SetActive(false);
@@ -1041,14 +1052,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatTabPresentation?.SetRuleDetailFocus(false);
         ApplyRuleDetailVisualMode(false);
 
+        RestoreCombatRulePanelToOverlay();
+
         if (combatRulePanel != null)
         {
             combatRulePanel.gameObject.SetActive(false);
             combatRulePanel.sizeDelta = ResolveCombatRuleCompactSize();
-            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
-            combatRulePanel.pivot = new Vector2(0.5f, 0f);
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
+            combatRulePanel.pivot = new Vector2(0f, 1f);
             combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
-            combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
+            combatRulePanel.localRotation = Quaternion.identity;
             combatRulePanel.localScale = Vector3.one;
         }
 
@@ -1178,9 +1191,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         Vector3 startResultWorld = resultListTab.position;
         Vector3 startResultScale = resultListTab.localScale;
 
+        RestoreCombatRulePanelToOverlay();
         combatRulePanel.gameObject.SetActive(true);
         combatRulePanel.sizeDelta = resolvedCombatRuleCompactSize;
-        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
+        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
         combatRulePanel.pivot = new Vector2(0f, 1f);
         combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
         combatRulePanel.localRotation = Quaternion.identity;
@@ -1200,7 +1214,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         Vector3 targetResultScale = Vector3.one * compactIconScale;
         Vector3 targetResultWorld = resultListTab.position;
 
-        // Reparent 후에도 화면 중앙에서 좌측 상단 패널로 이동하는 장면은 유지합니다.
+        // 룰렛 결과 Row가 전투 HUD의 좌측 상단 아이콘 Row로 이동하는 장면은 유지합니다.
         resultListTab.position = startResultWorld;
         resultListTab.localScale = startResultScale;
 
@@ -1527,6 +1541,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         bool focused = combatTabOpen && combatRulePanelFocused;
 
+        EnsureCombatRulePanelParentForMode();
+
         Vector2 compactSize = resolvedCombatRuleCompactSize.sqrMagnitude > 0.01f
             ? resolvedCombatRuleCompactSize
             : ResolveCombatRuleCompactSize();
@@ -1554,37 +1570,19 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             targetSize,
             t);
 
-        Vector2 targetPosition;
-        float targetRotation;
-
-        if (combatTabOpen)
-        {
-            // TAB에서는 PACK 바로 위에 붙는 보조 모듈입니다.
-            // 중심 Pivot을 사용해 룰 1~5개가 가운데에서 좌우로 퍼집니다.
-            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
-            combatRulePanel.pivot = new Vector2(0.5f, 0f);
-            targetPosition = ResolveCombatRulePackPosition();
-            targetRotation = ResolveCombatRulePackRotation();
-        }
-        else
-        {
-            // 평상시는 화면 좌측 상단의 단순 아이콘 HUD입니다.
-            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
-            combatRulePanel.pivot = new Vector2(0f, 1f);
-            targetPosition = ResolveCombatRulePersistentPosition();
-            targetRotation = 0f;
-        }
+        Vector2 targetPosition = combatTabOpen
+            ? new Vector2(0f, Mathf.Max(0f, combatRulePackGap))
+            : ResolveCombatRulePersistentPosition();
 
         combatRulePanel.anchoredPosition = Vector2.Lerp(
             combatRulePanel.anchoredPosition,
             targetPosition,
             t);
 
-        float currentRotation = Mathf.Repeat(
-            combatRulePanel.localEulerAngles.z + 180f,
-            360f) - 180f;
-        float nextRotation = Mathf.LerpAngle(currentRotation, targetRotation, t);
-        combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
+        // TAB에서는 GridBoard의 자식이므로 PACK의 회전/Scale을 부모로부터 그대로 상속합니다.
+        // localRotation은 항상 0으로 두어 회전을 이중 적용하지 않습니다.
+        combatRulePanel.localRotation = Quaternion.identity;
+        combatRulePanel.localScale = Vector3.one;
 
         if (combatRulePanelGroup != null)
             combatRulePanelGroup.alpha = Mathf.Lerp(
@@ -1592,8 +1590,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 targetAlpha,
                 t);
 
-        // 평상시는 아이콘만. TAB에서는 채팅/미션처럼 PACK 계열 프레임을 항상 보이고,
-        // Focus 시 더 선명하게 확장합니다.
         float drawerTarget = combatTabOpen
             ? (focused ? 1f : 0.78f)
             : 0f;
@@ -1694,55 +1690,53 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private Vector2 ResolveCombatRulePersistentPosition()
     {
-        if (rouletteBackdrop == null)
-            return Vector2.zero;
-
-        float halfWidth = rouletteBackdrop.rect.width * 0.5f;
-        float height = rouletteBackdrop.rect.height;
-
         return new Vector2(
-            -halfWidth + Mathf.Abs(combatRulePersistentTopLeftMargin.x),
-            height - Mathf.Abs(combatRulePersistentTopLeftMargin.y));
+            Mathf.Abs(combatRulePersistentTopLeftMargin.x),
+            -Mathf.Abs(combatRulePersistentTopLeftMargin.y));
     }
 
-    private Vector2 ResolveCombatRulePackPosition()
+    private void EnsureCombatRulePanelParentForMode()
     {
-        RectTransform board = kineticLoadout != null
-            ? kineticLoadout.GridBoard
-            : null;
+        if (combatRulePanel == null)
+            return;
 
-        if (board == null || rouletteBackdrop == null)
-            return ResolveCombatRulePersistentPosition();
-
-        Vector3[] corners = new Vector3[4];
-        board.GetWorldCorners(corners);
-
-        Vector3 topCenterWorld = (corners[1] + corners[2]) * 0.5f;
-        Vector2 screenPoint = RectTransformUtility.WorldToScreenPoint(null, topCenterWorld);
-
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                rouletteBackdrop,
-                screenPoint,
-                null,
-                out Vector2 localPoint))
+        if (combatTabOpen)
         {
-            return ResolveCombatRulePersistentPosition();
+            RectTransform board = kineticLoadout != null
+                ? kineticLoadout.GridBoard
+                : null;
+
+            if (board == null)
+                return;
+
+            if (combatRulePanel.parent != board)
+            {
+                combatRulePanel.SetParent(board, false);
+                combatRulePanel.SetAsLastSibling();
+            }
+
+            // PACK 상단 중앙에 모듈의 하단 중앙을 붙입니다.
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 1f);
+            combatRulePanel.pivot = new Vector2(0.5f, 0f);
+            return;
         }
 
-        localPoint.y += Mathf.Max(0f, combatRulePackGap);
-        return localPoint;
+        RestoreCombatRulePanelToOverlay();
     }
 
-    private float ResolveCombatRulePackRotation()
+    private void RestoreCombatRulePanelToOverlay()
     {
-        RectTransform board = kineticLoadout != null
-            ? kineticLoadout.GridBoard
-            : null;
+        if (combatRulePanel == null || rouletteBackdrop == null)
+            return;
 
-        if (board == null)
-            return combatRulePanelRotation;
+        if (combatRulePanel.parent != rouletteBackdrop)
+            combatRulePanel.SetParent(rouletteBackdrop, false);
 
-        return Mathf.Repeat(board.eulerAngles.z + 180f, 360f) - 180f;
+        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
+        combatRulePanel.pivot = new Vector2(0f, 1f);
+        combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
+        combatRulePanel.localRotation = Quaternion.identity;
+        combatRulePanel.localScale = Vector3.one;
     }
 
     private void ShowCombatRuleDetailDefault()
