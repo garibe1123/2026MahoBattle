@@ -160,6 +160,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Button spinButton;
     private Image spinButtonImage;
     private Image backdropImage;
+    private Image ruleDetailBarImage;
+    private RectTransform ruleDetailAccentRoot;
     private CanvasGroup ruleHudGroup;
     private BattleKineticLoadoutUI kineticLoadout;
     private BattleCombatTabPresentationPolishController combatTabPresentation;
@@ -611,10 +613,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             new Vector2(0.5f, 0.37f),
             new Vector2(620f, 88f));
 
-        Image detailBar = winningRuleTab.gameObject.AddComponent<Image>();
-        detailBar.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
-        detailBar.raycastTarget = false;
-        CreateRuleDetailAccent(winningRuleTab);
+        ruleDetailBarImage = winningRuleTab.gameObject.AddComponent<Image>();
+        ruleDetailBarImage.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
+        ruleDetailBarImage.raycastTarget = false;
+        ruleDetailAccentRoot = CreateRuleDetailAccent(winningRuleTab);
+        ruleDetailAccentRoot.gameObject.SetActive(false);
 
         controlTab = CreateBareTab(
             backdrop,
@@ -969,6 +972,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         combatHudMode = false;
         finalReviewMode = false;
+        ApplyRuleDetailVisualMode(false);
 
         if (detailLayoutTweenRoutine != null)
         {
@@ -1150,6 +1154,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         ResolveCombatTabReferences();
         combatTabOpen = kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
+        ApplyRuleDetailVisualMode(true);
 
         if (ruleHudGroup != null)
         {
@@ -1166,6 +1171,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private void EnterFinalReviewMode()
     {
         finalReviewMode = true;
+        ApplyRuleDetailVisualMode(false);
         ResetControlTabPositionImmediate();
         HideRuleDetailImmediate();
     }
@@ -1216,6 +1222,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             detailScaleTweenRoutine = null;
         }
 
+        ApplyRuleDetailVisualMode(combatHudMode);
         ShowWinningRule(rule);
 
         float baseScale = GetRuleDetailBaseScale();
@@ -1364,30 +1371,104 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
     }
 
-    private static void CreateRuleDetailAccent(RectTransform parent)
+    private void ApplyRuleDetailVisualMode(bool combatTabStyle)
     {
-        if (parent == null || parent.Find("RuleDetailAccent") != null)
-            return;
+        if (ruleDetailAccentRoot != null)
+            ruleDetailAccentRoot.gameObject.SetActive(combatTabStyle);
+
+        if (ruleDetailBarImage != null)
+        {
+            ruleDetailBarImage.color = combatTabStyle
+                ? new Color(0.018f, 0.022f, 0.030f, 0.94f)
+                : new Color(0.025f, 0.028f, 0.038f, 0.94f);
+        }
+
+        if (winningRuleTypeText != null)
+            winningRuleTypeText.alignment = combatTabStyle
+                ? TextAnchor.MiddleLeft
+                : TextAnchor.MiddleCenter;
+
+        if (winningRuleNameText != null)
+            winningRuleNameText.alignment = combatTabStyle
+                ? TextAnchor.MiddleLeft
+                : TextAnchor.MiddleCenter;
+
+        if (winningRuleDescriptionText != null)
+            winningRuleDescriptionText.alignment = combatTabStyle
+                ? TextAnchor.MiddleLeft
+                : TextAnchor.MiddleCenter;
+
+        if (combatTabStyle)
+        {
+            if (winningRuleTypeText != null)
+                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.10f, 0.68f), new Vector2(0.96f, 0.94f));
+            if (winningRuleNameText != null)
+                SetRect(winningRuleNameText.rectTransform, new Vector2(0.10f, 0.34f), new Vector2(0.96f, 0.70f));
+            if (winningRuleDescriptionText != null)
+                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.10f, 0.02f), new Vector2(0.96f, 0.38f));
+        }
+        else
+        {
+            if (winningRuleTypeText != null)
+                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.94f));
+            if (winningRuleNameText != null)
+                SetRect(winningRuleNameText.rectTransform, new Vector2(0.05f, 0.34f), new Vector2(0.95f, 0.70f));
+            if (winningRuleDescriptionText != null)
+                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.38f));
+        }
+    }
+
+    private static RectTransform CreateRuleDetailAccent(RectTransform parent)
+    {
+        if (parent == null)
+            return null;
+
+        Transform existing = parent.Find("RuleDetailAccent");
+        if (existing is RectTransform existingRect)
+            return existingRect;
 
         RectTransform accentRoot = CreateRect(parent, "RuleDetailAccent");
         accentRoot.anchorMin = accentRoot.anchorMax = new Vector2(0f, 0.5f);
         accentRoot.pivot = new Vector2(1f, 0.5f);
-        accentRoot.anchoredPosition = new Vector2(-12f, 0f);
-        accentRoot.sizeDelta = new Vector2(72f, 82f);
+        accentRoot.anchoredPosition = new Vector2(-10f, 0f);
+        accentRoot.sizeDelta = new Vector2(92f, 92f);
 
-        for (int i = 0; i < 3; i++)
+        RectTransform plate = CreateRect(accentRoot, "MainSlash");
+        plate.anchorMin = plate.anchorMax = new Vector2(0.5f, 0.5f);
+        plate.pivot = new Vector2(0.5f, 0.5f);
+        plate.sizeDelta = new Vector2(13f, 78f);
+        plate.anchoredPosition = new Vector2(-25f, 0f);
+        plate.localRotation = Quaternion.Euler(0f, 0f, -24f);
+
+        Image plateImage = plate.gameObject.AddComponent<Image>();
+        plateImage.color = new Color(1f, 1f, 1f, 0.96f);
+        plateImage.raycastTarget = false;
+
+        for (int i = 0; i < 2; i++)
         {
-            RectTransform slash = CreateRect(accentRoot, $"Slash_{i + 1}");
+            RectTransform slash = CreateRect(accentRoot, $"ThinSlash_{i + 1}");
             slash.anchorMin = slash.anchorMax = new Vector2(0.5f, 0.5f);
             slash.pivot = new Vector2(0.5f, 0.5f);
-            slash.sizeDelta = new Vector2(8f, 54f - i * 7f);
-            slash.anchoredPosition = new Vector2(-18f + i * 18f, 0f);
+            slash.sizeDelta = new Vector2(6f, 58f - i * 10f);
+            slash.anchoredPosition = new Vector2(i * 18f, 0f);
             slash.localRotation = Quaternion.Euler(0f, 0f, -24f);
 
             Image image = slash.gameObject.AddComponent<Image>();
-            image.color = new Color(1f, 1f, 1f, 0.88f - i * 0.14f);
+            image.color = new Color(1f, 1f, 1f, 0.76f - i * 0.18f);
             image.raycastTarget = false;
         }
+
+        RectTransform line = CreateRect(accentRoot, "TailLine");
+        line.anchorMin = line.anchorMax = new Vector2(0.5f, 0.5f);
+        line.pivot = new Vector2(0f, 0.5f);
+        line.sizeDelta = new Vector2(52f, 3f);
+        line.anchoredPosition = new Vector2(18f, -31f);
+
+        Image lineImage = line.gameObject.AddComponent<Image>();
+        lineImage.color = new Color(1f, 1f, 1f, 0.72f);
+        lineImage.raycastTarget = false;
+
+        return accentRoot;
     }
 
     private void SetSpinButtonLabel(string label)
