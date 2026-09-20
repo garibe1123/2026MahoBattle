@@ -133,6 +133,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0.04f)] private float ruleConfirmGrowDuration = 0.08f;
     [SerializeField, Min(0.04f)] private float ruleConfirmReturnDuration = 0.14f;
 
+    [Header("Rule Detail Hover")]
+    [SerializeField, Min(12f)] private float ruleDetailButtonDrop = 92f;
+    [SerializeField, Min(0.05f)] private float ruleDetailTweenDuration = 0.18f;
+
     private GameObject uiRoot;
     private RectTransform machineTab;
     private RectTransform winningRuleTab;
@@ -153,9 +157,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Image spinButtonImage;
     private Image backdropImage;
     private BattleRuleDefinition lastRevealedRule;
+    private Coroutine detailLayoutTweenRoutine;
+    private Vector2 controlTabRestPosition;
     private bool cancelRequested;
     private bool startBattleConfirmed;
     private bool combatHudMode;
+    private bool finalReviewMode;
 
     private sealed class RuleSlotView
     {
@@ -201,7 +208,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         cancelRequested = true;
         startBattleConfirmed = false;
         combatHudMode = false;
+        finalReviewMode = false;
         lastRevealedRule = null;
+
+        if (detailLayoutTweenRoutine != null)
+        {
+            StopCoroutine(detailLayoutTweenRoutine);
+            detailLayoutTweenRoutine = null;
+        }
+
         SetSpinButtonInteractable(false);
 
         if (uiRoot != null)
@@ -270,8 +285,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (cancelRequested)
             yield break;
 
-        // 최종 상태에서는 확정된 가로 룰 슬롯과 현재 룰 정보만 유지합니다.
+        // 최종 확인 상태에서는 START BATTLE을 기본으로 보여주고,
+        // 상세 설명은 룰 아이콘 Hover 중에만 노출합니다.
         progressText.text = "THIS BATTLE";
+        EnterFinalReviewMode();
         SetSpinButtonLabel("START BATTLE");
         SetSpinButtonInteractable(true);
 
@@ -287,6 +304,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
 
         SetSpinButtonInteractable(false);
+        finalReviewMode = false;
+        HideRuleDetail();
+        ResetControlTabPositionImmediate();
 
         // 결과 아이콘은 꺼버리지 않고 좌측 상단 HUD로 자연스럽게 이동시킵니다.
         yield return TransitionToCombatHud();
@@ -553,6 +573,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             "ControlTab",
             new Vector2(0.5f, 0.20f),
             new Vector2(260f, 86f));
+        controlTabRestPosition = controlTab.anchoredPosition;
 
         ratingText = CreateText(machineTab, "Rating", 28, FontStyle.Bold, TextAnchor.MiddleCenter);
         SetRect(ratingText.rectTransform, new Vector2(0.05f, 0.48f), new Vector2(0.95f, 0.96f));
@@ -865,6 +886,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (rule == null)
             return;
 
+        if (winningRuleTab != null && !winningRuleTab.gameObject.activeSelf)
+            winningRuleTab.gameObject.SetActive(true);
+
         lastRevealedRule = rule;
         Color color = GetPolarityColor(rule.polarity);
 
@@ -890,7 +914,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private void ResetPresentationLayout()
     {
         combatHudMode = false;
+        finalReviewMode = false;
         lastRevealedRule = null;
+
+        if (detailLayoutTweenRoutine != null)
+        {
+            StopCoroutine(detailLayoutTweenRoutine);
+            detailLayoutTweenRoutine = null;
+        }
 
         if (backdropImage != null)
         {
@@ -908,6 +939,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         {
             controlTab.gameObject.SetActive(true);
             controlTab.localScale = Vector3.one;
+            controlTab.anchoredPosition = controlTabRestPosition;
         }
 
         if (resultListTab != null)
@@ -1050,35 +1082,112 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             backdropImage.raycastTarget = false;
         }
 
-        SetHoverDetailPrompt();
+        HideRuleDetail();
     }
 
-    private void SetHoverDetailPrompt()
+    private void EnterFinalReviewMode()
     {
-        if (winningRuleTypeText != null)
-            winningRuleTypeText.text = string.Empty;
-        if (winningRuleNameText != null)
-            winningRuleNameText.text = "RULE DETAILS";
-        if (winningRuleDescriptionText != null)
-            winningRuleDescriptionText.text = "Hover a rule icon to view its effect.";
+        finalReviewMode = true;
+        ResetControlTabPositionImmediate();
+        HideRuleDetail();
+    }
+
+    private void HideRuleDetail()
+    {
+        if (winningRuleTab != null)
+            winningRuleTab.gameObject.SetActive(false);
+    }
+
+    private void ShowRuleDetail(BattleRuleDefinition rule)
+    {
+        if (rule == null || winningRuleTab == null)
+            return;
+
+        winningRuleTab.gameObject.SetActive(true);
+        ShowWinningRule(rule);
+    }
+
+    private void ResetControlTabPositionImmediate()
+    {
+        if (detailLayoutTweenRoutine != null)
+        {
+            StopCoroutine(detailLayoutTweenRoutine);
+            detailLayoutTweenRoutine = null;
+        }
+
+        if (controlTab != null)
+            controlTab.anchoredPosition = controlTabRestPosition;
+    }
+
+    private void TweenControlTabForDetail(bool detailVisible)
+    {
+        if (!finalReviewMode || controlTab == null)
+            return;
+
+        Vector2 target = controlTabRestPosition;
+        if (detailVisible)
+            target.y -= Mathf.Max(12f, ruleDetailButtonDrop);
+
+        if (detailLayoutTweenRoutine != null)
+            StopCoroutine(detailLayoutTweenRoutine);
+
+        detailLayoutTweenRoutine = StartCoroutine(TweenControlTabRoutine(target));
+    }
+
+    private IEnumerator TweenControlTabRoutine(Vector2 target)
+    {
+        if (controlTab == null)
+            yield break;
+
+        Vector2 start = controlTab.anchoredPosition;
+        float duration = Mathf.Max(0.05f, ruleDetailTweenDuration);
+        float elapsed = 0f;
+
+        while (elapsed < duration && controlTab != null)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            // SmoothStep 계열. 설명이 펼쳐질 때 버튼이 튀지 않고 자연스럽게 밀립니다.
+            float eased = t * t * (3f - 2f * t);
+            controlTab.anchoredPosition = Vector2.Lerp(start, target, eased);
+            yield return null;
+        }
+
+        if (controlTab != null)
+            controlTab.anchoredPosition = target;
+
+        detailLayoutTweenRoutine = null;
     }
 
     internal float GetRuleHoverScale() => Mathf.Max(1f, ruleHoverScale);
 
     internal void HandleRuleSlotPointerEnter(BattleRuleDefinition rule)
     {
-        if (rule != null)
-            ShowWinningRule(rule);
+        if (rule == null)
+            return;
+
+        ShowRuleDetail(rule);
+
+        if (finalReviewMode)
+            TweenControlTabForDetail(true);
     }
 
     internal void HandleRuleSlotPointerExit(BattleRuleDefinition rule)
     {
-        if (combatHudMode)
+        if (finalReviewMode)
         {
-            SetHoverDetailPrompt();
+            HideRuleDetail();
+            TweenControlTabForDetail(false);
             return;
         }
 
+        if (combatHudMode)
+        {
+            HideRuleDetail();
+            return;
+        }
+
+        // 룰렛 추첨 중에는 방금 확정된 결과 설명을 유지합니다.
         if (lastRevealedRule != null)
             ShowWinningRule(lastRevealedRule);
     }
