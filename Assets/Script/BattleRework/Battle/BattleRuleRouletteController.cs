@@ -203,12 +203,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private bool combatRulePanelFocused;
     private float combatRuleDrawerVisualAlpha;
     private BattleRuleDefinition combatLastInspectedRule;
+    private BattleRuleSlotPointerFeedback activeRuleSlotHover;
     private Vector2 resolvedCombatRuleCompactSize;
     private Vector2 resolvedCombatRuleFocusedSize;
 
     private sealed class RuleSlotView
     {
         public RectTransform root;
+        public RectTransform visualRoot;
         public Image frame;
         public Image icon;
         public Text fallbackLabel;
@@ -302,6 +304,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanelFocused = false;
         combatRuleDrawerVisualAlpha = 0f;
         combatLastInspectedRule = null;
+        ClearActiveRuleSlotHover();
         resolvedCombatRuleCompactSize = Vector2.zero;
         resolvedCombatRuleFocusedSize = Vector2.zero;
 
@@ -789,19 +792,30 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             element.minHeight = ruleSlotSize;
             element.preferredHeight = ruleSlotSize;
 
-            Image frame = root.gameObject.AddComponent<Image>();
+            // Root는 Layout + Pointer hitbox만 담당합니다.
+            // Hover/Punch에서 절대 Scale하지 않아 EventSystem 판정 영역이 흔들리지 않습니다.
+            Image hitbox = root.gameObject.AddComponent<Image>();
+            hitbox.color = Color.clear;
+            hitbox.raycastTarget = true;
+
+            RectTransform visualRoot = CreateRect(root, "VisualRoot");
+            Stretch(visualRoot);
+            visualRoot.pivot = new Vector2(0.5f, 0.5f);
+            visualRoot.localScale = Vector3.one;
+
+            Image frame = visualRoot.gameObject.AddComponent<Image>();
             frame.sprite = ruleSlotFrameSprite;
             frame.type = ruleSlotFrameSprite != null ? Image.Type.Sliced : Image.Type.Simple;
             frame.color = ruleSlotFrameSprite != null
                 ? Color.white
                 : new Color(0.08f, 0.085f, 0.11f, 0.98f);
-            frame.raycastTarget = true;
+            frame.raycastTarget = false;
 
             BattleRuleSlotPointerFeedback pointerFeedback =
                 root.gameObject.AddComponent<BattleRuleSlotPointerFeedback>();
-            pointerFeedback.Configure(this, root);
+            pointerFeedback.Configure(this, visualRoot);
 
-            RectTransform iconRect = CreateRect(root, "Icon");
+            RectTransform iconRect = CreateRect(visualRoot, "Icon");
             iconRect.anchorMin = new Vector2(0.12f, 0.12f);
             iconRect.anchorMax = new Vector2(0.88f, 0.88f);
             iconRect.offsetMin = Vector2.zero;
@@ -812,7 +826,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             icon.raycastTarget = false;
             icon.enabled = false;
 
-            Text fallbackLabel = CreateText(root, "FallbackLabel", 11, FontStyle.Bold, TextAnchor.MiddleCenter);
+            Text fallbackLabel = CreateText(visualRoot, "FallbackLabel", 11, FontStyle.Bold, TextAnchor.MiddleCenter);
             SetRect(fallbackLabel.rectTransform, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.92f));
             fallbackLabel.text = "?";
             fallbackLabel.color = new Color(1f, 1f, 1f, 0.30f);
@@ -820,6 +834,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             ruleSlotViews.Add(new RuleSlotView
             {
                 root = root,
+                visualRoot = visualRoot,
                 frame = frame,
                 icon = icon,
                 fallbackLabel = fallbackLabel,
@@ -884,7 +899,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private void PlayRuleConfirmPunch(RuleSlotView view)
     {
-        if (view?.root == null)
+        if (view?.visualRoot == null)
             return;
 
         if (view.confirmPunchRoutine != null)
@@ -895,10 +910,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private IEnumerator RuleConfirmPunchRoutine(RuleSlotView view)
     {
-        if (view?.root == null)
+        if (view?.visualRoot == null)
             yield break;
 
-        RectTransform root = view.root;
+        RectTransform root = view.visualRoot;
         Vector3 baseScale = Vector3.one;
         Vector3 peakScale = Vector3.one * Mathf.Max(1f, ruleConfirmScale);
 
@@ -1453,7 +1468,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     internal float GetRuleHoverScale() => Mathf.Max(1f, ruleHoverScale);
 
-    internal void HandleRuleSlotPointerEnter(BattleRuleDefinition rule)
+    internal void HandleRuleSlotPointerEnter(
+        BattleRuleDefinition rule,
+        BattleRuleSlotPointerFeedback source)
     {
         if (rule == null)
             return;
@@ -1462,7 +1479,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return;
 
         if (combatHudMode)
+        {
+            // Panel compact -> focused Tween 중 슬롯 Rect가 이동해도,
+            // 한 번 들어온 아이콘은 다른 아이콘/Panel Exit 전까지 Hover를 유지합니다.
+            if (activeRuleSlotHover != null && activeRuleSlotHover != source)
+                activeRuleSlotHover.SetHoveredFromOwner(false);
+
+            activeRuleSlotHover = source;
+            activeRuleSlotHover?.SetHoveredFromOwner(true);
             combatLastInspectedRule = rule;
+        }
 
         ShowRuleDetail(rule);
 
@@ -1470,16 +1496,32 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             TweenControlTabForDetail(true);
     }
 
-    internal void HandleRuleSlotPointerExit(BattleRuleDefinition rule)
+    internal void HandleRuleSlotPointerExit(
+        BattleRuleDefinition rule,
+        BattleRuleSlotPointerFeedback source)
     {
-        // Combat TAB에서는 Drawer 영역 안에 있는 동안 마지막으로 본 룰 설명을 유지합니다.
-        if (combatHudMode)
+        // Combat TAB에서는 패널 자체가 Focus인 동안 slot hover를 sticky하게 유지합니다.
+        // compact -> focused 레이아웃 Tween 때문에 EventSystem이 일시적으로 Exit를 보내도
+        // 아이콘 확대가 풀리지 않게 보장합니다.
+        if (combatHudMode && combatRulePanelFocused)
             return;
 
+        if (activeRuleSlotHover == source)
+            activeRuleSlotHover = null;
+
+        source?.SetHoveredFromOwner(false);
         HideRuleDetail();
 
         if (finalReviewMode)
             TweenControlTabForDetail(false);
+    }
+
+    private void ClearActiveRuleSlotHover()
+    {
+        if (activeRuleSlotHover != null)
+            activeRuleSlotHover.SetHoveredFromOwner(false);
+
+        activeRuleSlotHover = null;
     }
 
     private RectTransform CreateCombatRulePanel(RectTransform parent)
@@ -1747,9 +1789,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanelFocused = resolved;
 
         if (combatRulePanelFocused)
+        {
             ShowCombatRuleDetailDefault();
+        }
         else
+        {
+            ClearActiveRuleSlotHover();
             HideRuleDetail();
+        }
     }
 
 
@@ -2161,13 +2208,17 @@ public sealed class BattleRuleSlotPointerFeedback :
             return;
 
         hovered = true;
-        owner?.HandleRuleSlotPointerEnter(rule);
+        owner?.HandleRuleSlotPointerEnter(rule, this);
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        hovered = false;
-        owner?.HandleRuleSlotPointerExit(rule);
+        owner?.HandleRuleSlotPointerExit(rule, this);
+    }
+
+    public void SetHoveredFromOwner(bool value)
+    {
+        hovered = value;
     }
 
     private void Update()
