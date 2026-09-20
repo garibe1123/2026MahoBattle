@@ -170,7 +170,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             Time.unscaledTime >= nextFieldTemplateScan)
         {
             nextFieldTemplateScan = Time.unscaledTime + Mathf.Max(0.02f, fieldTemplateScanInterval);
-            DecorateAllLiveFloor(false);
+
+            // RuleRoulette는 기존 Persistent 4x4 위에서 조건만 확정하는 Pre-Combat 단계입니다.
+            // 이 시점에 Base를 다시 SO 랜덤 조립하면 플레이어 발밑 Sprite가 바뀌어 보이므로
+            // 이동/진입 Block만 스캔하고 Persistent Base는 절대 건드리지 않습니다.
+            if (runManager != null && runManager.State == BattleRunState.RuleRoulette)
+                DecorateAllLiveSlidingBlocks(false);
+            else
+                DecorateAllLiveFloor(false);
         }
 
         CleanupDecoratedBlocks();
@@ -316,6 +323,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     /// </summary>
     public void RefreshPersistentBaseArt()
     {
+        ResolveReferences();
+
+        // 룰렛 화면에서는 발밑 4x4가 이미 확정된 상태입니다.
+        // Explicit refresh 요청이 들어와도 이 구간에서는 외형을 재랜덤하지 않습니다.
+        if (runManager != null && runManager.State == BattleRunState.RuleRoulette)
+            return;
+
         DecoratePersistentBase(true);
     }
 
@@ -354,7 +368,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private void DecorateAllLiveFloor(bool rebuild)
     {
-        DecoratePersistentBase(rebuild);
+        // 어떤 지연 Coroutine/외부 Refresh가 남아 있더라도 룰렛 동안에는
+        // Persistent Base의 현재 Sprite/Color를 보존합니다.
+        if (runManager == null || runManager.State != BattleRunState.RuleRoulette)
+            DecoratePersistentBase(rebuild);
+
         DecorateAllLiveSlidingBlocks(rebuild);
     }
 
@@ -589,53 +607,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 lowerSorting);
         }
 
-        // 고정 Base도 굴러오는 판과 같은 체결 구조가 보이도록
-        // 네 면의 양 끝에 2개씩 배치합니다. 한 면 내부에는 반복하지 않습니다.
-        if (template.HandlePlacement != BattleShowHandlePlacementMode.None)
-        {
-            CreateFixedFaceHandles(
-                templateRoot,
-                "DockHandle_Lower",
-                new Vector3(min - centerOffset, min - centerOffset - 1f, 0f),
-                new Vector3(max - centerOffset, min - centerOffset - 1f, 0f),
-                template.LowerHandleSprite32,
-                sortingLayerId,
-                handleSorting,
-                template.HandleTint);
-
-            Sprite upperHandle = template.UpperHandleSprite32 != null
-                ? template.UpperHandleSprite32
-                : template.UpperPlateSprite32;
-            CreateFixedFaceHandles(
-                templateRoot,
-                "DockHandle_Upper",
-                new Vector3(min - centerOffset, max - centerOffset + 1f, 0f),
-                new Vector3(max - centerOffset, max - centerOffset + 1f, 0f),
-                upperHandle,
-                sortingLayerId,
-                handleSorting,
-                template.HandleTint);
-
-            CreateFixedFaceHandles(
-                templateRoot,
-                "DockHandle_Left",
-                new Vector3(min - centerOffset - 1f, min - centerOffset, 0f),
-                new Vector3(min - centerOffset - 1f, max - centerOffset, 0f),
-                template.LeftHandleSprite32,
-                sortingLayerId,
-                handleSorting,
-                template.HandleTint);
-
-            CreateFixedFaceHandles(
-                templateRoot,
-                "DockHandle_Right",
-                new Vector3(max - centerOffset + 1f, min - centerOffset, 0f),
-                new Vector3(max - centerOffset + 1f, max - centerOffset, 0f),
-                template.RightHandleSprite32,
-                sortingLayerId,
-                handleSorting,
-                template.HandleTint);
-        }
+        // Persistent 4x4는 Stage hand-off 기준점이며 이동/도킹하는 판이 아닙니다.
+        // 따라서 Dock Handle을 만들지 않습니다. 기존 Floor Sprite/Color만 유지합니다.
     }
 
     private static void CreateFixedFaceHandles(

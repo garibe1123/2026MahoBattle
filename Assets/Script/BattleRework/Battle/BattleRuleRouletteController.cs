@@ -139,8 +139,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 58f;
     [Tooltip("TAB에서 룰 Row가 머무는 화면 하단 중앙 위치입니다.")]
     [SerializeField] private Vector2 combatRuleBottomCenterOffset = new(0f, 28f);
-    [Tooltip("평상시 룰 아이콘 Row를 CurrentLoadoutChip 우측 상단 위에 띄우는 간격입니다.")]
-    [SerializeField, Min(0f)] private float combatRulePersistentGap = 12f;
+    [Tooltip("평상시 룰 아이콘 Row의 아래쪽과 CurrentLoadoutChip 프레임 윗면 사이 여백입니다.")]
+    [SerializeField, Min(0f)] private float combatRulePersistentGap = 26f;
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.78f;
@@ -1181,7 +1181,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanel.gameObject.SetActive(true);
         combatRulePanel.sizeDelta = resolvedCombatRuleCompactSize;
         combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
-        combatRulePanel.pivot = new Vector2(0.5f, 0f);
+        combatRulePanel.pivot = new Vector2(1f, 0f);
         combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
         combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
         combatRulePanel.localScale = Vector3.one;
@@ -1190,10 +1190,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanelGroup.alpha = 0f;
 
         resultListTab.SetParent(combatRulePanel, true);
-        resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(1f, 1f);
-        resultListTab.pivot = new Vector2(1f, 1f);
+        resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(1f, 0f);
+        resultListTab.pivot = new Vector2(1f, 0f);
         resultListTab.sizeDelta = new Vector2(activeWidth, Mathf.Max(48f, ruleSlotSize));
-        resultListTab.anchoredPosition = new Vector2(-14f, -20f);
+        resultListTab.anchoredPosition = new Vector2(-8f, 10f);
         resultListTab.localRotation = Quaternion.identity;
 
         float compactIconScale = Mathf.Clamp(combatHudScale, 0.30f, 1f);
@@ -1537,7 +1537,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         else
         {
             combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
-            combatRulePanel.pivot = new Vector2(1f, 1f);
+            // anchoredPosition을 CurrentLoadoutChip의 윗면에 두므로
+            // Bottom-Right pivot이어야 패널 전체가 프레임 바깥 위쪽으로 펼쳐집니다.
+            combatRulePanel.pivot = new Vector2(1f, 0f);
         }
 
         Vector2 compactSize = resolvedCombatRuleCompactSize.sqrMagnitude > 0.01f
@@ -1635,11 +1637,26 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 Vector3.one * targetIconScale,
                 t);
 
+            Vector2 rowTarget;
+            if (combatTabOpen)
+            {
+                resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(1f, 1f);
+                resultListTab.pivot = new Vector2(1f, 1f);
+                rowTarget = focused
+                    ? new Vector2(-18f, -42f)
+                    : new Vector2(-14f, -20f);
+            }
+            else
+            {
+                // 평상시는 프레임 윗면과 확실히 분리된 별도 Row.
+                resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(1f, 0f);
+                resultListTab.pivot = new Vector2(1f, 0f);
+                rowTarget = new Vector2(-8f, 10f);
+            }
+
             resultListTab.anchoredPosition = Vector2.Lerp(
                 resultListTab.anchoredPosition,
-                focused
-                    ? new Vector2(-18f, -42f)
-                    : new Vector2(-14f, -20f),
+                rowTarget,
                 t);
         }
 
@@ -1681,8 +1698,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
 
         // CurrentLoadoutChip은 우측 하단 anchor + 우측 하단 pivot입니다.
-        // 룰 패널의 우측 끝을 Chip의 우측 끝에 맞추고,
-        // Chip 바로 위에서 최대 5개가 왼쪽으로 늘어나게 합니다.
+        // 룰 패널의 우측 끝은 Chip 우측 프레임에 맞추되,
+        // 패널의 BOTTOM을 Chip 윗면 + gap에 놓아 HP/ST 공간과 완전히 분리합니다.
+        // 최대 5개는 이 우측 끝을 고정한 채 왼쪽으로 늘어납니다.
         float chipRightX =
             halfWidth +
             compact.anchoredPosition.x;

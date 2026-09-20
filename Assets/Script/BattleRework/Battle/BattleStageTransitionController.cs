@@ -6,6 +6,7 @@ using UnityEngine;
 public enum BattleStageFlowState
 {
     Base,
+    RuleRoulette,
     ShowEntering,
     RewardShow,
     MapShow,
@@ -116,7 +117,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         flowState == BattleStageFlowState.MapShow ||
         flowState == BattleStageFlowState.ShowExiting;
     public bool IsCombatPhase => flowState == BattleStageFlowState.Combat;
-    public bool IsPreCombatPhase => flowState == BattleStageFlowState.RoomEntering;
+    public bool IsPreCombatPhase =>
+        flowState == BattleStageFlowState.RuleRoulette ||
+        flowState == BattleStageFlowState.RoomEntering;
 
     public event System.Action<BattleStageFlowState> FlowStateChanged;
 
@@ -266,6 +269,16 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         switch (next)
         {
+            case BattleRunState.RuleRoulette:
+                // 룰렛은 별도 Room/Show가 아니라 현재 Persistent 4x4를 그대로 유지하는
+                // Pre-Combat 물리 단계입니다. 이 동안 새 Show/Decor가 들어오지 못하게 고정합니다.
+                EnsureBaseVisible();
+                EnsurePlayerVisible();
+                decorStage?.RequestStageRetirement();
+                HoldShowStageGate();
+                SetFlowState(BattleStageFlowState.RuleRoulette);
+                return;
+
             case BattleRunState.Reward:
                 EnsureBaseVisible();
                 EnsurePlayerVisible();
