@@ -126,8 +126,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float hudTransitionDuration = 0.28f;
     [SerializeField, Range(0.30f, 1f)] private float combatHudScale = 0.56f;
     [SerializeField] private Vector2 combatHudMargin = new(34f, 30f);
-    [SerializeField, Range(0.15f, 1f)] private float combatHudIdleAlpha = 0.38f;
-    [SerializeField, Range(0.20f, 1f)] private float combatHudTabAlpha = 0.78f;
+    [SerializeField, Range(0.15f, 1f)] private float combatHudIdleAlpha = 0.72f;
+    [SerializeField, Range(0.20f, 1f)] private float combatHudTabAlpha = 0.90f;
     [SerializeField, Range(1f, 1.35f)] private float ruleHoverScale = 1.16f;
 
     [Header("Combat TAB Rule Panel")]
@@ -139,10 +139,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 58f;
     [Tooltip("TAB에서 룰 Row가 머무는 화면 하단 중앙 위치입니다.")]
     [SerializeField] private Vector2 combatRuleBottomCenterOffset = new(0f, 28f);
-    [Tooltip("평상시 룰 아이콘 Row를 CurrentLoadoutChip 위에 띄우는 간격입니다.")]
-    [SerializeField, Min(0f)] private float combatRulePersistentGap = 12f;
-    [Tooltip("CurrentLoadoutChip을 찾지 못했을 때의 평상시 아이콘 Row 위치입니다.")]
-    [SerializeField] private Vector2 combatRulePersistentFallback = new(700f, 188f);
+    [Tooltip("평상시 룰 아이콘 Row의 우측 상단 화면 여백입니다.")]
+    [SerializeField] private Vector2 combatRulePersistentTopRightMargin = new(28f, 28f);
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.78f;
@@ -806,8 +804,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             pointerFeedback.Configure(this, root);
 
             RectTransform iconRect = CreateRect(root, "Icon");
-            iconRect.anchorMin = new Vector2(0.16f, 0.16f);
-            iconRect.anchorMax = new Vector2(0.84f, 0.84f);
+            iconRect.anchorMin = new Vector2(0.12f, 0.12f);
+            iconRect.anchorMax = new Vector2(0.88f, 0.88f);
             iconRect.offsetMin = Vector2.zero;
             iconRect.offsetMax = Vector2.zero;
 
@@ -1175,7 +1173,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         HorizontalLayoutGroup layout = resultListTab.GetComponent<HorizontalLayoutGroup>();
         if (layout != null)
-            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childAlignment = TextAnchor.MiddleRight;
 
         Vector3 startResultWorld = resultListTab.position;
         Vector3 startResultScale = resultListTab.localScale;
@@ -1192,10 +1190,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanelGroup.alpha = 0f;
 
         resultListTab.SetParent(combatRulePanel, true);
-        resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0.5f, 1f);
-        resultListTab.pivot = new Vector2(0.5f, 1f);
+        resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(1f, 1f);
+        resultListTab.pivot = new Vector2(1f, 1f);
         resultListTab.sizeDelta = new Vector2(activeWidth, Mathf.Max(48f, ruleSlotSize));
-        resultListTab.anchoredPosition = new Vector2(0f, -20f);
+        resultListTab.anchoredPosition = new Vector2(-14f, -20f);
         resultListTab.localRotation = Quaternion.identity;
 
         float compactIconScale = Mathf.Clamp(combatHudScale, 0.30f, 1f);
@@ -1489,7 +1487,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0f);
         panel.pivot = new Vector2(0.5f, 0f);
         panel.sizeDelta = ResolveCombatRuleCompactSize();
-        panel.anchoredPosition = combatRulePersistentFallback;
+        panel.anchoredPosition = new Vector2(
+            960f - Mathf.Abs(combatRulePersistentTopRightMargin.x),
+            1080f - Mathf.Abs(combatRulePersistentTopRightMargin.y));
         panel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
 
         combatRulePanelBack = panel.gameObject.AddComponent<Image>();
@@ -1528,6 +1528,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return;
 
         bool focused = combatTabOpen && combatRulePanelFocused;
+
+        if (combatTabOpen)
+        {
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
+            combatRulePanel.pivot = new Vector2(0.5f, 0f);
+        }
+        else
+        {
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
+            combatRulePanel.pivot = new Vector2(1f, 1f);
+        }
+
         Vector2 compactSize = resolvedCombatRuleCompactSize.sqrMagnitude > 0.01f
             ? resolvedCombatRuleCompactSize
             : ResolveCombatRuleCompactSize();
@@ -1626,8 +1638,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             resultListTab.anchoredPosition = Vector2.Lerp(
                 resultListTab.anchoredPosition,
                 focused
-                    ? new Vector2(0f, -42f)
-                    : new Vector2(0f, -20f),
+                    ? new Vector2(-18f, -42f)
+                    : new Vector2(-14f, -20f),
                 t);
         }
 
@@ -1652,27 +1664,19 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private Vector2 ResolveCombatRulePersistentPosition()
     {
-        RectTransform compact = kineticLoadout != null
-            ? kineticLoadout.CompactRoot
-            : null;
+        if (rouletteBackdrop == null)
+            return new Vector2(
+                -Mathf.Abs(combatRulePersistentTopRightMargin.x),
+                -Mathf.Abs(combatRulePersistentTopRightMargin.y));
 
-        if (compact == null || rouletteBackdrop == null)
-            return combatRulePersistentFallback;
+        // CombatRulePanel은 bottom-center anchor를 유지하므로,
+        // Overlay의 우측 상단 좌표를 같은 local 좌표계로 변환합니다.
+        float halfWidth = rouletteBackdrop.rect.width * 0.5f;
+        float height = rouletteBackdrop.rect.height;
 
-        // 두 Canvas 모두 1920x1080 기준 ScaleWithScreenSize를 사용하므로
-        // CurrentLoadoutChip의 bottom-right anchored layout을
-        // 이 Overlay의 bottom-center anchored layout으로 변환합니다.
-        float parentHalfWidth = rouletteBackdrop.rect.width * 0.5f;
-        float compactCenterX =
-            parentHalfWidth +
-            compact.anchoredPosition.x -
-            compact.rect.width * 0.5f;
-        float aboveCompactY =
-            compact.anchoredPosition.y +
-            compact.rect.height +
-            Mathf.Max(0f, combatRulePersistentGap);
-
-        return new Vector2(compactCenterX, aboveCompactY);
+        return new Vector2(
+            halfWidth - Mathf.Abs(combatRulePersistentTopRightMargin.x),
+            height - Mathf.Abs(combatRulePersistentTopRightMargin.y));
     }
 
     private void ShowCombatRuleDetailDefault()
@@ -1700,7 +1704,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private float ResolveActiveRuleWidth()
     {
-        int count = Mathf.Max(1, ruleSlotViews.Count);
+        int count = Mathf.Clamp(ruleSlotViews.Count, 1, 5);
         return
             count * Mathf.Max(48f, ruleSlotSize) +
             Mathf.Max(0, count - 1) * Mathf.Max(0f, ruleSlotSpacing);
