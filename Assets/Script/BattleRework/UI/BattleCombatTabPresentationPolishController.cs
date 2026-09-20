@@ -65,12 +65,12 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private const float RightPanelEnterX = 0.61f;
     private const float RightPanelReturnX = 0.50f;
 
-    private static readonly Vector2 MetricCompactOffset = new(-24f, -22f);
-    private static readonly Vector2 MetricOpenOffset = new(-42f, -38f);
+    private static readonly Vector2 MetricCompactOffset = new(-18f, -18f);
+    private static readonly Vector2 MetricOpenOffset = new(-28f, -26f);
     private const float MetricCompactScale = 0.68f;
     private const float MetricOpenScale = 1f;
-    private const float MetricCompactRotation = -0.8f;
-    private const float MetricOpenRotation = -1.6f;
+    private const float MetricCompactRotation = -0.35f;
+    private const float MetricOpenRotation = -0.6f;
     private const float MetricTweenSharpness = 13f;
 
     private static readonly string[] ChatNames =
@@ -144,10 +144,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     [Header("COMBAT PACK DOCK POSITION")]
     [Tooltip("PACK Focus일 때 BroadcastPackDock 부모를 좌측 사선 Rail에 붙이는 X Offset입니다.")]
-    [SerializeField] private float packFocusedDockX = -420f;
+    [SerializeField] private float packFocusedDockX = -300f;
     [Tooltip("Mission/Chat Focus에서 PACK이 더 왼쪽으로 물러나는 BroadcastPackDock X Offset입니다.")]
-    [SerializeField] private float missionFocusedDockX = -480f;
-    [SerializeField] private float packDockY = 4f;
+    [SerializeField] private float missionFocusedDockX = -405f;
+    [SerializeField] private float packDockY = 12f;
     [SerializeField, Range(4f, 30f)] private float packDockTweenSharpness = 16f;
 
     [Header("RULE DETAIL FOCUS")]
@@ -980,15 +980,25 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (back == null)
             back = chatPanel.gameObject.AddComponent<Image>();
         back.enabled = true;
-        back.color = new Color(0.025f, 0.028f, 0.045f, 0.94f);
+        back.color = Color.clear;
         back.raycastTarget = false;
 
         Outline outline = chatPanel.GetComponent<Outline>();
         if (outline == null)
             outline = chatPanel.gameObject.AddComponent<Outline>();
-        outline.enabled = true;
-        outline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0.58f);
-        outline.effectDistance = new Vector2(3f, -3f);
+        outline.enabled = false;
+
+        BattlePersona4FrameDecorator chatFrame =
+            chatPanel.GetComponent<BattlePersona4FrameDecorator>();
+        if (chatFrame == null)
+            chatFrame = chatPanel.gameObject.AddComponent<BattlePersona4FrameDecorator>();
+        chatFrame.Configure(
+            new Color(0.025f, 0.028f, 0.045f, 0.97f),
+            new Color(0.94f, 0.95f, 0.97f, 0.92f),
+            new Color(1f, 0.80f, 0.10f, 1f),
+            false,
+            0.12f,
+            new Vector2(-6f, 6f));
 
         chatGroup = chatPanel.GetComponent<CanvasGroup>();
         if (chatGroup == null)
@@ -1010,14 +1020,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatHeader.raycastTarget = false;
 
         RectTransform divider = chatPanel.Find("Divider") as RectTransform;
-        if (divider == null)
-        {
-            divider = CreateRect(chatPanel, "Divider", Vector2.zero);
-            Image dividerImage = divider.gameObject.AddComponent<Image>();
-            dividerImage.color = new Color(0.94f, 0.95f, 0.97f, 0.20f);
-            dividerImage.raycastTarget = false;
-        }
-        SetAnchors(divider, new Vector2(0.045f, 0.735f), new Vector2(0.955f, 0.745f));
+        if (divider != null && divider.gameObject.activeSelf)
+            divider.gameObject.SetActive(false);
 
         chatBody = chatPanel.Find("Body")?.GetComponent<Text>();
         if (chatBody == null)
@@ -1062,7 +1066,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatPanel.anchorMin = chatPanel.anchorMax = Vector2.one;
         chatPanel.pivot = Vector2.one;
         chatPanel.anchoredPosition = new Vector2(missionPanel.anchoredPosition.x, chatY);
-        chatPanel.localRotation = Quaternion.Euler(0f, 0f, -0.8f);
+        chatPanel.localRotation = Quaternion.identity;
         chatPanel.localScale = Vector3.one;
     }
 
