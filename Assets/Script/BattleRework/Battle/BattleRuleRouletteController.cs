@@ -156,7 +156,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Button spinButton;
     private Image spinButtonImage;
     private Image backdropImage;
-    private BattleRuleDefinition lastRevealedRule;
     private Coroutine detailLayoutTweenRoutine;
     private Vector2 controlTabRestPosition;
     private bool cancelRequested;
@@ -209,7 +208,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         startBattleConfirmed = false;
         combatHudMode = false;
         finalReviewMode = false;
-        lastRevealedRule = null;
 
         if (detailLayoutTweenRoutine != null)
         {
@@ -239,6 +237,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         SetRating(stars);
         BuildRuleSlots(stars);
         ClearWinningRule();
+        HideRuleDetail();
 
         ratingText.text = $"BATTLE RATING\n{BuildStars(stars)}";
         progressText.text = "RULE ROULETTE";
@@ -271,7 +270,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 yield break;
 
             ShowRuleInSlot(i, selected, previewOnly: false);
-            ShowWinningRule(selected);
 
             SetSpinButtonLabel(
                 i + 1 < result.SelectedRules.Count
@@ -889,7 +887,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (winningRuleTab != null && !winningRuleTab.gameObject.activeSelf)
             winningRuleTab.gameObject.SetActive(true);
 
-        lastRevealedRule = rule;
         Color color = GetPolarityColor(rule.polarity);
 
         if (winningRuleTypeText != null)
@@ -915,7 +912,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         combatHudMode = false;
         finalReviewMode = false;
-        lastRevealedRule = null;
 
         if (detailLayoutTweenRoutine != null)
         {
@@ -1174,22 +1170,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     internal void HandleRuleSlotPointerExit(BattleRuleDefinition rule)
     {
+        HideRuleDetail();
+
         if (finalReviewMode)
-        {
-            HideRuleDetail();
             TweenControlTabForDetail(false);
-            return;
-        }
-
-        if (combatHudMode)
-        {
-            HideRuleDetail();
-            return;
-        }
-
-        // 룰렛 추첨 중에는 방금 확정된 결과 설명을 유지합니다.
-        if (lastRevealedRule != null)
-            ShowWinningRule(lastRevealedRule);
     }
 
     private void SetSpinButtonLabel(string label)
