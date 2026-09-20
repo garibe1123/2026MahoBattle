@@ -137,10 +137,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 320f;
     [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 238f;
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 58f;
-    [Tooltip("우측 하단 CurrentLoadoutChip 왼쪽에 붙일 간격입니다.")]
-    [SerializeField, Min(0f)] private float combatRuleDockGap = 18f;
-    [Tooltip("CurrentLoadoutChip을 찾지 못했을 때 사용할 우측 하단 fallback 위치입니다.")]
-    [SerializeField] private Vector2 combatRuleFallbackOffset = new(-480f, 24f);
+    [Tooltip("전투 룰 HUD의 화면 하단 중앙 기준 위치입니다.")]
+    [SerializeField] private Vector2 combatRuleBottomCenterOffset = new(0f, 28f);
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.78f;
@@ -1031,10 +1029,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         {
             combatRulePanel.gameObject.SetActive(false);
             combatRulePanel.sizeDelta = ResolveCombatRuleCompactSize();
-            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(1f, 0f);
-            combatRulePanel.pivot = new Vector2(1f, 0f);
-            combatRulePanel.anchoredPosition = ResolveCombatRuleDockPosition();
-            combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, ResolveCombatRuleDockRotation());
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
+            combatRulePanel.pivot = new Vector2(0.5f, 0f);
+            combatRulePanel.anchoredPosition = combatRuleBottomCenterOffset;
+            combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
             combatRulePanel.localScale = Vector3.one;
         }
 
@@ -1145,10 +1143,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatRulePanel.gameObject.SetActive(true);
         combatRulePanel.sizeDelta = resolvedCombatRuleCompactSize;
-        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(1f, 0f);
-        combatRulePanel.pivot = new Vector2(1f, 0f);
-        combatRulePanel.anchoredPosition = ResolveCombatRuleDockPosition();
-        combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, ResolveCombatRuleDockRotation());
+        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0.5f, 0f);
+        combatRulePanel.pivot = new Vector2(0.5f, 0f);
+        combatRulePanel.anchoredPosition = combatRuleBottomCenterOffset;
+        combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
         combatRulePanel.localScale = Vector3.one;
 
         if (combatRulePanelGroup != null)
@@ -1440,10 +1438,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private RectTransform CreateCombatRulePanel(RectTransform parent)
     {
         RectTransform panel = CreateRect(parent, "CombatRulePanel");
-        panel.anchorMin = panel.anchorMax = new Vector2(1f, 0f);
-        panel.pivot = new Vector2(1f, 0f);
+        panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0f);
+        panel.pivot = new Vector2(0.5f, 0f);
         panel.sizeDelta = ResolveCombatRuleCompactSize();
-        panel.anchoredPosition = combatRuleFallbackOffset;
+        panel.anchoredPosition = combatRuleBottomCenterOffset;
         panel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
 
         Image back = panel.gameObject.AddComponent<Image>();
@@ -1509,15 +1507,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             targetSize,
             t);
 
-        Vector2 dockPosition = ResolveCombatRuleDockPosition();
         combatRulePanel.anchoredPosition = Vector2.Lerp(
             combatRulePanel.anchoredPosition,
-            dockPosition,
+            combatRuleBottomCenterOffset,
             t);
 
-        float dockRotation = ResolveCombatRuleDockRotation();
-        float currentRotation = NormalizeSignedAngle(combatRulePanel.localEulerAngles.z);
-        float nextRotation = Mathf.LerpAngle(currentRotation, dockRotation, t);
+        float currentRotation = Mathf.Repeat(
+            combatRulePanel.localEulerAngles.z + 180f,
+            360f) - 180f;
+        float nextRotation = Mathf.LerpAngle(
+            currentRotation,
+            combatRulePanelRotation,
+            t);
         combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
 
         if (combatRulePanelGroup != null)
@@ -1558,41 +1559,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                     : new Vector2(0f, 10f),
                 t);
         }
-    }
-
-    private Vector2 ResolveCombatRuleDockPosition()
-    {
-        RectTransform compact = kineticLoadout != null
-            ? kineticLoadout.CompactRoot
-            : null;
-
-        if (compact == null)
-            return combatRuleFallbackOffset;
-
-        // CurrentLoadoutChip: 우측 하단 anchor / 우측 하단 pivot.
-        // 룰 패널의 우측 끝을 CurrentLoadoutChip의 좌측 끝에 붙입니다.
-        float compactWidth = Mathf.Max(0f, compact.rect.width);
-        float x = compact.anchoredPosition.x -
-                  compactWidth -
-                  Mathf.Max(0f, combatRuleDockGap);
-
-        return new Vector2(x, compact.anchoredPosition.y);
-    }
-
-    private float ResolveCombatRuleDockRotation()
-    {
-        RectTransform compact = kineticLoadout != null
-            ? kineticLoadout.CompactRoot
-            : null;
-
-        return compact != null
-            ? NormalizeSignedAngle(compact.localEulerAngles.z)
-            : combatRulePanelRotation;
-    }
-
-    private static float NormalizeSignedAngle(float degrees)
-    {
-        return Mathf.Repeat(degrees + 180f, 360f) - 180f;
     }
 
     private float ResolveActiveRuleWidth()
