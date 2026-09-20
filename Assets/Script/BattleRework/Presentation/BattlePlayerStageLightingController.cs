@@ -57,6 +57,17 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
 
     public static BattlePlayerStageLightingController Instance => instance;
 
+    // EnteringNode / BuildingRoom에서 사용하는 "강한 스포트라이트" 스타일을
+    // Map Show가 그대로 재사용할 수 있도록 읽기 전용으로 공개합니다.
+    public float UnifiedNearDimAlpha => nearDimAlpha;
+    public float UnifiedFarDimAlpha => farDimAlpha;
+    public float UnifiedDimFalloffRadius => dimFalloffRadius;
+    public float UnifiedPlayerFocusRadiusWorld => playerFocusRadiusWorld;
+    public float UnifiedCharacterVerticalRatio => characterVerticalRatio;
+    public float UnifiedCharacterLowerOffset => characterLowerOffset;
+    public float UnifiedCharacterFeather => characterFeather;
+    public float UnifiedDimFadeInDuration => preCombatFadeInDuration;
+
     private void Awake()
     {
         if (instance != null && instance != this)
@@ -191,7 +202,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         if (!runManager.RunActive)
             return false;
 
-        return state == BattleRunState.EnteringNode ||
+        return state == BattleRunState.RuleRoulette ||
+               state == BattleRunState.EnteringNode ||
                state == BattleRunState.BuildingRoom;
     }
 
