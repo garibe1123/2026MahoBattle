@@ -134,7 +134,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0.04f)] private float ruleConfirmReturnDuration = 0.14f;
 
     [Header("Rule Detail Hover")]
-    [SerializeField, Min(12f)] private float ruleDetailButtonDrop = 92f;
+    [SerializeField, Min(12f)] private float ruleDetailButtonDrop = 140f;
     [SerializeField, Min(0.05f)] private float ruleDetailTweenDuration = 0.18f;
 
     private GameObject uiRoot;
@@ -561,8 +561,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         winningRuleTab = CreateBareTab(
             backdrop,
             "WinningRuleTab",
-            new Vector2(0.5f, 0.36f),
-            new Vector2(620f, 100f));
+            new Vector2(0.5f, 0.37f),
+            new Vector2(620f, 88f));
 
         Image detailBar = winningRuleTab.gameObject.AddComponent<Image>();
         detailBar.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
@@ -571,7 +571,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         controlTab = CreateBareTab(
             backdrop,
             "ControlTab",
-            new Vector2(0.5f, 0.20f),
+            new Vector2(0.5f, 0.42f),
             new Vector2(260f, 86f));
         controlTabRestPosition = controlTab.anchoredPosition;
 
@@ -960,10 +960,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         if (winningRuleTab != null)
         {
-            winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.36f);
+            winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.37f);
             winningRuleTab.pivot = new Vector2(0.5f, 0.5f);
             winningRuleTab.anchoredPosition = Vector2.zero;
-            winningRuleTab.sizeDelta = new Vector2(620f, 100f);
+            winningRuleTab.sizeDelta = new Vector2(620f, 88f);
             winningRuleTab.localScale = Vector3.one;
             winningRuleTab.gameObject.SetActive(true);
         }
