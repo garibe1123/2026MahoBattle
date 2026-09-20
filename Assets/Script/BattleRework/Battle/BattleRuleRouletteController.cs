@@ -157,8 +157,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private RectTransform rouletteBackdrop;
     private RectTransform combatRulePanel;
     private CanvasGroup combatRulePanelGroup;
-    private Text combatRuleHeader;
-    private Text combatRuleFocusCue;
     private RectTransform machineTab;
     private RectTransform winningRuleTab;
     private RectTransform resultListTab;
@@ -1135,7 +1133,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         HorizontalLayoutGroup layout = resultListTab.GetComponent<HorizontalLayoutGroup>();
         if (layout != null)
-            layout.childAlignment = TextAnchor.MiddleLeft;
+            layout.childAlignment = TextAnchor.MiddleCenter;
 
         Vector3 startResultWorld = resultListTab.position;
         Vector3 startResultScale = resultListTab.localScale;
@@ -1152,10 +1150,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanelGroup.alpha = 0f;
 
         resultListTab.SetParent(combatRulePanel, true);
-        resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0f, 1f);
-        resultListTab.pivot = new Vector2(0f, 1f);
+        resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0.5f, 1f);
+        resultListTab.pivot = new Vector2(0.5f, 1f);
         resultListTab.sizeDelta = new Vector2(activeWidth, Mathf.Max(48f, ruleSlotSize));
-        resultListTab.anchoredPosition = new Vector2(18f, -35f);
+        resultListTab.anchoredPosition = new Vector2(0f, -18f);
         resultListTab.localRotation = Quaternion.identity;
 
         float compactIconScale = Mathf.Clamp(combatHudScale, 0.30f, 1f);
@@ -1167,12 +1165,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         resultListTab.localScale = startResultScale;
 
         winningRuleTab.SetParent(combatRulePanel, false);
-        winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0f, 0f);
-        winningRuleTab.pivot = new Vector2(0f, 0f);
+        winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0f);
+        winningRuleTab.pivot = new Vector2(0.5f, 0f);
         winningRuleTab.sizeDelta = new Vector2(
             Mathf.Max(220f, resolvedCombatRuleCompactSize.x - 32f),
             82f);
-        winningRuleTab.anchoredPosition = new Vector2(20f, 10f);
+        winningRuleTab.anchoredPosition = new Vector2(0f, 10f);
         winningRuleTab.localScale = Vector3.one;
         HideRuleDetailImmediate();
 
@@ -1466,38 +1464,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         plateImage.color = new Color(0.94f, 0.95f, 0.97f, 0.12f);
         plateImage.raycastTarget = false;
 
-        combatRuleHeader = CreateText(
-            panel,
-            "RULE EFFECTS // LIVE",
-            17,
-            FontStyle.Bold,
-            TextAnchor.MiddleLeft);
-        combatRuleHeader.color = new Color(0.94f, 0.95f, 0.97f, 1f);
-        SetRect(
-            combatRuleHeader.rectTransform,
-            new Vector2(0.06f, 0.76f),
-            new Vector2(0.74f, 0.96f));
-
-        combatRuleFocusCue = CreateText(
-            panel,
-            "CURSOR FOCUS",
-            10,
-            FontStyle.Bold,
-            TextAnchor.MiddleRight);
-        combatRuleFocusCue.color = new Color(0.10f, 0.88f, 0.95f, 1f);
-        SetRect(
-            combatRuleFocusCue.rectTransform,
-            new Vector2(0.70f, 0.78f),
-            new Vector2(0.94f, 0.95f));
-
-        ruleDetailAccentRoot = CreateRuleDetailAccent(panel);
-        if (ruleDetailAccentRoot != null)
-        {
-            ruleDetailAccentRoot.anchorMin =
-                ruleDetailAccentRoot.anchorMax =
-                    new Vector2(0f, 0.5f);
-            ruleDetailAccentRoot.anchoredPosition = new Vector2(-12f, -8f);
-        }
+        // Compact HUD는 별도 문구/사선 장식 없이
+        // PACK 계열의 어두운 판 + 흰 Stroke + 기울기만 유지합니다.
+        ruleDetailAccentRoot = null;
 
         return panel;
     }
@@ -1556,8 +1525,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             resultListTab.anchoredPosition = Vector2.Lerp(
                 resultListTab.anchoredPosition,
                 focused
-                    ? new Vector2(22f, -52f)
-                    : new Vector2(18f, -35f),
+                    ? new Vector2(0f, -34f)
+                    : new Vector2(0f, -18f),
                 t);
         }
 
@@ -1574,20 +1543,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             winningRuleTab.anchoredPosition = Vector2.Lerp(
                 winningRuleTab.anchoredPosition,
                 focused
-                    ? new Vector2(24f, 18f)
-                    : new Vector2(20f, 10f),
+                    ? new Vector2(0f, 18f)
+                    : new Vector2(0f, 10f),
                 t);
         }
-
-        if (combatRuleHeader != null)
-            combatRuleHeader.gameObject.SetActive(focused);
-
-        if (combatRuleFocusCue != null)
-        {
-            combatRuleFocusCue.gameObject.SetActive(focused);
-            combatRuleFocusCue.text = "RULE FOCUS";
-        }
-    }
 
     private float ResolveActiveRuleWidth()
     {
@@ -1651,28 +1610,22 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
 
         if (winningRuleTypeText != null)
-            winningRuleTypeText.alignment = combatTabStyle
-                ? TextAnchor.MiddleLeft
-                : TextAnchor.MiddleCenter;
+            winningRuleTypeText.alignment = TextAnchor.MiddleCenter;
 
         if (winningRuleNameText != null)
-            winningRuleNameText.alignment = combatTabStyle
-                ? TextAnchor.MiddleLeft
-                : TextAnchor.MiddleCenter;
+            winningRuleNameText.alignment = TextAnchor.MiddleCenter;
 
         if (winningRuleDescriptionText != null)
-            winningRuleDescriptionText.alignment = combatTabStyle
-                ? TextAnchor.MiddleLeft
-                : TextAnchor.MiddleCenter;
+            winningRuleDescriptionText.alignment = TextAnchor.MiddleCenter;
 
         if (combatTabStyle)
         {
             if (winningRuleTypeText != null)
-                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.10f, 0.68f), new Vector2(0.96f, 0.94f));
+                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.94f));
             if (winningRuleNameText != null)
-                SetRect(winningRuleNameText.rectTransform, new Vector2(0.10f, 0.34f), new Vector2(0.96f, 0.70f));
+                SetRect(winningRuleNameText.rectTransform, new Vector2(0.05f, 0.34f), new Vector2(0.95f, 0.70f));
             if (winningRuleDescriptionText != null)
-                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.10f, 0.02f), new Vector2(0.96f, 0.38f));
+                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.38f));
         }
         else
         {
