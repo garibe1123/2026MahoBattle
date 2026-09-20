@@ -1069,14 +1069,37 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 : selected && focus == DashboardFocus.Mission
                     ? new Color(0.10f, 0.13f, 0.17f, 1f)
                     : new Color(0.07f, 0.075f, 0.10f, 0.98f);
-            if (missionRowBackgrounds[i].color != targetBack)
-                missionRowBackgrounds[i].color = targetBack;
+            // P4 Frame의 실제 Body가 Legacy Image 위에서 렌더링되므로
+            // Hover/Selected 색도 Frame Body에 직접 전달합니다.
+            if (missionRowBackgrounds[i].color != Color.clear)
+                missionRowBackgrounds[i].color = Color.clear;
+
+            BattlePersona4FrameDecorator rowFrame =
+                missionRows[i] != null
+                    ? missionRows[i].GetComponent<BattlePersona4FrameDecorator>()
+                    : null;
+            if (rowFrame != null)
+            {
+                Color rowAccent = hovered
+                    ? paperColor
+                    : selected
+                        ? accentCyan
+                        : (i % 2 == 0 ? accentYellow : accentCyan);
+
+                rowFrame.Configure(
+                    targetBack,
+                    new Color(paperColor.r, paperColor.g, paperColor.b, hovered ? 0.30f : 0.16f),
+                    rowAccent,
+                    true,
+                    hovered ? 0.11f : 0.08f,
+                    new Vector2(4f, -4f));
+            }
 
             Color outlineColor = hovered
-                ? paperColor
+                ? Color.clear
                 : selected
-                    ? accentCyan
-                    : new Color(paperColor.r, paperColor.g, paperColor.b, 0.28f);
+                    ? Color.clear
+                    : Color.clear;
             if (missionRowOutlines[i].effectColor != outlineColor)
                 missionRowOutlines[i].effectColor = outlineColor;
 
