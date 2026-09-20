@@ -16,6 +16,36 @@ using UnityEngine.UI;
 /// - 우측 하단 CurrentLoadoutChip의 빨간 AccentSlash 장식은 숨깁니다.
 /// - Reward / Equipment 데이터 소유권은 건드리지 않습니다.
 /// </summary>
+internal enum BattleCombatTabPrimaryFocus
+{
+    None,
+    Pack,
+    Rules
+}
+
+internal sealed class BattleCombatPackFocusPointerRelay : MonoBehaviour,
+    UnityEngine.EventSystems.IPointerEnterHandler,
+    UnityEngine.EventSystems.IPointerExitHandler
+{
+    private BattleCombatTabPresentationPolishController owner;
+
+    public void Configure(BattleCombatTabPresentationPolishController controller)
+    {
+        owner = controller;
+    }
+
+    public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData eventData)
+    {
+        owner?.NotifyPackPointerEnter();
+    }
+
+    public void OnPointerExit(UnityEngine.EventSystems.PointerEventData eventData)
+    {
+        owner?.NotifyPackPointerExit();
+    }
+}
+
+
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(33520)]
 public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
@@ -110,6 +140,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
     [SerializeField] private BattleRuleRouletteController ruleRoulette;
+    [SerializeField] private BattleCombatHudInputBridge inputBridge;
 
     [Header("COMBAT PACK DOCK POSITION")]
     [Tooltip("PACK Focus일 때 BroadcastPackDock 부모를 좌측 사선 Rail에 붙이는 X Offset입니다.")]
@@ -177,6 +208,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private bool rightPanelFocused;
     private bool packDockTweenInitialized;
     private bool ruleDetailFocused;
+    private BattleCombatTabPrimaryFocus primaryFocus = BattleCombatTabPrimaryFocus.None;
+    private BattleCombatPackFocusPointerRelay packFocusRelay;
     private float packDockVisualX;
     private float packDockVisualY;
     private float packRuleVisualScale = 1f;
@@ -255,8 +288,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void OnDisable()
     {
+        SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
         rightPanelFocused = false;
-        ruleDetailFocused = false;
         packDockTweenInitialized = false;
         RestorePackRuleScale();
         RestoreDashboardRuleOffset();
@@ -270,7 +303,65 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     public void SetRuleDetailFocus(bool focused)
     {
-        ruleDetailFocused = focused && IsCombatTabOpen();
+        if (focused)
+            NotifyRulePointerEnter();
+        else
+            NotifyRulePointerExit();
+    }
+
+    public void NotifyRulePointerEnter()
+    {
+        if (!IsCombatTabOpen())
+            return;
+
+        SetPrimaryFocus(BattleCombatTabPrimaryFocus.Rules);
+    }
+
+    public void NotifyRulePointerExit()
+    {
+        if (primaryFocus == BattleCombatTabPrimaryFocus.Rules)
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
+    }
+
+    public void NotifyPackPointerEnter()
+    {
+        if (!IsCombatTabOpen())
+            return;
+
+        SetPrimaryFocus(BattleCombatTabPrimaryFocus.Pack);
+    }
+
+    public void NotifyPackPointerExit()
+    {
+        if (primaryFocus == BattleCombatTabPrimaryFocus.Pack)
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
+    }
+
+    private void SetPrimaryFocus(BattleCombatTabPrimaryFocus next)
+    {
+        if (!IsCombatTabOpen())
+            next = BattleCombatTabPrimaryFocus.None;
+
+        if (primaryFocus == next)
+            return;
+
+        primaryFocus = next;
+        ruleDetailFocused = primaryFocus == BattleCombatTabPrimaryFocus.Rules;
+
+        // RULES와 PACK은 동시에 포커스를 가질 수 없습니다.
+        // RULES 진입 순간 기존 PACK 선택/hover를 즉시 해제합니다.
+        if (ruleDetailFocused)
+        {
+            rightPanelFocused = false;
+            kineticLoadout?.ClearExternalSelection();
+            inputBridge?.ClearPackHoverImmediate();
+        }
+        else if (primaryFocus == BattleCombatTabPrimaryFocus.Pack)
+        {
+            rightPanelFocused = false;
+        }
+
+        ruleRoulette?.ApplyCombatRuleFocusFromCoordinator(ruleDetailFocused);
     }
 
     private void Update()
@@ -291,8 +382,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         if (!tabOpen)
         {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
             rightPanelFocused = false;
-            ruleDetailFocused = false;
             packDockTweenInitialized = false;
             RestoreDashboardRuleOffset();
             SetChatVisible(false);
@@ -308,8 +399,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (!IsCombatTabOpen())
         {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
             rightPanelFocused = false;
-            ruleDetailFocused = false;
             packDockTweenInitialized = false;
             RestoreDashboardRuleOffset();
             RestoreDetailSorting();
@@ -317,15 +408,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         ResolveDashboardUi();
+        EnsurePrimaryFocusRelay();
 
-        // 콜백 누락/참조 중복과 무관하게 실제 Rule Panel의 Hover 상태를
-        // 매 프레임 직접 읽어 PACK Focus 연출의 source of truth로 사용합니다.
-        if (ruleRoulette == null)
-            ruleRoulette =
-                FindFirstObjectByType<BattleRuleRouletteController>(FindObjectsInactive.Include);
-        ruleDetailFocused =
-            ruleRoulette != null && ruleRoulette.CombatRuleFocused;
-
+        // Primary focus는 Pointer Enter/Exit 이벤트만으로 변경됩니다.
+        // LateUpdate에서는 상태를 다시 추론하지 않고 현재 상태의 시각 보간만 수행합니다.
         EnsureChatPanel();
         UpdateRightPanelFocus();
         ApplyCombatPackDockPosition();
@@ -356,6 +442,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             detailController = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
         if (force || ruleRoulette == null)
             ruleRoulette = FindFirstObjectByType<BattleRuleRouletteController>(FindObjectsInactive.Include);
+        if (force || inputBridge == null)
+            inputBridge = FindFirstObjectByType<BattleCombatHudInputBridge>(FindObjectsInactive.Include);
     }
 
     private void ResolveDashboardUi()
@@ -410,6 +498,22 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         EnsureMetricDetached();
+    }
+
+    private void EnsurePrimaryFocusRelay()
+    {
+        RectTransform board = kineticLoadout != null ? kineticLoadout.GridBoard : null;
+        if (board == null)
+            return;
+
+        if (packFocusRelay == null || packFocusRelay.gameObject != board.gameObject)
+        {
+            packFocusRelay = board.GetComponent<BattleCombatPackFocusPointerRelay>();
+            if (packFocusRelay == null)
+                packFocusRelay = board.gameObject.AddComponent<BattleCombatPackFocusPointerRelay>();
+        }
+
+        packFocusRelay.Configure(this);
     }
 
     private void EnsureMetricDetached()
