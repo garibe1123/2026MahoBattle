@@ -216,6 +216,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     public RectTransform WinningRuleTab => winningRuleTab;
     public RectTransform ResultListTab => resultListTab;
     public RectTransform ControlTab => controlTab;
+    public bool CombatRuleFocused =>
+        combatHudMode &&
+        combatTabOpen &&
+        combatRulePanelFocused;
 
     public static BattleRuleRouletteController ResolveOrCreate(BattleRunManager owner)
     {

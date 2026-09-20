@@ -101,6 +101,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private RectTransform fullRoot;
     private RectTransform packBoard;
     private RectTransform packDockRoot;
+    private RectTransform packBoardMotionRoot;
     private CanvasGroup packBoardGroup;
 
     private RectTransform dashboardRoot;
@@ -492,6 +493,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (packDockRoot != null)
             packDockRoot.localPosition = Vector3.zero;
 
+        if (packBoardMotionRoot != null)
+        {
+            packBoardMotionRoot.anchoredPosition = Vector2.zero;
+            packBoardMotionRoot.localPosition = Vector3.zero;
+            packBoardMotionRoot.localScale = Vector3.one;
+            packBoardMotionRoot.localRotation = Quaternion.identity;
+        }
+
         if (packBoard != null)
         {
             packBoard.localScale = Vector3.one;
@@ -573,8 +582,22 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             packDockRoot.localPosition = Vector3.zero;
         }
 
-        if (packBoard.parent != packDockRoot)
-            packBoard.SetParent(packDockRoot, false);
+        packBoardMotionRoot =
+            packDockRoot.Find("BroadcastPackBoardMotion") as RectTransform;
+        if (packBoardMotionRoot == null)
+        {
+            packBoardMotionRoot =
+                CreateRect(packDockRoot, "BroadcastPackBoardMotion", Vector2.zero);
+            Stretch(packBoardMotionRoot);
+            packBoardMotionRoot.localPosition = Vector3.zero;
+            packBoardMotionRoot.localScale = Vector3.one;
+            packBoardMotionRoot.localRotation = Quaternion.identity;
+        }
+
+        // GridBoard 자체의 anchoredPosition은 UnifiedInventoryInspectController가 소유합니다.
+        // Rule Focus 이동/축소는 이 부모 Wrapper가 전담합니다.
+        if (packBoard.parent != packBoardMotionRoot)
+            packBoard.SetParent(packBoardMotionRoot, false);
     }
 
     private void BuildDashboardUi()
