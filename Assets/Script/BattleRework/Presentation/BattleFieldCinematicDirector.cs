@@ -12,8 +12,9 @@ using UnityEngine.Rendering.Universal;
 /// - Player owns the only permanent key spotlight: tall shaft + foot pool + top-light wash.
 /// - Enemies stay readable through the brighter world light and use only a weak contact pool.
 ///
-/// Reward / Map Selection:
-/// - Existing show dim / TV rectangular focus stays authoritative.
+/// Rule Roulette / Reward / Map Selection:
+/// - Rule Roulette reuses the same Show world-light target as Map Selection so the field never goes visually dead.
+/// - Existing show dim / TV rectangular focus stays authoritative when the TV Show itself is active.
 /// - Combat color grading fades almost completely out so the current show look is preserved.
 /// </summary>
 [DefaultExecutionOrder(-4000)]
@@ -337,7 +338,9 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         combatLightingRequested = runActive && state == BattleRunState.Combat;
         showLightingRequested =
             runActive &&
-            (state == BattleRunState.Reward || state == BattleRunState.SelectingNode);
+            (state == BattleRunState.RuleRoulette ||
+             state == BattleRunState.Reward ||
+             state == BattleRunState.SelectingNode);
 
         EnsureColorGrading();
         colorGrading.SetPresentationMode(combatLightingRequested, showLightingRequested);
