@@ -24,7 +24,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private const int MaxMissionSlots = 6;
     private const int DashboardSortingOrder = 1685;
-    private const int CurrentLayoutVersion = 1;
+    private const int CurrentLayoutVersion = 2;
 
     [Header("REFERENCES — 자동 연결")]
     [Tooltip("현재 Combat 상태를 확인하는 Run Manager입니다. 비어 있으면 자동으로 찾습니다.")]
@@ -175,10 +175,41 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
 
         // 이전 자동 기본값만 새 배치로 이동합니다. 사용자가 Inspector에서 이미 커스텀한 값은 보존합니다.
-        if (Approximately(packFocusedDockOffset, new Vector2(-150f, 4f)))
-            packFocusedDockOffset = new Vector2(-260f, 4f);
-        if (Approximately(missionFocusedDockOffset, new Vector2(-245f, 4f)))
-            missionFocusedDockOffset = new Vector2(-360f, 4f);
+        if (serializedLayoutVersion < 1)
+        {
+            if (Approximately(packFocusedDockOffset, new Vector2(-150f, 4f)))
+                packFocusedDockOffset = new Vector2(-260f, 4f);
+            if (Approximately(missionFocusedDockOffset, new Vector2(-245f, 4f)))
+                missionFocusedDockOffset = new Vector2(-360f, 4f);
+        }
+
+        if (serializedLayoutVersion < 2)
+        {
+            if (Approximately(packFocusedDockOffset, new Vector2(-260f, 4f)))
+                packFocusedDockOffset = new Vector2(-300f, 10f);
+            if (Approximately(missionFocusedDockOffset, new Vector2(-360f, 4f)))
+                missionFocusedDockOffset = new Vector2(-405f, 18f);
+            if (Mathf.Approximately(packFocusedRotation, -4f))
+                packFocusedRotation = -2.8f;
+            if (Mathf.Approximately(missionFocusedPackRotation, -1.5f))
+                missionFocusedPackRotation = -0.8f;
+            if (Approximately(compactMissionSize, new Vector2(540f, 380f)))
+                compactMissionSize = new Vector2(610f, 360f);
+            if (Approximately(focusedMissionSize, new Vector2(760f, 700f)))
+                focusedMissionSize = new Vector2(820f, 660f);
+            if (Approximately(missionPanelOffset, new Vector2(-54f, -126f)))
+                missionPanelOffset = new Vector2(-36f, -118f);
+            if (Approximately(focusedMissionPanelOffset, new Vector2(-78f, -154f)))
+                focusedMissionPanelOffset = new Vector2(-44f, -138f);
+            if (Mathf.Approximately(missionPanelRotation, 2.2f))
+                missionPanelRotation = 0.8f;
+            if (Approximately(metricBarSize, new Vector2(430f, 68f)))
+                metricBarSize = new Vector2(470f, 72f);
+            if (Approximately(metricBarOffset, new Vector2(-42f, -38f)))
+                metricBarOffset = new Vector2(-28f, -26f);
+            if (Mathf.Approximately(metricBarRotation, -1.6f))
+                metricBarRotation = -0.6f;
+        }
 
         serializedLayoutVersion = CurrentLayoutVersion;
     }
