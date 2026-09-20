@@ -118,6 +118,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField] private float packDockY = 4f;
     [SerializeField, Range(4f, 30f)] private float packDockTweenSharpness = 16f;
 
+    [Header("RULE DETAIL FOCUS")]
+    [Tooltip("룰 상세 Hover 시 PACK을 오른쪽으로 비워주는 추가 X 이동량입니다.")]
+    [SerializeField, Min(0f)] private float ruleDetailPackShiftX = 118f;
+    [Tooltip("룰 상세 Hover 시 방송 Dashboard를 오른쪽으로 비워주는 추가 X 이동량입니다.")]
+    [SerializeField, Min(0f)] private float ruleDetailDashboardShiftX = 96f;
+    [SerializeField, Range(4f, 30f)] private float ruleDetailShiftSharpness = 14f;
+
     [Header("LIVE CHAT — VIEWER PACED")]
     [SerializeField, Range(20f, 90f)] private float zeroViewerChatInterval = ZeroViewerChatInterval;
     [SerializeField, Range(0.35f, 4f)] private float highViewerChatInterval = HighViewerChatInterval;
@@ -158,7 +165,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private bool detailSortingCaptured;
     private bool rightPanelFocused;
     private bool packDockTweenInitialized;
+    private bool ruleDetailFocused;
     private float packDockVisualX;
+    private float dashboardRuleVisualOffsetX;
 
     private readonly List<string> chatHistory = new();
     private int chatSequence;
@@ -230,11 +239,20 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private void OnDisable()
     {
         rightPanelFocused = false;
+        ruleDetailFocused = false;
         packDockTweenInitialized = false;
+        RestoreDashboardRuleOffset();
         ResetAmbientAudience();
         RestoreDetailSorting();
         SetChatVisible(false);
         SetMetricVisible(false);
+    }
+
+    public bool CombatTabOpen => IsCombatTabOpen();
+
+    public void SetRuleDetailFocus(bool focused)
+    {
+        ruleDetailFocused = focused && IsCombatTabOpen();
     }
 
     private void Update()
@@ -256,7 +274,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (!tabOpen)
         {
             rightPanelFocused = false;
+            ruleDetailFocused = false;
             packDockTweenInitialized = false;
+            RestoreDashboardRuleOffset();
             SetChatVisible(false);
             return;
         }
@@ -271,7 +291,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (!IsCombatTabOpen())
         {
             rightPanelFocused = false;
+            ruleDetailFocused = false;
             packDockTweenInitialized = false;
+            RestoreDashboardRuleOffset();
             RestoreDetailSorting();
             return;
         }
@@ -280,6 +302,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         EnsureChatPanel();
         UpdateRightPanelFocus();
         ApplyCombatPackDockPosition();
+        ApplyRuleDetailDashboardShift();
         ApplyDetailPresentation();
         ApplyChatLayout();
     }
@@ -560,12 +583,54 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         float targetX = rightPanelFocused ? missionFocusedDockX : packFocusedDockX;
+        if (ruleDetailFocused)
+            targetX += Mathf.Max(0f, ruleDetailPackShiftX);
         float t = 1f - Mathf.Exp(-Mathf.Max(4f, packDockTweenSharpness) * Time.unscaledDeltaTime);
         packDockVisualX = Mathf.Lerp(packDockVisualX, targetX, t);
         if (Mathf.Abs(packDockVisualX - targetX) <= 0.25f)
             packDockVisualX = targetX;
 
         packDockRoot.localPosition = new Vector3(packDockVisualX, packDockY, 0f);
+    }
+
+    private void ApplyRuleDetailDashboardShift()
+    {
+        if (dashboardRoot == null)
+            return;
+
+        // 다른 Dashboard 연출이 이번 프레임에 만든 위치를 Base로 보고
+        // 직전 프레임에 우리가 더한 Offset만 제거한 뒤 새 Offset을 합성합니다.
+        Vector3 basePosition = dashboardRoot.localPosition;
+        basePosition.x -= dashboardRuleVisualOffsetX;
+
+        float targetOffset = ruleDetailFocused
+            ? Mathf.Max(0f, ruleDetailDashboardShiftX)
+            : 0f;
+        float t = 1f - Mathf.Exp(
+            -Mathf.Max(4f, ruleDetailShiftSharpness) * Time.unscaledDeltaTime);
+
+        dashboardRuleVisualOffsetX = Mathf.Lerp(
+            dashboardRuleVisualOffsetX,
+            targetOffset,
+            t);
+
+        if (Mathf.Abs(dashboardRuleVisualOffsetX - targetOffset) <= 0.25f)
+            dashboardRuleVisualOffsetX = targetOffset;
+
+        basePosition.x += dashboardRuleVisualOffsetX;
+        dashboardRoot.localPosition = basePosition;
+    }
+
+    private void RestoreDashboardRuleOffset()
+    {
+        if (dashboardRoot != null && Mathf.Abs(dashboardRuleVisualOffsetX) > 0.001f)
+        {
+            Vector3 position = dashboardRoot.localPosition;
+            position.x -= dashboardRuleVisualOffsetX;
+            dashboardRoot.localPosition = position;
+        }
+
+        dashboardRuleVisualOffsetX = 0f;
     }
 
     private void ApplyDetailPresentation()
