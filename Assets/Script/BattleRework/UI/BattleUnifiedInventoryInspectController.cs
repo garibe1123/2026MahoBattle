@@ -99,6 +99,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private int suppressedSourceSlot = -1;
     private int activeInspectSlot = -1;
     private bool mouseWasInsideBoard;
+    private bool inspectContextWasActive;
     private float nextResolveTime;
 
     public int ActiveInspectSlot => activeInspectSlot;
@@ -120,6 +121,11 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void OnDisable()
     {
+        inspectContextWasActive = false;
+        selectionSuppressed = false;
+        suppressedSourceSlot = -1;
+        mouseWasInsideBoard = false;
+        SetActiveInspectSlot(-1);
         RestoreBulletTime(true);
         SetDismissActive(false);
     }
@@ -140,6 +146,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         bool rewardEdit = IsRewardEdit();
         bool combatTab = IsCombatTabOpen();
         bool inspectContext = rewardEdit || combatTab;
+
+        HandleInspectContextTransition(inspectContext);
 
         if (rewardEdit)
             MaintainRewardBulletTime();
@@ -492,6 +500,24 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         control.localRotation = Quaternion.identity;
         control.localScale = Vector3.one;
         control.SetAsLastSibling();
+    }
+
+    private void HandleInspectContextTransition(bool inspectContext)
+    {
+        if (inspectContextWasActive == inspectContext)
+            return;
+
+        inspectContextWasActive = inspectContext;
+
+        // PACK/Reward Edit를 닫았다가 다시 여는 것은 새 Inspect 세션입니다.
+        // 이전 세션에서 빈 공간 클릭/보드 이탈로 걸린 suppression을 다음 세션까지
+        // 유지하면 KineticLoadout이 같은 SelectedIndex를 복원해도 상세가 영구히 막힙니다.
+        selectionSuppressed = false;
+        suppressedSourceSlot = -1;
+        mouseWasInsideBoard = false;
+
+        if (!inspectContext)
+            SetActiveInspectSlot(-1);
     }
 
     private void SyncSelection(bool rewardEdit, bool combatTab)
