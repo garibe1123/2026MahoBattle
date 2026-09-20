@@ -102,6 +102,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private RectTransform packBoard;
     private RectTransform packDockRoot;
     private RectTransform packBoardMotionRoot;
+    private CanvasGroup packBoardMotionGroup;
     private CanvasGroup packBoardGroup;
 
     private RectTransform dashboardRoot;
@@ -501,6 +502,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             packBoardMotionRoot.localRotation = Quaternion.identity;
         }
 
+        if (packBoardMotionGroup != null)
+            packBoardMotionGroup.alpha = 1f;
+
         if (packBoard != null)
         {
             packBoard.localScale = Vector3.one;
@@ -593,6 +597,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             packBoardMotionRoot.localScale = Vector3.one;
             packBoardMotionRoot.localRotation = Quaternion.identity;
         }
+
+        packBoardMotionGroup =
+            packBoardMotionRoot.GetComponent<CanvasGroup>();
+        if (packBoardMotionGroup == null)
+            packBoardMotionGroup =
+                packBoardMotionRoot.gameObject.AddComponent<CanvasGroup>();
+        packBoardMotionGroup.blocksRaycasts = true;
+        packBoardMotionGroup.interactable = true;
 
         // GridBoard 자체의 anchoredPosition은 UnifiedInventoryInspectController가 소유합니다.
         // Rule Focus 이동/축소는 이 부모 Wrapper가 전담합니다.

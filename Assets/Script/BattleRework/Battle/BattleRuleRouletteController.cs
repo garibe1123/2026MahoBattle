@@ -144,6 +144,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
+    [Tooltip("룰 패널이 이동/확대되는 동안 Hover가 끊기지 않도록 Focus 해제 영역에 주는 여유입니다.")]
+    [SerializeField] private Vector2 combatRuleFocusExitPadding = new(70f, 220f);
 
     [Header("Rule Confirm Punch")]
     [SerializeField, Range(1f, 1.4f)] private float ruleConfirmScale = 1.18f;
@@ -264,22 +266,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             }
         }
 
-        bool pointerInsidePanel = false;
-        if (combatTabOpen &&
+        bool pointerInsidePanel =
+            combatTabOpen &&
             combatRulePanel.gameObject.activeInHierarchy &&
-            Input.mousePresent)
-        {
-            Canvas panelCanvas = combatRulePanel.GetComponentInParent<Canvas>();
-            Camera eventCamera =
-                panelCanvas != null && panelCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                    ? panelCanvas.worldCamera
-                    : null;
-
-            pointerInsidePanel = RectTransformUtility.RectangleContainsScreenPoint(
-                combatRulePanel,
-                Input.mousePosition,
-                eventCamera);
-        }
+            Input.mousePresent &&
+            IsPointerInsideCombatRuleZone();
 
         if (combatRulePanelFocused != pointerInsidePanel)
         {
@@ -1580,14 +1571,27 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatTabOpen && kineticLoadout != null && kineticLoadout.GridBoard != null)
         {
             RectTransform board = kineticLoadout.GridBoard;
+            RectTransform packDock = ResolveCombatRulePackDockRoot();
 
-            // PACK이 아래로 물러나도 RULES는 원래 PACK 윗면 위치에 남습니다.
-            float boardTop =
-                board.rect.height * (1f - board.pivot.y) +
-                Mathf.Max(0f, combatRulePackGap);
+            if (packDock != null)
+            {
+                // 움직이고 축소된 현재 GridBoard의 실제 윗면 중앙을 같은 PackDock 좌표계로 변환합니다.
+                // 따라서 PACK이 아래로 내려가면 RULES도 같이 내려가며 바로 위 간격을 유지합니다.
+                Vector3 boardTopWorld = board.TransformPoint(
+                    new Vector3(board.rect.center.x, board.rect.yMax, 0f));
+                Vector3 boardTopLocal = packDock.InverseTransformPoint(boardTopWorld);
 
-            targetPosition = new Vector2(0f, boardTop);
-            targetRotation = Mathf.Repeat(board.localEulerAngles.z + 180f, 360f) - 180f;
+                targetPosition = new Vector2(
+                    boardTopLocal.x,
+                    boardTopLocal.y + Mathf.Max(0f, combatRulePackGap));
+            }
+            else
+            {
+                targetPosition = ResolveCombatRulePersistentPosition();
+            }
+
+            targetRotation =
+                Mathf.Repeat(board.eulerAngles.z + 180f, 360f) - 180f;
         }
         else
         {
@@ -1712,6 +1716,43 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
     }
 
+    private bool IsPointerInsideCombatRuleZone()
+    {
+        if (combatRulePanel == null)
+            return false;
+
+        Canvas panelCanvas = combatRulePanel.GetComponentInParent<Canvas>();
+        Camera eventCamera =
+            panelCanvas != null &&
+            panelCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? panelCanvas.worldCamera
+                : null;
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                combatRulePanel,
+                Input.mousePosition,
+                eventCamera,
+                out Vector2 localPoint))
+        {
+            return false;
+        }
+
+        Rect hitRect = combatRulePanel.rect;
+
+        // 진입은 실제 패널 크기 그대로, Focus 이후 이탈만 넉넉하게 잡습니다.
+        if (combatRulePanelFocused)
+        {
+            float padX = Mathf.Max(0f, combatRuleFocusExitPadding.x);
+            float padY = Mathf.Max(0f, combatRuleFocusExitPadding.y);
+            hitRect.xMin -= padX;
+            hitRect.xMax += padX;
+            hitRect.yMin -= padY;
+            hitRect.yMax += padY;
+        }
+
+        return hitRect.Contains(localPoint);
+    }
+
     private Vector2 ResolveCombatRulePersistentPosition()
     {
         return new Vector2(
@@ -1740,9 +1781,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 combatRulePanel.SetAsLastSibling();
             }
 
-            // GridBoard와 같은 anchor 지점을 공유하되 서로 형제 관계로 둡니다.
-            // 따라서 PACK만 축소/하강시켜도 RULES는 크기와 위치를 유지할 수 있습니다.
-            combatRulePanel.anchorMin = combatRulePanel.anchorMax = board.anchorMin;
+            // PackDock local 좌표를 직접 사용하므로 Center anchor로 고정합니다.
+            // 위치는 매 프레임 현재 GridBoard 실제 윗면을 따라갑니다.
+            combatRulePanel.anchorMin =
+                combatRulePanel.anchorMax =
+                    new Vector2(0.5f, 0.5f);
             combatRulePanel.pivot = new Vector2(0.5f, 0f);
             return;
         }

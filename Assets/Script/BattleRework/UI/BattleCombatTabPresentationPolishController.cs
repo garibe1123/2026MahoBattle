@@ -154,7 +154,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private RectTransform fullRoot;
     private RectTransform packDockRoot;
     private RectTransform packBoardMotionRoot;
-    private CanvasGroup packRuleGroup;
+    private CanvasGroup packBoardMotionGroup;
     private RectTransform dashboardRoot;
     private RectTransform missionPanel;
     private Canvas dashboardCanvas;
@@ -370,11 +370,16 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             packBoardMotionRoot =
                 packDockRoot.Find("BroadcastPackBoardMotion") as RectTransform;
 
-        if (kineticLoadout != null && kineticLoadout.GridBoard != null && packRuleGroup == null)
+        if (packBoardMotionRoot != null && packBoardMotionGroup == null)
         {
-            packRuleGroup = kineticLoadout.GridBoard.GetComponent<CanvasGroup>();
-            if (packRuleGroup == null)
-                packRuleGroup = kineticLoadout.GridBoard.gameObject.AddComponent<CanvasGroup>();
+            packBoardMotionGroup =
+                packBoardMotionRoot.GetComponent<CanvasGroup>();
+            if (packBoardMotionGroup == null)
+                packBoardMotionGroup =
+                    packBoardMotionRoot.gameObject.AddComponent<CanvasGroup>();
+
+            packBoardMotionGroup.blocksRaycasts = true;
+            packBoardMotionGroup.interactable = true;
         }
 
         if (dashboardRoot == null && fullRoot != null)
@@ -678,11 +683,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         packRuleVisualScale = targetRuleScale;
 
-        if (packRuleGroup != null)
+        if (packBoardMotionGroup != null)
         {
-            float previousRuleAlpha = Mathf.Max(0.001f, packRuleVisualAlpha);
-            float dashboardAlpha = packRuleGroup.alpha / previousRuleAlpha;
-
             float targetRuleAlpha = ruleDetailFocused
                 ? Mathf.Clamp01(ruleDetailPackAlpha)
                 : 1f;
@@ -695,8 +697,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             if (Mathf.Abs(packRuleVisualAlpha - targetRuleAlpha) <= 0.002f)
                 packRuleVisualAlpha = targetRuleAlpha;
 
-            packRuleGroup.alpha =
-                Mathf.Clamp01(dashboardAlpha * packRuleVisualAlpha);
+            // 기존 GridBoard CanvasGroup은 Dashboard가 계속 단독 소유합니다.
+            // RULE Focus 비활성 Alpha는 Wrapper 전용 CanvasGroup만 사용합니다.
+            packBoardMotionGroup.alpha = packRuleVisualAlpha;
         }
     }
 
@@ -748,13 +751,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             packBoardMotionRoot.localRotation = Quaternion.identity;
         }
 
-        if (packRuleGroup != null &&
-            Mathf.Abs(packRuleVisualAlpha - 1f) > 0.001f)
-        {
-            float safeAlpha = Mathf.Max(0.001f, packRuleVisualAlpha);
-            packRuleGroup.alpha =
-                Mathf.Clamp01(packRuleGroup.alpha / safeAlpha);
-        }
+        if (packBoardMotionGroup != null)
+            packBoardMotionGroup.alpha = 1f;
 
         packRuleVisualScale = 1f;
         packRuleVisualAlpha = 1f;
