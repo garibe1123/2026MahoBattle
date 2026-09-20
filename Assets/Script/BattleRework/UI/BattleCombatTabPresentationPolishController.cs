@@ -639,7 +639,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         CanvasGroup detailGroup = detailController.Group;
-        if (rightPanelFocused)
+        if (rightPanelFocused || ruleDetailFocused)
         {
             if (detailGroup != null)
             {
