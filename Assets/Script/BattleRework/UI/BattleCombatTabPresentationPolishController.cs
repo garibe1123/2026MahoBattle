@@ -121,8 +121,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [Header("RULE DETAIL FOCUS")]
     [Tooltip("룰 상세 Hover 시 PACK을 오른쪽으로 비워주는 추가 X 이동량입니다.")]
     [SerializeField, Min(0f)] private float ruleDetailPackShiftX = 118f;
-    [Tooltip("룰 상세 Hover 시 방송 Dashboard를 오른쪽으로 비워주는 추가 X 이동량입니다.")]
-    [SerializeField, Min(0f)] private float ruleDetailDashboardShiftX = 96f;
+    [Tooltip("룰 패널 Focus 시 방송 Dashboard를 오른쪽으로 비워주는 추가 X 이동량입니다.")]
+    [SerializeField, Min(0f)] private float ruleDetailDashboardShiftX = 150f;
+    [Tooltip("룰 패널 Focus 시 방송 Dashboard 전체가 뒤로 물러나는 Scale입니다.")]
+    [SerializeField, Range(0.60f, 1f)] private float ruleDetailDashboardScale = 0.82f;
     [SerializeField, Range(4f, 30f)] private float ruleDetailShiftSharpness = 14f;
 
     [Header("LIVE CHAT — VIEWER PACED")]
@@ -168,6 +170,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private bool ruleDetailFocused;
     private float packDockVisualX;
     private float dashboardRuleVisualOffsetX;
+    private float dashboardRuleVisualScale = 1f;
+    private Vector3 dashboardRuleBaseScale = Vector3.one;
+    private bool dashboardRuleScaleCaptured;
 
     private readonly List<string> chatHistory = new();
     private int chatSequence;
@@ -342,6 +347,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         if (dashboardRoot != null)
         {
+            if (!dashboardRuleScaleCaptured)
+            {
+                dashboardRuleBaseScale = dashboardRoot.localScale;
+                dashboardRuleVisualScale = 1f;
+                dashboardRuleScaleCaptured = true;
+            }
+
             dashboardCanvas ??= dashboardRoot.GetComponent<Canvas>();
             missionPanel ??= dashboardRoot.Find("MissionPanel") as RectTransform;
 
@@ -598,14 +610,16 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (dashboardRoot == null)
             return;
 
-        // 다른 Dashboard 연출이 이번 프레임에 만든 위치를 Base로 보고
-        // 직전 프레임에 우리가 더한 Offset만 제거한 뒤 새 Offset을 합성합니다.
         Vector3 basePosition = dashboardRoot.localPosition;
         basePosition.x -= dashboardRuleVisualOffsetX;
 
         float targetOffset = ruleDetailFocused
             ? Mathf.Max(0f, ruleDetailDashboardShiftX)
             : 0f;
+        float targetScale = ruleDetailFocused
+            ? Mathf.Clamp(ruleDetailDashboardScale, 0.60f, 1f)
+            : 1f;
+
         float t = 1f - Mathf.Exp(
             -Mathf.Max(4f, ruleDetailShiftSharpness) * Time.unscaledDeltaTime);
 
@@ -613,24 +627,42 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             dashboardRuleVisualOffsetX,
             targetOffset,
             t);
+        dashboardRuleVisualScale = Mathf.Lerp(
+            dashboardRuleVisualScale,
+            targetScale,
+            t);
 
         if (Mathf.Abs(dashboardRuleVisualOffsetX - targetOffset) <= 0.25f)
             dashboardRuleVisualOffsetX = targetOffset;
+        if (Mathf.Abs(dashboardRuleVisualScale - targetScale) <= 0.002f)
+            dashboardRuleVisualScale = targetScale;
 
         basePosition.x += dashboardRuleVisualOffsetX;
         dashboardRoot.localPosition = basePosition;
+
+        Vector3 baseScale = dashboardRuleScaleCaptured
+            ? dashboardRuleBaseScale
+            : Vector3.one;
+        dashboardRoot.localScale = baseScale * dashboardRuleVisualScale;
     }
 
     private void RestoreDashboardRuleOffset()
     {
-        if (dashboardRoot != null && Mathf.Abs(dashboardRuleVisualOffsetX) > 0.001f)
+        if (dashboardRoot != null)
         {
-            Vector3 position = dashboardRoot.localPosition;
-            position.x -= dashboardRuleVisualOffsetX;
-            dashboardRoot.localPosition = position;
+            if (Mathf.Abs(dashboardRuleVisualOffsetX) > 0.001f)
+            {
+                Vector3 position = dashboardRoot.localPosition;
+                position.x -= dashboardRuleVisualOffsetX;
+                dashboardRoot.localPosition = position;
+            }
+
+            if (dashboardRuleScaleCaptured)
+                dashboardRoot.localScale = dashboardRuleBaseScale;
         }
 
         dashboardRuleVisualOffsetX = 0f;
+        dashboardRuleVisualScale = 1f;
     }
 
     private void ApplyDetailPresentation()

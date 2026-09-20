@@ -131,8 +131,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(1f, 1.35f)] private float ruleHoverScale = 1.16f;
 
     [Header("Combat TAB Rule Panel")]
-    [SerializeField] private Vector2 combatRuleCompactSize = new(430f, 160f);
-    [SerializeField] private Vector2 combatRuleFocusedSize = new(590f, 300f);
+    [SerializeField] private Vector2 combatRuleCompactSize = new(310f, 108f);
+    [SerializeField] private Vector2 combatRuleFocusedSize = new(520f, 260f);
     [SerializeField] private Vector2 combatRulePanelOffset = new(42f, -42f);
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
@@ -268,6 +268,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
 
         AnimateCombatRulePanel();
+
+        if (combatRulePanelGroup != null)
+        {
+            combatRulePanelGroup.blocksRaycasts = combatTabOpen;
+            combatRulePanelGroup.interactable = combatTabOpen;
+        }
 
         if (ruleHudGroup != null)
         {
@@ -1138,7 +1144,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0f, 1f);
         resultListTab.pivot = new Vector2(0f, 1f);
         resultListTab.sizeDelta = new Vector2(activeWidth, Mathf.Max(48f, ruleSlotSize));
-        resultListTab.anchoredPosition = new Vector2(26f, -58f);
+        resultListTab.anchoredPosition = new Vector2(20f, -43f);
 
         float compactIconScale = Mathf.Clamp(combatHudScale, 0.30f, 1f);
         Vector3 targetResultScale = Vector3.one * compactIconScale;
@@ -1152,9 +1158,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0f, 0f);
         winningRuleTab.pivot = new Vector2(0f, 0f);
         winningRuleTab.sizeDelta = new Vector2(
-            Mathf.Max(240f, combatRuleCompactSize.x - 52f),
-            92f);
-        winningRuleTab.anchoredPosition = new Vector2(26f, 18f);
+            Mathf.Max(240f, combatRuleCompactSize.x - 40f),
+            82f);
+        winningRuleTab.anchoredPosition = new Vector2(20f, 10f);
         winningRuleTab.localScale = Vector3.one;
         HideRuleDetailImmediate();
 
@@ -1220,6 +1226,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             combatRulePanelGroup.alpha = combatTabOpen
                 ? Mathf.Clamp01(combatHudTabAlpha)
                 : Mathf.Clamp01(combatHudIdleAlpha);
+            combatRulePanelGroup.blocksRaycasts = combatTabOpen;
+            combatRulePanelGroup.interactable = combatTabOpen;
         }
 
         if (ruleHudGroup != null)
@@ -1397,7 +1405,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (rule == null)
             return;
 
-        if (combatHudMode && (!combatTabOpen || !combatRulePanelFocused))
+        if (combatHudMode && !combatTabOpen)
             return;
 
         ShowRuleDetail(rule);
@@ -1449,7 +1457,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRuleHeader = CreateText(
             panel,
             "RULE EFFECTS // LIVE",
-            21,
+            17,
             FontStyle.Bold,
             TextAnchor.MiddleLeft);
         combatRuleHeader.color = new Color(0.94f, 0.95f, 0.97f, 1f);
@@ -1528,15 +1536,17 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
             resultListTab.anchoredPosition = Vector2.Lerp(
                 resultListTab.anchoredPosition,
-                new Vector2(26f, -58f),
+                focused
+                    ? new Vector2(24f, -58f)
+                    : new Vector2(20f, -43f),
                 t);
         }
 
         if (winningRuleTab != null)
         {
             Vector2 detailSize = new(
-                Mathf.Max(240f, combatRulePanel.sizeDelta.x - 52f),
-                100f);
+                Mathf.Max(240f, combatRulePanel.sizeDelta.x - 48f),
+                focused ? 104f : 82f);
 
             winningRuleTab.sizeDelta = Vector2.Lerp(
                 winningRuleTab.sizeDelta,
@@ -1544,7 +1554,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 t);
             winningRuleTab.anchoredPosition = Vector2.Lerp(
                 winningRuleTab.anchoredPosition,
-                new Vector2(26f, 18f),
+                focused
+                    ? new Vector2(24f, 18f)
+                    : new Vector2(20f, 10f),
                 t);
         }
 
