@@ -109,6 +109,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float revealDurationPerRule = 0.58f;
     [SerializeField, Min(0f)] private float summaryDuration = 0.85f;
 
+    [Header("Roulette Field Visibility")]
+    [Tooltip("룰렛 중 월드 필드/조명이 보이도록 남겨두는 화면 암막 Alpha입니다. 실제 Dim은 Show Lighting이 소유합니다.")]
+    [SerializeField, Range(0f, 0.40f)] private float rouletteBackdropAlpha = 0.14f;
+
     [Header("Rules")]
     [SerializeField] private List<BattleRuleDefinition> rules = new();
 
@@ -139,8 +143,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 120f;
     [Tooltip("평상시 룰 아이콘 Row의 화면 좌측 상단 여백입니다.")]
     [SerializeField] private Vector2 combatRulePersistentTopLeftMargin = new(34f, 34f);
-    [Tooltip("TAB에서 PACK GridBoard 윗면과 룰 모듈 사이 여백입니다.")]
+    [Tooltip("TAB에서 PACK GridBoard 윗면과 룰 모듈 사이 세로 여백입니다.")]
     [SerializeField, Min(0f)] private float combatRulePackGap = 22f;
+    [Tooltip("PACK 우측 상단 모서리를 기준으로 룰 모듈을 미세 조정하는 Offset입니다.")]
+    [SerializeField] private Vector2 combatRulePackTopRightOffset = new(-18f, 8f);
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
@@ -657,7 +663,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         rouletteBackdrop = backdrop;
 
         backdropImage = backdrop.gameObject.AddComponent<Image>();
-        backdropImage.color = new Color(0f, 0f, 0f, 0.68f);
+        backdropImage.color = new Color(0f, 0f, 0f, Mathf.Clamp(rouletteBackdropAlpha, 0f, 0.40f));
         backdropImage.raycastTarget = true;
 
         combatRulePanel = CreateCombatRulePanel(backdrop);
@@ -1105,7 +1111,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         if (backdropImage != null)
         {
-            backdropImage.color = new Color(0f, 0f, 0f, 0.68f);
+            backdropImage.color = new Color(0f, 0f, 0f, Mathf.Clamp(rouletteBackdropAlpha, 0f, 0.40f));
             backdropImage.raycastTarget = true;
         }
 
@@ -1575,15 +1581,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
             if (packDock != null)
             {
-                // 움직이고 축소된 현재 GridBoard의 실제 윗면 중앙을 같은 PackDock 좌표계로 변환합니다.
-                // 따라서 PACK이 아래로 내려가면 RULES도 같이 내려가며 바로 위 간격을 유지합니다.
-                Vector3 boardTopWorld = board.TransformPoint(
-                    new Vector3(board.rect.center.x, board.rect.yMax, 0f));
-                Vector3 boardTopLocal = packDock.InverseTransformPoint(boardTopWorld);
+                // 움직이고 축소된 현재 GridBoard의 실제 우측 상단 모서리를
+                // 같은 PackDock 좌표계로 변환합니다.
+                // 따라서 PACK이 이동/축소되어도 RULES는 항상 PACK 우측 상단에 붙어 따라갑니다.
+                Vector3 boardTopRightWorld = board.TransformPoint(
+                    new Vector3(board.rect.xMax, board.rect.yMax, 0f));
+                Vector3 boardTopRightLocal = packDock.InverseTransformPoint(boardTopRightWorld);
 
                 targetPosition = new Vector2(
-                    boardTopLocal.x,
-                    boardTopLocal.y + Mathf.Max(0f, combatRulePackGap));
+                    boardTopRightLocal.x + combatRulePackTopRightOffset.x,
+                    boardTopRightLocal.y +
+                    Mathf.Max(0f, combatRulePackGap) +
+                    combatRulePackTopRightOffset.y);
             }
             else
             {
@@ -1781,12 +1790,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 combatRulePanel.SetAsLastSibling();
             }
 
-            // PackDock local 좌표를 직접 사용하므로 Center anchor로 고정합니다.
-            // 위치는 매 프레임 현재 GridBoard 실제 윗면을 따라갑니다.
+            // PackDock local 좌표를 직접 사용합니다.
+            // RULES는 PACK의 우측 상단을 기준점으로 삼고, Focus 확대도 오른쪽 Edge를 유지한 채
+            // 왼쪽 방향으로 펼쳐져 화면 밖으로 밀려나지 않게 합니다.
             combatRulePanel.anchorMin =
                 combatRulePanel.anchorMax =
                     new Vector2(0.5f, 0.5f);
-            combatRulePanel.pivot = new Vector2(0.5f, 0f);
+            combatRulePanel.pivot = new Vector2(1f, 0f);
             return;
         }
 
