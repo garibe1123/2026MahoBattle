@@ -136,6 +136,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [Header("Rule Detail Hover")]
     [SerializeField, Min(12f)] private float ruleDetailButtonDrop = 172f;
     [SerializeField, Min(0.05f)] private float ruleDetailTweenDuration = 0.18f;
+    [SerializeField, Range(0.65f, 0.98f)] private float ruleDetailHiddenScale = 0.88f;
+    [SerializeField, Min(0.05f)] private float ruleDetailScaleTweenDuration = 0.16f;
 
     private GameObject uiRoot;
     private RectTransform machineTab;
@@ -157,6 +159,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Image spinButtonImage;
     private Image backdropImage;
     private Coroutine detailLayoutTweenRoutine;
+    private Coroutine detailScaleTweenRoutine;
     private Vector2 controlTabRestPosition;
     private bool cancelRequested;
     private bool startBattleConfirmed;
@@ -215,6 +218,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             detailLayoutTweenRoutine = null;
         }
 
+        if (detailScaleTweenRoutine != null)
+        {
+            StopCoroutine(detailScaleTweenRoutine);
+            detailScaleTweenRoutine = null;
+        }
+
         SetSpinButtonInteractable(false);
 
         if (uiRoot != null)
@@ -237,7 +246,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         SetRating(stars);
         BuildRuleSlots(stars);
         ClearWinningRule();
-        HideRuleDetail();
+        HideRuleDetailImmediate();
 
         ratingText.text = $"BATTLE RATING\n{BuildStars(stars)}";
         progressText.text = "RULE ROULETTE";
@@ -303,7 +312,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         SetSpinButtonInteractable(false);
         finalReviewMode = false;
-        HideRuleDetail();
+        HideRuleDetailImmediate();
         ResetControlTabPositionImmediate();
 
         // 결과 아이콘은 꺼버리지 않고 좌측 상단 HUD로 자연스럽게 이동시킵니다.
@@ -611,8 +620,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         Stretch(buttonRect);
 
         spinButtonImage = buttonRect.gameObject.AddComponent<Image>();
-        spinButtonImage.sprite = spinButtonSprite;
-        spinButtonImage.type = spinButtonSprite != null ? Image.Type.Sliced : Image.Type.Simple;
+        spinButtonImage.sprite = spinButtonSprite != null
+            ? spinButtonSprite
+            : BattleRuleRuntimeUiSprites.RoundedButton;
+        spinButtonImage.type = Image.Type.Sliced;
         spinButtonImage.color = spinButtonSprite != null
             ? Color.white
             : new Color(0.92f, 0.25f, 0.12f, 1f);
@@ -919,6 +930,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             detailLayoutTweenRoutine = null;
         }
 
+        if (detailScaleTweenRoutine != null)
+        {
+            StopCoroutine(detailScaleTweenRoutine);
+            detailScaleTweenRoutine = null;
+        }
+
         if (backdropImage != null)
         {
             backdropImage.color = new Color(0f, 0f, 0f, 0.68f);
@@ -1078,20 +1095,49 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             backdropImage.raycastTarget = false;
         }
 
-        HideRuleDetail();
+        HideRuleDetailImmediate();
     }
 
     private void EnterFinalReviewMode()
     {
         finalReviewMode = true;
         ResetControlTabPositionImmediate();
-        HideRuleDetail();
+        HideRuleDetailImmediate();
     }
 
     private void HideRuleDetail()
     {
-        if (winningRuleTab != null)
-            winningRuleTab.gameObject.SetActive(false);
+        if (winningRuleTab == null)
+            return;
+
+        if (detailScaleTweenRoutine != null)
+            StopCoroutine(detailScaleTweenRoutine);
+
+        if (!winningRuleTab.gameObject.activeSelf)
+        {
+            detailScaleTweenRoutine = null;
+            return;
+        }
+
+        detailScaleTweenRoutine = StartCoroutine(
+            TweenRuleDetailScale(show: false));
+    }
+
+    private void HideRuleDetailImmediate()
+    {
+        if (detailScaleTweenRoutine != null)
+        {
+            StopCoroutine(detailScaleTweenRoutine);
+            detailScaleTweenRoutine = null;
+        }
+
+        if (winningRuleTab == null)
+            return;
+
+        float baseScale = GetRuleDetailBaseScale();
+        winningRuleTab.localScale =
+            Vector3.one * baseScale * Mathf.Clamp(ruleDetailHiddenScale, 0.65f, 0.98f);
+        winningRuleTab.gameObject.SetActive(false);
     }
 
     private void ShowRuleDetail(BattleRuleDefinition rule)
@@ -1099,8 +1145,63 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (rule == null || winningRuleTab == null)
             return;
 
-        winningRuleTab.gameObject.SetActive(true);
+        if (detailScaleTweenRoutine != null)
+        {
+            StopCoroutine(detailScaleTweenRoutine);
+            detailScaleTweenRoutine = null;
+        }
+
         ShowWinningRule(rule);
+
+        float baseScale = GetRuleDetailBaseScale();
+        float hiddenScale = baseScale * Mathf.Clamp(ruleDetailHiddenScale, 0.65f, 0.98f);
+
+        winningRuleTab.gameObject.SetActive(true);
+        winningRuleTab.localScale = Vector3.one * hiddenScale;
+        detailScaleTweenRoutine = StartCoroutine(
+            TweenRuleDetailScale(show: true));
+    }
+
+    private IEnumerator TweenRuleDetailScale(bool show)
+    {
+        if (winningRuleTab == null)
+            yield break;
+
+        float baseScale = GetRuleDetailBaseScale();
+        float hiddenScale = baseScale * Mathf.Clamp(ruleDetailHiddenScale, 0.65f, 0.98f);
+        Vector3 start = winningRuleTab.localScale;
+        Vector3 target = Vector3.one * (show ? baseScale : hiddenScale);
+
+        float duration = Mathf.Max(0.05f, ruleDetailScaleTweenDuration);
+        float elapsed = 0f;
+
+        while (elapsed < duration && winningRuleTab != null)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float eased = show
+                ? 1f - Mathf.Pow(1f - t, 3f)
+                : t * t * (3f - 2f * t);
+
+            winningRuleTab.localScale = Vector3.Lerp(start, target, eased);
+            yield return null;
+        }
+
+        if (winningRuleTab != null)
+        {
+            winningRuleTab.localScale = target;
+            if (!show)
+                winningRuleTab.gameObject.SetActive(false);
+        }
+
+        detailScaleTweenRoutine = null;
+    }
+
+    private float GetRuleDetailBaseScale()
+    {
+        return combatHudMode
+            ? Mathf.Clamp(combatHudScale, 0.45f, 1f)
+            : 1f;
     }
 
     private void ResetControlTabPositionImmediate()
@@ -1372,5 +1473,73 @@ public sealed class BattleRuleSlotPointerFeedback :
         hovered = false;
         if (root != null)
             root.localScale = Vector3.one;
+    }
+}
+
+internal static class BattleRuleRuntimeUiSprites
+{
+    private static Sprite roundedButton;
+
+    public static Sprite RoundedButton =>
+        roundedButton != null
+            ? roundedButton
+            : roundedButton = CreateRoundedButton();
+
+    private static Sprite CreateRoundedButton()
+    {
+        const int size = 32;
+        const float radius = 8f;
+        const int supersample = 4;
+
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "RuntimeBattleRuleRoundedButton",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                int insideCount = 0;
+
+                for (int sy = 0; sy < supersample; sy++)
+                {
+                    for (int sx = 0; sx < supersample; sx++)
+                    {
+                        float px = x + (sx + 0.5f) / supersample;
+                        float py = y + (sy + 0.5f) / supersample;
+
+                        float nearestX = Mathf.Clamp(px, radius, size - radius);
+                        float nearestY = Mathf.Clamp(py, radius, size - radius);
+                        float dx = px - nearestX;
+                        float dy = py - nearestY;
+
+                        if (dx * dx + dy * dy <= radius * radius)
+                            insideCount++;
+                    }
+                }
+
+                float alpha = insideCount / (float)(supersample * supersample);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply(false, true);
+
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(radius, radius, radius, radius));
+
+        sprite.name = "RuntimeBattleRuleRoundedButton";
+        sprite.hideFlags = HideFlags.HideAndDontSave;
+        return sprite;
     }
 }
