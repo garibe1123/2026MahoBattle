@@ -150,8 +150,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
-    [Tooltip("룰 패널이 이동/확대되는 동안 Hover가 끊기지 않도록 Focus 해제 영역에 주는 여유입니다.")]
-    [SerializeField] private Vector2 combatRuleFocusExitPadding = new(70f, 220f);
 
     [Header("Rule Confirm Punch")]
     [SerializeField, Range(1f, 1.4f)] private float ruleConfirmScale = 1.18f;
@@ -306,7 +304,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatLastInspectedRule = null;
         resolvedCombatRuleCompactSize = Vector2.zero;
         resolvedCombatRuleFocusedSize = Vector2.zero;
-        combatTabPresentation?.SetRuleDetailFocus(false);
 
         if (detailLayoutTweenRoutine != null)
         {
@@ -1755,42 +1752,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             HideRuleDetail();
     }
 
-    private bool IsPointerInsideCombatRuleZone()
-    {
-        if (combatRulePanel == null)
-            return false;
 
-        Canvas panelCanvas = combatRulePanel.GetComponentInParent<Canvas>();
-        Camera eventCamera =
-            panelCanvas != null &&
-            panelCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? panelCanvas.worldCamera
-                : null;
-
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                combatRulePanel,
-                Input.mousePosition,
-                eventCamera,
-                out Vector2 localPoint))
-        {
-            return false;
-        }
-
-        Rect hitRect = combatRulePanel.rect;
-
-        // 진입은 실제 패널 크기 그대로, Focus 이후 이탈만 넉넉하게 잡습니다.
-        if (combatRulePanelFocused)
-        {
-            float padX = Mathf.Max(0f, combatRuleFocusExitPadding.x);
-            float padY = Mathf.Max(0f, combatRuleFocusExitPadding.y);
-            hitRect.xMin -= padX;
-            hitRect.xMax += padX;
-            hitRect.yMin -= padY;
-            hitRect.yMax += padY;
-        }
-
-        return hitRect.Contains(localPoint);
-    }
 
     private Vector2 ResolveCombatRulePersistentPosition()
     {
