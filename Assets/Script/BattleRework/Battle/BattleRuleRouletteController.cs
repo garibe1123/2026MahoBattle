@@ -1547,6 +1547,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                     : new Vector2(0f, 10f),
                 t);
         }
+    }
 
     private float ResolveActiveRuleWidth()
     {
