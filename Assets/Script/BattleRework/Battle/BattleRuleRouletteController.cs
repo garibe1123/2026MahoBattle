@@ -131,8 +131,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(1f, 1.35f)] private float ruleHoverScale = 1.16f;
 
     [Header("Combat TAB Rule Panel")]
-    [SerializeField] private Vector2 combatRuleCompactSize = new(310f, 108f);
-    [SerializeField] private Vector2 combatRuleFocusedSize = new(520f, 260f);
+    [SerializeField, Min(70f)] private float combatRuleCompactMinWidth = 88f;
+    [SerializeField, Min(70f)] private float combatRuleCompactHeight = 94f;
+    [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 36f;
+    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 320f;
+    [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 238f;
+    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 58f;
     [SerializeField] private Vector2 combatRulePanelOffset = new(42f, -42f);
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
@@ -187,6 +191,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private bool finalReviewMode;
     private bool combatTabOpen;
     private bool combatRulePanelFocused;
+    private Vector2 resolvedCombatRuleCompactSize;
+    private Vector2 resolvedCombatRuleFocusedSize;
 
     private sealed class RuleSlotView
     {
@@ -291,6 +297,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         finalReviewMode = false;
         combatTabOpen = false;
         combatRulePanelFocused = false;
+        resolvedCombatRuleCompactSize = Vector2.zero;
+        resolvedCombatRuleFocusedSize = Vector2.zero;
         combatTabPresentation?.SetRuleDetailFocus(false);
 
         if (detailLayoutTweenRoutine != null)
@@ -1021,7 +1029,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatRulePanel != null)
         {
             combatRulePanel.gameObject.SetActive(false);
-            combatRulePanel.sizeDelta = combatRuleCompactSize;
+            combatRulePanel.sizeDelta = ResolveCombatRuleCompactSize();
             combatRulePanel.anchoredPosition = combatRulePanelOffset;
             combatRulePanel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
             combatRulePanel.localScale = Vector3.one;
@@ -1122,6 +1130,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             count * Mathf.Max(48f, ruleSlotSize) +
             Mathf.Max(0, count - 1) * Mathf.Max(0f, ruleSlotSpacing);
 
+        resolvedCombatRuleCompactSize = ResolveCombatRuleCompactSize(activeWidth);
+        resolvedCombatRuleFocusedSize = ResolveCombatRuleFocusedSize(activeWidth);
+
         HorizontalLayoutGroup layout = resultListTab.GetComponent<HorizontalLayoutGroup>();
         if (layout != null)
             layout.childAlignment = TextAnchor.MiddleLeft;
@@ -1130,7 +1141,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         Vector3 startResultScale = resultListTab.localScale;
 
         combatRulePanel.gameObject.SetActive(true);
-        combatRulePanel.sizeDelta = combatRuleCompactSize;
+        combatRulePanel.sizeDelta = resolvedCombatRuleCompactSize;
         combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
         combatRulePanel.pivot = new Vector2(0f, 1f);
         combatRulePanel.anchoredPosition = combatRulePanelOffset;
@@ -1144,7 +1155,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0f, 1f);
         resultListTab.pivot = new Vector2(0f, 1f);
         resultListTab.sizeDelta = new Vector2(activeWidth, Mathf.Max(48f, ruleSlotSize));
-        resultListTab.anchoredPosition = new Vector2(20f, -43f);
+        resultListTab.anchoredPosition = new Vector2(18f, -35f);
+        resultListTab.localRotation = Quaternion.identity;
 
         float compactIconScale = Mathf.Clamp(combatHudScale, 0.30f, 1f);
         Vector3 targetResultScale = Vector3.one * compactIconScale;
@@ -1158,7 +1170,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0f, 0f);
         winningRuleTab.pivot = new Vector2(0f, 0f);
         winningRuleTab.sizeDelta = new Vector2(
-            Mathf.Max(240f, combatRuleCompactSize.x - 40f),
+            Mathf.Max(220f, resolvedCombatRuleCompactSize.x - 32f),
             82f);
         winningRuleTab.anchoredPosition = new Vector2(20f, 10f);
         winningRuleTab.localScale = Vector3.one;
@@ -1427,7 +1439,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         RectTransform panel = CreateRect(parent, "CombatRulePanel");
         panel.anchorMin = panel.anchorMax = new Vector2(0f, 1f);
         panel.pivot = new Vector2(0f, 1f);
-        panel.sizeDelta = combatRuleCompactSize;
+        panel.sizeDelta = ResolveCombatRuleCompactSize();
         panel.anchoredPosition = combatRulePanelOffset;
         panel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
 
@@ -1496,9 +1508,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return;
 
         bool focused = combatTabOpen && combatRulePanelFocused;
+        Vector2 compactSize = resolvedCombatRuleCompactSize.sqrMagnitude > 0.01f
+            ? resolvedCombatRuleCompactSize
+            : ResolveCombatRuleCompactSize();
+        Vector2 focusedSize = resolvedCombatRuleFocusedSize.sqrMagnitude > 0.01f
+            ? resolvedCombatRuleFocusedSize
+            : ResolveCombatRuleFocusedSize();
+
         Vector2 targetSize = focused
-            ? combatRuleFocusedSize
-            : combatRuleCompactSize;
+            ? focusedSize
+            : compactSize;
 
         float targetAlpha = combatTabOpen
             ? (focused ? 1f : Mathf.Clamp01(combatHudTabAlpha))
@@ -1537,8 +1556,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             resultListTab.anchoredPosition = Vector2.Lerp(
                 resultListTab.anchoredPosition,
                 focused
-                    ? new Vector2(24f, -58f)
-                    : new Vector2(20f, -43f),
+                    ? new Vector2(22f, -52f)
+                    : new Vector2(18f, -35f),
                 t);
         }
 
@@ -1560,12 +1579,53 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 t);
         }
 
+        if (combatRuleHeader != null)
+            combatRuleHeader.gameObject.SetActive(focused);
+
         if (combatRuleFocusCue != null)
         {
-            combatRuleFocusCue.text = focused
-                ? "RULE FOCUS"
-                : "CURSOR FOCUS";
+            combatRuleFocusCue.gameObject.SetActive(focused);
+            combatRuleFocusCue.text = "RULE FOCUS";
         }
+    }
+
+    private float ResolveActiveRuleWidth()
+    {
+        int count = Mathf.Max(1, ruleSlotViews.Count);
+        return
+            count * Mathf.Max(48f, ruleSlotSize) +
+            Mathf.Max(0, count - 1) * Mathf.Max(0f, ruleSlotSpacing);
+    }
+
+    private Vector2 ResolveCombatRuleCompactSize(float activeWidth = -1f)
+    {
+        if (activeWidth < 0f)
+            activeWidth = ResolveActiveRuleWidth();
+
+        float iconScale = Mathf.Clamp(combatHudScale, 0.30f, 1f);
+        float width =
+            activeWidth * iconScale +
+            Mathf.Max(0f, combatRuleHorizontalPadding);
+
+        return new Vector2(
+            Mathf.Max(combatRuleCompactMinWidth, width),
+            Mathf.Max(70f, combatRuleCompactHeight));
+    }
+
+    private Vector2 ResolveCombatRuleFocusedSize(float activeWidth = -1f)
+    {
+        if (activeWidth < 0f)
+            activeWidth = ResolveActiveRuleWidth();
+
+        float iconScale = Mathf.Clamp(combatRuleFocusedIconScale, 0.30f, 1f);
+        float iconWidth =
+            activeWidth * iconScale +
+            Mathf.Max(0f, combatRuleHorizontalPadding) +
+            Mathf.Max(0f, combatRuleFocusedExtraWidth);
+
+        return new Vector2(
+            Mathf.Max(combatRuleFocusedMinWidth, iconWidth),
+            Mathf.Max(160f, combatRuleFocusedHeight));
     }
 
     private void ResolveCombatTabReferences()

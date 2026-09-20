@@ -119,8 +119,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField, Range(4f, 30f)] private float packDockTweenSharpness = 16f;
 
     [Header("RULE DETAIL FOCUS")]
-    [Tooltip("룰 상세 Hover 시 PACK을 오른쪽으로 비워주는 추가 X 이동량입니다.")]
+    [Tooltip("룰 패널 Focus 시 PACK을 오른쪽으로 비워주는 추가 X 이동량입니다.")]
     [SerializeField, Min(0f)] private float ruleDetailPackShiftX = 118f;
+    [Tooltip("룰 패널 Focus 시 PACK GridBoard가 뒤로 물러나는 Scale 배율입니다.")]
+    [SerializeField, Range(0.55f, 1f)] private float ruleDetailPackScale = 0.74f;
     [Tooltip("룰 패널 Focus 시 방송 Dashboard를 오른쪽으로 비워주는 추가 X 이동량입니다.")]
     [SerializeField, Min(0f)] private float ruleDetailDashboardShiftX = 150f;
     [Tooltip("룰 패널 Focus 시 방송 Dashboard 전체가 뒤로 물러나는 Scale입니다.")]
@@ -169,6 +171,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private bool packDockTweenInitialized;
     private bool ruleDetailFocused;
     private float packDockVisualX;
+    private float packRuleVisualScale = 1f;
     private float dashboardRuleVisualOffsetX;
     private float dashboardRuleVisualScale = 1f;
     private Vector3 dashboardRuleBaseScale = Vector3.one;
@@ -246,6 +249,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         rightPanelFocused = false;
         ruleDetailFocused = false;
         packDockTweenInitialized = false;
+        RestorePackRuleScale();
         RestoreDashboardRuleOffset();
         ResetAmbientAudience();
         RestoreDetailSorting();
@@ -603,6 +607,24 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             packDockVisualX = targetX;
 
         packDockRoot.localPosition = new Vector3(packDockVisualX, packDockY, 0f);
+
+        // BattleBroadcastDashboardController가 먼저 계산한 PACK Scale 위에
+        // 룰 패널 Focus 배율만 합성합니다. 이전 프레임 배율은 먼저 제거합니다.
+        float previousRuleScale = Mathf.Max(0.001f, packRuleVisualScale);
+        Vector3 dashboardScale = board.localScale / previousRuleScale;
+
+        float targetRuleScale = ruleDetailFocused
+            ? Mathf.Clamp(ruleDetailPackScale, 0.55f, 1f)
+            : 1f;
+        packRuleVisualScale = Mathf.Lerp(
+            packRuleVisualScale,
+            targetRuleScale,
+            t);
+
+        if (Mathf.Abs(packRuleVisualScale - targetRuleScale) <= 0.002f)
+            packRuleVisualScale = targetRuleScale;
+
+        board.localScale = dashboardScale * packRuleVisualScale;
     }
 
     private void ApplyRuleDetailDashboardShift()
@@ -644,6 +666,19 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             ? dashboardRuleBaseScale
             : Vector3.one;
         dashboardRoot.localScale = baseScale * dashboardRuleVisualScale;
+    }
+
+    private void RestorePackRuleScale()
+    {
+        if (kineticLoadout != null &&
+            kineticLoadout.GridBoard != null &&
+            Mathf.Abs(packRuleVisualScale - 1f) > 0.001f)
+        {
+            float safeScale = Mathf.Max(0.001f, packRuleVisualScale);
+            kineticLoadout.GridBoard.localScale /= safeScale;
+        }
+
+        packRuleVisualScale = 1f;
     }
 
     private void RestoreDashboardRuleOffset()
