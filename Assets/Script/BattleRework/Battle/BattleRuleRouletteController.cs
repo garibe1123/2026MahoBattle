@@ -124,7 +124,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     [Header("Combat HUD Transition")]
     [SerializeField, Min(0.05f)] private float hudTransitionDuration = 0.28f;
-    [SerializeField, Range(0.30f, 1f)] private float combatHudScale = 0.46f;
+    [SerializeField, Range(0.30f, 1f)] private float combatHudScale = 0.56f;
     [SerializeField] private Vector2 combatHudMargin = new(34f, 30f);
     [SerializeField, Range(0.15f, 1f)] private float combatHudIdleAlpha = 0.38f;
     [SerializeField, Range(0.20f, 1f)] private float combatHudTabAlpha = 0.78f;
@@ -140,7 +140,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField] private Vector2 combatRulePanelOffset = new(42f, -42f);
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
-    [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.62f;
+    [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.78f;
 
     [Header("Rule Confirm Punch")]
     [SerializeField, Range(1f, 1.4f)] private float ruleConfirmScale = 1.18f;

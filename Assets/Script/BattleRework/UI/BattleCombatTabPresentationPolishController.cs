@@ -121,8 +121,12 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [Header("RULE DETAIL FOCUS")]
     [Tooltip("룰 패널 Focus 시 PACK을 오른쪽으로 비워주는 추가 X 이동량입니다.")]
     [SerializeField, Min(0f)] private float ruleDetailPackShiftX = 118f;
+    [Tooltip("룰 패널 Focus 시 PACK 전체를 아래로 내려 시야에서 비워주는 Y 이동량입니다.")]
+    [SerializeField, Min(0f)] private float ruleDetailPackDropY = 112f;
     [Tooltip("룰 패널 Focus 시 PACK GridBoard가 뒤로 물러나는 Scale 배율입니다.")]
-    [SerializeField, Range(0.55f, 1f)] private float ruleDetailPackScale = 0.74f;
+    [SerializeField, Range(0.45f, 1f)] private float ruleDetailPackScale = 0.62f;
+    [Tooltip("룰 패널 Focus 시 PACK의 비활성 상태 Alpha 배율입니다.")]
+    [SerializeField, Range(0.20f, 1f)] private float ruleDetailPackAlpha = 0.46f;
     [Tooltip("룰 패널 Focus 시 방송 Dashboard를 오른쪽으로 비워주는 추가 X 이동량입니다.")]
     [SerializeField, Min(0f)] private float ruleDetailDashboardShiftX = 150f;
     [Tooltip("룰 패널 Focus 시 방송 Dashboard 전체가 뒤로 물러나는 Scale입니다.")]
@@ -148,6 +152,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private RectTransform fullRoot;
     private RectTransform packDockRoot;
+    private CanvasGroup packRuleGroup;
     private RectTransform dashboardRoot;
     private RectTransform missionPanel;
     private Canvas dashboardCanvas;
@@ -171,7 +176,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private bool packDockTweenInitialized;
     private bool ruleDetailFocused;
     private float packDockVisualX;
+    private float packDockVisualY;
     private float packRuleVisualScale = 1f;
+    private float packRuleVisualAlpha = 1f;
     private float dashboardRuleVisualOffsetX;
     private float dashboardRuleVisualScale = 1f;
     private Vector3 dashboardRuleBaseScale = Vector3.one;
@@ -345,6 +352,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         if (packDockRoot == null && fullRoot != null)
             packDockRoot = fullRoot.Find("BroadcastPackDock") as RectTransform;
+
+        if (kineticLoadout != null && kineticLoadout.GridBoard != null && packRuleGroup == null)
+        {
+            packRuleGroup = kineticLoadout.GridBoard.GetComponent<CanvasGroup>();
+            if (packRuleGroup == null)
+                packRuleGroup = kineticLoadout.GridBoard.gameObject.AddComponent<CanvasGroup>();
+        }
 
         if (dashboardRoot == null && fullRoot != null)
             dashboardRoot = fullRoot.Find("BroadcastDashboard") as RectTransform;
@@ -595,26 +609,38 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (!packDockTweenInitialized)
         {
             packDockVisualX = packDockRoot.localPosition.x;
+            packDockVisualY = packDockRoot.localPosition.y;
             packDockTweenInitialized = true;
         }
 
         float targetX = rightPanelFocused ? missionFocusedDockX : packFocusedDockX;
         if (ruleDetailFocused)
             targetX += Mathf.Max(0f, ruleDetailPackShiftX);
-        float t = 1f - Mathf.Exp(-Mathf.Max(4f, packDockTweenSharpness) * Time.unscaledDeltaTime);
+
+        float targetY = packDockY -
+            (ruleDetailFocused ? Mathf.Max(0f, ruleDetailPackDropY) : 0f);
+
+        float t = 1f - Mathf.Exp(
+            -Mathf.Max(4f, packDockTweenSharpness) * Time.unscaledDeltaTime);
+
         packDockVisualX = Mathf.Lerp(packDockVisualX, targetX, t);
+        packDockVisualY = Mathf.Lerp(packDockVisualY, targetY, t);
+
         if (Mathf.Abs(packDockVisualX - targetX) <= 0.25f)
             packDockVisualX = targetX;
+        if (Mathf.Abs(packDockVisualY - targetY) <= 0.25f)
+            packDockVisualY = targetY;
 
-        packDockRoot.localPosition = new Vector3(packDockVisualX, packDockY, 0f);
+        packDockRoot.localPosition =
+            new Vector3(packDockVisualX, packDockVisualY, 0f);
 
-        // BattleBroadcastDashboardController가 먼저 계산한 PACK Scale 위에
-        // 룰 패널 Focus 배율만 합성합니다. 이전 프레임 배율은 먼저 제거합니다.
+        // Dashboard Controller가 계산한 Scale/Alpha를 Base로 두고
+        // 룰 Focus 배율만 마지막에 합성합니다.
         float previousRuleScale = Mathf.Max(0.001f, packRuleVisualScale);
         Vector3 dashboardScale = board.localScale / previousRuleScale;
 
         float targetRuleScale = ruleDetailFocused
-            ? Mathf.Clamp(ruleDetailPackScale, 0.55f, 1f)
+            ? Mathf.Clamp(ruleDetailPackScale, 0.45f, 1f)
             : 1f;
         packRuleVisualScale = Mathf.Lerp(
             packRuleVisualScale,
@@ -625,6 +651,27 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             packRuleVisualScale = targetRuleScale;
 
         board.localScale = dashboardScale * packRuleVisualScale;
+
+        if (packRuleGroup != null)
+        {
+            float previousRuleAlpha = Mathf.Max(0.001f, packRuleVisualAlpha);
+            float dashboardAlpha = packRuleGroup.alpha / previousRuleAlpha;
+
+            float targetRuleAlpha = ruleDetailFocused
+                ? Mathf.Clamp01(ruleDetailPackAlpha)
+                : 1f;
+
+            packRuleVisualAlpha = Mathf.Lerp(
+                packRuleVisualAlpha,
+                targetRuleAlpha,
+                t);
+
+            if (Mathf.Abs(packRuleVisualAlpha - targetRuleAlpha) <= 0.002f)
+                packRuleVisualAlpha = targetRuleAlpha;
+
+            packRuleGroup.alpha =
+                Mathf.Clamp01(dashboardAlpha * packRuleVisualAlpha);
+        }
     }
 
     private void ApplyRuleDetailDashboardShift()
@@ -670,15 +717,26 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void RestorePackRuleScale()
     {
-        if (kineticLoadout != null &&
-            kineticLoadout.GridBoard != null &&
-            Mathf.Abs(packRuleVisualScale - 1f) > 0.001f)
+        if (kineticLoadout != null && kineticLoadout.GridBoard != null)
         {
-            float safeScale = Mathf.Max(0.001f, packRuleVisualScale);
-            kineticLoadout.GridBoard.localScale /= safeScale;
+            if (Mathf.Abs(packRuleVisualScale - 1f) > 0.001f)
+            {
+                float safeScale = Mathf.Max(0.001f, packRuleVisualScale);
+                kineticLoadout.GridBoard.localScale /= safeScale;
+            }
+
+            if (packRuleGroup != null &&
+                Mathf.Abs(packRuleVisualAlpha - 1f) > 0.001f)
+            {
+                float safeAlpha = Mathf.Max(0.001f, packRuleVisualAlpha);
+                packRuleGroup.alpha =
+                    Mathf.Clamp01(packRuleGroup.alpha / safeAlpha);
+            }
         }
 
         packRuleVisualScale = 1f;
+        packRuleVisualAlpha = 1f;
+        packDockVisualY = packDockY;
     }
 
     private void RestoreDashboardRuleOffset()
