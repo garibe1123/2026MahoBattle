@@ -613,12 +613,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             packDockTweenInitialized = true;
         }
 
+        // RULES는 이제 PACK 바로 위에 붙는 같은 정보군입니다.
+        // 룰 Focus가 PACK을 밀거나 축소하지 않고 Mission/Chat Focus만 기존 Dock 이동을 소유합니다.
         float targetX = rightPanelFocused ? missionFocusedDockX : packFocusedDockX;
-        if (ruleDetailFocused)
-            targetX += Mathf.Max(0f, ruleDetailPackShiftX);
-
-        float targetY = packDockY -
-            (ruleDetailFocused ? Mathf.Max(0f, ruleDetailPackDropY) : 0f);
+        float targetY = packDockY;
 
         float t = 1f - Mathf.Exp(
             -Mathf.Max(4f, packDockTweenSharpness) * Time.unscaledDeltaTime);
@@ -634,22 +632,12 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         packDockRoot.localPosition =
             new Vector3(packDockVisualX, packDockVisualY, 0f);
 
-        // Dashboard Controller가 계산한 Scale/Alpha를 Base로 두고
-        // 룰 Focus 배율만 마지막에 합성합니다.
+        // 이전 버전의 RULE Focus Scale/Alpha가 남아 있으면 자연스럽게 원복합니다.
         float previousRuleScale = Mathf.Max(0.001f, packRuleVisualScale);
         Vector3 dashboardScale = board.localScale / previousRuleScale;
-
-        float targetRuleScale = ruleDetailFocused
-            ? Mathf.Clamp(ruleDetailPackScale, 0.45f, 1f)
-            : 1f;
-        packRuleVisualScale = Mathf.Lerp(
-            packRuleVisualScale,
-            targetRuleScale,
-            t);
-
-        if (Mathf.Abs(packRuleVisualScale - targetRuleScale) <= 0.002f)
-            packRuleVisualScale = targetRuleScale;
-
+        packRuleVisualScale = Mathf.Lerp(packRuleVisualScale, 1f, t);
+        if (Mathf.Abs(packRuleVisualScale - 1f) <= 0.002f)
+            packRuleVisualScale = 1f;
         board.localScale = dashboardScale * packRuleVisualScale;
 
         if (packRuleGroup != null)
@@ -657,17 +645,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             float previousRuleAlpha = Mathf.Max(0.001f, packRuleVisualAlpha);
             float dashboardAlpha = packRuleGroup.alpha / previousRuleAlpha;
 
-            float targetRuleAlpha = ruleDetailFocused
-                ? Mathf.Clamp01(ruleDetailPackAlpha)
-                : 1f;
-
-            packRuleVisualAlpha = Mathf.Lerp(
-                packRuleVisualAlpha,
-                targetRuleAlpha,
-                t);
-
-            if (Mathf.Abs(packRuleVisualAlpha - targetRuleAlpha) <= 0.002f)
-                packRuleVisualAlpha = targetRuleAlpha;
+            packRuleVisualAlpha = Mathf.Lerp(packRuleVisualAlpha, 1f, t);
+            if (Mathf.Abs(packRuleVisualAlpha - 1f) <= 0.002f)
+                packRuleVisualAlpha = 1f;
 
             packRuleGroup.alpha =
                 Mathf.Clamp01(dashboardAlpha * packRuleVisualAlpha);
@@ -682,29 +662,23 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         Vector3 basePosition = dashboardRoot.localPosition;
         basePosition.x -= dashboardRuleVisualOffsetX;
 
-        float targetOffset = ruleDetailFocused
-            ? Mathf.Max(0f, ruleDetailDashboardShiftX)
-            : 0f;
-        float targetScale = ruleDetailFocused
-            ? Mathf.Clamp(ruleDetailDashboardScale, 0.60f, 1f)
-            : 1f;
-
         float t = 1f - Mathf.Exp(
             -Mathf.Max(4f, ruleDetailShiftSharpness) * Time.unscaledDeltaTime);
 
+        // RULES는 PACK 부속 모듈이므로 방송/미션 영역까지 밀어내지 않습니다.
         dashboardRuleVisualOffsetX = Mathf.Lerp(
             dashboardRuleVisualOffsetX,
-            targetOffset,
+            0f,
             t);
         dashboardRuleVisualScale = Mathf.Lerp(
             dashboardRuleVisualScale,
-            targetScale,
+            1f,
             t);
 
-        if (Mathf.Abs(dashboardRuleVisualOffsetX - targetOffset) <= 0.25f)
-            dashboardRuleVisualOffsetX = targetOffset;
-        if (Mathf.Abs(dashboardRuleVisualScale - targetScale) <= 0.002f)
-            dashboardRuleVisualScale = targetScale;
+        if (Mathf.Abs(dashboardRuleVisualOffsetX) <= 0.25f)
+            dashboardRuleVisualOffsetX = 0f;
+        if (Mathf.Abs(dashboardRuleVisualScale - 1f) <= 0.002f)
+            dashboardRuleVisualScale = 1f;
 
         basePosition.x += dashboardRuleVisualOffsetX;
         dashboardRoot.localPosition = basePosition;
