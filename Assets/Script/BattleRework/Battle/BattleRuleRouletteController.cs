@@ -129,6 +129,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [Header("Combat HUD Transition")]
     [SerializeField, Min(0.05f)] private float hudTransitionDuration = 0.28f;
     [SerializeField, Range(0.30f, 1f)] private float combatHudScale = 0.56f;
+    [Tooltip("TAB을 열었지만 RULES에 아직 커서를 올리지 않았을 때의 중간 Scale입니다.")]
+    [SerializeField, Range(0.40f, 1f)] private float combatHudTabScale = 0.78f;
     [SerializeField] private Vector2 combatHudMargin = new(34f, 30f);
     [SerializeField, Range(0.15f, 1f)] private float combatHudIdleAlpha = 0.72f;
     [SerializeField, Range(0.20f, 1f)] private float combatHudTabAlpha = 0.90f;
@@ -137,7 +139,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [Header("Combat TAB Rule Panel")]
     [SerializeField, Min(70f)] private float combatRuleCompactMinWidth = 88f;
     [SerializeField, Min(70f)] private float combatRuleCompactHeight = 94f;
+    [Tooltip("TAB Open 상태에서 RULES 프레임이 한 단계 커질 때의 높이입니다.")]
+    [SerializeField, Min(80f)] private float combatRuleTabHeight = 132f;
     [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 36f;
+    [SerializeField, Min(0f)] private float combatRuleTabExtraWidth = 28f;
     [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 520f;
     [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 320f;
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 120f;
@@ -1581,13 +1586,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         Vector2 compactSize = resolvedCombatRuleCompactSize.sqrMagnitude > 0.01f
             ? resolvedCombatRuleCompactSize
             : ResolveCombatRuleCompactSize();
+        Vector2 tabSize = ResolveCombatRuleTabSize();
         Vector2 focusedSize = resolvedCombatRuleFocusedSize.sqrMagnitude > 0.01f
             ? resolvedCombatRuleFocusedSize
             : ResolveCombatRuleFocusedSize();
 
         Vector2 targetSize = focused
             ? focusedSize
-            : compactSize;
+            : combatTabOpen
+                ? tabSize
+                : compactSize;
 
         // Panel pivot이 오른쪽(1,0)이므로 폭만 키우면 왼쪽으로 늘어납니다.
         // 사용자가 원하는 것은 "기존 왼쪽 경계 유지 + 오른쪽만 10% 확장"이므로
@@ -1602,7 +1610,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         float targetIconScale = focused
             ? Mathf.Clamp(combatRuleFocusedIconScale, 0.30f, 1f)
-            : Mathf.Clamp(combatHudScale, 0.30f, 1f);
+            : combatTabOpen
+                ? Mathf.Clamp(combatHudTabScale, 0.40f, 1f)
+                : Mathf.Clamp(combatHudScale, 0.30f, 1f);
 
         float t = 1f - Mathf.Exp(
             -Mathf.Max(4f, combatRulePanelSharpness) * Time.unscaledDeltaTime);
@@ -1673,7 +1683,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 t);
 
         float drawerTarget = combatTabOpen
-            ? (focused ? 1f : 0.78f)
+            ? (focused ? 1f : 0.88f)
             : 0f;
         combatRuleDrawerVisualAlpha = Mathf.Lerp(
             combatRuleDrawerVisualAlpha,
@@ -1733,7 +1743,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 resultListTab.pivot = new Vector2(0.5f, 1f);
                 rowTarget = focused
                     ? new Vector2(0f, -30f)
-                    : new Vector2(0f, -20f);
+                    : new Vector2(0f, -24f);
             }
             else
             {
@@ -1926,6 +1936,22 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         return new Vector2(
             Mathf.Max(combatRuleCompactMinWidth, width),
             Mathf.Max(70f, combatRuleCompactHeight));
+    }
+
+    private Vector2 ResolveCombatRuleTabSize(float activeWidth = -1f)
+    {
+        if (activeWidth < 0f)
+            activeWidth = ResolveActiveRuleWidth();
+
+        float iconScale = Mathf.Clamp(combatHudTabScale, 0.40f, 1f);
+        float width =
+            activeWidth * iconScale +
+            Mathf.Max(0f, combatRuleHorizontalPadding) +
+            Mathf.Max(0f, combatRuleTabExtraWidth);
+
+        return new Vector2(
+            Mathf.Max(combatRuleCompactMinWidth, width),
+            Mathf.Max(combatRuleCompactHeight, combatRuleTabHeight));
     }
 
     private Vector2 ResolveCombatRuleFocusedBaseSize(float activeWidth = -1f)
