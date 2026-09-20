@@ -141,6 +141,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 520f;
     [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 320f;
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 120f;
+    [Tooltip("RULES가 Focus된 동안 프레임의 오른쪽만 추가로 늘리는 비율입니다. 0.10 = 10%.")]
+    [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0.10f;
     [Tooltip("평상시 룰 아이콘 Row의 화면 좌측 상단 여백입니다.")]
     [SerializeField] private Vector2 combatRulePersistentTopLeftMargin = new(34f, 34f);
     [Tooltip("TAB에서 PACK GridBoard 윗면과 룰 모듈 사이 세로 여백입니다.")]
@@ -1587,6 +1589,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             ? focusedSize
             : compactSize;
 
+        // Panel pivot이 오른쪽(1,0)이므로 폭만 키우면 왼쪽으로 늘어납니다.
+        // 사용자가 원하는 것은 "기존 왼쪽 경계 유지 + 오른쪽만 10% 확장"이므로
+        // Focus 시 증가한 폭만큼 pivot 위치도 오른쪽으로 이동시킵니다.
+        float focusedRightExtra = focused
+            ? ResolveCombatRuleFocusedRightExtra()
+            : 0f;
+
         float targetAlpha = combatTabOpen
             ? (focused ? 1f : Mathf.Clamp01(combatHudTabAlpha))
             : Mathf.Clamp01(combatHudIdleAlpha);
@@ -1621,14 +1630,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 Vector3 boardTopRightLocal = packDock.InverseTransformPoint(boardTopRightWorld);
 
                 targetPosition = new Vector2(
-                    boardTopRightLocal.x + combatRulePackTopRightOffset.x,
+                    boardTopRightLocal.x +
+                    combatRulePackTopRightOffset.x +
+                    focusedRightExtra,
                     boardTopRightLocal.y +
                     Mathf.Max(0f, combatRulePackGap) +
                     combatRulePackTopRightOffset.y);
             }
             else
             {
-                targetPosition = ResolveCombatRulePersistentPosition();
+                targetPosition =
+                    ResolveCombatRulePersistentPosition() +
+                    new Vector2(focusedRightExtra, 0f);
             }
 
             targetRotation =
@@ -1915,7 +1928,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             Mathf.Max(70f, combatRuleCompactHeight));
     }
 
-    private Vector2 ResolveCombatRuleFocusedSize(float activeWidth = -1f)
+    private Vector2 ResolveCombatRuleFocusedBaseSize(float activeWidth = -1f)
     {
         if (activeWidth < 0f)
             activeWidth = ResolveActiveRuleWidth();
@@ -1929,6 +1942,23 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         return new Vector2(
             Mathf.Max(combatRuleFocusedMinWidth, iconWidth),
             Mathf.Max(160f, combatRuleFocusedHeight));
+    }
+
+    private Vector2 ResolveCombatRuleFocusedSize(float activeWidth = -1f)
+    {
+        Vector2 baseSize = ResolveCombatRuleFocusedBaseSize(activeWidth);
+        float rightExtra =
+            baseSize.x * Mathf.Clamp(combatRuleFocusedRightExpansion, 0f, 0.30f);
+
+        return new Vector2(
+            baseSize.x + rightExtra,
+            baseSize.y);
+    }
+
+    private float ResolveCombatRuleFocusedRightExtra(float activeWidth = -1f)
+    {
+        Vector2 baseSize = ResolveCombatRuleFocusedBaseSize(activeWidth);
+        return baseSize.x * Mathf.Clamp(combatRuleFocusedRightExpansion, 0f, 0.30f);
     }
 
     private void ResolveCombatTabReferences()
