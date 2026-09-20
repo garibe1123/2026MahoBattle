@@ -2465,7 +2465,7 @@ MonoBehaviour:
   keepAcrossRooms: 1
   baseProvidesWalkableNavMesh: 1
   basePrefab: {fileID: 0}
-  baseSprite: {fileID: 0}
+  baseSprite: {fileID: -1299287584, guid: c9aec7f1820c8b641842f9caa14e012a, type: 3}
   baseMaterial: {fileID: 0}
   sortingOrder: -19
   tileSpriteToTemplate: 1

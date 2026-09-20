@@ -139,8 +139,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 58f;
     [Tooltip("TAB에서 룰 Row가 머무는 화면 하단 중앙 위치입니다.")]
     [SerializeField] private Vector2 combatRuleBottomCenterOffset = new(0f, 28f);
-    [Tooltip("평상시 룰 아이콘 Row의 우측 상단 화면 여백입니다.")]
-    [SerializeField] private Vector2 combatRulePersistentTopRightMargin = new(28f, 28f);
+    [Tooltip("평상시 룰 아이콘 Row를 CurrentLoadoutChip 우측 상단 위에 띄우는 간격입니다.")]
+    [SerializeField, Min(0f)] private float combatRulePersistentGap = 12f;
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1f)] private float combatRuleFocusedIconScale = 0.78f;
@@ -1488,8 +1488,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         panel.pivot = new Vector2(0.5f, 0f);
         panel.sizeDelta = ResolveCombatRuleCompactSize();
         panel.anchoredPosition = new Vector2(
-            960f - Mathf.Abs(combatRulePersistentTopRightMargin.x),
-            1080f - Mathf.Abs(combatRulePersistentTopRightMargin.y));
+            932f,
+            176f + Mathf.Max(0f, combatRulePersistentGap));
         panel.localRotation = Quaternion.Euler(0f, 0f, combatRulePanelRotation);
 
         combatRulePanelBack = panel.gameObject.AddComponent<Image>();
@@ -1664,19 +1664,34 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private Vector2 ResolveCombatRulePersistentPosition()
     {
+        RectTransform compact = kineticLoadout != null
+            ? kineticLoadout.CompactRoot
+            : null;
+
         if (rouletteBackdrop == null)
-            return new Vector2(
-                -Mathf.Abs(combatRulePersistentTopRightMargin.x),
-                -Mathf.Abs(combatRulePersistentTopRightMargin.y));
+            return Vector2.zero;
 
-        // CombatRulePanel은 bottom-center anchor를 유지하므로,
-        // Overlay의 우측 상단 좌표를 같은 local 좌표계로 변환합니다.
         float halfWidth = rouletteBackdrop.rect.width * 0.5f;
-        float height = rouletteBackdrop.rect.height;
 
-        return new Vector2(
-            halfWidth - Mathf.Abs(combatRulePersistentTopRightMargin.x),
-            height - Mathf.Abs(combatRulePersistentTopRightMargin.y));
+        if (compact == null)
+        {
+            return new Vector2(
+                halfWidth - 28f,
+                176f + Mathf.Max(0f, combatRulePersistentGap));
+        }
+
+        // CurrentLoadoutChip은 우측 하단 anchor + 우측 하단 pivot입니다.
+        // 룰 패널의 우측 끝을 Chip의 우측 끝에 맞추고,
+        // Chip 바로 위에서 최대 5개가 왼쪽으로 늘어나게 합니다.
+        float chipRightX =
+            halfWidth +
+            compact.anchoredPosition.x;
+        float chipTopY =
+            compact.anchoredPosition.y +
+            compact.rect.height +
+            Mathf.Max(0f, combatRulePersistentGap);
+
+        return new Vector2(chipRightX, chipTopY);
     }
 
     private void ShowCombatRuleDetailDefault()

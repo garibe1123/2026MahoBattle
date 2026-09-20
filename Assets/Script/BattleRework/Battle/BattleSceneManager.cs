@@ -787,9 +787,73 @@ public class BattleSceneManager : MonoBehaviour
             SetPrivateField(roomBaseTemplate, "roomManager", roomManager);
             SetPrivateField(roomBaseTemplate, "baseOrigin", roomOrigin);
             SetPrivateField(roomBaseTemplate, "baseRoot", mapRoot);
+
+            GameObject configuredBasePrefab =
+                GetPrivateField<GameObject>(roomBaseTemplate, "basePrefab");
+            Sprite configuredBaseSprite =
+                GetPrivateField<Sprite>(roomBaseTemplate, "baseSprite");
+
+            if (configuredBasePrefab == null && configuredBaseSprite == null)
+            {
+                Sprite defaultBaseSprite = ResolveDefaultPersistentBaseSprite();
+                if (defaultBaseSprite != null)
+                    SetPrivateField(roomBaseTemplate, "baseSprite", defaultBaseSprite);
+            }
         }
 
         MarkSceneDirty();
+    }
+
+    private Sprite ResolveDefaultPersistentBaseSprite()
+    {
+        BattleShowPresentationManager presentation =
+            FindFirstObjectByType<BattleShowPresentationManager>(FindObjectsInactive.Include);
+
+        Sprite[] floorVariants =
+            presentation != null &&
+            presentation.DefaultFloorTemplate != null
+                ? presentation.DefaultFloorTemplate.FloorVariants
+                : null;
+
+        if (floorVariants != null)
+        {
+            for (int i = 0; i < floorVariants.Length; i++)
+            {
+                if (floorVariants[i] != null)
+                    return floorVariants[i];
+            }
+        }
+
+        // Floor Template이 아직 연결되기 전인 씬도 기존 Room 바닥 Sprite로 복구합니다.
+        if (nodeGraph != null && nodeGraph.nodes != null)
+        {
+            for (int nodeIndex = 0; nodeIndex < nodeGraph.nodes.Count; nodeIndex++)
+            {
+                BattleNodeData node = nodeGraph.nodes[nodeIndex];
+                RoomDefinitionSO room = node != null ? node.room : null;
+                if (room == null || room.blocks == null)
+                    continue;
+
+                for (int blockIndex = 0; blockIndex < room.blocks.Count; blockIndex++)
+                {
+                    MapBlockPlacement placement = room.blocks[blockIndex];
+                    MapBlock block = placement != null ? placement.prefab : null;
+                    if (block == null)
+                        continue;
+
+                    SpriteRenderer[] renderers =
+                        block.GetComponentsInChildren<SpriteRenderer>(true);
+                    for (int rendererIndex = 0; rendererIndex < renderers.Length; rendererIndex++)
+                    {
+                        SpriteRenderer renderer = renderers[rendererIndex];
+                        if (renderer != null && renderer.sprite != null)
+                            return renderer.sprite;
+                    }
+                }
+            }
+        }
+
+        return null;
     }
 
     private static void ValidateSingleton<T>(List<string> errors, string displayName) where T : Component
