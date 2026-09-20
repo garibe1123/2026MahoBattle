@@ -506,6 +506,23 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (board == null)
             return;
 
+        // 슬롯 사이의 빈 공간에서도 PACK 영역 Enter/Exit가 끊기지 않도록
+        // 입력 전용 투명 Graphic을 가장 뒤에 둡니다. 슬롯 자체 입력은 그대로 우선합니다.
+        RectTransform hitRegion = board.Find("PackPrimaryFocusHitRegion") as RectTransform;
+        if (hitRegion == null)
+        {
+            hitRegion = CreateRect(board, "PackPrimaryFocusHitRegion", Vector2.zero);
+            hitRegion.anchorMin = Vector2.zero;
+            hitRegion.anchorMax = Vector2.one;
+            hitRegion.offsetMin = Vector2.zero;
+            hitRegion.offsetMax = Vector2.zero;
+            hitRegion.SetAsFirstSibling();
+
+            Image hitImage = hitRegion.gameObject.AddComponent<Image>();
+            hitImage.color = Color.clear;
+            hitImage.raycastTarget = true;
+        }
+
         if (packFocusRelay == null || packFocusRelay.gameObject != board.gameObject)
         {
             packFocusRelay = board.GetComponent<BattleCombatPackFocusPointerRelay>();
