@@ -70,6 +70,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private RectTransform fullRoot;
     private CanvasGroup fullGroup;
     private RectTransform boardRoot;
+    private CanvasGroup boardGroup;
     private RectTransform builtInDetailRoot;
 
     private RectTransform miniPackRoot;
@@ -291,6 +292,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             fullRoot ??= kineticLoadout.FullRoot;
             fullGroup ??= kineticLoadout.FullGroup;
             boardRoot ??= kineticLoadout.GridBoard;
+            if (boardRoot != null && boardGroup == null)
+                boardGroup = boardRoot.GetComponent<CanvasGroup>();
         }
 
         if (fullRoot == null)
@@ -300,6 +303,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             {
                 fullGroup = fullRoot.GetComponent<CanvasGroup>();
                 boardRoot = FindChildRect(fullRoot, "GridBoard");
+                if (boardRoot != null)
+                    boardGroup = boardRoot.GetComponent<CanvasGroup>();
             }
         }
 
@@ -633,6 +638,18 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                 boardLocal.z = 0f;
                 boardRoot.localPosition = boardLocal;
                 boardRoot.localScale = Vector3.one;
+
+                // Combat morph owns this CanvasGroup during battle.
+                // Reward PACK editing explicitly takes ownership so the 3x3 grid
+                // cannot remain transparent after the combat animation closed it.
+                if (boardGroup == null)
+                    boardGroup = boardRoot.GetComponent<CanvasGroup>();
+                if (boardGroup != null)
+                {
+                    boardGroup.alpha = 1f;
+                    boardGroup.blocksRaycasts = !BattlePauseController.IsPaused;
+                    boardGroup.interactable = !BattlePauseController.IsPaused;
+                }
             }
 
             if (fullRoot != null)
@@ -655,7 +672,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         }
 
         if (fullTitle != null)
-            fullTitle.text = rewardEdit ? "PACK // EDIT" : "LOADOUT // SHIFT";
+            fullTitle.text = rewardEdit ? string.Empty : "LOADOUT // SHIFT";
 
         if (fullSubtitle != null)
         {
