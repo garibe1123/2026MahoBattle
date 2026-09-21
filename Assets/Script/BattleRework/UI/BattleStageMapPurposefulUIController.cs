@@ -659,11 +659,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             inkColor,
             paperColor);
 
-        if (nodeButton != null)
-        {
-            nodeButton.onClick.RemoveListener(feedback.NotifySelected);
-            nodeButton.onClick.AddListener(feedback.NotifySelected);
-        }
     }
 
     private void EnsureDecisionAccent()
@@ -889,7 +884,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 internal sealed class BattleStageMapNodePointerFeedback :
     MonoBehaviour,
     IPointerEnterHandler,
-    IPointerExitHandler
+    IPointerExitHandler,
+    IPointerClickHandler
 {
     private const float HoverScale = 1.12f;
     private const float SelectedScale = 1.08f;
@@ -898,6 +894,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private RectTransform nodeRect;
     private Image nodeImage;
     private Image nodeIcon;
+    private Button nodeButton;
     private Outline nodeOutline;
     private Text label;
     private Color accent;
@@ -921,6 +918,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
     {
         nodeImage = image;
         nodeRect = image != null ? image.rectTransform : null;
+        nodeButton = nodeRect != null ? nodeRect.GetComponent<Button>() : null;
         nodeOutline = outline;
         label = nodeLabel;
         accent = accentColor;
@@ -969,6 +967,18 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
         hovered = false;
         ApplyNormal(false);
+    }
+
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (selected || nodeButton == null ||
+            !nodeButton.IsActive() || !nodeButton.IsInteractable())
+        {
+            return;
+        }
+
+        NotifySelected();
+        nodeButton.onClick.Invoke();
     }
 
     public void NotifySelected()
