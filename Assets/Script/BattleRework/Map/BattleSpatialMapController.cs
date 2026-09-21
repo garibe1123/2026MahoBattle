@@ -52,6 +52,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
     [SerializeField, Range(0f, 0.75f)] private float mapConfirmCameraShake = 0.22f;
     [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.105f;
+    [Tooltip("Camera focus may move a World-Space node under the cursor. This screen-space hysteresis prevents hover enter/exit feedback loops.")]
+    [SerializeField, Range(8f, 160f)] private float mapHoverLatchPixels = 56f;
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
     [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
@@ -97,6 +99,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private Vector2 stageMapPanelRestPosition;
     private bool stageMapSelectionLocked;
     private bool mapSelectionActive;
+    private Button trackedStageMapButton;
+    private Vector2 trackedStageMapPointerAnchor;
+    private static Sprite mapRatingStarSprite;
     private float resolvedMapHorizontalSpacing;
     private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
@@ -1438,6 +1443,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (font == null)
             return;
 
+        bool rated = node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite;
+        if (rated)
+        {
+            int stars = runManager != null
+                ? runManager.ResolveBattleRatingStars(node)
+                : node.GetBattleRatingStars();
+            AddNodeRatingStars(parent, stars);
+        }
+
         GameObject label = new("Label");
         label.transform.SetParent(parent, false);
         Text text = label.AddComponent<Text>();
@@ -1445,17 +1459,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         string type = node.type.ToString().ToUpperInvariant();
         string status = current ? "CURRENT" : selectable ? "AVAILABLE" : "LOCKED";
-        if (node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite)
-        {
-            int stars = runManager != null
-                ? runManager.ResolveBattleRatingStars(node)
-                : node.GetBattleRatingStars();
-            text.text = $"{type}\nRATING {stars} / 5\n{status}";
-        }
-        else
-        {
-            text.text = $"{type}\n{status}";
-        }
+        text.text = $"{type}\n{status}";
 
         text.fontSize = selectable || current ? 11 : 9;
         text.fontStyle = selectable || current ? FontStyle.Bold : FontStyle.Normal;
@@ -1467,8 +1471,108 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.anchorMin = new Vector2(0.5f, 0f);
         rect.anchorMax = new Vector2(0.5f, 0f);
         rect.pivot = new Vector2(0.5f, 1f);
-        rect.anchoredPosition = new Vector2(0f, -7f);
-        rect.sizeDelta = new Vector2(120f, 54f);
+        rect.anchoredPosition = rated ? new Vector2(0f, -26f) : new Vector2(0f, -7f);
+        rect.sizeDelta = rated ? new Vector2(120f, 38f) : new Vector2(120f, 46f);
+    }
+
+    private void AddNodeRatingStars(Transform parent, int activeStars)
+    {
+        GameObject row = new("RatingStars");
+        row.transform.SetParent(parent, false);
+        RectTransform rowRect = row.AddComponent<RectTransform>();
+        rowRect.anchorMin = rowRect.anchorMax = new Vector2(0.5f, 0f);
+        rowRect.pivot = new Vector2(0.5f, 1f);
+        rowRect.anchoredPosition = new Vector2(0f, -7f);
+        rowRect.sizeDelta = new Vector2(82f, 15f);
+
+        const float starSize = 13f;
+        const float gap = 3f;
+        float totalWidth = starSize * 5f + gap * 4f;
+        float startX = -totalWidth * 0.5f + starSize * 0.5f;
+        int clampedStars = Mathf.Clamp(activeStars, 1, 5);
+        Sprite starSprite = GetMapRatingStarSprite();
+
+        for (int i = 0; i < 5; i++)
+        {
+            GameObject starObject = new($"RatingStar_{i}");
+            starObject.transform.SetParent(rowRect, false);
+            RectTransform starRect = starObject.AddComponent<RectTransform>();
+            starRect.anchorMin = starRect.anchorMax = new Vector2(0.5f, 0.5f);
+            starRect.pivot = new Vector2(0.5f, 0.5f);
+            starRect.sizeDelta = Vector2.one * starSize;
+            starRect.anchoredPosition = new Vector2(startX + i * (starSize + gap), 0f);
+
+            Image star = starObject.AddComponent<Image>();
+            star.sprite = starSprite;
+            star.preserveAspect = true;
+            star.raycastTarget = false;
+            star.color = i < clampedStars
+                ? new Color(1f, 0.78f, 0.14f, 1f)
+                : new Color(0.48f, 0.52f, 0.60f, 0.28f);
+        }
+    }
+
+    private static Sprite GetMapRatingStarSprite()
+    {
+        if (mapRatingStarSprite != null)
+            return mapRatingStarSprite;
+
+        const int size = 24;
+        Vector2 center = new((size - 1) * 0.5f, (size - 1) * 0.5f);
+        Vector2[] polygon = new Vector2[10];
+        for (int i = 0; i < polygon.Length; i++)
+        {
+            float radius = i % 2 == 0 ? 10.5f : 4.6f;
+            float angle = (-90f + i * 36f) * Mathf.Deg2Rad;
+            polygon[i] = center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+        }
+
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                bool inside = PointInPolygon(new Vector2(x + 0.5f, y + 0.5f), polygon);
+                texture.SetPixel(x, y, inside ? Color.white : Color.clear);
+            }
+        }
+
+        texture.Apply(false, true);
+        mapRatingStarSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            size,
+            0,
+            SpriteMeshType.FullRect);
+        mapRatingStarSprite.name = "RuntimeMapRatingStar";
+        mapRatingStarSprite.hideFlags = HideFlags.HideAndDontSave;
+        return mapRatingStarSprite;
+    }
+
+    private static bool PointInPolygon(Vector2 point, IReadOnlyList<Vector2> polygon)
+    {
+        bool inside = false;
+        int j = polygon.Count - 1;
+        for (int i = 0; i < polygon.Count; i++)
+        {
+            Vector2 a = polygon[i];
+            Vector2 b = polygon[j];
+            bool crosses =
+                (a.y > point.y) != (b.y > point.y) &&
+                point.x < (b.x - a.x) * (point.y - a.y) / Mathf.Max(0.0001f, b.y - a.y) + a.x;
+            if (crosses)
+                inside = !inside;
+            j = i;
+        }
+
+        return inside;
     }
 
     private Vector2 ResolveStartBaseMapPosition(IReadOnlyList<Vector2> positions)
@@ -1747,11 +1851,64 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapSelectionLocked ||
             !stageMapPanel.gameObject.activeInHierarchy)
         {
+            ClearTrackedStageMapHover();
             battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
             return;
         }
 
         Camera eventCamera = ResolveStageMapEventCamera();
+        Vector2 pointer = Input.mousePosition;
+        Button directHit = FindStageMapButtonUnderPointer(pointer, eventCamera);
+
+        if (directHit != null)
+        {
+            SetTrackedStageMapButton(directHit, pointer);
+        }
+        else if (trackedStageMapButton != null)
+        {
+            bool canLatch =
+                trackedStageMapButton.interactable &&
+                trackedStageMapButton.gameObject.activeInHierarchy &&
+                Vector2.Distance(pointer, trackedStageMapPointerAnchor) <=
+                Mathf.Max(8f, mapHoverLatchPixels);
+
+            if (!canLatch)
+                ClearTrackedStageMapHover();
+        }
+
+        if (trackedStageMapButton == null)
+        {
+            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            return;
+        }
+
+        RectTransform node = trackedStageMapButton.transform as RectTransform;
+        if (node == null)
+        {
+            ClearTrackedStageMapHover();
+            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            return;
+        }
+
+        Vector2 localCenter = stageMapPanel.InverseTransformPoint(
+            node.TransformPoint(node.rect.center));
+        Rect panelRect = stageMapPanel.rect;
+        Vector2 normalized = new(
+            panelRect.width > 0.001f
+                ? Mathf.Clamp(localCenter.x / (panelRect.width * 0.5f), -1f, 1f)
+                : 0f,
+            panelRect.height > 0.001f
+                ? Mathf.Clamp(localCenter.y / (panelRect.height * 0.5f), -1f, 1f)
+                : 0f);
+
+        battleCameraController?.SetMapCursorTracking(true, normalized);
+    }
+
+    private Button FindStageMapButtonUnderPointer(Vector2 pointer, Camera eventCamera)
+    {
+        if (stageMapPanel == null)
+            return null;
+
         Button[] buttons = stageMapPanel.GetComponentsInChildren<Button>(false);
         for (int i = 0; i < buttons.Length; i++)
         {
@@ -1760,28 +1917,43 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 continue;
 
             RectTransform node = button.transform as RectTransform;
-            if (node == null ||
-                !RectTransformUtility.RectangleContainsScreenPoint(node, Input.mousePosition, eventCamera))
+            if (node != null &&
+                RectTransformUtility.RectangleContainsScreenPoint(node, pointer, eventCamera))
             {
-                continue;
+                return button;
             }
-
-            Vector2 localCenter = stageMapPanel.InverseTransformPoint(
-                node.TransformPoint(node.rect.center));
-            Rect panelRect = stageMapPanel.rect;
-            Vector2 normalized = new(
-                panelRect.width > 0.001f
-                    ? Mathf.Clamp(localCenter.x / (panelRect.width * 0.5f), -1f, 1f)
-                    : 0f,
-                panelRect.height > 0.001f
-                    ? Mathf.Clamp(localCenter.y / (panelRect.height * 0.5f), -1f, 1f)
-                    : 0f);
-
-            battleCameraController?.SetMapCursorTracking(true, normalized);
-            return;
         }
 
-        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+        return null;
+    }
+
+    private void SetTrackedStageMapButton(Button button, Vector2 pointer)
+    {
+        if (trackedStageMapButton != button)
+        {
+            SetTrackedStageMapVisual(trackedStageMapButton, false);
+            trackedStageMapButton = button;
+            SetTrackedStageMapVisual(trackedStageMapButton, true);
+        }
+
+        trackedStageMapPointerAnchor = pointer;
+    }
+
+    private void ClearTrackedStageMapHover()
+    {
+        SetTrackedStageMapVisual(trackedStageMapButton, false);
+        trackedStageMapButton = null;
+        trackedStageMapPointerAnchor = Vector2.zero;
+    }
+
+    private static void SetTrackedStageMapVisual(Button button, bool value)
+    {
+        if (button == null)
+            return;
+
+        BattleStageMapNodePointerFeedback feedback =
+            button.GetComponent<BattleStageMapNodePointerFeedback>();
+        feedback?.SetTrackedHover(value);
     }
 
     private Camera ResolveStageMapEventCamera()
@@ -1807,6 +1979,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
 
         stageMapSelectionLocked = true;
+        ClearTrackedStageMapHover();
         battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
 
         if (stageMapCanvasGroup != null)
@@ -1870,6 +2043,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             StopCoroutine(stageMapConfirmRoutine);
         stageMapConfirmRoutine = null;
         stageMapSelectionLocked = false;
+        ClearTrackedStageMapHover();
 
         if (stageMapCanvasGroup != null)
         {
