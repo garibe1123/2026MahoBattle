@@ -146,7 +146,6 @@ GameObject:
   - component: {fileID: 100024}
   - component: {fileID: 100030}
   - component: {fileID: 100033}
-  - component: {fileID: 100034}
   - component: {fileID: 100035}
   - component: {fileID: 100038}
   - component: {fileID: 100049}
@@ -683,35 +682,6 @@ MonoBehaviour:
   selectedAccent: {r: 1, g: 0.8, b: 0.08, a: 1}
   hoverAccent: {r: 0.14, g: 0.92, b: 0.94, a: 1}
   pickedAccent: {r: 1, g: 0.18, b: 0.52, a: 1}
---- !u!114 &100034
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100000}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 58d79d6ce5bc43dbaee4db7e9db2fc4e, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  runManager: {fileID: 0}
-  inventoryInteraction: {fileID: 0}
-  kineticLoadout: {fileID: 0}
-  openDuration: 0.34
-  closeDuration: 0.26
-  targetBoardCoverage: 0.92
-  rotationKickDegrees: 3.4
-  arcHeight: 34
-  anticipationDistance: 24
-  anticipationScale: 0.95
-  scaleOvershoot: 1.18
-  fullFadeStart: 0.28
-  packFadeStart: 0.56
-  raycastEnablePoint: 0.86
-  fullUiStartScale: 0.9
-  combatFullScale: 1
-  rewardFullScale: 0.96
 --- !u!114 &100035
 MonoBehaviour:
   m_ObjectHideFlags: 0
