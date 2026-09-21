@@ -83,7 +83,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private float switchPressedAt;
     private int selectedIndex = -1;
     private bool stickAxisLatched;
-    private bool subscribed;
+    private BattleEquipmentSystem subscribedEquipmentSystem;
+    private BattleGridSynergyController subscribedGridSynergy;
+    private BattleRunManager subscribedRunManager;
     private bool inputSubscribed;
     private bool combatActive;
     private bool lastNotifiedBoardVisible;
@@ -184,35 +186,63 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Subscribe()
     {
-        if (subscribed || equipmentSystem == null)
-            return;
+        if (subscribedEquipmentSystem != equipmentSystem)
+        {
+            if (subscribedEquipmentSystem != null)
+            {
+                subscribedEquipmentSystem.InventoryChanged -= RefreshAll;
+                subscribedEquipmentSystem.SlotCapacityChanged -= HandleCapacityChanged;
+                subscribedEquipmentSystem.EquippedSlotChanged -= HandleEquippedChanged;
+            }
 
-        equipmentSystem.InventoryChanged += RefreshAll;
-        equipmentSystem.SlotCapacityChanged += HandleCapacityChanged;
-        equipmentSystem.EquippedSlotChanged += HandleEquippedChanged;
-        if (runManager != null)
-            runManager.StateChanged += HandleRunStateChanged;
-        if (gridSynergy != null)
-            gridSynergy.GridSynergiesChanged += RefreshAll;
-        subscribed = true;
+            subscribedEquipmentSystem = equipmentSystem;
+            if (subscribedEquipmentSystem != null)
+            {
+                subscribedEquipmentSystem.InventoryChanged += RefreshAll;
+                subscribedEquipmentSystem.SlotCapacityChanged += HandleCapacityChanged;
+                subscribedEquipmentSystem.EquippedSlotChanged += HandleEquippedChanged;
+            }
+        }
+
+        if (subscribedGridSynergy != gridSynergy)
+        {
+            if (subscribedGridSynergy != null)
+                subscribedGridSynergy.GridSynergiesChanged -= RefreshAll;
+
+            subscribedGridSynergy = gridSynergy;
+            if (subscribedGridSynergy != null)
+                subscribedGridSynergy.GridSynergiesChanged += RefreshAll;
+        }
+
+        if (subscribedRunManager != runManager)
+        {
+            if (subscribedRunManager != null)
+                subscribedRunManager.StateChanged -= HandleRunStateChanged;
+
+            subscribedRunManager = runManager;
+            if (subscribedRunManager != null)
+                subscribedRunManager.StateChanged += HandleRunStateChanged;
+        }
     }
 
     private void Unsubscribe()
     {
-        if (!subscribed)
-            return;
-
-        if (equipmentSystem != null)
+        if (subscribedEquipmentSystem != null)
         {
-            equipmentSystem.InventoryChanged -= RefreshAll;
-            equipmentSystem.SlotCapacityChanged -= HandleCapacityChanged;
-            equipmentSystem.EquippedSlotChanged -= HandleEquippedChanged;
+            subscribedEquipmentSystem.InventoryChanged -= RefreshAll;
+            subscribedEquipmentSystem.SlotCapacityChanged -= HandleCapacityChanged;
+            subscribedEquipmentSystem.EquippedSlotChanged -= HandleEquippedChanged;
         }
-        if (gridSynergy != null)
-            gridSynergy.GridSynergiesChanged -= RefreshAll;
-        if (runManager != null)
-            runManager.StateChanged -= HandleRunStateChanged;
-        subscribed = false;
+
+        if (subscribedGridSynergy != null)
+            subscribedGridSynergy.GridSynergiesChanged -= RefreshAll;
+
+        if (subscribedRunManager != null)
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+
+        subscribedEquipmentSystem = null;
+        subscribedGridSynergy = null;
+        subscribedRunManager = null;
     }
 
     private void SubscribeInput()
