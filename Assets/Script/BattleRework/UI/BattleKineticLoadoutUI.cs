@@ -71,12 +71,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private bool stickAxisLatched;
     private bool subscribed;
     private bool inputSubscribed;
+    private bool combatActive;
     private bool lastNotifiedBoardVisible;
 
     public int SelectedIndex => selectedIndex;
     public bool SwitchHeld => switchHeld;
     public bool BoardWasShown => boardWasShown;
-    public bool IsSwitchBoardOpen => IsCombat() && switchHeld && boardWasShown;
+    public bool IsSwitchBoardOpen => combatActive && switchHeld && boardWasShown;
     public RectTransform FullRoot => fullRoot;
     public CanvasGroup FullGroup => fullGroup;
     public RectTransform GridBoard => boardRoot;
@@ -98,6 +99,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        combatActive = ResolveCombatState();
         EnsureUi();
         Subscribe();
         SubscribeInput();
@@ -123,13 +125,15 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Update()
     {
-        ResolveReferences();
+        if (runManager == null || equipmentSystem == null || inputRouter == null)
+            ResolveReferences();
+
         Subscribe();
         SubscribeInput();
         EnsureUi();
         ResolveLegacyCombatHud();
 
-        bool combat = IsCombat();
+        bool combat = combatActive;
         if ((!combat || BattlePauseController.IsPaused) && switchHeld)
             CancelSwitchMode();
 
@@ -147,7 +151,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private void ResolveReferences()
     {
         if (runManager == null)
+        {
             runManager = FindFirstObjectByType<BattleRunManager>();
+            combatActive = ResolveCombatState();
+        }
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (gridSynergy == null)
@@ -166,6 +173,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         equipmentSystem.InventoryChanged += RefreshAll;
         equipmentSystem.SlotCapacityChanged += HandleCapacityChanged;
         equipmentSystem.EquippedSlotChanged += HandleEquippedChanged;
+        if (runManager != null)
+            runManager.StateChanged += HandleRunStateChanged;
         if (gridSynergy != null)
             gridSynergy.GridSynergiesChanged += RefreshAll;
         subscribed = true;
@@ -184,6 +193,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         }
         if (gridSynergy != null)
             gridSynergy.GridSynergiesChanged -= RefreshAll;
+        if (runManager != null)
+            runManager.StateChanged -= HandleRunStateChanged;
         subscribed = false;
     }
 
@@ -212,7 +223,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void HandleTabOpened()
     {
-        if (!IsCombat() || BattlePauseController.IsPaused || switchHeld)
+        if (!combatActive || BattlePauseController.IsPaused || switchHeld)
             return;
 
         BeginSwitchMode();
@@ -238,9 +249,25 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         RefreshAll();
     }
 
-    private bool IsCombat()
+    private bool ResolveCombatState()
     {
-        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.Combat;
+    }
+
+    private void HandleRunStateChanged(BattleRunState _)
+    {
+        bool next = ResolveCombatState();
+        if (combatActive == next)
+            return;
+
+        combatActive = next;
+        if (!combatActive && switchHeld)
+            CancelSwitchMode();
+
+        NotifySwitchBoardVisibility();
+        RefreshAll();
     }
 
     public bool SetSelectedIndexFromExternal(int index, bool markMoved = true)
