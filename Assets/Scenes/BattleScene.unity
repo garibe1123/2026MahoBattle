@@ -140,7 +140,6 @@ GameObject:
   - component: {fileID: 100016}
   - component: {fileID: 100015}
   - component: {fileID: 100018}
-  - component: {fileID: 100019}
   - component: {fileID: 100020}
   - component: {fileID: 100022}
   - component: {fileID: 100023}
@@ -527,26 +526,6 @@ MonoBehaviour:
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
---- !u!114 &100019
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100000}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 3c0ae77d78a248b0a5fcaa717a3cd5f2, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  runManager: {fileID: 0}
-  equipmentSystem: {fileID: 0}
-  loadoutUI: {fileID: 0}
-  player: {fileID: 0}
-  hpColor: {r: 0.95, g: 0.18, b: 0.3, a: 1}
-  staminaColor: {r: 0.18, g: 0.82, b: 0.95, a: 1}
-  textColor: {r: 0.94, g: 0.9, b: 0.76, a: 1}
-  hoverExitGrace: 0.08
 --- !u!114 &100020
 MonoBehaviour:
   m_ObjectHideFlags: 0
