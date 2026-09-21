@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -23,10 +24,10 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     [Header("Backpack HUD")]
     [SerializeField] private Color inkColor = new(0.030f, 0.028f, 0.045f, 0.98f);
-    [SerializeField] private Color paperColor = new(0.92f, 0.88f, 0.74f, 1f);
-    [SerializeField] private Color emptyCellColor = new(0.19f, 0.18f, 0.22f, 0.96f);
-    [SerializeField] private Color occupiedCellColor = new(0.060f, 0.055f, 0.080f, 0.99f);
-    [SerializeField] private Color lockedColor = new(0.065f, 0.060f, 0.080f, 0.92f);
+    [SerializeField] private Color paperColor = new(0.92f, 0.94f, 0.97f, 1f);
+    [SerializeField] private Color emptyCellColor = new(0.10f, 0.11f, 0.14f, 0.98f);
+    [SerializeField] private Color occupiedCellColor = new(0.045f, 0.050f, 0.065f, 0.99f);
+    [SerializeField] private Color lockedColor = new(0.075f, 0.080f, 0.10f, 0.92f);
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
@@ -42,10 +43,12 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     private readonly Image[] slotAccents = new Image[SlotCount];
     private readonly Outline[] slotOutlines = new Outline[SlotCount];
     private readonly Text[] slotGrades = new Text[SlotCount];
+    private readonly Text[] slotStates = new Text[SlotCount];
     private readonly GameObject[] lockMarks = new GameObject[SlotCount];
 
-    private bool equipmentSubscribed;
-    private bool gridSubscribed;
+    private BattleEquipmentSystem subscribedEquipment;
+    private BattleGridSynergyController subscribedGrid;
+    private Coroutine bindRoutine;
 
     public RectTransform Root => root;
     public CanvasGroup Group => group;
@@ -62,18 +65,35 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         EnsureUi();
         Subscribe();
         Refresh();
+
+        if ((equipmentSystem == null || gridSynergy == null) && bindRoutine == null)
+            bindRoutine = StartCoroutine(BindWhenReady());
     }
 
     private void OnDisable()
     {
+        if (bindRoutine != null)
+            StopCoroutine(bindRoutine);
+        bindRoutine = null;
         Unsubscribe();
     }
 
-    private void Update()
+    private IEnumerator BindWhenReady()
     {
-        ResolveReferences();
-        Subscribe();
-        EnsureUi();
+        while (isActiveAndEnabled && (equipmentSystem == null || gridSynergy == null))
+        {
+            ResolveReferences();
+            Subscribe();
+            EnsureUi();
+
+            if (equipmentSystem != null && gridSynergy != null)
+                break;
+
+            yield return null;
+        }
+
+        bindRoutine = null;
+        Refresh();
     }
 
     private void ResolveReferences()
@@ -88,34 +108,49 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void Subscribe()
     {
-        if (!equipmentSubscribed && equipmentSystem != null)
+        if (subscribedEquipment != equipmentSystem)
         {
-            equipmentSystem.InventoryChanged += Refresh;
-            equipmentSystem.SlotCapacityChanged += HandleCapacityChanged;
-            equipmentSystem.EquippedSlotChanged += HandleEquippedChanged;
-            equipmentSubscribed = true;
+            if (subscribedEquipment != null)
+            {
+                subscribedEquipment.InventoryChanged -= Refresh;
+                subscribedEquipment.SlotCapacityChanged -= HandleCapacityChanged;
+                subscribedEquipment.EquippedSlotChanged -= HandleEquippedChanged;
+            }
+
+            subscribedEquipment = equipmentSystem;
+            if (subscribedEquipment != null)
+            {
+                subscribedEquipment.InventoryChanged += Refresh;
+                subscribedEquipment.SlotCapacityChanged += HandleCapacityChanged;
+                subscribedEquipment.EquippedSlotChanged += HandleEquippedChanged;
+            }
         }
 
-        if (!gridSubscribed && gridSynergy != null)
+        if (subscribedGrid != gridSynergy)
         {
-            gridSynergy.GridSynergiesChanged += Refresh;
-            gridSubscribed = true;
+            if (subscribedGrid != null)
+                subscribedGrid.GridSynergiesChanged -= Refresh;
+
+            subscribedGrid = gridSynergy;
+            if (subscribedGrid != null)
+                subscribedGrid.GridSynergiesChanged += Refresh;
         }
     }
 
     private void Unsubscribe()
     {
-        if (equipmentSubscribed && equipmentSystem != null)
+        if (subscribedEquipment != null)
         {
-            equipmentSystem.InventoryChanged -= Refresh;
-            equipmentSystem.SlotCapacityChanged -= HandleCapacityChanged;
-            equipmentSystem.EquippedSlotChanged -= HandleEquippedChanged;
+            subscribedEquipment.InventoryChanged -= Refresh;
+            subscribedEquipment.SlotCapacityChanged -= HandleCapacityChanged;
+            subscribedEquipment.EquippedSlotChanged -= HandleEquippedChanged;
         }
-        if (gridSubscribed && gridSynergy != null)
-            gridSynergy.GridSynergiesChanged -= Refresh;
 
-        equipmentSubscribed = false;
-        gridSubscribed = false;
+        if (subscribedGrid != null)
+            subscribedGrid.GridSynergiesChanged -= Refresh;
+
+        subscribedEquipment = null;
+        subscribedGrid = null;
     }
 
     private void HandleCapacityChanged(int _)
@@ -157,8 +192,8 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         back.raycastTarget = false;
 
         Outline outline = root.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentPink;
-        outline.effectDistance = new Vector2(4f, -4f);
+        outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.24f);
+        outline.effectDistance = new Vector2(2f, -2f);
 
         group = root.gameObject.AddComponent<CanvasGroup>();
         group.alpha = 0f;
@@ -172,29 +207,19 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void BuildHeader()
     {
-        RectTransform tag = CreateRect(root, "PackHeaderTag", new Vector2(126f, 40f));
-        tag.anchorMin = tag.anchorMax = new Vector2(0f, 1f);
-        tag.pivot = new Vector2(0f, 1f);
-        tag.anchoredPosition = new Vector2(10f, -5f);
-        tag.localRotation = Quaternion.Euler(0f, 0f, -4f);
-        Image tagImage = tag.gameObject.AddComponent<Image>();
-        tagImage.color = accentYellow;
-        tagImage.raycastTarget = false;
+        RectTransform header = CreateRect(root, "PackHeaderTag", new Vector2(270f, 40f));
+        header.anchorMin = header.anchorMax = new Vector2(0f, 1f);
+        header.pivot = new Vector2(0f, 1f);
+        header.anchoredPosition = new Vector2(14f, -6f);
 
-        Text title = CreateText(tag, "PACK", 18, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
-        Stretch(title.rectTransform);
+        Text title = CreateText(header, "PACK", 17, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+        SetAnchors(title.rectTransform, new Vector2(0f, 0f), new Vector2(0.38f, 1f));
 
-        capacityText = CreateText(root, "3 / 9", 12, FontStyle.Bold, TextAnchor.MiddleRight, paperColor);
-        capacityText.rectTransform.anchorMin = capacityText.rectTransform.anchorMax = new Vector2(1f, 1f);
-        capacityText.rectTransform.pivot = new Vector2(1f, 1f);
-        capacityText.rectTransform.sizeDelta = new Vector2(72f, 24f);
-        capacityText.rectTransform.anchoredPosition = new Vector2(-12f, -8f);
+        capacityText = CreateText(header, "3 / 9", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
+        SetAnchors(capacityText.rectTransform, new Vector2(0.42f, 0f), new Vector2(0.70f, 1f));
 
-        Text hint = CreateText(root, "TAB / LB", 9, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
-        hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = new Vector2(1f, 1f);
-        hint.rectTransform.pivot = new Vector2(1f, 1f);
-        hint.rectTransform.sizeDelta = new Vector2(72f, 20f);
-        hint.rectTransform.anchoredPosition = new Vector2(-12f, -27f);
+        Text hint = CreateText(header, "TAB / LB  OPEN", 9, FontStyle.Bold, TextAnchor.MiddleRight, new Color(0.58f, 0.63f, 0.72f, 1f));
+        SetAnchors(hint.rectTransform, new Vector2(0.70f, 0f), new Vector2(1f, 1f));
     }
 
     private void BuildGrid()
@@ -226,8 +251,8 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             slotBackgrounds[i] = cellImage;
 
             Outline cellOutline = slot.gameObject.AddComponent<Outline>();
-            cellOutline.effectColor = Color.black;
-            cellOutline.effectDistance = new Vector2(3f, -3f);
+            cellOutline.effectColor = new Color(0.54f, 0.58f, 0.66f, 0.22f);
+            cellOutline.effectDistance = new Vector2(1f, -1f);
             slotOutlines[i] = cellOutline;
 
             Image icon = CreateImage(slot, "Icon", new Vector2(64f, 64f));
@@ -237,11 +262,15 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             icon.raycastTarget = false;
             slotIcons[i] = icon;
 
-            Text grade = CreateText(slot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperRight, accentYellow);
-            SetAnchors(grade.rectTransform, new Vector2(0.56f, 0.68f), new Vector2(0.93f, 0.94f));
+            Text grade = CreateText(slot, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperRight, new Color(0.62f, 0.67f, 0.76f, 1f));
+            SetAnchors(grade.rectTransform, new Vector2(0.50f, 0.70f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
 
-            RectTransform accent = CreateRect(slot, "CellAccent", new Vector2(6f, cell - 10f));
+            Text state = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.LowerRight, accentCyan);
+            SetAnchors(state.rectTransform, new Vector2(0.35f, 0.03f), new Vector2(0.93f, 0.24f));
+            slotStates[i] = state;
+
+            RectTransform accent = CreateRect(slot, "CellAccent", new Vector2(4f, cell - 12f));
             accent.anchorMin = accent.anchorMax = new Vector2(0f, 0.5f);
             accent.pivot = new Vector2(0f, 0.5f);
             accent.anchoredPosition = new Vector2(4f, 0f);
@@ -295,13 +324,16 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             if (slotOutlines[i] != null)
             {
                 slotOutlines[i].effectColor = !unlocked
-                    ? new Color(0f, 0f, 0f, 0.65f)
-                    : new Color(0f, 0f, 0f, 0.92f);
-                slotOutlines[i].effectDistance = new Vector2(3f, -3f);
+                    ? new Color(0.40f, 0.43f, 0.50f, 0.16f)
+                    : isEquipped
+                        ? new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.68f)
+                        : linked
+                            ? new Color(accentPink.r, accentPink.g, accentPink.b, 0.52f)
+                            : new Color(0.54f, 0.58f, 0.66f, 0.22f);
+                slotOutlines[i].effectDistance = isEquipped || linked
+                    ? new Vector2(2f, -2f)
+                    : new Vector2(1f, -1f);
             }
-
-            if (slotRects[i] != null)
-                slotRects[i].localScale = Vector3.one;
 
             if (slotIcons[i] != null)
             {
@@ -313,17 +345,29 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             if (slotGrades[i] != null)
             {
                 slotGrades[i].text = unlocked && occupied ? $"G{slot.grade}" : string.Empty;
-                slotGrades[i].color = paperColor;
+                slotGrades[i].color = new Color(0.62f, 0.67f, 0.76f, 1f);
+            }
+
+            if (slotStates[i] != null)
+            {
+                slotStates[i].text = !unlocked
+                    ? "LOCK"
+                    : isEquipped
+                        ? "EQP"
+                        : linked ? "LINK" : string.Empty;
+                slotStates[i].color = isEquipped
+                    ? accentCyan
+                    : linked
+                        ? accentPink
+                        : new Color(0.50f, 0.54f, 0.62f, 1f);
             }
 
             if (slotAccents[i] != null)
             {
-                slotAccents[i].enabled = unlocked && occupied;
+                slotAccents[i].enabled = unlocked && occupied && (isEquipped || linked);
                 slotAccents[i].color = isEquipped
-                    ? accentYellow
-                    : linked
-                        ? accentCyan
-                        : new Color(accentPink.r, accentPink.g, accentPink.b, 0.48f);
+                    ? accentCyan
+                    : accentPink;
             }
 
             if (lockMarks[i] != null)
