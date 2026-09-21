@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -27,7 +28,12 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     [SerializeField, Range(1f, 1.4f)] private float mapContentScale = 1.14f;
 
     private BattleRunManager runManager;
+    private BattleRunManager subscribedRunManager;
     private BattleShowWorldSetController showWorldSet;
+
+    private BattleRunState activeState = BattleRunState.None;
+    private bool runActive;
+    private bool mapPhaseActive;
 
     private RectTransform tvRect;
     private RectTransform rewardScreen;
@@ -54,10 +60,20 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        SubscribeRunEvents();
+        RefreshPhaseCache();
         ResolveUi();
         nextResolveTime = 0f;
         nextCameraRecomputeTime = 0f;
         tvConfigured = false;
+    }
+
+    private void OnDisable()
+    {
+        UnsubscribeRunEvents();
+        activeState = BattleRunState.None;
+        runActive = false;
+        mapPhaseActive = false;
     }
 
     private void Update()
@@ -76,7 +92,7 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (IsMapPhase())
+        if (mapPhaseActive)
             ApplyMapLayout();
     }
 
@@ -92,6 +108,70 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (showWorldSet == null)
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
+
+        SubscribeRunEvents();
+    }
+
+    private void SubscribeRunEvents()
+    {
+        if (subscribedRunManager == runManager)
+            return;
+
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
+            subscribedRunManager.NodeEntered -= HandleNodeEntered;
+        }
+
+        subscribedRunManager = runManager;
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged += HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested += HandleNextNodeSelectionRequested;
+            subscribedRunManager.NodeEntered += HandleNodeEntered;
+            RefreshPhaseCache();
+        }
+    }
+
+    private void UnsubscribeRunEvents()
+    {
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
+            subscribedRunManager.NodeEntered -= HandleNodeEntered;
+        }
+
+        subscribedRunManager = null;
+    }
+
+    private void RefreshPhaseCache()
+    {
+        runActive = runManager != null && runManager.RunActive;
+        activeState = runManager != null ? runManager.State : BattleRunState.None;
+        mapPhaseActive = runActive && activeState == BattleRunState.SelectingNode;
+    }
+
+    private void HandleRunStateChanged(BattleRunState state)
+    {
+        runActive = runManager != null && runManager.RunActive;
+        activeState = state;
+        mapPhaseActive = runActive && state == BattleRunState.SelectingNode;
+    }
+
+    private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
+    {
+        runActive = runManager != null && runManager.RunActive;
+        activeState = BattleRunState.SelectingNode;
+        mapPhaseActive = runActive;
+        if (mapPhaseActive)
+            ApplyMapLayout();
+    }
+
+    private void HandleNodeEntered(BattleNodeData _)
+    {
+        mapPhaseActive = false;
     }
 
     private void ResolveUi()
@@ -175,18 +255,18 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 
     private void ApplyTightShowCamera()
     {
-        if (showWorldSet == null || runManager == null || !runManager.RunActive)
+        if (showWorldSet == null || runManager == null || !runActive)
             return;
 
         RectTransform activeScreen = null;
         Vector2 bias = Vector2.zero;
 
-        if (runManager.State == BattleRunState.Reward)
+        if (activeState == BattleRunState.Reward)
         {
             activeScreen = rewardScreen;
             bias = rewardCameraBiasWorld;
         }
-        else if (runManager.State == BattleRunState.SelectingNode)
+        else if (activeState == BattleRunState.SelectingNode)
         {
             activeScreen = mapScreen;
             bias = mapCameraBiasWorld;
@@ -227,13 +307,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             0f);
 
         showWorldSet.OverrideShowCameraFrame(center, cameraSize);
-    }
-
-    private bool IsMapPhase()
-    {
-        return runManager != null &&
-               runManager.RunActive &&
-               runManager.State == BattleRunState.SelectingNode;
     }
 
     private void ApplyMapLayout()
