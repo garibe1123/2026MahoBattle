@@ -38,6 +38,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
     [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
+    [SerializeField, Range(0.18f, 0.55f)] private float packHandoffScale = 0.34f;
+    [SerializeField] private Vector2 compactPackTabPull = new(-92f, 72f);
 
     [Header("Compact Vitals")]
     [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
@@ -1045,7 +1047,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         {
             fullRoot.localScale = Vector3.Lerp(
                 fullRoot.localScale,
-                Vector3.one * (wantFull ? 1f : 0.94f),
+                Vector3.one * (wantFull ? 1f : 0.985f),
                 t);
 
             Vector3 local = fullRoot.localPosition;
@@ -1062,38 +1064,54 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (compactRoot != null)
         {
             bool compactActive = combat && !wantFull;
+            Vector2 compactTarget = wantFull
+                ? new Vector2(-28f, 24f) + compactPackTabPull
+                : new Vector2(-28f, 24f);
+
+            compactRoot.anchoredPosition = Vector2.Lerp(
+                compactRoot.anchoredPosition,
+                compactTarget,
+                t);
             compactRoot.localScale = Vector3.Lerp(
                 compactRoot.localScale,
-                Vector3.one * (compactActive ? 1f : 0.92f),
+                Vector3.one * (compactActive ? 1f : wantFull ? 1.08f : 0.92f),
                 t);
 
             Vector3 local = compactRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, compactActive ? -8f : 28f, t);
+            local.z = Mathf.Lerp(local.z, compactActive ? -8f : wantFull ? -18f : 28f, t);
             compactRoot.localPosition = local;
 
             Quaternion targetRotation = Quaternion.Euler(
-                compactActive ? 0.4f : 2.2f,
-                compactActive ? -1.6f : -4.8f,
-                compactActive ? -1.4f : -2.4f);
+                compactActive ? 0.4f : wantFull ? 0.2f : 2.2f,
+                compactActive ? -1.6f : wantFull ? -0.6f : -4.8f,
+                compactActive ? -1.4f : wantFull ? -0.2f : -2.4f);
             compactRoot.localRotation = Quaternion.Slerp(compactRoot.localRotation, targetRotation, t);
         }
 
         if (boardRoot != null)
         {
+            Vector2 boardTarget = wantFull
+                ? Vector2.zero
+                : ResolveBoardHandoffPosition();
+
+            boardRoot.anchoredPosition = Vector2.Lerp(
+                boardRoot.anchoredPosition,
+                boardTarget,
+                t);
             boardRoot.localRotation = Quaternion.Slerp(
                 boardRoot.localRotation,
                 wantFull
                     ? Quaternion.Euler(0.6f, -1.8f, -0.5f)
-                    : Quaternion.Euler(3.5f, -6f, -1.2f),
+                    : Quaternion.Euler(2.0f, -4.8f, -1.1f),
                 t);
 
             Vector3 local = boardRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, wantFull ? -10f : 30f, t);
+            local.z = Mathf.Lerp(local.z, wantFull ? -10f : 24f, t);
             boardRoot.localPosition = local;
 
             boardRoot.localScale = Vector3.Lerp(
                 boardRoot.localScale,
-                Vector3.one * (wantFull ? 1f : 0.965f),
+                Vector3.one * (wantFull ? 1f : Mathf.Clamp(packHandoffScale, 0.18f, 0.55f)),
                 t);
         }
 
@@ -1157,6 +1175,22 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     t);
             }
         }
+    }
+
+    private Vector2 ResolveBoardHandoffPosition()
+    {
+        if (boardRoot == null || fullRoot == null || compactRoot == null)
+            return Vector2.zero;
+
+        Vector3 compactCenterWorld = compactRoot.TransformPoint(compactRoot.rect.center);
+        Vector3 compactCenterLocal = fullRoot.InverseTransformPoint(compactCenterWorld);
+        Rect fullRect = fullRoot.rect;
+        Vector2 anchor = boardRoot.anchorMin;
+        Vector2 anchorPoint = new(
+            Mathf.Lerp(fullRect.xMin, fullRect.xMax, anchor.x),
+            Mathf.Lerp(fullRect.yMin, fullRect.yMax, anchor.y));
+
+        return (Vector2)compactCenterLocal - anchorPoint;
     }
 
     private void NotifySwitchBoardVisibility()
