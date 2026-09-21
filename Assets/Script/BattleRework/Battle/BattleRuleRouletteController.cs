@@ -107,7 +107,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float ratingIntroDuration = 0.55f;
     [SerializeField, Min(0.05f)] private float spinDurationPerRule = 0.48f;
     [SerializeField, Min(0f)] private float revealDurationPerRule = 0.58f;
-    [SerializeField, Min(0f)] private float summaryDuration = 0.85f;
 
     [Header("Roulette Field Visibility")]
     [Tooltip("룰렛 중 월드 필드/조명이 보이도록 남겨두는 화면 암막 Alpha입니다. 실제 Dim은 Show Lighting이 소유합니다.")]
@@ -131,7 +130,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(0.30f, 1f)] private float combatHudScale = 0.56f;
     [Tooltip("TAB을 열었지만 RULES에 아직 커서를 올리지 않았을 때의 중간 Scale입니다.")]
     [SerializeField, Range(0.40f, 1f)] private float combatHudTabScale = 0.78f;
-    [SerializeField] private Vector2 combatHudMargin = new(34f, 30f);
     [SerializeField, Range(0.15f, 1f)] private float combatHudIdleAlpha = 0.72f;
     [SerializeField, Range(0.20f, 1f)] private float combatHudTabAlpha = 0.90f;
     [SerializeField, Range(1f, 1.35f)] private float ruleHoverScale = 1.16f;
@@ -154,7 +152,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRulePackGap = 22f;
     [Tooltip("PACK 우측 상단 모서리를 기준으로 룰 모듈을 미세 조정하는 Offset입니다.")]
     [SerializeField] private Vector2 combatRulePackTopRightOffset = new(-18f, 8f);
-    [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
 
