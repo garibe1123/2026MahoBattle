@@ -17,12 +17,6 @@ public enum BattleWorldScreenProgram
 [DisallowMultipleComponent]
 public sealed class BattleWorldScreenPresenter : MonoBehaviour
 {
-    private const int BackOffset = 10;
-    private const int MainOffset = 20;
-    private const int FloatingOffset = 30;
-    private const int FocusOffset = 40;
-    private const int InteractionOffset = 50;
-
     [Header("Program Transition")]
     [SerializeField, Min(0.05f)] private float programTweenDuration = 0.20f;
     [SerializeField] private Ease programEase = Ease.OutCubic;
@@ -81,7 +75,7 @@ public sealed class BattleWorldScreenPresenter : MonoBehaviour
         if (rootCanvas == null)
             rootCanvas = GetComponent<Canvas>();
 
-        UpdateSorting();
+        EnsureRootInteraction();
 
         if (themeController == null)
         {
@@ -144,12 +138,17 @@ public sealed class BattleWorldScreenPresenter : MonoBehaviour
         if (owner == null)
             return;
 
-        physicalScreenSurface = EnsureLayer(owner, "PhysicalScreenSurface", 8f, 0, false);
-        backLayer = EnsureLayer(owner, "SpatialBackLayer", 14f, BackOffset, false);
-        mainLayer = EnsureLayer(owner, "SpatialMainLayer", 0f, MainOffset, true);
-        floatingLayer = EnsureLayer(owner, "SpatialFloatingLayer", -8f, FloatingOffset, false);
-        focusLayer = EnsureLayer(owner, "SpatialFocusLayer", -16f, FocusOffset, false);
-        interactionLayer = EnsureLayer(owner, "InteractionLayer", -20f, InteractionOffset, true);
+        // Interaction invariant:
+        // Reward / Map buttons must stay under the single BattleShowMountedTV root Canvas.
+        // Nested Canvas + separate GraphicRaycaster changes UGUI raycast ownership and breaks
+        // the existing Stage Map Button path. Spatial layers are therefore Transform layers,
+        // while the root World-Space Canvas remains the sole interactive Canvas.
+        physicalScreenSurface = EnsureLayer(owner, "PhysicalScreenSurface", 14f);
+        backLayer = EnsureLayer(owner, "SpatialBackLayer", 8f);
+        mainLayer = EnsureLayer(owner, "SpatialMainLayer", 0f);
+        floatingLayer = EnsureLayer(owner, "SpatialFloatingLayer", -8f);
+        focusLayer = EnsureLayer(owner, "SpatialFocusLayer", -16f);
+        interactionLayer = EnsureLayer(owner, "InteractionLayer", -20f);
 
         physicalScreenSurface.SetSiblingIndex(0);
         backLayer.SetSiblingIndex(Mathf.Min(1, owner.childCount - 1));
@@ -158,15 +157,13 @@ public sealed class BattleWorldScreenPresenter : MonoBehaviour
         focusLayer.SetSiblingIndex(Mathf.Min(4, owner.childCount - 1));
         interactionLayer.SetAsLastSibling();
 
-        UpdateSorting();
+        EnsureRootInteraction();
     }
 
     private RectTransform EnsureLayer(
         RectTransform parent,
         string layerName,
-        float localZ,
-        int sortingOffset,
-        bool needsRaycaster)
+        float localZ)
     {
         RectTransform rect = parent.Find(layerName) as RectTransform;
         if (rect == null)
@@ -181,28 +178,49 @@ public sealed class BattleWorldScreenPresenter : MonoBehaviour
         local.z = localZ;
         rect.localPosition = local;
 
-        Canvas canvas = rect.GetComponent<Canvas>();
-        if (canvas == null)
-            canvas = rect.gameObject.AddComponent<Canvas>();
-        canvas.overrideSorting = true;
-
-        if (needsRaycaster && rect.GetComponent<GraphicRaycaster>() == null)
-            rect.gameObject.AddComponent<GraphicRaycaster>();
-
-        if (!needsRaycaster)
+        // Migration guard for a live/domain-reloaded scene created by the previous revision.
+        // Disable nested raycast ownership immediately, then remove those components.
+        GraphicRaycaster nestedRaycaster = rect.GetComponent<GraphicRaycaster>();
+        if (nestedRaycaster != null)
         {
-            GraphicRaycaster raycaster = rect.GetComponent<GraphicRaycaster>();
-            if (raycaster != null)
-                raycaster.enabled = false;
+            nestedRaycaster.enabled = false;
+            if (Application.isPlaying)
+                Destroy(nestedRaycaster);
+            else
+                DestroyImmediate(nestedRaycaster);
         }
 
-        if (rootCanvas != null)
+        Canvas nestedCanvas = rect.GetComponent<Canvas>();
+        if (nestedCanvas != null)
         {
-            canvas.sortingLayerID = rootCanvas.sortingLayerID;
-            canvas.sortingOrder = Mathf.Min(32760, rootCanvas.sortingOrder + sortingOffset);
+            nestedCanvas.enabled = false;
+            if (Application.isPlaying)
+                Destroy(nestedCanvas);
+            else
+                DestroyImmediate(nestedCanvas);
         }
 
         return rect;
+    }
+
+    private void EnsureRootInteraction()
+    {
+        if (rootCanvas == null)
+            rootCanvas = GetComponent<Canvas>();
+        if (rootCanvas == null)
+            return;
+
+        if (rootCanvas.renderMode == RenderMode.WorldSpace &&
+            rootCanvas.worldCamera != Camera.main)
+        {
+            rootCanvas.worldCamera = Camera.main;
+        }
+
+        GraphicRaycaster raycaster = rootCanvas.GetComponent<GraphicRaycaster>();
+        if (raycaster == null)
+            raycaster = rootCanvas.gameObject.AddComponent<GraphicRaycaster>();
+
+        raycaster.enabled = true;
     }
 
     private BattleSpatialUIElement EnsureProgramElement(RectTransform root)
@@ -286,32 +304,6 @@ public sealed class BattleWorldScreenPresenter : MonoBehaviour
                 themeController.ClearContextOverride(this);
                 break;
         }
-    }
-
-    private void UpdateSorting()
-    {
-        if (rootCanvas == null)
-            return;
-
-        ApplySorting(physicalScreenSurface, 0);
-        ApplySorting(backLayer, BackOffset);
-        ApplySorting(mainLayer, MainOffset);
-        ApplySorting(floatingLayer, FloatingOffset);
-        ApplySorting(focusLayer, FocusOffset);
-        ApplySorting(interactionLayer, InteractionOffset);
-    }
-
-    private void ApplySorting(RectTransform layer, int offset)
-    {
-        if (layer == null)
-            return;
-
-        Canvas canvas = layer.GetComponent<Canvas>();
-        if (canvas == null)
-            return;
-
-        canvas.sortingLayerID = rootCanvas.sortingLayerID;
-        canvas.sortingOrder = Mathf.Min(32760, rootCanvas.sortingOrder + offset);
     }
 
     private static void Stretch(RectTransform rect)

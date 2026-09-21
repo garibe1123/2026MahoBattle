@@ -162,7 +162,14 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             mapGroup = mapContent.GetComponent<CanvasGroup>();
 
         if (tvCanvas == null && sharedFrame != null)
-            tvCanvas = sharedFrame.GetComponentInParent<Canvas>();
+        {
+            Canvas nearestCanvas = sharedFrame.GetComponentInParent<Canvas>();
+            tvCanvas = nearestCanvas != null ? nearestCanvas.rootCanvas : null;
+        }
+        else if (tvCanvas != null && tvCanvas.rootCanvas != null && tvCanvas != tvCanvas.rootCanvas)
+        {
+            tvCanvas = tvCanvas.rootCanvas;
+        }
 
         if (tvGroup == null)
         {
@@ -269,8 +276,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             if (tvCanvas.renderMode == RenderMode.WorldSpace && tvCanvas.worldCamera != Camera.main)
                 tvCanvas.worldCamera = Camera.main;
 
-            if (tvCanvas.GetComponent<GraphicRaycaster>() == null)
-                tvCanvas.gameObject.AddComponent<GraphicRaycaster>();
+            GraphicRaycaster raycaster = tvCanvas.GetComponent<GraphicRaycaster>();
+            if (raycaster == null)
+                raycaster = tvCanvas.gameObject.AddComponent<GraphicRaycaster>();
+            raycaster.enabled = true;
         }
 
         EnsureEventSystem();
