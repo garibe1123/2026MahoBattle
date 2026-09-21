@@ -586,12 +586,11 @@ MonoBehaviour:
   panelColor: {r: 0.052, g: 0.055, b: 0.068, a: 0.995}
   paperColor: {r: 0.93, g: 0.9, b: 0.8, a: 1}
   mutedColor: {r: 0.36, g: 0.39, b: 0.46, a: 0.76}
-  accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
-  accentPink: {r: 1, g: 0.18, b: 0.48, a: 1}
-  accentCyan: {r: 0.16, g: 0.86, b: 0.92, a: 1}
-  pointerHitSize: 96
-  selectableNodeSize: 54
-  eliteNodeSize: 60
+  availableColor: {r: 0.16, g: 0.86, b: 0.92, a: 1}
+  eliteColor: {r: 1, g: 0.18, b: 0.48, a: 1}
+  currentColor: {r: 0.66, g: 0.9, b: 0.96, a: 1}
+  selectableNodeSize: 76
+  eliteNodeSize: 86
   refreshInterval: 0.08
 --- !u!114 &100024
 MonoBehaviour:
