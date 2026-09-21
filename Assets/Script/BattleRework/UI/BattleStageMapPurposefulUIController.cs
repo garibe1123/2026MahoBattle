@@ -33,7 +33,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private const string MapContentName = "MapSelectionContent";
     private const string MountedTvName = "BattleShowMountedTV";
     private const string RewardAccentName = "RewardKineticAccentLayer";
-    private const string PointerHitAreaName = "MapPointerHitArea";
     private const string DecisionAccentName = "MapDecisionAccent";
     private const string ControlHintName = "MapControlHint";
 
@@ -45,10 +44,9 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     [SerializeField] private Color panelColor = new(0.052f, 0.055f, 0.068f, 0.995f);
     [SerializeField] private Color paperColor = new(0.93f, 0.90f, 0.80f, 1f);
     [SerializeField] private Color mutedColor = new(0.36f, 0.39f, 0.46f, 0.76f);
-    [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
-    [SerializeField] private Color accentPink = new(1f, 0.18f, 0.48f, 1f);
-    [SerializeField] private Color accentCyan = new(0.16f, 0.86f, 0.92f, 1f);
-    [SerializeField, Min(96f)] private float pointerHitSize = 124f;
+    [SerializeField] private Color availableColor = new(0.16f, 0.86f, 0.92f, 1f);
+    [SerializeField] private Color eliteColor = new(1f, 0.18f, 0.48f, 1f);
+    [SerializeField] private Color currentColor = new(0.66f, 0.90f, 0.96f, 1f);
     [SerializeField, Min(56f)] private float selectableNodeSize = 76f;
     [SerializeField, Min(64f)] private float eliteNodeSize = 86f;
 
@@ -317,7 +315,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             Outline innerOutline = screenInner.GetComponent<Outline>();
             if (innerOutline != null)
             {
-                innerOutline.effectColor = new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.16f);
+                innerOutline.effectColor = new Color(currentColor.r, currentColor.g, currentColor.b, 0.16f);
                 innerOutline.effectDistance = new Vector2(1f, -1f);
             }
         }
@@ -360,7 +358,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
         if (tvCanvas != null)
         {
-            if (tvCanvas.renderMode == RenderMode.WorldSpace && tvCanvas.worldCamera != Camera.main)
+            if (tvCanvas.renderMode == RenderMode.WorldSpace && tvCanvas.worldCamera == null)
                 tvCanvas.worldCamera = Camera.main;
 
             if (tvCanvas.GetComponent<GraphicRaycaster>() == null)
@@ -473,122 +471,69 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
         bool selectable = button != null && button.interactable;
         bool elite = label != null &&
-                     (label.text ?? string.Empty).IndexOf("ELITE", System.StringComparison.OrdinalIgnoreCase) >= 0;
+                     (label.text ?? string.Empty).IndexOf(
+                         "ELITE",
+                         System.StringComparison.OrdinalIgnoreCase) >= 0;
         bool current = runManager != null &&
                        runManager.CurrentNode != null &&
                        rect.name == $"StageNode_{runManager.CurrentNode.id}";
 
-        Color accent = elite ? accentPink : accentYellow;
-        string nodeLabel = BuildNodeLabel(rect, label != null ? label.text : string.Empty);
+        BattleStageMapNodeVisualState visualState = current
+            ? BattleStageMapNodeVisualState.Current
+            : selectable
+                ? BattleStageMapNodeVisualState.Available
+                : BattleStageMapNodeVisualState.Locked;
 
-        if (selectable)
+        Color stateAccent = current
+            ? currentColor
+            : selectable
+                ? elite ? eliteColor : availableColor
+                : mutedColor;
+
+        image.enabled = true;
+        image.raycastTarget = selectable;
+
+        if (button != null)
         {
-            image.enabled = true;
-            image.color = inkColor;
-            outline.effectColor = accent;
-            outline.effectDistance = new Vector2(3f, -3f);
-            float resolvedSize = elite
-                ? Mathf.Max(86f, eliteNodeSize)
-                : Mathf.Max(76f, selectableNodeSize);
-            rect.sizeDelta = Vector2.one * resolvedSize;
             button.transition = Selectable.Transition.None;
-            image.raycastTarget = true;
-
-            if (label != null)
-            {
-                label.text = nodeLabel;
-                label.fontStyle = FontStyle.Bold;
-                label.fontSize = 11;
-                label.color = paperColor;
-            }
-
-            EnsurePointerHitArea(rect, image, outline, label, accent, button);
+            Navigation navigation = button.navigation;
+            navigation.mode = Navigation.Mode.None;
+            button.navigation = navigation;
         }
-        else if (current)
+
+        float resolvedSize = selectable
+            ? elite
+                ? Mathf.Max(86f, eliteNodeSize)
+                : Mathf.Max(76f, selectableNodeSize)
+            : current
+                ? Mathf.Max(70f, selectableNodeSize * 0.92f)
+                : Mathf.Max(60f, selectableNodeSize * 0.82f);
+        rect.sizeDelta = Vector2.one * resolvedSize;
+
+        string nodeLabel = BuildNodeLabel(rect, label != null ? label.text : string.Empty);
+        if (label != null)
         {
-            image.enabled = true;
-            image.color = new Color(
-                accentCyan.r * 0.28f,
-                accentCyan.g * 0.28f,
-                accentCyan.b * 0.28f,
-                1f);
-            outline.effectColor = accentCyan;
-            outline.effectDistance = new Vector2(3f, -3f);
-
-            if (label != null)
-            {
-                label.text = nodeLabel;
-                label.color = accentCyan;
-                label.fontStyle = FontStyle.Bold;
-                label.fontSize = 10;
-            }
+            label.text = nodeLabel;
+            label.fontStyle = visualState == BattleStageMapNodeVisualState.Locked
+                ? FontStyle.Normal
+                : FontStyle.Bold;
+            label.fontSize = visualState == BattleStageMapNodeVisualState.Locked ? 9 : 11;
         }
-        else
-        {
-            image.enabled = true;
-            image.color = new Color(0.10f, 0.105f, 0.13f, 0.92f);
-            outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
-            outline.effectDistance = new Vector2(1f, -1f);
-
-            if (label != null)
-            {
-                label.text = nodeLabel;
-                label.color = mutedColor;
-                label.fontStyle = FontStyle.Normal;
-                label.fontSize = 9;
-            }
-        }
-    }
-
-    private void EnsurePointerHitArea(
-        RectTransform node,
-        Image nodeImage,
-        Outline nodeOutline,
-        Text label,
-        Color accent,
-        Button button)
-    {
-        Transform existing = node.Find(PointerHitAreaName);
-        RectTransform hitRect;
-        Image hitImage;
-
-        if (existing is RectTransform existingRect)
-        {
-            hitRect = existingRect;
-            hitImage = existing.GetComponent<Image>();
-        }
-        else
-        {
-            GameObject hit = new(PointerHitAreaName);
-            hit.transform.SetParent(node, false);
-
-            hitRect = hit.AddComponent<RectTransform>();
-            hitRect.anchorMin = hitRect.anchorMax = new Vector2(0.5f, 0.5f);
-            hitRect.pivot = new Vector2(0.5f, 0.5f);
-            hitRect.anchoredPosition = Vector2.zero;
-
-            hitImage = hit.AddComponent<Image>();
-            hitImage.color = new Color(1f, 1f, 1f, 0.001f);
-            hitImage.raycastTarget = true;
-            hit.transform.SetAsLastSibling();
-        }
-
-        hitRect.sizeDelta = Vector2.one * Mathf.Max(124f, pointerHitSize);
-        if (hitImage != null)
-            hitImage.raycastTarget = true;
 
         BattleStageMapNodePointerFeedback feedback =
-            hitRect.GetComponent<BattleStageMapNodePointerFeedback>();
+            rect.GetComponent<BattleStageMapNodePointerFeedback>();
         if (feedback == null)
-            feedback = hitRect.gameObject.AddComponent<BattleStageMapNodePointerFeedback>();
+            feedback = rect.gameObject.AddComponent<BattleStageMapNodePointerFeedback>();
 
         feedback.Configure(
-            nodeImage,
-            nodeOutline,
+            image,
+            outline,
             label,
-            accent,
+            visualState,
+            stateAccent,
             inkColor,
-            paperColor);
+            paperColor,
+            mutedColor);
         feedback.BindButton(button);
     }
 
@@ -618,7 +563,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.fontSize = 11;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleRight;
-        text.color = accentCyan;
+        text.color = availableColor;
         text.raycastTarget = false;
     }
 
