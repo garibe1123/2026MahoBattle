@@ -280,6 +280,7 @@ public sealed class BattleHUD : MonoBehaviour
         SetAnchors(stageText.rectTransform, new Vector2(0.23f, 0.70f), new Vector2(0.95f, 0.95f));
 
         enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, CurrentKeyColor);
+        BindTheme(enemyText, BattleUIThemeColorRole.Key);
         SetAnchors(enemyText.rectTransform, new Vector2(0.68f, 0.51f), new Vector2(0.95f, 0.69f));
 
         hpText = CreateText(combatStatusRoot.transform, "HP", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
@@ -291,6 +292,7 @@ public sealed class BattleHUD : MonoBehaviour
         staminaFill = CreateBar(combatStatusRoot.transform, "ST", new Vector2(0.25f, 0.24f), new Vector2(0.94f, 0.35f), staminaColor);
 
         audienceText = CreateText(combatStatusRoot.transform, "VIEWERS 0", 9, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.74f, 0.74f, 0.68f, 1f));
+        BindTheme(audienceText, BattleUIThemeColorRole.TextMuted);
         SetAnchors(audienceText.rectTransform, new Vector2(0.05f, 0.035f), new Vector2(0.94f, 0.19f));
     }
 
@@ -338,6 +340,7 @@ public sealed class BattleHUD : MonoBehaviour
             SetAnchors(slotLabels[i].rectTransform, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.28f));
 
             slotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, CurrentKeyColor);
+            BindTheme(slotGrades[i], BattleUIThemeColorRole.Key);
             SetAnchors(slotGrades[i].rectTransform, new Vector2(0.54f, 0.72f), new Vector2(0.93f, 0.94f));
         }
     }
@@ -394,12 +397,15 @@ public sealed class BattleHUD : MonoBehaviour
             innerOutline.enabled = false;
 
         Text title = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        BindTheme(title, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(title.rectTransform, new Vector2(0.05f, 0.865f), new Vector2(0.72f, 0.96f));
 
         Text subtitle = CreateText(inner.transform, "SELECT  •  CONFIRM", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.76f, 0.86f, 1f));
+        BindTheme(subtitle, BattleUIThemeColorRole.TextMuted);
         SetAnchors(subtitle.rectTransform, new Vector2(0.05f, 0.805f), new Vector2(0.72f, 0.86f));
 
         Text live = CreateText(inner.transform, "[ON LIVE]", 14, FontStyle.Bold, TextAnchor.MiddleRight, new Color(1f, 0.10f, 0.12f, 1f));
+        BindTheme(live, BattleUIThemeColorRole.Key);
         SetAnchors(live.rectTransform, new Vector2(0.77f, 0.87f), new Vector2(0.95f, 0.95f));
 
         GameObject cardRoot = new("PrizeChoices");
@@ -408,9 +414,11 @@ public sealed class BattleHUD : MonoBehaviour
         SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.20f), new Vector2(0.945f, 0.79f));
 
         Text focusName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, CurrentKeyColor);
+        BindTheme(focusName, BattleUIThemeColorRole.Key);
         SetAnchors(focusName.rectTransform, new Vector2(0.055f, 0.13f), new Vector2(0.38f, 0.19f));
 
         Text focusStats = CreateText(inner.transform, "Hover to inspect. Click to select.", 11, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.78f, 0.82f, 0.90f, 1f));
+        BindTheme(focusStats, BattleUIThemeColorRole.TextMuted);
         SetAnchors(focusStats.rectTransform, new Vector2(0.38f, 0.12f), new Vector2(0.945f, 0.19f));
 
         // RewardCardActionController가 이 Root를 compact skip button으로 재사용합니다.
@@ -537,15 +545,19 @@ public sealed class BattleHUD : MonoBehaviour
             icon.enabled = reward.icon != null;
 
             Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 9, FontStyle.Bold, TextAnchor.MiddleCenter, CurrentKeyColor);
+            BindTheme(rarity, BattleUIThemeColorRole.Key);
             SetAnchors(rarity.rectTransform, new Vector2(0.08f, 0.39f), new Vector2(0.92f, 0.47f));
 
             Text name = CreateText(card.transform, reward.GetDisplayName(), 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+            BindTheme(name, BattleUIThemeColorRole.TextPrimary);
             SetAnchors(name.rectTransform, new Vector2(0.06f, 0.22f), new Vector2(0.94f, 0.39f));
 
             Text type = CreateText(card.transform, reward.type.ToString().ToUpperInvariant(), 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f));
+            BindTheme(type, BattleUIThemeColorRole.TextMuted);
             SetAnchors(type.rectTransform, new Vector2(0.08f, 0.14f), new Vector2(0.92f, 0.22f));
 
             Text action = CreateText(card.transform, "CLICK TO SELECT", 8, FontStyle.Bold, TextAnchor.MiddleCenter, CurrentKeyColor);
+            BindTheme(action, BattleUIThemeColorRole.Key);
             SetAnchors(action.rectTransform, new Vector2(0.08f, 0.025f), new Vector2(0.92f, 0.12f));
         }
     }
@@ -877,6 +889,22 @@ public sealed class BattleHUD : MonoBehaviour
         text.color = color;
         text.raycastTarget = false;
         return text;
+    }
+
+    private static void BindTheme(
+        Graphic graphic,
+        BattleUIThemeColorRole role,
+        float alpha = 1f)
+    {
+        if (graphic == null)
+            return;
+
+        BattleUIThemeColorBinding binding =
+            graphic.GetComponent<BattleUIThemeColorBinding>();
+        if (binding == null)
+            binding = graphic.gameObject.AddComponent<BattleUIThemeColorBinding>();
+
+        binding.Configure(role, alpha);
     }
 
     private static void SetAnchors(RectTransform rect, Vector2 min, Vector2 max)
