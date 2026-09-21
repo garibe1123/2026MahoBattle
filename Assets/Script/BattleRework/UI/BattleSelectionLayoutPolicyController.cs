@@ -4,9 +4,10 @@ using UnityEngine;
 /// <summary>
 /// Reward / Map Show의 TV 크기와 공용 카메라 framing만 담당합니다.
 ///
-/// Phase 5 ownership:
+/// Ownership:
 /// - Reward 카드 / 결정 / 포기 / Selection Locked: BattleRewardCardActionController
-/// - Mini PACK / Full Grid / Detail / DONE / TRASH: BattleUnifiedInventoryInspectController
+/// - Reward PACK 편집 / Detail / DONE / TRASH: BattleUnifiedInventoryInspectController
+/// - Combat Full PACK: BattleKineticLoadoutUI
 /// - 이 클래스: World TV size, Reward/Map camera frame, Map content scale
 ///
 /// Reward/Inventory UI RectTransform을 직접 수정하지 않습니다.
