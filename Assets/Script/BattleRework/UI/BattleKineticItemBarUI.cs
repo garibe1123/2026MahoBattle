@@ -18,7 +18,6 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int CanvasSortingOrder = 770;
 
-    [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleGridSynergyController gridSynergy;
 
@@ -28,7 +27,6 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     [SerializeField] private Color emptyCellColor = new(0.085f, 0.090f, 0.100f, 0.98f);
     [SerializeField] private Color occupiedCellColor = new(0.040f, 0.045f, 0.055f, 0.99f);
     [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
-    [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
 
@@ -98,8 +96,6 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void ResolveReferences()
     {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (gridSynergy == null)
