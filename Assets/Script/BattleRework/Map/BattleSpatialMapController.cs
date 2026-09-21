@@ -1363,10 +1363,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void DrawStageNode(BattleNodeData node, Vector2 position, Color color, Vector2 mapCenter, bool selectable)
     {
         // LayoutRoot: graph/layout/business owner. 이 RectTransform은 Spatial presentation이 직접 움직이지 않습니다.
-        GameObject go = new($"StageNode_{node.id}");
+        GameObject go = new($"StageNode_{node.id}", typeof(RectTransform));
         go.transform.SetParent(stageMapPanel, false);
 
-        RectTransform rect = go.AddComponent<RectTransform>();
+        RectTransform rect = go.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = new Vector2(
             (position.x - mapCenter.x) * resolvedMapHorizontalSpacing,
@@ -1375,9 +1375,18 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.sizeDelta = Vector2.one * size;
 
         // SpatialRoot: hover/selected/depth motion의 단일 owner.
-        GameObject visualObject = new("SpatialRoot");
-        visualObject.transform.SetParent(rect, false);
-        RectTransform visualRect = visualObject.AddComponent<RectTransform>();
+        GameObject spatialObject = new("SpatialRoot", typeof(RectTransform));
+        spatialObject.transform.SetParent(rect, false);
+        RectTransform spatialRect = spatialObject.GetComponent<RectTransform>();
+        spatialRect.anchorMin = Vector2.zero;
+        spatialRect.anchorMax = Vector2.one;
+        spatialRect.offsetMin = Vector2.zero;
+        spatialRect.offsetMax = Vector2.zero;
+        spatialRect.pivot = new Vector2(0.5f, 0.5f);
+
+        GameObject visualObject = new("VisualRoot", typeof(RectTransform));
+        visualObject.transform.SetParent(spatialRect, false);
+        RectTransform visualRect = visualObject.GetComponent<RectTransform>();
         visualRect.anchorMin = Vector2.zero;
         visualRect.anchorMax = Vector2.one;
         visualRect.offsetMin = Vector2.zero;
@@ -1393,7 +1402,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         outline.effectDistance = selectable ? new Vector2(2f, -2f) : new Vector2(1f, -1f);
 
         BattleMapNodeSpatialView spatialView = go.AddComponent<BattleMapNodeSpatialView>();
-        spatialView.Configure(visualRect, selectable);
+        spatialView.Configure(spatialRect, visualRect, selectable);
 
         if (selectable && runManager != null)
         {
