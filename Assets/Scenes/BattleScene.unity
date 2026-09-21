@@ -1440,6 +1440,7 @@ MonoBehaviour:
   missionFocusedPackAlpha: 0.72
   packFocusedRotation: -4
   missionFocusedPackRotation: -1.5
+  standbyMissionSize: {x: 320, y: 72}
   compactMissionSize: {x: 430, y: 300}
   focusedMissionSize: {x: 700, y: 700}
   missionPanelOffset: {x: -44, y: -128}
