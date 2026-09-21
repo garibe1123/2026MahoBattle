@@ -7,8 +7,8 @@ using UnityEngine.UI;
 /// Combat TAB의 방송 정보 영역을 담당합니다.
 ///
 /// 소유권:
-/// - BattleKineticLoadoutUI: GridBoard / Slot의 실제 Scale, Rotation, Z-depth.
-/// - 이 Controller: BroadcastPackDock wrapper, Fan Mission, Metrics, Chat.
+/// - BattleKineticLoadoutUI: PACK / GridBoard / Slot의 실제 Scale, Rotation, Z-depth.
+/// - 이 Controller: Fan Mission, Viewer/Like Metrics, Chat 표시.
 /// - Gameplay 데이터는 읽기만 하며 RunProgress/FanMission 데이터를 수정하지 않습니다.
 ///
 /// 원칙:
