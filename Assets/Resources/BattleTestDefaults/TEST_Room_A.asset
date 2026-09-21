@@ -18,9 +18,9 @@ MonoBehaviour:
   recommendedGridSize: {x: 4, y: 4}
   startBaseTileSize: {x: 4, y: 4}
   useProceduralRoom: 1
-  proceduralMinTileSize: {x: 14, y: 15}
-  proceduralMaxTileSize: {x: 18, y: 20}
-  proceduralMinChunkTileSize: 4
+  proceduralMinTileSize: {x: 20, y: 20}
+  proceduralMaxTileSize: {x: 30, y: 30}
+  proceduralMinChunkTileSize: 7
   proceduralSeed: 0
   proceduralComplexity: 0.35
   proceduralIndentChance: 0.2

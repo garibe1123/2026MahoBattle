@@ -1,4 +1,3 @@
-using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -34,16 +33,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField] private Vector2 selectedCardSize = new(330f, 548f);
     [SerializeField, Min(0f)] private float cardGap = 42f;
     [SerializeField, Min(1f)] private float tweenSharpness = 18f;
-
-    [Header("Card Spatial Tilt")]
-    [Tooltip("기존 카드 Layout은 유지하고 RectTransform의 X/Y/Z 회전과 local Z만 사용합니다.")]
-    [SerializeField, Min(1f)] private float spatialSharpness = 16f;
-    [SerializeField] private Vector3 idleTilt = new(1.4f, 3.2f, 0.8f);
-    [SerializeField] private Vector3 hoverTilt = new(0.45f, 1.15f, 0.30f);
-    [SerializeField] private Vector3 inactiveTilt = new(2.4f, 5.2f, 1.35f);
-    [SerializeField] private float hoverDepth = -16f;
-    [SerializeField] private float selectedDepth = -28f;
-    [SerializeField] private float inactiveDepth = 10f;
 
     [Header("Actions")]
     [SerializeField] private Vector2 decideSize = new(202f, 46f);
@@ -104,8 +93,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private int hoveredRewardIndex = -1;
     private RectTransform cachedCardRoot;
     private int cachedCardCount = -1;
-    private bool rewardEventsSubscribed;
-    private Coroutine bindRoutine;
+    private float nextResolveTime;
 
     private bool choicePresentationDirty = true;
     private int lastChoiceSelectedIndex = int.MinValue;
@@ -116,8 +104,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private readonly List<CardRef> cards = new();
     private readonly Dictionary<int, Vector2> animatedSizes = new();
     private readonly Dictionary<int, Vector2> animatedPositions = new();
-    private readonly Dictionary<int, Vector3> animatedEuler = new();
-    private readonly Dictionary<int, float> animatedDepth = new();
 
     private struct RectSnapshot
     {
@@ -174,30 +160,16 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         ResolveReferences();
         ResolveUi(true);
-        SubscribeRewardEvents();
-
+        nextResolveTime = 0f;
         choicePresentationDirty = true;
         lastChoiceSelectedIndex = int.MinValue;
         lastChoiceHoveredIndex = int.MinValue;
         lastChoiceHadSelection = false;
         lastPresentationPhase = (BattleRewardPhase)(-1);
-
-        ApplyRewardState();
-
-        if ((rewardFlow == null || rewardScreen == null || rewardCardRoot == null) &&
-            bindRoutine == null)
-        {
-            bindRoutine = StartCoroutine(BindWhenReady());
-        }
     }
 
     private void OnDisable()
     {
-        if (bindRoutine != null)
-            StopCoroutine(bindRoutine);
-        bindRoutine = null;
-
-        UnsubscribeRewardEvents();
         RestoreEquipmentDetailPanel();
         HideChoiceOnlyUi();
         SetLockedVisible(false);
@@ -205,79 +177,42 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void OnDestroy()
     {
-        UnsubscribeRewardEvents();
         RestoreEquipmentDetailPanel();
         if (instance == this)
             instance = null;
     }
 
-    private IEnumerator BindWhenReady()
+    private void Update()
     {
-        while (enabled)
+        ResolveReferences();
+        rewardFlow?.RefreshFromRunState();
+
+        if (Time.unscaledTime >= nextResolveTime)
         {
-            ResolveReferences();
+            nextResolveTime = Time.unscaledTime + 0.10f;
             ResolveUi(false);
-            SubscribeRewardEvents();
-
-            if (rewardFlow != null && rewardScreen != null && rewardCardRoot != null)
-                break;
-
-            yield return null;
         }
 
-        bindRoutine = null;
-        if (enabled)
-            ApplyRewardState();
-    }
-
-    private void SubscribeRewardEvents()
-    {
-        if (rewardEventsSubscribed || rewardFlow == null)
-            return;
-
-        rewardFlow.Changed += HandleRewardChanged;
-        rewardEventsSubscribed = true;
-    }
-
-    private void UnsubscribeRewardEvents()
-    {
-        if (!rewardEventsSubscribed)
-            return;
-
-        if (rewardFlow != null)
-            rewardFlow.Changed -= HandleRewardChanged;
-        rewardEventsSubscribed = false;
-    }
-
-    private void HandleRewardChanged()
-    {
-        choicePresentationDirty = true;
-        ResolveUi(false);
-        ApplyRewardState();
-    }
-
-    private void ApplyRewardState()
-    {
-        BattleRewardPhase phase = rewardFlow != null
-            ? rewardFlow.Phase
-            : BattleRewardPhase.Inactive;
-
-        bool phaseChanged = phase != lastPresentationPhase;
-        lastPresentationPhase = phase;
-
-        if (phaseChanged)
-        {
-            choicePresentationDirty = true;
-            DisableLegacyCardMotionAndDrag();
-        }
-
-        if (phase == BattleRewardPhase.Inactive)
+        if (!IsReward())
         {
             hoveredRewardIndex = -1;
+            lastPresentationPhase = BattleRewardPhase.Inactive;
+            choicePresentationDirty = true;
             SetLockedVisible(false);
             SetEquipmentDetailPanelSuppressed(false);
             HideChoiceOnlyUi();
             return;
+        }
+
+        BattleRewardPhase phase = rewardFlow != null
+            ? rewardFlow.Phase
+            : BattleRewardPhase.Inactive;
+        bool phaseChanged = phase != lastPresentationPhase;
+        if (phaseChanged)
+        {
+            lastPresentationPhase = phase;
+            choicePresentationDirty = true;
+            DisableLegacyCardMotionAndDrag();
         }
 
         bool choice = phase == BattleRewardPhase.Choosing;
@@ -289,6 +224,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         {
             SetLockedVisible(false);
             SetChoiceInteractable(true);
+            HandleConfirmShortcut();
         }
         else if (packEdit)
         {
@@ -299,20 +235,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
     }
 
-    private void Update()
-    {
-        // Input sampling only. Reward state discovery is driven by BattleRewardFlow.Changed.
-        if (lastPresentationPhase == BattleRewardPhase.Choosing)
-            HandleConfirmShortcut();
-    }
-
     private void LateUpdate()
     {
-        // Animation tick only. The active phase was selected by the RewardFlow event.
-        if (rewardFlow == null)
+        if (!IsReward() || rewardFlow == null)
             return;
 
-        if (lastPresentationPhase == BattleRewardPhase.Choosing)
+        if (rewardFlow.Phase == BattleRewardPhase.Choosing)
         {
             int selectedIndex = rewardFlow.SelectedChoiceIndex;
             bool hasSelection = rewardFlow.SelectedChoice != null;
@@ -329,7 +257,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             lastChoiceHadSelection = hasSelection;
             choicePresentationDirty = false;
         }
-        else if (lastPresentationPhase == BattleRewardPhase.PackEditing)
+        else if (rewardFlow.Phase == BattleRewardPhase.PackEditing)
         {
             AnimateLockedOverlay();
         }
@@ -429,8 +357,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         cards.Clear();
         animatedSizes.Clear();
         animatedPositions.Clear();
-        animatedEuler.Clear();
-        animatedDepth.Clear();
         hoveredRewardIndex = -1;
         cachedCardRoot = rewardCardRoot;
         cachedCardCount = rewardCardRoot != null ? rewardCardRoot.childCount : -1;
@@ -608,71 +534,13 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 card.rect.anchorMin = card.rect.anchorMax = new Vector2(0.5f, 0.5f);
                 card.rect.pivot = new Vector2(0.5f, 0.5f);
                 card.rect.localScale = Vector3.one;
+                card.rect.localRotation = Quaternion.identity;
             }
 
             if ((card.rect.sizeDelta - currentSize).sqrMagnitude > 0.0001f)
                 card.rect.sizeDelta = currentSize;
             if ((card.rect.anchoredPosition - currentPosition).sqrMagnitude > 0.0001f)
                 card.rect.anchoredPosition = currentPosition;
-
-            // Spatial layer: 기존 size/anchor/button 구조는 그대로 두고
-            // X/Y/Z rotation + local Z depth만 추가합니다.
-            float fan = cards.Count <= 1
-                ? 0f
-                : (i - (cards.Count - 1) * 0.5f) / Mathf.Max(1f, (cards.Count - 1) * 0.5f);
-
-            Vector3 targetEuler;
-            float targetDepth;
-            if (selected)
-            {
-                targetEuler = Vector3.zero;
-                targetDepth = selectedDepth;
-            }
-            else if (hasSelection)
-            {
-                targetEuler = new Vector3(
-                    inactiveTilt.x,
-                    -fan * inactiveTilt.y,
-                    fan * inactiveTilt.z);
-                targetDepth = inactiveDepth;
-            }
-            else if (hovered)
-            {
-                targetEuler = new Vector3(
-                    hoverTilt.x,
-                    -fan * hoverTilt.y,
-                    fan * hoverTilt.z);
-                targetDepth = hoverDepth;
-            }
-            else
-            {
-                targetEuler = new Vector3(
-                    idleTilt.x,
-                    -fan * idleTilt.y,
-                    fan * idleTilt.z);
-                targetDepth = 0f;
-            }
-
-            float spatialBlend = 1f - Mathf.Exp(-Mathf.Max(1f, spatialSharpness) * Time.unscaledDeltaTime);
-            if (!animatedEuler.TryGetValue(id, out Vector3 currentEuler))
-                currentEuler = targetEuler;
-            if (!animatedDepth.TryGetValue(id, out float currentDepth))
-                currentDepth = card.rect.localPosition.z;
-
-            currentEuler = Vector3.Lerp(currentEuler, targetEuler, spatialBlend);
-            currentDepth = Mathf.Lerp(currentDepth, targetDepth, spatialBlend);
-
-            if ((currentEuler - targetEuler).sqrMagnitude <= 0.0004f)
-                currentEuler = targetEuler;
-            if (Mathf.Abs(currentDepth - targetDepth) <= 0.01f)
-                currentDepth = targetDepth;
-
-            animatedEuler[id] = currentEuler;
-            animatedDepth[id] = currentDepth;
-            card.rect.localRotation = Quaternion.Euler(currentEuler);
-            Vector3 localPosition = card.rect.localPosition;
-            localPosition.z = currentDepth;
-            card.rect.localPosition = localPosition;
 
             if (refreshStatic)
             {

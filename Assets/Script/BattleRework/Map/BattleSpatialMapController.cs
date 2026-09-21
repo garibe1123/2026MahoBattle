@@ -209,6 +209,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ApplyReadableDefaultCharacterSizes();
         }
 
+        UpdateStageMapCursorTracking();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -1541,29 +1542,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         float verticalRange = maxY - minY;
         float panelWidth = stageMapPanel.rect.width > 1f ? stageMapPanel.rect.width : selectionMapSize.x;
         float panelHeight = stageMapPanel.rect.height > 1f ? stageMapPanel.rect.height : selectionMapSize.y;
-
-        // Do not keep a 150px graph inside a 1500px TV.
-        // Expand the route topology to a stable fraction of the actual TV safe area.
-        float targetGraphWidth = Mathf.Max(1f, panelWidth * 0.56f);
-        float targetGraphHeight = Mathf.Max(1f, panelHeight * 0.58f);
-
+        float usableWidth = Mathf.Max(1f, panelWidth - 160f);
+        float usableHeight = Mathf.Max(1f, panelHeight - 170f);
         if (horizontalRange > 0.001f)
-        {
-            float adaptive = targetGraphWidth / horizontalRange;
-            resolvedMapHorizontalSpacing = Mathf.Clamp(
-                adaptive,
-                Mathf.Max(150f, mapHorizontalSpacing),
-                360f);
-        }
-
+            resolvedMapHorizontalSpacing = Mathf.Min(mapHorizontalSpacing, usableWidth / horizontalRange);
         if (verticalRange > 0.001f)
-        {
-            float adaptive = targetGraphHeight / verticalRange;
-            resolvedMapVerticalSpacing = Mathf.Clamp(
-                adaptive,
-                Mathf.Max(112f, mapVerticalSpacing),
-                210f);
-        }
+            resolvedMapVerticalSpacing = Mathf.Min(mapVerticalSpacing, usableHeight / verticalRange);
     }
 
     private void PlayStageMapReveal()
@@ -1600,6 +1584,50 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
         stageMapPanel.localScale = Vector3.one;
         stageMapRevealRoutine = null;
+    }
+
+    private void UpdateStageMapCursorTracking()
+    {
+        if (battleCameraController == null)
+            battleCameraController = FindFirstObjectByType<BattleCameraController>();
+
+        if (stageMapPanel == null || stageMapRevealRoutine != null)
+        {
+            hud?.SetMapCursorFocus(false);
+            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            return;
+        }
+
+        if (stageMapSelectionLocked)
+            return;
+
+        bool interactive = runManager != null && runManager.WaitingForNodeSelection &&
+                           stageMapPanel.gameObject.activeInHierarchy;
+        Camera eventCamera = Camera.main;
+
+        if (interactive && RectTransformUtility.RectangleContainsScreenPoint(
+                stageMapPanel,
+                Input.mousePosition,
+                eventCamera))
+        {
+            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                    stageMapPanel,
+                    Input.mousePosition,
+                    eventCamera,
+                    out Vector2 localCursor))
+            {
+                Rect rect = stageMapPanel.rect;
+                Vector2 normalized = new(
+                    rect.width > 0.001f ? Mathf.Clamp(localCursor.x / (rect.width * 0.5f), -1f, 1f) : 0f,
+                    rect.height > 0.001f ? Mathf.Clamp(localCursor.y / (rect.height * 0.5f), -1f, 1f) : 0f);
+                hud?.SetMapCursorFocus(true);
+                battleCameraController?.SetMapCursorTracking(true, normalized);
+                return;
+            }
+        }
+
+        hud?.SetMapCursorFocus(false);
+        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
     }
 
     private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)

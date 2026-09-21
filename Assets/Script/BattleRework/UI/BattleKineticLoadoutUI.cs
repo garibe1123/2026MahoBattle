@@ -71,24 +71,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private bool stickAxisLatched;
     private bool subscribed;
     private bool inputSubscribed;
-    private bool combatActive;
-    private bool lastNotifiedBoardVisible;
 
     public int SelectedIndex => selectedIndex;
     public bool SwitchHeld => switchHeld;
     public bool BoardWasShown => boardWasShown;
-    public bool IsSwitchBoardOpen => combatActive && switchHeld && boardWasShown;
+    public bool IsSwitchBoardOpen => IsCombat() && switchHeld && boardWasShown;
     public RectTransform FullRoot => fullRoot;
     public CanvasGroup FullGroup => fullGroup;
     public RectTransform GridBoard => boardRoot;
     public RectTransform CompactRoot => compactRoot;
     public CanvasGroup CompactGroup => compactGroup;
-
-    /// <summary>
-    /// Full PACK의 실제 활성/비활성 상태가 바뀔 때만 발생합니다.
-    /// Presentation 계층은 Update polling 대신 이 이벤트를 사용해야 합니다.
-    /// </summary>
-    public event Action<bool> SwitchBoardVisibilityChanged;
 
     private void Awake()
     {
@@ -99,16 +91,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        combatActive = ResolveCombatState();
         EnsureUi();
         Subscribe();
         SubscribeInput();
         if (switchHeld)
             EnterBulletTime();
-        ResolveLegacyCombatHud();
         RefreshAll();
-        lastNotifiedBoardVisible = IsSwitchBoardOpen;
-        SwitchBoardVisibilityChanged?.Invoke(lastNotifiedBoardVisible);
     }
 
     private void OnDisable()
@@ -126,16 +114,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Update()
     {
-        // Update is input sampling + animation only.
-        // Run state is cached by BattleRunManager.StateChanged.
-        if (runManager == null || equipmentSystem == null || inputRouter == null)
-        {
-            ResolveReferences();
-            Subscribe();
-            SubscribeInput();
-        }
+        ResolveReferences();
+        Subscribe();
+        SubscribeInput();
+        EnsureUi();
+        ResolveLegacyCombatHud();
 
-        bool combat = combatActive;
+        bool combat = IsCombat();
         if ((!combat || BattlePauseController.IsPaused) && switchHeld)
             CancelSwitchMode();
 
@@ -151,10 +136,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private void ResolveReferences()
     {
         if (runManager == null)
-        {
             runManager = FindFirstObjectByType<BattleRunManager>();
-            combatActive = ResolveCombatState();
-        }
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (gridSynergy == null)
@@ -173,8 +155,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         equipmentSystem.InventoryChanged += RefreshAll;
         equipmentSystem.SlotCapacityChanged += HandleCapacityChanged;
         equipmentSystem.EquippedSlotChanged += HandleEquippedChanged;
-        if (runManager != null)
-            runManager.StateChanged += HandleRunStateChanged;
         if (gridSynergy != null)
             gridSynergy.GridSynergiesChanged += RefreshAll;
         subscribed = true;
@@ -193,8 +173,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         }
         if (gridSynergy != null)
             gridSynergy.GridSynergiesChanged -= RefreshAll;
-        if (runManager != null)
-            runManager.StateChanged -= HandleRunStateChanged;
         subscribed = false;
     }
 
@@ -223,7 +201,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void HandleTabOpened()
     {
-        if (!combatActive || BattlePauseController.IsPaused || switchHeld)
+        if (!IsCombat() || BattlePauseController.IsPaused || switchHeld)
             return;
 
         BeginSwitchMode();
@@ -249,25 +227,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         RefreshAll();
     }
 
-    private bool ResolveCombatState()
+    private bool IsCombat()
     {
-        return runManager != null &&
-               runManager.RunActive &&
-               runManager.State == BattleRunState.Combat;
-    }
-
-    private void HandleRunStateChanged(BattleRunState _)
-    {
-        bool next = ResolveCombatState();
-        if (combatActive == next)
-            return;
-
-        combatActive = next;
-        if (!combatActive && switchHeld)
-            CancelSwitchMode();
-
-        NotifySwitchBoardVisibility();
-        RefreshAll();
+        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
     }
 
     public bool SetSelectedIndexFromExternal(int index, bool markMoved = true)
@@ -304,7 +266,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (!boardWasShown && heldDuration >= Mathf.Max(0.05f, holdThreshold))
         {
             boardWasShown = true;
-            NotifySwitchBoardVisibility();
             RefreshAll();
         }
 
@@ -357,7 +318,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardWasShown = false;
         directionMoved = false;
         stickAxisLatched = false;
-        NotifySwitchBoardVisibility();
         RestoreTimeScale();
         RefreshAll();
     }
@@ -366,7 +326,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         switchHeld = false;
         boardWasShown = false;
-        NotifySwitchBoardVisibility();
         directionMoved = false;
         stickAxisLatched = false;
         RestoreTimeScale();
@@ -478,13 +437,20 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         back.color = inkColor;
         back.raycastTarget = false;
         Outline outline = compactRoot.gameObject.AddComponent<Outline>();
-        // Cyan is reserved for the currently equipped/active loadout state.
-        outline.effectColor = accentCyan;
+        outline.effectColor = accentYellow;
         outline.effectDistance = new Vector2(4f, -4f);
 
         compactGroup = compactRoot.gameObject.AddComponent<CanvasGroup>();
         compactGroup.blocksRaycasts = false;
         compactGroup.interactable = false;
+
+        RectTransform bar = CreateRect(compactRoot, "AccentSlash", new Vector2(22f, 122f));
+        bar.anchorMin = bar.anchorMax = new Vector2(0f, 0.5f);
+        bar.anchoredPosition = new Vector2(10f, 0f);
+        bar.localRotation = Quaternion.Euler(0f, 0f, 13f);
+        Image barImage = bar.gameObject.AddComponent<Image>();
+        barImage.color = accentPink;
+        barImage.raycastTarget = false;
 
         compactIcon = CreateImage(compactRoot, "Icon", new Vector2(72f, 72f));
         compactIcon.rectTransform.anchorMin = compactIcon.rectTransform.anchorMax = new Vector2(0f, 0.5f);
@@ -512,7 +478,15 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         dim.color = new Color(0.015f, 0.012f, 0.025f, 0.58f);
         dim.raycastTarget = false;
 
-        Text title = CreateText(fullRoot, "LOADOUT // SHIFT", 56, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+        RectTransform yellowWedge = CreateRect(fullRoot, "YellowWedge", new Vector2(980f, 1260f));
+        yellowWedge.anchorMin = yellowWedge.anchorMax = new Vector2(0f, 0.5f);
+        yellowWedge.anchoredPosition = new Vector2(-390f, 0f);
+        yellowWedge.localRotation = Quaternion.Euler(0f, 0f, -14f);
+        Image wedgeImage = yellowWedge.gameObject.AddComponent<Image>();
+        wedgeImage.color = new Color(accentYellow.r, accentYellow.g, accentYellow.b, 0.93f);
+        wedgeImage.raycastTarget = false;
+
+        Text title = CreateText(fullRoot, "LOADOUT // SHIFT", 56, FontStyle.Bold, TextAnchor.MiddleLeft, inkColor);
         RectTransform titleRect = title.rectTransform;
         titleRect.anchorMin = titleRect.anchorMax = new Vector2(0f, 1f);
         titleRect.pivot = new Vector2(0f, 1f);
@@ -520,7 +494,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         titleRect.anchoredPosition = new Vector2(76f, -74f);
         titleRect.localRotation = Quaternion.Euler(0f, 0f, -4f);
 
-        Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   SELECT SLOT   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.66f, 0.70f, 0.78f, 1f));
+        Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   MOUSE OR STICK   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, inkColor);
         RectTransform subRect = sub.rectTransform;
         subRect.anchorMin = subRect.anchorMax = new Vector2(0f, 1f);
         subRect.pivot = new Vector2(0f, 1f);
@@ -547,20 +521,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
         boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
         boardRoot.anchoredPosition = Vector2.zero;
-        boardRoot.localRotation = Quaternion.Euler(3.5f, -6f, -1.2f);
-        Vector3 boardInitial = boardRoot.localPosition;
-        boardInitial.z = 34f;
-        boardRoot.localPosition = boardInitial;
+        boardRoot.localRotation = Quaternion.Euler(0f, 0f, -4f);
 
         RectTransform boardBack = CreateRect(boardRoot, "BoardBack", new Vector2(632f, 632f));
         boardBack.anchorMin = boardBack.anchorMax = new Vector2(0.5f, 0.5f);
         Image boardBackImage = boardBack.gameObject.AddComponent<Image>();
-        boardBackImage.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
+        boardBackImage.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.96f);
         boardBackImage.raycastTarget = false;
         Outline boardOutline = boardBack.gameObject.AddComponent<Outline>();
-        // This border defines the actual PACK interaction boundary, not decoration.
-        boardOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.42f);
-        boardOutline.effectDistance = new Vector2(3f, -3f);
+        boardOutline.effectColor = inkColor;
+        boardOutline.effectDistance = new Vector2(8f, -8f);
 
         linkRoot = CreateRect(boardRoot, "SynergyLinks", new Vector2(632f, 632f));
         linkRoot.anchorMin = linkRoot.anchorMax = new Vector2(0.5f, 0.5f);
@@ -790,99 +760,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         bool wantFull = combat && switchHeld && boardWasShown;
         float t = 1f - Mathf.Exp(-Mathf.Max(1f, uiSharpness) * Time.unscaledDeltaTime);
-
-        // Activation is encoded by alpha + scale + XYZ rotation + local Z depth.
-        // No decorative color change is used to fake state.
         fullGroup.alpha = Mathf.Lerp(fullGroup.alpha, wantFull ? 1f : 0f, t);
         compactGroup.alpha = Mathf.Lerp(compactGroup.alpha, combat && !wantFull ? 1f : 0f, t);
-        fullGroup.blocksRaycasts = wantFull;
-        fullGroup.interactable = wantFull;
-
-        if (fullRoot != null)
-        {
-            Vector3 targetScale = Vector3.one * (wantFull ? 1f : 0.94f);
-            fullRoot.localScale = Vector3.Lerp(fullRoot.localScale, targetScale, t);
-
-            Vector3 local = fullRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, wantFull ? -14f : 42f, t);
-            fullRoot.localPosition = local;
-
-            Quaternion targetRotation = Quaternion.Euler(
-                wantFull ? 0.6f : 3.5f,
-                wantFull ? -1.4f : -5.5f,
-                wantFull ? -0.35f : -1.2f);
-            fullRoot.localRotation = Quaternion.Slerp(fullRoot.localRotation, targetRotation, t);
-        }
-
-        if (compactRoot != null)
-        {
-            bool compactActive = combat && !wantFull;
-            compactRoot.localScale = Vector3.Lerp(
-                compactRoot.localScale,
-                Vector3.one * (compactActive ? 1f : 0.92f),
-                t);
-
-            Vector3 local = compactRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, compactActive ? -8f : 28f, t);
-            compactRoot.localPosition = local;
-
-            Quaternion targetRotation = Quaternion.Euler(
-                compactActive ? 0.4f : 2.2f,
-                compactActive ? -1.6f : -4.8f,
-                compactActive ? -1.4f : -2.4f);
-            compactRoot.localRotation = Quaternion.Slerp(compactRoot.localRotation, targetRotation, t);
-        }
-
-        if (boardRoot != null && wantFull)
-        {
-            Quaternion boardTarget = Quaternion.Euler(0.6f, -1.8f, -0.5f);
-            boardRoot.localRotation = Quaternion.Slerp(boardRoot.localRotation, boardTarget, t);
-            Vector3 local = boardRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, -10f, t);
-            boardRoot.localPosition = local;
-        }
-
-        // Slot selection is functional depth: selected comes forward, locked recedes.
-        if (wantFull && equipmentSystem != null)
-        {
-            for (int i = 0; i < slotRects.Length; i++)
-            {
-                RectTransform slot = slotRects[i];
-                if (slot == null)
-                    continue;
-
-                bool unlocked = equipmentSystem.IsSlotUnlocked(i);
-                bool selected = i == selectedIndex;
-                Vector2Int grid = BattleEquipmentSystem.SlotIndexToGrid(i);
-                float side = grid.x - 1f;
-
-                Vector3 local = slot.localPosition;
-                float targetZ = selected ? -18f : unlocked ? 0f : 10f;
-                local.z = Mathf.Lerp(local.z, targetZ, t);
-                slot.localPosition = local;
-
-                Quaternion targetRotation = selected
-                    ? Quaternion.identity
-                    : Quaternion.Euler(
-                        unlocked ? 1.1f : 2.4f,
-                        -side * (unlocked ? 2.4f : 4.5f),
-                        side * (unlocked ? 0.55f : 1.1f));
-                slot.localRotation = Quaternion.Slerp(slot.localRotation, targetRotation, t);
-
-                Vector3 targetScale = Vector3.one * (selected ? 1.045f : 1f);
-                slot.localScale = Vector3.Lerp(slot.localScale, targetScale, t);
-            }
-        }
-    }
-
-    private void NotifySwitchBoardVisibility()
-    {
-        bool visible = IsSwitchBoardOpen;
-        if (visible == lastNotifiedBoardVisible)
-            return;
-
-        lastNotifiedBoardVisible = visible;
-        SwitchBoardVisibilityChanged?.Invoke(visible);
     }
 
     private void ResolveLegacyCombatHud()

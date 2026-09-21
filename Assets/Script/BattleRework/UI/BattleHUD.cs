@@ -1,6 +1,5 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
 /// <summary>
@@ -15,12 +14,7 @@ using UnityEngine.UI;
 /// - TV/Carrier/Presenter/Show Camera: BattleShowWorldSetController
 ///
 /// 이 클래스는 Reward 선택 상태, Reward Drag/Drop, Show Camera, Spotlight를 소유하지 않습니다.
-///
-/// HARD INVARIANT — MAP / ITEM SELECTION DISPLAY
-/// 맵 선택과 아이템(Reward) 선택은 Screen-Space HUD가 아닙니다.
-/// PrizeSelectionScreen / MapSelectionScreen은 staging shell일 뿐이며,
-/// 실제 선택 콘텐츠는 BattleShowMountedTV의 World-Space Display 화면 안에 출력되어야 합니다.
-/// 어떤 스타일링/확대 연출도 선택 콘텐츠를 화면 전체 Overlay HUD로 승격시키면 안 됩니다.
+/// PrizeSelectionScreen / MapSelectionScreen은 WorldSet이 실제 World-Space TV로 옮겨 쓰는 staging shell입니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleHUD : MonoBehaviour
@@ -51,7 +45,6 @@ public sealed class BattleHUD : MonoBehaviour
     private RunProgressSystem progress;
     private BattleEquipmentSystem equipmentSystem;
     private PlayerController player;
-    private BattleUIThemeController uiTheme;
 
     private Canvas canvas;
     private CanvasGroup canvasGroup;
@@ -172,10 +165,6 @@ public sealed class BattleHUD : MonoBehaviour
             progress = FindFirstObjectByType<RunProgressSystem>();
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
-        if (uiTheme == null)
-            uiTheme = BattleUIThemeController.Instance != null
-                ? BattleUIThemeController.Instance
-                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
 
         BattleEquipmentSystem found = equipmentSystem != null
             ? equipmentSystem
@@ -252,32 +241,25 @@ public sealed class BattleHUD : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        EventSystem eventSystem =
-            FindFirstObjectByType<EventSystem>(FindObjectsInactive.Include);
+        if (FindFirstObjectByType<EventSystem>() != null)
+            return;
 
-        if (eventSystem == null)
-        {
-            GameObject go = new("BattleUIEventSystem");
-            eventSystem = go.AddComponent<EventSystem>();
-        }
-
-        InputSystemUIInputModule inputModule =
-            eventSystem.GetComponent<InputSystemUIInputModule>();
-        if (inputModule == null)
-            inputModule = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
-
-        // 이 프로젝트의 Show/Map pointer는 New Input System 기준입니다.
-        // 구형 StandaloneInputModule이 동시에 활성화되면 Hover와 Click 입력 계통이 갈라질 수 있습니다.
-        StandaloneInputModule legacy =
-            eventSystem.GetComponent<StandaloneInputModule>();
-        if (legacy != null)
-            legacy.enabled = false;
+        GameObject go = new("BattleUIEventSystem");
+        go.AddComponent<EventSystem>();
+        go.AddComponent<StandaloneInputModule>();
     }
 
     private void BuildTopStatus()
     {
         combatStatusRoot = CreatePanel(canvas.transform, "BroadcastStatus", new Vector2(560f, 152f), panelColor);
-        ApplySpatialGlass(combatStatusRoot, true, 0.13f, 0.045f);
+        ApplyPersonaFrame(
+            combatStatusRoot,
+            panelColor,
+            new Color(0.96f, 0.88f, 0.14f, 1f),
+            new Color(1f, 0.76f, 0.04f, 1f),
+            true,
+            0.13f,
+            new Vector2(8f, -8f));
 
         RectTransform rect = combatStatusRoot.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
@@ -299,8 +281,7 @@ public sealed class BattleHUD : MonoBehaviour
         stageText = CreateText(combatStatusRoot.transform, "WAITING FOR NEXT TAKE", 17, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
         SetAnchors(stageText.rectTransform, new Vector2(0.23f, 0.70f), new Vector2(0.95f, 0.95f));
 
-        enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, CurrentKeyColor);
-        BindTheme(enemyText, BattleUIThemeColorRole.Key);
+        enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentColor);
         SetAnchors(enemyText.rectTransform, new Vector2(0.68f, 0.51f), new Vector2(0.95f, 0.69f));
 
         hpText = CreateText(combatStatusRoot.transform, "HP", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
@@ -312,14 +293,20 @@ public sealed class BattleHUD : MonoBehaviour
         staminaFill = CreateBar(combatStatusRoot.transform, "ST", new Vector2(0.25f, 0.24f), new Vector2(0.94f, 0.35f), staminaColor);
 
         audienceText = CreateText(combatStatusRoot.transform, "VIEWERS 0", 9, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.74f, 0.74f, 0.68f, 1f));
-        BindTheme(audienceText, BattleUIThemeColorRole.TextMuted);
         SetAnchors(audienceText.rectTransform, new Vector2(0.05f, 0.035f), new Vector2(0.94f, 0.19f));
     }
 
     private void BuildEquipmentDock()
     {
         equipmentDockRoot = CreatePanel(canvas.transform, "EquipmentDock", new Vector2(780f, 116f), panelColor);
-        ApplySpatialGlass(equipmentDockRoot, false, 0.10f, -0.035f);
+        ApplyPersonaFrame(
+            equipmentDockRoot,
+            panelColor,
+            new Color(0.94f, 0.94f, 0.90f, 1f),
+            new Color(1f, 0.76f, 0.04f, 1f),
+            false,
+            0.10f,
+            new Vector2(-7f, 7f));
 
         RectTransform dock = equipmentDockRoot.GetComponent<RectTransform>();
         dock.anchorMin = dock.anchorMax = new Vector2(1f, 0f);
@@ -359,8 +346,7 @@ public sealed class BattleHUD : MonoBehaviour
             slotLabels[i] = CreateText(slot.transform, "EMPTY", 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.72f, 0.75f, 0.82f, 1f));
             SetAnchors(slotLabels[i].rectTransform, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.28f));
 
-            slotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, CurrentKeyColor);
-            BindTheme(slotGrades[i], BattleUIThemeColorRole.Key);
+            slotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
             SetAnchors(slotGrades[i].rectTransform, new Vector2(0.54f, 0.72f), new Vector2(0.93f, 0.94f));
         }
     }
@@ -394,8 +380,6 @@ public sealed class BattleHUD : MonoBehaviour
     private RectTransform BuildRewardScreenShell(Transform parent)
     {
         GameObject screen = CreatePanel(parent, "PrizeSelectionScreen", showScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
-        ApplySpatialGlass(screen, true, 0.075f, 0.030f);
-
         RectTransform screenRect = screen.GetComponent<RectTransform>();
         screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.5f, 0.5f);
         screenRect.pivot = new Vector2(0.5f, 0.5f);
@@ -409,23 +393,14 @@ public sealed class BattleHUD : MonoBehaviour
         RectTransform innerRect = inner.GetComponent<RectTransform>();
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
-        Image innerImage = inner.GetComponent<Image>();
-        if (innerImage != null)
-            innerImage.color = new Color(0.05f, 0.055f, 0.065f, 0.16f);
-        Outline innerOutline = inner.GetComponent<Outline>();
-        if (innerOutline != null)
-            innerOutline.enabled = false;
 
         Text title = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        BindTheme(title, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(title.rectTransform, new Vector2(0.05f, 0.865f), new Vector2(0.72f, 0.96f));
 
         Text subtitle = CreateText(inner.transform, "SELECT  •  CONFIRM", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.76f, 0.86f, 1f));
-        BindTheme(subtitle, BattleUIThemeColorRole.TextMuted);
         SetAnchors(subtitle.rectTransform, new Vector2(0.05f, 0.805f), new Vector2(0.72f, 0.86f));
 
         Text live = CreateText(inner.transform, "[ON LIVE]", 14, FontStyle.Bold, TextAnchor.MiddleRight, new Color(1f, 0.10f, 0.12f, 1f));
-        BindTheme(live, BattleUIThemeColorRole.Key);
         SetAnchors(live.rectTransform, new Vector2(0.77f, 0.87f), new Vector2(0.95f, 0.95f));
 
         GameObject cardRoot = new("PrizeChoices");
@@ -433,12 +408,10 @@ public sealed class BattleHUD : MonoBehaviour
         rewardCardRoot = cardRoot.AddComponent<RectTransform>();
         SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.20f), new Vector2(0.945f, 0.79f));
 
-        Text focusName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, CurrentKeyColor);
-        BindTheme(focusName, BattleUIThemeColorRole.Key);
+        Text focusName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
         SetAnchors(focusName.rectTransform, new Vector2(0.055f, 0.13f), new Vector2(0.38f, 0.19f));
 
         Text focusStats = CreateText(inner.transform, "Hover to inspect. Click to select.", 11, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.78f, 0.82f, 0.90f, 1f));
-        BindTheme(focusStats, BattleUIThemeColorRole.TextMuted);
         SetAnchors(focusStats.rectTransform, new Vector2(0.38f, 0.12f), new Vector2(0.945f, 0.19f));
 
         // RewardCardActionController가 이 Root를 compact skip button으로 재사용합니다.
@@ -447,7 +420,6 @@ public sealed class BattleHUD : MonoBehaviour
             "PlacementNotice",
             new Vector2(304f, 54f),
             new Color(0.02f, 0.02f, 0.025f, 0.98f));
-        ApplySpatialGlass(notice, false, 0.11f, -0.035f);
         RectTransform noticeRect = notice.GetComponent<RectTransform>();
         noticeRect.anchorMin = noticeRect.anchorMax = new Vector2(0.5f, 0.055f);
         noticeRect.anchoredPosition = Vector2.zero;
@@ -460,7 +432,6 @@ public sealed class BattleHUD : MonoBehaviour
     private RectTransform BuildMapScreenShell(Transform parent)
     {
         GameObject screen = CreatePanel(parent, "MapSelectionScreen", showScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
-        ApplySpatialGlass(screen, false, 0.070f, -0.028f);
         RectTransform screenRect = screen.GetComponent<RectTransform>();
         screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.5f, 0.5f);
         screenRect.pivot = new Vector2(0.5f, 0.5f);
@@ -474,12 +445,6 @@ public sealed class BattleHUD : MonoBehaviour
         RectTransform innerRect = inner.GetComponent<RectTransform>();
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
-        Image innerImage = inner.GetComponent<Image>();
-        if (innerImage != null)
-            innerImage.color = new Color(0.04f, 0.05f, 0.065f, 0.13f);
-        Outline innerOutline = inner.GetComponent<Outline>();
-        if (innerOutline != null)
-            innerOutline.enabled = false;
 
         GameObject mapRoot = new("MapSelectionContent");
         mapRoot.transform.SetParent(inner.transform, false);
@@ -534,21 +499,9 @@ public sealed class BattleHUD : MonoBehaviour
                 $"Prize_{i}",
                 new Vector2(width, height),
                 new Color(0.055f, 0.057f, 0.066f, 0.995f));
-            ApplySpatialGlass(card, i % 2 == 0, 0.10f, i % 2 == 0 ? 0.040f : -0.040f);
-
             RectTransform cardRect = card.GetComponent<RectTransform>();
             cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
             cardRect.anchoredPosition = new Vector2(start + i * (width + spacing), 0f);
-            cardRect.localRotation = Quaternion.Euler(
-                i % 2 == 0 ? -1.8f : 1.2f,
-                i % 2 == 0 ? -4.5f : 4.0f,
-                i % 2 == 0 ? -0.4f : 0.4f);
-            Vector3 cardLocal = cardRect.localPosition;
-            cardLocal.z = i == count / 2 ? -7f : 2f;
-            cardRect.localPosition = cardLocal;
-
-            BattleSpatialGlassPanel cardGlass = card.GetComponent<BattleSpatialGlassPanel>();
-            cardGlass?.SetSpatialState(i == count / 2 ? 0.32f : 0.10f, i == count / 2 ? 0.30f : -0.15f);
 
             Image cardImage = card.GetComponent<Image>();
             Button button = card.AddComponent<Button>();
@@ -564,20 +517,16 @@ public sealed class BattleHUD : MonoBehaviour
             icon.sprite = reward.icon;
             icon.enabled = reward.icon != null;
 
-            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 9, FontStyle.Bold, TextAnchor.MiddleCenter, CurrentKeyColor);
-            BindTheme(rarity, BattleUIThemeColorRole.Key);
+            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 9, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
             SetAnchors(rarity.rectTransform, new Vector2(0.08f, 0.39f), new Vector2(0.92f, 0.47f));
 
             Text name = CreateText(card.transform, reward.GetDisplayName(), 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-            BindTheme(name, BattleUIThemeColorRole.TextPrimary);
             SetAnchors(name.rectTransform, new Vector2(0.06f, 0.22f), new Vector2(0.94f, 0.39f));
 
             Text type = CreateText(card.transform, reward.type.ToString().ToUpperInvariant(), 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f));
-            BindTheme(type, BattleUIThemeColorRole.TextMuted);
             SetAnchors(type.rectTransform, new Vector2(0.08f, 0.14f), new Vector2(0.92f, 0.22f));
 
-            Text action = CreateText(card.transform, "CLICK TO SELECT", 8, FontStyle.Bold, TextAnchor.MiddleCenter, CurrentKeyColor);
-            BindTheme(action, BattleUIThemeColorRole.Key);
+            Text action = CreateText(card.transform, "CLICK TO SELECT", 8, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
             SetAnchors(action.rectTransform, new Vector2(0.08f, 0.025f), new Vector2(0.92f, 0.12f));
         }
     }
@@ -795,34 +744,37 @@ public sealed class BattleHUD : MonoBehaviour
         return value.Substring(0, Mathf.Max(1, max - 1)) + "…";
     }
 
-    private Color CurrentKeyColor
-    {
-        get
-        {
-            BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
-            return theme != null ? theme.keyColor : goldColor;
-        }
-    }
-
-    private static void ApplySpatialGlass(
+    private static void ApplyPersonaFrame(
         GameObject root,
-        bool keyOnLeft,
-        float keyArea,
-        float skew)
+        Color body,
+        Color backPlate,
+        Color accentPlate,
+        bool accentOnLeft,
+        float accentFraction,
+        Vector2 plateOffset)
     {
         if (root == null)
             return;
 
-        BattleSpatialGlassPanel glass = root.GetComponent<BattleSpatialGlassPanel>();
-        if (glass == null)
-            glass = root.AddComponent<BattleSpatialGlassPanel>();
+        BattlePersona4FrameDecorator decorator = root.GetComponent<BattlePersona4FrameDecorator>();
+        if (decorator == null)
+            decorator = root.AddComponent<BattlePersona4FrameDecorator>();
 
-        glass.Configure(keyOnLeft, keyArea, skew);
-        glass.SetSpatialState(0f, 0f);
+        decorator.Configure(
+            body,
+            backPlate,
+            accentPlate,
+            accentOnLeft,
+            accentFraction,
+            plateOffset);
 
         Image legacyImage = root.GetComponent<Image>();
         if (legacyImage != null)
-            legacyImage.color = Color.clear;
+        {
+            Color legacy = legacyImage.color;
+            legacy.a = 0f;
+            legacyImage.color = legacy;
+        }
 
         Outline legacyOutline = root.GetComponent<Outline>();
         if (legacyOutline != null)
@@ -909,22 +861,6 @@ public sealed class BattleHUD : MonoBehaviour
         text.color = color;
         text.raycastTarget = false;
         return text;
-    }
-
-    private static void BindTheme(
-        Graphic graphic,
-        BattleUIThemeColorRole role,
-        float alpha = 1f)
-    {
-        if (graphic == null)
-            return;
-
-        BattleUIThemeColorBinding binding =
-            graphic.GetComponent<BattleUIThemeColorBinding>();
-        if (binding == null)
-            binding = graphic.gameObject.AddComponent<BattleUIThemeColorBinding>();
-
-        binding.Configure(role, alpha);
     }
 
     private static void SetAnchors(RectTransform rect, Vector2 min, Vector2 max)
@@ -1017,134 +953,3 @@ internal sealed class RewardInventoryDropZone : MonoBehaviour, IDropHandler, IPo
 
     public void OnDrop(PointerEventData eventData)
     {
-        _ = eventData;
-    }
-
-    public void OnPointerEnter(PointerEventData eventData)
-    {
-        _ = eventData;
-    }
-
-    public void OnPointerExit(PointerEventData eventData)
-    {
-        _ = eventData;
-    }
-}
-
-internal static class BattleHudSpriteCache
-{
-    private static Sprite roundedPanel;
-    private static Sprite defaultSprite;
-    private static Sprite floorSpotlight;
-
-    public static Sprite RoundedPanel => roundedPanel != null ? roundedPanel : roundedPanel = CreateRoundedPanel();
-    public static Sprite DefaultSprite => defaultSprite != null ? defaultSprite : defaultSprite = CreateDefaultSprite();
-    public static Sprite FloorSpotlight => floorSpotlight != null ? floorSpotlight : floorSpotlight = CreateFloorSpotlight();
-
-    private static Sprite CreateRoundedPanel()
-    {
-        const int pixels = 32;
-        const float radius = 7f;
-        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        for (int y = 0; y < pixels; y++)
-        {
-            for (int x = 0; x < pixels; x++)
-            {
-                float dx = Mathf.Max(Mathf.Abs(x - 15.5f) - (15.5f - radius), 0f);
-                float dy = Mathf.Max(Mathf.Abs(y - 15.5f) - (15.5f - radius), 0f);
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                float a = Mathf.Clamp01(radius + 0.5f - d);
-                texture.SetPixel(x, y, new Color(1f, 1f, 1f, a));
-            }
-        }
-
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, pixels, pixels),
-            new Vector2(0.5f, 0.5f),
-            pixels,
-            0,
-            SpriteMeshType.FullRect,
-            new Vector4(8f, 8f, 8f, 8f));
-        sprite.name = "RuntimeHudRoundedPanel";
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        return sprite;
-    }
-
-    private static Sprite CreateDefaultSprite()
-    {
-        const int pixels = 16;
-        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        for (int y = 0; y < pixels; y++)
-            for (int x = 0; x < pixels; x++)
-                texture.SetPixel(x, y, Color.white);
-
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, pixels, pixels),
-            new Vector2(0.5f, 0.5f),
-            pixels,
-            0,
-            SpriteMeshType.FullRect);
-        sprite.name = "RuntimeSpriteDefault";
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        return sprite;
-    }
-
-    private static Sprite CreateFloorSpotlight()
-    {
-        const int width = 256;
-        const int height = 128;
-        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Bilinear,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
-
-        Vector2 center = new((width - 1) * 0.5f, (height - 1) * 0.5f);
-        float invRadiusX = 1f / Mathf.Max(1f, center.x);
-        float invRadiusY = 1f / Mathf.Max(1f, center.y);
-
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
-            {
-                float nx = (x - center.x) * invRadiusX;
-                float ny = (y - center.y) * invRadiusY;
-                float radius = Mathf.Sqrt(nx * nx + ny * ny);
-                float core = 1f - Mathf.SmoothStep(0.08f, 0.70f, radius);
-                float feather = 1f - Mathf.SmoothStep(0.56f, 1f, radius);
-                float alpha = Mathf.Clamp01(core * 0.52f + feather * 0.48f);
-                alpha *= Mathf.Clamp01(1f - Mathf.Pow(radius, 3.2f));
-                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
-            }
-        }
-
-        texture.Apply(false, true);
-        Sprite sprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, width, height),
-            new Vector2(0.5f, 0.5f),
-            128f,
-            0,
-            SpriteMeshType.FullRect);
-        sprite.name = "RuntimeRewardBirdEyeFloorSpotlight";
-        sprite.hideFlags = HideFlags.HideAndDontSave;
-        return sprite;
-    }
-}

@@ -1,9 +1,6 @@
-using System.Collections;
 using System.Collections.Generic;
-using DG.Tweening;
 using UnityEngine;
 using UnityEngine.EventSystems;
-using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
 /// <summary>
@@ -34,7 +31,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
-    [SerializeField] private BattleUIThemeController uiTheme;
 
     [Header("Purposeful Map Theme")]
     [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.040f, 0.995f);
@@ -44,17 +40,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.48f, 1f);
     [SerializeField] private Color accentCyan = new(0.16f, 0.86f, 0.92f, 1f);
-    [SerializeField, Min(80f)] private float pointerHitSize = 150f;
-    [SerializeField, Min(64f)] private float selectableNodeSize = 112f;
-    [SerializeField, Min(72f)] private float eliteNodeSize = 124f;
-
-    private enum MapPresentationState
-    {
-        Hidden,
-        Entering,
-        Active,
-        Exiting
-    }
+    [SerializeField, Min(56f)] private float pointerHitSize = 96f;
+    [SerializeField, Min(28f)] private float selectableNodeSize = 54f;
+    [SerializeField, Min(28f)] private float eliteNodeSize = 60f;
+    [SerializeField, Min(0.02f)] private float refreshInterval = 0.08f;
 
     private RectTransform sharedFrame;
     private RectTransform screenInner;
@@ -67,10 +56,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private bool wasMapActive;
     private bool rewardAccentsResolved;
-    private bool subscribed;
-    private Coroutine bindRoutine;
-    private Coroutine refreshRoutine;
-    private MapPresentationState presentationState = MapPresentationState.Hidden;
+    private float nextRefresh;
 
     private bool frameStateCaptured;
     private Quaternion originalFrameRotation;
@@ -92,129 +78,41 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        Subscribe();
-        QueuePresentationRefresh();
-
-        if (runManager == null && bindRoutine == null)
-            bindRoutine = StartCoroutine(BindWhenReady());
+        nextRefresh = 0f;
     }
 
     private void OnDisable()
     {
-        if (bindRoutine != null)
-            StopCoroutine(bindRoutine);
-        if (refreshRoutine != null)
-            StopCoroutine(refreshRoutine);
-
-        bindRoutine = null;
-        refreshRoutine = null;
-        Unsubscribe();
         RestoreMapOnlyState();
     }
 
     private void OnDestroy()
     {
-        Unsubscribe();
         RestoreMapOnlyState();
     }
 
-    private IEnumerator BindWhenReady()
-    {
-        while (enabled && runManager == null)
-        {
-            ResolveReferences();
-            yield return null;
-        }
-
-        bindRoutine = null;
-        if (!enabled)
-            yield break;
-
-        Subscribe();
-        QueuePresentationRefresh();
-    }
-
-    private void Subscribe()
-    {
-        if (subscribed || runManager == null)
-            return;
-
-        runManager.StateChanged += HandleRunStateChanged;
-        runManager.NextNodeSelectionRequested += HandleNodeSelectionRequested;
-        runManager.NodeEntered += HandleNodeEntered;
-        subscribed = true;
-    }
-
-    private void Unsubscribe()
-    {
-        if (!subscribed || runManager == null)
-        {
-            subscribed = false;
-            return;
-        }
-
-        runManager.StateChanged -= HandleRunStateChanged;
-        runManager.NextNodeSelectionRequested -= HandleNodeSelectionRequested;
-        runManager.NodeEntered -= HandleNodeEntered;
-        subscribed = false;
-    }
-
-    private void HandleRunStateChanged(BattleRunState _)
-    {
-        QueuePresentationRefresh();
-    }
-
-    private void HandleNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
-    {
-        // BattleSpatialMapController가 같은 이벤트에서 노드를 재구축한 뒤 한 프레임 뒤 스타일링합니다.
-        QueuePresentationRefresh();
-    }
-
-    private void HandleNodeEntered(BattleNodeData _)
-    {
-        QueuePresentationRefresh();
-    }
-
-    private void QueuePresentationRefresh()
-    {
-        if (!isActiveAndEnabled)
-            return;
-
-        if (refreshRoutine != null)
-            StopCoroutine(refreshRoutine);
-        refreshRoutine = StartCoroutine(RefreshAfterLayout());
-    }
-
-    private IEnumerator RefreshAfterLayout()
-    {
-        yield return null;
-        refreshRoutine = null;
-        RefreshPresentationState();
-    }
-
-    private void RefreshPresentationState()
+    private void Update()
     {
         ResolveReferences();
-        ResolveUi();
-
         bool mapActive = IsMapActive();
+
         if (!mapActive)
         {
             if (wasMapActive)
-            {
-                presentationState = MapPresentationState.Exiting;
                 RestoreMapOnlyState();
-            }
-
             wasMapActive = false;
-            presentationState = MapPresentationState.Hidden;
             return;
         }
 
         bool enteringMap = !wasMapActive;
+        if (!enteringMap && Time.unscaledTime < nextRefresh)
+            return;
+
+        nextRefresh = Time.unscaledTime + Mathf.Max(0.02f, refreshInterval);
+        ResolveUi();
+
         if (enteringMap)
         {
-            presentationState = MapPresentationState.Entering;
             CaptureFrameState();
             wasMapActive = true;
         }
@@ -222,7 +120,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         ApplyMapFrame();
         MaintainInteraction();
         ApplyMapHierarchy();
-        presentationState = MapPresentationState.Active;
     }
 
     private bool IsMapActive()
@@ -236,10 +133,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (uiTheme == null)
-            uiTheme = BattleUIThemeController.Instance != null
-                ? BattleUIThemeController.Instance
-                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
     }
 
     private void ResolveUi()
@@ -308,30 +201,31 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (sharedFrame == null)
             return;
 
-        // Reward의 거대한 Glass/Key strip을 Map에서 절대 재사용하지 않습니다.
-        // 이것이 회색 판 + 노란 세로 장식이 Map 위를 덮던 직접 원인이었습니다.
-        DisableLegacySpatialGlassForMap(sharedFrame);
-        DisableLegacySpatialGlassForMap(screenInner);
-
         sharedFrame.localRotation = Quaternion.identity;
 
         Image frameImage = sharedFrame.GetComponent<Image>();
         if (frameImage != null)
-            frameImage.color = Color.clear;
+            frameImage.color = inkColor;
 
         Outline frameOutline = sharedFrame.GetComponent<Outline>();
         if (frameOutline != null)
-            frameOutline.enabled = false;
+        {
+            frameOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.34f);
+            frameOutline.effectDistance = new Vector2(2f, -2f);
+        }
 
         if (screenInner != null)
         {
             Image innerImage = screenInner.GetComponent<Image>();
             if (innerImage != null)
-                innerImage.color = new Color(0.012f, 0.016f, 0.024f, 0.88f);
+                innerImage.color = panelColor;
 
             Outline innerOutline = screenInner.GetComponent<Outline>();
             if (innerOutline != null)
-                innerOutline.enabled = false;
+            {
+                innerOutline.effectColor = new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.16f);
+                innerOutline.effectDistance = new Vector2(1f, -1f);
+            }
         }
 
         if (mapContent != null)
@@ -341,43 +235,12 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             mapContent.offsetMin = Vector2.zero;
             mapContent.offsetMax = Vector2.zero;
             mapContent.pivot = new Vector2(0.5f, 0.5f);
-
-            // Board 자체도 완전 평면이 아니라 실제 TV 공간에 놓인 얕은 면으로 보이게 합니다.
-            mapContent.localRotation = Quaternion.Euler(0.45f, -0.85f, -0.30f);
+            mapContent.localRotation = Quaternion.identity;
         }
 
         DisableMapClipping(viewport);
         DisableMapClipping(mapContent);
         DisableRewardAccentsDuringMap();
-    }
-
-    private void DisableLegacySpatialGlassForMap(RectTransform rect)
-    {
-        if (rect == null)
-            return;
-
-        BattleSpatialGlassPanel glass = rect.GetComponent<BattleSpatialGlassPanel>();
-        if (glass != null)
-        {
-            if (!clippingStates.ContainsKey(glass))
-                clippingStates.Add(glass, glass.enabled);
-            glass.enabled = false;
-        }
-
-        string[] names = { "__Spatial_Shadow", "__Spatial_Glass", "__Spatial_Key" };
-        for (int i = 0; i < names.Length; i++)
-        {
-            Transform child = rect.Find(names[i]);
-            if (child == null)
-                continue;
-
-            GameObject go = child.gameObject;
-            if (!rewardAccentStates.ContainsKey(go))
-                rewardAccentStates.Add(go, go.activeSelf);
-
-            if (go.activeSelf)
-                go.SetActive(false);
-        }
     }
 
     private void MaintainInteraction()
@@ -462,8 +325,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.alignment = TextAnchor.MiddleLeft;
         text.fontStyle = FontStyle.Bold;
         text.fontSize = 24;
-        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
-        text.color = theme != null ? theme.textPrimary : paperColor;
+        text.color = paperColor;
 
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = new Vector2(1f, 1f);
@@ -499,12 +361,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     {
         Image image = rect.GetComponent<Image>();
         if (image != null)
-        {
-            BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
-            Color muted = theme != null ? theme.textMuted : mutedColor;
-            muted.a = 0.28f;
-            image.color = muted;
-        }
+            image.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.20f);
 
         Vector2 size = rect.sizeDelta;
         size.y = 3f;
@@ -517,151 +374,75 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         Outline outline = rect.GetComponent<Outline>();
         Button button = rect.GetComponent<Button>();
         Text label = rect.Find("Label")?.GetComponent<Text>();
-        Image icon = rect.Find("RoomTypeIcon")?.GetComponent<Image>();
         if (image == null || outline == null)
             return;
 
-        BattleNodeData node = ResolveNodeData(rect);
-        bool selectable = button != null && button.interactable;
-        bool elite = node != null && node.type == BattleNodeType.Elite;
+        bool selectable = button != null;
+        bool elite = label != null &&
+                     (label.text ?? string.Empty).IndexOf("ELITE", System.StringComparison.OrdinalIgnoreCase) >= 0;
         bool current = runManager != null &&
                        runManager.CurrentNode != null &&
-                       node == runManager.CurrentNode;
+                       rect.name == $"StageNode_{runManager.CurrentNode.id}";
 
-        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
-        Color action = elite
-            ? accentPink
-            : theme != null ? theme.keyColor : accentYellow;
-        Color currentColor = accentCyan;
-        Color textPrimary = theme != null ? theme.textPrimary : paperColor;
-        Color textMuted = theme != null ? theme.textMuted : mutedColor;
+        Color accent = elite ? accentPink : accentYellow;
         string nodeLabel = BuildNodeLabel(rect, label != null ? label.text : string.Empty);
-
-        DisableLegacySpatialGlass(rect);
-
-        image.enabled = true;
-        // Map click/hover is resolved in BattleShowMapEquipmentPolishController with the
-        // actual World-Space Canvas event camera. Disable GraphicRaycaster ownership here
-        // to avoid Scene/Game camera mismatch and duplicate click paths.
-        image.raycastTarget = false;
-        if (button != null)
-            button.transition = Selectable.Transition.None;
 
         if (selectable)
         {
+            image.enabled = true;
+            image.color = inkColor;
+            outline.effectColor = accent;
+            outline.effectDistance = new Vector2(3f, -3f);
             float resolvedSize = elite
-                ? Mathf.Max(124f, eliteNodeSize)
-                : Mathf.Max(112f, selectableNodeSize);
+                ? Mathf.Max(70f, eliteNodeSize)
+                : Mathf.Max(64f, selectableNodeSize);
             rect.sizeDelta = Vector2.one * resolvedSize;
-
-            image.color = new Color(action.r, action.g, action.b, 0.20f);
-            outline.enabled = true;
-            outline.effectColor = new Color(action.r, action.g, action.b, 0.92f);
-            outline.effectDistance = new Vector2(2f, -2f);
-
-            float side = Mathf.Abs(rect.anchoredPosition.x) < 0.01f
-                ? 0f
-                : Mathf.Sign(rect.anchoredPosition.x);
-            rect.localRotation = Quaternion.Euler(1.2f, -side * 3.2f, side * 0.7f);
-            Vector3 local = rect.localPosition;
-            local.z = -6f;
-            rect.localPosition = local;
+            button.transition = Selectable.Transition.None;
+            image.raycastTarget = true;
 
             if (label != null)
             {
                 label.text = nodeLabel;
                 label.fontStyle = FontStyle.Bold;
-                label.fontSize = 13;
-                label.color = textPrimary;
-                label.raycastTarget = false;
-                label.rectTransform.sizeDelta = new Vector2(156f, 54f);
-                label.rectTransform.anchoredPosition = new Vector2(0f, -10f);
+                label.fontSize = 9;
+                label.color = paperColor;
             }
 
-            if (icon != null)
-            {
-                icon.rectTransform.sizeDelta = Vector2.one * 38f;
-                icon.color = action;
-            }
-
-            EnsurePointerHitArea(rect, image, outline, label, action);
+            EnsurePointerHitArea(rect, image, outline, label, accent);
         }
         else if (current)
         {
-            image.color = new Color(currentColor.r, currentColor.g, currentColor.b, 0.16f);
-            outline.enabled = true;
-            outline.effectColor = new Color(currentColor.r, currentColor.g, currentColor.b, 0.72f);
-            outline.effectDistance = new Vector2(2f, -2f);
-
-            rect.localRotation = Quaternion.Euler(0.6f, 1.4f, 0.25f);
-            Vector3 local = rect.localPosition;
-            local.z = -2f;
-            rect.localPosition = local;
+            image.enabled = true;
+            image.color = new Color(
+                accentCyan.r * 0.28f,
+                accentCyan.g * 0.28f,
+                accentCyan.b * 0.28f,
+                1f);
+            outline.effectColor = accentCyan;
+            outline.effectDistance = new Vector2(3f, -3f);
 
             if (label != null)
             {
-                label.text = "CURRENT\n" + nodeLabel;
-                label.color = currentColor;
+                label.text = nodeLabel;
+                label.color = accentCyan;
                 label.fontStyle = FontStyle.Bold;
-                label.fontSize = 12;
-                label.raycastTarget = false;
-                label.rectTransform.sizeDelta = new Vector2(156f, 54f);
-                label.rectTransform.anchoredPosition = new Vector2(0f, -10f);
-            }
-
-            if (icon != null)
-            {
-                icon.rectTransform.sizeDelta = Vector2.one * 36f;
-                icon.color = currentColor;
+                label.fontSize = 10;
             }
         }
         else
         {
-            image.color = new Color(panelColor.r, panelColor.g, panelColor.b, 0.34f);
-            outline.enabled = false;
-
-            float side = Mathf.Abs(rect.anchoredPosition.x) < 0.01f
-                ? 0f
-                : Mathf.Sign(rect.anchoredPosition.x);
-            rect.localRotation = Quaternion.Euler(2.2f, -side * 4.2f, side * 1.0f);
-            Vector3 local = rect.localPosition;
-            local.z = 8f;
-            rect.localPosition = local;
+            image.enabled = true;
+            image.color = new Color(0.10f, 0.105f, 0.13f, 0.92f);
+            outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
+            outline.effectDistance = new Vector2(1f, -1f);
 
             if (label != null)
             {
                 label.text = nodeLabel;
-                label.color = new Color(textMuted.r, textMuted.g, textMuted.b, 0.72f);
+                label.color = mutedColor;
                 label.fontStyle = FontStyle.Normal;
-                label.fontSize = 10;
-                label.raycastTarget = false;
-                label.rectTransform.sizeDelta = new Vector2(150f, 48f);
-                label.rectTransform.anchoredPosition = new Vector2(0f, -9f);
+                label.fontSize = 9;
             }
-
-            if (icon != null)
-            {
-                icon.rectTransform.sizeDelta = Vector2.one * 32f;
-                icon.color = textMuted;
-            }
-        }
-    }
-
-    private static void DisableLegacySpatialGlass(RectTransform rect)
-    {
-        if (rect == null)
-            return;
-
-        BattleSpatialGlassPanel glass = rect.GetComponent<BattleSpatialGlassPanel>();
-        if (glass != null)
-            glass.enabled = false;
-
-        string[] names = { "__Spatial_Shadow", "__Spatial_Glass", "__Spatial_Key" };
-        for (int i = 0; i < names.Length; i++)
-        {
-            Transform child = rect.Find(names[i]);
-            if (child != null && child.gameObject.activeSelf)
-                child.gameObject.SetActive(false);
         }
     }
 
@@ -693,25 +474,13 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
             hitImage = hit.AddComponent<Image>();
             hitImage.color = new Color(1f, 1f, 1f, 0.001f);
+            hitImage.raycastTarget = true;
             hit.transform.SetAsLastSibling();
         }
 
-        hitRect.sizeDelta = Vector2.one * Mathf.Max(150f, pointerHitSize);
-
-        Button nodeButton = node.GetComponent<Button>();
-        bool clickable = nodeButton != null && nodeButton.interactable;
-
+        hitRect.sizeDelta = Vector2.one * Mathf.Max(104f, pointerHitSize);
         if (hitImage != null)
-            hitImage.raycastTarget = false;
-
-        // Map selection callback ownership은 원본 StageNode Button 하나만 유지합니다.
-        // 넓은 HitArea는 hover/raycast와 BattleSpatialMapController의 direct hit-test에만 사용합니다.
-        Button legacyHitButton = hitRect.GetComponent<Button>();
-        if (legacyHitButton != null)
-        {
-            legacyHitButton.onClick.RemoveAllListeners();
-            legacyHitButton.enabled = false;
-        }
+            hitImage.raycastTarget = true;
 
         BattleStageMapNodePointerFeedback feedback =
             hitRect.GetComponent<BattleStageMapNodePointerFeedback>();
@@ -725,17 +494,21 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             accent,
             inkColor,
             paperColor);
-
     }
 
     private void EnsureDecisionAccent()
     {
-        if (mapContent == null)
+        if (mapContent == null || mapContent.Find(DecisionAccentName) != null)
             return;
 
-        Transform existing = mapContent.Find(DecisionAccentName);
-        if (existing != null && existing.gameObject.activeSelf)
-            existing.gameObject.SetActive(false);
+        RectTransform accent = CreateRect(mapContent, DecisionAccentName, new Vector2(8f, 50f));
+        accent.anchorMin = accent.anchorMax = new Vector2(0f, 1f);
+        accent.pivot = new Vector2(0f, 1f);
+        accent.anchoredPosition = new Vector2(24f, -14f);
+
+        Image image = accent.gameObject.AddComponent<Image>();
+        image.color = accentYellow;
+        image.raycastTarget = false;
     }
 
     private void EnsureControlHint()
@@ -743,19 +516,18 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (mapContent == null || mapContent.Find(ControlHintName) != null)
             return;
 
-        RectTransform rect = CreateRect(mapContent, ControlHintName, new Vector2(360f, 28f));
+        RectTransform rect = CreateRect(mapContent, ControlHintName, new Vector2(260f, 24f));
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);
         rect.pivot = new Vector2(1f, 0f);
         rect.anchoredPosition = new Vector2(-28f, 18f);
 
         Text text = rect.gameObject.AddComponent<Text>();
         text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.text = "HOVER = PREVIEW   /   CLICK = SELECT";
-        text.fontSize = 11;
+        text.text = "POINT  /  CLICK TO CONFIRM";
+        text.fontSize = 9;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleRight;
-        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
-        text.color = theme != null ? theme.keyColor : accentYellow;
+        text.color = accentCyan;
         text.raycastTarget = false;
     }
 
@@ -770,7 +542,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             ? runManager.ResolveBattleRatingStars(node)
             : node.GetBattleRatingStars();
 
-        return typeName + "\nRATING " + stars + " / 5";
+        return typeName + "\n" + BuildStars(stars);
     }
 
     private BattleNodeData ResolveNodeData(RectTransform rect)
@@ -783,6 +555,12 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             return null;
 
         return runManager.FindNode(rect.name.Substring(prefix.Length));
+    }
+
+    private static string BuildStars(int stars)
+    {
+        stars = Mathf.Clamp(stars, 1, 5);
+        return new string('★', stars) + new string('☆', 5 - stars);
     }
 
     private static string ExtractNodeType(string source)
@@ -922,25 +700,12 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        EventSystem eventSystem = EventSystem.current != null
-            ? EventSystem.current
-            : FindFirstObjectByType<EventSystem>(FindObjectsInactive.Include);
+        if (EventSystem.current != null)
+            return;
 
-        if (eventSystem == null)
-        {
-            GameObject go = new("BattleStageMapEventSystem");
-            eventSystem = go.AddComponent<EventSystem>();
-        }
-
-        InputSystemUIInputModule inputModule =
-            eventSystem.GetComponent<InputSystemUIInputModule>();
-        if (inputModule == null)
-            inputModule = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
-
-        StandaloneInputModule legacy =
-            eventSystem.GetComponent<StandaloneInputModule>();
-        if (legacy != null)
-            legacy.enabled = false;
+        GameObject go = new("BattleStageMapEventSystem");
+        go.AddComponent<EventSystem>();
+        go.AddComponent<StandaloneInputModule>();
     }
 }
 
@@ -951,29 +716,22 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 internal sealed class BattleStageMapNodePointerFeedback :
     MonoBehaviour,
     IPointerEnterHandler,
-    IPointerExitHandler,
-    IPointerClickHandler
+    IPointerExitHandler
 {
-    private const float HoverScale = 1.12f;
-    private const float SelectedScale = 1.08f;
-    private const float TweenDuration = 0.18f;
+    private const float HoverScale = 1.18f;
+    private const float HoverScaleSharpness = 18f;
 
     private RectTransform nodeRect;
     private Image nodeImage;
     private Image nodeIcon;
-    private Button nodeButton;
     private Outline nodeOutline;
     private Text label;
     private Color accent;
-    private Color baseFill;
-    private Color baseOutline;
-    private Color baseLabelColor;
+    private Color baseColor;
+    private Color paperColor;
     private Color baseIconColor = Color.white;
     private string baseLabel = "STAGE";
-    private Quaternion baseRotation = Quaternion.identity;
-    private float baseZ;
     private bool hovered;
-    private bool selected;
 
     public void Configure(
         Image image,
@@ -985,26 +743,11 @@ internal sealed class BattleStageMapNodePointerFeedback :
     {
         nodeImage = image;
         nodeRect = image != null ? image.rectTransform : null;
-        nodeButton = nodeRect != null ? nodeRect.GetComponent<Button>() : null;
         nodeOutline = outline;
         label = nodeLabel;
         accent = accentColor;
-
-        if (nodeRect != null)
-        {
-            baseRotation = nodeRect.localRotation;
-            baseZ = nodeRect.localPosition.z;
-        }
-
-        if (nodeImage != null)
-            baseFill = nodeImage.color;
-        if (nodeOutline != null)
-            baseOutline = nodeOutline.effectColor;
-        if (label != null)
-        {
-            baseLabel = ExtractLabel(label.text);
-            baseLabelColor = label.color;
-        }
+        baseColor = normalColor;
+        paperColor = textColor;
 
         Image resolvedIcon = FindNodeIcon(nodeRect, nodeImage);
         if (resolvedIcon != nodeIcon)
@@ -1013,156 +756,110 @@ internal sealed class BattleStageMapNodePointerFeedback :
             if (nodeIcon != null)
                 baseIconColor = nodeIcon.color;
         }
+        else if (!hovered && nodeIcon != null)
+        {
+            baseIconColor = nodeIcon.color;
+        }
 
-        if (!selected && !hovered)
-            ApplyNormal(true);
+        if (label != null)
+            baseLabel = ExtractLabel(label.text);
+
+        if (!hovered)
+            ApplyNormal();
+        else
+            ApplyHover();
+    }
+
+    private void Update()
+    {
+        if (nodeRect == null)
+            return;
+
+        float targetScale = hovered ? HoverScale : 1f;
+        float t = 1f - Mathf.Exp(-HoverScaleSharpness * Time.unscaledDeltaTime);
+        Vector3 target = Vector3.one * targetScale;
+        nodeRect.localScale = Vector3.Lerp(nodeRect.localScale, target, t);
+
+        if ((nodeRect.localScale - target).sqrMagnitude <= 0.00001f)
+            nodeRect.localScale = target;
     }
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        SetHovered(true);
+        hovered = true;
+        ApplyHover();
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        SetHovered(false);
-    }
-
-    public void SetHovered(bool value)
-    {
-        if (selected || hovered == value)
-            return;
-
-        hovered = value;
-        if (hovered)
-            ApplyHover();
-        else
-            ApplyNormal(false);
-    }
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        if (selected || nodeButton == null ||
-            !nodeButton.IsActive() || !nodeButton.IsInteractable())
-        {
-            return;
-        }
-
-        NotifySelected();
-        nodeButton.onClick.Invoke();
-    }
-
-    public void NotifySelected()
-    {
-        if (selected)
-            return;
-
-        selected = true;
         hovered = false;
+        ApplyNormal();
+    }
 
-        if (nodeImage != null)
-            nodeImage.color = new Color(accent.r, accent.g, accent.b, 0.34f);
-
-        if (nodeOutline != null)
-        {
-            nodeOutline.enabled = true;
-            nodeOutline.effectColor = accent;
-        }
-
-        if (label != null)
-        {
-            label.text = baseLabel + "\nSELECTED";
-            label.color = accent;
-            label.fontStyle = FontStyle.Bold;
-        }
-
-        TweenPose(Vector3.one * SelectedScale, Quaternion.identity, -28f);
+    private void OnDisable()
+    {
+        hovered = false;
+        ApplyNormal();
+        if (nodeRect != null)
+            nodeRect.localScale = Vector3.one;
     }
 
     private void ApplyHover()
     {
         if (nodeImage != null)
-            nodeImage.color = new Color(accent.r, accent.g, accent.b, 0.28f);
+        {
+            nodeImage.enabled = true;
+            nodeImage.color = paperColor;
+        }
 
         if (nodeOutline != null)
         {
-            nodeOutline.enabled = true;
             nodeOutline.effectColor = accent;
+            nodeOutline.effectDistance = new Vector2(5f, -5f);
         }
 
         if (nodeIcon != null)
-            nodeIcon.color = Color.white;
+        {
+            nodeIcon.enabled = true;
+            nodeIcon.color = baseColor;
+        }
 
         if (label != null)
         {
+            label.gameObject.SetActive(true);
             label.text = baseLabel + "\nSELECT";
-            label.color = accent;
+            label.color = baseColor;
             label.fontStyle = FontStyle.Bold;
         }
-
-        TweenPose(Vector3.one * HoverScale, Quaternion.Euler(0.2f, 0f, 0f), -18f);
     }
 
-    private void ApplyNormal(bool immediate)
+    private void ApplyNormal()
     {
         if (nodeImage != null)
-            nodeImage.color = baseFill;
+        {
+            nodeImage.enabled = true;
+            nodeImage.color = baseColor;
+        }
 
         if (nodeOutline != null)
         {
-            nodeOutline.enabled = true;
-            nodeOutline.effectColor = baseOutline;
+            nodeOutline.effectColor = accent;
+            nodeOutline.effectDistance = new Vector2(3f, -3f);
         }
 
         if (nodeIcon != null)
+        {
+            nodeIcon.enabled = true;
             nodeIcon.color = baseIconColor;
+        }
 
         if (label != null)
         {
+            label.gameObject.SetActive(true);
             label.text = baseLabel;
-            label.color = baseLabelColor;
+            label.color = paperColor;
             label.fontStyle = FontStyle.Bold;
         }
-
-        if (nodeRect == null)
-            return;
-
-        if (immediate)
-        {
-            nodeRect.DOKill();
-            nodeRect.localScale = Vector3.one;
-            nodeRect.localRotation = baseRotation;
-            Vector3 local = nodeRect.localPosition;
-            local.z = baseZ;
-            nodeRect.localPosition = local;
-            return;
-        }
-
-        TweenPose(Vector3.one, baseRotation, baseZ);
-    }
-
-    private void TweenPose(Vector3 scale, Quaternion rotation, float z)
-    {
-        if (nodeRect == null)
-            return;
-
-        nodeRect.DOKill();
-        nodeRect.DOScale(scale, TweenDuration).SetUpdate(true).SetEase(Ease.OutCubic);
-        nodeRect.DOLocalRotate(rotation.eulerAngles, TweenDuration, RotateMode.Fast)
-            .SetUpdate(true)
-            .SetEase(Ease.OutCubic);
-        nodeRect.DOLocalMoveZ(z, TweenDuration)
-            .SetUpdate(true)
-            .SetEase(Ease.OutCubic);
-    }
-
-    private void OnDisable()
-    {
-        if (nodeRect != null)
-            nodeRect.DOKill();
-
-        hovered = false;
-        selected = false;
     }
 
     private static Image FindNodeIcon(RectTransform node, Image rootImage)
@@ -1191,10 +888,6 @@ internal sealed class BattleStageMapNodePointerFeedback :
             return "STAGE";
 
         string normalized = source.Replace("\r", string.Empty);
-        int selectedLine = normalized.IndexOf("\nSELECTED", System.StringComparison.OrdinalIgnoreCase);
-        if (selectedLine >= 0)
-            normalized = normalized.Substring(0, selectedLine);
-
         int selectLine = normalized.IndexOf("\nSELECT", System.StringComparison.OrdinalIgnoreCase);
         if (selectLine >= 0)
             normalized = normalized.Substring(0, selectLine);

@@ -157,10 +157,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
-    [Header("Combat Rule Focus Stability")]
-    [SerializeField, Min(0f)] private float combatRuleFocusExitHorizontalPadding = 70f;
-    [SerializeField, Min(0f)] private float combatRuleFocusExitTopPadding = 220f;
-    [SerializeField, Min(0f)] private float combatRuleFocusExitBottomPadding = 24f;
 
     [Header("Rule Confirm Punch")]
     [SerializeField, Range(1f, 1.4f)] private float ruleConfirmScale = 1.18f;
@@ -209,7 +205,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private bool cancelRequested;
     private bool startBattleConfirmed;
     private bool combatHudMode;
-    private BattleUIThemeController uiTheme;
     private bool finalReviewMode;
     private bool combatTabOpen;
     private bool combatRulePanelFocused;
@@ -224,7 +219,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         public RectTransform root;
         public RectTransform visualRoot;
         public Image frame;
-        public BattleSpatialGlassPanel glass;
         public Image icon;
         public Text fallbackLabel;
         public BattleRuleDefinition boundRule;
@@ -241,50 +235,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatHudMode &&
         combatTabOpen &&
         combatRulePanelFocused;
-
-    public bool IsScreenPointInsideCombatRuleFocusZone(Vector2 screenPoint)
-    {
-        if (!combatHudMode ||
-            !combatTabOpen ||
-            combatRulePanel == null ||
-            !combatRulePanel.gameObject.activeInHierarchy)
-        {
-            return false;
-        }
-
-        Canvas panelCanvas = combatRulePanel.GetComponentInParent<Canvas>();
-        Camera eventCamera =
-            panelCanvas != null &&
-            panelCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? panelCanvas.worldCamera
-                : null;
-
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                combatRulePanel,
-                screenPoint,
-                eventCamera,
-                out Vector2 localPoint))
-        {
-            return false;
-        }
-
-        Rect hitRect = combatRulePanel.rect;
-
-        if (combatRulePanelFocused)
-        {
-            float horizontal = Mathf.Max(0f, combatRuleFocusExitHorizontalPadding);
-            hitRect.xMin -= horizontal;
-            hitRect.xMax += horizontal;
-
-            // RULES가 Focus되면 PACK과 함께 아래로 이동하므로
-            // 위쪽은 넉넉히 유지하되, 아래쪽은 좁게 두어 PACK으로 내려가면
-            // 즉시 PACK Focus로 넘길 수 있게 합니다.
-            hitRect.yMax += Mathf.Max(0f, combatRuleFocusExitTopPadding);
-            hitRect.yMin -= Mathf.Max(0f, combatRuleFocusExitBottomPadding);
-        }
-
-        return hitRect.Contains(localPoint);
-    }
 
     public static BattleRuleRouletteController ResolveOrCreate(BattleRunManager owner)
     {
@@ -352,9 +302,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     public void CancelPresentation()
     {
-        ResolveThemeController();
-        uiTheme?.ClearContextOverride(this);
-
         cancelRequested = true;
         startBattleConfirmed = false;
         combatHudMode = false;
@@ -393,9 +340,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     public IEnumerator PlayRoulette(int requestedStars, Action<BattleRuleSet> onComplete)
     {
-        ResolveThemeController();
-        uiTheme?.SetContextOverride(this, BattleUIThemeContext.RuleRoulette, 100);
-
         cancelRequested = false;
         startBattleConfirmed = false;
 
@@ -482,18 +426,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         // 결과 아이콘은 꺼버리지 않고 좌측 상단 HUD로 자연스럽게 이동시킵니다.
         yield return TransitionToCombatHud();
 
-        uiTheme?.ClearContextOverride(this);
         onComplete?.Invoke(result);
-    }
-
-    private void ResolveThemeController()
-    {
-        if (uiTheme != null)
-            return;
-
-        uiTheme = BattleUIThemeController.Instance != null
-            ? BattleUIThemeController.Instance
-            : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
     }
 
     public BattleRuleSet Roll(int requestedStars)
@@ -737,8 +670,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             "MachineTab",
             new Vector2(0.5f, 0.70f),
             new Vector2(680f, 150f));
-        ApplySpatialGlass(machineTab.gameObject, true, 0.10f, 0.040f, 0.35f, 0.10f);
-        machineTab.localRotation = Quaternion.Euler(-1.8f, -4.5f, -0.4f);
 
         resultListTab = CreateBareTab(
             backdrop,
@@ -753,18 +684,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             new Vector2(620f, 88f));
 
         ruleDetailBarImage = winningRuleTab.gameObject.AddComponent<Image>();
-        ruleDetailBarImage.color = Color.clear;
+        ruleDetailBarImage.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
         ruleDetailBarImage.raycastTarget = false;
-        ApplySpatialGlass(winningRuleTab.gameObject, false, 0.09f, -0.035f, 0.18f, -0.08f);
-        winningRuleTab.localRotation = Quaternion.Euler(1.2f, 4.0f, 0.3f);
 
         controlTab = CreateBareTab(
             backdrop,
             "ControlTab",
             new Vector2(0.5f, 0.42f),
             new Vector2(260f, 86f));
-        ApplySpatialGlass(controlTab.gameObject, true, 0.14f, 0.050f, 0.42f, 0.20f);
-        controlTab.localRotation = Quaternion.Euler(-1.0f, -3.0f, -0.4f);
         controlTabRestPosition = controlTab.anchoredPosition;
 
         ratingText = CreateText(machineTab, "Rating", 28, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -778,7 +705,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         BuildStarImages(starsRoot);
 
         progressText = CreateText(machineTab, "Progress", 15, FontStyle.Bold, TextAnchor.MiddleCenter);
-        BindTheme(progressText, BattleUIThemeColorRole.Key);
+        progressText.color = new Color(0.16f, 0.86f, 0.92f, 1f);
         SetRect(progressText.rectTransform, new Vector2(0.10f, 0.02f), new Vector2(0.90f, 0.25f));
 
         ruleSlotRow = resultListTab;
@@ -798,15 +725,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         layout.childForceExpandHeight = false;
 
         winningRuleTypeText = CreateText(winningRuleTab, "RuleType", 13, FontStyle.Bold, TextAnchor.MiddleCenter);
-        BindTheme(winningRuleTypeText, BattleUIThemeColorRole.Key);
         SetRect(winningRuleTypeText.rectTransform, new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.94f));
 
         winningRuleNameText = CreateText(winningRuleTab, "RuleName", 20, FontStyle.Bold, TextAnchor.MiddleCenter);
-        BindTheme(winningRuleNameText, BattleUIThemeColorRole.TextPrimary);
         SetRect(winningRuleNameText.rectTransform, new Vector2(0.05f, 0.34f), new Vector2(0.95f, 0.70f));
 
         winningRuleDescriptionText = CreateText(winningRuleTab, "RuleDescription", 13, FontStyle.Normal, TextAnchor.MiddleCenter);
-        BindTheme(winningRuleDescriptionText, BattleUIThemeColorRole.TextMuted);
         SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.38f));
 
         RectTransform buttonRect = CreateRect(controlTab, "StartBattleButton");
@@ -817,9 +741,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             ? spinButtonSprite
             : BattleRuleRuntimeUiSprites.RoundedButton;
         spinButtonImage.type = Image.Type.Sliced;
-        spinButtonImage.color = Color.clear;
+        spinButtonImage.color = spinButtonSprite != null
+            ? Color.white
+            : new Color(0.92f, 0.25f, 0.12f, 1f);
         spinButtonImage.raycastTarget = true;
-        ApplySpatialGlass(buttonRect.gameObject, false, 0.18f, -0.050f, 0.64f, 0.55f);
 
         spinButton = buttonRect.gameObject.AddComponent<Button>();
         spinButton.interactable = false;
@@ -827,53 +752,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         spinButton.onClick.AddListener(ConfirmStartBattle);
 
         spinButtonText = CreateText(buttonRect, "Label", 20, FontStyle.Bold, TextAnchor.MiddleCenter);
-        BindTheme(spinButtonText, BattleUIThemeColorRole.TextPrimary);
         Stretch(spinButtonText.rectTransform);
 
         uiRoot.SetActive(false);
-    }
-
-    private static void ApplySpatialGlass(
-        GameObject root,
-        bool keyOnLeft,
-        float keyArea,
-        float skew,
-        float focus,
-        float depth)
-    {
-        if (root == null)
-            return;
-
-        BattleSpatialGlassPanel glass = root.GetComponent<BattleSpatialGlassPanel>();
-        if (glass == null)
-            glass = root.AddComponent<BattleSpatialGlassPanel>();
-
-        glass.Configure(keyOnLeft, keyArea, skew);
-        glass.SetSpatialState(focus, depth);
-
-        Image image = root.GetComponent<Image>();
-        if (image != null)
-            image.color = Color.clear;
-
-        Outline outline = root.GetComponent<Outline>();
-        if (outline != null)
-            outline.enabled = false;
-    }
-
-    private static void BindTheme(
-        Graphic graphic,
-        BattleUIThemeColorRole role,
-        float alpha = 1f)
-    {
-        if (graphic == null)
-            return;
-
-        BattleUIThemeColorBinding binding =
-            graphic.GetComponent<BattleUIThemeColorBinding>();
-        if (binding == null)
-            binding = graphic.gameObject.AddComponent<BattleUIThemeColorBinding>();
-
-        binding.Configure(role, alpha);
     }
 
     private static RectTransform CreateBareTab(
@@ -932,18 +813,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             Image frame = visualRoot.gameObject.AddComponent<Image>();
             frame.sprite = ruleSlotFrameSprite;
             frame.type = ruleSlotFrameSprite != null ? Image.Type.Sliced : Image.Type.Simple;
-            frame.color = Color.clear;
+            frame.color = ruleSlotFrameSprite != null
+                ? Color.white
+                : new Color(0.08f, 0.085f, 0.11f, 0.98f);
             frame.raycastTarget = false;
-
-            BattleSpatialGlassPanel slotGlass =
-                visualRoot.gameObject.AddComponent<BattleSpatialGlassPanel>();
-            slotGlass.Configure(i % 2 == 0, 0.12f, i % 2 == 0 ? 0.045f : -0.045f);
-            slotGlass.SetSpatialState(0.12f, -0.12f);
-
-            visualRoot.localRotation = Quaternion.Euler(
-                i % 2 == 0 ? -1.4f : 1.2f,
-                i % 2 == 0 ? -4.0f : 4.0f,
-                i % 2 == 0 ? -0.35f : 0.35f);
 
             BattleRuleSlotPointerFeedback pointerFeedback =
                 root.gameObject.AddComponent<BattleRuleSlotPointerFeedback>();
@@ -970,7 +843,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 root = root,
                 visualRoot = visualRoot,
                 frame = frame,
-                glass = slotGlass,
                 icon = icon,
                 fallbackLabel = fallbackLabel,
                 pointerFeedback = pointerFeedback
@@ -989,12 +861,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         Color polarityColor = GetPolarityColor(rule.polarity);
 
-        if (view.frame != null)
-            view.frame.color = Color.clear;
-
-        view.glass?.SetSpatialState(
-            previewOnly ? 0.16f : 0.78f,
-            previewOnly ? -0.10f : 0.72f);
+        if (view.frame != null && ruleSlotFrameSprite == null)
+        {
+            float mix = previewOnly ? 0.10f : 0.24f;
+            view.frame.color = new Color(
+                Mathf.Lerp(0.08f, polarityColor.r, mix),
+                Mathf.Lerp(0.085f, polarityColor.g, mix),
+                Mathf.Lerp(0.11f, polarityColor.b, mix),
+                0.98f);
+        }
 
         if (view.icon != null)
         {
@@ -1922,12 +1797,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         ResolveCombatTabReferences();
 
-        if (Input.mousePresent &&
-            IsScreenPointInsideCombatRuleFocusZone(Input.mousePosition))
-        {
-            return;
-        }
-
         if (combatTabPresentation != null)
             combatTabPresentation.NotifyRulePointerExit();
         else
@@ -2181,13 +2050,52 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (parent == null)
             return null;
 
-        // Decorative-only slashes/lines are forbidden.
-        // If an older runtime instance exists, hide it instead of recreating it.
         Transform existing = parent.Find("RuleDetailAccent");
-        if (existing != null && existing.gameObject.activeSelf)
-            existing.gameObject.SetActive(false);
+        if (existing is RectTransform existingRect)
+            return existingRect;
 
-        return null;
+        RectTransform accentRoot = CreateRect(parent, "RuleDetailAccent");
+        accentRoot.anchorMin = accentRoot.anchorMax = new Vector2(0f, 0.5f);
+        accentRoot.pivot = new Vector2(1f, 0.5f);
+        accentRoot.anchoredPosition = new Vector2(-10f, 0f);
+        accentRoot.sizeDelta = new Vector2(92f, 92f);
+
+        RectTransform plate = CreateRect(accentRoot, "MainSlash");
+        plate.anchorMin = plate.anchorMax = new Vector2(0.5f, 0.5f);
+        plate.pivot = new Vector2(0.5f, 0.5f);
+        plate.sizeDelta = new Vector2(13f, 78f);
+        plate.anchoredPosition = new Vector2(-25f, 0f);
+        plate.localRotation = Quaternion.Euler(0f, 0f, -24f);
+
+        Image plateImage = plate.gameObject.AddComponent<Image>();
+        plateImage.color = new Color(1f, 1f, 1f, 0.96f);
+        plateImage.raycastTarget = false;
+
+        for (int i = 0; i < 2; i++)
+        {
+            RectTransform slash = CreateRect(accentRoot, $"ThinSlash_{i + 1}");
+            slash.anchorMin = slash.anchorMax = new Vector2(0.5f, 0.5f);
+            slash.pivot = new Vector2(0.5f, 0.5f);
+            slash.sizeDelta = new Vector2(6f, 58f - i * 10f);
+            slash.anchoredPosition = new Vector2(i * 18f, 0f);
+            slash.localRotation = Quaternion.Euler(0f, 0f, -24f);
+
+            Image image = slash.gameObject.AddComponent<Image>();
+            image.color = new Color(1f, 1f, 1f, 0.76f - i * 0.18f);
+            image.raycastTarget = false;
+        }
+
+        RectTransform line = CreateRect(accentRoot, "TailLine");
+        line.anchorMin = line.anchorMax = new Vector2(0.5f, 0.5f);
+        line.pivot = new Vector2(0f, 0.5f);
+        line.sizeDelta = new Vector2(52f, 3f);
+        line.anchoredPosition = new Vector2(18f, -31f);
+
+        Image lineImage = line.gameObject.AddComponent<Image>();
+        lineImage.color = new Color(1f, 1f, 1f, 0.72f);
+        lineImage.raycastTarget = false;
+
+        return accentRoot;
     }
 
     private void SetSpinButtonLabel(string label)

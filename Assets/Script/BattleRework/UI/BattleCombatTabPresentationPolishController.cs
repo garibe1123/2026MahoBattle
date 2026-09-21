@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -11,7 +10,7 @@ using UnityEngine.UI;
 /// - 평소에는 작은 Metric Bar, TAB을 열면 같은 자리에서 부드럽게 확대합니다.
 /// - FAN MISSION 아래에 방송 스타일 Live Chat을 표시합니다.
 /// - 실제 Viewer가 0명일 때는 채팅을 생성하지 않습니다.
-/// - Viewer/Like 표시는 RunProgressSystem의 실제 BroadcastMetrics만 사용합니다.
+/// - 0명 구간에서는 표시용 1~2명 유입이 간헐적으로 들어왔다가 빠지며, 가끔 짧은 이탈성 댓글을 남깁니다.
 /// - Combat TAB의 PACK은 GridBoard 자체가 아니라 BroadcastPackDock 부모를 좌측 Rail에 맞춰 이동합니다.
 /// - Equipment Detail은 PACK 가까이에 붙이고, 우측 Mission / Chat 포커스 중에는 숨깁니다.
 /// - 우측 하단 CurrentLoadoutChip의 빨간 AccentSlash 장식은 숨깁니다.
@@ -22,13 +21,6 @@ internal enum BattleCombatTabPrimaryFocus
     None,
     Pack,
     Rules
-}
-
-internal enum BattleCombatTabPresentationState
-{
-    Hidden,
-    Compact,
-    Open
 }
 
 internal sealed class BattleCombatPackFocusPointerRelay : MonoBehaviour,
@@ -113,6 +105,26 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         "clean swap, keep going"
     };
 
+    private static readonly string[] DriveByChatNames =
+    {
+        "guest_031",
+        "지나가던사람",
+        "wrong_tab",
+        "noSignal",
+        "ㅇㅇ",
+        "justPassing"
+    };
+
+    private static readonly string[] DriveByChatComments =
+    {
+        "아 잘못 들어왔네",
+        "아 노잼",
+        "뭐야 아무도 없네",
+        "잘못 눌렀다 ㅂㅂ",
+        "음... 그냥 나갈게",
+        "이 방송 뭐 하는 데임?"
+    };
+
     private static readonly string[] PreferredMultilingualFonts =
     {
         "Malgun Gothic",
@@ -124,7 +136,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     [Header("AUTO REFERENCES")]
     [SerializeField] private BattleRunManager runManager;
-    [SerializeField] private BattleUIThemeController uiTheme;
     [SerializeField] private RunProgressSystem runProgress;
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
@@ -159,6 +170,18 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField, Range(0.35f, 4f)] private float highViewerChatInterval = HighViewerChatInterval;
     [SerializeField, Range(3, 7)] private int maxChatLines = MaxChatLines;
 
+    [Header("ZERO VIEWER — AMBIENT DROP-IN")]
+    [Tooltip("실제 Viewer가 0명일 때 1~2명이 들어오기까지의 최소 대기 시간입니다.")]
+    [SerializeField, Range(2f, 30f)] private float ambientViewerIdleMin = 6f;
+    [Tooltip("실제 Viewer가 0명일 때 1~2명이 들어오기까지의 최대 대기 시간입니다.")]
+    [SerializeField, Range(3f, 45f)] private float ambientViewerIdleMax = 15f;
+    [Tooltip("들어온 1~2명이 머무는 최소 시간입니다.")]
+    [SerializeField, Range(1f, 12f)] private float ambientViewerStayMin = 3f;
+    [Tooltip("들어온 1~2명이 머무는 최대 시간입니다.")]
+    [SerializeField, Range(2f, 20f)] private float ambientViewerStayMax = 7f;
+    [Tooltip("짧게 들어온 Viewer가 이탈성 댓글 하나를 남길 확률입니다.")]
+    [SerializeField, Range(0f, 1f)] private float ambientDriveByCommentChance = 0.48f;
+
     private RectTransform fullRoot;
     private RectTransform packDockRoot;
     private RectTransform packBoardMotionRoot;
@@ -172,7 +195,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private CanvasGroup metricGroup;
     private Text metricViewersText;
     private Text metricLikesText;
-    private bool metricTargetVisible;
 
     private RectTransform chatPanel;
     private CanvasGroup chatGroup;
@@ -200,11 +222,15 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private readonly List<string> chatHistory = new();
     private int chatSequence;
     private float nextChatAt;
+    private float nextResolveAt;
 
-    private BattleCombatTabPresentationState presentationState = BattleCombatTabPresentationState.Hidden;
-    private bool eventsSubscribed;
-    private Coroutine bindRoutine;
-    private bool chatTargetVisible;
+    private bool ambientViewerScheduled;
+    private int ambientViewerCount;
+    private float nextAmbientViewerAt;
+    private float ambientViewerLeaveAt;
+    private bool ambientCommentPending;
+    private int ambientSequence;
+    private int driveByChatSequence;
 
     private static Font multilingualFont;
 
@@ -253,171 +279,27 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences(true);
-        ResolveDashboardUi();
-        SubscribeEvents();
-
+        nextResolveAt = 0f;
         nextChatAt = 0f;
         rightPanelFocused = false;
         packDockTweenInitialized = false;
-
-        EnsurePrimaryFocusRelay();
-        EnsureChatPanel();
-        ApplyPresentationState(ResolvePresentationState(), true);
-
-        if ((!eventsSubscribed || runManager == null || runProgress == null || kineticLoadout == null) &&
-            bindRoutine == null)
-        {
-            bindRoutine = StartCoroutine(BindWhenReady());
-        }
+        ResetAmbientAudience();
     }
 
     private void OnDisable()
     {
-        if (bindRoutine != null)
-            StopCoroutine(bindRoutine);
-        bindRoutine = null;
-
-        UnsubscribeEvents();
         SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
         rightPanelFocused = false;
         packDockTweenInitialized = false;
         RestorePackRuleScale();
         RestoreDashboardRuleOffset();
+        ResetAmbientAudience();
         RestoreDetailSorting();
         SetChatVisible(false);
         SetMetricVisible(false);
-
-        // Component teardown has no following animation tick, so prevent orphan UI.
-        if (chatGroup != null)
-            chatGroup.alpha = 0f;
-        if (chatPanel != null)
-            chatPanel.gameObject.SetActive(false);
-        if (metricGroup != null)
-            metricGroup.alpha = 0f;
-        if (metricBar != null)
-            metricBar.gameObject.SetActive(false);
-
-        presentationState = BattleCombatTabPresentationState.Hidden;
     }
 
-    private IEnumerator BindWhenReady()
-    {
-        while (enabled && (runManager == null || runProgress == null || kineticLoadout == null))
-        {
-            ResolveReferences(false);
-            yield return null;
-        }
-
-        bindRoutine = null;
-        if (!enabled)
-            yield break;
-
-        ResolveDashboardUi();
-        SubscribeEvents();
-        EnsurePrimaryFocusRelay();
-        EnsureChatPanel();
-        ApplyPresentationState(ResolvePresentationState(), true);
-    }
-
-    private void SubscribeEvents()
-    {
-        if (eventsSubscribed || runManager == null || runProgress == null || kineticLoadout == null)
-            return;
-
-        runManager.StateChanged += HandleRunStateChanged;
-        runProgress.BroadcastMetricsChanged += HandleBroadcastMetricsChanged;
-        kineticLoadout.SwitchBoardVisibilityChanged += HandleSwitchBoardVisibilityChanged;
-        eventsSubscribed = true;
-    }
-
-    private void UnsubscribeEvents()
-    {
-        if (!eventsSubscribed)
-            return;
-
-        if (runManager != null)
-            runManager.StateChanged -= HandleRunStateChanged;
-        if (runProgress != null)
-            runProgress.BroadcastMetricsChanged -= HandleBroadcastMetricsChanged;
-        if (kineticLoadout != null)
-            kineticLoadout.SwitchBoardVisibilityChanged -= HandleSwitchBoardVisibilityChanged;
-        eventsSubscribed = false;
-    }
-
-    private void HandleRunStateChanged(BattleRunState _)
-    {
-        ApplyPresentationState(ResolvePresentationState(), false);
-    }
-
-    private void HandleBroadcastMetricsChanged(int _, int __)
-    {
-        UpdateMetricCounts();
-        UpdateChatHeader();
-        RefreshChatBody();
-    }
-
-    private void HandleSwitchBoardVisibilityChanged(bool _)
-    {
-        ApplyPresentationState(ResolvePresentationState(), false);
-    }
-
-    private BattleCombatTabPresentationState ResolvePresentationState()
-    {
-        if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Combat)
-            return BattleCombatTabPresentationState.Hidden;
-
-        return kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen
-            ? BattleCombatTabPresentationState.Open
-            : BattleCombatTabPresentationState.Compact;
-    }
-
-    private void ApplyPresentationState(BattleCombatTabPresentationState next, bool immediate)
-    {
-        if (!immediate && presentationState == next)
-            return;
-
-        presentationState = next;
-        ResolveDashboardUi();
-
-        bool combatVisible = next != BattleCombatTabPresentationState.Hidden;
-        bool open = next == BattleCombatTabPresentationState.Open;
-
-        SetMetricVisible(combatVisible);
-        SetChatVisible(open);
-
-        if (open)
-        {
-            EnsurePrimaryFocusRelay();
-            EnsureChatPanel();
-            UpdateMetricCounts();
-            UpdateChatHeader();
-            RefreshChatBody();
-        }
-        else
-        {
-            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
-            ruleDetailFocused = false;
-            rightPanelFocused = false;
-            packDockTweenInitialized = false;
-            RestorePackRuleScale();
-            RestoreDashboardRuleOffset();
-            RestoreDetailSorting();
-        }
-
-        if (immediate)
-        {
-            if (metricBar != null)
-            {
-                metricBar.anchoredPosition = open ? MetricOpenOffset : MetricCompactOffset;
-                metricBar.localScale = Vector3.one * (open ? MetricOpenScale : MetricCompactScale);
-            }
-
-            if (chatGroup != null)
-                chatGroup.alpha = open ? 1f : 0f;
-        }
-    }
-
-    public bool CombatTabOpen => presentationState == BattleCombatTabPresentationState.Open;
+    public bool CombatTabOpen => IsCombatTabOpen();
 
     public void SetRuleDetailFocus(bool focused)
     {
@@ -429,7 +311,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     public void NotifyRulePointerEnter()
     {
-        if (presentationState != BattleCombatTabPresentationState.Open)
+        if (!IsCombatTabOpen())
             return;
 
         SetPrimaryFocus(BattleCombatTabPrimaryFocus.Rules);
@@ -437,30 +319,14 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     public void NotifyRulePointerExit()
     {
-        if (ruleRoulette != null &&
-            Input.mousePresent &&
-            ruleRoulette.IsScreenPointInsideCombatRuleFocusZone(Input.mousePosition))
-        {
-            return;
-        }
-
         if (primaryFocus == BattleCombatTabPrimaryFocus.Rules)
             SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
     }
 
     public void NotifyPackPointerEnter()
     {
-        if (presentationState != BattleCombatTabPresentationState.Open)
+        if (!IsCombatTabOpen())
             return;
-
-        // RULES가 실제 화면상 마우스를 소유하고 있으면
-        // PACK PointerEnter가 먼저/나중에 들어와도 Focus를 뺏지 않습니다.
-        if (ruleRoulette != null &&
-            Input.mousePresent &&
-            ruleRoulette.IsScreenPointInsideCombatRuleFocusZone(Input.mousePosition))
-        {
-            return;
-        }
 
         SetPrimaryFocus(BattleCombatTabPrimaryFocus.Pack);
     }
@@ -473,7 +339,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void SetPrimaryFocus(BattleCombatTabPrimaryFocus next)
     {
-        if (presentationState != BattleCombatTabPresentationState.Open)
+        if (!IsCombatTabOpen())
             next = BattleCombatTabPrimaryFocus.None;
 
         if (primaryFocus == next)
@@ -500,26 +366,58 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void Update()
     {
-        // State discovery is event-driven. Update is only used for time-based chat scheduling.
-        if (presentationState == BattleCombatTabPresentationState.Open)
-            UpdateChatFeed();
+        if (Time.unscaledTime >= nextResolveAt)
+        {
+            nextResolveAt = Time.unscaledTime + 0.20f;
+            ResolveReferences(false);
+            ResolveDashboardUi();
+            RemoveCompactAccentSlash();
+        }
+
+        bool combatActive = IsCombatActive();
+        UpdateAmbientAudience(combatActive);
+
+        bool tabOpen = IsCombatTabOpen();
+        UpdateMetricOverlay(combatActive, tabOpen);
+
+        if (!tabOpen)
+        {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
+            rightPanelFocused = false;
+            packDockTweenInitialized = false;
+            RestoreDashboardRuleOffset();
+            SetChatVisible(false);
+            return;
+        }
+
+        EnsureChatPanel();
+        SetChatVisible(true);
+        UpdateChatFeed();
     }
 
     private void LateUpdate()
     {
-        // LateUpdate only animates toward the state selected by events/pointer relays.
-        bool combatVisible = presentationState != BattleCombatTabPresentationState.Hidden;
-        bool open = presentationState == BattleCombatTabPresentationState.Open;
-
-        UpdateMetricOverlay(combatVisible, open);
-        ApplyChatLayout();
-
-        if (!open)
+        if (!IsCombatTabOpen())
+        {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
+            rightPanelFocused = false;
+            packDockTweenInitialized = false;
+            RestoreDashboardRuleOffset();
+            RestoreDetailSorting();
             return;
+        }
 
+        ResolveDashboardUi();
+        EnsurePrimaryFocusRelay();
+
+        // Primary focus는 Pointer Enter/Exit 이벤트만으로 변경됩니다.
+        // LateUpdate에서는 상태를 다시 추론하지 않고 현재 상태의 시각 보간만 수행합니다.
+        EnsureChatPanel();
+        UpdateRightPanelFocus();
         ApplyCombatPackDockPosition();
         ApplyRuleDetailDashboardShift();
         ApplyDetailPresentation();
+        ApplyChatLayout();
     }
 
     private bool IsCombatActive()
@@ -536,10 +434,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (force || runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (force || uiTheme == null)
-            uiTheme = BattleUIThemeController.Instance != null
-                ? BattleUIThemeController.Instance
-                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
         if (force || runProgress == null)
             runProgress = FindFirstObjectByType<RunProgressSystem>();
         if (force || kineticLoadout == null)
@@ -604,7 +498,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         EnsureMetricDetached();
-        RemoveCompactAccentSlash();
     }
 
     private void EnsurePrimaryFocusRelay()
@@ -684,73 +577,29 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         SetMetricVisible(combatActive);
+        if (!combatActive)
+            return;
+
         EnsureMetricDetached();
+        UpdateMetricCounts();
 
         float t = 1f - Mathf.Exp(-MetricTweenSharpness * Time.unscaledDeltaTime);
-        bool visible = metricTargetVisible;
+        Vector2 targetPosition = tabOpen ? MetricOpenOffset : MetricCompactOffset;
+        float targetScale = tabOpen ? MetricOpenScale : MetricCompactScale;
+        float targetRotation = tabOpen ? MetricOpenRotation : MetricCompactRotation;
 
-        if (metricGroup != null)
-        {
-            metricGroup.alpha = Mathf.Lerp(
-                metricGroup.alpha,
-                visible ? 1f : 0f,
-                t);
-        }
-
-        if (visible)
-            UpdateMetricCounts();
-
-        Vector2 targetPosition = visible
-            ? (tabOpen ? MetricOpenOffset : MetricCompactOffset)
-            : MetricCompactOffset + new Vector2(24f, -12f);
-        float targetScale = visible
-            ? (tabOpen ? MetricOpenScale : MetricCompactScale)
-            : MetricCompactScale * 0.88f;
-        float targetRotation = visible
-            ? (tabOpen ? MetricOpenRotation : MetricCompactRotation)
-            : MetricCompactRotation - 1.0f;
-
-        metricBar.anchoredPosition = Vector2.Lerp(
-            metricBar.anchoredPosition,
-            targetPosition,
-            t);
-        metricBar.localScale = Vector3.Lerp(
-            metricBar.localScale,
-            Vector3.one * targetScale,
-            t);
+        metricBar.anchoredPosition = Vector2.Lerp(metricBar.anchoredPosition, targetPosition, t);
+        metricBar.localScale = Vector3.Lerp(metricBar.localScale, Vector3.one * targetScale, t);
 
         float currentRotation = NormalizeAngle(metricBar.localEulerAngles.z);
         float nextRotation = Mathf.LerpAngle(currentRotation, targetRotation, t);
-        Quaternion targetSpatialRotation = Quaternion.Euler(
-            visible ? (tabOpen ? -1.5f : -0.5f) : 2.5f,
-            visible ? (tabOpen ? -3.5f : -1.8f) : -6.0f,
-            nextRotation);
-        metricBar.localRotation = Quaternion.Slerp(
-            metricBar.localRotation,
-            targetSpatialRotation,
-            t);
-
-        Vector3 metricLocal = metricBar.localPosition;
-        metricLocal.z = Mathf.Lerp(
-            metricLocal.z,
-            visible ? (tabOpen ? -8f : 2f) : 24f,
-            t);
-        metricBar.localPosition = metricLocal;
-
-        if (!visible && metricGroup != null && metricGroup.alpha <= 0.01f)
-        {
-            metricGroup.alpha = 0f;
-            if (metricBar.gameObject.activeSelf)
-                metricBar.gameObject.SetActive(false);
-        }
+        metricBar.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
     }
 
     private void SetMetricVisible(bool visible)
     {
-        metricTargetVisible = visible;
-
-        if (metricBar != null && visible && !metricBar.gameObject.activeSelf)
-            metricBar.gameObject.SetActive(true);
+        if (metricBar != null && metricBar.gameObject.activeSelf != visible)
+            metricBar.gameObject.SetActive(visible);
     }
 
     private void UpdateMetricCounts()
@@ -761,21 +610,78 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         metricViewersText ??= metricBar != null ? metricBar.Find("Viewers/Count")?.GetComponent<Text>() : null;
         metricLikesText ??= metricBar != null ? metricBar.Find("Likes/Count")?.GetComponent<Text>() : null;
 
-        string viewers = $"VIEWERS {CurrentViewers:N0}";
-        string likes = $"LIKES {Mathf.Max(0, runProgress.Likes):N0}";
+        string viewers = CurrentViewers.ToString("N0");
+        string likes = Mathf.Max(0, runProgress.Likes).ToString("N0");
 
-        if (metricViewersText != null)
+        if (metricViewersText != null && metricViewersText.text != viewers)
+            metricViewersText.text = viewers;
+        if (metricLikesText != null && metricLikesText.text != likes)
+            metricLikesText.text = likes;
+    }
+
+    private void UpdateAmbientAudience(bool combatActive)
+    {
+        if (!combatActive || runProgress == null)
         {
-            metricViewersText.fontSize = Mathf.Min(metricViewersText.fontSize, 14);
-            if (metricViewersText.text != viewers)
-                metricViewersText.text = viewers;
+            ResetAmbientAudience();
+            return;
         }
 
-        if (metricLikesText != null)
+        if (runProgress.Viewers > 0)
         {
-            metricLikesText.fontSize = Mathf.Min(metricLikesText.fontSize, 14);
-            if (metricLikesText.text != likes)
-                metricLikesText.text = likes;
+            ResetAmbientAudience();
+            return;
+        }
+
+        float now = Time.unscaledTime;
+        if (!ambientViewerScheduled)
+        {
+            ambientViewerScheduled = true;
+            nextAmbientViewerAt = now + NextAmbientRange(ambientViewerIdleMin, ambientViewerIdleMax);
+        }
+
+        if (ambientViewerCount > 0)
+        {
+            if (now < ambientViewerLeaveAt)
+                return;
+
+            ambientViewerCount = 0;
+            ambientCommentPending = false;
+            nextAmbientViewerAt = now + NextAmbientRange(ambientViewerIdleMin, ambientViewerIdleMax);
+            return;
+        }
+
+        if (now < nextAmbientViewerAt)
+            return;
+
+        ambientViewerCount = NextAmbient01() < 0.72f ? 1 : 2;
+        ambientViewerLeaveAt = now + NextAmbientRange(ambientViewerStayMin, ambientViewerStayMax);
+        ambientCommentPending = NextAmbient01() < Mathf.Clamp01(ambientDriveByCommentChance);
+    }
+
+    private void ResetAmbientAudience()
+    {
+        ambientViewerScheduled = false;
+        ambientViewerCount = 0;
+        nextAmbientViewerAt = 0f;
+        ambientViewerLeaveAt = 0f;
+        ambientCommentPending = false;
+    }
+
+    private float NextAmbientRange(float min, float max)
+    {
+        min = Mathf.Max(0f, min);
+        max = Mathf.Max(min, max);
+        return Mathf.Lerp(min, max, NextAmbient01());
+    }
+
+    private float NextAmbient01()
+    {
+        unchecked
+        {
+            ambientSequence++;
+            int hash = ambientSequence * 1103515245 + 12345;
+            return (hash & 0x7fffffff) / (float)int.MaxValue;
         }
     }
 
@@ -785,69 +691,11 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         Transform accentSlash = compactRoot != null ? compactRoot.Find("AccentSlash") : null;
         if (accentSlash != null && accentSlash.gameObject.activeSelf)
             accentSlash.gameObject.SetActive(false);
-
-        Transform yellowWedge = fullRoot != null ? fullRoot.Find("YellowWedge") : null;
-        if (yellowWedge != null && yellowWedge.gameObject.activeSelf)
-            yellowWedge.gameObject.SetActive(false);
     }
 
     private static float NormalizeAngle(float degrees)
     {
         return Mathf.Repeat(degrees + 180f, 360f) - 180f;
-    }
-
-    private void ResolvePrimaryFocusFromPointerGeometry()
-    {
-        if (presentationState != BattleCombatTabPresentationState.Open || !Input.mousePresent)
-        {
-            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
-            return;
-        }
-
-        Vector2 mouse = Input.mousePosition;
-
-        // RULES has first priority while its real/padded focus zone owns the pointer.
-        if (ruleRoulette != null &&
-            ruleRoulette.IsScreenPointInsideCombatRuleFocusZone(mouse))
-        {
-            SetPrimaryFocus(BattleCombatTabPrimaryFocus.Rules);
-            return;
-        }
-
-        RectTransform packBoard =
-            kineticLoadout != null ? kineticLoadout.GridBoard : null;
-
-        bool insidePack =
-            packBoard != null &&
-            packBoard.gameObject.activeInHierarchy &&
-            RectTransformUtility.RectangleContainsScreenPoint(
-                packBoard,
-                mouse,
-                ResolveEventCamera(packBoard));
-
-        if (insidePack)
-        {
-            SetPrimaryFocus(BattleCombatTabPrimaryFocus.Pack);
-            return;
-        }
-
-        if (primaryFocus == BattleCombatTabPrimaryFocus.Rules ||
-            primaryFocus == BattleCombatTabPrimaryFocus.Pack)
-        {
-            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
-        }
-    }
-
-    private static Camera ResolveEventCamera(RectTransform rect)
-    {
-        if (rect == null)
-            return null;
-
-        Canvas canvas = rect.GetComponentInParent<Canvas>();
-        if (canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay)
-            return null;
-
-        return canvas.worldCamera;
     }
 
     private void UpdateRightPanelFocus()
@@ -873,10 +721,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         RectTransform packBoard = kineticLoadout != null ? kineticLoadout.GridBoard : null;
         bool insidePack = packBoard != null && packBoard.gameObject.activeInHierarchy &&
-                          RectTransformUtility.RectangleContainsScreenPoint(
-                              packBoard,
-                              mouse,
-                              ResolveEventCamera(packBoard));
+                          RectTransformUtility.RectangleContainsScreenPoint(packBoard, mouse, null);
         if (insidePack)
         {
             rightPanelFocused = false;
@@ -906,13 +751,32 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (packBoardMotionRoot == null)
             return;
 
-        // Ownership:
-        // - Dashboard: BroadcastPackDock position.
-        // - This controller: BroadcastPackBoardMotion only while RULES focus changes.
-        // - BattleKineticLoadoutUI: GridBoard/slot rotation, scale, depth.
+        if (!packDockTweenInitialized)
+        {
+            packDockVisualX = packDockRoot.localPosition.x;
+            packDockVisualY = packDockRoot.localPosition.y;
+            packDockTweenInitialized = true;
+        }
+
+        float targetX = rightPanelFocused ? missionFocusedDockX : packFocusedDockX;
+        float targetY = packDockY;
+
         float t = 1f - Mathf.Exp(
             -Mathf.Max(4f, packDockTweenSharpness) * Time.unscaledDeltaTime);
 
+        packDockVisualX = Mathf.Lerp(packDockVisualX, targetX, t);
+        packDockVisualY = Mathf.Lerp(packDockVisualY, targetY, t);
+
+        if (Mathf.Abs(packDockVisualX - targetX) <= 0.25f)
+            packDockVisualX = targetX;
+        if (Mathf.Abs(packDockVisualY - targetY) <= 0.25f)
+            packDockVisualY = targetY;
+
+        packDockRoot.localPosition =
+            new Vector3(packDockVisualX, packDockVisualY, 0f);
+
+        // GridBoard 자체는 UnifiedInventoryInspectController가 매 프레임 0,0을 소유합니다.
+        // 따라서 Rule Focus는 별도 부모 Wrapper를 움직여야 덮어쓰기 충돌이 없습니다.
         Vector2 targetMotionPosition = ruleDetailFocused
             ? new Vector2(0f, -Mathf.Max(0f, ruleDetailPackDropY))
             : Vector2.zero;
@@ -935,19 +799,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             targetMotionScale,
             t);
 
-        float targetDepth = ruleDetailFocused ? 18f : 0f;
-        Vector3 local = packBoardMotionRoot.localPosition;
-        local.z = Mathf.Lerp(local.z, targetDepth, t);
-        packBoardMotionRoot.localPosition = local;
-
-        Quaternion targetRotation = Quaternion.Euler(
-            ruleDetailFocused ? 2.8f : 0f,
-            ruleDetailFocused ? 5.0f : 0f,
-            ruleDetailFocused ? 0.8f : 0f);
-        packBoardMotionRoot.localRotation = Quaternion.Slerp(
-            packBoardMotionRoot.localRotation,
-            targetRotation,
-            t);
+        if ((packBoardMotionRoot.localScale - targetMotionScale).sqrMagnitude <= 0.000004f)
+            packBoardMotionRoot.localScale = targetMotionScale;
 
         packRuleVisualScale = targetRuleScale;
 
@@ -965,13 +818,45 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             if (Mathf.Abs(packRuleVisualAlpha - targetRuleAlpha) <= 0.002f)
                 packRuleVisualAlpha = targetRuleAlpha;
 
+            // 기존 GridBoard CanvasGroup은 Dashboard가 계속 단독 소유합니다.
+            // RULE Focus 비활성 Alpha는 Wrapper 전용 CanvasGroup만 사용합니다.
             packBoardMotionGroup.alpha = packRuleVisualAlpha;
         }
     }
 
     private void ApplyRuleDetailDashboardShift()
     {
-        // Intentionally empty. DashboardRoot has one owner: BattleBroadcastDashboardController.
+        if (dashboardRoot == null)
+            return;
+
+        Vector3 basePosition = dashboardRoot.localPosition;
+        basePosition.x -= dashboardRuleVisualOffsetX;
+
+        float t = 1f - Mathf.Exp(
+            -Mathf.Max(4f, ruleDetailShiftSharpness) * Time.unscaledDeltaTime);
+
+        // RULES는 PACK 부속 모듈이므로 방송/미션 영역까지 밀어내지 않습니다.
+        dashboardRuleVisualOffsetX = Mathf.Lerp(
+            dashboardRuleVisualOffsetX,
+            0f,
+            t);
+        dashboardRuleVisualScale = Mathf.Lerp(
+            dashboardRuleVisualScale,
+            1f,
+            t);
+
+        if (Mathf.Abs(dashboardRuleVisualOffsetX) <= 0.25f)
+            dashboardRuleVisualOffsetX = 0f;
+        if (Mathf.Abs(dashboardRuleVisualScale - 1f) <= 0.002f)
+            dashboardRuleVisualScale = 1f;
+
+        basePosition.x += dashboardRuleVisualOffsetX;
+        dashboardRoot.localPosition = basePosition;
+
+        Vector3 baseScale = dashboardRuleScaleCaptured
+            ? dashboardRuleBaseScale
+            : Vector3.one;
+        dashboardRoot.localScale = baseScale * dashboardRuleVisualScale;
     }
 
     private void RestorePackRuleScale()
@@ -983,9 +868,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (packBoardMotionRoot != null)
         {
             packBoardMotionRoot.anchoredPosition = Vector2.zero;
-            Vector3 local = packBoardMotionRoot.localPosition;
-            local.z = 0f;
-            packBoardMotionRoot.localPosition = local;
             packBoardMotionRoot.localScale = Vector3.one;
             packBoardMotionRoot.localRotation = Quaternion.identity;
         }
@@ -1000,6 +882,19 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void RestoreDashboardRuleOffset()
     {
+        if (dashboardRoot != null)
+        {
+            if (Mathf.Abs(dashboardRuleVisualOffsetX) > 0.001f)
+            {
+                Vector3 position = dashboardRoot.localPosition;
+                position.x -= dashboardRuleVisualOffsetX;
+                dashboardRoot.localPosition = position;
+            }
+
+            if (dashboardRuleScaleCaptured)
+                dashboardRoot.localScale = dashboardRuleBaseScale;
+        }
+
         dashboardRuleVisualOffsetX = 0f;
         dashboardRuleVisualScale = 1f;
     }
@@ -1010,7 +905,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         CanvasGroup detailGroup = detailController.Group;
-        if (ruleDetailFocused)
+        if (rightPanelFocused || ruleDetailFocused)
         {
             if (detailGroup != null)
             {
@@ -1085,13 +980,25 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (back == null)
             back = chatPanel.gameObject.AddComponent<Image>();
         back.enabled = true;
-        back.color = new Color(0.018f, 0.022f, 0.030f, 0.94f);
+        back.color = Color.clear;
         back.raycastTarget = false;
 
         Outline outline = chatPanel.GetComponent<Outline>();
         if (outline == null)
             outline = chatPanel.gameObject.AddComponent<Outline>();
         outline.enabled = false;
+
+        BattlePersona4FrameDecorator chatFrame =
+            chatPanel.GetComponent<BattlePersona4FrameDecorator>();
+        if (chatFrame == null)
+            chatFrame = chatPanel.gameObject.AddComponent<BattlePersona4FrameDecorator>();
+        chatFrame.Configure(
+            new Color(0.025f, 0.028f, 0.045f, 0.97f),
+            new Color(0.94f, 0.95f, 0.97f, 0.92f),
+            new Color(1f, 0.80f, 0.10f, 1f),
+            false,
+            0.12f,
+            new Vector2(-6f, 6f));
 
         chatGroup = chatPanel.GetComponent<CanvasGroup>();
         if (chatGroup == null)
@@ -1101,7 +1008,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         chatHeader = chatPanel.Find("Header")?.GetComponent<Text>();
         if (chatHeader == null)
-            chatHeader = CreateText(chatPanel, "LIVE CHAT", 13, FontStyle.Bold,
+            chatHeader = CreateText(chatPanel, "LIVE CHAT  //  VIEWER FEED", 13, FontStyle.Bold,
                 TextAnchor.MiddleLeft, new Color(0.10f, 0.88f, 0.95f, 1f), "Header", ResolveMultilingualFont());
 
         SetAnchors(chatHeader.rectTransform, new Vector2(0.045f, 0.76f), new Vector2(0.95f, 0.96f));
@@ -1109,10 +1016,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatHeader.fontSize = 13;
         chatHeader.fontStyle = FontStyle.Bold;
         chatHeader.alignment = TextAnchor.MiddleLeft;
-        BattleUIThemeProfile activeTheme = uiTheme != null ? uiTheme.CurrentProfile : null;
-        chatHeader.color = activeTheme != null
-            ? activeTheme.keyColor
-            : new Color(1f, 0.82f, 0.10f, 1f);
+        chatHeader.color = new Color(0.10f, 0.88f, 0.95f, 1f);
         chatHeader.raycastTarget = false;
 
         RectTransform divider = chatPanel.Find("Divider") as RectTransform;
@@ -1134,9 +1038,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatBody.lineSpacing = 1.10f;
         chatBody.supportRichText = true;
         chatBody.raycastTarget = false;
-        chatBody.color = activeTheme != null
-            ? activeTheme.textPrimary
-            : new Color(0.94f, 0.95f, 0.97f, 0.98f);
+        chatBody.color = new Color(0.94f, 0.95f, 0.97f, 0.98f);
 
         Shadow bodyShadow = chatBody.GetComponent<Shadow>();
         if (bodyShadow == null)
@@ -1145,8 +1047,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         bodyShadow.effectDistance = new Vector2(1.5f, -1.5f);
 
         SeedChatIfNeeded();
-        UpdateChatHeader();
-        RefreshChatBody();
         ApplyChatLayout();
     }
 
@@ -1166,54 +1066,26 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatPanel.anchorMin = chatPanel.anchorMax = Vector2.one;
         chatPanel.pivot = Vector2.one;
         chatPanel.anchoredPosition = new Vector2(missionPanel.anchoredPosition.x, chatY);
-        bool active = chatTargetVisible;
-        float spatialT = 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime);
-
-        Quaternion targetRotation = Quaternion.Euler(
-            active ? 0.6f : 3.0f,
-            active ? -2.0f : -7.0f,
-            active ? -0.35f : -1.2f);
-        chatPanel.localRotation = Quaternion.Slerp(
-            chatPanel.localRotation,
-            targetRotation,
-            spatialT);
-
-        chatPanel.localScale = Vector3.Lerp(
-            chatPanel.localScale,
-            Vector3.one * (active ? 1f : 0.94f),
-            spatialT);
-
-        Vector3 chatLocal = chatPanel.localPosition;
-        chatLocal.z = Mathf.Lerp(chatLocal.z, active ? -10f : 28f, spatialT);
-        chatPanel.localPosition = chatLocal;
-
-        if (chatGroup != null)
-        {
-            chatGroup.alpha = Mathf.Lerp(chatGroup.alpha, active ? 1f : 0f, spatialT);
-            if (!active && chatGroup.alpha <= 0.01f)
-            {
-                chatGroup.alpha = 0f;
-                if (chatPanel.gameObject.activeSelf)
-                    chatPanel.gameObject.SetActive(false);
-            }
-        }
+        chatPanel.localRotation = Quaternion.identity;
+        chatPanel.localScale = Vector3.one;
     }
 
     private void SetChatVisible(bool visible)
     {
-        chatTargetVisible = visible;
-
-        if (chatPanel != null && visible && !chatPanel.gameObject.activeSelf)
-            chatPanel.gameObject.SetActive(true);
+        if (chatPanel != null && chatPanel.gameObject.activeSelf != visible)
+            chatPanel.gameObject.SetActive(visible);
 
         if (chatGroup == null)
             return;
 
+        chatGroup.alpha = visible ? 1f : 0f;
         chatGroup.blocksRaycasts = false;
         chatGroup.interactable = false;
     }
 
-    private int CurrentViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+    private int BaseViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+    private bool IsAmbientViewerVisit => BaseViewers <= 0 && ambientViewerCount > 0;
+    private int CurrentViewers => BaseViewers > 0 ? BaseViewers : Mathf.Max(0, ambientViewerCount);
 
     private void SeedChatIfNeeded()
     {
@@ -1221,7 +1093,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         int viewers = CurrentViewers;
-        if (viewers <= 0)
+        if (viewers <= 0 || IsAmbientViewerVisit)
             return;
 
         if (chatHistory.Count > 0)
@@ -1247,6 +1119,16 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         int viewers = CurrentViewers;
         if (viewers <= 0)
             return;
+
+        if (IsAmbientViewerVisit)
+        {
+            if (ambientCommentPending)
+            {
+                AppendDriveByChatLine();
+                ambientCommentPending = false;
+            }
+            return;
+        }
 
         SeedChatIfNeeded();
         if (Time.unscaledTime < nextChatAt)
@@ -1303,6 +1185,17 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         AppendChatLine(nickname, comment);
     }
 
+    private void AppendDriveByChatLine()
+    {
+        int count = Mathf.Min(DriveByChatNames.Length, DriveByChatComments.Length);
+        if (count <= 0)
+            return;
+
+        int index = driveByChatSequence % count;
+        driveByChatSequence++;
+        AppendChatLine(DriveByChatNames[index], DriveByChatComments[index]);
+    }
+
     private void AppendChatLine(string nickname, string comment)
     {
         chatHistory.Add($"<color=#19E0F2><b>{nickname}</b></color>  {comment}");
@@ -1316,45 +1209,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void RefreshChatBody()
     {
-        if (chatBody == null)
-            return;
-
-        int viewers = CurrentViewers;
-        if (viewers <= 0)
-        {
-            chatBody.text =
-                $"CHAT PAUSED  //  0 VIEWERS\n" +
-                $"FEED RANGE: LAST {Mathf.Clamp(maxChatLines, 3, 7)} MESSAGES";
-            return;
-        }
-
-        if (chatHistory.Count == 0)
-        {
-            chatBody.text =
-                $"WAITING FOR MESSAGE...\n" +
-                $"FEED RANGE: LAST {Mathf.Clamp(maxChatLines, 3, 7)} MESSAGES";
-            return;
-        }
-
-        chatBody.text = string.Join("\n", chatHistory);
-    }
-
-    private void UpdateChatHeader()
-    {
-        if (chatHeader == null)
-            return;
-
-        int viewers = CurrentViewers;
-        int keep = Mathf.Clamp(maxChatLines, 3, 7);
-        chatHeader.text = $"LIVE CHAT  //  {viewers:N0} VIEWERS  //  LAST {keep}";
-
-        BattleUIThemeProfile activeTheme = uiTheme != null ? uiTheme.CurrentProfile : null;
-        Color active = activeTheme != null
-            ? activeTheme.keyColor
-            : new Color(1f, 0.82f, 0.10f, 1f);
-        chatHeader.color = viewers > 0
-            ? active
-            : new Color(0.48f, 0.52f, 0.60f, 1f);
+        if (chatBody != null)
+            chatBody.text = string.Join("\n", chatHistory);
     }
 
     private static Font ResolveMultilingualFont()

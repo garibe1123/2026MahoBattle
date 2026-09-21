@@ -1,5 +1,3 @@
-using System.Collections;
-using DG.Tweening;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -26,18 +24,25 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private const int MaxMissionSlots = 6;
     private const int DashboardSortingOrder = 1685;
-    private const int CurrentLayoutVersion = 3;
+    private const int CurrentLayoutVersion = 2;
 
     [Header("REFERENCES — 자동 연결")]
     [Tooltip("현재 Combat 상태를 확인하는 Run Manager입니다. 비어 있으면 자동으로 찾습니다.")]
     [SerializeField] private BattleRunManager runManager;
-    [SerializeField] private BattleUIThemeController uiTheme;
     [Tooltip("현재 활성 Fan Mission과 진행도를 제공하는 기존 Mission System입니다.")]
     [SerializeField] private FanMissionSystem fanMissionSystem;
     [Tooltip("실시간 시청자 수와 좋아요 수를 제공하는 Run Progress System입니다.")]
     [SerializeField] private RunProgressSystem runProgress;
     [Tooltip("TAB Hold 상태와 기존 PACK GridBoard를 제공하는 Loadout UI입니다.")]
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
+
+    [Header("FOCUS TRACKING — 커서 위치 기반")]
+    [Tooltip("커서가 화면의 이 X 비율보다 오른쪽으로 넘어가면 Mission Focus로 전환합니다. Mission Panel 위에서는 즉시 Mission Focus가 됩니다.")]
+    [SerializeField, Range(0.48f, 0.85f)] private float missionFocusEnterX = 0.61f;
+    [Tooltip("Mission Focus에서 이 X 비율보다 왼쪽으로 돌아오면 PACK Focus로 복귀합니다. Enter보다 작게 두어 경계 떨림을 막습니다.")]
+    [SerializeField, Range(0.25f, 0.70f)] private float packFocusReturnX = 0.50f;
+    [Tooltip("Layout Morph 반응 속도입니다. 높을수록 빠르게 목표 형태에 붙습니다.")]
+    [SerializeField, Range(4f, 30f)] private float layoutSharpness = 13f;
 
     [Header("PACK DOCK — 좌측 사선 바 결합")]
     [Tooltip("PACK Focus 상태에서 기존 GridBoard 전체를 좌측 사선 바 쪽으로 이동시키는 화면 픽셀 Offset입니다. 기존 GridBoard Anchor는 건드리지 않습니다.")]
@@ -53,19 +58,13 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Tooltip("Mission Focus 상태에서 PACK이 배경으로 물러날 때의 불투명도입니다.")]
     [SerializeField, Range(0f, 1f)] private float missionFocusedPackAlpha = 0.70f;
     [Tooltip("PACK Focus 상태의 기울기입니다.")]
-    [SerializeField, Range(-15f, 15f)] private float packFocusedRotation = -1.2f;
+    [SerializeField, Range(-15f, 15f)] private float packFocusedRotation = -2.8f;
     [Tooltip("Mission Focus 상태에서 PACK 기울기를 완화하는 각도입니다.")]
-    [SerializeField, Range(-15f, 15f)] private float missionFocusedPackRotation = -0.25f;
-
-    [Header("LAYOUT MOTION")]
-    [Tooltip("Dashboard의 위치/크기/Z-depth 전환 보간 속도입니다.")]
-    [SerializeField, Range(4f, 30f)] private float layoutSharpness = 13f;
+    [SerializeField, Range(-15f, 15f)] private float missionFocusedPackRotation = -0.8f;
 
     [Header("MISSION BAR — 항상 표시")]
     [Tooltip("PACK Focus일 때 우측에 유지되는 FAN MISSION 패널 크기입니다. 미션이 없어도 이 프레임은 사라지지 않습니다.")]
     [SerializeField] private Vector2 compactMissionSize = new(610f, 360f);
-    [Tooltip("활성 미션이 0개일 때 정보 밀도에 맞춰 축소되는 STANDBY 패널 크기입니다.")]
-    [SerializeField] private Vector2 standbyMissionSize = new(500f, 150f);
     [Tooltip("Mission Focus일 때 상세 정보까지 펼쳐지는 FAN MISSION 패널 크기입니다.")]
     [SerializeField] private Vector2 focusedMissionSize = new(820f, 660f);
     [Tooltip("PACK Focus 상태에서 화면 우측 상단 기준 Mission Panel 위치입니다.")]
@@ -73,7 +72,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Tooltip("Mission Focus 상태에서 확장된 Panel이 이동할 화면 우측 상단 기준 위치입니다. 크기 변화와 함께 이 위치까지 Tween됩니다.")]
     [SerializeField] private Vector2 focusedMissionPanelOffset = new(-44f, -138f);
     [Tooltip("Mission Panel 전체의 사선 회전 각도입니다.")]
-    [SerializeField, Range(-10f, 10f)] private float missionPanelRotation = 0f;
+    [SerializeField, Range(-10f, 10f)] private float missionPanelRotation = 0.8f;
     [Tooltip("PACK Focus 상태에서도 Mission Bar가 확실히 보이도록 유지할 Alpha입니다.")]
     [SerializeField, Range(0.5f, 1f)] private float compactMissionAlpha = 0.95f;
 
@@ -115,7 +114,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private RectTransform missionDetailRoot;
     private CanvasGroup missionDetailGroup;
     private Text missionHeader;
-    private Text missionFocusCue;
     private Text missionEmptyState;
     private Text missionDetailTitle;
     private Text missionDetailType;
@@ -131,16 +129,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private readonly RectTransform[] missionRows = new RectTransform[MaxMissionSlots];
     private readonly Image[] missionRowBackgrounds = new Image[MaxMissionSlots];
     private readonly Outline[] missionRowOutlines = new Outline[MaxMissionSlots];
-    private readonly BattleSpatialGlassPanel[] missionRowGlass = new BattleSpatialGlassPanel[MaxMissionSlots];
     private readonly Text[] missionRowTitles = new Text[MaxMissionSlots];
     private readonly Text[] missionRowProgress = new Text[MaxMissionSlots];
 
     private DashboardFocus focus = DashboardFocus.Pack;
-    private bool dashboardOpen;
-    private bool stateEventsSubscribed;
-    private Coroutine bindRoutine;
-    private BattleRunManager subscribedRunManager;
-    private BattleKineticLoadoutUI subscribedLoadout;
     private int selectedMissionIndex = -1;
     private int hoveredMissionIndex = -1;
     private bool dashboardWasOpen;
@@ -163,46 +155,13 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         UpgradeSerializedLayoutIfNeeded();
         ResolveReferences();
-        TryResolveUi();
         Subscribe();
         nextReferenceResolveAt = 0f;
         nextUiResolveAt = 0f;
         nextTimerRefreshAt = 0f;
         dashboardWasOpen = false;
-        dashboardOpen = false;
         layoutDirty = true;
         focus = DashboardFocus.Pack;
-
-        RefreshDashboardOpenState(true);
-
-        if ((runManager == null || fanMissionSystem == null || runProgress == null ||
-             kineticLoadout == null || fullRoot == null || packBoard == null || dashboardRoot == null) &&
-            bindRoutine == null)
-        {
-            bindRoutine = StartCoroutine(BindWhenReady());
-        }
-    }
-
-    private IEnumerator BindWhenReady()
-    {
-        while (enabled)
-        {
-            ResolveReferences();
-            TryResolveUi();
-            Subscribe();
-
-            if (runManager != null && fanMissionSystem != null && runProgress != null &&
-                kineticLoadout != null && fullRoot != null && packBoard != null && dashboardRoot != null)
-            {
-                break;
-            }
-
-            yield return null;
-        }
-
-        bindRoutine = null;
-        if (enabled)
-            RefreshDashboardOpenState(true);
     }
 
     private void OnValidate()
@@ -252,37 +211,47 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 metricBarRotation = -0.6f;
         }
 
-        if (serializedLayoutVersion < 3)
-        {
-            if (Mathf.Approximately(packFocusedRotation, -2.8f))
-                packFocusedRotation = -1.2f;
-            if (Mathf.Approximately(missionFocusedPackRotation, -0.8f))
-                missionFocusedPackRotation = -0.25f;
-            if (Mathf.Approximately(missionPanelRotation, 0.8f))
-                missionPanelRotation = 0f;
-        }
-
         serializedLayoutVersion = CurrentLayoutVersion;
     }
 
     private void OnDisable()
     {
-        if (bindRoutine != null)
-            StopCoroutine(bindRoutine);
-        bindRoutine = null;
-
         Unsubscribe();
-        dashboardOpen = false;
         SetDashboardVisible(false);
         ResetPackVisual();
     }
 
     private void Update()
     {
-        // State transitions are event-driven. Update only handles pointer sampling,
-        // active layout tweening, and timed mission countdown text.
-        if (!dashboardOpen)
+        ResolveReferencesWhenNeeded();
+        Subscribe();
+        TryResolveUiWhenNeeded();
+
+        bool open = IsDashboardOpen();
+        if (!open)
+        {
+            if (dashboardWasOpen)
+            {
+                dashboardWasOpen = false;
+                focus = DashboardFocus.Pack;
+                hoveredMissionIndex = -1;
+                layoutDirty = true;
+                SetDashboardVisible(false);
+                ResetPackVisual();
+            }
             return;
+        }
+
+        if (!dashboardWasOpen)
+        {
+            dashboardWasOpen = true;
+            focus = DashboardFocus.Pack;
+            hoveredMissionIndex = -1;
+            layoutDirty = true;
+            SetDashboardVisible(true);
+            RefreshMissionData();
+            RefreshBroadcastMetrics();
+        }
 
         TrackCursorFocus();
 
@@ -293,46 +262,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         {
             nextTimerRefreshAt = Time.unscaledTime + 0.10f;
             RefreshMissionDetail();
-        }
-    }
-
-    private void HandleRunStateChanged(BattleRunState _)
-    {
-        RefreshDashboardOpenState(false);
-    }
-
-    private void HandlePackVisibilityChanged(bool _)
-    {
-        RefreshDashboardOpenState(false);
-    }
-
-    private void RefreshDashboardOpenState(bool force)
-    {
-        bool next = IsDashboardOpen();
-        if (!force && dashboardOpen == next)
-            return;
-
-        dashboardOpen = next;
-        dashboardWasOpen = next;
-
-        if (next)
-        {
-            focus = DashboardFocus.Pack;
-            hoveredMissionIndex = -1;
-            layoutDirty = true;
-            SetDashboardVisible(true);
-            RefreshMissionData();
-            RefreshBroadcastMetrics();
-        }
-        else
-        {
-            focus = DashboardFocus.Pack;
-            hoveredMissionIndex = -1;
-            selectedMissionIndex = -1;
-            layoutDirty = false;
-            // FullRoot owns the close tween. Keep Dashboard alive under it so Mission/Chat
-            // leave with the same alpha/depth animation instead of popping off first.
-            ResetPackVisual();
         }
     }
 
@@ -356,11 +285,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
 
         Vector2 mouse = Input.mousePosition;
-        int missionCount = fanMissionSystem != null ? fanMissionSystem.ActiveMissions.Count : 0;
-        int missionHover = missionCount > 0 ? FindMissionRowUnderPointer(mouse) : -1;
-        bool insideMissionPanel = missionCount > 0 &&
-                                  missionPanel != null &&
+        int missionHover = FindMissionRowUnderPointer(mouse);
+        bool insideMissionPanel = missionPanel != null &&
                                   RectTransformUtility.RectangleContainsScreenPoint(missionPanel, mouse, null);
+        bool insidePack = packBoard != null &&
+                          RectTransformUtility.RectangleContainsScreenPoint(packBoard, mouse, null);
 
         if (missionHover >= 0)
         {
@@ -375,9 +304,17 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
         }
 
-        // No invisible screen-percentage focus zones.
-        // Outside the visible Mission panel, PACK remains the primary interaction context.
-        SetFocus(DashboardFocus.Pack);
+        if (insidePack)
+        {
+            SetFocus(DashboardFocus.Pack);
+            return;
+        }
+
+        float normalizedX = Screen.width > 0 ? mouse.x / Screen.width : 0f;
+        if (focus == DashboardFocus.Pack && normalizedX >= missionFocusEnterX)
+            SetFocus(DashboardFocus.Mission);
+        else if (focus == DashboardFocus.Mission && normalizedX <= packFocusReturnX)
+            SetFocus(DashboardFocus.Pack);
 
         if (hoveredMissionIndex != -1)
         {
@@ -415,12 +352,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void SetFocus(DashboardFocus next)
     {
-        if (next == DashboardFocus.Mission &&
-            (fanMissionSystem == null || fanMissionSystem.ActiveMissions.Count == 0))
-        {
-            next = DashboardFocus.Pack;
-        }
-
         if (focus == next)
             return;
 
@@ -447,28 +378,20 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private void AnimateLayout()
     {
         float t = 1f - Mathf.Exp(-Mathf.Max(1f, layoutSharpness) * Time.unscaledDeltaTime);
-        int missionCount = fanMissionSystem != null
-            ? Mathf.Min(MaxMissionSlots, fanMissionSystem.ActiveMissions.Count)
-            : 0;
-        bool hasMission = missionCount > 0;
-        bool missionFocused = hasMission && focus == DashboardFocus.Mission;
+        bool missionFocused = focus == DashboardFocus.Mission;
         bool settled = true;
 
-        // PACK visual transform is NOT owned here.
-        // BattleKineticLoadoutUI is the sole owner of GridBoard scale/rotation/depth.
-        Vector3 dockTarget = new(packFocusedDockOffset.x, packFocusedDockOffset.y, 0f);
-
-        Vector2 targetMissionSize = !hasMission
-            ? standbyMissionSize
-            : missionFocused ? focusedMissionSize : compactMissionSize;
-        Vector2 targetMissionPosition = missionFocused
-            ? focusedMissionPanelOffset
-            : missionPanelOffset;
-        float targetMissionAlpha = !hasMission
-            ? 0.82f
-            : missionFocused ? 1f : compactMissionAlpha;
-        float targetDetailAlpha =
-            missionFocused && selectedMissionIndex >= 0 ? 1f : 0f;
+        Vector3 dockTarget = new(
+            missionFocused ? missionFocusedDockOffset.x : packFocusedDockOffset.x,
+            missionFocused ? missionFocusedDockOffset.y : packFocusedDockOffset.y,
+            0f);
+        float targetPackScale = missionFocused ? missionFocusedPackScale : packFocusedScale;
+        float targetPackAlpha = missionFocused ? missionFocusedPackAlpha : packFocusedAlpha;
+        float targetPackRotation = missionFocused ? missionFocusedPackRotation : packFocusedRotation;
+        Vector2 targetMissionSize = missionFocused ? focusedMissionSize : compactMissionSize;
+        Vector2 targetMissionPosition = missionFocused ? focusedMissionPanelOffset : missionPanelOffset;
+        float targetMissionAlpha = missionFocused ? 1f : compactMissionAlpha;
+        float targetDetailAlpha = missionFocused && selectedMissionIndex >= 0 ? 1f : 0f;
 
         if (packDockRoot != null)
         {
@@ -482,6 +405,38 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 packDockRoot.localPosition = next;
         }
 
+        if (packBoard != null)
+        {
+            Vector3 scaleTarget = Vector3.one * targetPackScale;
+            Vector3 nextScale = Vector3.Lerp(packBoard.localScale, scaleTarget, t);
+            if ((nextScale - scaleTarget).sqrMagnitude <= 0.000001f)
+                nextScale = scaleTarget;
+            else
+                settled = false;
+            if ((packBoard.localScale - nextScale).sqrMagnitude > 0.0000001f)
+                packBoard.localScale = nextScale;
+
+            float currentRotation = NormalizeAngle(packBoard.localEulerAngles.z);
+            float nextRotation = Mathf.LerpAngle(currentRotation, targetPackRotation, t);
+            if (Mathf.Abs(Mathf.DeltaAngle(nextRotation, targetPackRotation)) <= 0.01f)
+                nextRotation = targetPackRotation;
+            else
+                settled = false;
+            if (Mathf.Abs(Mathf.DeltaAngle(currentRotation, nextRotation)) > 0.001f)
+                packBoard.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
+        }
+
+        if (packBoardGroup != null)
+        {
+            float nextAlpha = Mathf.Lerp(packBoardGroup.alpha, targetPackAlpha, t);
+            if (Mathf.Abs(nextAlpha - targetPackAlpha) <= 0.001f)
+                nextAlpha = targetPackAlpha;
+            else
+                settled = false;
+            if (!Mathf.Approximately(packBoardGroup.alpha, nextAlpha))
+                packBoardGroup.alpha = nextAlpha;
+        }
+
         if (missionPanel != null)
         {
             Vector2 nextSize = Vector2.Lerp(missionPanel.sizeDelta, targetMissionSize, t);
@@ -489,122 +444,54 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 nextSize = targetMissionSize;
             else
                 settled = false;
-            missionPanel.sizeDelta = nextSize;
+            if ((missionPanel.sizeDelta - nextSize).sqrMagnitude > 0.0001f)
+                missionPanel.sizeDelta = nextSize;
 
-            Vector2 nextPosition = Vector2.Lerp(
-                missionPanel.anchoredPosition,
-                targetMissionPosition,
-                t);
+            Vector2 nextPosition = Vector2.Lerp(missionPanel.anchoredPosition, targetMissionPosition, t);
             if ((nextPosition - targetMissionPosition).sqrMagnitude <= 0.01f)
                 nextPosition = targetMissionPosition;
             else
                 settled = false;
-            missionPanel.anchoredPosition = nextPosition;
+            if ((missionPanel.anchoredPosition - nextPosition).sqrMagnitude > 0.0001f)
+                missionPanel.anchoredPosition = nextPosition;
 
-            Quaternion targetMissionRotation;
-            float targetMissionZ;
-            float targetMissionScale;
-
-            if (!hasMission)
-            {
-                targetMissionRotation = Quaternion.Euler(3.2f, -7.0f, -1.0f);
-                targetMissionZ = 18f;
-                targetMissionScale = 0.94f;
-            }
-            else if (missionFocused)
-            {
-                targetMissionRotation = Quaternion.Euler(-0.5f, -1.2f, 0f);
-                targetMissionZ = -16f;
-                targetMissionScale = 1.02f;
-            }
-            else
-            {
-                targetMissionRotation = Quaternion.Euler(1.4f, -4.5f, -0.45f);
-                targetMissionZ = 2f;
-                targetMissionScale = 1f;
-            }
-
-            missionPanel.localRotation = Quaternion.Slerp(
-                missionPanel.localRotation,
-                targetMissionRotation,
-                t);
-
-            Vector3 missionLocal = missionPanel.localPosition;
-            missionLocal.z = Mathf.Lerp(missionLocal.z, targetMissionZ, t);
-            missionPanel.localPosition = missionLocal;
-
-            missionPanel.localScale = Vector3.Lerp(
-                missionPanel.localScale,
-                Vector3.one * targetMissionScale,
-                t);
+            float currentRotation = NormalizeAngle(missionPanel.localEulerAngles.z);
+            if (Mathf.Abs(Mathf.DeltaAngle(currentRotation, missionPanelRotation)) > 0.001f)
+                missionPanel.localRotation = Quaternion.Euler(0f, 0f, missionPanelRotation);
         }
 
         if (missionPanelGroup != null)
         {
-            float nextAlpha = Mathf.Lerp(
-                missionPanelGroup.alpha,
-                targetMissionAlpha,
-                t);
+            float nextAlpha = Mathf.Lerp(missionPanelGroup.alpha, targetMissionAlpha, t);
             if (Mathf.Abs(nextAlpha - targetMissionAlpha) <= 0.001f)
                 nextAlpha = targetMissionAlpha;
             else
                 settled = false;
-            missionPanelGroup.alpha = nextAlpha;
-        }
-
-        if (missionFocusCue != null)
-        {
-            bool showCue = hasMission;
-            if (missionFocusCue.gameObject.activeSelf != showCue)
-                missionFocusCue.gameObject.SetActive(showCue);
+            if (!Mathf.Approximately(missionPanelGroup.alpha, nextAlpha))
+                missionPanelGroup.alpha = nextAlpha;
         }
 
         LayoutMissionStructure(missionFocused);
 
-        if (missionListRoot != null)
+        if (missionDetailGroup != null && missionDetailRoot != null)
         {
-            bool showList = hasMission;
-            if (missionListRoot.gameObject.activeSelf != showList)
-                missionListRoot.gameObject.SetActive(showList);
-        }
-
-        if (missionDetailRoot != null)
-        {
-            bool showDetailRoot = hasMission;
-            if (missionDetailRoot.gameObject.activeSelf != showDetailRoot)
-                missionDetailRoot.gameObject.SetActive(showDetailRoot);
-        }
-
-        if (missionDetailGroup != null && missionDetailRoot != null && hasMission)
-        {
-            float nextAlpha = Mathf.Lerp(
-                missionDetailGroup.alpha,
-                targetDetailAlpha,
-                t);
+            float nextAlpha = Mathf.Lerp(missionDetailGroup.alpha, targetDetailAlpha, t);
             if (Mathf.Abs(nextAlpha - targetDetailAlpha) <= 0.001f)
                 nextAlpha = targetDetailAlpha;
             else
                 settled = false;
-            missionDetailGroup.alpha = nextAlpha;
+            if (!Mathf.Approximately(missionDetailGroup.alpha, nextAlpha))
+                missionDetailGroup.alpha = nextAlpha;
 
             float targetDetailScale = targetDetailAlpha > 0.5f ? 1f : 0.92f;
             Vector3 detailTarget = Vector3.one * targetDetailScale;
-            Vector3 nextScale = Vector3.Lerp(
-                missionDetailRoot.localScale,
-                detailTarget,
-                t);
+            Vector3 nextScale = Vector3.Lerp(missionDetailRoot.localScale, detailTarget, t);
             if ((nextScale - detailTarget).sqrMagnitude <= 0.000001f)
                 nextScale = detailTarget;
             else
                 settled = false;
-            missionDetailRoot.localScale = nextScale;
-
-            Vector3 detailLocal = missionDetailRoot.localPosition;
-            detailLocal.z = Mathf.Lerp(
-                detailLocal.z,
-                targetDetailAlpha > 0.5f ? -10f : 16f,
-                t);
-            missionDetailRoot.localPosition = detailLocal;
+            if ((missionDetailRoot.localScale - nextScale).sqrMagnitude > 0.0000001f)
+                missionDetailRoot.localScale = nextScale;
         }
 
         layoutDirty = !settled;
@@ -638,8 +525,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (packDockRoot != null)
             packDockRoot.localPosition = Vector3.zero;
 
-        // Rule-focus wrapper is presentation-only and may be reset on close.
-        // GridBoard itself belongs exclusively to BattleKineticLoadoutUI.
         if (packBoardMotionRoot != null)
         {
             packBoardMotionRoot.anchoredPosition = Vector2.zero;
@@ -650,6 +535,15 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         if (packBoardMotionGroup != null)
             packBoardMotionGroup.alpha = 1f;
+
+        if (packBoard != null)
+        {
+            packBoard.localScale = Vector3.one;
+            packBoard.localRotation = Quaternion.Euler(0f, 0f, -4f);
+        }
+
+        if (packBoardGroup != null)
+            packBoardGroup.alpha = 1f;
     }
 
     private void ResolveReferencesWhenNeeded()
@@ -667,10 +561,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (uiTheme == null)
-            uiTheme = BattleUIThemeController.Instance != null
-                ? BattleUIThemeController.Instance
-                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
         if (fanMissionSystem == null)
             fanMissionSystem = FindFirstObjectByType<FanMissionSystem>();
         if (runProgress == null)
@@ -701,12 +591,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
 
         EnsurePackDock();
-
-        // GridBoard visual state is owned by BattleKineticLoadoutUI.
-        // Dashboard must not add glass/material layers or mutate its visual transform.
-        BattleSpatialGlassPanel legacyPackGlass = packBoard.GetComponent<BattleSpatialGlassPanel>();
-        if (legacyPackGlass != null)
-            legacyPackGlass.enabled = false;
 
         packBoardGroup = packBoard.GetComponent<CanvasGroup>();
         if (packBoardGroup == null)
@@ -795,14 +679,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionPanel = root.Find("MissionPanel") as RectTransform;
         missionPanelGroup = missionPanel != null ? missionPanel.GetComponent<CanvasGroup>() : null;
         missionHeader = missionPanel != null ? missionPanel.Find("Header")?.GetComponent<Text>() : null;
-        missionFocusCue = missionPanel != null ? missionPanel.Find("FocusCue")?.GetComponent<Text>() : null;
         missionListRoot = missionPanel != null ? missionPanel.Find("MissionList") as RectTransform : null;
         missionEmptyState = missionPanel != null ? missionPanel.Find("EmptyState")?.GetComponent<Text>() : null;
         missionDetailRoot = missionPanel != null ? missionPanel.Find("MissionDetail") as RectTransform : null;
         missionDetailGroup = missionDetailRoot != null ? missionDetailRoot.GetComponent<CanvasGroup>() : null;
-
-        DisableLegacyGlass(missionPanel != null ? missionPanel.gameObject : null);
-        DisableLegacyGlass(missionDetailRoot != null ? missionDetailRoot.gameObject : null);
 
         // 이전 버전에서 만들어진 굵은 Cyan 장식선은 새 디자인에서 사용하지 않습니다.
         Transform oldMetricSlash = root.Find("BroadcastMetricBar/AccentSlash");
@@ -812,17 +692,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (oldMissionSlash != null && oldMissionSlash.gameObject.activeSelf)
             oldMissionSlash.gameObject.SetActive(false);
 
-        Transform oldWhitePlate = root.Find("MissionPanel/WhitePlate");
-        if (oldWhitePlate != null && oldWhitePlate.gameObject.activeSelf)
-            oldWhitePlate.gameObject.SetActive(false);
-
         if (metricBar != null)
         {
-            DisableLegacyGlass(metricBar.gameObject);
-            Image metricBack = metricBar.GetComponent<Image>();
-            if (metricBack != null)
-                metricBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
-
             viewersText = metricBar.Find("Viewers/Count")?.GetComponent<Text>();
             likesText = metricBar.Find("Likes/Count")?.GetComponent<Text>();
         }
@@ -835,7 +706,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 missionRows[i] = row;
                 missionRowBackgrounds[i] = row != null ? row.GetComponent<Image>() : null;
                 missionRowOutlines[i] = row != null ? row.GetComponent<Outline>() : null;
-                missionRowGlass[i] = row != null ? row.GetComponent<BattleSpatialGlassPanel>() : null;
                 missionRowTitles[i] = row != null ? row.Find("Title")?.GetComponent<Text>() : null;
                 missionRowProgress[i] = row != null ? row.Find("Progress")?.GetComponent<Text>() : null;
             }
@@ -858,14 +728,21 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBar.anchorMin = metricBar.anchorMax = Vector2.one;
         metricBar.pivot = Vector2.one;
         metricBar.anchoredPosition = metricBarOffset;
-        metricBar.localRotation = Quaternion.Euler(-1.5f, -3.5f, metricBarRotation);
+        metricBar.localRotation = Quaternion.Euler(0f, 0f, metricBarRotation);
 
         Image back = metricBar.gameObject.AddComponent<Image>();
-        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
+        back.color = Color.clear;
         back.raycastTarget = false;
+        ApplyPersonaFrame(
+            metricBar.gameObject,
+            inkColor,
+            paperColor,
+            accentYellow,
+            false,
+            0.16f,
+            new Vector2(-6f, 6f));
 
         Text live = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentPink, "LiveLabel");
-        BindTheme(live, BattleUIThemeColorRole.Key);
         SetAnchors(live.rectTransform, new Vector2(0.055f, 0.12f), new Vector2(0.17f, 0.88f));
 
         BuildEyeMetric(metricBar);
@@ -893,10 +770,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         pupil.anchorMin = pupil.anchorMax = new Vector2(0f, 0.5f);
         pupil.anchoredPosition = new Vector2(10f, 0f);
         SetImage(pupil, accentCyan);
-        BindTheme(pupil.GetComponent<Image>(), BattleUIThemeColorRole.Key);
 
         viewersText = CreateText(root, "0", 21, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Count");
-        BindTheme(viewersText, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(viewersText.rectTransform, new Vector2(0.30f, 0f), new Vector2(1f, 1f));
     }
 
@@ -920,10 +795,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         RectTransform wrist = CreateRect(root, "Wrist", new Vector2(6f, 15f));
         wrist.anchorMin = wrist.anchorMax = new Vector2(0f, 0.5f);
         wrist.anchoredPosition = new Vector2(2f, -2f);
-        SetImage(wrist, paperColor);
+        SetImage(wrist, accentYellow);
 
         likesText = CreateText(root, "0", 21, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Count");
-        BindTheme(likesText, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(likesText.rectTransform, new Vector2(0.30f, 0f), new Vector2(1f, 1f));
     }
 
@@ -933,24 +807,39 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionPanel.anchorMin = missionPanel.anchorMax = Vector2.one;
         missionPanel.pivot = Vector2.one;
         missionPanel.anchoredPosition = missionPanelOffset;
-        missionPanel.localRotation = Quaternion.Euler(1.5f, -6f, missionPanelRotation);
+        missionPanel.localRotation = Quaternion.Euler(0f, 0f, missionPanelRotation);
 
         Image back = missionPanel.gameObject.AddComponent<Image>();
-        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
+        back.color = Color.clear;
         back.raycastTarget = false;
+        ApplyPersonaFrame(
+            missionPanel.gameObject,
+            inkColor,
+            new Color(paperColor.r, paperColor.g, paperColor.b, 0.96f),
+            accentYellow,
+            true,
+            0.12f,
+            new Vector2(8f, -8f));
 
         missionPanelGroup = missionPanel.gameObject.AddComponent<CanvasGroup>();
         missionPanelGroup.alpha = compactMissionAlpha;
         missionPanelGroup.blocksRaycasts = false;
         missionPanelGroup.interactable = false;
 
+        RectTransform whitePlate = CreateRect(missionPanel, "WhitePlate", Vector2.zero);
+        whitePlate.anchorMin = new Vector2(0.70f, 0f);
+        whitePlate.anchorMax = Vector2.one;
+        whitePlate.offsetMin = new Vector2(-18f, -6f);
+        whitePlate.offsetMax = new Vector2(14f, 8f);
+        whitePlate.SetAsFirstSibling();
+        BattlePersona4PanelGraphic whiteShape = whitePlate.gameObject.AddComponent<BattlePersona4PanelGraphic>();
+        whiteShape.Configure(new Color(paperColor.r, paperColor.g, paperColor.b, 0.16f), 0f, 42f, 8f, 28f);
+
         missionHeader = CreateText(missionPanel, "FAN MISSION // STANDBY", 27, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Header");
-        BindTheme(missionHeader, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(missionHeader.rectTransform, new Vector2(0.07f, 0.84f), new Vector2(0.78f, 0.97f));
 
-        missionFocusCue = CreateText(missionPanel, "HOVER MISSION FOR DETAILS", 10, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan, "FocusCue");
-        BindTheme(missionFocusCue, BattleUIThemeColorRole.Key);
-        SetAnchors(missionFocusCue.rectTransform, new Vector2(0.58f, 0.86f), new Vector2(0.95f, 0.96f));
+        Text cue = CreateText(missionPanel, "CURSOR FOCUS", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan, "FocusCue");
+        SetAnchors(cue.rectTransform, new Vector2(0.72f, 0.86f), new Vector2(0.95f, 0.96f));
 
         missionListRoot = CreateRect(missionPanel, "MissionList", Vector2.zero);
         missionListRoot.anchorMin = new Vector2(0.055f, 0.08f);
@@ -961,9 +850,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         for (int i = 0; i < MaxMissionSlots; i++)
             BuildMissionRow(i);
 
-        missionEmptyState = CreateText(missionPanel, "NO ACTIVE MISSION  //  STANDBY", 13, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "EmptyState");
-        BindTheme(missionEmptyState, BattleUIThemeColorRole.TextMuted);
-        SetAnchors(missionEmptyState.rectTransform, new Vector2(0.07f, 0.10f), new Vector2(0.93f, 0.58f));
+        missionEmptyState = CreateText(missionPanel, "NO ACTIVE MISSION\n// WAITING FOR BROADCAST ORDER", 18, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor, "EmptyState");
+        SetAnchors(missionEmptyState.rectTransform, new Vector2(0.10f, 0.22f), new Vector2(0.90f, 0.72f));
 
         BuildMissionDetail();
         LayoutMissionStructure(false);
@@ -983,7 +871,15 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         outline.effectColor = Color.clear;
         outline.effectDistance = Vector2.zero;
 
-        background.color = new Color(0.07f, 0.075f, 0.10f, 0.98f);
+        BattlePersona4FrameDecorator rowFrame = row.gameObject.AddComponent<BattlePersona4FrameDecorator>();
+        rowFrame.Configure(
+            new Color(0.07f, 0.075f, 0.10f, 0.98f),
+            new Color(paperColor.r, paperColor.g, paperColor.b, 0.16f),
+            index % 2 == 0 ? accentYellow : accentCyan,
+            true,
+            0.075f,
+            new Vector2(4f, -4f));
+        background.color = Color.clear;
 
         Text title = CreateText(row, $"MISSION {index + 1}", 14, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Title");
         SetAnchors(title.rectTransform, new Vector2(0.05f, 0.10f), new Vector2(0.72f, 0.90f));
@@ -994,7 +890,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionRows[index] = row;
         missionRowBackgrounds[index] = background;
         missionRowOutlines[index] = outline;
-        missionRowGlass[index] = null;
         missionRowTitles[index] = title;
         missionRowProgress[index] = progress;
     }
@@ -1009,28 +904,32 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionDetailRoot.localRotation = Quaternion.identity;
 
         Image back = missionDetailRoot.gameObject.AddComponent<Image>();
-        back.color = new Color(0.035f, 0.040f, 0.052f, 0.98f);
+        back.color = Color.clear;
         back.raycastTarget = false;
+        ApplyPersonaFrame(
+            missionDetailRoot.gameObject,
+            new Color(paperColor.r, paperColor.g, paperColor.b, 0.98f),
+            inkColor,
+            accentPink,
+            false,
+            0.10f,
+            new Vector2(-7f, 7f));
 
         missionDetailGroup = missionDetailRoot.gameObject.AddComponent<CanvasGroup>();
         missionDetailGroup.alpha = 0f;
         missionDetailGroup.blocksRaycasts = false;
         missionDetailGroup.interactable = false;
 
-        missionDetailTitle = CreateText(missionDetailRoot, "NO MISSION", 26, FontStyle.Bold, TextAnchor.UpperLeft, paperColor, "Title");
-        BindTheme(missionDetailTitle, BattleUIThemeColorRole.TextPrimary);
+        missionDetailTitle = CreateText(missionDetailRoot, "NO MISSION", 26, FontStyle.Bold, TextAnchor.UpperLeft, inkColor, "Title");
         SetAnchors(missionDetailTitle.rectTransform, new Vector2(0.07f, 0.78f), new Vector2(0.94f, 0.94f));
 
         missionDetailType = CreateText(missionDetailRoot, "STANDBY", 11, FontStyle.Bold, TextAnchor.UpperLeft, accentPink, "Type");
-        BindTheme(missionDetailType, BattleUIThemeColorRole.Key);
         SetAnchors(missionDetailType.rectTransform, new Vector2(0.07f, 0.70f), new Vector2(0.94f, 0.79f));
 
-        missionDetailDescription = CreateText(missionDetailRoot, "NO ACTIVE FAN MISSION", 14, FontStyle.Normal, TextAnchor.UpperLeft, paperColor, "Description");
-        BindTheme(missionDetailDescription, BattleUIThemeColorRole.TextPrimary);
+        missionDetailDescription = CreateText(missionDetailRoot, "NO ACTIVE FAN MISSION", 14, FontStyle.Normal, TextAnchor.UpperLeft, inkColor, "Description");
         SetAnchors(missionDetailDescription.rectTransform, new Vector2(0.07f, 0.42f), new Vector2(0.94f, 0.69f));
 
-        missionDetailProgress = CreateText(missionDetailRoot, "PROGRESS  -- / --", 18, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow, "Progress");
-        BindTheme(missionDetailProgress, BattleUIThemeColorRole.Key);
+        missionDetailProgress = CreateText(missionDetailRoot, "PROGRESS  -- / --", 18, FontStyle.Bold, TextAnchor.MiddleLeft, inkColor, "Progress");
         SetAnchors(missionDetailProgress.rectTransform, new Vector2(0.07f, 0.31f), new Vector2(0.94f, 0.42f));
 
         missionDetailReward = CreateText(missionDetailRoot, "SUCCESS  --", 13, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.06f, 0.52f, 0.48f, 1f), "Reward");
@@ -1066,26 +965,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void Subscribe()
     {
-        if (subscribedRunManager != runManager)
-        {
-            if (subscribedRunManager != null)
-                subscribedRunManager.StateChanged -= HandleRunStateChanged;
-
-            subscribedRunManager = runManager;
-            if (subscribedRunManager != null)
-                subscribedRunManager.StateChanged += HandleRunStateChanged;
-        }
-
-        if (subscribedLoadout != kineticLoadout)
-        {
-            if (subscribedLoadout != null)
-                subscribedLoadout.SwitchBoardVisibilityChanged -= HandlePackVisibilityChanged;
-
-            subscribedLoadout = kineticLoadout;
-            if (subscribedLoadout != null)
-                subscribedLoadout.SwitchBoardVisibilityChanged += HandlePackVisibilityChanged;
-        }
-
         if (subscribedMissionSystem != fanMissionSystem)
         {
             if (subscribedMissionSystem != null)
@@ -1103,28 +982,16 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             if (subscribedRunProgress != null)
                 subscribedRunProgress.BroadcastMetricsChanged += HandleBroadcastMetricsChanged;
         }
-
-        stateEventsSubscribed =
-            subscribedRunManager != null &&
-            subscribedLoadout != null;
     }
 
     private void Unsubscribe()
     {
-        if (subscribedRunManager != null)
-            subscribedRunManager.StateChanged -= HandleRunStateChanged;
-        if (subscribedLoadout != null)
-            subscribedLoadout.SwitchBoardVisibilityChanged -= HandlePackVisibilityChanged;
         if (subscribedMissionSystem != null)
             subscribedMissionSystem.MissionsChanged -= RefreshMissionData;
         if (subscribedRunProgress != null)
             subscribedRunProgress.BroadcastMetricsChanged -= HandleBroadcastMetricsChanged;
-
-        subscribedRunManager = null;
-        subscribedLoadout = null;
         subscribedMissionSystem = null;
         subscribedRunProgress = null;
-        stateEventsSubscribed = false;
     }
 
     private void RefreshMissionData()
@@ -1169,22 +1036,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         }
 
         if (count <= 0)
-        {
             selectedMissionIndex = -1;
-            hoveredMissionIndex = -1;
-            focus = DashboardFocus.Pack;
-        }
         else if (selectedMissionIndex < 0 || selectedMissionIndex >= count)
-        {
             selectedMissionIndex = 0;
-        }
-
-        if (missionFocusCue != null)
-        {
-            bool visible = count > 0;
-            if (missionFocusCue.gameObject.activeSelf != visible)
-                missionFocusCue.gameObject.SetActive(visible);
-        }
 
         layoutDirty = true;
         RefreshMissionDetail();
@@ -1231,69 +1085,68 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void RefreshMissionRowVisuals()
     {
-        int count = fanMissionSystem != null
-            ? Mathf.Min(MaxMissionSlots, fanMissionSystem.ActiveMissions.Count)
-            : 0;
-
-        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
-        Color action = theme != null ? theme.keyColor : accentYellow;
-        Color text = theme != null ? theme.textPrimary : paperColor;
-        Color muted = theme != null ? theme.textMuted : new Color(0.55f, 0.58f, 0.66f, 1f);
-
+        int count = fanMissionSystem != null ? Mathf.Min(MaxMissionSlots, fanMissionSystem.ActiveMissions.Count) : 0;
         for (int i = 0; i < MaxMissionSlots; i++)
         {
-            RectTransform row = missionRows[i];
-            Image background = missionRowBackgrounds[i];
-            Outline outline = missionRowOutlines[i];
-            if (row == null || background == null)
+            if (missionRowBackgrounds[i] == null || missionRowOutlines[i] == null)
                 continue;
 
             bool active = i < count;
             bool hovered = active && i == hoveredMissionIndex;
             bool selected = active && i == selectedMissionIndex;
 
-            Color targetFill = hovered
-                ? new Color(action.r, action.g, action.b, 0.22f)
-                : selected
-                    ? new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.15f)
-                    : new Color(0.045f, 0.050f, 0.065f, 0.96f);
-            background.color = targetFill;
+            Color targetBack = hovered
+                ? new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.96f)
+                : selected && focus == DashboardFocus.Mission
+                    ? new Color(0.10f, 0.13f, 0.17f, 1f)
+                    : new Color(0.07f, 0.075f, 0.10f, 0.98f);
+            // P4 Frame의 실제 Body가 Legacy Image 위에서 렌더링되므로
+            // Hover/Selected 색도 Frame Body에 직접 전달합니다.
+            if (missionRowBackgrounds[i].color != Color.clear)
+                missionRowBackgrounds[i].color = Color.clear;
 
-            if (outline != null)
+            BattlePersona4FrameDecorator rowFrame =
+                missionRows[i] != null
+                    ? missionRows[i].GetComponent<BattlePersona4FrameDecorator>()
+                    : null;
+            if (rowFrame != null)
             {
-                outline.enabled = hovered || selected;
-                outline.effectColor = hovered
-                    ? action
-                    : new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.72f);
-                outline.effectDistance = new Vector2(2f, -2f);
+                Color rowAccent = hovered
+                    ? paperColor
+                    : selected
+                        ? accentCyan
+                        : (i % 2 == 0 ? accentYellow : accentCyan);
+
+                rowFrame.Configure(
+                    targetBack,
+                    new Color(paperColor.r, paperColor.g, paperColor.b, hovered ? 0.30f : 0.16f),
+                    rowAccent,
+                    true,
+                    hovered ? 0.11f : 0.08f,
+                    new Vector2(4f, -4f));
             }
 
-            Vector3 targetScale = Vector3.one * (hovered ? 1.035f : 1f);
-            Vector3 targetEuler = hovered
-                ? Vector3.zero
+            Color outlineColor = hovered
+                ? Color.clear
                 : selected
-                    ? new Vector3(0.4f, -1.2f, -0.2f)
-                    : new Vector3(1.2f, -3.0f, -0.55f);
-            float targetZ = hovered ? -14f : selected ? -7f : 2f;
-
-            row.DOKill();
-            row.DOScale(targetScale, 0.16f)
-                .SetUpdate(true)
-                .SetEase(Ease.OutCubic);
-            row.DOLocalRotate(targetEuler, 0.16f, RotateMode.Fast)
-                .SetUpdate(true)
-                .SetEase(Ease.OutCubic);
-            row.DOLocalMoveZ(targetZ, 0.16f)
-                .SetUpdate(true)
-                .SetEase(Ease.OutCubic);
+                    ? Color.clear
+                    : Color.clear;
+            if (missionRowOutlines[i].effectColor != outlineColor)
+                missionRowOutlines[i].effectColor = outlineColor;
 
             if (missionRowTitles[i] != null)
-                missionRowTitles[i].color = active ? text : muted;
+            {
+                Color target = hovered ? inkColor : paperColor;
+                if (missionRowTitles[i].color != target)
+                    missionRowTitles[i].color = target;
+            }
 
             if (missionRowProgress[i] != null)
-                missionRowProgress[i].color = hovered
-                    ? action
-                    : selected ? accentCyan : muted;
+            {
+                Color target = hovered ? inkColor : accentYellow;
+                if (missionRowProgress[i].color != target)
+                    missionRowProgress[i].color = target;
+            }
         }
     }
 
@@ -1311,8 +1164,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void ApplyBroadcastMetricText(int viewers, int likes)
     {
-        SetTextIfChanged(viewersText, $"VIEWERS {Mathf.Max(0, viewers):N0}");
-        SetTextIfChanged(likesText, $"LIKES {Mathf.Max(0, likes):N0}");
+        SetTextIfChanged(viewersText, Mathf.Max(0, viewers).ToString("N0"));
+        SetTextIfChanged(likesText, Mathf.Max(0, likes).ToString("N0"));
     }
 
     private static void SetTextIfChanged(Text text, string value)
@@ -1336,22 +1189,29 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         return (a - b).sqrMagnitude <= 0.0001f;
     }
 
-    private static void DisableLegacyGlass(GameObject root)
+    private static void ApplyPersonaFrame(
+        GameObject root,
+        Color body,
+        Color backPlate,
+        Color accentPlate,
+        bool accentOnLeft,
+        float accentFraction,
+        Vector2 plateOffset)
     {
         if (root == null)
             return;
 
-        BattleSpatialGlassPanel glass = root.GetComponent<BattleSpatialGlassPanel>();
-        if (glass != null)
-            glass.enabled = false;
+        BattlePersona4FrameDecorator decorator = root.GetComponent<BattlePersona4FrameDecorator>();
+        if (decorator == null)
+            decorator = root.AddComponent<BattlePersona4FrameDecorator>();
 
-        string[] names = { "__Spatial_Shadow", "__Spatial_Glass", "__Spatial_Key" };
-        for (int i = 0; i < names.Length; i++)
-        {
-            Transform child = root.transform.Find(names[i]);
-            if (child != null && child.gameObject.activeSelf)
-                child.gameObject.SetActive(false);
-        }
+        decorator.Configure(
+            body,
+            backPlate,
+            accentPlate,
+            accentOnLeft,
+            accentFraction,
+            plateOffset);
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
@@ -1391,22 +1251,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             image = rect.gameObject.AddComponent<Image>();
         image.color = color;
         image.raycastTarget = false;
-    }
-
-    private static void BindTheme(
-        Graphic graphic,
-        BattleUIThemeColorRole role,
-        float alpha = 1f)
-    {
-        if (graphic == null)
-            return;
-
-        BattleUIThemeColorBinding binding =
-            graphic.GetComponent<BattleUIThemeColorBinding>();
-        if (binding == null)
-            binding = graphic.gameObject.AddComponent<BattleUIThemeColorBinding>();
-
-        binding.Configure(role, alpha);
     }
 
     private static void SetAnchors(RectTransform rect, Vector2 min, Vector2 max)

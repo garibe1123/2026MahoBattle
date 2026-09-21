@@ -84,13 +84,14 @@ public sealed class BattleRewardFlow : MonoBehaviour
         Unsubscribe();
     }
 
-    private void Start()
+    private void Update()
     {
-        // Scene initialization order가 늦은 경우 한 번 더 바인딩합니다.
-        // 이후 상태 변경은 StateChanged / InventoryChanged 이벤트가 소유합니다.
         ResolveReferences();
         EnsureSubscriptions();
         RefreshFromRunState();
+
+        if (phase == BattleRewardPhase.PackEditing && chosenRewardCommitted)
+            SyncChosenRewardLocation();
     }
 
     private void ResolveReferences()
@@ -162,7 +163,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
         }
 
         if (phase != BattleRewardPhase.Inactive || selectedChoiceIndex >= 0 || chosenReward != null || HasHand)
-            ResetState(true);
+            ResetState(false);
     }
 
     private void BeginChoosing()

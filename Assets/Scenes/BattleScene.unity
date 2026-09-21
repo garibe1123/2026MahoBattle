@@ -393,7 +393,6 @@ MonoBehaviour:
   equipmentSystem: {fileID: 100011}
   fanMissionSystem: {fileID: 100009}
   playerController: {fileID: 1592316896}
-  battleRuleRoulette: {fileID: 0}
   useEmptyStartArea: 1
   startPlayerWaitingRoomOffset: {x: -0.9, y: -0.35}
   hpByDepth:
@@ -629,7 +628,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   runManager: {fileID: 0}
-  uiTheme: {fileID: 0}
   inkColor: {r: 0.028, g: 0.03, b: 0.04, a: 0.995}
   panelColor: {r: 0.052, g: 0.055, b: 0.068, a: 0.995}
   paperColor: {r: 0.93, g: 0.9, b: 0.8, a: 1}
@@ -1509,7 +1507,6 @@ MonoBehaviour:
   showWorldSet: {fileID: 0}
   runManager: {fileID: 0}
   player: {fileID: 0}
-  stageLighting: {fileID: 0}
   overlaySortingOrder: 450
   dimColor: {r: 0, g: 0, b: 0, a: 1}
   cameraLeadBeforeDim: 0.1
@@ -1596,8 +1593,6 @@ MonoBehaviour:
   carrierFloorSortingOrder: -18
   rewardCameraPadding: 0.85
   rewardCameraMinSize: 5.4
-  mapCameraPadding: 0.22
-  mapCameraMinSize: 2.85
   presenterFallbackSprite: {fileID: 0}
   presenterWorldHeight: 3.6
   presenterPadYOffset: 0.2
@@ -1648,36 +1643,35 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   runManager: {fileID: 0}
-  uiTheme: {fileID: 0}
   fanMissionSystem: {fileID: 0}
   runProgress: {fileID: 0}
   kineticLoadout: {fileID: 0}
   missionFocusEnterX: 0.62
   packFocusReturnX: 0.53
   layoutSharpness: 13
-  packFocusedDockOffset: {x: -300, y: 10}
-  missionFocusedDockOffset: {x: -405, y: 18}
+  packFocusedDockOffset: {x: -260, y: 4}
+  missionFocusedDockOffset: {x: -360, y: 4}
   packFocusedScale: 1
   missionFocusedPackScale: 0.78
   packFocusedAlpha: 1
   missionFocusedPackAlpha: 0.72
-  packFocusedRotation: -1.2
-  missionFocusedPackRotation: -0.25
+  packFocusedRotation: -4
+  missionFocusedPackRotation: -1.5
   compactMissionSize: {x: 430, y: 300}
   focusedMissionSize: {x: 700, y: 700}
   missionPanelOffset: {x: -44, y: -128}
-  focusedMissionPanelOffset: {x: -44, y: -138}
-  missionPanelRotation: 0
+  focusedMissionPanelOffset: {x: -78, y: -154}
+  missionPanelRotation: 2.2
   compactMissionAlpha: 0.78
   metricBarSize: {x: 410, y: 64}
   metricBarOffset: {x: -42, y: -42}
-  metricBarRotation: -0.6
+  metricBarRotation: -1.6
   inkColor: {r: 0.025, g: 0.028, b: 0.045, a: 0.985}
   paperColor: {r: 0.94, g: 0.95, b: 0.97, a: 1}
   accentCyan: {r: 0.1, g: 0.88, b: 0.95, a: 1}
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
-  serializedLayoutVersion: 3
+  serializedLayoutVersion: 1
 --- !u!114 &529217579
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2366,7 +2360,6 @@ MonoBehaviour:
   currentWeaponIndex: 0
   extraPierce: 0
   runtimeDamageMultiplier: 1
-  battleRuleDamageMultiplier: 1
   runtimeFanMissionModifier: 0
 --- !u!114 &1592316896
 MonoBehaviour:
