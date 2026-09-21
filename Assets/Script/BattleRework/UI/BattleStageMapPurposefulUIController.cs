@@ -540,7 +540,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         DisableLegacySpatialGlass(rect);
 
         image.enabled = true;
-        image.raycastTarget = selectable;
+        // Map click/hover is resolved in BattleShowMapEquipmentPolishController with the
+        // actual World-Space Canvas event camera. Disable GraphicRaycaster ownership here
+        // to avoid Scene/Game camera mismatch and duplicate click paths.
+        image.raycastTarget = false;
         if (button != null)
             button.transition = Selectable.Transition.None;
 
@@ -570,6 +573,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 label.fontStyle = FontStyle.Bold;
                 label.fontSize = 13;
                 label.color = textPrimary;
+                label.raycastTarget = false;
                 label.rectTransform.sizeDelta = new Vector2(156f, 54f);
                 label.rectTransform.anchoredPosition = new Vector2(0f, -10f);
             }
@@ -600,6 +604,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 label.color = currentColor;
                 label.fontStyle = FontStyle.Bold;
                 label.fontSize = 12;
+                label.raycastTarget = false;
                 label.rectTransform.sizeDelta = new Vector2(156f, 54f);
                 label.rectTransform.anchoredPosition = new Vector2(0f, -10f);
             }
@@ -629,6 +634,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 label.color = new Color(textMuted.r, textMuted.g, textMuted.b, 0.72f);
                 label.fontStyle = FontStyle.Normal;
                 label.fontSize = 10;
+                label.raycastTarget = false;
                 label.rectTransform.sizeDelta = new Vector2(150f, 48f);
                 label.rectTransform.anchoredPosition = new Vector2(0f, -9f);
             }
@@ -696,7 +702,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         bool clickable = nodeButton != null && nodeButton.interactable;
 
         if (hitImage != null)
-            hitImage.raycastTarget = clickable;
+            hitImage.raycastTarget = false;
 
         // Map selection callback ownership은 원본 StageNode Button 하나만 유지합니다.
         // 넓은 HitArea는 hover/raycast와 BattleSpatialMapController의 direct hit-test에만 사용합니다.
@@ -1014,20 +1020,24 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        if (selected)
-            return;
-
-        hovered = true;
-        ApplyHover();
+        SetHovered(true);
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        if (selected)
+        SetHovered(false);
+    }
+
+    public void SetHovered(bool value)
+    {
+        if (selected || hovered == value)
             return;
 
-        hovered = false;
-        ApplyNormal(false);
+        hovered = value;
+        if (hovered)
+            ApplyHover();
+        else
+            ApplyNormal(false);
     }
 
     public void OnPointerClick(PointerEventData eventData)
