@@ -32,7 +32,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     [Header("Kinetic UI")]
     [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.98f);
-    [SerializeField] private Color paperColor = new(0.94f, 0.90f, 0.76f, 1f);
+    [SerializeField] private Color paperColor = new(0.92f, 0.94f, 0.97f, 1f);
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
@@ -42,7 +42,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [Header("Compact Vitals")]
     [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
     [SerializeField] private Color staminaColor = new(0.18f, 0.82f, 0.95f, 1f);
-    [SerializeField] private Color vitalsTextColor = new(0.94f, 0.90f, 0.76f, 1f);
+    [SerializeField] private Color vitalsTextColor = new(0.82f, 0.85f, 0.90f, 1f);
 
     [Header("Grid Mouse")]
     [SerializeField, Range(0.02f, 0.20f)] private float hoverExitGrace = 0.08f;
@@ -69,6 +69,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
+    private readonly Outline[] slotOutlines = new Outline[SlotCount];
     private readonly Image[] slotIcons = new Image[SlotCount];
     private readonly Text[] slotNames = new Text[SlotCount];
     private readonly Text[] slotGrades = new Text[SlotCount];
@@ -558,7 +559,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         compactName = CreateText(compactRoot, "NO WEAPON", 20, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
         SetAnchors(compactName.rectTransform, new Vector2(0.30f, 0.67f), new Vector2(0.96f, 0.90f));
 
-        compactPrompt = CreateText(compactRoot, "TAB / LB  —  SWITCH", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow);
+        compactPrompt = CreateText(compactRoot, "TAB / LB  —  SWITCH", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
         SetAnchors(compactPrompt.rectTransform, new Vector2(0.30f, 0.48f), new Vector2(0.96f, 0.62f));
 
         RectTransform vitals = CreateRect(compactRoot, "CompactVitals", Vector2.zero);
@@ -592,7 +593,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         titleRect.pivot = new Vector2(0f, 1f);
         titleRect.sizeDelta = new Vector2(720f, 90f);
         titleRect.anchoredPosition = new Vector2(76f, -74f);
-        titleRect.localRotation = Quaternion.Euler(0f, 0f, -4f);
+        titleRect.localRotation = Quaternion.identity;
 
         Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   SELECT SLOT   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.66f, 0.70f, 0.78f, 1f));
         RectTransform subRect = sub.rectTransform;
@@ -600,13 +601,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         subRect.pivot = new Vector2(0f, 1f);
         subRect.sizeDelta = new Vector2(720f, 44f);
         subRect.anchoredPosition = new Vector2(92f, -150f);
-        subRect.localRotation = Quaternion.Euler(0f, 0f, -4f);
+        subRect.localRotation = Quaternion.identity;
 
         detailRoot = CreateRect(fullRoot, "DetailPanel", new Vector2(570f, 330f));
         detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(0f, 0.5f);
         detailRoot.pivot = new Vector2(0f, 0.5f);
         detailRoot.anchoredPosition = new Vector2(98f, -90f);
-        detailRoot.localRotation = Quaternion.Euler(0f, 0f, 3f);
+        detailRoot.localRotation = Quaternion.identity;
         Image detailBack = detailRoot.gameObject.AddComponent<Image>();
         detailBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
         detailBack.raycastTarget = false;
@@ -615,7 +616,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         SetAnchors(detailTitle.rectTransform, new Vector2(0.07f, 0.67f), new Vector2(0.94f, 0.93f));
         detailTags = CreateText(detailRoot, "—", 13, FontStyle.Bold, TextAnchor.UpperLeft, accentCyan);
         SetAnchors(detailTags.rectTransform, new Vector2(0.07f, 0.37f), new Vector2(0.94f, 0.67f));
-        synergySummary = CreateText(detailRoot, "GRID LINK 0", 15, FontStyle.Bold, TextAnchor.LowerLeft, accentYellow);
+        synergySummary = CreateText(detailRoot, "GRID LINK 0", 15, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
         SetAnchors(synergySummary.rectTransform, new Vector2(0.07f, 0.08f), new Vector2(0.94f, 0.37f));
 
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
@@ -663,8 +664,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             target.Configure(this, i);
 
             Outline outline = slot.gameObject.AddComponent<Outline>();
-            outline.effectColor = new Color(0f, 0f, 0f, 0.75f);
-            outline.effectDistance = new Vector2(4f, -4f);
+            outline.effectColor = new Color(0.44f, 0.48f, 0.56f, 0.28f);
+            outline.effectDistance = new Vector2(1f, -1f);
+            slotOutlines[i] = outline;
 
             Image icon = CreateImage(slot, "Icon", new Vector2(88f, 88f));
             icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.30f, 0.64f);
@@ -676,7 +678,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             SetAnchors(name.rectTransform, new Vector2(0.52f, 0.43f), new Vector2(0.94f, 0.80f));
             slotNames[i] = name;
 
-            Text grade = CreateText(slot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperRight, accentYellow);
+            Text grade = CreateText(slot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperRight, new Color(0.62f, 0.67f, 0.76f, 1f));
             SetAnchors(grade.rectTransform, new Vector2(0.64f, 0.80f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
 
@@ -701,52 +703,75 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             BattleEquipmentSlot slot = i < equipmentSystem.Slots.Count ? equipmentSystem.Slots[i] : null;
             BattleEquipmentSO equipment = slot?.equipment;
             bool isEquipped = i == equipped;
+            bool isSelected = switchHeld && boardWasShown && i == selectedIndex;
 
             if (slotBackgrounds[i] != null)
             {
                 slotBackgrounds[i].color = !unlocked
                     ? lockedColor
-                    : isEquipped
-                        ? new Color(accentCyan.r * 0.25f, accentCyan.g * 0.25f, accentCyan.b * 0.25f, 0.98f)
-                        : inkColor;
+                    : isSelected
+                        ? new Color(accentCyan.r * 0.18f, accentCyan.g * 0.18f, accentCyan.b * 0.18f, 0.99f)
+                        : isEquipped
+                            ? new Color(accentCyan.r * 0.10f, accentCyan.g * 0.10f, accentCyan.b * 0.10f, 0.99f)
+                            : new Color(inkColor.r, inkColor.g, inkColor.b, 0.98f);
             }
 
-            if (slotRects[i] != null)
-                slotRects[i].localScale = Vector3.one;
+            if (slotOutlines[i] != null)
+            {
+                slotOutlines[i].effectColor = !unlocked
+                    ? new Color(0.38f, 0.41f, 0.48f, 0.18f)
+                    : isSelected
+                        ? accentCyan
+                        : isEquipped
+                            ? new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.56f)
+                            : new Color(0.55f, 0.59f, 0.66f, 0.26f);
+                slotOutlines[i].effectDistance = isSelected
+                    ? new Vector2(3f, -3f)
+                    : isEquipped
+                        ? new Vector2(2f, -2f)
+                        : new Vector2(1f, -1f);
+            }
 
             if (slotIcons[i] != null)
             {
                 slotIcons[i].sprite = equipment != null ? equipment.icon : null;
                 slotIcons[i].enabled = unlocked && equipment != null && equipment.icon != null;
+                slotIcons[i].color = unlocked ? Color.white : new Color(0.46f, 0.49f, 0.56f, 0.52f);
             }
 
             if (slotNames[i] != null)
             {
-                slotNames[i].text = !unlocked ? "LOCKED" : equipment != null ? equipment.GetDisplayName().ToUpperInvariant() : "EMPTY";
-                slotNames[i].color = paperColor;
+                slotNames[i].text = !unlocked
+                    ? "LOCKED"
+                    : equipment != null
+                        ? equipment.GetDisplayName().ToUpperInvariant()
+                        : "EMPTY";
+                slotNames[i].color = unlocked ? paperColor : new Color(0.48f, 0.51f, 0.58f, 1f);
             }
 
             if (slotGrades[i] != null)
             {
-                slotGrades[i].text = unlocked && equipment != null ? $"G{slot.grade}" : string.Empty;
-                slotGrades[i].color = accentYellow;
+                slotGrades[i].text = unlocked && equipment != null ? $"GRADE {slot.grade}" : string.Empty;
+                slotGrades[i].color = new Color(0.62f, 0.67f, 0.76f, 1f);
             }
 
             if (slotStates[i] != null)
             {
                 Vector2Int p = BattleEquipmentSystem.SlotIndexToGrid(i);
-                bool isSelected = switchHeld && boardWasShown && i == selectedIndex;
                 slotStates[i].text = !unlocked
                     ? $"{p.x + 1}-{p.y + 1}  // LOCKED"
-                    : isEquipped
-                        ? "● EQUIPPED"
+                    : isEquipped && isSelected
+                        ? "EQUIPPED  /  SELECTED"
                         : isSelected
-                            ? "● SELECTED"
-                            : $"{p.x + 1}-{p.y + 1}  // READY";
-                slotStates[i].color = isEquipped
-                    ? accentCyan
-                    : isSelected
-                        ? paperColor
+                            ? "SELECTED  // RELEASE TO EQUIP"
+                            : isEquipped
+                                ? "EQUIPPED"
+                                : $"{p.x + 1}-{p.y + 1}  // AVAILABLE";
+
+                slotStates[i].color = !unlocked
+                    ? new Color(0.42f, 0.45f, 0.52f, 1f)
+                    : isSelected || isEquipped
+                        ? accentCyan
                         : new Color(0.55f, 0.60f, 0.70f, 1f);
             }
         }
@@ -1058,20 +1083,29 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             compactRoot.localRotation = Quaternion.Slerp(compactRoot.localRotation, targetRotation, t);
         }
 
-        if (boardRoot != null && wantFull)
+        if (boardRoot != null)
         {
             boardRoot.localRotation = Quaternion.Slerp(
                 boardRoot.localRotation,
-                Quaternion.Euler(0.6f, -1.8f, -0.5f),
+                wantFull
+                    ? Quaternion.Euler(0.6f, -1.8f, -0.5f)
+                    : Quaternion.Euler(3.5f, -6f, -1.2f),
                 t);
 
             Vector3 local = boardRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, -10f, t);
+            local.z = Mathf.Lerp(local.z, wantFull ? -10f : 30f, t);
             boardRoot.localPosition = local;
+
+            boardRoot.localScale = Vector3.Lerp(
+                boardRoot.localScale,
+                Vector3.one * (wantFull ? 1f : 0.965f),
+                t);
         }
 
-        if (wantFull && equipmentSystem != null)
+        if (equipmentSystem != null)
         {
+            int equipped = equipmentSystem.EquippedSlotIndex;
+
             for (int i = 0; i < slotRects.Length; i++)
             {
                 RectTransform slot = slotRects[i];
@@ -1079,25 +1113,45 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     continue;
 
                 bool unlocked = equipmentSystem.IsSlotUnlocked(i);
-                bool selected = i == selectedIndex;
+                bool selected = wantFull && i == selectedIndex;
+                bool equippedSlot = i == equipped;
                 Vector2Int grid = BattleEquipmentSystem.SlotIndexToGrid(i);
                 float side = grid.x - 1f;
 
+                float targetZ = !wantFull
+                    ? 12f
+                    : selected
+                        ? -24f
+                        : equippedSlot
+                            ? -9f
+                            : unlocked ? 3f : 16f;
+
                 Vector3 local = slot.localPosition;
-                local.z = Mathf.Lerp(local.z, selected ? -18f : unlocked ? 0f : 10f, t);
+                local.z = Mathf.Lerp(local.z, targetZ, t);
                 slot.localPosition = local;
 
-                Quaternion targetRotation = selected
-                    ? Quaternion.identity
-                    : Quaternion.Euler(
-                        unlocked ? 1.1f : 2.4f,
-                        -side * (unlocked ? 2.4f : 4.5f),
-                        side * (unlocked ? 0.55f : 1.1f));
+                Quaternion targetRotation = !wantFull
+                    ? Quaternion.Euler(3.2f, -side * 5.5f, side * 1.4f)
+                    : selected
+                        ? Quaternion.identity
+                        : equippedSlot
+                            ? Quaternion.Euler(0.5f, -side * 1.2f, side * 0.25f)
+                            : Quaternion.Euler(
+                                unlocked ? 1.4f : 2.8f,
+                                -side * (unlocked ? 3.0f : 5.0f),
+                                side * (unlocked ? 0.7f : 1.2f));
+
                 slot.localRotation = Quaternion.Slerp(slot.localRotation, targetRotation, t);
+
+                float targetScale = !wantFull
+                    ? 0.97f
+                    : selected
+                        ? 1.06f
+                        : equippedSlot ? 1.025f : unlocked ? 1f : 0.985f;
 
                 slot.localScale = Vector3.Lerp(
                     slot.localScale,
-                    Vector3.one * (selected ? 1.045f : 1f),
+                    Vector3.one * targetScale,
                     t);
             }
         }
