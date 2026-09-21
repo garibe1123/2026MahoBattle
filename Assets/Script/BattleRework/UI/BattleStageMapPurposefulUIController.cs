@@ -739,26 +739,34 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     }
 }
 
+internal enum BattleStageMapNodeVisualState
+{
+    Locked,
+    Current,
+    Available
+}
+
 /// <summary>
-/// 실제 노드는 작게 유지하고 Pointer Target만 넓게 잡습니다.
-/// Hover 시 노드를 확대하고 박스/아이콘·라벨 명암을 반전합니다.
+/// Map Node의 명시적 상태와 Hover/Selected 공간 연출을 한 곳에서 관리합니다.
+/// Transform은 localPosition Z + XYZ rotation + scale을 모두 Tween합니다.
 /// </summary>
 internal sealed class BattleStageMapNodePointerFeedback :
     MonoBehaviour,
     IPointerEnterHandler,
     IPointerExitHandler
 {
-    private const float HoverScale = 1.18f;
-    private const float HoverScaleSharpness = 18f;
+    private const float AnimationSharpness = 18f;
 
     private RectTransform nodeRect;
     private Image nodeImage;
     private Image nodeIcon;
     private Outline nodeOutline;
     private Text label;
-    private Color accent;
-    private Color baseColor;
+    private BattleStageMapNodeVisualState baseState;
+    private Color stateAccent;
+    private Color inkColor;
     private Color paperColor;
+    private Color mutedColor;
     private Color baseIconColor = Color.white;
     private string baseLabel = "STAGE";
     private bool hovered;
@@ -769,39 +777,33 @@ internal sealed class BattleStageMapNodePointerFeedback :
         Image image,
         Outline outline,
         Text nodeLabel,
+        BattleStageMapNodeVisualState visualState,
         Color accentColor,
-        Color normalColor,
-        Color textColor)
+        Color normalInkColor,
+        Color textColor,
+        Color disabledColor)
     {
         nodeImage = image;
         nodeRect = image != null ? image.rectTransform : null;
         nodeOutline = outline;
         label = nodeLabel;
-        accent = accentColor;
-        baseColor = normalColor;
+        baseState = visualState;
+        stateAccent = accentColor;
+        inkColor = normalInkColor;
         paperColor = textColor;
+        mutedColor = disabledColor;
 
-        Image resolvedIcon = FindNodeIcon(nodeRect, nodeImage);
-        if (resolvedIcon != nodeIcon)
-        {
-            nodeIcon = resolvedIcon;
-            if (nodeIcon != null)
-                baseIconColor = nodeIcon.color;
-        }
-        else if (!hovered && nodeIcon != null)
-        {
-            baseIconColor = nodeIcon.color;
-        }
+        ResolveIcon();
 
         if (label != null)
-            baseLabel = ExtractLabel(label.text);
+            baseLabel = ExtractBaseLabel(label.text);
 
         if (selected)
             ApplySelected();
-        else if (hovered)
+        else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
             ApplyHover();
         else
-            ApplyNormal();
+            ApplyBaseVisual();
     }
 
     private void Update()
@@ -809,19 +811,49 @@ internal sealed class BattleStageMapNodePointerFeedback :
         if (nodeRect == null)
             return;
 
-        float t = 1f - Mathf.Exp(-HoverScaleSharpness * Time.unscaledDeltaTime);
+        ResolveIcon();
 
-        float targetScale = selected
-            ? 1.24f
-            : hovered ? HoverScale : 1f;
-        float targetZ = selected
-            ? -28f
-            : hovered ? -16f : 4f;
-        Vector3 targetEuler = selected
-            ? Vector3.zero
-            : hovered
-                ? new Vector3(0.2f, -0.6f, -0.15f)
-                : new Vector3(1.4f, -3.2f, -0.55f);
+        float t = 1f - Mathf.Exp(-AnimationSharpness * Time.unscaledDeltaTime);
+
+        float targetScale;
+        float targetZ;
+        Vector3 targetEuler;
+
+        if (selected)
+        {
+            targetScale = 1.12f;
+            targetZ = -30f;
+            targetEuler = Vector3.zero;
+        }
+        else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
+        {
+            targetScale = 1.07f;
+            targetZ = -18f;
+            targetEuler = new Vector3(0.2f, -0.6f, -0.15f);
+        }
+        else
+        {
+            switch (baseState)
+            {
+                case BattleStageMapNodeVisualState.Current:
+                    targetScale = 1.025f;
+                    targetZ = -8f;
+                    targetEuler = new Vector3(0.4f, -1.2f, -0.10f);
+                    break;
+
+                case BattleStageMapNodeVisualState.Available:
+                    targetScale = 1f;
+                    targetZ = 2f;
+                    targetEuler = new Vector3(1.0f, -2.4f, -0.30f);
+                    break;
+
+                default:
+                    targetScale = 0.96f;
+                    targetZ = 16f;
+                    targetEuler = new Vector3(2.2f, -5.0f, 0.70f);
+                    break;
+            }
+        }
 
         nodeRect.localScale = Vector3.Lerp(
             nodeRect.localScale,
@@ -840,7 +872,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        if (selected)
+        if (selected || baseState != BattleStageMapNodeVisualState.Available)
             return;
 
         hovered = true;
@@ -853,7 +885,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
             return;
 
         hovered = false;
-        ApplyNormal();
+        ApplyBaseVisual();
     }
 
     public void BindButton(Button button)
@@ -867,6 +899,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
         boundButton = button;
         if (boundButton != null)
         {
+            boundButton.transition = Selectable.Transition.None;
             boundButton.onClick.RemoveListener(NotifySelected);
             boundButton.onClick.AddListener(NotifySelected);
         }
@@ -874,6 +907,9 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
     public void NotifySelected()
     {
+        if (baseState != BattleStageMapNodeVisualState.Available)
+            return;
+
         selected = true;
         hovered = false;
         ApplySelected();
@@ -883,15 +919,6 @@ internal sealed class BattleStageMapNodePointerFeedback :
     {
         hovered = false;
         selected = false;
-        ApplyNormal();
-        if (nodeRect != null)
-        {
-            nodeRect.localScale = Vector3.one;
-            nodeRect.localRotation = Quaternion.identity;
-            Vector3 local = nodeRect.localPosition;
-            local.z = 0f;
-            nodeRect.localPosition = local;
-        }
     }
 
     private void ApplyHover()
@@ -904,21 +931,21 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
         if (nodeOutline != null)
         {
-            nodeOutline.effectColor = accent;
-            nodeOutline.effectDistance = new Vector2(5f, -5f);
+            nodeOutline.effectColor = stateAccent;
+            nodeOutline.effectDistance = new Vector2(4f, -4f);
         }
 
         if (nodeIcon != null)
         {
             nodeIcon.enabled = true;
-            nodeIcon.color = baseColor;
+            nodeIcon.color = inkColor;
         }
 
         if (label != null)
         {
             label.gameObject.SetActive(true);
             label.text = baseLabel + "\nSELECT";
-            label.color = baseColor;
+            label.color = inkColor;
             label.fontStyle = FontStyle.Bold;
         }
     }
@@ -928,56 +955,111 @@ internal sealed class BattleStageMapNodePointerFeedback :
         if (nodeImage != null)
         {
             nodeImage.enabled = true;
-            nodeImage.color = new Color(accent.r, accent.g, accent.b, 0.92f);
+            nodeImage.color = new Color(stateAccent.r, stateAccent.g, stateAccent.b, 0.94f);
         }
 
         if (nodeOutline != null)
         {
             nodeOutline.effectColor = paperColor;
-            nodeOutline.effectDistance = new Vector2(5f, -5f);
+            nodeOutline.effectDistance = new Vector2(4f, -4f);
         }
 
         if (nodeIcon != null)
         {
             nodeIcon.enabled = true;
-            nodeIcon.color = baseColor;
+            nodeIcon.color = inkColor;
         }
 
         if (label != null)
         {
             label.gameObject.SetActive(true);
             label.text = baseLabel + "\nSELECTED";
-            label.color = baseColor;
+            label.color = inkColor;
             label.fontStyle = FontStyle.Bold;
         }
     }
 
-    private void ApplyNormal()
+    private void ApplyBaseVisual()
     {
-        if (nodeImage != null)
-        {
-            nodeImage.enabled = true;
-            nodeImage.color = baseColor;
-        }
+        if (nodeImage == null)
+            return;
 
-        if (nodeOutline != null)
-        {
-            nodeOutline.effectColor = accent;
-            nodeOutline.effectDistance = new Vector2(3f, -3f);
-        }
+        nodeImage.enabled = true;
 
-        if (nodeIcon != null)
+        switch (baseState)
         {
-            nodeIcon.enabled = true;
-            nodeIcon.color = baseIconColor;
-        }
+            case BattleStageMapNodeVisualState.Current:
+                nodeImage.color = Color.Lerp(inkColor, stateAccent, 0.20f);
+                if (nodeOutline != null)
+                {
+                    nodeOutline.effectColor = stateAccent;
+                    nodeOutline.effectDistance = new Vector2(3f, -3f);
+                }
+                if (label != null)
+                {
+                    label.text = baseLabel + "\nCURRENT";
+                    label.color = stateAccent;
+                    label.fontStyle = FontStyle.Bold;
+                }
+                if (nodeIcon != null)
+                    nodeIcon.color = stateAccent;
+                break;
 
-        if (label != null)
+            case BattleStageMapNodeVisualState.Available:
+                nodeImage.color = inkColor;
+                if (nodeOutline != null)
+                {
+                    nodeOutline.effectColor = stateAccent;
+                    nodeOutline.effectDistance = new Vector2(2f, -2f);
+                }
+                if (label != null)
+                {
+                    label.text = baseLabel + "\nAVAILABLE";
+                    label.color = paperColor;
+                    label.fontStyle = FontStyle.Bold;
+                }
+                if (nodeIcon != null)
+                    nodeIcon.color = baseIconColor;
+                break;
+
+            default:
+                nodeImage.color = new Color(
+                    inkColor.r * 0.78f,
+                    inkColor.g * 0.78f,
+                    inkColor.b * 0.82f,
+                    0.92f);
+                if (nodeOutline != null)
+                {
+                    nodeOutline.effectColor = new Color(
+                        mutedColor.r,
+                        mutedColor.g,
+                        mutedColor.b,
+                        0.28f);
+                    nodeOutline.effectDistance = new Vector2(1f, -1f);
+                }
+                if (label != null)
+                {
+                    label.text = baseLabel + "\nLOCKED";
+                    label.color = mutedColor;
+                    label.fontStyle = FontStyle.Normal;
+                }
+                if (nodeIcon != null)
+                    nodeIcon.color = mutedColor;
+                break;
+        }
+    }
+
+    private void ResolveIcon()
+    {
+        Image resolved = FindNodeIcon(nodeRect, nodeImage);
+        if (resolved == null)
+            return;
+
+        if (resolved != nodeIcon)
         {
-            label.gameObject.SetActive(true);
-            label.text = baseLabel;
-            label.color = paperColor;
-            label.fontStyle = FontStyle.Bold;
+            nodeIcon = resolved;
+            baseIconColor = nodeIcon.color;
+            ApplyBaseVisual();
         }
     }
 
@@ -992,8 +1074,6 @@ internal sealed class BattleStageMapNodePointerFeedback :
             Image candidate = images[i];
             if (candidate == null || candidate == rootImage)
                 continue;
-            if (candidate.name == "MapPointerHitArea")
-                continue;
             if (candidate.name.IndexOf("Icon", System.StringComparison.OrdinalIgnoreCase) >= 0)
                 return candidate;
         }
@@ -1001,16 +1081,24 @@ internal sealed class BattleStageMapNodePointerFeedback :
         return null;
     }
 
-    private static string ExtractLabel(string source)
+    private static string ExtractBaseLabel(string source)
     {
         if (string.IsNullOrWhiteSpace(source))
             return "STAGE";
 
-        string normalized = source.Replace("\r", string.Empty);
-        int selectLine = normalized.IndexOf("\nSELECT", System.StringComparison.OrdinalIgnoreCase);
-        if (selectLine >= 0)
-            normalized = normalized.Substring(0, selectLine);
+        string normalized = source.Replace("\r", string.Empty).Trim();
+        string[] states = { "AVAILABLE", "SELECT", "SELECTED", "CURRENT", "LOCKED" };
 
-        return normalized.Trim().ToUpperInvariant();
+        for (int i = 0; i < states.Length; i++)
+        {
+            string suffix = "\n" + states[i];
+            if (normalized.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase))
+            {
+                normalized = normalized.Substring(0, normalized.Length - suffix.Length).TrimEnd();
+                break;
+            }
+        }
+
+        return normalized.ToUpperInvariant();
     }
 }
