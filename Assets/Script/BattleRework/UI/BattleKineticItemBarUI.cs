@@ -209,14 +209,11 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         header.pivot = new Vector2(0f, 1f);
         header.anchoredPosition = new Vector2(14f, -6f);
 
-        Text title = CreateText(header, "PACK", 17, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        SetAnchors(title.rectTransform, new Vector2(0f, 0f), new Vector2(0.38f, 1f));
-
-        capacityText = CreateText(header, "3 / 9", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
-        SetAnchors(capacityText.rectTransform, new Vector2(0.42f, 0f), new Vector2(0.70f, 1f));
+        capacityText = CreateText(header, "3 / 9", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
+        SetAnchors(capacityText.rectTransform, new Vector2(0.02f, 0f), new Vector2(0.38f, 1f));
 
         Text hint = CreateText(header, "TAB / LB  OPEN", 9, FontStyle.Bold, TextAnchor.MiddleRight, new Color(0.58f, 0.63f, 0.72f, 1f));
-        SetAnchors(hint.rectTransform, new Vector2(0.70f, 0f), new Vector2(1f, 1f));
+        SetAnchors(hint.rectTransform, new Vector2(0.40f, 0f), new Vector2(0.98f, 1f));
     }
 
     private void BuildGrid()
