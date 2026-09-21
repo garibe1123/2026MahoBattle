@@ -326,11 +326,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         RefreshAll();
     }
 
-    private bool IsCombat()
-    {
-        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
-    }
-
     public bool SetSelectedIndexFromExternal(int index, bool markMoved = true)
     {
         ResolveReferences();
