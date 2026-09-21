@@ -41,8 +41,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
     [SerializeField, Range(0.18f, 0.55f)] private float packMorphDuration = 0.34f;
-    [SerializeField] private Vector2 packFocusedOffset = new(54f, 18f);
-    [SerializeField] private Vector2 packInactiveCornerOffset = new(-170f, -132f);
+    [SerializeField] private Vector2 packRestOffset = new(-118f, -62f);
+    [SerializeField] private Vector2 packFocusedOffset = new(-142f, -76f);
+    [SerializeField] private Vector2 packInactiveCornerOffset = new(-248f, -146f);
+    [SerializeField] private Vector2 itemTooltipSize = new(360f, 220f);
+    [SerializeField, Min(4f)] private float itemTooltipGap = 18f;
 
     [Header("Compact Vitals")]
     [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
@@ -61,6 +64,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform detailRoot;
     private CanvasGroup detailGroup;
     private Text detailTitle;
+    private Text detailDescription;
     private Text detailTags;
     private Text synergySummary;
 
@@ -612,22 +616,37 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         subRect.anchoredPosition = new Vector2(92f, -150f);
         subRect.localRotation = Quaternion.identity;
 
-        detailRoot = CreateRect(fullRoot, "DetailPanel", new Vector2(570f, 330f));
+        detailRoot = CreateRect(fullRoot, "DetailPanel", itemTooltipSize);
         detailGroup = detailRoot.gameObject.AddComponent<CanvasGroup>();
-        detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(0f, 0.5f);
+        detailGroup.alpha = 0f;
+        detailGroup.blocksRaycasts = false;
+        detailGroup.interactable = false;
+        detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(0.5f, 0.5f);
         detailRoot.pivot = new Vector2(0f, 0.5f);
-        detailRoot.anchoredPosition = new Vector2(98f, -90f);
+        detailRoot.anchoredPosition = Vector2.zero;
         detailRoot.localRotation = Quaternion.identity;
+
         Image detailBack = detailRoot.gameObject.AddComponent<Image>();
-        detailBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
+        detailBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.965f);
         detailBack.raycastTarget = false;
 
-        detailTitle = CreateText(detailRoot, "EMPTY", 29, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(detailTitle.rectTransform, new Vector2(0.07f, 0.67f), new Vector2(0.94f, 0.93f));
-        detailTags = CreateText(detailRoot, "—", 13, FontStyle.Bold, TextAnchor.UpperLeft, accentCyan);
-        SetAnchors(detailTags.rectTransform, new Vector2(0.07f, 0.37f), new Vector2(0.94f, 0.67f));
-        synergySummary = CreateText(detailRoot, "GRID LINK 0", 15, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
-        SetAnchors(synergySummary.rectTransform, new Vector2(0.07f, 0.08f), new Vector2(0.94f, 0.37f));
+        Outline detailOutline = detailRoot.gameObject.AddComponent<Outline>();
+        detailOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.24f);
+        detailOutline.effectDistance = new Vector2(2f, -2f);
+
+        detailTitle = CreateText(detailRoot, "EMPTY", 20, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
+        SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.74f), new Vector2(0.94f, 0.94f));
+
+        detailDescription = CreateText(detailRoot, "NO DESCRIPTION", 12, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
+        SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.43f), new Vector2(0.94f, 0.73f));
+        detailDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
+        detailDescription.verticalOverflow = VerticalWrapMode.Truncate;
+
+        detailTags = CreateText(detailRoot, "—", 10, FontStyle.Bold, TextAnchor.UpperLeft, accentCyan);
+        SetAnchors(detailTags.rectTransform, new Vector2(0.06f, 0.25f), new Vector2(0.94f, 0.42f));
+
+        synergySummary = CreateText(detailRoot, "GRID LINK 0", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
+        SetAnchors(synergySummary.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.23f));
 
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
         boardGroup = boardRoot.gameObject.AddComponent<CanvasGroup>();
@@ -701,6 +720,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             SetAnchors(state.rectTransform, new Vector2(0.08f, 0.07f), new Vector2(0.94f, 0.27f));
             slotStates[i] = state;
         }
+
+        // Tooltip is visual-only and must render above the board without
+        // participating in pointer hit testing.
+        detailRoot.SetAsLastSibling();
     }
 
     private void RefreshAll()
@@ -822,6 +845,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         BattleEquipmentSO equipment = slot?.equipment;
         if (detailTitle != null)
             detailTitle.text = equipment != null ? equipment.GetDisplayName().ToUpperInvariant() : "EMPTY SLOT";
+
+        if (detailDescription != null)
+        {
+            detailDescription.text =
+                equipment != null && !string.IsNullOrWhiteSpace(equipment.description)
+                    ? equipment.description
+                    : "NO DESCRIPTION";
+        }
 
         if (detailTags != null)
         {
@@ -1131,7 +1162,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 ? packFocusedOffset
                 : packSuppressed
                     ? packInactiveCornerOffset
-                    : Vector2.zero;
+                    : packRestOffset;
 
             float packScale = packFocused
                 ? 1.075f
@@ -1175,41 +1206,49 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         if (detailRoot != null)
         {
-            Vector2 detailTarget = !wantFull
-                ? new Vector2(98f, -90f)
-                : packFocused
-                    ? new Vector2(88f, -72f)
-                    : packSuppressed
-                        ? new Vector2(54f, -214f)
-                        : new Vector2(98f, -90f);
+            int tooltipSlot = ResolveTooltipSlot();
+            bool tooltipVisible =
+                wantFull &&
+                packFocused &&
+                tooltipSlot >= 0 &&
+                tooltipSlot < slotRects.Length &&
+                slotRects[tooltipSlot] != null;
 
-            detailRoot.anchoredPosition = Vector2.Lerp(
-                detailRoot.anchoredPosition,
-                detailTarget,
-                t);
+            Vector2 tooltipTarget = tooltipVisible
+                ? ResolveTooltipPosition(slotRects[tooltipSlot])
+                : detailRoot.anchoredPosition;
+
+            if (tooltipVisible)
+            {
+                detailRoot.anchoredPosition = Vector2.Lerp(
+                    detailRoot.anchoredPosition,
+                    tooltipTarget,
+                    t);
+            }
+
             detailRoot.localScale = Vector3.Lerp(
                 detailRoot.localScale,
-                Vector3.one * (
-                    packFocused ? 1.04f : packSuppressed ? 0.78f : 0.90f),
+                Vector3.one * (tooltipVisible ? 1f : 0.94f),
                 t);
 
             Vector3 detailLocal = detailRoot.localPosition;
             detailLocal.z = Mathf.Lerp(
                 detailLocal.z,
-                packFocused ? -16f : packSuppressed ? 20f : 4f,
+                tooltipVisible ? -24f : 12f,
                 t);
             detailRoot.localPosition = detailLocal;
 
             if (detailGroup != null)
             {
-                float detailReveal = SmoothPackRange(
-                    packMorphProgress,
-                    0.62f,
-                    0.96f);
-                float focusAlpha = packFocused
-                    ? 1f
-                    : packSuppressed ? 0.34f : 0.68f;
-                detailGroup.alpha = detailReveal * focusAlpha;
+                float tooltipReveal = tooltipVisible
+                    ? SmoothPackRange(packMorphProgress, 0.70f, 0.94f)
+                    : 0f;
+                detailGroup.alpha = Mathf.Lerp(
+                    detailGroup.alpha,
+                    tooltipReveal,
+                    t);
+                detailGroup.blocksRaycasts = false;
+                detailGroup.interactable = false;
             }
         }
 
@@ -1273,6 +1312,52 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     t);
             }
         }
+    }
+
+    private int ResolveTooltipSlot()
+    {
+        if (hoveredSlot >= 0)
+            return hoveredSlot;
+
+        return !Input.mousePresent ? selectedIndex : -1;
+    }
+
+    private Vector2 ResolveTooltipPosition(RectTransform slot)
+    {
+        if (slot == null || fullRoot == null || detailRoot == null)
+            return Vector2.zero;
+
+        Vector3 slotRightWorld = slot.TransformPoint(
+            new Vector3(slot.rect.xMax, slot.rect.center.y, 0f));
+        Vector3 slotLeftWorld = slot.TransformPoint(
+            new Vector3(slot.rect.xMin, slot.rect.center.y, 0f));
+        Vector3 slotCenterWorld = slot.TransformPoint(slot.rect.center);
+
+        Vector2 rightLocal = fullRoot.InverseTransformPoint(slotRightWorld);
+        Vector2 leftLocal = fullRoot.InverseTransformPoint(slotLeftWorld);
+        Vector2 centerLocal = fullRoot.InverseTransformPoint(slotCenterWorld);
+
+        Rect rootRect = fullRoot.rect;
+        float width = Mathf.Max(1f, detailRoot.sizeDelta.x);
+        float height = Mathf.Max(1f, detailRoot.sizeDelta.y);
+        float gap = Mathf.Max(4f, itemTooltipGap);
+        const float safe = 24f;
+
+        float x = rightLocal.x + gap;
+        if (x + width > rootRect.xMax - safe)
+            x = leftLocal.x - gap - width;
+
+        x = Mathf.Clamp(
+            x,
+            rootRect.xMin + safe,
+            rootRect.xMax - safe - width);
+
+        float y = Mathf.Clamp(
+            centerLocal.y,
+            rootRect.yMin + safe + height * 0.5f,
+            rootRect.yMax - safe - height * 0.5f);
+
+        return new Vector2(x, y);
     }
 
     private static float SmoothPackMorph(float value)
