@@ -38,26 +38,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private const int DashboardSortingOrder = 1685;
     private const int MaxChatLines = 5;
 
-    private static readonly string[] ChatNames =
-    {
-        "MahoFan_17",
-        "SeoulWatcher",
-        "pixelina",
-        "LunaMX",
-        "clipHunter",
-        "하루_404"
-    };
-
-    private static readonly string[] ChatComments =
-    {
-        "that PACK is getting scary",
-        "방금 교체 깔끔했다",
-        "keep that item",
-        "clean swap",
-        "다음 전투 기대됨",
-        "build is coming together"
-    };
-
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private FanMissionSystem fanMissionSystem;
@@ -72,7 +52,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField, Range(0.3f, 1f)] private float missionFocusedPackAlpha = 0.58f;
 
     [Header("Mission")]
-    [SerializeField] private Vector2 standbyMissionSize = new(440f, 132f);
+    [SerializeField] private Vector2 standbyMissionSize = new(320f, 72f);
     [SerializeField] private Vector2 compactMissionSize = new(520f, 300f);
     [SerializeField] private Vector2 focusedMissionSize = new(760f, 560f);
     [SerializeField] private Vector2 missionPanelOffset = new(-32f, -112f);
@@ -80,8 +60,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     [Header("Chat")]
     [SerializeField] private Vector2 chatSize = new(520f, 228f);
-    [SerializeField, Range(0.4f, 8f)] private float highViewerChatInterval = 1.2f;
-    [SerializeField, Range(8f, 45f)] private float lowViewerChatInterval = 18f;
 
     [Header("Functional Colors")]
     [SerializeField] private Color inkColor = new(0.020f, 0.024f, 0.032f, 0.97f);
@@ -118,6 +96,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private Text missionDetailType;
     private Text missionDetailDescription;
     private Text missionDetailProgress;
+    private Text missionDetailTime;
     private Text missionDetailReward;
     private Text missionDetailFailure;
 
@@ -134,8 +113,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private Text chatHeader;
     private Text chatBody;
     private readonly List<string> chatHistory = new();
-    private int chatSequence;
-    private float nextChatAt;
 
     private DashboardState state = DashboardState.Hidden;
     private DashboardFocus focus = DashboardFocus.Pack;
@@ -351,8 +328,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (state == DashboardState.Entering || state == DashboardState.Open)
         {
             TrackPointerFocus();
-            UpdateChatFeed();
 
+            // RemainingTime 자체는 FanMissionSystem의 gameplay timer가 갱신합니다.
+            // 여기서는 이미 선택된 미션의 표시 문자열만 갱신합니다.
             if (focus == DashboardFocus.Mission)
                 RefreshMissionDetail();
         }
@@ -458,33 +436,33 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         missionHeader = CreateText(
             missionPanel,
-            "FAN MISSION // STANDBY",
-            20,
+            "FAN MISSION",
+            18,
             FontStyle.Bold,
             TextAnchor.MiddleLeft,
             paperColor,
             "Header");
-        SetAnchors(missionHeader.rectTransform, new Vector2(0.055f, 0.72f), new Vector2(0.75f, 0.96f));
+        SetAnchors(missionHeader.rectTransform, new Vector2(0.055f, 0.62f), new Vector2(0.72f, 0.94f));
 
         missionRange = CreateText(
             missionPanel,
-            "ACTIVE 0 / 6",
+            "ACTIVE 0 / 3",
             10,
             FontStyle.Bold,
             TextAnchor.MiddleRight,
             mutedColor,
             "Range");
-        SetAnchors(missionRange.rectTransform, new Vector2(0.65f, 0.74f), new Vector2(0.945f, 0.95f));
+        SetAnchors(missionRange.rectTransform, new Vector2(0.65f, 0.66f), new Vector2(0.945f, 0.93f));
 
         missionEmptyState = CreateText(
             missionPanel,
-            "NO ACTIVE MISSION // STANDBY",
-            12,
+            "STANDBY",
+            11,
             FontStyle.Bold,
             TextAnchor.MiddleLeft,
             mutedColor,
             "EmptyState");
-        SetAnchors(missionEmptyState.rectTransform, new Vector2(0.055f, 0.12f), new Vector2(0.945f, 0.62f));
+        SetAnchors(missionEmptyState.rectTransform, new Vector2(0.055f, 0.08f), new Vector2(0.945f, 0.48f));
 
         missionListRoot = CreateRect(missionPanel, "MissionList", Vector2.zero);
         missionListRoot.anchorMin = new Vector2(0.055f, 0.08f);
@@ -556,20 +534,23 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionDetailTitle = CreateText(missionDetailRoot, "NO ACTIVE MISSION", 22, FontStyle.Bold, TextAnchor.UpperLeft, paperColor, "Title");
         SetAnchors(missionDetailTitle.rectTransform, new Vector2(0.06f, 0.78f), new Vector2(0.94f, 0.95f));
 
-        missionDetailType = CreateText(missionDetailRoot, "STANDBY", 11, FontStyle.Bold, TextAnchor.UpperLeft, activeColor, "Type");
+        missionDetailType = CreateText(missionDetailRoot, "TYPE // STANDBY", 11, FontStyle.Bold, TextAnchor.UpperLeft, activeColor, "Type");
         SetAnchors(missionDetailType.rectTransform, new Vector2(0.06f, 0.69f), new Vector2(0.94f, 0.79f));
 
-        missionDetailDescription = CreateText(missionDetailRoot, "WAITING FOR BROADCAST ORDER.", 13, FontStyle.Normal, TextAnchor.UpperLeft, paperColor, "Description");
-        SetAnchors(missionDetailDescription.rectTransform, new Vector2(0.06f, 0.42f), new Vector2(0.94f, 0.68f));
+        missionDetailDescription = CreateText(missionDetailRoot, "GOAL // --", 13, FontStyle.Normal, TextAnchor.UpperLeft, paperColor, "Description");
+        SetAnchors(missionDetailDescription.rectTransform, new Vector2(0.06f, 0.47f), new Vector2(0.94f, 0.68f));
 
-        missionDetailProgress = CreateText(missionDetailRoot, "PROGRESS -- / --", 16, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Progress");
-        SetAnchors(missionDetailProgress.rectTransform, new Vector2(0.06f, 0.30f), new Vector2(0.94f, 0.42f));
+        missionDetailProgress = CreateText(missionDetailRoot, "PROGRESS -- / --", 15, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Progress");
+        SetAnchors(missionDetailProgress.rectTransform, new Vector2(0.06f, 0.35f), new Vector2(0.94f, 0.47f));
+
+        missionDetailTime = CreateText(missionDetailRoot, "TIME // NO LIMIT", 12, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor, "Time");
+        SetAnchors(missionDetailTime.rectTransform, new Vector2(0.06f, 0.26f), new Vector2(0.94f, 0.36f));
 
         missionDetailReward = CreateText(missionDetailRoot, "SUCCESS --", 12, FontStyle.Bold, TextAnchor.MiddleLeft, activeColor, "Reward");
-        SetAnchors(missionDetailReward.rectTransform, new Vector2(0.06f, 0.16f), new Vector2(0.94f, 0.28f));
+        SetAnchors(missionDetailReward.rectTransform, new Vector2(0.06f, 0.13f), new Vector2(0.94f, 0.25f));
 
         missionDetailFailure = CreateText(missionDetailRoot, "FAIL --", 12, FontStyle.Bold, TextAnchor.MiddleLeft, dangerColor, "Failure");
-        SetAnchors(missionDetailFailure.rectTransform, new Vector2(0.06f, 0.04f), new Vector2(0.94f, 0.16f));
+        SetAnchors(missionDetailFailure.rectTransform, new Vector2(0.06f, 0.02f), new Vector2(0.94f, 0.13f));
     }
 
     private void BuildChatPanel()
@@ -633,21 +614,16 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         Vector2 mouse = Input.mousePosition;
         int hovered = FindMissionRowUnderPointer(mouse);
-        bool insideMission =
-            missionPanel != null &&
-            RectTransformUtility.RectangleContainsScreenPoint(missionPanel, mouse, null);
 
         if (hovered >= 0)
         {
             SetMissionSelection(hovered);
             SetFocus(DashboardFocus.Mission);
         }
-        else if (insideMission)
-        {
-            SetFocus(DashboardFocus.Mission);
-        }
         else
         {
+            // MissionPanel 전체 사각형을 Hover 영역으로 사용하지 않습니다.
+            // 실제 보이는 MissionRow 위에 있을 때만 Mission Focus가 활성화됩니다.
             SetFocus(DashboardFocus.Pack);
         }
     }
@@ -717,9 +693,15 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             ? Mathf.Min(MaxMissionSlots, fanMissionSystem.ActiveMissions.Count)
             : 0;
 
-        SetText(missionHeader, count > 0 ? $"FAN MISSION // ACTIVE {count}" : "FAN MISSION // STANDBY");
-        SetText(missionRange, $"ACTIVE {count} / {MaxMissionSlots}");
+        int unlocked = fanMissionSystem != null
+            ? Mathf.Clamp(fanMissionSystem.UnlockedSlots, 0, MaxMissionSlots)
+            : 0;
 
+        SetText(missionHeader, count > 0 ? "FAN MISSION" : "FAN MISSION");
+        SetText(missionRange, $"ACTIVE {count} / {unlocked}");
+
+        if (missionRange != null)
+            missionRange.enabled = count > 0;
         if (missionEmptyState != null)
             missionEmptyState.enabled = count == 0;
 
@@ -729,7 +711,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             missionRowActive[i] = active;
 
             if (!active)
+            {
+                SetText(missionRowTitles[i], string.Empty);
+                SetText(missionRowProgress[i], string.Empty);
                 continue;
+            }
 
             FanMissionRuntime runtime = fanMissionSystem.ActiveMissions[i];
             FanMissionSO definition = runtime != null ? runtime.Definition : null;
@@ -770,9 +756,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (selectedMissionIndex < 0 || selectedMissionIndex >= count)
         {
             SetText(missionDetailTitle, "NO ACTIVE MISSION");
-            SetText(missionDetailType, "STANDBY");
-            SetText(missionDetailDescription, "WAITING FOR BROADCAST ORDER.");
+            SetText(missionDetailType, "TYPE // STANDBY");
+            SetText(missionDetailDescription, "GOAL // --");
             SetText(missionDetailProgress, "PROGRESS -- / --");
+            SetText(missionDetailTime, "TIME // NO LIMIT");
             SetText(missionDetailReward, "SUCCESS --");
             SetText(missionDetailFailure, "FAIL --");
             return;
@@ -790,21 +777,22 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             ? "NO DESCRIPTION"
             : definition.description;
         string timer = definition.duration > 0f
-            ? $" // TIME {runtime.RemainingTime:0.0}s"
-            : string.Empty;
+            ? $"{runtime.RemainingTime:0.0}s"
+            : "NO LIMIT";
 
         SetText(missionDetailTitle, title);
-        SetText(missionDetailType, definition.type.ToString().ToUpperInvariant());
-        SetText(missionDetailDescription, description);
+        SetText(missionDetailType, $"TYPE // {definition.type.ToString().ToUpperInvariant()}");
+        SetText(missionDetailDescription, $"GOAL // {description}");
         SetText(
             missionDetailProgress,
-            $"PROGRESS {runtime.Progress} / {Mathf.Max(1, definition.targetCount)}{timer}");
+            $"PROGRESS {runtime.Progress} / {Mathf.Max(1, definition.targetCount)}");
+        SetText(missionDetailTime, $"TIME // {timer}");
         SetText(
             missionDetailReward,
-            $"SUCCESS // POP {Signed(definition.successPopularity)} // FP {Signed(definition.successFanPoints)}");
+            $"SUCCESS REWARD // POP {Signed(definition.successPopularity)} // FP {Signed(definition.successFanPoints)}");
         SetText(
             missionDetailFailure,
-            $"FAIL // POP {Signed(definition.failPopularity)} // FP {Signed(definition.failFanPoints)}");
+            $"FAIL PENALTY // POP {Signed(definition.failPopularity)} // FP {Signed(definition.failFanPoints)}");
     }
 
     private void RefreshMissionRowState()
@@ -858,56 +846,75 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         SetText(
             chatHeader,
-            $"LIVE CHAT // {viewers:N0} VIEWERS // LAST {MaxChatLines}");
+            $"LIVE CHAT // {viewers:N0} VIEWERS // LAST {MaxChatLines} MESSAGES");
 
         if (viewers <= 0)
         {
-            chatHistory.Clear();
             SetText(
                 chatBody,
-                $"CHAT PAUSED // 0 VIEWERS\nFEED RANGE: LAST {MaxChatLines} MESSAGES");
-            nextChatAt = float.PositiveInfinity;
+                $"CHAT PAUSED // 0 VIEWERS\nLAST {MaxChatLines} MESSAGES");
             return;
         }
+
+        RefreshChatBody();
+    }
+
+    /// <summary>
+    /// 실제 방송/채팅 시스템이 수신한 메시지만 UI에 전달하는 입력점입니다.
+    /// 이 Controller는 메시지를 생성하거나 Viewer 수를 근거로 가짜 채팅을 만들지 않습니다.
+    /// </summary>
+    public void PushChatMessage(string sender, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message))
+            return;
+
+        string safeSender = NormalizeChatText(sender);
+        string safeMessage = NormalizeChatText(message);
+        string line = string.IsNullOrEmpty(safeSender)
+            ? safeMessage
+            : $"{safeSender}  {safeMessage}";
+
+        chatHistory.Add(line);
+        while (chatHistory.Count > MaxChatLines)
+            chatHistory.RemoveAt(0);
+
+        RefreshChatState();
+    }
+
+    public void ClearChatMessages()
+    {
+        chatHistory.Clear();
+        RefreshChatState();
+    }
+
+    private void RefreshChatBody()
+    {
+        if (chatBody == null)
+            return;
 
         if (chatHistory.Count == 0)
         {
             SetText(
                 chatBody,
-                $"WAITING FOR MESSAGE...\nFEED RANGE: LAST {MaxChatLines} MESSAGES");
-            nextChatAt = Time.unscaledTime + ResolveChatInterval(viewers);
+                $"NO CHAT MESSAGES RECEIVED\nLAST {MaxChatLines} MESSAGES");
+            return;
         }
-    }
 
-    private void UpdateChatFeed()
-    {
-        int viewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
-        if (viewers <= 0 || chatBody == null)
-            return;
-
-        if (Time.unscaledTime < nextChatAt)
-            return;
-
-        int index = chatSequence % Mathf.Min(ChatNames.Length, ChatComments.Length);
-        chatSequence++;
-
-        chatHistory.Add(
-            $"<color=#20DCEB><b>{ChatNames[index]}</b></color>  {ChatComments[index]}");
-
-        while (chatHistory.Count > MaxChatLines)
-            chatHistory.RemoveAt(0);
-
-        chatBody.text =
+        SetText(
+            chatBody,
             string.Join("\n", chatHistory) +
-            $"\n<color=#7B8495>RANGE: LAST {MaxChatLines}</color>";
-
-        nextChatAt = Time.unscaledTime + ResolveChatInterval(viewers);
+            $"\nLAST {MaxChatLines} MESSAGES");
     }
 
-    private float ResolveChatInterval(int viewers)
+    private static string NormalizeChatText(string value)
     {
-        float normalized = Mathf.Clamp01(Mathf.Log10(Mathf.Max(1, viewers)) / 4f);
-        return Mathf.Lerp(lowViewerChatInterval, highViewerChatInterval, normalized);
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return value
+            .Replace("\r", " ")
+            .Replace("\n", " ")
+            .Trim();
     }
 
     private void AnimatePresentation()
@@ -943,6 +950,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         dashboardRoot.localPosition = dashboardLocal;
 
         AnimatePackMotion(t, missionFocused);
+        AnimateMetricBar(t, targetVisible);
         AnimateMissionPanel(t, missionCount, missionFocused);
         AnimateMissionRows(t);
         AnimateChat(t, targetVisible);
@@ -969,6 +977,28 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         // Intentionally empty.
         // BattleKineticLoadoutUI owns PACK position / XYZ rotation / scale / alpha.
+    }
+
+    private void AnimateMetricBar(float t, bool dashboardVisible)
+    {
+        if (metricBar == null)
+            return;
+
+        metricBar.localScale = Vector3.Lerp(
+            metricBar.localScale,
+            Vector3.one * (dashboardVisible ? 1f : 0.94f),
+            t);
+        metricBar.localRotation = Quaternion.Slerp(
+            metricBar.localRotation,
+            Quaternion.Euler(
+                dashboardVisible ? 0.4f : 2.6f,
+                dashboardVisible ? -1.4f : -5.0f,
+                dashboardVisible ? -0.25f : 0.6f),
+            t);
+
+        Vector3 local = metricBar.localPosition;
+        local.z = Mathf.Lerp(local.z, dashboardVisible ? -6f : 20f, t);
+        metricBar.localPosition = local;
     }
 
     private void AnimateMissionPanel(float t, int missionCount, bool missionFocused)
