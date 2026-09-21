@@ -508,7 +508,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 : Mathf.Max(60f, selectableNodeSize * 0.82f);
         rect.sizeDelta = Vector2.one * resolvedSize;
 
-        string nodeLabel = BuildNodeLabel(rect, label != null ? label.text : string.Empty);
+        string nodeLabel = BuildNodeLabel(label != null ? label.text : string.Empty);
         if (label != null)
         {
             label.text = nodeLabel;
@@ -555,7 +555,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.raycastTarget = false;
     }
 
-    private static string BuildNodeLabel(RectTransform rect, string source)
+    private static string BuildNodeLabel(string source)
     {
         // Battle rating is rendered as five Image stars by BattleSpatialMapController.
         // Keep the text label semantic-only so the node does not duplicate the same data.
