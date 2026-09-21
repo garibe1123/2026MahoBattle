@@ -46,10 +46,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     [Header("Motion")]
     [SerializeField, Range(4f, 30f)] private float layoutSharpness = 14f;
-    [SerializeField] private Vector2 packFocusedDockOffset = new(-300f, 10f);
-    [SerializeField] private Vector2 missionFocusedDockOffset = new(-390f, 18f);
-    [SerializeField, Range(0.55f, 1f)] private float missionFocusedPackScale = 0.86f;
-    [SerializeField, Range(0.3f, 1f)] private float missionFocusedPackAlpha = 0.58f;
 
     [Header("Mission")]
     [SerializeField] private Vector2 standbyMissionSize = new(320f, 72f);
@@ -71,16 +67,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField] private Color dangerColor = new(1f, 0.20f, 0.38f, 1f);
 
     private RectTransform fullRoot;
-    private RectTransform packBoard;
-    private RectTransform packDockRoot;
-    private RectTransform packMotionRoot;
-    private CanvasGroup packMotionGroup;
 
     private RectTransform dashboardRoot;
     private CanvasGroup dashboardGroup;
 
     private RectTransform metricBar;
-    private Text metricLive;
     private Text viewersText;
     private Text likesText;
 
@@ -120,7 +111,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private int hoveredMissionIndex = -1;
     private int activeMissionCount;
     private int currentViewers;
-    private int currentLikes;
 
     private BattleRunManager subscribedRunManager;
     private BattleKineticLoadoutUI subscribedLoadout;
@@ -157,8 +147,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         if (dashboardRoot != null)
             dashboardRoot.gameObject.SetActive(false);
-
-        ResetPackMotionImmediate();
     }
 
     private IEnumerator BindWhenReady()
@@ -280,8 +268,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private void HandleBroadcastMetricsChanged(int viewers, int likes)
     {
         currentViewers = Mathf.Max(0, viewers);
-        currentLikes = Mathf.Max(0, likes);
-        ApplyBroadcastMetrics(currentViewers, currentLikes);
+        ApplyBroadcastMetrics(currentViewers, Mathf.Max(0, likes));
         RefreshChatState();
     }
 
@@ -313,8 +300,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             hoveredMissionIndex = -1;
             RefreshMissionData();
             currentViewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
-            currentLikes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
-            ApplyBroadcastMetrics(currentViewers, currentLikes);
+            int likes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
+            ApplyBroadcastMetrics(currentViewers, likes);
             RefreshChatState();
         }
         else if (state != DashboardState.Hidden)
@@ -349,23 +336,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
 
         fullRoot = kineticLoadout.FullRoot;
-        packBoard = kineticLoadout.GridBoard;
-        if (fullRoot == null || packBoard == null)
+        if (fullRoot == null)
             return;
-
-        EnsurePackDock();
 
         if (dashboardRoot == null)
             BuildDashboardUi();
-    }
-
-    private void EnsurePackDock()
-    {
-        // PACK transform ownership belongs exclusively to BattleKineticLoadoutUI.
-        // Dashboard must not reparent, move, scale, rotate, or fade GridBoard.
-        packDockRoot = fullRoot;
-        packMotionRoot = null;
-        packMotionGroup = null;
     }
 
     private void BuildDashboardUi()
@@ -410,8 +385,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.22f);
         outline.effectDistance = new Vector2(2f, -2f);
 
-        metricLive = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, dangerColor, "Live");
-        SetAnchors(metricLive.rectTransform, new Vector2(0.04f, 0.12f), new Vector2(0.18f, 0.88f));
+        Text live = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, dangerColor, "Live");
+        SetAnchors(live.rectTransform, new Vector2(0.04f, 0.12f), new Vector2(0.18f, 0.88f));
 
         viewersText = CreateText(metricBar, "VIEWERS 0", 16, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Viewers");
         SetAnchors(viewersText.rectTransform, new Vector2(0.22f, 0.08f), new Vector2(0.60f, 0.92f));
@@ -955,7 +930,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         dashboardLocal.z = Mathf.Lerp(dashboardLocal.z, dashboardTargetZ, t);
         dashboardRoot.localPosition = dashboardLocal;
 
-        AnimatePackMotion(t, missionFocused);
         AnimateMetricBar(t, targetVisible);
         AnimateMissionPanel(t, missionCount, missionFocused);
         AnimateMissionRows(t);
@@ -975,14 +949,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             dashboardGroup.alpha = 0f;
             state = DashboardState.Hidden;
             dashboardRoot.gameObject.SetActive(false);
-            ResetPackMotionImmediate();
         }
-    }
-
-    private void AnimatePackMotion(float t, bool missionFocused)
-    {
-        // Intentionally empty.
-        // BattleKineticLoadoutUI owns PACK position / XYZ rotation / scale / alpha.
     }
 
     private void AnimateMetricBar(float t, bool dashboardVisible)
@@ -1189,11 +1156,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Vector3 local = chatPanel.localPosition;
         local.z = Mathf.Lerp(local.z, active ? -8f : 18f, t);
         chatPanel.localPosition = local;
-    }
-
-    private void ResetPackMotionImmediate()
-    {
-        // No PACK transform writes here. See AnimatePackMotion.
     }
 
     private static string Signed(int value)
