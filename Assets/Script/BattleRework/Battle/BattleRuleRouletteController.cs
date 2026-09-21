@@ -1970,16 +1970,22 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
             if (combatRulePanel.parent != packDock)
             {
-                combatRulePanel.SetParent(packDock, false);
+                ReparentCombatRulePanelPreservingWorld(
+                    packDock,
+                    new Vector2(0.5f, 0.5f),
+                    new Vector2(1f, 0f));
                 combatRulePanel.SetAsLastSibling();
             }
+            else
+            {
+                combatRulePanel.anchorMin =
+                    combatRulePanel.anchorMax =
+                        new Vector2(0.5f, 0.5f);
+                combatRulePanel.pivot = new Vector2(1f, 0f);
+            }
 
-            // RULES는 KineticLoadout의 GridBoard 우측 상단을 기준으로 배치합니다.
-            // Dashboard와 transform ownership을 공유하지 않습니다.
-            combatRulePanel.anchorMin =
-                combatRulePanel.anchorMax =
-                    new Vector2(0.5f, 0.5f);
-            combatRulePanel.pivot = new Vector2(1f, 0f);
+            // The persistent RULES HUD physically flies from its combat position
+            // into the PACK dock. No replacement panel is spawned.
             return;
         }
 
@@ -2017,13 +2023,42 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return;
 
         if (combatRulePanel.parent != rouletteBackdrop)
-            combatRulePanel.SetParent(rouletteBackdrop, false);
+        {
+            ReparentCombatRulePanelPreservingWorld(
+                rouletteBackdrop,
+                new Vector2(0f, 1f),
+                new Vector2(0f, 1f));
+        }
+        else
+        {
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
+            combatRulePanel.pivot = new Vector2(0f, 1f);
+        }
+    }
 
-        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
-        combatRulePanel.pivot = new Vector2(0f, 1f);
-        combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
-        combatRulePanel.localRotation = Quaternion.identity;
-        combatRulePanel.localScale = Vector3.one;
+    private void ReparentCombatRulePanelPreservingWorld(
+        RectTransform nextParent,
+        Vector2 anchor,
+        Vector2 pivot)
+    {
+        if (combatRulePanel == null || nextParent == null)
+            return;
+
+        Vector3 worldPosition = combatRulePanel.position;
+        Quaternion worldRotation = combatRulePanel.rotation;
+        Vector3 worldScale = combatRulePanel.lossyScale;
+
+        combatRulePanel.SetParent(nextParent, true);
+        combatRulePanel.anchorMin = combatRulePanel.anchorMax = anchor;
+        combatRulePanel.pivot = pivot;
+        combatRulePanel.position = worldPosition;
+        combatRulePanel.rotation = worldRotation;
+
+        Vector3 parentScale = nextParent.lossyScale;
+        combatRulePanel.localScale = new Vector3(
+            Mathf.Abs(parentScale.x) > 0.0001f ? worldScale.x / parentScale.x : worldScale.x,
+            Mathf.Abs(parentScale.y) > 0.0001f ? worldScale.y / parentScale.y : worldScale.y,
+            Mathf.Abs(parentScale.z) > 0.0001f ? worldScale.z / parentScale.z : worldScale.z);
     }
 
     private void ShowCombatRuleDetailDefault()
