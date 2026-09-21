@@ -867,32 +867,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (packBoardMotionRoot == null)
             return;
 
-        if (!packDockTweenInitialized)
-        {
-            packDockVisualX = packDockRoot.localPosition.x;
-            packDockVisualY = packDockRoot.localPosition.y;
-            packDockTweenInitialized = true;
-        }
-
-        float targetX = packFocusedDockX;
-        float targetY = packDockY;
-
+        // Ownership:
+        // - Dashboard: BroadcastPackDock position.
+        // - This controller: BroadcastPackBoardMotion only while RULES focus changes.
+        // - BattleKineticLoadoutUI: GridBoard/slot rotation, scale, depth.
         float t = 1f - Mathf.Exp(
             -Mathf.Max(4f, packDockTweenSharpness) * Time.unscaledDeltaTime);
 
-        packDockVisualX = Mathf.Lerp(packDockVisualX, targetX, t);
-        packDockVisualY = Mathf.Lerp(packDockVisualY, targetY, t);
-
-        if (Mathf.Abs(packDockVisualX - targetX) <= 0.25f)
-            packDockVisualX = targetX;
-        if (Mathf.Abs(packDockVisualY - targetY) <= 0.25f)
-            packDockVisualY = targetY;
-
-        packDockRoot.localPosition =
-            new Vector3(packDockVisualX, packDockVisualY, 0f);
-
-        // GridBoard 자체는 UnifiedInventoryInspectController가 매 프레임 0,0을 소유합니다.
-        // 따라서 Rule Focus는 별도 부모 Wrapper를 움직여야 덮어쓰기 충돌이 없습니다.
         Vector2 targetMotionPosition = ruleDetailFocused
             ? new Vector2(0f, -Mathf.Max(0f, ruleDetailPackDropY))
             : Vector2.zero;
@@ -915,8 +896,19 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             targetMotionScale,
             t);
 
-        if ((packBoardMotionRoot.localScale - targetMotionScale).sqrMagnitude <= 0.000004f)
-            packBoardMotionRoot.localScale = targetMotionScale;
+        float targetDepth = ruleDetailFocused ? 18f : 0f;
+        Vector3 local = packBoardMotionRoot.localPosition;
+        local.z = Mathf.Lerp(local.z, targetDepth, t);
+        packBoardMotionRoot.localPosition = local;
+
+        Quaternion targetRotation = Quaternion.Euler(
+            ruleDetailFocused ? 2.8f : 0f,
+            ruleDetailFocused ? 5.0f : 0f,
+            ruleDetailFocused ? 0.8f : 0f);
+        packBoardMotionRoot.localRotation = Quaternion.Slerp(
+            packBoardMotionRoot.localRotation,
+            targetRotation,
+            t);
 
         packRuleVisualScale = targetRuleScale;
 
@@ -934,45 +926,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             if (Mathf.Abs(packRuleVisualAlpha - targetRuleAlpha) <= 0.002f)
                 packRuleVisualAlpha = targetRuleAlpha;
 
-            // 기존 GridBoard CanvasGroup은 Dashboard가 계속 단독 소유합니다.
-            // RULE Focus 비활성 Alpha는 Wrapper 전용 CanvasGroup만 사용합니다.
             packBoardMotionGroup.alpha = packRuleVisualAlpha;
         }
     }
 
     private void ApplyRuleDetailDashboardShift()
     {
-        if (dashboardRoot == null)
-            return;
-
-        Vector3 basePosition = dashboardRoot.localPosition;
-        basePosition.x -= dashboardRuleVisualOffsetX;
-
-        float t = 1f - Mathf.Exp(
-            -Mathf.Max(4f, ruleDetailShiftSharpness) * Time.unscaledDeltaTime);
-
-        // RULES는 PACK 부속 모듈이므로 방송/미션 영역까지 밀어내지 않습니다.
-        dashboardRuleVisualOffsetX = Mathf.Lerp(
-            dashboardRuleVisualOffsetX,
-            0f,
-            t);
-        dashboardRuleVisualScale = Mathf.Lerp(
-            dashboardRuleVisualScale,
-            1f,
-            t);
-
-        if (Mathf.Abs(dashboardRuleVisualOffsetX) <= 0.25f)
-            dashboardRuleVisualOffsetX = 0f;
-        if (Mathf.Abs(dashboardRuleVisualScale - 1f) <= 0.002f)
-            dashboardRuleVisualScale = 1f;
-
-        basePosition.x += dashboardRuleVisualOffsetX;
-        dashboardRoot.localPosition = basePosition;
-
-        Vector3 baseScale = dashboardRuleScaleCaptured
-            ? dashboardRuleBaseScale
-            : Vector3.one;
-        dashboardRoot.localScale = baseScale * dashboardRuleVisualScale;
+        // Intentionally empty. DashboardRoot has one owner: BattleBroadcastDashboardController.
     }
 
     private void RestorePackRuleScale()
@@ -984,6 +944,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (packBoardMotionRoot != null)
         {
             packBoardMotionRoot.anchoredPosition = Vector2.zero;
+            Vector3 local = packBoardMotionRoot.localPosition;
+            local.z = 0f;
+            packBoardMotionRoot.localPosition = local;
             packBoardMotionRoot.localScale = Vector3.one;
             packBoardMotionRoot.localRotation = Quaternion.identity;
         }
@@ -998,19 +961,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void RestoreDashboardRuleOffset()
     {
-        if (dashboardRoot != null)
-        {
-            if (Mathf.Abs(dashboardRuleVisualOffsetX) > 0.001f)
-            {
-                Vector3 position = dashboardRoot.localPosition;
-                position.x -= dashboardRuleVisualOffsetX;
-                dashboardRoot.localPosition = position;
-            }
-
-            if (dashboardRuleScaleCaptured)
-                dashboardRoot.localScale = dashboardRuleBaseScale;
-        }
-
         dashboardRuleVisualOffsetX = 0f;
         dashboardRuleVisualScale = 1f;
     }
