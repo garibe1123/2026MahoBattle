@@ -73,10 +73,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float presenterRightPadding = 0.15f;
     [SerializeField, Min(1)] private int presenterFrontOrder = 20;
 
-    [Header("Map Start")]
-    [SerializeField] private Vector2 mapStartSize = new(92f, 46f);
-    [SerializeField, Min(20f)] private float mapStartGap = 108f;
-
     private BattleRunManager runManager;
     private BattleHUD hud;
     private PlayerController player;
@@ -415,7 +411,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         HideScreenCarrierTopHandle();
         UpdateSorting();
         MaintainEquipmentDock();
-        EnsureMapStartMarker();
     }
 
     private ShowMode ResolveDesiredMode()
@@ -1043,91 +1038,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 32000,
                 resolvedTvOrder + Mathf.Max(1, presenterFrontOrder));
         }
-    }
-
-    private void EnsureMapStartMarker()
-    {
-        if (currentMode != ShowMode.Map || mapContent == null || mapContent.Find("StageStartMarker") != null)
-            return;
-
-        List<RectTransform> nodes = new();
-        for (int i = 0; i < mapContent.childCount; i++)
-        {
-            Transform child = mapContent.GetChild(i);
-            if (child is RectTransform rect && child.name.StartsWith("StageNode_", StringComparison.Ordinal))
-                nodes.Add(rect);
-        }
-        if (nodes.Count == 0)
-            return;
-
-        float minX = float.MaxValue;
-        for (int i = 0; i < nodes.Count; i++)
-            minX = Mathf.Min(minX, nodes[i].anchoredPosition.x);
-
-        List<RectTransform> first = new();
-        float averageY = 0f;
-        for (int i = 0; i < nodes.Count; i++)
-        {
-            if (Mathf.Abs(nodes[i].anchoredPosition.x - minX) > 1.5f)
-                continue;
-            first.Add(nodes[i]);
-            averageY += nodes[i].anchoredPosition.y;
-        }
-        if (first.Count == 0)
-            return;
-
-        averageY /= first.Count;
-        Vector2 start = new(minX - mapStartGap, averageY);
-
-        GameObject marker = new("StageStartMarker");
-        marker.transform.SetParent(mapContent, false);
-        RectTransform markerRect = marker.AddComponent<RectTransform>();
-        markerRect.anchorMin = markerRect.anchorMax = new Vector2(0.5f, 0.5f);
-        markerRect.sizeDelta = mapStartSize;
-        markerRect.anchoredPosition = start;
-
-        Image image = marker.AddComponent<Image>();
-        image.color = new Color(0.10f, 0.78f, 0.98f, 1f);
-        image.raycastTarget = false;
-
-        GameObject label = new("Label");
-        label.transform.SetParent(marker.transform, false);
-        RectTransform labelRect = label.AddComponent<RectTransform>();
-        Stretch(labelRect);
-
-        Text text = label.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.text = "START!  ▶";
-        text.fontSize = 14;
-        text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.MiddleCenter;
-        text.color = Color.white;
-        text.raycastTarget = false;
-
-        Vector2 from = start + Vector2.right * (mapStartSize.x * 0.5f + 4f);
-        for (int i = 0; i < first.Count; i++)
-            CreateLine(mapContent, from, first[i].anchoredPosition);
-    }
-
-    private static void CreateLine(RectTransform parent, Vector2 from, Vector2 to)
-    {
-        Vector2 delta = to - from;
-        if (delta.sqrMagnitude < 1f)
-            return;
-
-        GameObject line = new("StartRouteLink");
-        line.transform.SetParent(parent, false);
-        RectTransform rect = line.AddComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = (from + to) * 0.5f;
-        rect.sizeDelta = new Vector2(delta.magnitude, 5f);
-        rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-
-        Image image = line.AddComponent<Image>();
-        image.color = new Color(0.16f, 0.78f, 1f, 0.92f);
-        image.raycastTarget = false;
-        line.transform.SetAsFirstSibling();
     }
 
     private static int GetHighestFieldOrder(int sortingLayerId)
