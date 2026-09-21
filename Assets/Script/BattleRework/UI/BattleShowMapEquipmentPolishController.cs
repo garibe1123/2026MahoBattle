@@ -5,21 +5,13 @@ using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
-/// Stage Map 입력과 전투 장비 전환의 마지막 보정 레이어.
+/// Stage Map의 Room Type 아이콘과 Combat 장비 휠 입력을 담당합니다.
 ///
-/// - Stage Map Hover는 PointerEnter 1프레임 효과가 아니라 커서가 노드 위에 있는 동안 계속 유지합니다.
-/// - Combat / Elite / Shop / Event를 색뿐 아니라 전용 런타임 아이콘으로 구분합니다.
-/// - 맵 카메라/포커스 반응은 선택 가능한 노드 위에 커서가 있을 때만 활성화합니다.
-/// - Tab/LB 소유권은 BattleInputRouter에 두고, Mouse pointer/wheel은 Input System device API만 사용합니다.
-/// - 실제 장착 슬롯이 바뀔 때 짧은 합성 UI 사운드를 재생합니다.
+/// - Map Node 생성/선택/카메라 추적: BattleSpatialMapController.
+/// - Map Node 상태/hover/selected 표현: BattleStageMapPurposefulUIController.
+/// - 이 클래스: Combat / Elite / Shop / Event 런타임 아이콘, Tab+Wheel 장비 전환, 전환 사운드.
 ///
-/// 기존 SO / Sprite / Scene 직렬화 데이터를 삭제하거나 교체하지 않습니다.
-/// 장비 위치 변경은 기존 BattleEquipmentSystem.SwapSlots를 그대로 사용하므로
-/// 대상 칸에 장비가 있으면 서로 자리를 맞바꿉니다.
-///
-/// Map Node의 Graphic/Text는 Hover 대상이 실제로 바뀌었을 때만 다시 씁니다.
-/// 커서가 같은 노드 위에 머무는 동안에는 World Space Canvas를 매 프레임 dirty시키지 않습니다.
-/// 카메라/포커스 override만 WorldSet의 일반 TV 커서 추적보다 늦게 매 프레임 유지합니다.
+/// Tab/LB 소유권은 BattleInputRouter에 두고 Mouse wheel만 Input System device API로 읽습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32790)]
@@ -47,7 +39,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     [SerializeField, Range(0.05f, 1f)] private float swapSoundVolume = 0.28f;
 
     private RectTransform mapContent;
-    private readonly List<RectTransform> mapNodes = new();
     private readonly Dictionary<BattleNodeType, Sprite> iconSprites = new();
     private readonly List<Texture2D> iconTextures = new();
 
@@ -232,7 +223,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (mapContent == null || !mapContent.gameObject.activeInHierarchy)
             mapContent = FindRect(MapContentName);
 
-        mapNodes.Clear();
         if (mapContent == null)
             return;
 
@@ -246,7 +236,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
                 continue;
             }
 
-            mapNodes.Add(rect);
             EnsureNodeIcon(rect);
 
             Text label = rect.Find("Label")?.GetComponent<Text>();
