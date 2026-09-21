@@ -54,6 +54,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     [SerializeField, Range(0.05f, 1f)] private float swapSoundVolume = 0.28f;
 
     private RectTransform mapContent;
+    private Canvas mapCanvas;
     private readonly List<RectTransform> mapNodes = new();
     private readonly Dictionary<BattleNodeType, Sprite> iconSprites = new();
     private readonly List<Texture2D> iconTextures = new();
@@ -260,6 +261,14 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (mapContent == null)
             return;
 
+        mapCanvas = mapContent.GetComponentInParent<Canvas>();
+        if (mapCanvas != null &&
+            mapCanvas.renderMode == RenderMode.WorldSpace &&
+            mapCanvas.worldCamera == null)
+        {
+            mapCanvas.worldCamera = Camera.main;
+        }
+
         RectTransform[] all = mapContent.GetComponentsInChildren<RectTransform>(true);
         for (int i = 0; i < all.Length; i++)
         {
@@ -283,7 +292,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (mapContent == null)
             return;
 
-        Camera eventCamera = Camera.main;
+        Camera eventCamera = ResolveMapEventCamera();
         RectTransform hoveredNode = null;
         Vector2 pointerPosition = Pointer.current != null
             ? Pointer.current.position.ReadValue()
@@ -318,15 +327,35 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             {
                 Button oldButton = lastHoveredNode.GetComponent<Button>();
                 ApplyNodeIconVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+                SetPointerFeedbackHover(lastHoveredNode, false);
             }
 
             if (hoveredNode != null)
             {
                 Button newButton = hoveredNode.GetComponent<Button>();
                 ApplyNodeIconVisual(hoveredNode, newButton != null && newButton.interactable, true);
+                SetPointerFeedbackHover(hoveredNode, true);
             }
 
             lastHoveredNode = hoveredNode;
+        }
+
+        // Manual geometry click is authoritative for the World-Space map.
+        // This avoids GraphicRaycaster/event-camera disagreement between Scene and Game views.
+        if (hoveredNode != null &&
+            Mouse.current != null &&
+            Mouse.current.leftButton.wasPressedThisFrame)
+        {
+            Button button = hoveredNode.GetComponent<Button>();
+            if (button != null && button.IsActive() && button.IsInteractable())
+            {
+                RectTransform hitRect = hoveredNode.Find(PointerHitAreaName) as RectTransform;
+                BattleStageMapNodePointerFeedback feedback =
+                    hitRect != null ? hitRect.GetComponent<BattleStageMapNodePointerFeedback>() : null;
+
+                feedback?.NotifySelected();
+                button.onClick.Invoke();
+            }
         }
 
         bool hasHoveredNode = hoveredNode != null;
@@ -347,11 +376,40 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         {
             Button oldButton = lastHoveredNode.GetComponent<Button>();
             ApplyNodeIconVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+            SetPointerFeedbackHover(lastHoveredNode, false);
             lastHoveredNode = null;
         }
 
         battleHud?.SetMapCursorFocus(false);
         battleCamera?.SetMapCursorTracking(false, Vector2.zero);
+    }
+
+    private Camera ResolveMapEventCamera()
+    {
+        if (mapCanvas == null && mapContent != null)
+            mapCanvas = mapContent.GetComponentInParent<Canvas>();
+
+        if (mapCanvas == null)
+            return Camera.main;
+
+        if (mapCanvas.renderMode == RenderMode.ScreenSpaceOverlay)
+            return null;
+
+        if (mapCanvas.worldCamera == null)
+            mapCanvas.worldCamera = Camera.main;
+
+        return mapCanvas.worldCamera;
+    }
+
+    private static void SetPointerFeedbackHover(RectTransform node, bool hovered)
+    {
+        if (node == null)
+            return;
+
+        RectTransform hitRect = node.Find(PointerHitAreaName) as RectTransform;
+        BattleStageMapNodePointerFeedback feedback =
+            hitRect != null ? hitRect.GetComponent<BattleStageMapNodePointerFeedback>() : null;
+        feedback?.SetHovered(hovered);
     }
 
     private void ApplyNodeIconVisual(RectTransform node, bool selectable, bool hovered)
