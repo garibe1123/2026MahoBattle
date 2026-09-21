@@ -140,14 +140,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(70f)] private float combatRuleCompactMinWidth = 88f;
     [SerializeField, Min(70f)] private float combatRuleCompactHeight = 94f;
     [Tooltip("TAB Open 상태에서 RULES 프레임이 한 단계 커질 때의 높이입니다.")]
-    [SerializeField, Min(80f)] private float combatRuleTabHeight = 132f;
+    [SerializeField, Min(80f)] private float combatRuleTabHeight = 110f;
     [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 36f;
     [SerializeField, Min(0f)] private float combatRuleTabExtraWidth = 28f;
-    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 520f;
-    [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 320f;
-    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 120f;
+    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 420f;
+    [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 250f;
+    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 60f;
     [Tooltip("RULES가 Focus된 동안 프레임의 오른쪽만 추가로 늘리는 비율입니다. 0.10 = 10%.")]
-    [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0.10f;
+    [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0.06f;
     [Tooltip("평상시 룰 아이콘 Row의 화면 좌측 상단 여백입니다.")]
     [SerializeField] private Vector2 combatRulePersistentTopLeftMargin = new(34f, 34f);
     [Tooltip("TAB에서 PACK GridBoard 윗면과 룰 모듈 사이 세로 여백입니다.")]
@@ -198,6 +198,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private RectTransform ruleDetailAccentRoot;
     private CanvasGroup ruleHudGroup;
     private BattleKineticLoadoutUI kineticLoadout;
+    private BattleKineticLoadoutUI subscribedCombatLoadout;
     private Coroutine detailLayoutTweenRoutine;
     private Coroutine detailScaleTweenRoutine;
     private Vector2 controlTabRestPosition;
@@ -253,8 +254,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         EnsureDefaultRules();
     }
 
+    private void OnEnable()
+    {
+        ResolveCombatTabReferences();
+        SubscribeCombatTabEvents();
+    }
+
     private void OnDisable()
     {
+        UnsubscribeCombatTabEvents();
         CancelPresentation();
     }
 
@@ -263,22 +271,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (!combatHudMode || resultListTab == null || combatRulePanel == null)
             return;
 
-        ResolveCombatTabReferences();
-
-        bool tabOpenNow = kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
-        if (combatTabOpen != tabOpenNow)
-        {
-            combatTabOpen = tabOpenNow;
-
-            if (!combatTabOpen)
-            {
-                ApplyCombatRuleFocusFromCoordinator(false);
-                HideRuleDetailImmediate();
-            }
-        }
-
-        // Focus 소유권은 Pointer Enter/Exit 이벤트 기반 상태머신이 결정합니다.
-        // Update는 위치/크기/Alpha의 시각 보간만 수행합니다.
+        // Combat/TAB state discovery is event-driven.
+        // Update only interpolates the already-selected visual state.
         AnimateCombatRulePanel();
 
         if (combatRulePanelGroup != null)
@@ -1386,8 +1380,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         float baseScale = GetRuleDetailBaseScale();
         float hiddenScale = baseScale * Mathf.Clamp(ruleDetailHiddenScale, 0.65f, 0.98f);
-        Vector3 start = winningRuleTab.localScale;
-        Vector3 target = Vector3.one * (show ? baseScale : hiddenScale);
+        Vector3 startScale = winningRuleTab.localScale;
+        Vector3 targetScale = Vector3.one * (show ? baseScale : hiddenScale);
+        Vector3 startPosition = winningRuleTab.localPosition;
+        Vector3 targetPosition = startPosition;
+        targetPosition.z = show ? -14f : 18f;
+        Quaternion startRotation = winningRuleTab.localRotation;
+        Quaternion targetRotation = Quaternion.Euler(
+            show ? 0f : 2.2f,
+            show ? 0f : -4.5f,
+            show ? 0f : 0.6f);
 
         float duration = Mathf.Max(0.05f, ruleDetailScaleTweenDuration);
         float elapsed = 0f;
@@ -1400,13 +1402,17 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 ? 1f - Mathf.Pow(1f - t, 3f)
                 : t * t * (3f - 2f * t);
 
-            winningRuleTab.localScale = Vector3.Lerp(start, target, eased);
+            winningRuleTab.localScale = Vector3.Lerp(startScale, targetScale, eased);
+            winningRuleTab.localPosition = Vector3.Lerp(startPosition, targetPosition, eased);
+            winningRuleTab.localRotation = Quaternion.Slerp(startRotation, targetRotation, eased);
             yield return null;
         }
 
         if (winningRuleTab != null)
         {
-            winningRuleTab.localScale = target;
+            winningRuleTab.localScale = targetScale;
+            winningRuleTab.localPosition = targetPosition;
+            winningRuleTab.localRotation = targetRotation;
             if (!show)
                 winningRuleTab.gameObject.SetActive(false);
         }
@@ -1555,15 +1561,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanelGroup.blocksRaycasts = false;
         combatRulePanelGroup.interactable = false;
 
-        RectTransform whitePlate = CreateRect(panel, "WhitePlate");
-        Stretch(whitePlate);
-        whitePlate.offsetMin = new Vector2(-8f, -8f);
-        whitePlate.offsetMax = new Vector2(8f, 8f);
-        whitePlate.SetAsFirstSibling();
-
-        combatRulePanelPlate = whitePlate.gameObject.AddComponent<Image>();
-        combatRulePanelPlate.color = new Color(0.94f, 0.95f, 0.97f, 0f);
-        combatRulePanelPlate.raycastTarget = false;
+        combatRulePanelPlate = null;
 
         // Compact HUD는 별도 문구/사선 장식 없이
         // PACK 계열의 어두운 판 + 흰 Stroke + 기울기만 유지합니다.
@@ -1670,9 +1668,27 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             Mathf.Repeat(combatRulePanel.localEulerAngles.z + 180f, 360f) - 180f;
         float nextPanelRotation =
             Mathf.LerpAngle(currentPanelRotation, targetRotation, t);
-        combatRulePanel.localRotation =
-            Quaternion.Euler(0f, 0f, nextPanelRotation);
-        combatRulePanel.localScale = Vector3.one;
+
+        Quaternion spatialRotation = Quaternion.Euler(
+            combatTabOpen ? (focused ? 0.2f : 1.2f) : 2.8f,
+            combatTabOpen ? (focused ? -0.8f : -3.0f) : -6.0f,
+            nextPanelRotation);
+        combatRulePanel.localRotation = Quaternion.Slerp(
+            combatRulePanel.localRotation,
+            spatialRotation,
+            t);
+
+        Vector3 panelLocal = combatRulePanel.localPosition;
+        panelLocal.z = Mathf.Lerp(
+            panelLocal.z,
+            combatTabOpen ? (focused ? -18f : -6f) : 24f,
+            t);
+        combatRulePanel.localPosition = panelLocal;
+
+        combatRulePanel.localScale = Vector3.Lerp(
+            combatRulePanel.localScale,
+            Vector3.one * (combatTabOpen ? 1f : 0.92f),
+            t);
 
         if (combatRulePanelGroup != null)
             combatRulePanelGroup.alpha = Mathf.Lerp(
@@ -1984,16 +2000,53 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         if (kineticLoadout == null)
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
+
+        SubscribeCombatTabEvents();
+    }
+
+    private void SubscribeCombatTabEvents()
+    {
+        if (subscribedCombatLoadout == kineticLoadout)
+            return;
+
+        if (subscribedCombatLoadout != null)
+            subscribedCombatLoadout.SwitchBoardVisibilityChanged -= HandleCombatPackVisibilityChanged;
+
+        subscribedCombatLoadout = kineticLoadout;
+        if (subscribedCombatLoadout != null)
+            subscribedCombatLoadout.SwitchBoardVisibilityChanged += HandleCombatPackVisibilityChanged;
+    }
+
+    private void UnsubscribeCombatTabEvents()
+    {
+        if (subscribedCombatLoadout != null)
+            subscribedCombatLoadout.SwitchBoardVisibilityChanged -= HandleCombatPackVisibilityChanged;
+
+        subscribedCombatLoadout = null;
+    }
+
+    private void HandleCombatPackVisibilityChanged(bool visible)
+    {
+        if (!combatHudMode)
+            return;
+
+        combatTabOpen = visible;
+
+        if (!combatTabOpen)
+        {
+            ApplyCombatRuleFocusFromCoordinator(false);
+            HideRuleDetailImmediate();
+        }
     }
 
     private void ApplyRuleDetailVisualMode(bool combatTabStyle)
     {
         if (winningRuleTypeText != null)
-            winningRuleTypeText.fontSize = combatTabStyle ? 16 : 13;
+            winningRuleTypeText.fontSize = combatTabStyle ? 13 : 13;
         if (winningRuleNameText != null)
-            winningRuleNameText.fontSize = combatTabStyle ? 28 : 20;
+            winningRuleNameText.fontSize = combatTabStyle ? 22 : 20;
         if (winningRuleDescriptionText != null)
-            winningRuleDescriptionText.fontSize = combatTabStyle ? 17 : 13;
+            winningRuleDescriptionText.fontSize = combatTabStyle ? 14 : 13;
 
         if (ruleDetailBarImage != null)
         {
@@ -2037,51 +2090,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return null;
 
         Transform existing = parent.Find("RuleDetailAccent");
-        if (existing is RectTransform existingRect)
-            return existingRect;
+        if (existing != null && existing.gameObject.activeSelf)
+            existing.gameObject.SetActive(false);
 
-        RectTransform accentRoot = CreateRect(parent, "RuleDetailAccent");
-        accentRoot.anchorMin = accentRoot.anchorMax = new Vector2(0f, 0.5f);
-        accentRoot.pivot = new Vector2(1f, 0.5f);
-        accentRoot.anchoredPosition = new Vector2(-10f, 0f);
-        accentRoot.sizeDelta = new Vector2(92f, 92f);
-
-        RectTransform plate = CreateRect(accentRoot, "MainSlash");
-        plate.anchorMin = plate.anchorMax = new Vector2(0.5f, 0.5f);
-        plate.pivot = new Vector2(0.5f, 0.5f);
-        plate.sizeDelta = new Vector2(13f, 78f);
-        plate.anchoredPosition = new Vector2(-25f, 0f);
-        plate.localRotation = Quaternion.Euler(0f, 0f, -24f);
-
-        Image plateImage = plate.gameObject.AddComponent<Image>();
-        plateImage.color = new Color(1f, 1f, 1f, 0.96f);
-        plateImage.raycastTarget = false;
-
-        for (int i = 0; i < 2; i++)
-        {
-            RectTransform slash = CreateRect(accentRoot, $"ThinSlash_{i + 1}");
-            slash.anchorMin = slash.anchorMax = new Vector2(0.5f, 0.5f);
-            slash.pivot = new Vector2(0.5f, 0.5f);
-            slash.sizeDelta = new Vector2(6f, 58f - i * 10f);
-            slash.anchoredPosition = new Vector2(i * 18f, 0f);
-            slash.localRotation = Quaternion.Euler(0f, 0f, -24f);
-
-            Image image = slash.gameObject.AddComponent<Image>();
-            image.color = new Color(1f, 1f, 1f, 0.76f - i * 0.18f);
-            image.raycastTarget = false;
-        }
-
-        RectTransform line = CreateRect(accentRoot, "TailLine");
-        line.anchorMin = line.anchorMax = new Vector2(0.5f, 0.5f);
-        line.pivot = new Vector2(0f, 0.5f);
-        line.sizeDelta = new Vector2(52f, 3f);
-        line.anchoredPosition = new Vector2(18f, -31f);
-
-        Image lineImage = line.gameObject.AddComponent<Image>();
-        lineImage.color = new Color(1f, 1f, 1f, 0.72f);
-        lineImage.raycastTarget = false;
-
-        return accentRoot;
+        return null;
     }
 
     private void SetSpinButtonLabel(string label)
