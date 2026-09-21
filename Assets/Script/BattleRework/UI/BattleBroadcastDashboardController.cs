@@ -779,6 +779,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         ApplySpatialGlass(metricBar.gameObject, false, 0.13f, -0.035f);
 
         Text live = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentPink, "LiveLabel");
+        BindTheme(live, BattleUIThemeColorRole.Key);
         SetAnchors(live.rectTransform, new Vector2(0.055f, 0.12f), new Vector2(0.17f, 0.88f));
 
         BuildEyeMetric(metricBar);
@@ -806,8 +807,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         pupil.anchorMin = pupil.anchorMax = new Vector2(0f, 0.5f);
         pupil.anchoredPosition = new Vector2(10f, 0f);
         SetImage(pupil, accentCyan);
+        BindTheme(pupil.GetComponent<Image>(), BattleUIThemeColorRole.Key);
 
         viewersText = CreateText(root, "0", 21, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Count");
+        BindTheme(viewersText, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(viewersText.rectTransform, new Vector2(0.30f, 0f), new Vector2(1f, 1f));
     }
 
@@ -832,8 +835,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         wrist.anchorMin = wrist.anchorMax = new Vector2(0f, 0.5f);
         wrist.anchoredPosition = new Vector2(2f, -2f);
         SetImage(wrist, accentYellow);
+        BindTheme(wrist.GetComponent<Image>(), BattleUIThemeColorRole.Key);
 
         likesText = CreateText(root, "0", 21, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Count");
+        BindTheme(likesText, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(likesText.rectTransform, new Vector2(0.30f, 0f), new Vector2(1f, 1f));
     }
 
@@ -856,9 +861,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionPanelGroup.interactable = false;
 
         missionHeader = CreateText(missionPanel, "FAN MISSION // STANDBY", 27, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Header");
+        BindTheme(missionHeader, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(missionHeader.rectTransform, new Vector2(0.07f, 0.84f), new Vector2(0.78f, 0.97f));
 
         Text cue = CreateText(missionPanel, "CURSOR FOCUS", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan, "FocusCue");
+        BindTheme(cue, BattleUIThemeColorRole.Key);
         SetAnchors(cue.rectTransform, new Vector2(0.72f, 0.86f), new Vector2(0.95f, 0.96f));
 
         missionListRoot = CreateRect(missionPanel, "MissionList", Vector2.zero);
@@ -871,6 +878,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             BuildMissionRow(i);
 
         missionEmptyState = CreateText(missionPanel, "NO ACTIVE MISSION\n// WAITING FOR BROADCAST ORDER", 18, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor, "EmptyState");
+        BindTheme(missionEmptyState, BattleUIThemeColorRole.TextMuted);
         SetAnchors(missionEmptyState.rectTransform, new Vector2(0.10f, 0.22f), new Vector2(0.90f, 0.72f));
 
         BuildMissionDetail();
@@ -929,16 +937,20 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionDetailGroup.blocksRaycasts = false;
         missionDetailGroup.interactable = false;
 
-        missionDetailTitle = CreateText(missionDetailRoot, "NO MISSION", 26, FontStyle.Bold, TextAnchor.UpperLeft, inkColor, "Title");
+        missionDetailTitle = CreateText(missionDetailRoot, "NO MISSION", 26, FontStyle.Bold, TextAnchor.UpperLeft, paperColor, "Title");
+        BindTheme(missionDetailTitle, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(missionDetailTitle.rectTransform, new Vector2(0.07f, 0.78f), new Vector2(0.94f, 0.94f));
 
         missionDetailType = CreateText(missionDetailRoot, "STANDBY", 11, FontStyle.Bold, TextAnchor.UpperLeft, accentPink, "Type");
+        BindTheme(missionDetailType, BattleUIThemeColorRole.Key);
         SetAnchors(missionDetailType.rectTransform, new Vector2(0.07f, 0.70f), new Vector2(0.94f, 0.79f));
 
-        missionDetailDescription = CreateText(missionDetailRoot, "NO ACTIVE FAN MISSION", 14, FontStyle.Normal, TextAnchor.UpperLeft, inkColor, "Description");
+        missionDetailDescription = CreateText(missionDetailRoot, "NO ACTIVE FAN MISSION", 14, FontStyle.Normal, TextAnchor.UpperLeft, paperColor, "Description");
+        BindTheme(missionDetailDescription, BattleUIThemeColorRole.TextPrimary);
         SetAnchors(missionDetailDescription.rectTransform, new Vector2(0.07f, 0.42f), new Vector2(0.94f, 0.69f));
 
-        missionDetailProgress = CreateText(missionDetailRoot, "PROGRESS  -- / --", 18, FontStyle.Bold, TextAnchor.MiddleLeft, inkColor, "Progress");
+        missionDetailProgress = CreateText(missionDetailRoot, "PROGRESS  -- / --", 18, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow, "Progress");
+        BindTheme(missionDetailProgress, BattleUIThemeColorRole.Key);
         SetAnchors(missionDetailProgress.rectTransform, new Vector2(0.07f, 0.31f), new Vector2(0.94f, 0.42f));
 
         missionDetailReward = CreateText(missionDetailRoot, "SUCCESS  --", 13, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.06f, 0.52f, 0.48f, 1f), "Reward");
@@ -1253,6 +1265,22 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             image = rect.gameObject.AddComponent<Image>();
         image.color = color;
         image.raycastTarget = false;
+    }
+
+    private static void BindTheme(
+        Graphic graphic,
+        BattleUIThemeColorRole role,
+        float alpha = 1f)
+    {
+        if (graphic == null)
+            return;
+
+        BattleUIThemeColorBinding binding =
+            graphic.GetComponent<BattleUIThemeColorBinding>();
+        if (binding == null)
+            binding = graphic.gameObject.AddComponent<BattleUIThemeColorBinding>();
+
+        binding.Configure(role, alpha);
     }
 
     private static void SetAnchors(RectTransform rect, Vector2 min, Vector2 max)
