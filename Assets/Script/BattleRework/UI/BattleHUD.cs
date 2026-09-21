@@ -45,6 +45,7 @@ public sealed class BattleHUD : MonoBehaviour
     private RunProgressSystem progress;
     private BattleEquipmentSystem equipmentSystem;
     private PlayerController player;
+    private BattleUIThemeController uiTheme;
 
     private Canvas canvas;
     private CanvasGroup canvasGroup;
@@ -165,6 +166,10 @@ public sealed class BattleHUD : MonoBehaviour
             progress = FindFirstObjectByType<RunProgressSystem>();
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
+        if (uiTheme == null)
+            uiTheme = BattleUIThemeController.Instance != null
+                ? BattleUIThemeController.Instance
+                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
 
         BattleEquipmentSystem found = equipmentSystem != null
             ? equipmentSystem
@@ -252,14 +257,7 @@ public sealed class BattleHUD : MonoBehaviour
     private void BuildTopStatus()
     {
         combatStatusRoot = CreatePanel(canvas.transform, "BroadcastStatus", new Vector2(560f, 152f), panelColor);
-        ApplyPersonaFrame(
-            combatStatusRoot,
-            panelColor,
-            new Color(0.96f, 0.88f, 0.14f, 1f),
-            new Color(1f, 0.76f, 0.04f, 1f),
-            true,
-            0.13f,
-            new Vector2(8f, -8f));
+        ApplySpatialGlass(combatStatusRoot, true, 0.13f, 0.045f);
 
         RectTransform rect = combatStatusRoot.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
@@ -281,7 +279,7 @@ public sealed class BattleHUD : MonoBehaviour
         stageText = CreateText(combatStatusRoot.transform, "WAITING FOR NEXT TAKE", 17, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
         SetAnchors(stageText.rectTransform, new Vector2(0.23f, 0.70f), new Vector2(0.95f, 0.95f));
 
-        enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentColor);
+        enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, CurrentKeyColor);
         SetAnchors(enemyText.rectTransform, new Vector2(0.68f, 0.51f), new Vector2(0.95f, 0.69f));
 
         hpText = CreateText(combatStatusRoot.transform, "HP", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
@@ -299,14 +297,7 @@ public sealed class BattleHUD : MonoBehaviour
     private void BuildEquipmentDock()
     {
         equipmentDockRoot = CreatePanel(canvas.transform, "EquipmentDock", new Vector2(780f, 116f), panelColor);
-        ApplyPersonaFrame(
-            equipmentDockRoot,
-            panelColor,
-            new Color(0.94f, 0.94f, 0.90f, 1f),
-            new Color(1f, 0.76f, 0.04f, 1f),
-            false,
-            0.10f,
-            new Vector2(-7f, 7f));
+        ApplySpatialGlass(equipmentDockRoot, false, 0.10f, -0.035f);
 
         RectTransform dock = equipmentDockRoot.GetComponent<RectTransform>();
         dock.anchorMin = dock.anchorMax = new Vector2(1f, 0f);
@@ -346,7 +337,7 @@ public sealed class BattleHUD : MonoBehaviour
             slotLabels[i] = CreateText(slot.transform, "EMPTY", 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.72f, 0.75f, 0.82f, 1f));
             SetAnchors(slotLabels[i].rectTransform, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.28f));
 
-            slotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
+            slotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, CurrentKeyColor);
             SetAnchors(slotGrades[i].rectTransform, new Vector2(0.54f, 0.72f), new Vector2(0.93f, 0.94f));
         }
     }
@@ -408,7 +399,7 @@ public sealed class BattleHUD : MonoBehaviour
         rewardCardRoot = cardRoot.AddComponent<RectTransform>();
         SetAnchors(rewardCardRoot, new Vector2(0.055f, 0.20f), new Vector2(0.945f, 0.79f));
 
-        Text focusName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, goldColor);
+        Text focusName = CreateText(inner.transform, "SELECT A PRIZE", 16, FontStyle.Bold, TextAnchor.MiddleLeft, CurrentKeyColor);
         SetAnchors(focusName.rectTransform, new Vector2(0.055f, 0.13f), new Vector2(0.38f, 0.19f));
 
         Text focusStats = CreateText(inner.transform, "Hover to inspect. Click to select.", 11, FontStyle.Normal, TextAnchor.MiddleLeft, new Color(0.78f, 0.82f, 0.90f, 1f));
@@ -517,7 +508,7 @@ public sealed class BattleHUD : MonoBehaviour
             icon.sprite = reward.icon;
             icon.enabled = reward.icon != null;
 
-            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 9, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
+            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 9, FontStyle.Bold, TextAnchor.MiddleCenter, CurrentKeyColor);
             SetAnchors(rarity.rectTransform, new Vector2(0.08f, 0.39f), new Vector2(0.92f, 0.47f));
 
             Text name = CreateText(card.transform, reward.GetDisplayName(), 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
@@ -526,7 +517,7 @@ public sealed class BattleHUD : MonoBehaviour
             Text type = CreateText(card.transform, reward.type.ToString().ToUpperInvariant(), 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f));
             SetAnchors(type.rectTransform, new Vector2(0.08f, 0.14f), new Vector2(0.92f, 0.22f));
 
-            Text action = CreateText(card.transform, "CLICK TO SELECT", 8, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
+            Text action = CreateText(card.transform, "CLICK TO SELECT", 8, FontStyle.Bold, TextAnchor.MiddleCenter, CurrentKeyColor);
             SetAnchors(action.rectTransform, new Vector2(0.08f, 0.025f), new Vector2(0.92f, 0.12f));
         }
     }
@@ -744,37 +735,34 @@ public sealed class BattleHUD : MonoBehaviour
         return value.Substring(0, Mathf.Max(1, max - 1)) + "…";
     }
 
-    private static void ApplyPersonaFrame(
+    private Color CurrentKeyColor
+    {
+        get
+        {
+            BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
+            return theme != null ? theme.keyColor : goldColor;
+        }
+    }
+
+    private static void ApplySpatialGlass(
         GameObject root,
-        Color body,
-        Color backPlate,
-        Color accentPlate,
-        bool accentOnLeft,
-        float accentFraction,
-        Vector2 plateOffset)
+        bool keyOnLeft,
+        float keyArea,
+        float skew)
     {
         if (root == null)
             return;
 
-        BattlePersona4FrameDecorator decorator = root.GetComponent<BattlePersona4FrameDecorator>();
-        if (decorator == null)
-            decorator = root.AddComponent<BattlePersona4FrameDecorator>();
+        BattleSpatialGlassPanel glass = root.GetComponent<BattleSpatialGlassPanel>();
+        if (glass == null)
+            glass = root.AddComponent<BattleSpatialGlassPanel>();
 
-        decorator.Configure(
-            body,
-            backPlate,
-            accentPlate,
-            accentOnLeft,
-            accentFraction,
-            plateOffset);
+        glass.Configure(keyOnLeft, keyArea, skew);
+        glass.SetSpatialState(0f, 0f);
 
         Image legacyImage = root.GetComponent<Image>();
         if (legacyImage != null)
-        {
-            Color legacy = legacyImage.color;
-            legacy.a = 0f;
-            legacyImage.color = legacy;
-        }
+            legacyImage.color = Color.clear;
 
         Outline legacyOutline = root.GetComponent<Outline>();
         if (legacyOutline != null)
