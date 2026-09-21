@@ -55,7 +55,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
     [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
-    [SerializeField] private Color mapAvailable = new(1f, 0.76f, 0.22f, 1f);
+    [SerializeField] private Color mapAvailable = new(0.74f, 0.82f, 0.90f, 1f);
     [SerializeField] private Color mapElite = new(1f, 0.38f, 0.20f, 1f);
     [SerializeField] private Color mapLink = new(0.30f, 0.35f, 0.43f, 0.96f);
 
@@ -90,11 +90,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private Vector2Int currentBaseWorldTile;
     private CanvasGroup stageMapCanvasGroup;
+    private Canvas stageMapCanvas;
     private RectTransform stageMapPanel;
     private Coroutine stageMapRevealRoutine;
     private Coroutine stageMapConfirmRoutine;
     private Vector2 stageMapPanelRestPosition;
     private bool stageMapSelectionLocked;
+    private bool mapSelectionActive;
     private float resolvedMapHorizontalSpacing;
     private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
@@ -135,6 +137,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         Subscribe();
+        mapSelectionActive = runManager != null && runManager.WaitingForNodeSelection;
         EnsureStageMapUI();
         BuildResolvedLayout();
         RefreshStageMap();
@@ -214,6 +217,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void HandleNodeEntered(BattleNodeData node)
     {
+        mapSelectionActive = false;
         if (node == null)
             return;
 
@@ -224,19 +228,25 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         RefreshStageMap();
     }
 
-    private void HandleStateChanged(BattleRunState _)
+    private void HandleStateChanged(BattleRunState state)
     {
+        mapSelectionActive =
+            runManager != null &&
+            runManager.RunActive &&
+            state == BattleRunState.SelectingNode;
         RefreshStageMap();
     }
 
     private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
     {
+        mapSelectionActive = true;
         BuildResolvedLayout();
         RefreshStageMap();
     }
 
     private void HandleRunEnded(RunEndReason _)
     {
+        mapSelectionActive = false;
         visitedNodeIds.Clear();
         roomLayouts.Clear();
         currentTargetLocalTiles.Clear();
@@ -1216,6 +1226,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         // 맵은 HUD 전면 Overlay가 아니라 바닥/캐릭터 뒤의 World Space 화면에 그립니다.
         stageMapPanel = hud.MapSelectionRoot;
+        stageMapCanvas = stageMapPanel.GetComponentInParent<Canvas>();
         stageMapCanvasGroup = stageMapPanel.GetComponent<CanvasGroup>();
         if (stageMapCanvasGroup == null)
             stageMapCanvasGroup = stageMapPanel.gameObject.AddComponent<CanvasGroup>();
@@ -1232,8 +1243,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (stageMapPanel == null || graph == null)
             return;
 
-        bool selecting = runManager != null && runManager.WaitingForNodeSelection;
-        if (!selecting)
+        if (!mapSelectionActive)
         {
             HideStageMapImmediate();
             return;
