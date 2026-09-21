@@ -57,6 +57,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Tooltip("Mission Focus 상태에서 PACK 기울기를 완화하는 각도입니다.")]
     [SerializeField, Range(-15f, 15f)] private float missionFocusedPackRotation = -0.25f;
 
+    [Header("LAYOUT MOTION")]
+    [Tooltip("Dashboard의 위치/크기/Z-depth 전환 보간 속도입니다.")]
+    [SerializeField, Range(4f, 30f)] private float layoutSharpness = 13f;
+
     [Header("MISSION BAR — 항상 표시")]
     [Tooltip("PACK Focus일 때 우측에 유지되는 FAN MISSION 패널 크기입니다. 미션이 없어도 이 프레임은 사라지지 않습니다.")]
     [SerializeField] private Vector2 compactMissionSize = new(610f, 360f);
