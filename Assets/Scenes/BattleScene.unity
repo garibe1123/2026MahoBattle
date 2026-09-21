@@ -666,13 +666,11 @@ MonoBehaviour:
   miniIconSize: {x: 64, y: 64}
   rewardChoiceMiniPackScale: 0.68
   rewardChoiceMiniPackAlpha: 0.82
-  boardAnchor: {x: 0.5, y: 0.53}
+  boardAnchor: {x: 0.5, y: 0.59}
   fullGridScale: 0.96
-  detailAnchor: {x: 0.8, y: 0.52}
-  detailScale: 0.94
   trashAttachOffset: {x: -8, y: 0}
-  rewardTrashScreenOffset: {x: -28, y: -54}
-  rewardDoneScreenOffset: {x: -28, y: 44}
+  rewardDoneBelowBoardOffset: {x: -128, y: -18}
+  rewardTrashBelowBoardOffset: {x: 128, y: -18}
   rewardInventoryTimeScale: 0.05
   selectedAccent: {r: 1, g: 0.8, b: 0.08, a: 1}
   hoverAccent: {r: 0.14, g: 0.92, b: 0.94, a: 1}
