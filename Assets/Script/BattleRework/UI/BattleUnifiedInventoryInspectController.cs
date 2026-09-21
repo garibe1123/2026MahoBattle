@@ -1071,8 +1071,17 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void ApplyRewardInspectTooltip(bool rewardEdit)
     {
-        if (!rewardEdit ||
-            selectionSuppressed ||
+        if (!rewardEdit)
+        {
+            // Combat TAB tooltip is owned by BattleKineticLoadoutUI.
+            // Never hide it from the Reward layout owner.
+            if (detailGroup != null)
+                detailGroup.alpha = 0f;
+            detailController?.Hide();
+            return;
+        }
+
+        if (selectionSuppressed ||
             activeInspectSlot < 0 ||
             !HasItem(activeInspectSlot))
         {
@@ -1082,12 +1091,43 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             return;
         }
 
-        // External legacy detail panel stays hidden. Reward uses the same
-        // non-interactive slot-adjacent tooltip as Combat TAB.
         if (detailGroup != null)
             detailGroup.alpha = 0f;
         detailController?.Hide();
+
+        int compareSource = ResolveRewardCompareSourceSlot();
+        int compareTarget = inventoryInteraction != null
+            ? inventoryInteraction.HoveredSlot
+            : -1;
+
+        if (compareSource >= 0 &&
+            compareTarget >= 0 &&
+            compareSource != compareTarget &&
+            HasItem(compareSource) &&
+            HasItem(compareTarget))
+        {
+            kineticLoadout?.ShowRewardCompareTooltip(compareSource, compareTarget);
+            return;
+        }
+
         kineticLoadout?.ShowRewardInspectTooltip(activeInspectSlot);
+    }
+
+    private int ResolveRewardCompareSourceSlot()
+    {
+        if (inventoryInteraction == null)
+            return -1;
+
+        if (inventoryInteraction.DraggingSlot >= 0)
+            return inventoryInteraction.DraggingSlot;
+
+        if (inventoryInteraction.PadModeActive &&
+            inventoryInteraction.PadPickedSlot >= 0)
+        {
+            return inventoryInteraction.PadPickedSlot;
+        }
+
+        return inventoryInteraction.SelectedRewardSlot;
     }
 
     private void EnsureDismissCanvas()
