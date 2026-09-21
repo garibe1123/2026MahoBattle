@@ -10,7 +10,7 @@ using UnityEngine.UI;
 /// - Reward 쪽 장식이 공용 TV Frame에 남아도 Map에서는 정렬/톤을 다시 잡습니다.
 /// - MapSelectionContent를 TV Safe Area 전체로 확장합니다.
 /// - Map 전용 Mask/RectMask를 잠시 풀어 가장자리 노드 잘림을 줄입니다.
-/// - 작은 노드 비주얼은 유지하면서 더 큰 투명 Pointer Hit Area를 사용합니다.
+/// - 보이는 Node 자체만 Pointer Target으로 사용해 보이지 않는 Hover/Click 영역을 만들지 않습니다.
 /// - World Space Canvas의 GraphicRaycaster / worldCamera / CanvasGroup 입력 상태를 보강합니다.
 /// - selectable/current/hover 상태에만 강한 Accent를 사용합니다.
 /// - Hover 시 노드가 커지고, 밝은 박스 + 어두운 아이콘/라벨로 반전되어 커서 위치를 즉시 읽을 수 있게 합니다.
@@ -758,6 +758,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private const float AnimationSharpness = 18f;
 
     private RectTransform nodeRect;
+    private CanvasGroup nodeGroup;
     private Image nodeImage;
     private Image nodeIcon;
     private Outline nodeOutline;
@@ -785,6 +786,9 @@ internal sealed class BattleStageMapNodePointerFeedback :
     {
         nodeImage = image;
         nodeRect = image != null ? image.rectTransform : null;
+        nodeGroup = nodeRect != null ? nodeRect.GetComponent<CanvasGroup>() : null;
+        if (nodeRect != null && nodeGroup == null)
+            nodeGroup = nodeRect.gameObject.AddComponent<CanvasGroup>();
         nodeOutline = outline;
         label = nodeLabel;
         baseState = visualState;
@@ -868,6 +872,18 @@ internal sealed class BattleStageMapNodePointerFeedback :
             nodeRect.localRotation,
             Quaternion.Euler(targetEuler),
             t);
+
+        if (nodeGroup != null)
+        {
+            float targetAlpha = selected || hovered
+                ? 1f
+                : baseState == BattleStageMapNodeVisualState.Locked
+                    ? 0.42f
+                    : baseState == BattleStageMapNodeVisualState.Current
+                        ? 1f
+                        : 0.94f;
+            nodeGroup.alpha = Mathf.Lerp(nodeGroup.alpha, targetAlpha, t);
+        }
     }
 
     public void OnPointerEnter(PointerEventData eventData)
