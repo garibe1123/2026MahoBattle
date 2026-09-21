@@ -220,6 +220,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         public RectTransform root;
         public RectTransform visualRoot;
         public Image frame;
+        public BattleSpatialGlassPanel glass;
         public Image icon;
         public Text fallbackLabel;
         public BattleRuleDefinition boundRule;
@@ -688,6 +689,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             "MachineTab",
             new Vector2(0.5f, 0.70f),
             new Vector2(680f, 150f));
+        ApplySpatialGlass(machineTab.gameObject, true, 0.10f, 0.040f, 0.35f, 0.10f);
+        machineTab.localRotation = Quaternion.Euler(-1.8f, -4.5f, -0.4f);
 
         resultListTab = CreateBareTab(
             backdrop,
@@ -702,14 +705,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             new Vector2(620f, 88f));
 
         ruleDetailBarImage = winningRuleTab.gameObject.AddComponent<Image>();
-        ruleDetailBarImage.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
+        ruleDetailBarImage.color = Color.clear;
         ruleDetailBarImage.raycastTarget = false;
+        ApplySpatialGlass(winningRuleTab.gameObject, false, 0.09f, -0.035f, 0.18f, -0.08f);
+        winningRuleTab.localRotation = Quaternion.Euler(1.2f, 4.0f, 0.3f);
 
         controlTab = CreateBareTab(
             backdrop,
             "ControlTab",
             new Vector2(0.5f, 0.42f),
             new Vector2(260f, 86f));
+        ApplySpatialGlass(controlTab.gameObject, true, 0.14f, 0.050f, 0.42f, 0.20f);
+        controlTab.localRotation = Quaternion.Euler(-1.0f, -3.0f, -0.4f);
         controlTabRestPosition = controlTab.anchoredPosition;
 
         ratingText = CreateText(machineTab, "Rating", 28, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -723,7 +730,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         BuildStarImages(starsRoot);
 
         progressText = CreateText(machineTab, "Progress", 15, FontStyle.Bold, TextAnchor.MiddleCenter);
-        progressText.color = new Color(0.16f, 0.86f, 0.92f, 1f);
+        BindTheme(progressText, BattleUIThemeColorRole.Key);
         SetRect(progressText.rectTransform, new Vector2(0.10f, 0.02f), new Vector2(0.90f, 0.25f));
 
         ruleSlotRow = resultListTab;
@@ -743,12 +750,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         layout.childForceExpandHeight = false;
 
         winningRuleTypeText = CreateText(winningRuleTab, "RuleType", 13, FontStyle.Bold, TextAnchor.MiddleCenter);
+        BindTheme(winningRuleTypeText, BattleUIThemeColorRole.Key);
         SetRect(winningRuleTypeText.rectTransform, new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.94f));
 
         winningRuleNameText = CreateText(winningRuleTab, "RuleName", 20, FontStyle.Bold, TextAnchor.MiddleCenter);
+        BindTheme(winningRuleNameText, BattleUIThemeColorRole.TextPrimary);
         SetRect(winningRuleNameText.rectTransform, new Vector2(0.05f, 0.34f), new Vector2(0.95f, 0.70f));
 
         winningRuleDescriptionText = CreateText(winningRuleTab, "RuleDescription", 13, FontStyle.Normal, TextAnchor.MiddleCenter);
+        BindTheme(winningRuleDescriptionText, BattleUIThemeColorRole.TextMuted);
         SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.38f));
 
         RectTransform buttonRect = CreateRect(controlTab, "StartBattleButton");
@@ -759,10 +769,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             ? spinButtonSprite
             : BattleRuleRuntimeUiSprites.RoundedButton;
         spinButtonImage.type = Image.Type.Sliced;
-        spinButtonImage.color = spinButtonSprite != null
-            ? Color.white
-            : new Color(0.92f, 0.25f, 0.12f, 1f);
+        spinButtonImage.color = Color.clear;
         spinButtonImage.raycastTarget = true;
+        ApplySpatialGlass(buttonRect.gameObject, false, 0.18f, -0.050f, 0.64f, 0.55f);
 
         spinButton = buttonRect.gameObject.AddComponent<Button>();
         spinButton.interactable = false;
@@ -770,9 +779,53 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         spinButton.onClick.AddListener(ConfirmStartBattle);
 
         spinButtonText = CreateText(buttonRect, "Label", 20, FontStyle.Bold, TextAnchor.MiddleCenter);
+        BindTheme(spinButtonText, BattleUIThemeColorRole.TextPrimary);
         Stretch(spinButtonText.rectTransform);
 
         uiRoot.SetActive(false);
+    }
+
+    private static void ApplySpatialGlass(
+        GameObject root,
+        bool keyOnLeft,
+        float keyArea,
+        float skew,
+        float focus,
+        float depth)
+    {
+        if (root == null)
+            return;
+
+        BattleSpatialGlassPanel glass = root.GetComponent<BattleSpatialGlassPanel>();
+        if (glass == null)
+            glass = root.AddComponent<BattleSpatialGlassPanel>();
+
+        glass.Configure(keyOnLeft, keyArea, skew);
+        glass.SetSpatialState(focus, depth);
+
+        Image image = root.GetComponent<Image>();
+        if (image != null)
+            image.color = Color.clear;
+
+        Outline outline = root.GetComponent<Outline>();
+        if (outline != null)
+            outline.enabled = false;
+    }
+
+    private static void BindTheme(
+        Graphic graphic,
+        BattleUIThemeColorRole role,
+        float alpha = 1f)
+    {
+        if (graphic == null)
+            return;
+
+        BattleUIThemeColorBinding binding =
+            graphic.GetComponent<BattleUIThemeColorBinding>();
+        if (binding == null)
+            binding = graphic.gameObject.AddComponent<BattleUIThemeColorBinding>();
+
+        binding.Configure(role, alpha);
     }
 
     private static RectTransform CreateBareTab(
@@ -831,10 +884,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             Image frame = visualRoot.gameObject.AddComponent<Image>();
             frame.sprite = ruleSlotFrameSprite;
             frame.type = ruleSlotFrameSprite != null ? Image.Type.Sliced : Image.Type.Simple;
-            frame.color = ruleSlotFrameSprite != null
-                ? Color.white
-                : new Color(0.08f, 0.085f, 0.11f, 0.98f);
+            frame.color = Color.clear;
             frame.raycastTarget = false;
+
+            BattleSpatialGlassPanel slotGlass =
+                visualRoot.gameObject.AddComponent<BattleSpatialGlassPanel>();
+            slotGlass.Configure(i % 2 == 0, 0.12f, i % 2 == 0 ? 0.045f : -0.045f);
+            slotGlass.SetSpatialState(0.12f, -0.12f);
+
+            visualRoot.localRotation = Quaternion.Euler(
+                i % 2 == 0 ? -1.4f : 1.2f,
+                i % 2 == 0 ? -4.0f : 4.0f,
+                i % 2 == 0 ? -0.35f : 0.35f);
 
             BattleRuleSlotPointerFeedback pointerFeedback =
                 root.gameObject.AddComponent<BattleRuleSlotPointerFeedback>();
@@ -861,6 +922,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 root = root,
                 visualRoot = visualRoot,
                 frame = frame,
+                glass = slotGlass,
                 icon = icon,
                 fallbackLabel = fallbackLabel,
                 pointerFeedback = pointerFeedback
@@ -879,15 +941,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         Color polarityColor = GetPolarityColor(rule.polarity);
 
-        if (view.frame != null && ruleSlotFrameSprite == null)
-        {
-            float mix = previewOnly ? 0.10f : 0.24f;
-            view.frame.color = new Color(
-                Mathf.Lerp(0.08f, polarityColor.r, mix),
-                Mathf.Lerp(0.085f, polarityColor.g, mix),
-                Mathf.Lerp(0.11f, polarityColor.b, mix),
-                0.98f);
-        }
+        if (view.frame != null)
+            view.frame.color = Color.clear;
+
+        view.glass?.SetSpatialState(
+            previewOnly ? 0.16f : 0.78f,
+            previewOnly ? -0.10f : 0.72f);
 
         if (view.icon != null)
         {
