@@ -198,7 +198,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private RectTransform ruleDetailAccentRoot;
     private CanvasGroup ruleHudGroup;
     private BattleKineticLoadoutUI kineticLoadout;
-    private BattleCombatTabPresentationPolishController combatTabPresentation;
     private Coroutine detailLayoutTweenRoutine;
     private Coroutine detailScaleTweenRoutine;
     private Vector2 controlTabRestPosition;
@@ -273,7 +272,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
             if (!combatTabOpen)
             {
-                combatTabPresentation?.NotifyRulePointerExit();
                 ApplyCombatRuleFocusFromCoordinator(false);
                 HideRuleDetailImmediate();
             }
@@ -307,7 +305,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatHudMode = false;
         finalReviewMode = false;
         combatTabOpen = false;
-        combatTabPresentation?.NotifyRulePointerExit();
+        ApplyCombatRuleFocusFromCoordinator(false);
         combatRulePanelFocused = false;
         combatRuleDrawerVisualAlpha = 0f;
         combatLastInspectedRule = null;
@@ -1058,7 +1056,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanelFocused = false;
         combatRuleDrawerVisualAlpha = 0f;
         combatLastInspectedRule = null;
-        combatTabPresentation?.SetRuleDetailFocus(false);
+        ApplyCombatRuleFocusFromCoordinator(false);
         ApplyRuleDetailVisualMode(false);
 
         RestoreCombatRulePanelToOverlay();
@@ -1787,20 +1785,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         ResolveCombatTabReferences();
 
-        if (combatTabPresentation != null)
-            combatTabPresentation.NotifyRulePointerEnter();
-        else
-            ApplyCombatRuleFocusFromCoordinator(true);
+        // RULES와 PACK이 동시에 hover/selection 상태를 갖지 않게 합니다.
+        kineticLoadout?.ClearPackHoverImmediate();
+        kineticLoadout?.ClearExternalSelection();
+        ApplyCombatRuleFocusFromCoordinator(true);
     }
 
     internal void HandleCombatRulePanelPointerExit()
     {
-        ResolveCombatTabReferences();
-
-        if (combatTabPresentation != null)
-            combatTabPresentation.NotifyRulePointerExit();
-        else
-            ApplyCombatRuleFocusFromCoordinator(false);
+        ApplyCombatRuleFocusFromCoordinator(false);
     }
 
     public void ApplyCombatRuleFocusFromCoordinator(bool focused)
@@ -1991,13 +1984,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         if (kineticLoadout == null)
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
-
-        if (combatTabPresentation == null)
-        {
-            combatTabPresentation =
-                FindFirstObjectByType<BattleCombatTabPresentationPolishController>(
-                    FindObjectsInactive.Include);
-        }
     }
 
     private void ApplyRuleDetailVisualMode(bool combatTabStyle)
