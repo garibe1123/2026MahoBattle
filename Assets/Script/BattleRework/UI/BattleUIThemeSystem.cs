@@ -244,7 +244,13 @@ public sealed class BattleUIThemeController : MonoBehaviour
 
     private static bool LerpColor(ref Color current, Color target, float t)
     {
-        if ((current - target).sqrMagnitude <= 0.000002f)
+        float dr = current.r - target.r;
+        float dg = current.g - target.g;
+        float db = current.b - target.b;
+        float da = current.a - target.a;
+        float sqrDifference = dr * dr + dg * dg + db * db + da * da;
+
+        if (sqrDifference <= 0.000002f)
         {
             current = target;
             return false;
