@@ -72,14 +72,16 @@ public sealed class BattleUIThemeController : MonoBehaviour
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleKineticLoadoutUI loadoutUI;
     [SerializeField] private List<BattleUIThemeProfile> profiles = new();
+    [SerializeField, Range(2f, 30f)] private float transitionSharpness = 10f;
 
     private readonly List<OverrideRequest> overrides = new();
     private BattleUIThemeContext currentContext = BattleUIThemeContext.Combat;
     private BattleUIThemeProfile currentProfile;
+    private BattleUIThemeProfile displayedProfile;
 
     public static BattleUIThemeController Instance => instance;
     public BattleUIThemeContext CurrentContext => currentContext;
-    public BattleUIThemeProfile CurrentProfile => currentProfile ?? ResolveProfile(currentContext);
+    public BattleUIThemeProfile CurrentProfile => displayedProfile ?? currentProfile ?? ResolveProfile(currentContext);
 
     public event Action<BattleUIThemeProfile> ThemeChanged;
 
@@ -139,6 +141,7 @@ public sealed class BattleUIThemeController : MonoBehaviour
         ResolveReferences();
         CleanupOverrides();
         RefreshTheme(false);
+        AnimateDisplayedTheme();
     }
 
     public void SetContextOverride(UnityEngine.Object owner, BattleUIThemeContext context, int priority = 0)
@@ -203,7 +206,52 @@ public sealed class BattleUIThemeController : MonoBehaviour
 
         currentContext = next;
         currentProfile = nextProfile;
-        ThemeChanged?.Invoke(currentProfile);
+
+        if (displayedProfile == null || force)
+            displayedProfile = nextProfile.Clone();
+
+        ThemeChanged?.Invoke(CurrentProfile);
+    }
+
+    private void AnimateDisplayedTheme()
+    {
+        if (currentProfile == null)
+            return;
+
+        if (displayedProfile == null)
+        {
+            displayedProfile = currentProfile.Clone();
+            ThemeChanged?.Invoke(displayedProfile);
+            return;
+        }
+
+        float t = 1f - Mathf.Exp(-Mathf.Max(2f, transitionSharpness) * Time.unscaledDeltaTime);
+        bool changed = false;
+
+        changed |= LerpColor(ref displayedProfile.background, currentProfile.background, t);
+        changed |= LerpColor(ref displayedProfile.surface, currentProfile.surface, t);
+        changed |= LerpColor(ref displayedProfile.glassTint, currentProfile.glassTint, t);
+        changed |= LerpColor(ref displayedProfile.textPrimary, currentProfile.textPrimary, t);
+        changed |= LerpColor(ref displayedProfile.textMuted, currentProfile.textMuted, t);
+        changed |= LerpColor(ref displayedProfile.keyColor, currentProfile.keyColor, t);
+        changed |= LerpColor(ref displayedProfile.keySoft, currentProfile.keySoft, t);
+        changed |= LerpColor(ref displayedProfile.depthShadow, currentProfile.depthShadow, t);
+        displayedProfile.context = currentContext;
+
+        if (changed)
+            ThemeChanged?.Invoke(displayedProfile);
+    }
+
+    private static bool LerpColor(ref Color current, Color target, float t)
+    {
+        if ((current - target).sqrMagnitude <= 0.000002f)
+        {
+            current = target;
+            return false;
+        }
+
+        current = Color.Lerp(current, target, t);
+        return true;
     }
 
     private BattleUIThemeContext ResolveContext()
