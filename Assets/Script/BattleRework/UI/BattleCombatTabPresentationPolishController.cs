@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -21,6 +22,13 @@ internal enum BattleCombatTabPrimaryFocus
     None,
     Pack,
     Rules
+}
+
+internal enum BattleCombatTabPresentationState
+{
+    Hidden,
+    Compact,
+    Open
 }
 
 internal sealed class BattleCombatPackFocusPointerRelay : MonoBehaviour,
@@ -223,7 +231,11 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private readonly List<string> chatHistory = new();
     private int chatSequence;
     private float nextChatAt;
-    private float nextResolveAt;
+
+    private BattleCombatTabPresentationState presentationState = BattleCombatTabPresentationState.Hidden;
+    private bool eventsSubscribed;
+    private Coroutine bindRoutine;
+    private bool chatTargetVisible;
 
     private bool ambientViewerScheduled;
     private int ambientViewerCount;
@@ -280,15 +292,32 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences(true);
-        nextResolveAt = 0f;
+        ResolveDashboardUi();
+        SubscribeEvents();
+
         nextChatAt = 0f;
         rightPanelFocused = false;
         packDockTweenInitialized = false;
         ResetAmbientAudience();
+
+        EnsurePrimaryFocusRelay();
+        EnsureChatPanel();
+        ApplyPresentationState(ResolvePresentationState(), true);
+
+        if ((!eventsSubscribed || runManager == null || runProgress == null || kineticLoadout == null) &&
+            bindRoutine == null)
+        {
+            bindRoutine = StartCoroutine(BindWhenReady());
+        }
     }
 
     private void OnDisable()
     {
+        if (bindRoutine != null)
+            StopCoroutine(bindRoutine);
+        bindRoutine = null;
+
+        UnsubscribeEvents();
         SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
         rightPanelFocused = false;
         packDockTweenInitialized = false;
@@ -298,9 +327,127 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         RestoreDetailSorting();
         SetChatVisible(false);
         SetMetricVisible(false);
+        presentationState = BattleCombatTabPresentationState.Hidden;
     }
 
-    public bool CombatTabOpen => IsCombatTabOpen();
+    private IEnumerator BindWhenReady()
+    {
+        while (enabled && (runManager == null || runProgress == null || kineticLoadout == null))
+        {
+            ResolveReferences(false);
+            yield return null;
+        }
+
+        bindRoutine = null;
+        if (!enabled)
+            yield break;
+
+        ResolveDashboardUi();
+        SubscribeEvents();
+        EnsurePrimaryFocusRelay();
+        EnsureChatPanel();
+        ApplyPresentationState(ResolvePresentationState(), true);
+    }
+
+    private void SubscribeEvents()
+    {
+        if (eventsSubscribed || runManager == null || runProgress == null || kineticLoadout == null)
+            return;
+
+        runManager.StateChanged += HandleRunStateChanged;
+        runProgress.BroadcastMetricsChanged += HandleBroadcastMetricsChanged;
+        kineticLoadout.SwitchBoardVisibilityChanged += HandleSwitchBoardVisibilityChanged;
+        eventsSubscribed = true;
+    }
+
+    private void UnsubscribeEvents()
+    {
+        if (!eventsSubscribed)
+            return;
+
+        if (runManager != null)
+            runManager.StateChanged -= HandleRunStateChanged;
+        if (runProgress != null)
+            runProgress.BroadcastMetricsChanged -= HandleBroadcastMetricsChanged;
+        if (kineticLoadout != null)
+            kineticLoadout.SwitchBoardVisibilityChanged -= HandleSwitchBoardVisibilityChanged;
+        eventsSubscribed = false;
+    }
+
+    private void HandleRunStateChanged(BattleRunState _)
+    {
+        ApplyPresentationState(ResolvePresentationState(), false);
+    }
+
+    private void HandleBroadcastMetricsChanged(int _, int __)
+    {
+        UpdateMetricCounts();
+        UpdateChatHeader();
+        RefreshChatBody();
+    }
+
+    private void HandleSwitchBoardVisibilityChanged(bool _)
+    {
+        ApplyPresentationState(ResolvePresentationState(), false);
+    }
+
+    private BattleCombatTabPresentationState ResolvePresentationState()
+    {
+        if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Combat)
+            return BattleCombatTabPresentationState.Hidden;
+
+        return kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen
+            ? BattleCombatTabPresentationState.Open
+            : BattleCombatTabPresentationState.Compact;
+    }
+
+    private void ApplyPresentationState(BattleCombatTabPresentationState next, bool immediate)
+    {
+        if (!immediate && presentationState == next)
+            return;
+
+        presentationState = next;
+        ResolveDashboardUi();
+
+        bool combatVisible = next != BattleCombatTabPresentationState.Hidden;
+        bool open = next == BattleCombatTabPresentationState.Open;
+
+        SetMetricVisible(combatVisible);
+        SetChatVisible(open);
+
+        if (open)
+        {
+            EnsurePrimaryFocusRelay();
+            EnsureChatPanel();
+            UpdateMetricCounts();
+            UpdateChatHeader();
+            RefreshChatBody();
+        }
+        else
+        {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
+            ruleDetailFocused = false;
+            rightPanelFocused = false;
+            packDockTweenInitialized = false;
+            RestorePackRuleScale();
+            RestoreDashboardRuleOffset();
+            RestoreDetailSorting();
+        }
+
+        if (immediate)
+        {
+            if (metricBar != null)
+            {
+                metricBar.anchoredPosition = open ? MetricOpenOffset : MetricCompactOffset;
+                metricBar.localScale = Vector3.one * (open ? MetricOpenScale : MetricCompactScale);
+            }
+
+            if (chatGroup != null)
+                chatGroup.alpha = open ? 1f : 0f;
+        }
+    }
+
+    public bool CombatTabOpen => presentationState == BattleCombatTabPresentationState.Open;
 
     public void SetRuleDetailFocus(bool focused)
     {
@@ -312,7 +459,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     public void NotifyRulePointerEnter()
     {
-        if (!IsCombatTabOpen())
+        if (presentationState != BattleCombatTabPresentationState.Open)
             return;
 
         SetPrimaryFocus(BattleCombatTabPrimaryFocus.Rules);
@@ -333,7 +480,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     public void NotifyPackPointerEnter()
     {
-        if (!IsCombatTabOpen())
+        if (presentationState != BattleCombatTabPresentationState.Open)
             return;
 
         // RULES가 실제 화면상 마우스를 소유하고 있으면
@@ -356,7 +503,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void SetPrimaryFocus(BattleCombatTabPrimaryFocus next)
     {
-        if (!IsCombatTabOpen())
+        if (presentationState != BattleCombatTabPresentationState.Open)
             next = BattleCombatTabPrimaryFocus.None;
 
         if (primaryFocus == next)
@@ -383,59 +530,26 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void Update()
     {
-        if (Time.unscaledTime >= nextResolveAt)
-        {
-            nextResolveAt = Time.unscaledTime + 0.20f;
-            ResolveReferences(false);
-            ResolveDashboardUi();
-            RemoveCompactAccentSlash();
-        }
-
-        bool combatActive = IsCombatActive();
-        UpdateAmbientAudience(combatActive);
-
-        bool tabOpen = IsCombatTabOpen();
-        UpdateMetricOverlay(combatActive, tabOpen);
-
-        if (!tabOpen)
-        {
-            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
-            rightPanelFocused = false;
-            packDockTweenInitialized = false;
-            RestoreDashboardRuleOffset();
-            SetChatVisible(false);
-            return;
-        }
-
-        EnsureChatPanel();
-        SetChatVisible(true);
-        UpdateChatFeed();
+        // State discovery is event-driven. Update is only used for time-based chat scheduling.
+        if (presentationState == BattleCombatTabPresentationState.Open)
+            UpdateChatFeed();
     }
 
     private void LateUpdate()
     {
-        if (!IsCombatTabOpen())
-        {
-            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
-            rightPanelFocused = false;
-            packDockTweenInitialized = false;
-            RestoreDashboardRuleOffset();
-            RestoreDetailSorting();
+        // LateUpdate only animates toward the state selected by events/pointer relays.
+        bool combatVisible = presentationState != BattleCombatTabPresentationState.Hidden;
+        bool open = presentationState == BattleCombatTabPresentationState.Open;
+
+        UpdateMetricOverlay(combatVisible, open);
+        ApplyChatLayout();
+
+        if (!open)
             return;
-        }
 
-        ResolveDashboardUi();
-        EnsurePrimaryFocusRelay();
-        ResolvePrimaryFocusFromPointerGeometry();
-
-        // Pointer 이벤트는 빠른 반응용 힌트일 뿐이고,
-        // 최종 Focus는 위의 화면 좌표 판정이 한 번만 결정합니다.
-        EnsureChatPanel();
-        UpdateRightPanelFocus();
         ApplyCombatPackDockPosition();
         ApplyRuleDetailDashboardShift();
         ApplyDetailPresentation();
-        ApplyChatLayout();
     }
 
     private bool IsCombatActive()
@@ -520,6 +634,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         EnsureMetricDetached();
+        RemoveCompactAccentSlash();
     }
 
     private void EnsurePrimaryFocusRelay()
@@ -649,13 +764,22 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         metricViewersText ??= metricBar != null ? metricBar.Find("Viewers/Count")?.GetComponent<Text>() : null;
         metricLikesText ??= metricBar != null ? metricBar.Find("Likes/Count")?.GetComponent<Text>() : null;
 
-        string viewers = CurrentViewers.ToString("N0");
-        string likes = Mathf.Max(0, runProgress.Likes).ToString("N0");
+        string viewers = $"VIEWERS {CurrentViewers:N0}";
+        string likes = $"LIKES {Mathf.Max(0, runProgress.Likes):N0}";
 
-        if (metricViewersText != null && metricViewersText.text != viewers)
-            metricViewersText.text = viewers;
-        if (metricLikesText != null && metricLikesText.text != likes)
-            metricLikesText.text = likes;
+        if (metricViewersText != null)
+        {
+            metricViewersText.fontSize = Mathf.Min(metricViewersText.fontSize, 14);
+            if (metricViewersText.text != viewers)
+                metricViewersText.text = viewers;
+        }
+
+        if (metricLikesText != null)
+        {
+            metricLikesText.fontSize = Mathf.Min(metricLikesText.fontSize, 14);
+            if (metricLikesText.text != likes)
+                metricLikesText.text = likes;
+        }
     }
 
     private void UpdateAmbientAudience(bool combatActive)
@@ -730,6 +854,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         Transform accentSlash = compactRoot != null ? compactRoot.Find("AccentSlash") : null;
         if (accentSlash != null && accentSlash.gameObject.activeSelf)
             accentSlash.gameObject.SetActive(false);
+
+        Transform yellowWedge = fullRoot != null ? fullRoot.Find("YellowWedge") : null;
+        if (yellowWedge != null && yellowWedge.gameObject.activeSelf)
+            yellowWedge.gameObject.SetActive(false);
     }
 
     private static float NormalizeAngle(float degrees)
@@ -739,7 +867,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void ResolvePrimaryFocusFromPointerGeometry()
     {
-        if (!IsCombatTabOpen() || !Input.mousePresent)
+        if (presentationState != BattleCombatTabPresentationState.Open || !Input.mousePresent)
         {
             SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
             return;
@@ -854,7 +982,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             packDockTweenInitialized = true;
         }
 
-        float targetX = rightPanelFocused ? missionFocusedDockX : packFocusedDockX;
+        float targetX = packFocusedDockX;
         float targetY = packDockY;
 
         float t = 1f - Mathf.Exp(
@@ -1001,7 +1129,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         CanvasGroup detailGroup = detailController.Group;
-        if (rightPanelFocused || ruleDetailFocused)
+        if (ruleDetailFocused)
         {
             if (detailGroup != null)
             {
@@ -1076,19 +1204,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         if (back == null)
             back = chatPanel.gameObject.AddComponent<Image>();
         back.enabled = true;
-        back.color = Color.clear;
+        back.color = new Color(0.018f, 0.022f, 0.030f, 0.94f);
         back.raycastTarget = false;
 
         Outline outline = chatPanel.GetComponent<Outline>();
         if (outline == null)
             outline = chatPanel.gameObject.AddComponent<Outline>();
         outline.enabled = false;
-
-        BattleSpatialGlassPanel chatGlass =
-            chatPanel.GetComponent<BattleSpatialGlassPanel>();
-        if (chatGlass == null)
-            chatGlass = chatPanel.gameObject.AddComponent<BattleSpatialGlassPanel>();
-        chatGlass.Configure(false, 0.10f, -0.040f);
 
         chatGroup = chatPanel.GetComponent<CanvasGroup>();
         if (chatGroup == null)
@@ -1098,7 +1220,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         chatHeader = chatPanel.Find("Header")?.GetComponent<Text>();
         if (chatHeader == null)
-            chatHeader = CreateText(chatPanel, "LIVE CHAT  //  VIEWER FEED", 13, FontStyle.Bold,
+            chatHeader = CreateText(chatPanel, "LIVE CHAT", 13, FontStyle.Bold,
                 TextAnchor.MiddleLeft, new Color(0.10f, 0.88f, 0.95f, 1f), "Header", ResolveMultilingualFont());
 
         SetAnchors(chatHeader.rectTransform, new Vector2(0.045f, 0.76f), new Vector2(0.95f, 0.96f));
@@ -1142,6 +1264,8 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         bodyShadow.effectDistance = new Vector2(1.5f, -1.5f);
 
         SeedChatIfNeeded();
+        UpdateChatHeader();
+        RefreshChatBody();
         ApplyChatLayout();
     }
 
@@ -1161,49 +1285,56 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatPanel.anchorMin = chatPanel.anchorMax = Vector2.one;
         chatPanel.pivot = Vector2.one;
         chatPanel.anchoredPosition = new Vector2(missionPanel.anchoredPosition.x, chatY);
+        bool active = chatTargetVisible;
         float spatialT = 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime);
-        Quaternion targetRotation = rightPanelFocused
-            ? Quaternion.Euler(-1.0f, -2.0f, 0f)
-            : Quaternion.Euler(1.8f, -6.0f, 0f);
+
+        Quaternion targetRotation = Quaternion.Euler(
+            active ? 0.6f : 3.0f,
+            active ? -2.0f : -7.0f,
+            active ? -0.35f : -1.2f);
         chatPanel.localRotation = Quaternion.Slerp(
             chatPanel.localRotation,
             targetRotation,
             spatialT);
+
         chatPanel.localScale = Vector3.Lerp(
             chatPanel.localScale,
-            Vector3.one * (rightPanelFocused ? 1f : 0.965f),
+            Vector3.one * (active ? 1f : 0.94f),
             spatialT);
 
         Vector3 chatLocal = chatPanel.localPosition;
-        chatLocal.z = Mathf.Lerp(
-            chatLocal.z,
-            rightPanelFocused ? -10f : 4f,
-            spatialT);
+        chatLocal.z = Mathf.Lerp(chatLocal.z, active ? -10f : 28f, spatialT);
         chatPanel.localPosition = chatLocal;
 
-        BattleSpatialGlassPanel chatGlass =
-            chatPanel.GetComponent<BattleSpatialGlassPanel>();
-        chatGlass?.SetSpatialState(
-            rightPanelFocused ? 0.85f : 0.10f,
-            rightPanelFocused ? 0.65f : -0.28f);
+        if (chatGroup != null)
+        {
+            chatGroup.alpha = Mathf.Lerp(chatGroup.alpha, active ? 1f : 0f, spatialT);
+            if (!active && chatGroup.alpha <= 0.01f)
+            {
+                chatGroup.alpha = 0f;
+                if (chatPanel.gameObject.activeSelf)
+                    chatPanel.gameObject.SetActive(false);
+            }
+        }
     }
 
     private void SetChatVisible(bool visible)
     {
-        if (chatPanel != null && chatPanel.gameObject.activeSelf != visible)
-            chatPanel.gameObject.SetActive(visible);
+        chatTargetVisible = visible;
+
+        if (chatPanel != null && visible && !chatPanel.gameObject.activeSelf)
+            chatPanel.gameObject.SetActive(true);
 
         if (chatGroup == null)
             return;
 
-        chatGroup.alpha = visible ? 1f : 0f;
         chatGroup.blocksRaycasts = false;
         chatGroup.interactable = false;
     }
 
     private int BaseViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
-    private bool IsAmbientViewerVisit => BaseViewers <= 0 && ambientViewerCount > 0;
-    private int CurrentViewers => BaseViewers > 0 ? BaseViewers : Mathf.Max(0, ambientViewerCount);
+    private bool IsAmbientViewerVisit => false;
+    private int CurrentViewers => BaseViewers;
 
     private void SeedChatIfNeeded()
     {
@@ -1236,7 +1367,11 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         int viewers = CurrentViewers;
         if (viewers <= 0)
+        {
+            UpdateChatHeader();
+            RefreshChatBody();
             return;
+        }
 
         if (IsAmbientViewerVisit)
         {
@@ -1327,8 +1462,45 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     private void RefreshChatBody()
     {
-        if (chatBody != null)
-            chatBody.text = string.Join("\n", chatHistory);
+        if (chatBody == null)
+            return;
+
+        int viewers = CurrentViewers;
+        if (viewers <= 0)
+        {
+            chatBody.text =
+                $"CHAT PAUSED  //  0 VIEWERS\n" +
+                $"FEED RANGE: LAST {Mathf.Clamp(maxChatLines, 3, 7)} MESSAGES";
+            return;
+        }
+
+        if (chatHistory.Count == 0)
+        {
+            chatBody.text =
+                $"WAITING FOR MESSAGE...\n" +
+                $"FEED RANGE: LAST {Mathf.Clamp(maxChatLines, 3, 7)} MESSAGES";
+            return;
+        }
+
+        chatBody.text = string.Join("\n", chatHistory);
+    }
+
+    private void UpdateChatHeader()
+    {
+        if (chatHeader == null)
+            return;
+
+        int viewers = CurrentViewers;
+        int keep = Mathf.Clamp(maxChatLines, 3, 7);
+        chatHeader.text = $"LIVE CHAT  //  {viewers:N0} VIEWERS  //  LAST {keep}";
+
+        BattleUIThemeProfile activeTheme = uiTheme != null ? uiTheme.CurrentProfile : null;
+        Color active = activeTheme != null
+            ? activeTheme.keyColor
+            : new Color(1f, 0.82f, 0.10f, 1f);
+        chatHeader.color = viewers > 0
+            ? active
+            : new Color(0.48f, 0.52f, 0.60f, 1f);
     }
 
     private static Font ResolveMultilingualFont()
