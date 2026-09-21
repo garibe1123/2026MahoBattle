@@ -1362,24 +1362,38 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void DrawStageNode(BattleNodeData node, Vector2 position, Color color, Vector2 mapCenter, bool selectable)
     {
+        // LayoutRoot: graph/layout/business owner. 이 RectTransform은 Spatial presentation이 직접 움직이지 않습니다.
         GameObject go = new($"StageNode_{node.id}");
         go.transform.SetParent(stageMapPanel, false);
 
-        Image image = go.AddComponent<Image>();
-        image.color = color;
-        image.raycastTarget = selectable;
-
-        Outline outline = go.AddComponent<Outline>();
-        outline.effectColor = selectable ? new Color(1f, 1f, 1f, 0.70f) : new Color(1f, 1f, 1f, 0.10f);
-        outline.effectDistance = selectable ? new Vector2(2f, -2f) : new Vector2(1f, -1f);
-
-        RectTransform rect = go.GetComponent<RectTransform>();
+        RectTransform rect = go.AddComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = new Vector2(
             (position.x - mapCenter.x) * resolvedMapHorizontalSpacing,
             (position.y - mapCenter.y) * resolvedMapVerticalSpacing - 20f);
         float size = mapNodeSize * (node.type == BattleNodeType.Elite ? 1.18f : 1f);
         rect.sizeDelta = Vector2.one * size;
+
+        // SpatialRoot: hover/selected/depth motion의 단일 owner.
+        GameObject visualObject = new("SpatialRoot");
+        visualObject.transform.SetParent(rect, false);
+        RectTransform visualRect = visualObject.AddComponent<RectTransform>();
+        visualRect.anchorMin = Vector2.zero;
+        visualRect.anchorMax = Vector2.one;
+        visualRect.offsetMin = Vector2.zero;
+        visualRect.offsetMax = Vector2.zero;
+        visualRect.pivot = new Vector2(0.5f, 0.5f);
+
+        Image image = visualObject.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = selectable;
+
+        Outline outline = visualObject.AddComponent<Outline>();
+        outline.effectColor = selectable ? new Color(1f, 1f, 1f, 0.70f) : new Color(1f, 1f, 1f, 0.10f);
+        outline.effectDistance = selectable ? new Vector2(2f, -2f) : new Vector2(1f, -1f);
+
+        BattleMapNodeSpatialView spatialView = go.AddComponent<BattleMapNodeSpatialView>();
+        spatialView.Configure(visualRect, selectable);
 
         if (selectable && runManager != null)
         {
@@ -1393,7 +1407,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             button.onClick.AddListener(() => BeginStageNodeSelection(id, rect));
         }
 
-        AddNodeLabel(go.transform, node, selectable);
+        AddNodeLabel(visualObject.transform, node, selectable);
     }
 
     private static void AddNodeLabel(Transform parent, BattleNodeData node, bool selectable)
@@ -1702,42 +1716,27 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         float duration = Mathf.Max(0.15f, mapConfirmDuration);
-        float elapsed = 0f;
-        float boardBaseScale = stageMapPanel != null ? stageMapPanel.localScale.x : 1f;
-        Vector3 selectedBaseScale = selectedNode != null ? selectedNode.localScale : Vector3.one;
 
         if (battleCameraController == null)
             battleCameraController = FindFirstObjectByType<BattleCameraController>();
         if (battleCameraController != null)
             battleCameraController.PlaySelectionConfirmShake(mapConfirmCameraShake, duration);
 
-        while (elapsed < duration && stageMapPanel != null)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-            float decay = 1f - t;
-
-            float boardPulse = Mathf.Lerp(boardBaseScale, 1f, t) +
-                (Mathf.Max(1f, mapConfirmZoom) - 1f) *
-                Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 1.7f)) * decay;
-            stageMapPanel.localScale = Vector3.one * boardPulse;
-
-            if (selectedNode != null)
-            {
-                float nodePulse = 1f + Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 2.1f)) * 0.24f * decay;
-                selectedNode.localScale = selectedBaseScale * nodePulse;
-            }
-
-            yield return null;
-        }
-
-        if (selectedNode != null)
-            selectedNode.localScale = selectedBaseScale;
+        BattleMapSpatialPresenter spatialPresenter = null;
         if (stageMapPanel != null)
         {
-            stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
-            stageMapPanel.localScale = Vector3.one;
+            spatialPresenter = stageMapPanel.GetComponent<BattleMapSpatialPresenter>();
+            if (spatialPresenter == null)
+                spatialPresenter = stageMapPanel.gameObject.AddComponent<BattleMapSpatialPresenter>();
+
+            spatialPresenter.PlayConfirm(stageMapPanel, selectedNode, mapConfirmZoom, duration);
         }
+
+        float endAt = Time.unscaledTime + duration;
+        while (Time.unscaledTime < endAt)
+            yield return null;
+
+        spatialPresenter?.ResetBoard(stageMapPanel, stageMapPanelRestPosition);
 
         stageMapConfirmRoutine = null;
         stageMapSelectionLocked = false;
