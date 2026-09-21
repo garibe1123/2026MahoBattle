@@ -46,6 +46,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     [Header("Motion")]
     [SerializeField, Range(4f, 30f)] private float layoutSharpness = 14f;
+    [SerializeField, Min(100f)] private float rightSlideDistance = 620f;
+
+    [Header("Broadcast Metrics")]
+    [SerializeField] private Vector2 compactMetricSize = new(300f, 42f);
+    [SerializeField] private Vector2 expandedMetricSize = new(470f, 64f);
 
     [Header("Mission")]
     [SerializeField] private Vector2 standbyMissionSize = new(320f, 72f);
@@ -73,6 +78,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private RectTransform metricBar;
     private CanvasGroup metricGroup;
+    private Image metricBack;
+    private Outline metricOutline;
+    private Text metricLive;
+    private Image viewerIcon;
+    private Image likeIcon;
     private Text viewersText;
     private Text likesText;
 
@@ -112,7 +122,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private int hoveredMissionIndex = -1;
     private int activeMissionCount;
     private int currentViewers;
+    private int currentLikes;
     private bool combatActive;
+
+    private static Sprite viewerMetricSprite;
+    private static Sprite likeMetricSprite;
 
     private BattleRunManager subscribedRunManager;
     private BattleKineticLoadoutUI subscribedLoadout;
@@ -274,8 +288,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void HandleBroadcastMetricsChanged(int viewers, int likes)
     {
-        currentViewers = Mathf.Max(0, viewers);
-        ApplyBroadcastMetrics(currentViewers, Mathf.Max(0, likes));
+        ApplyBroadcastMetrics(viewers, likes);
         RefreshChatState();
     }
 
@@ -288,9 +301,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void RefreshOpenState(bool force)
     {
-        currentViewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
-        int currentLikes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
-        ApplyBroadcastMetrics(currentViewers, currentLikes);
+        int viewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+        int likes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
+        ApplyBroadcastMetrics(viewers, likes);
 
         bool shouldOpen =
             combatActive &&
@@ -328,7 +341,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private void Update()
     {
         float t = 1f - Mathf.Exp(-Mathf.Max(4f, layoutSharpness) * Time.unscaledDeltaTime);
-        AnimateMetricBar(t, combatActive);
+        bool tabOpen = combatActive &&
+                       kineticLoadout != null &&
+                       kineticLoadout.IsSwitchBoardOpen;
+        AnimateMetricBar(t, combatActive, tabOpen);
 
         if (state == DashboardState.Hidden || dashboardRoot == null)
             return;
@@ -395,12 +411,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (existing != null)
             Object.Destroy(existing.gameObject);
 
-        // Viewer/Like are combat broadcast vitals, not TAB content.
-        // Keep them outside LoadoutSwitchFull so closing TAB cannot hide them.
-        metricBar = CreateRect(metricParent, "BroadcastMetricBar", new Vector2(470f, 64f));
+        // Persistent combat HUD: compact icon + value normally, expanded card during TAB.
+        metricBar = CreateRect(metricParent, "BroadcastMetricBar", compactMetricSize);
         metricBar.anchorMin = metricBar.anchorMax = Vector2.one;
         metricBar.pivot = Vector2.one;
-        metricBar.anchoredPosition = new Vector2(-28f, -24f);
+        metricBar.anchoredPosition = new Vector2(-24f, -20f);
         metricBar.localRotation = Quaternion.Euler(0.5f, -2.2f, -0.35f);
 
         Canvas metricCanvas = metricBar.gameObject.AddComponent<Canvas>();
@@ -412,22 +427,38 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricGroup.blocksRaycasts = false;
         metricGroup.interactable = false;
 
-        Image back = metricBar.gameObject.AddComponent<Image>();
-        back.color = inkColor;
-        back.raycastTarget = false;
+        metricBack = metricBar.gameObject.AddComponent<Image>();
+        metricBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0f);
+        metricBack.raycastTarget = false;
 
-        Outline outline = metricBar.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.22f);
-        outline.effectDistance = new Vector2(2f, -2f);
+        metricOutline = metricBar.gameObject.AddComponent<Outline>();
+        metricOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0f);
+        metricOutline.effectDistance = new Vector2(2f, -2f);
 
-        Text live = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, dangerColor, "Live");
-        SetAnchors(live.rectTransform, new Vector2(0.04f, 0.12f), new Vector2(0.18f, 0.88f));
+        metricLive = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, dangerColor, "Live");
+        SetAnchors(metricLive.rectTransform, new Vector2(0.035f, 0.10f), new Vector2(0.17f, 0.90f));
 
-        viewersText = CreateText(metricBar, "VIEWERS 0", 16, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Viewers");
-        SetAnchors(viewersText.rectTransform, new Vector2(0.22f, 0.08f), new Vector2(0.60f, 0.92f));
+        viewerIcon = CreateImage(metricBar, "ViewerIcon", new Vector2(22f, 22f));
+        viewerIcon.sprite = GetViewerMetricSprite();
+        viewerIcon.color = activeColor;
+        viewerIcon.raycastTarget = false;
+        viewerIcon.rectTransform.anchorMin = viewerIcon.rectTransform.anchorMax = new Vector2(0.26f, 0.5f);
+        viewerIcon.rectTransform.anchoredPosition = Vector2.zero;
 
-        likesText = CreateText(metricBar, "LIKES 0", 16, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Likes");
-        SetAnchors(likesText.rectTransform, new Vector2(0.62f, 0.08f), new Vector2(0.96f, 0.92f));
+        likeIcon = CreateImage(metricBar, "LikeIcon", new Vector2(22f, 22f));
+        likeIcon.sprite = GetLikeMetricSprite();
+        likeIcon.color = new Color(1f, 0.32f, 0.48f, 1f);
+        likeIcon.raycastTarget = false;
+        likeIcon.rectTransform.anchorMin = likeIcon.rectTransform.anchorMax = new Vector2(0.67f, 0.5f);
+        likeIcon.rectTransform.anchoredPosition = Vector2.zero;
+
+        viewersText = CreateText(metricBar, "0", 14, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Viewers");
+        SetAnchors(viewersText.rectTransform, new Vector2(0.31f, 0.08f), new Vector2(0.60f, 0.92f));
+
+        likesText = CreateText(metricBar, "0", 14, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Likes");
+        SetAnchors(likesText.rectTransform, new Vector2(0.72f, 0.08f), new Vector2(0.97f, 0.92f));
+
+        RefreshMetricText(false);
     }
 
     private void BuildMissionPanel()
@@ -435,15 +466,15 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionPanel = CreateRect(dashboardRoot, "MissionPanel", standbyMissionSize);
         missionPanel.anchorMin = missionPanel.anchorMax = Vector2.one;
         missionPanel.pivot = Vector2.one;
-        missionPanel.anchoredPosition = missionPanelOffset;
+        missionPanel.anchoredPosition = missionPanelOffset + Vector2.right * rightSlideDistance;
 
         Image back = missionPanel.gameObject.AddComponent<Image>();
-        back.color = panelColor;
+        back.color = new Color(0.020f, 0.027f, 0.040f, 0.985f);
         back.raycastTarget = false;
 
         Outline outline = missionPanel.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.42f);
-        outline.effectDistance = new Vector2(2f, -2f);
+        outline.effectColor = new Color(activeColor.r, activeColor.g, activeColor.b, 0.52f);
+        outline.effectDistance = new Vector2(3f, -3f);
 
         missionPanelGroup = missionPanel.gameObject.AddComponent<CanvasGroup>();
         missionPanelGroup.blocksRaycasts = false;
@@ -573,15 +604,21 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         chatPanel = CreateRect(dashboardRoot, "LiveChatPanel", chatSize);
         chatPanel.anchorMin = chatPanel.anchorMax = Vector2.one;
         chatPanel.pivot = Vector2.one;
-        chatPanel.anchoredPosition = new Vector2(-32f, -280f);
+        chatPanel.anchoredPosition = new Vector2(-32f + rightSlideDistance, -280f);
 
         Image back = chatPanel.gameObject.AddComponent<Image>();
-        back.color = inkColor;
+        back.color = new Color(0.010f, 0.014f, 0.021f, 0.76f);
         back.raycastTarget = false;
 
-        Outline outline = chatPanel.gameObject.AddComponent<Outline>();
-        outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.30f);
-        outline.effectDistance = new Vector2(2f, -2f);
+        RectTransform liveRail = CreateRect(chatPanel, "LiveRail", new Vector2(5f, 0f));
+        liveRail.anchorMin = new Vector2(0f, 0.08f);
+        liveRail.anchorMax = new Vector2(0f, 0.92f);
+        liveRail.pivot = new Vector2(0f, 0.5f);
+        liveRail.anchoredPosition = new Vector2(0f, 0f);
+        liveRail.sizeDelta = new Vector2(5f, 0f);
+        Image railImage = liveRail.gameObject.AddComponent<Image>();
+        railImage.color = activeColor;
+        railImage.raycastTarget = false;
 
         chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
         chatGroup.blocksRaycasts = false;
@@ -593,7 +630,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             12,
             FontStyle.Bold,
             TextAnchor.MiddleLeft,
-            mutedColor,
+            activeColor,
             "Header");
         SetAnchors(chatHeader.rectTransform, new Vector2(0.045f, 0.77f), new Vector2(0.955f, 0.96f));
 
@@ -849,11 +886,31 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void ApplyBroadcastMetrics(int viewers, int likes)
     {
-        int safeViewers = Mathf.Max(0, viewers);
-        int safeLikes = Mathf.Max(0, likes);
+        currentViewers = Mathf.Max(0, viewers);
+        currentLikes = Mathf.Max(0, likes);
+        RefreshMetricText(
+            combatActive &&
+            kineticLoadout != null &&
+            kineticLoadout.IsSwitchBoardOpen);
+    }
 
-        SetText(viewersText, $"VIEWERS {safeViewers:N0}");
-        SetText(likesText, $"LIKES {safeLikes:N0}");
+    private void RefreshMetricText(bool tabOpen)
+    {
+        if (viewersText != null)
+        {
+            viewersText.fontSize = tabOpen ? 16 : 14;
+            viewersText.text = tabOpen
+                ? $"VIEWERS {currentViewers:N0}"
+                : $"{currentViewers:N0}";
+        }
+
+        if (likesText != null)
+        {
+            likesText.fontSize = tabOpen ? 16 : 14;
+            likesText.text = tabOpen
+                ? $"LIKES {currentLikes:N0}"
+                : $"{currentLikes:N0}";
+        }
     }
 
     private void RefreshChatState()
@@ -964,7 +1021,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         dashboardLocal.z = Mathf.Lerp(dashboardLocal.z, dashboardTargetZ, t);
         dashboardRoot.localPosition = dashboardLocal;
 
-        AnimateMissionPanel(t, missionCount, missionFocused);
+        AnimateMissionPanel(t, targetVisible, missionCount, missionFocused);
         AnimateMissionRows(t);
         AnimateChat(t, targetVisible);
 
@@ -985,14 +1042,24 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         }
     }
 
-    private void AnimateMetricBar(float t, bool visible)
+    private void AnimateMetricBar(float t, bool visible, bool tabOpen)
     {
         if (metricBar == null)
             return;
 
+        RefreshMetricText(tabOpen);
+
         if (metricGroup != null)
             metricGroup.alpha = Mathf.Lerp(metricGroup.alpha, visible ? 1f : 0f, t);
 
+        metricBar.sizeDelta = Vector2.Lerp(
+            metricBar.sizeDelta,
+            tabOpen ? expandedMetricSize : compactMetricSize,
+            t);
+        metricBar.anchoredPosition = Vector2.Lerp(
+            metricBar.anchoredPosition,
+            tabOpen ? new Vector2(-28f, -24f) : new Vector2(-24f, -20f),
+            t);
         metricBar.localScale = Vector3.Lerp(
             metricBar.localScale,
             Vector3.one * (visible ? 1f : 0.94f),
@@ -1000,17 +1067,46 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBar.localRotation = Quaternion.Slerp(
             metricBar.localRotation,
             Quaternion.Euler(
-                visible ? 0.4f : 2.6f,
-                visible ? -1.4f : -5.0f,
-                visible ? -0.25f : 0.6f),
+                visible ? tabOpen ? 0.1f : 0.4f : 2.6f,
+                visible ? tabOpen ? -0.4f : -1.4f : -5.0f,
+                visible ? tabOpen ? -0.05f : -0.25f : 0.6f),
             t);
 
+        if (metricBack != null)
+        {
+            Color color = metricBack.color;
+            color.a = Mathf.Lerp(color.a, tabOpen ? 0.97f : 0f, t);
+            metricBack.color = color;
+        }
+
+        if (metricOutline != null)
+        {
+            Color color = metricOutline.effectColor;
+            color.a = Mathf.Lerp(color.a, tabOpen ? 0.28f : 0f, t);
+            metricOutline.effectColor = color;
+        }
+
+        if (metricLive != null)
+        {
+            Color color = metricLive.color;
+            color.a = Mathf.Lerp(color.a, tabOpen ? 1f : 0f, t);
+            metricLive.color = color;
+        }
+
+        float iconSize = tabOpen ? 26f : 20f;
+        if (viewerIcon != null)
+            viewerIcon.rectTransform.sizeDelta = Vector2.Lerp(
+                viewerIcon.rectTransform.sizeDelta, Vector2.one * iconSize, t);
+        if (likeIcon != null)
+            likeIcon.rectTransform.sizeDelta = Vector2.Lerp(
+                likeIcon.rectTransform.sizeDelta, Vector2.one * iconSize, t);
+
         Vector3 local = metricBar.localPosition;
-        local.z = Mathf.Lerp(local.z, visible ? -6f : 20f, t);
+        local.z = Mathf.Lerp(local.z, visible ? tabOpen ? -12f : -6f : 20f, t);
         metricBar.localPosition = local;
     }
 
-    private void AnimateMissionPanel(float t, int missionCount, bool missionFocused)
+    private void AnimateMissionPanel(float t, bool dashboardVisible, int missionCount, bool missionFocused)
     {
         if (missionPanel == null)
             return;
@@ -1019,9 +1115,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Vector2 targetSize = standby
             ? standbyMissionSize
             : missionFocused ? focusedMissionSize : compactMissionSize;
-        Vector2 targetPosition = missionFocused
+        Vector2 visiblePosition = missionFocused
             ? focusedMissionPanelOffset
             : missionPanelOffset;
+        Vector2 targetPosition = dashboardVisible
+            ? visiblePosition
+            : visiblePosition + Vector2.right * rightSlideDistance;
 
         missionPanel.sizeDelta = Vector2.Lerp(
             missionPanel.sizeDelta,
@@ -1163,9 +1262,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         float missionHeight = missionPanel != null
             ? missionPanel.sizeDelta.y
             : standbyMissionSize.y;
-        Vector2 targetPosition = new(
+        Vector2 visiblePosition = new(
             -32f,
             -(missionHeight + 132f));
+        Vector2 targetPosition = dashboardVisible
+            ? visiblePosition
+            : visiblePosition + Vector2.right * rightSlideDistance;
 
         chatPanel.anchoredPosition = Vector2.Lerp(
             chatPanel.anchoredPosition,
@@ -1212,6 +1314,98 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         RectTransform rect = go.AddComponent<RectTransform>();
         rect.sizeDelta = size;
         return rect;
+    }
+
+    private static Image CreateImage(Transform parent, string name, Vector2 size)
+    {
+        RectTransform rect = CreateRect(parent, name, size);
+        Image image = rect.gameObject.AddComponent<Image>();
+        image.preserveAspect = true;
+        image.raycastTarget = false;
+        return image;
+    }
+
+    private static Sprite GetViewerMetricSprite()
+    {
+        if (viewerMetricSprite != null)
+            return viewerMetricSprite;
+
+        const int size = 24;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        Vector2 center = new((size - 1) * 0.5f, (size - 1) * 0.5f);
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float nx = (x - center.x) / 10.5f;
+                float ny = (y - center.y) / 6.0f;
+                float outer = nx * nx + ny * ny;
+                float px = (x - center.x) / 3.1f;
+                float py = (y - center.y) / 3.1f;
+                bool iris = px * px + py * py <= 1f;
+                bool eye = outer <= 1f && outer >= 0.50f;
+                texture.SetPixel(x, y, eye || iris ? Color.white : Color.clear);
+            }
+        }
+
+        texture.Apply(false, true);
+        viewerMetricSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            size,
+            0,
+            SpriteMeshType.FullRect);
+        viewerMetricSprite.name = "RuntimeViewerMetricIcon";
+        viewerMetricSprite.hideFlags = HideFlags.HideAndDontSave;
+        return viewerMetricSprite;
+    }
+
+    private static Sprite GetLikeMetricSprite()
+    {
+        if (likeMetricSprite != null)
+            return likeMetricSprite;
+
+        const int size = 24;
+        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float nx = (x - 11.5f) / 10f;
+                float ny = (y - 10.5f) / 9f;
+                float a = nx * nx + Mathf.Pow(ny - 0.25f, 2f) - 0.28f;
+                bool heart =
+                    Mathf.Pow(a, 3f) -
+                    nx * nx * Mathf.Pow(ny - 0.25f, 3f) <= 0f &&
+                    y >= 3;
+                texture.SetPixel(x, y, heart ? Color.white : Color.clear);
+            }
+        }
+
+        texture.Apply(false, true);
+        likeMetricSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            size,
+            0,
+            SpriteMeshType.FullRect);
+        likeMetricSprite.name = "RuntimeLikeMetricIcon";
+        likeMetricSprite.hideFlags = HideFlags.HideAndDontSave;
+        return likeMetricSprite;
     }
 
     private static Text CreateText(
