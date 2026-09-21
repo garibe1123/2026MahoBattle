@@ -1544,10 +1544,26 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         float panelHeight = stageMapPanel.rect.height > 1f ? stageMapPanel.rect.height : selectionMapSize.y;
         float usableWidth = Mathf.Max(1f, panelWidth - 160f);
         float usableHeight = Mathf.Max(1f, panelHeight - 170f);
+
+        // Route topology should occupy the TV, not collapse into its center.
+        // Keep conservative caps so large graphs still remain inside the safe area.
         if (horizontalRange > 0.001f)
-            resolvedMapHorizontalSpacing = Mathf.Min(mapHorizontalSpacing, usableWidth / horizontalRange);
+        {
+            float adaptive = usableWidth * 0.58f / horizontalRange;
+            resolvedMapHorizontalSpacing = Mathf.Clamp(
+                adaptive,
+                Mathf.Max(120f, mapHorizontalSpacing),
+                280f);
+        }
+
         if (verticalRange > 0.001f)
-            resolvedMapVerticalSpacing = Mathf.Min(mapVerticalSpacing, usableHeight / verticalRange);
+        {
+            float adaptive = usableHeight * 0.62f / verticalRange;
+            resolvedMapVerticalSpacing = Mathf.Clamp(
+                adaptive,
+                Mathf.Max(96f, mapVerticalSpacing),
+                180f);
+        }
     }
 
     private void PlayStageMapReveal()
@@ -1568,6 +1584,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapCanvasGroup.alpha = 0f;
         stageMapPanel.anchoredPosition = startPosition;
         stageMapPanel.localScale = Vector3.one * 0.96f;
+        stageMapPanel.localRotation = Quaternion.Euler(2.4f, -4.5f, 0.65f);
+        Vector3 revealLocal = stageMapPanel.localPosition;
+        revealLocal.z = 28f;
+        stageMapPanel.localPosition = revealLocal;
 
         while (elapsed < duration)
         {
@@ -1577,12 +1597,23 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapCanvasGroup.alpha = eased;
             stageMapPanel.anchoredPosition = Vector2.LerpUnclamped(startPosition, stageMapPanelRestPosition, eased);
             stageMapPanel.localScale = Vector3.LerpUnclamped(Vector3.one * 0.96f, Vector3.one, eased);
+            stageMapPanel.localRotation = Quaternion.Slerp(
+                Quaternion.Euler(2.4f, -4.5f, 0.65f),
+                Quaternion.identity,
+                eased);
+            Vector3 local = stageMapPanel.localPosition;
+            local.z = Mathf.Lerp(28f, 0f, eased);
+            stageMapPanel.localPosition = local;
             yield return null;
         }
 
         stageMapCanvasGroup.alpha = 1f;
         stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
         stageMapPanel.localScale = Vector3.one;
+        stageMapPanel.localRotation = Quaternion.identity;
+        Vector3 finalLocal = stageMapPanel.localPosition;
+        finalLocal.z = 0f;
+        stageMapPanel.localPosition = finalLocal;
         stageMapRevealRoutine = null;
     }
 
@@ -1650,7 +1681,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         float duration = Mathf.Max(0.15f, mapConfirmDuration);
         float elapsed = 0f;
         float boardBaseScale = stageMapPanel != null ? stageMapPanel.localScale.x : 1f;
-        Vector3 selectedBaseScale = selectedNode != null ? selectedNode.localScale : Vector3.one;
 
         if (battleCameraController == null)
             battleCameraController = FindFirstObjectByType<BattleCameraController>();
@@ -1668,17 +1698,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 1.7f)) * decay;
             stageMapPanel.localScale = Vector3.one * boardPulse;
 
-            if (selectedNode != null)
-            {
-                float nodePulse = 1f + Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 2.1f)) * 0.24f * decay;
-                selectedNode.localScale = selectedBaseScale * nodePulse;
-            }
-
             yield return null;
         }
 
-        if (selectedNode != null)
-            selectedNode.localScale = selectedBaseScale;
         if (stageMapPanel != null)
         {
             stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
@@ -1713,6 +1735,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
             stageMapPanel.localScale = Vector3.one;
+            stageMapPanel.localRotation = Quaternion.identity;
+            Vector3 local = stageMapPanel.localPosition;
+            local.z = 0f;
+            stageMapPanel.localPosition = local;
             stageMapPanel.gameObject.SetActive(false);
         }
         battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
