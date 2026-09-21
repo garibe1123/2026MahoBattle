@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -41,6 +42,10 @@ public sealed class BattleMiniPackContextTweenController : MonoBehaviour
     private CanvasGroup miniPackGroup;
 
     private MiniPackContext context = MiniPackContext.Unknown;
+    private MiniPackContext desiredContext = MiniPackContext.Unknown;
+    private bool contextDirty;
+    private bool eventsSubscribed;
+    private Coroutine bindRoutine;
     private bool initialized;
     private bool tweening;
     private float elapsed;
@@ -66,33 +71,96 @@ public sealed class BattleMiniPackContextTweenController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        SubscribeEvents();
+
         initialized = false;
         tweening = false;
         context = MiniPackContext.Unknown;
+        desiredContext = ResolveContext();
+        contextDirty = true;
         nextUiResolveAt = 0f;
+
+        if (!eventsSubscribed && bindRoutine == null)
+            bindRoutine = StartCoroutine(BindWhenReady());
+    }
+
+    private void OnDisable()
+    {
+        if (bindRoutine != null)
+            StopCoroutine(bindRoutine);
+        bindRoutine = null;
+        UnsubscribeEvents();
+    }
+
+    private IEnumerator BindWhenReady()
+    {
+        while (enabled && (runManager == null || rewardFlow == null || kineticLoadout == null))
+        {
+            ResolveReferences();
+            yield return null;
+        }
+
+        bindRoutine = null;
+        if (!enabled)
+            yield break;
+
+        SubscribeEvents();
+        QueueContextRefresh();
+    }
+
+    private void SubscribeEvents()
+    {
+        if (eventsSubscribed || runManager == null || rewardFlow == null || kineticLoadout == null)
+            return;
+
+        runManager.StateChanged += HandleRunStateChanged;
+        rewardFlow.Changed += HandleRewardChanged;
+        kineticLoadout.SwitchBoardVisibilityChanged += HandlePackVisibilityChanged;
+        eventsSubscribed = true;
+    }
+
+    private void UnsubscribeEvents()
+    {
+        if (!eventsSubscribed)
+            return;
+
+        if (runManager != null)
+            runManager.StateChanged -= HandleRunStateChanged;
+        if (rewardFlow != null)
+            rewardFlow.Changed -= HandleRewardChanged;
+        if (kineticLoadout != null)
+            kineticLoadout.SwitchBoardVisibilityChanged -= HandlePackVisibilityChanged;
+        eventsSubscribed = false;
+    }
+
+    private void HandleRunStateChanged(BattleRunState _) => QueueContextRefresh();
+    private void HandleRewardChanged() => QueueContextRefresh();
+    private void HandlePackVisibilityChanged(bool _) => QueueContextRefresh();
+
+    private void QueueContextRefresh()
+    {
+        desiredContext = ResolveContext();
+        contextDirty = desiredContext != context;
     }
 
     private void LateUpdate()
     {
-        ResolveReferences();
-        if (runManager == null || !runManager.RunActive)
-            return;
-
         ResolveMiniPackWhenNeeded();
         if (miniPackRoot == null || miniPackGroup == null)
             return;
 
         // UnifiedInventoryInspectController(DefaultExecutionOrder 33380)가 이 프레임의 authoritative
-        // 목표값을 먼저 기록합니다. 우리는 그 값을 읽은 뒤 최종 표시만 덮어씁니다.
+        // 목표값을 먼저 기록합니다. 우리는 이미 이벤트로 선택된 Context를 보간만 합니다.
         Vector2 authoredPosition = miniPackRoot.anchoredPosition;
         Vector3 authoredScale = miniPackRoot.localScale;
         float authoredAlpha = miniPackGroup.alpha;
-        MiniPackContext nextContext = ResolveContext();
+        MiniPackContext nextContext = desiredContext;
 
         if (!initialized)
         {
             initialized = true;
             context = nextContext;
+            contextDirty = false;
             currentPosition = authoredPosition;
             currentScale = authoredScale;
             currentAlpha = authoredAlpha;
@@ -110,13 +178,14 @@ public sealed class BattleMiniPackContextTweenController : MonoBehaviour
             return;
         }
 
-        if (nextContext != context)
+        if (contextDirty || nextContext != context)
         {
             bool shouldTween =
                 (context == MiniPackContext.Combat && nextContext == MiniPackContext.RewardChoice) ||
                 (context == MiniPackContext.RewardChoice && nextContext == MiniPackContext.Combat);
 
             context = nextContext;
+            contextDirty = false;
             if (shouldTween)
             {
                 BeginTween(authoredPosition, authoredScale, authoredAlpha);
