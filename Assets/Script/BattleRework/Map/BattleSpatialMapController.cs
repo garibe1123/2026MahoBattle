@@ -1542,12 +1542,29 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         float verticalRange = maxY - minY;
         float panelWidth = stageMapPanel.rect.width > 1f ? stageMapPanel.rect.width : selectionMapSize.x;
         float panelHeight = stageMapPanel.rect.height > 1f ? stageMapPanel.rect.height : selectionMapSize.y;
-        float usableWidth = Mathf.Max(1f, panelWidth - 160f);
-        float usableHeight = Mathf.Max(1f, panelHeight - 170f);
+
+        // Do not keep a 150px graph inside a 1500px TV.
+        // Expand the route topology to a stable fraction of the actual TV safe area.
+        float targetGraphWidth = Mathf.Max(1f, panelWidth * 0.56f);
+        float targetGraphHeight = Mathf.Max(1f, panelHeight * 0.58f);
+
         if (horizontalRange > 0.001f)
-            resolvedMapHorizontalSpacing = Mathf.Min(mapHorizontalSpacing, usableWidth / horizontalRange);
+        {
+            float adaptive = targetGraphWidth / horizontalRange;
+            resolvedMapHorizontalSpacing = Mathf.Clamp(
+                adaptive,
+                Mathf.Max(150f, mapHorizontalSpacing),
+                360f);
+        }
+
         if (verticalRange > 0.001f)
-            resolvedMapVerticalSpacing = Mathf.Min(mapVerticalSpacing, usableHeight / verticalRange);
+        {
+            float adaptive = targetGraphHeight / verticalRange;
+            resolvedMapVerticalSpacing = Mathf.Clamp(
+                adaptive,
+                Mathf.Max(112f, mapVerticalSpacing),
+                210f);
+        }
     }
 
     private void PlayStageMapReveal()
