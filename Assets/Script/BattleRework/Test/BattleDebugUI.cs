@@ -95,11 +95,13 @@ public class BattleDebugUI : MonoBehaviour
         if (!Application.isEditor && !Debug.isDebugBuild)
             return;
 
-        DrawBattleRatingTestSelector();
-        DrawKillAllEnemyButton();
-
+        // Debug widgets must never leak into the normal game presentation.
+        // F1 explicitly enables the entire debug surface, including quick actions.
         if (!visible)
             return;
+
+        DrawBattleRatingTestSelector();
+        DrawKillAllEnemyButton();
 
         GUILayout.BeginArea(new Rect(12f, 12f, 420f, Screen.height - 24f), GUI.skin.box);
         scroll = GUILayout.BeginScrollView(scroll);
