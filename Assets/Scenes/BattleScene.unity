@@ -474,7 +474,7 @@ MonoBehaviour:
   stickThreshold: 0.55
   stickReleaseThreshold: 0.22
   inkColor: {r: 0.035, g: 0.03, b: 0.055, a: 0.98}
-  paperColor: {r: 0.94, g: 0.9, b: 0.76, a: 1}
+  paperColor: {r: 0.92, g: 0.94, b: 0.97, a: 1}
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
