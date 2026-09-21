@@ -113,26 +113,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         "clean swap, keep going"
     };
 
-    private static readonly string[] DriveByChatNames =
-    {
-        "guest_031",
-        "지나가던사람",
-        "wrong_tab",
-        "noSignal",
-        "ㅇㅇ",
-        "justPassing"
-    };
-
-    private static readonly string[] DriveByChatComments =
-    {
-        "아 잘못 들어왔네",
-        "아 노잼",
-        "뭐야 아무도 없네",
-        "잘못 눌렀다 ㅂㅂ",
-        "음... 그냥 나갈게",
-        "이 방송 뭐 하는 데임?"
-    };
-
     private static readonly string[] PreferredMultilingualFonts =
     {
         "Malgun Gothic",
@@ -179,18 +159,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     [SerializeField, Range(0.35f, 4f)] private float highViewerChatInterval = HighViewerChatInterval;
     [SerializeField, Range(3, 7)] private int maxChatLines = MaxChatLines;
 
-    [Header("ZERO VIEWER — AMBIENT DROP-IN")]
-    [Tooltip("실제 Viewer가 0명일 때 1~2명이 들어오기까지의 최소 대기 시간입니다.")]
-    [SerializeField, Range(2f, 30f)] private float ambientViewerIdleMin = 6f;
-    [Tooltip("실제 Viewer가 0명일 때 1~2명이 들어오기까지의 최대 대기 시간입니다.")]
-    [SerializeField, Range(3f, 45f)] private float ambientViewerIdleMax = 15f;
-    [Tooltip("들어온 1~2명이 머무는 최소 시간입니다.")]
-    [SerializeField, Range(1f, 12f)] private float ambientViewerStayMin = 3f;
-    [Tooltip("들어온 1~2명이 머무는 최대 시간입니다.")]
-    [SerializeField, Range(2f, 20f)] private float ambientViewerStayMax = 7f;
-    [Tooltip("짧게 들어온 Viewer가 이탈성 댓글 하나를 남길 확률입니다.")]
-    [SerializeField, Range(0f, 1f)] private float ambientDriveByCommentChance = 0.48f;
-
     private RectTransform fullRoot;
     private RectTransform packDockRoot;
     private RectTransform packBoardMotionRoot;
@@ -236,14 +204,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private bool eventsSubscribed;
     private Coroutine bindRoutine;
     private bool chatTargetVisible;
-
-    private bool ambientViewerScheduled;
-    private int ambientViewerCount;
-    private float nextAmbientViewerAt;
-    private float ambientViewerLeaveAt;
-    private bool ambientCommentPending;
-    private int ambientSequence;
-    private int driveByChatSequence;
 
     private static Font multilingualFont;
 
@@ -298,7 +258,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         nextChatAt = 0f;
         rightPanelFocused = false;
         packDockTweenInitialized = false;
-        ResetAmbientAudience();
 
         EnsurePrimaryFocusRelay();
         EnsureChatPanel();
@@ -323,7 +282,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         packDockTweenInitialized = false;
         RestorePackRuleScale();
         RestoreDashboardRuleOffset();
-        ResetAmbientAudience();
         RestoreDetailSorting();
         SetChatVisible(false);
         SetMetricVisible(false);
@@ -779,72 +737,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             metricLikesText.fontSize = Mathf.Min(metricLikesText.fontSize, 14);
             if (metricLikesText.text != likes)
                 metricLikesText.text = likes;
-        }
-    }
-
-    private void UpdateAmbientAudience(bool combatActive)
-    {
-        if (!combatActive || runProgress == null)
-        {
-            ResetAmbientAudience();
-            return;
-        }
-
-        if (runProgress.Viewers > 0)
-        {
-            ResetAmbientAudience();
-            return;
-        }
-
-        float now = Time.unscaledTime;
-        if (!ambientViewerScheduled)
-        {
-            ambientViewerScheduled = true;
-            nextAmbientViewerAt = now + NextAmbientRange(ambientViewerIdleMin, ambientViewerIdleMax);
-        }
-
-        if (ambientViewerCount > 0)
-        {
-            if (now < ambientViewerLeaveAt)
-                return;
-
-            ambientViewerCount = 0;
-            ambientCommentPending = false;
-            nextAmbientViewerAt = now + NextAmbientRange(ambientViewerIdleMin, ambientViewerIdleMax);
-            return;
-        }
-
-        if (now < nextAmbientViewerAt)
-            return;
-
-        ambientViewerCount = NextAmbient01() < 0.72f ? 1 : 2;
-        ambientViewerLeaveAt = now + NextAmbientRange(ambientViewerStayMin, ambientViewerStayMax);
-        ambientCommentPending = NextAmbient01() < Mathf.Clamp01(ambientDriveByCommentChance);
-    }
-
-    private void ResetAmbientAudience()
-    {
-        ambientViewerScheduled = false;
-        ambientViewerCount = 0;
-        nextAmbientViewerAt = 0f;
-        ambientViewerLeaveAt = 0f;
-        ambientCommentPending = false;
-    }
-
-    private float NextAmbientRange(float min, float max)
-    {
-        min = Mathf.Max(0f, min);
-        max = Mathf.Max(min, max);
-        return Mathf.Lerp(min, max, NextAmbient01());
-    }
-
-    private float NextAmbient01()
-    {
-        unchecked
-        {
-            ambientSequence++;
-            int hash = ambientSequence * 1103515245 + 12345;
-            return (hash & 0x7fffffff) / (float)int.MaxValue;
         }
     }
 
@@ -1332,9 +1224,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatGroup.interactable = false;
     }
 
-    private int BaseViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
-    private bool IsAmbientViewerVisit => false;
-    private int CurrentViewers => BaseViewers;
+    private int CurrentViewers => runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
 
     private void SeedChatIfNeeded()
     {
@@ -1342,7 +1232,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             return;
 
         int viewers = CurrentViewers;
-        if (viewers <= 0 || IsAmbientViewerVisit)
+        if (viewers <= 0)
             return;
 
         if (chatHistory.Count > 0)
@@ -1367,21 +1257,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         int viewers = CurrentViewers;
         if (viewers <= 0)
-        {
-            UpdateChatHeader();
-            RefreshChatBody();
             return;
-        }
-
-        if (IsAmbientViewerVisit)
-        {
-            if (ambientCommentPending)
-            {
-                AppendDriveByChatLine();
-                ambientCommentPending = false;
-            }
-            return;
-        }
 
         SeedChatIfNeeded();
         if (Time.unscaledTime < nextChatAt)
@@ -1436,17 +1312,6 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatSequence++;
 
         AppendChatLine(nickname, comment);
-    }
-
-    private void AppendDriveByChatLine()
-    {
-        int count = Mathf.Min(DriveByChatNames.Length, DriveByChatComments.Length);
-        if (count <= 0)
-            return;
-
-        int index = driveByChatSequence % count;
-        driveByChatSequence++;
-        AppendChatLine(DriveByChatNames[index], DriveByChatComments[index]);
     }
 
     private void AppendChatLine(string nickname, string comment)
