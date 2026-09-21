@@ -164,6 +164,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
             if (ReferencesReady() && dashboardRoot != null)
             {
+                combatActive = ResolveCombatState();
                 bindRoutine = null;
                 RefreshOpenState(true);
                 yield break;
