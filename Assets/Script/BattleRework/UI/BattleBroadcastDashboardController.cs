@@ -72,6 +72,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private CanvasGroup dashboardGroup;
 
     private RectTransform metricBar;
+    private CanvasGroup metricGroup;
     private Text viewersText;
     private Text likesText;
 
@@ -111,6 +112,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private int hoveredMissionIndex = -1;
     private int activeMissionCount;
     private int currentViewers;
+    private bool combatActive;
 
     private BattleRunManager subscribedRunManager;
     private BattleKineticLoadoutUI subscribedLoadout;
@@ -128,6 +130,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         ResolveReferences();
         Subscribe();
+        combatActive = ResolveCombatState();
         TryResolveUi();
 
         if (!ReferencesReady() || dashboardRoot == null)
@@ -147,6 +150,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         if (dashboardRoot != null)
             dashboardRoot.gameObject.SetActive(false);
+        if (metricGroup != null)
+            metricGroup.alpha = 0f;
     }
 
     private IEnumerator BindWhenReady()
@@ -252,6 +257,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void HandleRunStateChanged(BattleRunState _)
     {
+        combatActive = ResolveCombatState();
         RefreshOpenState(false);
     }
 
@@ -272,12 +278,21 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         RefreshChatState();
     }
 
+    private bool ResolveCombatState()
+    {
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.Combat;
+    }
+
     private void RefreshOpenState(bool force)
     {
+        currentViewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+        int currentLikes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
+        ApplyBroadcastMetrics(currentViewers, currentLikes);
+
         bool shouldOpen =
-            runManager != null &&
-            runManager.RunActive &&
-            runManager.State == BattleRunState.Combat &&
+            combatActive &&
             kineticLoadout != null &&
             kineticLoadout.IsSwitchBoardOpen;
 
@@ -299,9 +314,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             focus = DashboardFocus.Pack;
             hoveredMissionIndex = -1;
             RefreshMissionData();
-            currentViewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
-            int likes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
-            ApplyBroadcastMetrics(currentViewers, likes);
             RefreshChatState();
         }
         else if (state != DashboardState.Hidden)
@@ -314,6 +326,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void Update()
     {
+        float t = 1f - Mathf.Exp(-Mathf.Max(4f, layoutSharpness) * Time.unscaledDeltaTime);
+        AnimateMetricBar(t, combatActive);
+
         if (state == DashboardState.Hidden || dashboardRoot == null)
             return;
 
@@ -327,7 +342,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 RefreshMissionDetail();
         }
 
-        AnimatePresentation();
+        AnimatePresentation(t);
     }
 
     private void TryResolveUi()
@@ -371,11 +386,30 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void BuildMetricBar()
     {
-        metricBar = CreateRect(dashboardRoot, "BroadcastMetricBar", new Vector2(470f, 64f));
+        Transform metricParent = fullRoot != null ? fullRoot.parent : null;
+        if (metricParent == null)
+            return;
+
+        RectTransform existing = metricParent.Find("BroadcastMetricBar") as RectTransform;
+        if (existing != null)
+            Object.Destroy(existing.gameObject);
+
+        // Viewer/Like are combat broadcast vitals, not TAB content.
+        // Keep them outside LoadoutSwitchFull so closing TAB cannot hide them.
+        metricBar = CreateRect(metricParent, "BroadcastMetricBar", new Vector2(470f, 64f));
         metricBar.anchorMin = metricBar.anchorMax = Vector2.one;
         metricBar.pivot = Vector2.one;
         metricBar.anchoredPosition = new Vector2(-28f, -24f);
         metricBar.localRotation = Quaternion.Euler(0.5f, -2.2f, -0.35f);
+
+        Canvas metricCanvas = metricBar.gameObject.AddComponent<Canvas>();
+        metricCanvas.overrideSorting = true;
+        metricCanvas.sortingOrder = DashboardSortingOrder + 1;
+
+        metricGroup = metricBar.gameObject.AddComponent<CanvasGroup>();
+        metricGroup.alpha = combatActive ? 1f : 0f;
+        metricGroup.blocksRaycasts = false;
+        metricGroup.interactable = false;
 
         Image back = metricBar.gameObject.AddComponent<Image>();
         back.color = inkColor;
@@ -898,9 +932,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             .Trim();
     }
 
-    private void AnimatePresentation()
+    private void AnimatePresentation(float t)
     {
-        float t = 1f - Mathf.Exp(-Mathf.Max(4f, layoutSharpness) * Time.unscaledDeltaTime);
         bool targetVisible = state == DashboardState.Entering || state == DashboardState.Open;
         int missionCount = activeMissionCount;
         bool missionFocused = targetVisible &&
@@ -930,7 +963,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         dashboardLocal.z = Mathf.Lerp(dashboardLocal.z, dashboardTargetZ, t);
         dashboardRoot.localPosition = dashboardLocal;
 
-        AnimateMetricBar(t, targetVisible);
         AnimateMissionPanel(t, missionCount, missionFocused);
         AnimateMissionRows(t);
         AnimateChat(t, targetVisible);
@@ -952,25 +984,28 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         }
     }
 
-    private void AnimateMetricBar(float t, bool dashboardVisible)
+    private void AnimateMetricBar(float t, bool visible)
     {
         if (metricBar == null)
             return;
 
+        if (metricGroup != null)
+            metricGroup.alpha = Mathf.Lerp(metricGroup.alpha, visible ? 1f : 0f, t);
+
         metricBar.localScale = Vector3.Lerp(
             metricBar.localScale,
-            Vector3.one * (dashboardVisible ? 1f : 0.94f),
+            Vector3.one * (visible ? 1f : 0.94f),
             t);
         metricBar.localRotation = Quaternion.Slerp(
             metricBar.localRotation,
             Quaternion.Euler(
-                dashboardVisible ? 0.4f : 2.6f,
-                dashboardVisible ? -1.4f : -5.0f,
-                dashboardVisible ? -0.25f : 0.6f),
+                visible ? 0.4f : 2.6f,
+                visible ? -1.4f : -5.0f,
+                visible ? -0.25f : 0.6f),
             t);
 
         Vector3 local = metricBar.localPosition;
-        local.z = Mathf.Lerp(local.z, dashboardVisible ? -6f : 20f, t);
+        local.z = Mathf.Lerp(local.z, visible ? -6f : 20f, t);
         metricBar.localPosition = local;
     }
 
