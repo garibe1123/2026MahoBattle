@@ -49,15 +49,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     [SerializeField, Range(0.5f, 1f)] private float rewardChoiceMiniPackAlpha = 0.82f;
 
     [Header("Full Inventory")]
-    [SerializeField] private Vector2 boardAnchor = new(0.31f, 0.53f);
+    [SerializeField] private Vector2 boardAnchor = new(0.31f, 0.59f);
     [SerializeField, Range(0.90f, 1.08f)] private float fullGridScale = 1f;
-    [SerializeField] private Vector2 detailAnchor = new(0.80f, 0.52f);
-    [SerializeField, Range(0.80f, 1.10f)] private float detailScale = 0.96f;
 
     [Header("Reward Controls")]
     [SerializeField] private Vector2 trashAttachOffset = new(-8f, 0f);
-    [SerializeField] private Vector2 rewardTrashScreenOffset = new(-28f, -54f);
-    [SerializeField] private Vector2 rewardDoneScreenOffset = new(-28f, 44f);
+    [SerializeField] private Vector2 rewardDoneBelowBoardOffset = new(-128f, -18f);
+    [SerializeField] private Vector2 rewardTrashBelowBoardOffset = new(128f, -18f);
 
     [Header("Reward Edit Time")]
     [SerializeField, Range(0.02f, 0.20f)] private float rewardInventoryTimeScale = 0.05f;
@@ -185,7 +183,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         ApplyFullInventoryLayout(rewardEdit);
         AttachContextControls(rewardEdit, combat);
         ApplySelectionFrames(rewardEdit, rewardEdit);
-        PositionDetailPanel(rewardEdit);
+        ApplyRewardInspectTooltip(rewardEdit);
     }
 
     private void ResolveReferences()
@@ -689,17 +687,17 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             }
         }
 
-        // Combat PACK layout/depth/detail belong to BattleKineticLoadoutUI.
-        if (builtInDetailRoot != null)
-            builtInDetailRoot.gameObject.SetActive(!rewardEdit);
+        // Combat and Reward PACK inspect now share the same built-in tooltip.
+        if (builtInDetailRoot != null && rewardEdit)
+            builtInDetailRoot.gameObject.SetActive(true);
     }
 
     private void AttachContextControls(bool rewardEdit, bool combat)
     {
-        if (rewardEdit && fullRoot != null)
+        if (rewardEdit && boardRoot != null)
         {
-            AttachScreenControl(trashRoot, fullRoot, rewardTrashScreenOffset);
-            AttachScreenControl(doneRoot, fullRoot, rewardDoneScreenOffset);
+            AttachRewardControlBelowBoard(doneRoot, boardRoot, rewardDoneBelowBoardOffset);
+            AttachRewardControlBelowBoard(trashRoot, boardRoot, rewardTrashBelowBoardOffset);
             return;
         }
 
@@ -707,17 +705,20 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             AttachControl(trashRoot, miniPackRoot, trashAttachOffset);
     }
 
-    private static void AttachScreenControl(RectTransform control, RectTransform screenRoot, Vector2 screenOffset)
+    private static void AttachRewardControlBelowBoard(
+        RectTransform control,
+        RectTransform board,
+        Vector2 offset)
     {
-        if (control == null || screenRoot == null)
+        if (control == null || board == null)
             return;
 
-        if (control.parent != screenRoot)
-            control.SetParent(screenRoot, false);
+        if (control.parent != board)
+            control.SetParent(board, false);
 
-        control.anchorMin = control.anchorMax = new Vector2(1f, 0.5f);
-        control.pivot = new Vector2(1f, 0.5f);
-        control.anchoredPosition = screenOffset;
+        control.anchorMin = control.anchorMax = new Vector2(0.5f, 0f);
+        control.pivot = new Vector2(0.5f, 1f);
+        control.anchoredPosition = offset;
         control.localRotation = Quaternion.identity;
         control.localScale = Vector3.one;
         control.SetAsLastSibling();
@@ -816,7 +817,19 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             return;
 
         activeInspectSlot = slotIndex;
-        detailController?.SelectSlotFromPointer(slotIndex);
+
+        if (IsRewardEdit())
+        {
+            detailController?.Hide();
+            if (slotIndex >= 0)
+                kineticLoadout?.ShowRewardInspectTooltip(slotIndex);
+            else
+                kineticLoadout?.HideRewardInspectTooltip();
+        }
+        else
+        {
+            detailController?.SelectSlotFromPointer(slotIndex);
+        }
     }
 
     public void CancelSelection()
@@ -832,6 +845,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         activeInspectSlot = -1;
 
         kineticLoadout?.ClearExternalSelection();
+        kineticLoadout?.HideRewardInspectTooltip();
         detailController?.SelectSlotFromPointer(-1);
 
         if (detailGroup != null)
@@ -1055,33 +1069,25 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         }
     }
 
-    private void PositionDetailPanel(bool inspectContext)
+    private void ApplyRewardInspectTooltip(bool rewardEdit)
     {
-        if (detailRoot == null || detailGroup == null)
-            return;
-
-        bool show = inspectContext && activeInspectSlot >= 0 && !selectionSuppressed && HasItem(activeInspectSlot);
-        if (!show)
+        if (!rewardEdit ||
+            selectionSuppressed ||
+            activeInspectSlot < 0 ||
+            !HasItem(activeInspectSlot))
         {
+            kineticLoadout?.HideRewardInspectTooltip();
+            if (detailGroup != null)
+                detailGroup.alpha = 0f;
+            return;
+        }
+
+        // External legacy detail panel stays hidden. Reward uses the same
+        // non-interactive slot-adjacent tooltip as Combat TAB.
+        if (detailGroup != null)
             detailGroup.alpha = 0f;
-            return;
-        }
-
-        detailRoot.anchorMin = detailRoot.anchorMax = detailAnchor;
-        detailRoot.pivot = new Vector2(0.5f, 0.5f);
-        detailRoot.anchoredPosition = Vector2.zero;
-        detailRoot.localScale = Vector3.one * detailScale;
-        detailRoot.localRotation = Quaternion.identity;
-
-        detailGroup.alpha = 1f;
-        detailGroup.blocksRaycasts = false;
-        detailGroup.interactable = false;
-
-        if (detailOutline != null)
-        {
-            detailOutline.effectColor = selectedAccent;
-            detailOutline.effectDistance = new Vector2(6f, -6f);
-        }
+        detailController?.Hide();
+        kineticLoadout?.ShowRewardInspectTooltip(activeInspectSlot);
     }
 
     private void EnsureDismissCanvas()
