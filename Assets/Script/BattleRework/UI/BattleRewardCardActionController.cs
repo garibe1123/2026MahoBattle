@@ -34,6 +34,16 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField, Min(0f)] private float cardGap = 42f;
     [SerializeField, Min(1f)] private float tweenSharpness = 18f;
 
+    [Header("Card Spatial Tilt")]
+    [Tooltip("기존 카드 Layout은 유지하고 RectTransform의 X/Y/Z 회전과 local Z만 사용합니다.")]
+    [SerializeField, Min(1f)] private float spatialSharpness = 16f;
+    [SerializeField] private Vector3 idleTilt = new(1.4f, 3.2f, 0.8f);
+    [SerializeField] private Vector3 hoverTilt = new(0.45f, 1.15f, 0.30f);
+    [SerializeField] private Vector3 inactiveTilt = new(2.4f, 5.2f, 1.35f);
+    [SerializeField] private float hoverDepth = -16f;
+    [SerializeField] private float selectedDepth = -28f;
+    [SerializeField] private float inactiveDepth = 10f;
+
     [Header("Actions")]
     [SerializeField] private Vector2 decideSize = new(202f, 46f);
     [SerializeField] private Vector2 skipSize = new(304f, 54f);
@@ -104,6 +114,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private readonly List<CardRef> cards = new();
     private readonly Dictionary<int, Vector2> animatedSizes = new();
     private readonly Dictionary<int, Vector2> animatedPositions = new();
+    private readonly Dictionary<int, Vector3> animatedEuler = new();
+    private readonly Dictionary<int, float> animatedDepth = new();
 
     private struct RectSnapshot
     {
@@ -357,6 +369,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         cards.Clear();
         animatedSizes.Clear();
         animatedPositions.Clear();
+        animatedEuler.Clear();
+        animatedDepth.Clear();
         hoveredRewardIndex = -1;
         cachedCardRoot = rewardCardRoot;
         cachedCardCount = rewardCardRoot != null ? rewardCardRoot.childCount : -1;
@@ -534,13 +548,71 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 card.rect.anchorMin = card.rect.anchorMax = new Vector2(0.5f, 0.5f);
                 card.rect.pivot = new Vector2(0.5f, 0.5f);
                 card.rect.localScale = Vector3.one;
-                card.rect.localRotation = Quaternion.identity;
             }
 
             if ((card.rect.sizeDelta - currentSize).sqrMagnitude > 0.0001f)
                 card.rect.sizeDelta = currentSize;
             if ((card.rect.anchoredPosition - currentPosition).sqrMagnitude > 0.0001f)
                 card.rect.anchoredPosition = currentPosition;
+
+            // Spatial layer: 기존 size/anchor/button 구조는 그대로 두고
+            // X/Y/Z rotation + local Z depth만 추가합니다.
+            float fan = cards.Count <= 1
+                ? 0f
+                : (i - (cards.Count - 1) * 0.5f) / Mathf.Max(1f, (cards.Count - 1) * 0.5f);
+
+            Vector3 targetEuler;
+            float targetDepth;
+            if (selected)
+            {
+                targetEuler = Vector3.zero;
+                targetDepth = selectedDepth;
+            }
+            else if (hasSelection)
+            {
+                targetEuler = new Vector3(
+                    inactiveTilt.x,
+                    -fan * inactiveTilt.y,
+                    fan * inactiveTilt.z);
+                targetDepth = inactiveDepth;
+            }
+            else if (hovered)
+            {
+                targetEuler = new Vector3(
+                    hoverTilt.x,
+                    -fan * hoverTilt.y,
+                    fan * hoverTilt.z);
+                targetDepth = hoverDepth;
+            }
+            else
+            {
+                targetEuler = new Vector3(
+                    idleTilt.x,
+                    -fan * idleTilt.y,
+                    fan * idleTilt.z);
+                targetDepth = 0f;
+            }
+
+            float spatialBlend = 1f - Mathf.Exp(-Mathf.Max(1f, spatialSharpness) * Time.unscaledDeltaTime);
+            if (!animatedEuler.TryGetValue(id, out Vector3 currentEuler))
+                currentEuler = targetEuler;
+            if (!animatedDepth.TryGetValue(id, out float currentDepth))
+                currentDepth = card.rect.localPosition.z;
+
+            currentEuler = Vector3.Lerp(currentEuler, targetEuler, spatialBlend);
+            currentDepth = Mathf.Lerp(currentDepth, targetDepth, spatialBlend);
+
+            if ((currentEuler - targetEuler).sqrMagnitude <= 0.0004f)
+                currentEuler = targetEuler;
+            if (Mathf.Abs(currentDepth - targetDepth) <= 0.01f)
+                currentDepth = targetDepth;
+
+            animatedEuler[id] = currentEuler;
+            animatedDepth[id] = currentDepth;
+            card.rect.localRotation = Quaternion.Euler(currentEuler);
+            Vector3 localPosition = card.rect.localPosition;
+            localPosition.z = currentDepth;
+            card.rect.localPosition = localPosition;
 
             if (refreshStatic)
             {
