@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -61,9 +62,10 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     private AudioClip swapClip;
     private BattleEquipmentSystem subscribedEquipment;
     private RectTransform lastHoveredNode;
-    private bool wasMapSelection;
+    private bool mapSelectionActive;
+    private BattleRunManager subscribedRunManager;
+    private Coroutine mapResolveRoutine;
     private int lastEquippedSlot = -2;
-    private float nextMapResolve;
 
     private void Awake()
     {
@@ -78,21 +80,30 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         EnsureSwapAudio();
         EnsureRoomIcons();
         SubscribeEquipment();
-        nextMapResolve = 0f;
-        wasMapSelection = false;
+        SubscribeRunEvents();
+        mapSelectionActive = IsMapSelection();
         lastHoveredNode = null;
+
+        if (mapSelectionActive)
+            QueueMapResolve();
     }
 
     private void OnDisable()
     {
+        if (mapResolveRoutine != null)
+            StopCoroutine(mapResolveRoutine);
+        mapResolveRoutine = null;
+
         UnsubscribeEquipment();
+        UnsubscribeRunEvents();
         ClearMapHoverState();
-        wasMapSelection = false;
+        mapSelectionActive = false;
     }
 
     private void OnDestroy()
     {
         UnsubscribeEquipment();
+        UnsubscribeRunEvents();
 
         if (swapClip != null)
             Destroy(swapClip);
@@ -110,44 +121,95 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
     private void Update()
     {
-        ResolveReferences();
-        SubscribeEquipment();
+        // Input sampling only. Map state discovery is event-driven.
+        if (runManager == null || equipmentSystem == null || inputRouter == null)
+        {
+            ResolveReferences();
+            SubscribeEquipment();
+            SubscribeRunEvents();
+        }
 
         if (enableTabMouseWheel)
             UpdateTabWheelInput();
-
-        bool mapSelection = IsMapSelection();
-        if (!mapSelection)
-        {
-            if (wasMapSelection)
-                ClearMapHoverState();
-            wasMapSelection = false;
-            return;
-        }
-
-        if (!wasMapSelection)
-        {
-            wasMapSelection = true;
-            nextMapResolve = 0f;
-            ResolveMapNodes();
-            nextMapResolve = Time.unscaledTime + Mathf.Max(0.03f, mapResolveInterval);
-            return;
-        }
-
-        if (Time.unscaledTime >= nextMapResolve)
-        {
-            nextMapResolve = Time.unscaledTime + Mathf.Max(0.03f, mapResolveInterval);
-            if (NeedsMapNodeResolve())
-                ResolveMapNodes();
-        }
     }
 
     private void LateUpdate()
     {
-        if (!IsMapSelection())
+        if (!mapSelectionActive)
             return;
 
         MaintainMapNodeHoverAndIcons();
+    }
+
+    private void SubscribeRunEvents()
+    {
+        if (subscribedRunManager == runManager)
+            return;
+
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNodeSelectionRequested;
+        }
+
+        subscribedRunManager = runManager;
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged += HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested += HandleNodeSelectionRequested;
+        }
+    }
+
+    private void UnsubscribeRunEvents()
+    {
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNodeSelectionRequested;
+        }
+
+        subscribedRunManager = null;
+    }
+
+    private void HandleRunStateChanged(BattleRunState state)
+    {
+        bool next = runManager != null &&
+                    runManager.RunActive &&
+                    state == BattleRunState.SelectingNode;
+
+        if (mapSelectionActive == next)
+            return;
+
+        mapSelectionActive = next;
+        if (mapSelectionActive)
+            QueueMapResolve();
+        else
+            ClearMapHoverState();
+    }
+
+    private void HandleNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
+    {
+        if (mapSelectionActive)
+            QueueMapResolve();
+    }
+
+    private void QueueMapResolve()
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        if (mapResolveRoutine != null)
+            StopCoroutine(mapResolveRoutine);
+        mapResolveRoutine = StartCoroutine(ResolveMapNodesAfterLayout());
+    }
+
+    private IEnumerator ResolveMapNodesAfterLayout()
+    {
+        yield return null;
+        mapResolveRoutine = null;
+
+        if (mapSelectionActive)
+            ResolveMapNodes();
     }
 
     private void ResolveReferences()
@@ -210,7 +272,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
             Button button = rect.GetComponent<Button>();
             bool selectable = button != null && button.interactable;
-            ApplyNodeVisual(rect, selectable, false);
+            ApplyNodeIconVisual(rect, selectable, false);
         }
     }
 
@@ -255,13 +317,13 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             if (lastHoveredNode != null)
             {
                 Button oldButton = lastHoveredNode.GetComponent<Button>();
-                ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+                ApplyNodeIconVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
             }
 
             if (hoveredNode != null)
             {
                 Button newButton = hoveredNode.GetComponent<Button>();
-                ApplyNodeVisual(hoveredNode, newButton != null && newButton.interactable, true);
+                ApplyNodeIconVisual(hoveredNode, newButton != null && newButton.interactable, true);
             }
 
             lastHoveredNode = hoveredNode;
@@ -284,7 +346,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         if (lastHoveredNode != null)
         {
             Button oldButton = lastHoveredNode.GetComponent<Button>();
-            ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
+            ApplyNodeIconVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
             lastHoveredNode = null;
         }
 
@@ -292,104 +354,35 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         battleCamera?.SetMapCursorTracking(false, Vector2.zero);
     }
 
-    private void ApplyNodeVisual(RectTransform node, bool selectable, bool hovered)
+    private void ApplyNodeIconVisual(RectTransform node, bool selectable, bool hovered)
     {
-        Image background = node.GetComponent<Image>();
-        Outline outline = node.GetComponent<Outline>();
+        if (node == null)
+            return;
+
         Text label = node.Find("Label")?.GetComponent<Text>();
         Image icon = node.Find(RoomIconName)?.GetComponent<Image>();
+        if (icon == null)
+            return;
+
         BattleNodeType type = ResolveNodeType(label != null ? label.text : string.Empty);
         Color accent = ResolveTypeColor(type);
-
         bool current = runManager != null && runManager.CurrentNode != null &&
                        node.name == $"StageNode_{runManager.CurrentNode.id}";
 
-        if (background != null)
-        {
-            if (hovered)
-                background.color = accent;
-            else if (current)
-                background.color = new Color(shopColor.r * 0.28f, shopColor.g * 0.28f, shopColor.b * 0.28f, 1f);
-            else if (selectable)
-                background.color = inkColor;
-            else
-                background.color = new Color(0.09f, 0.095f, 0.12f, 0.94f);
-        }
+        Sprite targetSprite = ResolveIcon(type);
+        if (icon.sprite != targetSprite)
+            icon.sprite = targetSprite;
 
-        if (outline != null)
-        {
-            if (hovered)
-            {
-                outline.effectColor = paperColor;
-                outline.effectDistance = new Vector2(6f, -6f);
-            }
-            else if (current)
-            {
-                outline.effectColor = shopColor;
-                outline.effectDistance = new Vector2(3f, -3f);
-            }
-            else if (selectable)
-            {
-                outline.effectColor = accent;
-                outline.effectDistance = new Vector2(3f, -3f);
-            }
-            else
-            {
-                outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
-                outline.effectDistance = new Vector2(1f, -1f);
-            }
-        }
+        icon.enabled = targetSprite != null;
+        icon.rectTransform.sizeDelta = Vector2.one * Mathf.Max(34f, roomIconSize);
+        icon.color = hovered
+            ? Color.white
+            : current
+                ? shopColor
+                : selectable ? accent : mutedColor;
 
-        if (icon != null)
-        {
-            Sprite targetSprite = ResolveIcon(type);
-            if (icon.sprite != targetSprite)
-                icon.sprite = targetSprite;
-            icon.enabled = targetSprite != null;
-            icon.color = hovered
-                ? inkColor
-                : current
-                    ? shopColor
-                    : selectable ? accent : mutedColor;
-        }
-
-        if (label != null)
-        {
-            string typeName = type.ToString().ToUpperInvariant();
-            string rating = ResolveBattleRatingText(node, type);
-            string baseLabel = string.IsNullOrEmpty(rating)
-                ? typeName
-                : typeName + "\n" + rating;
-
-            label.text = hovered ? baseLabel + "\nSELECT" : baseLabel;
-            label.fontStyle = selectable || current ? FontStyle.Bold : FontStyle.Normal;
-            label.fontSize = string.IsNullOrEmpty(rating) ? 10 : 9;
-            label.color = hovered
-                ? inkColor
-                : current
-                    ? shopColor
-                    : selectable ? paperColor : mutedColor;
-        }
-    }
-
-    private string ResolveBattleRatingText(RectTransform nodeRect, BattleNodeType type)
-    {
-        if (runManager == null || nodeRect == null ||
-            (type != BattleNodeType.Combat && type != BattleNodeType.Elite))
-        {
-            return string.Empty;
-        }
-
-        const string prefix = "StageNode_";
-        if (!nodeRect.name.StartsWith(prefix, System.StringComparison.Ordinal))
-            return string.Empty;
-
-        BattleNodeData node = runManager.FindNode(nodeRect.name.Substring(prefix.Length));
-        if (node == null)
-            return string.Empty;
-
-        int stars = runManager.ResolveBattleRatingStars(node);
-        return new string('★', stars) + new string('☆', 5 - stars);
+        // Background / outline / label / rating / XYZ pose are owned exclusively by
+        // BattleStageMapPurposefulUIController to prevent hover flicker and style races.
     }
 
     private void EnsureNodeIcon(RectTransform node)
