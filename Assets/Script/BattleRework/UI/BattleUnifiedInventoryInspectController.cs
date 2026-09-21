@@ -430,6 +430,17 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         if (miniPackRoot == null || miniPackGroup == null)
             return;
 
+        float morphProgress =
+            combat && kineticLoadout != null
+                ? kineticLoadout.PackMorphProgress
+                : 0f;
+
+        if (combat && morphProgress > 0.001f)
+        {
+            ApplyCombatMiniPackMorph(morphProgress);
+            return;
+        }
+
         Vector2 targetPosition = combatMiniPackPosition;
         float targetScale = 0.92f;
         float targetAlpha = 0f;
@@ -437,9 +448,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         Quaternion targetRotation = Quaternion.Euler(2.4f, -5f, 0.8f);
         bool interactive = false;
 
-        if (rewardEdit || combatTab)
+        if (rewardEdit)
         {
-            // Full inventory is active: Mini PACK clearly recedes instead of popping off.
             targetPosition = combatMiniPackPosition + new Vector2(-10f, -6f);
             targetScale = 0.90f;
             targetAlpha = 0f;
@@ -461,7 +471,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             targetAlpha = 1f;
             targetZ = -4f;
             targetRotation = Quaternion.Euler(0.35f, -1.2f, -0.15f);
-            interactive = !BattlePauseController.IsPaused;
+            interactive = !combatTab && !BattlePauseController.IsPaused;
         }
 
         float t = 1f - Mathf.Exp(-14f * Time.unscaledDeltaTime);
@@ -493,6 +503,119 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         bool canRaycast = interactive && miniPackGroup.alpha >= 0.92f;
         miniPackGroup.blocksRaycasts = canRaycast;
         miniPackGroup.interactable = canRaycast;
+    }
+
+    private void ApplyCombatMiniPackMorph(float progress)
+    {
+        if (miniPackRoot == null || miniPackGroup == null || boardRoot == null)
+            return;
+
+        float eased = SmoothPackMorph(progress);
+        float targetScale = ResolveMiniPackToBoardScale();
+
+        Vector2 targetPosition = ResolveMiniPackMorphTarget(targetScale);
+        miniPackRoot.anchoredPosition = Vector2.Lerp(
+            combatMiniPackPosition,
+            targetPosition,
+            eased);
+
+        miniPackRoot.localScale = Vector3.one *
+                                  Mathf.Lerp(1f, targetScale, eased);
+
+        Quaternion startRotation = Quaternion.Euler(0.35f, -1.2f, -0.15f);
+        Quaternion targetRotation = boardRoot.localRotation;
+        miniPackRoot.localRotation = Quaternion.Slerp(
+            startRotation,
+            targetRotation,
+            eased);
+
+        Vector3 local = miniPackRoot.localPosition;
+        local.z = Mathf.Lerp(-4f, -14f, eased);
+        miniPackRoot.localPosition = local;
+
+        float fade = 1f - SmoothPackRange(progress, 0.58f, 0.96f);
+        miniPackGroup.alpha = fade;
+        miniPackGroup.blocksRaycasts = false;
+        miniPackGroup.interactable = false;
+    }
+
+    private float ResolveMiniPackToBoardScale()
+    {
+        if (miniPackRoot == null || boardRoot == null)
+            return 1f;
+
+        Vector3[] boardCorners = new Vector3[4];
+        boardRoot.GetWorldCorners(boardCorners);
+
+        Vector2 boardBottomLeft = RectTransformUtility.WorldToScreenPoint(null, boardCorners[0]);
+        Vector2 boardTopRight = RectTransformUtility.WorldToScreenPoint(null, boardCorners[2]);
+
+        float boardWidth = Mathf.Abs(boardTopRight.x - boardBottomLeft.x);
+        float boardHeight = Mathf.Abs(boardTopRight.y - boardBottomLeft.y);
+
+        Canvas miniCanvas = miniPackRoot.GetComponentInParent<Canvas>();
+        float canvasScale = miniCanvas != null
+            ? Mathf.Max(0.0001f, miniCanvas.scaleFactor)
+            : 1f;
+
+        float miniWidth = Mathf.Max(1f, miniPackRoot.rect.width * canvasScale);
+        float miniHeight = Mathf.Max(1f, miniPackRoot.rect.height * canvasScale);
+
+        float scale = Mathf.Min(
+            boardWidth / miniWidth,
+            boardHeight / miniHeight);
+
+        return Mathf.Clamp(scale, 1.35f, 2.35f);
+    }
+
+    private Vector2 ResolveMiniPackMorphTarget(float targetScale)
+    {
+        if (miniPackRoot == null || boardRoot == null)
+            return combatMiniPackPosition;
+
+        RectTransform parent = miniPackRoot.parent as RectTransform;
+        if (parent == null)
+            return combatMiniPackPosition;
+
+        Vector3 boardCenterWorld = boardRoot.TransformPoint(boardRoot.rect.center);
+        Vector2 boardCenterScreen = RectTransformUtility.WorldToScreenPoint(
+            null,
+            boardCenterWorld);
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent,
+                boardCenterScreen,
+                null,
+                out Vector2 boardCenterLocal))
+        {
+            return combatMiniPackPosition;
+        }
+
+        Vector2 scaledCenterOffset = miniPackRoot.rect.center * targetScale;
+        Vector2 targetPivotLocal = boardCenterLocal - scaledCenterOffset;
+
+        Vector2 anchor = miniPackRoot.anchorMin;
+        Rect parentRect = parent.rect;
+        Vector2 anchorLocal = new(
+            Mathf.Lerp(parentRect.xMin, parentRect.xMax, anchor.x),
+            Mathf.Lerp(parentRect.yMin, parentRect.yMax, anchor.y));
+
+        return targetPivotLocal - anchorLocal;
+    }
+
+    private static float SmoothPackMorph(float value)
+    {
+        value = Mathf.Clamp01(value);
+        return value * value * (3f - 2f * value);
+    }
+
+    private static float SmoothPackRange(float value, float start, float end)
+    {
+        if (end <= start + 0.0001f)
+            return value >= end ? 1f : 0f;
+
+        float t = Mathf.Clamp01((value - start) / (end - start));
+        return t * t * (3f - 2f * t);
     }
 
     private void ApplyFullInventoryLayout(bool rewardEdit)
