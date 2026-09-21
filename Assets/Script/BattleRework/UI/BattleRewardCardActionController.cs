@@ -120,7 +120,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     {
         public int index;
         public RectTransform rect;
-        public RewardPrizeDrag drag;
+        public RewardPrizeIndex marker;
         public Image background;
         public Image icon;
         public Outline outline;
@@ -371,14 +371,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             if (rect == null)
                 continue;
 
-            RewardPrizeDrag drag = rect.GetComponent<RewardPrizeDrag>();
-            int stableIndex = drag != null ? drag.RewardIndex : childIndex;
-            if (drag != null)
-                drag.enabled = false;
-
-            RewardCardHover legacyHover = rect.GetComponent<RewardCardHover>();
-            if (legacyHover != null)
-                legacyHover.enabled = false;
+            RewardPrizeIndex marker = rect.GetComponent<RewardPrizeIndex>();
+            int stableIndex = marker != null ? marker.RewardIndex : childIndex;
 
             DisableOtherRewardHoverRelays(rect);
 
@@ -406,7 +400,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             {
                 index = stableIndex,
                 rect = rect,
-                drag = drag,
+                marker = marker,
                 background = background,
                 icon = rect.Find("PrizeIcon")?.GetComponent<Image>(),
                 outline = outline,
@@ -453,17 +447,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (rewardCardRoot == null)
             return;
 
-        battleHud?.EndRewardDrag();
-        for (int i = 0; i < cards.Count; i++)
+                for (int i = 0; i < cards.Count; i++)
         {
             CardRef card = cards[i];
             if (card == null || card.rect == null)
                 continue;
-            if (card.drag != null)
-                card.drag.enabled = false;
-            RewardCardHover hover = card.rect.GetComponent<RewardCardHover>();
-            if (hover != null)
-                hover.enabled = false;
+            // Reward card interaction is owned here; legacy drag/hover relays were removed.
         }
     }
 
