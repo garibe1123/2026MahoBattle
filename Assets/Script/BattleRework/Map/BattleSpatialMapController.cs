@@ -1280,8 +1280,19 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             }
         }
 
+        Vector2 startMarkerPosition = ResolveStartBaseMapPosition(positions);
+        positions.Add(startMarkerPosition);
+
         Vector2 mapCenter = CalculateMapCenter(positions);
         ResolveStageMapSpacing(positions);
+
+        IReadOnlyList<BattleNodeData> startNodes = graph.GetStartNodes();
+        for (int i = 0; i < startNodes.Count; i++)
+        {
+            BattleNodeData startNode = startNodes[i];
+            if (startNode != null)
+                DrawMapLink(startMarkerPosition, ResolveNodeMapPosition(startNode), mapCenter);
+        }
 
         if (graph.nodes != null)
         {
@@ -1297,6 +1308,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             }
         }
 
+        DrawStartBaseMarker(startMarkerPosition, mapCenter);
+
         if (graph.nodes == null)
             return;
 
@@ -1307,15 +1320,16 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 continue;
 
             bool selectable = available.Contains(node.id);
+            bool current = runManager != null && runManager.CurrentNode == node;
             Color color = mapUnknown;
-            if (runManager != null && runManager.CurrentNode == node)
+            if (current)
                 color = mapCurrent;
             else if (selectable)
                 color = node.type == BattleNodeType.Elite ? mapElite : mapAvailable;
             else if (visitedNodeIds.Contains(node.id))
                 color = mapVisited;
 
-            DrawStageNode(node, ResolveNodeMapPosition(node), color, mapCenter, selectable);
+            DrawStageNode(node, ResolveNodeMapPosition(node), color, mapCenter, selectable, current);
         }
 
         if (reveal)
@@ -1369,7 +1383,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         subRect.sizeDelta = new Vector2(0f, 24f);
     }
 
-    private void DrawStageNode(BattleNodeData node, Vector2 position, Color color, Vector2 mapCenter, bool selectable)
+    private void DrawStageNode(
+        BattleNodeData node,
+        Vector2 position,
+        Color color,
+        Vector2 mapCenter,
+        bool selectable,
+        bool current)
     {
         GameObject go = new($"StageNode_{node.id}");
         go.transform.SetParent(stageMapPanel, false);
@@ -1379,8 +1399,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         image.raycastTarget = selectable;
 
         Outline outline = go.AddComponent<Outline>();
-        outline.effectColor = selectable ? new Color(1f, 1f, 1f, 0.70f) : new Color(1f, 1f, 1f, 0.10f);
-        outline.effectDistance = selectable ? new Vector2(2f, -2f) : new Vector2(1f, -1f);
+        outline.effectColor = selectable
+            ? new Color(mapAvailable.r, mapAvailable.g, mapAvailable.b, 0.82f)
+            : current
+                ? new Color(mapCurrent.r, mapCurrent.g, mapCurrent.b, 0.82f)
+                : new Color(1f, 1f, 1f, 0.10f);
+        outline.effectDistance = selectable || current
+            ? new Vector2(2f, -2f)
+            : new Vector2(1f, -1f);
 
         RectTransform rect = go.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -1394,18 +1420,19 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             Button button = go.AddComponent<Button>();
             button.targetGraphic = image;
-            ColorBlock colors = button.colors;
-            colors.highlightedColor = Color.white;
-            colors.pressedColor = new Color(0.82f, 0.86f, 0.92f, 1f);
-            button.colors = colors;
+            button.transition = Selectable.Transition.None;
+            Navigation navigation = button.navigation;
+            navigation.mode = Navigation.Mode.None;
+            button.navigation = navigation;
+
             string id = node.id;
             button.onClick.AddListener(() => BeginStageNodeSelection(id, rect));
         }
 
-        AddNodeLabel(go.transform, node, selectable);
+        AddNodeLabel(go.transform, node, selectable, current);
     }
 
-    private static void AddNodeLabel(Transform parent, BattleNodeData node, bool selectable)
+    private void AddNodeLabel(Transform parent, BattleNodeData node, bool selectable, bool current)
     {
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font == null)
@@ -1415,11 +1442,23 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         label.transform.SetParent(parent, false);
         Text text = label.AddComponent<Text>();
         text.font = font;
-        text.text = selectable
-            ? $"{node.type.ToString().ToUpperInvariant()}\nCLICK"
-            : node.type.ToString().ToUpperInvariant();
-        text.fontSize = selectable ? 11 : 10;
-        text.fontStyle = selectable ? FontStyle.Bold : FontStyle.Normal;
+
+        string type = node.type.ToString().ToUpperInvariant();
+        string status = current ? "CURRENT" : selectable ? "AVAILABLE" : "LOCKED";
+        if (node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite)
+        {
+            int stars = runManager != null
+                ? runManager.ResolveBattleRatingStars(node)
+                : node.GetBattleRatingStars();
+            text.text = $"{type}\nRATING {stars} / 5\n{status}";
+        }
+        else
+        {
+            text.text = $"{type}\n{status}";
+        }
+
+        text.fontSize = selectable || current ? 11 : 9;
+        text.fontStyle = selectable || current ? FontStyle.Bold : FontStyle.Normal;
         text.alignment = TextAnchor.UpperCenter;
         text.color = Color.white;
         text.raycastTarget = false;
@@ -1429,7 +1468,75 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.anchorMax = new Vector2(0.5f, 0f);
         rect.pivot = new Vector2(0.5f, 1f);
         rect.anchoredPosition = new Vector2(0f, -7f);
-        rect.sizeDelta = new Vector2(100f, 38f);
+        rect.sizeDelta = new Vector2(120f, 54f);
+    }
+
+    private Vector2 ResolveStartBaseMapPosition(IReadOnlyList<Vector2> positions)
+    {
+        if (positions == null || positions.Count == 0)
+            return new Vector2(-1f, 0f);
+
+        float minX = positions[0].x;
+        float sumY = 0f;
+        for (int i = 0; i < positions.Count; i++)
+        {
+            minX = Mathf.Min(minX, positions[i].x);
+            sumY += positions[i].y;
+        }
+
+        return new Vector2(minX - 1f, sumY / positions.Count);
+    }
+
+    private void DrawStartBaseMarker(Vector2 position, Vector2 mapCenter)
+    {
+        GameObject go = new("StageStartBase_4x4");
+        go.transform.SetParent(stageMapPanel, false);
+
+        Image image = go.AddComponent<Image>();
+        bool current = runManager != null && runManager.IsInStartArea;
+        image.color = current
+            ? new Color(mapCurrent.r * 0.30f, mapCurrent.g * 0.30f, mapCurrent.b * 0.30f, 1f)
+            : new Color(mapVisited.r * 0.30f, mapVisited.g * 0.30f, mapVisited.b * 0.30f, 0.92f);
+        image.raycastTarget = false;
+
+        Outline outline = go.AddComponent<Outline>();
+        outline.effectColor = current ? mapCurrent : mapVisited;
+        outline.effectDistance = new Vector2(2f, -2f);
+
+        RectTransform rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+        rect.anchoredPosition = new Vector2(
+            (position.x - mapCenter.x) * resolvedMapHorizontalSpacing,
+            (position.y - mapCenter.y) * resolvedMapVerticalSpacing - 20f);
+        rect.sizeDelta = new Vector2(92f, 62f);
+        rect.localRotation = Quaternion.Euler(
+            current ? 0.5f : 1.6f,
+            current ? -1.2f : -3.4f,
+            -0.3f);
+        Vector3 local = rect.localPosition;
+        local.z = current ? -8f : 8f;
+        rect.localPosition = local;
+
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
+            return;
+
+        GameObject label = new("Label");
+        label.transform.SetParent(rect, false);
+        Text text = label.AddComponent<Text>();
+        text.font = font;
+        text.text = current ? "START\n4 x 4 BASE\nCURRENT" : "START\n4 x 4 BASE";
+        text.fontSize = 10;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = Color.white;
+        text.raycastTarget = false;
+
+        RectTransform labelRect = label.GetComponent<RectTransform>();
+        labelRect.anchorMin = Vector2.zero;
+        labelRect.anchorMax = Vector2.one;
+        labelRect.offsetMin = new Vector2(4f, 4f);
+        labelRect.offsetMax = new Vector2(-4f, -4f);
     }
 
     private void BuildResolvedLayout()
