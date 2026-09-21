@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
@@ -21,6 +22,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private BattleGridSynergyController gridSynergy;
     [SerializeField] private BattleTimeScaleController timeScaleController;
     [SerializeField] private BattleInputRouter inputRouter;
+    [SerializeField] private PlayerController player;
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
@@ -37,6 +39,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color lockedColor = new(0.12f, 0.11f, 0.16f, 0.92f);
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
 
+    [Header("Compact Vitals")]
+    [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
+    [SerializeField] private Color staminaColor = new(0.18f, 0.82f, 0.95f, 1f);
+    [SerializeField] private Color vitalsTextColor = new(0.94f, 0.90f, 0.76f, 1f);
+
+    [Header("Grid Mouse")]
+    [SerializeField, Range(0.02f, 0.20f)] private float hoverExitGrace = 0.08f;
+
     private Canvas canvas;
     private CanvasGroup fullGroup;
     private RectTransform fullRoot;
@@ -52,6 +62,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Image compactIcon;
     private Text compactName;
     private Text compactPrompt;
+    private RectTransform hpFillRect;
+    private RectTransform staminaFillRect;
+    private Text hpText;
+    private Text staminaText;
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
@@ -71,6 +85,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private bool stickAxisLatched;
     private bool subscribed;
     private bool inputSubscribed;
+    private int hoveredSlot = -1;
+    private int pendingHoverExitSlot = -1;
+    private float hoverExitAt;
 
     public int SelectedIndex => selectedIndex;
     public bool SwitchHeld => switchHeld;
@@ -81,6 +98,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     public RectTransform GridBoard => boardRoot;
     public RectTransform CompactRoot => compactRoot;
     public CanvasGroup CompactGroup => compactGroup;
+    public int HoveredSlot => hoveredSlot;
 
     private void Awake()
     {
@@ -130,6 +148,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (combat && !BattlePauseController.IsPaused)
             UpdateSwitchInput();
 
+        UpdateHoverExitGrace();
+        UpdateCompactVitals();
+        UpdateGridRaycastState();
         UpdateUiAnimation(combat);
     }
 
@@ -145,6 +166,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
         if (inputRouter == null && Application.isPlaying)
             inputRouter = BattleInputRouter.ResolveOrCreate(this);
+        if (player == null)
+            player = FindFirstObjectByType<PlayerController>();
     }
 
     private void Subscribe()
@@ -428,6 +451,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         canvas.renderMode = RenderMode.ScreenSpaceOverlay;
         canvas.overrideSorting = true;
         canvas.sortingOrder = CanvasSortingOrder;
+        if (canvasObject.GetComponent<GraphicRaycaster>() == null)
+            canvasObject.AddComponent<GraphicRaycaster>();
+        EnsureEventSystem();
 
         CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
@@ -441,7 +467,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void BuildCompactUi(Transform parent)
     {
-        compactRoot = CreateRect(parent, "CurrentLoadoutChip", new Vector2(430f, 102f));
+        compactRoot = CreateRect(parent, "CurrentLoadoutChip", new Vector2(430f, 156f));
         compactRoot.anchorMin = compactRoot.anchorMax = new Vector2(1f, 0f);
         compactRoot.pivot = new Vector2(1f, 0f);
         compactRoot.anchoredPosition = new Vector2(-28f, 24f);
@@ -466,17 +492,29 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         barImage.color = accentPink;
         barImage.raycastTarget = false;
 
-        compactIcon = CreateImage(compactRoot, "Icon", new Vector2(72f, 72f));
-        compactIcon.rectTransform.anchorMin = compactIcon.rectTransform.anchorMax = new Vector2(0f, 0.5f);
-        compactIcon.rectTransform.anchoredPosition = new Vector2(76f, 0f);
+        compactIcon = CreateImage(compactRoot, "Icon", new Vector2(58f, 58f));
+        compactIcon.rectTransform.anchorMin = compactIcon.rectTransform.anchorMax = new Vector2(0f, 1f);
+        compactIcon.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+        compactIcon.rectTransform.anchoredPosition = new Vector2(76f, -48f);
         compactIcon.preserveAspect = true;
         compactIcon.raycastTarget = false;
 
         compactName = CreateText(compactRoot, "NO WEAPON", 20, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        SetAnchors(compactName.rectTransform, new Vector2(0.30f, 0.42f), new Vector2(0.96f, 0.90f));
+        SetAnchors(compactName.rectTransform, new Vector2(0.30f, 0.67f), new Vector2(0.96f, 0.90f));
 
         compactPrompt = CreateText(compactRoot, "TAB / LB  —  SWITCH", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow);
-        SetAnchors(compactPrompt.rectTransform, new Vector2(0.30f, 0.10f), new Vector2(0.96f, 0.43f));
+        SetAnchors(compactPrompt.rectTransform, new Vector2(0.30f, 0.48f), new Vector2(0.96f, 0.62f));
+
+        RectTransform vitals = CreateRect(compactRoot, "CompactVitals", Vector2.zero);
+        SetAnchors(vitals, new Vector2(0.08f, 0.08f), new Vector2(0.96f, 0.45f));
+
+        hpText = CreateText(vitals, "HP", 9, FontStyle.Bold, TextAnchor.MiddleLeft, vitalsTextColor);
+        SetAnchors(hpText.rectTransform, new Vector2(0f, 0.58f), new Vector2(0.18f, 0.96f));
+        hpFillRect = CreateProgressBar(vitals, "HP", new Vector2(0.18f, 0.63f), new Vector2(1f, 0.88f), hpColor);
+
+        staminaText = CreateText(vitals, "ST", 9, FontStyle.Bold, TextAnchor.MiddleLeft, vitalsTextColor);
+        SetAnchors(staminaText.rectTransform, new Vector2(0f, 0.05f), new Vector2(0.18f, 0.43f));
+        staminaFillRect = CreateProgressBar(vitals, "ST", new Vector2(0.18f, 0.10f), new Vector2(1f, 0.35f), staminaColor);
     }
 
     private void BuildFullGridUi(Transform parent)
@@ -567,8 +605,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             Image background = slot.gameObject.AddComponent<Image>();
             background.color = inkColor;
-            background.raycastTarget = false;
+            background.raycastTarget = true;
             slotBackgrounds[i] = background;
+
+            BattleLoadoutGridPointerTarget target = slot.gameObject.AddComponent<BattleLoadoutGridPointerTarget>();
+            target.Configure(this, i);
 
             Outline outline = slot.gameObject.AddComponent<Outline>();
             outline.effectColor = new Color(0f, 0f, 0f, 0.75f);
@@ -767,6 +808,146 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         };
     }
 
+    internal void HandleSlotHover(int index, bool entered)
+    {
+        if (!entered)
+        {
+            if (hoveredSlot == index)
+            {
+                pendingHoverExitSlot = index;
+                hoverExitAt = Time.unscaledTime + Mathf.Clamp(hoverExitGrace, 0.02f, 0.20f);
+            }
+            return;
+        }
+
+        if (equipmentSystem == null || !IsSwitchBoardOpen || !equipmentSystem.IsSlotUnlocked(index))
+            return;
+
+        hoveredSlot = index;
+        pendingHoverExitSlot = -1;
+        hoverExitAt = 0f;
+
+        if (selectedIndex != index)
+            SetSelectedIndexFromExternal(index, true);
+    }
+
+    internal void HandleSlotClick(int index, PointerEventData.InputButton button)
+    {
+        if (button != PointerEventData.InputButton.Left ||
+            equipmentSystem == null ||
+            !IsSwitchBoardOpen ||
+            !equipmentSystem.IsSlotUnlocked(index))
+            return;
+
+        hoveredSlot = index;
+        pendingHoverExitSlot = -1;
+
+        if (selectedIndex != index)
+            SetSelectedIndexFromExternal(index, true);
+
+        equipmentSystem.EquipSlot(index);
+    }
+
+    public void ClearPackHoverImmediate()
+    {
+        hoveredSlot = -1;
+        pendingHoverExitSlot = -1;
+        hoverExitAt = 0f;
+    }
+
+    private void UpdateHoverExitGrace()
+    {
+        if (pendingHoverExitSlot < 0 || Time.unscaledTime < hoverExitAt)
+            return;
+
+        if (hoveredSlot == pendingHoverExitSlot)
+            hoveredSlot = -1;
+
+        pendingHoverExitSlot = -1;
+        hoverExitAt = 0f;
+    }
+
+    private void UpdateGridRaycastState()
+    {
+        if (fullGroup == null)
+            return;
+
+        bool active = IsSwitchBoardOpen && fullGroup.alpha > 0.05f;
+        fullGroup.blocksRaycasts = active;
+        fullGroup.interactable = active;
+
+        if (!active)
+            ClearPackHoverImmediate();
+    }
+
+    private void UpdateCompactVitals()
+    {
+        if (player == null || compactRoot == null)
+            return;
+
+        float hpMax = Mathf.Max(1f, player.maxHp);
+        float staminaMax = Mathf.Max(1f, player.maxStamina);
+        float hp01 = Mathf.Clamp01(player.CurrentHp / hpMax);
+        float stamina01 = Mathf.Clamp01(player.CurrentStamina / staminaMax);
+
+        SetBarAmount(hpFillRect, hp01);
+        SetBarAmount(staminaFillRect, stamina01);
+
+        if (hpText != null)
+            hpText.text = $"HP {player.CurrentHp:0}/{hpMax:0}";
+        if (staminaText != null)
+            staminaText.text = $"ST {player.CurrentStamina:0}/{staminaMax:0}";
+    }
+
+    private static RectTransform CreateProgressBar(
+        Transform parent,
+        string name,
+        Vector2 min,
+        Vector2 max,
+        Color color)
+    {
+        RectTransform background = CreateRect(parent, name + "Bar_BG", Vector2.zero);
+        SetAnchors(background, min, max);
+        Image bg = background.gameObject.AddComponent<Image>();
+        bg.color = new Color(0.10f, 0.09f, 0.13f, 0.96f);
+        bg.raycastTarget = false;
+
+        RectTransform fill = CreateRect(background, name + "Bar_Fill", Vector2.zero);
+        fill.anchorMin = Vector2.zero;
+        fill.anchorMax = Vector2.one;
+        fill.offsetMin = new Vector2(2f, 2f);
+        fill.offsetMax = new Vector2(-2f, -2f);
+        fill.pivot = new Vector2(0f, 0.5f);
+
+        Image image = fill.gameObject.AddComponent<Image>();
+        image.color = color;
+        image.raycastTarget = false;
+        return fill;
+    }
+
+    private static void SetBarAmount(RectTransform fill, float amount)
+    {
+        if (fill == null)
+            return;
+
+        amount = Mathf.Clamp01(amount);
+        fill.anchorMin = new Vector2(0f, 0f);
+        fill.anchorMax = new Vector2(amount, 1f);
+        fill.offsetMin = new Vector2(2f, 2f);
+        fill.offsetMax = new Vector2(-2f, -2f);
+    }
+
+    private static void EnsureEventSystem()
+    {
+        if (FindFirstObjectByType<EventSystem>() != null)
+            return;
+
+        GameObject go = new("BattleLoadoutEventSystem");
+        DontDestroyOnLoad(go);
+        go.AddComponent<EventSystem>();
+        go.AddComponent<StandaloneInputModule>();
+    }
+
     private void UpdateUiAnimation(bool combat)
     {
         if (fullGroup == null || compactGroup == null)
@@ -837,4 +1018,23 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
     }
+}
+
+internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler,
+    IPointerClickHandler
+{
+    private BattleKineticLoadoutUI owner;
+    private int slotIndex;
+
+    public void Configure(BattleKineticLoadoutUI target, int index)
+    {
+        owner = target;
+        slotIndex = index;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData) => owner?.HandleSlotHover(slotIndex, true);
+    public void OnPointerExit(PointerEventData eventData) => owner?.HandleSlotHover(slotIndex, false);
+    public void OnPointerClick(PointerEventData eventData) => owner?.HandleSlotClick(slotIndex, eventData.button);
 }
