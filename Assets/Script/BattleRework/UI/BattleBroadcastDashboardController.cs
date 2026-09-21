@@ -118,6 +118,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private DashboardFocus focus = DashboardFocus.Pack;
     private int selectedMissionIndex = -1;
     private int hoveredMissionIndex = -1;
+    private int activeMissionCount;
+    private int currentViewers;
+    private int currentLikes;
 
     private BattleRunManager subscribedRunManager;
     private BattleKineticLoadoutUI subscribedLoadout;
@@ -276,7 +279,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void HandleBroadcastMetricsChanged(int viewers, int likes)
     {
-        ApplyBroadcastMetrics(viewers, likes);
+        currentViewers = Mathf.Max(0, viewers);
+        currentLikes = Mathf.Max(0, likes);
+        ApplyBroadcastMetrics(currentViewers, currentLikes);
         RefreshChatState();
     }
 
@@ -307,9 +312,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             focus = DashboardFocus.Pack;
             hoveredMissionIndex = -1;
             RefreshMissionData();
-            ApplyBroadcastMetrics(
-                runProgress != null ? runProgress.Viewers : 0,
-                runProgress != null ? runProgress.Likes : 0);
+            currentViewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+            currentLikes = runProgress != null ? Mathf.Max(0, runProgress.Likes) : 0;
+            ApplyBroadcastMetrics(currentViewers, currentLikes);
             RefreshChatState();
         }
         else if (state != DashboardState.Hidden)
@@ -605,7 +610,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
         }
 
-        int missionCount = fanMissionSystem != null ? fanMissionSystem.ActiveMissions.Count : 0;
+        int missionCount = activeMissionCount;
         if (missionCount <= 0)
         {
             SetFocus(DashboardFocus.Pack);
@@ -692,6 +697,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         int count = fanMissionSystem != null
             ? Mathf.Min(MaxMissionSlots, fanMissionSystem.ActiveMissions.Count)
             : 0;
+        activeMissionCount = count;
 
         int unlocked = fanMissionSystem != null
             ? Mathf.Clamp(fanMissionSystem.UnlockedSlots, 0, MaxMissionSlots)
@@ -842,7 +848,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void RefreshChatState()
     {
-        int viewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+        int viewers = currentViewers;
 
         SetText(
             chatHeader,
@@ -921,7 +927,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     {
         float t = 1f - Mathf.Exp(-Mathf.Max(4f, layoutSharpness) * Time.unscaledDeltaTime);
         bool targetVisible = state == DashboardState.Entering || state == DashboardState.Open;
-        int missionCount = fanMissionSystem != null ? fanMissionSystem.ActiveMissions.Count : 0;
+        int missionCount = activeMissionCount;
         bool missionFocused = targetVisible &&
                               missionCount > 0 &&
                               focus == DashboardFocus.Mission;
@@ -1148,7 +1154,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (chatPanel == null || chatGroup == null)
             return;
 
-        int viewers = runProgress != null ? Mathf.Max(0, runProgress.Viewers) : 0;
+        int viewers = currentViewers;
         bool active = dashboardVisible && viewers > 0;
 
         float missionHeight = missionPanel != null
