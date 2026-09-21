@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
 /// <summary>
@@ -382,7 +383,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (image == null || outline == null)
             return;
 
-        bool selectable = button != null;
+        bool selectable = button != null && button.interactable;
         bool elite = label != null &&
                      (label.text ?? string.Empty).IndexOf("ELITE", System.StringComparison.OrdinalIgnoreCase) >= 0;
         bool current = runManager != null &&
@@ -496,13 +497,42 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
             hitImage = hit.AddComponent<Image>();
             hitImage.color = new Color(1f, 1f, 1f, 0.001f);
-            hitImage.raycastTarget = true;
             hit.transform.SetAsLastSibling();
         }
 
         hitRect.sizeDelta = Vector2.one * Mathf.Max(104f, pointerHitSize);
+
+        Button nodeButton = node.GetComponent<Button>();
+        bool clickable = nodeButton != null && nodeButton.interactable;
+
         if (hitImage != null)
-            hitImage.raycastTarget = true;
+            hitImage.raycastTarget = clickable;
+
+        // 큰 Pointer Hit Area가 실제 StageNode Button 위에 있기 때문에
+        // HitArea 자체가 Button 이벤트를 소유한 뒤 원본 Node Button으로 명시적으로 전달합니다.
+        // 이렇게 해야 World-Space Canvas에서도 넓은 클릭 영역과 실제 선택 콜백이 일치합니다.
+        Button hitButton = hitRect.GetComponent<Button>();
+        if (hitButton == null)
+            hitButton = hitRect.gameObject.AddComponent<Button>();
+
+        hitButton.targetGraphic = hitImage;
+        hitButton.transition = Selectable.Transition.None;
+        hitButton.interactable = clickable;
+        hitButton.onClick.RemoveAllListeners();
+
+        if (clickable)
+        {
+            Button capturedButton = nodeButton;
+            hitButton.onClick.AddListener(() =>
+            {
+                if (capturedButton != null &&
+                    capturedButton.IsActive() &&
+                    capturedButton.IsInteractable())
+                {
+                    capturedButton.onClick.Invoke();
+                }
+            });
+        }
 
         BattleStageMapNodePointerFeedback feedback =
             hitRect.GetComponent<BattleStageMapNodePointerFeedback>();
@@ -718,12 +748,25 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        if (EventSystem.current != null)
-            return;
+        EventSystem eventSystem = EventSystem.current != null
+            ? EventSystem.current
+            : FindFirstObjectByType<EventSystem>(FindObjectsInactive.Include);
 
-        GameObject go = new("BattleStageMapEventSystem");
-        go.AddComponent<EventSystem>();
-        go.AddComponent<StandaloneInputModule>();
+        if (eventSystem == null)
+        {
+            GameObject go = new("BattleStageMapEventSystem");
+            eventSystem = go.AddComponent<EventSystem>();
+        }
+
+        InputSystemUIInputModule inputModule =
+            eventSystem.GetComponent<InputSystemUIInputModule>();
+        if (inputModule == null)
+            inputModule = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+
+        StandaloneInputModule legacy =
+            eventSystem.GetComponent<StandaloneInputModule>();
+        if (legacy != null)
+            legacy.enabled = false;
     }
 }
 

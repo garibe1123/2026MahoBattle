@@ -7,6 +7,12 @@ using UnityEngine.UI;
 /// Reward(아이템 선택) / SelectingNode(맵 선택)가 서로 다른 TV 프레임을 교체하지 않도록
 /// 런타임 UI를 하나의 고정된 TV Screen Frame + 교체 가능한 Content View 구조로 정리합니다.
 ///
+/// HARD INVARIANT — DISPLAY CONTENT, NOT HUD
+/// Reward/Item Selection과 Map Selection은 반드시 필드 위 BattleShowMountedTV의
+/// World-Space Display 안에서만 출력되는 콘텐츠입니다.
+/// 화면 전체 Screen-Space Overlay는 Dim/Spotlight/후처리 같은 연출 보조층으로만 사용하며,
+/// 선택 카드/맵 노드/선택 버튼 자체를 Overlay HUD로 옮기지 않습니다.
+///
 /// 기존 BattleHUD가 만들어 둔 두 화면을 삭제/재생성하지 않고 다음과 같이 병합합니다.
 /// PrizeSelectionScreen (공용 프레임)
 ///   ScreenInner (공용 유리/배경)
@@ -214,6 +220,8 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
             rewardView = viewport.Find(RewardViewName) as RectTransform;
             viewportGroup = viewport.GetComponent<CanvasGroup>() ?? viewport.gameObject.AddComponent<CanvasGroup>();
 
+            // Display invariant: MapSelectionContent는 언제나 Mounted TV의
+            // ShowContentViewport 안에 있어야 하며 Screen-Space HUD로 빠져나가면 안 됩니다.
             if (mapContent.parent != viewport)
                 mapContent.SetParent(viewport, false);
 

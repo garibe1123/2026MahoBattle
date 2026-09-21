@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem.UI;
 using UnityEngine.UI;
 
 /// <summary>
@@ -14,7 +15,12 @@ using UnityEngine.UI;
 /// - TV/Carrier/Presenter/Show Camera: BattleShowWorldSetController
 ///
 /// 이 클래스는 Reward 선택 상태, Reward Drag/Drop, Show Camera, Spotlight를 소유하지 않습니다.
-/// PrizeSelectionScreen / MapSelectionScreen은 WorldSet이 실제 World-Space TV로 옮겨 쓰는 staging shell입니다.
+///
+/// HARD INVARIANT — MAP / ITEM SELECTION DISPLAY
+/// 맵 선택과 아이템(Reward) 선택은 Screen-Space HUD가 아닙니다.
+/// PrizeSelectionScreen / MapSelectionScreen은 staging shell일 뿐이며,
+/// 실제 선택 콘텐츠는 BattleShowMountedTV의 World-Space Display 화면 안에 출력되어야 합니다.
+/// 어떤 스타일링/확대 연출도 선택 콘텐츠를 화면 전체 Overlay HUD로 승격시키면 안 됩니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleHUD : MonoBehaviour
@@ -246,12 +252,26 @@ public sealed class BattleHUD : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null)
-            return;
+        EventSystem eventSystem =
+            FindFirstObjectByType<EventSystem>(FindObjectsInactive.Include);
 
-        GameObject go = new("BattleUIEventSystem");
-        go.AddComponent<EventSystem>();
-        go.AddComponent<StandaloneInputModule>();
+        if (eventSystem == null)
+        {
+            GameObject go = new("BattleUIEventSystem");
+            eventSystem = go.AddComponent<EventSystem>();
+        }
+
+        InputSystemUIInputModule inputModule =
+            eventSystem.GetComponent<InputSystemUIInputModule>();
+        if (inputModule == null)
+            inputModule = eventSystem.gameObject.AddComponent<InputSystemUIInputModule>();
+
+        // 이 프로젝트의 Show/Map pointer는 New Input System 기준입니다.
+        // 구형 StandaloneInputModule이 동시에 활성화되면 Hover와 Click 입력 계통이 갈라질 수 있습니다.
+        StandaloneInputModule legacy =
+            eventSystem.GetComponent<StandaloneInputModule>();
+        if (legacy != null)
+            legacy.enabled = false;
     }
 
     private void BuildTopStatus()
