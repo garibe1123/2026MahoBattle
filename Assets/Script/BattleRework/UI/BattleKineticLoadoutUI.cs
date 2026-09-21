@@ -75,8 +75,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private readonly Text[] slotStates = new Text[SlotCount];
     private readonly List<GameObject> linkVisuals = new();
 
-    private RectTransform legacyEquipmentDock;
-
     private bool switchHeld;
     private bool boardWasShown;
     private bool directionMoved;
@@ -121,7 +119,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         SubscribeInput();
         if (switchHeld)
             EnterBulletTime();
-        ResolveLegacyCombatHud();
         RefreshAll();
         lastNotifiedBoardVisible = IsSwitchBoardOpen;
         SwitchBoardVisibilityChanged?.Invoke(lastNotifiedBoardVisible);
@@ -152,9 +149,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         bool combat = combatActive;
         if ((!combat || BattlePauseController.IsPaused) && switchHeld)
             CancelSwitchMode();
-
-        if (legacyEquipmentDock != null && combat && legacyEquipmentDock.gameObject.activeSelf)
-            legacyEquipmentDock.gameObject.SetActive(false);
 
         if (combat && !BattlePauseController.IsPaused)
             UpdateSwitchInput();
@@ -1117,21 +1111,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         lastNotifiedBoardVisible = visible;
         SwitchBoardVisibilityChanged?.Invoke(visible);
-    }
-
-    private void ResolveLegacyCombatHud()
-    {
-        if (legacyEquipmentDock == null)
-            legacyEquipmentDock = FindRectByName("EquipmentDock");
-    }
-
-    private static RectTransform FindRectByName(string target)
-    {
-        RectTransform[] all = FindObjectsByType<RectTransform>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        for (int i = 0; i < all.Length; i++)
-            if (all[i] != null && all[i].name == target)
-                return all[i];
-        return null;
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
