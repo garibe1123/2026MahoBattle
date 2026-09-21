@@ -40,7 +40,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
     [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
-    [SerializeField, Range(0.18f, 0.55f)] private float packHandoffScale = 0.34f;
     [SerializeField, Range(0.18f, 0.55f)] private float packMorphDuration = 0.34f;
     [SerializeField] private Vector2 packFocusedOffset = new(54f, 18f);
     [SerializeField] private Vector2 packInactiveCornerOffset = new(-170f, -132f);
