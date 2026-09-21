@@ -172,6 +172,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     private CanvasGroup metricGroup;
     private Text metricViewersText;
     private Text metricLikesText;
+    private bool metricTargetVisible;
 
     private RectTransform chatPanel;
     private CanvasGroup chatGroup;
@@ -672,25 +673,46 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         }
 
         SetMetricVisible(combatActive);
-        if (!combatActive)
-            return;
-
         EnsureMetricDetached();
-        UpdateMetricCounts();
 
         float t = 1f - Mathf.Exp(-MetricTweenSharpness * Time.unscaledDeltaTime);
-        Vector2 targetPosition = tabOpen ? MetricOpenOffset : MetricCompactOffset;
-        float targetScale = tabOpen ? MetricOpenScale : MetricCompactScale;
-        float targetRotation = tabOpen ? MetricOpenRotation : MetricCompactRotation;
+        bool visible = metricTargetVisible;
 
-        metricBar.anchoredPosition = Vector2.Lerp(metricBar.anchoredPosition, targetPosition, t);
-        metricBar.localScale = Vector3.Lerp(metricBar.localScale, Vector3.one * targetScale, t);
+        if (metricGroup != null)
+        {
+            metricGroup.alpha = Mathf.Lerp(
+                metricGroup.alpha,
+                visible ? 1f : 0f,
+                t);
+        }
+
+        if (visible)
+            UpdateMetricCounts();
+
+        Vector2 targetPosition = visible
+            ? (tabOpen ? MetricOpenOffset : MetricCompactOffset)
+            : MetricCompactOffset + new Vector2(24f, -12f);
+        float targetScale = visible
+            ? (tabOpen ? MetricOpenScale : MetricCompactScale)
+            : MetricCompactScale * 0.88f;
+        float targetRotation = visible
+            ? (tabOpen ? MetricOpenRotation : MetricCompactRotation)
+            : MetricCompactRotation - 1.0f;
+
+        metricBar.anchoredPosition = Vector2.Lerp(
+            metricBar.anchoredPosition,
+            targetPosition,
+            t);
+        metricBar.localScale = Vector3.Lerp(
+            metricBar.localScale,
+            Vector3.one * targetScale,
+            t);
 
         float currentRotation = NormalizeAngle(metricBar.localEulerAngles.z);
         float nextRotation = Mathf.LerpAngle(currentRotation, targetRotation, t);
         Quaternion targetSpatialRotation = Quaternion.Euler(
-            tabOpen ? -1.5f : -0.5f,
-            tabOpen ? -3.5f : -1.8f,
+            visible ? (tabOpen ? -1.5f : -0.5f) : 2.5f,
+            visible ? (tabOpen ? -3.5f : -1.8f) : -6.0f,
             nextRotation);
         metricBar.localRotation = Quaternion.Slerp(
             metricBar.localRotation,
@@ -698,20 +720,26 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             t);
 
         Vector3 metricLocal = metricBar.localPosition;
-        metricLocal.z = Mathf.Lerp(metricLocal.z, tabOpen ? -8f : 2f, t);
+        metricLocal.z = Mathf.Lerp(
+            metricLocal.z,
+            visible ? (tabOpen ? -8f : 2f) : 24f,
+            t);
         metricBar.localPosition = metricLocal;
 
-        BattleSpatialGlassPanel metricGlass =
-            metricBar.GetComponent<BattleSpatialGlassPanel>();
-        metricGlass?.SetSpatialState(
-            tabOpen ? 0.62f : 0.12f,
-            tabOpen ? 0.45f : -0.18f);
+        if (!visible && metricGroup != null && metricGroup.alpha <= 0.01f)
+        {
+            metricGroup.alpha = 0f;
+            if (metricBar.gameObject.activeSelf)
+                metricBar.gameObject.SetActive(false);
+        }
     }
 
     private void SetMetricVisible(bool visible)
     {
-        if (metricBar != null && metricBar.gameObject.activeSelf != visible)
-            metricBar.gameObject.SetActive(visible);
+        metricTargetVisible = visible;
+
+        if (metricBar != null && visible && !metricBar.gameObject.activeSelf)
+            metricBar.gameObject.SetActive(true);
     }
 
     private void UpdateMetricCounts()
