@@ -1059,7 +1059,13 @@ internal sealed class BattleStageMapNodePointerFeedback :
         {
             nodeIcon = resolved;
             baseIconColor = nodeIcon.color;
-            ApplyBaseVisual();
+
+            if (selected)
+                ApplySelected();
+            else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
+                ApplyHover();
+            else
+                ApplyBaseVisual();
         }
     }
 
