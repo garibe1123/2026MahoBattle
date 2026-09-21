@@ -1566,7 +1566,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             Vector2 b = polygon[j];
             bool crosses =
                 (a.y > point.y) != (b.y > point.y) &&
-                point.x < (b.x - a.x) * (point.y - a.y) / Mathf.Max(0.0001f, b.y - a.y) + a.x;
+                point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x;
             if (crosses)
                 inside = !inside;
             j = i;
