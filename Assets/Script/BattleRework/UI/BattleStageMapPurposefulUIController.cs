@@ -44,9 +44,9 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.48f, 1f);
     [SerializeField] private Color accentCyan = new(0.16f, 0.86f, 0.92f, 1f);
-    [SerializeField, Min(56f)] private float pointerHitSize = 96f;
-    [SerializeField, Min(28f)] private float selectableNodeSize = 54f;
-    [SerializeField, Min(28f)] private float eliteNodeSize = 60f;
+    [SerializeField, Min(80f)] private float pointerHitSize = 150f;
+    [SerializeField, Min(64f)] private float selectableNodeSize = 112f;
+    [SerializeField, Min(72f)] private float eliteNodeSize = 124f;
 
     private enum MapPresentationState
     {
@@ -308,6 +308,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (sharedFrame == null)
             return;
 
+        // Reward의 거대한 Glass/Key strip을 Map에서 절대 재사용하지 않습니다.
+        // 이것이 회색 판 + 노란 세로 장식이 Map 위를 덮던 직접 원인이었습니다.
+        DisableLegacySpatialGlassForMap(sharedFrame);
+        DisableLegacySpatialGlassForMap(screenInner);
+
         sharedFrame.localRotation = Quaternion.identity;
 
         Image frameImage = sharedFrame.GetComponent<Image>();
@@ -322,7 +327,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         {
             Image innerImage = screenInner.GetComponent<Image>();
             if (innerImage != null)
-                innerImage.color = new Color(panelColor.r, panelColor.g, panelColor.b, 0.10f);
+                innerImage.color = new Color(0.012f, 0.016f, 0.024f, 0.88f);
 
             Outline innerOutline = screenInner.GetComponent<Outline>();
             if (innerOutline != null)
@@ -336,12 +341,43 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             mapContent.offsetMin = Vector2.zero;
             mapContent.offsetMax = Vector2.zero;
             mapContent.pivot = new Vector2(0.5f, 0.5f);
-            mapContent.localRotation = Quaternion.Euler(0.8f, -1.8f, 0f);
+
+            // Board 자체도 완전 평면이 아니라 실제 TV 공간에 놓인 얕은 면으로 보이게 합니다.
+            mapContent.localRotation = Quaternion.Euler(0.45f, -0.85f, -0.30f);
         }
 
         DisableMapClipping(viewport);
         DisableMapClipping(mapContent);
         DisableRewardAccentsDuringMap();
+    }
+
+    private void DisableLegacySpatialGlassForMap(RectTransform rect)
+    {
+        if (rect == null)
+            return;
+
+        BattleSpatialGlassPanel glass = rect.GetComponent<BattleSpatialGlassPanel>();
+        if (glass != null)
+        {
+            if (!clippingStates.ContainsKey(glass))
+                clippingStates.Add(glass, glass.enabled);
+            glass.enabled = false;
+        }
+
+        string[] names = { "__Spatial_Shadow", "__Spatial_Glass", "__Spatial_Key" };
+        for (int i = 0; i < names.Length; i++)
+        {
+            Transform child = rect.Find(names[i]);
+            if (child == null)
+                continue;
+
+            GameObject go = child.gameObject;
+            if (!rewardAccentStates.ContainsKey(go))
+                rewardAccentStates.Add(go, go.activeSelf);
+
+            if (go.activeSelf)
+                go.SetActive(false);
+        }
     }
 
     private void MaintainInteraction()
@@ -466,12 +502,12 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         {
             BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
             Color muted = theme != null ? theme.textMuted : mutedColor;
-            muted.a = 0.10f;
+            muted.a = 0.28f;
             image.color = muted;
         }
 
         Vector2 size = rect.sizeDelta;
-        size.y = 2f;
+        size.y = 3f;
         rect.sizeDelta = size;
     }
 
@@ -481,6 +517,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         Outline outline = rect.GetComponent<Outline>();
         Button button = rect.GetComponent<Button>();
         Text label = rect.Find("Label")?.GetComponent<Text>();
+        Image icon = rect.Find("RoomTypeIcon")?.GetComponent<Image>();
         if (image == null || outline == null)
             return;
 
@@ -510,8 +547,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (selectable)
         {
             float resolvedSize = elite
-                ? Mathf.Max(82f, eliteNodeSize)
-                : Mathf.Max(74f, selectableNodeSize);
+                ? Mathf.Max(124f, eliteNodeSize)
+                : Mathf.Max(112f, selectableNodeSize);
             rect.sizeDelta = Vector2.one * resolvedSize;
 
             image.color = new Color(action.r, action.g, action.b, 0.20f);
@@ -531,8 +568,16 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             {
                 label.text = nodeLabel;
                 label.fontStyle = FontStyle.Bold;
-                label.fontSize = 11;
+                label.fontSize = 13;
                 label.color = textPrimary;
+                label.rectTransform.sizeDelta = new Vector2(156f, 54f);
+                label.rectTransform.anchoredPosition = new Vector2(0f, -10f);
+            }
+
+            if (icon != null)
+            {
+                icon.rectTransform.sizeDelta = Vector2.one * 38f;
+                icon.color = action;
             }
 
             EnsurePointerHitArea(rect, image, outline, label, action);
@@ -554,7 +599,15 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 label.text = "CURRENT\n" + nodeLabel;
                 label.color = currentColor;
                 label.fontStyle = FontStyle.Bold;
-                label.fontSize = 10;
+                label.fontSize = 12;
+                label.rectTransform.sizeDelta = new Vector2(156f, 54f);
+                label.rectTransform.anchoredPosition = new Vector2(0f, -10f);
+            }
+
+            if (icon != null)
+            {
+                icon.rectTransform.sizeDelta = Vector2.one * 36f;
+                icon.color = currentColor;
             }
         }
         else
@@ -575,7 +628,15 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 label.text = nodeLabel;
                 label.color = new Color(textMuted.r, textMuted.g, textMuted.b, 0.72f);
                 label.fontStyle = FontStyle.Normal;
-                label.fontSize = 9;
+                label.fontSize = 10;
+                label.rectTransform.sizeDelta = new Vector2(150f, 48f);
+                label.rectTransform.anchoredPosition = new Vector2(0f, -9f);
+            }
+
+            if (icon != null)
+            {
+                icon.rectTransform.sizeDelta = Vector2.one * 32f;
+                icon.color = textMuted;
             }
         }
     }
@@ -629,7 +690,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             hit.transform.SetAsLastSibling();
         }
 
-        hitRect.sizeDelta = Vector2.one * Mathf.Max(104f, pointerHitSize);
+        hitRect.sizeDelta = Vector2.one * Mathf.Max(150f, pointerHitSize);
 
         Button nodeButton = node.GetComponent<Button>();
         bool clickable = nodeButton != null && nodeButton.interactable;
@@ -676,15 +737,15 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (mapContent == null || mapContent.Find(ControlHintName) != null)
             return;
 
-        RectTransform rect = CreateRect(mapContent, ControlHintName, new Vector2(260f, 24f));
+        RectTransform rect = CreateRect(mapContent, ControlHintName, new Vector2(360f, 28f));
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);
         rect.pivot = new Vector2(1f, 0f);
         rect.anchoredPosition = new Vector2(-28f, 18f);
 
         Text text = rect.gameObject.AddComponent<Text>();
         text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.text = "POINT  /  CLICK TO CONFIRM";
-        text.fontSize = 9;
+        text.text = "HOVER = PREVIEW   /   CLICK = SELECT";
+        text.fontSize = 11;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleRight;
         BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
