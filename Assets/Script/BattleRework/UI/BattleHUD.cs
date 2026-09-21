@@ -73,8 +73,7 @@ public sealed class BattleHUD : MonoBehaviour
     private int lastRewardCount = -1;
     private BattleRunState lastObservedState = (BattleRunState)(-1);
     private float nextSlowRefresh;
-    private bool legacyDummyOverlaysDisabled;
-    private bool equipmentSubscribed;
+private bool equipmentSubscribed;
 
     /// <summary>BattleSpatialMapController가 Stage Map을 생성하는 공용 TV 내용 Root입니다.</summary>
     public RectTransform MapSelectionRoot => mapSelectionRoot;
@@ -119,9 +118,7 @@ public sealed class BattleHUD : MonoBehaviour
     {
         ResolveSystems();
         SubscribeEquipment();
-        DisableLegacyDummyOverlays();
-
-        if (canvas == null)
+if (canvas == null)
             EnsureCanvas();
 
         bool active = runManager != null && runManager.RunActive;
@@ -617,30 +614,6 @@ public sealed class BattleHUD : MonoBehaviour
                 slotGrades[i].text = $"G{slot.grade}";
             }
         }
-    }
-
-    private void DisableLegacyDummyOverlays()
-    {
-        if (legacyDummyOverlaysDisabled)
-            return;
-
-        MonoBehaviour[] behaviours = FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        for (int i = 0; i < behaviours.Length; i++)
-        {
-            MonoBehaviour behaviour = behaviours[i];
-            if (behaviour == null)
-                continue;
-
-            string typeName = behaviour.GetType().Name;
-            if (typeName == "BattleDummyUI" ||
-                typeName == "BattleDummyLoadoutUI" ||
-                typeName == "SynergyDummyUI")
-            {
-                behaviour.enabled = false;
-            }
-        }
-
-        legacyDummyOverlaysDisabled = true;
     }
 
     // ---------------------------------------------------------------------
