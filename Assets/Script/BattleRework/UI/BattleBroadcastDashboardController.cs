@@ -60,7 +60,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField] private Vector2 focusedMissionPanelOffset = new(-38f, -126f);
 
     [Header("Chat")]
-    [SerializeField] private Vector2 chatSize = new(520f, 228f);
+    [SerializeField] private Vector2 chatSize = new(440f, 210f);
 
     [Header("Functional Colors")]
     [SerializeField] private Color inkColor = new(0.020f, 0.024f, 0.032f, 0.97f);
