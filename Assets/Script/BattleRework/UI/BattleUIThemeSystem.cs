@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 public enum BattleUIThemeContext
 {
@@ -347,5 +348,132 @@ public sealed class BattleUIThemeController : MonoBehaviour
         // 기본은 모두 무채색 + Yellow입니다.
         // 필요하면 Inspector에서 Context별 keyColor/glassTint만 바꿔도 전체 UI가 같이 바뀝니다.
         return result;
+    }
+}
+
+
+public enum BattleUIThemeColorRole
+{
+    Background,
+    Surface,
+    Glass,
+    TextPrimary,
+    TextMuted,
+    Key,
+    KeySoft,
+    DepthShadow
+}
+
+/// <summary>
+/// Text/Image 등 개별 Graphic을 현재 Theme Context의 색상 역할에 연결합니다.
+/// </summary>
+[DisallowMultipleComponent]
+[RequireComponent(typeof(Graphic))]
+public sealed class BattleUIThemeColorBinding : MonoBehaviour
+{
+    [SerializeField] private BattleUIThemeColorRole role = BattleUIThemeColorRole.TextPrimary;
+    [SerializeField, Range(0f, 1f)] private float alphaMultiplier = 1f;
+
+    private Graphic graphic;
+    private BattleUIThemeController themeController;
+    private BattleUIThemeController subscribedTheme;
+
+    public void Configure(BattleUIThemeColorRole colorRole, float alpha = 1f)
+    {
+        role = colorRole;
+        alphaMultiplier = Mathf.Clamp01(alpha);
+        Resolve();
+        Apply();
+    }
+
+    private void Awake()
+    {
+        Resolve();
+        Apply();
+    }
+
+    private void OnEnable()
+    {
+        Resolve();
+        Subscribe();
+        Apply();
+    }
+
+    private void OnDisable()
+    {
+        Unsubscribe();
+    }
+
+    private void Update()
+    {
+        Resolve();
+        Subscribe();
+    }
+
+    private void Resolve()
+    {
+        if (graphic == null)
+            graphic = GetComponent<Graphic>();
+
+        if (themeController == null)
+            themeController = BattleUIThemeController.Instance != null
+                ? BattleUIThemeController.Instance
+                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
+    }
+
+    private void Subscribe()
+    {
+        if (subscribedTheme == themeController)
+            return;
+
+        Unsubscribe();
+        subscribedTheme = themeController;
+        if (subscribedTheme != null)
+            subscribedTheme.ThemeChanged += HandleThemeChanged;
+    }
+
+    private void Unsubscribe()
+    {
+        if (subscribedTheme != null)
+            subscribedTheme.ThemeChanged -= HandleThemeChanged;
+        subscribedTheme = null;
+    }
+
+    private void HandleThemeChanged(BattleUIThemeProfile _)
+    {
+        Apply();
+    }
+
+    private void Apply()
+    {
+        if (graphic == null)
+            return;
+
+        BattleUIThemeProfile theme = themeController != null
+            ? themeController.CurrentProfile
+            : null;
+        if (theme == null)
+            return;
+
+        Color target = ResolveColor(theme, role);
+        target.a *= alphaMultiplier;
+        graphic.color = target;
+    }
+
+    private static Color ResolveColor(
+        BattleUIThemeProfile theme,
+        BattleUIThemeColorRole colorRole)
+    {
+        return colorRole switch
+        {
+            BattleUIThemeColorRole.Background => theme.background,
+            BattleUIThemeColorRole.Surface => theme.surface,
+            BattleUIThemeColorRole.Glass => theme.glassTint,
+            BattleUIThemeColorRole.TextMuted => theme.textMuted,
+            BattleUIThemeColorRole.Key => theme.keyColor,
+            BattleUIThemeColorRole.KeySoft => theme.keySoft,
+            BattleUIThemeColorRole.DepthShadow => theme.depthShadow,
+            _ => theme.textPrimary
+        };
     }
 }
