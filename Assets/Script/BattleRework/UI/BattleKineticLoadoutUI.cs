@@ -183,6 +183,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         inputRouter.TabOpened += HandleTabOpened;
         inputRouter.TabClosed += HandleTabClosed;
+        inputRouter.SlotPressed += HandleSlotPressed;
         inputSubscribed = true;
     }
 
@@ -195,8 +196,21 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         {
             inputRouter.TabOpened -= HandleTabOpened;
             inputRouter.TabClosed -= HandleTabClosed;
+            inputRouter.SlotPressed -= HandleSlotPressed;
         }
         inputSubscribed = false;
+    }
+
+    private void HandleSlotPressed(int index)
+    {
+        if (runManager == null || equipmentSystem == null || BattlePauseController.IsPaused)
+            return;
+        if (!runManager.RunActive || runManager.State != BattleRunState.Combat)
+            return;
+        if (index < 0 || index >= equipmentSystem.UnlockedSlotCount)
+            return;
+
+        equipmentSystem.EquipSlot(index);
     }
 
     private void HandleTabOpened()
