@@ -938,6 +938,101 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailGroup.interactable = false;
     }
 
+    public void ShowRewardCompareTooltip(int sourceSlotIndex, int targetSlotIndex)
+    {
+        ResolveReferences();
+        EnsureUi();
+
+        if (equipmentSystem == null ||
+            sourceSlotIndex < 0 ||
+            targetSlotIndex < 0 ||
+            sourceSlotIndex >= equipmentSystem.Slots.Count ||
+            targetSlotIndex >= equipmentSystem.Slots.Count ||
+            sourceSlotIndex == targetSlotIndex ||
+            !equipmentSystem.IsSlotUnlocked(sourceSlotIndex) ||
+            !equipmentSystem.IsSlotUnlocked(targetSlotIndex) ||
+            detailRoot == null ||
+            detailGroup == null ||
+            slotRects[targetSlotIndex] == null)
+        {
+            HideRewardInspectTooltip();
+            return;
+        }
+
+        BattleEquipmentSlot sourceSlot = equipmentSystem.Slots[sourceSlotIndex];
+        BattleEquipmentSlot targetSlot = equipmentSystem.Slots[targetSlotIndex];
+        BattleEquipmentSO source = sourceSlot?.equipment;
+        BattleEquipmentSO target = targetSlot?.equipment;
+
+        if (source == null || target == null)
+        {
+            HideRewardInspectTooltip();
+            return;
+        }
+
+        RefreshDetailForSlot(targetSlotIndex);
+
+        if (detailTitle != null)
+            detailTitle.text = $"{target.GetDisplayName().ToUpperInvariant()}  //  COMPARE";
+
+        if (detailDescription != null)
+        {
+            string description = !string.IsNullOrWhiteSpace(target.description)
+                ? target.description
+                : "NO DESCRIPTION";
+            detailDescription.text =
+                $"{description}\n\nFROM  {source.GetDisplayName().ToUpperInvariant()}";
+        }
+
+        if (detailTags != null)
+        {
+            float damageDelta = (target.damageMultiplier - source.damageMultiplier) * 100f;
+            float moveDelta = (target.moveSpeedMultiplier - source.moveSpeedMultiplier) * 100f;
+            float rangeDelta = (target.rangeMultiplier - source.rangeMultiplier) * 100f;
+
+            detailTags.text =
+                $"DMG {FormatCompareDelta(damageDelta)}   " +
+                $"MOVE {FormatCompareDelta(moveDelta)}   " +
+                $"RANGE {FormatCompareDelta(rangeDelta)}";
+            detailTags.color =
+                damageDelta + moveDelta + rangeDelta >= 0f
+                    ? accentCyan
+                    : accentYellow;
+        }
+
+        if (synergySummary != null)
+        {
+            synergySummary.text =
+                $"COMPARE  G{sourceSlot.grade} → G{targetSlot.grade}\n" +
+                $"{source.GetDisplayName().ToUpperInvariant()}  →  " +
+                $"{target.GetDisplayName().ToUpperInvariant()}";
+        }
+
+        detailRoot.gameObject.SetActive(true);
+        detailRoot.SetAsLastSibling();
+        detailRoot.anchoredPosition = ResolveTooltipPosition(slotRects[targetSlotIndex]);
+        detailRoot.localScale = Vector3.one;
+        detailRoot.localRotation = Quaternion.identity;
+
+        Vector3 local = detailRoot.localPosition;
+        local.z = -28f;
+        detailRoot.localPosition = local;
+
+        detailGroup.alpha = 1f;
+        detailGroup.blocksRaycasts = false;
+        detailGroup.interactable = false;
+    }
+
+    private static string FormatCompareDelta(float value)
+    {
+        if (Mathf.Abs(value) < 0.05f)
+            return "±0%";
+
+        return value > 0f
+            ? $"+{value:0.#}%"
+            : $"{value:0.#}%";
+    }
+
     private void RebuildSynergyLinks()
     {
         for (int i = 0; i < linkVisuals.Count; i++)
