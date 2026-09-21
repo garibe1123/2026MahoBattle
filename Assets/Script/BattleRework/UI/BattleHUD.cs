@@ -1,12 +1,14 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// 전투 중 상시 HUD와 Reward/Map Show가 사용할 최소 UI Shell만 생성합니다.
+/// Reward/Map Show가 사용할 최소 staging shell만 생성합니다.
 ///
-/// Phase 9 ownership:
-/// - 전투 상태/HP/ST/기본 장비 Dock: BattleHUD
+/// 현재 ownership:
+/// - Combat HP/ST/PACK: BattleKineticLoadoutUI
+/// - Broadcast Metrics/Mission/Chat: BattleBroadcastDashboardController
 /// - Reward 카드/결정/포기: BattleRewardCardActionController
 /// - Reward business state: BattleRewardFlow
 /// - PACK/Grid/Detail: BattleUnifiedInventoryInspectController
@@ -22,11 +24,8 @@ public sealed class BattleHUD : MonoBehaviour
     private static BattleHUD instance;
 
     [Header("Combat HUD")]
-    [SerializeField] private Color panelColor = new(0.022f, 0.028f, 0.043f, 0.94f);
     [SerializeField] private Color accentColor = new(1f, 0.18f, 0.58f, 1f);
     [SerializeField] private Color goldColor = new(1f, 0.80f, 0.25f, 1f);
-    [SerializeField] private Color hpColor = new(0.95f, 0.22f, 0.34f, 1f);
-    [SerializeField] private Color staminaColor = new(0.24f, 0.80f, 0.93f, 1f);
 
     [Header("Show Content Shell")]
     [SerializeField] private Vector2 showScreenSize = new(1120f, 560f);
@@ -41,27 +40,9 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField] private bool presenterFlipX;
 
     private BattleRunManager runManager;
-    private BattleRoomManager roomManager;
-    private RunProgressSystem progress;
-    private BattleEquipmentSystem equipmentSystem;
-    private PlayerController player;
 
     private Canvas canvas;
     private CanvasGroup canvasGroup;
-    private GameObject combatStatusRoot;
-    private GameObject equipmentDockRoot;
-    private Text stageText;
-    private Text enemyText;
-    private Text hpText;
-    private Text staminaText;
-    private Image hpFill;
-    private Image staminaFill;
-    private Text audienceText;
-
-    private readonly Image[] slotBackgrounds = new Image[BattleEquipmentSystem.MaxSlotCount];
-    private readonly Image[] slotIcons = new Image[BattleEquipmentSystem.MaxSlotCount];
-    private readonly Text[] slotLabels = new Text[BattleEquipmentSystem.MaxSlotCount];
-    private readonly Text[] slotGrades = new Text[BattleEquipmentSystem.MaxSlotCount];
 
     private GameObject showStagingRoot;
     private RectTransform rewardScreenRect;
@@ -70,10 +51,7 @@ public sealed class BattleHUD : MonoBehaviour
     private RectTransform mapSelectionRoot;
     private Image presenterMetadataImage;
 
-    private int lastRewardCount = -1;
-    private BattleRunState lastObservedState = (BattleRunState)(-1);
-    private float nextSlowRefresh;
-private bool equipmentSubscribed;
+    private BattleRunManager subscribedRunManager;
 
     /// <summary>BattleSpatialMapController가 Stage Map을 생성하는 공용 TV 내용 Root입니다.</summary>
     public RectTransform MapSelectionRoot => mapSelectionRoot;
@@ -98,29 +76,74 @@ private bool equipmentSubscribed;
 
     private void OnEnable()
     {
-        ResolveSystems();
-        SubscribeEquipment();
+        ResolveRunManager();
+        SubscribeRunEvents();
+        RefreshShellState();
     }
 
     private void OnDisable()
     {
-        UnsubscribeEquipment();
+        UnsubscribeRunEvents();
     }
 
     private void OnDestroy()
     {
-        UnsubscribeEquipment();
+        UnsubscribeRunEvents();
         if (instance == this)
             instance = null;
     }
 
-    private void Update()
+    private void ResolveRunManager()
     {
-        ResolveSystems();
-        SubscribeEquipment();
-if (canvas == null)
-            EnsureCanvas();
+        if (runManager == null)
+            runManager = FindFirstObjectByType<BattleRunManager>();
+    }
 
+    private void SubscribeRunEvents()
+    {
+        if (subscribedRunManager == runManager)
+            return;
+
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.RewardSelectionRequested -= HandleRewardSelectionRequested;
+        }
+
+        subscribedRunManager = runManager;
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged += HandleRunStateChanged;
+            subscribedRunManager.RewardSelectionRequested += HandleRewardSelectionRequested;
+        }
+    }
+
+    private void UnsubscribeRunEvents()
+    {
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.RewardSelectionRequested -= HandleRewardSelectionRequested;
+        }
+
+        subscribedRunManager = null;
+    }
+
+    private void HandleRunStateChanged(BattleRunState _)
+    {
+        RefreshShellState();
+
+        if (runManager != null && runManager.State == BattleRunState.Reward)
+            RebuildRewardCards();
+    }
+
+    private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> _)
+    {
+        RebuildRewardCards();
+    }
+
+    private void RefreshShellState()
+    {
         bool active = runManager != null && runManager.RunActive;
         if (canvasGroup != null)
         {
@@ -128,85 +151,6 @@ if (canvas == null)
             canvasGroup.blocksRaycasts = active;
             canvasGroup.interactable = active;
         }
-
-        if (!active)
-        {
-            lastRewardCount = -1;
-            lastObservedState = (BattleRunState)(-1);
-            SetCombatHudVisible(false);
-            return;
-        }
-
-        bool selectionShow = runManager.State == BattleRunState.Reward ||
-                             runManager.State == BattleRunState.SelectingNode;
-        SetCombatHudVisible(!selectionShow);
-
-        RefreshVitalBars();
-        RefreshRewardCardShell();
-
-        if (Time.unscaledTime >= nextSlowRefresh)
-        {
-            nextSlowRefresh = Time.unscaledTime + 0.12f;
-            RefreshStatus();
-            RefreshEquipment();
-        }
-    }
-
-    private void ResolveSystems()
-    {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
-        if (roomManager == null)
-            roomManager = FindFirstObjectByType<BattleRoomManager>();
-        if (progress == null)
-            progress = FindFirstObjectByType<RunProgressSystem>();
-        if (player == null)
-            player = FindFirstObjectByType<PlayerController>();
-
-        BattleEquipmentSystem found = equipmentSystem != null
-            ? equipmentSystem
-            : FindFirstObjectByType<BattleEquipmentSystem>();
-
-        if (found != equipmentSystem)
-        {
-            UnsubscribeEquipment();
-            equipmentSystem = found;
-        }
-    }
-
-    private void SubscribeEquipment()
-    {
-        if (equipmentSubscribed || equipmentSystem == null)
-            return;
-
-        equipmentSystem.InventoryChanged += RefreshEquipment;
-        equipmentSystem.SlotCapacityChanged += HandleSlotCapacityChanged;
-        equipmentSystem.EquippedSlotChanged += HandleEquippedSlotChanged;
-        equipmentSubscribed = true;
-    }
-
-    private void UnsubscribeEquipment()
-    {
-        if (!equipmentSubscribed || equipmentSystem == null)
-        {
-            equipmentSubscribed = false;
-            return;
-        }
-
-        equipmentSystem.InventoryChanged -= RefreshEquipment;
-        equipmentSystem.SlotCapacityChanged -= HandleSlotCapacityChanged;
-        equipmentSystem.EquippedSlotChanged -= HandleEquippedSlotChanged;
-        equipmentSubscribed = false;
-    }
-
-    private void HandleSlotCapacityChanged(int _)
-    {
-        RefreshEquipment();
-    }
-
-    private void HandleEquippedSlotChanged(int _)
-    {
-        RefreshEquipment();
     }
 
     private void EnsureCanvas()
@@ -229,10 +173,8 @@ if (canvas == null)
         canvasObject.AddComponent<GraphicRaycaster>();
         canvasGroup = canvasObject.AddComponent<CanvasGroup>();
 
-        BuildEquipmentDock();
         BuildShowContentShell();
-        RefreshStatus();
-        RefreshEquipment();
+        RefreshShellState();
     }
 
     private static void EnsureEventSystem()
@@ -243,108 +185,6 @@ if (canvas == null)
         GameObject go = new("BattleUIEventSystem");
         go.AddComponent<EventSystem>();
         go.AddComponent<StandaloneInputModule>();
-    }
-
-    private void BuildTopStatus()
-    {
-        combatStatusRoot = CreatePanel(canvas.transform, "BroadcastStatus", new Vector2(560f, 152f), panelColor);
-        ApplyPersonaFrame(
-            combatStatusRoot,
-            panelColor,
-            new Color(0.96f, 0.88f, 0.14f, 1f),
-            new Color(1f, 0.76f, 0.04f, 1f),
-            true,
-            0.13f,
-            new Vector2(8f, -8f));
-
-        RectTransform rect = combatStatusRoot.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
-        rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(28f, -26f);
-
-        GameObject liveBadge = CreatePanel(
-            combatStatusRoot.transform,
-            "LiveBadge",
-            new Vector2(92f, 30f),
-            new Color(0.42f, 0.04f, 0.12f, 1f));
-        RectTransform liveRect = liveBadge.GetComponent<RectTransform>();
-        liveRect.anchorMin = liveRect.anchorMax = new Vector2(0f, 1f);
-        liveRect.pivot = new Vector2(0f, 1f);
-        liveRect.anchoredPosition = new Vector2(20f, -12f);
-        Text live = CreateText(liveBadge.transform, "● ON AIR", 10, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-        Stretch(live.rectTransform);
-
-        stageText = CreateText(combatStatusRoot.transform, "WAITING FOR NEXT TAKE", 17, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(stageText.rectTransform, new Vector2(0.23f, 0.70f), new Vector2(0.95f, 0.95f));
-
-        enemyText = CreateText(combatStatusRoot.transform, "ENEMY  --", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentColor);
-        SetAnchors(enemyText.rectTransform, new Vector2(0.68f, 0.51f), new Vector2(0.95f, 0.69f));
-
-        hpText = CreateText(combatStatusRoot.transform, "HP", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(hpText.rectTransform, new Vector2(0.05f, 0.41f), new Vector2(0.25f, 0.57f));
-        hpFill = CreateBar(combatStatusRoot.transform, "HP", new Vector2(0.25f, 0.43f), new Vector2(0.94f, 0.54f), hpColor);
-
-        staminaText = CreateText(combatStatusRoot.transform, "ST", 10, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
-        SetAnchors(staminaText.rectTransform, new Vector2(0.05f, 0.22f), new Vector2(0.25f, 0.38f));
-        staminaFill = CreateBar(combatStatusRoot.transform, "ST", new Vector2(0.25f, 0.24f), new Vector2(0.94f, 0.35f), staminaColor);
-
-        audienceText = CreateText(combatStatusRoot.transform, "VIEWERS 0", 9, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.74f, 0.74f, 0.68f, 1f));
-        SetAnchors(audienceText.rectTransform, new Vector2(0.05f, 0.035f), new Vector2(0.94f, 0.19f));
-    }
-
-    private void BuildEquipmentDock()
-    {
-        equipmentDockRoot = CreatePanel(canvas.transform, "EquipmentDock", new Vector2(780f, 116f), panelColor);
-        ApplyPersonaFrame(
-            equipmentDockRoot,
-            panelColor,
-            new Color(0.94f, 0.94f, 0.90f, 1f),
-            new Color(1f, 0.76f, 0.04f, 1f),
-            false,
-            0.10f,
-            new Vector2(-7f, 7f));
-
-        RectTransform dock = equipmentDockRoot.GetComponent<RectTransform>();
-        dock.anchorMin = dock.anchorMax = new Vector2(1f, 0f);
-        dock.pivot = new Vector2(1f, 0f);
-        dock.anchoredPosition = new Vector2(-30f, 26f);
-
-        const float slotWidth = 78f;
-        const float slotHeight = 82f;
-        const float spacing = 8f;
-        float total = BattleEquipmentSystem.MaxSlotCount * slotWidth +
-                      (BattleEquipmentSystem.MaxSlotCount - 1) * spacing;
-        float start = -total * 0.5f + slotWidth * 0.5f;
-
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            GameObject slot = CreatePanel(
-                equipmentDockRoot.transform,
-                $"Slot_{i + 1}",
-                new Vector2(slotWidth, slotHeight),
-                new Color(0.055f, 0.062f, 0.082f, 1f));
-            RectTransform slotRect = slot.GetComponent<RectTransform>();
-            slotRect.anchorMin = slotRect.anchorMax = new Vector2(0.5f, 0.5f);
-            slotRect.anchoredPosition = new Vector2(start + i * (slotWidth + spacing), 0f);
-            slotBackgrounds[i] = slot.GetComponent<Image>();
-
-            Button button = slot.AddComponent<Button>();
-            button.targetGraphic = slotBackgrounds[i];
-            int captured = i;
-            button.onClick.AddListener(() => equipmentSystem?.EquipSlot(captured));
-
-            Text number = CreateText(slot.transform, (i + 1).ToString(), 9, FontStyle.Bold, TextAnchor.UpperLeft, new Color(0.62f, 0.66f, 0.74f, 1f));
-            SetAnchors(number.rectTransform, new Vector2(0.07f, 0.72f), new Vector2(0.34f, 0.94f));
-
-            slotIcons[i] = CreateImage(slot.transform, "Icon", new Vector2(42f, 42f));
-            slotIcons[i].rectTransform.anchorMin = slotIcons[i].rectTransform.anchorMax = new Vector2(0.5f, 0.60f);
-
-            slotLabels[i] = CreateText(slot.transform, "EMPTY", 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.72f, 0.75f, 0.82f, 1f));
-            SetAnchors(slotLabels[i].rectTransform, new Vector2(0.04f, 0.04f), new Vector2(0.96f, 0.28f));
-
-            slotGrades[i] = CreateText(slot.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.UpperRight, goldColor);
-            SetAnchors(slotGrades[i].rectTransform, new Vector2(0.54f, 0.72f), new Vector2(0.93f, 0.94f));
-        }
     }
 
     private void BuildShowContentShell()
@@ -450,22 +290,6 @@ if (canvas == null)
         return screenRect;
     }
 
-    private void RefreshRewardCardShell()
-    {
-        if (runManager == null || rewardCardRoot == null)
-            return;
-
-        bool reward = runManager.RunActive && runManager.State == BattleRunState.Reward;
-        int count = reward ? runManager.CurrentRewardChoices.Count : 0;
-        bool stateChanged = lastObservedState != runManager.State;
-
-        if (reward && (stateChanged || count != lastRewardCount || rewardCardRoot.childCount != count))
-            RebuildRewardCards();
-
-        lastRewardCount = reward ? count : -1;
-        lastObservedState = runManager.State;
-    }
-
     private void RebuildRewardCards()
     {
         if (rewardCardRoot == null || runManager == null)
@@ -527,94 +351,6 @@ if (canvas == null)
         }
     }
 
-    private void SetCombatHudVisible(bool visible)
-    {
-        if (combatStatusRoot != null && combatStatusRoot.activeSelf != visible)
-            combatStatusRoot.SetActive(visible);
-        if (equipmentDockRoot != null && equipmentDockRoot.activeSelf != visible)
-            equipmentDockRoot.SetActive(visible);
-    }
-
-    private void RefreshVitalBars()
-    {
-        if (player == null)
-            return;
-
-        float hpMax = Mathf.Max(1f, player.maxHp);
-        float stMax = Mathf.Max(1f, player.maxStamina);
-        if (hpFill != null)
-            hpFill.fillAmount = Mathf.Clamp01(player.CurrentHp / hpMax);
-        if (staminaFill != null)
-            staminaFill.fillAmount = Mathf.Clamp01(player.CurrentStamina / stMax);
-        if (hpText != null)
-            hpText.text = $"HP  {player.CurrentHp:0}/{hpMax:0}";
-        if (staminaText != null)
-            staminaText.text = $"ST  {player.CurrentStamina:0}/{stMax:0}";
-    }
-
-    private void RefreshStatus()
-    {
-        if (stageText != null)
-        {
-            stageText.text = runManager != null && runManager.CurrentNode != null
-                ? $"TAKE {runManager.CurrentNode.depth + 1:00}  /  {runManager.CurrentNode.type.ToString().ToUpperInvariant()}"
-                : "WAITING FOR NEXT TAKE";
-        }
-
-        if (enemyText != null)
-            enemyText.text = roomManager != null && roomManager.IsRoomActive
-                ? $"ENEMY  {roomManager.AliveMonsterCount:00}"
-                : "ENEMY  --";
-
-        if (audienceText != null && progress != null)
-            audienceText.text = $"VIEWERS {progress.Viewers:N0}   •   FANS {progress.FanPoints:N0}   •   POP {progress.Popularity:N0}";
-    }
-
-    private void RefreshEquipment()
-    {
-        if (slotBackgrounds[0] == null)
-            return;
-
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            bool unlocked = equipmentSystem != null && equipmentSystem.IsSlotUnlocked(i);
-            BattleEquipmentSlot slot = unlocked && i < equipmentSystem.Slots.Count
-                ? equipmentSystem.Slots[i]
-                : null;
-            bool occupied = slot != null && slot.equipment != null;
-            bool equipped = occupied && equipmentSystem.IsSlotEquipped(i);
-
-            slotBackgrounds[i].color = !unlocked
-                ? new Color(0.028f, 0.032f, 0.043f, 0.72f)
-                : equipped
-                    ? new Color(0.18f, 0.07f, 0.16f, 1f)
-                    : new Color(0.055f, 0.062f, 0.082f, 1f);
-
-            slotIcons[i].enabled = occupied && slot.equipment.icon != null;
-            slotIcons[i].sprite = occupied ? slot.equipment.icon : null;
-            slotIcons[i].color = Color.white;
-
-            if (!unlocked)
-            {
-                slotLabels[i].text = "LOCKED";
-                slotLabels[i].color = new Color(0.35f, 0.38f, 0.44f, 1f);
-                slotGrades[i].text = string.Empty;
-            }
-            else if (!occupied)
-            {
-                slotLabels[i].text = "EMPTY";
-                slotLabels[i].color = new Color(0.50f, 0.54f, 0.62f, 1f);
-                slotGrades[i].text = string.Empty;
-            }
-            else
-            {
-                slotLabels[i].text = Shorten(slot.equipment.GetDisplayName(), 12);
-                slotLabels[i].color = Color.white;
-                slotGrades[i].text = $"G{slot.grade}";
-            }
-        }
-    }
-
     // ---------------------------------------------------------------------
     // Explicit metadata / compatibility API
     // ---------------------------------------------------------------------
@@ -661,75 +397,6 @@ if (canvas == null)
         if (string.IsNullOrEmpty(value) || value.Length <= max)
             return value ?? string.Empty;
         return value.Substring(0, Mathf.Max(1, max - 1)) + "…";
-    }
-
-    private static void ApplyPersonaFrame(
-        GameObject root,
-        Color body,
-        Color backPlate,
-        Color accentPlate,
-        bool accentOnLeft,
-        float accentFraction,
-        Vector2 plateOffset)
-    {
-        if (root == null)
-            return;
-
-        BattlePersona4FrameDecorator decorator = root.GetComponent<BattlePersona4FrameDecorator>();
-        if (decorator == null)
-            decorator = root.AddComponent<BattlePersona4FrameDecorator>();
-
-        decorator.Configure(
-            body,
-            backPlate,
-            accentPlate,
-            accentOnLeft,
-            accentFraction,
-            plateOffset);
-
-        Image legacyImage = root.GetComponent<Image>();
-        if (legacyImage != null)
-        {
-            Color legacy = legacyImage.color;
-            legacy.a = 0f;
-            legacyImage.color = legacy;
-        }
-
-        Outline legacyOutline = root.GetComponent<Outline>();
-        if (legacyOutline != null)
-            legacyOutline.enabled = false;
-    }
-
-    private static Image CreateBar(
-        Transform parent,
-        string name,
-        Vector2 anchorMin,
-        Vector2 anchorMax,
-        Color fillColor)
-    {
-        GameObject bg = new(name + "_BG");
-        bg.transform.SetParent(parent, false);
-        RectTransform bgRect = bg.AddComponent<RectTransform>();
-        SetAnchors(bgRect, anchorMin, anchorMax);
-        Image bgImage = bg.AddComponent<Image>();
-        bgImage.sprite = BattleHudSpriteCache.RoundedPanel;
-        bgImage.type = Image.Type.Sliced;
-        bgImage.color = new Color(0.12f, 0.13f, 0.17f, 1f);
-        bgImage.raycastTarget = false;
-
-        GameObject fill = new(name + "_Fill");
-        fill.transform.SetParent(bg.transform, false);
-        RectTransform fillRect = fill.AddComponent<RectTransform>();
-        Stretch(fillRect);
-        Image image = fill.AddComponent<Image>();
-        image.sprite = BattleHudSpriteCache.RoundedPanel;
-        image.type = Image.Type.Filled;
-        image.fillMethod = Image.FillMethod.Horizontal;
-        image.fillOrigin = 0;
-        image.fillAmount = 1f;
-        image.color = fillColor;
-        image.raycastTarget = false;
-        return image;
     }
 
     private static GameObject CreatePanel(Transform parent, string name, Vector2 size, Color color)
@@ -922,198 +589,5 @@ internal static class BattleHudSpriteCache
         sprite.name = "RuntimeRewardBirdEyeFloorSpotlight";
         sprite.hideFlags = HideFlags.HideAndDontSave;
         return sprite;
-    }
-}
-
-/// <summary>
-/// Persona 4 계열의 강한 비대칭 실루엣을 만드는 공용 UI Graphic입니다.
-/// 기존 Image/Outline 계약은 건드리지 않고, 별도 Child Graphic으로 프레임 몸체를 생성합니다.
-/// </summary>
-[RequireComponent(typeof(CanvasRenderer))]
-public sealed class BattlePersona4PanelGraphic : MaskableGraphic
-{
-    [SerializeField, Min(0f)] private float cutTopLeft = 0f;
-    [SerializeField, Min(0f)] private float cutTopRight = 34f;
-    [SerializeField, Min(0f)] private float cutBottomRight = 10f;
-    [SerializeField, Min(0f)] private float cutBottomLeft = 24f;
-
-    public void Configure(Color fill, float topLeft, float topRight, float bottomRight, float bottomLeft)
-    {
-        color = fill;
-        cutTopLeft = Mathf.Max(0f, topLeft);
-        cutTopRight = Mathf.Max(0f, topRight);
-        cutBottomRight = Mathf.Max(0f, bottomRight);
-        cutBottomLeft = Mathf.Max(0f, bottomLeft);
-        raycastTarget = false;
-        SetVerticesDirty();
-    }
-
-    protected override void OnPopulateMesh(VertexHelper vh)
-    {
-        vh.Clear();
-
-        Rect r = rectTransform.rect;
-        float halfMin = Mathf.Max(0f, Mathf.Min(r.width, r.height) * 0.48f);
-
-        float tl = Mathf.Min(cutTopLeft, halfMin);
-        float tr = Mathf.Min(cutTopRight, halfMin);
-        float br = Mathf.Min(cutBottomRight, halfMin);
-        float bl = Mathf.Min(cutBottomLeft, halfMin);
-
-        Vector2[] points =
-        {
-            new(r.xMin + bl, r.yMin),
-            new(r.xMax - br, r.yMin),
-            new(r.xMax, r.yMin + br),
-            new(r.xMax, r.yMax - tr),
-            new(r.xMax - tr, r.yMax),
-            new(r.xMin + tl, r.yMax),
-            new(r.xMin, r.yMax - tl),
-            new(r.xMin, r.yMin + bl)
-        };
-
-        Color32 c = color;
-        for (int i = 0; i < points.Length; i++)
-            vh.AddVert(points[i], c, Vector2.zero);
-
-        for (int i = 1; i < points.Length - 1; i++)
-            vh.AddTriangle(0, i, i + 1);
-    }
-}
-
-/// <summary>
-/// 기존 UI 루트에 P4형 3단 레이어 프레임을 입힙니다.
-/// 얇은 선 장식이 아니라 Back Plate / Main Body / Accent Block의 면 구조를 사용합니다.
-/// </summary>
-[DisallowMultipleComponent]
-public sealed class BattlePersona4FrameDecorator : MonoBehaviour
-{
-    private const string BackName = "__P4_BackPlate";
-    private const string BodyName = "__P4_MainBody";
-    private const string AccentName = "__P4_AccentBlock";
-
-    [SerializeField] private Color bodyColor = new(0.025f, 0.028f, 0.035f, 0.98f);
-    [SerializeField] private Color backColor = new(0.94f, 0.90f, 0.16f, 1f);
-    [SerializeField] private Color accentColor = new(1f, 0.80f, 0.08f, 1f);
-    [SerializeField] private Vector2 backOffset = new(7f, -7f);
-    [SerializeField, Range(0.08f, 0.40f)] private float accentWidth = 0.18f;
-    [SerializeField] private bool accentOnLeft = true;
-
-    private RectTransform back;
-    private RectTransform body;
-    private RectTransform accent;
-
-    public void Configure(
-        Color body,
-        Color backPlate,
-        Color accentPlate,
-        bool leftAccent,
-        float accentFraction = 0.18f,
-        Vector2? plateOffset = null)
-    {
-        bodyColor = body;
-        backColor = backPlate;
-        accentColor = accentPlate;
-        accentOnLeft = leftAccent;
-        accentWidth = Mathf.Clamp(accentFraction, 0.08f, 0.40f);
-        if (plateOffset.HasValue)
-            backOffset = plateOffset.Value;
-
-        EnsureVisuals();
-        ApplyVisuals();
-    }
-
-    private void Awake()
-    {
-        EnsureVisuals();
-        ApplyVisuals();
-    }
-
-    private void OnEnable()
-    {
-        EnsureVisuals();
-        ApplyVisuals();
-    }
-
-    private void OnValidate()
-    {
-        if (!Application.isPlaying)
-            return;
-
-        EnsureVisuals();
-        ApplyVisuals();
-    }
-
-    private void EnsureVisuals()
-    {
-        RectTransform owner = transform as RectTransform;
-        if (owner == null)
-            return;
-
-        back = EnsureLayer(owner, BackName);
-        body = EnsureLayer(owner, BodyName);
-        accent = EnsureLayer(owner, AccentName);
-
-        back.SetAsFirstSibling();
-        body.SetSiblingIndex(1);
-        accent.SetSiblingIndex(2);
-    }
-
-    private static RectTransform EnsureLayer(RectTransform parent, string name)
-    {
-        RectTransform existing = parent.Find(name) as RectTransform;
-        if (existing != null)
-            return existing;
-
-        GameObject go = new(name);
-        go.transform.SetParent(parent, false);
-        RectTransform rect = go.AddComponent<RectTransform>();
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = Vector2.zero;
-        rect.offsetMax = Vector2.zero;
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        go.AddComponent<BattlePersona4PanelGraphic>();
-        return rect;
-    }
-
-    private void ApplyVisuals()
-    {
-        if (back == null || body == null || accent == null)
-            return;
-
-        back.anchorMin = Vector2.zero;
-        back.anchorMax = Vector2.one;
-        back.offsetMin = backOffset;
-        back.offsetMax = backOffset;
-
-        BattlePersona4PanelGraphic backGraphic = back.GetComponent<BattlePersona4PanelGraphic>();
-        backGraphic.Configure(backColor, 18f, 46f, 8f, 30f);
-
-        body.anchorMin = Vector2.zero;
-        body.anchorMax = Vector2.one;
-        body.offsetMin = Vector2.zero;
-        body.offsetMax = Vector2.zero;
-
-        BattlePersona4PanelGraphic bodyGraphic = body.GetComponent<BattlePersona4PanelGraphic>();
-        bodyGraphic.Configure(bodyColor, 4f, 38f, 12f, 26f);
-
-        if (accentOnLeft)
-        {
-            accent.anchorMin = Vector2.zero;
-            accent.anchorMax = new Vector2(accentWidth, 1f);
-            accent.offsetMin = new Vector2(-8f, 0f);
-            accent.offsetMax = new Vector2(4f, 0f);
-        }
-        else
-        {
-            accent.anchorMin = new Vector2(1f - accentWidth, 0f);
-            accent.anchorMax = Vector2.one;
-            accent.offsetMin = new Vector2(-4f, 0f);
-            accent.offsetMax = new Vector2(8f, 0f);
-        }
-
-        BattlePersona4PanelGraphic accentGraphic = accent.GetComponent<BattlePersona4PanelGraphic>();
-        accentGraphic.Configure(accentColor, 0f, 22f, 6f, 16f);
     }
 }
