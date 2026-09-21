@@ -2181,52 +2181,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (parent == null)
             return null;
 
+        // Decorative-only slashes/lines are forbidden.
+        // If an older runtime instance exists, hide it instead of recreating it.
         Transform existing = parent.Find("RuleDetailAccent");
-        if (existing is RectTransform existingRect)
-            return existingRect;
+        if (existing != null && existing.gameObject.activeSelf)
+            existing.gameObject.SetActive(false);
 
-        RectTransform accentRoot = CreateRect(parent, "RuleDetailAccent");
-        accentRoot.anchorMin = accentRoot.anchorMax = new Vector2(0f, 0.5f);
-        accentRoot.pivot = new Vector2(1f, 0.5f);
-        accentRoot.anchoredPosition = new Vector2(-10f, 0f);
-        accentRoot.sizeDelta = new Vector2(92f, 92f);
-
-        RectTransform plate = CreateRect(accentRoot, "MainSlash");
-        plate.anchorMin = plate.anchorMax = new Vector2(0.5f, 0.5f);
-        plate.pivot = new Vector2(0.5f, 0.5f);
-        plate.sizeDelta = new Vector2(13f, 78f);
-        plate.anchoredPosition = new Vector2(-25f, 0f);
-        plate.localRotation = Quaternion.Euler(0f, 0f, -24f);
-
-        Image plateImage = plate.gameObject.AddComponent<Image>();
-        plateImage.color = new Color(1f, 1f, 1f, 0.96f);
-        plateImage.raycastTarget = false;
-
-        for (int i = 0; i < 2; i++)
-        {
-            RectTransform slash = CreateRect(accentRoot, $"ThinSlash_{i + 1}");
-            slash.anchorMin = slash.anchorMax = new Vector2(0.5f, 0.5f);
-            slash.pivot = new Vector2(0.5f, 0.5f);
-            slash.sizeDelta = new Vector2(6f, 58f - i * 10f);
-            slash.anchoredPosition = new Vector2(i * 18f, 0f);
-            slash.localRotation = Quaternion.Euler(0f, 0f, -24f);
-
-            Image image = slash.gameObject.AddComponent<Image>();
-            image.color = new Color(1f, 1f, 1f, 0.76f - i * 0.18f);
-            image.raycastTarget = false;
-        }
-
-        RectTransform line = CreateRect(accentRoot, "TailLine");
-        line.anchorMin = line.anchorMax = new Vector2(0.5f, 0.5f);
-        line.pivot = new Vector2(0f, 0.5f);
-        line.sizeDelta = new Vector2(52f, 3f);
-        line.anchoredPosition = new Vector2(18f, -31f);
-
-        Image lineImage = line.gameObject.AddComponent<Image>();
-        lineImage.color = new Color(1f, 1f, 1f, 0.72f);
-        lineImage.raycastTarget = false;
-
-        return accentRoot;
+        return null;
     }
 
     private void SetSpinButtonLabel(string label)
