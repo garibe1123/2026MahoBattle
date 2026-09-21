@@ -69,7 +69,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     [Header("Functional Colors")]
     [SerializeField] private Color inkColor = new(0.020f, 0.024f, 0.032f, 0.97f);
-    [SerializeField] private Color panelColor = new(0.040f, 0.046f, 0.058f, 0.98f);
     [SerializeField] private Color paperColor = new(0.93f, 0.95f, 0.97f, 1f);
     [SerializeField] private Color mutedColor = new(0.48f, 0.52f, 0.60f, 1f);
     [SerializeField] private Color activeColor = new(0.12f, 0.86f, 0.92f, 1f);
