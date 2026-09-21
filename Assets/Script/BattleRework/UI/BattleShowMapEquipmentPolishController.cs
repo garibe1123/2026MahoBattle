@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
@@ -25,26 +26,20 @@ using UnityEngine.UI;
 public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 {
     private const string MapContentName = "MapSelectionContent";
-    private const string PointerHitAreaName = "MapPointerHitArea";
     private const string RoomIconName = "RoomTypeIcon";
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleKineticLoadoutUI loadoutUI;
-    [SerializeField] private BattleCameraController battleCamera;
     [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Map Node Theme")]
-    [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.040f, 0.995f);
-    [SerializeField] private Color paperColor = new(0.94f, 0.91f, 0.80f, 1f);
     [SerializeField] private Color combatColor = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color eliteColor = new(1f, 0.18f, 0.48f, 1f);
     [SerializeField] private Color shopColor = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color eventColor = new(0.72f, 0.46f, 1f, 1f);
-    [SerializeField] private Color mutedColor = new(0.34f, 0.37f, 0.44f, 0.72f);
     [SerializeField, Min(16f)] private float roomIconSize = 26f;
-    [SerializeField, Min(0.03f)] private float mapResolveInterval = 0.10f;
 
     [Header("Equipment Wheel")]
     [Tooltip("Tab을 누른 상태에서 휠 한 단계마다 이전/다음 Manual Weapon을 장착합니다.")]
@@ -59,10 +54,11 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     private AudioSource swapAudioSource;
     private AudioClip swapClip;
     private BattleEquipmentSystem subscribedEquipment;
-    private RectTransform lastHoveredNode;
-    private bool wasMapSelection;
+    private BattleRunManager subscribedRunManager;
+    private bool combatActive;
+    private bool mapSelectionActive;
+    private Coroutine mapResolveRoutine;
     private int lastEquippedSlot = -2;
-    private float nextMapResolve;
 
     private void Awake()
     {
@@ -77,20 +73,28 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         EnsureSwapAudio();
         EnsureRoomIcons();
         SubscribeEquipment();
-        nextMapResolve = 0f;
-        wasMapSelection = false;
-        lastHoveredNode = null;
+        SubscribeRunEvents();
+
+        combatActive = IsCombat();
+        mapSelectionActive = IsMapSelection();
+        if (mapSelectionActive)
+            QueueMapResolve();
     }
 
     private void OnDisable()
     {
+        if (mapResolveRoutine != null)
+            StopCoroutine(mapResolveRoutine);
+        mapResolveRoutine = null;
+
+        UnsubscribeRunEvents();
         UnsubscribeEquipment();
-        ClearMapHoverState();
-        wasMapSelection = false;
+        mapSelectionActive = false;
     }
 
     private void OnDestroy()
     {
+        UnsubscribeRunEvents();
         UnsubscribeEquipment();
 
         if (swapClip != null)
@@ -109,44 +113,16 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
     private void Update()
     {
-        ResolveReferences();
-        SubscribeEquipment();
+        // Actual input sampling only. Run/Map state is event-driven.
+        if (runManager == null || equipmentSystem == null || inputRouter == null)
+        {
+            ResolveReferences();
+            SubscribeEquipment();
+            SubscribeRunEvents();
+        }
 
-        if (enableTabMouseWheel)
+        if (enableTabMouseWheel && combatActive)
             UpdateTabWheelInput();
-
-        bool mapSelection = IsMapSelection();
-        if (!mapSelection)
-        {
-            if (wasMapSelection)
-                ClearMapHoverState();
-            wasMapSelection = false;
-            return;
-        }
-
-        if (!wasMapSelection)
-        {
-            wasMapSelection = true;
-            nextMapResolve = 0f;
-            ResolveMapNodes();
-            nextMapResolve = Time.unscaledTime + Mathf.Max(0.03f, mapResolveInterval);
-            return;
-        }
-
-        if (Time.unscaledTime >= nextMapResolve)
-        {
-            nextMapResolve = Time.unscaledTime + Mathf.Max(0.03f, mapResolveInterval);
-            if (NeedsMapNodeResolve())
-                ResolveMapNodes();
-        }
-    }
-
-    private void LateUpdate()
-    {
-        if (!IsMapSelection())
-            return;
-
-        MaintainMapNodeHoverAndIcons();
     }
 
     private void ResolveReferences()
@@ -157,32 +133,98 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (loadoutUI == null)
             loadoutUI = FindFirstObjectByType<BattleKineticLoadoutUI>();
-        if (battleCamera == null)
-            battleCamera = FindFirstObjectByType<BattleCameraController>();
         if (inputRouter == null && Application.isPlaying)
             inputRouter = BattleInputRouter.ResolveOrCreate(this);
     }
 
     private bool IsCombat()
     {
-        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.Combat;
     }
 
     private bool IsMapSelection()
     {
-        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.SelectingNode;
+        return runManager != null &&
+               runManager.RunActive &&
+               runManager.State == BattleRunState.SelectingNode;
     }
 
-    private bool NeedsMapNodeResolve()
+    private void SubscribeRunEvents()
     {
-        if (mapContent == null || !mapContent.gameObject.activeInHierarchy || mapNodes.Count == 0)
-            return true;
+        if (subscribedRunManager == runManager)
+            return;
 
-        for (int i = 0; i < mapNodes.Count; i++)
-            if (mapNodes[i] == null)
-                return true;
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
+        }
 
-        return false;
+        subscribedRunManager = runManager;
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged += HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested += HandleNextNodeSelectionRequested;
+        }
+    }
+
+    private void UnsubscribeRunEvents()
+    {
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
+        }
+
+        subscribedRunManager = null;
+    }
+
+    private void HandleRunStateChanged(BattleRunState state)
+    {
+        combatActive =
+            runManager != null &&
+            runManager.RunActive &&
+            state == BattleRunState.Combat;
+
+        bool nextMap =
+            runManager != null &&
+            runManager.RunActive &&
+            state == BattleRunState.SelectingNode;
+
+        if (mapSelectionActive == nextMap)
+            return;
+
+        mapSelectionActive = nextMap;
+        if (mapSelectionActive)
+            QueueMapResolve();
+    }
+
+    private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
+    {
+        mapSelectionActive = true;
+        QueueMapResolve();
+    }
+
+    private void QueueMapResolve()
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        if (mapResolveRoutine != null)
+            StopCoroutine(mapResolveRoutine);
+
+        mapResolveRoutine = StartCoroutine(ResolveMapAfterLayout());
+    }
+
+    private IEnumerator ResolveMapAfterLayout()
+    {
+        yield return null;
+        mapResolveRoutine = null;
+
+        if (mapSelectionActive)
+            ResolveMapNodes();
     }
 
     private void ResolveMapNodes()
@@ -191,7 +233,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             mapContent = FindRect(MapContentName);
 
         mapNodes.Clear();
-        lastHoveredNode = null;
         if (mapContent == null)
             return;
 
@@ -199,191 +240,26 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
-            if (rect == null || !rect.name.StartsWith("StageNode_", System.StringComparison.Ordinal))
+            if (rect == null ||
+                !rect.name.StartsWith("StageNode_", System.StringComparison.Ordinal))
+            {
                 continue;
+            }
 
             mapNodes.Add(rect);
             EnsureNodeIcon(rect);
 
-            Button button = rect.GetComponent<Button>();
-            bool selectable = button != null && button.interactable;
-            ApplyNodeVisual(rect, selectable, false);
-        }
-    }
-
-    private void MaintainMapNodeHoverAndIcons()
-    {
-        if (mapContent == null || mapNodes.Count == 0)
-            ResolveMapNodes();
-        if (mapContent == null)
-            return;
-
-        Camera eventCamera = Camera.main;
-        RectTransform hoveredNode = null;
-        Vector2 pointerPosition = Pointer.current != null
-            ? Pointer.current.position.ReadValue()
-            : Vector2.zero;
-
-        for (int i = 0; i < mapNodes.Count; i++)
-        {
-            RectTransform node = mapNodes[i];
-            if (node == null || !node.gameObject.activeInHierarchy)
-                continue;
-
-            Button button = node.GetComponent<Button>();
-            bool selectable = button != null && button.interactable;
-            if (!selectable)
-                continue;
-
-            RectTransform hitRect = node.Find(PointerHitAreaName) as RectTransform;
-            if (hitRect == null)
-                hitRect = node;
-
-            if (Pointer.current != null && RectTransformUtility.RectangleContainsScreenPoint(hitRect, pointerPosition, eventCamera))
+            Text label = rect.Find("Label")?.GetComponent<Text>();
+            BattleNodeType type = ResolveNodeType(label != null ? label.text : string.Empty);
+            Image icon = rect.Find(RoomIconName)?.GetComponent<Image>();
+            if (icon != null)
             {
-                hoveredNode = node;
-                break;
+                Sprite target = ResolveIcon(type);
+                icon.sprite = target;
+                icon.enabled = target != null;
+                icon.color = ResolveTypeColor(type);
             }
         }
-
-        bool hoverChanged = hoveredNode != lastHoveredNode;
-        if (hoverChanged)
-        {
-            if (lastHoveredNode != null)
-            {
-                Button oldButton = lastHoveredNode.GetComponent<Button>();
-                ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
-            }
-
-            if (hoveredNode != null)
-            {
-                Button newButton = hoveredNode.GetComponent<Button>();
-                ApplyNodeVisual(hoveredNode, newButton != null && newButton.interactable, true);
-            }
-
-            lastHoveredNode = hoveredNode;
-        }
-
-        bool hasHoveredNode = hoveredNode != null;
-        if (battleCamera != null)
-        {
-            Vector2 normalized = hasHoveredNode
-                ? ResolveNodeNormalizedPosition(hoveredNode)
-                : Vector2.zero;
-            battleCamera.SetMapCursorTracking(hasHoveredNode, normalized);
-        }
-    }
-
-    private void ClearMapHoverState()
-    {
-        if (lastHoveredNode != null)
-        {
-            Button oldButton = lastHoveredNode.GetComponent<Button>();
-            ApplyNodeVisual(lastHoveredNode, oldButton != null && oldButton.interactable, false);
-            lastHoveredNode = null;
-        }
-
-        battleCamera?.SetMapCursorTracking(false, Vector2.zero);
-    }
-
-    private void ApplyNodeVisual(RectTransform node, bool selectable, bool hovered)
-    {
-        Image background = node.GetComponent<Image>();
-        Outline outline = node.GetComponent<Outline>();
-        Text label = node.Find("Label")?.GetComponent<Text>();
-        Image icon = node.Find(RoomIconName)?.GetComponent<Image>();
-        BattleNodeType type = ResolveNodeType(label != null ? label.text : string.Empty);
-        Color accent = ResolveTypeColor(type);
-
-        bool current = runManager != null && runManager.CurrentNode != null &&
-                       node.name == $"StageNode_{runManager.CurrentNode.id}";
-
-        if (background != null)
-        {
-            if (hovered)
-                background.color = accent;
-            else if (current)
-                background.color = new Color(shopColor.r * 0.28f, shopColor.g * 0.28f, shopColor.b * 0.28f, 1f);
-            else if (selectable)
-                background.color = inkColor;
-            else
-                background.color = new Color(0.09f, 0.095f, 0.12f, 0.94f);
-        }
-
-        if (outline != null)
-        {
-            if (hovered)
-            {
-                outline.effectColor = paperColor;
-                outline.effectDistance = new Vector2(6f, -6f);
-            }
-            else if (current)
-            {
-                outline.effectColor = shopColor;
-                outline.effectDistance = new Vector2(3f, -3f);
-            }
-            else if (selectable)
-            {
-                outline.effectColor = accent;
-                outline.effectDistance = new Vector2(3f, -3f);
-            }
-            else
-            {
-                outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
-                outline.effectDistance = new Vector2(1f, -1f);
-            }
-        }
-
-        if (icon != null)
-        {
-            Sprite targetSprite = ResolveIcon(type);
-            if (icon.sprite != targetSprite)
-                icon.sprite = targetSprite;
-            icon.enabled = targetSprite != null;
-            icon.color = hovered
-                ? inkColor
-                : current
-                    ? shopColor
-                    : selectable ? accent : mutedColor;
-        }
-
-        if (label != null)
-        {
-            string typeName = type.ToString().ToUpperInvariant();
-            string rating = ResolveBattleRatingText(node, type);
-            string baseLabel = string.IsNullOrEmpty(rating)
-                ? typeName
-                : typeName + "\n" + rating;
-
-            label.text = hovered ? baseLabel + "\nSELECT" : baseLabel;
-            label.fontStyle = selectable || current ? FontStyle.Bold : FontStyle.Normal;
-            label.fontSize = string.IsNullOrEmpty(rating) ? 10 : 9;
-            label.color = hovered
-                ? inkColor
-                : current
-                    ? shopColor
-                    : selectable ? paperColor : mutedColor;
-        }
-    }
-
-    private string ResolveBattleRatingText(RectTransform nodeRect, BattleNodeType type)
-    {
-        if (runManager == null || nodeRect == null ||
-            (type != BattleNodeType.Combat && type != BattleNodeType.Elite))
-        {
-            return string.Empty;
-        }
-
-        const string prefix = "StageNode_";
-        if (!nodeRect.name.StartsWith(prefix, System.StringComparison.Ordinal))
-            return string.Empty;
-
-        BattleNodeData node = runManager.FindNode(nodeRect.name.Substring(prefix.Length));
-        if (node == null)
-            return string.Empty;
-
-        int stars = runManager.ResolveBattleRatingStars(node);
-        return new string('★', stars) + new string('☆', 5 - stars);
     }
 
     private void EnsureNodeIcon(RectTransform node)
@@ -416,18 +292,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         iconRect.SetAsLastSibling();
         icon.raycastTarget = false;
         icon.preserveAspect = true;
-    }
-
-    private Vector2 ResolveNodeNormalizedPosition(RectTransform node)
-    {
-        if (mapContent == null || node == null)
-            return Vector2.zero;
-
-        Rect rect = mapContent.rect;
-        Vector2 local = mapContent.InverseTransformPoint(node.position);
-        return new Vector2(
-            rect.width > 0.001f ? Mathf.Clamp(local.x / (rect.width * 0.5f), -1f, 1f) : 0f,
-            rect.height > 0.001f ? Mathf.Clamp(local.y / (rect.height * 0.5f), -1f, 1f) : 0f);
     }
 
     private static BattleNodeType ResolveNodeType(string source)
@@ -612,7 +476,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
 
     private void UpdateTabWheelInput()
     {
-        if (!IsCombat() || equipmentSystem == null || BattlePauseController.IsPaused || inputRouter == null)
+        if (!combatActive || equipmentSystem == null || BattlePauseController.IsPaused || inputRouter == null)
             return;
         if (!inputRouter.TabHeld || Mouse.current == null)
             return;
@@ -668,7 +532,7 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         lastEquippedSlot = slotIndex;
         SyncLoadoutSelection(slotIndex);
 
-        if (changed && IsCombat() && !BattlePauseController.IsPaused)
+        if (changed && combatActive && !BattlePauseController.IsPaused)
             PlaySwapSound(slotIndex);
     }
 
