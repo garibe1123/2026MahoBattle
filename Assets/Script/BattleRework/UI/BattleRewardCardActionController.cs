@@ -16,7 +16,7 @@ using UnityEngine.UI;
 ///
 /// Reward business state는 BattleRewardFlow가 단독 소유합니다.
 /// 이 클래스는 BattleHUD.pendingRewardIndex나 다른 Controller의 private field를 Reflection으로 읽지 않습니다.
-/// RewardPrizeDrag는 BattleHUD가 아직 생성하므로 stable index marker로만 읽고 즉시 비활성화합니다.
+/// RewardPrizeIndex marker만 읽어 카드의 stable index를 유지합니다.
 ///
 /// 정적인 카드 Text/Layout/Graphic은 선택/Hover 상태가 바뀔 때만 다시 적용합니다.
 /// 카드 크기/위치 Tween만 필요한 동안 프레임 단위로 갱신하여 World Space TV Canvas rebuild 비용을 제한합니다.
@@ -55,7 +55,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private BattleRunManager runManager;
     private BattleRewardFlow rewardFlow;
-    private BattleHUD battleHud;
     private BattleEquipmentDetailPanelController equipmentDetailPanel;
 
     private RectTransform rewardScreen;
@@ -212,7 +211,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         {
             lastPresentationPhase = phase;
             choicePresentationDirty = true;
-            DisableLegacyCardMotionAndDrag();
+            DisableLegacyCardMotion();
         }
 
         bool choice = phase == BattleRewardPhase.Choosing;
@@ -269,8 +268,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (rewardFlow == null)
             rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
-        if (battleHud == null)
-            battleHud = FindFirstObjectByType<BattleHUD>(FindObjectsInactive.Include);
         if (equipmentDetailPanel == null)
             equipmentDetailPanel = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
     }
@@ -421,7 +418,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         cards.Sort((a, b) => a.index.CompareTo(b.index));
-        DisableLegacyCardMotionAndDrag();
+        DisableLegacyCardMotion();
     }
 
     private static void DisableOtherRewardHoverRelays(RectTransform card)
@@ -442,7 +439,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
     }
 
-    private void DisableLegacyCardMotionAndDrag()
+    private void DisableLegacyCardMotion()
     {
         if (rewardCardRoot == null)
             return;
