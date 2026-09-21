@@ -341,7 +341,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         miniPackRoot.anchorMin = miniPackRoot.anchorMax = Vector2.zero;
         miniPackRoot.pivot = Vector2.zero;
         miniPackRoot.sizeDelta = miniPackSize;
-        miniPackRoot.localRotation = Quaternion.Euler(0f, 0f, -1.15f);
 
         RectTransform header = miniPackRoot.Find("PackHeaderTag") as RectTransform;
         if (header != null)
@@ -399,7 +398,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             RectTransform accent = slot.Find("CellAccent") as RectTransform;
             if (accent != null)
             {
-                accent.sizeDelta = new Vector2(6f, MiniCellSize - 10f);
+                accent.sizeDelta = new Vector2(4f, MiniCellSize - 12f);
                 accent.anchoredPosition = new Vector2(4f, 0f);
             }
         }
@@ -410,38 +409,69 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         if (miniPackRoot == null || miniPackGroup == null)
             return;
 
+        Vector2 targetPosition = combatMiniPackPosition;
+        float targetScale = 0.92f;
+        float targetAlpha = 0f;
+        float targetZ = 24f;
+        Quaternion targetRotation = Quaternion.Euler(2.4f, -5f, 0.8f);
+        bool interactive = false;
+
         if (rewardEdit || combatTab)
         {
-            miniPackGroup.alpha = 0f;
-            miniPackGroup.blocksRaycasts = false;
-            miniPackGroup.interactable = false;
-            return;
+            // Full inventory is active: Mini PACK clearly recedes instead of popping off.
+            targetPosition = combatMiniPackPosition + new Vector2(-10f, -6f);
+            targetScale = 0.90f;
+            targetAlpha = 0f;
+            targetZ = 30f;
+            targetRotation = Quaternion.Euler(3f, -6f, 1.0f);
         }
-
-        if (rewardChoice)
+        else if (rewardChoice)
         {
-            miniPackRoot.anchoredPosition = rewardChoiceMiniPackPosition;
-            miniPackRoot.localScale = Vector3.one * rewardChoiceMiniPackScale;
-            miniPackGroup.alpha = rewardChoiceMiniPackAlpha;
-            miniPackGroup.blocksRaycasts = false;
-            miniPackGroup.interactable = false;
-            return;
+            targetPosition = rewardChoiceMiniPackPosition;
+            targetScale = rewardChoiceMiniPackScale;
+            targetAlpha = rewardChoiceMiniPackAlpha;
+            targetZ = 8f;
+            targetRotation = Quaternion.Euler(1.0f, -2.2f, -0.25f);
         }
-
-        if (combat)
+        else if (combat)
         {
-            miniPackRoot.anchoredPosition = combatMiniPackPosition;
-            miniPackRoot.localScale = Vector3.one;
-            miniPackGroup.alpha = 1f;
-            bool interactive = !BattlePauseController.IsPaused;
-            miniPackGroup.blocksRaycasts = interactive;
-            miniPackGroup.interactable = interactive;
-            return;
+            targetPosition = combatMiniPackPosition;
+            targetScale = 1f;
+            targetAlpha = 1f;
+            targetZ = -4f;
+            targetRotation = Quaternion.Euler(0.35f, -1.2f, -0.15f);
+            interactive = !BattlePauseController.IsPaused;
         }
 
-        miniPackGroup.alpha = 0f;
-        miniPackGroup.blocksRaycasts = false;
-        miniPackGroup.interactable = false;
+        float t = 1f - Mathf.Exp(-14f * Time.unscaledDeltaTime);
+
+        miniPackRoot.anchoredPosition = Vector2.Lerp(
+            miniPackRoot.anchoredPosition,
+            targetPosition,
+            t);
+
+        miniPackRoot.localScale = Vector3.Lerp(
+            miniPackRoot.localScale,
+            Vector3.one * targetScale,
+            t);
+
+        miniPackRoot.localRotation = Quaternion.Slerp(
+            miniPackRoot.localRotation,
+            targetRotation,
+            t);
+
+        Vector3 local = miniPackRoot.localPosition;
+        local.z = Mathf.Lerp(local.z, targetZ, t);
+        miniPackRoot.localPosition = local;
+
+        miniPackGroup.alpha = Mathf.Lerp(
+            miniPackGroup.alpha,
+            targetAlpha,
+            t);
+
+        bool canRaycast = interactive && miniPackGroup.alpha >= 0.92f;
+        miniPackGroup.blocksRaycasts = canRaycast;
+        miniPackGroup.interactable = canRaycast;
     }
 
     private void ApplyFullInventoryLayout(bool rewardEdit, bool combatTab)
