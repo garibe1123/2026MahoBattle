@@ -1427,6 +1427,7 @@ MonoBehaviour:
   focusedMissionSize: {x: 700, y: 700}
   missionPanelOffset: {x: -44, y: -128}
   focusedMissionPanelOffset: {x: -78, y: -154}
+  chatSize: {x: 440, y: 210}
   inkColor: {r: 0.025, g: 0.028, b: 0.045, a: 0.985}
   paperColor: {r: 0.94, g: 0.95, b: 0.97, a: 1}
 --- !u!114 &529217579
