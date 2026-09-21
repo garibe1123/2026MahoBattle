@@ -242,7 +242,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             {
                 BuildStage();
                 ReparentScreens();
-                PrepareCombatDropSlots();
                 DisableLegacyOnce();
                 bound = true;
                 bindRoutine = null;
@@ -358,24 +357,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         rect.anchoredPosition = Vector2.zero;
         rect.localScale = Vector3.one;
         rect.localRotation = Quaternion.identity;
-    }
-
-    private void PrepareCombatDropSlots()
-    {
-        if (equipmentDock == null)
-            return;
-
-        for (int i = 0; i < BattleEquipmentSystem.MaxSlotCount; i++)
-        {
-            Transform slot = equipmentDock.Find($"Slot_{i + 1}");
-            if (slot == null)
-                continue;
-
-            RewardInventoryDropZone zone = slot.GetComponent<RewardInventoryDropZone>();
-            if (zone == null)
-                zone = slot.gameObject.AddComponent<RewardInventoryDropZone>();
-            zone.Configure(hud, i);
-        }
     }
 
     private void DisableLegacyOnce()
