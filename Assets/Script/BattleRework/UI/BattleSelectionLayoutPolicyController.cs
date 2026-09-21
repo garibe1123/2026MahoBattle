@@ -23,9 +23,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     [SerializeField] private Vector2 rewardCameraBiasWorld = new(0.18f, -0.72f);
     [SerializeField] private Vector2 mapCameraBiasWorld = new(0f, 0.02f);
 
-    [Header("Map")]
-    [SerializeField, Range(1f, 1.4f)] private float mapContentScale = 1.14f;
-
     private BattleRunManager runManager;
     private BattleShowWorldSetController showWorldSet;
 
@@ -254,7 +251,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             mapContent.offsetMin = Vector2.zero;
             mapContent.offsetMax = Vector2.zero;
             mapContent.pivot = new Vector2(0.5f, 0.5f);
-            mapContent.localScale = Vector3.one * mapContentScale;
         }
     }
 
