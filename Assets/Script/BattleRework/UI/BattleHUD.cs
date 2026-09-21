@@ -953,3 +953,134 @@ internal sealed class RewardInventoryDropZone : MonoBehaviour, IDropHandler, IPo
 
     public void OnDrop(PointerEventData eventData)
     {
+        _ = eventData;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        _ = eventData;
+    }
+}
+
+internal static class BattleHudSpriteCache
+{
+    private static Sprite roundedPanel;
+    private static Sprite defaultSprite;
+    private static Sprite floorSpotlight;
+
+    public static Sprite RoundedPanel => roundedPanel != null ? roundedPanel : roundedPanel = CreateRoundedPanel();
+    public static Sprite DefaultSprite => defaultSprite != null ? defaultSprite : defaultSprite = CreateDefaultSprite();
+    public static Sprite FloorSpotlight => floorSpotlight != null ? floorSpotlight : floorSpotlight = CreateFloorSpotlight();
+
+    private static Sprite CreateRoundedPanel()
+    {
+        const int pixels = 32;
+        const float radius = 7f;
+        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < pixels; y++)
+        {
+            for (int x = 0; x < pixels; x++)
+            {
+                float dx = Mathf.Max(Mathf.Abs(x - 15.5f) - (15.5f - radius), 0f);
+                float dy = Mathf.Max(Mathf.Abs(y - 15.5f) - (15.5f - radius), 0f);
+                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                float a = Mathf.Clamp01(radius + 0.5f - d);
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, a));
+            }
+        }
+
+        texture.Apply(false, true);
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, pixels, pixels),
+            new Vector2(0.5f, 0.5f),
+            pixels,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(8f, 8f, 8f, 8f));
+        sprite.name = "RuntimeHudRoundedPanel";
+        sprite.hideFlags = HideFlags.HideAndDontSave;
+        return sprite;
+    }
+
+    private static Sprite CreateDefaultSprite()
+    {
+        const int pixels = 16;
+        Texture2D texture = new(pixels, pixels, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        for (int y = 0; y < pixels; y++)
+            for (int x = 0; x < pixels; x++)
+                texture.SetPixel(x, y, Color.white);
+
+        texture.Apply(false, true);
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, pixels, pixels),
+            new Vector2(0.5f, 0.5f),
+            pixels,
+            0,
+            SpriteMeshType.FullRect);
+        sprite.name = "RuntimeSpriteDefault";
+        sprite.hideFlags = HideFlags.HideAndDontSave;
+        return sprite;
+    }
+
+    private static Sprite CreateFloorSpotlight()
+    {
+        const int width = 256;
+        const int height = 128;
+        Texture2D texture = new(width, height, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        Vector2 center = new((width - 1) * 0.5f, (height - 1) * 0.5f);
+        float invRadiusX = 1f / Mathf.Max(1f, center.x);
+        float invRadiusY = 1f / Mathf.Max(1f, center.y);
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float nx = (x - center.x) * invRadiusX;
+                float ny = (y - center.y) * invRadiusY;
+                float radius = Mathf.Sqrt(nx * nx + ny * ny);
+                float core = 1f - Mathf.SmoothStep(0.08f, 0.70f, radius);
+                float feather = 1f - Mathf.SmoothStep(0.56f, 1f, radius);
+                float alpha = Mathf.Clamp01(core * 0.52f + feather * 0.48f);
+                alpha *= Mathf.Clamp01(1f - Mathf.Pow(radius, 3.2f));
+                texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+            }
+        }
+
+        texture.Apply(false, true);
+        Sprite sprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, width, height),
+            new Vector2(0.5f, 0.5f),
+            128f,
+            0,
+            SpriteMeshType.FullRect);
+        sprite.name = "RuntimeRewardBirdEyeFloorSpotlight";
+        sprite.hideFlags = HideFlags.HideAndDontSave;
+        return sprite;
+    }
+}
