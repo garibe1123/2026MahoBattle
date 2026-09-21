@@ -418,7 +418,6 @@ public class BattleSceneManager : MonoBehaviour
         EnsureSceneSupportComponent<BattleKineticLoadoutUI>();
         EnsureSceneSupportComponent<BattleKineticItemBarUI>();
         EnsureSceneSupportComponent<BattleCombatHudInputBridge>();
-        EnsureSceneSupportComponent<BattleCombatNumberKeyEquipController>();
         EnsureSceneSupportComponent<BattlePauseController>();
 
         EnsureSceneSupportComponent<BattleInventoryInteractionController>();
