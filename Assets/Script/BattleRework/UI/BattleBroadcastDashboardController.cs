@@ -52,6 +52,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField, Range(4f, 30f)] private float layoutSharpness = 14f;
     [SerializeField, Min(100f)] private float rightSlideDistance = 260f;
     [SerializeField] private Vector2 inactivePanelCornerOffset = new(210f, -26f);
+    [SerializeField, Range(0f, 48f)] private float focusLatchPadding = 18f;
 
     [Header("Broadcast Metrics")]
     [SerializeField] private Vector2 compactMetricSize = new(300f, 42f);
@@ -128,6 +129,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private int currentViewers;
     private int currentLikes;
     private bool combatActive;
+    private Rect focusEntryScreenRect;
+    private bool focusEntryRectValid;
 
     private static Sprite viewerMetricSprite;
     private static Sprite likeMetricSprite;
@@ -697,30 +700,25 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         }
 
         Vector2 mouse = Input.mousePosition;
+
+        // Once a panel starts moving because of focus, keep that focus while the
+        // pointer remains inside either the entry rect OR the animated current rect.
+        // This prevents a panel from invalidating its own hover by moving away.
+        if (focus != BattleCombatTabFocus.None &&
+            IsPointerInsideLatchedFocus(mouse))
+        {
+            if (focus == BattleCombatTabFocus.Mission)
+            {
+                int latchedMission = FindMissionRowUnderPointer(mouse);
+                if (latchedMission >= 0)
+                    SetMissionSelection(latchedMission);
+            }
+            return;
+        }
+
         int hovered = FindMissionRowUnderPointer(mouse);
 
-        bool overMission =
-            missionPanel != null &&
-            RectTransformUtility.RectangleContainsScreenPoint(missionPanel, mouse, null);
-        bool overChat =
-            chatPanel != null &&
-            RectTransformUtility.RectangleContainsScreenPoint(chatPanel, mouse, null);
-
-        RectTransform rulePanel =
-            rouletteController != null ? rouletteController.CombatRulePanel : null;
-        bool overRules =
-            rulePanel != null &&
-            rulePanel.gameObject.activeInHierarchy &&
-            RectTransformUtility.RectangleContainsScreenPoint(rulePanel, mouse, null);
-
-        RectTransform packBoard =
-            kineticLoadout != null ? kineticLoadout.GridBoard : null;
-        bool overPack =
-            packBoard != null &&
-            packBoard.gameObject.activeInHierarchy &&
-            RectTransformUtility.RectangleContainsScreenPoint(packBoard, mouse, null);
-
-        if (overMission)
+        if (IsPointerInsidePanel(missionPanel, mouse))
         {
             if (hovered >= 0)
                 SetMissionSelection(hovered);
@@ -728,25 +726,107 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
         }
 
-        if (overChat)
+        if (IsPointerInsidePanel(chatPanel, mouse))
         {
             SetFocus(BattleCombatTabFocus.Chat);
             return;
         }
 
-        if (overRules)
+        RectTransform rulePanel =
+            rouletteController != null ? rouletteController.CombatRulePanel : null;
+        if (IsPointerInsidePanel(rulePanel, mouse))
         {
             SetFocus(BattleCombatTabFocus.Rules);
             return;
         }
 
-        if (overPack)
+        RectTransform packBoard =
+            kineticLoadout != null ? kineticLoadout.GridBoard : null;
+        if (IsPointerInsidePanel(packBoard, mouse))
         {
             SetFocus(BattleCombatTabFocus.Pack);
             return;
         }
 
         SetFocus(BattleCombatTabFocus.None);
+    }
+
+    private bool IsPointerInsideLatchedFocus(Vector2 pointer)
+    {
+        RectTransform current = ResolveFocusRect(focus);
+        bool insideCurrent = IsPointerInsidePanel(current, pointer);
+        bool insideEntry = focusEntryRectValid && focusEntryScreenRect.Contains(pointer);
+        return insideCurrent || insideEntry;
+    }
+
+    private RectTransform ResolveFocusRect(BattleCombatTabFocus target)
+    {
+        return target switch
+        {
+            BattleCombatTabFocus.Pack =>
+                kineticLoadout != null ? kineticLoadout.GridBoard : null,
+            BattleCombatTabFocus.Rules =>
+                rouletteController != null ? rouletteController.CombatRulePanel : null,
+            BattleCombatTabFocus.Mission => missionPanel,
+            BattleCombatTabFocus.Chat => chatPanel,
+            _ => null
+        };
+    }
+
+    private bool IsPointerInsidePanel(RectTransform rect, Vector2 pointer)
+    {
+        if (rect == null || !rect.gameObject.activeInHierarchy)
+            return false;
+
+        Rect screenRect = GetScreenRect(rect);
+        float padding = Mathf.Max(0f, focusLatchPadding);
+        screenRect.xMin -= padding;
+        screenRect.xMax += padding;
+        screenRect.yMin -= padding;
+        screenRect.yMax += padding;
+        return screenRect.Contains(pointer);
+    }
+
+    private static Rect GetScreenRect(RectTransform rect)
+    {
+        Vector3[] corners = new Vector3[4];
+        rect.GetWorldCorners(corners);
+
+        Canvas canvas = rect.GetComponentInParent<Canvas>();
+        Camera camera =
+            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        Vector2 min = RectTransformUtility.WorldToScreenPoint(camera, corners[0]);
+        Vector2 max = min;
+
+        for (int i = 1; i < corners.Length; i++)
+        {
+            Vector2 point = RectTransformUtility.WorldToScreenPoint(camera, corners[i]);
+            min = Vector2.Min(min, point);
+            max = Vector2.Max(max, point);
+        }
+
+        return Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+    }
+
+    private void CaptureFocusEntryRect(BattleCombatTabFocus target)
+    {
+        RectTransform rect = ResolveFocusRect(target);
+        if (rect == null || !rect.gameObject.activeInHierarchy)
+        {
+            focusEntryRectValid = false;
+            return;
+        }
+
+        focusEntryScreenRect = GetScreenRect(rect);
+        float padding = Mathf.Max(0f, focusLatchPadding);
+        focusEntryScreenRect.xMin -= padding;
+        focusEntryScreenRect.xMax += padding;
+        focusEntryScreenRect.yMin -= padding;
+        focusEntryScreenRect.yMax += padding;
+        focusEntryRectValid = true;
     }
 
     private int FindMissionRowUnderPointer(Vector2 mouse)
@@ -794,19 +874,22 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
 
         if (active)
-        {
             SetFocus(target);
-            return;
-        }
 
-        if (focus == target)
-            SetFocus(BattleCombatTabFocus.None);
+        // PointerExit is intentionally not authoritative. Animated panels move
+        // under the cursor, so the central latched hit test releases focus only
+        // after the pointer leaves both the entry and current rectangles.
     }
 
     private void SetFocus(BattleCombatTabFocus next)
     {
         if (focus == next)
             return;
+
+        if (next != BattleCombatTabFocus.None)
+            CaptureFocusEntryRect(next);
+        else
+            focusEntryRectValid = false;
 
         focus = next;
         ApplyFocusState();
