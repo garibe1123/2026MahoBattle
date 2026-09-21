@@ -36,38 +36,9 @@ public static class BattleTestDefaults
     private static bool busy;
 
 #if UNITY_EDITOR
-    private static bool editorEnsureQueued;
-
-    [InitializeOnLoadMethod]
-    private static void InitializeEditorWatcher()
+    [MenuItem("Tools/Battle/Rebuild Test Defaults")]
+    private static void RebuildEditorDefaultsFromMenu()
     {
-        EditorApplication.hierarchyChanged -= ScheduleSoon;
-        EditorApplication.hierarchyChanged += ScheduleSoon;
-        ScheduleSoon();
-    }
-
-    private static void ScheduleSoon()
-    {
-        if (EditorApplication.isPlayingOrWillChangePlaymode || editorEnsureQueued)
-            return;
-
-        editorEnsureQueued = true;
-        EditorApplication.delayCall += RunQueuedEditorDefaults;
-    }
-
-    private static void RunQueuedEditorDefaults()
-    {
-        editorEnsureQueued = false;
-
-        // Asset creation is owned by the import-safe migration while Unity is compiling/importing.
-        // Do not spin an EditorApplication.update watcher here.
-        if (EditorApplication.isPlayingOrWillChangePlaymode ||
-            EditorApplication.isCompiling ||
-            EditorApplication.isUpdating)
-        {
-            return;
-        }
-
         EnsureEditorDefaults();
     }
 
