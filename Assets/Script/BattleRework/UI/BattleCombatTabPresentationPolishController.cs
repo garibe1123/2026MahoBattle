@@ -286,6 +286,17 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         RestoreDetailSorting();
         SetChatVisible(false);
         SetMetricVisible(false);
+
+        // Component teardown has no following animation tick, so prevent orphan UI.
+        if (chatGroup != null)
+            chatGroup.alpha = 0f;
+        if (chatPanel != null)
+            chatPanel.gameObject.SetActive(false);
+        if (metricGroup != null)
+            metricGroup.alpha = 0f;
+        if (metricBar != null)
+            metricBar.gameObject.SetActive(false);
+
         presentationState = BattleCombatTabPresentationState.Hidden;
     }
 
