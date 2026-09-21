@@ -1739,47 +1739,74 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (battleCameraController == null)
             battleCameraController = FindFirstObjectByType<BattleCameraController>();
 
-        if (stageMapPanel == null || stageMapRevealRoutine != null)
+        if (!mapSelectionActive ||
+            stageMapPanel == null ||
+            stageMapRevealRoutine != null ||
+            stageMapSelectionLocked ||
+            !stageMapPanel.gameObject.activeInHierarchy)
         {
             battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
             return;
         }
 
-        if (stageMapSelectionLocked)
-            return;
-
-        bool interactive = runManager != null && runManager.WaitingForNodeSelection &&
-                           stageMapPanel.gameObject.activeInHierarchy;
-        Camera eventCamera = Camera.main;
-
-        if (interactive && RectTransformUtility.RectangleContainsScreenPoint(
-                stageMapPanel,
-                Input.mousePosition,
-                eventCamera))
+        Camera eventCamera = ResolveStageMapEventCamera();
+        Button[] buttons = stageMapPanel.GetComponentsInChildren<Button>(false);
+        for (int i = 0; i < buttons.Length; i++)
         {
-            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                    stageMapPanel,
-                    Input.mousePosition,
-                    eventCamera,
-                    out Vector2 localCursor))
+            Button button = buttons[i];
+            if (button == null || !button.interactable)
+                continue;
+
+            RectTransform node = button.transform as RectTransform;
+            if (node == null ||
+                !RectTransformUtility.RectangleContainsScreenPoint(node, Input.mousePosition, eventCamera))
             {
-                Rect rect = stageMapPanel.rect;
-                Vector2 normalized = new(
-                    rect.width > 0.001f ? Mathf.Clamp(localCursor.x / (rect.width * 0.5f), -1f, 1f) : 0f,
-                    rect.height > 0.001f ? Mathf.Clamp(localCursor.y / (rect.height * 0.5f), -1f, 1f) : 0f);
-                battleCameraController?.SetMapCursorTracking(true, normalized);
-                return;
+                continue;
             }
+
+            Vector2 localCenter = stageMapPanel.InverseTransformPoint(
+                node.TransformPoint(node.rect.center));
+            Rect panelRect = stageMapPanel.rect;
+            Vector2 normalized = new(
+                panelRect.width > 0.001f
+                    ? Mathf.Clamp(localCenter.x / (panelRect.width * 0.5f), -1f, 1f)
+                    : 0f,
+                panelRect.height > 0.001f
+                    ? Mathf.Clamp(localCenter.y / (panelRect.height * 0.5f), -1f, 1f)
+                    : 0f);
+
+            battleCameraController?.SetMapCursorTracking(true, normalized);
+            return;
         }
+
         battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+    }
+
+    private Camera ResolveStageMapEventCamera()
+    {
+        if (stageMapCanvas == null && stageMapPanel != null)
+            stageMapCanvas = stageMapPanel.GetComponentInParent<Canvas>();
+
+        if (stageMapCanvas == null ||
+            stageMapCanvas.renderMode == RenderMode.ScreenSpaceOverlay)
+        {
+            return null;
+        }
+
+        if (stageMapCanvas.worldCamera != null)
+            return stageMapCanvas.worldCamera;
+
+        return Camera.main;
     }
 
     private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)
     {
-        if (stageMapSelectionLocked || runManager == null || !runManager.WaitingForNodeSelection)
+        if (stageMapSelectionLocked || runManager == null || !mapSelectionActive)
             return;
 
         stageMapSelectionLocked = true;
+        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+
         if (stageMapCanvasGroup != null)
             stageMapCanvasGroup.blocksRaycasts = false;
         if (stageMapConfirmRoutine != null)
