@@ -741,10 +741,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             if (slotStates[i] != null)
             {
                 Vector2Int p = BattleEquipmentSystem.SlotIndexToGrid(i);
+                bool isSelected = switchHeld && boardWasShown && i == selectedIndex;
                 slotStates[i].text = !unlocked
-                    ? $"{p.x + 1}-{p.y + 1}  // LOCK"
-                    : isEquipped ? "● EQUIPPED" : $"{p.x + 1}-{p.y + 1}";
-                slotStates[i].color = isEquipped ? accentCyan : new Color(0.55f, 0.60f, 0.70f, 1f);
+                    ? $"{p.x + 1}-{p.y + 1}  // LOCKED"
+                    : isEquipped
+                        ? "● EQUIPPED"
+                        : isSelected
+                            ? "● SELECTED"
+                            : $"{p.x + 1}-{p.y + 1}  // READY";
+                slotStates[i].color = isEquipped
+                    ? accentCyan
+                    : isSelected
+                        ? paperColor
+                        : new Color(0.55f, 0.60f, 0.70f, 1f);
             }
         }
 
