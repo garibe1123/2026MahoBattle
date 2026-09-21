@@ -480,7 +480,7 @@ MonoBehaviour:
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
   lockedColor: {r: 0.07, g: 0.075, b: 0.085, a: 0.92}
   uiSharpness: 16
-  packHandoffScale: 0.34
+  packMorphDuration: 0.34
   packFocusedOffset: {x: 54, y: 18}
   packInactiveCornerOffset: {x: -170, y: -132}
 --- !u!114 &100017
