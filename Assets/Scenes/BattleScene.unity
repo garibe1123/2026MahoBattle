@@ -141,7 +141,6 @@ GameObject:
   - component: {fileID: 100015}
   - component: {fileID: 100018}
   - component: {fileID: 100019}
-  - component: {fileID: 100021}
   - component: {fileID: 100020}
   - component: {fileID: 100022}
   - component: {fileID: 100023}
@@ -150,15 +149,12 @@ GameObject:
   - component: {fileID: 100033}
   - component: {fileID: 100034}
   - component: {fileID: 100035}
-  - component: {fileID: 100036}
   - component: {fileID: 100038}
-  - component: {fileID: 100039}
   - component: {fileID: 100049}
   - component: {fileID: 100048}
   - component: {fileID: 100047}
   - component: {fileID: 100044}
   - component: {fileID: 100042}
-  - component: {fileID: 100050}
   m_Layer: 0
   m_Name: BattleSystems
   m_TagString: Untagged
@@ -571,25 +567,6 @@ MonoBehaviour:
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
---- !u!114 &100021
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100000}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 2bead1ce70c842ad8e11ff8e49052c36, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  runManager: {fileID: 0}
-  screenColor: {r: 0.018, g: 0.02, b: 0.024, a: 0.995}
-  innerColor: {r: 0.028, g: 0.03, b: 0.034, a: 0.995}
-  screenOutline: {r: 0.96, g: 0.96, b: 0.96, a: 0.28}
-  innerOutline: {r: 0.96, g: 0.96, b: 0.96, a: 0.16}
-  titleColor: {r: 0.96, g: 0.96, b: 0.96, a: 1}
-  secondaryTextColor: {r: 0.56, g: 0.57, b: 0.6, a: 1}
 --- !u!114 &100022
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -776,32 +753,6 @@ MonoBehaviour:
   rewardCameraBiasWorld: {x: 0.18, y: 0.08}
   mapCameraBiasWorld: {x: 0, y: 0.02}
   mapContentScale: 1.14
---- !u!114 &100036
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100000}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 43c34dc064db4bbeb25b667fb3d71bce, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  black: {r: 0.018, g: 0.02, b: 0.024, a: 0.99}
-  darkCell: {r: 0.065, g: 0.068, b: 0.075, a: 0.98}
-  emptyCell: {r: 0.12, g: 0.12, b: 0.14, a: 0.96}
-  lockedCell: {r: 0.05, g: 0.05, b: 0.06, a: 0.9}
-  white: {r: 0.96, g: 0.96, b: 0.96, a: 1}
-  muted: {r: 0.56, g: 0.57, b: 0.6, a: 1}
-  neutralOutline: {r: 0.88, g: 0.88, b: 0.88, a: 0.2}
-  equippedAccent: {r: 1, g: 0.8, b: 0.1, a: 1}
-  level1Color: {r: 1, g: 1, b: 1, a: 1}
-  level2Color: {r: 0.24, g: 0.72, b: 1, a: 1}
-  level3Color: {r: 0.72, g: 0.34, b: 1, a: 1}
-  equipmentSystem: {fileID: 0}
-  inventoryInteraction: {fileID: 0}
-  unifiedInventory: {fileID: 0}
 --- !u!114 &100038
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -832,35 +783,6 @@ MonoBehaviour:
   hoverPink: {r: 1, g: 0.16, b: 0.5, a: 1}
   lockedBack: {r: 0.006, g: 0.008, b: 0.012, a: 0.9}
   lockedStripe: {r: 0.88, g: 0.9, b: 0.94, a: 0.16}
---- !u!114 &100039
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100000}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 5f73043ae99e4f36ab3745535991b662, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  buttonSize: {x: 232, y: 72}
-  readyColor: {r: 1, g: 0.8, b: 0.08, a: 1}
-  disabledColor: {r: 0.22, g: 0.23, b: 0.26, a: 0.96}
-  inkColor: {r: 0.018, g: 0.02, b: 0.024, a: 1}
-  disabledTextColor: {r: 0.72, g: 0.73, b: 0.76, a: 1}
-  accentPulseSpeed: 2.65
-  mainAccentWidthRange: {x: 30, y: 54}
-  mainAccentThicknessRange: {x: 3.5, y: 6.5}
-  smallAccentWidthRange: {x: 18, y: 38}
-  smallAccentThicknessRange: {x: 2.5, y: 5}
-  hoverAccentScale: 1.12
-  wobbleSpeed: 3.9
-  squashX: 0.04
-  squashY: 0.026
-  travelX: 3.5
-  travelY: 1.4
-  wobbleDegrees: 0.9
 --- !u!114 &100042
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -950,37 +872,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   normalFixedDeltaTime: 0.02
---- !u!114 &100050
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 100000}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 4d7d52f998ad42bd8fa6e012a1ec9ac7, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  runManager: {fileID: 0}
-  equipmentSystem: {fileID: 0}
-  rewardFlow: {fileID: 0}
-  kineticLoadout: {fileID: 0}
-  otherSlotAlpha: 0.72
-  dimInDuration: 0.08
-  focusHoldDuration: 0.56
-  dimOutDuration: 0.18
-  impactScale: 1.14
-  reboundScale: 0.96
-  settleOvershoot: 1.04
-  impactDelay: 0.18
-  incomingIconOffset: {x: 0, y: -22}
-  outgoingIconOffset: {x: -24, y: 30}
-  incomingStartScale: 0.76
-  addedColor: {r: 1, g: 0.8, b: 0.1, a: 1}
-  replacedColor: {r: 1, g: 0.18, b: 0.52, a: 1}
-  progressedColor: {r: 0.15, g: 0.88, b: 0.92, a: 1}
-  removedColor: {r: 0.72, g: 0.72, b: 0.76, a: 1}
 --- !u!1 &24410127
 GameObject:
   m_ObjectHideFlags: 0
@@ -1292,7 +1183,6 @@ GameObject:
   - component: {fileID: 529217569}
   - component: {fileID: 529217568}
   - component: {fileID: 529217567}
-  - component: {fileID: 529217566}
   - component: {fileID: 529217577}
   - component: {fileID: 529217579}
   m_Layer: 0
@@ -1317,46 +1207,6 @@ Transform:
   m_Children: []
   m_Father: {fileID: 100001}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!114 &529217566
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 529217564}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 7ad8abcd772247b2962d30e9abde72b0, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: 
-  runManager: {fileID: 0}
-  rewardFlow: {fileID: 0}
-  kineticLoadout: {fileID: 0}
-  transitionDuration: 0.24
-  transitionCurve:
-    serializedVersion: 2
-    m_Curve:
-    - serializedVersion: 3
-      time: 0
-      value: 0
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0
-      outWeight: 0
-    - serializedVersion: 3
-      time: 1
-      value: 1
-      inSlope: 0
-      outSlope: 0
-      tangentMode: 0
-      weightedMode: 0
-      inWeight: 0
-      outWeight: 0
-    m_PreInfinity: 2
-    m_PostInfinity: 2
-    m_RotationOrder: 4
 --- !u!114 &529217567
 MonoBehaviour:
   m_ObjectHideFlags: 0
