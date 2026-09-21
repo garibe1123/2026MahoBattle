@@ -136,6 +136,7 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     [Header("AUTO REFERENCES")]
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleUIThemeController uiTheme;
     [SerializeField] private RunProgressSystem runProgress;
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleEquipmentDetailPanelController detailController;
@@ -434,6 +435,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (force || runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (force || uiTheme == null)
+            uiTheme = BattleUIThemeController.Instance != null
+                ? BattleUIThemeController.Instance
+                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
         if (force || runProgress == null)
             runProgress = FindFirstObjectByType<RunProgressSystem>();
         if (force || kineticLoadout == null)
@@ -593,7 +598,24 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         float currentRotation = NormalizeAngle(metricBar.localEulerAngles.z);
         float nextRotation = Mathf.LerpAngle(currentRotation, targetRotation, t);
-        metricBar.localRotation = Quaternion.Euler(0f, 0f, nextRotation);
+        Quaternion targetSpatialRotation = Quaternion.Euler(
+            tabOpen ? -1.5f : -0.5f,
+            tabOpen ? -3.5f : -1.8f,
+            nextRotation);
+        metricBar.localRotation = Quaternion.Slerp(
+            metricBar.localRotation,
+            targetSpatialRotation,
+            t);
+
+        Vector3 metricLocal = metricBar.localPosition;
+        metricLocal.z = Mathf.Lerp(metricLocal.z, tabOpen ? -8f : 2f, t);
+        metricBar.localPosition = metricLocal;
+
+        BattleSpatialGlassPanel metricGlass =
+            metricBar.GetComponent<BattleSpatialGlassPanel>();
+        metricGlass?.SetSpatialState(
+            tabOpen ? 0.62f : 0.12f,
+            tabOpen ? 0.45f : -0.18f);
     }
 
     private void SetMetricVisible(bool visible)
@@ -988,17 +1010,11 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
             outline = chatPanel.gameObject.AddComponent<Outline>();
         outline.enabled = false;
 
-        BattlePersona4FrameDecorator chatFrame =
-            chatPanel.GetComponent<BattlePersona4FrameDecorator>();
-        if (chatFrame == null)
-            chatFrame = chatPanel.gameObject.AddComponent<BattlePersona4FrameDecorator>();
-        chatFrame.Configure(
-            new Color(0.025f, 0.028f, 0.045f, 0.97f),
-            new Color(0.94f, 0.95f, 0.97f, 0.92f),
-            new Color(1f, 0.80f, 0.10f, 1f),
-            false,
-            0.12f,
-            new Vector2(-6f, 6f));
+        BattleSpatialGlassPanel chatGlass =
+            chatPanel.GetComponent<BattleSpatialGlassPanel>();
+        if (chatGlass == null)
+            chatGlass = chatPanel.gameObject.AddComponent<BattleSpatialGlassPanel>();
+        chatGlass.Configure(false, 0.10f, -0.040f);
 
         chatGroup = chatPanel.GetComponent<CanvasGroup>();
         if (chatGroup == null)
@@ -1016,7 +1032,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatHeader.fontSize = 13;
         chatHeader.fontStyle = FontStyle.Bold;
         chatHeader.alignment = TextAnchor.MiddleLeft;
-        chatHeader.color = new Color(0.10f, 0.88f, 0.95f, 1f);
+        BattleUIThemeProfile activeTheme = uiTheme != null ? uiTheme.CurrentProfile : null;
+        chatHeader.color = activeTheme != null
+            ? activeTheme.keyColor
+            : new Color(1f, 0.82f, 0.10f, 1f);
         chatHeader.raycastTarget = false;
 
         RectTransform divider = chatPanel.Find("Divider") as RectTransform;
@@ -1038,7 +1057,9 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatBody.lineSpacing = 1.10f;
         chatBody.supportRichText = true;
         chatBody.raycastTarget = false;
-        chatBody.color = new Color(0.94f, 0.95f, 0.97f, 0.98f);
+        chatBody.color = activeTheme != null
+            ? activeTheme.textPrimary
+            : new Color(0.94f, 0.95f, 0.97f, 0.98f);
 
         Shadow bodyShadow = chatBody.GetComponent<Shadow>();
         if (bodyShadow == null)
@@ -1066,8 +1087,31 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         chatPanel.anchorMin = chatPanel.anchorMax = Vector2.one;
         chatPanel.pivot = Vector2.one;
         chatPanel.anchoredPosition = new Vector2(missionPanel.anchoredPosition.x, chatY);
-        chatPanel.localRotation = Quaternion.identity;
-        chatPanel.localScale = Vector3.one;
+        float spatialT = 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime);
+        Quaternion targetRotation = rightPanelFocused
+            ? Quaternion.Euler(-1.0f, -2.0f, 0f)
+            : Quaternion.Euler(1.8f, -6.0f, 0f);
+        chatPanel.localRotation = Quaternion.Slerp(
+            chatPanel.localRotation,
+            targetRotation,
+            spatialT);
+        chatPanel.localScale = Vector3.Lerp(
+            chatPanel.localScale,
+            Vector3.one * (rightPanelFocused ? 1f : 0.965f),
+            spatialT);
+
+        Vector3 chatLocal = chatPanel.localPosition;
+        chatLocal.z = Mathf.Lerp(
+            chatLocal.z,
+            rightPanelFocused ? -10f : 4f,
+            spatialT);
+        chatPanel.localPosition = chatLocal;
+
+        BattleSpatialGlassPanel chatGlass =
+            chatPanel.GetComponent<BattleSpatialGlassPanel>();
+        chatGlass?.SetSpatialState(
+            rightPanelFocused ? 0.85f : 0.10f,
+            rightPanelFocused ? 0.65f : -0.28f);
     }
 
     private void SetChatVisible(bool visible)
