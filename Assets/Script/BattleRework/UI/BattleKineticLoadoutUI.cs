@@ -23,6 +23,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private BattleTimeScaleController timeScaleController;
     [SerializeField] private BattleInputRouter inputRouter;
     [SerializeField] private PlayerController player;
+    [SerializeField] private BattleKineticItemBarUI miniPackUI;
+    [SerializeField] private BattleBroadcastDashboardController dashboardController;
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
@@ -39,7 +41,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
     [SerializeField, Range(0.18f, 0.55f)] private float packHandoffScale = 0.34f;
-    [SerializeField] private Vector2 compactPackTabPull = new(-92f, 72f);
+    [SerializeField] private Vector2 packFocusedOffset = new(54f, 18f);
+    [SerializeField] private Vector2 packInactiveCornerOffset = new(-170f, -132f);
 
     [Header("Compact Vitals")]
     [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
@@ -53,8 +56,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private CanvasGroup fullGroup;
     private RectTransform fullRoot;
     private RectTransform boardRoot;
+    private CanvasGroup boardGroup;
     private RectTransform linkRoot;
     private RectTransform detailRoot;
+    private CanvasGroup detailGroup;
     private Text detailTitle;
     private Text detailTags;
     private Text synergySummary;
@@ -68,6 +73,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform staminaFillRect;
     private Text hpText;
     private Text staminaText;
+    private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
@@ -179,6 +185,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             inputRouter = BattleInputRouter.ResolveOrCreate(this);
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
+        if (miniPackUI == null)
+            miniPackUI = FindFirstObjectByType<BattleKineticItemBarUI>(FindObjectsInactive.Include);
+        if (dashboardController == null)
+            dashboardController = FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
     }
 
     private void Subscribe()
@@ -601,6 +611,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         subRect.localRotation = Quaternion.identity;
 
         detailRoot = CreateRect(fullRoot, "DetailPanel", new Vector2(570f, 330f));
+        detailGroup = detailRoot.gameObject.AddComponent<CanvasGroup>();
         detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(0f, 0.5f);
         detailRoot.pivot = new Vector2(0f, 0.5f);
         detailRoot.anchoredPosition = new Vector2(98f, -90f);
@@ -617,6 +628,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         SetAnchors(synergySummary.rectTransform, new Vector2(0.07f, 0.08f), new Vector2(0.94f, 0.37f));
 
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
+        boardGroup = boardRoot.gameObject.AddComponent<CanvasGroup>();
         boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
         boardRoot.anchoredPosition = Vector2.zero;
         boardRoot.localRotation = Quaternion.Euler(3.5f, -6f, -1.2f);
@@ -628,10 +640,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardBack.anchorMin = boardBack.anchorMax = new Vector2(0.5f, 0.5f);
         Image boardBackImage = boardBack.gameObject.AddComponent<Image>();
         boardBackImage.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
-        boardBackImage.raycastTarget = false;
+        boardBackImage.raycastTarget = true;
         Outline boardOutline = boardBack.gameObject.AddComponent<Outline>();
         boardOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.42f);
         boardOutline.effectDistance = new Vector2(3f, -3f);
+
+        BattlePackFocusPointerRelay packFocusRelay =
+            boardRoot.gameObject.AddComponent<BattlePackFocusPointerRelay>();
+        packFocusRelay.Configure(this);
 
         linkRoot = CreateRect(boardRoot, "SynergyLinks", new Vector2(632f, 632f));
         linkRoot.anchorMin = linkRoot.anchorMax = new Vector2(0.5f, 0.5f);
@@ -905,6 +921,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (equipmentSystem == null || !IsSwitchBoardOpen || !equipmentSystem.IsSlotUnlocked(index))
             return;
 
+        dashboardController?.SetPackFocus(true);
         hoveredSlot = index;
         pendingHoverExitSlot = -1;
         hoverExitAt = 0f;
@@ -1036,6 +1053,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
 
         bool wantFull = combat && switchHeld && boardWasShown;
+        bool packFocused = wantFull && tabFocus == BattleCombatTabFocus.Pack;
+        bool packSuppressed =
+            wantFull &&
+            tabFocus != BattleCombatTabFocus.None &&
+            tabFocus != BattleCombatTabFocus.Pack;
         float t = 1f - Mathf.Exp(-Mathf.Max(1f, uiSharpness) * Time.unscaledDeltaTime);
 
         fullGroup.alpha = Mathf.Lerp(fullGroup.alpha, wantFull ? 1f : 0f, t);
@@ -1064,9 +1086,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (compactRoot != null)
         {
             bool compactActive = combat && !wantFull;
-            Vector2 compactTarget = wantFull
-                ? new Vector2(-28f, 24f) + compactPackTabPull
-                : new Vector2(-28f, 24f);
+            Vector2 compactTarget = new(-28f, 24f);
 
             compactRoot.anchoredPosition = Vector2.Lerp(
                 compactRoot.anchoredPosition,
@@ -1090,9 +1110,21 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         if (boardRoot != null)
         {
-            Vector2 boardTarget = wantFull
-                ? Vector2.zero
-                : ResolveBoardHandoffPosition();
+            Vector2 boardTarget = !wantFull
+                ? ResolveBoardHandoffPosition()
+                : packFocused
+                    ? packFocusedOffset
+                    : packSuppressed
+                        ? packInactiveCornerOffset
+                        : Vector2.zero;
+
+            float packScale = !wantFull
+                ? Mathf.Clamp(packHandoffScale, 0.18f, 0.55f)
+                : packFocused
+                    ? 1.075f
+                    : packSuppressed
+                        ? 0.76f
+                        : 0.92f;
 
             boardRoot.anchoredPosition = Vector2.Lerp(
                 boardRoot.anchoredPosition,
@@ -1100,19 +1132,70 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 t);
             boardRoot.localRotation = Quaternion.Slerp(
                 boardRoot.localRotation,
-                wantFull
-                    ? Quaternion.Euler(0.6f, -1.8f, -0.5f)
-                    : Quaternion.Euler(2.0f, -4.8f, -1.1f),
+                !wantFull
+                    ? Quaternion.Euler(2.0f, -4.8f, -1.1f)
+                    : packFocused
+                        ? Quaternion.Euler(0.1f, -0.4f, -0.08f)
+                        : packSuppressed
+                            ? Quaternion.Euler(3.4f, -7.0f, -1.2f)
+                            : Quaternion.Euler(1.1f, -2.6f, -0.55f),
                 t);
 
             Vector3 local = boardRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, wantFull ? -10f : 24f, t);
+            local.z = Mathf.Lerp(
+                local.z,
+                !wantFull ? 24f : packFocused ? -22f : packSuppressed ? 24f : 2f,
+                t);
             boardRoot.localPosition = local;
 
             boardRoot.localScale = Vector3.Lerp(
                 boardRoot.localScale,
-                Vector3.one * (wantFull ? 1f : Mathf.Clamp(packHandoffScale, 0.18f, 0.55f)),
+                Vector3.one * packScale,
                 t);
+
+            if (boardGroup != null)
+                boardGroup.alpha = Mathf.Lerp(
+                    boardGroup.alpha,
+                    !wantFull
+                        ? 0f
+                        : packFocused ? 1f : packSuppressed ? 0.38f : 0.72f,
+                    t);
+        }
+
+        if (detailRoot != null)
+        {
+            Vector2 detailTarget = !wantFull
+                ? new Vector2(98f, -90f)
+                : packFocused
+                    ? new Vector2(88f, -72f)
+                    : packSuppressed
+                        ? new Vector2(54f, -214f)
+                        : new Vector2(98f, -90f);
+
+            detailRoot.anchoredPosition = Vector2.Lerp(
+                detailRoot.anchoredPosition,
+                detailTarget,
+                t);
+            detailRoot.localScale = Vector3.Lerp(
+                detailRoot.localScale,
+                Vector3.one * (
+                    packFocused ? 1.04f : packSuppressed ? 0.78f : 0.90f),
+                t);
+
+            Vector3 detailLocal = detailRoot.localPosition;
+            detailLocal.z = Mathf.Lerp(
+                detailLocal.z,
+                packFocused ? -16f : packSuppressed ? 20f : 4f,
+                t);
+            detailRoot.localPosition = detailLocal;
+
+            if (detailGroup != null)
+                detailGroup.alpha = Mathf.Lerp(
+                    detailGroup.alpha,
+                    !wantFull
+                        ? 0f
+                        : packFocused ? 1f : packSuppressed ? 0.34f : 0.68f,
+                    t);
         }
 
         if (equipmentSystem != null)
@@ -1179,18 +1262,43 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private Vector2 ResolveBoardHandoffPosition()
     {
-        if (boardRoot == null || fullRoot == null || compactRoot == null)
+        RectTransform miniRoot = miniPackUI != null ? miniPackUI.Root : null;
+        if (boardRoot == null || fullRoot == null || miniRoot == null)
             return Vector2.zero;
 
-        Vector3 compactCenterWorld = compactRoot.TransformPoint(compactRoot.rect.center);
-        Vector3 compactCenterLocal = fullRoot.InverseTransformPoint(compactCenterWorld);
+        Vector3 miniCenterWorld = miniRoot.TransformPoint(miniRoot.rect.center);
+        Vector2 miniCenterScreen = RectTransformUtility.WorldToScreenPoint(null, miniCenterWorld);
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                fullRoot,
+                miniCenterScreen,
+                null,
+                out Vector2 miniCenterLocal))
+        {
+            return Vector2.zero;
+        }
+
         Rect fullRect = fullRoot.rect;
         Vector2 anchor = boardRoot.anchorMin;
         Vector2 anchorPoint = new(
             Mathf.Lerp(fullRect.xMin, fullRect.xMax, anchor.x),
             Mathf.Lerp(fullRect.yMin, fullRect.yMax, anchor.y));
 
-        return (Vector2)compactCenterLocal - anchorPoint;
+        return miniCenterLocal - anchorPoint;
+    }
+
+    public void SetTabFocusState(BattleCombatTabFocus next)
+    {
+        tabFocus = IsSwitchBoardOpen ? next : BattleCombatTabFocus.None;
+    }
+
+    internal void HandleBoardFocus(bool entered)
+    {
+        if (!IsSwitchBoardOpen)
+            return;
+
+        dashboardController?.SetPackFocus(entered);
+        if (!entered)
+            ClearPackHoverImmediate();
     }
 
     private void NotifySwitchBoardVisibility()
@@ -1246,6 +1354,28 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         rect.anchorMax = max;
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
+    }
+}
+
+internal sealed class BattlePackFocusPointerRelay : MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler
+{
+    private BattleKineticLoadoutUI owner;
+
+    public void Configure(BattleKineticLoadoutUI target)
+    {
+        owner = target;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        owner?.HandleBoardFocus(true);
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        owner?.HandleBoardFocus(false);
     }
 }
 
