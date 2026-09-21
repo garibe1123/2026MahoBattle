@@ -72,15 +72,17 @@ public sealed class BattleMapNodeSpatialView :
     IPointerExitHandler
 {
     [SerializeField] private RectTransform spatialRoot;
+    [SerializeField] private RectTransform visualRoot;
     [SerializeField] private BattleSpatialUIElement spatialElement;
     [SerializeField] private bool selectable;
 
     private Tween confirmPulse;
     private bool selected;
 
-    public void Configure(RectTransform visualRoot, bool canSelect)
+    public void Configure(RectTransform spatialTransform, RectTransform visualTransform, bool canSelect)
     {
-        spatialRoot = visualRoot;
+        spatialRoot = spatialTransform;
+        visualRoot = visualTransform;
         selectable = canSelect;
 
         if (spatialRoot != null)
@@ -165,19 +167,19 @@ public sealed class BattleMapNodeSpatialView :
 
     public void PlayConfirmPulse(float duration)
     {
-        if (spatialRoot == null)
+        if (visualRoot == null)
             return;
 
         confirmPulse?.Kill();
-        Vector3 baseScale = spatialRoot.localScale;
+        Vector3 baseScale = visualRoot.localScale;
 
-        confirmPulse = spatialRoot
+        confirmPulse = visualRoot
             .DOPunchScale(new Vector3(0.08f, 0.08f, 0f), Mathf.Max(0.15f, duration), 5, 0.45f)
             .SetUpdate(true)
             .OnKill(() => confirmPulse = null)
             .OnComplete(() =>
             {
-                spatialRoot.localScale = baseScale;
+                visualRoot.localScale = baseScale;
                 confirmPulse = null;
             });
     }
