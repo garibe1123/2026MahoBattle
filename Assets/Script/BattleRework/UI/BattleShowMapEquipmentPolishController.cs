@@ -32,7 +32,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleKineticLoadoutUI loadoutUI;
-    [SerializeField] private BattleHUD battleHud;
     [SerializeField] private BattleCameraController battleCamera;
     [SerializeField] private BattleInputRouter inputRouter;
 
@@ -158,8 +157,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (loadoutUI == null)
             loadoutUI = FindFirstObjectByType<BattleKineticLoadoutUI>();
-        if (battleHud == null)
-            battleHud = FindFirstObjectByType<BattleHUD>();
         if (battleCamera == null)
             battleCamera = FindFirstObjectByType<BattleCameraController>();
         if (inputRouter == null && Application.isPlaying)
@@ -268,8 +265,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
         }
 
         bool hasHoveredNode = hoveredNode != null;
-        battleHud?.SetMapCursorFocus(hasHoveredNode);
-
         if (battleCamera != null)
         {
             Vector2 normalized = hasHoveredNode
@@ -288,7 +283,6 @@ public sealed class BattleShowMapEquipmentPolishController : MonoBehaviour
             lastHoveredNode = null;
         }
 
-        battleHud?.SetMapCursorFocus(false);
         battleCamera?.SetMapCursorTracking(false, Vector2.zero);
     }
 
