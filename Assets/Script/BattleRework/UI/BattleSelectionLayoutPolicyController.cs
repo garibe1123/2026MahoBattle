@@ -35,7 +35,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
     private bool runActive;
     private bool mapPhaseActive;
 
-    private RectTransform tvRect;
     private RectTransform rewardScreen;
     private RectTransform mapScreen;
     private RectTransform rewardInner;
@@ -176,11 +175,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
 
     private void ResolveUi()
     {
-        if (tvRect == null && showWorldSet != null)
-            tvRect = showWorldSet.MountedTvRect;
-        if (tvRect == null)
-            tvRect = FindRect("BattleShowMountedTV");
-
         if (rewardScreen == null)
             rewardScreen = FindRect("PrizeSelectionScreen");
         if (mapScreen == null)
@@ -220,7 +214,6 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
             configuredTvPixelsPerUnit = targetPpu;
             tvConfigured = true;
             showWorldSet.ConfigureTvPresentation(targetSize, targetPpu);
-            tvRect = showWorldSet.MountedTvRect;
         }
 
         ApplyScreenSize(rewardScreen, rewardInner, targetSize);
