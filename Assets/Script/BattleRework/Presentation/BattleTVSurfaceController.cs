@@ -57,6 +57,7 @@ public sealed class BattleTVSurfaceController : MonoBehaviour
         ownerRect = transform as RectTransform;
         EnsurePhysicalHierarchy();
         ApplyGeometry();
+        ApplySorting();
         ApplySignalParameters();
     }
 
@@ -64,6 +65,7 @@ public sealed class BattleTVSurfaceController : MonoBehaviour
     {
         EnsurePhysicalHierarchy();
         ApplyGeometry();
+        ApplySorting();
         SetState(BattleTVState.Live, true);
     }
 
@@ -87,6 +89,7 @@ public sealed class BattleTVSurfaceController : MonoBehaviour
         ownerRect = transform as RectTransform;
         EnsurePhysicalHierarchy();
         ApplyGeometry();
+        ApplySorting();
     }
 
     public void SetState(BattleTVState next, bool immediate = false)
@@ -239,6 +242,25 @@ public sealed class BattleTVSurfaceController : MonoBehaviour
         renderer.transform.localPosition = localPosition;
         renderer.transform.localRotation = Quaternion.identity;
         renderer.transform.localScale = new Vector3(Mathf.Max(1f, width), Mathf.Max(1f, height), 1f);
+    }
+
+    private void ApplySorting()
+    {
+        Canvas canvas = GetComponent<Canvas>();
+        if (canvas == null)
+            return;
+
+        int baseOrder = canvas.sortingOrder - 120;
+        SpriteRenderer[] renderers = { backPlate, sideDepth, body, bezel, screen };
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer renderer = renderers[i];
+            if (renderer == null)
+                continue;
+
+            renderer.sortingLayerID = canvas.sortingLayerID;
+            renderer.sortingOrder = baseOrder + i;
+        }
     }
 
     private void ApplySignalParameters()
