@@ -23,11 +23,11 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     [SerializeField] private BattleGridSynergyController gridSynergy;
 
     [Header("Backpack HUD")]
-    [SerializeField] private Color inkColor = new(0.030f, 0.028f, 0.045f, 0.98f);
+    [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.036f, 0.98f);
     [SerializeField] private Color paperColor = new(0.92f, 0.94f, 0.97f, 1f);
-    [SerializeField] private Color emptyCellColor = new(0.10f, 0.11f, 0.14f, 0.98f);
-    [SerializeField] private Color occupiedCellColor = new(0.045f, 0.050f, 0.065f, 0.99f);
-    [SerializeField] private Color lockedColor = new(0.075f, 0.080f, 0.10f, 0.92f);
+    [SerializeField] private Color emptyCellColor = new(0.085f, 0.090f, 0.100f, 0.98f);
+    [SerializeField] private Color occupiedCellColor = new(0.040f, 0.045f, 0.055f, 0.99f);
+    [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
