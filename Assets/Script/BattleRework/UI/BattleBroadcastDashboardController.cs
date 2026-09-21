@@ -29,6 +29,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Header("REFERENCES — 자동 연결")]
     [Tooltip("현재 Combat 상태를 확인하는 Run Manager입니다. 비어 있으면 자동으로 찾습니다.")]
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleUIThemeController uiTheme;
     [Tooltip("현재 활성 Fan Mission과 진행도를 제공하는 기존 Mission System입니다.")]
     [SerializeField] private FanMissionSystem fanMissionSystem;
     [Tooltip("실시간 시청자 수와 좋아요 수를 제공하는 Run Progress System입니다.")]
@@ -58,9 +59,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Tooltip("Mission Focus 상태에서 PACK이 배경으로 물러날 때의 불투명도입니다.")]
     [SerializeField, Range(0f, 1f)] private float missionFocusedPackAlpha = 0.70f;
     [Tooltip("PACK Focus 상태의 기울기입니다.")]
-    [SerializeField, Range(-15f, 15f)] private float packFocusedRotation = -2.8f;
+    [SerializeField, Range(-15f, 15f)] private float packFocusedRotation = -1.2f;
     [Tooltip("Mission Focus 상태에서 PACK 기울기를 완화하는 각도입니다.")]
-    [SerializeField, Range(-15f, 15f)] private float missionFocusedPackRotation = -0.8f;
+    [SerializeField, Range(-15f, 15f)] private float missionFocusedPackRotation = -0.25f;
 
     [Header("MISSION BAR — 항상 표시")]
     [Tooltip("PACK Focus일 때 우측에 유지되는 FAN MISSION 패널 크기입니다. 미션이 없어도 이 프레임은 사라지지 않습니다.")]
@@ -72,7 +73,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Tooltip("Mission Focus 상태에서 확장된 Panel이 이동할 화면 우측 상단 기준 위치입니다. 크기 변화와 함께 이 위치까지 Tween됩니다.")]
     [SerializeField] private Vector2 focusedMissionPanelOffset = new(-44f, -138f);
     [Tooltip("Mission Panel 전체의 사선 회전 각도입니다.")]
-    [SerializeField, Range(-10f, 10f)] private float missionPanelRotation = 0.8f;
+    [SerializeField, Range(-10f, 10f)] private float missionPanelRotation = 0f;
     [Tooltip("PACK Focus 상태에서도 Mission Bar가 확실히 보이도록 유지할 Alpha입니다.")]
     [SerializeField, Range(0.5f, 1f)] private float compactMissionAlpha = 0.95f;
 
