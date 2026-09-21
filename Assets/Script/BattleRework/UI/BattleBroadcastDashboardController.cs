@@ -378,29 +378,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void EnsurePackDock()
     {
-        packDockRoot = fullRoot.Find("BroadcastPackDock") as RectTransform;
-        if (packDockRoot == null)
-        {
-            packDockRoot = CreateRect(fullRoot, "BroadcastPackDock", Vector2.zero);
-            Stretch(packDockRoot);
-        }
-
-        packMotionRoot = packDockRoot.Find("BroadcastPackBoardMotion") as RectTransform;
-        if (packMotionRoot == null)
-        {
-            packMotionRoot = CreateRect(packDockRoot, "BroadcastPackBoardMotion", Vector2.zero);
-            Stretch(packMotionRoot);
-        }
-
-        packMotionGroup = packMotionRoot.GetComponent<CanvasGroup>();
-        if (packMotionGroup == null)
-            packMotionGroup = packMotionRoot.gameObject.AddComponent<CanvasGroup>();
-
-        packMotionGroup.blocksRaycasts = true;
-        packMotionGroup.interactable = true;
-
-        if (packBoard.parent != packMotionRoot)
-            packBoard.SetParent(packMotionRoot, false);
+        // PACK transform ownership belongs exclusively to BattleKineticLoadoutUI.
+        // Dashboard must not reparent, move, scale, rotate, or fade GridBoard.
+        packDockRoot = fullRoot;
+        packMotionRoot = null;
+        packMotionGroup = null;
     }
 
     private void BuildDashboardUi()
@@ -985,42 +967,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void AnimatePackMotion(float t, bool missionFocused)
     {
-        if (packMotionRoot == null)
-            return;
-
-        Vector2 offset = missionFocused
-            ? missionFocusedDockOffset
-            : packFocusedDockOffset;
-
-        Vector3 targetPosition = new(
-            offset.x,
-            offset.y,
-            missionFocused ? 18f : -8f);
-        Vector3 targetScale = Vector3.one *
-                              (missionFocused ? missionFocusedPackScale : 1f);
-        Quaternion targetRotation = Quaternion.Euler(
-            missionFocused ? 2.2f : 0.5f,
-            missionFocused ? -5f : -1.8f,
-            missionFocused ? 0.45f : -0.35f);
-
-        packMotionRoot.localPosition = Vector3.Lerp(
-            packMotionRoot.localPosition,
-            targetPosition,
-            t);
-        packMotionRoot.localScale = Vector3.Lerp(
-            packMotionRoot.localScale,
-            targetScale,
-            t);
-        packMotionRoot.localRotation = Quaternion.Slerp(
-            packMotionRoot.localRotation,
-            targetRotation,
-            t);
-
-        if (packMotionGroup != null)
-            packMotionGroup.alpha = Mathf.Lerp(
-                packMotionGroup.alpha,
-                missionFocused ? missionFocusedPackAlpha : 1f,
-                t);
+        // Intentionally empty.
+        // BattleKineticLoadoutUI owns PACK position / XYZ rotation / scale / alpha.
     }
 
     private void AnimateMissionPanel(float t, int missionCount, bool missionFocused)
@@ -1209,15 +1157,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void ResetPackMotionImmediate()
     {
-        if (packMotionRoot != null)
-        {
-            packMotionRoot.localPosition = Vector3.zero;
-            packMotionRoot.localScale = Vector3.one;
-            packMotionRoot.localRotation = Quaternion.identity;
-        }
-
-        if (packMotionGroup != null)
-            packMotionGroup.alpha = 1f;
+        // No PACK transform writes here. See AnimatePackMotion.
     }
 
     private static string Signed(int value)
