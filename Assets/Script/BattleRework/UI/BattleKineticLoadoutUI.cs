@@ -41,6 +41,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
     [SerializeField, Range(0.18f, 0.55f)] private float packHandoffScale = 0.34f;
+    [SerializeField, Range(0.18f, 0.55f)] private float packMorphDuration = 0.34f;
     [SerializeField] private Vector2 packFocusedOffset = new(54f, 18f);
     [SerializeField] private Vector2 packInactiveCornerOffset = new(-170f, -132f);
 
@@ -74,6 +75,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Text hpText;
     private Text staminaText;
     private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
+    private float packMorphProgress;
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
@@ -107,6 +109,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     public RectTransform FullRoot => fullRoot;
     public CanvasGroup FullGroup => fullGroup;
     public RectTransform GridBoard => boardRoot;
+    public float PackMorphProgress => packMorphProgress;
     public RectTransform CompactRoot => compactRoot;
     public CanvasGroup CompactGroup => compactGroup;
     public int HoveredSlot => hoveredSlot;
@@ -1053,6 +1056,18 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
 
         bool wantFull = combat && switchHeld && boardWasShown;
+
+        float morphStep = Time.unscaledDeltaTime /
+                          Mathf.Max(0.18f, packMorphDuration);
+        packMorphProgress = Mathf.MoveTowards(
+            packMorphProgress,
+            wantFull ? 1f : 0f,
+            morphStep);
+
+        float morph = SmoothPackMorph(packMorphProgress);
+        float fullReveal = SmoothPackRange(packMorphProgress, 0.46f, 0.90f);
+        bool morphVisible = combat && packMorphProgress > 0.001f;
+
         bool packFocused = wantFull && tabFocus == BattleCombatTabFocus.Pack;
         bool packSuppressed =
             wantFull &&
@@ -1060,26 +1075,29 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             tabFocus != BattleCombatTabFocus.Pack;
         float t = 1f - Mathf.Exp(-Mathf.Max(1f, uiSharpness) * Time.unscaledDeltaTime);
 
-        fullGroup.alpha = Mathf.Lerp(fullGroup.alpha, wantFull ? 1f : 0f, t);
-        compactGroup.alpha = Mathf.Lerp(compactGroup.alpha, combat && !wantFull ? 1f : 0f, t);
-        fullGroup.blocksRaycasts = wantFull;
-        fullGroup.interactable = wantFull;
+        fullGroup.alpha = fullReveal;
+        compactGroup.alpha = Mathf.Lerp(
+            compactGroup.alpha,
+            combat && !wantFull ? 1f : 0f,
+            t);
+        fullGroup.blocksRaycasts = wantFull && packMorphProgress >= 0.72f;
+        fullGroup.interactable = fullGroup.blocksRaycasts;
 
         if (fullRoot != null)
         {
             fullRoot.localScale = Vector3.Lerp(
                 fullRoot.localScale,
-                Vector3.one * (wantFull ? 1f : 0.985f),
+                Vector3.one * (morphVisible ? 1f : 0.985f),
                 t);
 
             Vector3 local = fullRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, wantFull ? -14f : 42f, t);
+            local.z = Mathf.Lerp(local.z, morphVisible ? -14f : 42f, t);
             fullRoot.localPosition = local;
 
             Quaternion targetRotation = Quaternion.Euler(
-                wantFull ? 0.6f : 3.5f,
-                wantFull ? -1.4f : -5.5f,
-                wantFull ? -0.35f : -1.2f);
+                morphVisible ? 0.6f : 3.5f,
+                morphVisible ? -1.4f : -5.5f,
+                morphVisible ? -0.35f : -1.2f);
             fullRoot.localRotation = Quaternion.Slerp(fullRoot.localRotation, targetRotation, t);
         }
 
@@ -1110,21 +1128,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         if (boardRoot != null)
         {
-            Vector2 boardTarget = !wantFull
-                ? ResolveBoardHandoffPosition()
-                : packFocused
-                    ? packFocusedOffset
-                    : packSuppressed
-                        ? packInactiveCornerOffset
-                        : Vector2.zero;
+            Vector2 boardTarget = packFocused
+                ? packFocusedOffset
+                : packSuppressed
+                    ? packInactiveCornerOffset
+                    : Vector2.zero;
 
-            float packScale = !wantFull
-                ? Mathf.Clamp(packHandoffScale, 0.18f, 0.55f)
-                : packFocused
-                    ? 1.075f
-                    : packSuppressed
-                        ? 0.76f
-                        : 0.92f;
+            float packScale = packFocused
+                ? 1.075f
+                : packSuppressed
+                    ? 0.76f
+                    : Mathf.Lerp(0.88f, 0.92f, morph);
 
             boardRoot.anchoredPosition = Vector2.Lerp(
                 boardRoot.anchoredPosition,
@@ -1132,19 +1146,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 t);
             boardRoot.localRotation = Quaternion.Slerp(
                 boardRoot.localRotation,
-                !wantFull
-                    ? Quaternion.Euler(2.0f, -4.8f, -1.1f)
-                    : packFocused
-                        ? Quaternion.Euler(0.1f, -0.4f, -0.08f)
-                        : packSuppressed
-                            ? Quaternion.Euler(3.4f, -7.0f, -1.2f)
-                            : Quaternion.Euler(1.1f, -2.6f, -0.55f),
+                packFocused
+                    ? Quaternion.Euler(0.1f, -0.4f, -0.08f)
+                    : packSuppressed
+                        ? Quaternion.Euler(3.4f, -7.0f, -1.2f)
+                        : Quaternion.Euler(1.1f, -2.6f, -0.55f),
                 t);
 
             Vector3 local = boardRoot.localPosition;
             local.z = Mathf.Lerp(
                 local.z,
-                !wantFull ? 24f : packFocused ? -22f : packSuppressed ? 24f : 2f,
+                packFocused ? -22f : packSuppressed ? 24f : 2f,
                 t);
             boardRoot.localPosition = local;
 
@@ -1154,12 +1166,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 t);
 
             if (boardGroup != null)
-                boardGroup.alpha = Mathf.Lerp(
-                    boardGroup.alpha,
-                    !wantFull
-                        ? 0f
-                        : packFocused ? 1f : packSuppressed ? 0.38f : 0.72f,
-                    t);
+            {
+                float focusAlpha = packFocused
+                    ? 1f
+                    : packSuppressed ? 0.38f : 0.72f;
+                boardGroup.alpha = fullReveal * focusAlpha;
+            }
         }
 
         if (detailRoot != null)
@@ -1190,12 +1202,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             detailRoot.localPosition = detailLocal;
 
             if (detailGroup != null)
-                detailGroup.alpha = Mathf.Lerp(
-                    detailGroup.alpha,
-                    !wantFull
-                        ? 0f
-                        : packFocused ? 1f : packSuppressed ? 0.34f : 0.68f,
-                    t);
+            {
+                float detailReveal = SmoothPackRange(
+                    packMorphProgress,
+                    0.62f,
+                    0.96f);
+                float focusAlpha = packFocused
+                    ? 1f
+                    : packSuppressed ? 0.34f : 0.68f;
+                detailGroup.alpha = detailReveal * focusAlpha;
+            }
         }
 
         if (equipmentSystem != null)
@@ -1260,30 +1276,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         }
     }
 
-    private Vector2 ResolveBoardHandoffPosition()
+    private static float SmoothPackMorph(float value)
     {
-        RectTransform miniRoot = miniPackUI != null ? miniPackUI.Root : null;
-        if (boardRoot == null || fullRoot == null || miniRoot == null)
-            return Vector2.zero;
+        value = Mathf.Clamp01(value);
+        return value * value * (3f - 2f * value);
+    }
 
-        Vector3 miniCenterWorld = miniRoot.TransformPoint(miniRoot.rect.center);
-        Vector2 miniCenterScreen = RectTransformUtility.WorldToScreenPoint(null, miniCenterWorld);
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                fullRoot,
-                miniCenterScreen,
-                null,
-                out Vector2 miniCenterLocal))
-        {
-            return Vector2.zero;
-        }
+    private static float SmoothPackRange(float value, float start, float end)
+    {
+        if (end <= start + 0.0001f)
+            return value >= end ? 1f : 0f;
 
-        Rect fullRect = fullRoot.rect;
-        Vector2 anchor = boardRoot.anchorMin;
-        Vector2 anchorPoint = new(
-            Mathf.Lerp(fullRect.xMin, fullRect.xMax, anchor.x),
-            Mathf.Lerp(fullRect.yMin, fullRect.yMax, anchor.y));
-
-        return miniCenterLocal - anchorPoint;
+        float t = Mathf.Clamp01((value - start) / (end - start));
+        return t * t * (3f - 2f * t);
     }
 
     public void SetTabFocusState(BattleCombatTabFocus next)
