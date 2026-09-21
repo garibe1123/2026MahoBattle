@@ -473,12 +473,12 @@ MonoBehaviour:
   combatInventoryTimeScale: 0.05
   stickThreshold: 0.55
   stickReleaseThreshold: 0.22
-  inkColor: {r: 0.035, g: 0.03, b: 0.055, a: 0.98}
+  inkColor: {r: 0.028, g: 0.03, b: 0.036, a: 0.98}
   paperColor: {r: 0.92, g: 0.94, b: 0.97, a: 1}
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
-  lockedColor: {r: 0.12, g: 0.11, b: 0.16, a: 0.92}
+  lockedColor: {r: 0.07, g: 0.075, b: 0.085, a: 0.92}
   uiSharpness: 16
 --- !u!114 &100017
 MonoBehaviour:
@@ -517,11 +517,11 @@ MonoBehaviour:
   runManager: {fileID: 0}
   equipmentSystem: {fileID: 0}
   gridSynergy: {fileID: 0}
-  inkColor: {r: 0.035, g: 0.03, b: 0.055, a: 0.98}
+  inkColor: {r: 0.028, g: 0.03, b: 0.036, a: 0.98}
   paperColor: {r: 0.92, g: 0.94, b: 0.97, a: 1}
-  emptyCellColor: {r: 0.1, g: 0.11, b: 0.14, a: 0.98}
-  occupiedCellColor: {r: 0.045, g: 0.05, b: 0.065, a: 0.99}
-  lockedColor: {r: 0.075, g: 0.08, b: 0.1, a: 0.92}
+  emptyCellColor: {r: 0.085, g: 0.09, b: 0.1, a: 0.98}
+  occupiedCellColor: {r: 0.04, g: 0.045, b: 0.055, a: 0.99}
+  lockedColor: {r: 0.07, g: 0.075, b: 0.085, a: 0.92}
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
