@@ -509,7 +509,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             return;
         }
 
-        // Expanded Combat Grid는 BattleCombatHudInputBridge가 단독 처리합니다.
+        // Expanded Combat Grid는 BattleKineticLoadoutUI가 단독 처리합니다.
         if (IsCombat() && surface != BattleInventorySurface.ExpandedGrid)
         {
             BattleEquipmentSlot slot = slotIndex < equipmentSystem.Slots.Count ? equipmentSystem.Slots[slotIndex] : null;
