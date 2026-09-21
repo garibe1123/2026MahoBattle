@@ -209,7 +209,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ApplyReadableDefaultCharacterSizes();
         }
 
-        UpdateStageMapCursorTracking();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -1601,50 +1600,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
         stageMapPanel.localScale = Vector3.one;
         stageMapRevealRoutine = null;
-    }
-
-    private void UpdateStageMapCursorTracking()
-    {
-        if (battleCameraController == null)
-            battleCameraController = FindFirstObjectByType<BattleCameraController>();
-
-        if (stageMapPanel == null || stageMapRevealRoutine != null)
-        {
-            hud?.SetMapCursorFocus(false);
-            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
-            return;
-        }
-
-        if (stageMapSelectionLocked)
-            return;
-
-        bool interactive = runManager != null && runManager.WaitingForNodeSelection &&
-                           stageMapPanel.gameObject.activeInHierarchy;
-        Camera eventCamera = Camera.main;
-
-        if (interactive && RectTransformUtility.RectangleContainsScreenPoint(
-                stageMapPanel,
-                Input.mousePosition,
-                eventCamera))
-        {
-            if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                    stageMapPanel,
-                    Input.mousePosition,
-                    eventCamera,
-                    out Vector2 localCursor))
-            {
-                Rect rect = stageMapPanel.rect;
-                Vector2 normalized = new(
-                    rect.width > 0.001f ? Mathf.Clamp(localCursor.x / (rect.width * 0.5f), -1f, 1f) : 0f,
-                    rect.height > 0.001f ? Mathf.Clamp(localCursor.y / (rect.height * 0.5f), -1f, 1f) : 0f);
-                hud?.SetMapCursorFocus(true);
-                battleCameraController?.SetMapCursorTracking(true, normalized);
-                return;
-            }
-        }
-
-        hud?.SetMapCursorFocus(false);
-        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
     }
 
     private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)
