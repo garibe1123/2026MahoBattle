@@ -320,6 +320,13 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
     public void NotifyRulePointerExit()
     {
+        if (ruleRoulette != null &&
+            Input.mousePresent &&
+            ruleRoulette.IsScreenPointInsideCombatRuleFocusZone(Input.mousePosition))
+        {
+            return;
+        }
+
         if (primaryFocus == BattleCombatTabPrimaryFocus.Rules)
             SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
     }
@@ -328,6 +335,15 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
     {
         if (!IsCombatTabOpen())
             return;
+
+        // RULES가 실제 화면상 마우스를 소유하고 있으면
+        // PACK PointerEnter가 먼저/나중에 들어와도 Focus를 뺏지 않습니다.
+        if (ruleRoulette != null &&
+            Input.mousePresent &&
+            ruleRoulette.IsScreenPointInsideCombatRuleFocusZone(Input.mousePosition))
+        {
+            return;
+        }
 
         SetPrimaryFocus(BattleCombatTabPrimaryFocus.Pack);
     }
@@ -410,9 +426,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         ResolveDashboardUi();
         EnsurePrimaryFocusRelay();
+        ResolvePrimaryFocusFromPointerGeometry();
 
-        // Primary focus는 Pointer Enter/Exit 이벤트만으로 변경됩니다.
-        // LateUpdate에서는 상태를 다시 추론하지 않고 현재 상태의 시각 보간만 수행합니다.
+        // Pointer 이벤트는 빠른 반응용 힌트일 뿐이고,
+        // 최종 Focus는 위의 화면 좌표 판정이 한 번만 결정합니다.
         EnsureChatPanel();
         UpdateRightPanelFocus();
         ApplyCombatPackDockPosition();
@@ -720,6 +737,60 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
         return Mathf.Repeat(degrees + 180f, 360f) - 180f;
     }
 
+    private void ResolvePrimaryFocusFromPointerGeometry()
+    {
+        if (!IsCombatTabOpen() || !Input.mousePresent)
+        {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
+            return;
+        }
+
+        Vector2 mouse = Input.mousePosition;
+
+        // RULES has first priority while its real/padded focus zone owns the pointer.
+        if (ruleRoulette != null &&
+            ruleRoulette.IsScreenPointInsideCombatRuleFocusZone(mouse))
+        {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.Rules);
+            return;
+        }
+
+        RectTransform packBoard =
+            kineticLoadout != null ? kineticLoadout.GridBoard : null;
+
+        bool insidePack =
+            packBoard != null &&
+            packBoard.gameObject.activeInHierarchy &&
+            RectTransformUtility.RectangleContainsScreenPoint(
+                packBoard,
+                mouse,
+                ResolveEventCamera(packBoard));
+
+        if (insidePack)
+        {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.Pack);
+            return;
+        }
+
+        if (primaryFocus == BattleCombatTabPrimaryFocus.Rules ||
+            primaryFocus == BattleCombatTabPrimaryFocus.Pack)
+        {
+            SetPrimaryFocus(BattleCombatTabPrimaryFocus.None);
+        }
+    }
+
+    private static Camera ResolveEventCamera(RectTransform rect)
+    {
+        if (rect == null)
+            return null;
+
+        Canvas canvas = rect.GetComponentInParent<Canvas>();
+        if (canvas == null || canvas.renderMode == RenderMode.ScreenSpaceOverlay)
+            return null;
+
+        return canvas.worldCamera;
+    }
+
     private void UpdateRightPanelFocus()
     {
         if (!Input.mousePresent)
@@ -743,7 +814,10 @@ public sealed class BattleCombatTabPresentationPolishController : MonoBehaviour
 
         RectTransform packBoard = kineticLoadout != null ? kineticLoadout.GridBoard : null;
         bool insidePack = packBoard != null && packBoard.gameObject.activeInHierarchy &&
-                          RectTransformUtility.RectangleContainsScreenPoint(packBoard, mouse, null);
+                          RectTransformUtility.RectangleContainsScreenPoint(
+                              packBoard,
+                              mouse,
+                              ResolveEventCamera(packBoard));
         if (insidePack)
         {
             rightPanelFocused = false;

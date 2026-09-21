@@ -157,6 +157,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(-8f, 8f)] private float combatRulePanelRotation = -2.2f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
+    [Header("Combat Rule Focus Stability")]
+    [SerializeField, Min(0f)] private float combatRuleFocusExitHorizontalPadding = 70f;
+    [SerializeField, Min(0f)] private float combatRuleFocusExitTopPadding = 220f;
+    [SerializeField, Min(0f)] private float combatRuleFocusExitBottomPadding = 24f;
 
     [Header("Rule Confirm Punch")]
     [SerializeField, Range(1f, 1.4f)] private float ruleConfirmScale = 1.18f;
@@ -237,6 +241,50 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatHudMode &&
         combatTabOpen &&
         combatRulePanelFocused;
+
+    public bool IsScreenPointInsideCombatRuleFocusZone(Vector2 screenPoint)
+    {
+        if (!combatHudMode ||
+            !combatTabOpen ||
+            combatRulePanel == null ||
+            !combatRulePanel.gameObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        Canvas panelCanvas = combatRulePanel.GetComponentInParent<Canvas>();
+        Camera eventCamera =
+            panelCanvas != null &&
+            panelCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? panelCanvas.worldCamera
+                : null;
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                combatRulePanel,
+                screenPoint,
+                eventCamera,
+                out Vector2 localPoint))
+        {
+            return false;
+        }
+
+        Rect hitRect = combatRulePanel.rect;
+
+        if (combatRulePanelFocused)
+        {
+            float horizontal = Mathf.Max(0f, combatRuleFocusExitHorizontalPadding);
+            hitRect.xMin -= horizontal;
+            hitRect.xMax += horizontal;
+
+            // RULES가 Focus되면 PACK과 함께 아래로 이동하므로
+            // 위쪽은 넉넉히 유지하되, 아래쪽은 좁게 두어 PACK으로 내려가면
+            // 즉시 PACK Focus로 넘길 수 있게 합니다.
+            hitRect.yMax += Mathf.Max(0f, combatRuleFocusExitTopPadding);
+            hitRect.yMin -= Mathf.Max(0f, combatRuleFocusExitBottomPadding);
+        }
+
+        return hitRect.Contains(localPoint);
+    }
 
     public static BattleRuleRouletteController ResolveOrCreate(BattleRunManager owner)
     {
@@ -1873,6 +1921,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     internal void HandleCombatRulePanelPointerExit()
     {
         ResolveCombatTabReferences();
+
+        if (Input.mousePresent &&
+            IsScreenPointInsideCombatRuleFocusZone(Input.mousePosition))
+        {
+            return;
+        }
 
         if (combatTabPresentation != null)
             combatTabPresentation.NotifyRulePointerExit();
