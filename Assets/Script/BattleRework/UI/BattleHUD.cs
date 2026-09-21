@@ -371,6 +371,8 @@ public sealed class BattleHUD : MonoBehaviour
     private RectTransform BuildRewardScreenShell(Transform parent)
     {
         GameObject screen = CreatePanel(parent, "PrizeSelectionScreen", showScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
+        ApplySpatialGlass(screen, true, 0.075f, 0.030f);
+
         RectTransform screenRect = screen.GetComponent<RectTransform>();
         screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.5f, 0.5f);
         screenRect.pivot = new Vector2(0.5f, 0.5f);
@@ -384,6 +386,12 @@ public sealed class BattleHUD : MonoBehaviour
         RectTransform innerRect = inner.GetComponent<RectTransform>();
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
+        Image innerImage = inner.GetComponent<Image>();
+        if (innerImage != null)
+            innerImage.color = new Color(0.05f, 0.055f, 0.065f, 0.16f);
+        Outline innerOutline = inner.GetComponent<Outline>();
+        if (innerOutline != null)
+            innerOutline.enabled = false;
 
         Text title = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
         SetAnchors(title.rectTransform, new Vector2(0.05f, 0.865f), new Vector2(0.72f, 0.96f));
@@ -411,6 +419,7 @@ public sealed class BattleHUD : MonoBehaviour
             "PlacementNotice",
             new Vector2(304f, 54f),
             new Color(0.02f, 0.02f, 0.025f, 0.98f));
+        ApplySpatialGlass(notice, false, 0.11f, -0.035f);
         RectTransform noticeRect = notice.GetComponent<RectTransform>();
         noticeRect.anchorMin = noticeRect.anchorMax = new Vector2(0.5f, 0.055f);
         noticeRect.anchoredPosition = Vector2.zero;
@@ -423,6 +432,7 @@ public sealed class BattleHUD : MonoBehaviour
     private RectTransform BuildMapScreenShell(Transform parent)
     {
         GameObject screen = CreatePanel(parent, "MapSelectionScreen", showScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
+        ApplySpatialGlass(screen, false, 0.070f, -0.028f);
         RectTransform screenRect = screen.GetComponent<RectTransform>();
         screenRect.anchorMin = screenRect.anchorMax = new Vector2(0.5f, 0.5f);
         screenRect.pivot = new Vector2(0.5f, 0.5f);
@@ -436,6 +446,12 @@ public sealed class BattleHUD : MonoBehaviour
         RectTransform innerRect = inner.GetComponent<RectTransform>();
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
+        Image innerImage = inner.GetComponent<Image>();
+        if (innerImage != null)
+            innerImage.color = new Color(0.04f, 0.05f, 0.065f, 0.13f);
+        Outline innerOutline = inner.GetComponent<Outline>();
+        if (innerOutline != null)
+            innerOutline.enabled = false;
 
         GameObject mapRoot = new("MapSelectionContent");
         mapRoot.transform.SetParent(inner.transform, false);
@@ -490,9 +506,21 @@ public sealed class BattleHUD : MonoBehaviour
                 $"Prize_{i}",
                 new Vector2(width, height),
                 new Color(0.055f, 0.057f, 0.066f, 0.995f));
+            ApplySpatialGlass(card, i % 2 == 0, 0.10f, i % 2 == 0 ? 0.040f : -0.040f);
+
             RectTransform cardRect = card.GetComponent<RectTransform>();
             cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
             cardRect.anchoredPosition = new Vector2(start + i * (width + spacing), 0f);
+            cardRect.localRotation = Quaternion.Euler(
+                i % 2 == 0 ? -1.8f : 1.2f,
+                i % 2 == 0 ? -4.5f : 4.0f,
+                i % 2 == 0 ? -0.4f : 0.4f);
+            Vector3 cardLocal = cardRect.localPosition;
+            cardLocal.z = i == count / 2 ? -7f : 2f;
+            cardRect.localPosition = cardLocal;
+
+            BattleSpatialGlassPanel cardGlass = card.GetComponent<BattleSpatialGlassPanel>();
+            cardGlass?.SetSpatialState(i == count / 2 ? 0.32f : 0.10f, i == count / 2 ? 0.30f : -0.15f);
 
             Image cardImage = card.GetComponent<Image>();
             Button button = card.AddComponent<Button>();
