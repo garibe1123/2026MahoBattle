@@ -793,8 +793,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void RequestRewardCompletion()
     {
-        if (!IsRewardPackEditing || rewardFlow == null || !rewardFlow.CanComplete)
+        if (BattlePauseController.IsPaused ||
+            !IsRewardPackEditing ||
+            rewardFlow == null ||
+            !rewardFlow.CanComplete)
+        {
             return;
+        }
 
         rewardFlow.CompleteReward();
     }
@@ -923,10 +928,16 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private void UpdateRewardDoneState()
     {
         bool show = IsRewardPackEditing && !discardModalOpen;
+        bool canAdvance =
+            show &&
+            !BattlePauseController.IsPaused &&
+            rewardFlow != null &&
+            rewardFlow.CanComplete;
+
         if (doneRoot != null && doneRoot.gameObject.activeSelf != show)
             doneRoot.gameObject.SetActive(show);
         if (doneButton != null)
-            doneButton.interactable = show && rewardFlow != null && rewardFlow.CanComplete;
+            doneButton.interactable = canAdvance;
     }
 
     private void UpdateRewardHandVisual()
