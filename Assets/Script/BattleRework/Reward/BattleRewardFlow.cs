@@ -162,7 +162,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
         }
 
         if (phase != BattleRewardPhase.Inactive || selectedChoiceIndex >= 0 || chosenReward != null || HasHand)
-            ResetState(false);
+            ResetState(true);
     }
 
     private void BeginChoosing()
