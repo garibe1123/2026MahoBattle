@@ -104,6 +104,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private int hoveredSlot = -1;
     private int pendingHoverExitSlot = -1;
     private float hoverExitAt;
+    private Rect hoveredSlotEntryScreenRect;
+    private bool hoveredSlotEntryRectValid;
 
     public int SelectedIndex => selectedIndex;
     public bool SwitchHeld => switchHeld;
@@ -956,6 +958,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         dashboardController?.SetPackFocus(true);
         hoveredSlot = index;
+        CaptureHoveredSlotEntryRect(index);
         pendingHoverExitSlot = -1;
         hoverExitAt = 0f;
 
@@ -985,6 +988,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         hoveredSlot = -1;
         pendingHoverExitSlot = -1;
         hoverExitAt = 0f;
+        hoveredSlotEntryRectValid = false;
     }
 
     private void UpdateHoverExitGrace()
@@ -992,11 +996,72 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (pendingHoverExitSlot < 0 || Time.unscaledTime < hoverExitAt)
             return;
 
+        if (hoveredSlot == pendingHoverExitSlot &&
+            Input.mousePresent &&
+            IsPointerInsideHoveredSlotLatch(
+                pendingHoverExitSlot,
+                Input.mousePosition))
+        {
+            pendingHoverExitSlot = -1;
+            hoverExitAt = 0f;
+            return;
+        }
+
         if (hoveredSlot == pendingHoverExitSlot)
+        {
             hoveredSlot = -1;
+            hoveredSlotEntryRectValid = false;
+        }
 
         pendingHoverExitSlot = -1;
         hoverExitAt = 0f;
+    }
+
+    private void CaptureHoveredSlotEntryRect(int index)
+    {
+        if (index < 0 || index >= slotRects.Length || slotRects[index] == null)
+        {
+            hoveredSlotEntryRectValid = false;
+            return;
+        }
+
+        hoveredSlotEntryScreenRect = GetScreenRect(slotRects[index]);
+        hoveredSlotEntryRectValid = true;
+    }
+
+    private bool IsPointerInsideHoveredSlotLatch(int index, Vector2 pointer)
+    {
+        bool insideEntry =
+            hoveredSlotEntryRectValid &&
+            hoveredSlotEntryScreenRect.Contains(pointer);
+
+        if (index < 0 || index >= slotRects.Length || slotRects[index] == null)
+            return insideEntry;
+
+        return insideEntry || GetScreenRect(slotRects[index]).Contains(pointer);
+    }
+
+    private static Rect GetScreenRect(RectTransform rect)
+    {
+        Vector3[] corners = new Vector3[4];
+        rect.GetWorldCorners(corners);
+
+        Canvas canvas = rect.GetComponentInParent<Canvas>();
+        Camera camera =
+            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        Vector2 min = RectTransformUtility.WorldToScreenPoint(camera, corners[0]);
+        Vector2 max = min;
+        for (int i = 1; i < corners.Length; i++)
+        {
+            Vector2 point = RectTransformUtility.WorldToScreenPoint(camera, corners[i]);
+            min = Vector2.Min(min, point);
+            max = Vector2.Max(max, point);
+        }
+
+        return Rect.MinMaxRect(min.x, min.y, max.x, max.y);
     }
 
     private void UpdateGridRaycastState()
