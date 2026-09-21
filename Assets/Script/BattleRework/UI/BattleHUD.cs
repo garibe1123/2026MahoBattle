@@ -229,7 +229,6 @@ if (canvas == null)
         canvasObject.AddComponent<GraphicRaycaster>();
         canvasGroup = canvasObject.AddComponent<CanvasGroup>();
 
-        BuildTopStatus();
         BuildEquipmentDock();
         BuildShowContentShell();
         RefreshStatus();
