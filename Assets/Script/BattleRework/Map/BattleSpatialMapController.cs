@@ -52,17 +52,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
     [SerializeField, Range(0f, 0.75f)] private float mapConfirmCameraShake = 0.22f;
     [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.105f;
-
-    [Header("Stage Map Spatial Tilt")]
-    [Tooltip("노드의 기존 anchor/size/button은 유지하고 X/Y/Z 회전과 local Z만 사용합니다.")]
-    [SerializeField, Min(1f)] private float mapNodeSpatialSharpness = 15f;
-    [SerializeField] private Vector3 mapNodeIdleTilt = new(1.6f, 4.0f, 1.0f);
-    [SerializeField] private Vector3 mapNodeHoverTilt = new(0.35f, 1.2f, 0.25f);
-    [SerializeField] private Vector3 mapNodeBackgroundTilt = new(2.6f, 5.2f, 1.3f);
-    [SerializeField] private float mapNodeHoverDepth = -18f;
-    [SerializeField] private float mapNodeSelectedDepth = -30f;
-    [SerializeField] private float mapNodeBackgroundDepth = 8f;
-
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
     [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
     [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
@@ -106,8 +95,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private Coroutine stageMapConfirmRoutine;
     private Vector2 stageMapPanelRestPosition;
     private bool stageMapSelectionLocked;
-    private RectTransform hoveredStageNode;
-    private RectTransform selectedStageNode;
     private float resolvedMapHorizontalSpacing;
     private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
@@ -223,7 +210,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         UpdateStageMapCursorTracking();
-        UpdateStageMapNodeSpatialPresentation();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -1257,8 +1243,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                       stageMapCanvasGroup == null ||
                       stageMapCanvasGroup.alpha <= 0.001f;
         stageMapPanel.gameObject.SetActive(true);
-        hoveredStageNode = null;
-        selectedStageNode = null;
 
         for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
             Destroy(stageMapPanel.GetChild(i).gameObject);
@@ -1646,116 +1630,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
     }
 
-    private void UpdateStageMapNodeSpatialPresentation()
-    {
-        if (stageMapPanel == null || !stageMapPanel.gameObject.activeInHierarchy)
-            return;
-
-        Camera eventCamera = Camera.main;
-        Vector2 pointer = Input.mousePosition;
-        RectTransform detectedHover = null;
-        bool canHover = !stageMapSelectionLocked &&
-                        runManager != null &&
-                        runManager.WaitingForNodeSelection &&
-                        stageMapRevealRoutine == null;
-
-        // 가장 위에 그려지는 selectable node부터 확인합니다.
-        for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
-        {
-            RectTransform node = stageMapPanel.GetChild(i) as RectTransform;
-            if (node == null || !node.name.StartsWith("StageNode_", StringComparison.Ordinal))
-                continue;
-
-            Button button = node.GetComponent<Button>();
-            bool selectable = button != null && button.IsActive() && button.IsInteractable();
-
-            if (canHover && selectable &&
-                RectTransformUtility.RectangleContainsScreenPoint(node, pointer, eventCamera))
-            {
-                detectedHover = node;
-                break;
-            }
-        }
-
-        hoveredStageNode = detectedHover;
-        float blend = 1f - Mathf.Exp(-Mathf.Max(1f, mapNodeSpatialSharpness) * Time.unscaledDeltaTime);
-
-        for (int i = 0; i < stageMapPanel.childCount; i++)
-        {
-            RectTransform node = stageMapPanel.GetChild(i) as RectTransform;
-            if (node == null || !node.name.StartsWith("StageNode_", StringComparison.Ordinal))
-                continue;
-
-            Button button = node.GetComponent<Button>();
-            bool selectable = button != null && button.IsActive() && button.IsInteractable();
-            bool selected = stageMapSelectionLocked && node == selectedStageNode;
-            bool hovered = !selected && node == hoveredStageNode;
-
-            float side = Mathf.Abs(node.anchoredPosition.x) <= 0.01f
-                ? 0f
-                : Mathf.Sign(node.anchoredPosition.x);
-
-            Vector3 targetEuler;
-            float targetDepth;
-
-            if (selected)
-            {
-                targetEuler = Vector3.zero;
-                targetDepth = mapNodeSelectedDepth;
-            }
-            else if (hovered)
-            {
-                targetEuler = new Vector3(
-                    mapNodeHoverTilt.x,
-                    -side * mapNodeHoverTilt.y,
-                    side * mapNodeHoverTilt.z);
-                targetDepth = mapNodeHoverDepth;
-            }
-            else if (selectable)
-            {
-                targetEuler = new Vector3(
-                    mapNodeIdleTilt.x,
-                    -side * mapNodeIdleTilt.y,
-                    side * mapNodeIdleTilt.z);
-                targetDepth = 0f;
-            }
-            else
-            {
-                targetEuler = new Vector3(
-                    mapNodeBackgroundTilt.x,
-                    -side * mapNodeBackgroundTilt.y,
-                    side * mapNodeBackgroundTilt.z);
-                targetDepth = mapNodeBackgroundDepth;
-            }
-
-            Quaternion targetRotation = Quaternion.Euler(targetEuler);
-            node.localRotation = Quaternion.Slerp(node.localRotation, targetRotation, blend);
-
-            Vector3 local = node.localPosition;
-            local.z = Mathf.Lerp(local.z, targetDepth, blend);
-            if (Mathf.Abs(local.z - targetDepth) <= 0.01f)
-                local.z = targetDepth;
-            node.localPosition = local;
-        }
-    }
-
     private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)
     {
         if (stageMapSelectionLocked || runManager == null || !runManager.WaitingForNodeSelection)
             return;
 
         stageMapSelectionLocked = true;
-        hoveredStageNode = null;
-        selectedStageNode = selectedNode;
-
-        if (selectedStageNode != null)
-        {
-            selectedStageNode.localRotation = Quaternion.identity;
-            Vector3 selectedLocal = selectedStageNode.localPosition;
-            selectedLocal.z = mapNodeSelectedDepth;
-            selectedStageNode.localPosition = selectedLocal;
-        }
-
         hud?.SetMapCursorFocus(true);
         if (stageMapCanvasGroup != null)
             stageMapCanvasGroup.blocksRaycasts = false;
@@ -1828,8 +1708,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             StopCoroutine(stageMapConfirmRoutine);
         stageMapConfirmRoutine = null;
         stageMapSelectionLocked = false;
-        hoveredStageNode = null;
-        selectedStageNode = null;
 
         if (stageMapCanvasGroup != null)
         {
