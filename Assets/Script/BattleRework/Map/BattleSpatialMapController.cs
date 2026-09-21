@@ -1525,7 +1525,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         label.transform.SetParent(rect, false);
         Text text = label.AddComponent<Text>();
         text.font = font;
-        text.text = current ? "START\n4 x 4 BASE\nCURRENT" : "START\n4 x 4 BASE";
+        text.text = current
+            ? "START\n4 x 4 BASE\nCURRENT"
+            : "START\n4 x 4 BASE\nLOCKED";
         text.fontSize = 10;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleCenter;
