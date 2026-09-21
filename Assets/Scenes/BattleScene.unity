@@ -514,7 +514,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e2d9d7a1d5c44d47ae73d6d81e2187b3, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  runManager: {fileID: 0}
   equipmentSystem: {fileID: 0}
   gridSynergy: {fileID: 0}
   inkColor: {r: 0.028, g: 0.03, b: 0.036, a: 0.98}
@@ -522,7 +521,6 @@ MonoBehaviour:
   emptyCellColor: {r: 0.085, g: 0.09, b: 0.1, a: 0.98}
   occupiedCellColor: {r: 0.04, g: 0.045, b: 0.055, a: 0.99}
   lockedColor: {r: 0.07, g: 0.075, b: 0.085, a: 0.92}
-  accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
 --- !u!114 &100020
@@ -591,7 +589,6 @@ MonoBehaviour:
   currentColor: {r: 0.66, g: 0.9, b: 0.96, a: 1}
   selectableNodeSize: 76
   eliteNodeSize: 86
-  refreshInterval: 0.08
 --- !u!114 &100024
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -607,18 +604,12 @@ MonoBehaviour:
   runManager: {fileID: 0}
   equipmentSystem: {fileID: 0}
   loadoutUI: {fileID: 0}
-  battleHud: {fileID: 0}
-  battleCamera: {fileID: 0}
   inputRouter: {fileID: 0}
-  inkColor: {r: 0.028, g: 0.03, b: 0.04, a: 0.995}
-  paperColor: {r: 0.94, g: 0.91, b: 0.8, a: 1}
   combatColor: {r: 1, g: 0.8, b: 0.1, a: 1}
   eliteColor: {r: 1, g: 0.18, b: 0.48, a: 1}
   shopColor: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   eventColor: {r: 0.72, g: 0.46, b: 1, a: 1}
-  mutedColor: {r: 0.34, g: 0.37, b: 0.44, a: 0.72}
   roomIconSize: 26
-  mapResolveInterval: 0.1
   enableTabMouseWheel: 1
   swapSoundVolume: 0.28
 --- !u!114 &100030
@@ -674,7 +665,6 @@ MonoBehaviour:
   detailAnchor: {x: 0.8, y: 0.52}
   detailScale: 0.94
   trashAttachOffset: {x: -8, y: 0}
-  doneAttachOffset: {x: -8, y: 80}
   rewardTrashScreenOffset: {x: -28, y: -54}
   rewardDoneScreenOffset: {x: -28, y: 44}
   rewardInventoryTimeScale: 0.05
@@ -1428,33 +1418,14 @@ MonoBehaviour:
   fanMissionSystem: {fileID: 0}
   runProgress: {fileID: 0}
   kineticLoadout: {fileID: 0}
-  missionFocusEnterX: 0.62
-  packFocusReturnX: 0.53
   layoutSharpness: 13
-  packFocusedDockOffset: {x: -260, y: 4}
-  missionFocusedDockOffset: {x: -360, y: 4}
-  packFocusedScale: 1
-  missionFocusedPackScale: 0.78
-  packFocusedAlpha: 1
-  missionFocusedPackAlpha: 0.72
-  packFocusedRotation: -4
-  missionFocusedPackRotation: -1.5
   standbyMissionSize: {x: 320, y: 72}
   compactMissionSize: {x: 430, y: 300}
   focusedMissionSize: {x: 700, y: 700}
   missionPanelOffset: {x: -44, y: -128}
   focusedMissionPanelOffset: {x: -78, y: -154}
-  missionPanelRotation: 2.2
-  compactMissionAlpha: 0.78
-  metricBarSize: {x: 410, y: 64}
-  metricBarOffset: {x: -42, y: -42}
-  metricBarRotation: -1.6
   inkColor: {r: 0.025, g: 0.028, b: 0.045, a: 0.985}
   paperColor: {r: 0.94, g: 0.95, b: 0.97, a: 1}
-  accentCyan: {r: 0.1, g: 0.88, b: 0.95, a: 1}
-  accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
-  accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
-  serializedLayoutVersion: 1
 --- !u!114 &529217579
 MonoBehaviour:
   m_ObjectHideFlags: 0
