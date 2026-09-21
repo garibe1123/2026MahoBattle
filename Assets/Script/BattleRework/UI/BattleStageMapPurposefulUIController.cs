@@ -33,7 +33,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private const string MapContentName = "MapSelectionContent";
     private const string MountedTvName = "BattleShowMountedTV";
     private const string RewardAccentName = "RewardKineticAccentLayer";
-    private const string DecisionAccentName = "MapDecisionAccent";
     private const string ControlHintName = "MapControlHint";
 
     [Header("References")]
@@ -402,7 +401,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 StyleNode(rect);
         }
 
-        DisableDecisionAccent();
         EnsureControlHint();
     }
 
@@ -535,16 +533,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             paperColor,
             mutedColor);
         feedback.BindButton(button);
-    }
-
-    private void DisableDecisionAccent()
-    {
-        if (mapContent == null)
-            return;
-
-        Transform accent = mapContent.Find(DecisionAccentName);
-        if (accent != null && accent.gameObject.activeSelf)
-            accent.gameObject.SetActive(false);
     }
 
     private void EnsureControlHint()
