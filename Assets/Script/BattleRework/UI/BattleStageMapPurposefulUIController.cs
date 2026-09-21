@@ -31,6 +31,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleUIThemeController uiTheme;
 
     [Header("Purposeful Map Theme")]
     [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.040f, 0.995f);
@@ -133,6 +134,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (uiTheme == null)
+            uiTheme = BattleUIThemeController.Instance != null
+                ? BattleUIThemeController.Instance
+                : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
     }
 
     private void ResolveUi()
@@ -205,27 +210,21 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
         Image frameImage = sharedFrame.GetComponent<Image>();
         if (frameImage != null)
-            frameImage.color = inkColor;
+            frameImage.color = Color.clear;
 
         Outline frameOutline = sharedFrame.GetComponent<Outline>();
         if (frameOutline != null)
-        {
-            frameOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.34f);
-            frameOutline.effectDistance = new Vector2(2f, -2f);
-        }
+            frameOutline.enabled = false;
 
         if (screenInner != null)
         {
             Image innerImage = screenInner.GetComponent<Image>();
             if (innerImage != null)
-                innerImage.color = panelColor;
+                innerImage.color = new Color(panelColor.r, panelColor.g, panelColor.b, 0.10f);
 
             Outline innerOutline = screenInner.GetComponent<Outline>();
             if (innerOutline != null)
-            {
-                innerOutline.effectColor = new Color(accentCyan.r, accentCyan.g, accentCyan.b, 0.16f);
-                innerOutline.effectDistance = new Vector2(1f, -1f);
-            }
+                innerOutline.enabled = false;
         }
 
         if (mapContent != null)
@@ -235,7 +234,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             mapContent.offsetMin = Vector2.zero;
             mapContent.offsetMax = Vector2.zero;
             mapContent.pivot = new Vector2(0.5f, 0.5f);
-            mapContent.localRotation = Quaternion.identity;
+            mapContent.localRotation = Quaternion.Euler(0.8f, -1.8f, 0f);
         }
 
         DisableMapClipping(viewport);
@@ -325,7 +324,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.alignment = TextAnchor.MiddleLeft;
         text.fontStyle = FontStyle.Bold;
         text.fontSize = 24;
-        text.color = paperColor;
+        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
+        text.color = theme != null ? theme.textPrimary : paperColor;
 
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = new Vector2(1f, 1f);
@@ -361,10 +361,15 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     {
         Image image = rect.GetComponent<Image>();
         if (image != null)
-            image.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.20f);
+        {
+            BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
+            Color muted = theme != null ? theme.textMuted : mutedColor;
+            muted.a = 0.10f;
+            image.color = muted;
+        }
 
         Vector2 size = rect.sizeDelta;
-        size.y = 3f;
+        size.y = 2f;
         rect.sizeDelta = size;
     }
 
@@ -384,62 +389,79 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                        runManager.CurrentNode != null &&
                        rect.name == $"StageNode_{runManager.CurrentNode.id}";
 
-        Color accent = elite ? accentPink : accentYellow;
+        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
+        Color key = theme != null ? theme.keyColor : accentYellow;
+        Color textPrimary = theme != null ? theme.textPrimary : paperColor;
+        Color textMuted = theme != null ? theme.textMuted : mutedColor;
         string nodeLabel = BuildNodeLabel(rect, label != null ? label.text : string.Empty);
+
+        BattleSpatialGlassPanel glass = rect.GetComponent<BattleSpatialGlassPanel>();
+        if (glass == null)
+            glass = rect.gameObject.AddComponent<BattleSpatialGlassPanel>();
+        glass.Configure(!elite, elite ? 0.18f : 0.13f, elite ? -0.055f : 0.045f);
+
+        image.enabled = true;
+        image.color = Color.clear;
+        image.raycastTarget = selectable;
+        outline.enabled = false;
 
         if (selectable)
         {
-            image.enabled = true;
-            image.color = inkColor;
-            outline.effectColor = accent;
-            outline.effectDistance = new Vector2(3f, -3f);
             float resolvedSize = elite
-                ? Mathf.Max(70f, eliteNodeSize)
-                : Mathf.Max(64f, selectableNodeSize);
+                ? Mathf.Max(76f, eliteNodeSize)
+                : Mathf.Max(68f, selectableNodeSize);
             rect.sizeDelta = Vector2.one * resolvedSize;
+            rect.localRotation = Quaternion.Euler(
+                elite ? -2.0f : 1.2f,
+                elite ? 5.5f : -4.0f,
+                elite ? 0.8f : -0.4f);
+            glass.SetSpatialState(0.48f, 0.34f);
             button.transition = Selectable.Transition.None;
-            image.raycastTarget = true;
+
+            Vector3 local = rect.localPosition;
+            local.z = -6f;
+            rect.localPosition = local;
 
             if (label != null)
             {
                 label.text = nodeLabel;
                 label.fontStyle = FontStyle.Bold;
                 label.fontSize = 9;
-                label.color = paperColor;
+                label.color = textPrimary;
             }
 
-            EnsurePointerHitArea(rect, image, outline, label, accent);
+            EnsurePointerHitArea(rect, image, outline, label, key);
         }
         else if (current)
         {
-            image.enabled = true;
-            image.color = new Color(
-                accentCyan.r * 0.28f,
-                accentCyan.g * 0.28f,
-                accentCyan.b * 0.28f,
-                1f);
-            outline.effectColor = accentCyan;
-            outline.effectDistance = new Vector2(3f, -3f);
+            rect.localRotation = Quaternion.Euler(-0.8f, 2.5f, 0f);
+            glass.SetSpatialState(0.28f, 0.10f);
+
+            Vector3 local = rect.localPosition;
+            local.z = -2f;
+            rect.localPosition = local;
 
             if (label != null)
             {
                 label.text = nodeLabel;
-                label.color = accentCyan;
+                label.color = key;
                 label.fontStyle = FontStyle.Bold;
                 label.fontSize = 10;
             }
         }
         else
         {
-            image.enabled = true;
-            image.color = new Color(0.10f, 0.105f, 0.13f, 0.92f);
-            outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.24f);
-            outline.effectDistance = new Vector2(1f, -1f);
+            rect.localRotation = Quaternion.Euler(1.5f, -3.5f, 0f);
+            glass.SetSpatialState(0f, -0.42f);
+
+            Vector3 local = rect.localPosition;
+            local.z = 7f;
+            rect.localPosition = local;
 
             if (label != null)
             {
                 label.text = nodeLabel;
-                label.color = mutedColor;
+                label.color = textMuted;
                 label.fontStyle = FontStyle.Normal;
                 label.fontSize = 9;
             }
@@ -498,17 +520,12 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private void EnsureDecisionAccent()
     {
-        if (mapContent == null || mapContent.Find(DecisionAccentName) != null)
+        if (mapContent == null)
             return;
 
-        RectTransform accent = CreateRect(mapContent, DecisionAccentName, new Vector2(8f, 50f));
-        accent.anchorMin = accent.anchorMax = new Vector2(0f, 1f);
-        accent.pivot = new Vector2(0f, 1f);
-        accent.anchoredPosition = new Vector2(24f, -14f);
-
-        Image image = accent.gameObject.AddComponent<Image>();
-        image.color = accentYellow;
-        image.raycastTarget = false;
+        Transform existing = mapContent.Find(DecisionAccentName);
+        if (existing != null && existing.gameObject.activeSelf)
+            existing.gameObject.SetActive(false);
     }
 
     private void EnsureControlHint()
@@ -527,7 +544,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.fontSize = 9;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleRight;
-        text.color = accentCyan;
+        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
+        text.color = theme != null ? theme.keyColor : accentYellow;
         text.raycastTarget = false;
     }
 
@@ -732,6 +750,8 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private Color baseIconColor = Color.white;
     private string baseLabel = "STAGE";
     private bool hovered;
+    private BattleSpatialGlassPanel spatialGlass;
+    private BattleUIThemeController uiTheme;
 
     public void Configure(
         Image image,
@@ -748,6 +768,10 @@ internal sealed class BattleStageMapNodePointerFeedback :
         accent = accentColor;
         baseColor = normalColor;
         paperColor = textColor;
+        spatialGlass = nodeRect != null ? nodeRect.GetComponent<BattleSpatialGlassPanel>() : null;
+        uiTheme = BattleUIThemeController.Instance != null
+            ? BattleUIThemeController.Instance
+            : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
 
         Image resolvedIcon = FindNodeIcon(nodeRect, nodeImage);
         if (resolvedIcon != nodeIcon)
@@ -806,45 +830,66 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
     private void ApplyHover()
     {
+        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
+        Color key = theme != null ? theme.keyColor : accent;
+        Color text = theme != null ? theme.textPrimary : paperColor;
+
         if (nodeImage != null)
         {
             nodeImage.enabled = true;
-            nodeImage.color = paperColor;
+            nodeImage.color = Color.clear;
         }
 
         if (nodeOutline != null)
+            nodeOutline.enabled = false;
+
+        spatialGlass?.SetSpatialState(1f, 0.95f);
+
+        if (nodeRect != null)
         {
-            nodeOutline.effectColor = accent;
-            nodeOutline.effectDistance = new Vector2(5f, -5f);
+            nodeRect.localRotation = Quaternion.Euler(-2.5f, -1.5f, 0f);
+            Vector3 local = nodeRect.localPosition;
+            local.z = -16f;
+            nodeRect.localPosition = local;
         }
 
         if (nodeIcon != null)
         {
             nodeIcon.enabled = true;
-            nodeIcon.color = baseColor;
+            nodeIcon.color = text;
         }
 
         if (label != null)
         {
             label.gameObject.SetActive(true);
             label.text = baseLabel + "\nSELECT";
-            label.color = baseColor;
+            label.color = key;
             label.fontStyle = FontStyle.Bold;
         }
     }
 
     private void ApplyNormal()
     {
+        BattleUIThemeProfile theme = uiTheme != null ? uiTheme.CurrentProfile : null;
+        Color text = theme != null ? theme.textPrimary : paperColor;
+
         if (nodeImage != null)
         {
             nodeImage.enabled = true;
-            nodeImage.color = baseColor;
+            nodeImage.color = Color.clear;
         }
 
         if (nodeOutline != null)
+            nodeOutline.enabled = false;
+
+        spatialGlass?.SetSpatialState(0.48f, 0.34f);
+
+        if (nodeRect != null)
         {
-            nodeOutline.effectColor = accent;
-            nodeOutline.effectDistance = new Vector2(3f, -3f);
+            nodeRect.localRotation = Quaternion.Euler(1.2f, -4f, -0.4f);
+            Vector3 local = nodeRect.localPosition;
+            local.z = -6f;
+            nodeRect.localPosition = local;
         }
 
         if (nodeIcon != null)
@@ -857,7 +902,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
         {
             label.gameObject.SetActive(true);
             label.text = baseLabel;
-            label.color = paperColor;
+            label.color = text;
             label.fontStyle = FontStyle.Bold;
         }
     }
