@@ -31,12 +31,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField, Range(0.05f, 0.8f)] private float stickReleaseThreshold = 0.22f;
 
     [Header("Kinetic UI")]
-    [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.98f);
+    [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.036f, 0.98f);
     [SerializeField] private Color paperColor = new(0.92f, 0.94f, 0.97f, 1f);
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
-    [SerializeField] private Color lockedColor = new(0.12f, 0.11f, 0.16f, 0.92f);
+    [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
 
     [Header("Compact Vitals")]
@@ -584,7 +584,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         fullGroup.interactable = false;
 
         Image dim = fullRoot.gameObject.AddComponent<Image>();
-        dim.color = new Color(0.015f, 0.012f, 0.025f, 0.58f);
+        dim.color = new Color(0.012f, 0.013f, 0.016f, 0.58f);
         dim.raycastTarget = false;
 
         Text title = CreateText(fullRoot, "LOADOUT // SHIFT", 56, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
@@ -994,7 +994,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         RectTransform background = CreateRect(parent, name + "Bar_BG", Vector2.zero);
         SetAnchors(background, min, max);
         Image bg = background.gameObject.AddComponent<Image>();
-        bg.color = new Color(0.10f, 0.09f, 0.13f, 0.96f);
+        bg.color = new Color(0.080f, 0.085f, 0.095f, 0.96f);
         bg.raycastTarget = false;
 
         RectTransform fill = CreateRect(background, name + "Bar_Fill", Vector2.zero);
@@ -1114,17 +1114,20 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
                 bool unlocked = equipmentSystem.IsSlotUnlocked(i);
                 bool selected = wantFull && i == selectedIndex;
+                bool hovered = wantFull && i == hoveredSlot;
                 bool equippedSlot = i == equipped;
                 Vector2Int grid = BattleEquipmentSystem.SlotIndexToGrid(i);
                 float side = grid.x - 1f;
 
                 float targetZ = !wantFull
                     ? 12f
-                    : selected
-                        ? -24f
-                        : equippedSlot
-                            ? -9f
-                            : unlocked ? 3f : 16f;
+                    : hovered
+                        ? -30f
+                        : selected
+                            ? -24f
+                            : equippedSlot
+                                ? -9f
+                                : unlocked ? 3f : 16f;
 
                 Vector3 local = slot.localPosition;
                 local.z = Mathf.Lerp(local.z, targetZ, t);
@@ -1132,22 +1135,26 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
                 Quaternion targetRotation = !wantFull
                     ? Quaternion.Euler(3.2f, -side * 5.5f, side * 1.4f)
-                    : selected
-                        ? Quaternion.identity
-                        : equippedSlot
-                            ? Quaternion.Euler(0.5f, -side * 1.2f, side * 0.25f)
-                            : Quaternion.Euler(
-                                unlocked ? 1.4f : 2.8f,
-                                -side * (unlocked ? 3.0f : 5.0f),
-                                side * (unlocked ? 0.7f : 1.2f));
+                    : hovered
+                        ? Quaternion.Euler(-0.35f, side * 0.35f, -side * 0.12f)
+                        : selected
+                            ? Quaternion.identity
+                            : equippedSlot
+                                ? Quaternion.Euler(0.5f, -side * 1.2f, side * 0.25f)
+                                : Quaternion.Euler(
+                                    unlocked ? 1.4f : 2.8f,
+                                    -side * (unlocked ? 3.0f : 5.0f),
+                                    side * (unlocked ? 0.7f : 1.2f));
 
                 slot.localRotation = Quaternion.Slerp(slot.localRotation, targetRotation, t);
 
                 float targetScale = !wantFull
                     ? 0.97f
-                    : selected
-                        ? 1.06f
-                        : equippedSlot ? 1.025f : unlocked ? 1f : 0.985f;
+                    : hovered
+                        ? 1.075f
+                        : selected
+                            ? 1.06f
+                            : equippedSlot ? 1.025f : unlocked ? 1f : 0.985f;
 
                 slot.localScale = Vector3.Lerp(
                     slot.localScale,
