@@ -3,6 +3,15 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
+public enum BattleCombatTabFocus
+{
+    None,
+    Pack,
+    Rules,
+    Mission,
+    Chat
+}
+
 /// <summary>
 /// Combat TAB의 방송 정보 영역을 담당합니다.
 ///
@@ -28,12 +37,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Exiting
     }
 
-    private enum DashboardFocus
-    {
-        Pack,
-        Mission
-    }
-
     private const int MaxMissionSlots = 6;
     private const int DashboardSortingOrder = 1685;
     private const int MaxChatLines = 5;
@@ -43,10 +46,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField] private FanMissionSystem fanMissionSystem;
     [SerializeField] private RunProgressSystem runProgress;
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
+    [SerializeField] private BattleRuleRouletteController rouletteController;
 
     [Header("Motion")]
     [SerializeField, Range(4f, 30f)] private float layoutSharpness = 14f;
-    [SerializeField, Min(100f)] private float rightSlideDistance = 620f;
+    [SerializeField, Min(100f)] private float rightSlideDistance = 260f;
+    [SerializeField] private Vector2 inactivePanelCornerOffset = new(210f, -26f);
 
     [Header("Broadcast Metrics")]
     [SerializeField] private Vector2 compactMetricSize = new(300f, 42f);
@@ -117,7 +122,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private readonly List<string> chatHistory = new();
 
     private DashboardState state = DashboardState.Hidden;
-    private DashboardFocus focus = DashboardFocus.Pack;
+    private BattleCombatTabFocus focus = BattleCombatTabFocus.None;
     private int selectedMissionIndex = -1;
     private int hoveredMissionIndex = -1;
     private int activeMissionCount;
@@ -208,6 +213,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             runProgress = FindFirstObjectByType<RunProgressSystem>();
         if (kineticLoadout == null)
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
+        if (rouletteController == null)
+            rouletteController = FindFirstObjectByType<BattleRuleRouletteController>(FindObjectsInactive.Include);
     }
 
     private void Subscribe()
@@ -323,18 +330,23 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             if (dashboardRoot == null)
                 return;
 
+            bool wasHidden = state == DashboardState.Hidden;
             dashboardRoot.gameObject.SetActive(true);
             state = DashboardState.Entering;
-            focus = DashboardFocus.Pack;
+            focus = BattleCombatTabFocus.None;
             hoveredMissionIndex = -1;
             RefreshMissionData();
             RefreshChatState();
+            if (wasHidden)
+                PrepareDashboardEntryPose();
+            ApplyFocusState();
         }
         else if (state != DashboardState.Hidden)
         {
             state = DashboardState.Exiting;
-            focus = DashboardFocus.Pack;
+            focus = BattleCombatTabFocus.None;
             hoveredMissionIndex = -1;
+            ApplyFocusState();
         }
     }
 
@@ -355,11 +367,39 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
             // RemainingTime 자체는 FanMissionSystem의 gameplay timer가 갱신합니다.
             // 여기서는 이미 선택된 미션의 표시 문자열만 갱신합니다.
-            if (focus == DashboardFocus.Mission)
+            if (focus == BattleCombatTabFocus.Mission)
                 RefreshMissionDetail();
         }
 
         AnimatePresentation(t);
+    }
+
+    private void PrepareDashboardEntryPose()
+    {
+        if (dashboardGroup != null)
+            dashboardGroup.alpha = 0.66f;
+
+        if (missionPanel != null)
+        {
+            missionPanel.anchoredPosition =
+                missionPanelOffset + Vector2.right * rightSlideDistance;
+            missionPanel.localScale = Vector3.one * 0.90f;
+        }
+        if (missionPanelGroup != null)
+            missionPanelGroup.alpha = 0.68f;
+
+        if (chatPanel != null)
+        {
+            float missionHeight = missionPanel != null
+                ? missionPanel.sizeDelta.y
+                : standbyMissionSize.y;
+            chatPanel.anchoredPosition = new Vector2(
+                -32f + rightSlideDistance,
+                -(missionHeight + 132f));
+            chatPanel.localScale = Vector3.one * 0.88f;
+        }
+        if (chatGroup != null)
+            chatGroup.alpha = 0.64f;
     }
 
     private void TryResolveUi()
@@ -652,31 +692,38 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private void TrackPointerFocus()
     {
         if (!Input.mousePresent)
-        {
-            SetFocus(DashboardFocus.Pack);
             return;
-        }
-
-        int missionCount = activeMissionCount;
-        if (missionCount <= 0)
-        {
-            SetFocus(DashboardFocus.Pack);
-            return;
-        }
 
         Vector2 mouse = Input.mousePosition;
         int hovered = FindMissionRowUnderPointer(mouse);
 
-        if (hovered >= 0)
+        bool overMission =
+            missionPanel != null &&
+            RectTransformUtility.RectangleContainsScreenPoint(missionPanel, mouse, null);
+        bool overChat =
+            chatPanel != null &&
+            RectTransformUtility.RectangleContainsScreenPoint(chatPanel, mouse, null);
+
+        if (overMission)
         {
-            SetMissionSelection(hovered);
-            SetFocus(DashboardFocus.Mission);
+            if (hovered >= 0)
+                SetMissionSelection(hovered);
+            SetFocus(BattleCombatTabFocus.Mission);
+            return;
         }
-        else
+
+        if (overChat)
         {
-            // MissionPanel 전체 사각형을 Hover 영역으로 사용하지 않습니다.
-            // 실제 보이는 MissionRow 위에 있을 때만 Mission Focus가 활성화됩니다.
-            SetFocus(DashboardFocus.Pack);
+            SetFocus(BattleCombatTabFocus.Chat);
+            return;
+        }
+
+        // PACK and RULES are event-driven by their own stable hit regions.
+        // Only release dashboard-owned focus here.
+        if (focus == BattleCombatTabFocus.Mission ||
+            focus == BattleCombatTabFocus.Chat)
+        {
+            SetFocus(BattleCombatTabFocus.None);
         }
     }
 
@@ -709,19 +756,45 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         return result;
     }
 
-    private void SetFocus(DashboardFocus next)
+    public void SetPackFocus(bool active)
     {
-        if (next == DashboardFocus.Mission &&
-            (fanMissionSystem == null || fanMissionSystem.ActiveMissions.Count == 0))
+        SetExternalFocus(BattleCombatTabFocus.Pack, active);
+    }
+
+    public void SetRulesFocus(bool active)
+    {
+        SetExternalFocus(BattleCombatTabFocus.Rules, active);
+    }
+
+    private void SetExternalFocus(BattleCombatTabFocus target, bool active)
+    {
+        if (state != DashboardState.Entering && state != DashboardState.Open)
+            return;
+
+        if (active)
         {
-            next = DashboardFocus.Pack;
+            SetFocus(target);
+            return;
         }
 
+        if (focus == target)
+            SetFocus(BattleCombatTabFocus.None);
+    }
+
+    private void SetFocus(BattleCombatTabFocus next)
+    {
         if (focus == next)
             return;
 
         focus = next;
+        ApplyFocusState();
         RefreshMissionRowState();
+    }
+
+    private void ApplyFocusState()
+    {
+        kineticLoadout?.SetTabFocusState(focus);
+        rouletteController?.SetTabFocusState(focus);
     }
 
     private void SetMissionSelection(int index)
@@ -789,7 +862,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         {
             selectedMissionIndex = -1;
             hoveredMissionIndex = -1;
-            focus = DashboardFocus.Pack;
+            focus = BattleCombatTabFocus.None;
+            ApplyFocusState();
         }
         else if (selectedMissionIndex < 0 || selectedMissionIndex >= count)
         {
@@ -995,8 +1069,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         bool targetVisible = state == DashboardState.Entering || state == DashboardState.Open;
         int missionCount = activeMissionCount;
         bool missionFocused = targetVisible &&
-                              missionCount > 0 &&
-                              focus == DashboardFocus.Mission;
+                              focus == BattleCombatTabFocus.Mission;
+        bool missionSuppressed = targetVisible &&
+                                 focus != BattleCombatTabFocus.None &&
+                                 focus != BattleCombatTabFocus.Mission;
 
         float dashboardTargetAlpha = targetVisible ? 1f : 0f;
         Vector3 dashboardTargetScale = Vector3.one * (targetVisible ? 1f : 0.94f);
@@ -1021,7 +1097,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         dashboardLocal.z = Mathf.Lerp(dashboardLocal.z, dashboardTargetZ, t);
         dashboardRoot.localPosition = dashboardLocal;
 
-        AnimateMissionPanel(t, targetVisible, missionCount, missionFocused);
+        AnimateMissionPanel(
+            t,
+            targetVisible,
+            missionCount,
+            missionFocused,
+            missionSuppressed);
         AnimateMissionRows(t);
         AnimateChat(t, targetVisible);
 
@@ -1106,7 +1187,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBar.localPosition = local;
     }
 
-    private void AnimateMissionPanel(float t, bool dashboardVisible, int missionCount, bool missionFocused)
+    private void AnimateMissionPanel(
+        float t,
+        bool dashboardVisible,
+        int missionCount,
+        bool missionFocused,
+        bool missionSuppressed)
     {
         if (missionPanel == null)
             return;
@@ -1118,6 +1204,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Vector2 visiblePosition = missionFocused
             ? focusedMissionPanelOffset
             : missionPanelOffset;
+        if (missionSuppressed)
+            visiblePosition += inactivePanelCornerOffset;
+
         Vector2 targetPosition = dashboardVisible
             ? visiblePosition
             : visiblePosition + Vector2.right * rightSlideDistance;
@@ -1132,9 +1221,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             t);
 
         Quaternion targetRotation = Quaternion.Euler(
-            standby ? 2.4f : missionFocused ? 0.2f : 1.0f,
-            standby ? -6f : missionFocused ? -1f : -3.2f,
-            standby ? 0.6f : missionFocused ? -0.15f : 0.2f);
+            missionSuppressed ? 3.4f : standby ? 2.4f : missionFocused ? 0.2f : 1.0f,
+            missionSuppressed ? -7.5f : standby ? -6f : missionFocused ? -1f : -3.2f,
+            missionSuppressed ? 0.9f : standby ? 0.6f : missionFocused ? -0.15f : 0.2f);
         missionPanel.localRotation = Quaternion.Slerp(
             missionPanel.localRotation,
             targetRotation,
@@ -1150,8 +1239,18 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (missionPanelGroup != null)
             missionPanelGroup.alpha = Mathf.Lerp(
                 missionPanelGroup.alpha,
-                standby ? 0.72f : missionFocused ? 1f : 0.94f,
+                missionSuppressed
+                    ? 0.34f
+                    : standby ? 0.64f : missionFocused ? 1f : 0.72f,
                 t);
+
+        missionPanel.localScale = Vector3.Lerp(
+            missionPanel.localScale,
+            Vector3.one * (
+                missionSuppressed
+                    ? 0.82f
+                    : missionFocused ? 1.055f : 0.92f),
+            t);
 
         bool detailVisible = !standby &&
                              missionFocused &&
@@ -1258,6 +1357,13 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         int viewers = currentViewers;
         bool active = dashboardVisible && viewers > 0;
+        bool chatFocused =
+            dashboardVisible &&
+            focus == BattleCombatTabFocus.Chat;
+        bool chatSuppressed =
+            dashboardVisible &&
+            focus != BattleCombatTabFocus.None &&
+            focus != BattleCombatTabFocus.Chat;
 
         float missionHeight = missionPanel != null
             ? missionPanel.sizeDelta.y
@@ -1265,6 +1371,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Vector2 visiblePosition = new(
             -32f,
             -(missionHeight + 132f));
+        if (chatFocused)
+            visiblePosition += new Vector2(-64f, 8f);
+        else if (chatSuppressed)
+            visiblePosition += inactivePanelCornerOffset + new Vector2(30f, 34f);
+
         Vector2 targetPosition = dashboardVisible
             ? visiblePosition
             : visiblePosition + Vector2.right * rightSlideDistance;
@@ -1276,19 +1387,28 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         chatGroup.alpha = Mathf.Lerp(
             chatGroup.alpha,
-            dashboardVisible ? active ? 1f : 0.72f : 0f,
+            dashboardVisible
+                ? chatSuppressed
+                    ? 0.30f
+                    : chatFocused
+                        ? 1f
+                        : active ? 0.78f : 0.58f
+                : 0f,
             t);
 
         chatPanel.localScale = Vector3.Lerp(
             chatPanel.localScale,
-            Vector3.one * (active ? 1f : 0.94f),
+            Vector3.one * (
+                chatSuppressed
+                    ? 0.80f
+                    : chatFocused ? 1.06f : active ? 0.94f : 0.88f),
             t);
         chatPanel.localRotation = Quaternion.Slerp(
             chatPanel.localRotation,
             Quaternion.Euler(
-                active ? 0.4f : 2.5f,
-                active ? -1.5f : -5.5f,
-                active ? -0.25f : 0.65f),
+                chatSuppressed ? 3.0f : chatFocused ? 0.1f : active ? 0.7f : 2.5f,
+                chatSuppressed ? -7f : chatFocused ? -0.4f : active ? -2.0f : -5.5f,
+                chatSuppressed ? 0.8f : chatFocused ? -0.05f : active ? -0.25f : 0.65f),
             t);
 
         Vector3 local = chatPanel.localPosition;
