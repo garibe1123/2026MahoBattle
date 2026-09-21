@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -19,6 +20,13 @@ using UnityEngine.UI;
 [DefaultExecutionOrder(32580)]
 public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 {
+    private enum MapPresentationState
+    {
+        Hidden,
+        Entering,
+        Active,
+        Exiting
+    }
     private const string SharedFrameName = "PrizeSelectionScreen";
     private const string ScreenInnerName = "ScreenInner";
     private const string ViewportName = "ShowContentViewport";
@@ -40,10 +48,9 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     [SerializeField] private Color accentYellow = new(1f, 0.80f, 0.10f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.48f, 1f);
     [SerializeField] private Color accentCyan = new(0.16f, 0.86f, 0.92f, 1f);
-    [SerializeField, Min(56f)] private float pointerHitSize = 96f;
-    [SerializeField, Min(28f)] private float selectableNodeSize = 54f;
-    [SerializeField, Min(28f)] private float eliteNodeSize = 60f;
-    [SerializeField, Min(0.02f)] private float refreshInterval = 0.08f;
+    [SerializeField, Min(96f)] private float pointerHitSize = 124f;
+    [SerializeField, Min(56f)] private float selectableNodeSize = 76f;
+    [SerializeField, Min(64f)] private float eliteNodeSize = 86f;
 
     private RectTransform sharedFrame;
     private RectTransform screenInner;
@@ -54,9 +61,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private CanvasGroup tvGroup;
     private Canvas tvCanvas;
 
-    private bool wasMapActive;
+    private MapPresentationState presentationState = MapPresentationState.Hidden;
+    private BattleRunManager subscribedRunManager;
+    private Coroutine refreshRoutine;
     private bool rewardAccentsResolved;
-    private float nextRefresh;
 
     private bool frameStateCaptured;
     private Quaternion originalFrameRotation;
@@ -78,48 +86,132 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
-        nextRefresh = 0f;
+        SubscribeRunEvents();
+
+        if (IsMapActive())
+            EnterMapPresentation();
     }
 
     private void OnDisable()
     {
-        RestoreMapOnlyState();
+        if (refreshRoutine != null)
+            StopCoroutine(refreshRoutine);
+        refreshRoutine = null;
+
+        UnsubscribeRunEvents();
+        ExitMapPresentation();
     }
 
     private void OnDestroy()
     {
+        UnsubscribeRunEvents();
         RestoreMapOnlyState();
     }
 
-    private void Update()
+    private void SubscribeRunEvents()
     {
-        ResolveReferences();
-        bool mapActive = IsMapActive();
-
-        if (!mapActive)
-        {
-            if (wasMapActive)
-                RestoreMapOnlyState();
-            wasMapActive = false;
+        if (subscribedRunManager == runManager)
             return;
+
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
+            subscribedRunManager.NodeEntered -= HandleNodeEntered;
         }
 
-        bool enteringMap = !wasMapActive;
-        if (!enteringMap && Time.unscaledTime < nextRefresh)
+        subscribedRunManager = runManager;
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged += HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested += HandleNextNodeSelectionRequested;
+            subscribedRunManager.NodeEntered += HandleNodeEntered;
+        }
+    }
+
+    private void UnsubscribeRunEvents()
+    {
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
+            subscribedRunManager.NodeEntered -= HandleNodeEntered;
+        }
+
+        subscribedRunManager = null;
+    }
+
+    private void HandleRunStateChanged(BattleRunState state)
+    {
+        if (state == BattleRunState.SelectingNode)
+            EnterMapPresentation();
+        else if (presentationState != MapPresentationState.Hidden)
+            ExitMapPresentation();
+    }
+
+    private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
+    {
+        if (presentationState == MapPresentationState.Active ||
+            presentationState == MapPresentationState.Entering)
+        {
+            QueueRefresh();
+        }
+    }
+
+    private void HandleNodeEntered(BattleNodeData _)
+    {
+        if (presentationState != MapPresentationState.Hidden)
+            ExitMapPresentation();
+    }
+
+    private void EnterMapPresentation()
+    {
+        if (!isActiveAndEnabled)
             return;
 
-        nextRefresh = Time.unscaledTime + Mathf.Max(0.02f, refreshInterval);
+        presentationState = MapPresentationState.Entering;
         ResolveUi();
-
-        if (enteringMap)
-        {
-            CaptureFrameState();
-            wasMapActive = true;
-        }
-
+        CaptureFrameState();
         ApplyMapFrame();
         MaintainInteraction();
         ApplyMapHierarchy();
+        presentationState = MapPresentationState.Active;
+    }
+
+    private void ExitMapPresentation()
+    {
+        if (presentationState == MapPresentationState.Hidden)
+            return;
+
+        presentationState = MapPresentationState.Exiting;
+        RestoreMapOnlyState();
+        presentationState = MapPresentationState.Hidden;
+    }
+
+    private void QueueRefresh()
+    {
+        if (!isActiveAndEnabled)
+            return;
+
+        if (refreshRoutine != null)
+            StopCoroutine(refreshRoutine);
+
+        refreshRoutine = StartCoroutine(RefreshAfterLayout());
+    }
+
+    private IEnumerator RefreshAfterLayout()
+    {
+        yield return null;
+        refreshRoutine = null;
+
+        if (!IsMapActive())
+            yield break;
+
+        ResolveUi();
+        ApplyMapFrame();
+        MaintainInteraction();
+        ApplyMapHierarchy();
+        presentationState = MapPresentationState.Active;
     }
 
     private bool IsMapActive()
@@ -133,6 +225,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+
+        SubscribeRunEvents();
     }
 
     private void ResolveUi()
@@ -310,7 +404,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 StyleNode(rect);
         }
 
-        EnsureDecisionAccent();
+        DisableDecisionAccent();
         EnsureControlHint();
     }
 
@@ -377,7 +471,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (image == null || outline == null)
             return;
 
-        bool selectable = button != null;
+        bool selectable = button != null && button.interactable;
         bool elite = label != null &&
                      (label.text ?? string.Empty).IndexOf("ELITE", System.StringComparison.OrdinalIgnoreCase) >= 0;
         bool current = runManager != null &&
@@ -394,8 +488,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             outline.effectColor = accent;
             outline.effectDistance = new Vector2(3f, -3f);
             float resolvedSize = elite
-                ? Mathf.Max(70f, eliteNodeSize)
-                : Mathf.Max(64f, selectableNodeSize);
+                ? Mathf.Max(86f, eliteNodeSize)
+                : Mathf.Max(76f, selectableNodeSize);
             rect.sizeDelta = Vector2.one * resolvedSize;
             button.transition = Selectable.Transition.None;
             image.raycastTarget = true;
@@ -404,11 +498,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             {
                 label.text = nodeLabel;
                 label.fontStyle = FontStyle.Bold;
-                label.fontSize = 9;
+                label.fontSize = 11;
                 label.color = paperColor;
             }
 
-            EnsurePointerHitArea(rect, image, outline, label, accent);
+            EnsurePointerHitArea(rect, image, outline, label, accent, button);
         }
         else if (current)
         {
@@ -451,7 +545,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         Image nodeImage,
         Outline nodeOutline,
         Text label,
-        Color accent)
+        Color accent,
+        Button button)
     {
         Transform existing = node.Find(PointerHitAreaName);
         RectTransform hitRect;
@@ -478,7 +573,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             hit.transform.SetAsLastSibling();
         }
 
-        hitRect.sizeDelta = Vector2.one * Mathf.Max(104f, pointerHitSize);
+        hitRect.sizeDelta = Vector2.one * Mathf.Max(124f, pointerHitSize);
         if (hitImage != null)
             hitImage.raycastTarget = true;
 
@@ -494,21 +589,17 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             accent,
             inkColor,
             paperColor);
+        feedback.BindButton(button);
     }
 
-    private void EnsureDecisionAccent()
+    private void DisableDecisionAccent()
     {
-        if (mapContent == null || mapContent.Find(DecisionAccentName) != null)
+        if (mapContent == null)
             return;
 
-        RectTransform accent = CreateRect(mapContent, DecisionAccentName, new Vector2(8f, 50f));
-        accent.anchorMin = accent.anchorMax = new Vector2(0f, 1f);
-        accent.pivot = new Vector2(0f, 1f);
-        accent.anchoredPosition = new Vector2(24f, -14f);
-
-        Image image = accent.gameObject.AddComponent<Image>();
-        image.color = accentYellow;
-        image.raycastTarget = false;
+        Transform accent = mapContent.Find(DecisionAccentName);
+        if (accent != null && accent.gameObject.activeSelf)
+            accent.gameObject.SetActive(false);
     }
 
     private void EnsureControlHint()
@@ -516,15 +607,15 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (mapContent == null || mapContent.Find(ControlHintName) != null)
             return;
 
-        RectTransform rect = CreateRect(mapContent, ControlHintName, new Vector2(260f, 24f));
+        RectTransform rect = CreateRect(mapContent, ControlHintName, new Vector2(390f, 28f));
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);
         rect.pivot = new Vector2(1f, 0f);
         rect.anchoredPosition = new Vector2(-28f, 18f);
 
         Text text = rect.gameObject.AddComponent<Text>();
         text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.text = "POINT  /  CLICK TO CONFIRM";
-        text.fontSize = 9;
+        text.text = "HOVER = PREVIEW   //   CLICK = SELECT";
+        text.fontSize = 11;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleRight;
         text.color = accentCyan;
@@ -542,7 +633,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             ? runManager.ResolveBattleRatingStars(node)
             : node.GetBattleRatingStars();
 
-        return typeName + "\n" + BuildStars(stars);
+        return typeName + "\n" + $"RATING {stars} / 5";
     }
 
     private BattleNodeData ResolveNodeData(RectTransform rect)
@@ -555,12 +646,6 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             return null;
 
         return runManager.FindNode(rect.name.Substring(prefix.Length));
-    }
-
-    private static string BuildStars(int stars)
-    {
-        stars = Mathf.Clamp(stars, 1, 5);
-        return new string('★', stars) + new string('☆', 5 - stars);
     }
 
     private static string ExtractNodeType(string source)
@@ -732,6 +817,8 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private Color baseIconColor = Color.white;
     private string baseLabel = "STAGE";
     private bool hovered;
+    private bool selected;
+    private Button boundButton;
 
     public void Configure(
         Image image,
@@ -764,10 +851,12 @@ internal sealed class BattleStageMapNodePointerFeedback :
         if (label != null)
             baseLabel = ExtractLabel(label.text);
 
-        if (!hovered)
-            ApplyNormal();
-        else
+        if (selected)
+            ApplySelected();
+        else if (hovered)
             ApplyHover();
+        else
+            ApplyNormal();
     }
 
     private void Update()
@@ -775,33 +864,89 @@ internal sealed class BattleStageMapNodePointerFeedback :
         if (nodeRect == null)
             return;
 
-        float targetScale = hovered ? HoverScale : 1f;
         float t = 1f - Mathf.Exp(-HoverScaleSharpness * Time.unscaledDeltaTime);
-        Vector3 target = Vector3.one * targetScale;
-        nodeRect.localScale = Vector3.Lerp(nodeRect.localScale, target, t);
 
-        if ((nodeRect.localScale - target).sqrMagnitude <= 0.00001f)
-            nodeRect.localScale = target;
+        float targetScale = selected
+            ? 1.24f
+            : hovered ? HoverScale : 1f;
+        float targetZ = selected
+            ? -28f
+            : hovered ? -16f : 4f;
+        Vector3 targetEuler = selected
+            ? Vector3.zero
+            : hovered
+                ? new Vector3(0.2f, -0.6f, -0.15f)
+                : new Vector3(1.4f, -3.2f, -0.55f);
+
+        nodeRect.localScale = Vector3.Lerp(
+            nodeRect.localScale,
+            Vector3.one * targetScale,
+            t);
+
+        Vector3 local = nodeRect.localPosition;
+        local.z = Mathf.Lerp(local.z, targetZ, t);
+        nodeRect.localPosition = local;
+
+        nodeRect.localRotation = Quaternion.Slerp(
+            nodeRect.localRotation,
+            Quaternion.Euler(targetEuler),
+            t);
     }
 
     public void OnPointerEnter(PointerEventData eventData)
     {
+        if (selected)
+            return;
+
         hovered = true;
         ApplyHover();
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
+        if (selected)
+            return;
+
         hovered = false;
         ApplyNormal();
+    }
+
+    public void BindButton(Button button)
+    {
+        if (boundButton == button)
+            return;
+
+        if (boundButton != null)
+            boundButton.onClick.RemoveListener(NotifySelected);
+
+        boundButton = button;
+        if (boundButton != null)
+        {
+            boundButton.onClick.RemoveListener(NotifySelected);
+            boundButton.onClick.AddListener(NotifySelected);
+        }
+    }
+
+    public void NotifySelected()
+    {
+        selected = true;
+        hovered = false;
+        ApplySelected();
     }
 
     private void OnDisable()
     {
         hovered = false;
+        selected = false;
         ApplyNormal();
         if (nodeRect != null)
+        {
             nodeRect.localScale = Vector3.one;
+            nodeRect.localRotation = Quaternion.identity;
+            Vector3 local = nodeRect.localPosition;
+            local.z = 0f;
+            nodeRect.localPosition = local;
+        }
     }
 
     private void ApplyHover()
@@ -828,6 +973,35 @@ internal sealed class BattleStageMapNodePointerFeedback :
         {
             label.gameObject.SetActive(true);
             label.text = baseLabel + "\nSELECT";
+            label.color = baseColor;
+            label.fontStyle = FontStyle.Bold;
+        }
+    }
+
+    private void ApplySelected()
+    {
+        if (nodeImage != null)
+        {
+            nodeImage.enabled = true;
+            nodeImage.color = new Color(accent.r, accent.g, accent.b, 0.92f);
+        }
+
+        if (nodeOutline != null)
+        {
+            nodeOutline.effectColor = paperColor;
+            nodeOutline.effectDistance = new Vector2(5f, -5f);
+        }
+
+        if (nodeIcon != null)
+        {
+            nodeIcon.enabled = true;
+            nodeIcon.color = baseColor;
+        }
+
+        if (label != null)
+        {
+            label.gameObject.SetActive(true);
+            label.text = baseLabel + "\nSELECTED";
             label.color = baseColor;
             label.fontStyle = FontStyle.Bold;
         }
