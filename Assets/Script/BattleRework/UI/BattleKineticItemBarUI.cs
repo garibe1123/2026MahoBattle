@@ -4,10 +4,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Mini PACK의 구조 생성과 아이템 데이터 시각 갱신을 담당합니다.
+/// Mini PACK의 구조 생성과 아이템 데이터 시각 갱신만 담당합니다.
 ///
-/// 이 클래스는 PACK/Expanded Grid의 최종 위치, 크기, CanvasGroup 표시 상태를 쓰지 않습니다.
-/// 해당 레이아웃은 BattleUnifiedInventoryInspectController가 단독 소유합니다.
+/// Mini PACK의 최종 위치, 크기, Z/Rotation/Alpha는
+/// BattleUnifiedInventoryInspectController가 소유합니다.
+/// Full PACK / GridBoard의 Combat 표현은 BattleKineticLoadoutUI가 소유합니다.
 /// Equipped / Synergy는 작은 CellAccent로만 표시합니다.
 /// </summary>
 [DisallowMultipleComponent]
