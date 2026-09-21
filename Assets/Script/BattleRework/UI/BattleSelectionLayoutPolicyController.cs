@@ -188,7 +188,12 @@ public sealed class BattleSelectionLayoutPolicyController : MonoBehaviour
         }
         else if (runManager.State == BattleRunState.SelectingNode)
         {
-            activeScreen = mapScreen;
+            // Shared-TV mode moves MapSelectionContent into PrizeSelectionScreen and
+            // disables the legacy MapSelectionScreen. Framing the inactive legacy rect
+            // makes the Game camera keep the wide field composition.
+            activeScreen = rewardScreen != null && rewardScreen.gameObject.activeInHierarchy
+                ? rewardScreen
+                : mapScreen;
             bias = mapCameraBiasWorld;
         }
 
