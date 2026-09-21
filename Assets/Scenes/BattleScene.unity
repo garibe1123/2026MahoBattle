@@ -1370,8 +1370,6 @@ MonoBehaviour:
   presenterPadYOffset: 0.2
   presenterRightPadding: 0.15
   presenterFrontOrder: 20
-  mapStartSize: {x: 92, y: 46}
-  mapStartGap: 108
 --- !u!114 &529217576
 MonoBehaviour:
   m_ObjectHideFlags: 0
