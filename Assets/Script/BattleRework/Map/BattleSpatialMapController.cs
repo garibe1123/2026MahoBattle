@@ -210,6 +210,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         UpdateStageMapCursorTracking();
+        HandleStageMapDirectPointerInput();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
@@ -1628,6 +1629,54 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         hud?.SetMapCursorFocus(false);
         battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+    }
+
+    private void HandleStageMapDirectPointerInput()
+    {
+        if (stageMapSelectionLocked ||
+            runManager == null ||
+            !runManager.WaitingForNodeSelection ||
+            stageMapPanel == null ||
+            !stageMapPanel.gameObject.activeInHierarchy ||
+            stageMapRevealRoutine != null ||
+            !Input.GetMouseButtonDown(0))
+        {
+            return;
+        }
+
+        Camera eventCamera = Camera.main;
+        Vector2 pointer = Input.mousePosition;
+
+        // World-Space TV interaction must not depend exclusively on UGUI's
+        // GraphicRaycaster/EventSystem chain. The visual map already uses direct
+        // RectTransform hit testing for cursor tracking, so selection uses the
+        // same coordinate path as a deterministic fallback.
+        for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
+        {
+            RectTransform node = stageMapPanel.GetChild(i) as RectTransform;
+            if (node == null ||
+                !node.gameObject.activeInHierarchy ||
+                !node.name.StartsWith("StageNode_", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            Button button = node.GetComponent<Button>();
+            if (button == null || !button.IsActive() || !button.IsInteractable())
+                continue;
+
+            RectTransform hitArea = node.Find("MapPointerHitArea") as RectTransform;
+            RectTransform hitTarget = hitArea != null && hitArea.gameObject.activeInHierarchy
+                ? hitArea
+                : node;
+
+            if (!RectTransformUtility.RectangleContainsScreenPoint(hitTarget, pointer, eventCamera))
+                continue;
+
+            string nodeId = node.name.Substring("StageNode_".Length);
+            BeginStageNodeSelection(nodeId, node);
+            return;
+        }
     }
 
     private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)
