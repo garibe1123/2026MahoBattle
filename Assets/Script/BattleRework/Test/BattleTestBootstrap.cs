@@ -4,7 +4,7 @@ using UnityEngine.SceneManagement;
 
 /// <summary>
 /// BattleTestScene entry point. Core installation/validation belongs to BattleSceneManager.
-/// The old IMGUI panels are now a fallback only: the runtime BattleHUD / show UI take priority.
+/// Runtime presentation is owned by BattleHUD / show UI; legacy IMGUI fallbacks were removed.
 /// </summary>
 [RequireComponent(typeof(BattleSceneManager))]
 public class BattleTestBootstrap : MonoBehaviour
@@ -19,7 +19,6 @@ public class BattleTestBootstrap : MonoBehaviour
     [SerializeField] private RoomBaseTemplate roomBaseTemplate;
 
     [Header("Test Startup")]
-    [SerializeField] private bool ensureDummyUI = false;
     [Tooltip("false면 BattleSceneEntry 또는 외부 진입 흐름이 START를 담당합니다.")]
     [SerializeField] private bool autoStartRun = false;
 
@@ -54,8 +53,7 @@ public class BattleTestBootstrap : MonoBehaviour
     {
         ResolveSceneManager();
         ResolveFromSceneManager();
-        EnsureDummyUiComponents();
-    }
+}
 
     private void Start()
     {
@@ -64,9 +62,7 @@ public class BattleTestBootstrap : MonoBehaviour
 
         ResolveSceneManager();
         ResolveFromSceneManager();
-        RefreshDummyUiReferences();
-
-        if (!ValidateTestScene(out string report))
+if (!ValidateTestScene(out string report))
         {
             Debug.LogError($"[BattleTest] START BLOCKED. Scene validation failed.\n{report}");
             return;
@@ -84,26 +80,6 @@ public class BattleTestBootstrap : MonoBehaviour
     {
         if (sceneManager == null) sceneManager = GetComponent<BattleSceneManager>();
         if (sceneManager == null) sceneManager = FindFirstObjectByType<BattleSceneManager>();
-    }
-
-    private void EnsureDummyUiComponents()
-    {
-        // The polished broadcast HUD is the normal test presentation. Old IMGUI stays opt-in only.
-        if (!ensureDummyUI || FindFirstObjectByType<BattleHUD>() != null)
-            return;
-
-        if (FindFirstObjectByType<BattleDummyUI>() == null)
-            gameObject.AddComponent<BattleDummyUI>();
-        if (FindFirstObjectByType<PlayerLoadout>() != null && FindFirstObjectByType<BattleDummyLoadoutUI>() == null)
-            gameObject.AddComponent<BattleDummyLoadoutUI>();
-        if (FindFirstObjectByType<SynergyDummyUI>() == null)
-            gameObject.AddComponent<SynergyDummyUI>();
-    }
-
-    private static void RefreshDummyUiReferences()
-    {
-        BattleDummyUI dummy = FindFirstObjectByType<BattleDummyUI>();
-        if (dummy != null) dummy.AutoFindReferences();
     }
 
     [ContextMenu("Validate Battle Test Scene")]
