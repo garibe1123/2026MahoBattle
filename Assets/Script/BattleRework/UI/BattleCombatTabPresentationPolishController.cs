@@ -11,7 +11,7 @@ using UnityEngine.UI;
 /// - 평소에는 작은 Metric Bar, TAB을 열면 같은 자리에서 부드럽게 확대합니다.
 /// - FAN MISSION 아래에 방송 스타일 Live Chat을 표시합니다.
 /// - 실제 Viewer가 0명일 때는 채팅을 생성하지 않습니다.
-/// - 0명 구간에서는 표시용 1~2명 유입이 간헐적으로 들어왔다가 빠지며, 가끔 짧은 이탈성 댓글을 남깁니다.
+/// - Viewer/Like 표시는 RunProgressSystem의 실제 BroadcastMetrics만 사용합니다.
 /// - Combat TAB의 PACK은 GridBoard 자체가 아니라 BroadcastPackDock 부모를 좌측 Rail에 맞춰 이동합니다.
 /// - Equipment Detail은 PACK 가까이에 붙이고, 우측 Mission / Chat 포커스 중에는 숨깁니다.
 /// - 우측 하단 CurrentLoadoutChip의 빨간 AccentSlash 장식은 숨깁니다.
