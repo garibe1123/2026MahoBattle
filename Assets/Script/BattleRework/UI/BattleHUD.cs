@@ -656,15 +656,6 @@ if (canvas == null)
         presenterMetadataImage.enabled = false;
     }
 
-    /// <summary>
-    /// 구형 HUD World-Map 확대 API 호환용입니다.
-    /// 실제 Map cursor tracking은 BattleShowWorldSetController / BattleCameraController가 소유합니다.
-    /// </summary>
-    public void SetMapCursorFocus(bool focused)
-    {
-        _ = focused;
-    }
-
     private static string Shorten(string value, int max)
     {
         if (string.IsNullOrEmpty(value) || value.Length <= max)
