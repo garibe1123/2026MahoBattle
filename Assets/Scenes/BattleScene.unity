@@ -518,10 +518,10 @@ MonoBehaviour:
   equipmentSystem: {fileID: 0}
   gridSynergy: {fileID: 0}
   inkColor: {r: 0.035, g: 0.03, b: 0.055, a: 0.98}
-  paperColor: {r: 0.94, g: 0.9, b: 0.76, a: 1}
-  emptyCellColor: {r: 0.19, g: 0.18, b: 0.22, a: 0.96}
-  occupiedCellColor: {r: 0.06, g: 0.055, b: 0.08, a: 0.99}
-  lockedColor: {r: 0.1, g: 0.09, b: 0.14, a: 0.94}
+  paperColor: {r: 0.92, g: 0.94, b: 0.97, a: 1}
+  emptyCellColor: {r: 0.1, g: 0.11, b: 0.14, a: 0.98}
+  occupiedCellColor: {r: 0.045, g: 0.05, b: 0.065, a: 0.99}
+  lockedColor: {r: 0.075, g: 0.08, b: 0.1, a: 0.92}
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
