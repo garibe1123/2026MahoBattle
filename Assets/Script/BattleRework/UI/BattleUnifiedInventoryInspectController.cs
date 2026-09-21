@@ -100,6 +100,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private int activeInspectSlot = -1;
     private bool mouseWasInsideBoard;
     private bool inspectContextWasActive;
+    private bool combatTabOpen;
+    private BattleKineticLoadoutUI subscribedCombatLoadout;
     private float nextResolveTime;
 
     public int ActiveInspectSlot => activeInspectSlot;
@@ -114,6 +116,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        SubscribeCombatLoadout();
+        combatTabOpen = kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
         ResolveUi();
         EnsureDismissCanvas();
         nextResolveTime = 0f;
@@ -121,6 +125,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void OnDisable()
     {
+        UnsubscribeCombatLoadout();
+        combatTabOpen = false;
         inspectContextWasActive = false;
         selectionSuppressed = false;
         suppressedSourceSlot = -1;
@@ -140,12 +146,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         {
             nextResolveTime = Time.unscaledTime + 0.10f;
             ResolveUi();
-            EnsureFullSelectionFrames();
+            if (IsRewardEdit())
+                EnsureFullSelectionFrames();
         }
 
         bool rewardEdit = IsRewardEdit();
-        bool combatTab = IsCombatTabOpen();
-        bool inspectContext = rewardEdit || combatTab;
+        bool inspectContext = rewardEdit;
 
         HandleInspectContextTransition(inspectContext);
 
@@ -154,7 +160,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         else
             RestoreBulletTime(false);
 
-        SyncSelection(rewardEdit, combatTab);
+        // Combat selection/detail is owned by BattleKineticLoadoutUI.
+        SyncSelection(rewardEdit, false);
         HandleCancelInput(inspectContext);
         TrackMouseLeavingBoard(inspectContext);
         SetDismissActive(inspectContext);
@@ -166,17 +173,16 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         bool rewardChoice = IsRewardChoice();
         bool rewardEdit = IsRewardEdit();
-        bool combatTab = IsCombatTabOpen();
+        bool combatTab = combatTabOpen;
         bool combat = IsCombat();
-        bool inspectContext = rewardEdit || combatTab;
 
         HideDuplicateLegacyBars();
         ApplyMiniPackGeometry();
         ApplyMiniPackContext(rewardChoice, rewardEdit, combatTab, combat);
         ApplyFullInventoryLayout(rewardEdit, combatTab);
         AttachContextControls(rewardEdit, combat);
-        ApplySelectionFrames(inspectContext, rewardEdit);
-        PositionDetailPanel(inspectContext);
+        ApplySelectionFrames(rewardEdit, rewardEdit);
+        PositionDetailPanel(rewardEdit);
     }
 
     private void ResolveReferences()
@@ -191,6 +197,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>(FindObjectsInactive.Include);
         if (kineticLoadout == null)
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
+
+        SubscribeCombatLoadout();
         if (detailController == null)
             detailController = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
         if (timeScaleController == null)
@@ -216,7 +224,36 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private bool IsCombatTabOpen()
     {
-        return IsCombat() && kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
+        return combatTabOpen;
+    }
+
+    private void SubscribeCombatLoadout()
+    {
+        if (subscribedCombatLoadout == kineticLoadout)
+            return;
+
+        if (subscribedCombatLoadout != null)
+            subscribedCombatLoadout.SwitchBoardVisibilityChanged -= HandleCombatBoardVisibilityChanged;
+
+        subscribedCombatLoadout = kineticLoadout;
+        if (subscribedCombatLoadout != null)
+        {
+            subscribedCombatLoadout.SwitchBoardVisibilityChanged += HandleCombatBoardVisibilityChanged;
+            combatTabOpen = subscribedCombatLoadout.IsSwitchBoardOpen;
+        }
+    }
+
+    private void UnsubscribeCombatLoadout()
+    {
+        if (subscribedCombatLoadout != null)
+            subscribedCombatLoadout.SwitchBoardVisibilityChanged -= HandleCombatBoardVisibilityChanged;
+
+        subscribedCombatLoadout = null;
+    }
+
+    private void HandleCombatBoardVisibilityChanged(bool visible)
+    {
+        combatTabOpen = visible;
     }
 
     private void ResolveUi()
@@ -409,22 +446,38 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void ApplyFullInventoryLayout(bool rewardEdit, bool combatTab)
     {
-        if (boardRoot != null)
+        if (rewardEdit)
         {
-            boardRoot.anchorMin = boardRoot.anchorMax = boardAnchor;
-            boardRoot.pivot = new Vector2(0.5f, 0.5f);
-            boardRoot.anchoredPosition = Vector2.zero;
-        }
+            if (boardRoot != null)
+            {
+                boardRoot.anchorMin = boardRoot.anchorMax = boardAnchor;
+                boardRoot.pivot = new Vector2(0.5f, 0.5f);
+                boardRoot.anchoredPosition = Vector2.zero;
+                boardRoot.localRotation = Quaternion.identity;
 
-        if (fullRoot != null)
-            fullRoot.localScale = Vector3.one * fullGridScale;
+                Vector3 boardLocal = boardRoot.localPosition;
+                boardLocal.z = 0f;
+                boardRoot.localPosition = boardLocal;
+                boardRoot.localScale = Vector3.one;
+            }
 
-        if (rewardEdit && fullRoot != null && fullGroup != null)
-        {
-            fullRoot.gameObject.SetActive(true);
-            fullGroup.alpha = 1f;
-            fullGroup.blocksRaycasts = !BattlePauseController.IsPaused;
-            fullGroup.interactable = !BattlePauseController.IsPaused;
+            if (fullRoot != null)
+            {
+                fullRoot.localScale = Vector3.one * fullGridScale;
+                fullRoot.localRotation = Quaternion.identity;
+
+                Vector3 rootLocal = fullRoot.localPosition;
+                rootLocal.z = 0f;
+                fullRoot.localPosition = rootLocal;
+            }
+
+            if (fullRoot != null && fullGroup != null)
+            {
+                fullRoot.gameObject.SetActive(true);
+                fullGroup.alpha = 1f;
+                fullGroup.blocksRaycasts = !BattlePauseController.IsPaused;
+                fullGroup.interactable = !BattlePauseController.IsPaused;
+            }
         }
 
         if (fullTitle != null)
@@ -441,12 +494,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             }
             else
             {
-                fullSubtitle.text = "HOLD TAB  •  MOUSE SELECT  •  RELEASE TO EQUIP";
+                fullSubtitle.text = "HOLD TAB / LB  •  SELECT SLOT  •  RELEASE TO EQUIP";
             }
         }
 
+        // Combat PACK layout/depth/detail belong to BattleKineticLoadoutUI.
         if (builtInDetailRoot != null)
-            builtInDetailRoot.gameObject.SetActive(!(rewardEdit || combatTab));
+            builtInDetailRoot.gameObject.SetActive(!rewardEdit);
     }
 
     private void HideDuplicateLegacyBars()
