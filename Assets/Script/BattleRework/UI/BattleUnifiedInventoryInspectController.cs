@@ -101,7 +101,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private bool mouseWasInsideBoard;
     private bool inspectContextWasActive;
     private bool combatTabOpen;
+    private bool combatActive;
     private BattleKineticLoadoutUI subscribedCombatLoadout;
+    private BattleRunManager subscribedRunManager;
     private float nextResolveTime;
 
     public int ActiveInspectSlot => activeInspectSlot;
@@ -116,7 +118,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        SubscribeRunState();
         SubscribeCombatLoadout();
+        combatActive = ResolveCombatState();
         combatTabOpen = kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
         ResolveUi();
         EnsureDismissCanvas();
@@ -125,7 +129,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void OnDisable()
     {
+        UnsubscribeRunState();
         UnsubscribeCombatLoadout();
+        combatActive = false;
         combatTabOpen = false;
         inspectContextWasActive = false;
         selectionSuppressed = false;
@@ -174,7 +180,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         bool rewardChoice = IsRewardChoice();
         bool rewardEdit = IsRewardEdit();
         bool combatTab = combatTabOpen;
-        bool combat = IsCombat();
+        bool combat = combatActive;
 
         HideDuplicateLegacyBars();
         ApplyMiniPackGeometry();
@@ -189,6 +195,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+
+        if (isActiveAndEnabled)
+            SubscribeRunState();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
         if (rewardFlow == null)
@@ -205,9 +214,37 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             timeScaleController = BattleTimeScaleController.ResolveOrCreate(this);
     }
 
-    private bool IsCombat()
+    private bool ResolveCombatState()
     {
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Combat;
+    }
+
+    private void SubscribeRunState()
+    {
+        if (subscribedRunManager == runManager)
+            return;
+
+        if (subscribedRunManager != null)
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+
+        subscribedRunManager = runManager;
+        if (subscribedRunManager != null)
+            subscribedRunManager.StateChanged += HandleRunStateChanged;
+    }
+
+    private void UnsubscribeRunState()
+    {
+        if (subscribedRunManager != null)
+            subscribedRunManager.StateChanged -= HandleRunStateChanged;
+
+        subscribedRunManager = null;
+    }
+
+    private void HandleRunStateChanged(BattleRunState _)
+    {
+        combatActive = ResolveCombatState();
+        if (!combatActive)
+            combatTabOpen = false;
     }
 
     private bool IsRewardChoice()
