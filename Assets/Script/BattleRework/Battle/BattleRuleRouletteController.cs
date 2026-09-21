@@ -205,6 +205,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private bool cancelRequested;
     private bool startBattleConfirmed;
     private bool combatHudMode;
+    private BattleUIThemeController uiTheme;
     private bool finalReviewMode;
     private bool combatTabOpen;
     private bool combatRulePanelFocused;
@@ -302,6 +303,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     public void CancelPresentation()
     {
+        ResolveThemeController();
+        uiTheme?.ClearContextOverride(this);
+
         cancelRequested = true;
         startBattleConfirmed = false;
         combatHudMode = false;
@@ -340,6 +344,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     public IEnumerator PlayRoulette(int requestedStars, Action<BattleRuleSet> onComplete)
     {
+        ResolveThemeController();
+        uiTheme?.SetContextOverride(this, BattleUIThemeContext.RuleRoulette, 100);
+
         cancelRequested = false;
         startBattleConfirmed = false;
 
@@ -426,7 +433,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         // 결과 아이콘은 꺼버리지 않고 좌측 상단 HUD로 자연스럽게 이동시킵니다.
         yield return TransitionToCombatHud();
 
+        uiTheme?.ClearContextOverride(this);
         onComplete?.Invoke(result);
+    }
+
+    private void ResolveThemeController()
+    {
+        if (uiTheme != null)
+            return;
+
+        uiTheme = BattleUIThemeController.Instance != null
+            ? BattleUIThemeController.Instance
+            : FindFirstObjectByType<BattleUIThemeController>(FindObjectsInactive.Include);
     }
 
     public BattleRuleSet Roll(int requestedStars)
