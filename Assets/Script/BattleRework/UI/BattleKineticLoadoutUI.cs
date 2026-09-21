@@ -840,10 +840,15 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void RefreshDetail()
     {
-        if (equipmentSystem == null || selectedIndex < 0 || selectedIndex >= equipmentSystem.Slots.Count)
+        RefreshDetailForSlot(selectedIndex);
+    }
+
+    private void RefreshDetailForSlot(int slotIndex)
+    {
+        if (equipmentSystem == null || slotIndex < 0 || slotIndex >= equipmentSystem.Slots.Count)
             return;
 
-        BattleEquipmentSlot slot = equipmentSystem.Slots[selectedIndex];
+        BattleEquipmentSlot slot = equipmentSystem.Slots[slotIndex];
         BattleEquipmentSO equipment = slot?.equipment;
         if (detailTitle != null)
             detailTitle.text = equipment != null ? equipment.GetDisplayName().ToUpperInvariant() : "EMPTY SLOT";
@@ -874,7 +879,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 for (int i = 0; i < links.Count; i++)
                 {
                     BattleGridSynergyLink link = links[i];
-                    if (link.slotA != selectedIndex && link.slotB != selectedIndex)
+                    if (link.slotA != slotIndex && link.slotB != slotIndex)
                         continue;
                     count++;
                     if (!names.Contains(link.displayName))
@@ -886,6 +891,51 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             string linkNames = names.Count > 0 ? string.Join(" + ", names) : "NO ACTIVE LINK";
             synergySummary.text = $"GRID LINK {count}\n{linkNames}\nTOTAL GRID DMG +{bonus:0.#}%";
         }
+    }
+
+    public void ShowRewardInspectTooltip(int slotIndex)
+    {
+        ResolveReferences();
+        EnsureUi();
+
+        if (equipmentSystem == null ||
+            slotIndex < 0 ||
+            slotIndex >= equipmentSystem.Slots.Count ||
+            !equipmentSystem.IsSlotUnlocked(slotIndex) ||
+            equipmentSystem.Slots[slotIndex]?.equipment == null ||
+            detailRoot == null ||
+            detailGroup == null ||
+            slotRects[slotIndex] == null)
+        {
+            HideRewardInspectTooltip();
+            return;
+        }
+
+        RefreshDetailForSlot(slotIndex);
+
+        detailRoot.gameObject.SetActive(true);
+        detailRoot.SetAsLastSibling();
+        detailRoot.anchoredPosition = ResolveTooltipPosition(slotRects[slotIndex]);
+        detailRoot.localScale = Vector3.one;
+        detailRoot.localRotation = Quaternion.identity;
+
+        Vector3 local = detailRoot.localPosition;
+        local.z = -24f;
+        detailRoot.localPosition = local;
+
+        detailGroup.alpha = 1f;
+        detailGroup.blocksRaycasts = false;
+        detailGroup.interactable = false;
+    }
+
+    public void HideRewardInspectTooltip()
+    {
+        if (detailGroup == null)
+            return;
+
+        detailGroup.alpha = 0f;
+        detailGroup.blocksRaycasts = false;
+        detailGroup.interactable = false;
     }
 
     private void RebuildSynergyLinks()
