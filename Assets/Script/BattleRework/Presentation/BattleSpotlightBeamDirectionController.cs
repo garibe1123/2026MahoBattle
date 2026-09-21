@@ -20,6 +20,7 @@ using UnityEngine.SceneManagement;
 [DisallowMultipleComponent]
 public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 {
+    private const string SpriteManagerObjectName = "SpriteManager";
     public enum BeamShapeDirection
     {
         /// <summary>Narrow source at the top, broad footprint at the bottom.</summary>
@@ -121,7 +122,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         if (existing != null)
             return;
 
-        Transform spriteManager = manager.transform.Find(BattleSpriteManagerOrganizer.SpriteManagerObjectName);
+        Transform spriteManager = manager.transform.Find(SpriteManagerObjectName);
         GameObject target = spriteManager != null ? spriteManager.gameObject : manager.gameObject;
         Undo.AddComponent<BattleSpotlightBeamDirectionController>(target);
         EditorUtility.SetDirty(target);
@@ -144,7 +145,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         if (manager == null)
             return;
 
-        Transform spriteManager = manager.transform.Find(BattleSpriteManagerOrganizer.SpriteManagerObjectName);
+        Transform spriteManager = manager.transform.Find(SpriteManagerObjectName);
         GameObject target = spriteManager != null ? spriteManager.gameObject : manager.gameObject;
         target.AddComponent<BattleSpotlightBeamDirectionController>();
     }
