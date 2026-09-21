@@ -692,7 +692,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private void TrackPointerFocus()
     {
         if (!Input.mousePresent)
+        {
+            SetFocus(BattleCombatTabFocus.None);
             return;
+        }
 
         Vector2 mouse = Input.mousePosition;
         int hovered = FindMissionRowUnderPointer(mouse);
@@ -703,6 +706,20 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         bool overChat =
             chatPanel != null &&
             RectTransformUtility.RectangleContainsScreenPoint(chatPanel, mouse, null);
+
+        RectTransform rulePanel =
+            rouletteController != null ? rouletteController.CombatRulePanel : null;
+        bool overRules =
+            rulePanel != null &&
+            rulePanel.gameObject.activeInHierarchy &&
+            RectTransformUtility.RectangleContainsScreenPoint(rulePanel, mouse, null);
+
+        RectTransform packBoard =
+            kineticLoadout != null ? kineticLoadout.GridBoard : null;
+        bool overPack =
+            packBoard != null &&
+            packBoard.gameObject.activeInHierarchy &&
+            RectTransformUtility.RectangleContainsScreenPoint(packBoard, mouse, null);
 
         if (overMission)
         {
@@ -718,13 +735,19 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
         }
 
-        // PACK and RULES are event-driven by their own stable hit regions.
-        // Only release dashboard-owned focus here.
-        if (focus == BattleCombatTabFocus.Mission ||
-            focus == BattleCombatTabFocus.Chat)
+        if (overRules)
         {
-            SetFocus(BattleCombatTabFocus.None);
+            SetFocus(BattleCombatTabFocus.Rules);
+            return;
         }
+
+        if (overPack)
+        {
+            SetFocus(BattleCombatTabFocus.Pack);
+            return;
+        }
+
+        SetFocus(BattleCombatTabFocus.None);
     }
 
     private int FindMissionRowUnderPointer(Vector2 mouse)
@@ -793,6 +816,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void ApplyFocusState()
     {
+        if (rouletteController == null)
+            rouletteController = FindFirstObjectByType<BattleRuleRouletteController>(FindObjectsInactive.Include);
+
         kineticLoadout?.SetTabFocusState(focus);
         rouletteController?.SetTabFocusState(focus);
     }
@@ -862,8 +888,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         {
             selectedMissionIndex = -1;
             hoveredMissionIndex = -1;
-            focus = BattleCombatTabFocus.None;
-            ApplyFocusState();
+            if (focus == BattleCombatTabFocus.Mission)
+                SetFocus(BattleCombatTabFocus.None);
         }
         else if (selectedMissionIndex < 0 || selectedMissionIndex >= count)
         {
@@ -1232,7 +1258,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Vector3 local = missionPanel.localPosition;
         local.z = Mathf.Lerp(
             local.z,
-            standby ? 20f : missionFocused ? -14f : 4f,
+            missionSuppressed
+                ? 24f
+                : standby ? 20f : missionFocused ? -14f : 4f,
             t);
         missionPanel.localPosition = local;
 
@@ -1412,7 +1440,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             t);
 
         Vector3 local = chatPanel.localPosition;
-        local.z = Mathf.Lerp(local.z, active ? -8f : 18f, t);
+        local.z = Mathf.Lerp(
+            local.z,
+            chatSuppressed
+                ? 24f
+                : chatFocused ? -14f : active ? -8f : 18f,
+            t);
         chatPanel.localPosition = local;
     }
 
