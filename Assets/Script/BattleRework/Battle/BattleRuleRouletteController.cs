@@ -152,6 +152,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRulePackGap = 22f;
     [Tooltip("PACK 우측 상단 모서리를 기준으로 룰 모듈을 미세 조정하는 Offset입니다.")]
     [SerializeField] private Vector2 combatRulePackTopRightOffset = new(-18f, 8f);
+    [Tooltip("RULES Focus/Detail이 커져도 화면 밖으로 잘리지 않도록 유지하는 안전 여백입니다.")]
+    [SerializeField, Min(0f)] private float combatRuleScreenMargin = 28f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
     [SerializeField, Range(0.30f, 1.15f)] private float combatRuleFocusedIconScale = 0.96f;
 
@@ -1701,6 +1703,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             targetRotation = 0f;
         }
 
+        RectTransform panelParent = combatRulePanel.parent as RectTransform;
+        targetPosition = ClampCombatRulePanelPosition(
+            targetPosition,
+            targetSize,
+            panelParent);
+
         combatRulePanel.anchoredPosition = Vector2.Lerp(
             combatRulePanel.anchoredPosition,
             targetPosition,
@@ -1910,6 +1918,39 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         return new Vector2(
             Mathf.Abs(combatRulePersistentTopLeftMargin.x),
             -Mathf.Abs(combatRulePersistentTopLeftMargin.y));
+    }
+
+    private Vector2 ClampCombatRulePanelPosition(
+        Vector2 anchoredPosition,
+        Vector2 targetSize,
+        RectTransform parent)
+    {
+        if (combatRulePanel == null || parent == null)
+            return anchoredPosition;
+
+        Rect parentRect = parent.rect;
+        Vector2 anchor = combatRulePanel.anchorMin;
+        Vector2 pivot = combatRulePanel.pivot;
+        Vector2 anchorPoint = new(
+            Mathf.Lerp(parentRect.xMin, parentRect.xMax, anchor.x),
+            Mathf.Lerp(parentRect.yMin, parentRect.yMax, anchor.y));
+
+        Vector2 pivotPosition = anchorPoint + anchoredPosition;
+        float width = Mathf.Max(1f, targetSize.x);
+        float height = Mathf.Max(1f, targetSize.y);
+        float margin = Mathf.Max(0f, combatRuleScreenMargin);
+
+        float minPivotX = parentRect.xMin + margin + width * pivot.x;
+        float maxPivotX = parentRect.xMax - margin - width * (1f - pivot.x);
+        float minPivotY = parentRect.yMin + margin + height * pivot.y;
+        float maxPivotY = parentRect.yMax - margin - height * (1f - pivot.y);
+
+        if (minPivotX <= maxPivotX)
+            pivotPosition.x = Mathf.Clamp(pivotPosition.x, minPivotX, maxPivotX);
+        if (minPivotY <= maxPivotY)
+            pivotPosition.y = Mathf.Clamp(pivotPosition.y, minPivotY, maxPivotY);
+
+        return pivotPosition - anchorPoint;
     }
 
     private void EnsureCombatRulePanelParentForMode()
