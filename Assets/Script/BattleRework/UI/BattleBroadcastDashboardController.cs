@@ -39,14 +39,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [Tooltip("TAB Hold 상태와 기존 PACK GridBoard를 제공하는 Loadout UI입니다.")]
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
 
-    [Header("FOCUS TRACKING — 커서 위치 기반")]
-    [Tooltip("커서가 화면의 이 X 비율보다 오른쪽으로 넘어가면 Mission Focus로 전환합니다. Mission Panel 위에서는 즉시 Mission Focus가 됩니다.")]
-    [SerializeField, Range(0.48f, 0.85f)] private float missionFocusEnterX = 0.61f;
-    [Tooltip("Mission Focus에서 이 X 비율보다 왼쪽으로 돌아오면 PACK Focus로 복귀합니다. Enter보다 작게 두어 경계 떨림을 막습니다.")]
-    [SerializeField, Range(0.25f, 0.70f)] private float packFocusReturnX = 0.50f;
-    [Tooltip("Layout Morph 반응 속도입니다. 높을수록 빠르게 목표 형태에 붙습니다.")]
-    [SerializeField, Range(4f, 30f)] private float layoutSharpness = 13f;
-
     [Header("PACK DOCK — 좌측 사선 바 결합")]
     [Tooltip("PACK Focus 상태에서 기존 GridBoard 전체를 좌측 사선 바 쪽으로 이동시키는 화면 픽셀 Offset입니다. 기존 GridBoard Anchor는 건드리지 않습니다.")]
     [SerializeField] private Vector2 packFocusedDockOffset = new(-300f, 10f);
@@ -821,6 +813,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         if (metricBar != null)
         {
+            DisableLegacyGlass(metricBar.gameObject);
+            Image metricBack = metricBar.GetComponent<Image>();
+            if (metricBack != null)
+                metricBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
+
             viewersText = metricBar.Find("Viewers/Count")?.GetComponent<Text>();
             likesText = metricBar.Find("Likes/Count")?.GetComponent<Text>();
         }
@@ -859,9 +856,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBar.localRotation = Quaternion.Euler(-1.5f, -3.5f, metricBarRotation);
 
         Image back = metricBar.gameObject.AddComponent<Image>();
-        back.color = Color.clear;
+        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
         back.raycastTarget = false;
-        ApplySpatialGlass(metricBar.gameObject, false, 0.13f, -0.035f);
 
         Text live = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentPink, "LiveLabel");
         BindTheme(live, BattleUIThemeColorRole.Key);
@@ -1351,30 +1347,6 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             if (child != null && child.gameObject.activeSelf)
                 child.gameObject.SetActive(false);
         }
-    }
-
-    private static void ApplySpatialGlass(
-        GameObject root,
-        bool keyOnLeft,
-        float keyArea,
-        float skew)
-    {
-        if (root == null)
-            return;
-
-        BattleSpatialGlassPanel glass = root.GetComponent<BattleSpatialGlassPanel>();
-        if (glass == null)
-            glass = root.AddComponent<BattleSpatialGlassPanel>();
-
-        glass.Configure(keyOnLeft, keyArea, skew);
-
-        Image image = root.GetComponent<Image>();
-        if (image != null)
-            image.color = Color.clear;
-
-        Outline outline = root.GetComponent<Outline>();
-        if (outline != null)
-            outline.enabled = false;
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
