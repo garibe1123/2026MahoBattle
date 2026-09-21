@@ -1544,6 +1544,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         ShowRuleDetail(rule);
 
+        if (combatHudMode)
+            PositionCombatRuleDetailNearSlot(source != null ? source.Root : null);
+
         if (finalReviewMode)
             TweenControlTabForDetail(true);
     }
@@ -1552,12 +1555,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         BattleRuleDefinition rule,
         BattleRuleSlotPointerFeedback source)
     {
-        // Combat TAB에서는 패널 자체가 Focus인 동안 slot hover를 sticky하게 유지합니다.
-        // compact -> focused 레이아웃 Tween 때문에 EventSystem이 일시적으로 Exit를 보내도
-        // 아이콘 확대가 풀리지 않게 보장합니다.
-        if (combatHudMode && combatRulePanelFocused)
-            return;
-
         if (activeRuleSlotHover == source)
             activeRuleSlotHover = null;
 
@@ -1566,6 +1563,64 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         if (finalReviewMode)
             TweenControlTabForDetail(false);
+    }
+
+    private void PositionCombatRuleDetailNearSlot(RectTransform slot)
+    {
+        if (!combatHudMode || slot == null || winningRuleTab == null)
+            return;
+
+        RectTransform parent = winningRuleTab.parent as RectTransform;
+        if (parent == null)
+            return;
+
+        const float gap = 16f;
+        const float safe = 24f;
+        Vector2 detailSize = new(390f, 180f);
+        winningRuleTab.sizeDelta = detailSize;
+        winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.5f);
+
+        Vector3 rightWorld = slot.TransformPoint(
+            new Vector3(slot.rect.xMax, slot.rect.center.y, 0f));
+        Vector3 leftWorld = slot.TransformPoint(
+            new Vector3(slot.rect.xMin, slot.rect.center.y, 0f));
+        Vector3 centerWorld = slot.TransformPoint(slot.rect.center);
+
+        Vector2 rightLocal = parent.InverseTransformPoint(rightWorld);
+        Vector2 leftLocal = parent.InverseTransformPoint(leftWorld);
+        Vector2 centerLocal = parent.InverseTransformPoint(centerWorld);
+
+        bool placeRight =
+            rightLocal.x + gap + detailSize.x <= parent.rect.xMax - safe;
+
+        if (placeRight)
+        {
+            winningRuleTab.pivot = new Vector2(0f, 0.5f);
+            winningRuleTab.anchoredPosition = new Vector2(
+                rightLocal.x + gap,
+                Mathf.Clamp(
+                    centerLocal.y,
+                    parent.rect.yMin + safe + detailSize.y * 0.5f,
+                    parent.rect.yMax - safe - detailSize.y * 0.5f));
+        }
+        else
+        {
+            winningRuleTab.pivot = new Vector2(1f, 0.5f);
+            winningRuleTab.anchoredPosition = new Vector2(
+                leftLocal.x - gap,
+                Mathf.Clamp(
+                    centerLocal.y,
+                    parent.rect.yMin + safe + detailSize.y * 0.5f,
+                    parent.rect.yMax - safe - detailSize.y * 0.5f));
+        }
+
+        if (ruleDetailGroup != null)
+        {
+            ruleDetailGroup.blocksRaycasts = false;
+            ruleDetailGroup.interactable = false;
+        }
+        if (ruleDetailBarImage != null)
+            ruleDetailBarImage.raycastTarget = false;
     }
 
     private void ClearActiveRuleSlotHover()
@@ -1891,8 +1946,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     internal void HandleCombatRulePanelPointerExit()
     {
+        // Animated focus can move the panel under a stationary pointer.
+        // Dashboard's latched union hit-test is authoritative for releasing focus.
         dashboardController?.SetRulesFocus(false);
-        ApplyCombatRuleFocusFromCoordinator(false);
     }
 
     public void SetTabFocusState(BattleCombatTabFocus next)
@@ -2275,6 +2331,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         if (combatTabStyle)
         {
+            winningRuleTab.sizeDelta = new Vector2(390f, 180f);
+
             if (winningRuleTypeText != null)
                 SetRect(winningRuleTypeText.rectTransform, new Vector2(0.06f, 0.74f), new Vector2(0.94f, 0.94f));
             if (winningRuleNameText != null)
@@ -2284,6 +2342,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
         else
         {
+            winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.37f);
+            winningRuleTab.pivot = new Vector2(0.5f, 0.5f);
+            winningRuleTab.anchoredPosition = Vector2.zero;
+            winningRuleTab.sizeDelta = new Vector2(620f, 88f);
+
             if (winningRuleTypeText != null)
                 SetRect(winningRuleTypeText.rectTransform, new Vector2(0.05f, 0.68f), new Vector2(0.95f, 0.94f));
             if (winningRuleNameText != null)
@@ -2441,6 +2504,10 @@ public sealed class BattleRuleSlotPointerFeedback :
     private RectTransform root;
     private BattleRuleDefinition rule;
     private bool hovered;
+    private Rect entryScreenRect;
+    private bool entryRectValid;
+
+    public RectTransform Root => root;
 
     public void Configure(BattleRuleRouletteController controller, RectTransform targetRoot)
     {
@@ -2455,27 +2522,46 @@ public sealed class BattleRuleSlotPointerFeedback :
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        if (rule == null)
+        if (rule == null || root == null)
             return;
 
         hovered = true;
+        entryScreenRect = GetScreenRect(root);
+        entryRectValid = true;
         owner?.HandleRuleSlotPointerEnter(rule, this);
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        owner?.HandleRuleSlotPointerExit(rule, this);
+        // Do not release immediately. Scaling/moving the rule slot can generate
+        // PointerExit while the physical mouse has not moved.
     }
 
     public void SetHoveredFromOwner(bool value)
     {
         hovered = value;
+        if (!value)
+            entryRectValid = false;
     }
 
     private void Update()
     {
         if (root == null)
             return;
+
+        if (hovered && rule != null && owner != null && Input.mousePresent)
+        {
+            Vector2 pointer = Input.mousePosition;
+            bool insideEntry = entryRectValid && entryScreenRect.Contains(pointer);
+            bool insideCurrent = GetScreenRect(root).Contains(pointer);
+
+            if (!insideEntry && !insideCurrent)
+            {
+                hovered = false;
+                entryRectValid = false;
+                owner.HandleRuleSlotPointerExit(rule, this);
+            }
+        }
 
         float target = hovered && rule != null && owner != null
             ? owner.GetRuleHoverScale()
@@ -2488,9 +2574,33 @@ public sealed class BattleRuleSlotPointerFeedback :
             blend);
     }
 
+    private static Rect GetScreenRect(RectTransform rect)
+    {
+        Vector3[] corners = new Vector3[4];
+        rect.GetWorldCorners(corners);
+
+        Canvas canvas = rect.GetComponentInParent<Canvas>();
+        Camera camera =
+            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        Vector2 min = RectTransformUtility.WorldToScreenPoint(camera, corners[0]);
+        Vector2 max = min;
+        for (int i = 1; i < corners.Length; i++)
+        {
+            Vector2 point = RectTransformUtility.WorldToScreenPoint(camera, corners[i]);
+            min = Vector2.Min(min, point);
+            max = Vector2.Max(max, point);
+        }
+
+        return Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+    }
+
     private void OnDisable()
     {
         hovered = false;
+        entryRectValid = false;
         if (root != null)
             root.localScale = Vector3.one;
     }
