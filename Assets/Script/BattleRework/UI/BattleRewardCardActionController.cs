@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
@@ -103,7 +104,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private int hoveredRewardIndex = -1;
     private RectTransform cachedCardRoot;
     private int cachedCardCount = -1;
-    private float nextResolveTime;
+    private bool rewardEventsSubscribed;
+    private Coroutine bindRoutine;
 
     private bool choicePresentationDirty = true;
     private int lastChoiceSelectedIndex = int.MinValue;
@@ -172,16 +174,30 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         ResolveReferences();
         ResolveUi(true);
-        nextResolveTime = 0f;
+        SubscribeRewardEvents();
+
         choicePresentationDirty = true;
         lastChoiceSelectedIndex = int.MinValue;
         lastChoiceHoveredIndex = int.MinValue;
         lastChoiceHadSelection = false;
         lastPresentationPhase = (BattleRewardPhase)(-1);
+
+        ApplyRewardState();
+
+        if ((rewardFlow == null || rewardScreen == null || rewardCardRoot == null) &&
+            bindRoutine == null)
+        {
+            bindRoutine = StartCoroutine(BindWhenReady());
+        }
     }
 
     private void OnDisable()
     {
+        if (bindRoutine != null)
+            StopCoroutine(bindRoutine);
+        bindRoutine = null;
+
+        UnsubscribeRewardEvents();
         RestoreEquipmentDetailPanel();
         HideChoiceOnlyUi();
         SetLockedVisible(false);
@@ -189,42 +205,79 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void OnDestroy()
     {
+        UnsubscribeRewardEvents();
         RestoreEquipmentDetailPanel();
         if (instance == this)
             instance = null;
     }
 
-    private void Update()
+    private IEnumerator BindWhenReady()
     {
-        ResolveReferences();
-        rewardFlow?.RefreshFromRunState();
-
-        if (Time.unscaledTime >= nextResolveTime)
+        while (enabled)
         {
-            nextResolveTime = Time.unscaledTime + 0.10f;
+            ResolveReferences();
             ResolveUi(false);
+            SubscribeRewardEvents();
+
+            if (rewardFlow != null && rewardScreen != null && rewardCardRoot != null)
+                break;
+
+            yield return null;
         }
 
-        if (!IsReward())
+        bindRoutine = null;
+        if (enabled)
+            ApplyRewardState();
+    }
+
+    private void SubscribeRewardEvents()
+    {
+        if (rewardEventsSubscribed || rewardFlow == null)
+            return;
+
+        rewardFlow.Changed += HandleRewardChanged;
+        rewardEventsSubscribed = true;
+    }
+
+    private void UnsubscribeRewardEvents()
+    {
+        if (!rewardEventsSubscribed)
+            return;
+
+        if (rewardFlow != null)
+            rewardFlow.Changed -= HandleRewardChanged;
+        rewardEventsSubscribed = false;
+    }
+
+    private void HandleRewardChanged()
+    {
+        choicePresentationDirty = true;
+        ResolveUi(false);
+        ApplyRewardState();
+    }
+
+    private void ApplyRewardState()
+    {
+        BattleRewardPhase phase = rewardFlow != null
+            ? rewardFlow.Phase
+            : BattleRewardPhase.Inactive;
+
+        bool phaseChanged = phase != lastPresentationPhase;
+        lastPresentationPhase = phase;
+
+        if (phaseChanged)
+        {
+            choicePresentationDirty = true;
+            DisableLegacyCardMotionAndDrag();
+        }
+
+        if (phase == BattleRewardPhase.Inactive)
         {
             hoveredRewardIndex = -1;
-            lastPresentationPhase = BattleRewardPhase.Inactive;
-            choicePresentationDirty = true;
             SetLockedVisible(false);
             SetEquipmentDetailPanelSuppressed(false);
             HideChoiceOnlyUi();
             return;
-        }
-
-        BattleRewardPhase phase = rewardFlow != null
-            ? rewardFlow.Phase
-            : BattleRewardPhase.Inactive;
-        bool phaseChanged = phase != lastPresentationPhase;
-        if (phaseChanged)
-        {
-            lastPresentationPhase = phase;
-            choicePresentationDirty = true;
-            DisableLegacyCardMotionAndDrag();
         }
 
         bool choice = phase == BattleRewardPhase.Choosing;
@@ -236,7 +289,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         {
             SetLockedVisible(false);
             SetChoiceInteractable(true);
-            HandleConfirmShortcut();
         }
         else if (packEdit)
         {
@@ -247,12 +299,20 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
     }
 
+    private void Update()
+    {
+        // Input sampling only. Reward state discovery is driven by BattleRewardFlow.Changed.
+        if (lastPresentationPhase == BattleRewardPhase.Choosing)
+            HandleConfirmShortcut();
+    }
+
     private void LateUpdate()
     {
-        if (!IsReward() || rewardFlow == null)
+        // Animation tick only. The active phase was selected by the RewardFlow event.
+        if (rewardFlow == null)
             return;
 
-        if (rewardFlow.Phase == BattleRewardPhase.Choosing)
+        if (lastPresentationPhase == BattleRewardPhase.Choosing)
         {
             int selectedIndex = rewardFlow.SelectedChoiceIndex;
             bool hasSelection = rewardFlow.SelectedChoice != null;
@@ -269,7 +329,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             lastChoiceHadSelection = hasSelection;
             choicePresentationDirty = false;
         }
-        else if (rewardFlow.Phase == BattleRewardPhase.PackEditing)
+        else if (lastPresentationPhase == BattleRewardPhase.PackEditing)
         {
             AnimateLockedOverlay();
         }
