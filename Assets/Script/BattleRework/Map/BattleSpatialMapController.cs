@@ -1854,10 +1854,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         stageMapConfirmRoutine = null;
-        stageMapSelectionLocked = false;
-        if (stageMapCanvasGroup != null)
-            stageMapCanvasGroup.blocksRaycasts = true;
 
+        // One click owns the decision until the map phase actually exits.
+        // HideStageMapImmediate/next map entry is responsible for unlocking input.
         runManager?.SelectNextNode(nodeId);
     }
 
