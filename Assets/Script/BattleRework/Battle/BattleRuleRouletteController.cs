@@ -190,13 +190,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Text winningRuleTypeText;
     private Text winningRuleNameText;
     private Text winningRuleDescriptionText;
+    private Text combatRuleStateText;
     private Text spinButtonText;
     private Button spinButton;
     private Image spinButtonImage;
     private Image backdropImage;
     private Image ruleDetailBarImage;
-    private RectTransform ruleDetailAccentRoot;
+    private CanvasGroup ruleDetailGroup;
     private CanvasGroup ruleHudGroup;
+    private RectTransform combatRuleDockRoot;
     private BattleKineticLoadoutUI kineticLoadout;
     private BattleKineticLoadoutUI subscribedCombatLoadout;
     private Coroutine detailLayoutTweenRoutine;
@@ -678,6 +680,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         ruleDetailBarImage = winningRuleTab.gameObject.AddComponent<Image>();
         ruleDetailBarImage.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
         ruleDetailBarImage.raycastTarget = false;
+
+        ruleDetailGroup = winningRuleTab.gameObject.AddComponent<CanvasGroup>();
+        ruleDetailGroup.alpha = 0f;
+        ruleDetailGroup.blocksRaycasts = false;
+        ruleDetailGroup.interactable = false;
 
         controlTab = CreateBareTab(
             backdrop,
@@ -1285,6 +1292,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         ResolveCombatTabReferences();
         combatTabOpen = kineticLoadout != null && kineticLoadout.IsSwitchBoardOpen;
         combatRulePanelFocused = false;
+        RefreshCombatRuleStateText();
         combatRuleDrawerVisualAlpha = 0f;
         ApplyRuleDetailVisualMode(true);
 
@@ -1347,6 +1355,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         float baseScale = GetRuleDetailBaseScale();
         winningRuleTab.localScale =
             Vector3.one * baseScale * Mathf.Clamp(ruleDetailHiddenScale, 0.65f, 0.98f);
+
+        Vector3 hiddenPosition = winningRuleTab.localPosition;
+        hiddenPosition.z = 18f;
+        winningRuleTab.localPosition = hiddenPosition;
+        winningRuleTab.localRotation = Quaternion.Euler(2.2f, -4.5f, 0.6f);
+
+        if (ruleDetailGroup != null)
+            ruleDetailGroup.alpha = 0f;
+
         winningRuleTab.gameObject.SetActive(false);
     }
 
@@ -1369,6 +1386,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         winningRuleTab.gameObject.SetActive(true);
         winningRuleTab.localScale = Vector3.one * hiddenScale;
+
+        Vector3 hiddenPosition = winningRuleTab.localPosition;
+        hiddenPosition.z = 18f;
+        winningRuleTab.localPosition = hiddenPosition;
+        winningRuleTab.localRotation = Quaternion.Euler(2.2f, -4.5f, 0.6f);
+
+        if (ruleDetailGroup != null)
+            ruleDetailGroup.alpha = 0f;
+
         detailScaleTweenRoutine = StartCoroutine(
             TweenRuleDetailScale(show: true));
     }
@@ -1390,6 +1416,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             show ? 0f : 2.2f,
             show ? 0f : -4.5f,
             show ? 0f : 0.6f);
+        float startAlpha = ruleDetailGroup != null ? ruleDetailGroup.alpha : (show ? 0f : 1f);
+        float targetAlpha = show ? 1f : 0f;
 
         float duration = Mathf.Max(0.05f, ruleDetailScaleTweenDuration);
         float elapsed = 0f;
@@ -1405,6 +1433,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             winningRuleTab.localScale = Vector3.Lerp(startScale, targetScale, eased);
             winningRuleTab.localPosition = Vector3.Lerp(startPosition, targetPosition, eased);
             winningRuleTab.localRotation = Quaternion.Slerp(startRotation, targetRotation, eased);
+
+            if (ruleDetailGroup != null)
+                ruleDetailGroup.alpha = Mathf.Lerp(startAlpha, targetAlpha, eased);
+
             yield return null;
         }
 
@@ -1413,6 +1445,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             winningRuleTab.localScale = targetScale;
             winningRuleTab.localPosition = targetPosition;
             winningRuleTab.localRotation = targetRotation;
+
+            if (ruleDetailGroup != null)
+                ruleDetailGroup.alpha = targetAlpha;
+
             if (!show)
                 winningRuleTab.gameObject.SetActive(false);
         }
@@ -1563,9 +1599,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatRulePanelPlate = null;
 
-        // Compact HUD는 별도 문구/사선 장식 없이
-        // PACK 계열의 어두운 판 + 흰 Stroke + 기울기만 유지합니다.
-        ruleDetailAccentRoot = null;
+        combatRuleStateText = CreateText(
+            panel,
+            "RuleState",
+            10,
+            FontStyle.Bold,
+            TextAnchor.MiddleLeft);
+        combatRuleStateText.color = new Color(0.62f, 0.67f, 0.76f, 1f);
+        SetRect(
+            combatRuleStateText.rectTransform,
+            new Vector2(0.04f, 0.87f),
+            new Vector2(0.96f, 0.98f));
+        combatRuleStateText.text = "RULES // HOLD TAB TO INSPECT";
 
         return panel;
     }
@@ -1624,7 +1669,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatTabOpen && kineticLoadout != null && kineticLoadout.GridBoard != null)
         {
             RectTransform board = kineticLoadout.GridBoard;
-            RectTransform packDock = ResolveCombatRulePackDockRoot();
+            RectTransform packDock = ResolveCombatRuleDockRoot();
 
             if (packDock != null)
             {
@@ -1756,8 +1801,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0.5f, 1f);
                 resultListTab.pivot = new Vector2(0.5f, 1f);
                 rowTarget = focused
-                    ? new Vector2(0f, -30f)
-                    : new Vector2(0f, -24f);
+                    ? new Vector2(0f, -42f)
+                    : new Vector2(0f, -36f);
             }
             else
             {
@@ -1766,7 +1811,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
                 resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0f, 1f);
                 resultListTab.pivot = new Vector2(0f, 1f);
-                rowTarget = new Vector2(8f, -8f);
+                rowTarget = new Vector2(8f, -24f);
             }
 
             resultListTab.anchoredPosition = Vector2.Lerp(
@@ -1819,6 +1864,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return;
 
         combatRulePanelFocused = resolved;
+        RefreshCombatRuleStateText();
 
         if (combatRulePanelFocused)
         {
@@ -1832,6 +1878,35 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     }
 
 
+
+    private void RefreshCombatRuleStateText()
+    {
+        if (combatRuleStateText == null)
+            return;
+
+        if (!combatHudMode)
+        {
+            combatRuleStateText.text = string.Empty;
+            return;
+        }
+
+        if (!combatTabOpen)
+        {
+            combatRuleStateText.text = "RULES // HOLD TAB TO INSPECT";
+            combatRuleStateText.color = new Color(0.48f, 0.52f, 0.60f, 1f);
+            return;
+        }
+
+        if (combatRulePanelFocused)
+        {
+            combatRuleStateText.text = "RULES // DETAIL ACTIVE";
+            combatRuleStateText.color = new Color(0.16f, 0.86f, 0.92f, 1f);
+            return;
+        }
+
+        combatRuleStateText.text = "RULES // HOVER FOR DETAIL";
+        combatRuleStateText.color = new Color(0.72f, 0.76f, 0.82f, 1f);
+    }
 
     private Vector2 ResolveCombatRulePersistentPosition()
     {
@@ -1850,7 +1925,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             RectTransform board = kineticLoadout != null
                 ? kineticLoadout.GridBoard
                 : null;
-            RectTransform packDock = ResolveCombatRulePackDockRoot();
+            RectTransform packDock = ResolveCombatRuleDockRoot();
 
             if (board == null || packDock == null)
                 return;
@@ -1861,9 +1936,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 combatRulePanel.SetAsLastSibling();
             }
 
-            // PackDock local 좌표를 직접 사용합니다.
-            // RULES는 PACK의 우측 상단을 기준점으로 삼고, Focus 확대도 오른쪽 Edge를 유지한 채
-            // 왼쪽 방향으로 펼쳐져 화면 밖으로 밀려나지 않게 합니다.
+            // RULES는 KineticLoadout의 GridBoard 우측 상단을 기준으로 배치합니다.
+            // Dashboard와 transform ownership을 공유하지 않습니다.
             combatRulePanel.anchorMin =
                 combatRulePanel.anchorMax =
                     new Vector2(0.5f, 0.5f);
@@ -1874,7 +1948,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         RestoreCombatRulePanelToOverlay();
     }
 
-    private RectTransform ResolveCombatRulePackDockRoot()
+    private RectTransform ResolveCombatRuleDockRoot()
     {
         RectTransform full = kineticLoadout != null
             ? kineticLoadout.FullRoot
@@ -1883,7 +1957,20 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (full == null)
             return null;
 
-        return full.Find("BroadcastPackDock") as RectTransform;
+        if (combatRuleDockRoot != null && combatRuleDockRoot.parent == full)
+            return combatRuleDockRoot;
+
+        combatRuleDockRoot = full.Find("CombatRuleDock") as RectTransform;
+        if (combatRuleDockRoot == null)
+        {
+            combatRuleDockRoot = CreateRect(full, "CombatRuleDock");
+            Stretch(combatRuleDockRoot);
+            combatRuleDockRoot.localPosition = Vector3.zero;
+            combatRuleDockRoot.localRotation = Quaternion.identity;
+            combatRuleDockRoot.localScale = Vector3.one;
+        }
+
+        return combatRuleDockRoot;
     }
 
     private void RestoreCombatRulePanelToOverlay()
@@ -2031,6 +2118,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return;
 
         combatTabOpen = visible;
+        RefreshCombatRuleStateText();
 
         if (!combatTabOpen)
         {
@@ -2082,18 +2170,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             if (winningRuleDescriptionText != null)
                 SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.05f, 0.02f), new Vector2(0.95f, 0.38f));
         }
-    }
-
-    private static RectTransform CreateRuleDetailAccent(RectTransform parent)
-    {
-        if (parent == null)
-            return null;
-
-        Transform existing = parent.Find("RuleDetailAccent");
-        if (existing != null && existing.gameObject.activeSelf)
-            existing.gameObject.SetActive(false);
-
-        return null;
     }
 
     private void SetSpinButtonLabel(string label)
