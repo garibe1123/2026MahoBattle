@@ -106,6 +106,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private float nextResolveTime;
 
     public bool IsDraggingItem => draggingSlot >= 0;
+    public int DraggingSlot => draggingSlot;
     public bool IsRewardPackEditing => IsReward() && rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
     public int SelectedRewardSlot => selectedRewardSlot;
     public int HoveredSlot => hoveredSlot;
