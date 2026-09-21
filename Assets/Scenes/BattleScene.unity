@@ -481,8 +481,11 @@ MonoBehaviour:
   lockedColor: {r: 0.07, g: 0.075, b: 0.085, a: 0.92}
   uiSharpness: 16
   packMorphDuration: 0.34
-  packFocusedOffset: {x: 54, y: 18}
-  packInactiveCornerOffset: {x: -170, y: -132}
+  packRestOffset: {x: -118, y: -62}
+  packFocusedOffset: {x: -142, y: -76}
+  packInactiveCornerOffset: {x: -248, y: -146}
+  itemTooltipSize: {x: 360, y: 220}
+  itemTooltipGap: 18
 --- !u!114 &100017
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1422,6 +1425,7 @@ MonoBehaviour:
   layoutSharpness: 13
   rightSlideDistance: 260
   inactivePanelCornerOffset: {x: 210, y: -26}
+  focusLatchPadding: 18
   compactMetricSize: {x: 300, y: 42}
   expandedMetricSize: {x: 470, y: 64}
   standbyMissionSize: {x: 320, y: 72}
