@@ -555,30 +555,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         text.raycastTarget = false;
     }
 
-    private string BuildNodeLabel(RectTransform rect, string source)
+    private static string BuildNodeLabel(RectTransform rect, string source)
     {
-        string typeName = ExtractNodeType(source);
-        BattleNodeData node = ResolveNodeData(rect);
-        if (node == null || (node.type != BattleNodeType.Combat && node.type != BattleNodeType.Elite))
-            return typeName;
-
-        int stars = runManager != null
-            ? runManager.ResolveBattleRatingStars(node)
-            : node.GetBattleRatingStars();
-
-        return typeName + "\n" + $"RATING {stars} / 5";
-    }
-
-    private BattleNodeData ResolveNodeData(RectTransform rect)
-    {
-        if (runManager == null || rect == null)
-            return null;
-
-        const string prefix = "StageNode_";
-        if (!rect.name.StartsWith(prefix, System.StringComparison.Ordinal))
-            return null;
-
-        return runManager.FindNode(rect.name.Substring(prefix.Length));
+        // Battle rating is rendered as five Image stars by BattleSpatialMapController.
+        // Keep the text label semantic-only so the node does not duplicate the same data.
+        return ExtractNodeType(source);
     }
 
     private static string ExtractNodeType(string source)
@@ -760,6 +741,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private string baseLabel = "STAGE";
     private bool hovered;
     private bool selected;
+    private bool trackedHover;
     private Button boundButton;
 
     public void Configure(
@@ -787,6 +769,18 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
         ResolveIcon();
 
+        // The Button RectTransform is the stable hit target. Never spatially tween it:
+        // moving a World-Space raycast target under a stationary cursor creates
+        // Enter/Exit feedback loops when the map camera also pans.
+        if (nodeRect != null)
+        {
+            nodeRect.localScale = Vector3.one;
+            Vector3 stableLocal = nodeRect.localPosition;
+            stableLocal.z = 0f;
+            nodeRect.localPosition = stableLocal;
+            nodeRect.localRotation = Quaternion.identity;
+        }
+
         if (label != null)
             baseLabel = ExtractBaseLabel(label.text);
 
@@ -807,59 +801,70 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
         float t = 1f - Mathf.Exp(-AnimationSharpness * Time.unscaledDeltaTime);
 
-        float targetScale;
-        float targetZ;
-        Vector3 targetEuler;
+        // Spatial feedback lives on non-raycast visuals only.
+        // The root Button stays perfectly fixed so hover cannot invalidate itself.
+        if (nodeIcon != null)
+        {
+            float iconScale;
+            float iconZ;
+            Vector3 iconEuler;
 
-        if (selected)
-        {
-            targetScale = 1.12f;
-            targetZ = -30f;
-            targetEuler = Vector3.zero;
-        }
-        else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
-        {
-            targetScale = 1.07f;
-            targetZ = -18f;
-            targetEuler = new Vector3(0.2f, -0.6f, -0.15f);
-        }
-        else
-        {
-            switch (baseState)
+            if (selected)
             {
-                case BattleStageMapNodeVisualState.Current:
-                    targetScale = 1.025f;
-                    targetZ = -8f;
-                    targetEuler = new Vector3(0.4f, -1.2f, -0.10f);
-                    break;
-
-                case BattleStageMapNodeVisualState.Available:
-                    targetScale = 1f;
-                    targetZ = 2f;
-                    targetEuler = new Vector3(1.0f, -2.4f, -0.30f);
-                    break;
-
-                default:
-                    targetScale = 0.96f;
-                    targetZ = 16f;
-                    targetEuler = new Vector3(2.2f, -5.0f, 0.70f);
-                    break;
+                iconScale = 1.20f;
+                iconZ = -14f;
+                iconEuler = Vector3.zero;
             }
+            else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
+            {
+                iconScale = 1.12f;
+                iconZ = -8f;
+                iconEuler = new Vector3(0.2f, -0.8f, -1.2f);
+            }
+            else if (baseState == BattleStageMapNodeVisualState.Locked)
+            {
+                iconScale = 0.92f;
+                iconZ = 6f;
+                iconEuler = new Vector3(1.5f, -3.0f, 0.8f);
+            }
+            else
+            {
+                iconScale = 1f;
+                iconZ = 0f;
+                iconEuler = Vector3.zero;
+            }
+
+            RectTransform iconRect = nodeIcon.rectTransform;
+            iconRect.localScale = Vector3.Lerp(
+                iconRect.localScale,
+                Vector3.one * iconScale,
+                t);
+
+            Vector3 iconLocal = iconRect.localPosition;
+            iconLocal.z = Mathf.Lerp(iconLocal.z, iconZ, t);
+            iconRect.localPosition = iconLocal;
+
+            iconRect.localRotation = Quaternion.Slerp(
+                iconRect.localRotation,
+                Quaternion.Euler(iconEuler),
+                t);
         }
 
-        nodeRect.localScale = Vector3.Lerp(
-            nodeRect.localScale,
-            Vector3.one * targetScale,
-            t);
+        if (label != null)
+        {
+            float labelScale = selected
+                ? 1.06f
+                : hovered && baseState == BattleStageMapNodeVisualState.Available
+                    ? 1.035f
+                    : baseState == BattleStageMapNodeVisualState.Locked
+                        ? 0.96f
+                        : 1f;
 
-        Vector3 local = nodeRect.localPosition;
-        local.z = Mathf.Lerp(local.z, targetZ, t);
-        nodeRect.localPosition = local;
-
-        nodeRect.localRotation = Quaternion.Slerp(
-            nodeRect.localRotation,
-            Quaternion.Euler(targetEuler),
-            t);
+            label.rectTransform.localScale = Vector3.Lerp(
+                label.rectTransform.localScale,
+                Vector3.one * labelScale,
+                t);
+        }
 
         if (nodeGroup != null)
         {
@@ -885,11 +890,25 @@ internal sealed class BattleStageMapNodePointerFeedback :
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        if (selected)
+        if (selected || trackedHover)
             return;
 
         hovered = false;
         ApplyBaseVisual();
+    }
+
+    public void SetTrackedHover(bool value)
+    {
+        trackedHover = value;
+
+        if (selected || baseState != BattleStageMapNodeVisualState.Available)
+            return;
+
+        hovered = value;
+        if (hovered)
+            ApplyHover();
+        else
+            ApplyBaseVisual();
     }
 
     public void BindButton(Button button)
@@ -923,6 +942,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
     {
         hovered = false;
         selected = false;
+        trackedHover = false;
     }
 
     private void ApplyHover()
