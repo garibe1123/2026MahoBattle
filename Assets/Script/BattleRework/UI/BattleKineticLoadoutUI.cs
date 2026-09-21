@@ -105,6 +105,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         SubscribeInput();
         if (switchHeld)
             EnterBulletTime();
+        ResolveLegacyCombatHud();
         RefreshAll();
         lastNotifiedBoardVisible = IsSwitchBoardOpen;
         SwitchBoardVisibilityChanged?.Invoke(lastNotifiedBoardVisible);
@@ -125,19 +126,18 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Update()
     {
+        // Update is input sampling + animation only.
+        // Run state is cached by BattleRunManager.StateChanged.
         if (runManager == null || equipmentSystem == null || inputRouter == null)
+        {
             ResolveReferences();
-
-        Subscribe();
-        SubscribeInput();
-        EnsureUi();
-        ResolveLegacyCombatHud();
+            Subscribe();
+            SubscribeInput();
+        }
 
         bool combat = combatActive;
         if ((!combat || BattlePauseController.IsPaused) && switchHeld)
             CancelSwitchMode();
-
-        NotifySwitchBoardVisibility();
 
         if (legacyEquipmentDock != null && combat && legacyEquipmentDock.gameObject.activeSelf)
             legacyEquipmentDock.gameObject.SetActive(false);
