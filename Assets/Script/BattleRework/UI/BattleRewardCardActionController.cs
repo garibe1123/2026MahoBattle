@@ -91,6 +91,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private bool detailPanelWasEnabled;
     private bool detailPanelSuppressed;
     private int hoveredRewardIndex = -1;
+    public int HoveredRewardIndex => hoveredRewardIndex;
+
     private RectTransform cachedCardRoot;
     private int cachedCardCount = -1;
     private float nextResolveTime;
@@ -132,12 +134,19 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
     {
-        if (FindFirstObjectByType<BattleRewardCardActionController>() != null)
+        BattleRewardCardActionController existing =
+            FindFirstObjectByType<BattleRewardCardActionController>(FindObjectsInactive.Include);
+        if (existing != null)
+        {
+            if (existing.GetComponent<BattleRewardSpatialPresentationController>() == null)
+                existing.gameObject.AddComponent<BattleRewardSpatialPresentationController>();
             return;
+        }
 
         GameObject host = new("BattleRewardUIRuntime");
         DontDestroyOnLoad(host);
         host.AddComponent<BattleRewardCardActionController>();
+        host.AddComponent<BattleRewardSpatialPresentationController>();
     }
 
     private void Awake()
@@ -472,6 +481,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (rewardCardRoot == null || rewardInner == null || rewardFlow == null)
             return;
 
+        if (BattleRewardSpatialPresentationController.IsActiveFor(rewardCardRoot))
+        {
+            ApplySpatialChoicePresentation(refreshStatic);
+            return;
+        }
+
         if (refreshStatic)
         {
             LayoutRewardCardArea();
@@ -598,6 +613,69 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             RefreshInlineDetail(selectedEquipment);
             EnsureDecisionButton(selectedCardRef.rect);
         }
+    }
+
+    private void ApplySpatialChoicePresentation(bool refreshStatic)
+    {
+        if (rewardCardRoot == null || rewardFlow == null)
+            return;
+
+        if (refreshStatic)
+        {
+            LayoutSkipButton();
+            HideLegacyChoiceDescription();
+            SetChoiceInteractable(true);
+
+            if (inlineDetailRoot != null && inlineDetailRoot.gameObject.activeSelf)
+                inlineDetailRoot.gameObject.SetActive(false);
+        }
+
+        int selectedIndex = rewardFlow.SelectedChoiceIndex;
+        bool hasSelection = rewardFlow.SelectedChoice != null;
+        CardRef selectedCardRef = null;
+
+        for (int i = 0; i < cards.Count; i++)
+        {
+            CardRef card = cards[i];
+            if (card == null || card.rect == null)
+                continue;
+
+            bool selected = hasSelection && card.index == selectedIndex;
+            bool hovered = !hasSelection && card.index == hoveredRewardIndex;
+
+            if (refreshStatic)
+            {
+                BattleEquipmentSO equipment = GetReward(card.index);
+                ConfigureBuiltInCardContent(card.rect, equipment, false);
+
+                Text[] texts = card.rect.GetComponentsInChildren<Text>(true);
+                for (int textIndex = 0; textIndex < texts.Length; textIndex++)
+                {
+                    Text text = texts[textIndex];
+                    if (text == null || IsChildOf(text.transform, decideRoot))
+                        continue;
+
+                    string value = text.text ?? string.Empty;
+                    if (value.Contains("CLICK") || value.Contains("DRAG"))
+                        text.gameObject.SetActive(!selected);
+                }
+
+                if (card.outline != null)
+                    card.outline.enabled = false;
+            }
+
+            if (selected)
+                selectedCardRef = card;
+        }
+
+        if (!hasSelection || selectedCardRef == null)
+        {
+            if (decideRoot != null && decideRoot.gameObject.activeSelf)
+                decideRoot.gameObject.SetActive(false);
+            return;
+        }
+
+        EnsureDecisionButton(selectedCardRef.rect);
     }
 
     private void LayoutRewardCardArea()
@@ -784,6 +862,46 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         decideRoot.anchoredPosition = Vector2.zero;
         decideRoot.localScale = Vector3.one;
         decideRoot.localRotation = Quaternion.identity;
+
+        bool spatial = BattleRewardSpatialPresentationController.IsActiveFor(rewardCardRoot);
+        Image decideBack = decideRoot.GetComponent<Image>();
+        Outline decideOutline = decideRoot.GetComponent<Outline>();
+        if (spatial)
+        {
+            BattleUIThemeProfile theme = BattleUIThemeController.Instance != null
+                ? BattleUIThemeController.Instance.CurrentProfile
+                : null;
+
+            if (decideBack != null)
+            {
+                Color surface = theme != null ? theme.surface : new Color(0.12f, 0.13f, 0.15f, 1f);
+                surface.a = 0.16f;
+                decideBack.color = surface;
+            }
+
+            if (decideOutline != null)
+                decideOutline.enabled = false;
+
+            BattleSpatialGlassPanel glass = decideRoot.GetComponent<BattleSpatialGlassPanel>();
+            if (glass == null)
+                glass = decideRoot.gameObject.AddComponent<BattleSpatialGlassPanel>();
+            glass.Configure(true, 0.12f, 0.028f);
+            glass.SetSpatialState(0.54f, 0.30f);
+
+            Text label = FindFirstDirectText(decideRoot);
+            if (label != null)
+            {
+                BattleUIThemeColorBinding binding = label.GetComponent<BattleUIThemeColorBinding>();
+                if (binding == null)
+                    binding = label.gameObject.AddComponent<BattleUIThemeColorBinding>();
+                binding.Configure(BattleUIThemeColorRole.TextPrimary);
+            }
+        }
+        else if (decideOutline != null)
+        {
+            decideOutline.enabled = true;
+        }
+
         decideRoot.gameObject.SetActive(true);
         decideRoot.SetAsLastSibling();
     }
@@ -829,6 +947,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (rewardNoticeRect == null || rewardNoticeObject == null)
             return;
 
+        bool spatial = BattleRewardSpatialPresentationController.IsActiveFor(rewardCardRoot);
+        BattleUIThemeProfile theme = BattleUIThemeController.Instance != null
+            ? BattleUIThemeController.Instance.CurrentProfile
+            : null;
+
         rewardNoticeObject.SetActive(true);
         rewardNoticeRect.anchorMin = rewardNoticeRect.anchorMax = new Vector2(0.5f, 0.055f);
         rewardNoticeRect.pivot = new Vector2(0.5f, 0.5f);
@@ -840,15 +963,34 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         skipBack ??= rewardNoticeObject.GetComponent<Image>();
         if (skipBack != null)
         {
-            skipBack.color = skipHovered ? new Color(0.095f, 0.10f, 0.115f, 1f) : ink;
+            if (spatial)
+            {
+                Color surface = theme != null ? theme.surface : new Color(0.12f, 0.13f, 0.15f, 1f);
+                surface.a = skipHovered ? 0.20f : 0.12f;
+                skipBack.color = surface;
+            }
+            else
+            {
+                skipBack.color = skipHovered ? new Color(0.095f, 0.10f, 0.115f, 1f) : ink;
+            }
             skipBack.raycastTarget = true;
         }
 
         Outline outline = rewardNoticeObject.GetComponent<Outline>();
         if (outline == null)
             outline = rewardNoticeObject.AddComponent<Outline>();
+        outline.enabled = !spatial;
         outline.effectColor = skipHovered ? paper : new Color(paper.r, paper.g, paper.b, 0.68f);
         outline.effectDistance = skipHovered ? new Vector2(4f, -4f) : new Vector2(3f, -3f);
+
+        if (spatial)
+        {
+            BattleSpatialGlassPanel glass = rewardNoticeObject.GetComponent<BattleSpatialGlassPanel>();
+            if (glass == null)
+                glass = rewardNoticeObject.AddComponent<BattleSpatialGlassPanel>();
+            glass.Configure(false, 0.10f, -0.025f);
+            glass.SetSpatialState(skipHovered ? 0.58f : 0.20f, skipHovered ? 0.32f : -0.05f);
+        }
 
         skipLabel = FindFirstDirectText(rewardNoticeRect);
         if (skipLabel == null)
@@ -861,7 +1003,14 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         skipLabel.fontSize = 14;
         skipLabel.fontStyle = FontStyle.Bold;
         skipLabel.alignment = TextAnchor.MiddleCenter;
-        skipLabel.color = paper;
+        skipLabel.color = spatial && theme != null ? theme.textPrimary : paper;
+        if (spatial)
+        {
+            BattleUIThemeColorBinding binding = skipLabel.GetComponent<BattleUIThemeColorBinding>();
+            if (binding == null)
+                binding = skipLabel.gameObject.AddComponent<BattleUIThemeColorBinding>();
+            binding.Configure(BattleUIThemeColorRole.TextPrimary);
+        }
         Stretch(skipLabel.rectTransform);
 
         skipButton ??= rewardNoticeObject.GetComponent<Button>();
@@ -874,7 +1023,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         skipButton.onClick.AddListener(SkipReward);
 
         EnsureSkipDecor();
-        ApplySkipDecor();
+        if (skipLeftAccent != null)
+            skipLeftAccent.gameObject.SetActive(!spatial);
+        if (skipRightAccent != null)
+            skipRightAccent.gameObject.SetActive(!spatial);
+        if (!spatial)
+            ApplySkipDecor();
 
         BattleRewardSkipHoverRelay hover = rewardNoticeObject.GetComponent<BattleRewardSkipHoverRelay>();
         if (hover == null)
@@ -976,7 +1130,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     {
         if (rewardCardGroup != null)
         {
-            rewardCardGroup.alpha = interactable ? 1f : 0.16f;
+            bool spatial = BattleRewardSpatialPresentationController.IsActiveFor(rewardCardRoot);
+            rewardCardGroup.alpha = spatial ? 1f : interactable ? 1f : 0.16f;
             rewardCardGroup.blocksRaycasts = interactable && !BattlePauseController.IsPaused;
             rewardCardGroup.interactable = interactable && !BattlePauseController.IsPaused;
         }

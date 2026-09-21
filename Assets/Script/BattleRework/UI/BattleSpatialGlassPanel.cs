@@ -222,19 +222,20 @@ public sealed class BattleSpatialGlassPanel : MonoBehaviour
         glass.offsetMin = Vector2.zero;
         glass.offsetMax = Vector2.zero;
 
+        float keyWidth = Mathf.Min(0.46f, keyArea + 0.04f);
         if (keyOnLeft)
         {
-            key.anchorMin = Vector2.zero;
-            key.anchorMax = new Vector2(keyArea, 1f);
-            key.offsetMin = new Vector2(-10f, 4f);
-            key.offsetMax = new Vector2(2f, -8f);
+            key.anchorMin = new Vector2(0.018f, 0.70f);
+            key.anchorMax = new Vector2(keyWidth, 0.94f);
+            key.offsetMin = new Vector2(-6f, 0f);
+            key.offsetMax = new Vector2(8f, 4f);
         }
         else
         {
-            key.anchorMin = new Vector2(1f - keyArea, 0f);
-            key.anchorMax = Vector2.one;
-            key.offsetMin = new Vector2(-2f, 4f);
-            key.offsetMax = new Vector2(10f, -8f);
+            key.anchorMin = new Vector2(1f - keyWidth, 0.06f);
+            key.anchorMax = new Vector2(0.982f, 0.30f);
+            key.offsetMin = new Vector2(-8f, -4f);
+            key.offsetMax = new Vector2(6f, 0f);
         }
 
         shadowGraphic?.Configure(Color.black, skew * 0.65f, 0.56f, 0.28f);
@@ -290,7 +291,13 @@ public sealed class BattleSpatialGlassPanel : MonoBehaviour
             forward * 2f,
             -6f - front * 8f);
 
-        float keyScale = 1f + forward * 0.06f;
+        float shadowScale = 1f + forward * 0.018f - back * 0.030f;
+        shadow.localScale = new Vector3(shadowScale, shadowScale, 1f);
+
+        float glassScale = 1f + forward * 0.012f - back * 0.055f;
+        glass.localScale = new Vector3(glassScale, glassScale, 1f);
+
+        float keyScale = (1f + forward * 0.06f) * (1f - back * 0.08f);
         key.localScale = new Vector3(keyScale, keyScale, 1f);
     }
 }

@@ -97,6 +97,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private Canvas tvCanvas;
     private RectTransform tvRect;
     private CanvasGroup tvGroup;
+    private BattleWorldScreenPresenter worldScreenPresenter;
     private Vector3 tvBaseScale;
 
     private Transform presenterTransform;
@@ -133,6 +134,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     public Vector3 CameraTargetWorld => cameraTargetWorld;
     public float ShowCameraSize => Mathf.Max(0.1f, cameraSizeWorld);
     public RectTransform MountedTvRect => tvRect;
+    public BattleWorldScreenPresenter WorldScreenPresenter => worldScreenPresenter;
     public Transform PresenterWorldTransform =>
         presenterRenderer != null && presenterRenderer.enabled && presenterRenderer.gameObject.activeInHierarchy
             ? presenterTransform
@@ -316,6 +318,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         tvGroup.interactable = false;
         tvGroup.blocksRaycasts = false;
 
+        worldScreenPresenter = tvObject.GetComponent<BattleWorldScreenPresenter>();
+        if (worldScreenPresenter == null)
+            worldScreenPresenter = tvObject.AddComponent<BattleWorldScreenPresenter>();
+
         tvRect = tvObject.GetComponent<RectTransform>();
         tvRect.sizeDelta = tvCanvasSize;
         tvRect.pivot = new Vector2(0.5f, 0f);
@@ -351,7 +357,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (rect == null || tvRect == null)
             return;
 
-        rect.SetParent(tvRect, false);
+        Transform targetParent = worldScreenPresenter != null && worldScreenPresenter.GetMainLayer() != null
+            ? worldScreenPresenter.GetMainLayer()
+            : tvRect;
+        rect.SetParent(targetParent, false);
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.pivot = new Vector2(0.5f, 0.5f);
         rect.sizeDelta = tvCanvasSize;
@@ -929,6 +938,22 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             mapScreen.gameObject.SetActive(mode == ShowMode.Map);
         if (mapContent != null && mode == ShowMode.Map)
             mapContent.gameObject.SetActive(true);
+
+        if (worldScreenPresenter != null)
+        {
+            switch (mode)
+            {
+                case ShowMode.Reward:
+                    worldScreenPresenter.ShowReward();
+                    break;
+                case ShowMode.Map:
+                    worldScreenPresenter.ShowMap();
+                    break;
+                default:
+                    worldScreenPresenter.HideContent();
+                    break;
+            }
+        }
 
         MaintainEquipmentDock();
     }

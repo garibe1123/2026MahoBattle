@@ -338,16 +338,43 @@ public sealed class BattleUIThemeController : MonoBehaviour
         List<BattleUIThemeProfile> result = new();
         foreach (BattleUIThemeContext context in Enum.GetValues(typeof(BattleUIThemeContext)))
         {
+            Color key = ResolveFallbackKey(context);
+            Color glassBase = new(0.74f, 0.78f, 0.82f, 1f);
+            Color glass = Color.Lerp(glassBase, key, 0.10f);
+            glass.a = 0.18f;
+
+            Color keySoft = key;
+            keySoft.a = 0.28f;
+
             BattleUIThemeProfile profile = new()
             {
-                context = context
+                context = context,
+                background = new Color(0.035f, 0.038f, 0.045f, 1f),
+                surface = new Color(0.12f, 0.13f, 0.15f, 1f),
+                glassTint = glass,
+                textPrimary = new Color(0.96f, 0.97f, 0.98f, 1f),
+                textMuted = new Color(0.68f, 0.70f, 0.74f, 1f),
+                keyColor = key,
+                keySoft = keySoft,
+                depthShadow = new Color(0.01f, 0.012f, 0.018f, 0.48f)
             };
             result.Add(profile);
         }
 
-        // 기본은 모두 무채색 + Yellow입니다.
-        // 필요하면 Inspector에서 Context별 keyColor/glassTint만 바꿔도 전체 UI가 같이 바뀝니다.
         return result;
+    }
+
+    private static Color ResolveFallbackKey(BattleUIThemeContext context)
+    {
+        return context switch
+        {
+            BattleUIThemeContext.RuleRoulette => new Color(1f, 0.18f, 0.72f, 1f),
+            BattleUIThemeContext.Reward => new Color(0.10f, 0.86f, 0.96f, 1f),
+            BattleUIThemeContext.Map => new Color(0.56f, 0.94f, 0.18f, 1f),
+            BattleUIThemeContext.Boss => new Color(0.82f, 0.08f, 0.18f, 1f),
+            BattleUIThemeContext.Danger => new Color(1f, 0.13f, 0.12f, 1f),
+            _ => new Color(1f, 0.82f, 0.10f, 1f)
+        };
     }
 }
 

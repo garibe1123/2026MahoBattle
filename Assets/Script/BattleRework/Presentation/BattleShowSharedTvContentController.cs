@@ -45,6 +45,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
     private const string MountedTvName = "BattleShowMountedTV";
     private const string ViewportName = "ShowContentViewport";
     private const string RewardViewName = "RewardSelectionContent";
+    private const string MapViewName = "MapSelectionProgram";
     private const string RewardCardRootName = "PrizeChoices";
     private const string RewardNoticeRootName = "PlacementNotice";
     private const string TransitionRootName = "TvContentTransitionOverlay";
@@ -66,6 +67,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
     [SerializeField] private Color transitionTint = new(0.70f, 0.78f, 0.82f, 1f);
 
     private BattleRunManager runManager;
+    private BattleWorldScreenPresenter worldPresenter;
 
     private RectTransform sharedFrame;
     private RectTransform legacyMapFrame;
@@ -73,6 +75,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
     private RectTransform screenInner;
     private RectTransform viewport;
     private RectTransform rewardView;
+    private RectTransform mapView;
     private RectTransform rewardCardRoot;
     private RectTransform rewardNoticeRoot;
     private CanvasGroup viewportGroup;
@@ -195,9 +198,12 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
 
         // WorldSet이 두 화면을 실제 Mounted TV에 옮긴 뒤 병합합니다.
         // 너무 일찍 병합하면 WorldSet의 BindWhenReady가 MapSelectionScreen을 찾지 못할 수 있습니다.
-        Transform tvParent = sharedFrame.parent;
-        if (tvParent == null || tvParent.name != MountedTvName || legacyMapFrame.parent != tvParent)
+        Transform tvParent = FindAncestor(sharedFrame, MountedTvName);
+        Transform mapTvParent = FindAncestor(legacyMapFrame, MountedTvName);
+        if (tvParent == null || mapTvParent != tvParent)
             return false;
+
+        worldPresenter = tvParent.GetComponent<BattleWorldScreenPresenter>();
 
         screenInner = sharedFrame.Find(ScreenInnerName) as RectTransform;
         if (screenInner == null)
@@ -205,9 +211,10 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
 
         BuildSharedViewport();
         BuildTransitionOverlay();
+        worldPresenter?.BindProgramRoots(rewardView, mapView);
 
         legacyMapFrame.gameObject.SetActive(false);
-        bound = viewport != null && rewardView != null && mapContent != null;
+        bound = viewport != null && rewardView != null && mapView != null && mapContent != null;
         return bound;
     }
 
@@ -218,12 +225,15 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         {
             viewport = existingRect;
             rewardView = viewport.Find(RewardViewName) as RectTransform;
+            mapView = viewport.Find(MapViewName) as RectTransform;
+            if (mapView == null)
+                mapView = CreateProgramView(viewport, MapViewName);
             viewportGroup = viewport.GetComponent<CanvasGroup>() ?? viewport.gameObject.AddComponent<CanvasGroup>();
 
-            // Display invariant: MapSelectionContent는 언제나 Mounted TV의
-            // ShowContentViewport 안에 있어야 하며 Screen-Space HUD로 빠져나가면 안 됩니다.
-            if (mapContent.parent != viewport)
-                mapContent.SetParent(viewport, false);
+            // Map의 내부 layout/scale 소유권은 BattleSelectionLayoutPolicyController가 유지합니다.
+            // TV program transition은 별도 wrapper를 움직여 두 Presentation owner가 같은 Transform을 덮어쓰지 않습니다.
+            if (mapContent.parent != mapView)
+                mapContent.SetParent(mapView, false);
 
             ResolveRewardInteractionRoots();
             KeepRewardInteractionRootsDirect();
@@ -248,6 +258,8 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         rewardView = rewardObject.AddComponent<RectTransform>();
         Stretch(rewardView);
 
+        mapView = CreateProgramView(viewport, MapViewName);
+
         // 기존 Reward ScreenInner의 실제 내용은 새 Reward View로 이동합니다.
         // 단, Reward 카드와 포기 버튼 Root는 BattleRewardCardActionController가 직접 소유하므로
         // ScreenInner 직계 자식으로 유지해 해당 컨트롤러의 안정적인 바인딩을 보장합니다.
@@ -261,8 +273,8 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         ResolveRewardInteractionRoots();
         KeepRewardInteractionRootsDirect();
 
-        mapContent.SetParent(viewport, false);
-        mapContent.SetAsLastSibling();
+        mapContent.SetParent(mapView, false);
+        mapView.SetAsLastSibling();
 
         viewportBasePosition = viewport.anchoredPosition;
         viewportBaseScale = viewport.localScale;
@@ -383,6 +395,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
 
         viewportGroup.interactable = false;
         viewportGroup.blocksRaycasts = false;
+        worldPresenter?.CollapseContent();
         transitionRoot.gameObject.SetActive(true);
 
         float outDuration = Mathf.Max(0.03f, switchOutDuration);
@@ -507,7 +520,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
 
     private void ApplyModeImmediate(ContentMode mode)
     {
-        if (sharedFrame == null || rewardView == null || mapContent == null)
+        if (sharedFrame == null || rewardView == null || mapView == null || mapContent == null)
             return;
 
         if (mode != ContentMode.None && !sharedFrame.gameObject.activeSelf)
@@ -542,12 +555,49 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         if (!showReward && rewardNoticeRoot != null && rewardNoticeRoot.gameObject.activeSelf)
             rewardNoticeRoot.gameObject.SetActive(false);
 
-        if (mapContent != null)
+        bool showMap = mode == ContentMode.Map;
+        if (mapView != null && mapView.gameObject.activeSelf != showMap)
+            mapView.gameObject.SetActive(showMap);
+        if (showMap && mapContent != null && !mapContent.gameObject.activeSelf)
+            mapContent.gameObject.SetActive(true);
+
+        if (worldPresenter != null)
         {
-            bool showMap = mode == ContentMode.Map;
-            if (mapContent.gameObject.activeSelf != showMap)
-                mapContent.gameObject.SetActive(showMap);
+            switch (mode)
+            {
+                case ContentMode.Reward:
+                    worldPresenter.ShowReward();
+                    break;
+                case ContentMode.Map:
+                    worldPresenter.ShowMap();
+                    break;
+                default:
+                    worldPresenter.HideContent();
+                    break;
+            }
         }
+    }
+
+    private static RectTransform CreateProgramView(RectTransform parent, string objectName)
+    {
+        GameObject go = new(objectName);
+        go.transform.SetParent(parent, false);
+        RectTransform rect = go.AddComponent<RectTransform>();
+        Stretch(rect);
+        return rect;
+    }
+
+    private static Transform FindAncestor(Transform root, string targetName)
+    {
+        Transform current = root;
+        while (current != null)
+        {
+            if (current.name == targetName)
+                return current;
+            current = current.parent;
+        }
+
+        return null;
     }
 
     private static RectTransform FindChildRect(Transform root, string targetName)
