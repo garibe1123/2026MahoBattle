@@ -152,6 +152,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRulePackGap = 22f;
     [Tooltip("PACK 우측 상단 모서리를 기준으로 룰 모듈을 미세 조정하는 Offset입니다.")]
     [SerializeField] private Vector2 combatRulePackTopRightOffset = new(-18f, 8f);
+    [SerializeField, Min(0f)] private float combatRuleIdlePackGap = 28f;
+    [SerializeField, Min(0f)] private float combatRuleFocusedPackGap = 5f;
+    [SerializeField] private Vector2 combatRuleInactiveCornerOffset = new(108f, 64f);
     [Tooltip("RULES Focus/Detail이 커져도 화면 밖으로 잘리지 않도록 유지하는 안전 여백입니다.")]
     [SerializeField, Min(0f)] private float combatRuleScreenMargin = 28f;
     [SerializeField, Range(4f, 30f)] private float combatRulePanelSharpness = 13f;
@@ -199,7 +202,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private CanvasGroup ruleHudGroup;
     private RectTransform combatRuleDockRoot;
     private BattleKineticLoadoutUI kineticLoadout;
+    private BattleBroadcastDashboardController dashboardController;
     private BattleKineticLoadoutUI subscribedCombatLoadout;
+    private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
     private Coroutine detailLayoutTweenRoutine;
     private Coroutine detailScaleTweenRoutine;
     private Vector2 controlTabRestPosition;
@@ -1619,7 +1624,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatRulePanel == null || !combatRulePanel.gameObject.activeSelf)
             return;
 
-        bool focused = combatTabOpen && combatRulePanelFocused;
+        bool focused =
+            combatTabOpen &&
+            (combatRulePanelFocused || tabFocus == BattleCombatTabFocus.Rules);
+        bool suppressed =
+            combatTabOpen &&
+            tabFocus != BattleCombatTabFocus.None &&
+            tabFocus != BattleCombatTabFocus.Rules;
 
         EnsureCombatRulePanelParentForMode();
 
@@ -1645,13 +1656,19 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             : 0f;
 
         float targetAlpha = combatTabOpen
-            ? (focused ? 1f : Mathf.Clamp01(combatHudTabAlpha))
+            ? focused
+                ? 1f
+                : suppressed
+                    ? 0.34f
+                    : 0.72f
             : Mathf.Clamp01(combatHudIdleAlpha);
 
         float targetIconScale = focused
             ? Mathf.Clamp(combatRuleFocusedIconScale, 0.30f, 1f)
             : combatTabOpen
-                ? Mathf.Clamp(combatHudTabScale, 0.40f, 1f)
+                ? suppressed
+                    ? Mathf.Clamp(combatHudTabScale * 0.78f, 0.30f, 1f)
+                    : Mathf.Clamp(combatHudTabScale * 0.92f, 0.40f, 1f)
                 : Mathf.Clamp(combatHudScale, 0.30f, 1f);
 
         float t = 1f - Mathf.Exp(
@@ -1679,13 +1696,23 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                     new Vector3(board.rect.xMax, board.rect.yMax, 0f));
                 Vector3 boardTopRightLocal = packDock.InverseTransformPoint(boardTopRightWorld);
 
+                float resolvedGap = focused
+                    ? Mathf.Max(0f, combatRuleFocusedPackGap)
+                    : Mathf.Max(
+                        Mathf.Max(0f, combatRulePackGap),
+                        Mathf.Max(0f, combatRuleIdlePackGap));
+
                 targetPosition = new Vector2(
                     boardTopRightLocal.x +
                     combatRulePackTopRightOffset.x +
-                    focusedRightExtra,
+                    focusedRightExtra +
+                    (focused ? 10f : 0f),
                     boardTopRightLocal.y +
-                    Mathf.Max(0f, combatRulePackGap) +
+                    resolvedGap +
                     combatRulePackTopRightOffset.y);
+
+                if (suppressed)
+                    targetPosition += combatRuleInactiveCornerOffset;
             }
             else
             {
@@ -1737,7 +1764,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatRulePanel.localScale = Vector3.Lerp(
             combatRulePanel.localScale,
-            Vector3.one * (combatTabOpen ? 1f : 0.92f),
+            Vector3.one * (
+                combatTabOpen
+                    ? focused ? 1.055f : suppressed ? 0.80f : 0.92f
+                    : 0.92f),
             t);
 
         if (combatRulePanelGroup != null)
@@ -1851,7 +1881,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         ResolveCombatTabReferences();
 
-        // RULES와 PACK이 동시에 hover/selection 상태를 갖지 않게 합니다.
+        // RULES와 PACK이 동시에 Active Focus를 갖지 않습니다.
+        dashboardController?.SetRulesFocus(true);
         kineticLoadout?.ClearPackHoverImmediate();
         kineticLoadout?.ClearExternalSelection();
         ApplyCombatRuleFocusFromCoordinator(true);
@@ -1859,7 +1890,19 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     internal void HandleCombatRulePanelPointerExit()
     {
+        dashboardController?.SetRulesFocus(false);
         ApplyCombatRuleFocusFromCoordinator(false);
+    }
+
+    public void SetTabFocusState(BattleCombatTabFocus next)
+    {
+        tabFocus = combatTabOpen ? next : BattleCombatTabFocus.None;
+
+        if (tabFocus != BattleCombatTabFocus.Rules &&
+            combatRulePanelFocused)
+        {
+            ApplyCombatRuleFocusFromCoordinator(false);
+        }
     }
 
     public void ApplyCombatRuleFocusFromCoordinator(bool focused)
@@ -2160,6 +2203,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     {
         if (kineticLoadout == null)
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
+        if (dashboardController == null)
+            dashboardController = FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
 
         SubscribeCombatTabEvents();
     }
@@ -2191,6 +2236,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             return;
 
         combatTabOpen = visible;
+        if (!combatTabOpen)
+            tabFocus = BattleCombatTabFocus.None;
         RefreshCombatRuleStateText();
 
         if (!combatTabOpen)
