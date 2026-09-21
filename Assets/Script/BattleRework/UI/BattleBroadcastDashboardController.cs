@@ -326,7 +326,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             hoveredMissionIndex = -1;
             selectedMissionIndex = -1;
             layoutDirty = false;
-            SetDashboardVisible(false);
+            // FullRoot owns the close tween. Keep Dashboard alive under it so Mission/Chat
+            // leave with the same alpha/depth animation instead of popping off first.
             ResetPackVisual();
         }
     }
