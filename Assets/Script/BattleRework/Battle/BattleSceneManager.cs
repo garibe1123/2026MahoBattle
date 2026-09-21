@@ -422,7 +422,6 @@ public class BattleSceneManager : MonoBehaviour
         EnsureSceneSupportComponent<BattleInventoryInteractionController>();
         EnsureSceneSupportComponent<BattleUnifiedInventoryInspectController>();
         EnsureSceneSupportComponent<BattleEquipmentDetailPanelController>();
-        EnsureSceneSupportComponent<BattleInventoryMorphTransitionController>();
 
         EnsureSceneSupportComponent<BattleRewardCardActionController>();
         EnsureSceneSupportComponent<BattleSelectionLayoutPolicyController>();
