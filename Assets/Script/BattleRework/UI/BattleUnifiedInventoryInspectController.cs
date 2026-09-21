@@ -7,10 +7,12 @@ using UnityEngine.UI;
 ///
 /// 이 클래스만 다음 RectTransform / CanvasGroup 상태를 씁니다.
 /// - 좌측 하단 Mini PACK의 위치/크기/표시 상태
-/// - 공용 LoadoutSwitchFull / GridBoard의 위치와 스케일
-/// - 외부 EquipmentDetailPanel의 고정 위치
+/// - Reward 편집 중 LoadoutSwitchFull / GridBoard의 위치와 스케일
+/// - Reward 편집 중 외부 EquipmentDetailPanel의 고정 위치
 /// - Reward TRASH / DONE의 화면 안전영역 위치
-/// - Full Grid의 단일 선택/호버 Stroke
+/// - Reward Full Grid의 단일 선택/호버 Stroke
+///
+/// Combat Full PACK의 위치/깊이/상세 패널은 BattleKineticLoadoutUI가 단독 소유합니다.
 ///
 /// 슬롯 데이터와 교환 규칙은 BattleEquipmentSystem,
 /// Reward 상태는 BattleRewardFlow,
@@ -54,7 +56,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     [Header("Reward Controls")]
     [SerializeField] private Vector2 trashAttachOffset = new(-8f, 0f);
-    [SerializeField] private Vector2 doneAttachOffset = new(-8f, 80f);
     [SerializeField] private Vector2 rewardTrashScreenOffset = new(-28f, -54f);
     [SerializeField] private Vector2 rewardDoneScreenOffset = new(-28f, 44f);
 
@@ -86,10 +87,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private readonly GameObject[] fullSelectionFrames = new GameObject[SlotCount];
     private readonly RectTransform[] fullSlotRects = new RectTransform[SlotCount];
-
-    private RectTransform legacyEquipmentDock;
-    private RectTransform legacyRewardLoadoutStrip;
-    private bool legacyBarsResolved;
 
     private Canvas dismissCanvas;
     private CanvasGroup dismissGroup;
@@ -182,10 +179,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         bool combatTab = combatTabOpen;
         bool combat = combatActive;
 
-        HideDuplicateLegacyBars();
         ApplyMiniPackGeometry();
         ApplyMiniPackContext(rewardChoice, rewardEdit, combatTab, combat);
-        ApplyFullInventoryLayout(rewardEdit, combatTab);
+        ApplyFullInventoryLayout(rewardEdit);
         AttachContextControls(rewardEdit, combat);
         ApplySelectionFrames(rewardEdit, rewardEdit);
         PositionDetailPanel(rewardEdit);
@@ -257,11 +253,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward &&
                rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
-    }
-
-    private bool IsCombatTabOpen()
-    {
-        return combatTabOpen;
     }
 
     private void SubscribeCombatLoadout()
@@ -340,13 +331,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         trashRoot ??= FindRect("InventoryTrash");
         doneRoot ??= FindRect("RewardPackDone");
-
-        if (!legacyBarsResolved && fullRoot != null)
-        {
-            legacyEquipmentDock = FindRect("EquipmentDock");
-            legacyRewardLoadoutStrip = FindRect("RewardLoadoutStrip");
-            legacyBarsResolved = true;
-        }
     }
 
     private void ResolveFullHeaderTexts()
@@ -511,7 +495,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         miniPackGroup.interactable = canRaycast;
     }
 
-    private void ApplyFullInventoryLayout(bool rewardEdit, bool combatTab)
+    private void ApplyFullInventoryLayout(bool rewardEdit)
     {
         if (rewardEdit)
         {
@@ -568,14 +552,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         // Combat PACK layout/depth/detail belong to BattleKineticLoadoutUI.
         if (builtInDetailRoot != null)
             builtInDetailRoot.gameObject.SetActive(!rewardEdit);
-    }
-
-    private void HideDuplicateLegacyBars()
-    {
-        if (legacyEquipmentDock != null && legacyEquipmentDock.gameObject.activeSelf)
-            legacyEquipmentDock.gameObject.SetActive(false);
-        if (legacyRewardLoadoutStrip != null && legacyRewardLoadoutStrip.gameObject.activeSelf)
-            legacyRewardLoadoutStrip.gameObject.SetActive(false);
     }
 
     private void AttachContextControls(bool rewardEdit, bool combat)
