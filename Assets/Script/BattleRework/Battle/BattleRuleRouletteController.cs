@@ -153,7 +153,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [Tooltip("PACK 우측 상단 모서리를 기준으로 룰 모듈을 미세 조정하는 Offset입니다.")]
     [SerializeField] private Vector2 combatRulePackTopRightOffset = new(-18f, 8f);
     [SerializeField, Min(0f)] private float combatRuleIdlePackGap = 28f;
-    [SerializeField, Min(0f)] private float combatRuleFocusedPackGap = 5f;
+    [SerializeField, Min(0f)] private float combatRuleFocusedPackGap = 3f;
     [SerializeField] private Vector2 combatRuleInactiveCornerOffset = new(108f, 64f);
     [Tooltip("RULES Focus/Detail이 커져도 화면 밖으로 잘리지 않도록 유지하는 안전 여백입니다.")]
     [SerializeField, Min(0f)] private float combatRuleScreenMargin = 28f;
@@ -1710,7 +1710,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                     (focused ? 10f : 0f),
                     boardTopRightLocal.y +
                     resolvedGap +
-                    combatRulePackTopRightOffset.y);
+                    (focused ? 3f : combatRulePackTopRightOffset.y));
 
                 if (suppressed)
                     targetPosition += combatRuleInactiveCornerOffset;
