@@ -1495,6 +1495,15 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         if (boardRoot != null)
         {
+            // Reward PACK editing temporarily re-anchors this shared GridBoard.
+            // Combat must restore its own geometry every time the TAB board is active,
+            // otherwise the next stage inherits Reward's center anchor and shifts right.
+            if (combat || morphVisible)
+            {
+                boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
+                boardRoot.pivot = new Vector2(0.5f, 0.5f);
+            }
+
             Vector2 boardTarget = packFocused
                 ? packFocusedOffset
                 : packSuppressed
