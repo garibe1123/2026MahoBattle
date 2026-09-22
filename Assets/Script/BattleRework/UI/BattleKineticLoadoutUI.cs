@@ -2123,8 +2123,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         float amount = Mathf.Clamp01(tabHoldVisual);
         float visual = EaseOutCubic(amount);
-        float pulse = 0.5f + 0.5f * Mathf.Sin(
-            Time.unscaledTime * Mathf.Max(8f, tabSignalFrequency));
+        float signalTime = Time.unscaledTime * Mathf.Max(8f, tabSignalFrequency);
+        float pulse = Mathf.Lerp(
+            Mathf.PerlinNoise(11.73f, signalTime * 0.021f),
+            Mathf.PerlinNoise(47.19f, signalTime * 0.047f),
+            0.42f);
 
         if (tabHoldSignalGroup != null)
         {
@@ -2176,45 +2179,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 t);
         }
 
-        if (tabSignalBand != null)
-        {
-            tabSignalBand.anchoredPosition = new Vector2(
-                0f,
-                Mathf.Sin(
-                    Time.unscaledTime *
-                    Mathf.Max(8f, tabSignalFrequency) *
-                    0.63f) *
-                2f *
-                visual);
-
-            Vector2 size = tabSignalBand.sizeDelta;
-            size.y = Mathf.Lerp(
-                size.y,
-                1.5f + pulse * 2.5f,
-                t);
-            tabSignalBand.sizeDelta = size;
-        }
-
-        if (tabSignalBandImage != null)
-        {
-            Color c = accentCyan;
-            c.a = visual * Mathf.Lerp(0.12f, 0.36f, pulse);
-            tabSignalBandImage.color = c;
-        }
-
-        if (tabSignalEcho != null)
-        {
-            tabSignalEcho.anchoredPosition = new Vector2(
-                0f,
-                -6f + pulse * 2.5f);
-        }
-
-        if (tabSignalEchoImage != null)
-        {
-            Color c = accentPink;
-            c.a = visual * Mathf.Lerp(0.03f, 0.12f, 1f - pulse);
-            tabSignalEchoImage.color = c;
-        }
+        UpdateTabNoiseBands(t, visual);
 
         if (tabTimeFlowText != null)
         {
@@ -2232,6 +2197,78 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             tabTimeFlowText.text =
                 $"{phase}  //  TIME FLOW {shownScale:0.00}x";
+        }
+    }
+
+    private void UpdateTabNoiseBands(float t, float visual)
+    {
+        if (tabNoiseBands == null || tabNoiseBandImages == null)
+            return;
+
+        float now = Time.unscaledTime;
+        float height = fullRoot != null
+            ? Mathf.Max(720f, fullRoot.rect.height)
+            : 1080f;
+
+        for (int i = 0; i < TabNoiseBandCount; i++)
+        {
+            RectTransform band = tabNoiseBands[i];
+            Image image = tabNoiseBandImages[i];
+            if (band == null || image == null)
+                continue;
+
+            float seed = tabNoiseBandSeeds[i];
+            float speed = Mathf.Max(1f, tabNoiseBandSpeed[i]);
+
+            float smoothA = Mathf.PerlinNoise(
+                seed,
+                now * speed * 0.057f);
+            float smoothB = Mathf.PerlinNoise(
+                seed * 1.913f,
+                now * speed * 0.113f);
+
+            float stepIndex = Mathf.Floor(now * speed * 0.72f);
+            float stepped = Hash01(seed + stepIndex * 5.731f);
+            float steppedB = Hash01(seed * 2.17f + stepIndex * 9.103f);
+
+            // Most frames are quiet. A few bands flare for a frame or two,
+            // avoiding the obvious "all scanlines moving together" look.
+            float burst = Mathf.Clamp01((stepped - 0.62f) / 0.38f);
+            burst *= burst;
+
+            float baseY = tabNoiseBandBaseY[i] * height;
+            float drift = (smoothA - 0.5f) * Mathf.Lerp(5f, 24f, smoothB);
+            float jump = burst * (steppedB - 0.5f) * Mathf.Lerp(18f, 92f, stepped);
+            float xJitter = burst * (Hash01(seed + stepIndex * 3.19f) - 0.5f) * 48f;
+
+            band.anchoredPosition = Vector2.Lerp(
+                band.anchoredPosition,
+                new Vector2(xJitter, baseY + drift + jump),
+                Mathf.Clamp01(t * Mathf.Lerp(0.55f, 1.65f, burst)));
+
+            Vector2 size = band.sizeDelta;
+            float thickness =
+                Mathf.Lerp(0.6f, 1.5f, smoothB) +
+                burst * Mathf.Lerp(1.2f, 4.5f, steppedB);
+            size.y = Mathf.Lerp(size.y, thickness, t);
+            band.sizeDelta = size;
+
+            Color color = image.color;
+
+            float quietAlpha = Mathf.Lerp(
+                0.010f,
+                0.055f,
+                smoothA * smoothB);
+            float burstAlpha = burst * Mathf.Lerp(
+                0.08f,
+                0.32f,
+                steppedB);
+            float dropout = Hash01(seed * 4.31f + stepIndex * 1.73f) < 0.17f
+                ? 0.12f
+                : 1f;
+
+            color.a = visual * (quietAlpha + burstAlpha) * dropout;
+            image.color = Color.Lerp(image.color, color, t);
         }
     }
 
