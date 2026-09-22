@@ -724,7 +724,6 @@ MonoBehaviour:
   hoverCyan: {r: 0.12, g: 0.88, b: 0.92, a: 1}
   hoverPink: {r: 1, g: 0.16, b: 0.5, a: 1}
   lockedBack: {r: 0.006, g: 0.008, b: 0.012, a: 0.9}
-  lockedStripe: {r: 0.88, g: 0.9, b: 0.94, a: 0.16}
 --- !u!114 &100042
 MonoBehaviour:
   m_ObjectHideFlags: 0
