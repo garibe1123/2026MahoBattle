@@ -544,12 +544,8 @@ MonoBehaviour:
   runManager: {fileID: 0}
   timeScaleController: {fileID: 0}
   inputRouter: {fileID: 0}
-  pauseInDuration: 0.34
-  resumeDuration: 0.44
-  pauseDimAlpha: 0.64
-  signalFrequency: 34
-  inkColor: {r: 0.01, g: 0.014, b: 0.02, a: 1}
-  paperColor: {r: 0.93, g: 0.95, b: 0.97, a: 1}
+  inkColor: {r: 0.035, g: 0.03, b: 0.055, a: 0.995}
+  paperColor: {r: 0.94, g: 0.9, b: 0.76, a: 1}
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
