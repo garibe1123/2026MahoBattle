@@ -68,6 +68,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Text detailTags;
     private Text synergySummary;
 
+    private RectTransform compareRoot;
+    private Image compareSourceIcon;
+    private Image compareTargetIcon;
+    private Text compareSourceName;
+    private Text compareTargetName;
+    private Text compareSourceMeta;
+    private Text compareTargetMeta;
+    private Text compareSwapLabel;
+    private Text compareDeltaText;
+
     private CanvasGroup compactGroup;
     private RectTransform compactRoot;
     private Image compactIcon;
@@ -650,6 +660,58 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         synergySummary = CreateText(detailRoot, "GRID LINK 0", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
         SetAnchors(synergySummary.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.23f));
 
+        compareRoot = CreateRect(detailRoot, "CompareRoot", Vector2.zero);
+        Stretch(compareRoot);
+        compareRoot.gameObject.SetActive(false);
+
+        RectTransform sourceCard = CreateRect(compareRoot, "SourceCard", Vector2.zero);
+        SetAnchors(sourceCard, new Vector2(0.035f, 0.16f), new Vector2(0.43f, 0.94f));
+        Image sourceBack = sourceCard.gameObject.AddComponent<Image>();
+        sourceBack.color = new Color(0.035f, 0.040f, 0.050f, 0.98f);
+        sourceBack.raycastTarget = false;
+        Outline sourceOutline = sourceCard.gameObject.AddComponent<Outline>();
+        sourceOutline.effectColor = accentYellow;
+        sourceOutline.effectDistance = new Vector2(3f, -3f);
+
+        compareSourceIcon = CreateImage(sourceCard, "SourceIcon", new Vector2(72f, 72f));
+        compareSourceIcon.rectTransform.anchorMin = compareSourceIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.82f);
+        compareSourceIcon.rectTransform.anchoredPosition = Vector2.zero;
+        compareSourceIcon.preserveAspect = true;
+        compareSourceIcon.raycastTarget = false;
+
+        compareSourceName = CreateText(sourceCard, "SOURCE", 13, FontStyle.Bold, TextAnchor.UpperCenter, paperColor);
+        SetAnchors(compareSourceName.rectTransform, new Vector2(0.06f, 0.47f), new Vector2(0.94f, 0.68f));
+
+        compareSourceMeta = CreateText(sourceCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
+        SetAnchors(compareSourceMeta.rectTransform, new Vector2(0.06f, 0.08f), new Vector2(0.94f, 0.46f));
+
+        RectTransform targetCard = CreateRect(compareRoot, "TargetCard", Vector2.zero);
+        SetAnchors(targetCard, new Vector2(0.57f, 0.16f), new Vector2(0.965f, 0.94f));
+        Image targetBack = targetCard.gameObject.AddComponent<Image>();
+        targetBack.color = new Color(0.035f, 0.040f, 0.050f, 0.98f);
+        targetBack.raycastTarget = false;
+        Outline targetOutline = targetCard.gameObject.AddComponent<Outline>();
+        targetOutline.effectColor = accentCyan;
+        targetOutline.effectDistance = new Vector2(3f, -3f);
+
+        compareTargetIcon = CreateImage(targetCard, "TargetIcon", new Vector2(72f, 72f));
+        compareTargetIcon.rectTransform.anchorMin = compareTargetIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.82f);
+        compareTargetIcon.rectTransform.anchoredPosition = Vector2.zero;
+        compareTargetIcon.preserveAspect = true;
+        compareTargetIcon.raycastTarget = false;
+
+        compareTargetName = CreateText(targetCard, "TARGET", 13, FontStyle.Bold, TextAnchor.UpperCenter, paperColor);
+        SetAnchors(compareTargetName.rectTransform, new Vector2(0.06f, 0.47f), new Vector2(0.94f, 0.68f));
+
+        compareTargetMeta = CreateText(targetCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
+        SetAnchors(compareTargetMeta.rectTransform, new Vector2(0.06f, 0.08f), new Vector2(0.94f, 0.46f));
+
+        compareSwapLabel = CreateText(compareRoot, "<->\nSWAP", 15, FontStyle.Bold, TextAnchor.MiddleCenter, accentYellow);
+        SetAnchors(compareSwapLabel.rectTransform, new Vector2(0.43f, 0.38f), new Vector2(0.57f, 0.72f));
+
+        compareDeltaText = CreateText(compareRoot, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleCenter, accentCyan);
+        SetAnchors(compareDeltaText.rectTransform, new Vector2(0.08f, 0.01f), new Vector2(0.92f, 0.15f));
+
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
         boardGroup = boardRoot.gameObject.AddComponent<CanvasGroup>();
         boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
@@ -911,8 +973,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
         }
 
+        SetDetailCompareMode(false);
         RefreshDetailForSlot(slotIndex);
 
+        detailRoot.sizeDelta = itemTooltipSize;
         detailRoot.gameObject.SetActive(true);
         detailRoot.SetAsLastSibling();
         detailRoot.anchoredPosition = ResolveTooltipPosition(slotRects[slotIndex]);
@@ -970,43 +1034,49 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
         }
 
-        RefreshDetailForSlot(targetSlotIndex);
+        SetDetailCompareMode(true);
 
-        if (detailTitle != null)
-            detailTitle.text = $"{target.GetDisplayName().ToUpperInvariant()}  //  COMPARE";
+        detailRoot.sizeDelta = new Vector2(620f, 300f);
 
-        if (detailDescription != null)
+        if (compareSourceIcon != null)
         {
-            string description = !string.IsNullOrWhiteSpace(target.description)
-                ? target.description
-                : "NO DESCRIPTION";
-            detailDescription.text =
-                $"{description}\n\nFROM  {source.GetDisplayName().ToUpperInvariant()}";
+            compareSourceIcon.sprite = source.icon;
+            compareSourceIcon.enabled = source.icon != null;
+        }
+        if (compareTargetIcon != null)
+        {
+            compareTargetIcon.sprite = target.icon;
+            compareTargetIcon.enabled = target.icon != null;
         }
 
-        if (detailTags != null)
-        {
-            float damageDelta = (target.damageMultiplier - source.damageMultiplier) * 100f;
-            float moveDelta = (target.moveSpeedMultiplier - source.moveSpeedMultiplier) * 100f;
-            float rangeDelta = (target.rangeMultiplier - source.rangeMultiplier) * 100f;
+        if (compareSourceName != null)
+            compareSourceName.text = source.GetDisplayName().ToUpperInvariant();
+        if (compareTargetName != null)
+            compareTargetName.text = target.GetDisplayName().ToUpperInvariant();
 
-            detailTags.text =
-                $"DMG {FormatCompareDelta(damageDelta)}   " +
+        if (compareSourceMeta != null)
+            compareSourceMeta.text = BuildCompareItemMeta(sourceSlot, source, sourceSlotIndex, "FROM");
+        if (compareTargetMeta != null)
+            compareTargetMeta.text = BuildCompareItemMeta(targetSlot, target, targetSlotIndex, "TO");
+
+        float damageDelta = (target.damageMultiplier - source.damageMultiplier) * 100f;
+        float moveDelta = (target.moveSpeedMultiplier - source.moveSpeedMultiplier) * 100f;
+        float rangeDelta = (target.rangeMultiplier - source.rangeMultiplier) * 100f;
+
+        if (compareDeltaText != null)
+        {
+            compareDeltaText.text =
+                $"IF SWAPPED  //  DMG {FormatCompareDelta(damageDelta)}   " +
                 $"MOVE {FormatCompareDelta(moveDelta)}   " +
                 $"RANGE {FormatCompareDelta(rangeDelta)}";
-            detailTags.color =
+            compareDeltaText.color =
                 damageDelta + moveDelta + rangeDelta >= 0f
                     ? accentCyan
                     : accentYellow;
         }
 
-        if (synergySummary != null)
-        {
-            synergySummary.text =
-                $"COMPARE  G{sourceSlot.grade} → G{targetSlot.grade}\n" +
-                $"{source.GetDisplayName().ToUpperInvariant()}  →  " +
-                $"{target.GetDisplayName().ToUpperInvariant()}";
-        }
+        if (compareSwapLabel != null)
+            compareSwapLabel.text = "<->\nSWAP";
 
         detailRoot.gameObject.SetActive(true);
         detailRoot.SetAsLastSibling();
@@ -1021,6 +1091,63 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailGroup.alpha = 1f;
         detailGroup.blocksRaycasts = false;
         detailGroup.interactable = false;
+    }
+
+    public int ResolveOccupiedSlotUnderPointer(Vector2 screenPoint)
+    {
+        ResolveReferences();
+
+        if (equipmentSystem == null)
+            return -1;
+
+        for (int i = 0; i < slotRects.Length; i++)
+        {
+            if (slotRects[i] == null ||
+                !equipmentSystem.IsSlotUnlocked(i) ||
+                i >= equipmentSystem.Slots.Count ||
+                equipmentSystem.Slots[i]?.equipment == null)
+            {
+                continue;
+            }
+
+            if (GetScreenRect(slotRects[i]).Contains(screenPoint))
+                return i;
+        }
+
+        return -1;
+    }
+
+    private void SetDetailCompareMode(bool compare)
+    {
+        if (compareRoot != null)
+            compareRoot.gameObject.SetActive(compare);
+
+        if (detailTitle != null)
+            detailTitle.gameObject.SetActive(!compare);
+        if (detailDescription != null)
+            detailDescription.gameObject.SetActive(!compare);
+        if (detailTags != null)
+            detailTags.gameObject.SetActive(!compare);
+        if (synergySummary != null)
+            synergySummary.gameObject.SetActive(!compare);
+    }
+
+    private static string BuildCompareItemMeta(
+        BattleEquipmentSlot slot,
+        BattleEquipmentSO equipment,
+        int slotIndex,
+        string direction)
+    {
+        Vector2Int grid = BattleEquipmentSystem.SlotIndexToGrid(slotIndex);
+        string type = equipment.type.ToString().ToUpperInvariant();
+        string rarity = equipment.rarity.ToString().ToUpperInvariant();
+
+        return
+            $"{direction}  SLOT {grid.x + 1}-{grid.y + 1}\n" +
+            $"GRADE {slot.grade}  //  {rarity} / {type}\n\n" +
+            $"DMG   x{equipment.damageMultiplier:0.00}\n" +
+            $"MOVE  x{equipment.moveSpeedMultiplier:0.00}\n" +
+            $"RANGE x{equipment.rangeMultiplier:0.00}";
     }
 
     private static string FormatCompareDelta(float value)
