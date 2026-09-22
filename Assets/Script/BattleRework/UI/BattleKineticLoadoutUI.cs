@@ -12,6 +12,14 @@ using UnityEngine.UI;
 [DefaultExecutionOrder(30000)]
 public sealed class BattleKineticLoadoutUI : MonoBehaviour
 {
+    private enum TabTimeState
+    {
+        Running,
+        Stopping,
+        Stopped,
+        Resuming
+    }
+
     private const int GridSize = BattleEquipmentSystem.GridSize;
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int CanvasSortingOrder = 780;
@@ -28,7 +36,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
-    [SerializeField, Range(0.02f, 0.20f)] private float combatInventoryTimeScale = 0.05f;
+    [SerializeField, Range(0.12f, 0.80f)] private float tabStopDuration = 0.34f;
+    [SerializeField, Range(0.12f, 0.90f)] private float tabResumeDuration = 0.44f;
+    [SerializeField, Range(8f, 60f)] private float tabSignalFrequency = 34f;
+    [SerializeField, Range(0f, 0.24f)] private float tabExtraDimAlpha = 0.10f;
     [SerializeField, Range(0.2f, 0.95f)] private float stickThreshold = 0.55f;
     [SerializeField, Range(0.05f, 0.8f)] private float stickReleaseThreshold = 0.22f;
 
@@ -58,6 +69,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Canvas canvas;
     private CanvasGroup fullGroup;
     private RectTransform fullRoot;
+    private Image fullDimImage;
+
+    private CanvasGroup tabHoldSignalGroup;
+    private RectTransform tabHoldGlyphRoot;
+    private RectTransform tabHoldBarLeft;
+    private RectTransform tabHoldBarRight;
+    private Image tabHoldBarLeftImage;
+    private Image tabHoldBarRightImage;
+    private RectTransform tabSignalBand;
+    private Image tabSignalBandImage;
+    private RectTransform tabSignalEcho;
+    private Image tabSignalEchoImage;
+    private Text tabTimeFlowText;
     private RectTransform boardRoot;
     private CanvasGroup boardGroup;
     private RectTransform linkRoot;
@@ -89,6 +113,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Text staminaText;
     private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
     private float packMorphProgress;
+
+    private TabTimeState tabTimeState = TabTimeState.Running;
+    private float tabTimeElapsed;
+    private float tabTimeStartScale = 1f;
+    private float tabTimeStartVisual;
+    private float tabRequestedScale = 1f;
+    private float tabHoldVisual;
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
@@ -145,7 +176,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         Subscribe();
         SubscribeInput();
         if (switchHeld)
-            EnterBulletTime();
+            BeginTabTimeStop();
         RefreshAll();
         lastNotifiedBoardVisible = IsSwitchBoardOpen;
         SwitchBoardVisibilityChanged?.Invoke(lastNotifiedBoardVisible);
@@ -155,13 +186,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         UnsubscribeInput();
         Unsubscribe();
-        RestoreTimeScale();
+        ForceRestoreTabTime();
     }
 
     private void OnDestroy()
     {
         UnsubscribeInput();
-        RestoreTimeScale();
+        ForceRestoreTabTime();
     }
 
     private void Update()
@@ -180,6 +211,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (combat && !BattlePauseController.IsPaused)
             UpdateSwitchInput();
 
+        UpdateTabTimeTransition();
         UpdateHoverExitGrace();
         UpdateCompactVitals();
         UpdateGridRaycastState();
@@ -418,7 +450,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (selectedIndex < 0)
             selectedIndex = 0;
 
-        EnterBulletTime();
+        BeginTabTimeStop();
         RefreshAll();
     }
 
@@ -444,7 +476,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         directionMoved = false;
         NotifySwitchBoardVisibility();
         stickAxisLatched = false;
-        RestoreTimeScale();
+        BeginTabTimeResume();
         RefreshAll();
     }
 
@@ -455,23 +487,148 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         directionMoved = false;
         stickAxisLatched = false;
         NotifySwitchBoardVisibility();
-        RestoreTimeScale();
+        BeginTabTimeResume();
         RefreshAll();
     }
 
-    private void EnterBulletTime()
+    private void BeginTabTimeStop()
     {
         ResolveReferences();
         if (timeScaleController == null)
             return;
 
-        float scale = Mathf.Clamp(combatInventoryTimeScale, 0.02f, 0.20f);
-        timeScaleController.Request(BattleTimeScaleController.Owner.CombatInventory, scale);
+        tabTimeStartScale = Mathf.Clamp01(timeScaleController.AppliedScale);
+        tabTimeStartVisual = tabHoldVisual;
+        tabRequestedScale = tabTimeStartScale;
+        tabTimeElapsed = 0f;
+        tabTimeState = TabTimeState.Stopping;
+
+        timeScaleController.Request(
+            BattleTimeScaleController.Owner.CombatInventory,
+            tabRequestedScale);
     }
 
-    private void RestoreTimeScale()
+    private void BeginTabTimeResume()
     {
-        timeScaleController?.Release(BattleTimeScaleController.Owner.CombatInventory);
+        ResolveReferences();
+        if (timeScaleController == null)
+            return;
+
+        if (tabTimeState == TabTimeState.Running)
+        {
+            timeScaleController.Release(BattleTimeScaleController.Owner.CombatInventory);
+            return;
+        }
+
+        tabTimeStartScale = Mathf.Clamp01(timeScaleController.AppliedScale);
+        tabTimeStartVisual = tabHoldVisual;
+        tabRequestedScale = tabTimeStartScale;
+        tabTimeElapsed = 0f;
+        tabTimeState = TabTimeState.Resuming;
+
+        timeScaleController.Request(
+            BattleTimeScaleController.Owner.CombatInventory,
+            tabRequestedScale);
+    }
+
+    private void UpdateTabTimeTransition()
+    {
+        if (timeScaleController == null)
+            return;
+
+        switch (tabTimeState)
+        {
+            case TabTimeState.Running:
+                tabHoldVisual = Mathf.MoveTowards(
+                    tabHoldVisual,
+                    0f,
+                    Time.unscaledDeltaTime * 4f);
+                return;
+
+            case TabTimeState.Stopping:
+            {
+                tabTimeElapsed += Time.unscaledDeltaTime;
+                float duration = Mathf.Max(0.01f, tabStopDuration);
+                float t = Mathf.Clamp01(tabTimeElapsed / duration);
+                float eased = EaseOutCubic(t);
+
+                tabRequestedScale = Mathf.Lerp(
+                    tabTimeStartScale,
+                    0f,
+                    eased);
+                timeScaleController.Request(
+                    BattleTimeScaleController.Owner.CombatInventory,
+                    tabRequestedScale);
+
+                tabHoldVisual = Mathf.Lerp(
+                    tabTimeStartVisual,
+                    1f,
+                    eased);
+
+                if (t >= 1f)
+                {
+                    tabRequestedScale = 0f;
+                    tabHoldVisual = 1f;
+                    tabTimeState = TabTimeState.Stopped;
+                    timeScaleController.Request(
+                        BattleTimeScaleController.Owner.CombatInventory,
+                        0f);
+                }
+                return;
+            }
+
+            case TabTimeState.Stopped:
+                tabRequestedScale = 0f;
+                tabHoldVisual = 1f;
+                timeScaleController.Request(
+                    BattleTimeScaleController.Owner.CombatInventory,
+                    0f);
+                return;
+
+            case TabTimeState.Resuming:
+            {
+                tabTimeElapsed += Time.unscaledDeltaTime;
+                float duration = Mathf.Max(0.01f, tabResumeDuration);
+                float t = Mathf.Clamp01(tabTimeElapsed / duration);
+                float eased = EaseInOutCubic(t);
+
+                tabRequestedScale = Mathf.Lerp(
+                    tabTimeStartScale,
+                    1f,
+                    eased);
+                timeScaleController.Request(
+                    BattleTimeScaleController.Owner.CombatInventory,
+                    tabRequestedScale);
+
+                tabHoldVisual = Mathf.Lerp(
+                    tabTimeStartVisual,
+                    0f,
+                    eased);
+
+                if (t >= 1f)
+                {
+                    timeScaleController.Release(
+                        BattleTimeScaleController.Owner.CombatInventory);
+                    tabRequestedScale = 1f;
+                    tabHoldVisual = 0f;
+                    tabTimeElapsed = 0f;
+                    tabTimeState = TabTimeState.Running;
+                }
+                return;
+            }
+        }
+    }
+
+    private void ForceRestoreTabTime()
+    {
+        timeScaleController?.Release(
+            BattleTimeScaleController.Owner.CombatInventory);
+        tabRequestedScale = 1f;
+        tabHoldVisual = 0f;
+        tabTimeElapsed = 0f;
+        tabTimeStartScale = 1f;
+        tabTimeStartVisual = 0f;
+        tabTimeState = TabTimeState.Running;
     }
 
     private void UpdateGridNavigation()
