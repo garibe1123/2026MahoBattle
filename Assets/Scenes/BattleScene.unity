@@ -482,7 +482,7 @@ MonoBehaviour:
   uiSharpness: 16
   packMorphDuration: 0.34
   packRestOffset: {x: -248, y: -62}
-  packFocusedOffset: {x: -272, y: -76}
+  packFocusedOffset: {x: -170, y: -76}
   packInactiveCornerOffset: {x: -378, y: -146}
   itemTooltipSize: {x: 360, y: 220}
   itemTooltipGap: 18
