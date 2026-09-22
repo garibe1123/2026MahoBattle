@@ -1675,35 +1675,108 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         Vector3 slotRightWorld = slot.TransformPoint(
             new Vector3(slot.rect.xMax, slot.rect.center.y, 0f));
-        Vector3 slotLeftWorld = slot.TransformPoint(
-            new Vector3(slot.rect.xMin, slot.rect.center.y, 0f));
         Vector3 slotCenterWorld = slot.TransformPoint(slot.rect.center);
 
         Vector2 rightLocal = fullRoot.InverseTransformPoint(slotRightWorld);
-        Vector2 leftLocal = fullRoot.InverseTransformPoint(slotLeftWorld);
         Vector2 centerLocal = fullRoot.InverseTransformPoint(slotCenterWorld);
 
-        Rect rootRect = fullRoot.rect;
-        float width = Mathf.Max(1f, detailRoot.sizeDelta.x);
-        float height = Mathf.Max(1f, detailRoot.sizeDelta.y);
         float gap = Mathf.Max(4f, itemTooltipGap);
-        const float safe = 24f;
+        Vector2 desired = new(
+            rightLocal.x + gap,
+            centerLocal.y);
 
-        float x = rightLocal.x + gap;
-        if (x + width > rootRect.xMax - safe)
-            x = leftLocal.x - gap - width;
+        detailRoot.pivot = new Vector2(0f, 0.5f);
 
-        x = Mathf.Clamp(
-            x,
-            rootRect.xMin + safe,
-            rootRect.xMax - safe - width);
+        // Detail/compare windows always open to the RIGHT of the hovered slot.
+        // We only correct against the actual Game View safe area; there is no
+        // left-side fallback anymore.
+        Vector2 clamped = ClampRightSideTooltipToViewport(
+            fullRoot,
+            desired,
+            detailRoot.sizeDelta,
+            detailRoot.pivot,
+            24f);
 
-        float y = Mathf.Clamp(
-            centerLocal.y,
-            rootRect.yMin + safe + height * 0.5f,
-            rootRect.yMax - safe - height * 0.5f);
+        // Never allow viewport correction to flip the tooltip to the slot's left.
+        clamped.x = Mathf.Max(clamped.x, rightLocal.x + 4f);
+        return clamped;
+    }
 
-        return new Vector2(x, y);
+    private static Vector2 ClampRightSideTooltipToViewport(
+        RectTransform parent,
+        Vector2 pivotLocal,
+        Vector2 size,
+        Vector2 pivot,
+        float margin)
+    {
+        if (parent == null)
+            return pivotLocal;
+
+        Canvas canvas = parent.GetComponentInParent<Canvas>();
+        Camera eventCamera =
+            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        float width = Mathf.Max(1f, size.x);
+        float height = Mathf.Max(1f, size.y);
+
+        Vector2[] localCorners =
+        {
+            pivotLocal + new Vector2(-width * pivot.x, -height * pivot.y),
+            pivotLocal + new Vector2(width * (1f - pivot.x), -height * pivot.y),
+            pivotLocal + new Vector2(width * (1f - pivot.x), height * (1f - pivot.y)),
+            pivotLocal + new Vector2(-width * pivot.x, height * (1f - pivot.y))
+        };
+
+        Vector2 screenMin = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 screenMax = new(float.NegativeInfinity, float.NegativeInfinity);
+
+        for (int i = 0; i < localCorners.Length; i++)
+        {
+            Vector2 screen = RectTransformUtility.WorldToScreenPoint(
+                eventCamera,
+                parent.TransformPoint(localCorners[i]));
+            screenMin = Vector2.Min(screenMin, screen);
+            screenMax = Vector2.Max(screenMax, screen);
+        }
+
+        Rect viewport = eventCamera != null
+            ? eventCamera.pixelRect
+            : new Rect(0f, 0f, Screen.width, Screen.height);
+
+        float safeMargin = Mathf.Max(0f, margin);
+        Rect safe = new(
+            viewport.xMin + safeMargin,
+            viewport.yMin + safeMargin,
+            Mathf.Max(1f, viewport.width - safeMargin * 2f),
+            Mathf.Max(1f, viewport.height - safeMargin * 2f));
+
+        Vector2 correction = Vector2.zero;
+        if (screenMax.x > safe.xMax)
+            correction.x -= screenMax.x - safe.xMax;
+        if (screenMin.y < safe.yMin)
+            correction.y += safe.yMin - screenMin.y;
+        if (screenMax.y > safe.yMax)
+            correction.y -= screenMax.y - safe.yMax;
+
+        if (correction.sqrMagnitude <= 0.0001f)
+            return pivotLocal;
+
+        Vector2 pivotScreen = RectTransformUtility.WorldToScreenPoint(
+            eventCamera,
+            parent.TransformPoint(pivotLocal));
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent,
+                pivotScreen + correction,
+                eventCamera,
+                out Vector2 correctedLocal))
+        {
+            return pivotLocal;
+        }
+
+        return correctedLocal;
     }
 
     private static float SmoothPackMorph(float value)
