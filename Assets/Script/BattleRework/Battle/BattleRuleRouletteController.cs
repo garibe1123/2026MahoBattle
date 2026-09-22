@@ -1786,11 +1786,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             targetRotation = 0f;
         }
 
+        float targetPanelScale = combatTabOpen
+            ? focused ? 1.055f : suppressed ? 0.80f : 0.92f
+            : 0.92f;
+
         RectTransform panelParent = combatRulePanel.parent as RectTransform;
         targetPosition = ClampCombatRulePanelPosition(
             targetPosition,
             targetSize,
-            panelParent);
+            panelParent,
+            targetPanelScale);
 
         combatRulePanel.anchoredPosition = Vector2.Lerp(
             combatRulePanel.anchoredPosition,
@@ -1820,10 +1825,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatRulePanel.localScale = Vector3.Lerp(
             combatRulePanel.localScale,
-            Vector3.one * (
-                combatTabOpen
-                    ? focused ? 1.055f : suppressed ? 0.80f : 0.92f
-                    : 0.92f),
+            Vector3.one * targetPanelScale,
             t);
 
         if (combatRulePanelGroup != null)
@@ -2023,7 +2025,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Vector2 ClampCombatRulePanelPosition(
         Vector2 anchoredPosition,
         Vector2 targetSize,
-        RectTransform parent)
+        RectTransform parent,
+        float targetScale)
     {
         if (combatRulePanel == null || parent == null)
             return anchoredPosition;
@@ -2035,22 +2038,77 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             Mathf.Lerp(parentRect.xMin, parentRect.xMax, anchor.x),
             Mathf.Lerp(parentRect.yMin, parentRect.yMax, anchor.y));
 
-        Vector2 pivotPosition = anchorPoint + anchoredPosition;
-        float width = Mathf.Max(1f, targetSize.x);
-        float height = Mathf.Max(1f, targetSize.y);
+        Vector2 pivotLocal = anchorPoint + anchoredPosition;
+        float width = Mathf.Max(1f, targetSize.x * Mathf.Max(0.01f, targetScale));
+        float height = Mathf.Max(1f, targetSize.y * Mathf.Max(0.01f, targetScale));
+
+        Vector2 localMin = pivotLocal - new Vector2(width * pivot.x, height * pivot.y);
+        Vector2 localMax = pivotLocal + new Vector2(
+            width * (1f - pivot.x),
+            height * (1f - pivot.y));
+
+        Canvas canvas = parent.GetComponentInParent<Canvas>();
+        Camera eventCamera =
+            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        Vector2 screenMin = RectTransformUtility.WorldToScreenPoint(
+            eventCamera,
+            parent.TransformPoint(localMin));
+        Vector2 screenMax = RectTransformUtility.WorldToScreenPoint(
+            eventCamera,
+            parent.TransformPoint(localMax));
+
+        float minX = Mathf.Min(screenMin.x, screenMax.x);
+        float maxX = Mathf.Max(screenMin.x, screenMax.x);
+        float minY = Mathf.Min(screenMin.y, screenMax.y);
+        float maxY = Mathf.Max(screenMin.y, screenMax.y);
+
+        Rect viewport = eventCamera != null
+            ? eventCamera.pixelRect
+            : new Rect(0f, 0f, Screen.width, Screen.height);
+
         float margin = Mathf.Max(0f, combatRuleScreenMargin);
+        Rect safe = new(
+            viewport.xMin + margin,
+            viewport.yMin + margin,
+            Mathf.Max(1f, viewport.width - margin * 2f),
+            Mathf.Max(1f, viewport.height - margin * 2f));
 
-        float minPivotX = parentRect.xMin + margin + width * pivot.x;
-        float maxPivotX = parentRect.xMax - margin - width * (1f - pivot.x);
-        float minPivotY = parentRect.yMin + margin + height * pivot.y;
-        float maxPivotY = parentRect.yMax - margin - height * (1f - pivot.y);
+        Vector2 screenCorrection = Vector2.zero;
 
-        if (minPivotX <= maxPivotX)
-            pivotPosition.x = Mathf.Clamp(pivotPosition.x, minPivotX, maxPivotX);
-        if (minPivotY <= maxPivotY)
-            pivotPosition.y = Mathf.Clamp(pivotPosition.y, minPivotY, maxPivotY);
+        if (minX < safe.xMin)
+            screenCorrection.x += safe.xMin - minX;
+        if (maxX > safe.xMax)
+            screenCorrection.x -= maxX - safe.xMax;
+        if (minY < safe.yMin)
+            screenCorrection.y += safe.yMin - minY;
+        if (maxY > safe.yMax)
+            screenCorrection.y -= maxY - safe.yMax;
 
-        return pivotPosition - anchorPoint;
+        if (screenCorrection.sqrMagnitude <= 0.0001f)
+            return anchoredPosition;
+
+        Vector2 pivotScreen = RectTransformUtility.WorldToScreenPoint(
+            eventCamera,
+            parent.TransformPoint(pivotLocal));
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent,
+                pivotScreen,
+                eventCamera,
+                out Vector2 before) ||
+            !RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent,
+                pivotScreen + screenCorrection,
+                eventCamera,
+                out Vector2 after))
+        {
+            return anchoredPosition;
+        }
+
+        return anchoredPosition + (after - before);
     }
 
     private void EnsureCombatRulePanelParentForMode()
