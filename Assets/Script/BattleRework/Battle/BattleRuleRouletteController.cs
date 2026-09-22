@@ -140,9 +140,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(80f)] private float combatRuleTabHeight = 110f;
     [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 36f;
     [SerializeField, Min(0f)] private float combatRuleTabExtraWidth = 28f;
-    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 340f;
-    [SerializeField, Min(120f)] private float combatRuleFocusedHeight = 154f;
-    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 12f;
+    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 330f;
+    [SerializeField, Min(120f)] private float combatRuleFocusedHeight = 142f;
+    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 0f;
     [Tooltip("상세는 프레임 밖 Tooltip로 분리되므로 Focus 프레임 자체는 우측으로 추가 확장하지 않습니다.")]
     [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0f;
     [Tooltip("평상시 룰 아이콘 Row의 화면 좌측 상단 여백입니다.")]
@@ -1593,77 +1593,55 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private void PositionCombatRuleDetailNearSlot(RectTransform slot)
     {
-        if (!combatHudMode || slot == null || winningRuleTab == null)
+        if (!combatHudMode ||
+            slot == null ||
+            winningRuleTab == null ||
+            combatRulePanel == null)
+        {
             return;
+        }
 
-        RectTransform parent = winningRuleTab.parent as RectTransform;
-        if (parent == null)
-            return;
-
-        const float gapPixels = 18f;
-        const float safe = 24f;
+        const float gap = 16f;
         Vector2 detailSize = new(360f, 220f);
+
+        // Use the RULES panel only as a coordinate carrier. The detail does not
+        // participate in its size/layout and is positioned from the HOVERED SLOT.
+        if (winningRuleTab.parent != combatRulePanel)
+            winningRuleTab.SetParent(combatRulePanel, false);
+
+        winningRuleTab.SetAsLastSibling();
         winningRuleTab.sizeDelta = detailSize;
-        winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.5f);
+        winningRuleTab.anchorMin =
+            winningRuleTab.anchorMax =
+                combatRulePanel.pivot;
         winningRuleTab.pivot = new Vector2(0f, 0.5f);
-
-        // The rule slots may live under the PACK canvas while the detail tooltip
-        // lives under the roulette overlay. Convert through SCREEN coordinates so
-        // the tooltip is visually attached to the hovered SLOT, not to its frame.
-        Canvas slotCanvas = slot.GetComponentInParent<Canvas>();
-        Camera slotCamera =
-            slotCanvas != null && slotCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? slotCanvas.worldCamera
-                : null;
-
-        Canvas detailCanvas = parent.GetComponentInParent<Canvas>();
-        Camera detailCamera =
-            detailCanvas != null && detailCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? detailCanvas.worldCamera
-                : null;
+        winningRuleTab.localRotation = Quaternion.identity;
+        winningRuleTab.localScale = Vector3.one;
 
         Vector3 slotRightWorld = slot.TransformPoint(
             new Vector3(slot.rect.xMax, slot.rect.center.y, 0f));
+        Vector3 slotCenterWorld = slot.TransformPoint(slot.rect.center);
 
-        Vector2 slotRightScreen = RectTransformUtility.WorldToScreenPoint(
-            slotCamera,
-            slotRightWorld);
+        Vector3 rightLocal3 = combatRulePanel.InverseTransformPoint(slotRightWorld);
+        Vector3 centerLocal3 = combatRulePanel.InverseTransformPoint(slotCenterWorld);
 
-        Vector2 desiredScreen = slotRightScreen + new Vector2(gapPixels, 0f);
+        float panelScaleX = Mathf.Max(
+            0.0001f,
+            Mathf.Abs(combatRulePanel.lossyScale.x));
+        float localGap = gap / panelScaleX;
 
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                parent,
-                desiredScreen,
-                detailCamera,
-                out Vector2 desiredLocal))
-        {
-            return;
-        }
-
-        Vector2 clamped = ClampRuleDetailRightToViewport(
-            parent,
-            desiredLocal,
-            detailSize,
-            winningRuleTab.pivot,
-            safe);
-
-        // Never let viewport correction cross back over the hovered slot.
-        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                parent,
-                slotRightScreen + new Vector2(4f, 0f),
-                detailCamera,
-                out Vector2 slotRightLocal))
-        {
-            clamped.x = Mathf.Max(clamped.x, slotRightLocal.x);
-        }
-
-        winningRuleTab.anchoredPosition = clamped;
+        // Anchors are pinned to the parent's pivot, so anchoredPosition maps
+        // directly to combatRulePanel local coordinates.
+        winningRuleTab.anchoredPosition = new Vector2(
+            rightLocal3.x + localGap,
+            centerLocal3.y);
 
         if (ruleDetailGroup != null)
         {
             ruleDetailGroup.blocksRaycasts = false;
             ruleDetailGroup.interactable = false;
         }
+
         if (ruleDetailBarImage != null)
             ruleDetailBarImage.raycastTarget = false;
     }
@@ -2395,7 +2373,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         float iconScale = Mathf.Clamp(combatRuleFocusedIconScale, 0.30f, 1f);
         float iconWidth =
             activeWidth * iconScale +
-            Mathf.Max(0f, combatRuleHorizontalPadding) +
+            Mathf.Max(16f, combatRuleHorizontalPadding * 0.55f) +
             Mathf.Max(0f, combatRuleFocusedExtraWidth);
 
         return new Vector2(
