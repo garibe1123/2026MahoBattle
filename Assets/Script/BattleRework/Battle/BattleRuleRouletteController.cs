@@ -684,8 +684,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             new Vector2(620f, 88f));
 
         ruleDetailBarImage = winningRuleTab.gameObject.AddComponent<Image>();
-        ruleDetailBarImage.color = new Color(0.025f, 0.028f, 0.038f, 0.94f);
+        ruleDetailBarImage.color = new Color(0.028f, 0.030f, 0.036f, 0.965f);
         ruleDetailBarImage.raycastTarget = false;
+
+        Outline ruleDetailOutline = winningRuleTab.gameObject.AddComponent<Outline>();
+        ruleDetailOutline.effectColor = new Color(0.92f, 0.94f, 0.97f, 0.24f);
+        ruleDetailOutline.effectDistance = new Vector2(2f, -2f);
 
         ruleDetailGroup = winningRuleTab.gameObject.AddComponent<CanvasGroup>();
         ruleDetailGroup.alpha = 0f;
@@ -1864,20 +1868,20 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatRulePanelBack != null)
         {
             Color color = combatRulePanelBack.color;
-            color.r = 0.025f;
-            color.g = 0.028f;
-            color.b = 0.045f;
-            color.a = 0.94f * combatRuleDrawerVisualAlpha;
+            color.r = 0.028f;
+            color.g = 0.030f;
+            color.b = 0.036f;
+            color.a = 0.96f * combatRuleDrawerVisualAlpha;
             combatRulePanelBack.color = color;
         }
 
         if (combatRulePanelOutline != null)
         {
             combatRulePanelOutline.effectColor = new Color(
+                0.92f,
                 0.94f,
-                0.95f,
                 0.97f,
-                0.58f * combatRuleDrawerVisualAlpha);
+                0.24f * combatRuleDrawerVisualAlpha);
         }
 
         if (combatRulePanelPlate != null)
