@@ -51,7 +51,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     [Header("Selection Locked")]
     [SerializeField] private Color lockedBack = new(0.006f, 0.008f, 0.012f, 0.90f);
-    [SerializeField] private Color lockedStripe = new(0.88f, 0.90f, 0.94f, 0.16f);
 
     private BattleRunManager runManager;
     private BattleRewardFlow rewardFlow;
@@ -78,14 +77,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private Button skipButton;
     private Text skipLabel;
     private Image skipBack;
-    private Image skipLeftAccent;
-    private Image skipRightAccent;
     private bool skipHovered;
 
     private RectTransform lockedOverlay;
     private CanvasGroup lockedGroup;
     private Text lockedTitle;
-    private readonly List<RectTransform> lockedStripes = new();
 
     private bool detailPanelWasEnabled;
     private bool detailPanelSuppressed;
@@ -293,7 +289,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             lockedOverlay = null;
             lockedGroup = null;
             lockedTitle = null;
-            lockedStripes.Clear();
             cachedCardRoot = null;
             cachedCardCount = -1;
             forceCards = true;
@@ -859,61 +854,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         skipButton.onClick.RemoveAllListeners();
         skipButton.onClick.AddListener(SkipReward);
 
-        EnsureSkipDecor();
-        ApplySkipDecor();
-
         BattleRewardSkipHoverRelay hover = rewardNoticeObject.GetComponent<BattleRewardSkipHoverRelay>();
         if (hover == null)
             hover = rewardNoticeObject.AddComponent<BattleRewardSkipHoverRelay>();
         hover.Configure(this);
-    }
-
-    private void EnsureSkipDecor()
-    {
-        if (rewardNoticeRect == null)
-            return;
-
-        if (skipLeftAccent == null)
-        {
-            RectTransform existing = rewardNoticeRect.Find("SkipAccentLeft") as RectTransform;
-            if (existing != null)
-                skipLeftAccent = existing.GetComponent<Image>();
-            else
-            {
-                RectTransform rect = CreateRect(rewardNoticeRect, "SkipAccentLeft", new Vector2(12f, 60f));
-                rect.anchorMin = rect.anchorMax = new Vector2(0f, 0.5f);
-                rect.pivot = new Vector2(0.5f, 0.5f);
-                rect.anchoredPosition = new Vector2(-3f, 0f);
-                rect.localRotation = Quaternion.Euler(0f, 0f, 7f);
-                skipLeftAccent = rect.gameObject.AddComponent<Image>();
-                skipLeftAccent.raycastTarget = false;
-            }
-        }
-
-        if (skipRightAccent == null)
-        {
-            RectTransform existing = rewardNoticeRect.Find("SkipAccentRight") as RectTransform;
-            if (existing != null)
-                skipRightAccent = existing.GetComponent<Image>();
-            else
-            {
-                RectTransform rect = CreateRect(rewardNoticeRect, "SkipAccentRight", new Vector2(76f, 6f));
-                rect.anchorMin = rect.anchorMax = new Vector2(1f, 1f);
-                rect.pivot = new Vector2(1f, 0.5f);
-                rect.anchoredPosition = new Vector2(5f, 2f);
-                rect.localRotation = Quaternion.Euler(0f, 0f, -4f);
-                skipRightAccent = rect.gameObject.AddComponent<Image>();
-                skipRightAccent.raycastTarget = false;
-            }
-        }
-    }
-
-    private void ApplySkipDecor()
-    {
-        if (skipLeftAccent != null)
-            skipLeftAccent.color = skipHovered ? hoverCyan : new Color(paper.r, paper.g, paper.b, 0.76f);
-        if (skipRightAccent != null)
-            skipRightAccent.color = skipHovered ? hoverPink : new Color(muted.r, muted.g, muted.b, 0.72f);
     }
 
     internal void SetSkipHover(bool hovered)
@@ -1045,19 +989,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         lockedGroup.blocksRaycasts = false;
         lockedGroup.interactable = false;
 
-        for (int i = 0; i < 6; i++)
-        {
-            RectTransform stripe = CreateRect(lockedOverlay, $"StaticStripe_{i}", new Vector2(0f, 4f + i));
-            stripe.anchorMin = new Vector2(0f, 0.5f);
-            stripe.anchorMax = new Vector2(1f, 0.5f);
-            stripe.offsetMin = Vector2.zero;
-            stripe.offsetMax = Vector2.zero;
-            Image image = stripe.gameObject.AddComponent<Image>();
-            image.color = lockedStripe;
-            image.raycastTarget = false;
-            lockedStripes.Add(stripe);
-        }
-
         lockedTitle = CreateText(lockedOverlay, "SELECTION LOCKED", 42, FontStyle.Bold, TextAnchor.MiddleCenter, paper);
         SetAnchors(lockedTitle.rectTransform, new Vector2(0.12f, 0.47f), new Vector2(0.88f, 0.63f));
         Text message = CreateText(lockedOverlay, "PACK EDIT IN PROGRESS", 14, FontStyle.Bold, TextAnchor.MiddleCenter, hoverCyan);
@@ -1083,26 +1014,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void AnimateLockedOverlay()
     {
-        if (lockedOverlay == null || !lockedOverlay.gameObject.activeInHierarchy)
-            return;
-
-        float time = Time.unscaledTime;
-        for (int i = 0; i < lockedStripes.Count; i++)
-        {
-            RectTransform stripe = lockedStripes[i];
-            if (stripe == null)
-                continue;
-            float phase = Mathf.Repeat(time * (0.21f + i * 0.017f) + i * 0.143f, 1f);
-            stripe.anchorMin = new Vector2(0f, phase);
-            stripe.anchorMax = new Vector2(1f, phase);
-            stripe.anchoredPosition = new Vector2(Mathf.Sin(time * 17f + i) * 9f, 0f);
-        }
-
-        if (lockedTitle != null)
-        {
-            float jitter = Mathf.Sin(time * 38f) * 1.2f;
-            lockedTitle.rectTransform.anchoredPosition = new Vector2(jitter, 0f);
-        }
+        // Intentionally static: Selection Locked communicates state only.
+        // Decorative stripes/jitter were removed because they carried no interaction meaning.
     }
 
     private bool IsReward()
