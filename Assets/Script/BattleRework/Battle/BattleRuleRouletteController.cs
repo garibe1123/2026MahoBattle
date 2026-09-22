@@ -2348,29 +2348,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             Mathf.Abs(parentScale.z) > 0.0001f ? worldScale.z / parentScale.z : worldScale.z);
     }
 
-    private void ShowCombatRuleDetailDefault()
-    {
-        if (!combatHudMode || !combatTabOpen || !combatRulePanelFocused)
-            return;
-
-        if (combatLastInspectedRule != null)
-        {
-            ShowRuleDetail(combatLastInspectedRule);
-            return;
-        }
-
-        for (int i = 0; i < ruleSlotViews.Count; i++)
-        {
-            BattleRuleDefinition rule = ruleSlotViews[i]?.boundRule;
-            if (rule == null)
-                continue;
-
-            combatLastInspectedRule = rule;
-            ShowRuleDetail(rule);
-            return;
-        }
-    }
-
     private float ResolveActiveRuleWidth()
     {
         int count = Mathf.Clamp(ruleSlotViews.Count, 1, 5);
