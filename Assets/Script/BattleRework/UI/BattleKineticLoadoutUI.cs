@@ -23,6 +23,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private const int GridSize = BattleEquipmentSystem.GridSize;
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int CanvasSortingOrder = 780;
+    private const int TabNoiseBandCount = 12;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
@@ -77,10 +78,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform tabHoldBarRight;
     private Image tabHoldBarLeftImage;
     private Image tabHoldBarRightImage;
-    private RectTransform tabSignalBand;
-    private Image tabSignalBandImage;
-    private RectTransform tabSignalEcho;
-    private Image tabSignalEchoImage;
+    private readonly RectTransform[] tabNoiseBands = new RectTransform[TabNoiseBandCount];
+    private readonly Image[] tabNoiseBandImages = new Image[TabNoiseBandCount];
+    private readonly float[] tabNoiseBandSeeds = new float[TabNoiseBandCount];
+    private readonly float[] tabNoiseBandBaseY = new float[TabNoiseBandCount];
+    private readonly float[] tabNoiseBandWidth = new float[TabNoiseBandCount];
+    private readonly float[] tabNoiseBandSpeed = new float[TabNoiseBandCount];
     private Text tabTimeFlowText;
     private RectTransform boardRoot;
     private CanvasGroup boardGroup;
@@ -722,33 +725,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         tabHoldSignalGroup.blocksRaycasts = false;
         tabHoldSignalGroup.interactable = false;
 
-        tabSignalBand = CreateRect(root, "SignalBand", new Vector2(0f, 2f));
-        tabSignalBand.anchorMin = new Vector2(0f, 0.5f);
-        tabSignalBand.anchorMax = new Vector2(1f, 0.5f);
-        tabSignalBand.pivot = new Vector2(0.5f, 0.5f);
-        tabSignalBand.anchoredPosition = Vector2.zero;
-        tabSignalBand.sizeDelta = new Vector2(0f, 2f);
-        tabSignalBandImage = tabSignalBand.gameObject.AddComponent<Image>();
-        tabSignalBandImage.color = new Color(
-            accentCyan.r,
-            accentCyan.g,
-            accentCyan.b,
-            0.24f);
-        tabSignalBandImage.raycastTarget = false;
-
-        tabSignalEcho = CreateRect(root, "SignalEcho", new Vector2(0f, 1f));
-        tabSignalEcho.anchorMin = new Vector2(0f, 0.5f);
-        tabSignalEcho.anchorMax = new Vector2(1f, 0.5f);
-        tabSignalEcho.pivot = new Vector2(0.5f, 0.5f);
-        tabSignalEcho.anchoredPosition = new Vector2(0f, -6f);
-        tabSignalEcho.sizeDelta = new Vector2(0f, 1f);
-        tabSignalEchoImage = tabSignalEcho.gameObject.AddComponent<Image>();
-        tabSignalEchoImage.color = new Color(
-            accentPink.r,
-            accentPink.g,
-            accentPink.b,
-            0.10f);
-        tabSignalEchoImage.raycastTarget = false;
+        BuildTabScreenFrame(root);
+        BuildTabNoiseBands(root);
 
         tabHoldGlyphRoot = CreateRect(
             root,
@@ -784,11 +762,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         tabHoldBarRightImage.color = accentCyan;
         tabHoldBarRightImage.raycastTarget = false;
 
-        BuildTabHoldCorner(tabHoldGlyphRoot, "TL", new Vector2(-43f, 28f), true, true);
-        BuildTabHoldCorner(tabHoldGlyphRoot, "TR", new Vector2(43f, 28f), false, true);
-        BuildTabHoldCorner(tabHoldGlyphRoot, "BL", new Vector2(-43f, -28f), true, false);
-        BuildTabHoldCorner(tabHoldGlyphRoot, "BR", new Vector2(43f, -28f), false, false);
-
         tabTimeFlowText = CreateText(
             root,
             "TIME FLOW 1.00x",
@@ -802,47 +775,122 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             new Vector2(0.58f, 0.825f));
     }
 
-    private void BuildTabHoldCorner(
+    private void BuildTabScreenFrame(RectTransform root)
+    {
+        BuildScreenCorner(root, "FrameTL", new Vector2(0f, 1f), true, true);
+        BuildScreenCorner(root, "FrameTR", new Vector2(1f, 1f), false, true);
+        BuildScreenCorner(root, "FrameBL", new Vector2(0f, 0f), true, false);
+        BuildScreenCorner(root, "FrameBR", new Vector2(1f, 0f), false, false);
+    }
+
+    private void BuildScreenCorner(
         Transform parent,
         string name,
-        Vector2 position,
+        Vector2 anchor,
         bool left,
         bool top)
     {
-        RectTransform corner = CreateRect(
-            parent,
-            name,
-            new Vector2(22f, 22f));
-        corner.anchorMin =
-            corner.anchorMax =
-                new Vector2(0.5f, 0.5f);
-        corner.anchoredPosition = position;
+        RectTransform corner = CreateRect(parent, name, new Vector2(96f, 96f));
+        corner.anchorMin = corner.anchorMax = anchor;
+        corner.pivot = anchor;
+        corner.anchoredPosition = new Vector2(
+            left ? 28f : -28f,
+            top ? -28f : 28f);
 
         RectTransform horizontal = CreateRect(
             corner,
             "H",
-            new Vector2(22f, 2f));
+            new Vector2(72f, 3f));
         horizontal.anchorMin =
             horizontal.anchorMax =
                 new Vector2(left ? 0f : 1f, top ? 1f : 0f);
         horizontal.pivot = new Vector2(left ? 0f : 1f, 0.5f);
         horizontal.anchoredPosition = Vector2.zero;
         Image h = horizontal.gameObject.AddComponent<Image>();
-        h.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.58f);
+        h.color = new Color(
+            paperColor.r,
+            paperColor.g,
+            paperColor.b,
+            0.62f);
         h.raycastTarget = false;
 
         RectTransform vertical = CreateRect(
             corner,
             "V",
-            new Vector2(2f, 22f));
+            new Vector2(3f, 72f));
         vertical.anchorMin =
             vertical.anchorMax =
                 new Vector2(left ? 0f : 1f, top ? 1f : 0f);
         vertical.pivot = new Vector2(0.5f, top ? 1f : 0f);
         vertical.anchoredPosition = Vector2.zero;
         Image v = vertical.gameObject.AddComponent<Image>();
-        v.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.58f);
+        v.color = new Color(
+            paperColor.r,
+            paperColor.g,
+            paperColor.b,
+            0.62f);
         v.raycastTarget = false;
+    }
+
+    private void BuildTabNoiseBands(RectTransform root)
+    {
+        for (int i = 0; i < TabNoiseBandCount; i++)
+        {
+            float seed = 17.17f + i * 9.731f;
+            tabNoiseBandSeeds[i] = seed;
+            tabNoiseBandBaseY[i] = Mathf.Lerp(
+                -0.46f,
+                0.46f,
+                Hash01(seed * 1.37f));
+            tabNoiseBandWidth[i] = Mathf.Lerp(
+                0.18f,
+                0.88f,
+                Hash01(seed * 2.11f));
+            tabNoiseBandSpeed[i] = Mathf.Lerp(
+                5.5f,
+                21f,
+                Hash01(seed * 3.07f));
+
+            RectTransform band = CreateRect(
+                root,
+                $"NoiseBand_{i:00}",
+                new Vector2(0f, 2f));
+
+            float width = tabNoiseBandWidth[i];
+            float center = Mathf.Lerp(
+                width * 0.5f,
+                1f - width * 0.5f,
+                Hash01(seed * 4.19f));
+
+            band.anchorMin = new Vector2(center - width * 0.5f, 0.5f);
+            band.anchorMax = new Vector2(center + width * 0.5f, 0.5f);
+            band.pivot = new Vector2(0.5f, 0.5f);
+            band.anchoredPosition = new Vector2(0f, tabNoiseBandBaseY[i] * 1080f);
+            band.sizeDelta = new Vector2(0f, 1f);
+
+            Image image = band.gameObject.AddComponent<Image>();
+            Color baseColor = i % 5 == 0
+                ? accentPink
+                : i % 3 == 0
+                    ? paperColor
+                    : accentCyan;
+            image.color = new Color(
+                baseColor.r,
+                baseColor.g,
+                baseColor.b,
+                0f);
+            image.raycastTarget = false;
+
+            tabNoiseBands[i] = band;
+            tabNoiseBandImages[i] = image;
+        }
+    }
+
+    private static float Hash01(float value)
+    {
+        return Mathf.Repeat(
+            Mathf.Sin(value * 12.9898f + 78.233f) * 43758.5453f,
+            1f);
     }
 
     private void BuildCompactUi(Transform parent)
@@ -904,20 +952,18 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         BuildTabHoldSignal(fullRoot);
 
-        Text title = CreateText(fullRoot, "LOADOUT // HOLD", 56, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        RectTransform titleRect = title.rectTransform;
-        titleRect.anchorMin = titleRect.anchorMax = new Vector2(0f, 1f);
-        titleRect.pivot = new Vector2(0f, 1f);
-        titleRect.sizeDelta = new Vector2(720f, 90f);
-        titleRect.anchoredPosition = new Vector2(76f, -74f);
-        titleRect.localRotation = Quaternion.identity;
-
-        Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   TIME STOPS   •   SELECT SLOT   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.66f, 0.70f, 0.78f, 1f));
+        Text sub = CreateText(
+            fullRoot,
+            "HOLD TAB / LB   •   TIME STOPS   •   SELECT SLOT   •   RELEASE TO EQUIP",
+            12,
+            FontStyle.Bold,
+            TextAnchor.MiddleLeft,
+            new Color(0.66f, 0.70f, 0.78f, 0.88f));
         RectTransform subRect = sub.rectTransform;
         subRect.anchorMin = subRect.anchorMax = new Vector2(0f, 1f);
         subRect.pivot = new Vector2(0f, 1f);
-        subRect.sizeDelta = new Vector2(720f, 44f);
-        subRect.anchoredPosition = new Vector2(92f, -150f);
+        subRect.sizeDelta = new Vector2(860f, 36f);
+        subRect.anchoredPosition = new Vector2(74f, -62f);
         subRect.localRotation = Quaternion.identity;
 
         detailRoot = CreateRect(fullRoot, "DetailPanel", itemTooltipSize);
