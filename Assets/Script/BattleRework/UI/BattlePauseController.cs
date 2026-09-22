@@ -69,6 +69,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
     private bool inputSubscribed;
     private float transitionElapsed;
     private float transitionStartScale = 1f;
+    private float transitionStartVisual;
     private float pauseRequestedScale = 1f;
     private float visualAmount;
 
@@ -153,6 +154,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         IsPaused = true;
 
         transitionStartScale = Mathf.Clamp01(timeScaleController.AppliedScale);
+        transitionStartVisual = visualAmount;
         pauseRequestedScale = transitionStartScale;
         transitionElapsed = 0f;
         state = PauseState.Pausing;
@@ -180,6 +182,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         }
 
         transitionStartScale = Mathf.Clamp01(timeScaleController.AppliedScale);
+        transitionStartVisual = visualAmount;
         pauseRequestedScale = transitionStartScale;
         transitionElapsed = 0f;
         state = PauseState.Resuming;
@@ -219,7 +222,10 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
                     BattleTimeScaleController.Owner.Pause,
                     pauseRequestedScale);
 
-                visualAmount = Mathf.Max(visualAmount, eased);
+                visualAmount = Mathf.Lerp(
+                    transitionStartVisual,
+                    1f,
+                    eased);
 
                 if (t >= 1f)
                 {
@@ -258,7 +264,10 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
                     BattleTimeScaleController.Owner.Pause,
                     pauseRequestedScale);
 
-                visualAmount = 1f - eased;
+                visualAmount = Mathf.Lerp(
+                    transitionStartVisual,
+                    0f,
+                    eased);
 
                 if (t >= 1f)
                     CompleteResume();
@@ -291,6 +300,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         IsPaused = false;
         transitionElapsed = 0f;
         transitionStartScale = 1f;
+        transitionStartVisual = 0f;
         pauseRequestedScale = 1f;
         visualAmount = 0f;
 
