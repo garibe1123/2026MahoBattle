@@ -1598,40 +1598,29 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         Vector2 detailSize = new(360f, 220f);
         winningRuleTab.sizeDelta = detailSize;
         winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.5f);
+        winningRuleTab.pivot = new Vector2(0f, 0.5f);
 
         Vector3 rightWorld = slot.TransformPoint(
             new Vector3(slot.rect.xMax, slot.rect.center.y, 0f));
-        Vector3 leftWorld = slot.TransformPoint(
-            new Vector3(slot.rect.xMin, slot.rect.center.y, 0f));
         Vector3 centerWorld = slot.TransformPoint(slot.rect.center);
 
         Vector2 rightLocal = parent.InverseTransformPoint(rightWorld);
-        Vector2 leftLocal = parent.InverseTransformPoint(leftWorld);
         Vector2 centerLocal = parent.InverseTransformPoint(centerWorld);
 
-        bool placeRight =
-            rightLocal.x + gap + detailSize.x <= parent.rect.xMax - safe;
+        Vector2 desired = new(
+            rightLocal.x + gap,
+            centerLocal.y);
 
-        if (placeRight)
-        {
-            winningRuleTab.pivot = new Vector2(0f, 0.5f);
-            winningRuleTab.anchoredPosition = new Vector2(
-                rightLocal.x + gap,
-                Mathf.Clamp(
-                    centerLocal.y,
-                    parent.rect.yMin + safe + detailSize.y * 0.5f,
-                    parent.rect.yMax - safe - detailSize.y * 0.5f));
-        }
-        else
-        {
-            winningRuleTab.pivot = new Vector2(1f, 0.5f);
-            winningRuleTab.anchoredPosition = new Vector2(
-                leftLocal.x - gap,
-                Mathf.Clamp(
-                    centerLocal.y,
-                    parent.rect.yMin + safe + detailSize.y * 0.5f,
-                    parent.rect.yMax - safe - detailSize.y * 0.5f));
-        }
+        Vector2 clamped = ClampRuleDetailRightToViewport(
+            parent,
+            desired,
+            detailSize,
+            winningRuleTab.pivot,
+            safe);
+
+        // Keep the detail semantically on the rule slot's RIGHT side.
+        clamped.x = Mathf.Max(clamped.x, rightLocal.x + 4f);
+        winningRuleTab.anchoredPosition = clamped;
 
         if (ruleDetailGroup != null)
         {
@@ -1640,6 +1629,83 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
         if (ruleDetailBarImage != null)
             ruleDetailBarImage.raycastTarget = false;
+    }
+
+    private static Vector2 ClampRuleDetailRightToViewport(
+        RectTransform parent,
+        Vector2 pivotLocal,
+        Vector2 size,
+        Vector2 pivot,
+        float margin)
+    {
+        if (parent == null)
+            return pivotLocal;
+
+        Canvas canvas = parent.GetComponentInParent<Canvas>();
+        Camera eventCamera =
+            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        float width = Mathf.Max(1f, size.x);
+        float height = Mathf.Max(1f, size.y);
+
+        Vector2[] localCorners =
+        {
+            pivotLocal + new Vector2(-width * pivot.x, -height * pivot.y),
+            pivotLocal + new Vector2(width * (1f - pivot.x), -height * pivot.y),
+            pivotLocal + new Vector2(width * (1f - pivot.x), height * (1f - pivot.y)),
+            pivotLocal + new Vector2(-width * pivot.x, height * (1f - pivot.y))
+        };
+
+        Vector2 screenMin = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 screenMax = new(float.NegativeInfinity, float.NegativeInfinity);
+
+        for (int i = 0; i < localCorners.Length; i++)
+        {
+            Vector2 screen = RectTransformUtility.WorldToScreenPoint(
+                eventCamera,
+                parent.TransformPoint(localCorners[i]));
+            screenMin = Vector2.Min(screenMin, screen);
+            screenMax = Vector2.Max(screenMax, screen);
+        }
+
+        Rect viewport = eventCamera != null
+            ? eventCamera.pixelRect
+            : new Rect(0f, 0f, Screen.width, Screen.height);
+
+        float safeMargin = Mathf.Max(0f, margin);
+        Rect safe = new(
+            viewport.xMin + safeMargin,
+            viewport.yMin + safeMargin,
+            Mathf.Max(1f, viewport.width - safeMargin * 2f),
+            Mathf.Max(1f, viewport.height - safeMargin * 2f));
+
+        Vector2 correction = Vector2.zero;
+        if (screenMax.x > safe.xMax)
+            correction.x -= screenMax.x - safe.xMax;
+        if (screenMin.y < safe.yMin)
+            correction.y += safe.yMin - screenMin.y;
+        if (screenMax.y > safe.yMax)
+            correction.y -= screenMax.y - safe.yMax;
+
+        if (correction.sqrMagnitude <= 0.0001f)
+            return pivotLocal;
+
+        Vector2 pivotScreen = RectTransformUtility.WorldToScreenPoint(
+            eventCamera,
+            parent.TransformPoint(pivotLocal));
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent,
+                pivotScreen + correction,
+                eventCamera,
+                out Vector2 correctedLocal))
+        {
+            return pivotLocal;
+        }
+
+        return correctedLocal;
     }
 
     private void ClearActiveRuleSlotHover()
