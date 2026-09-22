@@ -47,7 +47,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField] private Color muted = new(0.58f, 0.59f, 0.62f, 1f);
     [SerializeField] private Color selectAccent = new(1f, 0.79f, 0.08f, 1f);
     [SerializeField] private Color hoverCyan = new(0.12f, 0.88f, 0.92f, 1f);
-    [SerializeField] private Color hoverPink = new(1f, 0.16f, 0.50f, 1f);
 
     [Header("Selection Locked")]
     [SerializeField] private Color lockedBack = new(0.006f, 0.008f, 0.012f, 0.90f);
