@@ -470,7 +470,10 @@ MonoBehaviour:
   timeScaleController: {fileID: 0}
   inputRouter: {fileID: 0}
   holdThreshold: 0.14
-  combatInventoryTimeScale: 0.05
+  tabStopDuration: 0.34
+  tabResumeDuration: 0.44
+  tabSignalFrequency: 34
+  tabExtraDimAlpha: 0.1
   stickThreshold: 0.55
   stickReleaseThreshold: 0.22
   inkColor: {r: 0.028, g: 0.03, b: 0.036, a: 0.98}
