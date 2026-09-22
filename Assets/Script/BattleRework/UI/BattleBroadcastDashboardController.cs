@@ -37,6 +37,20 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Exiting
     }
 
+    private sealed class ChatEntry
+    {
+        public string Sender;
+        public string Message;
+    }
+
+    private sealed class ChatRowView
+    {
+        public RectTransform Root;
+        public CanvasGroup Group;
+        public Text Sender;
+        public Text Message;
+    }
+
     private const int MaxMissionSlots = 6;
     private const int DashboardSortingOrder = 1685;
     private const int MaxChatLines = 5;
@@ -118,8 +132,13 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private RectTransform chatPanel;
     private CanvasGroup chatGroup;
     private Text chatHeader;
-    private Text chatBody;
-    private readonly List<string> chatHistory = new();
+    private Text chatStatus;
+    private RectTransform chatFeedRoot;
+    private Image chatRailImage;
+    private readonly List<ChatEntry> chatHistory = new();
+    private readonly ChatRowView[] chatRows = new ChatRowView[MaxChatLines];
+    private int visibleChatRowCount;
+    private float chatRailPulse;
 
     private DashboardState state = DashboardState.Hidden;
     private BattleCombatTabFocus focus = BattleCombatTabFocus.None;
@@ -355,6 +374,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private void Update()
     {
         float t = 1f - Mathf.Exp(-Mathf.Max(4f, layoutSharpness) * Time.unscaledDeltaTime);
+        chatRailPulse = Mathf.MoveTowards(
+            chatRailPulse,
+            0f,
+            Time.unscaledDeltaTime * 3.8f);
+
         bool tabOpen = combatActive &&
                        kineticLoadout != null &&
                        kineticLoadout.IsSwitchBoardOpen;
@@ -649,18 +673,18 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         chatPanel.anchoredPosition = new Vector2(-32f + rightSlideDistance, -280f);
 
         Image back = chatPanel.gameObject.AddComponent<Image>();
-        back.color = new Color(0.010f, 0.014f, 0.021f, 0.76f);
+        back.color = new Color(0.010f, 0.014f, 0.021f, 0.66f);
         back.raycastTarget = false;
 
-        RectTransform liveRail = CreateRect(chatPanel, "LiveRail", new Vector2(5f, 0f));
-        liveRail.anchorMin = new Vector2(0f, 0.08f);
-        liveRail.anchorMax = new Vector2(0f, 0.92f);
+        RectTransform liveRail = CreateRect(chatPanel, "LiveRail", new Vector2(4f, 0f));
+        liveRail.anchorMin = new Vector2(0f, 0.07f);
+        liveRail.anchorMax = new Vector2(0f, 0.93f);
         liveRail.pivot = new Vector2(0f, 0.5f);
-        liveRail.anchoredPosition = new Vector2(0f, 0f);
-        liveRail.sizeDelta = new Vector2(5f, 0f);
-        Image railImage = liveRail.gameObject.AddComponent<Image>();
-        railImage.color = activeColor;
-        railImage.raycastTarget = false;
+        liveRail.anchoredPosition = Vector2.zero;
+        liveRail.sizeDelta = new Vector2(4f, 0f);
+        chatRailImage = liveRail.gameObject.AddComponent<Image>();
+        chatRailImage.color = new Color(activeColor.r, activeColor.g, activeColor.b, 0.72f);
+        chatRailImage.raycastTarget = false;
 
         chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
         chatGroup.blocksRaycasts = false;
@@ -668,27 +692,99 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         chatHeader = CreateText(
             chatPanel,
-            $"LIVE CHAT // 0 VIEWERS // LAST {MaxChatLines}",
-            12,
+            "LIVE CHAT // 0 VIEWERS",
+            11,
             FontStyle.Bold,
             TextAnchor.MiddleLeft,
             activeColor,
             "Header");
-        SetAnchors(chatHeader.rectTransform, new Vector2(0.045f, 0.77f), new Vector2(0.955f, 0.96f));
+        SetAnchors(
+            chatHeader.rectTransform,
+            new Vector2(0.045f, 0.80f),
+            new Vector2(0.955f, 0.96f));
 
-        chatBody = CreateText(
-            chatPanel,
-            $"CHAT PAUSED // 0 VIEWERS\nFEED RANGE: LAST {MaxChatLines} MESSAGES",
-            13,
+        chatFeedRoot = CreateRect(chatPanel, "MessageFeed", Vector2.zero);
+        chatFeedRoot.anchorMin = new Vector2(0.045f, 0.08f);
+        chatFeedRoot.anchorMax = new Vector2(0.955f, 0.78f);
+        chatFeedRoot.offsetMin = Vector2.zero;
+        chatFeedRoot.offsetMax = Vector2.zero;
+
+        chatStatus = CreateText(
+            chatFeedRoot,
+            "CHAT PAUSED // 0 VIEWERS",
+            11,
+            FontStyle.Bold,
+            TextAnchor.UpperLeft,
+            mutedColor,
+            "Status");
+        SetAnchors(
+            chatStatus.rectTransform,
+            new Vector2(0f, 0.62f),
+            new Vector2(1f, 1f));
+
+        for (int i = 0; i < MaxChatLines; i++)
+            BuildChatRow(i);
+
+        SyncChatRowsFromHistoryImmediate();
+        RefreshChatState();
+    }
+
+    private void BuildChatRow(int index)
+    {
+        RectTransform row = CreateRect(
+            chatFeedRoot,
+            $"ChatRow_{index}",
+            new Vector2(0f, 28f));
+        row.anchorMin = new Vector2(0f, 1f);
+        row.anchorMax = new Vector2(1f, 1f);
+        row.pivot = new Vector2(0.5f, 1f);
+        row.sizeDelta = new Vector2(0f, 28f);
+        row.anchoredPosition = ChatRowTargetPosition(index);
+
+        CanvasGroup group = row.gameObject.AddComponent<CanvasGroup>();
+        group.alpha = 0f;
+        group.blocksRaycasts = false;
+        group.interactable = false;
+
+        Text sender = CreateText(
+            row,
+            string.Empty,
+            10,
+            FontStyle.Bold,
+            TextAnchor.UpperLeft,
+            activeColor,
+            "Sender");
+        SetAnchors(
+            sender.rectTransform,
+            new Vector2(0f, 0.04f),
+            new Vector2(0.29f, 0.96f));
+        sender.horizontalOverflow = HorizontalWrapMode.Overflow;
+        sender.verticalOverflow = VerticalWrapMode.Truncate;
+        sender.supportRichText = false;
+
+        Text message = CreateText(
+            row,
+            string.Empty,
+            11,
             FontStyle.Normal,
             TextAnchor.UpperLeft,
             paperColor,
-            "Body");
-        SetAnchors(chatBody.rectTransform, new Vector2(0.045f, 0.07f), new Vector2(0.955f, 0.72f));
-        chatBody.horizontalOverflow = HorizontalWrapMode.Wrap;
-        chatBody.verticalOverflow = VerticalWrapMode.Truncate;
-        chatBody.supportRichText = true;
-        chatBody.lineSpacing = 1.08f;
+            "Message");
+        SetAnchors(
+            message.rectTransform,
+            new Vector2(0.30f, 0.04f),
+            new Vector2(1f, 0.96f));
+        message.horizontalOverflow = HorizontalWrapMode.Wrap;
+        message.verticalOverflow = VerticalWrapMode.Truncate;
+        message.supportRichText = false;
+
+        chatRows[index] = new ChatRowView
+        {
+            Root = row,
+            Group = group,
+            Sender = sender,
+            Message = message
+        };
     }
 
     private void TrackPointerFocus()
@@ -1101,17 +1197,26 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         SetText(
             chatHeader,
-            $"LIVE CHAT // {viewers:N0} VIEWERS // LAST {MaxChatLines} MESSAGES");
+            $"LIVE CHAT // {viewers:N0} VIEWERS");
+
+        if (chatStatus == null)
+            return;
 
         if (viewers <= 0)
         {
-            SetText(
-                chatBody,
-                $"CHAT PAUSED // 0 VIEWERS\nLAST {MaxChatLines} MESSAGES");
+            SetText(chatStatus, "CHAT PAUSED // 0 VIEWERS");
+            chatStatus.gameObject.SetActive(true);
             return;
         }
 
-        RefreshChatBody();
+        if (chatHistory.Count == 0)
+        {
+            SetText(chatStatus, "NO MESSAGES RECEIVED");
+            chatStatus.gameObject.SetActive(true);
+            return;
+        }
+
+        chatStatus.gameObject.SetActive(false);
     }
 
     /// <summary>
@@ -1123,42 +1228,108 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         if (string.IsNullOrWhiteSpace(message))
             return;
 
-        string safeSender = NormalizeChatText(sender);
-        string safeMessage = NormalizeChatText(message);
-        string line = string.IsNullOrEmpty(safeSender)
-            ? safeMessage
-            : $"{safeSender}  {safeMessage}";
+        ChatEntry entry = new()
+        {
+            Sender = NormalizeChatText(sender),
+            Message = NormalizeChatText(message)
+        };
 
-        chatHistory.Add(line);
+        chatHistory.Add(entry);
         while (chatHistory.Count > MaxChatLines)
             chatHistory.RemoveAt(0);
 
+        if (chatFeedRoot != null)
+            PushChatRowVisual(entry);
+
+        chatRailPulse = 1f;
         RefreshChatState();
     }
 
     public void ClearChatMessages()
     {
         chatHistory.Clear();
+        visibleChatRowCount = 0;
+
+        for (int i = 0; i < chatRows.Length; i++)
+        {
+            ChatRowView row = chatRows[i];
+            if (row == null)
+                continue;
+
+            row.Group.alpha = 0f;
+            row.Root.gameObject.SetActive(false);
+        }
+
         RefreshChatState();
     }
 
-    private void RefreshChatBody()
+    private void PushChatRowVisual(ChatEntry entry)
     {
-        if (chatBody == null)
-            return;
+        ChatRowView row;
 
-        if (chatHistory.Count == 0)
+        if (visibleChatRowCount < MaxChatLines)
         {
-            SetText(
-                chatBody,
-                $"NO CHAT MESSAGES RECEIVED\nLAST {MaxChatLines} MESSAGES");
-            return;
+            row = chatRows[visibleChatRowCount];
+            visibleChatRowCount++;
+        }
+        else
+        {
+            row = chatRows[0];
+            for (int i = 0; i < MaxChatLines - 1; i++)
+                chatRows[i] = chatRows[i + 1];
+            chatRows[MaxChatLines - 1] = row;
         }
 
-        SetText(
-            chatBody,
-            string.Join("\n", chatHistory) +
-            $"\nLAST {MaxChatLines} MESSAGES");
+        if (row == null)
+            return;
+
+        int targetIndex = Mathf.Max(0, visibleChatRowCount - 1);
+        BindChatRow(row, entry);
+        row.Root.gameObject.SetActive(true);
+        row.Root.anchoredPosition =
+            ChatRowTargetPosition(targetIndex) +
+            new Vector2(24f, -5f);
+        row.Root.localScale = Vector3.one * 1.03f;
+        row.Group.alpha = 0.25f;
+    }
+
+    private void SyncChatRowsFromHistoryImmediate()
+    {
+        visibleChatRowCount = Mathf.Min(chatHistory.Count, MaxChatLines);
+
+        for (int i = 0; i < chatRows.Length; i++)
+        {
+            ChatRowView row = chatRows[i];
+            if (row == null)
+                continue;
+
+            bool active = i < visibleChatRowCount;
+            row.Root.gameObject.SetActive(active);
+            row.Group.alpha = active ? 1f : 0f;
+            row.Root.localScale = Vector3.one;
+            row.Root.anchoredPosition = ChatRowTargetPosition(i);
+
+            if (active)
+            {
+                int historyIndex =
+                    chatHistory.Count - visibleChatRowCount + i;
+                BindChatRow(row, chatHistory[historyIndex]);
+            }
+        }
+    }
+
+    private static void BindChatRow(ChatRowView row, ChatEntry entry)
+    {
+        if (row == null || entry == null)
+            return;
+
+        SetText(row.Sender, string.IsNullOrEmpty(entry.Sender) ? "›" : entry.Sender);
+        SetText(row.Message, entry.Message);
+    }
+
+    private static Vector2 ChatRowTargetPosition(int index)
+    {
+        return new Vector2(0f, -index * 28f);
     }
 
     private static string NormalizeChatText(string value)
@@ -1529,6 +1700,59 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 : chatFocused ? -14f : active ? -8f : 18f,
             t);
         chatPanel.localPosition = local;
+
+        AnimateChatRows(t, viewers > 0);
+        AnimateChatRail(t);
+    }
+
+    private void AnimateChatRows(float t, bool live)
+    {
+        for (int i = 0; i < visibleChatRowCount && i < chatRows.Length; i++)
+        {
+            ChatRowView row = chatRows[i];
+            if (row == null || !row.Root.gameObject.activeSelf)
+                continue;
+
+            row.Root.anchoredPosition = Vector2.Lerp(
+                row.Root.anchoredPosition,
+                ChatRowTargetPosition(i),
+                t);
+
+            row.Root.localScale = Vector3.Lerp(
+                row.Root.localScale,
+                Vector3.one,
+                t);
+
+            row.Group.alpha = Mathf.Lerp(
+                row.Group.alpha,
+                live ? 1f : 0.52f,
+                t);
+        }
+    }
+
+    private void AnimateChatRail(float t)
+    {
+        if (chatRailImage == null)
+            return;
+
+        float pulse = Mathf.Clamp01(chatRailPulse);
+        Color target = Color.Lerp(
+            new Color(activeColor.r, activeColor.g, activeColor.b, 0.62f),
+            new Color(paperColor.r, paperColor.g, paperColor.b, 0.96f),
+            pulse * 0.55f);
+
+        chatRailImage.color = Color.Lerp(
+            chatRailImage.color,
+            target,
+            t);
+
+        RectTransform rail = chatRailImage.rectTransform;
+        Vector2 size = rail.sizeDelta;
+        size.x = Mathf.Lerp(
+            size.x,
+            4f + pulse * 4f,
+            t);
+        rail.sizeDelta = size;
     }
 
     private static string Signed(int value)
