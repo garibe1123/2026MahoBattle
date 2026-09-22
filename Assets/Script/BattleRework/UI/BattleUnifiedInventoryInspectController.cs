@@ -1096,9 +1096,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         detailController?.Hide();
 
         int compareSource = ResolveRewardCompareSourceSlot();
-        int compareTarget = inventoryInteraction != null
-            ? inventoryInteraction.HoveredSlot
-            : -1;
+        int compareTarget =
+            Input.mousePresent && kineticLoadout != null
+                ? kineticLoadout.ResolveOccupiedSlotUnderPointer(Input.mousePosition)
+                : inventoryInteraction != null
+                    ? inventoryInteraction.HoveredSlot
+                    : -1;
 
         if (compareSource >= 0 &&
             compareTarget >= 0 &&
