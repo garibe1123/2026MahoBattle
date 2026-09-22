@@ -140,11 +140,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(80f)] private float combatRuleTabHeight = 110f;
     [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 36f;
     [SerializeField, Min(0f)] private float combatRuleTabExtraWidth = 28f;
-    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 420f;
-    [SerializeField, Min(160f)] private float combatRuleFocusedHeight = 250f;
-    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 60f;
-    [Tooltip("RULES가 Focus된 동안 프레임의 오른쪽만 추가로 늘리는 비율입니다. 0.10 = 10%.")]
-    [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0.06f;
+    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 340f;
+    [SerializeField, Min(120f)] private float combatRuleFocusedHeight = 154f;
+    [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 12f;
+    [Tooltip("상세는 프레임 밖 Tooltip로 분리되므로 Focus 프레임 자체는 우측으로 추가 확장하지 않습니다.")]
+    [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0f;
     [Tooltip("평상시 룰 아이콘 Row의 화면 좌측 상단 여백입니다.")]
     [SerializeField] private Vector2 combatRulePersistentTopLeftMargin = new(34f, 34f);
     [Tooltip("TAB에서 PACK GridBoard 윗면과 룰 모듈 사이 세로 여백입니다.")]
@@ -1593,33 +1593,63 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (parent == null)
             return;
 
-        const float gap = 18f;
+        const float gapPixels = 18f;
         const float safe = 24f;
         Vector2 detailSize = new(360f, 220f);
         winningRuleTab.sizeDelta = detailSize;
         winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.5f);
         winningRuleTab.pivot = new Vector2(0f, 0.5f);
 
-        Vector3 rightWorld = slot.TransformPoint(
+        // The rule slots may live under the PACK canvas while the detail tooltip
+        // lives under the roulette overlay. Convert through SCREEN coordinates so
+        // the tooltip is visually attached to the hovered SLOT, not to its frame.
+        Canvas slotCanvas = slot.GetComponentInParent<Canvas>();
+        Camera slotCamera =
+            slotCanvas != null && slotCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? slotCanvas.worldCamera
+                : null;
+
+        Canvas detailCanvas = parent.GetComponentInParent<Canvas>();
+        Camera detailCamera =
+            detailCanvas != null && detailCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? detailCanvas.worldCamera
+                : null;
+
+        Vector3 slotRightWorld = slot.TransformPoint(
             new Vector3(slot.rect.xMax, slot.rect.center.y, 0f));
-        Vector3 centerWorld = slot.TransformPoint(slot.rect.center);
 
-        Vector2 rightLocal = parent.InverseTransformPoint(rightWorld);
-        Vector2 centerLocal = parent.InverseTransformPoint(centerWorld);
+        Vector2 slotRightScreen = RectTransformUtility.WorldToScreenPoint(
+            slotCamera,
+            slotRightWorld);
 
-        Vector2 desired = new(
-            rightLocal.x + gap,
-            centerLocal.y);
+        Vector2 desiredScreen = slotRightScreen + new Vector2(gapPixels, 0f);
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent,
+                desiredScreen,
+                detailCamera,
+                out Vector2 desiredLocal))
+        {
+            return;
+        }
 
         Vector2 clamped = ClampRuleDetailRightToViewport(
             parent,
-            desired,
+            desiredLocal,
             detailSize,
             winningRuleTab.pivot,
             safe);
 
-        // Keep the detail semantically on the rule slot's RIGHT side.
-        clamped.x = Mathf.Max(clamped.x, rightLocal.x + 4f);
+        // Never let viewport correction cross back over the hovered slot.
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parent,
+                slotRightScreen + new Vector2(4f, 0f),
+                detailCamera,
+                out Vector2 slotRightLocal))
+        {
+            clamped.x = Mathf.Max(clamped.x, slotRightLocal.x);
+        }
+
         winningRuleTab.anchoredPosition = clamped;
 
         if (ruleDetailGroup != null)
