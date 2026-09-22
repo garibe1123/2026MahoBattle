@@ -1250,13 +1250,16 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         resultListTab.position = startResultWorld;
         resultListTab.localScale = startResultScale;
 
-        winningRuleTab.SetParent(combatRulePanel, false);
-        winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0f);
-        winningRuleTab.pivot = new Vector2(0.5f, 0f);
-        winningRuleTab.sizeDelta = new Vector2(
-            Mathf.Max(220f, resolvedCombatRuleCompactSize.x - 32f),
-            82f);
-        winningRuleTab.anchoredPosition = new Vector2(0f, 10f);
+        // Combat detail is a floating tooltip, not part of the RULES frame.
+        // Keep it on the overlay so its placement can follow the hovered slot
+        // in screen space regardless of PACK/RULES parent transforms.
+        winningRuleTab.SetParent(rouletteBackdrop, false);
+        winningRuleTab.SetAsLastSibling();
+        winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.5f);
+        winningRuleTab.pivot = new Vector2(0f, 0.5f);
+        winningRuleTab.sizeDelta = new Vector2(360f, 220f);
+        winningRuleTab.anchoredPosition = Vector2.zero;
+        winningRuleTab.localRotation = Quaternion.identity;
         winningRuleTab.localScale = Vector3.one;
         HideRuleDetailImmediate();
 
@@ -1559,6 +1562,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             activeRuleSlotHover = source;
             activeRuleSlotHover?.SetHoveredFromOwner(true);
             combatLastInspectedRule = rule;
+            RefreshCombatRuleStateText();
         }
 
         ShowRuleDetail(rule);
@@ -1579,6 +1583,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         source?.SetHoveredFromOwner(false);
         HideRuleDetail();
+
+        if (combatHudMode)
+            RefreshCombatRuleStateText();
 
         if (finalReviewMode)
             TweenControlTabForDetail(false);
@@ -2090,7 +2097,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         if (combatRulePanelFocused)
         {
-            ShowCombatRuleDetailDefault();
+            // PACK-like behavior: panel focus only enlarges/raises the frame.
+            // Detail appears only when an actual rule slot is hovered.
+            HideRuleDetail();
         }
         else
         {
@@ -2121,8 +2130,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         if (combatRulePanelFocused)
         {
-            combatRuleStateText.text = "RULES // DETAIL ACTIVE";
-            combatRuleStateText.color = new Color(0.16f, 0.86f, 0.92f, 1f);
+            bool inspecting = activeRuleSlotHover != null;
+            combatRuleStateText.text = inspecting
+                ? "RULES // DETAIL ACTIVE"
+                : "RULES // SELECT RULE";
+            combatRuleStateText.color = inspecting
+                ? new Color(0.16f, 0.86f, 0.92f, 1f)
+                : new Color(0.72f, 0.76f, 0.82f, 1f);
             return;
         }
 
@@ -2409,7 +2423,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         return new Vector2(
             Mathf.Max(combatRuleFocusedMinWidth, iconWidth),
-            Mathf.Max(160f, combatRuleFocusedHeight));
+            Mathf.Max(120f, combatRuleFocusedHeight));
     }
 
     private Vector2 ResolveCombatRuleFocusedSize(float activeWidth = -1f)
