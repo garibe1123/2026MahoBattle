@@ -225,6 +225,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         public RectTransform root;
         public RectTransform visualRoot;
         public Image frame;
+        public Outline outline;
         public Image icon;
         public Text fallbackLabel;
         public BattleRuleDefinition boundRule;
@@ -815,12 +816,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             visualRoot.localScale = Vector3.one;
 
             Image frame = visualRoot.gameObject.AddComponent<Image>();
-            frame.sprite = ruleSlotFrameSprite;
-            frame.type = ruleSlotFrameSprite != null ? Image.Type.Sliced : Image.Type.Simple;
-            frame.color = ruleSlotFrameSprite != null
-                ? Color.white
-                : new Color(0.08f, 0.085f, 0.11f, 0.98f);
+            frame.sprite = null;
+            frame.type = Image.Type.Simple;
+            frame.color = new Color(0.028f, 0.030f, 0.036f, 0.98f);
             frame.raycastTarget = false;
+
+            Outline outline = visualRoot.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0.92f, 0.94f, 0.97f, 0.20f);
+            outline.effectDistance = new Vector2(3f, -3f);
 
             BattleRuleSlotPointerFeedback pointerFeedback =
                 root.gameObject.AddComponent<BattleRuleSlotPointerFeedback>();
@@ -847,6 +850,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 root = root,
                 visualRoot = visualRoot,
                 frame = frame,
+                outline = outline,
                 icon = icon,
                 fallbackLabel = fallbackLabel,
                 pointerFeedback = pointerFeedback
@@ -865,14 +869,26 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         Color polarityColor = GetPolarityColor(rule.polarity);
 
-        if (view.frame != null && ruleSlotFrameSprite == null)
+        if (view.frame != null)
         {
-            float mix = previewOnly ? 0.10f : 0.24f;
+            float mix = previewOnly ? 0.06f : 0.12f;
             view.frame.color = new Color(
-                Mathf.Lerp(0.08f, polarityColor.r, mix),
-                Mathf.Lerp(0.085f, polarityColor.g, mix),
-                Mathf.Lerp(0.11f, polarityColor.b, mix),
-                0.98f);
+                Mathf.Lerp(0.028f, polarityColor.r, mix),
+                Mathf.Lerp(0.030f, polarityColor.g, mix),
+                Mathf.Lerp(0.036f, polarityColor.b, mix),
+                previewOnly ? 0.74f : 0.98f);
+        }
+
+        if (view.outline != null)
+        {
+            view.outline.effectColor = new Color(
+                polarityColor.r,
+                polarityColor.g,
+                polarityColor.b,
+                previewOnly ? 0.22f : 0.72f);
+            view.outline.effectDistance = previewOnly
+                ? new Vector2(2f, -2f)
+                : new Vector2(3f, -3f);
         }
 
         if (view.icon != null)
@@ -1574,9 +1590,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (parent == null)
             return;
 
-        const float gap = 16f;
+        const float gap = 18f;
         const float safe = 24f;
-        Vector2 detailSize = new(390f, 180f);
+        Vector2 detailSize = new(360f, 220f);
         winningRuleTab.sizeDelta = detailSize;
         winningRuleTab.anchorMin = winningRuleTab.anchorMax = new Vector2(0.5f, 0.5f);
 
@@ -2365,38 +2381,44 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private void ApplyRuleDetailVisualMode(bool combatTabStyle)
     {
         if (winningRuleTypeText != null)
-            winningRuleTypeText.fontSize = combatTabStyle ? 13 : 13;
+            winningRuleTypeText.fontSize = combatTabStyle ? 10 : 13;
         if (winningRuleNameText != null)
-            winningRuleNameText.fontSize = combatTabStyle ? 22 : 20;
+            winningRuleNameText.fontSize = combatTabStyle ? 20 : 20;
         if (winningRuleDescriptionText != null)
-            winningRuleDescriptionText.fontSize = combatTabStyle ? 14 : 13;
+            winningRuleDescriptionText.fontSize = combatTabStyle ? 12 : 13;
 
         if (ruleDetailBarImage != null)
         {
             ruleDetailBarImage.color = combatTabStyle
-                ? new Color(0.018f, 0.022f, 0.030f, 0.94f)
+                ? new Color(0.028f, 0.030f, 0.036f, 0.965f)
                 : new Color(0.025f, 0.028f, 0.038f, 0.94f);
         }
 
         if (winningRuleTypeText != null)
-            winningRuleTypeText.alignment = TextAnchor.MiddleCenter;
+            winningRuleTypeText.alignment = combatTabStyle
+                ? TextAnchor.UpperLeft
+                : TextAnchor.MiddleCenter;
 
         if (winningRuleNameText != null)
-            winningRuleNameText.alignment = TextAnchor.MiddleCenter;
+            winningRuleNameText.alignment = combatTabStyle
+                ? TextAnchor.UpperLeft
+                : TextAnchor.MiddleCenter;
 
         if (winningRuleDescriptionText != null)
-            winningRuleDescriptionText.alignment = TextAnchor.MiddleCenter;
+            winningRuleDescriptionText.alignment = combatTabStyle
+                ? TextAnchor.UpperLeft
+                : TextAnchor.MiddleCenter;
 
         if (combatTabStyle)
         {
-            winningRuleTab.sizeDelta = new Vector2(390f, 180f);
+            winningRuleTab.sizeDelta = new Vector2(360f, 220f);
 
-            if (winningRuleTypeText != null)
-                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.06f, 0.74f), new Vector2(0.94f, 0.94f));
             if (winningRuleNameText != null)
-                SetRect(winningRuleNameText.rectTransform, new Vector2(0.06f, 0.43f), new Vector2(0.94f, 0.76f));
+                SetRect(winningRuleNameText.rectTransform, new Vector2(0.06f, 0.72f), new Vector2(0.94f, 0.94f));
+            if (winningRuleTypeText != null)
+                SetRect(winningRuleTypeText.rectTransform, new Vector2(0.06f, 0.55f), new Vector2(0.94f, 0.70f));
             if (winningRuleDescriptionText != null)
-                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.06f, 0.06f), new Vector2(0.94f, 0.44f));
+                SetRect(winningRuleDescriptionText.rectTransform, new Vector2(0.06f, 0.08f), new Vector2(0.94f, 0.52f));
         }
         else
         {
