@@ -116,7 +116,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField] private List<BattleRuleDefinition> rules = new();
 
     [Header("Optional Rule UI Art")]
-    [SerializeField] private Sprite ruleSlotFrameSprite;
     [SerializeField] private Sprite spinButtonSprite;
     [SerializeField] private Sprite starOffSprite;
     [SerializeField] private Sprite starOnSprite;
