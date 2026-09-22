@@ -712,6 +712,139 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         RefreshAll();
     }
 
+    private void BuildTabHoldSignal(Transform parent)
+    {
+        RectTransform root = CreateRect(parent, "TabTimeHoldSignal", Vector2.zero);
+        Stretch(root);
+
+        tabHoldSignalGroup = root.gameObject.AddComponent<CanvasGroup>();
+        tabHoldSignalGroup.alpha = 0f;
+        tabHoldSignalGroup.blocksRaycasts = false;
+        tabHoldSignalGroup.interactable = false;
+
+        tabSignalBand = CreateRect(root, "SignalBand", new Vector2(0f, 2f));
+        tabSignalBand.anchorMin = new Vector2(0f, 0.5f);
+        tabSignalBand.anchorMax = new Vector2(1f, 0.5f);
+        tabSignalBand.pivot = new Vector2(0.5f, 0.5f);
+        tabSignalBand.anchoredPosition = Vector2.zero;
+        tabSignalBand.sizeDelta = new Vector2(0f, 2f);
+        tabSignalBandImage = tabSignalBand.gameObject.AddComponent<Image>();
+        tabSignalBandImage.color = new Color(
+            accentCyan.r,
+            accentCyan.g,
+            accentCyan.b,
+            0.24f);
+        tabSignalBandImage.raycastTarget = false;
+
+        tabSignalEcho = CreateRect(root, "SignalEcho", new Vector2(0f, 1f));
+        tabSignalEcho.anchorMin = new Vector2(0f, 0.5f);
+        tabSignalEcho.anchorMax = new Vector2(1f, 0.5f);
+        tabSignalEcho.pivot = new Vector2(0.5f, 0.5f);
+        tabSignalEcho.anchoredPosition = new Vector2(0f, -6f);
+        tabSignalEcho.sizeDelta = new Vector2(0f, 1f);
+        tabSignalEchoImage = tabSignalEcho.gameObject.AddComponent<Image>();
+        tabSignalEchoImage.color = new Color(
+            accentPink.r,
+            accentPink.g,
+            accentPink.b,
+            0.10f);
+        tabSignalEchoImage.raycastTarget = false;
+
+        tabHoldGlyphRoot = CreateRect(
+            root,
+            "TimeHoldGlyph",
+            new Vector2(116f, 78f));
+        tabHoldGlyphRoot.anchorMin =
+            tabHoldGlyphRoot.anchorMax =
+                new Vector2(0.5f, 0.86f);
+        tabHoldGlyphRoot.pivot = new Vector2(0.5f, 0.5f);
+        tabHoldGlyphRoot.anchoredPosition = Vector2.zero;
+
+        tabHoldBarLeft = CreateRect(
+            tabHoldGlyphRoot,
+            "PauseBarLeft",
+            new Vector2(12f, 42f));
+        tabHoldBarLeft.anchorMin =
+            tabHoldBarLeft.anchorMax =
+                new Vector2(0.5f, 0.5f);
+        tabHoldBarLeft.anchoredPosition = new Vector2(-13f, 0f);
+        tabHoldBarLeftImage = tabHoldBarLeft.gameObject.AddComponent<Image>();
+        tabHoldBarLeftImage.color = accentCyan;
+        tabHoldBarLeftImage.raycastTarget = false;
+
+        tabHoldBarRight = CreateRect(
+            tabHoldGlyphRoot,
+            "PauseBarRight",
+            new Vector2(12f, 42f));
+        tabHoldBarRight.anchorMin =
+            tabHoldBarRight.anchorMax =
+                new Vector2(0.5f, 0.5f);
+        tabHoldBarRight.anchoredPosition = new Vector2(13f, 0f);
+        tabHoldBarRightImage = tabHoldBarRight.gameObject.AddComponent<Image>();
+        tabHoldBarRightImage.color = accentCyan;
+        tabHoldBarRightImage.raycastTarget = false;
+
+        BuildTabHoldCorner(tabHoldGlyphRoot, "TL", new Vector2(-43f, 28f), true, true);
+        BuildTabHoldCorner(tabHoldGlyphRoot, "TR", new Vector2(43f, 28f), false, true);
+        BuildTabHoldCorner(tabHoldGlyphRoot, "BL", new Vector2(-43f, -28f), true, false);
+        BuildTabHoldCorner(tabHoldGlyphRoot, "BR", new Vector2(43f, -28f), false, false);
+
+        tabTimeFlowText = CreateText(
+            root,
+            "TIME FLOW 1.00x",
+            10,
+            FontStyle.Bold,
+            TextAnchor.MiddleCenter,
+            new Color(0.72f, 0.76f, 0.82f, 1f));
+        SetAnchors(
+            tabTimeFlowText.rectTransform,
+            new Vector2(0.42f, 0.79f),
+            new Vector2(0.58f, 0.825f));
+    }
+
+    private void BuildTabHoldCorner(
+        Transform parent,
+        string name,
+        Vector2 position,
+        bool left,
+        bool top)
+    {
+        RectTransform corner = CreateRect(
+            parent,
+            name,
+            new Vector2(22f, 22f));
+        corner.anchorMin =
+            corner.anchorMax =
+                new Vector2(0.5f, 0.5f);
+        corner.anchoredPosition = position;
+
+        RectTransform horizontal = CreateRect(
+            corner,
+            "H",
+            new Vector2(22f, 2f));
+        horizontal.anchorMin =
+            horizontal.anchorMax =
+                new Vector2(left ? 0f : 1f, top ? 1f : 0f);
+        horizontal.pivot = new Vector2(left ? 0f : 1f, 0.5f);
+        horizontal.anchoredPosition = Vector2.zero;
+        Image h = horizontal.gameObject.AddComponent<Image>();
+        h.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.58f);
+        h.raycastTarget = false;
+
+        RectTransform vertical = CreateRect(
+            corner,
+            "V",
+            new Vector2(2f, 22f));
+        vertical.anchorMin =
+            vertical.anchorMax =
+                new Vector2(left ? 0f : 1f, top ? 1f : 0f);
+        vertical.pivot = new Vector2(0.5f, top ? 1f : 0f);
+        vertical.anchoredPosition = Vector2.zero;
+        Image v = vertical.gameObject.AddComponent<Image>();
+        v.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.58f);
+        v.raycastTarget = false;
+    }
+
     private void BuildCompactUi(Transform parent)
     {
         compactRoot = CreateRect(parent, "CurrentLoadoutChip", new Vector2(430f, 156f));
@@ -765,11 +898,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         fullGroup.blocksRaycasts = false;
         fullGroup.interactable = false;
 
-        Image dim = fullRoot.gameObject.AddComponent<Image>();
-        dim.color = new Color(0.012f, 0.013f, 0.016f, 0.58f);
-        dim.raycastTarget = false;
+        fullDimImage = fullRoot.gameObject.AddComponent<Image>();
+        fullDimImage.color = new Color(0.012f, 0.013f, 0.016f, 0.58f);
+        fullDimImage.raycastTarget = false;
 
-        Text title = CreateText(fullRoot, "LOADOUT // SHIFT", 56, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+        BuildTabHoldSignal(fullRoot);
+
+        Text title = CreateText(fullRoot, "LOADOUT // HOLD", 56, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
         RectTransform titleRect = title.rectTransform;
         titleRect.anchorMin = titleRect.anchorMax = new Vector2(0f, 1f);
         titleRect.pivot = new Vector2(0f, 1f);
@@ -777,7 +912,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         titleRect.anchoredPosition = new Vector2(76f, -74f);
         titleRect.localRotation = Quaternion.identity;
 
-        Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   SELECT SLOT   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.66f, 0.70f, 0.78f, 1f));
+        Text sub = CreateText(fullRoot, "HOLD TAB / LB   •   TIME STOPS   •   SELECT SLOT   •   RELEASE TO EQUIP", 14, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.66f, 0.70f, 0.78f, 1f));
         RectTransform subRect = sub.rectTransform;
         subRect.anchorMin = subRect.anchorMax = new Vector2(0f, 1f);
         subRect.pivot = new Vector2(0f, 1f);
@@ -1599,6 +1734,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             tabFocus != BattleCombatTabFocus.Pack;
         float t = 1f - Mathf.Exp(-Mathf.Max(1f, uiSharpness) * Time.unscaledDeltaTime);
 
+        UpdateTabHoldVisuals(t, wantFull);
+
         fullGroup.alpha = fullReveal;
         compactGroup.alpha = Mathf.Lerp(
             compactGroup.alpha,
@@ -1934,6 +2071,137 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         }
 
         return correctedLocal;
+    }
+
+    private void UpdateTabHoldVisuals(float t, bool wantFull)
+    {
+        float amount = Mathf.Clamp01(tabHoldVisual);
+        float visual = EaseOutCubic(amount);
+        float pulse = 0.5f + 0.5f * Mathf.Sin(
+            Time.unscaledTime * Mathf.Max(8f, tabSignalFrequency));
+
+        if (tabHoldSignalGroup != null)
+        {
+            float targetAlpha = wantFull || tabTimeState == TabTimeState.Resuming
+                ? visual
+                : 0f;
+            tabHoldSignalGroup.alpha = Mathf.Lerp(
+                tabHoldSignalGroup.alpha,
+                targetAlpha,
+                t);
+        }
+
+        if (fullDimImage != null)
+        {
+            Color dim = fullDimImage.color;
+            dim.a = Mathf.Lerp(
+                dim.a,
+                0.58f + Mathf.Max(0f, tabExtraDimAlpha) * visual,
+                t);
+            fullDimImage.color = dim;
+        }
+
+        if (tabHoldGlyphRoot != null)
+        {
+            float scale = Mathf.Lerp(
+                0.86f,
+                1f + pulse * 0.008f,
+                visual);
+            tabHoldGlyphRoot.localScale = Vector3.Lerp(
+                tabHoldGlyphRoot.localScale,
+                Vector3.one * scale,
+                t);
+            tabHoldGlyphRoot.localRotation = Quaternion.Slerp(
+                tabHoldGlyphRoot.localRotation,
+                Quaternion.Euler(0f, 0f, Mathf.Lerp(-4f, 0f, visual)),
+                t);
+        }
+
+        if (tabHoldBarLeft != null && tabHoldBarRight != null)
+        {
+            float spacing = Mathf.Lerp(8f, 13f, visual);
+            tabHoldBarLeft.anchoredPosition = Vector2.Lerp(
+                tabHoldBarLeft.anchoredPosition,
+                new Vector2(-spacing, 0f),
+                t);
+            tabHoldBarRight.anchoredPosition = Vector2.Lerp(
+                tabHoldBarRight.anchoredPosition,
+                new Vector2(spacing, 0f),
+                t);
+        }
+
+        if (tabSignalBand != null)
+        {
+            tabSignalBand.anchoredPosition = new Vector2(
+                0f,
+                Mathf.Sin(
+                    Time.unscaledTime *
+                    Mathf.Max(8f, tabSignalFrequency) *
+                    0.63f) *
+                2f *
+                visual);
+
+            Vector2 size = tabSignalBand.sizeDelta;
+            size.y = Mathf.Lerp(
+                size.y,
+                1.5f + pulse * 2.5f,
+                t);
+            tabSignalBand.sizeDelta = size;
+        }
+
+        if (tabSignalBandImage != null)
+        {
+            Color c = accentCyan;
+            c.a = visual * Mathf.Lerp(0.12f, 0.36f, pulse);
+            tabSignalBandImage.color = c;
+        }
+
+        if (tabSignalEcho != null)
+        {
+            tabSignalEcho.anchoredPosition = new Vector2(
+                0f,
+                -6f + pulse * 2.5f);
+        }
+
+        if (tabSignalEchoImage != null)
+        {
+            Color c = accentPink;
+            c.a = visual * Mathf.Lerp(0.03f, 0.12f, 1f - pulse);
+            tabSignalEchoImage.color = c;
+        }
+
+        if (tabTimeFlowText != null)
+        {
+            float shownScale = timeScaleController != null
+                ? timeScaleController.AppliedScale
+                : Time.timeScale;
+
+            string phase = tabTimeState switch
+            {
+                TabTimeState.Stopping => "BRAKING",
+                TabTimeState.Stopped => "HOLD",
+                TabTimeState.Resuming => "RECOVERING",
+                _ => "RUNNING"
+            };
+
+            tabTimeFlowText.text =
+                $"{phase}  //  TIME FLOW {shownScale:0.00}x";
+        }
+    }
+
+    private static float EaseOutCubic(float t)
+    {
+        t = Mathf.Clamp01(t);
+        float inv = 1f - t;
+        return 1f - inv * inv * inv;
+    }
+
+    private static float EaseInOutCubic(float t)
+    {
+        t = Mathf.Clamp01(t);
+        return t < 0.5f
+            ? 4f * t * t * t
+            : 1f - Mathf.Pow(-2f * t + 2f, 3f) * 0.5f;
     }
 
     private static float SmoothPackMorph(float value)
