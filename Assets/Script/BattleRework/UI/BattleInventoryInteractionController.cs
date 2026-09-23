@@ -1343,7 +1343,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             transferGhostIcon.enabled = equipment.icon != null;
         }
         if (transferGhostOutline != null)
-            transferGhostOutline.effectColor = rarity >= EquipmentRarity.Epic ? accentPink : accentYellow;
+            transferGhostOutline.effectColor = (int)rarity >= (int)EquipmentRarity.Epic ? accentPink : accentYellow;
 
         transferGhostRoot.position = startScreen;
         transferGhostRoot.localScale = Vector3.one * 1.10f;
@@ -1366,7 +1366,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         float duration = Mathf.Max(0.05f, rewardTransferDuration);
         float elapsed = 0f;
-        bool useTrails = rarity >= EquipmentRarity.Rare;
+        bool useTrails = (int)rarity >= (int)EquipmentRarity.Rare;
 
         while (elapsed < duration)
         {
