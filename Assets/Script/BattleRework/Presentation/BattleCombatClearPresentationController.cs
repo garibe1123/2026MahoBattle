@@ -10,9 +10,18 @@ using UnityEngine;
 public sealed class BattleCombatClearPresentationController : MonoBehaviour, IInputModal
 {
     [Header("Timing (unscaled seconds)")]
-    [SerializeField, Min(0.01f)] private float totalDuration = 1.05f;
+    [SerializeField, Range(0.80f, 1.15f)] private float normalDuration = 1.05f;
+    [SerializeField, Range(1.00f, 1.45f)] private float eliteDuration = 1.20f;
+    [SerializeField, Range(1.40f, 2.20f)] private float bossDuration = 1.75f;
     [SerializeField, Min(0f)] private float playerProjectileCleanupDelay = 0.08f;
-    [SerializeField, Min(0f)] private float returnToPlayerAt = 0.65f;
+    [SerializeField, Range(0.45f, 0.82f)] private float returnToPlayerFraction = 0.64f;
+
+    [Header("Finish Time Scale")]
+    [SerializeField, Range(0.16f, 0.28f)] private float normalMinTimeScale = 0.22f;
+    [SerializeField, Range(0.12f, 0.22f)] private float eliteMinTimeScale = 0.17f;
+    [SerializeField, Range(0.08f, 0.14f)] private float bossMinTimeScale = 0.10f;
+    [SerializeField, Range(0.015f, 0.08f)] private float hitStopDuration = 0.045f;
+    [SerializeField, Range(0.01f, 0.12f)] private float hitStopScale = 0.035f;
 
     [Header("Final Kill Camera")]
     [SerializeField, Range(0.35f, 0.85f)] private float normalOccupancy = 0.58f;
@@ -22,6 +31,13 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
 
     [Header("Finish Look")]
     [SerializeField, Range(0f, 1f)] private float gradingEmphasis = 0.70f;
+    [SerializeField, Range(0f, 1f)] private float bossGradingEmphasis = 0.84f;
+
+    [Header("Final Kill Impact")]
+    [SerializeField, Range(0f, 0.20f)] private float normalCameraImpulse = 0.055f;
+    [SerializeField, Range(0f, 0.25f)] private float eliteCameraImpulse = 0.075f;
+    [SerializeField, Range(0f, 0.30f)] private float bossCameraImpulse = 0.11f;
+    [SerializeField, Range(0.05f, 0.22f)] private float impulseDuration = 0.12f;
 
     private Coroutine routine;
     private BattleRoomManager activeRoom;
@@ -100,10 +116,20 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
             modalPushed = true;
         }
 
-        room.EnemyProjectilePool?.ReturnAllActive();
+        PlayerShootingSystem shooting =
+            FindFirstObjectByType<PlayerShootingSystem>(FindObjectsInactive.Include);
+        ProjectilePooler playerPool = shooting != null ? shooting.playerProjectilePool : null;
+
+        // Enemy + neutral/environmental pools disappear immediately. Player bullets get a tiny
+        // grace window so the final fired shot can visually finish before the field is cleared.
+        CleanupNonPlayerProjectilePools(playerPool);
 
         Bounds targetBounds = ResolveSpriteBounds(finalTarget);
         float occupancy = ResolveOccupancy(finalTarget);
+        float targetDuration = ResolveDuration(finalTarget);
+        float minTimeScale = ResolveMinTimeScale(finalTarget);
+        float returnToPlayerAt = targetDuration * Mathf.Clamp01(returnToPlayerFraction);
+
         if (battleCamera != null)
         {
             finalTargetFocusId = battleCamera.FocusBoundsOccupancy(
@@ -112,31 +138,62 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
                 occupancy,
                 focusYBiasFraction,
                 BattleCameraFocusPriority.LastKill);
+
+            Vector2 impulseDirection = Vector2.right;
+            if (room.PlayerTarget != null)
+            {
+                impulseDirection =
+                    (Vector2)targetBounds.center -
+                    (Vector2)room.PlayerTarget.position;
+
+                if (impulseDirection.sqrMagnitude < 0.0001f)
+                    impulseDirection = Vector2.right;
+            }
+
+            battleCamera.PushCameraImpulse(
+                impulseDirection.normalized,
+                ResolveCameraImpulse(finalTarget),
+                impulseDuration);
         }
 
-        colorGrading?.SetLastKillEmphasis(gradingEmphasis);
+        colorGrading?.SetLastKillEmphasis(
+            finalTarget != null && finalTarget.IsBoss
+                ? bossGradingEmphasis
+                : gradingEmphasis);
 
         float elapsed = 0f;
         bool playerProjectilesCleaned = false;
         bool returnFocusStarted = false;
 
-        while (elapsed < Mathf.Max(0.05f, totalDuration))
+        while (true)
         {
+            if (!room.IsPlayerAlive)
+            {
+                BattleRoomManager abortedRoom = activeRoom;
+                routine = null;
+                ReleasePresentationState();
+                activeRoom = null;
+                abortedRoom?.AbortCombatClearPresentation();
+                yield break;
+            }
+
             elapsed += Time.unscaledDeltaTime;
 
             if (!playerProjectilesCleaned && elapsed >= playerProjectileCleanupDelay)
             {
                 playerProjectilesCleaned = true;
-                PlayerShootingSystem shooting =
-                    FindFirstObjectByType<PlayerShootingSystem>(FindObjectsInactive.Include);
-                ProjectilePooler playerPool = shooting != null ? shooting.playerProjectilePool : null;
-                if (playerPool != null && !ReferenceEquals(playerPool, room.EnemyProjectilePool))
-                    playerPool.ReturnAllActive();
+                playerPool?.ReturnAllActive();
             }
 
-            ApplyTimeScale(elapsed);
+            ApplyTimeScale(elapsed, targetDuration, minTimeScale);
 
-            if (!returnFocusStarted && elapsed >= returnToPlayerAt)
+            bool deathAnimationFinished =
+                finalTarget == null ||
+                finalTarget.DeathAnimationCompleted;
+
+            if (!returnFocusStarted &&
+                elapsed >= returnToPlayerAt &&
+                deathAnimationFinished)
             {
                 returnFocusStarted = true;
 
@@ -156,6 +213,12 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
                 }
             }
 
+            if (elapsed >= Mathf.Max(0.05f, targetDuration) &&
+                deathAnimationFinished)
+            {
+                break;
+            }
+
             yield return null;
         }
 
@@ -168,24 +231,36 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
             completedRoom.CompleteCombatClearPresentation();
     }
 
-    private void ApplyTimeScale(float elapsed)
+    private void ApplyTimeScale(float elapsed, float duration, float minScale)
     {
         if (timeScaleController == null)
             return;
 
+        float safeDuration = Mathf.Max(0.05f, duration);
+        float safeMin = Mathf.Clamp(minScale, 0.01f, 1f);
+
         float scale;
-        if (elapsed < 0.08f)
-            scale = Mathf.Lerp(1f, 0.55f, elapsed / 0.08f);
-        else if (elapsed < 0.16f)
-            scale = Mathf.Lerp(0.55f, 0.22f, (elapsed - 0.08f) / 0.08f);
-        else if (elapsed < 0.40f)
-            scale = 0.22f;
-        else if (elapsed < 0.55f)
-            scale = Mathf.Lerp(0.22f, 0.35f, (elapsed - 0.40f) / 0.15f);
-        else if (elapsed < 0.85f)
-            scale = Mathf.Lerp(0.35f, 1f, (elapsed - 0.55f) / 0.30f);
+        if (elapsed < hitStopDuration)
+        {
+            scale = Mathf.Clamp(hitStopScale, 0.01f, safeMin);
+        }
         else
-            scale = 1f;
+        {
+            float normalized = Mathf.Clamp01(
+                (elapsed - hitStopDuration) /
+                Mathf.Max(0.01f, safeDuration - hitStopDuration));
+
+            if (normalized < 0.10f)
+                scale = Mathf.Lerp(0.55f, safeMin, normalized / 0.10f);
+            else if (normalized < 0.42f)
+                scale = safeMin;
+            else if (normalized < 0.58f)
+                scale = Mathf.Lerp(safeMin, Mathf.Max(safeMin, 0.35f), (normalized - 0.42f) / 0.16f);
+            else if (normalized < 0.86f)
+                scale = Mathf.Lerp(Mathf.Max(safeMin, 0.35f), 1f, (normalized - 0.58f) / 0.28f);
+            else
+                scale = 1f;
+        }
 
         if (scale >= 0.999f)
             timeScaleController.Release(BattleTimeScaleController.Owner.LastKill);
@@ -214,15 +289,56 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
 
     private float ResolveOccupancy(MonsterController monster)
     {
-        if (monster == null || monster.Definition == null)
+        if (monster == null)
             return normalOccupancy;
-
-        string category = monster.Definition.category.ToString();
-        if (category.IndexOf("Boss", System.StringComparison.OrdinalIgnoreCase) >= 0)
+        if (monster.IsBoss)
             return bossOccupancy;
-        if (category.IndexOf("Elite", System.StringComparison.OrdinalIgnoreCase) >= 0)
+        if (monster.IsElite)
             return eliteOccupancy;
         return normalOccupancy;
+    }
+
+    private float ResolveDuration(MonsterController monster)
+    {
+        if (monster != null && monster.IsBoss)
+            return bossDuration;
+        if (monster != null && monster.IsElite)
+            return eliteDuration;
+        return normalDuration;
+    }
+
+    private float ResolveMinTimeScale(MonsterController monster)
+    {
+        if (monster != null && monster.IsBoss)
+            return bossMinTimeScale;
+        if (monster != null && monster.IsElite)
+            return eliteMinTimeScale;
+        return normalMinTimeScale;
+    }
+
+    private float ResolveCameraImpulse(MonsterController monster)
+    {
+        if (monster != null && monster.IsBoss)
+            return bossCameraImpulse;
+        if (monster != null && monster.IsElite)
+            return eliteCameraImpulse;
+        return normalCameraImpulse;
+    }
+
+    private static void CleanupNonPlayerProjectilePools(ProjectilePooler playerPool)
+    {
+        ProjectilePooler[] pools = FindObjectsByType<ProjectilePooler>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < pools.Length; i++)
+        {
+            ProjectilePooler pool = pools[i];
+            if (pool == null || ReferenceEquals(pool, playerPool))
+                continue;
+
+            pool.ReturnAllActive();
+        }
     }
 
     private static Bounds ResolveSpriteBounds(MonsterController monster)
