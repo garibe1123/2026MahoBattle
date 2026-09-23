@@ -114,6 +114,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform staminaFillRect;
     private Text hpText;
     private Text staminaText;
+    private Vector2 hpTextRestPosition;
+    private bool hpTextRestCaptured;
     private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
     private float packMorphProgress;
 
@@ -1701,9 +1703,59 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         SetBarAmount(staminaFillRect, stamina01);
 
         if (hpText != null)
+        {
             hpText.text = $"HP {player.CurrentHp:0}/{hpMax:0}";
+            ApplyLowHpNumericFeedback(hp01);
+        }
+
         if (staminaText != null)
             staminaText.text = $"ST {player.CurrentStamina:0}/{staminaMax:0}";
+    }
+
+    private void ApplyLowHpNumericFeedback(float hp01)
+    {
+        if (hpText == null)
+            return;
+
+        RectTransform rect = hpText.rectTransform;
+        if (!hpTextRestCaptured)
+        {
+            hpTextRestPosition = rect.anchoredPosition;
+            hpTextRestCaptured = true;
+        }
+
+        float amplitude;
+        if (hp01 > 0.35f)
+            amplitude = 0f;
+        else if (hp01 > 0.20f)
+            amplitude = 0.8f;
+        else if (hp01 > 0.10f)
+            amplitude = 1.7f;
+        else
+            amplitude = 2.8f;
+
+        if (amplitude <= 0.001f)
+        {
+            rect.anchoredPosition = hpTextRestPosition;
+            rect.localScale = Vector3.one;
+            return;
+        }
+
+        float time = Time.unscaledTime;
+        float jitterX =
+            Mathf.Sin(time * 31f) * amplitude +
+            Mathf.Sin(time * 53f + 1.3f) * amplitude * 0.34f;
+        float jitterY =
+            Mathf.Sin(time * 43f + 0.7f) * amplitude * 0.42f;
+
+        rect.anchoredPosition =
+            hpTextRestPosition +
+            new Vector2(jitterX, jitterY);
+
+        float pulse = hp01 <= 0.10f
+            ? 1f + 0.055f * (0.5f + 0.5f * Mathf.Sin(time * 9f))
+            : 1f;
+        rect.localScale = Vector3.one * pulse;
     }
 
     private static RectTransform CreateProgressBar(
