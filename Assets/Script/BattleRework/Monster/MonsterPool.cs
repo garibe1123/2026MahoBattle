@@ -48,6 +48,8 @@ public class MonsterPool : MonoBehaviour
     private readonly Queue<GameObject> warningPool = new();
     private NavMeshPath spawnValidationPath;
 
+    public ProjectilePooler EnemyProjectilePool => enemyProjectilePool;
+
     private Coroutine batchRoutine;
     private bool initialized;
     private bool hierarchyDisabling;
@@ -141,7 +143,8 @@ public class MonsterPool : MonoBehaviour
         MonsterDefinitionSO definition,
         BattleContext context,
         Transform playerTarget,
-        Action<MonsterController> onDeath)
+        Action<MonsterController> onDeath,
+        Action<MonsterController> onDeathStarted = null)
     {
         if (definition == null)
         {
@@ -197,6 +200,7 @@ public class MonsterPool : MonoBehaviour
             context,
             playerTarget,
             onDeath,
+            onDeathStarted,
             spawnPosition));
 
         if (batchRoutine == null)
@@ -324,7 +328,8 @@ public class MonsterPool : MonoBehaviour
             request.context,
             request.playerTarget,
             enemyProjectilePool,
-            request.onDeath);
+            request.onDeath,
+            request.onDeathStarted);
 
         ApplyGeneratedTestSizing(monster, request.definition);
 
@@ -563,6 +568,7 @@ public class MonsterPool : MonoBehaviour
         public readonly BattleContext context;
         public readonly Transform playerTarget;
         public readonly Action<MonsterController> onDeath;
+        public readonly Action<MonsterController> onDeathStarted;
         public readonly Vector3 spawnPosition;
 
         public PendingSpawn(
@@ -571,6 +577,7 @@ public class MonsterPool : MonoBehaviour
             BattleContext context,
             Transform playerTarget,
             Action<MonsterController> onDeath,
+            Action<MonsterController> onDeathStarted,
             Vector3 spawnPosition)
         {
             this.monster = monster;
@@ -578,6 +585,7 @@ public class MonsterPool : MonoBehaviour
             this.context = context;
             this.playerTarget = playerTarget;
             this.onDeath = onDeath;
+            this.onDeathStarted = onDeathStarted;
             this.spawnPosition = spawnPosition;
         }
     }
