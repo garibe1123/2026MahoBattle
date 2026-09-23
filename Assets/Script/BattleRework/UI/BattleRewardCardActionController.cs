@@ -54,6 +54,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private BattleRunManager runManager;
     private BattleRewardFlow rewardFlow;
     private BattleEquipmentDetailPanelController equipmentDetailPanel;
+    private BattleInventoryInteractionController inventoryInteraction;
 
     private RectTransform rewardScreen;
     private RectTransform rewardInner;
@@ -81,6 +82,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private RectTransform lockedOverlay;
     private CanvasGroup lockedGroup;
     private Text lockedTitle;
+    private Text lockedMessage;
 
     private bool detailPanelWasEnabled;
     private bool detailPanelSuppressed;
@@ -210,9 +212,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         bool choice = phase == BattleRewardPhase.Choosing;
+        bool transferring = phase == BattleRewardPhase.Transferring;
         bool packEdit = phase == BattleRewardPhase.PackEditing;
 
-        SetEquipmentDetailPanelSuppressed(choice);
+        SetEquipmentDetailPanelSuppressed(choice || transferring);
 
         if (choice)
         {
@@ -220,12 +223,21 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             SetChoiceInteractable(true);
             HandleConfirmShortcut();
         }
+        else if (transferring)
+        {
+            hoveredRewardIndex = -1;
+            SetChoiceInteractable(false);
+            HideChoiceOnlyUi();
+            SetLockedVisible(true);
+            SetLockedCopy("INSTALLING REWARD", "TRANSFER TO PACK");
+        }
         else if (packEdit)
         {
             hoveredRewardIndex = -1;
             SetChoiceInteractable(false);
             HideChoiceOnlyUi();
             SetLockedVisible(true);
+            SetLockedCopy("SELECTION LOCKED", "PACK EDIT IN PROGRESS");
         }
     }
 
@@ -251,7 +263,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             lastChoiceHadSelection = hasSelection;
             choicePresentationDirty = false;
         }
-        else if (rewardFlow.Phase == BattleRewardPhase.PackEditing)
+        else if (rewardFlow.Phase == BattleRewardPhase.Transferring ||
+                 rewardFlow.Phase == BattleRewardPhase.PackEditing)
         {
             AnimateLockedOverlay();
         }
@@ -265,6 +278,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
         if (equipmentDetailPanel == null)
             equipmentDetailPanel = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
+        if (inventoryInteraction == null)
+            inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>(FindObjectsInactive.Include);
     }
 
     private void ResolveUi(bool forceCards)
@@ -785,7 +800,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     {
         if (!IsChoiceStage() || rewardFlow == null)
             return;
-        rewardFlow.SelectChoice(index);
+
+        int previous = rewardFlow.SelectedChoiceIndex;
+        if (rewardFlow.SelectChoice(index) && previous != index)
+            inventoryInteraction?.PlayRewardSelectFeedback();
+
         choicePresentationDirty = true;
     }
 
@@ -794,14 +813,55 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (!IsChoiceStage() || rewardFlow == null || !rewardFlow.CanConfirmChoice)
             return;
 
-        if (rewardFlow.ConfirmSelectedChoice())
+        int selectedIndex = rewardFlow.SelectedChoiceIndex;
+        BattleEquipmentSO selectedReward = rewardFlow.SelectedChoice;
+        CardRef selectedCardRef = FindCard(selectedIndex);
+        RectTransform sourceRect = selectedCardRef != null && selectedCardRef.icon != null
+            ? selectedCardRef.icon.rectTransform
+            : selectedCardRef?.rect;
+
+        if (!rewardFlow.ConfirmSelectedChoice())
+            return;
+
+        hoveredRewardIndex = -1;
+        choicePresentationDirty = true;
+        HideChoiceOnlyUi();
+        SetChoiceInteractable(false);
+        SetLockedVisible(true);
+        SetLockedCopy("INSTALLING REWARD", "TRANSFER TO PACK");
+
+        bool transferStarted = inventoryInteraction != null &&
+                               selectedReward != null &&
+                               inventoryInteraction.PlayRewardTransfer(
+                                   sourceRect,
+                                   selectedReward,
+                                   rewardFlow.TransferTargetSlot,
+                                   rewardFlow.TransferToHand,
+                                   selectedReward.rarity,
+                                   CompleteRewardTransfer);
+
+        if (!transferStarted)
+            CompleteRewardTransfer();
+    }
+
+    private void CompleteRewardTransfer()
+    {
+        if (rewardFlow == null || rewardFlow.Phase != BattleRewardPhase.Transferring)
+            return;
+
+        rewardFlow.CompleteTransfer();
+        choicePresentationDirty = true;
+        SetLockedCopy("SELECTION LOCKED", "PACK EDIT IN PROGRESS");
+    }
+
+    private CardRef FindCard(int index)
+    {
+        for (int i = 0; i < cards.Count; i++)
         {
-            hoveredRewardIndex = -1;
-            choicePresentationDirty = true;
-            HideChoiceOnlyUi();
-            SetChoiceInteractable(false);
-            SetLockedVisible(true);
+            if (cards[i] != null && cards[i].index == index)
+                return cards[i];
         }
+        return null;
     }
 
     private void LayoutSkipButton()
@@ -990,10 +1050,18 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         lockedTitle = CreateText(lockedOverlay, "SELECTION LOCKED", 42, FontStyle.Bold, TextAnchor.MiddleCenter, paper);
         SetAnchors(lockedTitle.rectTransform, new Vector2(0.12f, 0.47f), new Vector2(0.88f, 0.63f));
-        Text message = CreateText(lockedOverlay, "PACK EDIT IN PROGRESS", 14, FontStyle.Bold, TextAnchor.MiddleCenter, hoverCyan);
-        SetAnchors(message.rectTransform, new Vector2(0.12f, 0.38f), new Vector2(0.88f, 0.47f));
+        lockedMessage = CreateText(lockedOverlay, "PACK EDIT IN PROGRESS", 14, FontStyle.Bold, TextAnchor.MiddleCenter, hoverCyan);
+        SetAnchors(lockedMessage.rectTransform, new Vector2(0.12f, 0.38f), new Vector2(0.88f, 0.47f));
 
         lockedOverlay.gameObject.SetActive(false);
+    }
+
+    private void SetLockedCopy(string title, string message)
+    {
+        if (lockedTitle != null)
+            lockedTitle.text = title;
+        if (lockedMessage != null)
+            lockedMessage.text = message;
     }
 
     private void SetLockedVisible(bool visible)
