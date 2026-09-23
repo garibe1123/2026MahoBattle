@@ -175,12 +175,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         bool rewardChoice = IsRewardChoice();
         bool rewardEdit = IsRewardEdit();
+        bool rewardPackVisible = IsRewardPackVisible();
         bool combatTab = combatTabOpen;
         bool combat = combatActive;
 
         ApplyMiniPackGeometry();
-        ApplyMiniPackContext(rewardChoice, rewardEdit, combatTab, combat);
-        ApplyFullInventoryLayout(rewardEdit);
+        ApplyMiniPackContext(rewardChoice, rewardPackVisible, combatTab, combat);
+        ApplyFullInventoryLayout(rewardPackVisible);
         AttachContextControls(rewardEdit, combat);
         ApplySelectionFrames(rewardEdit, rewardEdit);
         ApplyRewardInspectTooltip(rewardEdit);
@@ -252,6 +253,14 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward &&
                rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
+    }
+
+    private bool IsRewardPackVisible()
+    {
+        return runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward &&
+               rewardFlow != null &&
+               (rewardFlow.Phase == BattleRewardPhase.Transferring ||
+                rewardFlow.Phase == BattleRewardPhase.PackEditing);
     }
 
     private void SubscribeCombatLoadout()
