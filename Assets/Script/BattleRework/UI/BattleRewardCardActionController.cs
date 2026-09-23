@@ -803,7 +803,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         int previous = rewardFlow.SelectedChoiceIndex;
         if (rewardFlow.SelectChoice(index) && previous != index)
+        {
             inventoryInteraction?.PlayRewardSelectFeedback();
+            BattleScreenPresenterPrototypeController.NotifyRewardSelected(rewardFlow.SelectedChoice);
+        }
 
         choicePresentationDirty = true;
     }
@@ -822,6 +825,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         if (!rewardFlow.ConfirmSelectedChoice())
             return;
+
+        BattleScreenPresenterPrototypeController.NotifyRewardConfirm(selectedReward);
 
         hoveredRewardIndex = -1;
         choicePresentationDirty = true;
@@ -970,7 +975,17 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         if (previous != hoveredRewardIndex)
+        {
             choicePresentationDirty = true;
+
+            if (hoveredRewardIndex >= 0 &&
+                runManager != null &&
+                hoveredRewardIndex < runManager.CurrentRewardChoices.Count)
+            {
+                BattleScreenPresenterPrototypeController.NotifyRewardHover(
+                    runManager.CurrentRewardChoices[hoveredRewardIndex]);
+            }
+        }
     }
 
     private void SetChoiceInteractable(bool interactable)
