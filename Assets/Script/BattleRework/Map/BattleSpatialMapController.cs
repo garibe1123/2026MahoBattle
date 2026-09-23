@@ -2182,7 +2182,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         outline.effectDistance = new Vector2(4f, -4f);
         outline.useGraphicAlpha = false;
 
-        routeStatusText = root.AddComponent<Text>();
+        GameObject textObject = new("Text", typeof(RectTransform));
+        textObject.transform.SetParent(root.transform, false);
+        RectTransform textRect = textObject.GetComponent<RectTransform>();
+        textRect.anchorMin = Vector2.zero;
+        textRect.anchorMax = Vector2.one;
+        textRect.offsetMin = Vector2.zero;
+        textRect.offsetMax = Vector2.zero;
+
+        routeStatusText = textObject.AddComponent<Text>();
         routeStatusText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         routeStatusText.fontSize = 18;
         routeStatusText.fontStyle = FontStyle.Bold;
@@ -2534,6 +2542,8 @@ internal sealed class BattleStageMapLinkVisual : MonoBehaviour
     private Vector2 end;
     private Color baseColor;
     private Vector2 baseSize;
+    private RectTransform pulseRect;
+    private Image pulseImage;
 
     public void Configure(
         string sourceId,
@@ -2552,6 +2562,22 @@ internal sealed class BattleStageMapLinkVisual : MonoBehaviour
         end = endPoint;
         baseColor = color;
         baseSize = rect != null ? rect.sizeDelta : Vector2.zero;
+
+        if (rect != null)
+        {
+            GameObject pulse = new("RouteTracePulse", typeof(RectTransform));
+            pulse.transform.SetParent(rect, false);
+            pulseRect = pulse.GetComponent<RectTransform>();
+            pulseRect.anchorMin = pulseRect.anchorMax = new Vector2(0.5f, 0.5f);
+            pulseRect.pivot = new Vector2(0.5f, 0.5f);
+            pulseRect.sizeDelta = new Vector2(22f, 10f);
+            pulseRect.anchoredPosition = new Vector2(-baseSize.x * 0.5f, 0f);
+
+            pulseImage = pulse.AddComponent<Image>();
+            pulseImage.raycastTarget = false;
+            pulseImage.color = Color.white;
+            pulse.SetActive(false);
+        }
     }
 
     public bool Matches(string sourceId, string destinationId)
@@ -2585,6 +2611,9 @@ internal sealed class BattleStageMapLinkVisual : MonoBehaviour
             size.y = suppressed ? 1f : Mathf.Max(1f, baseSize.y);
             rect.sizeDelta = size;
         }
+
+        if (pulseRect != null)
+            pulseRect.gameObject.SetActive(false);
     }
 
     public void SetTrace(float amount, Color selectedColor)
@@ -2596,11 +2625,22 @@ internal sealed class BattleStageMapLinkVisual : MonoBehaviour
             image.color = color;
         }
 
+        float t = Mathf.Clamp01(amount);
         if (rect != null)
         {
             Vector2 size = baseSize;
-            size.y = Mathf.Lerp(Mathf.Max(1f, baseSize.y), 8f, Mathf.Clamp01(amount));
+            size.y = Mathf.Lerp(Mathf.Max(1f, baseSize.y), 8f, t);
             rect.sizeDelta = size;
+        }
+
+        if (pulseRect != null && pulseImage != null)
+        {
+            pulseRect.gameObject.SetActive(t < 0.999f);
+            pulseRect.anchoredPosition = new Vector2(
+                Mathf.Lerp(-baseSize.x * 0.5f, baseSize.x * 0.5f, t),
+                0f);
+            pulseRect.localScale = Vector3.one * (1f + 0.12f * Mathf.Sin(t * Mathf.PI));
+            pulseImage.color = selectedColor;
         }
     }
 }
