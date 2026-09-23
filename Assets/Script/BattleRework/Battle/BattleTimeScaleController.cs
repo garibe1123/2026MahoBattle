@@ -26,6 +26,7 @@ public sealed class BattleTimeScaleController : MonoBehaviour
         CombatInventory,
         RewardInventory,
         HitStop,
+        LastKill,
         Cinematic,
         StageTransition,
         Pause,
