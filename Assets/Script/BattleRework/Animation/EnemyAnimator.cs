@@ -272,7 +272,7 @@ public class EnemyAnimator : MonoBehaviour
         if (spriteRenderer == null || flashTimer <= 0f)
             return;
 
-        flashTimer -= Time.deltaTime;
+        flashTimer -= useUnscaledTime ? Time.unscaledDeltaTime : Time.deltaTime;
         if (flashTimer <= 0f)
             spriteRenderer.color = normalColor;
     }
