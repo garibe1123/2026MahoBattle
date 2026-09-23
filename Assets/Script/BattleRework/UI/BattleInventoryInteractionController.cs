@@ -101,6 +101,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private RectTransform deniedGuideRoot;
     private CanvasGroup deniedGuideGroup;
     private Coroutine deniedRoutine;
+    private RectTransform deniedShakeTarget;
+    private Vector2 deniedShakeTargetBasePosition;
 
     private RectTransform trashRoot;
     private Image trashBack;
@@ -744,9 +746,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         {
             ActivatePadMode();
             if (rewardFlow.HasHand)
+            {
                 rewardFlow.DiscardHand();
+            }
             else if (HasItem(padSelectedSlot))
+            {
                 RequestDiscard(padSelectedSlot);
+            }
+            else
+            {
+                ShowDenied("SELECT ITEM TO TRASH", padSelectedSlot);
+            }
         }
 
         if (Input.GetKeyDown(KeyCode.JoystickButton7))
@@ -1211,9 +1221,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             paperColor);
         Stretch(deniedText.rectTransform);
 
-        deniedGroup = deniedRoot.gameObject.AddComponent<CanvasGroup>();
-        deniedGroup.blocksRaycasts = false;
-        deniedGroup.interactable = false;
+        AddNonBlockingCanvas(deniedRoot.gameObject, 2270);
+        deniedGroup = deniedRoot.GetComponent<CanvasGroup>();
         deniedRoot.gameObject.SetActive(false);
 
         deniedGuideRoot = CreateRect(interactionRoot, "InventoryDeniedTargetGuide", new Vector2(128f, 128f));
@@ -1226,9 +1235,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         guideOutline.effectDistance = new Vector2(7f, -7f);
         guideOutline.useGraphicAlpha = false;
 
-        deniedGuideGroup = deniedGuideRoot.gameObject.AddComponent<CanvasGroup>();
-        deniedGuideGroup.blocksRaycasts = false;
-        deniedGuideGroup.interactable = false;
+        AddNonBlockingCanvas(deniedGuideRoot.gameObject, 2260);
+        deniedGuideGroup = deniedGuideRoot.GetComponent<CanvasGroup>();
         deniedGuideRoot.gameObject.SetActive(false);
     }
 
@@ -1598,8 +1606,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (deniedRoot == null || deniedText == null || deniedGroup == null)
             return;
 
-        if (deniedRoutine != null)
-            StopCoroutine(deniedRoutine);
+        ResetDeniedPresentation();
 
         deniedText.text = message;
         ConfigureDeniedGuide(guideSlot, guideHand);
@@ -1614,7 +1621,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         deniedRoot.anchoredPosition = Vector2.zero;
         deniedGroup.alpha = 1f;
 
-        Vector2 targetBasePosition = shakeTarget != null
+        deniedShakeTarget = shakeTarget;
+        deniedShakeTargetBasePosition = shakeTarget != null
             ? shakeTarget.anchoredPosition
             : Vector2.zero;
 
@@ -1640,8 +1648,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 ? 1f
                 : 1f - Mathf.Clamp01((t - 0.68f) / 0.32f);
 
-            if (shakeTarget != null)
-                shakeTarget.anchoredPosition = targetBasePosition + new Vector2(shake * 0.75f, 0f);
+            if (deniedShakeTarget != null)
+                deniedShakeTarget.anchoredPosition =
+                    deniedShakeTargetBasePosition + new Vector2(shake * 0.75f, 0f);
 
             if (deniedGuideRoot != null && deniedGuideRoot.gameObject.activeSelf)
             {
@@ -1657,20 +1666,35 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             yield return null;
         }
 
-        if (shakeTarget != null)
-            shakeTarget.anchoredPosition = targetBasePosition;
+        ResetDeniedPresentation();
+    }
 
-        deniedRoot.anchoredPosition = Vector2.zero;
-        deniedRoot.localScale = Vector3.one;
-        deniedRoot.gameObject.SetActive(false);
+    private void ResetDeniedPresentation()
+    {
+        if (deniedRoutine != null)
+        {
+            StopCoroutine(deniedRoutine);
+            deniedRoutine = null;
+        }
+
+        if (deniedShakeTarget != null)
+            deniedShakeTarget.anchoredPosition = deniedShakeTargetBasePosition;
+
+        deniedShakeTarget = null;
+        deniedShakeTargetBasePosition = Vector2.zero;
+
+        if (deniedRoot != null)
+        {
+            deniedRoot.anchoredPosition = Vector2.zero;
+            deniedRoot.localScale = Vector3.one;
+            deniedRoot.gameObject.SetActive(false);
+        }
 
         if (deniedGuideRoot != null)
         {
             deniedGuideRoot.localScale = Vector3.one;
             deniedGuideRoot.gameObject.SetActive(false);
         }
-
-        deniedRoutine = null;
     }
 
     private void ConfigureDeniedGuide(int guideSlot, bool guideHand)
@@ -1813,11 +1837,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         SetTransferTrailsVisible(false);
         if (transferImpactRoot != null)
             transferImpactRoot.gameObject.SetActive(false);
-        if (deniedRoot != null)
-            deniedRoot.gameObject.SetActive(false);
-        if (deniedGuideRoot != null)
-            deniedGuideRoot.gameObject.SetActive(false);
-        deniedRoutine = null;
+        ResetDeniedPresentation();
         if (trashRoot != null)
             trashRoot.gameObject.SetActive(false);
         if (doneRoot != null)
