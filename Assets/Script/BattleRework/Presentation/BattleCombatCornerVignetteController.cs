@@ -64,6 +64,7 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
     private float lastHp01 = 1f;
     private float damageBurst;
     private float signalRestoredUntil;
+    private bool signalWasCritical;
     private readonly RectTransform[] signalTearRects = new RectTransform[3];
     private readonly Image[] signalTearImages = new Image[3];
     private Text signalStatusText;
@@ -187,6 +188,7 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
             subscribedPlayer.HpChanged += HandleHpChanged;
             float maxHp = Mathf.Max(1f, subscribedPlayer.MaxHp);
             lastHp01 = Mathf.Clamp01(subscribedPlayer.CurrentHp / maxHp);
+            signalWasCritical = lastHp01 <= criticalThreshold;
             lowHpTarget = ResolveLowHpSeverity(lastHp01);
         }
     }
@@ -205,8 +207,14 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
         if (hp01 < lastHp01 - 0.0001f)
             damageBurst = 1f;
 
-        if (lastHp01 <= criticalThreshold && hp01 > warningThreshold)
+        if (hp01 <= criticalThreshold)
+            signalWasCritical = true;
+
+        if (signalWasCritical && hp01 > warningThreshold)
+        {
             signalRestoredUntil = Time.unscaledTime + 1.0f;
+            signalWasCritical = false;
+        }
 
         lastHp01 = hp01;
         lowHpTarget = ResolveLowHpSeverity(hp01);
