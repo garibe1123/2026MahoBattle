@@ -9,6 +9,7 @@ public enum BattleCameraFocusPriority
     PlayerFollow = 0,
     FieldCombat = 10,
     ForcedEvent = 20,
+    LastKill = 40,
     StageTransition = 50,
     Show = 100
 }
@@ -214,6 +215,8 @@ public class BattleCameraController : MonoBehaviour
             Time.unscaledTime + Mathf.Max(0.01f, duration));
     }
 
+    public Transform FollowTarget => followTarget;
+
     public int FocusTarget(
         Transform target,
         float duration,
@@ -264,6 +267,25 @@ public class BattleCameraController : MonoBehaviour
             priority = (int)priority,
             expiresAt = ResolveExpiry(duration)
         });
+    }
+
+    public int FocusBoundsOccupancy(
+        Bounds bounds,
+        float duration,
+        float screenOccupancy = 0.60f,
+        float yBiasFraction = 0.12f,
+        BattleCameraFocusPriority priority = BattleCameraFocusPriority.LastKill)
+    {
+        float occupancy = Mathf.Clamp(screenOccupancy, 0.10f, 0.95f);
+        float aspect = controlledCamera != null && controlledCamera.aspect > 0.01f
+            ? controlledCamera.aspect
+            : 16f / 9f;
+        float sizeByHeight = bounds.size.y / (2f * occupancy);
+        float sizeByWidth = bounds.size.x / (2f * occupancy * Mathf.Max(0.1f, aspect));
+        float zoom = Mathf.Clamp(Mathf.Max(sizeByHeight, sizeByWidth), minZoom, maxZoom);
+        Vector3 focus = bounds.center;
+        focus.y += bounds.size.y * yBiasFraction;
+        return FocusPosition(focus, duration, zoom, priority);
     }
 
     public void ReleaseFocus(int requestId)
