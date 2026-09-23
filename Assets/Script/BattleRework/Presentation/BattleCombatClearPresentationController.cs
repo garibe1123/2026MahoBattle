@@ -15,6 +15,7 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
     [SerializeField, Range(1.40f, 2.20f)] private float bossDuration = 1.75f;
     [SerializeField, Min(0f)] private float playerProjectileCleanupDelay = 0.08f;
     [SerializeField, Range(0.45f, 0.82f)] private float returnToPlayerFraction = 0.64f;
+    [SerializeField, Range(2f, 6f)] private float deathAnimationSafetyTimeout = 4f;
 
     [Header("Finish Time Scale")]
     [SerializeField, Range(0.16f, 0.28f)] private float normalMinTimeScale = 0.22f;
@@ -190,6 +191,20 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
             bool deathAnimationFinished =
                 finalTarget == null ||
                 finalTarget.DeathAnimationCompleted;
+
+            if (!deathAnimationFinished &&
+                elapsed >= Mathf.Max(targetDuration, deathAnimationSafetyTimeout))
+            {
+                Debug.LogWarning(
+                    $"[BattleFinish] Final death animation exceeded {deathAnimationSafetyTimeout:0.00}s. " +
+                    "Forcing completion so Reward cannot deadlock.",
+                    finalTarget);
+
+                finalTarget?.ForceCompleteDeathAnimationForPresentation();
+                deathAnimationFinished =
+                    finalTarget == null ||
+                    finalTarget.DeathAnimationCompleted;
+            }
 
             if (!returnFocusStarted &&
                 elapsed >= returnToPlayerAt &&
