@@ -252,7 +252,9 @@ public sealed class BattleRewardFlow : MonoBehaviour
             return false;
 
         bool placed = false;
-        if (!transferToHand && transferTargetSlot >= 0)
+        if (!transferToHand && transferTargetSlot >= 0 &&
+            equipmentSystem.TryGetSlot(transferTargetSlot, out BattleEquipmentSlot plannedSlot) &&
+            plannedSlot != null && plannedSlot.equipment == null)
         {
             placed = equipmentSystem.PlaceIntoSlot(transferTargetSlot, chosenReward);
             if (placed)
