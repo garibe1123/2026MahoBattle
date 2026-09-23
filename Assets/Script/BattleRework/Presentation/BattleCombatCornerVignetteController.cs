@@ -65,8 +65,6 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
     private float damageBurst;
     private float signalRestoredUntil;
     private bool signalWasCritical;
-    private readonly RectTransform[] signalTearRects = new RectTransform[3];
-    private readonly Image[] signalTearImages = new Image[3];
     private Text signalStatusText;
     private CanvasGroup signalStatusGroup;
 
@@ -127,7 +125,7 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
                 : 0f);
 
         ApplyVisual();
-        UpdateSignalTearVisuals(combat);
+        UpdateSignalStatus(combat);
     }
 
     private void OnDisable()
@@ -305,29 +303,6 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
         if (overlayCanvas == null)
             return;
 
-        for (int i = 0; i < signalTearRects.Length; i++)
-        {
-            if (signalTearRects[i] != null)
-                continue;
-
-            GameObject strip = new($"BattleSignalTear_{i + 1}", typeof(RectTransform));
-            strip.transform.SetParent(overlayCanvas.transform, false);
-
-            RectTransform rect = strip.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0f, 0.20f + i * 0.28f);
-            rect.anchorMax = new Vector2(1f, 0.20f + i * 0.28f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(0f, 3f + i * 1.5f);
-
-            Image image = strip.AddComponent<Image>();
-            image.color = new Color(0.84f, 0.92f, 1f, 0f);
-            image.raycastTarget = false;
-
-            signalTearRects[i] = rect;
-            signalTearImages[i] = image;
-            strip.SetActive(false);
-        }
-
         if (signalStatusText == null)
         {
             GameObject status = new("BattleSignalStatus", typeof(RectTransform));
@@ -353,43 +328,9 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
         }
     }
 
-    private void UpdateSignalTearVisuals(bool combat)
+    private void UpdateSignalStatus(bool combat)
     {
         EnsureSignalVisuals();
-
-        bool critical = combat && lastHp01 <= criticalThreshold;
-        bool warning = combat && lastHp01 <= warningThreshold;
-        float tearStrength = critical
-            ? Mathf.Clamp01(lowHpBlend + damageBurst * 0.45f)
-            : warning
-                ? Mathf.Clamp01(lowHpBlend * 0.22f + damageBurst * 0.25f)
-                : damageBurst * 0.18f;
-
-        for (int i = 0; i < signalTearRects.Length; i++)
-        {
-            RectTransform rect = signalTearRects[i];
-            Image image = signalTearImages[i];
-            if (rect == null || image == null)
-                continue;
-
-            bool visible = combat && tearStrength > 0.025f;
-            rect.gameObject.SetActive(visible);
-            if (!visible)
-                continue;
-
-            float time = Time.unscaledTime;
-            float phase = time * (15f + i * 3f) + i * 1.37f;
-            float x = Mathf.Sin(phase) * (10f + 24f * tearStrength);
-            float y = Mathf.Sin(phase * 0.43f) * 4f;
-
-            rect.anchoredPosition = new Vector2(x, y);
-            rect.sizeDelta = new Vector2(0f, 2.5f + tearStrength * (4f + i));
-            Color color = image.color;
-            color.a = Mathf.Clamp01(
-                (0.035f + i * 0.018f) * tearStrength +
-                damageBurst * 0.07f);
-            image.color = color;
-        }
 
         if (signalStatusText == null || signalStatusGroup == null)
             return;
@@ -414,12 +355,6 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
 
     private void HideSignalVisuals()
     {
-        for (int i = 0; i < signalTearRects.Length; i++)
-        {
-            if (signalTearRects[i] != null)
-                signalTearRects[i].gameObject.SetActive(false);
-        }
-
         if (signalStatusGroup != null)
             signalStatusGroup.alpha = 0f;
     }
