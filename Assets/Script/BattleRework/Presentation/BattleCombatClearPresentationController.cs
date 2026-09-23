@@ -1,5 +1,7 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 /// <summary>
 /// Owns the short Combat -> Finish Shot -> Reward hand-off.
@@ -49,6 +51,16 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
     private int finalTargetFocusId;
     private int playerReturnFocusId;
     private bool modalPushed;
+
+    private Canvas targetColorIsolationCanvas;
+    private readonly List<TargetColorClone> targetColorClones = new();
+
+    private sealed class TargetColorClone
+    {
+        public SpriteRenderer source;
+        public RectTransform rect;
+        public Image image;
+    }
 
     public static BattleCombatClearPresentationController ResolveOrCreate(Component requester = null)
     {
@@ -157,6 +169,8 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
                 impulseDuration);
         }
 
+        BeginTargetColorIsolation(finalTarget);
+
         colorGrading?.SetLastKillEmphasis(
             finalTarget != null && finalTarget.IsBoss
                 ? bossGradingEmphasis
@@ -179,6 +193,7 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
             }
 
             elapsed += Time.unscaledDeltaTime;
+            UpdateTargetColorIsolation();
 
             if (!playerProjectilesCleaned && elapsed >= playerProjectileCleanupDelay)
             {
@@ -296,10 +311,133 @@ public sealed class BattleCombatClearPresentationController : MonoBehaviour, IIn
 
         timeScaleController?.Release(BattleTimeScaleController.Owner.LastKill);
         colorGrading?.SetLastKillEmphasis(0f);
+        EndTargetColorIsolation();
 
         if (modalPushed && inputRouter != null)
             inputRouter.PopModal(this);
         modalPushed = false;
+    }
+
+    private void BeginTargetColorIsolation(MonsterController monster)
+    {
+        EndTargetColorIsolation();
+        if (monster == null)
+            return;
+
+        GameObject canvasObject = new("LastKillTargetColorIsolation");
+        canvasObject.transform.SetParent(transform, false);
+
+        targetColorIsolationCanvas = canvasObject.AddComponent<Canvas>();
+        targetColorIsolationCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        targetColorIsolationCanvas.overrideSorting = true;
+        // Combat vignette is 420 and analog broadcast overlay is 430.
+        // The target sits between them: exempt from desaturation/vignette, still inside broadcast noise.
+        targetColorIsolationCanvas.sortingOrder = 425;
+
+        SpriteRenderer[] renderers =
+            monster.GetComponentsInChildren<SpriteRenderer>(true);
+
+        System.Array.Sort(
+            renderers,
+            (a, b) =>
+            {
+                int aOrder = a != null ? a.sortingOrder : int.MinValue;
+                int bOrder = b != null ? b.sortingOrder : int.MinValue;
+                return aOrder.CompareTo(bOrder);
+            });
+
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            SpriteRenderer source = renderers[i];
+            if (!IsFinalTargetColorSource(source))
+                continue;
+
+            GameObject imageObject = new($"TargetColor_{source.name}", typeof(RectTransform));
+            imageObject.transform.SetParent(canvasObject.transform, false);
+
+            RectTransform rect = imageObject.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+
+            Image image = imageObject.AddComponent<Image>();
+            image.raycastTarget = false;
+            image.preserveAspect = false;
+
+            targetColorClones.Add(new TargetColorClone
+            {
+                source = source,
+                rect = rect,
+                image = image
+            });
+        }
+
+        UpdateTargetColorIsolation();
+    }
+
+    private void UpdateTargetColorIsolation()
+    {
+        if (targetColorIsolationCanvas == null)
+            return;
+
+        Camera camera = Camera.main;
+        if (camera == null)
+            return;
+
+        for (int i = 0; i < targetColorClones.Count; i++)
+        {
+            TargetColorClone clone = targetColorClones[i];
+            SpriteRenderer source = clone.source;
+            if (source == null || clone.rect == null || clone.image == null)
+                continue;
+
+            bool visible =
+                source.enabled &&
+                source.gameObject.activeInHierarchy &&
+                source.sprite != null;
+
+            clone.image.enabled = visible;
+            if (!visible)
+                continue;
+
+            clone.image.sprite = source.sprite;
+            clone.image.color = source.color;
+
+            Bounds bounds = source.bounds;
+            Vector2 min = RectTransformUtility.WorldToScreenPoint(camera, bounds.min);
+            Vector2 max = RectTransformUtility.WorldToScreenPoint(camera, bounds.max);
+
+            clone.rect.position = (min + max) * 0.5f;
+            clone.rect.sizeDelta = new Vector2(
+                Mathf.Max(1f, Mathf.Abs(max.x - min.x)),
+                Mathf.Max(1f, Mathf.Abs(max.y - min.y)));
+
+            clone.rect.localScale = new Vector3(
+                source.flipX ? -1f : 1f,
+                source.flipY ? -1f : 1f,
+                1f);
+        }
+    }
+
+    private void EndTargetColorIsolation()
+    {
+        targetColorClones.Clear();
+
+        if (targetColorIsolationCanvas != null)
+            Destroy(targetColorIsolationCanvas.gameObject);
+
+        targetColorIsolationCanvas = null;
+    }
+
+    private static bool IsFinalTargetColorSource(SpriteRenderer renderer)
+    {
+        if (renderer == null || renderer.sprite == null)
+            return false;
+
+        string rendererName = renderer.name;
+        return rendererName != BattleCharacterLightVisual.KeyRendererName &&
+               rendererName != BattleCharacterLightVisual.PoolRendererName &&
+               rendererName != BattleCharacterLightVisual.GlowRendererName &&
+               rendererName != "FacingIndicator";
     }
 
     private float ResolveOccupancy(MonsterController monster)
