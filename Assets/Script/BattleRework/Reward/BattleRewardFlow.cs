@@ -40,6 +40,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
     private bool handIsChosenReward;
     private int transferTargetSlot = -1;
     private bool transferToHand;
+    private bool transferCommitted;
 
     private BattleRunManager subscribedRunManager;
     private BattleEquipmentSystem subscribedEquipmentSystem;
@@ -182,6 +183,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
         handIsChosenReward = false;
         transferTargetSlot = -1;
         transferToHand = false;
+        transferCommitted = false;
         phase = BattleRewardPhase.Choosing;
         RaiseChanged();
     }
@@ -234,6 +236,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
 
         transferTargetSlot = equipmentSystem.FindFirstEmptyUnlockedSlot();
         transferToHand = transferTargetSlot < 0;
+        transferCommitted = false;
 
         selectedChoiceIndex = -1;
         phase = BattleRewardPhase.Transferring;
@@ -242,14 +245,16 @@ public sealed class BattleRewardFlow : MonoBehaviour
     }
 
     /// <summary>
-    /// Reward Icon이 PACK/Hand 목적지에 도착한 순간 호출합니다.
-    /// 빈 슬롯 계획이 여전히 유효하면 그 슬롯에 Commit하고, 실패하면 Hand로 안전하게 전환합니다.
+    /// Reward Icon이 PACK/Hand 목적지에 닿는 순간 실제 데이터만 Commit합니다.
+    /// Presentation이 끝나기 전까지 Phase는 Transferring으로 유지해 PACK 입력을 잠급니다.
     /// </summary>
-    public bool CompleteTransfer()
+    public bool CommitTransferArrival()
     {
         RefreshFromRunState();
         if (phase != BattleRewardPhase.Transferring || equipmentSystem == null || chosenReward == null)
             return false;
+        if (transferCommitted)
+            return true;
 
         bool placed = false;
         if (!transferToHand && transferTargetSlot >= 0 &&
@@ -275,7 +280,25 @@ public sealed class BattleRewardFlow : MonoBehaviour
             transferToHand = true;
         }
 
+        transferCommitted = true;
+        RaiseChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// 도착 Impact까지 끝난 뒤 PACK 편집 입력을 해제합니다.
+    /// </summary>
+    public bool CompleteTransfer()
+    {
+        RefreshFromRunState();
+        if (phase != BattleRewardPhase.Transferring)
+            return false;
+
+        if (!transferCommitted && !CommitTransferArrival())
+            return false;
+
         transferTargetSlot = -1;
+        transferCommitted = false;
         phase = BattleRewardPhase.PackEditing;
         RaiseChanged();
         return true;
@@ -451,6 +474,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
         handIsChosenReward = false;
         transferTargetSlot = -1;
         transferToHand = false;
+        transferCommitted = false;
 
         if (notify)
             RaiseChanged();
