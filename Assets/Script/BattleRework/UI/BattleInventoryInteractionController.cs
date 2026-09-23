@@ -103,6 +103,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private Coroutine deniedRoutine;
     private RectTransform deniedShakeTarget;
     private Vector2 deniedShakeTargetBasePosition;
+    private Vector3 deniedShakeTargetBaseScale = Vector3.one;
 
     private RectTransform trashRoot;
     private Image trashBack;
@@ -1625,6 +1626,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         deniedShakeTargetBasePosition = shakeTarget != null
             ? shakeTarget.anchoredPosition
             : Vector2.zero;
+        deniedShakeTargetBaseScale = shakeTarget != null
+            ? shakeTarget.localScale
+            : Vector3.one;
 
         float duration = Mathf.Max(0.2f, deniedMessageDuration);
         float elapsed = 0f;
@@ -1649,8 +1653,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 : 1f - Mathf.Clamp01((t - 0.68f) / 0.32f);
 
             if (deniedShakeTarget != null)
+            {
                 deniedShakeTarget.anchoredPosition =
                     deniedShakeTargetBasePosition + new Vector2(shake * 0.75f, 0f);
+                deniedShakeTarget.localScale =
+                    deniedShakeTargetBaseScale * Mathf.Lerp(1f, 1.045f, shakeEnvelope);
+            }
 
             if (deniedGuideRoot != null && deniedGuideRoot.gameObject.activeSelf)
             {
@@ -1666,7 +1674,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             yield return null;
         }
 
-        ResetDeniedPresentation();
+        deniedRoutine = null;
+        RestoreDeniedPresentationVisuals();
     }
 
     private void ResetDeniedPresentation()
@@ -1677,11 +1686,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             deniedRoutine = null;
         }
 
+        RestoreDeniedPresentationVisuals();
+    }
+
+    private void RestoreDeniedPresentationVisuals()
+    {
         if (deniedShakeTarget != null)
+        {
             deniedShakeTarget.anchoredPosition = deniedShakeTargetBasePosition;
+            deniedShakeTarget.localScale = deniedShakeTargetBaseScale;
+        }
 
         deniedShakeTarget = null;
         deniedShakeTargetBasePosition = Vector2.zero;
+        deniedShakeTargetBaseScale = Vector3.one;
 
         if (deniedRoot != null)
         {
