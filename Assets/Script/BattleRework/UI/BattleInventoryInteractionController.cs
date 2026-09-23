@@ -67,6 +67,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     [SerializeField] private AudioClip rewardTransferClip;
     [SerializeField] private AudioClip rewardInstallClip;
 
+    [Header("PACK Denied Feedback")]
+    [SerializeField] private AudioClip deniedClip;
+    [SerializeField, Range(0.45f, 1.4f)] private float deniedMessageDuration = 0.90f;
+    [SerializeField, Range(2f, 12f)] private float deniedShakePixels = 7f;
+
     private Canvas interactionCanvas;
     private RectTransform interactionRoot;
 
@@ -87,7 +92,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private AudioClip fallbackSelectClip;
     private AudioClip fallbackTransferClip;
     private AudioClip fallbackInstallClip;
+    private AudioClip fallbackDeniedClip;
     private Coroutine rewardTransferRoutine;
+
+    private RectTransform deniedRoot;
+    private Text deniedText;
+    private CanvasGroup deniedGroup;
+    private RectTransform deniedGuideRoot;
+    private CanvasGroup deniedGuideGroup;
+    private Coroutine deniedRoutine;
 
     private RectTransform trashRoot;
     private Image trashBack;
@@ -470,11 +483,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotDrop(int targetIndex, PointerEventData eventData)
     {
-        if (discardModalOpen || equipmentSystem == null || eventData == null ||
-            !equipmentSystem.IsSlotUnlocked(targetIndex))
+        if (discardModalOpen || equipmentSystem == null || eventData == null)
             return;
 
         ActivateMouseMode();
+
+        if (!equipmentSystem.IsSlotUnlocked(targetIndex))
+        {
+            if (IsRewardPackEditing)
+                ShowDenied("LOCKED SLOT", targetIndex);
+            return;
+        }
 
         BattleInventorySlotPointer source = eventData.pointerDrag != null
             ? eventData.pointerDrag.GetComponent<BattleInventorySlotPointer>()
@@ -490,7 +509,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             return;
 
         if (!equipmentSystem.SwapSlots(sourceIndex, targetIndex))
+        {
+            if (IsRewardPackEditing)
+                ShowDenied("CANNOT SWAP", targetIndex);
             return;
+        }
 
         selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
         padSelectedSlot = targetIndex;
@@ -506,11 +529,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotClick(int slotIndex, BattleInventorySurface surface, PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left || discardModalOpen || equipmentSystem == null ||
-            !equipmentSystem.IsSlotUnlocked(slotIndex))
+        if (button != PointerEventData.InputButton.Left || discardModalOpen || equipmentSystem == null)
             return;
 
         ActivateMouseMode();
+
+        if (!equipmentSystem.IsSlotUnlocked(slotIndex))
+        {
+            if (IsRewardPackEditing)
+                ShowDenied("LOCKED SLOT", slotIndex);
+            return;
+        }
 
         if (IsReward())
         {
@@ -524,6 +553,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 {
                     selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
                     FlashSlot(slotIndex);
+                }
+                else
+                {
+                    ShowDenied("CANNOT PLACE HERE", slotIndex);
                 }
                 return;
             }
@@ -586,6 +619,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         int target = selectedRewardSlot;
         if (HasItem(target))
             RequestDiscard(target);
+        else
+            ShowDenied("SELECT ITEM TO TRASH", -1, false, trashRoot);
     }
 
     internal void HandleTrashHover(bool hovered)
@@ -730,8 +765,16 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         int nx = Mathf.Clamp(p.x + dx, 0, BattleEquipmentSystem.GridSize - 1);
         int ny = Mathf.Clamp(p.y + dy, 0, BattleEquipmentSystem.GridSize - 1);
         int next = BattleEquipmentSystem.GridToSlotIndex(nx, ny);
-        if (next >= 0 && equipmentSystem.IsSlotUnlocked(next))
+        if (next < 0 || next == padSelectedSlot)
+            return;
+
+        if (equipmentSystem.IsSlotUnlocked(next))
+        {
             padSelectedSlot = next;
+            return;
+        }
+
+        ShowDenied("LOCKED SLOT", next);
     }
 
     private void HandlePadSubmit()
@@ -746,6 +789,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 selectedRewardSlot = -1;
                 padPickedSlot = -1;
                 FlashSlot(padSelectedSlot);
+            }
+            else
+            {
+                ShowDenied("CANNOT PLACE HERE", padSelectedSlot);
             }
             return;
         }
@@ -779,6 +826,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             rewardFlow.SyncChosenRewardLocation();
             FlashSlot(padSelectedSlot);
             padPickedSlot = -1;
+        }
+        else
+        {
+            ShowDenied("CANNOT SWAP", padSelectedSlot);
         }
     }
 
@@ -818,15 +869,33 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void RequestRewardCompletion()
     {
-        if (BattlePauseController.IsPaused ||
+        if (BattlePauseController.IsPaused || !IsRewardPackEditing || rewardFlow == null)
+            return;
+
+        if (!rewardFlow.CanComplete)
+        {
+            if (rewardFlow.HasHand)
+                ShowDenied("PLACE OR TRASH HELD ITEM", -1, true, doneRoot);
+            else
+                ShowDenied("REWARD ACTION INCOMPLETE", -1, false, doneRoot);
+            return;
+        }
+
+        if (!rewardFlow.CompleteReward())
+            ShowDenied("REWARD ACTION INCOMPLETE", -1, false, doneRoot);
+    }
+
+    internal void HandleDoneDeniedClick(PointerEventData.InputButton button)
+    {
+        if (button != PointerEventData.InputButton.Left ||
             !IsRewardPackEditing ||
             rewardFlow == null ||
-            !rewardFlow.CanComplete)
+            rewardFlow.CanComplete)
         {
             return;
         }
 
-        rewardFlow.CompleteReward();
+        RequestRewardCompletion();
     }
 
     private int FindFirstUnlockedSlot()
@@ -1029,6 +1098,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         BuildDragGhost();
         BuildRewardHandGhost();
         BuildRewardTransferVisuals();
+        BuildDeniedFeedback();
         BuildTrash();
         BuildRewardDoneUi();
         BuildDiscardConfirm();
@@ -1117,6 +1187,51 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         transferImpactRoot.gameObject.SetActive(false);
     }
 
+    private void BuildDeniedFeedback()
+    {
+        deniedRoot = CreateRect(interactionRoot, "InventoryDeniedFeedback", new Vector2(520f, 76f));
+        deniedRoot.anchorMin = deniedRoot.anchorMax = new Vector2(0.5f, 0.18f);
+        deniedRoot.anchoredPosition = Vector2.zero;
+
+        Image back = deniedRoot.gameObject.AddComponent<Image>();
+        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
+        back.raycastTarget = false;
+
+        Outline outline = deniedRoot.gameObject.AddComponent<Outline>();
+        outline.effectColor = accentPink;
+        outline.effectDistance = new Vector2(5f, -5f);
+        outline.useGraphicAlpha = false;
+
+        deniedText = CreateText(
+            deniedRoot,
+            string.Empty,
+            18,
+            FontStyle.Bold,
+            TextAnchor.MiddleCenter,
+            paperColor);
+        Stretch(deniedText.rectTransform);
+
+        deniedGroup = deniedRoot.gameObject.AddComponent<CanvasGroup>();
+        deniedGroup.blocksRaycasts = false;
+        deniedGroup.interactable = false;
+        deniedRoot.gameObject.SetActive(false);
+
+        deniedGuideRoot = CreateRect(interactionRoot, "InventoryDeniedTargetGuide", new Vector2(128f, 128f));
+        Image guideImage = deniedGuideRoot.gameObject.AddComponent<Image>();
+        guideImage.color = Color.clear;
+        guideImage.raycastTarget = false;
+
+        Outline guideOutline = deniedGuideRoot.gameObject.AddComponent<Outline>();
+        guideOutline.effectColor = accentPink;
+        guideOutline.effectDistance = new Vector2(7f, -7f);
+        guideOutline.useGraphicAlpha = false;
+
+        deniedGuideGroup = deniedGuideRoot.gameObject.AddComponent<CanvasGroup>();
+        deniedGuideGroup.blocksRaycasts = false;
+        deniedGuideGroup.interactable = false;
+        deniedGuideRoot.gameObject.SetActive(false);
+    }
+
     private static void AddNonBlockingCanvas(GameObject owner, int order)
     {
         Canvas canvas = owner.AddComponent<Canvas>();
@@ -1162,6 +1277,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         doneButton = doneRoot.gameObject.AddComponent<Button>();
         doneButton.targetGraphic = back;
         doneButton.onClick.AddListener(RequestRewardCompletion);
+
+        BattleInventoryDoneDeniedRelay deniedRelay =
+            doneRoot.gameObject.AddComponent<BattleInventoryDoneDeniedRelay>();
+        deniedRelay.Configure(this);
+
         doneRoot.gameObject.SetActive(false);
     }
 
@@ -1468,11 +1588,138 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         }
     }
 
+    private void ShowDenied(
+        string message,
+        int guideSlot = -1,
+        bool guideHand = false,
+        RectTransform shakeTarget = null)
+    {
+        EnsureOverlayCanvas();
+        if (deniedRoot == null || deniedText == null || deniedGroup == null)
+            return;
+
+        if (deniedRoutine != null)
+            StopCoroutine(deniedRoutine);
+
+        deniedText.text = message;
+        ConfigureDeniedGuide(guideSlot, guideHand);
+        deniedRoutine = StartCoroutine(DeniedRoutine(shakeTarget));
+        PlayRewardFeedback(deniedClip, RewardFeedbackTone.Denied);
+    }
+
+    private IEnumerator DeniedRoutine(RectTransform shakeTarget)
+    {
+        deniedRoot.gameObject.SetActive(true);
+        deniedRoot.localScale = Vector3.one;
+        deniedRoot.anchoredPosition = Vector2.zero;
+        deniedGroup.alpha = 1f;
+
+        Vector2 targetBasePosition = shakeTarget != null
+            ? shakeTarget.anchoredPosition
+            : Vector2.zero;
+
+        float duration = Mathf.Max(0.2f, deniedMessageDuration);
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+
+            float initial = Mathf.Clamp01(t / 0.16f);
+            float messageScale = initial < 0.5f
+                ? Mathf.Lerp(1f, 1.08f, initial * 2f)
+                : Mathf.Lerp(1.08f, 1f, (initial - 0.5f) * 2f);
+
+            float shakeEnvelope = Mathf.Pow(1f - Mathf.Clamp01(t / 0.30f), 2f);
+            float shake = Mathf.Sin(elapsed * 92f) * deniedShakePixels * shakeEnvelope;
+
+            deniedRoot.localScale = Vector3.one * messageScale;
+            deniedRoot.anchoredPosition = new Vector2(shake, 0f);
+            deniedGroup.alpha = t < 0.68f
+                ? 1f
+                : 1f - Mathf.Clamp01((t - 0.68f) / 0.32f);
+
+            if (shakeTarget != null)
+                shakeTarget.anchoredPosition = targetBasePosition + new Vector2(shake * 0.75f, 0f);
+
+            if (deniedGuideRoot != null && deniedGuideRoot.gameObject.activeSelf)
+            {
+                float pulse = 1f + Mathf.Sin(elapsed * 18f) * 0.06f;
+                deniedGuideRoot.localScale = Vector3.one * pulse;
+                if (deniedGuideGroup != null)
+                {
+                    deniedGuideGroup.alpha =
+                        Mathf.Lerp(0.48f, 1f, 0.5f + 0.5f * Mathf.Sin(elapsed * 13f));
+                }
+            }
+
+            yield return null;
+        }
+
+        if (shakeTarget != null)
+            shakeTarget.anchoredPosition = targetBasePosition;
+
+        deniedRoot.anchoredPosition = Vector2.zero;
+        deniedRoot.localScale = Vector3.one;
+        deniedRoot.gameObject.SetActive(false);
+
+        if (deniedGuideRoot != null)
+        {
+            deniedGuideRoot.localScale = Vector3.one;
+            deniedGuideRoot.gameObject.SetActive(false);
+        }
+
+        deniedRoutine = null;
+    }
+
+    private void ConfigureDeniedGuide(int guideSlot, bool guideHand)
+    {
+        if (deniedGuideRoot == null)
+            return;
+
+        RectTransform target = null;
+
+        if (guideHand && handGhostRoot != null && handGhostRoot.gameObject.activeSelf)
+            target = handGhostRoot;
+        else if (guideSlot >= 0)
+            target = ResolveSlotRect(guideSlot);
+
+        if (target == null)
+        {
+            deniedGuideRoot.gameObject.SetActive(false);
+            return;
+        }
+
+        deniedGuideRoot.position = RectToScreenPoint(target);
+        deniedGuideRoot.sizeDelta = new Vector2(
+            Mathf.Max(112f, target.rect.width + 20f),
+            Mathf.Max(112f, target.rect.height + 20f));
+        deniedGuideRoot.localScale = Vector3.one;
+
+        if (deniedGuideGroup != null)
+            deniedGuideGroup.alpha = 1f;
+
+        deniedGuideRoot.gameObject.SetActive(true);
+        deniedGuideRoot.SetAsLastSibling();
+    }
+
+    private static RectTransform ResolveSlotRect(int slotIndex)
+    {
+        if (slotIndex < 0)
+            return null;
+
+        return FindRect($"RewardLoadoutSlot_{slotIndex + 1}") ??
+               FindRect($"GridSlot_{slotIndex}") ??
+               FindRect($"BackpackCell_{slotIndex}");
+    }
+
     private enum RewardFeedbackTone
     {
         Select,
         Transfer,
-        Install
+        Install,
+        Denied
     }
 
     private void PlayRewardFeedback(AudioClip assignedClip, RewardFeedbackTone tone)
@@ -1511,9 +1758,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             case RewardFeedbackTone.Transfer:
                 return fallbackTransferClip ??=
                     CreateRewardFeedbackTone("RewardTransferSwish", 0.14f, 520f, 1180f, 0.08f);
-            default:
+            case RewardFeedbackTone.Install:
                 return fallbackInstallClip ??=
                     CreateRewardFeedbackTone("RewardInstallClick", 0.075f, 210f, 145f, 0.03f);
+            default:
+                return fallbackDeniedClip ??=
+                    CreateRewardFeedbackTone("RewardDeniedDull", 0.085f, 145f, 105f, 0.10f);
         }
     }
 
@@ -1563,6 +1813,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         SetTransferTrailsVisible(false);
         if (transferImpactRoot != null)
             transferImpactRoot.gameObject.SetActive(false);
+        if (deniedRoot != null)
+            deniedRoot.gameObject.SetActive(false);
+        if (deniedGuideRoot != null)
+            deniedGuideRoot.gameObject.SetActive(false);
+        deniedRoutine = null;
         if (trashRoot != null)
             trashRoot.gameObject.SetActive(false);
         if (doneRoot != null)
@@ -1716,6 +1971,22 @@ internal sealed class BattleInventoryPackDropTarget : MonoBehaviour, IDropHandle
     private BattleInventoryInteractionController owner;
     public void Configure(BattleInventoryInteractionController controller) => owner = controller;
     public void OnDrop(PointerEventData eventData) => owner?.HandlePackDrop(eventData);
+}
+
+internal sealed class BattleInventoryDoneDeniedRelay : MonoBehaviour, IPointerClickHandler
+{
+    private BattleInventoryInteractionController owner;
+
+    public void Configure(BattleInventoryInteractionController controller)
+    {
+        owner = controller;
+    }
+
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (eventData != null)
+            owner?.HandleDoneDeniedClick(eventData.button);
+    }
 }
 
 internal sealed class BattleInventoryTrashDropTarget : MonoBehaviour,
