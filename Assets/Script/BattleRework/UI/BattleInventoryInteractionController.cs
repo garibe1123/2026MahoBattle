@@ -1110,11 +1110,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         Outline impactOutline = transferImpactRoot.gameObject.AddComponent<Outline>();
         impactOutline.effectColor = accentCyan;
         impactOutline.effectDistance = new Vector2(8f, -8f);
+        impactOutline.useGraphicAlpha = false;
 
-        transferImpactGroup = transferImpactRoot.gameObject.AddComponent<CanvasGroup>();
-        transferImpactGroup.blocksRaycasts = false;
-        transferImpactGroup.interactable = false;
         AddNonBlockingCanvas(transferImpactRoot.gameObject, 2250);
+        transferImpactGroup = transferImpactRoot.GetComponent<CanvasGroup>();
         transferImpactRoot.gameObject.SetActive(false);
     }
 
