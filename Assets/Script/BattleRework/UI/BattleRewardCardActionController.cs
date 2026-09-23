@@ -838,10 +838,22 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                                    rewardFlow.TransferTargetSlot,
                                    rewardFlow.TransferToHand,
                                    selectedReward.rarity,
+                                   CommitRewardTransferArrival,
                                    CompleteRewardTransfer);
 
         if (!transferStarted)
+        {
+            CommitRewardTransferArrival();
             CompleteRewardTransfer();
+        }
+    }
+
+    private void CommitRewardTransferArrival()
+    {
+        if (rewardFlow == null || rewardFlow.Phase != BattleRewardPhase.Transferring)
+            return;
+
+        rewardFlow.CommitTransferArrival();
     }
 
     private void CompleteRewardTransfer()
