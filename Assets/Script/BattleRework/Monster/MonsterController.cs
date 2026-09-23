@@ -34,6 +34,7 @@ public class MonsterController : MonoBehaviour, IDamageable
     private float runtimeDamageMultiplier = 1f;
     private float runtimeMoveMultiplier = 1f;
     private bool dying;
+    private bool deathAnimationCompleted;
 
     private Vector2 facing = Vector2.right;
     private readonly List<float> skillCooldowns = new();
@@ -60,6 +61,16 @@ public class MonsterController : MonoBehaviour, IDamageable
     public bool ShieldEnabled => shieldEnabled;
     public float ShieldDurability => shieldDurability;
     public Vector2 Facing => facing;
+    public bool DeathAnimationCompleted => deathAnimationCompleted;
+    public bool IsBoss => definition != null && definition.category == MonsterCategory.Boss;
+    public bool IsElite => definition != null && definition.category == MonsterCategory.Elite;
+    public float DeathAnimationDuration =>
+        animator != null ? animator.GetStateDuration(EnemyAnimState.Die) : 0f;
+
+    public void SetFinalKillDeathPlayback(bool enabled)
+    {
+        animator?.SetUseUnscaledTime(enabled);
+    }
 
     private void Awake()
     {
@@ -100,6 +111,8 @@ public class MonsterController : MonoBehaviour, IDamageable
         onDeathStarted = deathStartedCallback;
 
         dying = false;
+        deathAnimationCompleted = false;
+        animator?.SetUseUnscaledTime(false);
         isDashing = false;
         dashCooldown = 0f;
         actionLockTimer = 0f;
@@ -725,6 +738,8 @@ public class MonsterController : MonoBehaviour, IDamageable
 
     private void NotifyDeath()
     {
+        deathAnimationCompleted = true;
+
         Action<MonsterController> callback = onDeath;
         onDeath = null;
         callback?.Invoke(this);
@@ -887,6 +902,8 @@ public class MonsterController : MonoBehaviour, IDamageable
         context = null;
         projectilePool = null;
         dying = true;
+        deathAnimationCompleted = false;
+        animator?.SetUseUnscaledTime(false);
         shieldEnabled = false;
         shieldDurability = 0f;
         shieldConfig = null;
