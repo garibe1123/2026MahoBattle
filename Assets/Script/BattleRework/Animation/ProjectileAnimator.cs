@@ -34,6 +34,12 @@ public class ProjectileAnimator : MonoBehaviour
             singleFrameCompletesNextTick: true);
     }
 
+    public void Stop(bool clearClip = true)
+    {
+        EnsureClipPlayer();
+        clipPlayer.Stop(clearClip);
+    }
+
     private void Update()
     {
         clipPlayer?.Tick(Time.deltaTime);
