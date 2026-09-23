@@ -742,7 +742,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         if (dialoguePhase == DialoguePhase.Hidden)
         {
-            BeginPendingDialogue();
+            if (!presenterEntryPending &&
+                presenterPhase != PresenterPhase.Hidden)
+            {
+                BeginPendingDialogue();
+            }
             return;
         }
 
@@ -785,8 +789,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             case DialoguePhase.Hidden:
                 ApplyDialogueOpenValue(0f);
 
-                if (mode != Mode.None && hasPendingCopy)
+                if (mode != Mode.None &&
+                    hasPendingCopy &&
+                    !presenterEntryPending &&
+                    presenterPhase != PresenterPhase.Hidden)
+                {
                     BeginPendingDialogue();
+                }
                 break;
 
             case DialoguePhase.Opening:
