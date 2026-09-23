@@ -5,6 +5,7 @@ public enum BattleRewardPhase
 {
     Inactive,
     Choosing,
+    Transferring,
     PackEditing
 }
 
@@ -37,6 +38,8 @@ public sealed class BattleRewardFlow : MonoBehaviour
     private BattleEquipmentSlot chosenRewardSlotRef;
     private BattleEquipmentStack hand;
     private bool handIsChosenReward;
+    private int transferTargetSlot = -1;
+    private bool transferToHand;
 
     private BattleRunManager subscribedRunManager;
     private BattleEquipmentSystem subscribedEquipmentSystem;
@@ -49,6 +52,8 @@ public sealed class BattleRewardFlow : MonoBehaviour
     public BattleEquipmentStack Hand => hand;
     public bool HasHand => !hand.IsEmpty;
     public bool HandIsChosenReward => HasHand && handIsChosenReward;
+    public int TransferTargetSlot => transferTargetSlot;
+    public bool TransferToHand => phase == BattleRewardPhase.Transferring && transferToHand;
     public bool CanConfirmChoice => phase == BattleRewardPhase.Choosing && SelectedChoice != null;
     public bool CanComplete => phase == BattleRewardPhase.PackEditing && !HasHand;
 
@@ -175,6 +180,8 @@ public sealed class BattleRewardFlow : MonoBehaviour
         chosenRewardSlotRef = null;
         hand.Clear();
         handIsChosenReward = false;
+        transferTargetSlot = -1;
+        transferToHand = false;
         phase = BattleRewardPhase.Choosing;
         RaiseChanged();
     }
@@ -205,8 +212,8 @@ public sealed class BattleRewardFlow : MonoBehaviour
     }
 
     /// <summary>
-    /// 선택한 Reward를 확정하고 PACK 편집 단계로 이동합니다.
-    /// 빈 슬롯이 있으면 자동 저장하고, 없으면 Hand에 둡니다.
+    /// 선택한 Reward를 잠그고 Transfer Presentation 단계로 이동합니다.
+    /// 실제 PACK 데이터 변경은 CompleteTransfer()가 도착 시점에 수행합니다.
     /// </summary>
     public bool ConfirmSelectedChoice()
     {
@@ -225,20 +232,48 @@ public sealed class BattleRewardFlow : MonoBehaviour
         hand.Clear();
         handIsChosenReward = false;
 
-        int empty = equipmentSystem.FindFirstEmptyUnlockedSlot();
-        if (empty >= 0 && equipmentSystem.PlaceIntoSlot(empty, reward))
-        {
-            chosenRewardCommitted = true;
-            chosenRewardSlot = empty;
-            equipmentSystem.TryGetSlot(empty, out chosenRewardSlotRef);
-        }
-        else
-        {
-            hand = BattleEquipmentStack.Create(reward);
-            handIsChosenReward = true;
-        }
+        transferTargetSlot = equipmentSystem.FindFirstEmptyUnlockedSlot();
+        transferToHand = transferTargetSlot < 0;
 
         selectedChoiceIndex = -1;
+        phase = BattleRewardPhase.Transferring;
+        RaiseChanged();
+        return true;
+    }
+
+    /// <summary>
+    /// Reward Icon이 PACK/Hand 목적지에 도착한 순간 호출합니다.
+    /// 빈 슬롯 계획이 여전히 유효하면 그 슬롯에 Commit하고, 실패하면 Hand로 안전하게 전환합니다.
+    /// </summary>
+    public bool CompleteTransfer()
+    {
+        RefreshFromRunState();
+        if (phase != BattleRewardPhase.Transferring || equipmentSystem == null || chosenReward == null)
+            return false;
+
+        bool placed = false;
+        if (!transferToHand && transferTargetSlot >= 0)
+        {
+            placed = equipmentSystem.PlaceIntoSlot(transferTargetSlot, chosenReward);
+            if (placed)
+            {
+                chosenRewardCommitted = true;
+                chosenRewardSlot = transferTargetSlot;
+                equipmentSystem.TryGetSlot(transferTargetSlot, out chosenRewardSlotRef);
+            }
+        }
+
+        if (!placed)
+        {
+            hand = BattleEquipmentStack.Create(chosenReward);
+            handIsChosenReward = true;
+            chosenRewardCommitted = false;
+            chosenRewardSlot = -1;
+            chosenRewardSlotRef = null;
+            transferToHand = true;
+        }
+
+        transferTargetSlot = -1;
         phase = BattleRewardPhase.PackEditing;
         RaiseChanged();
         return true;
@@ -392,7 +427,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
     public bool SkipReward()
     {
         RefreshFromRunState();
-        if (runManager == null || phase == BattleRewardPhase.Inactive)
+        if (runManager == null || phase == BattleRewardPhase.Inactive || phase == BattleRewardPhase.Transferring)
             return false;
 
         if (phase == BattleRewardPhase.PackEditing && (HasHand || chosenRewardCommitted))
@@ -412,6 +447,8 @@ public sealed class BattleRewardFlow : MonoBehaviour
         chosenRewardSlotRef = null;
         hand.Clear();
         handIsChosenReward = false;
+        transferTargetSlot = -1;
+        transferToHand = false;
 
         if (notify)
             RaiseChanged();
