@@ -751,9 +751,11 @@ public class BattleRoomManager : MonoBehaviour
         if (activeMonsters.Count != 0)
             return;
 
-        finalKillTarget = firstDeathCandidateThisFrame != null
-            ? firstDeathCandidateThisFrame
-            : monster;
+        MonsterController candidate = firstDeathCandidateThisFrame;
+        finalKillTarget =
+            candidate != null && deadMonstersAwaitingReturn.Contains(candidate)
+                ? candidate
+                : monster;
 
         // Die() invokes this callback before starting its Die clip, so the final target can switch
         // to unscaled playback before the first death-animation frame advances under LastKill slow motion.
