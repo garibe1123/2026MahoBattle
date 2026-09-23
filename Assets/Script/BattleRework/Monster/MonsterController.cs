@@ -14,6 +14,7 @@ public class MonsterController : MonoBehaviour, IDamageable
     private Transform target;
     private ProjectilePooler projectilePool;
     private Action<MonsterController> onDeath;
+    private Action<MonsterController> onDeathStarted;
 
     private NavMeshAgent agent;
     private EnemyAnimator animator;
@@ -81,7 +82,8 @@ public class MonsterController : MonoBehaviour, IDamageable
         BattleContext battleContext,
         Transform playerTarget,
         ProjectilePooler enemyProjectilePool,
-        Action<MonsterController> deathCallback)
+        Action<MonsterController> deathCallback,
+        Action<MonsterController> deathStartedCallback = null)
     {
         if (monsterDefinition == null)
         {
@@ -95,6 +97,7 @@ public class MonsterController : MonoBehaviour, IDamageable
         target = playerTarget;
         projectilePool = enemyProjectilePool;
         onDeath = deathCallback;
+        onDeathStarted = deathStartedCallback;
 
         dying = false;
         isDashing = false;
@@ -689,6 +692,11 @@ public class MonsterController : MonoBehaviour, IDamageable
             return;
 
         dying = true;
+
+        Action<MonsterController> startedCallback = onDeathStarted;
+        onDeathStarted = null;
+        startedCallback?.Invoke(this);
+
         actionLockTimer = 0f;
         hasPathDestination = false;
         StopAllCoroutines();
@@ -873,6 +881,7 @@ public class MonsterController : MonoBehaviour, IDamageable
     {
         StopAllCoroutines();
         onDeath = null;
+        onDeathStarted = null;
         target = null;
         definition = null;
         context = null;
