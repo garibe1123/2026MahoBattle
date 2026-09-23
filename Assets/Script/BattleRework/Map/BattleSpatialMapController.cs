@@ -52,6 +52,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
     [SerializeField, Range(0f, 0.75f)] private float mapConfirmCameraShake = 0.22f;
     [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.105f;
+    [Header("Stage Map - Route Commit")]
+    [SerializeField, Range(0.05f, 0.35f)] private float mapRouteShutdownStep = 0.09f;
+    [SerializeField, Range(0.18f, 0.75f)] private float mapRouteTraceDuration = 0.42f;
+    [SerializeField, Range(0.10f, 0.50f)] private float mapRouteLockHold = 0.24f;
+    [SerializeField] private Color mapRouteSelected = new(0.18f, 0.94f, 0.96f, 1f);
+    [SerializeField] private Color mapRouteDenied = new(1f, 0.20f, 0.48f, 1f);
     [Tooltip("Camera focus may move a World-Space node under the cursor. This screen-space hysteresis prevents hover enter/exit feedback loops.")]
     [SerializeField, Range(8f, 160f)] private float mapHoverLatchPixels = 56f;
     [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
@@ -101,6 +107,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private bool mapSelectionActive;
     private Button trackedStageMapButton;
     private Vector2 trackedStageMapPointerAnchor;
+    private RectTransform routeStatusRoot;
+    private Text routeStatusText;
+    private CanvasGroup routeStatusGroup;
+    private Coroutine mapDeniedRoutine;
+    private AudioSource mapFeedbackAudio;
+    private AudioClip mapDeniedFallbackClip;
     private static Sprite mapRatingStarSprite;
     private float resolvedMapHorizontalSpacing;
     private float resolvedMapVerticalSpacing;
@@ -1296,7 +1308,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         {
             BattleNodeData startNode = startNodes[i];
             if (startNode != null)
-                DrawMapLink(startMarkerPosition, ResolveNodeMapPosition(startNode), mapCenter);
+                DrawMapLink("__START__", startNode.id, startMarkerPosition, ResolveNodeMapPosition(startNode), mapCenter);
         }
 
         if (graph.nodes != null)
@@ -1309,7 +1321,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
                 List<BattleNodeData> next = graph.GetNextNodes(node);
                 for (int n = 0; n < next.Count; n++)
-                    DrawMapLink(ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter);
+                    DrawMapLink(node.id, next[n].id, ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter);
             }
         }
 
@@ -1420,6 +1432,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             (position.y - mapCenter.y) * resolvedMapVerticalSpacing - 20f);
         float size = mapNodeSize * (node.type == BattleNodeType.Elite ? 1.18f : 1f);
         rect.sizeDelta = Vector2.one * size;
+
+        BattleStageMapDeniedPointerRelay denyRelay =
+            go.AddComponent<BattleStageMapDeniedPointerRelay>();
+        denyRelay.Configure(this, rect, selectable, current);
 
         if (selectable && runManager != null)
         {
@@ -1719,10 +1735,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
     }
 
-    private void DrawMapLink(Vector2 from, Vector2 to, Vector2 center)
+    private void DrawMapLink(string fromId, string toId, Vector2 from, Vector2 to, Vector2 center)
     {
-        Vector2 a = new((from.x - center.x) * resolvedMapHorizontalSpacing, (from.y - center.y) * resolvedMapVerticalSpacing - 20f);
-        Vector2 b = new((to.x - center.x) * resolvedMapHorizontalSpacing, (to.y - center.y) * resolvedMapVerticalSpacing - 20f);
+        Vector2 a = new(
+            (from.x - center.x) * resolvedMapHorizontalSpacing,
+            (from.y - center.y) * resolvedMapVerticalSpacing - 20f);
+        Vector2 b = new(
+            (to.x - center.x) * resolvedMapHorizontalSpacing,
+            (to.y - center.y) * resolvedMapVerticalSpacing - 20f);
         Vector2 delta = b - a;
         float length = delta.magnitude;
         if (length < 1f)
@@ -1738,7 +1758,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = (a + b) * 0.5f;
         rect.sizeDelta = new Vector2(length, 4f);
-        rect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+        rect.localRotation = Quaternion.Euler(
+            0f,
+            0f,
+            Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+
+        BattleStageMapLinkVisual link = go.AddComponent<BattleStageMapLinkVisual>();
+        link.Configure(fromId, toId, image, rect, a, b, mapLink);
+
         go.transform.SetAsFirstSibling();
     }
 
@@ -1997,14 +2024,37 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapRevealRoutine = null;
         }
 
+        BattleNodeData selectedNodeData = graph != null ? graph.FindNode(nodeId) : null;
+        string routeFromId =
+            runManager == null || runManager.IsInStartArea || runManager.CurrentNode == null
+                ? "__START__"
+                : runManager.CurrentNode.id;
+
+        BattleStageMapLinkVisual[] links = stageMapPanel != null
+            ? stageMapPanel.GetComponentsInChildren<BattleStageMapLinkVisual>(true)
+            : Array.Empty<BattleStageMapLinkVisual>();
+
+        BattleStageMapLinkVisual selectedLink = null;
+        List<BattleStageMapLinkVisual> nonSelected = new();
+        for (int i = 0; i < links.Length; i++)
+        {
+            BattleStageMapLinkVisual link = links[i];
+            if (link == null)
+                continue;
+
+            if (link.Matches(routeFromId, nodeId))
+                selectedLink = link;
+            else
+                nonSelected.Add(link);
+        }
+
         float duration = Mathf.Max(0.15f, mapConfirmDuration);
         float elapsed = 0f;
         float boardBaseScale = stageMapPanel != null ? stageMapPanel.localScale.x : 1f;
 
         if (battleCameraController == null)
             battleCameraController = FindFirstObjectByType<BattleCameraController>();
-        if (battleCameraController != null)
-            battleCameraController.PlaySelectionConfirmShake(mapConfirmCameraShake, duration);
+        battleCameraController?.PlaySelectionConfirmShake(mapConfirmCameraShake, duration);
 
         while (elapsed < duration && stageMapPanel != null)
         {
@@ -2017,8 +2067,74 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 1.7f)) * decay;
             stageMapPanel.localScale = Vector3.one * boardPulse;
 
+            if (selectedNode != null)
+            {
+                float nodePulse = 1f + Mathf.Sin(Mathf.PI * t) * 0.12f;
+                selectedNode.localScale = Vector3.one * nodePulse;
+            }
+
             yield return null;
         }
+
+        if (selectedNode != null)
+            selectedNode.localScale = Vector3.one;
+        if (stageMapPanel != null)
+            stageMapPanel.localScale = Vector3.one;
+
+        // Shut down every route that is not the committed branch.
+        for (int i = 0; i < nonSelected.Count; i++)
+        {
+            if (nonSelected[i] != null)
+                nonSelected[i].SetSuppressed(true);
+
+            if (mapRouteShutdownStep > 0f)
+                yield return WaitUnscaledSeconds(mapRouteShutdownStep);
+        }
+
+        EnsureRouteStatus();
+        SetRouteStatus(
+            true,
+            selectedNodeData != null
+                ? $"ROUTE LOCKED  /  STAGE {Mathf.Max(1, selectedNodeData.depth + 1):00}"
+                : "ROUTE LOCKED");
+
+        if (selectedLink != null)
+        {
+            float traceElapsed = 0f;
+            float traceDuration = Mathf.Max(0.05f, mapRouteTraceDuration);
+            while (traceElapsed < traceDuration)
+            {
+                traceElapsed += Time.unscaledDeltaTime;
+                float t = Mathf.Clamp01(traceElapsed / traceDuration);
+                float eased = t * t * (3f - 2f * t);
+
+                selectedLink.SetTrace(eased, mapRouteSelected);
+
+                if (battleCameraController != null && stageMapPanel != null)
+                {
+                    Vector2 point = selectedLink.Evaluate(eased);
+                    Rect rect = stageMapPanel.rect;
+                    Vector2 normalized = new(
+                        rect.width > 0.001f
+                            ? Mathf.Clamp(point.x / (rect.width * 0.5f), -1f, 1f)
+                            : 0f,
+                        rect.height > 0.001f
+                            ? Mathf.Clamp(point.y / (rect.height * 0.5f), -1f, 1f)
+                            : 0f);
+
+                    battleCameraController.SetMapCursorTracking(true, normalized * 0.55f);
+                }
+
+                yield return null;
+            }
+
+            selectedLink.SetTrace(1f, mapRouteSelected);
+        }
+
+        if (mapRouteLockHold > 0f)
+            yield return WaitUnscaledSeconds(mapRouteLockHold);
+
+        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
 
         if (stageMapPanel != null)
         {
@@ -2026,11 +2142,158 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapPanel.localScale = Vector3.one;
         }
 
+        SetRouteStatus(false, string.Empty);
         stageMapConfirmRoutine = null;
 
-        // One click owns the decision until the map phase actually exits.
-        // HideStageMapImmediate/next map entry is responsible for unlocking input.
+        // Existing RunManager/StageTransition remains the authoritative node-entry path.
         runManager?.SelectNextNode(nodeId);
+    }
+
+    private static IEnumerator WaitUnscaledSeconds(float duration)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+    }
+
+    private void EnsureRouteStatus()
+    {
+        if (stageMapPanel == null || routeStatusRoot != null)
+            return;
+
+        GameObject root = new("RouteCommitStatus");
+        root.transform.SetParent(stageMapPanel, false);
+        routeStatusRoot = root.AddComponent<RectTransform>();
+        routeStatusRoot.anchorMin = routeStatusRoot.anchorMax = new Vector2(0.5f, 0f);
+        routeStatusRoot.pivot = new Vector2(0.5f, 0f);
+        routeStatusRoot.anchoredPosition = new Vector2(0f, 26f);
+        routeStatusRoot.sizeDelta = new Vector2(560f, 56f);
+
+        Image back = root.AddComponent<Image>();
+        back.color = new Color(0.02f, 0.025f, 0.035f, 0.96f);
+        back.raycastTarget = false;
+
+        Outline outline = root.AddComponent<Outline>();
+        outline.effectColor = mapRouteSelected;
+        outline.effectDistance = new Vector2(4f, -4f);
+        outline.useGraphicAlpha = false;
+
+        routeStatusText = root.AddComponent<Text>();
+        routeStatusText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        routeStatusText.fontSize = 18;
+        routeStatusText.fontStyle = FontStyle.Bold;
+        routeStatusText.alignment = TextAnchor.MiddleCenter;
+        routeStatusText.color = Color.white;
+        routeStatusText.raycastTarget = false;
+
+        routeStatusGroup = root.AddComponent<CanvasGroup>();
+        routeStatusGroup.blocksRaycasts = false;
+        routeStatusGroup.interactable = false;
+        routeStatusRoot.gameObject.SetActive(false);
+    }
+
+    private void SetRouteStatus(bool visible, string message)
+    {
+        EnsureRouteStatus();
+        if (routeStatusRoot == null)
+            return;
+
+        if (routeStatusText != null)
+            routeStatusText.text = message ?? string.Empty;
+
+        routeStatusRoot.gameObject.SetActive(visible);
+        if (routeStatusGroup != null)
+            routeStatusGroup.alpha = visible ? 1f : 0f;
+        if (visible)
+            routeStatusRoot.SetAsLastSibling();
+    }
+
+    internal void ShowMapDenied(RectTransform nodeRect)
+    {
+        if (!mapSelectionActive || stageMapSelectionLocked || nodeRect == null)
+            return;
+
+        if (mapDeniedRoutine != null)
+            StopCoroutine(mapDeniedRoutine);
+        mapDeniedRoutine = StartCoroutine(MapDeniedRoutine(nodeRect));
+        PlayMapDeniedSound();
+    }
+
+    private IEnumerator MapDeniedRoutine(RectTransform nodeRect)
+    {
+        EnsureRouteStatus();
+        SetRouteStatus(true, "ROUTE UNAVAILABLE");
+
+        Vector2 basePosition = nodeRect.anchoredPosition;
+        Vector3 baseScale = nodeRect.localScale;
+        float elapsed = 0f;
+        const float duration = 0.34f;
+
+        while (elapsed < duration && nodeRect != null)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float envelope = Mathf.Pow(1f - t, 2f);
+            float shake = Mathf.Sin(elapsed * 90f) * 7f * envelope;
+
+            nodeRect.anchoredPosition = basePosition + new Vector2(shake, 0f);
+            nodeRect.localScale = baseScale * (1f + 0.05f * envelope);
+            yield return null;
+        }
+
+        if (nodeRect != null)
+        {
+            nodeRect.anchoredPosition = basePosition;
+            nodeRect.localScale = baseScale;
+        }
+
+        yield return WaitUnscaledSeconds(0.30f);
+        SetRouteStatus(false, string.Empty);
+        mapDeniedRoutine = null;
+    }
+
+    private void PlayMapDeniedSound()
+    {
+        if (mapFeedbackAudio == null)
+        {
+            mapFeedbackAudio = GetComponent<AudioSource>();
+            if (mapFeedbackAudio == null)
+                mapFeedbackAudio = gameObject.AddComponent<AudioSource>();
+            mapFeedbackAudio.playOnAwake = false;
+            mapFeedbackAudio.loop = false;
+            mapFeedbackAudio.spatialBlend = 0f;
+            mapFeedbackAudio.volume = 0.25f;
+        }
+
+        if (mapDeniedFallbackClip == null)
+        {
+            const int sampleRate = 22050;
+            const float duration = 0.08f;
+            int sampleCount = Mathf.RoundToInt(sampleRate * duration);
+            float[] samples = new float[sampleCount];
+            float phase = 0f;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                float t = i / (float)Mathf.Max(1, sampleCount - 1);
+                float hz = Mathf.Lerp(150f, 105f, t);
+                phase += Mathf.PI * 2f * hz / sampleRate;
+                float envelope = Mathf.Pow(1f - t, 2f);
+                samples[i] = Mathf.Sin(phase) * envelope * 0.28f;
+            }
+
+            mapDeniedFallbackClip = AudioClip.Create(
+                "MapRouteDenied",
+                sampleCount,
+                1,
+                sampleRate,
+                false);
+            mapDeniedFallbackClip.SetData(samples, 0);
+        }
+
+        mapFeedbackAudio.PlayOneShot(mapDeniedFallbackClip);
     }
 
     private void HideStageMapImmediate()
@@ -2043,6 +2306,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             StopCoroutine(stageMapConfirmRoutine);
         stageMapConfirmRoutine = null;
         stageMapSelectionLocked = false;
+
+        if (mapDeniedRoutine != null)
+            StopCoroutine(mapDeniedRoutine);
+        mapDeniedRoutine = null;
+        SetRouteStatus(false, string.Empty);
+
         ClearTrackedStageMapHover();
 
         if (stageMapCanvasGroup != null)
@@ -2252,3 +2521,113 @@ internal static class BattleStageSelectTestDefaultsEditor
     }
 }
 #endif
+
+
+internal sealed class BattleStageMapLinkVisual : MonoBehaviour
+{
+    private string fromId;
+    private string toId;
+    private Image image;
+    private RectTransform rect;
+    private Vector2 start;
+    private Vector2 end;
+    private Color baseColor;
+    private Vector2 baseSize;
+
+    public void Configure(
+        string sourceId,
+        string destinationId,
+        Image linkImage,
+        RectTransform linkRect,
+        Vector2 startPoint,
+        Vector2 endPoint,
+        Color color)
+    {
+        fromId = sourceId;
+        toId = destinationId;
+        image = linkImage;
+        rect = linkRect;
+        start = startPoint;
+        end = endPoint;
+        baseColor = color;
+        baseSize = rect != null ? rect.sizeDelta : Vector2.zero;
+    }
+
+    public bool Matches(string sourceId, string destinationId)
+    {
+        return string.Equals(fromId, sourceId, StringComparison.Ordinal) &&
+               string.Equals(toId, destinationId, StringComparison.Ordinal);
+    }
+
+    public Vector2 Evaluate(float t)
+    {
+        return Vector2.Lerp(start, end, Mathf.Clamp01(t));
+    }
+
+    public void SetSuppressed(bool suppressed)
+    {
+        if (image != null)
+        {
+            Color color = baseColor;
+            color.a = suppressed ? 0.06f : baseColor.a;
+            image.color = color;
+        }
+
+        if (rect != null)
+        {
+            Vector2 size = baseSize;
+            size.y = suppressed ? 1f : Mathf.Max(1f, baseSize.y);
+            rect.sizeDelta = size;
+        }
+    }
+
+    public void SetTrace(float amount, Color selectedColor)
+    {
+        if (image != null)
+        {
+            Color color = Color.Lerp(baseColor, selectedColor, Mathf.Clamp01(amount));
+            color.a = Mathf.Lerp(baseColor.a, 1f, Mathf.Clamp01(amount));
+            image.color = color;
+        }
+
+        if (rect != null)
+        {
+            Vector2 size = baseSize;
+            size.y = Mathf.Lerp(Mathf.Max(1f, baseSize.y), 8f, Mathf.Clamp01(amount));
+            rect.sizeDelta = size;
+        }
+    }
+}
+
+internal sealed class BattleStageMapDeniedPointerRelay : MonoBehaviour, IPointerClickHandler
+{
+    private BattleSpatialMapController owner;
+    private RectTransform rect;
+    private bool selectable;
+    private bool current;
+
+    public void Configure(
+        BattleSpatialMapController controller,
+        RectTransform nodeRect,
+        bool canSelect,
+        bool isCurrent)
+    {
+        owner = controller;
+        rect = nodeRect;
+        selectable = canSelect;
+        current = isCurrent;
+    }
+
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (eventData == null ||
+            eventData.button != PointerEventData.InputButton.Left ||
+            selectable ||
+            current)
+        {
+            return;
+        }
+
+        owner?.ShowMapDenied(rect);
+    }
+}
