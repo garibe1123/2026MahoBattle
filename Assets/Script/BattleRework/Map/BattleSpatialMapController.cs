@@ -5,6 +5,7 @@ using System.Reflection;
 using NavMeshPlus.Components;
 using UnityEngine;
 using UnityEngine.AI;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
@@ -2044,7 +2045,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
             if (link.Matches(routeFromId, nodeId))
                 selectedLink = link;
-            else
+            else if (link.StartsAt(routeFromId))
                 nonSelected.Add(link);
         }
 
@@ -2557,6 +2558,11 @@ internal sealed class BattleStageMapLinkVisual : MonoBehaviour
     {
         return string.Equals(fromId, sourceId, StringComparison.Ordinal) &&
                string.Equals(toId, destinationId, StringComparison.Ordinal);
+    }
+
+    public bool StartsAt(string sourceId)
+    {
+        return string.Equals(fromId, sourceId, StringComparison.Ordinal);
     }
 
     public Vector2 Evaluate(float t)
