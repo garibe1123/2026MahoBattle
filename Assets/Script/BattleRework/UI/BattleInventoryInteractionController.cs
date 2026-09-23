@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -57,6 +58,16 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     [SerializeField] private Vector2 handMouseOffset = new(72f, -72f);
     [SerializeField] private Vector2 handPadOffset = new(92f, 0f);
 
+    [Header("Reward Transfer")]
+    [SerializeField, Range(0.18f, 0.28f)] private float rewardTransferDuration = 0.23f;
+    [SerializeField, Range(30f, 160f)] private float rewardTransferArcHeight = 90f;
+
+    [Header("Optional Reward Feedback Audio")]
+    [SerializeField] private AudioClip rewardSelectClip;
+    [SerializeField] private AudioClip rewardTransferClip;
+    [SerializeField] private AudioClip rewardInstallClip;
+    [SerializeField] private AudioClip deniedClip;
+
     private Canvas interactionCanvas;
     private RectTransform interactionRoot;
 
@@ -64,6 +75,28 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private Image dragGhostIcon;
     private RectTransform handGhostRoot;
     private Image handGhostIcon;
+
+    private RectTransform transferGhostRoot;
+    private Image transferGhostIcon;
+    private Outline transferGhostOutline;
+    private readonly RectTransform[] transferTrailRoots = new RectTransform[3];
+    private readonly Image[] transferTrailIcons = new Image[3];
+    private RectTransform transferImpactRoot;
+    private CanvasGroup transferImpactGroup;
+
+    private RectTransform deniedRoot;
+    private Text deniedText;
+    private CanvasGroup deniedGroup;
+    private RectTransform deniedGuideRoot;
+    private CanvasGroup deniedGuideGroup;
+
+    private AudioSource feedbackAudio;
+    private AudioClip fallbackSelectClip;
+    private AudioClip fallbackTransferClip;
+    private AudioClip fallbackInstallClip;
+    private AudioClip fallbackDeniedClip;
+    private Coroutine rewardTransferRoutine;
+    private Coroutine deniedRoutine;
 
     private RectTransform trashRoot;
     private Image trashBack;
@@ -446,9 +479,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotDrop(int targetIndex, PointerEventData eventData)
     {
-        if (discardModalOpen || equipmentSystem == null || eventData == null ||
-            !equipmentSystem.IsSlotUnlocked(targetIndex))
+        if (discardModalOpen || equipmentSystem == null || eventData == null)
             return;
+
+        if (!equipmentSystem.IsSlotUnlocked(targetIndex))
+        {
+            if (IsRewardPackEditing)
+                ShowDenied("LOCKED  /  PACK SLOT REQUIRED", targetIndex);
+            return;
+        }
 
         ActivateMouseMode();
 
@@ -466,7 +505,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             return;
 
         if (!equipmentSystem.SwapSlots(sourceIndex, targetIndex))
+        {
+            ShowDenied("CANNOT SWAP", targetIndex);
             return;
+        }
 
         selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
         padSelectedSlot = targetIndex;
@@ -482,11 +524,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotClick(int slotIndex, BattleInventorySurface surface, PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left || discardModalOpen || equipmentSystem == null ||
-            !equipmentSystem.IsSlotUnlocked(slotIndex))
+        if (button != PointerEventData.InputButton.Left || discardModalOpen || equipmentSystem == null)
             return;
 
         ActivateMouseMode();
+
+        if (!equipmentSystem.IsSlotUnlocked(slotIndex))
+        {
+            if (IsRewardPackEditing)
+                ShowDenied("LOCKED  /  PACK SLOT REQUIRED", slotIndex);
+            return;
+        }
 
         if (IsReward())
         {
@@ -500,6 +548,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 {
                     selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
                     FlashSlot(slotIndex);
+                    PlayFeedbackClip(rewardInstallClip, FeedbackTone.Install);
+                }
+                else
+                {
+                    ShowDenied("CANNOT PLACE HERE", slotIndex);
                 }
                 return;
             }
@@ -722,6 +775,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 selectedRewardSlot = -1;
                 padPickedSlot = -1;
                 FlashSlot(padSelectedSlot);
+                PlayFeedbackClip(rewardInstallClip, FeedbackTone.Install);
+            }
+            else
+            {
+                ShowDenied("CANNOT PLACE HERE", padSelectedSlot);
             }
             return;
         }
@@ -755,6 +813,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             rewardFlow.SyncChosenRewardLocation();
             FlashSlot(padSelectedSlot);
             padPickedSlot = -1;
+        }
+        else
+        {
+            ShowDenied("CANNOT SWAP", padSelectedSlot);
         }
     }
 
@@ -794,15 +856,29 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void RequestRewardCompletion()
     {
-        if (BattlePauseController.IsPaused ||
-            !IsRewardPackEditing ||
-            rewardFlow == null ||
-            !rewardFlow.CanComplete)
+        if (BattlePauseController.IsPaused || !IsRewardPackEditing || rewardFlow == null)
+            return;
+
+        if (!rewardFlow.CanComplete)
         {
+            ShowDenied(
+                rewardFlow.HasHand ? "PLACE OR TRASH HELD ITEM" : "REWARD ACTION INCOMPLETE",
+                -1,
+                rewardFlow.HasHand);
             return;
         }
 
-        rewardFlow.CompleteReward();
+        if (!rewardFlow.CompleteReward())
+            ShowDenied("REWARD ACTION INCOMPLETE");
+    }
+
+    internal void HandleDoneDeniedClick(PointerEventData.InputButton button)
+    {
+        if (button != PointerEventData.InputButton.Left || !IsRewardPackEditing || rewardFlow == null)
+            return;
+
+        if (!rewardFlow.CanComplete)
+            RequestRewardCompletion();
     }
 
     private int FindFirstUnlockedSlot()
@@ -1004,6 +1080,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         BuildDragGhost();
         BuildRewardHandGhost();
+        BuildRewardTransferVisuals();
+        BuildDeniedFeedback();
         BuildTrash();
         BuildRewardDoneUi();
         BuildDiscardConfirm();
@@ -1041,6 +1119,81 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         Center(handGhostIcon.rectTransform);
         handGhostIcon.raycastTarget = false;
         handGhostRoot.gameObject.SetActive(false);
+    }
+
+    private void BuildRewardTransferVisuals()
+    {
+        transferGhostRoot = CreateRect(interactionRoot, "RewardTransferGhost", new Vector2(112f, 112f));
+        Image back = transferGhostRoot.gameObject.AddComponent<Image>();
+        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
+        back.raycastTarget = false;
+        transferGhostOutline = transferGhostRoot.gameObject.AddComponent<Outline>();
+        transferGhostOutline.effectColor = accentYellow;
+        transferGhostOutline.effectDistance = new Vector2(6f, -6f);
+        AddNonBlockingCanvas(transferGhostRoot.gameObject, 2240);
+
+        transferGhostIcon = CreateImage(transferGhostRoot, "Icon", new Vector2(88f, 88f));
+        Center(transferGhostIcon.rectTransform);
+        transferGhostIcon.raycastTarget = false;
+        transferGhostRoot.gameObject.SetActive(false);
+
+        for (int i = 0; i < transferTrailRoots.Length; i++)
+        {
+            RectTransform trail = CreateRect(interactionRoot, $"RewardTransferAfterimage_{i + 1}", new Vector2(96f, 96f));
+            Image icon = trail.gameObject.AddComponent<Image>();
+            icon.preserveAspect = true;
+            icon.raycastTarget = false;
+            AddNonBlockingCanvas(trail.gameObject, 2230 - i);
+            trail.gameObject.SetActive(false);
+            transferTrailRoots[i] = trail;
+            transferTrailIcons[i] = icon;
+        }
+
+        transferImpactRoot = CreateRect(interactionRoot, "RewardTransferImpact", new Vector2(126f, 126f));
+        Image impact = transferImpactRoot.gameObject.AddComponent<Image>();
+        impact.color = Color.clear;
+        impact.raycastTarget = false;
+        Outline impactOutline = transferImpactRoot.gameObject.AddComponent<Outline>();
+        impactOutline.effectColor = accentCyan;
+        impactOutline.effectDistance = new Vector2(8f, -8f);
+        transferImpactGroup = transferImpactRoot.gameObject.AddComponent<CanvasGroup>();
+        transferImpactGroup.blocksRaycasts = false;
+        transferImpactGroup.interactable = false;
+        AddNonBlockingCanvas(transferImpactRoot.gameObject, 2250);
+        transferImpactRoot.gameObject.SetActive(false);
+    }
+
+    private void BuildDeniedFeedback()
+    {
+        deniedRoot = CreateRect(interactionRoot, "InventoryDeniedFeedback", new Vector2(520f, 76f));
+        deniedRoot.anchorMin = deniedRoot.anchorMax = new Vector2(0.5f, 0.18f);
+        deniedRoot.anchoredPosition = Vector2.zero;
+
+        Image back = deniedRoot.gameObject.AddComponent<Image>();
+        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
+        back.raycastTarget = false;
+        Outline outline = deniedRoot.gameObject.AddComponent<Outline>();
+        outline.effectColor = accentPink;
+        outline.effectDistance = new Vector2(5f, -5f);
+
+        deniedText = CreateText(deniedRoot, string.Empty, 18, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
+        Stretch(deniedText.rectTransform);
+        deniedGroup = deniedRoot.gameObject.AddComponent<CanvasGroup>();
+        deniedGroup.blocksRaycasts = false;
+        deniedGroup.interactable = false;
+        deniedRoot.gameObject.SetActive(false);
+
+        deniedGuideRoot = CreateRect(interactionRoot, "InventoryDeniedTargetGuide", new Vector2(124f, 124f));
+        Image guideImage = deniedGuideRoot.gameObject.AddComponent<Image>();
+        guideImage.color = Color.clear;
+        guideImage.raycastTarget = false;
+        Outline guideOutline = deniedGuideRoot.gameObject.AddComponent<Outline>();
+        guideOutline.effectColor = accentPink;
+        guideOutline.effectDistance = new Vector2(7f, -7f);
+        deniedGuideGroup = deniedGuideRoot.gameObject.AddComponent<CanvasGroup>();
+        deniedGuideGroup.blocksRaycasts = false;
+        deniedGuideGroup.interactable = false;
+        deniedGuideRoot.gameObject.SetActive(false);
     }
 
     private static void AddNonBlockingCanvas(GameObject owner, int order)
@@ -1088,6 +1241,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         doneButton = doneRoot.gameObject.AddComponent<Button>();
         doneButton.targetGraphic = back;
         doneButton.onClick.AddListener(RequestRewardCompletion);
+
+        BattleInventoryDoneDenyRelay relay = doneRoot.gameObject.AddComponent<BattleInventoryDoneDenyRelay>();
+        relay.Configure(this);
+
         doneRoot.gameObject.SetActive(false);
     }
 
@@ -1146,6 +1303,386 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             confirmNoText.color = inkColor;
     }
 
+    public void PlayRewardSelectFeedback()
+    {
+        PlayFeedbackClip(rewardSelectClip, FeedbackTone.Select);
+    }
+
+    public bool PlayRewardTransfer(
+        RectTransform sourceRect,
+        BattleEquipmentSO equipment,
+        int targetSlot,
+        bool toHand,
+        EquipmentRarity rarity,
+        Action onComplete)
+    {
+        EnsureOverlayCanvas();
+        if (sourceRect == null || equipment == null || transferGhostRoot == null)
+            return false;
+
+        if (rewardTransferRoutine != null)
+            StopCoroutine(rewardTransferRoutine);
+
+        Vector2 startScreen = RectToScreenPoint(sourceRect);
+        rewardTransferRoutine = StartCoroutine(
+            RewardTransferRoutine(startScreen, equipment, targetSlot, toHand, rarity, onComplete));
+        return true;
+    }
+
+    private IEnumerator RewardTransferRoutine(
+        Vector2 startScreen,
+        BattleEquipmentSO equipment,
+        int targetSlot,
+        bool toHand,
+        EquipmentRarity rarity,
+        Action onComplete)
+    {
+        if (transferGhostIcon != null)
+        {
+            transferGhostIcon.sprite = equipment.icon;
+            transferGhostIcon.enabled = equipment.icon != null;
+        }
+        if (transferGhostOutline != null)
+            transferGhostOutline.effectColor = rarity >= EquipmentRarity.Epic ? accentPink : accentYellow;
+
+        transferGhostRoot.position = startScreen;
+        transferGhostRoot.localScale = Vector3.one * 1.10f;
+        transferGhostRoot.gameObject.SetActive(true);
+        SetTransferTrailsVisible(false);
+
+        yield return null;
+
+        Vector2 endScreen = ResolveRewardTransferDestination(targetSlot, toHand);
+        float hold = rarity == EquipmentRarity.Epic
+            ? 0.08f
+            : rarity == EquipmentRarity.Unique
+                ? 0.11f
+                : 0f;
+
+        if (hold > 0f)
+            yield return WaitUnscaled(hold);
+
+        PlayFeedbackClip(rewardTransferClip, FeedbackTone.Transfer);
+
+        float duration = Mathf.Max(0.05f, rewardTransferDuration);
+        float elapsed = 0f;
+        bool useTrails = rarity >= EquipmentRarity.Rare;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float eased = 1f - Mathf.Pow(1f - t, 3f);
+
+            Vector2 position = Vector2.Lerp(startScreen, endScreen, eased);
+            position.y += Mathf.Sin(eased * Mathf.PI) * rewardTransferArcHeight;
+            transferGhostRoot.position = position;
+
+            float scale = t < 0.82f
+                ? Mathf.Lerp(1.10f, 1.00f, t / 0.82f)
+                : Mathf.Lerp(1.00f, 0.94f, (t - 0.82f) / 0.18f);
+            transferGhostRoot.localScale = Vector3.one * scale;
+
+            if (useTrails)
+                UpdateTransferTrails(startScreen, endScreen, eased, equipment.icon);
+            yield return null;
+        }
+
+        transferGhostRoot.position = endScreen;
+        transferGhostRoot.localScale = Vector3.one * 0.94f;
+        SetTransferTrailsVisible(false);
+
+        onComplete?.Invoke();
+
+        if (targetSlot >= 0 && !toHand)
+            FlashSlot(targetSlot);
+
+        PlayFeedbackClip(rewardInstallClip, FeedbackTone.Install);
+        yield return PlayTransferImpact(endScreen, rarity);
+
+        transferGhostRoot.localScale = Vector3.one;
+        transferGhostRoot.gameObject.SetActive(false);
+        rewardTransferRoutine = null;
+    }
+
+    private IEnumerator PlayTransferImpact(Vector2 position, EquipmentRarity rarity)
+    {
+        if (transferImpactRoot == null || transferImpactGroup == null)
+            yield break;
+
+        transferImpactRoot.position = position;
+        transferImpactRoot.gameObject.SetActive(true);
+        transferImpactGroup.alpha = 1f;
+
+        float strength = rarity == EquipmentRarity.Unique ? 1.14f : 1f;
+        const float duration = 0.16f;
+        float elapsed = 0f;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float scale;
+            if (t < 0.28f)
+                scale = Mathf.Lerp(1f, 0.92f, t / 0.28f);
+            else if (t < 0.62f)
+                scale = Mathf.Lerp(0.92f, 1.06f * strength, (t - 0.28f) / 0.34f);
+            else
+                scale = Mathf.Lerp(1.06f * strength, 1f, (t - 0.62f) / 0.38f);
+
+            transferImpactRoot.localScale = Vector3.one * scale;
+            transferImpactGroup.alpha = 1f - Mathf.Clamp01((t - 0.62f) / 0.38f);
+            yield return null;
+        }
+
+        transferImpactRoot.localScale = Vector3.one;
+        transferImpactRoot.gameObject.SetActive(false);
+    }
+
+    private void UpdateTransferTrails(Vector2 start, Vector2 end, float currentT, Sprite sprite)
+    {
+        for (int i = 0; i < transferTrailRoots.Length; i++)
+        {
+            RectTransform root = transferTrailRoots[i];
+            Image icon = transferTrailIcons[i];
+            if (root == null || icon == null)
+                continue;
+
+            float lagT = Mathf.Clamp01(currentT - 0.07f * (i + 1));
+            if (lagT <= 0f)
+            {
+                root.gameObject.SetActive(false);
+                continue;
+            }
+
+            Vector2 p = Vector2.Lerp(start, end, lagT);
+            p.y += Mathf.Sin(lagT * Mathf.PI) * rewardTransferArcHeight;
+            root.position = p;
+            root.localScale = Vector3.one * Mathf.Lerp(0.96f, 0.78f, i / 2f);
+            icon.sprite = sprite;
+            icon.enabled = sprite != null;
+            Color color = Color.white;
+            color.a = 0.24f - i * 0.055f;
+            icon.color = color;
+            root.gameObject.SetActive(true);
+        }
+    }
+
+    private void SetTransferTrailsVisible(bool visible)
+    {
+        for (int i = 0; i < transferTrailRoots.Length; i++)
+        {
+            if (transferTrailRoots[i] != null)
+                transferTrailRoots[i].gameObject.SetActive(visible);
+        }
+    }
+
+    private Vector2 ResolveRewardTransferDestination(int targetSlot, bool toHand)
+    {
+        RectTransform slot = targetSlot >= 0
+            ? FindRect($"RewardLoadoutSlot_{targetSlot + 1}") ??
+              FindRect($"GridSlot_{targetSlot}") ??
+              FindRect($"BackpackCell_{targetSlot}")
+            : null;
+
+        if (slot == null)
+        {
+            int fallbackIndex = FindFirstUnlockedSlot();
+            slot = FindRect($"RewardLoadoutSlot_{fallbackIndex + 1}") ??
+                   FindRect($"GridSlot_{fallbackIndex}") ??
+                   FindRect($"BackpackCell_{fallbackIndex}");
+        }
+
+        Vector2 basePosition = slot != null
+            ? RectToScreenPoint(slot)
+            : new Vector2(Screen.width * 0.66f, Screen.height * 0.54f);
+
+        return toHand
+            ? basePosition + new Vector2(132f, -28f)
+            : basePosition;
+    }
+
+    private static Vector2 RectToScreenPoint(RectTransform rect)
+    {
+        if (rect == null)
+            return Vector2.zero;
+
+        Canvas canvas = rect.GetComponentInParent<Canvas>();
+        Camera camera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+            ? canvas.worldCamera
+            : null;
+        Vector3 worldCenter = rect.TransformPoint(rect.rect.center);
+        return RectTransformUtility.WorldToScreenPoint(camera, worldCenter);
+    }
+
+    private static IEnumerator WaitUnscaled(float duration)
+    {
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+    }
+
+    private void ShowDenied(string message, int guideSlot = -1, bool guideHand = false)
+    {
+        EnsureOverlayCanvas();
+        if (deniedRoot == null || deniedText == null || deniedGroup == null)
+            return;
+
+        if (deniedRoutine != null)
+            StopCoroutine(deniedRoutine);
+
+        deniedText.text = message;
+        deniedRoutine = StartCoroutine(DeniedRoutine(guideSlot, guideHand));
+        PlayFeedbackClip(deniedClip, FeedbackTone.Denied);
+    }
+
+    private IEnumerator DeniedRoutine(int guideSlot, bool guideHand)
+    {
+        deniedRoot.gameObject.SetActive(true);
+        deniedRoot.localScale = Vector3.one;
+        deniedGroup.alpha = 1f;
+
+        Vector2 baseAnchored = Vector2.zero;
+        ConfigureDeniedGuide(guideSlot, guideHand);
+
+        const float duration = 0.90f;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float kick = Mathf.Clamp01(t / 0.14f);
+            float scale = kick < 0.5f
+                ? Mathf.Lerp(1f, 1.08f, kick * 2f)
+                : Mathf.Lerp(1.08f, 1f, (kick - 0.5f) * 2f);
+            float shake = Mathf.Sin(elapsed * 95f) * 7f * Mathf.Pow(1f - Mathf.Clamp01(t / 0.28f), 2f);
+
+            deniedRoot.localScale = Vector3.one * scale;
+            deniedRoot.anchoredPosition = baseAnchored + new Vector2(shake, 0f);
+            deniedGroup.alpha = t < 0.68f ? 1f : 1f - (t - 0.68f) / 0.32f;
+
+            if (deniedGuideRoot != null && deniedGuideRoot.gameObject.activeSelf)
+            {
+                float pulse = 1f + Mathf.Sin(elapsed * 18f) * 0.06f;
+                deniedGuideRoot.localScale = Vector3.one * pulse;
+                deniedGuideGroup.alpha = Mathf.Lerp(1f, 0.45f, 0.5f + 0.5f * Mathf.Sin(elapsed * 12f));
+            }
+
+            yield return null;
+        }
+
+        deniedRoot.anchoredPosition = baseAnchored;
+        deniedRoot.localScale = Vector3.one;
+        deniedRoot.gameObject.SetActive(false);
+        if (deniedGuideRoot != null)
+            deniedGuideRoot.gameObject.SetActive(false);
+        deniedRoutine = null;
+    }
+
+    private void ConfigureDeniedGuide(int guideSlot, bool guideHand)
+    {
+        if (deniedGuideRoot == null)
+            return;
+
+        if (guideHand && handGhostRoot != null && handGhostRoot.gameObject.activeSelf)
+        {
+            deniedGuideRoot.position = handGhostRoot.position;
+            deniedGuideRoot.gameObject.SetActive(true);
+            return;
+        }
+
+        if (guideSlot >= 0)
+        {
+            RectTransform rect = FindRect($"RewardLoadoutSlot_{guideSlot + 1}") ??
+                                 FindRect($"GridSlot_{guideSlot}") ??
+                                 FindRect($"BackpackCell_{guideSlot}");
+            if (rect != null)
+            {
+                deniedGuideRoot.position = RectToScreenPoint(rect);
+                deniedGuideRoot.gameObject.SetActive(true);
+                return;
+            }
+        }
+
+        deniedGuideRoot.gameObject.SetActive(false);
+    }
+
+    private enum FeedbackTone
+    {
+        Select,
+        Transfer,
+        Install,
+        Denied
+    }
+
+    private void PlayFeedbackClip(AudioClip assigned, FeedbackTone tone)
+    {
+        EnsureFeedbackAudio();
+        if (feedbackAudio == null)
+            return;
+
+        AudioClip clip = assigned ?? GetFallbackClip(tone);
+        if (clip != null)
+            feedbackAudio.PlayOneShot(clip);
+    }
+
+    private void EnsureFeedbackAudio()
+    {
+        if (feedbackAudio != null)
+            return;
+
+        feedbackAudio = gameObject.GetComponent<AudioSource>();
+        if (feedbackAudio == null)
+            feedbackAudio = gameObject.AddComponent<AudioSource>();
+
+        feedbackAudio.playOnAwake = false;
+        feedbackAudio.loop = false;
+        feedbackAudio.spatialBlend = 0f;
+        feedbackAudio.volume = 0.28f;
+    }
+
+    private AudioClip GetFallbackClip(FeedbackTone tone)
+    {
+        switch (tone)
+        {
+            case FeedbackTone.Select:
+                return fallbackSelectClip ??= CreateFeedbackTone("RewardSelectTick", 0.035f, 1180f, 920f, 0.02f);
+            case FeedbackTone.Transfer:
+                return fallbackTransferClip ??= CreateFeedbackTone("RewardTransferSwish", 0.14f, 520f, 1180f, 0.08f);
+            case FeedbackTone.Install:
+                return fallbackInstallClip ??= CreateFeedbackTone("RewardInstallClick", 0.075f, 210f, 145f, 0.03f);
+            default:
+                return fallbackDeniedClip ??= CreateFeedbackTone("RewardDeniedDull", 0.085f, 135f, 105f, 0.02f);
+        }
+    }
+
+    private static AudioClip CreateFeedbackTone(string clipName, float duration, float startHz, float endHz, float noiseAmount)
+    {
+        const int sampleRate = 22050;
+        int sampleCount = Mathf.Max(1, Mathf.RoundToInt(duration * sampleRate));
+        float[] samples = new float[sampleCount];
+        uint noiseState = 0x12345678u;
+        float phase = 0f;
+
+        for (int i = 0; i < sampleCount; i++)
+        {
+            float t = sampleCount > 1 ? i / (float)(sampleCount - 1) : 1f;
+            float hz = Mathf.Lerp(startHz, endHz, t);
+            phase += Mathf.PI * 2f * hz / sampleRate;
+            noiseState = noiseState * 1664525u + 1013904223u;
+            float noise = ((noiseState >> 8) / 16777215f) * 2f - 1f;
+            float envelope = Mathf.Pow(1f - t, 2f);
+            samples[i] = (Mathf.Sin(phase) * (1f - noiseAmount) + noise * noiseAmount) * envelope * 0.34f;
+        }
+
+        AudioClip clip = AudioClip.Create(clipName, sampleCount, 1, sampleRate, false);
+        clip.SetData(samples, 0);
+        return clip;
+    }
+
     private void HideTransientVisuals()
     {
         draggingSlot = -1;
@@ -1153,6 +1690,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             dragGhostRoot.gameObject.SetActive(false);
         if (handGhostRoot != null)
             handGhostRoot.gameObject.SetActive(false);
+        if (transferGhostRoot != null)
+            transferGhostRoot.gameObject.SetActive(false);
+        SetTransferTrailsVisible(false);
+        if (transferImpactRoot != null)
+            transferImpactRoot.gameObject.SetActive(false);
+        if (deniedRoot != null)
+            deniedRoot.gameObject.SetActive(false);
+        if (deniedGuideRoot != null)
+            deniedGuideRoot.gameObject.SetActive(false);
         if (trashRoot != null)
             trashRoot.gameObject.SetActive(false);
         if (doneRoot != null)
@@ -1306,6 +1852,22 @@ internal sealed class BattleInventoryPackDropTarget : MonoBehaviour, IDropHandle
     private BattleInventoryInteractionController owner;
     public void Configure(BattleInventoryInteractionController controller) => owner = controller;
     public void OnDrop(PointerEventData eventData) => owner?.HandlePackDrop(eventData);
+}
+
+internal sealed class BattleInventoryDoneDenyRelay : MonoBehaviour, IPointerClickHandler
+{
+    private BattleInventoryInteractionController owner;
+
+    public void Configure(BattleInventoryInteractionController controller)
+    {
+        owner = controller;
+    }
+
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (eventData != null)
+            owner?.HandleDoneDeniedClick(eventData.button);
+    }
 }
 
 internal sealed class BattleInventoryTrashDropTarget : MonoBehaviour,
