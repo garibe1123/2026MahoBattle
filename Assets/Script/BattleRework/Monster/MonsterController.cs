@@ -72,6 +72,15 @@ public class MonsterController : MonoBehaviour, IDamageable
         animator?.SetUseUnscaledTime(enabled);
     }
 
+    public void ForceCompleteDeathAnimationForPresentation()
+    {
+        if (!dying || deathAnimationCompleted)
+            return;
+
+        animator?.Stop(true);
+        NotifyDeath();
+    }
+
     private void Awake()
     {
         agent = GetComponent<NavMeshAgent>();
