@@ -489,7 +489,9 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
                 : mutedColor;
 
         image.enabled = true;
-        image.raycastTarget = selectable;
+        // Locked nodes remain pointer-readable so invalid clicks can give explicit feedback.
+        // Current node is display-only.
+        image.raycastTarget = !current;
 
         if (button != null)
         {
