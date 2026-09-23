@@ -62,11 +62,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     [SerializeField, Range(0.18f, 0.28f)] private float rewardTransferDuration = 0.23f;
     [SerializeField, Range(30f, 160f)] private float rewardTransferArcHeight = 90f;
 
-    [Header("Optional Reward Feedback Audio")]
+    [Header("Optional Reward Transfer Audio")]
     [SerializeField] private AudioClip rewardSelectClip;
     [SerializeField] private AudioClip rewardTransferClip;
     [SerializeField] private AudioClip rewardInstallClip;
-    [SerializeField] private AudioClip deniedClip;
 
     private Canvas interactionCanvas;
     private RectTransform interactionRoot;
@@ -84,19 +83,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private RectTransform transferImpactRoot;
     private CanvasGroup transferImpactGroup;
 
-    private RectTransform deniedRoot;
-    private Text deniedText;
-    private CanvasGroup deniedGroup;
-    private RectTransform deniedGuideRoot;
-    private CanvasGroup deniedGuideGroup;
-
-    private AudioSource feedbackAudio;
+    private AudioSource rewardFeedbackAudio;
     private AudioClip fallbackSelectClip;
     private AudioClip fallbackTransferClip;
     private AudioClip fallbackInstallClip;
-    private AudioClip fallbackDeniedClip;
     private Coroutine rewardTransferRoutine;
-    private Coroutine deniedRoutine;
 
     private RectTransform trashRoot;
     private Image trashBack;
@@ -479,15 +470,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotDrop(int targetIndex, PointerEventData eventData)
     {
-        if (discardModalOpen || equipmentSystem == null || eventData == null)
+        if (discardModalOpen || equipmentSystem == null || eventData == null ||
+            !equipmentSystem.IsSlotUnlocked(targetIndex))
             return;
-
-        if (!equipmentSystem.IsSlotUnlocked(targetIndex))
-        {
-            if (IsRewardPackEditing)
-                ShowDenied("LOCKED  /  PACK SLOT REQUIRED", targetIndex);
-            return;
-        }
 
         ActivateMouseMode();
 
@@ -505,10 +490,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             return;
 
         if (!equipmentSystem.SwapSlots(sourceIndex, targetIndex))
-        {
-            ShowDenied("CANNOT SWAP", targetIndex);
             return;
-        }
 
         selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
         padSelectedSlot = targetIndex;
@@ -524,17 +506,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void HandleSlotClick(int slotIndex, BattleInventorySurface surface, PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left || discardModalOpen || equipmentSystem == null)
+        if (button != PointerEventData.InputButton.Left || discardModalOpen || equipmentSystem == null ||
+            !equipmentSystem.IsSlotUnlocked(slotIndex))
             return;
 
         ActivateMouseMode();
-
-        if (!equipmentSystem.IsSlotUnlocked(slotIndex))
-        {
-            if (IsRewardPackEditing)
-                ShowDenied("LOCKED  /  PACK SLOT REQUIRED", slotIndex);
-            return;
-        }
 
         if (IsReward())
         {
@@ -548,11 +524,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 {
                     selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
                     FlashSlot(slotIndex);
-                    PlayFeedbackClip(rewardInstallClip, FeedbackTone.Install);
-                }
-                else
-                {
-                    ShowDenied("CANNOT PLACE HERE", slotIndex);
                 }
                 return;
             }
@@ -775,11 +746,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 selectedRewardSlot = -1;
                 padPickedSlot = -1;
                 FlashSlot(padSelectedSlot);
-                PlayFeedbackClip(rewardInstallClip, FeedbackTone.Install);
-            }
-            else
-            {
-                ShowDenied("CANNOT PLACE HERE", padSelectedSlot);
             }
             return;
         }
@@ -813,10 +779,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             rewardFlow.SyncChosenRewardLocation();
             FlashSlot(padSelectedSlot);
             padPickedSlot = -1;
-        }
-        else
-        {
-            ShowDenied("CANNOT SWAP", padSelectedSlot);
         }
     }
 
@@ -856,29 +818,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void RequestRewardCompletion()
     {
-        if (BattlePauseController.IsPaused || !IsRewardPackEditing || rewardFlow == null)
-            return;
-
-        if (!rewardFlow.CanComplete)
+        if (BattlePauseController.IsPaused ||
+            !IsRewardPackEditing ||
+            rewardFlow == null ||
+            !rewardFlow.CanComplete)
         {
-            ShowDenied(
-                rewardFlow.HasHand ? "PLACE OR TRASH HELD ITEM" : "REWARD ACTION INCOMPLETE",
-                -1,
-                rewardFlow.HasHand);
             return;
         }
 
-        if (!rewardFlow.CompleteReward())
-            ShowDenied("REWARD ACTION INCOMPLETE");
-    }
-
-    internal void HandleDoneDeniedClick(PointerEventData.InputButton button)
-    {
-        if (button != PointerEventData.InputButton.Left || !IsRewardPackEditing || rewardFlow == null)
-            return;
-
-        if (!rewardFlow.CanComplete)
-            RequestRewardCompletion();
+        rewardFlow.CompleteReward();
     }
 
     private int FindFirstUnlockedSlot()
@@ -1081,7 +1029,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         BuildDragGhost();
         BuildRewardHandGhost();
         BuildRewardTransferVisuals();
-        BuildDeniedFeedback();
         BuildTrash();
         BuildRewardDoneUi();
         BuildDiscardConfirm();
@@ -1127,11 +1074,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         Image back = transferGhostRoot.gameObject.AddComponent<Image>();
         back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
         back.raycastTarget = false;
+
         transferGhostOutline = transferGhostRoot.gameObject.AddComponent<Outline>();
         transferGhostOutline.effectColor = accentYellow;
         transferGhostOutline.effectDistance = new Vector2(6f, -6f);
-        AddNonBlockingCanvas(transferGhostRoot.gameObject, 2240);
 
+        AddNonBlockingCanvas(transferGhostRoot.gameObject, 2240);
         transferGhostIcon = CreateImage(transferGhostRoot, "Icon", new Vector2(88f, 88f));
         Center(transferGhostIcon.rectTransform);
         transferGhostIcon.raycastTarget = false;
@@ -1139,61 +1087,35 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         for (int i = 0; i < transferTrailRoots.Length; i++)
         {
-            RectTransform trail = CreateRect(interactionRoot, $"RewardTransferAfterimage_{i + 1}", new Vector2(96f, 96f));
+            RectTransform trail = CreateRect(
+                interactionRoot,
+                $"RewardTransferAfterimage_{i + 1}",
+                new Vector2(96f, 96f));
+
             Image icon = trail.gameObject.AddComponent<Image>();
             icon.preserveAspect = true;
             icon.raycastTarget = false;
             AddNonBlockingCanvas(trail.gameObject, 2230 - i);
             trail.gameObject.SetActive(false);
+
             transferTrailRoots[i] = trail;
             transferTrailIcons[i] = icon;
         }
 
-        transferImpactRoot = CreateRect(interactionRoot, "RewardTransferImpact", new Vector2(126f, 126f));
-        Image impact = transferImpactRoot.gameObject.AddComponent<Image>();
-        impact.color = Color.clear;
-        impact.raycastTarget = false;
+        transferImpactRoot = CreateRect(interactionRoot, "RewardTransferImpact", new Vector2(128f, 128f));
+        Image impactBack = transferImpactRoot.gameObject.AddComponent<Image>();
+        impactBack.color = Color.clear;
+        impactBack.raycastTarget = false;
+
         Outline impactOutline = transferImpactRoot.gameObject.AddComponent<Outline>();
         impactOutline.effectColor = accentCyan;
         impactOutline.effectDistance = new Vector2(8f, -8f);
+
         transferImpactGroup = transferImpactRoot.gameObject.AddComponent<CanvasGroup>();
         transferImpactGroup.blocksRaycasts = false;
         transferImpactGroup.interactable = false;
         AddNonBlockingCanvas(transferImpactRoot.gameObject, 2250);
         transferImpactRoot.gameObject.SetActive(false);
-    }
-
-    private void BuildDeniedFeedback()
-    {
-        deniedRoot = CreateRect(interactionRoot, "InventoryDeniedFeedback", new Vector2(520f, 76f));
-        deniedRoot.anchorMin = deniedRoot.anchorMax = new Vector2(0.5f, 0.18f);
-        deniedRoot.anchoredPosition = Vector2.zero;
-
-        Image back = deniedRoot.gameObject.AddComponent<Image>();
-        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
-        back.raycastTarget = false;
-        Outline outline = deniedRoot.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentPink;
-        outline.effectDistance = new Vector2(5f, -5f);
-
-        deniedText = CreateText(deniedRoot, string.Empty, 18, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
-        Stretch(deniedText.rectTransform);
-        deniedGroup = deniedRoot.gameObject.AddComponent<CanvasGroup>();
-        deniedGroup.blocksRaycasts = false;
-        deniedGroup.interactable = false;
-        deniedRoot.gameObject.SetActive(false);
-
-        deniedGuideRoot = CreateRect(interactionRoot, "InventoryDeniedTargetGuide", new Vector2(124f, 124f));
-        Image guideImage = deniedGuideRoot.gameObject.AddComponent<Image>();
-        guideImage.color = Color.clear;
-        guideImage.raycastTarget = false;
-        Outline guideOutline = deniedGuideRoot.gameObject.AddComponent<Outline>();
-        guideOutline.effectColor = accentPink;
-        guideOutline.effectDistance = new Vector2(7f, -7f);
-        deniedGuideGroup = deniedGuideRoot.gameObject.AddComponent<CanvasGroup>();
-        deniedGuideGroup.blocksRaycasts = false;
-        deniedGuideGroup.interactable = false;
-        deniedGuideRoot.gameObject.SetActive(false);
     }
 
     private static void AddNonBlockingCanvas(GameObject owner, int order)
@@ -1241,10 +1163,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         doneButton = doneRoot.gameObject.AddComponent<Button>();
         doneButton.targetGraphic = back;
         doneButton.onClick.AddListener(RequestRewardCompletion);
-
-        BattleInventoryDoneDenyRelay relay = doneRoot.gameObject.AddComponent<BattleInventoryDoneDenyRelay>();
-        relay.Configure(this);
-
         doneRoot.gameObject.SetActive(false);
     }
 
@@ -1305,7 +1223,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     public void PlayRewardSelectFeedback()
     {
-        PlayFeedbackClip(rewardSelectClip, FeedbackTone.Select);
+        PlayRewardFeedback(rewardSelectClip, RewardFeedbackTone.Select);
     }
 
     public bool PlayRewardTransfer(
@@ -1314,6 +1232,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         int targetSlot,
         bool toHand,
         EquipmentRarity rarity,
+        Action onArrive,
         Action onComplete)
     {
         EnsureOverlayCanvas();
@@ -1325,7 +1244,14 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         Vector2 startScreen = RectToScreenPoint(sourceRect);
         rewardTransferRoutine = StartCoroutine(
-            RewardTransferRoutine(startScreen, equipment, targetSlot, toHand, rarity, onComplete));
+            RewardTransferRoutine(
+                startScreen,
+                equipment,
+                targetSlot,
+                toHand,
+                rarity,
+                onArrive,
+                onComplete));
         return true;
     }
 
@@ -1335,6 +1261,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         int targetSlot,
         bool toHand,
         EquipmentRarity rarity,
+        Action onArrive,
         Action onComplete)
     {
         if (transferGhostIcon != null)
@@ -1342,14 +1269,21 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             transferGhostIcon.sprite = equipment.icon;
             transferGhostIcon.enabled = equipment.icon != null;
         }
+
         if (transferGhostOutline != null)
-            transferGhostOutline.effectColor = (int)rarity >= (int)EquipmentRarity.Epic ? accentPink : accentYellow;
+        {
+            transferGhostOutline.effectColor =
+                (int)rarity >= (int)EquipmentRarity.Epic
+                    ? accentPink
+                    : accentYellow;
+        }
 
         transferGhostRoot.position = startScreen;
         transferGhostRoot.localScale = Vector3.one * 1.10f;
         transferGhostRoot.gameObject.SetActive(true);
         SetTransferTrailsVisible(false);
 
+        // Transferring phase가 PACK layout을 연 뒤 실제 RectTransform 위치를 한 프레임 기다려 읽습니다.
         yield return null;
 
         Vector2 endScreen = ResolveRewardTransferDestination(targetSlot, toHand);
@@ -1362,7 +1296,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (hold > 0f)
             yield return WaitUnscaled(hold);
 
-        PlayFeedbackClip(rewardTransferClip, FeedbackTone.Transfer);
+        PlayRewardFeedback(rewardTransferClip, RewardFeedbackTone.Transfer);
 
         float duration = Mathf.Max(0.05f, rewardTransferDuration);
         float elapsed = 0f;
@@ -1378,13 +1312,14 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             position.y += Mathf.Sin(eased * Mathf.PI) * rewardTransferArcHeight;
             transferGhostRoot.position = position;
 
-            float scale = t < 0.82f
+            float iconScale = t < 0.82f
                 ? Mathf.Lerp(1.10f, 1.00f, t / 0.82f)
                 : Mathf.Lerp(1.00f, 0.94f, (t - 0.82f) / 0.18f);
-            transferGhostRoot.localScale = Vector3.one * scale;
+            transferGhostRoot.localScale = Vector3.one * iconScale;
 
             if (useTrails)
                 UpdateTransferTrails(startScreen, endScreen, eased, equipment.icon);
+
             yield return null;
         }
 
@@ -1392,17 +1327,18 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         transferGhostRoot.localScale = Vector3.one * 0.94f;
         SetTransferTrailsVisible(false);
 
-        onComplete?.Invoke();
+        // 데이터는 아이콘이 목적지에 닿는 정확한 시점에 Commit합니다.
+        onArrive?.Invoke();
 
-        if (targetSlot >= 0 && !toHand)
-            FlashSlot(targetSlot);
-
-        PlayFeedbackClip(rewardInstallClip, FeedbackTone.Install);
+        PlayRewardFeedback(rewardInstallClip, RewardFeedbackTone.Install);
         yield return PlayTransferImpact(endScreen, rarity);
 
         transferGhostRoot.localScale = Vector3.one;
         transferGhostRoot.gameObject.SetActive(false);
         rewardTransferRoutine = null;
+
+        // Impact까지 끝난 뒤에만 PackEditing으로 넘어가 입력을 풉니다.
+        onComplete?.Invoke();
     }
 
     private IEnumerator PlayTransferImpact(Vector2 position, EquipmentRarity rarity)
@@ -1411,10 +1347,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             yield break;
 
         transferImpactRoot.position = position;
-        transferImpactRoot.gameObject.SetActive(true);
+        transferImpactRoot.localScale = Vector3.one;
         transferImpactGroup.alpha = 1f;
+        transferImpactRoot.gameObject.SetActive(true);
 
-        float strength = rarity == EquipmentRarity.Unique ? 1.14f : 1f;
+        float strength = rarity == EquipmentRarity.Unique ? 1.12f : 1f;
         const float duration = 0.16f;
         float elapsed = 0f;
 
@@ -1422,6 +1359,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         {
             elapsed += Time.unscaledDeltaTime;
             float t = Mathf.Clamp01(elapsed / duration);
+
             float scale;
             if (t < 0.28f)
                 scale = Mathf.Lerp(1f, 0.92f, t / 0.28f);
@@ -1431,7 +1369,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 scale = Mathf.Lerp(1.06f * strength, 1f, (t - 0.62f) / 0.38f);
 
             transferImpactRoot.localScale = Vector3.one * scale;
-            transferImpactGroup.alpha = 1f - Mathf.Clamp01((t - 0.62f) / 0.38f);
+            transferGhostRoot.localScale = Vector3.one * Mathf.Lerp(0.94f, 1f, Mathf.SmoothStep(0f, 1f, t));
+            transferImpactGroup.alpha = t < 0.62f
+                ? 1f
+                : 1f - Mathf.Clamp01((t - 0.62f) / 0.38f);
+
             yield return null;
         }
 
@@ -1455,10 +1397,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 continue;
             }
 
-            Vector2 p = Vector2.Lerp(start, end, lagT);
-            p.y += Mathf.Sin(lagT * Mathf.PI) * rewardTransferArcHeight;
-            root.position = p;
+            Vector2 position = Vector2.Lerp(start, end, lagT);
+            position.y += Mathf.Sin(lagT * Mathf.PI) * rewardTransferArcHeight;
+            root.position = position;
             root.localScale = Vector3.one * Mathf.Lerp(0.96f, 0.78f, i / 2f);
+
             icon.sprite = sprite;
             icon.enabled = sprite != null;
             Color color = Color.white;
@@ -1487,10 +1430,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (slot == null)
         {
-            int fallbackIndex = FindFirstUnlockedSlot();
-            slot = FindRect($"RewardLoadoutSlot_{fallbackIndex + 1}") ??
-                   FindRect($"GridSlot_{fallbackIndex}") ??
-                   FindRect($"BackpackCell_{fallbackIndex}");
+            int fallback = FindFirstUnlockedSlot();
+            slot = FindRect($"RewardLoadoutSlot_{fallback + 1}") ??
+                   FindRect($"GridSlot_{fallback}") ??
+                   FindRect($"BackpackCell_{fallback}");
         }
 
         Vector2 basePosition = slot != null
@@ -1511,6 +1454,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         Camera camera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
             ? canvas.worldCamera
             : null;
+
         Vector3 worldCenter = rect.TransformPoint(rect.rect.center);
         return RectTransformUtility.WorldToScreenPoint(camera, worldCenter);
     }
@@ -1525,141 +1469,61 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         }
     }
 
-    private void ShowDenied(string message, int guideSlot = -1, bool guideHand = false)
-    {
-        EnsureOverlayCanvas();
-        if (deniedRoot == null || deniedText == null || deniedGroup == null)
-            return;
-
-        if (deniedRoutine != null)
-            StopCoroutine(deniedRoutine);
-
-        deniedText.text = message;
-        deniedRoutine = StartCoroutine(DeniedRoutine(guideSlot, guideHand));
-        PlayFeedbackClip(deniedClip, FeedbackTone.Denied);
-    }
-
-    private IEnumerator DeniedRoutine(int guideSlot, bool guideHand)
-    {
-        deniedRoot.gameObject.SetActive(true);
-        deniedRoot.localScale = Vector3.one;
-        deniedGroup.alpha = 1f;
-
-        Vector2 baseAnchored = Vector2.zero;
-        ConfigureDeniedGuide(guideSlot, guideHand);
-
-        const float duration = 0.90f;
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-            float kick = Mathf.Clamp01(t / 0.14f);
-            float scale = kick < 0.5f
-                ? Mathf.Lerp(1f, 1.08f, kick * 2f)
-                : Mathf.Lerp(1.08f, 1f, (kick - 0.5f) * 2f);
-            float shake = Mathf.Sin(elapsed * 95f) * 7f * Mathf.Pow(1f - Mathf.Clamp01(t / 0.28f), 2f);
-
-            deniedRoot.localScale = Vector3.one * scale;
-            deniedRoot.anchoredPosition = baseAnchored + new Vector2(shake, 0f);
-            deniedGroup.alpha = t < 0.68f ? 1f : 1f - (t - 0.68f) / 0.32f;
-
-            if (deniedGuideRoot != null && deniedGuideRoot.gameObject.activeSelf)
-            {
-                float pulse = 1f + Mathf.Sin(elapsed * 18f) * 0.06f;
-                deniedGuideRoot.localScale = Vector3.one * pulse;
-                deniedGuideGroup.alpha = Mathf.Lerp(1f, 0.45f, 0.5f + 0.5f * Mathf.Sin(elapsed * 12f));
-            }
-
-            yield return null;
-        }
-
-        deniedRoot.anchoredPosition = baseAnchored;
-        deniedRoot.localScale = Vector3.one;
-        deniedRoot.gameObject.SetActive(false);
-        if (deniedGuideRoot != null)
-            deniedGuideRoot.gameObject.SetActive(false);
-        deniedRoutine = null;
-    }
-
-    private void ConfigureDeniedGuide(int guideSlot, bool guideHand)
-    {
-        if (deniedGuideRoot == null)
-            return;
-
-        if (guideHand && handGhostRoot != null && handGhostRoot.gameObject.activeSelf)
-        {
-            deniedGuideRoot.position = handGhostRoot.position;
-            deniedGuideRoot.gameObject.SetActive(true);
-            return;
-        }
-
-        if (guideSlot >= 0)
-        {
-            RectTransform rect = FindRect($"RewardLoadoutSlot_{guideSlot + 1}") ??
-                                 FindRect($"GridSlot_{guideSlot}") ??
-                                 FindRect($"BackpackCell_{guideSlot}");
-            if (rect != null)
-            {
-                deniedGuideRoot.position = RectToScreenPoint(rect);
-                deniedGuideRoot.gameObject.SetActive(true);
-                return;
-            }
-        }
-
-        deniedGuideRoot.gameObject.SetActive(false);
-    }
-
-    private enum FeedbackTone
+    private enum RewardFeedbackTone
     {
         Select,
         Transfer,
-        Install,
-        Denied
+        Install
     }
 
-    private void PlayFeedbackClip(AudioClip assigned, FeedbackTone tone)
+    private void PlayRewardFeedback(AudioClip assignedClip, RewardFeedbackTone tone)
     {
-        EnsureFeedbackAudio();
-        if (feedbackAudio == null)
+        EnsureRewardFeedbackAudio();
+        if (rewardFeedbackAudio == null)
             return;
 
-        AudioClip clip = assigned ?? GetFallbackClip(tone);
+        AudioClip clip = assignedClip ?? GetFallbackRewardClip(tone);
         if (clip != null)
-            feedbackAudio.PlayOneShot(clip);
+            rewardFeedbackAudio.PlayOneShot(clip);
     }
 
-    private void EnsureFeedbackAudio()
+    private void EnsureRewardFeedbackAudio()
     {
-        if (feedbackAudio != null)
+        if (rewardFeedbackAudio != null)
             return;
 
-        feedbackAudio = gameObject.GetComponent<AudioSource>();
-        if (feedbackAudio == null)
-            feedbackAudio = gameObject.AddComponent<AudioSource>();
+        rewardFeedbackAudio = gameObject.GetComponent<AudioSource>();
+        if (rewardFeedbackAudio == null)
+            rewardFeedbackAudio = gameObject.AddComponent<AudioSource>();
 
-        feedbackAudio.playOnAwake = false;
-        feedbackAudio.loop = false;
-        feedbackAudio.spatialBlend = 0f;
-        feedbackAudio.volume = 0.28f;
+        rewardFeedbackAudio.playOnAwake = false;
+        rewardFeedbackAudio.loop = false;
+        rewardFeedbackAudio.spatialBlend = 0f;
+        rewardFeedbackAudio.volume = 0.28f;
     }
 
-    private AudioClip GetFallbackClip(FeedbackTone tone)
+    private AudioClip GetFallbackRewardClip(RewardFeedbackTone tone)
     {
         switch (tone)
         {
-            case FeedbackTone.Select:
-                return fallbackSelectClip ??= CreateFeedbackTone("RewardSelectTick", 0.035f, 1180f, 920f, 0.02f);
-            case FeedbackTone.Transfer:
-                return fallbackTransferClip ??= CreateFeedbackTone("RewardTransferSwish", 0.14f, 520f, 1180f, 0.08f);
-            case FeedbackTone.Install:
-                return fallbackInstallClip ??= CreateFeedbackTone("RewardInstallClick", 0.075f, 210f, 145f, 0.03f);
+            case RewardFeedbackTone.Select:
+                return fallbackSelectClip ??=
+                    CreateRewardFeedbackTone("RewardSelectTick", 0.035f, 1180f, 920f, 0.02f);
+            case RewardFeedbackTone.Transfer:
+                return fallbackTransferClip ??=
+                    CreateRewardFeedbackTone("RewardTransferSwish", 0.14f, 520f, 1180f, 0.08f);
             default:
-                return fallbackDeniedClip ??= CreateFeedbackTone("RewardDeniedDull", 0.085f, 135f, 105f, 0.02f);
+                return fallbackInstallClip ??=
+                    CreateRewardFeedbackTone("RewardInstallClick", 0.075f, 210f, 145f, 0.03f);
         }
     }
 
-    private static AudioClip CreateFeedbackTone(string clipName, float duration, float startHz, float endHz, float noiseAmount)
+    private static AudioClip CreateRewardFeedbackTone(
+        string clipName,
+        float duration,
+        float startHz,
+        float endHz,
+        float noiseAmount)
     {
         const int sampleRate = 22050;
         int sampleCount = Mathf.Max(1, Mathf.RoundToInt(duration * sampleRate));
@@ -1672,10 +1536,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             float t = sampleCount > 1 ? i / (float)(sampleCount - 1) : 1f;
             float hz = Mathf.Lerp(startHz, endHz, t);
             phase += Mathf.PI * 2f * hz / sampleRate;
+
             noiseState = noiseState * 1664525u + 1013904223u;
             float noise = ((noiseState >> 8) / 16777215f) * 2f - 1f;
             float envelope = Mathf.Pow(1f - t, 2f);
-            samples[i] = (Mathf.Sin(phase) * (1f - noiseAmount) + noise * noiseAmount) * envelope * 0.34f;
+
+            samples[i] =
+                (Mathf.Sin(phase) * (1f - noiseAmount) + noise * noiseAmount) *
+                envelope *
+                0.34f;
         }
 
         AudioClip clip = AudioClip.Create(clipName, sampleCount, 1, sampleRate, false);
@@ -1695,10 +1564,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         SetTransferTrailsVisible(false);
         if (transferImpactRoot != null)
             transferImpactRoot.gameObject.SetActive(false);
-        if (deniedRoot != null)
-            deniedRoot.gameObject.SetActive(false);
-        if (deniedGuideRoot != null)
-            deniedGuideRoot.gameObject.SetActive(false);
         if (trashRoot != null)
             trashRoot.gameObject.SetActive(false);
         if (doneRoot != null)
@@ -1852,22 +1717,6 @@ internal sealed class BattleInventoryPackDropTarget : MonoBehaviour, IDropHandle
     private BattleInventoryInteractionController owner;
     public void Configure(BattleInventoryInteractionController controller) => owner = controller;
     public void OnDrop(PointerEventData eventData) => owner?.HandlePackDrop(eventData);
-}
-
-internal sealed class BattleInventoryDoneDenyRelay : MonoBehaviour, IPointerClickHandler
-{
-    private BattleInventoryInteractionController owner;
-
-    public void Configure(BattleInventoryInteractionController controller)
-    {
-        owner = controller;
-    }
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        if (eventData != null)
-            owner?.HandleDoneDeniedClick(eventData.button);
-    }
 }
 
 internal sealed class BattleInventoryTrashDropTarget : MonoBehaviour,
