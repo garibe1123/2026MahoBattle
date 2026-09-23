@@ -54,6 +54,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private float visibleBlend;
     private float showAt;
     private float reactionStartedAt = -10f;
+
+    private string currentHeader = "LIVE SHOP";
+    private string currentKeyword = "TODAY'S PICK";
+    private string currentComment = string.Empty;
+    private Mood currentMood = Mood.Neutral;
     private bool requestedVisible;
     private bool cameraApplied;
     private float cameraSettleUntil;
@@ -262,6 +267,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         AddHeader();
         AddCopy();
         AddPortrait();
+        ApplyCachedCopy();
 
         root.SetAsLastSibling();
     }
@@ -521,30 +527,41 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private void SetCopy(string header, string keyword, string comment, Mood mood)
     {
+        currentHeader = header ?? string.Empty;
+        currentKeyword = keyword ?? string.Empty;
+        currentComment = comment ?? string.Empty;
+        currentMood = mood;
+
         EnsureView();
-
-        if (headerText != null) headerText.text = header ?? string.Empty;
-        if (keywordText != null) keywordText.text = keyword ?? string.Empty;
-        if (commentText != null) commentText.text = comment ?? string.Empty;
-
-        if (reactionText != null)
-        {
-            reactionText.text = mood switch
-            {
-                Mood.Curious => "CURIOUS",
-                Mood.Excited => "WOW!",
-                Mood.Concerned => "CAUTION",
-                _ => "ON AIR"
-            };
-
-            reactionText.color = mood == Mood.Concerned
-                ? new Color(1f, 0.56f, 0.22f, 1f)
-                : mood == Mood.Excited
-                    ? accent
-                    : liveAccent;
-        }
-
+        ApplyCachedCopy();
         reactionStartedAt = Time.unscaledTime;
+    }
+
+    private void ApplyCachedCopy()
+    {
+        if (headerText != null)
+            headerText.text = currentHeader;
+        if (keywordText != null)
+            keywordText.text = currentKeyword;
+        if (commentText != null)
+            commentText.text = currentComment;
+
+        if (reactionText == null)
+            return;
+
+        reactionText.text = currentMood switch
+        {
+            Mood.Curious => "CURIOUS",
+            Mood.Excited => "WOW!",
+            Mood.Concerned => "CAUTION",
+            _ => "ON AIR"
+        };
+
+        reactionText.color = currentMood == Mood.Concerned
+            ? new Color(1f, 0.56f, 0.22f, 1f)
+            : currentMood == Mood.Excited
+                ? accent
+                : liveAccent;
     }
 
     private RectTransform ResolveScreenInner()
