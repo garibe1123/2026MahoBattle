@@ -44,6 +44,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private float targetWeight;
     private bool combatMode;
     private bool showMode;
+    private float lastKillEmphasis;
 
     public float CurrentWeight => currentWeight;
 
@@ -110,8 +111,26 @@ public sealed class BattleColorGradingController : MonoBehaviour
         filmGrain.intensity.Override(profile.filmGrainIntensity);
         filmGrain.response.Override(profile.filmGrainResponse);
 
+        ApplyLastKillOverrides();
         ApplyAnalogMaterialParameters();
         RefreshTargetWeight();
+    }
+
+    public void SetLastKillEmphasis(float amount)
+    {
+        lastKillEmphasis = Mathf.Clamp01(amount);
+        ApplyLastKillOverrides();
+    }
+
+    private void ApplyLastKillOverrides()
+    {
+        if (lightingProfile == null || colorAdjustments == null || vignette == null)
+            return;
+
+        colorAdjustments.saturation.Override(
+            Mathf.Clamp(lightingProfile.saturation - 20f * lastKillEmphasis, -100f, 100f));
+        vignette.intensity.Override(
+            Mathf.Clamp01(lightingProfile.vignetteIntensity + 0.08f * lastKillEmphasis));
     }
 
     public void SetPresentationMode(bool combat, bool show)
