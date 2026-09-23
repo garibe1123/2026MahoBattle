@@ -45,6 +45,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private bool combatMode;
     private bool showMode;
     private float lastKillEmphasis;
+    private float lowHpEmphasis;
 
     public float CurrentWeight => currentWeight;
 
@@ -111,7 +112,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
         filmGrain.intensity.Override(profile.filmGrainIntensity);
         filmGrain.response.Override(profile.filmGrainResponse);
 
-        ApplyLastKillOverrides();
+        ApplyDynamicOverrides();
         ApplyAnalogMaterialParameters();
         RefreshTargetWeight();
     }
@@ -119,18 +120,47 @@ public sealed class BattleColorGradingController : MonoBehaviour
     public void SetLastKillEmphasis(float amount)
     {
         lastKillEmphasis = Mathf.Clamp01(amount);
-        ApplyLastKillOverrides();
+        ApplyDynamicOverrides();
+        ApplyAnalogMaterialParameters();
     }
 
-    private void ApplyLastKillOverrides()
+    public void SetLowHpEmphasis(float amount)
     {
-        if (lightingProfile == null || colorAdjustments == null || vignette == null)
+        lowHpEmphasis = Mathf.Clamp01(amount);
+        ApplyDynamicOverrides();
+        ApplyAnalogMaterialParameters();
+    }
+
+    private void ApplyDynamicOverrides()
+    {
+        if (lightingProfile == null ||
+            colorAdjustments == null ||
+            vignette == null ||
+            chromaticAberration == null)
+        {
             return;
+        }
+
+        float combinedSaturationLoss =
+            20f * lastKillEmphasis +
+            12f * lowHpEmphasis;
 
         colorAdjustments.saturation.Override(
-            Mathf.Clamp(lightingProfile.saturation - 20f * lastKillEmphasis, -100f, 100f));
+            Mathf.Clamp(
+                lightingProfile.saturation - combinedSaturationLoss,
+                -100f,
+                100f));
+
         vignette.intensity.Override(
-            Mathf.Clamp01(lightingProfile.vignetteIntensity + 0.08f * lastKillEmphasis));
+            Mathf.Clamp01(
+                lightingProfile.vignetteIntensity +
+                0.08f * lastKillEmphasis +
+                0.10f * lowHpEmphasis));
+
+        chromaticAberration.intensity.Override(
+            Mathf.Clamp01(
+                lightingProfile.chromaticAberrationIntensity +
+                0.08f * lowHpEmphasis));
     }
 
     public void SetPresentationMode(bool combat, bool show)
@@ -283,8 +313,16 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
         analogOverlayMaterial.SetFloat("_ScanlineStrength", lightingProfile.scanlineStrength);
         analogOverlayMaterial.SetFloat("_ScanlineSpacing", lightingProfile.scanlineSpacingPixels);
-        analogOverlayMaterial.SetFloat("_NoiseStrength", lightingProfile.analogNoiseStrength);
-        analogOverlayMaterial.SetFloat("_RollingBandStrength", lightingProfile.rollingBandStrength);
+        analogOverlayMaterial.SetFloat(
+            "_NoiseStrength",
+            Mathf.Clamp01(
+                lightingProfile.analogNoiseStrength +
+                0.22f * lowHpEmphasis));
+        analogOverlayMaterial.SetFloat(
+            "_RollingBandStrength",
+            Mathf.Clamp01(
+                lightingProfile.rollingBandStrength +
+                0.16f * lowHpEmphasis));
         analogOverlayMaterial.SetColor("_OverlayTint", lightingProfile.analogOverlayTint);
     }
 
