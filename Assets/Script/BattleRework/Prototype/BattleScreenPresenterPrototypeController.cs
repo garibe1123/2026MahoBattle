@@ -2,11 +2,14 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Disposable full-screen presenter prototype.
+/// Disposable screen presenter prototype.
 ///
-/// The physical field presenter and World-Space TV remain untouched.
-/// This prototype only adds a Screen-Space upper-body presenter cut-in and a minimal dialogue layer.
-/// Reward / Map own all gameplay state and only notify this class when commentary should change.
+/// - Field presenter / World-Space TV stay untouched.
+/// - Screen presenter enters once from the right, black -> white, then remains on screen.
+/// - Reward -> Map -> stage preparation does not replay the entrance.
+/// - Entering Combat turns the presenter white -> black, then hides it.
+/// - Dialogue independently opens, types, idles, closes, and can be replaced by new commentary.
+/// - Screen presenter sprites/frames come from BattleShowPresentationManager.
 /// </summary>
 [DefaultExecutionOrder(70000)]
 [DisallowMultipleComponent]
@@ -27,6 +30,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         Concerned
     }
 
+    private enum PresenterPhase
+    {
+        Hidden,
+        Entering,
+        Active,
+        BlackingOut
+    }
+
     private enum DialoguePhase
     {
         Hidden,
@@ -41,44 +52,46 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [Header("Screen Overlay")]
     [SerializeField] private int overlaySortingOrder = 470;
     [SerializeField] private Vector2 referenceResolution = new(1920f, 1080f);
-    [SerializeField, Min(0.01f)] private float showDelay = 0.10f;
-    [SerializeField, Min(0.1f)] private float presenterSharpness = 10f;
 
-    [Header("Presenter Upper Body")]
-    [Tooltip("화면 우측에서 사회자의 상반신만 보이는 Mask 영역입니다.")]
-    [SerializeField] private Vector2 presenterViewportSize = new(560f, 610f);
-    [SerializeField] private Vector2 presenterViewportOffset = new(-4f, 54f);
-    [Tooltip("원본 전신 Sprite를 크게 넣고 Mask로 하체를 잘라 상반신 구도를 만듭니다.")]
-    [SerializeField] private Vector2 presenterSourceSize = new(650f, 980f);
-    [SerializeField] private Vector2 presenterSourceOffset = new(0f, -6f);
-    [SerializeField, Min(0f)] private float presenterHiddenOffsetX = 220f;
-    [SerializeField, Range(0f, 0.04f)] private float presenterIdleScale = 0.008f;
-    [SerializeField, Range(0f, 8f)] private float presenterIdlePixels = 2.5f;
+    [Header("Presenter Square")]
+    [Tooltip("지금은 정사각 Placeholder를 사용합니다. 나중에 BattleShowPresentationManager의 Screen Presenter Sprite/Frames를 넣으면 교체됩니다.")]
+    [SerializeField] private Vector2 presenterSize = new(760f, 760f);
+    [Tooltip("화면 우측 중앙 부근의 최종 위치입니다.")]
+    [SerializeField] private Vector2 presenterVisibleOffset = new(-8f, 10f);
+    [SerializeField, Min(0f)] private float presenterHiddenOffsetX = 310f;
+    [SerializeField, Min(50f)] private float presenterSlideSpeedPixels = 1250f;
+    [SerializeField, Min(0.1f)] private float presenterRevealPerSecond = 2.8f;
+    [SerializeField, Min(0.1f)] private float presenterBlackoutPerSecond = 3.6f;
+    [SerializeField, Min(0f)] private float presenterEntryDelay = 0.08f;
+
+    [Header("Presenter Idle")]
+    [SerializeField, Range(0f, 5f)] private float idleMovePixels = 1.8f;
+    [SerializeField, Range(0f, 0.02f)] private float idleScaleAmount = 0.004f;
+    [SerializeField, Min(0.1f)] private float idleCyclesPerSecond = 0.32f;
 
     [Header("Dialogue")]
-    [SerializeField] private Vector2 dialogueSize = new(1050f, 164f);
-    [SerializeField] private Vector2 dialogueVisibleOffset = new(-250f, 32f);
-    [SerializeField, Min(0f)] private float dialogueHiddenOffsetY = 64f;
+    [SerializeField] private Vector2 dialogueSize = new(1020f, 154f);
+    [SerializeField] private Vector2 dialogueVisibleOffset = new(-280f, 34f);
+    [SerializeField, Min(0f)] private float dialogueHiddenOffsetY = 72f;
     [SerializeField, Min(0.03f)] private float dialogueOpenDuration = 0.14f;
     [SerializeField, Min(0.03f)] private float dialogueCloseDuration = 0.10f;
-    [SerializeField, Min(1f)] private float typeCharactersPerSecond = 34f;
+    [SerializeField, Min(1f)] private float typeCharactersPerSecond = 36f;
     [SerializeField, Min(0.1f)] private float dialogueIdleDuration = 1.65f;
 
     [Header("Show Camera")]
     [SerializeField, Range(1f, 1.35f)] private float showCameraZoomOut = 1.14f;
-    [Tooltip("카메라를 오른쪽으로 옮겨 World TV를 화면 왼쪽으로 밀고 Presenter 공간을 만듭니다.")]
     [SerializeField, Range(0f, 2f)] private float cameraRightBiasWorld = 0.68f;
 
     [Header("Minimal Theme")]
-    [SerializeField] private Color dialogueBack = new(0.012f, 0.014f, 0.020f, 0.91f);
-    [SerializeField] private Color nameBack = new(1f, 0.82f, 0.10f, 0.96f);
-    [SerializeField] private Color accent = new(1f, 0.18f, 0.36f, 1f);
+    [SerializeField] private Color dialogueBack = new(0.01f, 0.012f, 0.018f, 0.87f);
+    [SerializeField] private Color accent = new(1f, 0.82f, 0.10f, 1f);
+    [SerializeField] private Color hotAccent = new(1f, 0.18f, 0.36f, 1f);
     [SerializeField] private Color white = new(0.97f, 0.98f, 1f, 1f);
-    [SerializeField] private Color darkInk = new(0.035f, 0.035f, 0.045f, 1f);
-    [SerializeField] private Color muted = new(0.68f, 0.71f, 0.77f, 1f);
+    [SerializeField] private Color muted = new(0.65f, 0.68f, 0.74f, 1f);
 
     private BattleRunManager runManager;
     private BattleShowWorldSetController showWorld;
+    private BattleShowPresentationManager presentation;
     private BattleRunState lastState = (BattleRunState)(-1);
     private Mode mode;
 
@@ -86,23 +99,22 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private RectTransform overlayRoot;
 
     private CanvasGroup presenterGroup;
-    private RectTransform presenterViewport;
-    private RectTransform presenterImageRect;
+    private RectTransform presenterRect;
     private Image presenterImage;
-    private float presenterBlend;
+    private PresenterPhase presenterPhase = PresenterPhase.Hidden;
+    private bool presenterSessionActive;
+    private bool presenterEntryPending;
+    private float presenterEnterAt;
+    private float presenterTint;
+    private int presenterFrameIndex;
+    private float presenterFrameTimer;
 
     private CanvasGroup dialogueGroup;
     private RectTransform dialogueRect;
-    private RectTransform namePlateRect;
     private Text nameText;
     private Text contextText;
     private Text dialogueText;
     private Text liveText;
-
-    private bool requestedPresenterVisible;
-    private float showAt;
-    private bool cameraApplied;
-    private float reactionStartedAt = -10f;
 
     private DialoguePhase dialoguePhase = DialoguePhase.Hidden;
     private float dialoguePhaseTime;
@@ -119,6 +131,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private string activeKeyword = string.Empty;
     private string activeComment = string.Empty;
     private Mood activeMood = Mood.Neutral;
+
+    private bool cameraApplied;
+    private float reactionStartedAt = -10f;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
@@ -164,23 +179,23 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         if (state != lastState)
         {
+            BattleRunState previous = lastState;
             lastState = state;
-            HandleState(state);
+            HandleStateChanged(previous, state);
         }
 
-        if (mode != Mode.None)
-        {
-            EnsureOverlay();
-            UpdatePresenterSprite();
-            ApplyPrototypeCamera();
-        }
+        EnsureOverlay();
 
+        UpdatePresenterAnimation();
         UpdatePresenterMotion();
         UpdateDialogueState();
+
+        if (mode == Mode.Reward || mode == Mode.Map)
+            ApplyPrototypeCamera();
     }
 
     // ---------------------------------------------------------------------
-    // Disposable external hooks
+    // Disposable hooks
     // ---------------------------------------------------------------------
 
     public static void NotifyRewardHover(BattleEquipmentSO equipment)
@@ -201,7 +216,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         owner.QueueCopy(
             "SOLD / INSTALLING",
-            $"{equipment.rarity.ToString().ToUpperInvariant()}  /  {equipment.GetDisplayName()}",
+            $"{equipment.rarity.ToString().ToUpperInvariant()} / {equipment.GetDisplayName()}",
             "좋아요, 그걸로 가죠. 장착되는 모습까지 한번 보시죠!",
             Mood.Excited);
     }
@@ -219,7 +234,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         owner.QueueCopy(
             "NEXT COURSE",
-            $"ROUTE LOCKED  /  STAGE {Mathf.Max(1, node.depth + 1):00}",
+            $"ROUTE LOCKED / STAGE {Mathf.Max(1, node.depth + 1):00}",
             "좋습니다! 다음 방송 코스, 이쪽으로 가보죠!",
             Mood.Excited);
     }
@@ -250,16 +265,31 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         if (showWorld == null)
             showWorld = FindFirstObjectByType<BattleShowWorldSetController>();
+
+        if (presentation == null)
+            presentation = BattleShowPresentationManager.Instance != null
+                ? BattleShowPresentationManager.Instance
+                : FindFirstObjectByType<BattleShowPresentationManager>();
     }
 
-    private void HandleState(BattleRunState state)
+    private void HandleStateChanged(BattleRunState previous, BattleRunState state)
     {
-        RestoreCamera();
+        bool previousSelection =
+            previous == BattleRunState.Reward ||
+            previous == BattleRunState.SelectingNode;
+
+        bool selection =
+            state == BattleRunState.Reward ||
+            state == BattleRunState.SelectingNode;
+
+        if (!selection && previousSelection)
+            RestoreCamera();
 
         if (state == BattleRunState.Reward)
         {
             mode = Mode.Reward;
-            BeginShow();
+            EnsurePresenterSession();
+
             QueueCopy(
                 "LIVE SHOP",
                 "TODAY'S PICK",
@@ -271,7 +301,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (state == BattleRunState.SelectingNode)
         {
             mode = Mode.Map;
-            BeginShow();
+            EnsurePresenterSession();
+
             QueueCopy(
                 "ROUTE DESK",
                 "NEXT STAGE",
@@ -281,26 +312,68 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         }
 
         mode = Mode.None;
-        requestedPresenterVisible = false;
-        hasPendingCopy = false;
 
-        if (dialoguePhase != DialoguePhase.Hidden)
+        if (dialoguePhase != DialoguePhase.Hidden &&
+            dialoguePhase != DialoguePhase.Closing)
         {
             dialoguePhase = DialoguePhase.Closing;
             dialoguePhaseTime = 0f;
         }
+
+        // Presenter remains through EnteringNode / BuildingRoom / Roulette.
+        // Combat is the explicit end of this broadcast presenter session.
+        if (state == BattleRunState.Combat ||
+            state == BattleRunState.Ended ||
+            state == BattleRunState.None)
+        {
+            BeginPresenterBlackout();
+        }
     }
 
-    private void BeginShow()
+    private void EnsurePresenterSession()
     {
         EnsureOverlay();
-        requestedPresenterVisible = false;
-        showAt = Time.unscaledTime + showDelay;
-        reactionStartedAt = Time.unscaledTime;
+
+        if (presenterSessionActive)
+            return;
+
+        presenterSessionActive = true;
+        presenterEntryPending = true;
+        presenterEnterAt = Time.unscaledTime + presenterEntryDelay;
+        presenterPhase = PresenterPhase.Hidden;
+        presenterTint = 0f;
+        presenterFrameIndex = 0;
+        presenterFrameTimer = 0f;
+
+        if (presenterRect != null)
+        {
+            presenterRect.anchoredPosition =
+                presenterVisibleOffset + Vector2.right * presenterHiddenOffsetX;
+        }
+
+        if (presenterGroup != null)
+            presenterGroup.alpha = 0f;
+
+        ApplyPresenterTint();
+        ApplyPresenterSourceSprite(true);
+    }
+
+    private void BeginPresenterBlackout()
+    {
+        presenterEntryPending = false;
+
+        if (!presenterSessionActive ||
+            presenterPhase == PresenterPhase.Hidden)
+        {
+            presenterSessionActive = false;
+            return;
+        }
+
+        presenterPhase = PresenterPhase.BlackingOut;
     }
 
     // ---------------------------------------------------------------------
-    // Screen overlay
+    // Overlay construction
     // ---------------------------------------------------------------------
 
     private void EnsureOverlay()
@@ -325,41 +398,32 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         overlayRoot = canvasObject.GetComponent<RectTransform>();
 
         BuildDialogue();
-        BuildPresenterUpperBody();
+        BuildPresenterSquare();
     }
 
-    private void BuildPresenterUpperBody()
+    private void BuildPresenterSquare()
     {
-        GameObject viewportObject = new("PresenterUpperBodyViewport", typeof(RectTransform));
-        viewportObject.transform.SetParent(overlayRoot, false);
+        GameObject go = new("PresenterScreenCutIn", typeof(RectTransform));
+        go.transform.SetParent(overlayRoot, false);
 
-        presenterViewport = viewportObject.GetComponent<RectTransform>();
-        presenterViewport.anchorMin = presenterViewport.anchorMax = new Vector2(1f, 0.5f);
-        presenterViewport.pivot = new Vector2(1f, 0.5f);
-        presenterViewport.sizeDelta = presenterViewportSize;
-        presenterViewport.anchoredPosition =
-            presenterViewportOffset + Vector2.right * presenterHiddenOffsetX;
+        presenterRect = go.GetComponent<RectTransform>();
+        presenterRect.anchorMin = presenterRect.anchorMax = new Vector2(1f, 0.5f);
+        presenterRect.pivot = new Vector2(1f, 0.5f);
+        presenterRect.sizeDelta = presenterSize;
+        presenterRect.anchoredPosition =
+            presenterVisibleOffset + Vector2.right * presenterHiddenOffsetX;
 
-        viewportObject.AddComponent<RectMask2D>();
+        presenterImage = go.AddComponent<Image>();
+        presenterImage.preserveAspect = true;
+        presenterImage.raycastTarget = false;
+        presenterImage.sprite = BattleHudSpriteCache.DefaultSprite;
 
-        presenterGroup = viewportObject.AddComponent<CanvasGroup>();
+        presenterGroup = go.AddComponent<CanvasGroup>();
         presenterGroup.alpha = 0f;
         presenterGroup.interactable = false;
         presenterGroup.blocksRaycasts = false;
 
-        GameObject imageObject = new("PresenterUpperBody", typeof(RectTransform));
-        imageObject.transform.SetParent(presenterViewport, false);
-
-        presenterImageRect = imageObject.GetComponent<RectTransform>();
-        presenterImageRect.anchorMin = presenterImageRect.anchorMax = new Vector2(1f, 1f);
-        presenterImageRect.pivot = new Vector2(1f, 1f);
-        presenterImageRect.sizeDelta = presenterSourceSize;
-        presenterImageRect.anchoredPosition = presenterSourceOffset;
-
-        presenterImage = imageObject.AddComponent<Image>();
-        presenterImage.preserveAspect = true;
-        presenterImage.raycastTarget = false;
-        presenterImage.color = Color.white;
+        ApplyPresenterTint();
     }
 
     private void BuildDialogue()
@@ -383,34 +447,27 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueGroup.interactable = false;
         dialogueGroup.blocksRaycasts = false;
 
-        GameObject plate = new("NamePlate", typeof(RectTransform));
-        plate.transform.SetParent(dialogueRect, false);
-
-        namePlateRect = plate.GetComponent<RectTransform>();
-        namePlateRect.anchorMin = namePlateRect.anchorMax = new Vector2(0f, 1f);
-        namePlateRect.pivot = new Vector2(0f, 1f);
-        namePlateRect.anchoredPosition = new Vector2(20f, 12f);
-        namePlateRect.sizeDelta = new Vector2(222f, 40f);
-
-        Image plateImage = plate.AddComponent<Image>();
-        plateImage.color = nameBack;
-        plateImage.raycastTarget = false;
-
         nameText = CreateText(
-            namePlateRect,
+            dialogueRect,
             "PresenterName",
             "SHOW HOST",
-            19,
+            17,
             FontStyle.Bold,
-            TextAnchor.MiddleCenter,
-            darkInk);
-        Stretch(nameText.rectTransform, 6f);
+            TextAnchor.MiddleLeft,
+            accent);
+
+        Place(
+            nameText.rectTransform,
+            new Vector2(0f, 1f),
+            new Vector2(0f, 1f),
+            new Vector2(26f, -12f),
+            new Vector2(220f, 30f));
 
         contextText = CreateText(
             dialogueRect,
             "Context",
             string.Empty,
-            12,
+            11,
             FontStyle.Bold,
             TextAnchor.MiddleRight,
             muted);
@@ -419,8 +476,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             contextText.rectTransform,
             new Vector2(1f, 1f),
             new Vector2(1f, 1f),
-            new Vector2(-20f, -12f),
-            new Vector2(500f, 28f));
+            new Vector2(-24f, -12f),
+            new Vector2(550f, 28f));
 
         dialogueText = CreateText(
             dialogueRect,
@@ -434,8 +491,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         RectTransform textRect = dialogueText.rectTransform;
         textRect.anchorMin = Vector2.zero;
         textRect.anchorMax = Vector2.one;
-        textRect.offsetMin = new Vector2(42f, 20f);
-        textRect.offsetMax = new Vector2(-38f, -42f);
+        textRect.offsetMin = new Vector2(26f, 18f);
+        textRect.offsetMax = new Vector2(-30f, -38f);
         dialogueText.horizontalOverflow = HorizontalWrapMode.Wrap;
         dialogueText.verticalOverflow = VerticalWrapMode.Truncate;
         dialogueText.lineSpacing = 1.04f;
@@ -447,73 +504,225 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             10,
             FontStyle.Bold,
             TextAnchor.LowerRight,
-            accent);
+            hotAccent);
 
         Place(
             liveText.rectTransform,
             new Vector2(1f, 0f),
             new Vector2(1f, 0f),
-            new Vector2(-18f, 10f),
+            new Vector2(-18f, 9f),
             new Vector2(110f, 20f));
     }
 
     // ---------------------------------------------------------------------
-    // Presenter motion / idle
+    // Presenter: constant-speed slide / tint / animation
     // ---------------------------------------------------------------------
 
     private void UpdatePresenterMotion()
     {
-        if (mode != Mode.None &&
-            !requestedPresenterVisible &&
-            Time.unscaledTime >= showAt)
+        if (presenterEntryPending &&
+            presenterSessionActive &&
+            Time.unscaledTime >= presenterEnterAt)
         {
-            requestedPresenterVisible = true;
+            presenterEntryPending = false;
+            presenterPhase = PresenterPhase.Entering;
+
+            if (presenterGroup != null)
+                presenterGroup.alpha = 1f;
         }
 
-        float target = requestedPresenterVisible && mode != Mode.None && presenterViewport != null
-            ? 1f
-            : 0f;
+        if (presenterRect == null || presenterImage == null)
+            return;
 
-        float t = 1f - Mathf.Exp(
-            -Mathf.Max(0.1f, presenterSharpness) * Time.unscaledDeltaTime);
+        float dt = Time.unscaledDeltaTime;
 
-        presenterBlend = Mathf.Lerp(presenterBlend, target, t);
-
-        if (Mathf.Abs(presenterBlend - target) < 0.001f)
-            presenterBlend = target;
-
-        if (presenterGroup != null)
-            presenterGroup.alpha = presenterBlend;
-
-        if (presenterViewport != null)
+        switch (presenterPhase)
         {
-            float eased = Smooth01(presenterBlend);
-            presenterViewport.anchoredPosition = Vector2.Lerp(
-                presenterViewportOffset + Vector2.right * presenterHiddenOffsetX,
-                presenterViewportOffset,
-                eased);
-        }
+            case PresenterPhase.Hidden:
+                if (presenterGroup != null)
+                    presenterGroup.alpha = 0f;
+                break;
 
-        if (presenterImageRect != null)
-        {
-            float idle = Mathf.Sin(Time.unscaledTime * 1.7f);
-            float idleY = idle * presenterIdlePixels * presenterBlend;
-            float idleScale = 1f + idle * presenterIdleScale * presenterBlend;
+            case PresenterPhase.Entering:
+            {
+                if (presenterGroup != null)
+                    presenterGroup.alpha = 1f;
 
-            float reactionAge = Time.unscaledTime - reactionStartedAt;
-            float reaction = reactionAge >= 0f && reactionAge < 0.24f
-                ? Mathf.Sin(reactionAge / 0.24f * Mathf.PI) * 0.028f
-                : 0f;
+                presenterRect.anchoredPosition = Vector2.MoveTowards(
+                    presenterRect.anchoredPosition,
+                    presenterVisibleOffset,
+                    Mathf.Max(50f, presenterSlideSpeedPixels) * dt);
 
-            presenterImageRect.anchoredPosition =
-                presenterSourceOffset + Vector2.up * idleY;
-            presenterImageRect.localScale =
-                Vector3.one * (idleScale + reaction);
+                presenterTint = Mathf.MoveTowards(
+                    presenterTint,
+                    1f,
+                    Mathf.Max(0.1f, presenterRevealPerSecond) * dt);
+
+                ApplyPresenterTint();
+
+                bool positionDone =
+                    Vector2.SqrMagnitude(
+                        presenterRect.anchoredPosition - presenterVisibleOffset) < 0.01f;
+
+                if (positionDone && presenterTint >= 0.999f)
+                {
+                    presenterRect.anchoredPosition = presenterVisibleOffset;
+                    presenterTint = 1f;
+                    ApplyPresenterTint();
+                    presenterPhase = PresenterPhase.Active;
+                }
+                break;
+            }
+
+            case PresenterPhase.Active:
+                presenterRect.anchoredPosition = presenterVisibleOffset;
+                presenterTint = 1f;
+                ApplyPresenterTint();
+                ApplyPresenterIdle();
+                break;
+
+            case PresenterPhase.BlackingOut:
+                presenterRect.anchoredPosition = presenterVisibleOffset;
+
+                presenterTint = Mathf.MoveTowards(
+                    presenterTint,
+                    0f,
+                    Mathf.Max(0.1f, presenterBlackoutPerSecond) * dt);
+
+                ApplyPresenterTint();
+
+                if (presenterTint <= 0.001f)
+                {
+                    presenterTint = 0f;
+                    ApplyPresenterTint();
+
+                    if (presenterGroup != null)
+                        presenterGroup.alpha = 0f;
+
+                    presenterPhase = PresenterPhase.Hidden;
+                    presenterSessionActive = false;
+                    presenterFrameIndex = 0;
+                    presenterFrameTimer = 0f;
+                }
+                break;
         }
     }
 
+    private void ApplyPresenterIdle()
+    {
+        if (presenterRect == null)
+            return;
+
+        float phase =
+            Time.unscaledTime *
+            Mathf.Max(0.1f, idleCyclesPerSecond) *
+            Mathf.PI * 2f;
+
+        float wave = Mathf.Sin(phase);
+
+        presenterRect.anchoredPosition =
+            presenterVisibleOffset +
+            Vector2.up * (wave * idleMovePixels);
+
+        float scale = 1f + wave * idleScaleAmount;
+        presenterRect.localScale = Vector3.one * scale;
+    }
+
+    private void ApplyPresenterTint()
+    {
+        if (presenterImage == null)
+            return;
+
+        float v = Mathf.Clamp01(presenterTint);
+        presenterImage.color = new Color(v, v, v, 1f);
+    }
+
+    private void UpdatePresenterAnimation()
+    {
+        if (presenterImage == null)
+            return;
+
+        if (presenterPhase == PresenterPhase.Hidden ||
+            presenterPhase == PresenterPhase.BlackingOut)
+        {
+            return;
+        }
+
+        ApplyPresenterSourceSprite(false);
+
+        if (presentation == null ||
+            presentation.ScreenPresenterFrameCount <= 1)
+        {
+            return;
+        }
+
+        float frameDuration = 1f / presentation.ScreenPresenterFps;
+        presenterFrameTimer += Time.unscaledDeltaTime;
+
+        while (presenterFrameTimer >= frameDuration)
+        {
+            presenterFrameTimer -= frameDuration;
+            presenterFrameIndex++;
+
+            if (presenterFrameIndex >= presentation.ScreenPresenterFrameCount)
+            {
+                presenterFrameIndex = presentation.ScreenPresenterLoop
+                    ? 0
+                    : presentation.ScreenPresenterFrameCount - 1;
+            }
+
+            Sprite frame = presentation.GetScreenPresenterFrame(presenterFrameIndex);
+            if (frame != null)
+                presenterImage.sprite = frame;
+
+            if (!presentation.ScreenPresenterLoop &&
+                presenterFrameIndex >= presentation.ScreenPresenterFrameCount - 1)
+            {
+                presenterFrameTimer = 0f;
+                break;
+            }
+        }
+    }
+
+    private void ApplyPresenterSourceSprite(bool resetFrame)
+    {
+        if (presenterImage == null)
+            return;
+
+        if (resetFrame)
+        {
+            presenterFrameIndex = 0;
+            presenterFrameTimer = 0f;
+        }
+
+        Sprite sprite = null;
+
+        if (presentation != null)
+        {
+            if (presentation.ScreenPresenterFrameCount > 0)
+            {
+                presenterFrameIndex = Mathf.Clamp(
+                    presenterFrameIndex,
+                    0,
+                    presentation.ScreenPresenterFrameCount - 1);
+
+                sprite = presentation.GetScreenPresenterFrame(presenterFrameIndex);
+            }
+
+            if (sprite == null)
+                sprite = presentation.ScreenPresenterSprite;
+        }
+
+        presenterImage.sprite =
+            sprite != null
+                ? sprite
+                : BattleHudSpriteCache.DefaultSprite;
+
+        presenterImage.preserveAspect = true;
+    }
+
     // ---------------------------------------------------------------------
-    // Dialogue state machine
+    // Dialogue: open -> type -> idle -> close -> update
     // ---------------------------------------------------------------------
 
     private void QueueCopy(
@@ -574,9 +783,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         switch (dialoguePhase)
         {
             case DialoguePhase.Hidden:
-                dialogueGroup.alpha = 0f;
-                dialogueRect.anchoredPosition =
-                    dialogueVisibleOffset - Vector2.up * dialogueHiddenOffsetY;
+                ApplyDialogueOpenValue(0f);
 
                 if (mode != Mode.None && hasPendingCopy)
                     BeginPendingDialogue();
@@ -586,7 +793,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             {
                 dialoguePhaseTime += dt;
                 float t = Mathf.Clamp01(
-                    dialoguePhaseTime / Mathf.Max(0.03f, dialogueOpenDuration));
+                    dialoguePhaseTime /
+                    Mathf.Max(0.03f, dialogueOpenDuration));
 
                 ApplyDialogueOpenValue(Smooth01(t));
 
@@ -603,6 +811,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 ApplyDialogueOpenValue(1f);
 
                 typeProgress += dt * Mathf.Max(1f, typeCharactersPerSecond);
+
                 int targetCharacters = Mathf.Clamp(
                     Mathf.FloorToInt(typeProgress),
                     0,
@@ -611,7 +820,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 if (targetCharacters != visibleCharacters)
                 {
                     visibleCharacters = targetCharacters;
-                    dialogueText.text = activeComment.Substring(0, visibleCharacters);
+                    dialogueText.text =
+                        activeComment.Substring(0, visibleCharacters);
                 }
 
                 if (visibleCharacters >= activeComment.Length)
@@ -639,7 +849,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             {
                 dialoguePhaseTime += dt;
                 float t = Mathf.Clamp01(
-                    dialoguePhaseTime / Mathf.Max(0.03f, dialogueCloseDuration));
+                    dialoguePhaseTime /
+                    Mathf.Max(0.03f, dialogueCloseDuration));
 
                 ApplyDialogueOpenValue(1f - Smooth01(t));
 
@@ -667,9 +878,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             dialogueVisibleOffset - Vector2.up * dialogueHiddenOffsetY,
             dialogueVisibleOffset,
             clamped);
-
-        float scaleY = Mathf.Lerp(0.92f, 1f, clamped);
-        dialogueRect.localScale = new Vector3(1f, scaleY, 1f);
     }
 
     private void ApplyDialogueMetadata()
@@ -681,7 +889,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         {
             contextText.text = string.IsNullOrWhiteSpace(activeKeyword)
                 ? activeHeader
-                : $"{activeHeader}   /   {activeKeyword}";
+                : $"{activeHeader} / {activeKeyword}";
         }
 
         if (liveText != null)
@@ -697,23 +905,19 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             liveText.color = activeMood == Mood.Concerned
                 ? new Color(1f, 0.55f, 0.18f, 1f)
                 : activeMood == Mood.Excited
-                    ? accent
+                    ? hotAccent
                     : muted;
         }
     }
 
     // ---------------------------------------------------------------------
-    // Camera composition
+    // Camera
     // ---------------------------------------------------------------------
 
     private void ApplyPrototypeCamera()
     {
-        if (showWorld == null ||
-            mode == Mode.None ||
-            !showWorld.HasCameraAnchor)
-        {
+        if (showWorld == null || !showWorld.HasCameraAnchor)
             return;
-        }
 
         showWorld.RecomputeSharedCameraFrame();
 
@@ -738,60 +942,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             showWorld.RecomputeSharedCameraFrame();
 
         cameraApplied = false;
-    }
-
-    // ---------------------------------------------------------------------
-    // Presenter sprite source
-    // ---------------------------------------------------------------------
-
-    private void UpdatePresenterSprite()
-    {
-        if (presenterImage == null)
-            return;
-
-        Sprite sprite = null;
-
-        if (showWorld != null &&
-            showWorld.PresenterWorldTransform != null)
-        {
-            SpriteRenderer renderer =
-                showWorld.PresenterWorldTransform.GetComponent<SpriteRenderer>();
-
-            if (renderer == null)
-            {
-                renderer =
-                    showWorld.PresenterWorldTransform
-                        .GetComponentInChildren<SpriteRenderer>(true);
-            }
-
-            if (renderer != null)
-                sprite = renderer.sprite;
-        }
-
-        if (sprite == null)
-        {
-            Image[] images = FindObjectsByType<Image>(
-                FindObjectsInactive.Include,
-                FindObjectsSortMode.None);
-
-            for (int i = 0; i < images.Length; i++)
-            {
-                Image image = images[i];
-                if (image == null ||
-                    image == presenterImage ||
-                    image.name != "Presenter" ||
-                    image.sprite == null)
-                {
-                    continue;
-                }
-
-                sprite = image.sprite;
-                break;
-            }
-        }
-
-        presenterImage.sprite = sprite;
-        presenterImage.enabled = sprite != null;
     }
 
     // ---------------------------------------------------------------------
@@ -961,13 +1111,5 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         rect.pivot = pivot;
         rect.anchoredPosition = position;
         rect.sizeDelta = size;
-    }
-
-    private static void Stretch(RectTransform rect, float padding)
-    {
-        rect.anchorMin = Vector2.zero;
-        rect.anchorMax = Vector2.one;
-        rect.offsetMin = new Vector2(padding, padding);
-        rect.offsetMax = new Vector2(-padding, -padding);
     }
 }
