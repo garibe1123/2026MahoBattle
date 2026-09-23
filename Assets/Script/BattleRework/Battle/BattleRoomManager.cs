@@ -69,6 +69,8 @@ public class BattleRoomManager : MonoBehaviour
     private readonly List<MapBlock> activeBlocks = new();
     private readonly List<BattleObstacle> activeObstacles = new();
     private readonly List<MonsterController> activeMonsters = new();
+    private readonly HashSet<MonsterController> deadMonstersAwaitingReturn = new();
+    private readonly HashSet<MonsterController> completedDeathAnimations = new();
 
     private RoomDefinitionSO currentRoom;
     private BattleContext currentContext;
@@ -89,6 +91,12 @@ public class BattleRoomManager : MonoBehaviour
     private Vector2 cameraImpulseVelocity;
     private float requestedShakeEndTime;
 
+    private MonsterController firstDeathCandidateThisFrame;
+    private int firstDeathCandidateFrame = -1;
+    private MonsterController finalKillTarget;
+    private bool combatClearPresentationRunning;
+    private BattleCombatClearPresentationController combatClearPresentation;
+
     public event Action<RoomDefinitionSO> RoomCombatStarted;
     public event Action<RoomDefinitionSO> RoomCombatCleared;
     public event Action<RoomDefinitionSO> RoomExited;
@@ -101,6 +109,8 @@ public class BattleRoomManager : MonoBehaviour
     public bool IsCombatCleared => combatCleared;
     public bool IsExitOpen => exitOpened;
     public int AliveMonsterCount => activeMonsters.Count;
+    public Transform PlayerTarget => playerTarget;
+    public ProjectilePooler EnemyProjectilePool => monsterPool != null ? monsterPool.EnemyProjectilePool : null;
 
     /// <summary>
     /// 현재 Room이 실제 진입에 사용한 이동 Root를 복사합니다.
@@ -144,6 +154,7 @@ public class BattleRoomManager : MonoBehaviour
                 monsterPool?.Return(activeMonsters[i]);
         }
         activeMonsters.Clear();
+        ReturnAllDeadMonstersImmediate();
 
         for (int i = 0; i < activeObstacles.Count; i++)
         {
@@ -685,7 +696,8 @@ public class BattleRoomManager : MonoBehaviour
                     entry.monster,
                     currentContext,
                     playerTarget,
-                    HandleMonsterDeath);
+                    HandleMonsterDeathCompleted,
+                    HandleMonsterDeathStarted);
 
                 if (monster == null)
                 {
@@ -708,18 +720,73 @@ public class BattleRoomManager : MonoBehaviour
         }
     }
 
-    private void HandleMonsterDeath(MonsterController monster)
+    private void HandleMonsterDeathStarted(MonsterController monster)
+    {
+        if (monster == null || !activeMonsters.Remove(monster))
+            return;
+
+        deadMonstersAwaitingReturn.Add(monster);
+        MonsterDefeated?.Invoke(monster);
+
+        if (firstDeathCandidateFrame != Time.frameCount)
+        {
+            firstDeathCandidateFrame = Time.frameCount;
+            firstDeathCandidateThisFrame = monster;
+        }
+
+        if (activeMonsters.Count == 0)
+            BeginCombatClearPresentation(firstDeathCandidateThisFrame != null ? firstDeathCandidateThisFrame : monster);
+    }
+
+    private void HandleMonsterDeathCompleted(MonsterController monster)
     {
         if (monster == null)
             return;
-        if (!activeMonsters.Remove(monster))
+
+        completedDeathAnimations.Add(monster);
+        if (combatClearPresentationRunning && ReferenceEquals(monster, finalKillTarget))
             return;
 
-        MonsterDefeated?.Invoke(monster);
-        monsterPool?.Return(monster);
+        ReturnDeadMonster(monster);
+    }
 
-        if (activeMonsters.Count == 0)
-            HandleCombatCleared();
+    private void BeginCombatClearPresentation(MonsterController target)
+    {
+        if (currentRoom == null || combatCleared || combatClearPresentationRunning)
+            return;
+
+        finalKillTarget = target;
+        combatClearPresentationRunning = true;
+        combatClearPresentation = BattleCombatClearPresentationController.ResolveOrCreate(this);
+
+        if (combatClearPresentation != null && combatClearPresentation.Play(this, target))
+            return;
+
+        CompleteCombatClearPresentation();
+    }
+
+    public void CompleteCombatClearPresentation()
+    {
+        MonsterController target = finalKillTarget;
+        combatClearPresentationRunning = false;
+        finalKillTarget = null;
+
+        if (target != null && completedDeathAnimations.Contains(target))
+            ReturnDeadMonster(target);
+
+        HandleCombatCleared();
+    }
+
+    private void ReturnDeadMonster(MonsterController monster)
+    {
+        if (monster == null)
+            return;
+
+        completedDeathAnimations.Remove(monster);
+        if (!deadMonstersAwaitingReturn.Remove(monster))
+            return;
+
+        monsterPool?.Return(monster);
     }
 
     private void HandleCombatCleared()
@@ -882,6 +949,7 @@ public class BattleRoomManager : MonoBehaviour
                 monsterPool?.Return(activeMonsters[i]);
         }
         activeMonsters.Clear();
+        ReturnAllDeadMonstersImmediate();
 
         for (int i = 0; i < activeObstacles.Count; i++)
         {
@@ -911,12 +979,39 @@ public class BattleRoomManager : MonoBehaviour
         currentContext = null;
     }
 
+    private void ReturnAllDeadMonstersImmediate()
+    {
+        if (combatClearPresentation != null)
+            combatClearPresentation.Cancel();
+
+        if (deadMonstersAwaitingReturn.Count > 0)
+        {
+            List<MonsterController> buffer = new(deadMonstersAwaitingReturn);
+            for (int i = 0; i < buffer.Count; i++)
+            {
+                if (buffer[i] != null)
+                    monsterPool?.Return(buffer[i]);
+            }
+        }
+
+        deadMonstersAwaitingReturn.Clear();
+        completedDeathAnimations.Clear();
+        finalKillTarget = null;
+        combatClearPresentationRunning = false;
+        firstDeathCandidateThisFrame = null;
+        firstDeathCandidateFrame = -1;
+    }
+
     private void ResetRoomFlags()
     {
         roomTransitioning = false;
         combatCleared = false;
         exitOpened = false;
         exitRoutineStarted = false;
+        firstDeathCandidateThisFrame = null;
+        firstDeathCandidateFrame = -1;
+        finalKillTarget = null;
+        combatClearPresentationRunning = false;
     }
 }
 
