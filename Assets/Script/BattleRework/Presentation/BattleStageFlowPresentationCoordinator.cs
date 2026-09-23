@@ -249,7 +249,8 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
         if (rewardFlow == null || battleCamera == null)
             return;
 
-        if (rewardFlow.Phase != BattleRewardPhase.PackEditing)
+        if (rewardFlow.Phase != BattleRewardPhase.Transferring &&
+            rewardFlow.Phase != BattleRewardPhase.PackEditing)
             return;
 
         battleCamera.SetShowCursorTracking(false, Vector2.zero);
