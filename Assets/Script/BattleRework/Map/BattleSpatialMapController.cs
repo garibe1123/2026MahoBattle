@@ -1962,6 +1962,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             SetTrackedStageMapVisual(trackedStageMapButton, false);
             trackedStageMapButton = button;
             SetTrackedStageMapVisual(trackedStageMapButton, true);
+            NotifyPresenterPrototypeMapHover(trackedStageMapButton);
         }
 
         trackedStageMapPointerAnchor = pointer;
@@ -1982,6 +1983,28 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         BattleStageMapNodePointerFeedback feedback =
             button.GetComponent<BattleStageMapNodePointerFeedback>();
         feedback?.SetTrackedHover(value);
+    }
+
+    private void NotifyPresenterPrototypeMapHover(Button button)
+    {
+        if (button == null || graph == null)
+            return;
+
+        const string prefix = "StageNode_";
+        string objectName = button.gameObject.name;
+        if (string.IsNullOrEmpty(objectName) || !objectName.StartsWith(prefix, StringComparison.Ordinal))
+            return;
+
+        string nodeId = objectName.Substring(prefix.Length);
+        BattleNodeData node = graph.FindNode(nodeId);
+        if (node == null)
+            return;
+
+        int stars = runManager != null
+            ? runManager.ResolveBattleRatingStars(node)
+            : node.GetBattleRatingStars();
+
+        BattleScreenPresenterPrototypeController.NotifyMapHover(node, stars);
     }
 
     private Camera ResolveStageMapEventCamera()
@@ -2005,6 +2028,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (stageMapSelectionLocked || runManager == null || !mapSelectionActive)
             return;
+
+        BattleNodeData prototypeNode = graph != null ? graph.FindNode(nodeId) : null;
+        if (prototypeNode != null)
+        {
+            BattleScreenPresenterPrototypeController.NotifyMapConfirm(
+                prototypeNode,
+                runManager.ResolveBattleRatingStars(prototypeNode));
+        }
 
         stageMapSelectionLocked = true;
         ClearTrackedStageMapHover();
