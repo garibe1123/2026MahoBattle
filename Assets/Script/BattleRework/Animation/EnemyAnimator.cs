@@ -24,12 +24,18 @@ public class EnemyAnimator : MonoBehaviour
     private float flashTimer;
     private Color normalColor = Color.white;
     private Vector2 facing = Vector2.right;
+    private bool useUnscaledTime;
 
     public EnemyAnimState currentState { get; private set; } = EnemyAnimState.Idle;
     public int CurrentFrameIndex => clipPlayer != null ? clipPlayer.CurrentFrameIndex : 0;
     public bool IsPlaying => clipPlayer != null && clipPlayer.IsPlaying;
     public SpriteRenderer SpriteRenderer => spriteRenderer;
     public Vector2 Facing => facing;
+
+    public void SetUseUnscaledTime(bool value)
+    {
+        useUnscaledTime = value;
+    }
 
     private void Awake()
     {
@@ -258,7 +264,7 @@ public class EnemyAnimator : MonoBehaviour
         // Runtime scale 보정이 바뀌어도 방향점 world offset은 일정하게 유지합니다.
         ApplyFacingVisual();
         UpdateFlash();
-        clipPlayer?.Tick(Time.deltaTime);
+        clipPlayer?.Tick(useUnscaledTime ? Time.unscaledDeltaTime : Time.deltaTime);
     }
 
     private void UpdateFlash()
