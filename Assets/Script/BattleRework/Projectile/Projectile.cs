@@ -678,6 +678,47 @@ public class Projectile : MonoBehaviour
         ).normalized;
     }
 
+    public void PrepareForPool()
+    {
+        dying = true;
+        velocity = Vector2.zero;
+        baseDir = Vector2.zero;
+        timer = 0f;
+        sineTime = 0f;
+        travelTime = 0f;
+        travelDistance = 0f;
+        bounceCount = 0;
+        hasTurned = false;
+        currentPierce = 0;
+        homingTarget = null;
+        damageSource = null;
+        damageMultiplier = 1f;
+        fanMissionModifier = 0f;
+        explosionDamagedTargets.Clear();
+
+        if (col != null)
+            col.enabled = false;
+
+        anim?.Stop();
+
+        TrailRenderer[] trails = GetComponentsInChildren<TrailRenderer>(true);
+        for (int i = 0; i < trails.Length; i++)
+            trails[i]?.Clear();
+
+        ParticleSystem[] particles = GetComponentsInChildren<ParticleSystem>(true);
+        for (int i = 0; i < particles.Length; i++)
+            particles[i]?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+
+        if (visual != null)
+        {
+            visual.localPosition = Vector3.zero;
+            visual.localScale = Vector3.one;
+        }
+
+        so = null;
+        pool = null;
+    }
+
     public int DamageRead()
     {
         return so != null ? so.damage : 0;
