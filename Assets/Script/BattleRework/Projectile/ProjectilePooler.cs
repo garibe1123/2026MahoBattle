@@ -8,7 +8,11 @@ public class ProjectilePooler : MonoBehaviour
 
     private readonly Queue<Projectile> queue = new();
     private readonly HashSet<Projectile> pooled = new();
+    private readonly HashSet<Projectile> active = new();
+    private readonly List<Projectile> activeReturnBuffer = new();
     private bool initialized;
+
+    public int ActiveCount => active.Count;
 
     private void Awake()
     {
@@ -71,6 +75,7 @@ public class ProjectilePooler : MonoBehaviour
 
         Projectile projectile = queue.Dequeue();
         pooled.Remove(projectile);
+        active.Add(projectile);
         return projectile;
     }
 
@@ -79,9 +84,31 @@ public class ProjectilePooler : MonoBehaviour
         if (projectile == null || pooled.Contains(projectile))
             return;
 
+        active.Remove(projectile);
+        projectile.PrepareForPool();
         projectile.gameObject.SetActive(false);
         projectile.transform.SetParent(transform);
         queue.Enqueue(projectile);
         pooled.Add(projectile);
+    }
+
+    public int ReturnAllActive()
+    {
+        if (active.Count == 0)
+            return 0;
+
+        activeReturnBuffer.Clear();
+        foreach (Projectile projectile in active)
+        {
+            if (projectile != null)
+                activeReturnBuffer.Add(projectile);
+        }
+
+        int returned = activeReturnBuffer.Count;
+        for (int i = 0; i < activeReturnBuffer.Count; i++)
+            Return(activeReturnBuffer[i]);
+
+        activeReturnBuffer.Clear();
+        return returned;
     }
 }
