@@ -44,10 +44,30 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float fadeInSharpness = 5.5f;
     [SerializeField, Min(0.1f)] private float fadeOutSharpness = 8f;
 
+    [Header("Low HP Broadcast Signal")]
+    [SerializeField, Range(0.2f, 0.4f)] private float warningThreshold = 0.35f;
+    [SerializeField, Range(0.1f, 0.3f)] private float criticalThreshold = 0.20f;
+    [SerializeField, Range(0.03f, 0.15f)] private float lastChanceThreshold = 0.10f;
+    [SerializeField, Range(0f, 0.3f)] private float lowHpExtraVignette = 0.16f;
+    [SerializeField, Range(0f, 0.2f)] private float damageBurstVignette = 0.08f;
+
     private Canvas overlayCanvas;
     private Image overlayImage;
     private Material overlayMaterial;
     private float currentBlend;
+
+    private PlayerController player;
+    private PlayerController subscribedPlayer;
+    private BattleColorGradingController colorGrading;
+    private float lowHpTarget;
+    private float lowHpBlend;
+    private float lastHp01 = 1f;
+    private float damageBurst;
+    private float signalRestoredUntil;
+    private readonly RectTransform[] signalTearRects = new RectTransform[3];
+    private readonly Image[] signalTearImages = new Image[3];
+    private Text signalStatusText;
+    private CanvasGroup signalStatusGroup;
 
     public static BattleCombatCornerVignetteController Instance => instance;
 
@@ -61,6 +81,7 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
 
         instance = this;
         ResolveReferences();
+        EnsurePlayerSubscription();
         EnsureOverlay();
         ApplyImmediate(0f);
     }
@@ -68,15 +89,18 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        EnsurePlayerSubscription();
         EnsureOverlay();
     }
 
     private void Update()
     {
         ResolveReferences();
+        EnsurePlayerSubscription();
         EnsureOverlay();
 
-        float target = IsCombat() ? 1f : 0f;
+        bool combat = IsCombat();
+        float target = combat ? 1f : 0f;
         float sharpness = target >= currentBlend
             ? Mathf.Max(0.1f, fadeInSharpness)
             : Mathf.Max(0.1f, fadeOutSharpness);
@@ -87,16 +111,38 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
         if (Mathf.Abs(currentBlend - target) < 0.001f)
             currentBlend = target;
 
+        float lowTarget = combat ? lowHpTarget : 0f;
+        float lowT = 1f - Mathf.Exp(-8f * Time.unscaledDeltaTime);
+        lowHpBlend = Mathf.Lerp(lowHpBlend, lowTarget, lowT);
+
+        damageBurst = Mathf.MoveTowards(
+            damageBurst,
+            0f,
+            Time.unscaledDeltaTime * 3.8f);
+
+        colorGrading?.SetLowHpEmphasis(
+            combat
+                ? Mathf.Clamp01(lowHpBlend + damageBurst * 0.28f)
+                : 0f);
+
         ApplyVisual();
+        UpdateSignalTearVisuals(combat);
     }
 
     private void OnDisable()
     {
+        UnsubscribePlayer();
+        colorGrading?.SetLowHpEmphasis(0f);
+        lowHpBlend = 0f;
+        damageBurst = 0f;
         ApplyImmediate(0f);
+        HideSignalVisuals();
     }
 
     private void OnDestroy()
     {
+        UnsubscribePlayer();
+
         if (overlayMaterial != null)
             Destroy(overlayMaterial);
 
@@ -117,6 +163,74 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
             stageFlow = BattleStageTransitionController.Instance != null
                 ? BattleStageTransitionController.Instance
                 : FindFirstObjectByType<BattleStageTransitionController>();
+
+        if (player == null)
+            player = FindFirstObjectByType<PlayerController>();
+
+        if (colorGrading == null)
+            colorGrading = FindFirstObjectByType<BattleColorGradingController>(FindObjectsInactive.Include);
+    }
+
+    private void EnsurePlayerSubscription()
+    {
+        if (player == null)
+            player = FindFirstObjectByType<PlayerController>();
+
+        if (subscribedPlayer == player)
+            return;
+
+        UnsubscribePlayer();
+        subscribedPlayer = player;
+
+        if (subscribedPlayer != null)
+        {
+            subscribedPlayer.HpChanged += HandleHpChanged;
+            float maxHp = Mathf.Max(1f, subscribedPlayer.MaxHp);
+            lastHp01 = Mathf.Clamp01(subscribedPlayer.CurrentHp / maxHp);
+            lowHpTarget = ResolveLowHpSeverity(lastHp01);
+        }
+    }
+
+    private void UnsubscribePlayer()
+    {
+        if (subscribedPlayer != null)
+            subscribedPlayer.HpChanged -= HandleHpChanged;
+        subscribedPlayer = null;
+    }
+
+    private void HandleHpChanged(float currentHp, float maxHp)
+    {
+        float hp01 = Mathf.Clamp01(currentHp / Mathf.Max(1f, maxHp));
+
+        if (hp01 < lastHp01 - 0.0001f)
+            damageBurst = 1f;
+
+        if (lastHp01 <= criticalThreshold && hp01 > warningThreshold)
+            signalRestoredUntil = Time.unscaledTime + 1.0f;
+
+        lastHp01 = hp01;
+        lowHpTarget = ResolveLowHpSeverity(hp01);
+    }
+
+    private float ResolveLowHpSeverity(float hp01)
+    {
+        if (hp01 > warningThreshold)
+            return 0f;
+
+        if (hp01 > criticalThreshold)
+        {
+            float t = Mathf.InverseLerp(warningThreshold, criticalThreshold, hp01);
+            return Mathf.Lerp(0.18f, 0.38f, t);
+        }
+
+        if (hp01 > lastChanceThreshold)
+        {
+            float t = Mathf.InverseLerp(criticalThreshold, lastChanceThreshold, hp01);
+            return Mathf.Lerp(0.52f, 0.78f, t);
+        }
+
+        float lastT = Mathf.InverseLerp(lastChanceThreshold, 0f, hp01);
+        return Mathf.Lerp(0.84f, 1f, lastT);
     }
 
     private bool IsCombat()
@@ -174,6 +288,132 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
 
         if (overlayImage != null)
             overlayImage.material = overlayMaterial;
+
+        EnsureSignalVisuals();
+    }
+
+    private void EnsureSignalVisuals()
+    {
+        if (overlayCanvas == null)
+            return;
+
+        for (int i = 0; i < signalTearRects.Length; i++)
+        {
+            if (signalTearRects[i] != null)
+                continue;
+
+            GameObject strip = new($"BattleSignalTear_{i + 1}", typeof(RectTransform));
+            strip.transform.SetParent(overlayCanvas.transform, false);
+
+            RectTransform rect = strip.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 0.20f + i * 0.28f);
+            rect.anchorMax = new Vector2(1f, 0.20f + i * 0.28f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(0f, 3f + i * 1.5f);
+
+            Image image = strip.AddComponent<Image>();
+            image.color = new Color(0.84f, 0.92f, 1f, 0f);
+            image.raycastTarget = false;
+
+            signalTearRects[i] = rect;
+            signalTearImages[i] = image;
+            strip.SetActive(false);
+        }
+
+        if (signalStatusText == null)
+        {
+            GameObject status = new("BattleSignalStatus", typeof(RectTransform));
+            status.transform.SetParent(overlayCanvas.transform, false);
+
+            RectTransform rect = status.GetComponent<RectTransform>();
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.16f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(420f, 44f);
+
+            signalStatusText = status.AddComponent<Text>();
+            signalStatusText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            signalStatusText.fontSize = 17;
+            signalStatusText.fontStyle = FontStyle.Bold;
+            signalStatusText.alignment = TextAnchor.MiddleCenter;
+            signalStatusText.color = new Color(0.92f, 0.95f, 1f, 1f);
+            signalStatusText.raycastTarget = false;
+
+            signalStatusGroup = status.AddComponent<CanvasGroup>();
+            signalStatusGroup.blocksRaycasts = false;
+            signalStatusGroup.interactable = false;
+            signalStatusGroup.alpha = 0f;
+        }
+    }
+
+    private void UpdateSignalTearVisuals(bool combat)
+    {
+        EnsureSignalVisuals();
+
+        bool critical = combat && lastHp01 <= criticalThreshold;
+        bool warning = combat && lastHp01 <= warningThreshold;
+        float tearStrength = critical
+            ? Mathf.Clamp01(lowHpBlend + damageBurst * 0.45f)
+            : warning
+                ? Mathf.Clamp01(lowHpBlend * 0.22f + damageBurst * 0.25f)
+                : damageBurst * 0.18f;
+
+        for (int i = 0; i < signalTearRects.Length; i++)
+        {
+            RectTransform rect = signalTearRects[i];
+            Image image = signalTearImages[i];
+            if (rect == null || image == null)
+                continue;
+
+            bool visible = combat && tearStrength > 0.025f;
+            rect.gameObject.SetActive(visible);
+            if (!visible)
+                continue;
+
+            float time = Time.unscaledTime;
+            float phase = time * (15f + i * 3f) + i * 1.37f;
+            float x = Mathf.Sin(phase) * (10f + 24f * tearStrength);
+            float y = Mathf.Sin(phase * 0.43f) * 4f;
+
+            rect.anchoredPosition = new Vector2(x, y);
+            rect.sizeDelta = new Vector2(0f, 2.5f + tearStrength * (4f + i));
+            Color color = image.color;
+            color.a = Mathf.Clamp01(
+                (0.035f + i * 0.018f) * tearStrength +
+                damageBurst * 0.07f);
+            image.color = color;
+        }
+
+        if (signalStatusText == null || signalStatusGroup == null)
+            return;
+
+        if (combat && lastHp01 <= lastChanceThreshold)
+        {
+            signalStatusText.text = "CRITICAL";
+            signalStatusGroup.alpha =
+                Mathf.Lerp(0.55f, 1f, 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 9f));
+        }
+        else if (combat && Time.unscaledTime < signalRestoredUntil)
+        {
+            signalStatusText.text = "SIGNAL RESTORED";
+            signalStatusGroup.alpha =
+                Mathf.Clamp01((signalRestoredUntil - Time.unscaledTime) / 0.35f);
+        }
+        else
+        {
+            signalStatusGroup.alpha = 0f;
+        }
+    }
+
+    private void HideSignalVisuals()
+    {
+        for (int i = 0; i < signalTearRects.Length; i++)
+        {
+            if (signalTearRects[i] != null)
+                signalTearRects[i].gameObject.SetActive(false);
+        }
+
+        if (signalStatusGroup != null)
+            signalStatusGroup.alpha = 0f;
     }
 
     private void ApplyVisual()
@@ -182,7 +422,12 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
             return;
 
         overlayMaterial.SetColor("_VignetteColor", vignetteColor);
-        overlayMaterial.SetFloat("_Strength", Mathf.Clamp01(currentBlend * overallStrength));
+        float signalStrength =
+            currentBlend * overallStrength +
+            lowHpBlend * lowHpExtraVignette +
+            damageBurst * damageBurstVignette;
+
+        overlayMaterial.SetFloat("_Strength", Mathf.Clamp01(signalStrength));
         overlayMaterial.SetFloat("_EdgeDarkness", Mathf.Clamp(edgeDarkness, 0f, 0.25f));
         overlayMaterial.SetFloat("_CornerDarkness", Mathf.Clamp(cornerDarkness, 0f, 0.5f));
         overlayMaterial.SetFloat("_HorizontalFalloff", Mathf.Clamp(horizontalFalloff, 0.05f, 0.6f));
