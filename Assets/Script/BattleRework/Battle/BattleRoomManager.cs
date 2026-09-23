@@ -816,7 +816,7 @@ public class BattleRoomManager : MonoBehaviour
 
         if (currentRoom == null || combatCleared || activeMonsters.Count > 0)
         {
-            combatClearDecisionPending = false;
+            AbortCombatClearPresentation();
             yield break;
         }
 
