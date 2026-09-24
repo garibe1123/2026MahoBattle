@@ -127,8 +127,12 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float dialogueIdleDuration = 1.65f;
 
     [Header("Show Camera")]
-    [SerializeField, Range(1f, 1.35f)] private float showCameraZoomOut = 1.14f;
-    [SerializeField, Range(0f, 2f)] private float cameraRightBiasWorld = 0.68f;
+    [Tooltip("Reward TV 화면을 얼마나 크게 잡을지 조절합니다. 1보다 작으면 더 줌인합니다.")]
+    [SerializeField, Range(0.90f, 1.05f)] private float rewardCameraZoomRatio = 0.98f;
+    [Tooltip("카메라를 오른쪽으로 조금 이동시켜 TV/아이템 선택 화면이 화면상 약간 왼쪽에 오도록 합니다.")]
+    [SerializeField, Range(0f, 1.5f)] private float rewardCameraRightBiasWorld = 0.34f;
+    [SerializeField, Range(0.90f, 1.10f)] private float mapCameraZoomRatio = 1f;
+    [SerializeField, Range(-1f, 1f)] private float mapCameraHorizontalBiasWorld = 0f;
 
     [Header("Minimal Theme")]
     [SerializeField] private Color dialogueBack = new(0.01f, 0.012f, 0.018f, 0.87f);
@@ -1275,13 +1279,23 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         showWorld.RecomputeSharedCameraFrame();
 
+        bool reward = mode == Mode.Reward;
+
+        float horizontalBias = reward
+            ? rewardCameraRightBiasWorld
+            : mapCameraHorizontalBiasWorld;
+
+        float zoomRatio = reward
+            ? rewardCameraZoomRatio
+            : mapCameraZoomRatio;
+
         Vector3 target =
             showWorld.CameraTargetWorld +
-            Vector3.right * cameraRightBiasWorld;
+            Vector3.right * horizontalBias;
 
         float size =
             showWorld.ShowCameraSize *
-            Mathf.Max(1f, showCameraZoomOut);
+            Mathf.Max(0.1f, zoomRatio);
 
         showWorld.OverrideShowCameraFrame(target, size);
         cameraApplied = true;
