@@ -811,7 +811,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             tailPivotRect,
             bubbleBack.color,
             presentation != null
-                ? presentation.SpeechBubbleTailStyle
+                ? presentation.CombatSpeechBubbleTailStyle
                 : null);
 
         GameObject badge = new("ReactionTagBadge", typeof(RectTransform));
