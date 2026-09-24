@@ -125,6 +125,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField, Min(0.03f)] private float dialogueCloseDuration = 0.10f;
     [SerializeField, Min(1f)] private float typeCharactersPerSecond = 36f;
     [SerializeField, Min(0.1f)] private float dialogueIdleDuration = 1.65f;
+    [Tooltip("Reward/Map 화면 사회자 Rect 안에서 말풍선 꼬리가 향할 기준점입니다.")]
+    [SerializeField] private Vector2 dialogueTailPresenterAnchor = new(0.28f, 0.58f);
+    [SerializeField] private Vector2 dialogueTailPivotOffset = new(0f, 0f);
+    [SerializeField, Min(8f)] private float dialogueTailBaseWidth = 62f;
+    [SerializeField, Min(0f)] private float dialogueTailOutlineWidth = 7f;
 
     [Header("Show Camera")]
     [Tooltip("Reward TV 화면을 얼마나 크게 잡을지 조절합니다. 1보다 작으면 더 줌인합니다.")]
@@ -174,6 +179,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private CanvasGroup dialogueGroup;
     private RectTransform dialogueRect;
+    private RectTransform dialogueTailPivotRect;
+    private BattleSpeechBubbleTailGraphic dialogueTailGraphic;
     private Text nameText;
     private Text contextText;
     private Text dialogueText;
@@ -509,8 +516,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         overlayRoot = canvasObject.GetComponent<RectTransform>();
 
-        BuildDialogue();
         BuildPresenterSquare();
+        BuildDialogue();
     }
 
     private void BuildPresenterSquare()
@@ -531,6 +538,16 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         presenterImage.preserveAspect = true;
         presenterImage.raycastTarget = false;
         presenterImage.sprite = BattleHudSpriteCache.DefaultSprite;
+
+        GameObject tailPivot = new("PresenterDialogueTailPivot", typeof(RectTransform));
+        tailPivot.transform.SetParent(presenterRect, false);
+        dialogueTailPivotRect = tailPivot.GetComponent<RectTransform>();
+        dialogueTailPivotRect.anchorMin =
+            dialogueTailPivotRect.anchorMax =
+                dialogueTailPresenterAnchor;
+        dialogueTailPivotRect.pivot = new Vector2(0.5f, 0.5f);
+        dialogueTailPivotRect.sizeDelta = Vector2.zero;
+        dialogueTailPivotRect.anchoredPosition = dialogueTailPivotOffset;
 
         presenterGroup = go.AddComponent<CanvasGroup>();
         presenterGroup.alpha = 0f;
@@ -555,6 +572,26 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         Image back = root.AddComponent<Image>();
         back.color = dialogueBack;
         back.raycastTarget = false;
+
+        GameObject tail = new("PresenterDialogueTail", typeof(RectTransform));
+        tail.transform.SetParent(dialogueRect, false);
+        RectTransform tailRect = tail.GetComponent<RectTransform>();
+        tailRect.anchorMin = Vector2.zero;
+        tailRect.anchorMax = Vector2.one;
+        tailRect.pivot = new Vector2(0.5f, 0.5f);
+        tailRect.offsetMin = Vector2.zero;
+        tailRect.offsetMax = Vector2.zero;
+
+        dialogueTailGraphic =
+            tail.AddComponent<BattleSpeechBubbleTailGraphic>();
+        dialogueTailGraphic.Configure(
+            dialogueRect,
+            dialogueTailPivotRect,
+            dialogueBack,
+            new Color(0.005f, 0.006f, 0.01f, 0.98f),
+            dialogueTailBaseWidth,
+            dialogueTailOutlineWidth);
+        tail.transform.SetAsFirstSibling();
 
         dialogueGroup = root.AddComponent<CanvasGroup>();
         dialogueGroup.alpha = 0f;
