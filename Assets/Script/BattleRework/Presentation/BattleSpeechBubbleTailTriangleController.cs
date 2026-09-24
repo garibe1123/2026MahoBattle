@@ -15,13 +15,13 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     [Header("Triangle")]
     [Tooltip("삼각형 몸통 크기입니다. X는 기본 길이, Y는 밑변 폭입니다.")]
-    [SerializeField] private Vector2 triangleSize = new(62f, 42f);
+    [SerializeField] private Vector2 triangleSize = new(66f, 46f);
 
     [Tooltip("뾰족한 끝만 추가로 연장하는 길이입니다.")]
-    [SerializeField, Range(0f, 48f)] private float tipExtension = 28f;
+    [SerializeField, Range(0f, 48f)] private float tipExtension = 32f;
 
     [Tooltip("말풍선 안쪽으로 꼬리를 겹치는 깊이입니다. 접합부가 자연스럽게 숨겨집니다.")]
-    [SerializeField, Range(0f, 36f)] private float overlap = 20f;
+    [SerializeField, Range(0f, 36f)] private float overlap = 22f;
 
     [SerializeField, Range(0f, 80f)] private float edgePadding = 34f;
 
@@ -167,33 +167,16 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         Rect rect = bubbleRect.rect;
 
-        float halfWidth =
-            Mathf.Max(1f, rect.width * 0.5f);
+        // Speech tail은 항상 말풍선의 좌/우 "옆면"에만 붙입니다.
+        // 현재 대화창은 화면 하단에 붙어 있어 위/아래 면을 허용하면
+        // 삼각형이 화면 밖으로 빠지거나 BubbleFace 뒤에 가려질 수 있습니다.
+        // Target Pivot은 좌/우 방향과 Y 위치만 결정합니다.
+        bool placeRight = localDelta.x >= 0f;
 
-        float halfHeight =
-            Mathf.Max(1f, rect.height * 0.5f);
-
-        // 가로/세로 비율이 다른 말풍선에서도 가장 자연스러운 면을 고릅니다.
-        float xWeight =
-            Mathf.Abs(localDelta.x) / halfWidth;
-
-        float yWeight =
-            Mathf.Abs(localDelta.y) / halfHeight;
-
-        if (xWeight >= yWeight)
-        {
-            PlaceHorizontal(
-                localDelta.x >= 0f,
-                localDelta.y,
-                rect);
-        }
-        else
-        {
-            PlaceVertical(
-                localDelta.y >= 0f,
-                localDelta.x,
-                rect);
-        }
+        PlaceHorizontal(
+            placeRight,
+            localDelta.y,
+            rect);
     }
 
     private void PlaceHorizontal(
@@ -233,42 +216,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 right ? 0f : 180f);
     }
 
-    private void PlaceVertical(
-        bool up,
-        float targetLocalX,
-        Rect bubble)
-    {
-        Vector2 size =
-            ResolvedTriangleSize;
-
-        float padding =
-            Mathf.Min(
-                edgePadding,
-                bubble.width * 0.45f);
-
-        float x =
-            Mathf.Clamp(
-                targetLocalX,
-                bubble.xMin + padding,
-                bubble.xMax - padding);
-
-        float outside =
-            size.x * 0.5f -
-            Mathf.Max(0f, overlap);
-
-        triangleRect.anchoredPosition =
-            new Vector2(
-                x,
-                up
-                    ? bubble.yMax + outside
-                    : bubble.yMin - outside);
-
-        triangleRect.localRotation =
-            Quaternion.Euler(
-                0f,
-                0f,
-                up ? 90f : -90f);
-    }
 }
 
 /// <summary>
