@@ -629,7 +629,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             dialogueTailPivotRect,
             bubbleFill,
             presentation != null
-                ? presentation.SpeechBubbleTailStyle
+                ? presentation.SelectionSpeechBubbleTailStyle
                 : null);
 
         // Small black badge replaces the old flat "SHOW HOST" strip.
