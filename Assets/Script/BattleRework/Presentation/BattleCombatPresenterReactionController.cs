@@ -100,7 +100,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private CanvasGroup bubbleGroup;
     private Image bubbleBack;
     private RectTransform tailPivotRect;
-    private BattleSpeechBubbleTailGraphic bubbleTailGraphic;
+    private BattleSpeechBubbleTailLineRenderer bubbleTailGraphic;
     private RectTransform tagBadgeRect;
     private Text tagText;
     private Text lineText;
@@ -808,7 +808,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         tail.transform.SetParent(popupRect, false);
         RectTransform tailRect = tail.GetComponent<RectTransform>();
         Stretch(tailRect, Vector2.zero, Vector2.zero);
-        bubbleTailGraphic = tail.AddComponent<BattleSpeechBubbleTailGraphic>();
+        bubbleTailGraphic = tail.AddComponent<BattleSpeechBubbleTailLineRenderer>();
         bubbleTailGraphic.Configure(
             bubbleRect,
             tailPivotRect,
