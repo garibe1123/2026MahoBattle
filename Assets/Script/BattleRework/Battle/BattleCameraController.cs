@@ -49,6 +49,10 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0f)] private float showFollowSharpness = 7.2f;
     [SerializeField, Min(0.5f)] private float showTransitionSharpness = 3.2f;
     [SerializeField, Min(1f)] private float showTransitionMaxSpeed = 14f;
+    [Tooltip("Reward/Map Show 전용 최소 줌입니다. 일반 전투 minZoom과 분리되어 TV를 크게 잡을 수 있습니다.")]
+    [SerializeField, Min(0.1f)] private float showMinZoom = 2.2f;
+    [Tooltip("Reward/Map Show 전용 최대 줌입니다.")]
+    [SerializeField, Min(0.1f)] private float showMaxZoom = 9.5f;
 
     [Header("Shared TV Cursor Tracking")]
     [FormerlySerializedAs("mapCursorPanDistance")]
@@ -557,7 +561,11 @@ public class BattleCameraController : MonoBehaviour
         if (mapCursorFocused)
             showZoom *= Mathf.Clamp(mapCursorZoomRatio, 0.65f, 1f);
 
-        float desiredZoom = Mathf.Lerp(normalZoom, Mathf.Clamp(showZoom, minZoom, maxZoom), showBlend);
+        float clampedShowZoom = Mathf.Clamp(
+            showZoom,
+            Mathf.Min(showMinZoom, showMaxZoom),
+            Mathf.Max(showMinZoom, showMaxZoom));
+        float desiredZoom = Mathf.Lerp(normalZoom, clampedShowZoom, showBlend);
         float normalZoomSpeed = activeFocus != null ? cinematicZoomSharpness : zoomSharpness;
         float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showFollowSharpness, showBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
