@@ -834,19 +834,28 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         RectTransform faceRect = face.GetComponent<RectTransform>();
         Stretch(
             faceRect,
-            new Vector2(
-                frameStyle != null ? frameStyle.FillInsetLeft : 2f,
-                frameStyle != null ? frameStyle.FillInsetBottom : 2f),
-            new Vector2(
-                -(frameStyle != null ? frameStyle.FillInsetRight : 2f),
-                -(frameStyle != null ? frameStyle.FillInsetTop : 2f)));
+            Vector2.zero,
+            Vector2.zero);
 
         bubbleBack = face.AddComponent<Image>();
-        bubbleBack.color =
-            frameStyle != null
-                ? frameStyle.fillColor
-                : new Color(0.97f, 0.97f, 0.94f, 1f);
         bubbleBack.raycastTarget = false;
+
+        if (frameStyle != null)
+        {
+            BattleSpeechBubbleFrameFillController fillController =
+                face.AddComponent<BattleSpeechBubbleFrameFillController>();
+
+            fillController.Configure(
+                bubbleBack,
+                frameStyle,
+                bubbleSize);
+        }
+        else
+        {
+            bubbleBack.sprite = BattleHudSpriteCache.DefaultSprite;
+            bubbleBack.color =
+                new Color(0.97f, 0.97f, 0.94f, 1f);
+        }
 
         // Short comic tail preset: targetPivot selects direction only.
         // The tail stays attached to the speech bubble and never stretches to the presenter.
