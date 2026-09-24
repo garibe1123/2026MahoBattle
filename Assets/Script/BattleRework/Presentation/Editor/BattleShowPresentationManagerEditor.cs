@@ -780,17 +780,32 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         Vector2 gui,
         Rect bubbleRoot)
     {
+        // Mathf.InverseLerp는 0..1로 Clamp되므로 프레임 꼭짓점을
+        // Root 바깥으로 드래그할 수 없게 됩니다.
+        // 프레임 편집은 외곽/내부 사변형이 Root 경계를 자유롭게
+        // 넘을 수 있어야 하므로 Clamp 없는 선형 좌표 변환을 사용합니다.
+        float width =
+            Mathf.Max(
+                0.0001f,
+                bubbleRoot.width);
+
+        float height =
+            Mathf.Max(
+                0.0001f,
+                bubbleRoot.height);
+
+        float normalizedX =
+            (gui.x - bubbleRoot.xMin) /
+            width;
+
+        float normalizedY =
+            (bubbleRoot.yMax - gui.y) /
+            height;
+
         return new Vector2(
-            Mathf.InverseLerp(
-                bubbleRoot.xMin,
-                bubbleRoot.xMax,
-                gui.x) *
+            normalizedX *
             PreviewDesignSize.x,
-            (1f -
-             Mathf.InverseLerp(
-                 bubbleRoot.yMin,
-                 bubbleRoot.yMax,
-                 gui.y)) *
+            normalizedY *
             PreviewDesignSize.y);
     }
 
