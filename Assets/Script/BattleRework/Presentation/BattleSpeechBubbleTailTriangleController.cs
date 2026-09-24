@@ -14,8 +14,8 @@ using UnityEngine.UI;
 [DisallowMultipleComponent]
 public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 {
-    private const int RuntimeTextureWidth = 128;
-    private const int RuntimeTextureHeight = 64;
+    private const int RuntimeTextureWidth = 192;
+    private const int RuntimeTextureHeight = 96;
 
     private static Sprite cachedTriangleSprite;
     private static Texture2D cachedTriangleTexture;
@@ -25,21 +25,21 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     [Header("Triangle")]
     [Tooltip("X는 꼬리 길이, Y는 말풍선에 붙는 밑변 폭입니다.")]
-    [SerializeField] private Vector2 triangleSize = new(138f, 64f);
+    [SerializeField] private Vector2 triangleSize = new(176f, 84f);
 
     [Tooltip("말풍선 안쪽으로 꼬리를 겹치는 깊이입니다. 밑변의 검은 이음선을 BubbleFace 뒤로 숨깁니다.")]
-    [SerializeField, Range(0f, 48f)] private float overlap = 30f;
+    [SerializeField, Range(0f, 64f)] private float overlap = 42f;
 
     [Tooltip("꼬리가 말풍선 위/아래 모서리에 너무 가까워지지 않도록 제한합니다.")]
     [SerializeField, Range(0f, 80f)] private float edgePadding = 34f;
 
     [Header("Stroke")]
     [Tooltip("런타임 Sprite에서 사용하는 검은 외곽선 두께(텍스처 픽셀 기준)입니다. 말풍선 본체 외곽선과 비슷한 체감 두께로 맞춥니다.")]
-    [SerializeField, Range(1, 16)] private int outlinePixels = 9;
+    [SerializeField, Range(1, 24)] private int outlinePixels = 15;
 
     [Header("Tip Shape")]
     [Tooltip("뾰족한 끝을 삼각형 중심보다 위로 올리는 양입니다. 양수일수록 위쪽을 향한 만화식 꼬리 느낌이 강해집니다.")]
-    [SerializeField, Range(-16f, 16f)] private float tipVerticalBiasPixels = 8f;
+    [SerializeField, Range(-24f, 24f)] private float tipVerticalBiasPixels = 14f;
     [SerializeField] private Color outlineColor = new(0.015f, 0.015f, 0.02f, 1f);
     [SerializeField] private Color fillColor = new(0.97f, 0.97f, 0.94f, 1f);
 
@@ -135,9 +135,9 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         triangleImage.color =
             Color.white;
 
-        // BubbleInk / BubbleFace보다 뒤에 둡니다.
-        // overlap 영역은 말풍선 본체가 덮어서 접합부가 자연스럽게 이어집니다.
-        tail.transform.SetAsFirstSibling();
+        // Tail을 BubbleFace보다 앞에 둬 접합부의 기존 세로 스트로크를 흰 면으로 덮습니다.
+        // 이후 생성되는 텍스트/배지는 다시 Tail 위에 올라오므로 가독성에는 영향이 없습니다.
+        tail.transform.SetAsLastSibling();
     }
 
     private void RefreshSpriteIfNeeded(bool force)
@@ -332,14 +332,16 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 1,
                 RuntimeTextureHeight / 4);
 
+        // 밑변 X는 0으로 유지합니다.
+        // 이렇게 해야 접합부의 검은 세로선이 없어지고 BubbleFace와 흰 면이 하나로 이어집니다.
         Vector2 innerA =
             new Vector2(
-                inset,
+                0f,
                 2f + inset);
 
         Vector2 innerB =
             new Vector2(
-                inset,
+                0f,
                 RuntimeTextureHeight - 3f - inset);
 
         Vector2 innerTip =
