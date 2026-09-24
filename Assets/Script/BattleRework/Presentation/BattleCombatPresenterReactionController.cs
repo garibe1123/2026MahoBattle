@@ -18,9 +18,11 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private enum PopupPhase
     {
         Hidden,
-        Entering,
+        PortraitBoot,
+        BubblePop,
+        Typing,
         Holding,
-        Exiting
+        Shutdown
     }
 
     private enum ReactionPriority
@@ -39,16 +41,36 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
     [Header("Popup Layout")]
     [SerializeField] private Vector2 referenceResolution = new(1920f, 1080f);
-    [SerializeField] private Vector2 popupSize = new(500f, 190f);
-    [SerializeField] private Vector2 popupVisibleOffset = new(-28f, -28f);
-    [SerializeField, Min(0f)] private float popupHiddenOffsetX = 540f;
+    [SerializeField] private Vector2 popupSize = new(610f, 250f);
+    [SerializeField] private Vector2 popupVisibleOffset = new(-24f, -24f);
 
-    [Header("Popup Timing")]
-    [SerializeField, Min(100f)] private float slideSpeedPixels = 1750f;
-    [SerializeField, Range(0.4f, 3f)] private float holdSeconds = 1.35f;
+    [Header("Reaction Timing")]
+    [SerializeField, Range(0.04f, 0.30f)] private float portraitBootDuration = 0.13f;
+    [SerializeField, Range(0.04f, 0.30f)] private float bubblePopDuration = 0.12f;
+    [SerializeField, Min(1f)] private float typeCharactersPerSecond = 30f;
+    [SerializeField, Range(0.4f, 3f)] private float holdSeconds = 1.20f;
+    [SerializeField, Range(0.05f, 0.35f)] private float shutdownDuration = 0.16f;
 
     [Header("Portrait")]
-    [SerializeField] private Vector2 portraitSize = new(205f, 165f);
+    [SerializeField] private Vector2 portraitSize = new(230f, 205f);
+    [SerializeField, Range(1f, 1.25f)] private float portraitBootScale = 1.10f;
+
+    [Header("Speech Bubble")]
+    [SerializeField] private Vector2 bubbleSize = new(390f, 150f);
+    [SerializeField] private Vector2 bubbleOffset = new(-205f, -55f);
+    [SerializeField, Range(-8f, 8f)] private float bubbleRotation = -2.5f;
+    [SerializeField, Range(0.7f, 1f)] private float bubbleStartScale = 0.86f;
+    [SerializeField, Range(1f, 1.15f)] private float bubbleOvershootScale = 1.055f;
+
+    [Header("Glitch Boot")]
+    [Tooltip("Shader가 이 프로퍼티를 지원하면 전투 리액션 얼굴에만 자동으로 지지직 강도를 적용합니다.")]
+    [SerializeField] private string glitchStrengthProperty = "_GlitchStrength";
+    [SerializeField] private string noiseStrengthProperty = "_NoiseStrength";
+    [SerializeField] private string rgbSplitProperty = "_RGBSplit";
+    [SerializeField, Range(0f, 2f)] private float glitchBootStrength = 1f;
+    [SerializeField, Range(0f, 2f)] private float glitchShutdownStrength = 0.8f;
+    [SerializeField, Range(0f, 1f)] private float glitchNoiseStrength = 0.65f;
+    [SerializeField, Range(0f, 0.1f)] private float glitchRgbSplit = 0.025f;
 
     [Header("Score Hooks")]
     [Tooltip("외부 점수 시스템에서 NotifyScore를 호출할 때 이 값 이상이면 리액션을 띄웁니다.")]
@@ -66,14 +88,24 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private RectTransform overlayRoot;
     private RectTransform popupRect;
     private CanvasGroup popupGroup;
-    private Image popupBack;
+    private RectTransform portraitRect;
+    private CanvasGroup portraitGroup;
     private Image portraitImage;
+    private RectTransform bubbleRect;
+    private CanvasGroup bubbleGroup;
+    private Image bubbleBack;
+    private RectTransform bubbleTailRect;
+    private RectTransform tagBadgeRect;
     private Text tagText;
     private Text lineText;
 
     private PopupPhase popupPhase = PopupPhase.Hidden;
+    private float phaseTime;
     private float holdUntil;
     private ReactionPriority activePriority;
+    private string activeLine = string.Empty;
+    private float typeProgress;
+    private int visibleCharacters;
 
     private readonly List<Sprite> runtimeFrames = new();
     private CombatPresenterMotionClip activeClip;
@@ -81,6 +113,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private int frameIndex;
     private float frameTimer;
     private Material appliedMaterial;
+    private Material runtimePortraitMaterial;
 
     private int pendingKillCount;
     private bool pendingElite;
@@ -118,6 +151,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     {
         UnsubscribeRoom();
         ReleaseRuntimeFrames();
+        ReleaseRuntimePortraitMaterial();
 
         if (overlayCanvas != null)
             Destroy(overlayCanvas.gameObject);
@@ -428,25 +462,34 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         }
 
         activePriority = priority;
-        tagText.text = tag ?? string.Empty;
-        lineText.text = line ?? string.Empty;
+        activeLine = line ?? string.Empty;
+        typeProgress = 0f;
+        visibleCharacters = 0;
+
+        if (tagText != null)
+            tagText.text = tag ?? string.Empty;
+        if (lineText != null)
+            lineText.text = string.Empty;
+
         SetPortraitMotion(motion);
 
-        if (popupPhase == PopupPhase.Hidden ||
-            popupPhase == PopupPhase.Exiting)
-        {
-            popupRect.anchoredPosition =
-                popupVisibleOffset + Vector2.right * popupHiddenOffsetX;
+        phaseTime = 0f;
+        popupPhase = PopupPhase.PortraitBoot;
+
+        if (popupGroup != null)
             popupGroup.alpha = 1f;
-            popupPhase = PopupPhase.Entering;
-        }
-        else
-        {
-            popupRect.anchoredPosition = popupVisibleOffset;
-            popupGroup.alpha = 1f;
-            popupPhase = PopupPhase.Holding;
-            holdUntil = Time.unscaledTime + Mathf.Max(0.4f, holdSeconds);
-        }
+
+        if (portraitGroup != null)
+            portraitGroup.alpha = 0f;
+        if (portraitRect != null)
+            portraitRect.localScale = Vector3.one * portraitBootScale;
+
+        if (bubbleGroup != null)
+            bubbleGroup.alpha = 0f;
+        if (bubbleRect != null)
+            bubbleRect.localScale = Vector3.one * bubbleStartScale;
+
+        ApplyGlitch(glitchBootStrength, glitchNoiseStrength, glitchRgbSplit);
     }
 
     private void UpdatePopup()
@@ -454,7 +497,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         if (popupRect == null || popupGroup == null)
             return;
 
-        float step = Mathf.Max(100f, slideSpeedPixels) * Time.unscaledDeltaTime;
+        float dt = Time.unscaledDeltaTime;
 
         switch (popupPhase)
         {
@@ -462,44 +505,172 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 popupGroup.alpha = 0f;
                 break;
 
-            case PopupPhase.Entering:
-                popupGroup.alpha = 1f;
-                popupRect.anchoredPosition = Vector2.MoveTowards(
-                    popupRect.anchoredPosition,
-                    popupVisibleOffset,
-                    step);
+            case PopupPhase.PortraitBoot:
+            {
+                phaseTime += dt;
+                float t = Mathf.Clamp01(
+                    phaseTime / Mathf.Max(0.04f, portraitBootDuration));
 
-                if (Vector2.SqrMagnitude(
-                        popupRect.anchoredPosition - popupVisibleOffset) < 0.25f)
+                float flicker =
+                    Mathf.Sin(Time.unscaledTime * 95f) > 0.15f
+                        ? 1f
+                        : 0.35f;
+
+                if (portraitGroup != null)
                 {
-                    popupRect.anchoredPosition = popupVisibleOffset;
-                    popupPhase = PopupPhase.Holding;
+                    portraitGroup.alpha =
+                        Mathf.Lerp(0.15f, 1f, t) *
+                        Mathf.Lerp(flicker, 1f, t);
+                }
+
+                if (portraitRect != null)
+                {
+                    float scale = Mathf.Lerp(
+                        portraitBootScale,
+                        1f,
+                        EaseOutBackSoft(t));
+                    portraitRect.localScale = Vector3.one * scale;
+                }
+
+                ApplyGlitch(
+                    Mathf.Lerp(glitchBootStrength, 0f, t),
+                    Mathf.Lerp(glitchNoiseStrength, 0f, t),
+                    Mathf.Lerp(glitchRgbSplit, 0f, t));
+
+                if (t >= 1f)
+                {
+                    if (portraitGroup != null)
+                        portraitGroup.alpha = 1f;
+                    if (portraitRect != null)
+                        portraitRect.localScale = Vector3.one;
+
+                    ApplyGlitch(0f, 0f, 0f);
+                    phaseTime = 0f;
+                    popupPhase = PopupPhase.BubblePop;
+                }
+                break;
+            }
+
+            case PopupPhase.BubblePop:
+            {
+                phaseTime += dt;
+                float t = Mathf.Clamp01(
+                    phaseTime / Mathf.Max(0.04f, bubblePopDuration));
+
+                if (bubbleGroup != null)
+                    bubbleGroup.alpha = t;
+
+                if (bubbleRect != null)
+                {
+                    float scale;
+                    if (t < 0.72f)
+                    {
+                        float a = t / 0.72f;
+                        scale = Mathf.Lerp(
+                            bubbleStartScale,
+                            bubbleOvershootScale,
+                            EaseOutCubic(a));
+                    }
+                    else
+                    {
+                        float b = (t - 0.72f) / 0.28f;
+                        scale = Mathf.Lerp(
+                            bubbleOvershootScale,
+                            1f,
+                            b);
+                    }
+
+                    bubbleRect.localScale = Vector3.one * scale;
+                }
+
+                if (t >= 1f)
+                {
+                    if (bubbleGroup != null)
+                        bubbleGroup.alpha = 1f;
+                    if (bubbleRect != null)
+                        bubbleRect.localScale = Vector3.one;
+
+                    phaseTime = 0f;
+                    typeProgress = 0f;
+                    visibleCharacters = 0;
+                    popupPhase = PopupPhase.Typing;
+                }
+                break;
+            }
+
+            case PopupPhase.Typing:
+            {
+                typeProgress +=
+                    dt * Mathf.Max(1f, typeCharactersPerSecond);
+
+                int targetCharacters = Mathf.Clamp(
+                    Mathf.FloorToInt(typeProgress),
+                    0,
+                    activeLine.Length);
+
+                if (targetCharacters != visibleCharacters)
+                {
+                    visibleCharacters = targetCharacters;
+                    if (lineText != null)
+                    {
+                        lineText.text =
+                            activeLine.Substring(0, visibleCharacters);
+                    }
+                }
+
+                if (visibleCharacters >= activeLine.Length)
+                {
+                    if (lineText != null)
+                        lineText.text = activeLine;
+
                     holdUntil =
                         Time.unscaledTime + Mathf.Max(0.4f, holdSeconds);
+                    popupPhase = PopupPhase.Holding;
                 }
                 break;
+            }
 
             case PopupPhase.Holding:
-                popupRect.anchoredPosition = popupVisibleOffset;
                 if (Time.unscaledTime >= holdUntil)
-                    popupPhase = PopupPhase.Exiting;
+                {
+                    phaseTime = 0f;
+                    popupPhase = PopupPhase.Shutdown;
+                }
                 break;
 
-            case PopupPhase.Exiting:
+            case PopupPhase.Shutdown:
             {
-                Vector2 hidden =
-                    popupVisibleOffset + Vector2.right * popupHiddenOffsetX;
+                phaseTime += dt;
+                float t = Mathf.Clamp01(
+                    phaseTime / Mathf.Max(0.05f, shutdownDuration));
 
-                popupRect.anchoredPosition = Vector2.MoveTowards(
-                    popupRect.anchoredPosition,
-                    hidden,
-                    step);
+                if (bubbleGroup != null)
+                    bubbleGroup.alpha = 1f - t;
 
-                if (Vector2.SqrMagnitude(
-                        popupRect.anchoredPosition - hidden) < 0.25f)
+                if (bubbleRect != null)
                 {
-                    HideImmediate();
+                    float scale = Mathf.Lerp(1f, 0.92f, t);
+                    bubbleRect.localScale = Vector3.one * scale;
                 }
+
+                if (portraitGroup != null)
+                {
+                    float flicker =
+                        Mathf.Sin(Time.unscaledTime * 115f) > -0.1f
+                            ? 1f
+                            : 0.15f;
+                    portraitGroup.alpha =
+                        (1f - t) * Mathf.Lerp(1f, flicker, t);
+                }
+
+                ApplyGlitch(
+                    Mathf.Lerp(0f, glitchShutdownStrength, t),
+                    Mathf.Lerp(0f, glitchNoiseStrength, t),
+                    Mathf.Lerp(0f, glitchRgbSplit, t));
+
+                if (t >= 1f)
+                    HideImmediate();
+
                 break;
             }
         }
@@ -507,15 +678,28 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
     private void HideImmediate()
     {
-        if (popupRect != null)
-        {
-            popupRect.anchoredPosition =
-                popupVisibleOffset + Vector2.right * popupHiddenOffsetX;
-        }
-
         if (popupGroup != null)
             popupGroup.alpha = 0f;
 
+        if (portraitGroup != null)
+            portraitGroup.alpha = 0f;
+        if (portraitRect != null)
+            portraitRect.localScale = Vector3.one;
+
+        if (bubbleGroup != null)
+            bubbleGroup.alpha = 0f;
+        if (bubbleRect != null)
+            bubbleRect.localScale = Vector3.one;
+
+        if (lineText != null)
+            lineText.text = string.Empty;
+
+        ApplyGlitch(0f, 0f, 0f);
+
+        activeLine = string.Empty;
+        typeProgress = 0f;
+        visibleCharacters = 0;
+        phaseTime = 0f;
         popupPhase = PopupPhase.Hidden;
         activePriority = ReactionPriority.None;
     }
@@ -548,65 +732,118 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         popupRect.anchorMin = popupRect.anchorMax = new Vector2(1f, 1f);
         popupRect.pivot = new Vector2(1f, 1f);
         popupRect.sizeDelta = popupSize;
-        popupRect.anchoredPosition =
-            popupVisibleOffset + Vector2.right * popupHiddenOffsetX;
-
-        popupBack = popup.AddComponent<Image>();
-        popupBack.color = new Color(0.015f, 0.018f, 0.028f, 0.93f);
-        popupBack.raycastTarget = false;
+        popupRect.anchoredPosition = popupVisibleOffset;
 
         popupGroup = popup.AddComponent<CanvasGroup>();
         popupGroup.alpha = 0f;
         popupGroup.interactable = false;
         popupGroup.blocksRaycasts = false;
 
+        // Portrait: fixed in the upper-right. It does not slide; it boots in with glitch/flicker.
         GameObject portrait = new("PresenterPortrait", typeof(RectTransform));
         portrait.transform.SetParent(popupRect, false);
-        RectTransform portraitRect = portrait.GetComponent<RectTransform>();
-        portraitRect.anchorMin = portraitRect.anchorMax = new Vector2(1f, 0.5f);
-        portraitRect.pivot = new Vector2(1f, 0.5f);
+        portraitRect = portrait.GetComponent<RectTransform>();
+        portraitRect.anchorMin = portraitRect.anchorMax = new Vector2(1f, 1f);
+        portraitRect.pivot = new Vector2(1f, 1f);
         portraitRect.sizeDelta = portraitSize;
-        portraitRect.anchoredPosition = new Vector2(-10f, 0f);
+        portraitRect.anchoredPosition = Vector2.zero;
+
+        portraitGroup = portrait.AddComponent<CanvasGroup>();
+        portraitGroup.alpha = 0f;
+        portraitGroup.interactable = false;
+        portraitGroup.blocksRaycasts = false;
 
         portraitImage = portrait.AddComponent<Image>();
         portraitImage.preserveAspect = true;
         portraitImage.raycastTarget = false;
         portraitImage.sprite = BattleHudSpriteCache.DefaultSprite;
 
+        // Angular speech bubble inspired by comic/game-show cut-ins.
+        GameObject bubble = new("ReactionSpeechBubble", typeof(RectTransform));
+        bubble.transform.SetParent(popupRect, false);
+        bubbleRect = bubble.GetComponent<RectTransform>();
+        bubbleRect.anchorMin = bubbleRect.anchorMax = new Vector2(1f, 1f);
+        bubbleRect.pivot = new Vector2(1f, 1f);
+        bubbleRect.sizeDelta = bubbleSize;
+        bubbleRect.anchoredPosition = bubbleOffset;
+        bubbleRect.localRotation = Quaternion.Euler(0f, 0f, bubbleRotation);
+
+        bubbleGroup = bubble.AddComponent<CanvasGroup>();
+        bubbleGroup.alpha = 0f;
+        bubbleGroup.interactable = false;
+        bubbleGroup.blocksRaycasts = false;
+
+        // Black offset backing creates a rough ink-outline silhouette.
+        GameObject shadow = new("BubbleInkBack", typeof(RectTransform));
+        shadow.transform.SetParent(bubbleRect, false);
+        RectTransform shadowRect = shadow.GetComponent<RectTransform>();
+        Stretch(shadowRect, new Vector2(-7f, -8f), new Vector2(7f, 8f));
+        Image shadowImage = shadow.AddComponent<Image>();
+        shadowImage.color = new Color(0.015f, 0.015f, 0.02f, 0.98f);
+        shadowImage.raycastTarget = false;
+
+        GameObject face = new("BubbleFace", typeof(RectTransform));
+        face.transform.SetParent(bubbleRect, false);
+        RectTransform faceRect = face.GetComponent<RectTransform>();
+        Stretch(faceRect, new Vector2(2f, 2f), new Vector2(-2f, -2f));
+        bubbleBack = face.AddComponent<Image>();
+        bubbleBack.color = new Color(0.97f, 0.97f, 0.94f, 1f);
+        bubbleBack.raycastTarget = false;
+
+        // Tail: a rotated square tucked under the portrait side.
+        GameObject tail = new("BubbleTail", typeof(RectTransform));
+        tail.transform.SetParent(bubbleRect, false);
+        bubbleTailRect = tail.GetComponent<RectTransform>();
+        bubbleTailRect.anchorMin = bubbleTailRect.anchorMax = new Vector2(1f, 0.56f);
+        bubbleTailRect.pivot = new Vector2(0.5f, 0.5f);
+        bubbleTailRect.sizeDelta = new Vector2(42f, 42f);
+        bubbleTailRect.anchoredPosition = new Vector2(12f, 0f);
+        bubbleTailRect.localRotation = Quaternion.Euler(0f, 0f, 45f);
+        Image tailImage = tail.AddComponent<Image>();
+        tailImage.color = bubbleBack.color;
+        tailImage.raycastTarget = false;
+
+        GameObject badge = new("ReactionTagBadge", typeof(RectTransform));
+        badge.transform.SetParent(bubbleRect, false);
+        tagBadgeRect = badge.GetComponent<RectTransform>();
+        tagBadgeRect.anchorMin = tagBadgeRect.anchorMax = new Vector2(0f, 1f);
+        tagBadgeRect.pivot = new Vector2(0f, 0.5f);
+        tagBadgeRect.sizeDelta = new Vector2(205f, 42f);
+        tagBadgeRect.anchoredPosition = new Vector2(14f, 8f);
+        tagBadgeRect.localRotation = Quaternion.Euler(0f, 0f, 3f);
+        Image badgeBack = badge.AddComponent<Image>();
+        badgeBack.color = new Color(0.02f, 0.02f, 0.025f, 1f);
+        badgeBack.raycastTarget = false;
+
         tagText = CreateText(
-            popupRect,
+            tagBadgeRect,
             "ReactionTag",
             string.Empty,
-            24,
+            23,
             FontStyle.Bold,
-            TextAnchor.UpperLeft,
-            new Color(1f, 0.82f, 0.10f, 1f));
-
-        RectTransform tagRect = tagText.rectTransform;
-        tagRect.anchorMin = new Vector2(0f, 1f);
-        tagRect.anchorMax = new Vector2(1f, 1f);
-        tagRect.pivot = new Vector2(0f, 1f);
-        tagRect.offsetMin = new Vector2(20f, -62f);
-        tagRect.offsetMax = new Vector2(-(portraitSize.x + 18f), -14f);
+            TextAnchor.MiddleCenter,
+            Color.white);
+        Stretch(tagText.rectTransform, new Vector2(8f, 2f), new Vector2(-8f, -2f));
 
         lineText = CreateText(
-            popupRect,
+            bubbleRect,
             "ReactionLine",
             string.Empty,
-            20,
+            23,
             FontStyle.Bold,
             TextAnchor.MiddleLeft,
-            Color.white);
+            new Color(0.035f, 0.035f, 0.045f, 1f));
 
         RectTransform lineRect = lineText.rectTransform;
-        lineRect.anchorMin = new Vector2(0f, 0f);
-        lineRect.anchorMax = new Vector2(1f, 1f);
-        lineRect.offsetMin = new Vector2(20f, 18f);
-        lineRect.offsetMax = new Vector2(-(portraitSize.x + 18f), -68f);
+        lineRect.anchorMin = Vector2.zero;
+        lineRect.anchorMax = Vector2.one;
+        lineRect.offsetMin = new Vector2(28f, 20f);
+        lineRect.offsetMax = new Vector2(-28f, -38f);
         lineText.horizontalOverflow = HorizontalWrapMode.Wrap;
         lineText.verticalOverflow = VerticalWrapMode.Truncate;
 
         SetPortraitMotion(ScreenPresenterMotionState.Idle);
+        HideImmediate();
     }
 
     private void SetPortraitMotion(ScreenPresenterMotionState state)
@@ -649,7 +886,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             if (appliedMaterial != material)
             {
                 appliedMaterial = material;
-                portraitImage.material = material;
+                RefreshRuntimePortraitMaterial(material);
             }
         }
     }
@@ -748,6 +985,103 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         }
 
         runtimeFrames.Clear();
+    }
+
+    private void RefreshRuntimePortraitMaterial(Material source)
+    {
+        ReleaseRuntimePortraitMaterial();
+
+        if (portraitImage == null)
+            return;
+
+        if (source == null)
+        {
+            portraitImage.material = null;
+            return;
+        }
+
+        runtimePortraitMaterial = new Material(source)
+        {
+            name = source.name + "_CombatReactionRuntime",
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        portraitImage.material = runtimePortraitMaterial;
+        ApplyGlitch(0f, 0f, 0f);
+    }
+
+    private void ReleaseRuntimePortraitMaterial()
+    {
+        if (runtimePortraitMaterial != null)
+            Destroy(runtimePortraitMaterial);
+
+        runtimePortraitMaterial = null;
+    }
+
+    private void ApplyGlitch(float glitch, float noise, float rgbSplit)
+    {
+        if (runtimePortraitMaterial == null)
+            return;
+
+        SetMaterialFloatIfPresent(
+            runtimePortraitMaterial,
+            glitchStrengthProperty,
+            Mathf.Max(0f, glitch));
+
+        SetMaterialFloatIfPresent(
+            runtimePortraitMaterial,
+            noiseStrengthProperty,
+            Mathf.Max(0f, noise));
+
+        SetMaterialFloatIfPresent(
+            runtimePortraitMaterial,
+            rgbSplitProperty,
+            Mathf.Max(0f, rgbSplit));
+    }
+
+    private static void SetMaterialFloatIfPresent(
+        Material material,
+        string propertyName,
+        float value)
+    {
+        if (material == null ||
+            string.IsNullOrWhiteSpace(propertyName) ||
+            !material.HasProperty(propertyName))
+        {
+            return;
+        }
+
+        material.SetFloat(propertyName, value);
+    }
+
+    private static float EaseOutCubic(float t)
+    {
+        t = Mathf.Clamp01(t);
+        float inv = 1f - t;
+        return 1f - inv * inv * inv;
+    }
+
+    private static float EaseOutBackSoft(float t)
+    {
+        t = Mathf.Clamp01(t);
+        const float overshoot = 1.35f;
+        float x = t - 1f;
+        return 1f + (overshoot + 1f) * x * x * x + overshoot * x * x;
+    }
+
+    private static void Stretch(
+        RectTransform rect,
+        Vector2 minOffset,
+        Vector2 maxOffset)
+    {
+        if (rect == null)
+            return;
+
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.pivot = new Vector2(0.5f, 0.5f);
+        rect.offsetMin = minOffset;
+        rect.offsetMax = maxOffset;
     }
 
     private string PickLine(string key, params string[] lines)
