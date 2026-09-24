@@ -8,6 +8,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private const float PreviewHeight = 320f;
     private const float CenterHandleSize = 12f;
     private const float WidthHandleSize = 9f;
+    private const float FrameHandleSize = 10f;
 
     private const string SelectionFrameStylePropertyName =
         "selectionSpeechBubbleFrameStyle";
@@ -60,6 +61,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         public int activeCenterHandle = -1;
         public int activeWidthHandle = -1;
+        public int activeFrameHandle = -1;
+
+        public Vector2 frameDragStartMouse;
+        public Vector2 frameDragStartSize;
+        public Vector2 frameRuntimePerPreviewPixel;
+        public float frameDragStartValue;
 
         public SpeechEditorState(
             string framePropertyName,
@@ -158,8 +165,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (GUIUtility.hotControl != 0 &&
             (selectionState.activeCenterHandle >= 0 ||
              selectionState.activeWidthHandle >= 0 ||
+             selectionState.activeFrameHandle >= 0 ||
              combatState.activeCenterHandle >= 0 ||
-             combatState.activeWidthHandle >= 0))
+             combatState.activeWidthHandle >= 0 ||
+             combatState.activeFrameHandle >= 0))
         {
             GUIUtility.hotControl = 0;
         }
@@ -543,6 +552,17 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             }
         }
 
+        if (!compact &&
+            interactive)
+        {
+            DrawFrameHandles(
+                bubbleRoot,
+                outlineRect,
+                fillRect,
+                frameStyle,
+                state);
+        }
+
         DrawPreviewLegend(
             rect,
             frameStyle,
@@ -848,6 +868,440 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             14f;
     }
 
+    private void DrawFrameHandles(
+        Rect bubbleRoot,
+        Rect outlineRect,
+        Rect fillRect,
+        BattleSpeechBubbleFrameStyle frameStyle,
+        SpeechEditorState state)
+    {
+        if (frameStyle == null ||
+            state == null)
+        {
+            return;
+        }
+
+        Vector2 runtimePerPreviewPixel =
+            new Vector2(
+                frameStyle.size.x /
+                Mathf.Max(1f, bubbleRoot.width),
+                frameStyle.size.y /
+                Mathf.Max(1f, bubbleRoot.height));
+
+        // SIZE: 우하단 드래그로 Frame Size를 직접 조절합니다.
+        DrawFrameHandle(
+            state,
+            0,
+            new Vector2(
+                bubbleRoot.xMax,
+                bubbleRoot.yMax),
+            new Color(0.20f, 0.95f, 1f, 1f),
+            "SIZE",
+            MouseCursor.ResizeUpLeft,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        // OUTLINE Outset: 검은 외곽이 Root 밖으로 나가는 양.
+        DrawFrameHandle(
+            state,
+            1,
+            new Vector2(
+                outlineRect.xMin,
+                outlineRect.center.y),
+            new Color(1f, 0.30f, 0.24f, 1f),
+            "O-L",
+            MouseCursor.ResizeHorizontal,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        DrawFrameHandle(
+            state,
+            2,
+            new Vector2(
+                outlineRect.center.x,
+                outlineRect.yMax),
+            new Color(1f, 0.30f, 0.24f, 1f),
+            "O-B",
+            MouseCursor.ResizeVertical,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        DrawFrameHandle(
+            state,
+            3,
+            new Vector2(
+                outlineRect.xMax,
+                outlineRect.center.y),
+            new Color(1f, 0.30f, 0.24f, 1f),
+            "O-R",
+            MouseCursor.ResizeHorizontal,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        DrawFrameHandle(
+            state,
+            4,
+            new Vector2(
+                outlineRect.center.x,
+                outlineRect.yMin),
+            new Color(1f, 0.30f, 0.24f, 1f),
+            "O-T",
+            MouseCursor.ResizeVertical,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        // FILL Shrink: 흰 면이 Root 안쪽으로 줄어드는 양.
+        DrawFrameHandle(
+            state,
+            5,
+            new Vector2(
+                fillRect.xMin,
+                fillRect.center.y),
+            new Color(0.25f, 1f, 0.48f, 1f),
+            "F-L",
+            MouseCursor.ResizeHorizontal,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        DrawFrameHandle(
+            state,
+            6,
+            new Vector2(
+                fillRect.center.x,
+                fillRect.yMax),
+            new Color(0.25f, 1f, 0.48f, 1f),
+            "F-B",
+            MouseCursor.ResizeVertical,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        DrawFrameHandle(
+            state,
+            7,
+            new Vector2(
+                fillRect.xMax,
+                fillRect.center.y),
+            new Color(0.25f, 1f, 0.48f, 1f),
+            "F-R",
+            MouseCursor.ResizeHorizontal,
+            frameStyle,
+            runtimePerPreviewPixel);
+
+        DrawFrameHandle(
+            state,
+            8,
+            new Vector2(
+                fillRect.center.x,
+                fillRect.yMin),
+            new Color(0.25f, 1f, 0.48f, 1f),
+            "F-T",
+            MouseCursor.ResizeVertical,
+            frameStyle,
+            runtimePerPreviewPixel);
+    }
+
+    private void DrawFrameHandle(
+        SpeechEditorState state,
+        int handleIndex,
+        Vector2 position,
+        Color color,
+        string label,
+        MouseCursor cursor,
+        BattleSpeechBubbleFrameStyle frameStyle,
+        Vector2 runtimePerPreviewPixel)
+    {
+        Rect marker =
+            CenteredRect(
+                position,
+                FrameHandleSize);
+
+        EditorGUIUtility.AddCursorRect(
+            marker,
+            cursor);
+
+        int controlId =
+            GUIUtility.GetControlID(
+                6100 + handleIndex,
+                FocusType.Passive,
+                marker);
+
+        Event current =
+            Event.current;
+
+        if (current.type == EventType.MouseDown &&
+            current.button == 0 &&
+            marker.Contains(current.mousePosition))
+        {
+            GUIUtility.hotControl =
+                controlId;
+
+            state.activeFrameHandle =
+                handleIndex;
+
+            state.activeCenterHandle =
+                -1;
+
+            state.activeWidthHandle =
+                -1;
+
+            state.frameDragStartMouse =
+                current.mousePosition;
+
+            state.frameDragStartSize =
+                frameStyle.size;
+
+            state.frameRuntimePerPreviewPixel =
+                runtimePerPreviewPixel;
+
+            state.frameDragStartValue =
+                ReadFrameHandleValue(
+                    frameStyle,
+                    handleIndex);
+
+            Undo.RecordObject(
+                Manager,
+                $"Edit {state.title} Frame {label}");
+
+            current.Use();
+        }
+
+        if (GUIUtility.hotControl == controlId &&
+            state.activeFrameHandle == handleIndex)
+        {
+            if (current.type == EventType.MouseDrag)
+            {
+                Vector2 delta =
+                    current.mousePosition -
+                    state.frameDragStartMouse;
+
+                ApplyFrameHandleDrag(
+                    state,
+                    handleIndex,
+                    delta);
+
+                current.Use();
+            }
+            else if (current.type == EventType.MouseUp)
+            {
+                GUIUtility.hotControl = 0;
+                state.activeFrameHandle = -1;
+                current.Use();
+            }
+        }
+
+        EditorGUI.DrawRect(
+            marker,
+            color);
+
+        GUI.Label(
+            new Rect(
+                position.x + 6f,
+                position.y - 8f,
+                44f,
+                16f),
+            label,
+            EditorStyles.miniBoldLabel);
+    }
+
+    private static float ReadFrameHandleValue(
+        BattleSpeechBubbleFrameStyle style,
+        int handleIndex)
+    {
+        if (style == null)
+            return 0f;
+
+        return handleIndex switch
+        {
+            1 => style.outlineLeft,
+            2 => style.outlineBottom,
+            3 => style.outlineRight,
+            4 => style.outlineTop,
+            5 => style.fillInsetLeft,
+            6 => style.fillInsetBottom,
+            7 => style.fillInsetRight,
+            8 => style.fillInsetTop,
+            _ => 0f
+        };
+    }
+
+    private void ApplyFrameHandleDrag(
+        SpeechEditorState state,
+        int handleIndex,
+        Vector2 delta)
+    {
+        Vector2 scale =
+            state.frameRuntimePerPreviewPixel;
+
+        if (handleIndex == 0)
+        {
+            Vector2 size =
+                state.frameDragStartSize +
+                new Vector2(
+                    delta.x * scale.x,
+                    delta.y * scale.y);
+
+            size.x =
+                Mathf.Clamp(
+                    size.x,
+                    120f,
+                    2400f);
+
+            size.y =
+                Mathf.Clamp(
+                    size.y,
+                    60f,
+                    800f);
+
+            WriteFrameSize(
+                state,
+                size);
+
+            return;
+        }
+
+        float value =
+            state.frameDragStartValue;
+
+        switch (handleIndex)
+        {
+            case 1:
+                value -= delta.x * scale.x;
+                break;
+
+            case 2:
+                value += delta.y * scale.y;
+                break;
+
+            case 3:
+                value += delta.x * scale.x;
+                break;
+
+            case 4:
+                value -= delta.y * scale.y;
+                break;
+
+            case 5:
+                value += delta.x * scale.x;
+                break;
+
+            case 6:
+                value -= delta.y * scale.y;
+                break;
+
+            case 7:
+                value -= delta.x * scale.x;
+                break;
+
+            case 8:
+                value += delta.y * scale.y;
+                break;
+        }
+
+        float max =
+            handleIndex <= 4
+                ? 48f
+                : 32f;
+
+        value =
+            Mathf.Clamp(
+                value,
+                0f,
+                max);
+
+        string propertyName =
+            handleIndex switch
+            {
+                1 => "outlineLeft",
+                2 => "outlineBottom",
+                3 => "outlineRight",
+                4 => "outlineTop",
+                5 => "fillInsetLeft",
+                6 => "fillInsetBottom",
+                7 => "fillInsetRight",
+                8 => "fillInsetTop",
+                _ => string.Empty
+            };
+
+        if (!string.IsNullOrEmpty(propertyName))
+        {
+            WriteFrameFloat(
+                state,
+                propertyName,
+                value);
+        }
+    }
+
+    private void WriteFrameSize(
+        SpeechEditorState state,
+        Vector2 value)
+    {
+        BattleShowPresentationManager manager =
+            Manager;
+
+        if (manager == null)
+            return;
+
+        serializedObject.Update();
+
+        SerializedProperty frame =
+            serializedObject.FindProperty(
+                state.framePropertyName);
+
+        SerializedProperty size =
+            frame != null
+                ? frame.FindPropertyRelative("size")
+                : null;
+
+        if (size == null)
+            return;
+
+        size.vector2Value =
+            value;
+
+        serializedObject.ApplyModifiedProperties();
+
+        EditorUtility.SetDirty(manager);
+        InvalidatePreview(state);
+        Repaint();
+        SceneView.RepaintAll();
+    }
+
+    private void WriteFrameFloat(
+        SpeechEditorState state,
+        string propertyName,
+        float value)
+    {
+        BattleShowPresentationManager manager =
+            Manager;
+
+        if (manager == null)
+            return;
+
+        serializedObject.Update();
+
+        SerializedProperty frame =
+            serializedObject.FindProperty(
+                state.framePropertyName);
+
+        SerializedProperty property =
+            frame != null
+                ? frame.FindPropertyRelative(propertyName)
+                : null;
+
+        if (property == null)
+            return;
+
+        property.floatValue =
+            value;
+
+        serializedObject.ApplyModifiedProperties();
+
+        EditorUtility.SetDirty(manager);
+        InvalidatePreview(state);
+        Repaint();
+        SceneView.RepaintAll();
+    }
+
     private static void DrawCenterLine(
         Rect tailRect,
         BattleSpeechBubbleTailStyle style,
@@ -975,6 +1429,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             state.activeWidthHandle =
                 -1;
 
+            state.activeFrameHandle =
+                -1;
+
             Undo.RecordObject(
                 Manager,
                 $"Move {state.title} {label}");
@@ -1099,6 +1556,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 index;
 
             state.activeCenterHandle =
+                -1;
+
+            state.activeFrameHandle =
                 -1;
 
             Undo.RecordObject(
@@ -1480,6 +1940,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         state.activeCenterHandle = -1;
         state.activeWidthHandle = -1;
+        state.activeFrameHandle = -1;
     }
 
     private void InvalidatePreview(
