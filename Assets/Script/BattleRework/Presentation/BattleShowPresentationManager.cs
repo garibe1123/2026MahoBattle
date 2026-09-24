@@ -249,14 +249,32 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public Material ScreenPresenterMaterial => screenPresenterMaterial;
 
-    public BattleSpeechBubbleFrameStyle SelectionSpeechBubbleFrameStyle =>
-        selectionSpeechBubbleFrameStyle ??= BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
+    public BattleSpeechBubbleFrameStyle SelectionSpeechBubbleFrameStyle
+    {
+        get
+        {
+            selectionSpeechBubbleFrameStyle ??=
+                BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
+
+            selectionSpeechBubbleFrameStyle.EnsureStrokeThicknessDefaults();
+            return selectionSpeechBubbleFrameStyle;
+        }
+    }
 
     public BattleSpeechBubbleTailStyle SelectionSpeechBubbleTailStyle =>
         selectionSpeechBubbleTailStyle ??= new BattleSpeechBubbleTailStyle();
 
-    public BattleSpeechBubbleFrameStyle CombatSpeechBubbleFrameStyle =>
-        combatSpeechBubbleFrameStyle ??= BattleSpeechBubbleFrameStyle.CreateCombatDefault();
+    public BattleSpeechBubbleFrameStyle CombatSpeechBubbleFrameStyle
+    {
+        get
+        {
+            combatSpeechBubbleFrameStyle ??=
+                BattleSpeechBubbleFrameStyle.CreateCombatDefault();
+
+            combatSpeechBubbleFrameStyle.EnsureStrokeThicknessDefaults();
+            return combatSpeechBubbleFrameStyle;
+        }
+    }
 
     public BattleSpeechBubbleTailStyle CombatSpeechBubbleTailStyle =>
         combatSpeechBubbleTailStyle ??= new BattleSpeechBubbleTailStyle();
