@@ -1,5 +1,6 @@
 using System;
 using UnityEngine;
+using UnityEngine.Serialization;
 
 /// <summary>
 /// 말풍선 본체의 형태 스타일.
@@ -61,20 +62,24 @@ public sealed class BattleSpeechBubbleFrameStyle
         new(0.97f, 0.97f, 0.94f, 1f);
 
     // 이전 L/B/R/T Stroke 데이터를 최초 1회 Corner 값으로 승계하기 위한 필드.
+    [FormerlySerializedAs("strokeLeft")]
     [SerializeField, HideInInspector]
     private float legacyStrokeLeft;
 
+    [FormerlySerializedAs("strokeBottom")]
     [SerializeField, HideInInspector]
     private float legacyStrokeBottom;
 
+    [FormerlySerializedAs("strokeRight")]
     [SerializeField, HideInInspector]
     private float legacyStrokeRight;
 
+    [FormerlySerializedAs("strokeTop")]
     [SerializeField, HideInInspector]
     private float legacyStrokeTop;
 
     [SerializeField, HideInInspector]
-    private bool cornerStrokeInitialized = true;
+    private bool cornerStrokeInitialized;
 
     public static BattleSpeechBubbleFrameStyle CreateSelectionDefault()
     {
