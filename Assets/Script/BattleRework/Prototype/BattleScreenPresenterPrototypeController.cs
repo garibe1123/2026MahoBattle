@@ -146,6 +146,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private bool cameraApplied;
     private float reactionStartedAt = -10f;
+    private Mood reactionMood = Mood.Neutral;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
@@ -644,7 +645,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         {
             float t = Mathf.Clamp01(reactionAge / Mathf.Max(0.05f, reactionDuration));
             float hop = t < 0.5f ? t * 2f : (1f - t) * 2f;
-            float multiplier = activeMood == Mood.Excited
+            float multiplier = reactionMood == Mood.Excited
                 ? excitedReactionMultiplier
                 : 1f;
 
@@ -709,6 +710,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         hasPendingCopy = true;
 
         EnsureOverlay();
+        reactionMood = mood;
         reactionStartedAt = Time.unscaledTime;
 
         if (dialoguePhase == DialoguePhase.Hidden)
