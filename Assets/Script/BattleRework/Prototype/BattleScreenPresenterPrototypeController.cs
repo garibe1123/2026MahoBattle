@@ -643,18 +643,28 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         faceRect.anchorMin = Vector2.zero;
         faceRect.anchorMax = Vector2.one;
         faceRect.pivot = new Vector2(0.5f, 0.5f);
-        faceRect.offsetMin =
-            new Vector2(
-                frameStyle != null ? frameStyle.FillInsetLeft : 2f,
-                frameStyle != null ? frameStyle.FillInsetBottom : 2f);
+        faceRect.offsetMin = Vector2.zero;
+        faceRect.offsetMax = Vector2.zero;
 
-        faceRect.offsetMax =
-            new Vector2(
-                -(frameStyle != null ? frameStyle.FillInsetRight : 2f),
-                -(frameStyle != null ? frameStyle.FillInsetTop : 2f));
         Image faceImage = face.AddComponent<Image>();
-        faceImage.color = bubbleFill;
+        faceImage.color = Color.white;
         faceImage.raycastTarget = false;
+
+        if (frameStyle != null)
+        {
+            BattleSpeechBubbleFrameFillController fillController =
+                face.AddComponent<BattleSpeechBubbleFrameFillController>();
+
+            fillController.Configure(
+                faceImage,
+                frameStyle,
+                dialogueSize);
+        }
+        else
+        {
+            faceImage.sprite = BattleHudSpriteCache.DefaultSprite;
+            faceImage.color = bubbleFill;
+        }
 
         // Static white comic tail. It overlaps the BubbleFace edge so the tail
         // reads as one continuous speech-bubble silhouette instead of a detached pointer.
