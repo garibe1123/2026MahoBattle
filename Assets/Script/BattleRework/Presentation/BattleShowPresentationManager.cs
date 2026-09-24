@@ -256,7 +256,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             selectionSpeechBubbleFrameStyle ??=
                 BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
 
-            selectionSpeechBubbleFrameStyle.EnsureStrokeThicknessDefaults();
+            selectionSpeechBubbleFrameStyle.EnsureCornerStrokeDefaults();
             return selectionSpeechBubbleFrameStyle;
         }
     }
@@ -271,7 +271,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             combatSpeechBubbleFrameStyle ??=
                 BattleSpeechBubbleFrameStyle.CreateCombatDefault();
 
-            combatSpeechBubbleFrameStyle.EnsureStrokeThicknessDefaults();
+            combatSpeechBubbleFrameStyle.EnsureCornerStrokeDefaults();
             return combatSpeechBubbleFrameStyle;
         }
     }
