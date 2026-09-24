@@ -617,63 +617,32 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueGroup.interactable = false;
         dialogueGroup.blocksRaycasts = false;
 
-        // Rough black ink silhouette slightly larger than the white face.
-        GameObject ink = new("BubbleInkBack", typeof(RectTransform));
-        ink.transform.SetParent(dialogueRect, false);
-        RectTransform inkRect = ink.GetComponent<RectTransform>();
-        inkRect.anchorMin = Vector2.zero;
-        inkRect.anchorMax = Vector2.one;
-        inkRect.pivot = new Vector2(0.5f, 0.5f);
-        inkRect.offsetMin =
-            new Vector2(
-                -(frameStyle != null ? frameStyle.outlineLeft : 8f),
-                -(frameStyle != null ? frameStyle.outlineBottom : 9f));
+        BattleSpeechBubbleFrameStyle activeFrameStyle =
+            frameStyle ??
+            BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
 
-        inkRect.offsetMax =
-            new Vector2(
-                frameStyle != null ? frameStyle.outlineRight : 8f,
-                frameStyle != null ? frameStyle.outlineTop : 9f);
-        Image inkImage = ink.AddComponent<Image>();
-        inkImage.color = bubbleInk;
-        inkImage.raycastTarget = false;
+        // OUTLINE + INNER를 한 개의 런타임 Sprite로 렌더링합니다.
+        // 빨강/초록 4꼭짓점 Preview와 Play가 동일한 Builder를 사용합니다.
+        GameObject frame = new("BubbleFrame", typeof(RectTransform));
+        frame.transform.SetParent(dialogueRect, false);
 
-        GameObject face = new("BubbleFace", typeof(RectTransform));
-        face.transform.SetParent(dialogueRect, false);
-        RectTransform faceRect = face.GetComponent<RectTransform>();
-        faceRect.anchorMin = Vector2.zero;
-        faceRect.anchorMax = Vector2.one;
-        faceRect.pivot = new Vector2(0.5f, 0.5f);
-        faceRect.offsetMin = Vector2.zero;
-        faceRect.offsetMax = Vector2.zero;
+        Image frameImage = frame.AddComponent<Image>();
+        frameImage.raycastTarget = false;
 
-        Image faceImage = face.AddComponent<Image>();
-        faceImage.color = Color.white;
-        faceImage.raycastTarget = false;
+        BattleSpeechBubbleFrameFillController frameController =
+            frame.AddComponent<BattleSpeechBubbleFrameFillController>();
 
-        if (frameStyle != null)
-        {
-            BattleSpeechBubbleFrameFillController fillController =
-                face.AddComponent<BattleSpeechBubbleFrameFillController>();
+        frameController.Configure(
+            frameImage,
+            activeFrameStyle,
+            dialogueSize);
 
-            fillController.Configure(
-                faceImage,
-                frameStyle,
-                dialogueSize);
-        }
-        else
-        {
-            faceImage.sprite = BattleHudSpriteCache.DefaultSprite;
-            faceImage.color = bubbleFill;
-        }
-
-        // Static white comic tail. It overlaps the BubbleFace edge so the tail
-        // reads as one continuous speech-bubble silhouette instead of a detached pointer.
         dialogueTailGraphic =
             dialogueRect.gameObject.AddComponent<BattleSpeechBubbleTailTriangleController>();
         dialogueTailGraphic.Configure(
             dialogueRect,
             dialogueTailPivotRect,
-            bubbleFill,
+            activeFrameStyle.fillColor,
             presentation != null
                 ? presentation.SelectionSpeechBubbleTailStyle
                 : null);
@@ -754,8 +723,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             new Vector2(-20f, 8f),
             new Vector2(120f, 20f));
 
-        ink.transform.SetSiblingIndex(1);
-        face.transform.SetSiblingIndex(2);
+        frame.transform.SetSiblingIndex(1);
 
         dialogueRect.localScale =
             Vector3.one * dialogueBubbleStartScale;
