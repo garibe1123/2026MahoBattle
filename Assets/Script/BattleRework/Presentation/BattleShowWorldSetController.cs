@@ -56,9 +56,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Range(0f, 2f)] private float carrierImpactStrength = 1.05f;
     [SerializeField] private int carrierFloorSortingOrder = -18;
 
-    [Header("Shared Camera From Docked Screen")]
-    [SerializeField, Min(0f)] private float rewardCameraPadding = 0.85f;
-    [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 5.4f;
+    [Header("Reward Camera Focus")]
+    [Tooltip("Reward에서는 Persistent Base/Carrier가 아니라 TV 자체를 거의 풀스크린으로 잡습니다.")]
+    [SerializeField, Min(0f)] private float rewardCameraPadding = 0.08f;
+    [Tooltip("16:9 기준 Reward TV가 화면 대부분을 차지하도록 하는 최소 Orthographic Size입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 2.55f;
 
     [Header("Map Camera Focus")]
     [Tooltip("Map 선택에서는 Persistent Base/Carrier 전체가 아니라 TV 화면을 주 피사체로 잡습니다.")]
@@ -846,14 +848,19 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             tvCanvasSize.x / Mathf.Max(32f, tvPixelsPerUnit),
             tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit));
 
-        bool mapFocus = currentMode == ShowMode.Map || desiredMode == ShowMode.Map;
-        Bounds bounds;
+        bool rewardFocus =
+            currentMode == ShowMode.Reward ||
+            desiredMode == ShowMode.Reward;
+        bool mapFocus =
+            currentMode == ShowMode.Map ||
+            desiredMode == ShowMode.Map;
+        bool tvDecisionFocus = rewardFocus || mapFocus;
 
-        if (mapFocus)
+        Bounds bounds;
+        if (tvDecisionFocus)
         {
-            // Map selection is a decision screen. Frame the TV itself almost full-screen,
-            // like the item/reward inspection view, instead of wasting composition on the
-            // persistent 4x4 and the 10x2 carrier underneath it.
+            // Reward/Map are decision screens. The information on the TV is the primary
+            // gameplay surface, so do NOT include the persistent base or carrier in framing.
             bounds = new Bounds(
                 tvMountedWorld,
                 new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f));
@@ -869,7 +876,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 ScreenCarrierWidth,
                 ScreenCarrierDepth);
             bounds.Encapsulate(screenBounds);
-
             bounds.Encapsulate(new Bounds(
                 tvMountedWorld,
                 new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f)));
@@ -877,15 +883,23 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         cameraTargetWorld = new Vector3(bounds.center.x, bounds.center.y, 0f);
 
-        float padding = Mathf.Max(0f, mapFocus ? mapCameraPadding : rewardCameraPadding);
+        float padding = rewardFocus
+            ? Mathf.Max(0f, rewardCameraPadding)
+            : Mathf.Max(0f, mapCameraPadding);
+
         float aspect = Camera.main != null && Camera.main.aspect > 0.01f
             ? Camera.main.aspect
             : 16f / 9f;
 
         float sizeByHeight = bounds.extents.y + padding;
         float sizeByWidth = (bounds.extents.x + padding) / Mathf.Max(0.1f, aspect);
-        float minSize = mapFocus ? mapCameraMinSize : rewardCameraMinSize;
-        cameraSizeWorld = Mathf.Max(minSize, Mathf.Max(sizeByHeight, sizeByWidth));
+        float minSize = rewardFocus
+            ? rewardCameraMinSize
+            : mapCameraMinSize;
+
+        cameraSizeWorld = Mathf.Max(
+            Mathf.Max(0.1f, minSize),
+            Mathf.Max(sizeByHeight, sizeByWidth));
     }
 
     private static Bounds CreateTileUnitBounds(Vector3 lowerLeftTileCenter, int width, int height)
