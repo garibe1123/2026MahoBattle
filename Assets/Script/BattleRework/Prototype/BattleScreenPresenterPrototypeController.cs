@@ -569,8 +569,21 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private void BuildDialogue()
     {
-        Color bubbleFill = new(0.97f, 0.97f, 0.94f, 1f);
-        Color bubbleInk = new(0.012f, 0.012f, 0.018f, 0.99f);
+        BattleSpeechBubbleFrameStyle frameStyle =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleFrameStyle
+                : null;
+
+        Color bubbleFill =
+            frameStyle != null
+                ? frameStyle.fillColor
+                : new Color(0.97f, 0.97f, 0.94f, 1f);
+
+        Color bubbleInk =
+            frameStyle != null
+                ? frameStyle.outlineColor
+                : new Color(0.012f, 0.012f, 0.018f, 0.99f);
+
         Color bubbleText = new(0.035f, 0.035f, 0.045f, 1f);
         Color bubbleMuted = new(0.24f, 0.25f, 0.29f, 1f);
 
@@ -580,11 +593,21 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueRect = root.GetComponent<RectTransform>();
         dialogueRect.anchorMin = dialogueRect.anchorMax = new Vector2(0.5f, 0f);
         dialogueRect.pivot = new Vector2(0.5f, 0f);
-        dialogueRect.sizeDelta = dialogueSize;
+        dialogueRect.sizeDelta =
+            frameStyle != null
+                ? frameStyle.size
+                : dialogueSize;
+
         dialogueRect.anchoredPosition =
             dialogueVisibleOffset - Vector2.up * dialogueHiddenOffsetY;
+
         dialogueRect.localRotation =
-            Quaternion.Euler(0f, 0f, dialogueBubbleRotation);
+            Quaternion.Euler(
+                0f,
+                0f,
+                frameStyle != null
+                    ? frameStyle.rotation
+                    : dialogueBubbleRotation);
 
         dialogueRenderCanvas = root.AddComponent<Canvas>();
         dialogueRenderCanvas.overrideSorting = true;
@@ -602,8 +625,15 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         inkRect.anchorMin = Vector2.zero;
         inkRect.anchorMax = Vector2.one;
         inkRect.pivot = new Vector2(0.5f, 0.5f);
-        inkRect.offsetMin = new Vector2(-8f, -9f);
-        inkRect.offsetMax = new Vector2(8f, 9f);
+        inkRect.offsetMin =
+            new Vector2(
+                -(frameStyle != null ? frameStyle.outlineLeft : 8f),
+                -(frameStyle != null ? frameStyle.outlineBottom : 9f));
+
+        inkRect.offsetMax =
+            new Vector2(
+                frameStyle != null ? frameStyle.outlineRight : 8f,
+                frameStyle != null ? frameStyle.outlineTop : 9f);
         Image inkImage = ink.AddComponent<Image>();
         inkImage.color = bubbleInk;
         inkImage.raycastTarget = false;
@@ -614,8 +644,15 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         faceRect.anchorMin = Vector2.zero;
         faceRect.anchorMax = Vector2.one;
         faceRect.pivot = new Vector2(0.5f, 0.5f);
-        faceRect.offsetMin = new Vector2(2f, 2f);
-        faceRect.offsetMax = new Vector2(-2f, -2f);
+        faceRect.offsetMin =
+            new Vector2(
+                frameStyle != null ? frameStyle.fillInsetLeft : 2f,
+                frameStyle != null ? frameStyle.fillInsetBottom : 2f);
+
+        faceRect.offsetMax =
+            new Vector2(
+                -(frameStyle != null ? frameStyle.fillInsetRight : 2f),
+                -(frameStyle != null ? frameStyle.fillInsetTop : 2f));
         Image faceImage = face.AddComponent<Image>();
         faceImage.color = bubbleFill;
         faceImage.raycastTarget = false;
@@ -712,7 +749,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         face.transform.SetSiblingIndex(2);
 
         dialogueRect.localScale =
-            Vector3.one * dialogueBubbleStartScale;
+            Vector3.one *
+            (frameStyle != null
+                ? frameStyle.startScale
+                : dialogueBubbleStartScale);
     }
 
     // ---------------------------------------------------------------------
@@ -1321,21 +1361,41 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueGroup.alpha = clamped;
         dialogueRect.anchoredPosition = dialogueVisibleOffset;
 
+        BattleSpeechBubbleFrameStyle frameStyle =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleFrameStyle
+                : null;
+
+        float startScale =
+            frameStyle != null
+                ? frameStyle.startScale
+                : dialogueBubbleStartScale;
+
+        float overshootScale =
+            frameStyle != null
+                ? frameStyle.overshootScale
+                : dialogueBubbleOvershootScale;
+
+        float settledScale =
+            frameStyle != null
+                ? frameStyle.settledScale
+                : 1f;
+
         float scale;
         if (clamped < 0.72f)
         {
             float t = clamped / 0.72f;
             scale = Mathf.Lerp(
-                dialogueBubbleStartScale,
-                dialogueBubbleOvershootScale,
+                startScale,
+                overshootScale,
                 Smooth01(t));
         }
         else
         {
             float t = (clamped - 0.72f) / 0.28f;
             scale = Mathf.Lerp(
-                dialogueBubbleOvershootScale,
-                1f,
+                overshootScale,
+                settledScale,
                 Smooth01(t));
         }
 
