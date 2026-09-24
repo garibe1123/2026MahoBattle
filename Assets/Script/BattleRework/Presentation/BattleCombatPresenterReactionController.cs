@@ -809,62 +809,32 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleGroup.interactable = false;
         bubbleGroup.blocksRaycasts = false;
 
-        // Black offset backing creates a rough ink-outline silhouette.
-        GameObject shadow = new("BubbleInkBack", typeof(RectTransform));
-        shadow.transform.SetParent(bubbleRect, false);
-        RectTransform shadowRect = shadow.GetComponent<RectTransform>();
-        Stretch(
-            shadowRect,
-            new Vector2(
-                -(frameStyle != null ? frameStyle.outlineLeft : 7f),
-                -(frameStyle != null ? frameStyle.outlineBottom : 8f)),
-            new Vector2(
-                frameStyle != null ? frameStyle.outlineRight : 7f,
-                frameStyle != null ? frameStyle.outlineTop : 8f));
+        BattleSpeechBubbleFrameStyle activeFrameStyle =
+            frameStyle ??
+            BattleSpeechBubbleFrameStyle.CreateCombatDefault();
 
-        Image shadowImage = shadow.AddComponent<Image>();
-        shadowImage.color =
-            frameStyle != null
-                ? frameStyle.outlineColor
-                : new Color(0.015f, 0.015f, 0.02f, 0.98f);
-        shadowImage.raycastTarget = false;
+        // OUTLINE + INNER를 한 개의 런타임 Sprite로 렌더링합니다.
+        // 빨강/초록 4꼭짓점 Preview와 Play가 동일한 Builder를 사용합니다.
+        GameObject frame = new("BubbleFrame", typeof(RectTransform));
+        frame.transform.SetParent(bubbleRect, false);
 
-        GameObject face = new("BubbleFace", typeof(RectTransform));
-        face.transform.SetParent(bubbleRect, false);
-        RectTransform faceRect = face.GetComponent<RectTransform>();
-        Stretch(
-            faceRect,
-            Vector2.zero,
-            Vector2.zero);
-
-        bubbleBack = face.AddComponent<Image>();
+        bubbleBack = frame.AddComponent<Image>();
         bubbleBack.raycastTarget = false;
 
-        if (frameStyle != null)
-        {
-            BattleSpeechBubbleFrameFillController fillController =
-                face.AddComponent<BattleSpeechBubbleFrameFillController>();
+        BattleSpeechBubbleFrameFillController frameController =
+            frame.AddComponent<BattleSpeechBubbleFrameFillController>();
 
-            fillController.Configure(
-                bubbleBack,
-                frameStyle,
-                bubbleSize);
-        }
-        else
-        {
-            bubbleBack.sprite = BattleHudSpriteCache.DefaultSprite;
-            bubbleBack.color =
-                new Color(0.97f, 0.97f, 0.94f, 1f);
-        }
+        frameController.Configure(
+            bubbleBack,
+            activeFrameStyle,
+            bubbleSize);
 
-        // Short comic tail preset: targetPivot selects direction only.
-        // The tail stays attached to the speech bubble and never stretches to the presenter.
         bubbleTailGraphic =
             bubbleRect.gameObject.AddComponent<BattleSpeechBubbleTailTriangleController>();
         bubbleTailGraphic.Configure(
             bubbleRect,
             tailPivotRect,
-            bubbleBack.color,
+            activeFrameStyle.fillColor,
             presentation != null
                 ? presentation.CombatSpeechBubbleTailStyle
                 : null);
