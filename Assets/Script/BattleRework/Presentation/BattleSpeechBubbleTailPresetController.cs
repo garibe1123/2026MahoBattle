@@ -44,13 +44,13 @@ public sealed class BattleSpeechBubbleTailPresetController : MonoBehaviour
 
     [Header("Layout")]
     [Tooltip("꼬리 자체는 짧게 유지합니다. 사회자까지 늘어나지 않습니다.")]
-    [SerializeField] private Vector2 tailSize = new(160f, 92f);
+    [SerializeField] private Vector2 tailSize = new(118f, 68f);
 
     [Tooltip("말풍선 본체 안쪽으로 꼬리 Root를 겹치는 양입니다. 흰 꼬리가 기존 검은 Edge를 덮어 자연스럽게 이어집니다.")]
-    [SerializeField, Range(0f, 40f)] private float edgeInset = 18f;
+    [SerializeField, Range(0f, 40f)] private float edgeInset = 28f;
 
     [Tooltip("Target이 말풍선 중심보다 이 값 이상 위/아래에 있을 때 Up / Down 프리셋을 선택합니다.")]
-    [SerializeField, Min(1f)] private float verticalThreshold = 58f;
+    [SerializeField, Min(1f)] private float verticalThreshold = 72f;
 
     [Header("Anchor")]
     [SerializeField, Range(0.55f, 0.95f)] private float upAnchorY = 0.78f;
