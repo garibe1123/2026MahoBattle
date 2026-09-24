@@ -492,18 +492,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             bubbleGroup.alpha = 0f;
 
         if (bubbleRect != null)
-        {
-            BattleSpeechBubbleFrameStyle frameStyle =
-                presentation != null
-                    ? presentation.CombatSpeechBubbleFrameStyle
-                    : null;
-
-            bubbleRect.localScale =
-                Vector3.one *
-                (frameStyle != null
-                    ? frameStyle.startScale
-                    : bubbleStartScale);
-        }
+            bubbleRect.localScale = Vector3.one * bubbleStartScale;
 
         ApplyGlitch(glitchBootStrength, glitchNoiseStrength, glitchRgbSplit);
     }
@@ -578,41 +567,22 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
                 if (bubbleRect != null)
                 {
-                    BattleSpeechBubbleFrameStyle frameStyle =
-                        presentation != null
-                            ? presentation.CombatSpeechBubbleFrameStyle
-                            : null;
-
-                    float startScale =
-                        frameStyle != null
-                            ? frameStyle.startScale
-                            : bubbleStartScale;
-
-                    float overshootScale =
-                        frameStyle != null
-                            ? frameStyle.overshootScale
-                            : bubbleOvershootScale;
-
-                    float settledScale =
-                        frameStyle != null
-                            ? frameStyle.settledScale
-                            : 1f;
-
+                    // 기존 전투 Pop Scale을 고정 사용합니다.
                     float scale;
                     if (t < 0.72f)
                     {
                         float a = t / 0.72f;
                         scale = Mathf.Lerp(
-                            startScale,
-                            overshootScale,
+                            bubbleStartScale,
+                            bubbleOvershootScale,
                             EaseOutCubic(a));
                     }
                     else
                     {
                         float b = (t - 0.72f) / 0.28f;
                         scale = Mathf.Lerp(
-                            overshootScale,
-                            settledScale,
+                            bubbleOvershootScale,
+                            1f,
                             b);
                     }
 
@@ -625,18 +595,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                         bubbleGroup.alpha = 1f;
 
                     if (bubbleRect != null)
-                    {
-                        BattleSpeechBubbleFrameStyle frameStyle =
-                            presentation != null
-                                ? presentation.CombatSpeechBubbleFrameStyle
-                                : null;
-
-                        bubbleRect.localScale =
-                            Vector3.one *
-                            (frameStyle != null
-                                ? frameStyle.settledScale
-                                : 1f);
-                    }
+                        bubbleRect.localScale = Vector3.one;
 
                     phaseTime = 0f;
                     typeProgress = 0f;
@@ -697,25 +656,10 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
                 if (bubbleRect != null)
                 {
-                    BattleSpeechBubbleFrameStyle frameStyle =
-                        presentation != null
-                            ? presentation.CombatSpeechBubbleFrameStyle
-                            : null;
-
-                    float settledScale =
-                        frameStyle != null
-                            ? frameStyle.settledScale
-                            : 1f;
-
-                    float shutdownScale =
-                        frameStyle != null
-                            ? frameStyle.shutdownScale
-                            : 0.92f;
-
                     float scale =
                         Mathf.Lerp(
-                            settledScale,
-                            shutdownScale,
+                            1f,
+                            0.92f,
                             t);
 
                     bubbleRect.localScale = Vector3.one * scale;
@@ -758,18 +702,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             bubbleGroup.alpha = 0f;
 
         if (bubbleRect != null)
-        {
-            BattleSpeechBubbleFrameStyle frameStyle =
-                presentation != null
-                    ? presentation.CombatSpeechBubbleFrameStyle
-                    : null;
-
-            bubbleRect.localScale =
-                Vector3.one *
-                (frameStyle != null
-                    ? frameStyle.settledScale
-                    : 1f);
-        }
+            bubbleRect.localScale = Vector3.one;
 
         if (lineText != null)
             lineText.text = string.Empty;
@@ -857,10 +790,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleRect = bubble.GetComponent<RectTransform>();
         bubbleRect.anchorMin = bubbleRect.anchorMax = new Vector2(1f, 1f);
         bubbleRect.pivot = new Vector2(1f, 1f);
-        bubbleRect.sizeDelta =
-            frameStyle != null
-                ? frameStyle.size
-                : bubbleSize;
+        // 전투 말풍선의 디자인 크기는 고정입니다.
+        // 실제 화면 비율/해상도 대응은 CanvasScaler가 담당합니다.
+        bubbleRect.sizeDelta = bubbleSize;
 
         bubbleRect.anchoredPosition = bubbleOffset;
 
@@ -903,11 +835,11 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         Stretch(
             faceRect,
             new Vector2(
-                frameStyle != null ? frameStyle.fillInsetLeft : 2f,
-                frameStyle != null ? frameStyle.fillInsetBottom : 2f),
+                frameStyle != null ? frameStyle.FillInsetLeft : 2f,
+                frameStyle != null ? frameStyle.FillInsetBottom : 2f),
             new Vector2(
-                -(frameStyle != null ? frameStyle.fillInsetRight : 2f),
-                -(frameStyle != null ? frameStyle.fillInsetTop : 2f)));
+                -(frameStyle != null ? frameStyle.FillInsetRight : 2f),
+                -(frameStyle != null ? frameStyle.FillInsetTop : 2f)));
 
         bubbleBack = face.AddComponent<Image>();
         bubbleBack.color =
