@@ -48,6 +48,26 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         Closing
     }
 
+    private enum PresenterLineKey
+    {
+        RewardIntro,
+        MapIntro,
+        RewardConfirm,
+        MapConfirm,
+        Saw,
+        OddWeapon,
+        RareItem,
+        HotItem,
+        SafeItem,
+        GenericHover,
+        GenericSelected,
+        MapElite,
+        MapShop,
+        MapEvent,
+        MapCombatHigh,
+        MapCombatNormal
+    }
+
     private const int PresenterFramePixels = 128;
 
     private static BattleScreenPresenterPrototypeController instance;
@@ -165,6 +185,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private float reactionStartedAt = -10f;
     private Mood reactionMood = Mood.Neutral;
 
+    private readonly Dictionary<PresenterLineKey, int> lastLineByEvent = new();
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
     {
@@ -250,7 +272,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         owner.QueueCopy(
             "SOLD / INSTALLING",
             $"{equipment.rarity.ToString().ToUpperInvariant()} / {equipment.GetDisplayName()}",
-            "좋아요, 그걸로 가죠. 장착되는 모습까지 한번 보시죠!",
+            owner.PickLine(
+                PresenterLineKey.RewardConfirm,
+                "좋아요, 그걸로 가죠. 장착되는 모습까지 한번 보시죠!",
+                "결정됐군요. 그럼 바로 장착 과정으로 넘어가겠습니다.",
+                "좋습니다! 오늘의 선택은 이쪽이네요.",
+                "확정이군요. 자, 이제 실제로 써볼 차례입니다.",
+                "좋아요. 방송도 선택도 이걸로 확정하죠."),
             Mood.Excited);
     }
 
@@ -268,7 +296,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         owner.QueueCopy(
             "NEXT COURSE",
             $"ROUTE LOCKED / STAGE {Mathf.Max(1, node.depth + 1):00}",
-            "좋습니다! 다음 방송 코스, 이쪽으로 가보죠!",
+            owner.PickLine(
+                PresenterLineKey.MapConfirm,
+                "좋습니다! 다음 방송 코스, 이쪽으로 가보죠!",
+                "코스 확정입니다. 다음 무대로 넘어가겠습니다!",
+                "선택 완료. 그럼 이쪽으로 방송을 이어가죠.",
+                "좋아요, 다음 스테이지는 여기로 정해졌습니다.",
+                "경로가 잡혔네요. 다음 장면으로 넘어갑니다!"),
             Mood.Excited);
     }
 
@@ -340,7 +374,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             QueueCopy(
                 "LIVE SHOP",
                 "TODAY'S PICK",
-                "자, 오늘 들어온 물건들을 한번 살펴볼까요?",
+                PickLine(
+                    PresenterLineKey.RewardIntro,
+                    "자, 오늘 들어온 물건들을 한번 살펴볼까요?",
+                    "오늘 상품도 도착했습니다. 하나씩 확인해보죠.",
+                    "보상 시간입니다. 이번에는 뭐가 들어왔을까요?",
+                    "자, 전투는 끝났고 이제 쇼핑할 시간이군요.",
+                    "이번 진열대도 꽤 재미있어 보이는데요?"),
                 Mood.Neutral);
             return;
         }
@@ -353,7 +393,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             QueueCopy(
                 "ROUTE DESK",
                 "NEXT STAGE",
-                "다음 코스를 정할 시간이에요. 어느 쪽이 더 그림이 좋을까요?",
+                PickLine(
+                    PresenterLineKey.MapIntro,
+                    "다음 코스를 정할 시간이에요. 어느 쪽이 더 그림이 좋을까요?",
+                    "자, 다음 무대는 어디로 잡아볼까요?",
+                    "다음 방송 장소를 골라야겠네요. 한번 둘러보죠.",
+                    "이제 경로 선택입니다. 어떤 쪽이 더 재미있을까요?",
+                    "다음 스테이지 후보가 나왔습니다. 천천히 골라보죠."),
                 Mood.Curious);
             return;
         }
@@ -1209,8 +1255,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         {
             QueueCopy(
                 selected ? "PICKED" : "CURIOUS PICK",
-                "ODD WEAPON / MULTI HIT",
-                "그래요, 이 톱날은 꽤나 컬트한 매력이 있을지도요!?",
+                "ODD WEAPON",
+                PickLine(
+                    PresenterLineKey.Saw,
+                    "그래요, 이 톱날은 꽤나 컬트한 매력이 있을지도요!?",
+                    "이건 꽤 독특하군요. 방송 화면에는 확실히 잘 잡히겠어요.",
+                    "톱이라... 취향은 갈리겠지만 존재감 하나는 확실하네요.",
+                    "이런 물건을 고르는 분이 꼭 있죠. 꽤 기억에 남는 선택입니다.",
+                    "평범한 장비를 찾고 계셨다면, 음... 이건 확실히 아니네요."),
                 Mood.Curious);
             return;
         }
@@ -1220,7 +1272,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             QueueCopy(
                 selected ? "PICKED" : "CULT PICK",
                 "ODD WEAPON",
-                "호불호는 좀 있겠지만요. 이런 물건을 좋아하는 분은 정말 좋아하시겠네요?",
+                PickLine(
+                    PresenterLineKey.OddWeapon,
+                    "호불호는 좀 있겠지만요. 이런 물건을 좋아하는 분은 정말 좋아하시겠네요?",
+                    "정석적인 물건은 아니군요. 그래서 더 눈이 가는 걸지도 모르겠네요.",
+                    "사용법부터 조금 궁금해지는 물건인데요?",
+                    "이건 성능보다 먼저 취향을 묻게 되는 상품이네요.",
+                    "이상한데... 묘하게 한번 써보고 싶기는 합니다."),
                 Mood.Curious);
             return;
         }
@@ -1231,7 +1289,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             QueueCopy(
                 selected ? "PICKED" : "SPECIAL ITEM",
                 $"{equipment.rarity.ToString().ToUpperInvariant()} / {displayName}",
-                "오, 이건 화면에 잡힐 만하네요. 오늘 상품 중에서는 확실히 눈에 띕니다!",
+                PickLine(
+                    PresenterLineKey.RareItem,
+                    "오, 이건 화면에 잡힐 만하네요. 오늘 상품 중에서는 확실히 눈에 띕니다!",
+                    "잠깐, 이건 그냥 넘기기엔 아까운 물건인데요?",
+                    "희귀도가 말해주네요. 오늘 진열대의 주인공 후보입니다.",
+                    "이 정도면 카메라를 조금 더 가까이 당겨도 되겠는데요?",
+                    "좋네요. 이런 물건이 하나쯤 나와줘야 방송할 맛이 나죠."),
                 Mood.Excited);
             return;
         }
@@ -1242,7 +1306,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             QueueCopy(
                 selected ? "PICKED" : "HOT ITEM",
                 "EXPLOSIVE / PRESSURE",
-                "이건 설명이 필요 없겠네요. 화끈한 쪽을 좋아하신다면 꽤 괜찮은 선택이에요!",
+                PickLine(
+                    PresenterLineKey.HotItem,
+                    "이건 설명이 필요 없겠네요. 화끈한 쪽을 좋아하신다면 꽤 괜찮은 선택이에요!",
+                    "화력 쪽으로 확실하게 방향을 잡은 물건이네요.",
+                    "이쪽은 얌전히 끝날 것 같진 않군요. 저는 마음에 듭니다.",
+                    "폭발적인 그림을 원하신다면 후보에서 빼기 어렵겠네요.",
+                    "안전한 선택은 아니겠지만, 방송적으로는 아주 좋습니다."),
                 Mood.Excited);
             return;
         }
@@ -1254,7 +1324,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             QueueCopy(
                 selected ? "PICKED" : "SAFE PICK",
                 "SURVIVAL / STABILITY",
-                "화려하진 않아도 오래 살아남는 건 꽤 중요한 일이죠. 안정적인 상품입니다.",
+                PickLine(
+                    PresenterLineKey.SafeItem,
+                    "화려하진 않아도 오래 살아남는 건 꽤 중요한 일이죠. 안정적인 상품입니다.",
+                    "눈에 확 띄진 않아도 이런 장비가 결국 오래 갑니다.",
+                    "안정성을 챙기고 싶다면 충분히 고려할 만하겠네요.",
+                    "조금 심심해 보여도 생존에는 이런 선택이 꽤 중요하죠.",
+                    "화려함보다 꾸준함. 그런 쪽의 상품이네요."),
                 Mood.Neutral);
             return;
         }
@@ -1263,8 +1339,21 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             selected ? "PICKED" : "ITEM CHECK",
             $"{equipment.rarity.ToString().ToUpperInvariant()} / {displayName}",
             selected
-                ? "좋아요. 일단 이쪽을 좀 더 자세히 보죠."
-                : "음, 무난해 보이지만 조합에 따라 제법 재미있는 그림이 나올지도요.",
+                ? PickLine(
+                    PresenterLineKey.GenericSelected,
+                    "좋아요. 일단 이쪽을 좀 더 자세히 보죠.",
+                    "이걸 고르셨군요. 그럼 선택 기준을 한번 확인해볼까요?",
+                    "좋습니다. 후보는 이쪽으로 좁혀졌네요.",
+                    "일단 이 상품에 표를 하나 주셨군요.",
+                    "선택됐습니다. 꽤 무난한 결정이네요.")
+                : PickLine(
+                    PresenterLineKey.GenericHover,
+                    "음, 무난해 보이지만 조합에 따라 제법 재미있는 그림이 나올지도요.",
+                    "이번 건 꽤 정석적인 물건이네요.",
+                    "튀는 부분은 적지만 쓰임새는 있어 보입니다.",
+                    "딱 봐서는 무난하군요. 조합을 봐야 판단이 되겠어요.",
+                    "크게 모험하는 선택은 아니지만, 나쁘진 않아 보이네요.",
+                    "음... 이번 상품은 설명보다 실제 사용 장면을 보는 편이 빠르겠네요."),
             selected ? Mood.Excited : Mood.Neutral);
     }
 
@@ -1282,7 +1371,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 QueueCopy(
                     "CAUTION",
                     $"{stage} / ELITE",
-                    "조금 거친 코스네요. 대신 방송 분량은 확실하겠어요.",
+                    PickLine(
+                        PresenterLineKey.MapElite,
+                        "조금 거친 코스네요. 대신 방송 분량은 확실하겠어요.",
+                        "엘리트 구간입니다. 편한 길을 찾으셨다면 이쪽은 아니네요.",
+                        "위험도는 올라가지만, 성공하면 꽤 멋진 장면이 나오겠어요.",
+                        "여긴 분위기부터 다르군요. 준비 없이 들어가진 않는 게 좋겠습니다.",
+                        "강한 상대가 기다리는 코스네요. 시청률은 잘 나오겠어요."),
                     Mood.Concerned);
                 break;
 
@@ -1290,7 +1385,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 QueueCopy(
                     "SHOPPING BREAK",
                     $"{stage} / SHOP",
-                    "잠깐 쇼핑 타임이군요. 다음 싸움 전에 지갑부터 한번 열어볼까요?",
+                    PickLine(
+                        PresenterLineKey.MapShop,
+                        "잠깐 쇼핑 타임이군요. 다음 싸움 전에 지갑부터 한번 열어볼까요?",
+                        "상점 구간이네요. 잠깐 장비를 정비하기엔 좋은 타이밍입니다.",
+                        "전투 전에 쇼핑이라, 방송 구성으로도 나쁘지 않네요.",
+                        "여기서는 잠시 숨을 돌릴 수 있겠어요. 물론 지갑은 못 쉬겠지만요.",
+                        "쇼핑 코스입니다. 뭘 사게 될지 한번 볼까요?"),
                     Mood.Curious);
                 break;
 
@@ -1298,7 +1399,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 QueueCopy(
                     "SPECIAL SEGMENT",
                     $"{stage} / EVENT",
-                    "이쪽은 무슨 일이 나올지 모르겠네요. 방송적으로는 꽤 흥미롭겠어요.",
+                    PickLine(
+                        PresenterLineKey.MapEvent,
+                        "이쪽은 무슨 일이 나올지 모르겠네요. 방송적으로는 꽤 흥미롭겠어요.",
+                        "이벤트 구간이군요. 예측이 안 된다는 점이 제일 재미있네요.",
+                        "여기는 정보가 적습니다. 그래서 더 궁금한데요?",
+                        "전투와는 다른 장면이 나오겠군요. 한번 들여다볼까요?",
+                        "무슨 일이 벌어질지는 모르지만, 평범하게 끝나진 않을 것 같습니다."),
                     Mood.Curious);
                 break;
 
@@ -1307,8 +1414,20 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "COURSE CHECK",
                     $"{stage} / COMBAT",
                     stars >= 4
-                        ? "난도가 꽤 높네요. 그래도 이 정도는 가야 그림이 나오겠죠?"
-                        : "정석적인 코스네요. 다음 전투를 보기엔 무난한 선택입니다.",
+                        ? PickLine(
+                            PresenterLineKey.MapCombatHigh,
+                            "난도가 꽤 높네요. 그래도 이 정도는 가야 그림이 나오겠죠?",
+                            "별 수가 많군요. 꽤 빡빡한 전투가 되겠습니다.",
+                            "위험도는 높습니다. 들어간다면 제대로 준비해야겠네요.",
+                            "쉽게 끝날 코스는 아니군요. 그만큼 볼거리는 있겠습니다.",
+                            "여긴 조금 긴장해야겠네요. 평범한 전투는 아닐 것 같습니다.")
+                        : PickLine(
+                            PresenterLineKey.MapCombatNormal,
+                            "정석적인 코스네요. 다음 전투를 보기엔 무난한 선택입니다.",
+                            "일반 전투 구간입니다. 크게 예상 밖의 일은 없겠네요.",
+                            "무난한 진행을 원한다면 이쪽이 괜찮아 보입니다.",
+                            "다음 싸움으로 바로 이어지는 정석 코스군요.",
+                            "위험도도 적당하고 흐름도 단순합니다. 깔끔한 선택이네요."),
                     stars >= 4 ? Mood.Concerned : Mood.Neutral);
                 break;
         }
@@ -1317,6 +1436,36 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     // ---------------------------------------------------------------------
     // Helpers
     // ---------------------------------------------------------------------
+
+    private string PickLine(
+        PresenterLineKey key,
+        params string[] lines)
+    {
+        if (lines == null || lines.Length == 0)
+            return string.Empty;
+
+        if (lines.Length == 1)
+        {
+            lastLineByEvent[key] = 0;
+            return lines[0];
+        }
+
+        int previous =
+            lastLineByEvent.TryGetValue(key, out int remembered)
+                ? remembered
+                : -1;
+
+        int pick = Random.Range(0, lines.Length - 1);
+
+        // Pick from N-1 choices, then skip the previous index.
+        // This guarantees that the same event never repeats the same line twice in a row.
+        if (previous >= 0 && pick >= previous)
+            pick++;
+
+        pick = Mathf.Clamp(pick, 0, lines.Length - 1);
+        lastLineByEvent[key] = pick;
+        return lines[pick];
+    }
 
     private static float Smooth01(float t)
     {
