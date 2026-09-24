@@ -18,10 +18,10 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     [SerializeField] private Vector2 triangleSize = new(62f, 42f);
 
     [Tooltip("뾰족한 끝만 추가로 연장하는 길이입니다.")]
-    [SerializeField, Range(0f, 48f)] private float tipExtension = 22f;
+    [SerializeField, Range(0f, 48f)] private float tipExtension = 28f;
 
     [Tooltip("말풍선 안쪽으로 꼬리를 겹치는 깊이입니다. 접합부가 자연스럽게 숨겨집니다.")]
-    [SerializeField, Range(0f, 36f)] private float overlap = 18f;
+    [SerializeField, Range(0f, 36f)] private float overlap = 20f;
 
     [SerializeField, Range(0f, 80f)] private float edgePadding = 34f;
 
@@ -92,9 +92,17 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         triangleRect =
             tail.GetComponent<RectTransform>();
 
+        // bubble.rect의 좌표는 부모 RectTransform의 Pivot 원점을 기준으로 합니다.
+        // 따라서 Tail의 Anchor도 부모 Bubble Pivot과 동일하게 맞춰야
+        // rect.xMin/xMax/yMin/yMax 값을 anchoredPosition에 그대로 사용할 수 있습니다.
+        Vector2 parentPivot =
+            bubbleRect != null
+                ? bubbleRect.pivot
+                : new Vector2(0.5f, 0.5f);
+
         triangleRect.anchorMin =
             triangleRect.anchorMax =
-                new Vector2(0.5f, 0.5f);
+                parentPivot;
 
         triangleRect.pivot =
             new Vector2(0.5f, 0.5f);
@@ -137,6 +145,11 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         }
 
         triangleGraphic.enabled = true;
+
+        triangleRect.anchorMin =
+            triangleRect.anchorMax =
+                bubbleRect.pivot;
+
         triangleRect.sizeDelta = ResolvedTriangleSize;
         ApplyStyle();
 
