@@ -2,36 +2,48 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 말풍선 가장자리에 붙는 단순 삼각형 꼬리.
+/// 말풍선 옆에 붙는 단순 삼각형 꼬리.
 ///
-/// Target Pivot은 삼각형이 붙을 면(좌/우/상/하)과 그 면에서의 위치만 정합니다.
-/// 꼬리는 코드로 직접 생성하며, 검은 외곽선 + 흰 내부 면의 두 겹 삼각형으로 구성합니다.
+/// IMPORTANT:
+/// Custom MaskableGraphic / OnPopulateMesh를 사용하지 않습니다.
+/// 이 프로젝트의 Overlay/World Canvas 조합에서 custom UI mesh가 사라질 수 있으므로,
+/// 코드에서 런타임 Sprite를 생성하고 Unity 기본 Image로 렌더링합니다.
+///
+/// 외부 PNG 에셋은 사용하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 {
+    private const int RuntimeTextureWidth = 128;
+    private const int RuntimeTextureHeight = 64;
+
+    private static Sprite cachedTriangleSprite;
+    private static Texture2D cachedTriangleTexture;
+
     [SerializeField] private RectTransform bubbleRect;
     [SerializeField] private RectTransform targetPivot;
 
     [Header("Triangle")]
-    [Tooltip("삼각형 몸통 크기입니다. X는 기본 길이, Y는 밑변 폭입니다.")]
-    [SerializeField] private Vector2 triangleSize = new(66f, 46f);
+    [Tooltip("X는 꼬리 길이, Y는 말풍선에 붙는 밑변 폭입니다.")]
+    [SerializeField] private Vector2 triangleSize = new(98f, 46f);
 
-    [Tooltip("뾰족한 끝만 추가로 연장하는 길이입니다.")]
-    [SerializeField, Range(0f, 48f)] private float tipExtension = 32f;
+    [Tooltip("말풍선 안쪽으로 꼬리를 겹치는 깊이입니다. 밑변의 검은 이음선을 BubbleFace 뒤로 숨깁니다.")]
+    [SerializeField, Range(0f, 40f)] private float overlap = 24f;
 
-    [Tooltip("말풍선 안쪽으로 꼬리를 겹치는 깊이입니다. 접합부가 자연스럽게 숨겨집니다.")]
-    [SerializeField, Range(0f, 36f)] private float overlap = 22f;
-
+    [Tooltip("꼬리가 말풍선 위/아래 모서리에 너무 가까워지지 않도록 제한합니다.")]
     [SerializeField, Range(0f, 80f)] private float edgePadding = 34f;
 
     [Header("Stroke")]
-    [SerializeField, Range(1f, 12f)] private float outlineWidth = 5f;
+    [Tooltip("런타임 Sprite에서 사용하는 검은 외곽선 두께(텍스처 픽셀 기준)입니다.")]
+    [SerializeField, Range(1, 12)] private int outlinePixels = 5;
     [SerializeField] private Color outlineColor = new(0.015f, 0.015f, 0.02f, 1f);
     [SerializeField] private Color fillColor = new(0.97f, 0.97f, 0.94f, 1f);
 
     private RectTransform triangleRect;
-    private BattleSpeechBubbleTailTriangleGraphic triangleGraphic;
+    private Image triangleImage;
+    private int appliedOutlinePixels = -1;
+    private Color appliedOutlineColor;
+    private Color appliedFillColor;
 
     public void Configure(
         RectTransform bubble,
@@ -43,7 +55,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         fillColor = color;
 
         EnsureTriangle();
-        ApplyStyle();
+        RefreshSpriteIfNeeded(force: true);
         RefreshTriangle();
     }
 
@@ -56,30 +68,26 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private void Awake()
     {
         EnsureTriangle();
-        ApplyStyle();
+        RefreshSpriteIfNeeded(force: true);
     }
 
     private void OnEnable()
     {
         EnsureTriangle();
-        ApplyStyle();
+        RefreshSpriteIfNeeded(force: true);
         RefreshTriangle();
     }
 
     private void LateUpdate()
     {
+        RefreshSpriteIfNeeded(force: false);
         RefreshTriangle();
     }
-
-    private Vector2 ResolvedTriangleSize =>
-        new(
-            Mathf.Max(8f, triangleSize.x + tipExtension),
-            Mathf.Max(8f, triangleSize.y));
 
     private void EnsureTriangle()
     {
         if (triangleRect != null &&
-            triangleGraphic != null)
+            triangleImage != null)
         {
             return;
         }
@@ -92,9 +100,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         triangleRect =
             tail.GetComponent<RectTransform>();
 
-        // bubble.rect의 좌표는 부모 RectTransform의 Pivot 원점을 기준으로 합니다.
-        // 따라서 Tail의 Anchor도 부모 Bubble Pivot과 동일하게 맞춰야
-        // rect.xMin/xMax/yMin/yMax 값을 anchoredPosition에 그대로 사용할 수 있습니다.
         Vector2 parentPivot =
             bubbleRect != null
                 ? bubbleRect.pivot
@@ -108,50 +113,74 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             new Vector2(0.5f, 0.5f);
 
         triangleRect.sizeDelta =
-            ResolvedTriangleSize;
+            triangleSize;
 
-        triangleGraphic =
-            tail.AddComponent<BattleSpeechBubbleTailTriangleGraphic>();
+        triangleImage =
+            tail.AddComponent<Image>();
 
-        triangleGraphic.raycastTarget = false;
+        triangleImage.type =
+            Image.Type.Simple;
 
-        // 꼬리를 BubbleInk/Face 뒤에 둡니다.
-        // 안쪽 overlap 영역이 말풍선 본체에 가려지므로 밑변 이음새가 보이지 않습니다.
+        triangleImage.preserveAspect =
+            false;
+
+        triangleImage.raycastTarget =
+            false;
+
+        triangleImage.color =
+            Color.white;
+
+        // BubbleInk / BubbleFace보다 뒤에 둡니다.
+        // overlap 영역은 말풍선 본체가 덮어서 접합부가 자연스럽게 이어집니다.
         tail.transform.SetAsFirstSibling();
     }
 
-    private void ApplyStyle()
+    private void RefreshSpriteIfNeeded(bool force)
     {
-        if (triangleGraphic == null)
+        if (triangleImage == null)
             return;
 
-        triangleGraphic.SetStyle(
-            fillColor,
-            outlineColor,
-            outlineWidth);
+        if (!force &&
+            appliedOutlinePixels == outlinePixels &&
+            ColorsApproximatelyEqual(appliedOutlineColor, outlineColor) &&
+            ColorsApproximatelyEqual(appliedFillColor, fillColor) &&
+            cachedTriangleSprite != null)
+        {
+            if (triangleImage.sprite != cachedTriangleSprite)
+                triangleImage.sprite = cachedTriangleSprite;
+
+            return;
+        }
+
+        appliedOutlinePixels = outlinePixels;
+        appliedOutlineColor = outlineColor;
+        appliedFillColor = fillColor;
+
+        RebuildRuntimeTriangleSprite();
+        triangleImage.sprite = cachedTriangleSprite;
     }
 
     private void RefreshTriangle()
     {
         if (triangleRect == null ||
-            triangleGraphic == null ||
+            triangleImage == null ||
             bubbleRect == null ||
             targetPivot == null)
         {
-            if (triangleGraphic != null)
-                triangleGraphic.enabled = false;
+            if (triangleImage != null)
+                triangleImage.enabled = false;
 
             return;
         }
 
-        triangleGraphic.enabled = true;
+        triangleImage.enabled = true;
 
         triangleRect.anchorMin =
             triangleRect.anchorMax =
                 bubbleRect.pivot;
 
-        triangleRect.sizeDelta = ResolvedTriangleSize;
-        ApplyStyle();
+        triangleRect.sizeDelta =
+            triangleSize;
 
         Vector3 bubbleCenterWorld =
             bubbleRect.TransformPoint(
@@ -163,15 +192,16 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 bubbleCenterWorld);
 
         Vector2 localDelta =
-            new(localDelta3.x, localDelta3.y);
+            new Vector2(
+                localDelta3.x,
+                localDelta3.y);
 
-        Rect rect = bubbleRect.rect;
+        Rect rect =
+            bubbleRect.rect;
 
-        // Speech tail은 항상 말풍선의 좌/우 "옆면"에만 붙입니다.
-        // 현재 대화창은 화면 하단에 붙어 있어 위/아래 면을 허용하면
-        // 삼각형이 화면 밖으로 빠지거나 BubbleFace 뒤에 가려질 수 있습니다.
-        // Target Pivot은 좌/우 방향과 Y 위치만 결정합니다.
-        bool placeRight = localDelta.x >= 0f;
+        // 꼬리는 항상 말풍선 좌/우 옆면에만 붙입니다.
+        bool placeRight =
+            localDelta.x >= 0f;
 
         PlaceHorizontal(
             placeRight,
@@ -184,9 +214,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         float targetLocalY,
         Rect bubble)
     {
-        Vector2 size =
-            ResolvedTriangleSize;
-
         float padding =
             Mathf.Min(
                 edgePadding,
@@ -199,7 +226,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 bubble.yMax - padding);
 
         float outside =
-            size.x * 0.5f -
+            triangleSize.x * 0.5f -
             Mathf.Max(0f, overlap);
 
         triangleRect.anchoredPosition =
@@ -216,124 +243,244 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 right ? 0f : 180f);
     }
 
-}
-
-/// <summary>
-/// 오른쪽을 향하는 삼각형 꼬리를 직접 생성합니다.
-///
-/// Outer Triangle = 검은 Stroke
-/// Inner Triangle = 말풍선 Fill
-///
-/// Inner Triangle의 밑변은 Outer와 같은 X에서 시작하므로,
-/// 말풍선 본체와 겹쳤을 때 검은 세로 이음선이 생기지 않습니다.
-/// </summary>
-public sealed class BattleSpeechBubbleTailTriangleGraphic : MaskableGraphic
-{
-    [SerializeField, Range(1f, 12f)] private float outlineWidth = 5f;
-    [SerializeField] private Color outlineColor = new(0.015f, 0.015f, 0.02f, 1f);
-    [SerializeField] private Color fillColor = new(0.97f, 0.97f, 0.94f, 1f);
-
-    protected override void Awake()
+    private void RebuildRuntimeTriangleSprite()
     {
-        base.Awake();
-        raycastTarget = false;
-    }
-
-    public void SetStyle(
-        Color fill,
-        Color outline,
-        float width)
-    {
-        fillColor = fill;
-        outlineColor = outline;
-        outlineWidth = Mathf.Max(1f, width);
-        SetVerticesDirty();
-    }
-
-    protected override void OnPopulateMesh(
-        VertexHelper vh)
-    {
-        vh.Clear();
-
-        Rect r =
-            rectTransform.rect;
-
-        float stroke =
-            Mathf.Clamp(
-                outlineWidth,
-                1f,
-                Mathf.Max(
-                    1f,
-                    r.height * 0.28f));
-
-        // Outer black triangle.
-        AddTriangle(
-            vh,
-            new Vector2(r.xMin, r.yMin),
-            new Vector2(r.xMin, r.yMax),
-            new Vector2(r.xMax, r.center.y),
-            outlineColor);
-
-        // Inner white triangle.
-        //
-        // Base X를 Outer와 동일하게 유지하여 말풍선과 겹치는 밑변에는
-        // 검은 세로선이 생기지 않게 합니다.
-        // Tip만 살짝 안쪽으로 들어와 양쪽 사선/끝부분에 Stroke가 남습니다.
-        float innerTipX =
-            r.xMax -
-            stroke * 1.30f;
-
-        float innerBottom =
-            r.yMin +
-            stroke;
-
-        float innerTop =
-            r.yMax -
-            stroke;
-
-        if (innerTop > innerBottom &&
-            innerTipX > r.xMin)
+        if (cachedTriangleSprite != null)
         {
-            AddTriangle(
-                vh,
-                new Vector2(r.xMin, innerBottom),
-                new Vector2(r.xMin, innerTop),
-                new Vector2(innerTipX, r.center.y),
-                fillColor);
+            Destroy(cachedTriangleSprite);
+            cachedTriangleSprite = null;
         }
+
+        if (cachedTriangleTexture != null)
+        {
+            Destroy(cachedTriangleTexture);
+            cachedTriangleTexture = null;
+        }
+
+        cachedTriangleTexture =
+            new Texture2D(
+                RuntimeTextureWidth,
+                RuntimeTextureHeight,
+                TextureFormat.RGBA32,
+                false)
+            {
+                filterMode = FilterMode.Bilinear,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave,
+                name = "BattleSpeechTriangleTailRuntimeTexture"
+            };
+
+        Color32[] pixels =
+            new Color32[
+                RuntimeTextureWidth *
+                RuntimeTextureHeight];
+
+        Color32 transparent =
+            new Color32(0, 0, 0, 0);
+
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = transparent;
+
+        Color32 outer =
+            outlineColor;
+
+        Color32 inner =
+            fillColor;
+
+        // 바깥 검은 삼각형.
+        Vector2 outerA =
+            new Vector2(0f, 2f);
+
+        Vector2 outerB =
+            new Vector2(
+                0f,
+                RuntimeTextureHeight - 3f);
+
+        Vector2 outerTip =
+            new Vector2(
+                RuntimeTextureWidth - 1f,
+                (RuntimeTextureHeight - 1f) * 0.5f);
+
+        RasterizeTriangle(
+            pixels,
+            outerA,
+            outerB,
+            outerTip,
+            outer);
+
+        // 안쪽 흰 삼각형.
+        // 밑변도 약간 inset되지만 실제 UI에서는 overlap으로 말풍선 뒤에 숨습니다.
+        float inset =
+            Mathf.Clamp(
+                outlinePixels,
+                1,
+                RuntimeTextureHeight / 4);
+
+        Vector2 innerA =
+            new Vector2(
+                inset,
+                2f + inset);
+
+        Vector2 innerB =
+            new Vector2(
+                inset,
+                RuntimeTextureHeight - 3f - inset);
+
+        Vector2 innerTip =
+            new Vector2(
+                RuntimeTextureWidth - 1f - inset * 1.65f,
+                (RuntimeTextureHeight - 1f) * 0.5f);
+
+        RasterizeTriangle(
+            pixels,
+            innerA,
+            innerB,
+            innerTip,
+            inner);
+
+        cachedTriangleTexture.SetPixels32(pixels);
+        cachedTriangleTexture.Apply(false, true);
+
+        cachedTriangleSprite =
+            Sprite.Create(
+                cachedTriangleTexture,
+                new Rect(
+                    0f,
+                    0f,
+                    RuntimeTextureWidth,
+                    RuntimeTextureHeight),
+                new Vector2(0.5f, 0.5f),
+                100f,
+                0,
+                SpriteMeshType.FullRect);
+
+        cachedTriangleSprite.name =
+            "BattleSpeechTriangleTailRuntimeSprite";
+
+        cachedTriangleSprite.hideFlags =
+            HideFlags.HideAndDontSave;
     }
 
-    private static void AddTriangle(
-        VertexHelper vh,
+    private static void RasterizeTriangle(
+        Color32[] pixels,
         Vector2 a,
         Vector2 b,
         Vector2 c,
-        Color vertexColor)
+        Color32 color)
     {
-        int start =
-            vh.currentVertCount;
+        float minX =
+            Mathf.Floor(
+                Mathf.Min(
+                    a.x,
+                    Mathf.Min(b.x, c.x)));
 
-        UIVertex vertex =
-            UIVertex.simpleVert;
+        float maxX =
+            Mathf.Ceil(
+                Mathf.Max(
+                    a.x,
+                    Mathf.Max(b.x, c.x)));
 
-        vertex.color =
-            vertexColor;
+        float minY =
+            Mathf.Floor(
+                Mathf.Min(
+                    a.y,
+                    Mathf.Min(b.y, c.y)));
 
-        vertex.position =
-            a;
-        vh.AddVert(vertex);
+        float maxY =
+            Mathf.Ceil(
+                Mathf.Max(
+                    a.y,
+                    Mathf.Max(b.y, c.y)));
 
-        vertex.position =
-            b;
-        vh.AddVert(vertex);
+        int xMin =
+            Mathf.Clamp(
+                Mathf.FloorToInt(minX),
+                0,
+                RuntimeTextureWidth - 1);
 
-        vertex.position =
-            c;
-        vh.AddVert(vertex);
+        int xMax =
+            Mathf.Clamp(
+                Mathf.CeilToInt(maxX),
+                0,
+                RuntimeTextureWidth - 1);
 
-        vh.AddTriangle(
-            start,
-            start + 1,
-            start + 2);
+        int yMin =
+            Mathf.Clamp(
+                Mathf.FloorToInt(minY),
+                0,
+                RuntimeTextureHeight - 1);
+
+        int yMax =
+            Mathf.Clamp(
+                Mathf.CeilToInt(maxY),
+                0,
+                RuntimeTextureHeight - 1);
+
+        float area =
+            Edge(a, b, c);
+
+        if (Mathf.Abs(area) <= 0.0001f)
+            return;
+
+        for (int y = yMin; y <= yMax; y++)
+        {
+            for (int x = xMin; x <= xMax; x++)
+            {
+                Vector2 p =
+                    new Vector2(
+                        x + 0.5f,
+                        y + 0.5f);
+
+                float w0 =
+                    Edge(b, c, p);
+
+                float w1 =
+                    Edge(c, a, p);
+
+                float w2 =
+                    Edge(a, b, p);
+
+                bool inside =
+                    area > 0f
+                        ? w0 >= 0f &&
+                          w1 >= 0f &&
+                          w2 >= 0f
+                        : w0 <= 0f &&
+                          w1 <= 0f &&
+                          w2 <= 0f;
+
+                if (inside)
+                {
+                    pixels[
+                        y * RuntimeTextureWidth +
+                        x] = color;
+                }
+            }
+        }
+    }
+
+    private static float Edge(
+        Vector2 a,
+        Vector2 b,
+        Vector2 p)
+    {
+        return
+            (p.x - a.x) *
+            (b.y - a.y) -
+            (p.y - a.y) *
+            (b.x - a.x);
+    }
+
+    private static bool ColorsApproximatelyEqual(
+        Color a,
+        Color b)
+    {
+        const float epsilon = 0.001f;
+
+        return
+            Mathf.Abs(a.r - b.r) < epsilon &&
+            Mathf.Abs(a.g - b.g) < epsilon &&
+            Mathf.Abs(a.b - b.b) < epsilon &&
+            Mathf.Abs(a.a - b.a) < epsilon;
     }
 }
