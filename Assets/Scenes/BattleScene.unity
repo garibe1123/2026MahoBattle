@@ -1369,8 +1369,8 @@ MonoBehaviour:
   presenterEntryDelay: 0.16
   carrierImpactStrength: 1.05
   carrierFloorSortingOrder: -18
-  rewardCameraPadding: 0.85
-  rewardCameraMinSize: 5.4
+  rewardCameraPadding: 0.08
+  rewardCameraMinSize: 2.55
   presenterFallbackSprite: {fileID: 0}
   presenterWorldHeight: 3.6
   presenterPadYOffset: 0.2
