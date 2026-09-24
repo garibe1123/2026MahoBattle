@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -47,6 +48,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         Closing
     }
 
+    private const int PresenterFramePixels = 128;
+
     private static BattleScreenPresenterPrototypeController instance;
 
     [Header("Screen Overlay")]
@@ -81,6 +84,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     [Tooltip("Excited/확정 반응은 기본 반응보다 크게 튑니다.")]
     [SerializeField, Range(1f, 2f)] private float excitedReactionMultiplier = 1.35f;
+
+    [Tooltip("아무 Hover/대사 갱신이 없을 때 Bored 모션으로 넘어가는 시간입니다.")]
+    [SerializeField, Min(1f)] private float boredAfterSeconds = 6f;
 
     [Header("Dialogue")]
     [SerializeField] private Vector2 dialogueSize = new(1020f, 154f);
@@ -120,6 +126,17 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private float presenterEnterAt;
     private float presenterTint;
     private Material appliedPresenterMaterial;
+
+    private ScreenPresenterMotionState presenterMotionState = ScreenPresenterMotionState.Idle;
+    private ScreenPresenterMotionState forcedMotionState = ScreenPresenterMotionState.Idle;
+    private float forcedMotionUntil = -1f;
+    private ScreenPresenterMotionClip activeMotionClip;
+    private Sprite activeMotionSource;
+    private readonly List<Sprite> runtimeMotionFrames = new();
+    private int motionFrameIndex;
+    private float motionFrameTimer;
+    private float lastPresenterInteractionTime;
+    private bool warnedNonMultipleSheet;
 
     private CanvasGroup dialogueGroup;
     private RectTransform dialogueRect;
@@ -174,6 +191,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private void OnDestroy()
     {
         RestoreCamera();
+        ReleaseRuntimeMotionFrames();
 
         if (overlayCanvas != null)
             Destroy(overlayCanvas.gameObject);
@@ -199,7 +217,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         EnsureOverlay();
 
+        UpdatePresenterMotionState();
         UpdatePresenterVisualSource();
+        UpdatePresenterSheetAnimation();
         UpdatePresenterMotion();
         UpdateDialogueState();
 
@@ -250,6 +270,20 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             $"ROUTE LOCKED / STAGE {Mathf.Max(1, node.depth + 1):00}",
             "좋습니다! 다음 방송 코스, 이쪽으로 가보죠!",
             Mood.Excited);
+    }
+
+    public static void NotifyPresenterMotion(
+        ScreenPresenterMotionState state,
+        float duration = 0.5f)
+    {
+        BattleScreenPresenterPrototypeController owner = Resolve();
+        if (owner == null)
+            return;
+
+        owner.forcedMotionState = state;
+        owner.forcedMotionUntil =
+            Time.unscaledTime + Mathf.Max(0.05f, duration);
+        owner.lastPresenterInteractionTime = Time.unscaledTime;
     }
 
     private static BattleScreenPresenterPrototypeController Resolve()
@@ -355,6 +389,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         presenterEnterAt = Time.unscaledTime + presenterEntryDelay;
         presenterPhase = PresenterPhase.Hidden;
         presenterTint = 0f;
+        presenterMotionState = ScreenPresenterMotionState.Idle;
+        forcedMotionUntil = -1f;
+        lastPresenterInteractionTime = Time.unscaledTime;
 
         if (presenterRect != null)
         {
@@ -381,6 +418,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         }
 
         presenterPhase = PresenterPhase.BlackingOut;
+        SetPresenterMotionState(ScreenPresenterMotionState.Shutdown);
     }
 
     // ---------------------------------------------------------------------
@@ -668,19 +706,107 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         presenterImage.color = new Color(v, v, v, 1f);
     }
 
+    private void UpdatePresenterMotionState()
+    {
+        if (presenterPhase == PresenterPhase.BlackingOut)
+        {
+            SetPresenterMotionState(ScreenPresenterMotionState.Shutdown);
+            return;
+        }
+
+        if (!presenterSessionActive ||
+            presenterPhase == PresenterPhase.Hidden)
+        {
+            SetPresenterMotionState(ScreenPresenterMotionState.Idle);
+            return;
+        }
+
+        if (forcedMotionUntil > Time.unscaledTime)
+        {
+            SetPresenterMotionState(forcedMotionState);
+            return;
+        }
+
+        if (dialoguePhase == DialoguePhase.Typing)
+        {
+            SetPresenterMotionState(ScreenPresenterMotionState.Talk);
+            return;
+        }
+
+        float reactionAge = Time.unscaledTime - reactionStartedAt;
+        if (reactionAge >= 0f && reactionAge < reactionDuration)
+        {
+            SetPresenterMotionState(MotionFromMood(reactionMood));
+            return;
+        }
+
+        if (presenterPhase == PresenterPhase.Active &&
+            Time.unscaledTime - lastPresenterInteractionTime >=
+            Mathf.Max(1f, boredAfterSeconds))
+        {
+            SetPresenterMotionState(ScreenPresenterMotionState.Bored);
+            return;
+        }
+
+        SetPresenterMotionState(ScreenPresenterMotionState.Idle);
+    }
+
+    private static ScreenPresenterMotionState MotionFromMood(Mood mood)
+    {
+        return mood switch
+        {
+            Mood.Curious => ScreenPresenterMotionState.Curious,
+            Mood.Excited => ScreenPresenterMotionState.Excited,
+            Mood.Concerned => ScreenPresenterMotionState.Concerned,
+            _ => ScreenPresenterMotionState.Idle
+        };
+    }
+
+    private void SetPresenterMotionState(ScreenPresenterMotionState state)
+    {
+        if (presenterMotionState == state)
+            return;
+
+        presenterMotionState = state;
+        activeMotionClip = null;
+        activeMotionSource = null;
+        motionFrameIndex = 0;
+        motionFrameTimer = 0f;
+    }
+
     private void UpdatePresenterVisualSource()
     {
         if (presenterImage == null)
             return;
 
-        Sprite sprite = presentation != null
-            ? presentation.ScreenPresenterSprite
-            : null;
+        ScreenPresenterMotionClip clip =
+            ResolvePresenterMotionClip(presenterMotionState);
 
-        presenterImage.sprite =
-            sprite != null
-                ? sprite
-                : BattleHudSpriteCache.DefaultSprite;
+        Sprite source = clip != null ? clip.source : null;
+
+        if (activeMotionClip != clip ||
+            activeMotionSource != source)
+        {
+            activeMotionClip = clip;
+            activeMotionSource = source;
+            BuildRuntimeMotionFrames(source);
+        }
+
+        if (runtimeMotionFrames.Count > 0)
+        {
+            motionFrameIndex = Mathf.Clamp(
+                motionFrameIndex,
+                0,
+                runtimeMotionFrames.Count - 1);
+            presenterImage.sprite = runtimeMotionFrames[motionFrameIndex];
+        }
+        else
+        {
+            presenterImage.sprite =
+                source != null
+                    ? source
+                    : BattleHudSpriteCache.DefaultSprite;
+        }
 
         presenterImage.preserveAspect = true;
 
@@ -693,6 +819,142 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             appliedPresenterMaterial = material;
             presenterImage.material = material;
         }
+    }
+
+    private ScreenPresenterMotionClip ResolvePresenterMotionClip(
+        ScreenPresenterMotionState state)
+    {
+        if (presentation == null)
+            return null;
+
+        ScreenPresenterMotionClip clip =
+            presentation.GetScreenPresenterMotion(state);
+
+        if (clip != null && clip.source != null)
+            return clip;
+
+        ScreenPresenterMotionClip idle =
+            presentation.GetScreenPresenterMotion(
+                ScreenPresenterMotionState.Idle);
+
+        return idle != null && idle.source != null
+            ? idle
+            : clip;
+    }
+
+    private void BuildRuntimeMotionFrames(Sprite source)
+    {
+        ReleaseRuntimeMotionFrames();
+        motionFrameIndex = 0;
+        motionFrameTimer = 0f;
+
+        if (source == null)
+            return;
+
+        int width = Mathf.RoundToInt(source.rect.width);
+        int height = Mathf.RoundToInt(source.rect.height);
+
+        bool sheet =
+            width > PresenterFramePixels ||
+            height > PresenterFramePixels;
+
+        if (!sheet)
+            return;
+
+        int columns = Mathf.Max(1, width / PresenterFramePixels);
+        int rows = Mathf.Max(1, height / PresenterFramePixels);
+
+        if ((width % PresenterFramePixels != 0 ||
+             height % PresenterFramePixels != 0) &&
+            !warnedNonMultipleSheet)
+        {
+            warnedNonMultipleSheet = true;
+            Debug.LogWarning(
+                $"[ScreenPresenter] '{source.name}' 크기 {width}x{height}는 " +
+                $"{PresenterFramePixels}px의 정확한 배수가 아닙니다. " +
+                "완전한 128x128 셀만 사용하고 남는 픽셀은 무시합니다.",
+                this);
+        }
+
+        Rect sourceRect = source.rect;
+        for (int row = 0; row < rows; row++)
+        {
+            for (int column = 0; column < columns; column++)
+            {
+                float x =
+                    sourceRect.x +
+                    column * PresenterFramePixels;
+
+                // Unity Rect origin is bottom-left; artist sheet order is top-left.
+                float y =
+                    sourceRect.y +
+                    sourceRect.height -
+                    (row + 1) * PresenterFramePixels;
+
+                if (x + PresenterFramePixels > sourceRect.xMax + 0.01f ||
+                    y < sourceRect.y - 0.01f)
+                {
+                    continue;
+                }
+
+                Sprite frame = Sprite.Create(
+                    source.texture,
+                    new Rect(
+                        x,
+                        y,
+                        PresenterFramePixels,
+                        PresenterFramePixels),
+                    new Vector2(0.5f, 0.5f),
+                    source.pixelsPerUnit,
+                    0,
+                    SpriteMeshType.FullRect);
+
+                frame.name =
+                    $"{source.name}_Runtime_{row:00}_{column:00}";
+                frame.hideFlags = HideFlags.HideAndDontSave;
+                runtimeMotionFrames.Add(frame);
+            }
+        }
+    }
+
+    private void UpdatePresenterSheetAnimation()
+    {
+        if (presenterImage == null ||
+            runtimeMotionFrames.Count <= 1)
+        {
+            return;
+        }
+
+        float fps =
+            activeMotionClip != null
+                ? Mathf.Max(1f, activeMotionClip.fps)
+                : 8f;
+
+        float frameDuration = 1f / fps;
+        motionFrameTimer += Time.unscaledDeltaTime;
+
+        while (motionFrameTimer >= frameDuration)
+        {
+            motionFrameTimer -= frameDuration;
+            motionFrameIndex =
+                (motionFrameIndex + 1) %
+                runtimeMotionFrames.Count;
+        }
+
+        presenterImage.sprite =
+            runtimeMotionFrames[motionFrameIndex];
+    }
+
+    private void ReleaseRuntimeMotionFrames()
+    {
+        for (int i = 0; i < runtimeMotionFrames.Count; i++)
+        {
+            Sprite frame = runtimeMotionFrames[i];
+            if (frame != null)
+                Destroy(frame);
+        }
+
+        runtimeMotionFrames.Clear();
     }
 
     // ---------------------------------------------------------------------
@@ -714,6 +976,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         EnsureOverlay();
         reactionMood = mood;
         reactionStartedAt = Time.unscaledTime;
+        lastPresenterInteractionTime = Time.unscaledTime;
 
         if (dialoguePhase == DialoguePhase.Hidden)
         {
