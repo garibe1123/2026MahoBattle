@@ -7,8 +7,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 {
     private const float PreviewHeight = 340f;
     private const float FrameHandleSize = 12f;
+    private const float FrameHandleHitSize = 26f;
     private const float TailPointHandleSize = 12f;
     private const float TailWidthHandleSize = 9f;
+    private const float MinPreviewZoom = 1f;
+    private const float MaxPreviewZoom = 6f;
+    private const float PreviewZoomStep = 0.20f;
 
     // 실제 선택씬은 1500x180이지만 편집성 때문에 두 Preview 모두
     // 전투씬과 같은 390x150 작업 좌표계로 정규화해서 보여줍니다.
@@ -74,6 +78,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         public int tailHash = int.MinValue;
 
         public bool previewLeft;
+        public float previewZoom = 1f;
+        public Vector2 previewPan;
+        public bool previewPanning;
+        public Vector2 previewPanStartMouse;
+        public Vector2 previewPanStart;
 
         public int activeFrameHandle = -1;
         public bool activeFrameIsInner;
@@ -305,7 +314,27 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     "왼쪽 Flip",
                     "Button",
                     GUILayout.Width(90f));
+
+            GUILayout.FlexibleSpace();
+
+            EditorGUILayout.LabelField(
+                $"Zoom {state.previewZoom:0.00}×",
+                GUILayout.Width(78f));
+
+            if (GUILayout.Button(
+                "Reset View",
+                GUILayout.Width(82f)))
+            {
+                state.previewZoom = 1f;
+                state.previewPan = Vector2.zero;
+                Repaint();
+            }
         }
+
+        EditorGUILayout.HelpBox(
+            "Preview 조작: 휠 = 마우스 위치 기준 줌 / 가운데 마우스 드래그 = 화면 이동 / " +
+            "프레임 점은 보이는 사각형보다 넓은 판정 범위에서 가장 가까운 OUTLINE 또는 INNER 점 하나를 선택합니다.",
+            MessageType.None);
 
         EditorGUILayout.Space(6f);
 
@@ -398,10 +427,24 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             rect,
             compact ? 10f : 14f);
 
-        Rect bubbleRoot =
+        Rect baseBubbleRoot =
             CalculateBubbleRoot(
                 rect,
                 state.previewLeft,
+                compact);
+
+        if (interactive)
+        {
+            HandlePreviewNavigation(
+                rect,
+                baseBubbleRoot,
+                state);
+        }
+
+        Rect bubbleRoot =
+            ApplyPreviewView(
+                baseBubbleRoot,
+                state,
                 compact);
 
         // Runtime/Preview 모두 Root 좌표계에 대해 같은 꼭짓점 데이터를 씁니다.
@@ -474,6 +517,157 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             frameStyle,
             state,
             compact);
+    }
+
+    private void HandlePreviewNavigation(
+        Rect previewRect,
+        Rect baseBubbleRoot,
+        EditorState state)
+    {
+        Event e = Event.current;
+
+        if (!previewRect.Contains(e.mousePosition))
+            return;
+
+        Rect current =
+            ApplyPreviewView(
+                baseBubbleRoot,
+                state,
+                compact: false);
+
+        if (e.type == EventType.ScrollWheel)
+        {
+            float oldZoom =
+                Mathf.Clamp(
+                    state.previewZoom,
+                    MinPreviewZoom,
+                    MaxPreviewZoom);
+
+            float zoomFactor =
+                Mathf.Pow(
+                    1f + PreviewZoomStep,
+                    -e.delta.y);
+
+            float newZoom =
+                Mathf.Clamp(
+                    oldZoom * zoomFactor,
+                    MinPreviewZoom,
+                    MaxPreviewZoom);
+
+            if (!Mathf.Approximately(
+                    oldZoom,
+                    newZoom))
+            {
+                Vector2 mouse =
+                    e.mousePosition;
+
+                Vector2 normalized =
+                    new(
+                        Mathf.InverseLerp(
+                            current.xMin,
+                            current.xMax,
+                            mouse.x),
+                        Mathf.InverseLerp(
+                            current.yMin,
+                            current.yMax,
+                            mouse.y));
+
+                Vector2 newSize =
+                    baseBubbleRoot.size *
+                    newZoom;
+
+                Vector2 newMin =
+                    mouse -
+                    Vector2.Scale(
+                        normalized,
+                        newSize);
+
+                Vector2 newCenter =
+                    newMin +
+                    newSize * 0.5f;
+
+                state.previewZoom =
+                    newZoom;
+
+                state.previewPan =
+                    newCenter -
+                    baseBubbleRoot.center;
+
+                Repaint();
+            }
+
+            e.Use();
+            return;
+        }
+
+        if (e.type == EventType.MouseDown &&
+            e.button == 2)
+        {
+            state.previewPanning = true;
+            state.previewPanStartMouse =
+                e.mousePosition;
+            state.previewPanStart =
+                state.previewPan;
+
+            GUIUtility.hotControl =
+                GUIUtility.GetControlID(
+                    9050,
+                    FocusType.Passive);
+
+            e.Use();
+            return;
+        }
+
+        if (state.previewPanning &&
+            e.type == EventType.MouseDrag &&
+            e.button == 2)
+        {
+            state.previewPan =
+                state.previewPanStart +
+                (e.mousePosition -
+                 state.previewPanStartMouse);
+
+            Repaint();
+            e.Use();
+            return;
+        }
+
+        if (state.previewPanning &&
+            (e.type == EventType.MouseUp ||
+             e.rawType == EventType.MouseUp))
+        {
+            state.previewPanning = false;
+
+            if (GUIUtility.hotControl != 0)
+                GUIUtility.hotControl = 0;
+
+            e.Use();
+        }
+    }
+
+    private static Rect ApplyPreviewView(
+        Rect baseRect,
+        EditorState state,
+        bool compact)
+    {
+        if (compact)
+            return baseRect;
+
+        float zoom =
+            Mathf.Clamp(
+                state.previewZoom,
+                MinPreviewZoom,
+                MaxPreviewZoom);
+
+        Vector2 size =
+            baseRect.size *
+            zoom;
+
+        return new Rect(
+            baseRect.center +
+            state.previewPan -
+            size * 0.5f,
+            size);
     }
 
     private static Rect CalculateBubbleRoot(
@@ -618,6 +812,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             "BL"
         };
 
+        ResolveFrameHandleMouseDown(
+            bubbleRoot,
+            outline,
+            inner,
+            state);
+
         for (int i = 0; i < 4; i++)
         {
             DrawFrameCornerHandle(
@@ -650,6 +850,99 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         }
     }
 
+    private void ResolveFrameHandleMouseDown(
+        Rect bubbleRoot,
+        Vector2[] outline,
+        Vector2[] inner,
+        EditorState state)
+    {
+        Event e = Event.current;
+
+        if (e.type != EventType.MouseDown ||
+            e.button != 0)
+        {
+            return;
+        }
+
+        float bestDistanceSq =
+            float.MaxValue;
+
+        int bestCorner = -1;
+        bool bestIsInner = false;
+
+        float hitRadius =
+            FrameHandleHitSize * 0.5f;
+
+        float hitRadiusSq =
+            hitRadius * hitRadius;
+
+        for (int i = 0; i < 4; i++)
+        {
+            Vector2 outlinePosition =
+                LocalPointToGui(
+                    outline[i],
+                    bubbleRoot);
+
+            float outlineDistanceSq =
+                (e.mousePosition -
+                 outlinePosition).sqrMagnitude;
+
+            if (outlineDistanceSq <= hitRadiusSq &&
+                outlineDistanceSq < bestDistanceSq)
+            {
+                bestDistanceSq =
+                    outlineDistanceSq;
+                bestCorner = i;
+                bestIsInner = false;
+            }
+
+            Vector2 innerPosition =
+                LocalPointToGui(
+                    inner[i],
+                    bubbleRoot);
+
+            float innerDistanceSq =
+                (e.mousePosition -
+                 innerPosition).sqrMagnitude;
+
+            if (innerDistanceSq <= hitRadiusSq &&
+                innerDistanceSq < bestDistanceSq)
+            {
+                bestDistanceSq =
+                    innerDistanceSq;
+                bestCorner = i;
+                bestIsInner = true;
+            }
+        }
+
+        if (bestCorner < 0)
+            return;
+
+        state.activeFrameHandle =
+            bestCorner;
+
+        state.activeFrameIsInner =
+            bestIsInner;
+
+        state.activeTailPoint = -1;
+        state.activeTailWidth = -1;
+
+        string label =
+            (bestIsInner ? "I-" : "O-") +
+            bestCorner;
+
+        Undo.RecordObject(
+            Manager,
+            $"Move {state.title} {label}");
+
+        GUIUtility.hotControl =
+            GUIUtility.GetControlID(
+                7300,
+                FocusType.Passive);
+
+        e.Use();
+    }
+
     private void DrawFrameCornerHandle(
         Rect bubbleRoot,
         BattleSpeechBubbleFrameStyle style,
@@ -670,56 +963,19 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 position,
                 FrameHandleSize);
 
-        EditorGUIUtility.AddCursorRect(
-            marker,
-            MouseCursor.MoveArrow);
+        Rect hitRect =
+            CenteredRect(
+                position,
+                FrameHandleHitSize);
 
-        int id =
-            GUIUtility.GetControlID(
-                (isInner ? 7200 : 7100) +
-                cornerIndex,
-                FocusType.Passive,
-                marker);
+        EditorGUIUtility.AddCursorRect(
+            hitRect,
+            MouseCursor.MoveArrow);
 
         Event e =
             Event.current;
 
-        if (e.type == EventType.MouseDown &&
-            e.button == 0 &&
-            marker.Contains(e.mousePosition))
-        {
-            GUIUtility.hotControl = id;
-
-            state.activeFrameHandle =
-                cornerIndex;
-
-            state.activeFrameIsInner =
-                isInner;
-
-            state.activeTailPoint = -1;
-            state.activeTailWidth = -1;
-
-            state.dragStartMouse =
-                e.mousePosition;
-
-            string property =
-                isInner
-                    ? InnerCornerProperties[cornerIndex]
-                    : OutlineCornerProperties[cornerIndex];
-
-            state.dragStartVector =
-                ReadVector2Property(
-                    state.frameProperty,
-                    property);
-
-            Undo.RecordObject(
-                Manager,
-                $"Move {state.title} {label}");
-
-            e.Use();
-        }
-
-        if (GUIUtility.hotControl == id &&
+        if (GUIUtility.hotControl != 0 &&
             state.activeFrameHandle == cornerIndex &&
             state.activeFrameIsInner == isInner)
         {
@@ -1380,7 +1636,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 18f),
             $"{state.previewLabel} / " +
             $"{(state.previewLeft ? "LEFT" : "RIGHT")} / " +
-            "EDITOR VIEW 390×150",
+            $"EDITOR VIEW 390×150 / ZOOM {state.previewZoom:0.00}×",
             label);
 
         if (compact)
