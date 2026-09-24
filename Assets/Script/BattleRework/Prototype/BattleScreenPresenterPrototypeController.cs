@@ -285,11 +285,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             $"{equipment.rarity.ToString().ToUpperInvariant()} / {equipment.GetDisplayName()}",
             owner.PickLine(
                 PresenterLineKey.RewardConfirm,
-                "아 이걸 가네? 오케이. 그럼 바로 끼워봅니다.",
-                "픽 끝. 이제 말 필요 없죠. 바로 써봅니다.",
-                "결국 이거 집었네. 자, 이게 맞았는지는 다음 판에서 봅시다.",
-                "됐고, 실전 갑니다. 여기서 값 못 하면 좀 곤란한데.",
-                "한참 보더니 결국 이거네. 고점 나오나 봅시다."),
+                "오, 이걸로 가네요. 그럼 한번 써보죠.",
+                "결정했네요. 좋아요, 다음 전투에서 바로 보겠습니다.",
+                "이쪽으로 갑니다. 음... 나쁘지 않은데요?",
+                "드디어 골랐네요. 그럼 장착하는 것까지 보고 갈까요?",
+                "좋습니다. 이걸로 확정이네요."),
             Mood.Excited);
     }
 
@@ -309,11 +309,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             $"ROUTE LOCKED / STAGE {Mathf.Max(1, node.depth + 1):00}",
             owner.PickLine(
                 PresenterLineKey.MapConfirm,
-                "어, 여기 가네? 좋습니다. 다음 판 이쪽입니다.",
-                "경로 박았습니다. 바로 넘겨요.",
-                "아 이걸 찍네. 과감한 건지 그냥 누른 건지는 곧 나옵니다.",
-                "여기 확정. 이거 잘 고른 거 맞나? 일단 갑니다.",
-                "오케이 길 나왔고. 바로 다음 갑니다."),
+                "오, 여기로 가네요. 좋습니다.",
+                "이쪽을 골랐네요. 그럼 바로 가보죠.",
+                "결정됐습니다. 다음 스테이지는 여기네요.",
+                "여기군요. 생각보다 과감한 선택인데요?",
+                "좋아요, 이쪽으로 갑니다. 한번 봅시다."),
             Mood.Excited);
     }
 
@@ -387,11 +387,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "TODAY'S PICK",
                 PickLine(
                     PresenterLineKey.RewardIntro,
-                    "끝났고요. 자, 뭐 떴나 봅시다.",
-                    "오 보상 깔렸네. 벌써 눈 돌아가는데?",
-                    "자 보상. 뭐 줬냐 이번엔.",
-                    "전투 끝. 이제 또 욕심 부릴 시간 왔습니다.",
-                    "어? 이번엔 좀 있는데? 채팅 벌써 갈리겠네."),
+                    "자, 보상 나왔네요. 뭐가 있나 볼까요?",
+                    "오, 이번엔 물건이 좀 괜찮아 보이는데요?",
+                    "전투 끝났고요. 이제 뭐 챙겨갈지 봅시다.",
+                    "자, 이번 보상은... 음, 일단 한번 볼까요?",
+                    "보상 시간입니다. 도전자분이 뭘 고를지 궁금하네요."),
                 Mood.Neutral);
             return;
         }
@@ -406,11 +406,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "NEXT STAGE",
                 PickLine(
                     PresenterLineKey.MapIntro,
-                    "다음 길 떴습니다. 아 저는 벌써 하나 보이는데.",
-                    "후보 떴고. 또 센 데 기웃거리나 봅시다.",
-                    "자 어디가 제일 맛있나 봅시다.",
-                    "이건 채팅 갈리겠다. 어디 갑니까?",
-                    "다음 떴고요. 자 어디 찍나 보죠."),
+                    "드디어 재밌는 스테이지들이 나왔네요! 도전자 분이 어떤 선택을 할지 볼까요!?",
+                    "자, 다음 스테이지들이 나왔습니다. 이번엔 어디로 갈까요?",
+                    "오, 이번 선택지는 좀 재밌어 보이는데요. 뭐 고를지 한번 봅시다.",
+                    "다음 스테이지 선택입니다. 도전자 분은 어디가 끌릴까요?",
+                    "자, 길이 갈렸네요. 이번엔 선택하는 거 좀 지켜보죠."),
                 Mood.Curious);
             return;
         }
@@ -1319,11 +1319,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "ODD WEAPON",
                 PickLine(
                     PresenterLineKey.Saw,
-                    "아니 톱이 왜 나와. 시작부터 좀 세죠?",
-                    "이건 클립 하나 나오겠는데? 생긴 것부터 너무 셉니다.",
-                    "톱은 좀 치트키죠. 좋든 싫든 기억은 남습니다.",
-                    "이거 채팅 바로 반반 갈립니다. 딱 봐도 그래요.",
-                    "무난한 거 찾던 사람들 지금 뒤로 가시면 됩니다. 톱이에요."),
+                    "어... 톱이네요. 이걸 진짜 쓰려나?",
+                    "이건 보자마자 좀 웃기긴 하네요. 톱이라니.",
+                    "톱이 나왔습니다. 음... 전 솔직히 한번 보고 싶어요.",
+                    "이걸 들고 싸우는 건 좀 궁금하네요.",
+                    "평범한 무기는 아니죠. 도전자 분 반응부터 한번 볼까요?"),
                 Mood.Curious);
             return;
         }
@@ -1335,11 +1335,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "ODD WEAPON",
                 PickLine(
                     PresenterLineKey.OddWeapon,
-                    "어 이건 호불호 씨게 오는데. 채팅 판정 갑니다.",
-                    "정석은 아니고요. 대신 이런 게 재밌죠.",
-                    "뭐 설명보다 그냥 쓰는 거 보고 싶은데요?",
-                    "이건 성능보다 취향 먼저 봐야 돼. 이거 가능?",
-                    "이상한데... 그래서 더 보고 싶네. 이건 인정."),
+                    "이건 좀 특이한데요. 저는 솔직히 한번 보고 싶긴 합니다.",
+                    "음... 이걸 어떻게 쓰려는 건지 궁금하네요.",
+                    "이런 건 성능보다 먼저 눈이 가긴 하죠.",
+                    "조금 이상하긴 한데, 그래서 더 궁금한 물건이네요.",
+                    "도전자 분 취향이 이런 쪽이면 꽤 재밌겠는데요?"),
                 Mood.Curious);
             return;
         }
@@ -1352,11 +1352,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 $"{equipment.rarity.ToString().ToUpperInvariant()} / {displayName}",
                 PickLine(
                     PresenterLineKey.RareItem,
-                    "오오 잠깐. 이건 급이 좀 다른데?",
-                    "어 이건 넘기면 안 돼요. 이건 좀 큽니다.",
-                    "이거 메인 냄새 나는데? 희귀도부터 다르죠.",
-                    "잠깐 확대. 이건 좀 보여줘야 돼.",
-                    "아 이런 거 하나 떠줘야지. 이제 좀 방송 같다."),
+                    "오, 이건 좋은 거네요.",
+                    "잠깐만요. 이건 좀 눈에 들어오는데요?",
+                    "이 정도면 도전자 분도 고민 좀 하겠네요.",
+                    "이번 보상 중에서는 확실히 눈에 띕니다.",
+                    "오... 이건 그냥 지나치기 아까운데요?"),
                 Mood.Excited);
             return;
         }
@@ -1369,11 +1369,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "EXPLOSIVE / PRESSURE",
                 PickLine(
                     PresenterLineKey.HotItem,
-                    "이건 간단합니다. 터져요. 끝.",
-                    "화력? 여기 있네요. 그냥 대놓고 셉니다.",
-                    "이거 들고 조용히 끝나면 그게 더 이상하죠.",
-                    "큰 거 좋아하는 사람들 이건 못 참지.",
-                    "안전은 모르겠고 그림은 나옵니다. 그건 확실해."),
+                    "이건 딱 봐도 화력 쪽이네요.",
+                    "다음 전투가 좀 시끄러워지겠는데요?",
+                    "이런 건 실제로 터지는 장면을 봐야죠.",
+                    "화끈한 걸 원한다면 이쪽이 제일 눈에 띄네요.",
+                    "음, 이건 전투 들어가면 바로 티가 나겠습니다."),
                 Mood.Excited);
             return;
         }
@@ -1387,11 +1387,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "SURVIVAL / STABILITY",
                 PickLine(
                     PresenterLineKey.SafeItem,
-                    "재미는 좀 없는데 안 죽는 게 원래 제일 세요.",
-                    "화면빨은 없는데 저점 방어는 확실하겠네.",
-                    "안전빵이네요. 길게 보면 이런 게 또 셉니다.",
-                    "아 좀 심심하다. 근데 이런 게 결국 일은 해요.",
-                    "모범생 픽이네. 재미는 없고 성적은 잘 나오는."),
+                    "음, 무난하네요. 재미는 덜해도 이런 게 오래 가긴 하죠.",
+                    "화려하진 않은데 안정적이네요.",
+                    "이런 건 잘 안 보여도 막상 없으면 아쉬운 쪽이죠.",
+                    "생존 쪽이네요. 도전자 분이 안전하게 가려나?",
+                    "조금 심심하긴 한데... 뭐, 쓸모는 확실해 보입니다."),
                 Mood.Neutral);
             return;
         }
@@ -1402,20 +1402,20 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             selected
                 ? PickLine(
                     PresenterLineKey.GenericSelected,
-                    "어 이걸 집네? 채팅 지금 좀 갈릴 듯.",
-                    "이쪽 갔고요. 뭘 본 건진 다음 판에서 나오겠죠.",
-                    "여기까지 좁혔네. 예상한 사람?",
-                    "여기 찍었습니다. 끝까지 가는지 봐요.",
-                    "픽 들어갔고요. 평범해 보여도 조합 만나면 모릅니다.")
+                    "오, 이쪽을 골랐네요.",
+                    "이걸 한번 보려나 봅니다.",
+                    "여기서 이쪽을 집네요. 음, 괜찮아 보이는데요?",
+                    "일단 이게 후보로 들어왔네요.",
+                    "이쪽이 마음에 들었나 봅니다.")
                 : PickLine(
                     PresenterLineKey.GenericHover,
-                    "평범하네... 근데 이런 게 조합 붙으면 갑자기 셉니다.",
-                    "정석이네요. 재미는 없는데 망할 일도 적고.",
-                    "별거 없어 보이는데 은근 이런 거 오래 갑니다.",
-                    "일단 무난. 조합 보고 평가하죠. 지금은 보류.",
-                    "안전빵 갑니다. 뭐 매번 도박할 순 없죠.",
-                    "이건 말보다 실전이 빠릅니다. 다음 판 보죠."),
-            selected ? Mood.Excited : Mood.Neutral);
+                    "음... 무난하네요.",
+                    "이건 딱 봐서는 평범한 편이네요.",
+                    "나쁘진 않은데, 조금 더 봐야겠네요.",
+                    "이런 건 조합을 봐야 알죠.",
+                    "특별하진 않네요. 그래도 쓸 데는 있어 보이고.",
+                    "음, 일단 후보로는 볼 만하겠네요."),
+            selected ? Mood.Curious : Mood.Neutral);
     }
 
     private void ShowMap(BattleNodeData node, int stars)
@@ -1423,8 +1423,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (node == null)
             return;
 
+        int clampedStars = Mathf.Clamp(stars, 1, 5);
         string stage =
-            $"STAGE {Mathf.Max(1, node.depth + 1):00} / {Mathf.Clamp(stars, 1, 5)} STAR";
+            $"STAGE {Mathf.Max(1, node.depth + 1):00} / {clampedStars} STAR";
 
         switch (node.type)
         {
@@ -1434,12 +1435,12 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     $"{stage} / ELITE",
                     PickLine(
                         PresenterLineKey.MapElite,
-                        "엘리트 떴네. 아 이건 좀 맛있는데?",
-                        "편하게 갈 거면 이쪽 보면 안 되죠. 엘리트입니다.",
-                        "여기 뚫으면 고점 확실해요. 대신 터질 수도 있고.",
-                        "어우 여기 냄새 나는데. 이쪽 가면 좀 빡셉니다.",
-                        "센 놈 나옵니다. 이런 데서 클립 나오죠."),
-                    Mood.Concerned);
+                        "오, 엘리트네요. 드디어 좀 재밌어지는데요?",
+                        "여긴 상대가 좀 세겠네요. 도전자 분이 갈지 궁금한데요.",
+                        "이쪽은 편하게 지나가긴 어렵겠네요. 그래도 볼 건 많겠습니다.",
+                        "엘리트 스테이지입니다. 음, 이건 선택하는 거 좀 보고 싶네요.",
+                        "이런 스테이지가 하나쯤 나와줘야 재밌죠."),
+                    Mood.Excited);
                 break;
 
             case BattleNodeType.Shop:
@@ -1448,12 +1449,12 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     $"{stage} / SHOP",
                     PickLine(
                         PresenterLineKey.MapShop,
-                        "상점이네. 또 뭐 집어오나 봅시다.",
-                        "상점 떴고요. 여기서 또 세팅 욕심 나오죠.",
-                        "잠깐 쇼핑. 숨도 쉬고 돈도 쓰고.",
-                        "전투는 쉬는데 돈은 안 쉽니다. 네.",
-                        "상점 갑니다. 또 이상한 거 집어오면 재밌겠는데."),
-                    Mood.Curious);
+                        "상점이네요. 잠깐 쉬어가는 것도 나쁘진 않죠.",
+                        "여기선 싸우는 대신 쇼핑이네요.",
+                        "음, 장비 좀 보고 갈 수 있겠네요.",
+                        "상점 스테이지입니다. 도전자 분이 뭘 살지도 좀 궁금하고요.",
+                        "잠깐 쉬는 구간이네요. 이런 것도 한 번씩은 필요하죠."),
+                    Mood.Neutral);
                 break;
 
             case BattleNodeType.Event:
@@ -1462,34 +1463,61 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     $"{stage} / EVENT",
                     PickLine(
                         PresenterLineKey.MapEvent,
-                        "이벤트네. 아 이런 건 몰라서 재밌죠.",
-                        "이거 뭐 나올지 모릅니다. 좋은 거냐 사고냐, 찍어봐요.",
-                        "정보 없고요. 이럴 때 채팅이 제일 자신감 넘칩니다.",
-                        "전투는 아니고요. 갑자기 딴 거 합니다.",
-                        "뭐 나올진 모르겠는데 평범하게 끝날 얼굴은 아닙니다."),
+                        "이벤트네요. 여기선 뭐가 나올지 모르겠는데요?",
+                        "오, 이쪽은 정보가 별로 없네요. 이런 건 좀 궁금하죠.",
+                        "전투는 아닌 것 같은데... 뭐가 나오려나.",
+                        "이벤트 스테이지입니다. 결과를 모르니까 오히려 재밌네요.",
+                        "음, 여기로 가면 잠깐 다른 분위기가 되겠네요."),
                     Mood.Curious);
                 break;
 
             default:
+                if (clampedStars >= 4)
+                {
+                    QueueCopy(
+                        "COURSE CHECK",
+                        $"{stage} / COMBAT",
+                        PickLine(
+                            PresenterLineKey.MapCombatHigh,
+                            "오, 이건 좀 재밌겠는데요? 도전자 분이 이쪽을 고를지 한번 볼까요?",
+                            "별이 높네요. 다음 전투는 꽤 볼 만하겠습니다.",
+                            "이쪽은 좀 세 보이는데요. 그래도 이런 데가 재밌죠.",
+                            "드디어 긴장 좀 되는 스테이지가 나왔네요.",
+                            "여긴 쉽게 끝나진 않겠네요. 음, 저는 좀 기대됩니다."),
+                        Mood.Excited);
+                    break;
+                }
+
+                if (clampedStars == 3)
+                {
+                    QueueCopy(
+                        "COURSE CHECK",
+                        $"{stage} / COMBAT",
+                        PickLine(
+                            PresenterLineKey.MapCombatMid,
+                            "음, 적당하네요. 너무 쉽지도 어렵지도 않고.",
+                            "이 정도면 무난하게 볼 만하겠네요.",
+                            "평범한 전투 스테이지네요. 뭐, 나쁘진 않습니다.",
+                            "별 세 개면 딱 중간이네요. 도전자 분이 갈지는 봐야겠고.",
+                            "크게 위험해 보이진 않네요. 적당한 선택 같습니다."),
+                        Mood.Neutral);
+                    break;
+                }
+
+                forcedMotionState = ScreenPresenterMotionState.Bored;
+                forcedMotionUntil = Time.unscaledTime + 1.8f;
+
                 QueueCopy(
                     "COURSE CHECK",
                     $"{stage} / COMBAT",
-                    stars >= 4
-                        ? PickLine(
-                            PresenterLineKey.MapCombatHigh,
-                            "난도 높죠. 근데 솔직히 이런 거 보러 온 거잖아.",
-                            "별 많고요. 네, 다음 판 좀 뜨겁습니다.",
-                            "이쪽 가면 좀 집중해야 됩니다. 사고 나기 딱 좋아요.",
-                            "쉽게는 안 끝나겠네. 볼 건 많겠습니다.",
-                            "여긴 좀 쎄합니다. 평범하게 안 끝날 것 같은데.")
-                        : PickLine(
-                            PresenterLineKey.MapCombatNormal,
-                            "정석이네요. 그냥 한 판 깔끔하게 가는 길.",
-                            "일반 전투. 별일 없으면 그냥 정직하게 갑니다.",
-                            "무난한 길인데... 오늘은 좀 얌전히 가려나?",
-                            "바로 전투. 템포 안 끊기고 좋습니다.",
-                            "딱 무난합니다. 큰 사고 없이 보기 좋은 쪽."),
-                    stars >= 4 ? Mood.Concerned : Mood.Neutral);
+                    PickLine(
+                        PresenterLineKey.MapCombatLow,
+                        "음... 여긴 뭐, 무난하네요. 크게 볼 건 없을 것 같고.",
+                        "별이 낮네요. 편하게 지나가긴 하겠는데... 조금 심심하겠네요.",
+                        "여긴 쉬어가는 스테이지 같은데요?",
+                        "음, 이쪽은 별로 긴장할 건 없어 보이네요.",
+                        "무난하네요. 뭐... 도전자 분이 편하게 가고 싶으면 괜찮겠죠."),
+                    Mood.Neutral);
                 break;
         }
     }
