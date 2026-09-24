@@ -65,7 +65,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         MapShop,
         MapEvent,
         MapCombatHigh,
-        MapCombatNormal
+        MapCombatMid,
+        MapCombatLow,
+        BoredReward,
+        BoredMap
     }
 
     private const int PresenterFramePixels = 128;
@@ -107,6 +110,12 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     [Tooltip("아무 Hover/대사 갱신이 없을 때 Bored 모션으로 넘어가는 시간입니다.")]
     [SerializeField, Min(1f)] private float boredAfterSeconds = 6f;
+
+    [Tooltip("입력이 오래 없을 때 사회자가 먼저 잡담을 시작하는 시간입니다.")]
+    [SerializeField, Min(2f)] private float boredLineAfterSeconds = 9f;
+
+    [Tooltip("계속 입력이 없을 때 다음 잡담까지 기다리는 시간입니다.")]
+    [SerializeField, Min(5f)] private float boredLineRepeatSeconds = 14f;
 
     [Header("Dialogue")]
     [SerializeField] private Vector2 dialogueSize = new(1020f, 154f);
@@ -156,6 +165,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private int motionFrameIndex;
     private float motionFrameTimer;
     private float lastPresenterInteractionTime;
+    private float nextBoredLineAt;
     private bool warnedNonMultipleSheet;
 
     private CanvasGroup dialogueGroup;
@@ -244,6 +254,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         UpdatePresenterSheetAnimation();
         UpdatePresenterMotion();
         UpdateDialogueState();
+        UpdateBoredCommentary();
 
         if (mode == Mode.Reward || mode == Mode.Map)
             ApplyPrototypeCamera();
@@ -438,6 +449,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         presenterMotionState = ScreenPresenterMotionState.Idle;
         forcedMotionUntil = -1f;
         lastPresenterInteractionTime = Time.unscaledTime;
+        nextBoredLineAt =
+            Time.unscaledTime + Mathf.Max(2f, boredLineAfterSeconds);
 
         if (presenterRect != null)
         {
@@ -1011,7 +1024,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         string header,
         string keyword,
         string comment,
-        Mood mood)
+        Mood mood,
+        bool countsAsInteraction = true)
     {
         pendingHeader = header ?? string.Empty;
         pendingKeyword = keyword ?? string.Empty;
@@ -1022,7 +1036,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         EnsureOverlay();
         reactionMood = mood;
         reactionStartedAt = Time.unscaledTime;
-        lastPresenterInteractionTime = Time.unscaledTime;
+
+        if (countsAsInteraction)
+        {
+            lastPresenterInteractionTime = Time.unscaledTime;
+            nextBoredLineAt =
+                Time.unscaledTime + Mathf.Max(2f, boredLineAfterSeconds);
+        }
 
         if (dialoguePhase == DialoguePhase.Hidden)
         {
@@ -1039,6 +1059,47 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             dialoguePhase = DialoguePhase.Closing;
             dialoguePhaseTime = 0f;
         }
+    }
+
+    private void UpdateBoredCommentary()
+    {
+        if (!presenterSessionActive ||
+            presenterPhase != PresenterPhase.Active ||
+            mode == Mode.None ||
+            dialoguePhase != DialoguePhase.Hidden ||
+            hasPendingCopy ||
+            Time.unscaledTime < nextBoredLineAt)
+        {
+            return;
+        }
+
+        string line = mode == Mode.Reward
+            ? PickLine(
+                PresenterLineKey.BoredReward,
+                "음... 아직 고르는 중인가 보네요.",
+                "어디 간 거야? 담배라도 피러 갔나? 하...",
+                "생각보다 고민이 길어지네요. 뭐, 천천히 보시죠.",
+                "이 정도면 하나쯤 눈에 들어올 법도 한데...",
+                "아직도 보고 있네요. 음... 기다려보죠.")
+            : PickLine(
+                PresenterLineKey.BoredMap,
+                "음... 아직도 고민 중이네요.",
+                "어디 간 거야? 잠깐 자리 비운 건가?",
+                "길 하나 고르는 데 생각보다 오래 걸리네요.",
+                "뭐, 급할 건 없죠. 천천히 고르시죠.",
+                "아직인가... 음, 기다려보겠습니다.");
+
+        QueueCopy(
+            "STANDBY",
+            mode == Mode.Reward ? "WAITING FOR PICK" : "WAITING FOR ROUTE",
+            line,
+            Mood.Neutral,
+            false);
+
+        forcedMotionState = ScreenPresenterMotionState.Bored;
+        forcedMotionUntil = Time.unscaledTime + 1.4f;
+        nextBoredLineAt =
+            Time.unscaledTime + Mathf.Max(5f, boredLineRepeatSeconds);
     }
 
     private void BeginPendingDialogue()
