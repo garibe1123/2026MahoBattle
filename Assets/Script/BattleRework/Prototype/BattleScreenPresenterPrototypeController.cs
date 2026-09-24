@@ -627,7 +627,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueTailGraphic.Configure(
             dialogueRect,
             dialogueTailPivotRect,
-            bubbleFill);
+            bubbleFill,
+            presentation != null
+                ? presentation.SpeechBubbleTailStyle
+                : null);
 
         // Small black badge replaces the old flat "SHOW HOST" strip.
         GameObject badge = new("PresenterNameBadge", typeof(RectTransform));
