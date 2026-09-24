@@ -595,14 +595,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueGroup.interactable = false;
         dialogueGroup.blocksRaycasts = false;
 
-        // Short comic preset tail. It is a child of the bubble so it shares the
-        // same pop animation, alpha and sorting. The presenter Pivot only picks direction.
-        dialogueTailGraphic =
-            dialogueRect.gameObject.AddComponent<BattleSpeechBubbleTailPresetController>();
-        dialogueTailGraphic.Configure(
-            dialogueRect,
-            dialogueTailPivotRect);
-
         // Rough black ink silhouette slightly larger than the white face.
         GameObject ink = new("BubbleInkBack", typeof(RectTransform));
         ink.transform.SetParent(dialogueRect, false);
@@ -627,6 +619,17 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         Image faceImage = face.AddComponent<Image>();
         faceImage.color = bubbleFill;
         faceImage.raycastTarget = false;
+
+        // Static white comic tail. It overlaps the BubbleFace edge so the tail
+        // reads as one continuous speech-bubble silhouette instead of a detached pointer.
+        dialogueTailGraphic =
+            dialogueRect.gameObject.AddComponent<BattleSpeechBubbleTailPresetController>();
+        dialogueTailGraphic.Configure(
+            dialogueRect,
+            dialogueTailPivotRect,
+            presentation != null
+                ? presentation.SpeechBubbleTailSprites
+                : null);
 
         // Small black badge replaces the old flat "SHOW HOST" strip.
         GameObject badge = new("PresenterNameBadge", typeof(RectTransform));
