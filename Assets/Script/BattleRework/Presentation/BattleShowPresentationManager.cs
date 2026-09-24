@@ -53,17 +53,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [SerializeField] private bool autoPlayPresenterDuringReward = true;
 
     [Header("화면 사회자 컷인")]
-    [Tooltip("화면 우측에 별도로 출력할 사회자 정사각 Sprite입니다. Frames가 비어 있을 때 사용합니다.")]
+    [Tooltip("화면 우측에 별도로 출력할 정적 사회자 Sprite입니다. 1:1 정사각 이미지를 권장합니다.")]
     [SerializeField] private Sprite screenPresenterSprite;
 
-    [Tooltip("화면 사회자 컷인 애니메이션 프레임입니다. 필드 사회자 Sprite Sheet와 완전히 분리되어 있습니다.")]
-    [SerializeField] private Sprite[] screenPresenterFrames;
-
-    [Tooltip("화면 사회자 컷인 애니메이션의 고정 FPS입니다.")]
-    [SerializeField, Min(1f)] private float screenPresenterFps = 8f;
-
-    [Tooltip("켜면 화면 사회자 컷인 프레임을 마지막 뒤 처음부터 반복합니다.")]
-    [SerializeField] private bool screenPresenterLoop = true;
+    [Tooltip("화면 사회자 전용 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다. AI/CRT/Glitch 효과는 이 Material에서 처리합니다.")]
+    [SerializeField] private Material screenPresenterMaterial;
 
     [Header("버드아이뷰 조명 Sprite Sheet")]
     [Tooltip("플레이어와 사회자 발밑 조명에 사용할 Sprite Sheet 프레임입니다. 비어 있으면 BattleHUD가 만드는 기본 타원형 조명을 사용합니다.")]
@@ -127,23 +121,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public BattleShowFloorTemplateSO DefaultFloorTemplate => defaultFloorTemplate;
 
     public Sprite ScreenPresenterSprite => screenPresenterSprite;
-    public int ScreenPresenterFrameCount =>
-        screenPresenterFrames != null ? screenPresenterFrames.Length : 0;
-    public float ScreenPresenterFps => Mathf.Max(1f, screenPresenterFps);
-    public bool ScreenPresenterLoop => screenPresenterLoop;
-
-    public Sprite GetScreenPresenterFrame(int index)
-    {
-        if (screenPresenterFrames == null ||
-            screenPresenterFrames.Length == 0 ||
-            index < 0 ||
-            index >= screenPresenterFrames.Length)
-        {
-            return null;
-        }
-
-        return screenPresenterFrames[index];
-    }
+    public Material ScreenPresenterMaterial => screenPresenterMaterial;
 
     private void Awake()
     {
