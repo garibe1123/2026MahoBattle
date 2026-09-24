@@ -1041,15 +1041,16 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (string.IsNullOrEmpty(propertyName))
             return;
 
+        BattleSpeechBubbleFrameStyle frameStyle =
+            GetFrameStyle(state);
+
         float min =
             handleIndex switch
             {
-                5 => Manager.SelectionSpeechBubbleFrameStyle == GetFrameStyle(state)
-                    ? GetFrameStyle(state).outlineLeft
-                    : GetFrameStyle(state).outlineLeft,
-                6 => GetFrameStyle(state).outlineBottom,
-                7 => GetFrameStyle(state).outlineRight,
-                8 => GetFrameStyle(state).outlineTop,
+                5 => frameStyle.outlineLeft,
+                6 => frameStyle.outlineBottom,
+                7 => frameStyle.outlineRight,
+                8 => frameStyle.outlineTop,
                 _ => 0f
             };
 
