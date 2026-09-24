@@ -2,12 +2,10 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 말풍선의 가장자리와 별도 Target Pivot을 실제 삼각형 Mesh로 연결합니다.
+/// 말풍선 Edge와 캐릭터 쪽 Target Pivot을 꺾인 리본형 Mesh로 연결합니다.
 ///
-/// - Bubble Rect가 회전/스케일되어도 World Corner를 다시 계산합니다.
-/// - Target Pivot이 캐릭터 모션을 따라 움직이면 꼬리 끝도 자동으로 따라갑니다.
-/// - Base는 Target에 가장 가까운 Bubble Edge 위에서 자동으로 선택됩니다.
-/// - 바깥 Outline Triangle + 안쪽 Fill Triangle 두 겹으로 말풍선 본체와 자연스럽게 이어집니다.
+/// 레퍼런스처럼 곧은 삼각형이 아니라 중간이 한두 번 꺾이는 Jagged Tail을 만들며,
+/// Bubble/Target이 이동·회전·스케일되어도 매 프레임 자동으로 다시 계산합니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
@@ -15,9 +13,10 @@ public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
     [SerializeField] private RectTransform bubbleRect;
     [SerializeField] private RectTransform targetPivot;
 
-    [SerializeField, Min(8f)] private float baseWidth = 48f;
-    [SerializeField, Min(0f)] private float outlineWidth = 6f;
-    [SerializeField, Range(0f, 24f)] private float tipInset = 4f;
+    [Header("Tail Shape")]
+    [SerializeField, Min(12f)] private float baseWidth = 56f;
+    [SerializeField, Min(0f)] private float outlineWidth = 7f;
+    [SerializeField, Min(0f)] private float jagDepth = 18f;
     [SerializeField, Range(0.05f, 0.45f)] private float edgeCornerPadding = 0.14f;
 
     [SerializeField] private Color fillColor = new(0.97f, 0.97f, 0.94f, 1f);
@@ -36,14 +35,14 @@ public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
         RectTransform target,
         Color fill,
         Color outline,
-        float width = 48f,
-        float outlineThickness = 6f)
+        float width = 56f,
+        float outlineThickness = 7f)
     {
         bubbleRect = bubble;
         targetPivot = target;
         fillColor = fill;
         outlineColor = outline;
-        baseWidth = Mathf.Max(8f, width);
+        baseWidth = Mathf.Max(12f, width);
         outlineWidth = Mathf.Max(0f, outlineThickness);
         raycastTarget = false;
         SetVerticesDirty();
@@ -72,18 +71,82 @@ public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
 
         Vector2[] corners = new Vector2[4];
         for (int i = 0; i < 4; i++)
-        {
             corners[i] = rectTransform.InverseTransformPoint(worldCorners[i]);
-        }
 
         Vector2 target =
             rectTransform.InverseTransformPoint(targetPivot.position);
 
-        int bestEdge = 0;
+        ResolveBestEdge(
+            corners,
+            target,
+            out Vector2 baseCenter,
+            out Vector2 edgeDirection,
+            out float edgeLength);
+
+        if (edgeLength <= 0.001f)
+            return;
+
+        Vector2 toTarget = target - baseCenter;
+        float distance = toTarget.magnitude;
+        if (distance <= 1f)
+            return;
+
+        Vector2 forward = toTarget / distance;
+        Vector2 side = edgeDirection.normalized;
+
+        float maxHalfWidth =
+            edgeLength *
+            (0.5f - Mathf.Clamp(edgeCornerPadding, 0.05f, 0.45f));
+
+        float outerBaseWidth =
+            Mathf.Min(baseWidth, Mathf.Max(12f, maxHalfWidth * 2f));
+
+        // Outer black ink ribbon.
+        AddJaggedRibbon(
+            vh,
+            baseCenter,
+            target,
+            side,
+            forward,
+            outerBaseWidth,
+            Mathf.Max(0f, jagDepth),
+            outlineColor);
+
+        // Inner white ribbon leaves a black outline all the way to the point.
+        float innerInset = Mathf.Max(1f, outlineWidth);
+        float innerBaseWidth =
+            Mathf.Max(8f, outerBaseWidth - innerInset * 2f);
+
+        Vector2 innerStart =
+            baseCenter + forward * (innerInset * 0.35f);
+
+        Vector2 innerEnd =
+            target - forward * Mathf.Min(
+                innerInset * 1.15f,
+                distance * 0.16f);
+
+        AddJaggedRibbon(
+            vh,
+            innerStart,
+            innerEnd,
+            side,
+            forward,
+            innerBaseWidth,
+            Mathf.Max(0f, jagDepth - innerInset * 0.55f),
+            fillColor);
+    }
+
+    private void ResolveBestEdge(
+        Vector2[] corners,
+        Vector2 target,
+        out Vector2 baseCenter,
+        out Vector2 edgeDirection,
+        out float edgeLength)
+    {
         float bestDistance = float.PositiveInfinity;
-        Vector2 bestBaseCenter = Vector2.zero;
-        Vector2 bestEdgeA = Vector2.zero;
-        Vector2 bestEdgeB = Vector2.zero;
+        baseCenter = Vector2.zero;
+        edgeDirection = Vector2.right;
+        edgeLength = 0f;
 
         for (int i = 0; i < 4; i++)
         {
@@ -94,85 +157,118 @@ public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
             if (lengthSq <= 0.0001f)
                 continue;
 
-            float t = Vector2.Dot(target - a, edge) / lengthSq;
-            float padding = Mathf.Clamp(edgeCornerPadding, 0.05f, 0.45f);
+            float t =
+                Vector2.Dot(target - a, edge) /
+                lengthSq;
+
+            float padding =
+                Mathf.Clamp(edgeCornerPadding, 0.05f, 0.45f);
+
             t = Mathf.Clamp(t, padding, 1f - padding);
 
             Vector2 point = Vector2.Lerp(a, b, t);
-            float distance = (target - point).sqrMagnitude;
+            float distanceSq = (target - point).sqrMagnitude;
 
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestEdge = i;
-                bestBaseCenter = point;
-                bestEdgeA = a;
-                bestEdgeB = b;
-            }
+            if (distanceSq >= bestDistance)
+                continue;
+
+            bestDistance = distanceSq;
+            baseCenter = point;
+            edgeLength = Mathf.Sqrt(lengthSq);
+            edgeDirection = edge / edgeLength;
         }
-
-        _ = bestEdge;
-
-        Vector2 edgeVector = bestEdgeB - bestEdgeA;
-        float edgeLength = edgeVector.magnitude;
-        if (edgeLength <= 0.001f)
-            return;
-
-        Vector2 edgeDirection = edgeVector / edgeLength;
-        float maxHalfWidth = edgeLength * (0.5f - Mathf.Clamp(edgeCornerPadding, 0.05f, 0.45f));
-        float outerHalfWidth = Mathf.Min(baseWidth * 0.5f, Mathf.Max(4f, maxHalfWidth));
-
-        Vector2 outerA = bestBaseCenter - edgeDirection * outerHalfWidth;
-        Vector2 outerB = bestBaseCenter + edgeDirection * outerHalfWidth;
-        Vector2 outerTip = target;
-
-        AddTriangle(vh, outerA, outerB, outerTip, outlineColor);
-
-        float innerHalfWidth = Mathf.Max(2f, outerHalfWidth - outlineWidth);
-        Vector2 toBase = bestBaseCenter - target;
-        float distanceToBase = toBase.magnitude;
-        Vector2 innerTip = distanceToBase > 0.001f
-            ? target + toBase.normalized * Mathf.Min(tipInset + outlineWidth, distanceToBase * 0.35f)
-            : target;
-
-        Vector2 innerA = bestBaseCenter - edgeDirection * innerHalfWidth;
-        Vector2 innerB = bestBaseCenter + edgeDirection * innerHalfWidth;
-
-        // Slightly pull the inner base toward the bubble center so the black outline
-        // remains visible while the fill visually merges into the Bubble Face.
-        Vector2 bubbleCenter = Vector2.zero;
-        for (int i = 0; i < 4; i++)
-            bubbleCenter += corners[i];
-        bubbleCenter *= 0.25f;
-
-        Vector2 inward = (bubbleCenter - bestBaseCenter).normalized;
-        innerA += inward * outlineWidth * 0.45f;
-        innerB += inward * outlineWidth * 0.45f;
-
-        AddTriangle(vh, innerA, innerB, innerTip, fillColor);
     }
 
-    private static void AddTriangle(
+    private static void AddJaggedRibbon(
         VertexHelper vh,
-        Vector2 a,
-        Vector2 b,
-        Vector2 c,
-        Color vertexColor)
+        Vector2 start,
+        Vector2 end,
+        Vector2 side,
+        Vector2 forward,
+        float startWidth,
+        float jag,
+        Color color)
     {
-        int start = vh.currentVertCount;
+        const int SectionCount = 6;
 
+        float[] t =
+        {
+            0f,
+            0.20f,
+            0.42f,
+            0.64f,
+            0.82f,
+            1f
+        };
+
+        float[] widthScale =
+        {
+            1f,
+            0.70f,
+            0.60f,
+            0.43f,
+            0.28f,
+            0.035f
+        };
+
+        // Alternating lateral offsets make the tail kink like the supplied comic reference.
+        float[] lateral =
+        {
+            0f,
+            -0.58f,
+            0.42f,
+            -0.30f,
+            0.14f,
+            0f
+        };
+
+        Vector2[] left = new Vector2[SectionCount];
+        Vector2[] right = new Vector2[SectionCount];
+
+        for (int i = 0; i < SectionCount; i++)
+        {
+            Vector2 center =
+                Vector2.Lerp(start, end, t[i]) +
+                side * (jag * lateral[i]);
+
+            float half =
+                Mathf.Max(
+                    i == SectionCount - 1 ? 0.75f : 2f,
+                    startWidth * widthScale[i] * 0.5f);
+
+            // Small forward bite at the two middle joints gives the silhouette
+            // a sharper arrow/comic cut rather than a smooth ribbon.
+            if (i == 2)
+                center -= forward * Mathf.Min(5f, jag * 0.28f);
+            else if (i == 3)
+                center += forward * Mathf.Min(4f, jag * 0.20f);
+
+            left[i] = center - side * half;
+            right[i] = center + side * half;
+        }
+
+        int startVertex = vh.currentVertCount;
         UIVertex vertex = UIVertex.simpleVert;
-        vertex.color = vertexColor;
+        vertex.color = color;
 
-        vertex.position = a;
-        vh.AddVert(vertex);
+        for (int i = 0; i < SectionCount; i++)
+        {
+            vertex.position = left[i];
+            vh.AddVert(vertex);
 
-        vertex.position = b;
-        vh.AddVert(vertex);
+            vertex.position = right[i];
+            vh.AddVert(vertex);
+        }
 
-        vertex.position = c;
-        vh.AddVert(vertex);
+        for (int i = 0; i < SectionCount - 1; i++)
+        {
+            int a = startVertex + i * 2;
+            int b = a + 1;
+            int c = a + 2;
+            int d = a + 3;
 
-        vh.AddTriangle(start, start + 1, start + 2);
+            vh.AddTriangle(a, b, c);
+            vh.AddTriangle(b, d, c);
+        }
     }
 }
