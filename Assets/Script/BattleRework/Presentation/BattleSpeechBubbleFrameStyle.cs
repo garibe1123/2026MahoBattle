@@ -3,18 +3,18 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 /// <summary>
-/// 말풍선 본체의 형태 스타일.
+/// 말풍선 본체를 두 개의 독립된 4점 사변형으로 정의합니다.
 ///
-/// 실제 창 Size와 Pop Scale은 각 Presenter Controller의 고정 디자인 값과
-/// CanvasScaler가 담당합니다.
+/// RED / OUTLINE:
+///   outlineTopLeft / TopRight / BottomRight / BottomLeft
+///   Root 네 꼭짓점에서 바깥 검은 사변형 꼭짓점까지의 Offset.
 ///
-/// Outline Outset:
-///   검은 바탕이 Root 바깥으로 얼마나 나가는지 L/B/R/T로 조절합니다.
+/// GREEN / INNER:
+///   fillTopLeft / TopRight / BottomRight / BottomLeft
+///   Root 네 꼭짓점에서 안쪽 흰 사변형 꼭짓점까지의 Offset.
 ///
-/// Corner Stroke:
-///   최종 검은 Stroke 두께를 네 꼭짓점에서 정의합니다.
-///   TL/BL을 크게, TR/BR을 작게 하면 왼쪽이 굵고 오른쪽으로 갈수록
-///   자연스럽게 얇아지는 식으로 각 변 내부에서 선형 보간됩니다.
+/// Stroke 두께는 별도 L/R/T/B 값이 아니라,
+/// 같은 위치의 RED와 GREEN 사변형 사이 거리 자체로 결정됩니다.
 /// </summary>
 [Serializable]
 public sealed class BattleSpeechBubbleFrameStyle
@@ -24,35 +24,31 @@ public sealed class BattleSpeechBubbleFrameStyle
     [Range(-12f, 12f)]
     public float rotation = -1.5f;
 
-    [Header("Outline Outset")]
-    [Range(0f, 48f)]
-    public float outlineLeft = 8f;
+    [Header("RED - Outline Corner Offset")]
+    [Tooltip("Root 좌상단에서 검은 OUTLINE 좌상단 꼭짓점까지의 Offset.")]
+    public Vector2 outlineTopLeft = new(-8f, 9f);
 
-    [Range(0f, 48f)]
-    public float outlineBottom = 9f;
+    [Tooltip("Root 우상단에서 검은 OUTLINE 우상단 꼭짓점까지의 Offset.")]
+    public Vector2 outlineTopRight = new(8f, 9f);
 
-    [Range(0f, 48f)]
-    public float outlineRight = 8f;
+    [Tooltip("Root 우하단에서 검은 OUTLINE 우하단 꼭짓점까지의 Offset.")]
+    public Vector2 outlineBottomRight = new(8f, -9f);
 
-    [Range(0f, 48f)]
-    public float outlineTop = 9f;
+    [Tooltip("Root 좌하단에서 검은 OUTLINE 좌하단 꼭짓점까지의 Offset.")]
+    public Vector2 outlineBottomLeft = new(-8f, -9f);
 
-    [Header("Corner Stroke Thickness")]
-    [Tooltip("좌상단 꼭짓점에서의 최종 Stroke 두께입니다.")]
-    [Range(0f, 96f)]
-    public float strokeTopLeft = 11f;
+    [Header("GREEN - Inner Fill Corner Offset")]
+    [Tooltip("Root 좌상단에서 흰 INNER 좌상단 꼭짓점까지의 Offset.")]
+    public Vector2 fillTopLeft = new(2f, -2f);
 
-    [Tooltip("좌하단 꼭짓점에서의 최종 Stroke 두께입니다.")]
-    [Range(0f, 96f)]
-    public float strokeBottomLeft = 11f;
+    [Tooltip("Root 우상단에서 흰 INNER 우상단 꼭짓점까지의 Offset.")]
+    public Vector2 fillTopRight = new(-2f, -2f);
 
-    [Tooltip("우상단 꼭짓점에서의 최종 Stroke 두께입니다.")]
-    [Range(0f, 96f)]
-    public float strokeTopRight = 11f;
+    [Tooltip("Root 우하단에서 흰 INNER 우하단 꼭짓점까지의 Offset.")]
+    public Vector2 fillBottomRight = new(-2f, 2f);
 
-    [Tooltip("우하단 꼭짓점에서의 최종 Stroke 두께입니다.")]
-    [Range(0f, 96f)]
-    public float strokeBottomRight = 11f;
+    [Tooltip("Root 좌하단에서 흰 INNER 좌하단 꼭짓점까지의 Offset.")]
+    public Vector2 fillBottomLeft = new(2f, 2f);
 
     [Header("Color")]
     public Color outlineColor =
@@ -61,40 +57,59 @@ public sealed class BattleSpeechBubbleFrameStyle
     public Color fillColor =
         new(0.97f, 0.97f, 0.94f, 1f);
 
-    // 이전 L/B/R/T Stroke 데이터를 최초 1회 Corner 값으로 승계하기 위한 필드.
-    [FormerlySerializedAs("strokeLeft")]
-    [SerializeField, HideInInspector]
-    private float legacyStrokeLeft;
+    // ------------------------------------------------------------------
+    // Legacy migration
+    // ------------------------------------------------------------------
 
-    [FormerlySerializedAs("strokeBottom")]
+    [FormerlySerializedAs("outlineLeft")]
     [SerializeField, HideInInspector]
-    private float legacyStrokeBottom;
+    private float legacyOutlineLeft;
 
-    [FormerlySerializedAs("strokeRight")]
+    [FormerlySerializedAs("outlineBottom")]
     [SerializeField, HideInInspector]
-    private float legacyStrokeRight;
+    private float legacyOutlineBottom;
 
-    [FormerlySerializedAs("strokeTop")]
+    [FormerlySerializedAs("outlineRight")]
     [SerializeField, HideInInspector]
-    private float legacyStrokeTop;
+    private float legacyOutlineRight;
+
+    [FormerlySerializedAs("outlineTop")]
+    [SerializeField, HideInInspector]
+    private float legacyOutlineTop;
+
+    [FormerlySerializedAs("strokeTopLeft")]
+    [SerializeField, HideInInspector]
+    private float legacyStrokeTopLeft;
+
+    [FormerlySerializedAs("strokeBottomLeft")]
+    [SerializeField, HideInInspector]
+    private float legacyStrokeBottomLeft;
+
+    [FormerlySerializedAs("strokeTopRight")]
+    [SerializeField, HideInInspector]
+    private float legacyStrokeTopRight;
+
+    [FormerlySerializedAs("strokeBottomRight")]
+    [SerializeField, HideInInspector]
+    private float legacyStrokeBottomRight;
 
     [SerializeField, HideInInspector]
-    private bool cornerStrokeInitialized;
+    private bool cornerPointsInitialized = true;
 
     public static BattleSpeechBubbleFrameStyle CreateSelectionDefault()
     {
         return new BattleSpeechBubbleFrameStyle
         {
             rotation = -1.5f,
-            outlineLeft = 8f,
-            outlineBottom = 9f,
-            outlineRight = 8f,
-            outlineTop = 9f,
-            strokeTopLeft = 11f,
-            strokeBottomLeft = 11f,
-            strokeTopRight = 11f,
-            strokeBottomRight = 11f,
-            cornerStrokeInitialized = true
+            outlineTopLeft = new Vector2(-8f, 9f),
+            outlineTopRight = new Vector2(8f, 9f),
+            outlineBottomRight = new Vector2(8f, -9f),
+            outlineBottomLeft = new Vector2(-8f, -9f),
+            fillTopLeft = new Vector2(2f, -2f),
+            fillTopRight = new Vector2(-2f, -2f),
+            fillBottomRight = new Vector2(-2f, 2f),
+            fillBottomLeft = new Vector2(2f, 2f),
+            cornerPointsInitialized = true
         };
     }
 
@@ -103,101 +118,102 @@ public sealed class BattleSpeechBubbleFrameStyle
         return new BattleSpeechBubbleFrameStyle
         {
             rotation = -2.5f,
-            outlineLeft = 7f,
-            outlineBottom = 8f,
-            outlineRight = 7f,
-            outlineTop = 8f,
-            strokeTopLeft = 10f,
-            strokeBottomLeft = 10f,
-            strokeTopRight = 10f,
-            strokeBottomRight = 10f,
-            cornerStrokeInitialized = true
+            outlineTopLeft = new Vector2(-7f, 8f),
+            outlineTopRight = new Vector2(7f, 8f),
+            outlineBottomRight = new Vector2(7f, -8f),
+            outlineBottomLeft = new Vector2(-7f, -8f),
+            fillTopLeft = new Vector2(2f, -2f),
+            fillTopRight = new Vector2(-2f, -2f),
+            fillBottomRight = new Vector2(-2f, 2f),
+            fillBottomLeft = new Vector2(2f, 2f),
+            cornerPointsInitialized = true
         };
     }
 
-    public void EnsureCornerStrokeDefaults()
+    public void EnsureCornerPointDefaults()
     {
-        if (cornerStrokeInitialized)
-        {
-            ClampCornerStrokeMinimums();
+        if (cornerPointsInitialized)
             return;
-        }
 
         float left =
-            Mathf.Max(
-                legacyStrokeLeft,
-                outlineLeft + 2f);
+            legacyOutlineLeft > 0f
+                ? legacyOutlineLeft
+                : 8f;
 
         float bottom =
-            Mathf.Max(
-                legacyStrokeBottom,
-                outlineBottom + 2f);
+            legacyOutlineBottom > 0f
+                ? legacyOutlineBottom
+                : 9f;
 
         float right =
-            Mathf.Max(
-                legacyStrokeRight,
-                outlineRight + 2f);
+            legacyOutlineRight > 0f
+                ? legacyOutlineRight
+                : 8f;
 
         float top =
-            Mathf.Max(
-                legacyStrokeTop,
-                outlineTop + 2f);
+            legacyOutlineTop > 0f
+                ? legacyOutlineTop
+                : 9f;
 
-        strokeTopLeft =
-            Mathf.Max(left, top);
+        outlineTopLeft =
+            new Vector2(-left, top);
 
-        strokeBottomLeft =
-            Mathf.Max(left, bottom);
+        outlineTopRight =
+            new Vector2(right, top);
 
-        strokeTopRight =
-            Mathf.Max(right, top);
+        outlineBottomRight =
+            new Vector2(right, -bottom);
 
-        strokeBottomRight =
-            Mathf.Max(right, bottom);
+        outlineBottomLeft =
+            new Vector2(-left, -bottom);
 
-        cornerStrokeInitialized = true;
-        ClampCornerStrokeMinimums();
+        float stl =
+            legacyStrokeTopLeft > 0f
+                ? legacyStrokeTopLeft
+                : Mathf.Max(left, top) + 2f;
+
+        float sbl =
+            legacyStrokeBottomLeft > 0f
+                ? legacyStrokeBottomLeft
+                : Mathf.Max(left, bottom) + 2f;
+
+        float str =
+            legacyStrokeTopRight > 0f
+                ? legacyStrokeTopRight
+                : Mathf.Max(right, top) + 2f;
+
+        float sbr =
+            legacyStrokeBottomRight > 0f
+                ? legacyStrokeBottomRight
+                : Mathf.Max(right, bottom) + 2f;
+
+        fillTopLeft =
+            new Vector2(
+                Mathf.Max(0f, stl - left),
+                -Mathf.Max(0f, stl - top));
+
+        fillTopRight =
+            new Vector2(
+                -Mathf.Max(0f, str - right),
+                -Mathf.Max(0f, str - top));
+
+        fillBottomRight =
+            new Vector2(
+                -Mathf.Max(0f, sbr - right),
+                Mathf.Max(0f, sbr - bottom));
+
+        fillBottomLeft =
+            new Vector2(
+                Mathf.Max(0f, sbl - left),
+                Mathf.Max(0f, sbl - bottom));
+
+        cornerPointsInitialized = true;
     }
 
-    public void ClampCornerStrokeMinimums()
-    {
-        strokeTopLeft =
-            Mathf.Max(
-                strokeTopLeft,
-                Mathf.Max(
-                    outlineLeft,
-                    outlineTop));
-
-        strokeBottomLeft =
-            Mathf.Max(
-                strokeBottomLeft,
-                Mathf.Max(
-                    outlineLeft,
-                    outlineBottom));
-
-        strokeTopRight =
-            Mathf.Max(
-                strokeTopRight,
-                Mathf.Max(
-                    outlineRight,
-                    outlineTop));
-
-        strokeBottomRight =
-            Mathf.Max(
-                strokeBottomRight,
-                Mathf.Max(
-                    outlineRight,
-                    outlineBottom));
-    }
-
-    /// <summary>
-    /// Root 사각형 내부에서 흰 Fill의 네 꼭짓점을 반환합니다.
-    /// 좌표계는 왼쪽 아래가 (0,0)인 UI 로컬 좌표입니다.
-    /// </summary>
-    public Vector2[] GetFillCorners(
+    public Vector2[] GetOutlineCorners(
         Vector2 runtimeSize)
     {
-        EnsureCornerStrokeDefaults();
+        EnsureCornerPointDefaults();
 
         float width =
             Mathf.Max(1f, runtimeSize.x);
@@ -205,96 +221,109 @@ public sealed class BattleSpeechBubbleFrameStyle
         float height =
             Mathf.Max(1f, runtimeSize.y);
 
-        float tlInsetX =
-            Mathf.Max(
-                0f,
-                strokeTopLeft - outlineLeft);
+        return new[]
+        {
+            // TL
+            new Vector2(0f, height) +
+            outlineTopLeft,
 
-        float tlInsetY =
-            Mathf.Max(
-                0f,
-                strokeTopLeft - outlineTop);
+            // TR
+            new Vector2(width, height) +
+            outlineTopRight,
 
-        float blInsetX =
-            Mathf.Max(
-                0f,
-                strokeBottomLeft - outlineLeft);
+            // BR
+            new Vector2(width, 0f) +
+            outlineBottomRight,
 
-        float blInsetY =
-            Mathf.Max(
-                0f,
-                strokeBottomLeft - outlineBottom);
+            // BL
+            new Vector2(0f, 0f) +
+            outlineBottomLeft
+        };
+    }
 
-        float trInsetX =
-            Mathf.Max(
-                0f,
-                strokeTopRight - outlineRight);
+    public Vector2[] GetFillCorners(
+        Vector2 runtimeSize)
+    {
+        EnsureCornerPointDefaults();
 
-        float trInsetY =
-            Mathf.Max(
-                0f,
-                strokeTopRight - outlineTop);
+        float width =
+            Mathf.Max(1f, runtimeSize.x);
 
-        float brInsetX =
-            Mathf.Max(
-                0f,
-                strokeBottomRight - outlineRight);
-
-        float brInsetY =
-            Mathf.Max(
-                0f,
-                strokeBottomRight - outlineBottom);
+        float height =
+            Mathf.Max(1f, runtimeSize.y);
 
         return new[]
         {
             // TL
-            new Vector2(
-                Mathf.Clamp(
-                    tlInsetX,
-                    0f,
-                    width * 0.48f),
-                height -
-                Mathf.Clamp(
-                    tlInsetY,
-                    0f,
-                    height * 0.48f)),
+            new Vector2(0f, height) +
+            fillTopLeft,
 
             // TR
-            new Vector2(
-                width -
-                Mathf.Clamp(
-                    trInsetX,
-                    0f,
-                    width * 0.48f),
-                height -
-                Mathf.Clamp(
-                    trInsetY,
-                    0f,
-                    height * 0.48f)),
+            new Vector2(width, height) +
+            fillTopRight,
 
             // BR
-            new Vector2(
-                width -
-                Mathf.Clamp(
-                    brInsetX,
-                    0f,
-                    width * 0.48f),
-                Mathf.Clamp(
-                    brInsetY,
-                    0f,
-                    height * 0.48f)),
+            new Vector2(width, 0f) +
+            fillBottomRight,
 
             // BL
-            new Vector2(
-                Mathf.Clamp(
-                    blInsetX,
-                    0f,
-                    width * 0.48f),
-                Mathf.Clamp(
-                    blInsetY,
-                    0f,
-                    height * 0.48f))
+            new Vector2(0f, 0f) +
+            fillBottomLeft
         };
+    }
+
+    public Rect GetLocalBounds(
+        Vector2 runtimeSize)
+    {
+        Vector2[] outline =
+            GetOutlineCorners(runtimeSize);
+
+        Vector2[] fill =
+            GetFillCorners(runtimeSize);
+
+        float minX = 0f;
+        float maxX = Mathf.Max(1f, runtimeSize.x);
+        float minY = 0f;
+        float maxY = Mathf.Max(1f, runtimeSize.y);
+
+        AccumulateBounds(
+            outline,
+            ref minX,
+            ref maxX,
+            ref minY,
+            ref maxY);
+
+        AccumulateBounds(
+            fill,
+            ref minX,
+            ref maxX,
+            ref minY,
+            ref maxY);
+
+        return Rect.MinMaxRect(
+            minX,
+            minY,
+            maxX,
+            maxY);
+    }
+
+    private static void AccumulateBounds(
+        Vector2[] points,
+        ref float minX,
+        ref float maxX,
+        ref float minY,
+        ref float maxY)
+    {
+        if (points == null)
+            return;
+
+        for (int i = 0; i < points.Length; i++)
+        {
+            minX = Mathf.Min(minX, points[i].x);
+            maxX = Mathf.Max(maxX, points[i].x);
+            minY = Mathf.Min(minY, points[i].y);
+            maxY = Mathf.Max(maxY, points[i].y);
+        }
     }
 
     public int ComputeHash()
@@ -303,14 +332,14 @@ public sealed class BattleSpeechBubbleFrameStyle
         {
             int hash = 17;
             hash = hash * 31 + rotation.GetHashCode();
-            hash = hash * 31 + outlineLeft.GetHashCode();
-            hash = hash * 31 + outlineBottom.GetHashCode();
-            hash = hash * 31 + outlineRight.GetHashCode();
-            hash = hash * 31 + outlineTop.GetHashCode();
-            hash = hash * 31 + strokeTopLeft.GetHashCode();
-            hash = hash * 31 + strokeBottomLeft.GetHashCode();
-            hash = hash * 31 + strokeTopRight.GetHashCode();
-            hash = hash * 31 + strokeBottomRight.GetHashCode();
+            hash = hash * 31 + outlineTopLeft.GetHashCode();
+            hash = hash * 31 + outlineTopRight.GetHashCode();
+            hash = hash * 31 + outlineBottomRight.GetHashCode();
+            hash = hash * 31 + outlineBottomLeft.GetHashCode();
+            hash = hash * 31 + fillTopLeft.GetHashCode();
+            hash = hash * 31 + fillTopRight.GetHashCode();
+            hash = hash * 31 + fillBottomRight.GetHashCode();
+            hash = hash * 31 + fillBottomLeft.GetHashCode();
             hash = hash * 31 + outlineColor.GetHashCode();
             hash = hash * 31 + fillColor.GetHashCode();
             return hash;
@@ -319,37 +348,50 @@ public sealed class BattleSpeechBubbleFrameStyle
 }
 
 /// <summary>
-/// Corner Stroke 기반 흰 Fill 사변형을 런타임 Texture로 생성합니다.
-/// Custom MaskableGraphic은 사용하지 않고 일반 UI Image Sprite로 표시합니다.
+/// OUTLINE 사변형(검정)을 먼저 그리고 INNER 사변형(흰색)을 그 위에 Rasterize합니다.
+/// Preview와 Runtime이 이 Builder 하나를 공유합니다.
 /// </summary>
 public static class BattleSpeechBubbleFrameTextureBuilder
 {
-    private const int TextureHeight = 128;
+    private const int TextureHeight = 192;
 
-    public static Texture2D BuildFillTexture(
+    public static Texture2D BuildFrameTexture(
         BattleSpeechBubbleFrameStyle style,
         Vector2 runtimeSize,
-        string textureName)
+        string textureName,
+        out Rect localBounds)
     {
         style ??=
             BattleSpeechBubbleFrameStyle.CreateCombatDefault();
 
-        style.EnsureCornerStrokeDefaults();
+        style.EnsureCornerPointDefaults();
+
+        localBounds =
+            style.GetLocalBounds(
+                runtimeSize);
+
+        float boundsWidth =
+            Mathf.Max(
+                1f,
+                localBounds.width);
+
+        float boundsHeight =
+            Mathf.Max(
+                1f,
+                localBounds.height);
 
         float aspect =
             Mathf.Max(
                 0.25f,
-                runtimeSize.x /
-                Mathf.Max(
-                    1f,
-                    runtimeSize.y));
+                boundsWidth /
+                boundsHeight);
 
         int width =
             Mathf.Clamp(
                 Mathf.RoundToInt(
                     TextureHeight * aspect),
                 128,
-                1024);
+                2048);
 
         int height =
             TextureHeight;
@@ -376,48 +418,74 @@ public static class BattleSpeechBubbleFrameTextureBuilder
         for (int i = 0; i < pixels.Length; i++)
             pixels[i] = transparent;
 
-        Vector2[] runtimeCorners =
-            style.GetFillCorners(
-                runtimeSize);
+        Vector2[] outline =
+            ConvertToTexture(
+                style.GetOutlineCorners(runtimeSize),
+                localBounds,
+                width,
+                height);
 
-        Vector2[] textureCorners =
-            new Vector2[runtimeCorners.Length];
-
-        float scaleX =
-            (width - 1f) /
-            Mathf.Max(
-                1f,
-                runtimeSize.x);
-
-        float scaleY =
-            (height - 1f) /
-            Mathf.Max(
-                1f,
-                runtimeSize.y);
-
-        for (int i = 0;
-             i < runtimeCorners.Length;
-             i++)
-        {
-            textureCorners[i] =
-                new Vector2(
-                    runtimeCorners[i].x *
-                    scaleX,
-                    runtimeCorners[i].y *
-                    scaleY);
-        }
+        Vector2[] fill =
+            ConvertToTexture(
+                style.GetFillCorners(runtimeSize),
+                localBounds,
+                width,
+                height);
 
         RasterizePolygon(
             pixels,
             width,
             height,
-            textureCorners,
+            outline,
+            style.outlineColor);
+
+        RasterizePolygon(
+            pixels,
+            width,
+            height,
+            fill,
             style.fillColor);
 
         texture.SetPixels32(pixels);
         texture.Apply(false, true);
 
         return texture;
+    }
+
+    private static Vector2[] ConvertToTexture(
+        Vector2[] localPoints,
+        Rect bounds,
+        int width,
+        int height)
+    {
+        Vector2[] result =
+            new Vector2[localPoints.Length];
+
+        float scaleX =
+            (width - 1f) /
+            Mathf.Max(
+                1f,
+                bounds.width);
+
+        float scaleY =
+            (height - 1f) /
+            Mathf.Max(
+                1f,
+                bounds.height);
+
+        for (int i = 0; i < localPoints.Length; i++)
+        {
+            result[i] =
+                new Vector2(
+                    (localPoints[i].x -
+                     bounds.xMin) *
+                    scaleX,
+                    (localPoints[i].y -
+                     bounds.yMin) *
+                    scaleY);
+        }
+
+        return result;
     }
 
     private static void RasterizePolygon(
@@ -438,9 +506,7 @@ public static class BattleSpeechBubbleFrameTextureBuilder
         int minY = height - 1;
         int maxY = 0;
 
-        for (int i = 0;
-             i < polygon.Length;
-             i++)
+        for (int i = 0; i < polygon.Length; i++)
         {
             minX =
                 Mathf.Min(
@@ -467,42 +533,17 @@ public static class BattleSpeechBubbleFrameTextureBuilder
                         polygon[i].y));
         }
 
-        minX =
-            Mathf.Clamp(
-                minX,
-                0,
-                width - 1);
+        minX = Mathf.Clamp(minX, 0, width - 1);
+        maxX = Mathf.Clamp(maxX, 0, width - 1);
+        minY = Mathf.Clamp(minY, 0, height - 1);
+        maxY = Mathf.Clamp(maxY, 0, height - 1);
 
-        maxX =
-            Mathf.Clamp(
-                maxX,
-                0,
-                width - 1);
-
-        minY =
-            Mathf.Clamp(
-                minY,
-                0,
-                height - 1);
-
-        maxY =
-            Mathf.Clamp(
-                maxY,
-                0,
-                height - 1);
-
-        for (int y = minY;
-             y <= maxY;
-             y++)
+        for (int y = minY; y <= maxY; y++)
         {
-            for (int x = minX;
-                 x <= maxX;
-                 x++)
+            for (int x = minX; x <= maxX; x++)
             {
                 Vector2 point =
-                    new(
-                        x + 0.5f,
-                        y + 0.5f);
+                    new(x + 0.5f, y + 0.5f);
 
                 if (PointInPolygon(
                     point,
@@ -546,11 +587,8 @@ public static class BattleSpeechBubbleFrameTextureBuilder
                     (b.y - a.y) +
                     a.x;
 
-                if (point.x <
-                    intersectionX)
-                {
+                if (point.x < intersectionX)
                     inside = !inside;
-                }
             }
 
             previous = current;
