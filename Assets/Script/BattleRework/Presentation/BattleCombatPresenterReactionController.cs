@@ -100,7 +100,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private CanvasGroup bubbleGroup;
     private Image bubbleBack;
     private RectTransform tailPivotRect;
-    private BattleSpeechBubbleTailRibbonGraphic bubbleTailGraphic;
+    private BattleSpeechBubbleTailPresetController bubbleTailGraphic;
     private RectTransform tagBadgeRect;
     private Text tagText;
     private Text lineText;
@@ -804,19 +804,13 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleBack.color = new Color(0.97f, 0.97f, 0.94f, 1f);
         bubbleBack.raycastTarget = false;
 
-        GameObject tail = new("BubbleTail", typeof(RectTransform));
-        tail.transform.SetParent(popupRect, false);
-        RectTransform tailRect = tail.GetComponent<RectTransform>();
-        Stretch(tailRect, Vector2.zero, Vector2.zero);
-        bubbleTailGraphic = tail.AddComponent<BattleSpeechBubbleTailRibbonGraphic>();
+        // Short comic tail preset: targetPivot selects direction only.
+        // The tail stays attached to the speech bubble and never stretches to the presenter.
+        bubbleTailGraphic =
+            bubbleRect.gameObject.AddComponent<BattleSpeechBubbleTailPresetController>();
         bubbleTailGraphic.Configure(
             bubbleRect,
-            tailPivotRect,
-            bubbleBack.color,
-            new Color(0.015f, 0.015f, 0.02f, 1f),
-            combatTailBaseWidth,
-            combatTailOutlineWidth);
-        tail.transform.SetAsFirstSibling();
+            tailPivotRect);
 
         GameObject badge = new("ReactionTagBadge", typeof(RectTransform));
         badge.transform.SetParent(bubbleRect, false);
