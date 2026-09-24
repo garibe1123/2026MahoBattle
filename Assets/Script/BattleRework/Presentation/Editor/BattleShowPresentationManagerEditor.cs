@@ -5,12 +5,18 @@ using UnityEngine;
 [CustomEditor(typeof(BattleShowPresentationManager))]
 public sealed class BattleShowPresentationManagerEditor : Editor
 {
-    private const float PreviewHeight = 290f;
+    private const float PreviewHeight = 320f;
     private const float CenterHandleSize = 12f;
     private const float WidthHandleSize = 9f;
 
+    private const string SelectionFrameStylePropertyName =
+        "selectionSpeechBubbleFrameStyle";
+
     private const string SelectionTailStylePropertyName =
         "selectionSpeechBubbleTailStyle";
+
+    private const string CombatFrameStylePropertyName =
+        "combatSpeechBubbleFrameStyle";
 
     private const string CombatTailStylePropertyName =
         "combatSpeechBubbleTailStyle";
@@ -32,40 +38,54 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         "pivot3HalfWidth"
     };
 
-    private sealed class TailEditorState
+    private static readonly string[] ScalePreviewLabels =
     {
-        public readonly string propertyName;
+        "START",
+        "OVERSHOOT",
+        "SETTLED",
+        "SHUTDOWN"
+    };
+
+    private sealed class SpeechEditorState
+    {
+        public readonly string framePropertyName;
+        public readonly string tailPropertyName;
         public readonly string title;
         public readonly string previewLabel;
 
         public Texture2D previewTexture;
         public int previewHash = int.MinValue;
         public bool previewLeft;
+        public int previewScaleMode = 2;
 
         public int activeCenterHandle = -1;
         public int activeWidthHandle = -1;
 
-        public TailEditorState(
-            string propertyName,
+        public SpeechEditorState(
+            string framePropertyName,
+            string tailPropertyName,
             string title,
             string previewLabel)
         {
-            this.propertyName = propertyName;
+            this.framePropertyName = framePropertyName;
+            this.tailPropertyName = tailPropertyName;
             this.title = title;
             this.previewLabel = previewLabel;
         }
     }
 
-    private readonly TailEditorState selectionTailState =
+    private readonly SpeechEditorState selectionState =
         new(
+            SelectionFrameStylePropertyName,
             SelectionTailStylePropertyName,
-            "선택씬 말풍선 꼬리 스타일",
+            "선택씬 대화창 스타일",
             "SELECTION / REWARD / MAP");
 
-    private readonly TailEditorState combatTailState =
+    private readonly SpeechEditorState combatState =
         new(
+            CombatFrameStylePropertyName,
             CombatTailStylePropertyName,
-            "전투씬 말풍선 꼬리 스타일",
+            "전투씬 대화창 스타일",
             "COMBAT REACTION");
 
     private BattleShowPresentationManager Manager =>
@@ -75,27 +95,35 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     {
         serializedObject.Update();
 
-        // 두 Tail Style은 기본 Inspector 위치에서 숨기고,
-        // Inspector 하단의 전용 변수 + Preview 블록에서 각각 한 번만 그립니다.
+        // Frame/Tail 스타일은 기본 Inspector 중간에 중복 표시하지 않고
+        // 하단의 전용 변수 + Preview 블록에서 각각 한 번만 그립니다.
         DrawPropertiesExcluding(
             serializedObject,
+            SelectionFrameStylePropertyName,
             SelectionTailStylePropertyName,
+            CombatFrameStylePropertyName,
             CombatTailStylePropertyName);
 
         serializedObject.ApplyModifiedProperties();
 
         EditorGUILayout.Space(12f);
 
-        DrawTailEditorSection(
-            selectionTailState,
+        DrawSpeechEditorSection(
+            selectionState,
+            Manager != null
+                ? Manager.SelectionSpeechBubbleFrameStyle
+                : null,
             Manager != null
                 ? Manager.SelectionSpeechBubbleTailStyle
                 : null);
 
         DrawSectionDivider();
 
-        DrawTailEditorSection(
-            combatTailState,
+        DrawSpeechEditorSection(
+            combatState,
+            Manager != null
+                ? Manager.CombatSpeechBubbleFrameStyle
+                : null,
             Manager != null
                 ? Manager.CombatSpeechBubbleTailStyle
                 : null);
@@ -113,55 +141,61 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (Manager == null)
             return;
 
-        // Unity Inspector 하단 기본 Preview 창에는 선택씬 프로파일을 표시합니다.
-        // 두 프로파일의 상세 편집 Preview는 OnInspectorGUI 안에 각각 별도로 있습니다.
-        DrawTailPreview(
+        DrawSpeechPreview(
             rect,
+            Manager.SelectionSpeechBubbleFrameStyle,
             Manager.SelectionSpeechBubbleTailStyle,
-            selectionTailState,
+            selectionState,
             compact: true,
             interactive: false);
     }
 
     private void OnDisable()
     {
-        ReleasePreviewTexture(selectionTailState);
-        ReleasePreviewTexture(combatTailState);
+        ReleasePreviewTexture(selectionState);
+        ReleasePreviewTexture(combatState);
 
         if (GUIUtility.hotControl != 0 &&
-            (selectionTailState.activeCenterHandle >= 0 ||
-             selectionTailState.activeWidthHandle >= 0 ||
-             combatTailState.activeCenterHandle >= 0 ||
-             combatTailState.activeWidthHandle >= 0))
+            (selectionState.activeCenterHandle >= 0 ||
+             selectionState.activeWidthHandle >= 0 ||
+             combatState.activeCenterHandle >= 0 ||
+             combatState.activeWidthHandle >= 0))
         {
             GUIUtility.hotControl = 0;
         }
 
-        ResetActiveHandles(selectionTailState);
-        ResetActiveHandles(combatTailState);
+        ResetActiveHandles(selectionState);
+        ResetActiveHandles(combatState);
     }
 
-    private void DrawTailEditorSection(
-        TailEditorState state,
-        BattleSpeechBubbleTailStyle style)
+    private void DrawSpeechEditorSection(
+        SpeechEditorState state,
+        BattleSpeechBubbleFrameStyle frameStyle,
+        BattleSpeechBubbleTailStyle tailStyle)
     {
         BattleShowPresentationManager manager =
             Manager;
 
         if (manager == null ||
-            style == null)
+            frameStyle == null ||
+            tailStyle == null)
         {
             return;
         }
 
-        SerializedProperty styleProperty =
+        SerializedProperty frameProperty =
             serializedObject.FindProperty(
-                state.propertyName);
+                state.framePropertyName);
 
-        if (styleProperty == null)
+        SerializedProperty tailProperty =
+            serializedObject.FindProperty(
+                state.tailPropertyName);
+
+        if (frameProperty == null ||
+            tailProperty == null)
         {
             EditorGUILayout.HelpBox(
-                $"{state.propertyName} SerializedProperty를 찾지 못했습니다.",
+                $"{state.framePropertyName} / {state.tailPropertyName} SerializedProperty를 찾지 못했습니다.",
                 MessageType.Error);
             return;
         }
@@ -171,24 +205,50 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorStyles.boldLabel);
 
         EditorGUILayout.HelpBox(
-            "이 블록은 다른 씬의 꼬리와 완전히 독립된 값입니다. " +
-            "색 점(ROOT/P1/P2/P3/TIP)을 드래그하면 중심 Pivot, 흰 W 핸들을 드래그하면 Half Width가 수정됩니다. " +
-            "Stroke Root→Tip 값을 다르게 주면 진행 방향에 따라 외곽선 두께도 변화합니다.",
+            "FRAME은 대화창 네모 본체의 Size / Start·Overshoot·Settled·Shutdown Scale / " +
+            "좌·하·우·상 Outline Outset / Fill Shrink를 조절합니다. " +
+            "TAIL은 Pivot/폭/Stroke를 조절합니다. Preview의 체커보드는 실제 배경 영역이고, " +
+            "검정은 OUTLINE, 아이보리는 FILL입니다.",
             MessageType.Info);
 
-        styleProperty.isExpanded = true;
+        EditorGUILayout.Space(4f);
+
+        EditorGUILayout.LabelField(
+            "FRAME / 대화창 본체",
+            EditorStyles.boldLabel);
+
+        frameProperty.isExpanded = true;
 
         EditorGUI.BeginChangeCheck();
 
         EditorGUILayout.PropertyField(
-            styleProperty,
+            frameProperty,
             GUIContent.none,
             includeChildren: true);
 
-        bool propertyChanged =
+        bool frameChanged =
             EditorGUI.EndChangeCheck();
 
-        if (propertyChanged)
+        EditorGUILayout.Space(7f);
+
+        EditorGUILayout.LabelField(
+            "TAIL / 말풍선 꼬리",
+            EditorStyles.boldLabel);
+
+        tailProperty.isExpanded = true;
+
+        EditorGUI.BeginChangeCheck();
+
+        EditorGUILayout.PropertyField(
+            tailProperty,
+            GUIContent.none,
+            includeChildren: true);
+
+        bool tailChanged =
+            EditorGUI.EndChangeCheck();
+
+        if (frameChanged ||
+            tailChanged)
         {
             serializedObject.ApplyModifiedProperties();
             serializedObject.Update();
@@ -203,19 +263,19 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         using (new EditorGUILayout.HorizontalScope())
         {
-            if (GUILayout.Button("기본 삼각형"))
+            if (GUILayout.Button("꼬리 기본 삼각형"))
             {
-                ApplyPreset(
+                ApplyTailPreset(
                     state,
-                    style,
+                    tailStyle,
                     lightning: false);
             }
 
-            if (GUILayout.Button("번개형"))
+            if (GUILayout.Button("꼬리 번개형"))
             {
-                ApplyPreset(
+                ApplyTailPreset(
                     state,
-                    style,
+                    tailStyle,
                     lightning: true);
             }
 
@@ -227,6 +287,20 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     GUILayout.Width(90f));
         }
 
+        EditorGUILayout.Space(5f);
+
+        EditorGUILayout.LabelField(
+            "Preview Scale",
+            EditorStyles.miniBoldLabel);
+
+        state.previewScaleMode =
+            GUILayout.Toolbar(
+                Mathf.Clamp(
+                    state.previewScaleMode,
+                    0,
+                    ScalePreviewLabels.Length - 1),
+                ScalePreviewLabels);
+
         EditorGUILayout.Space(6f);
 
         Rect previewRect =
@@ -235,26 +309,43 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 PreviewHeight,
                 GUILayout.ExpandWidth(true));
 
-        DrawTailPreview(
+        DrawSpeechPreview(
             previewRect,
-            style,
+            frameStyle,
+            tailStyle,
             state,
             compact: false,
             interactive: true);
 
-        EditorGUILayout.Space(4f);
+        EditorGUILayout.Space(5f);
 
         EditorGUILayout.LabelField(
-            $"Stroke Root → Tip : " +
-            $"{style.strokeRoot:0.#} / " +
-            $"{style.strokePivot1:0.#} / " +
-            $"{style.strokePivot2:0.#} / " +
-            $"{style.strokePivot3:0.#} / " +
-            $"{style.strokeTip:0.#}",
+            $"Frame Outline L/B/R/T : " +
+            $"{frameStyle.outlineLeft:0.#} / " +
+            $"{frameStyle.outlineBottom:0.#} / " +
+            $"{frameStyle.outlineRight:0.#} / " +
+            $"{frameStyle.outlineTop:0.#}",
             EditorStyles.miniLabel);
 
         EditorGUILayout.LabelField(
-            "드래그: 색 점 = Pivot / 흰 W = Half Width",
+            $"Fill Shrink L/B/R/T : " +
+            $"{frameStyle.fillInsetLeft:0.#} / " +
+            $"{frameStyle.fillInsetBottom:0.#} / " +
+            $"{frameStyle.fillInsetRight:0.#} / " +
+            $"{frameStyle.fillInsetTop:0.#}",
+            EditorStyles.miniLabel);
+
+        EditorGUILayout.LabelField(
+            $"Tail Stroke Root → Tip : " +
+            $"{tailStyle.strokeRoot:0.#} / " +
+            $"{tailStyle.strokePivot1:0.#} / " +
+            $"{tailStyle.strokePivot2:0.#} / " +
+            $"{tailStyle.strokePivot3:0.#} / " +
+            $"{tailStyle.strokeTip:0.#}",
+            EditorStyles.miniLabel);
+
+        EditorGUILayout.LabelField(
+            "Preview 드래그: 색 점 = Tail Pivot / 흰 W = Tail Half Width",
             EditorStyles.miniLabel);
     }
 
@@ -279,8 +370,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         EditorGUILayout.Space(14f);
     }
 
-    private void ApplyPreset(
-        TailEditorState state,
+    private void ApplyTailPreset(
+        SpeechEditorState state,
         BattleSpeechBubbleTailStyle style,
         bool lightning)
     {
@@ -296,8 +387,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         Undo.RecordObject(
             manager,
             lightning
-                ? $"Apply {state.title} Lightning Preset"
-                : $"Apply {state.title} Triangle Preset");
+                ? $"Apply {state.title} Tail Lightning Preset"
+                : $"Apply {state.title} Tail Triangle Preset");
 
         if (lightning)
             style.ApplyLightningPreset();
@@ -313,14 +404,16 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         SceneView.RepaintAll();
     }
 
-    private void DrawTailPreview(
+    private void DrawSpeechPreview(
         Rect rect,
-        BattleSpeechBubbleTailStyle style,
-        TailEditorState state,
+        BattleSpeechBubbleFrameStyle frameStyle,
+        BattleSpeechBubbleTailStyle tailStyle,
+        SpeechEditorState state,
         bool compact,
         bool interactive)
     {
-        if (style == null ||
+        if (frameStyle == null ||
+            tailStyle == null ||
             state == null)
         {
             return;
@@ -328,132 +421,215 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         EnsurePreviewTexture(
             state,
-            style);
+            tailStyle,
+            frameStyle.fillColor);
+
+        DrawCheckerboard(
+            rect,
+            compact ? 10f : 14f);
+
+        float previewScale =
+            ResolvePreviewScale(
+                frameStyle,
+                state.previewScaleMode);
+
+        Rect bubbleRoot =
+            CalculateBubbleRootPreviewRect(
+                rect,
+                frameStyle,
+                state.previewLeft,
+                compact,
+                previewScale);
+
+        float scaleX =
+            bubbleRoot.width /
+            Mathf.Max(
+                1f,
+                frameStyle.size.x);
+
+        float scaleY =
+            bubbleRoot.height /
+            Mathf.Max(
+                1f,
+                frameStyle.size.y);
+
+        Rect outlineRect =
+            new Rect(
+                bubbleRoot.xMin -
+                frameStyle.outlineLeft * scaleX,
+                bubbleRoot.yMin -
+                frameStyle.outlineTop * scaleY,
+                bubbleRoot.width +
+                (frameStyle.outlineLeft +
+                 frameStyle.outlineRight) * scaleX,
+                bubbleRoot.height +
+                (frameStyle.outlineTop +
+                 frameStyle.outlineBottom) * scaleY);
+
+        Rect fillRect =
+            new Rect(
+                bubbleRoot.xMin +
+                frameStyle.fillInsetLeft * scaleX,
+                bubbleRoot.yMin +
+                frameStyle.fillInsetTop * scaleY,
+                Mathf.Max(
+                    1f,
+                    bubbleRoot.width -
+                    (frameStyle.fillInsetLeft +
+                     frameStyle.fillInsetRight) * scaleX),
+                Mathf.Max(
+                    1f,
+                    bubbleRoot.height -
+                    (frameStyle.fillInsetTop +
+                     frameStyle.fillInsetBottom) * scaleY));
 
         EditorGUI.DrawRect(
+            outlineRect,
+            frameStyle.outlineColor);
+
+        EditorGUI.DrawRect(
+            fillRect,
+            frameStyle.fillColor);
+
+        if (state.previewTexture != null)
+        {
+            Rect tailRect =
+                CalculateTailPreviewRect(
+                    bubbleRoot,
+                    tailStyle,
+                    compact,
+                    state.previewLeft);
+
+            Matrix4x4 oldMatrix =
+                GUI.matrix;
+
+            if (state.previewLeft)
+            {
+                GUIUtility.ScaleAroundPivot(
+                    new Vector2(-1f, 1f),
+                    tailRect.center);
+            }
+
+            GUI.DrawTexture(
+                tailRect,
+                state.previewTexture,
+                ScaleMode.StretchToFill,
+                true);
+
+            GUI.matrix =
+                oldMatrix;
+
+            if (!compact)
+            {
+                DrawCenterLine(
+                    tailRect,
+                    tailStyle,
+                    state.previewLeft);
+
+                if (interactive)
+                {
+                    DrawInteractiveHandles(
+                        tailRect,
+                        tailStyle,
+                        state);
+                }
+                else
+                {
+                    DrawPassiveCenterMarkers(
+                        tailRect,
+                        tailStyle,
+                        state.previewLeft);
+                }
+            }
+        }
+
+        DrawPreviewLegend(
             rect,
-            new Color(
-                0.055f,
-                0.060f,
-                0.070f,
-                1f));
+            frameStyle,
+            state,
+            previewScale,
+            compact);
+    }
 
+    private static Rect CalculateBubbleRootPreviewRect(
+        Rect previewRect,
+        BattleSpeechBubbleFrameStyle frameStyle,
+        bool flipped,
+        bool compact,
+        float previewScale)
+    {
         float margin =
-            compact ? 8f : 18f;
+            compact ? 10f : 22f;
 
-        float bubbleHeight =
-            Mathf.Min(
-                compact ? 72f : 112f,
-                rect.height - margin * 2f);
-
-        float bubbleWidth =
+        float availableWidth =
             Mathf.Max(
                 80f,
-                rect.width * 0.50f);
+                previewRect.width * (compact ? 0.58f : 0.60f));
 
-        Rect bubbleOuter =
-            new Rect(
-                state.previewLeft
-                    ? rect.xMax - margin - bubbleWidth
-                    : rect.x + margin,
-                rect.center.y -
-                bubbleHeight * 0.5f,
-                bubbleWidth,
-                bubbleHeight);
+        float availableHeight =
+            Mathf.Max(
+                50f,
+                previewRect.height * (compact ? 0.52f : 0.50f));
 
-        EditorGUI.DrawRect(
-            bubbleOuter,
-            new Color(
-                0.012f,
-                0.012f,
-                0.018f,
-                1f));
-
-        Rect bubbleInner =
-            new Rect(
-                bubbleOuter.x + 8f,
-                bubbleOuter.y + 8f,
+        float aspect =
+            Mathf.Max(
+                0.1f,
+                frameStyle.size.x /
                 Mathf.Max(
                     1f,
-                    bubbleOuter.width - 16f),
-                Mathf.Max(
-                    1f,
-                    bubbleOuter.height - 16f));
+                    frameStyle.size.y));
 
-        EditorGUI.DrawRect(
-            bubbleInner,
-            new Color(
-                0.97f,
-                0.97f,
-                0.94f,
-                1f));
+        float width =
+            availableWidth;
 
-        if (state.previewTexture == null)
-            return;
+        float height =
+            width / aspect;
 
-        Rect tailRect =
-            CalculateTailPreviewRect(
-                bubbleOuter,
-                style,
-                compact,
-                state.previewLeft);
-
-        Matrix4x4 oldMatrix =
-            GUI.matrix;
-
-        if (state.previewLeft)
+        if (height > availableHeight)
         {
-            GUIUtility.ScaleAroundPivot(
-                new Vector2(-1f, 1f),
-                tailRect.center);
+            height = availableHeight;
+            width = height * aspect;
         }
 
-        GUI.DrawTexture(
-            tailRect,
-            state.previewTexture,
-            ScaleMode.StretchToFill,
-            true);
+        previewScale =
+            Mathf.Clamp(
+                previewScale,
+                0.35f,
+                1.45f);
 
-        GUI.matrix =
-            oldMatrix;
+        width *= previewScale;
+        height *= previewScale;
 
-        if (!compact)
+        float centerY =
+            previewRect.center.y + 10f;
+
+        float x =
+            flipped
+                ? previewRect.xMax - margin - width
+                : previewRect.xMin + margin;
+
+        return new Rect(
+            x,
+            centerY - height * 0.5f,
+            width,
+            height);
+    }
+
+    private static float ResolvePreviewScale(
+        BattleSpeechBubbleFrameStyle style,
+        int mode)
+    {
+        return mode switch
         {
-            DrawCenterLine(
-                tailRect,
-                style,
-                state.previewLeft);
-
-            if (interactive)
-            {
-                DrawInteractiveHandles(
-                    tailRect,
-                    style,
-                    state);
-            }
-            else
-            {
-                DrawPassiveCenterMarkers(
-                    tailRect,
-                    style,
-                    state.previewLeft);
-            }
-        }
-
-        GUI.Label(
-            new Rect(
-                rect.x + 8f,
-                rect.y + 6f,
-                rect.width - 16f,
-                18f),
-            state.previewLeft
-                ? $"{state.previewLabel} / LEFT"
-                : $"{state.previewLabel} / RIGHT",
-            EditorStyles.miniBoldLabel);
+            0 => style.startScale,
+            1 => style.overshootScale,
+            3 => style.shutdownScale,
+            _ => style.settledScale
+        };
     }
 
     private static Rect CalculateTailPreviewRect(
-        Rect bubbleOuter,
+        Rect bubbleRoot,
         BattleSpeechBubbleTailStyle style,
         bool compact,
         bool flipped)
@@ -468,8 +644,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         float tailHeight =
             Mathf.Min(
-                bubbleOuter.height * 0.88f,
-                compact ? 66f : 104f);
+                Mathf.Max(
+                    34f,
+                    bubbleRoot.height * 1.05f),
+                compact ? 68f : 112f);
 
         float tailWidth =
             tailHeight *
@@ -491,22 +669,183 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (!flipped)
         {
             return new Rect(
-                bubbleOuter.xMax -
+                bubbleRoot.xMax -
                 previewOverlap,
-                bubbleOuter.center.y -
+                bubbleRoot.center.y -
                 tailHeight * 0.5f,
                 tailWidth,
                 tailHeight);
         }
 
         return new Rect(
-            bubbleOuter.xMin -
+            bubbleRoot.xMin -
             tailWidth +
             previewOverlap,
-            bubbleOuter.center.y -
+            bubbleRoot.center.y -
             tailHeight * 0.5f,
             tailWidth,
             tailHeight);
+    }
+
+    private static void DrawCheckerboard(
+        Rect rect,
+        float cellSize)
+    {
+        Color a =
+            new Color(
+                0.34f,
+                0.35f,
+                0.38f,
+                1f);
+
+        Color b =
+            new Color(
+                0.20f,
+                0.21f,
+                0.24f,
+                1f);
+
+        int columns =
+            Mathf.CeilToInt(
+                rect.width /
+                Mathf.Max(4f, cellSize));
+
+        int rows =
+            Mathf.CeilToInt(
+                rect.height /
+                Mathf.Max(4f, cellSize));
+
+        for (int y = 0; y < rows; y++)
+        {
+            for (int x = 0; x < columns; x++)
+            {
+                Rect cell =
+                    new Rect(
+                        rect.x + x * cellSize,
+                        rect.y + y * cellSize,
+                        Mathf.Min(
+                            cellSize,
+                            rect.xMax -
+                            (rect.x + x * cellSize)),
+                        Mathf.Min(
+                            cellSize,
+                            rect.yMax -
+                            (rect.y + y * cellSize)));
+
+                if (cell.width <= 0f ||
+                    cell.height <= 0f)
+                {
+                    continue;
+                }
+
+                EditorGUI.DrawRect(
+                    cell,
+                    ((x + y) & 1) == 0
+                        ? a
+                        : b);
+            }
+        }
+    }
+
+    private static void DrawPreviewLegend(
+        Rect rect,
+        BattleSpeechBubbleFrameStyle frameStyle,
+        SpeechEditorState state,
+        float previewScale,
+        bool compact)
+    {
+        GUIStyle labelStyle =
+            new(EditorStyles.miniBoldLabel)
+            {
+                normal =
+                {
+                    textColor = Color.white
+                }
+            };
+
+        Rect titleRect =
+            new Rect(
+                rect.x + 8f,
+                rect.y + 6f,
+                rect.width - 16f,
+                18f);
+
+        GUI.Label(
+            titleRect,
+            $"{state.previewLabel} / " +
+            $"{(state.previewLeft ? "LEFT" : "RIGHT")} / " +
+            $"{ScalePreviewLabels[Mathf.Clamp(state.previewScaleMode, 0, ScalePreviewLabels.Length - 1)]} " +
+            $"x{previewScale:0.###}",
+            labelStyle);
+
+        if (compact)
+            return;
+
+        float y =
+            rect.yMax - 25f;
+
+        float x =
+            rect.x + 10f;
+
+        DrawLegendChip(
+            ref x,
+            y,
+            new Color(0.27f, 0.28f, 0.31f, 1f),
+            "GRID = BACKGROUND",
+            labelStyle);
+
+        DrawLegendChip(
+            ref x,
+            y,
+            frameStyle.outlineColor,
+            "OUTLINE",
+            labelStyle);
+
+        DrawLegendChip(
+            ref x,
+            y,
+            frameStyle.fillColor,
+            "FILL",
+            labelStyle);
+    }
+
+    private static void DrawLegendChip(
+        ref float x,
+        float y,
+        Color color,
+        string label,
+        GUIStyle style)
+    {
+        Rect swatch =
+            new Rect(
+                x,
+                y + 2f,
+                14f,
+                14f);
+
+        EditorGUI.DrawRect(
+            swatch,
+            color);
+
+        float labelWidth =
+            Mathf.Max(
+                46f,
+                style.CalcSize(
+                    new GUIContent(label)).x + 4f);
+
+        GUI.Label(
+            new Rect(
+                x + 19f,
+                y,
+                labelWidth,
+                18f),
+            label,
+            style);
+
+        x +=
+            19f +
+            labelWidth +
+            14f;
     }
 
     private static void DrawCenterLine(
@@ -525,7 +864,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 1f,
                 1f,
                 1f,
-                0.36f);
+                0.45f);
 
         for (int i = 1; i < points.Length; i++)
         {
@@ -546,7 +885,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private void DrawInteractiveHandles(
         Rect tailRect,
         BattleSpeechBubbleTailStyle style,
-        TailEditorState state)
+        SpeechEditorState state)
     {
         Vector2[] points =
             BattleSpeechBubbleTailTextureBuilder
@@ -592,7 +931,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void DrawCenterHandle(
-        TailEditorState state,
+        SpeechEditorState state,
         int index,
         string label,
         Color color,
@@ -684,7 +1023,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void DrawWidthHandle(
-        TailEditorState state,
+        SpeechEditorState state,
         int index,
         Vector2[] points,
         Rect tailRect)
@@ -712,12 +1051,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         else
             normal.Normalize();
 
-        // 항상 Preview 상단 쪽에 폭 핸들을 배치합니다.
         if (normal.y > 0f)
             normal = -normal;
 
         BattleSpeechBubbleTailStyle style =
-            state.propertyName == SelectionTailStylePropertyName
+            state.tailPropertyName == SelectionTailStylePropertyName
                 ? Manager.SelectionSpeechBubbleTailStyle
                 : Manager.CombatSpeechBubbleTailStyle;
 
@@ -765,7 +1103,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
             Undo.RecordObject(
                 Manager,
-                $"Resize {state.title} Width {index}");
+                $"Resize {state.title} Tail Width {index}");
 
             current.Use();
         }
@@ -856,7 +1194,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void WriteCenterPoint(
-        TailEditorState state,
+        SpeechEditorState state,
         int index,
         Vector2 normalized)
     {
@@ -876,7 +1214,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         SerializedProperty style =
             serializedObject.FindProperty(
-                state.propertyName);
+                state.tailPropertyName);
 
         if (style == null)
             return;
@@ -909,7 +1247,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void WriteWidthValue(
-        TailEditorState state,
+        SpeechEditorState state,
         int index,
         float value)
     {
@@ -927,7 +1265,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         SerializedProperty style =
             serializedObject.FindProperty(
-                state.propertyName);
+                state.tailPropertyName);
 
         if (style == null)
             return;
@@ -1099,13 +1437,21 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void EnsurePreviewTexture(
-        TailEditorState state,
-        BattleSpeechBubbleTailStyle style)
+        SpeechEditorState state,
+        BattleSpeechBubbleTailStyle style,
+        Color fillColor)
     {
         int hash =
             style != null
                 ? style.ComputeHash()
                 : 0;
+
+        unchecked
+        {
+            hash =
+                hash * 31 +
+                fillColor.GetHashCode();
+        }
 
         if (state.previewTexture != null &&
             state.previewHash == hash)
@@ -1122,16 +1468,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             BattleSpeechBubbleTailTextureBuilder
                 .BuildTexture(
                     style,
-                    new Color(
-                        0.97f,
-                        0.97f,
-                        0.94f,
-                        1f),
+                    fillColor,
                     $"BattleSpeechTail_{state.previewLabel}_EditorPreview");
     }
 
     private static void ResetActiveHandles(
-        TailEditorState state)
+        SpeechEditorState state)
     {
         if (state == null)
             return;
@@ -1141,7 +1483,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void InvalidatePreview(
-        TailEditorState state)
+        SpeechEditorState state)
     {
         if (state == null)
             return;
@@ -1153,7 +1495,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private static void ReleasePreviewTexture(
-        TailEditorState state)
+        SpeechEditorState state)
     {
         if (state == null ||
             state.previewTexture == null)
