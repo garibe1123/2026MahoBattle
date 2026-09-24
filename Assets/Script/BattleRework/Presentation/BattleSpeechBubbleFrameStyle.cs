@@ -118,7 +118,10 @@ public sealed class BattleSpeechBubbleFrameStyle
     public void EnsureCornerStrokeDefaults()
     {
         if (cornerStrokeInitialized)
+        {
+            ClampCornerStrokeMinimums();
             return;
+        }
 
         float left =
             Mathf.Max(
@@ -153,6 +156,38 @@ public sealed class BattleSpeechBubbleFrameStyle
             Mathf.Max(right, bottom);
 
         cornerStrokeInitialized = true;
+        ClampCornerStrokeMinimums();
+    }
+
+    public void ClampCornerStrokeMinimums()
+    {
+        strokeTopLeft =
+            Mathf.Max(
+                strokeTopLeft,
+                Mathf.Max(
+                    outlineLeft,
+                    outlineTop));
+
+        strokeBottomLeft =
+            Mathf.Max(
+                strokeBottomLeft,
+                Mathf.Max(
+                    outlineLeft,
+                    outlineBottom));
+
+        strokeTopRight =
+            Mathf.Max(
+                strokeTopRight,
+                Mathf.Max(
+                    outlineRight,
+                    outlineTop));
+
+        strokeBottomRight =
+            Mathf.Max(
+                strokeBottomRight,
+                Mathf.Max(
+                    outlineRight,
+                    outlineBottom));
     }
 
     /// <summary>
