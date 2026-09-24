@@ -9,7 +9,7 @@ using UnityEngine.UI;
 /// - Reward -> Map -> stage preparation does not replay the entrance.
 /// - Entering Combat turns the presenter white -> black, then hides it.
 /// - Dialogue independently opens, types, idles, closes, and can be replaced by new commentary.
-/// - Screen presenter sprites/frames come from BattleShowPresentationManager.
+/// - Screen presenter static sprite/material come from BattleShowPresentationManager.
 /// </summary>
 [DefaultExecutionOrder(70000)]
 [DisallowMultipleComponent]
@@ -54,11 +54,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField] private Vector2 referenceResolution = new(1920f, 1080f);
 
     [Header("Presenter Square")]
-    [Tooltip("지금은 정사각 Placeholder를 사용합니다. 나중에 BattleShowPresentationManager의 Screen Presenter Sprite를 넣으면 교체됩니다.")]
-    [SerializeField] private Vector2 presenterSize = new(920f, 920f);
-    [Tooltip("화면 우측 중앙 부근의 최종 위치입니다.")]
-    [SerializeField] private Vector2 presenterVisibleOffset = new(-8f, 10f);
-    [SerializeField, Min(0f)] private float presenterHiddenOffsetX = 310f;
+    [Tooltip("정사각 Placeholder/사회자 이미지를 화면보다 여유롭게 크게 잡아 우측과 하단이 자연스럽게 잘리도록 합니다.")]
+    [SerializeField] private Vector2 presenterSize = new(1180f, 1180f);
+    [Tooltip("우하단 기준 최종 위치입니다. +X는 오른쪽 화면 밖, -Y는 아래 화면 밖으로 밀려 자연스럽게 크롭됩니다.")]
+    [SerializeField] private Vector2 presenterVisibleOffset = new(140f, -110f);
+    [SerializeField, Min(0f)] private float presenterHiddenOffsetX = 500f;
     [SerializeField, Min(50f)] private float presenterSlideSpeedPixels = 1250f;
     [SerializeField, Min(0.1f)] private float presenterRevealPerSecond = 2.8f;
     [SerializeField, Min(0.1f)] private float presenterBlackoutPerSecond = 3.6f;
@@ -66,8 +66,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     [Header("Presenter Motion")]
     [Tooltip("Idle은 아주 작게 떠 있는 정도만 사용합니다. PingPong 기반이라 이동 속도가 일정합니다.")]
-    [SerializeField, Range(0f, 8f)] private float idleMovePixels = 2.4f;
-    [SerializeField, Range(0f, 8f)] private float idleSidePixels = 1.2f;
+    [SerializeField, Range(0f, 8f)] private float idleMovePixels = 3.5f;
+    [SerializeField, Range(0f, 8f)] private float idleSidePixels = 1.8f;
     [SerializeField, Range(0f, 0.02f)] private float idleScaleAmount = 0.004f;
     [SerializeField, Min(0.1f)] private float idleCyclesPerSecond = 0.28f;
 
@@ -418,8 +418,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         go.transform.SetParent(overlayRoot, false);
 
         presenterRect = go.GetComponent<RectTransform>();
-        presenterRect.anchorMin = presenterRect.anchorMax = new Vector2(1f, 0.5f);
-        presenterRect.pivot = new Vector2(1f, 0.5f);
+        // Bottom-right anchored on purpose: the presenter is treated like a cut-in illustration,
+        // not a fitted UI portrait. Positive X / negative Y intentionally crop it against the screen.
+        presenterRect.anchorMin = presenterRect.anchorMax = new Vector2(1f, 0f);
+        presenterRect.pivot = new Vector2(1f, 0f);
         presenterRect.sizeDelta = presenterSize;
         presenterRect.anchoredPosition =
             presenterVisibleOffset + Vector2.right * presenterHiddenOffsetX;
