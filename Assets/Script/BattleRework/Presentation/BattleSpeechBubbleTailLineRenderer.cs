@@ -117,7 +117,7 @@ public sealed class BattleSpeechBubbleTailLineRenderer : MaskableGraphic
             return;
 
         Vector2 forward = toTarget / distance;
-        Vector2 side = new(-forward.y, forward.x);
+        Vector2 side = new Vector2(-forward.y, forward.x);
 
         float jag =
             Mathf.Min(
@@ -224,7 +224,7 @@ public sealed class BattleSpeechBubbleTailLineRenderer : MaskableGraphic
             tangent.Normalize();
 
             Vector2 normal =
-                new(-tangent.y, tangent.x);
+                new Vector2(-tangent.y, tangent.x);
 
             float halfWidth =
                 Mathf.Max(
