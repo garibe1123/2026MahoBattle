@@ -131,8 +131,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [Tooltip("Reward/Map 화면 사회자 Rect 안에서 말풍선 꼬리가 향할 기준점입니다.")]
     [SerializeField] private Vector2 dialogueTailPresenterAnchor = new(0.28f, 0.58f);
     [SerializeField] private Vector2 dialogueTailPivotOffset = new(0f, 0f);
-    [SerializeField, Min(8f)] private float dialogueTailBaseWidth = 68f;
-    [SerializeField, Min(0f)] private float dialogueTailOutlineWidth = 8f;
     [SerializeField, Range(-6f, 6f)] private float dialogueBubbleRotation = -1.5f;
     [SerializeField, Range(0.75f, 1f)] private float dialogueBubbleStartScale = 0.88f;
     [SerializeField, Range(1f, 1.12f)] private float dialogueBubbleOvershootScale = 1.04f;
@@ -706,7 +704,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             new Vector2(-20f, 8f),
             new Vector2(120f, 20f));
 
-        tail.transform.SetAsFirstSibling();
         ink.transform.SetSiblingIndex(1);
         face.transform.SetSiblingIndex(2);
 
