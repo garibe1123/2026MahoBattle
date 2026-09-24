@@ -167,10 +167,20 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("Reward/Map 큰 사회자와 전투 리액션 상체 사회자가 함께 사용하는 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다.")]
     [SerializeField] private Material screenPresenterMaterial;
 
+    [Header("선택씬 말풍선 프레임 스타일")]
+    [Tooltip("Reward / 아이템 선택 / 맵 선택에서 사용하는 말풍선 본체 크기/외곽/Scale 스타일입니다.")]
+    [SerializeField] private BattleSpeechBubbleFrameStyle selectionSpeechBubbleFrameStyle =
+        BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
+
     [Header("선택씬 말풍선 꼬리 스타일")]
     [Tooltip("Reward / 아이템 선택 / 맵 선택에서 사용하는 코드 생성 말풍선 꼬리 프로파일입니다.")]
     [FormerlySerializedAs("speechBubbleTailStyle")]
     [SerializeField] private BattleSpeechBubbleTailStyle selectionSpeechBubbleTailStyle = new();
+
+    [Header("전투씬 말풍선 프레임 스타일")]
+    [Tooltip("전투 중 우측 상단 사회자 리액션 말풍선 본체의 크기/외곽/Scale 스타일입니다.")]
+    [SerializeField] private BattleSpeechBubbleFrameStyle combatSpeechBubbleFrameStyle =
+        BattleSpeechBubbleFrameStyle.CreateCombatDefault();
 
     [Header("전투씬 말풍선 꼬리 스타일")]
     [Tooltip("전투 중 우측 상단 사회자 리액션 말풍선에서만 사용하는 별도 꼬리 프로파일입니다.")]
@@ -239,8 +249,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public Material ScreenPresenterMaterial => screenPresenterMaterial;
 
+    public BattleSpeechBubbleFrameStyle SelectionSpeechBubbleFrameStyle =>
+        selectionSpeechBubbleFrameStyle ??= BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
+
     public BattleSpeechBubbleTailStyle SelectionSpeechBubbleTailStyle =>
         selectionSpeechBubbleTailStyle ??= new BattleSpeechBubbleTailStyle();
+
+    public BattleSpeechBubbleFrameStyle CombatSpeechBubbleFrameStyle =>
+        combatSpeechBubbleFrameStyle ??= BattleSpeechBubbleFrameStyle.CreateCombatDefault();
 
     public BattleSpeechBubbleTailStyle CombatSpeechBubbleTailStyle =>
         combatSpeechBubbleTailStyle ??= new BattleSpeechBubbleTailStyle();
