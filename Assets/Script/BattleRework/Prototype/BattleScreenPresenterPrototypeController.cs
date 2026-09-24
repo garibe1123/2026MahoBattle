@@ -54,8 +54,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField] private Vector2 referenceResolution = new(1920f, 1080f);
 
     [Header("Presenter Square")]
-    [Tooltip("지금은 정사각 Placeholder를 사용합니다. 나중에 BattleShowPresentationManager의 Screen Presenter Sprite/Frames를 넣으면 교체됩니다.")]
-    [SerializeField] private Vector2 presenterSize = new(760f, 760f);
+    [Tooltip("지금은 정사각 Placeholder를 사용합니다. 나중에 BattleShowPresentationManager의 Screen Presenter Sprite를 넣으면 교체됩니다.")]
+    [SerializeField] private Vector2 presenterSize = new(920f, 920f);
     [Tooltip("화면 우측 중앙 부근의 최종 위치입니다.")]
     [SerializeField] private Vector2 presenterVisibleOffset = new(-8f, 10f);
     [SerializeField, Min(0f)] private float presenterHiddenOffsetX = 310f;
@@ -64,10 +64,23 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float presenterBlackoutPerSecond = 3.6f;
     [SerializeField, Min(0f)] private float presenterEntryDelay = 0.08f;
 
-    [Header("Presenter Idle")]
-    [SerializeField, Range(0f, 5f)] private float idleMovePixels = 1.8f;
+    [Header("Presenter Motion")]
+    [Tooltip("Idle은 아주 작게 떠 있는 정도만 사용합니다. PingPong 기반이라 이동 속도가 일정합니다.")]
+    [SerializeField, Range(0f, 8f)] private float idleMovePixels = 2.4f;
+    [SerializeField, Range(0f, 8f)] private float idleSidePixels = 1.2f;
     [SerializeField, Range(0f, 0.02f)] private float idleScaleAmount = 0.004f;
-    [SerializeField, Min(0.1f)] private float idleCyclesPerSecond = 0.32f;
+    [SerializeField, Min(0.1f)] private float idleCyclesPerSecond = 0.28f;
+
+    [Tooltip("대사 타이핑 중 좌우로 작게 떨리는 폭입니다.")]
+    [SerializeField, Range(0f, 12f)] private float talkShakePixels = 2.8f;
+    [SerializeField, Min(0.1f)] private float talkShakeCyclesPerSecond = 5.5f;
+
+    [Tooltip("새 Hover/선택 반응 때 위로 한 번 튀는 높이입니다.")]
+    [SerializeField, Range(0f, 60f)] private float reactionHopPixels = 24f;
+    [SerializeField, Min(0.05f)] private float reactionDuration = 0.24f;
+
+    [Tooltip("Excited/확정 반응은 기본 반응보다 크게 튑니다.")]
+    [SerializeField, Range(1f, 2f)] private float excitedReactionMultiplier = 1.35f;
 
     [Header("Dialogue")]
     [SerializeField] private Vector2 dialogueSize = new(1020f, 154f);
@@ -106,8 +119,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private bool presenterEntryPending;
     private float presenterEnterAt;
     private float presenterTint;
-    private int presenterFrameIndex;
-    private float presenterFrameTimer;
+    private Material appliedPresenterMaterial;
 
     private CanvasGroup dialogueGroup;
     private RectTransform dialogueRect;
@@ -186,7 +198,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         EnsureOverlay();
 
-        UpdatePresenterAnimation();
+        UpdatePresenterVisualSource();
         UpdatePresenterMotion();
         UpdateDialogueState();
 
@@ -342,8 +354,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         presenterEnterAt = Time.unscaledTime + presenterEntryDelay;
         presenterPhase = PresenterPhase.Hidden;
         presenterTint = 0f;
-        presenterFrameIndex = 0;
-        presenterFrameTimer = 0f;
 
         if (presenterRect != null)
         {
@@ -355,7 +365,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             presenterGroup.alpha = 0f;
 
         ApplyPresenterTint();
-        ApplyPresenterSourceSprite(true);
+        UpdatePresenterVisualSource();
     }
 
     private void BeginPresenterBlackout()
@@ -601,8 +611,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
                     presenterPhase = PresenterPhase.Hidden;
                     presenterSessionActive = false;
-                    presenterFrameIndex = 0;
-                    presenterFrameTimer = 0f;
                 }
                 break;
         }
@@ -613,18 +621,38 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (presenterRect == null)
             return;
 
-        float phase =
-            Time.unscaledTime *
-            Mathf.Max(0.1f, idleCyclesPerSecond) *
-            Mathf.PI * 2f;
+        float cycle = Mathf.Max(0.1f, idleCyclesPerSecond);
+        float vertical = LinearPingPong(Time.unscaledTime * cycle);
+        float horizontal = LinearPingPong(Time.unscaledTime * cycle * 0.73f + 0.31f);
 
-        float wave = Mathf.Sin(phase);
+        Vector2 offset = new(
+            horizontal * idleSidePixels,
+            vertical * idleMovePixels);
 
-        presenterRect.anchoredPosition =
-            presenterVisibleOffset +
-            Vector2.up * (wave * idleMovePixels);
+        float scale = 1f + vertical * idleScaleAmount;
 
-        float scale = 1f + wave * idleScaleAmount;
+        if (dialoguePhase == DialoguePhase.Typing)
+        {
+            float talk = LinearPingPong(
+                Time.unscaledTime * Mathf.Max(0.1f, talkShakeCyclesPerSecond));
+
+            offset.x += talk * talkShakePixels;
+        }
+
+        float reactionAge = Time.unscaledTime - reactionStartedAt;
+        if (reactionAge >= 0f && reactionAge < reactionDuration)
+        {
+            float t = Mathf.Clamp01(reactionAge / Mathf.Max(0.05f, reactionDuration));
+            float hop = t < 0.5f ? t * 2f : (1f - t) * 2f;
+            float multiplier = activeMood == Mood.Excited
+                ? excitedReactionMultiplier
+                : 1f;
+
+            offset.y += hop * reactionHopPixels * multiplier;
+            scale += hop * 0.018f * multiplier;
+        }
+
+        presenterRect.anchoredPosition = presenterVisibleOffset + offset;
         presenterRect.localScale = Vector3.one * scale;
     }
 
@@ -637,81 +665,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         presenterImage.color = new Color(v, v, v, 1f);
     }
 
-    private void UpdatePresenterAnimation()
+    private void UpdatePresenterVisualSource()
     {
         if (presenterImage == null)
             return;
 
-        if (presenterPhase == PresenterPhase.Hidden ||
-            presenterPhase == PresenterPhase.BlackingOut)
-        {
-            return;
-        }
-
-        ApplyPresenterSourceSprite(false);
-
-        if (presentation == null ||
-            presentation.ScreenPresenterFrameCount <= 1)
-        {
-            return;
-        }
-
-        float frameDuration = 1f / presentation.ScreenPresenterFps;
-        presenterFrameTimer += Time.unscaledDeltaTime;
-
-        while (presenterFrameTimer >= frameDuration)
-        {
-            presenterFrameTimer -= frameDuration;
-            presenterFrameIndex++;
-
-            if (presenterFrameIndex >= presentation.ScreenPresenterFrameCount)
-            {
-                presenterFrameIndex = presentation.ScreenPresenterLoop
-                    ? 0
-                    : presentation.ScreenPresenterFrameCount - 1;
-            }
-
-            Sprite frame = presentation.GetScreenPresenterFrame(presenterFrameIndex);
-            if (frame != null)
-                presenterImage.sprite = frame;
-
-            if (!presentation.ScreenPresenterLoop &&
-                presenterFrameIndex >= presentation.ScreenPresenterFrameCount - 1)
-            {
-                presenterFrameTimer = 0f;
-                break;
-            }
-        }
-    }
-
-    private void ApplyPresenterSourceSprite(bool resetFrame)
-    {
-        if (presenterImage == null)
-            return;
-
-        if (resetFrame)
-        {
-            presenterFrameIndex = 0;
-            presenterFrameTimer = 0f;
-        }
-
-        Sprite sprite = null;
-
-        if (presentation != null)
-        {
-            if (presentation.ScreenPresenterFrameCount > 0)
-            {
-                presenterFrameIndex = Mathf.Clamp(
-                    presenterFrameIndex,
-                    0,
-                    presentation.ScreenPresenterFrameCount - 1);
-
-                sprite = presentation.GetScreenPresenterFrame(presenterFrameIndex);
-            }
-
-            if (sprite == null)
-                sprite = presentation.ScreenPresenterSprite;
-        }
+        Sprite sprite = presentation != null
+            ? presentation.ScreenPresenterSprite
+            : null;
 
         presenterImage.sprite =
             sprite != null
@@ -719,6 +680,16 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 : BattleHudSpriteCache.DefaultSprite;
 
         presenterImage.preserveAspect = true;
+
+        Material material = presentation != null
+            ? presentation.ScreenPresenterMaterial
+            : null;
+
+        if (appliedPresenterMaterial != material)
+        {
+            appliedPresenterMaterial = material;
+            presenterImage.material = material;
+        }
     }
 
     // ---------------------------------------------------------------------
@@ -1084,6 +1055,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     {
         t = Mathf.Clamp01(t);
         return t * t * (3f - 2f * t);
+    }
+
+    private static float LinearPingPong(float phase)
+    {
+        return Mathf.PingPong(phase * 2f, 2f) - 1f;
     }
 
     private static Text CreateText(
