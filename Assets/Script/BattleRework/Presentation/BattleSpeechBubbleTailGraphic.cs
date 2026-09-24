@@ -141,10 +141,12 @@ public sealed class BattleSpeechBubbleTailGraphic : MonoBehaviour
 
     private void RebuildTail()
     {
+        RectTransform root = transform as RectTransform;
+
         if (!visualsBuilt ||
             bubbleRect == null ||
             targetPivot == null ||
-            transform is not RectTransform root)
+            root == null)
         {
             SetVisible(false);
             return;
