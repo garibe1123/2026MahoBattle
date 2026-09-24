@@ -723,7 +723,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             new Vector2(-20f, 8f),
             new Vector2(120f, 20f));
 
-        frame.transform.SetSiblingIndex(1);
+        // Frame은 최후방, TailShape는 그 바로 앞에 유지합니다.
+        // 기존 SetSiblingIndex(1)는 TailShape를 0번으로 밀어 Frame이 Tail 위에
+        // 렌더되는 역전이 생겼습니다.
+        frame.transform.SetAsFirstSibling();
 
         dialogueRect.localScale =
             Vector3.one * dialogueBubbleStartScale;
