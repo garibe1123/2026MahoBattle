@@ -5,6 +5,63 @@ using DG.Tweening;
 using UnityEngine;
 using UnityEngine.UI;
 
+
+public enum ScreenPresenterMotionState
+{
+    Idle,
+    Talk,
+    Curious,
+    Excited,
+    Surprised,
+    Flustered,
+    Concerned,
+    Bored,
+    Denied,
+    Shutdown
+}
+
+[Serializable]
+public sealed class ScreenPresenterMotionClip
+{
+    [Tooltip("128x128이면 정적 이미지, 한 변이라도 128보다 크면 128x128 셀 Sprite Sheet로 자동 판별합니다. Sheet는 좌→우, 위→아래 순서로 Loop 재생합니다.")]
+    public Sprite source;
+
+    [Tooltip("Sprite Sheet로 판별됐을 때 사용할 고정 FPS입니다. 정적 128x128 이미지에서는 사용하지 않습니다.")]
+    [Min(1f)] public float fps = 8f;
+}
+
+[Serializable]
+public sealed class ScreenPresenterMotionSet
+{
+    public ScreenPresenterMotionClip idle = new();
+    public ScreenPresenterMotionClip talk = new();
+    public ScreenPresenterMotionClip curious = new();
+    public ScreenPresenterMotionClip excited = new();
+    public ScreenPresenterMotionClip surprised = new();
+    public ScreenPresenterMotionClip flustered = new();
+    public ScreenPresenterMotionClip concerned = new();
+    public ScreenPresenterMotionClip bored = new();
+    public ScreenPresenterMotionClip denied = new();
+    public ScreenPresenterMotionClip shutdown = new();
+
+    public ScreenPresenterMotionClip Get(ScreenPresenterMotionState state)
+    {
+        return state switch
+        {
+            ScreenPresenterMotionState.Talk => talk,
+            ScreenPresenterMotionState.Curious => curious,
+            ScreenPresenterMotionState.Excited => excited,
+            ScreenPresenterMotionState.Surprised => surprised,
+            ScreenPresenterMotionState.Flustered => flustered,
+            ScreenPresenterMotionState.Concerned => concerned,
+            ScreenPresenterMotionState.Bored => bored,
+            ScreenPresenterMotionState.Denied => denied,
+            ScreenPresenterMotionState.Shutdown => shutdown,
+            _ => idle
+        };
+    }
+}
+
 /// <summary>
 /// 전투 쇼 연출의 중앙 통제 매니저입니다.
 /// 씬에 Empty GameObject 하나를 만들고 이 컴포넌트를 붙인 뒤,
@@ -53,8 +110,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [SerializeField] private bool autoPlayPresenterDuringReward = true;
 
     [Header("화면 사회자 컷인")]
-    [Tooltip("화면 우측에 별도로 출력할 정적 사회자 Sprite입니다. 1:1 정사각 이미지를 권장합니다.")]
-    [SerializeField] private Sprite screenPresenterSprite;
+    [Tooltip("화면 사회자 모션 세트입니다. 각 Source는 128x128이면 정적, 더 크면 128 셀 Sprite Sheet로 자동 판별합니다.")]
+    [SerializeField] private ScreenPresenterMotionSet screenPresenterMotions = new();
 
     [Tooltip("화면 사회자 전용 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다. AI/CRT/Glitch 효과는 이 Material에서 처리합니다.")]
     [SerializeField] private Material screenPresenterMaterial;
@@ -120,8 +177,14 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public BattleShowFloorTemplateSO DefaultFloorTemplate => defaultFloorTemplate;
 
-    public Sprite ScreenPresenterSprite => screenPresenterSprite;
     public Material ScreenPresenterMaterial => screenPresenterMaterial;
+
+    public ScreenPresenterMotionClip GetScreenPresenterMotion(ScreenPresenterMotionState state)
+    {
+        return screenPresenterMotions != null
+            ? screenPresenterMotions.Get(state)
+            : null;
+    }
 
     private void Awake()
     {
