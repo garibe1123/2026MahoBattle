@@ -77,6 +77,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     [Header("Screen Overlay")]
     [SerializeField] private int overlaySortingOrder = 470;
+    [Tooltip("Reward/Map 선택 중 작은 Mini PACK(780)보다 위에 말풍선을 표시합니다.")]
+    [SerializeField] private int dialogueMiniPackSortingOrder = 790;
     [SerializeField] private Vector2 referenceResolution = new(1920f, 1080f);
 
     [Header("Presenter Square")]
@@ -118,8 +120,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField, Min(5f)] private float boredLineRepeatSeconds = 14f;
 
     [Header("Dialogue")]
-    [SerializeField] private Vector2 dialogueSize = new(1020f, 154f);
-    [SerializeField] private Vector2 dialogueVisibleOffset = new(-280f, 34f);
+    [Tooltip("우측 사회자 영역 일부만 남기고 화면 하단 대부분을 사용하는 긴 말풍선입니다.")]
+    [SerializeField] private Vector2 dialogueSize = new(1500f, 180f);
+    [SerializeField] private Vector2 dialogueVisibleOffset = new(-120f, 28f);
     [SerializeField, Min(0f)] private float dialogueHiddenOffsetY = 72f;
     [SerializeField, Min(0.03f)] private float dialogueOpenDuration = 0.14f;
     [SerializeField, Min(0.03f)] private float dialogueCloseDuration = 0.10f;
@@ -150,6 +153,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField] private Color muted = new(0.65f, 0.68f, 0.74f, 1f);
 
     private BattleRunManager runManager;
+    private BattleRewardFlow rewardFlow;
     private BattleShowWorldSetController showWorld;
     private BattleShowPresentationManager presentation;
     private BattleRunState lastState = (BattleRunState)(-1);
@@ -181,7 +185,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private bool warnedNonMultipleSheet;
 
     private CanvasGroup dialogueGroup;
+    private Canvas dialogueRenderCanvas;
     private RectTransform dialogueRect;
+    private Canvas dialogueTailCanvas;
+    private CanvasGroup dialogueTailGroup;
     private RectTransform dialogueTailPivotRect;
     private BattleSpeechBubbleTailGraphic dialogueTailGraphic;
     private Text nameText;
@@ -262,6 +269,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         }
 
         EnsureOverlay();
+        UpdateDialogueSorting();
 
         UpdatePresenterMotionState();
         UpdatePresenterVisualSource();
@@ -368,6 +376,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+
+        if (rewardFlow == null)
+            rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
 
         if (showWorld == null)
             showWorld = FindFirstObjectByType<BattleShowWorldSetController>();
@@ -579,6 +590,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueRect.localRotation =
             Quaternion.Euler(0f, 0f, dialogueBubbleRotation);
 
+        dialogueRenderCanvas = root.AddComponent<Canvas>();
+        dialogueRenderCanvas.overrideSorting = true;
+        dialogueRenderCanvas.sortingOrder = dialogueMiniPackSortingOrder;
+
         dialogueGroup = root.AddComponent<CanvasGroup>();
         dialogueGroup.alpha = 0f;
         dialogueGroup.interactable = false;
@@ -587,13 +602,22 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         // Pivot-driven jagged tail. This sits behind the bubble but reaches the
         // presenter pivot even while the presenter idles, hops or scales.
         GameObject tail = new("PresenterDialogueTail", typeof(RectTransform));
-        tail.transform.SetParent(dialogueRect, false);
+        tail.transform.SetParent(overlayRoot, false);
         RectTransform tailRect = tail.GetComponent<RectTransform>();
         tailRect.anchorMin = Vector2.zero;
         tailRect.anchorMax = Vector2.one;
         tailRect.pivot = new Vector2(0.5f, 0.5f);
         tailRect.offsetMin = Vector2.zero;
         tailRect.offsetMax = Vector2.zero;
+
+        dialogueTailCanvas = tail.AddComponent<Canvas>();
+        dialogueTailCanvas.overrideSorting = true;
+        dialogueTailCanvas.sortingOrder = dialogueMiniPackSortingOrder - 1;
+
+        dialogueTailGroup = tail.AddComponent<CanvasGroup>();
+        dialogueTailGroup.alpha = 0f;
+        dialogueTailGroup.interactable = false;
+        dialogueTailGroup.blocksRaycasts = false;
 
         dialogueTailGraphic =
             tail.AddComponent<BattleSpeechBubbleTailGraphic>();
@@ -1318,6 +1342,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         float clamped = Mathf.Clamp01(value);
 
         dialogueGroup.alpha = clamped;
+        if (dialogueTailGroup != null)
+            dialogueTailGroup.alpha = clamped;
+
         dialogueRect.anchoredPosition = dialogueVisibleOffset;
 
         float scale;
@@ -1339,6 +1366,32 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         }
 
         dialogueRect.localScale = Vector3.one * scale;
+    }
+
+    private void UpdateDialogueSorting()
+    {
+        if (dialogueRenderCanvas == null)
+            return;
+
+        bool expandedRewardPack =
+            runManager != null &&
+            runManager.State == BattleRunState.Reward &&
+            rewardFlow != null &&
+            (rewardFlow.Phase == BattleRewardPhase.Transferring ||
+             rewardFlow.Phase == BattleRewardPhase.PackEditing);
+
+        // Mini PACK lives on BattleKineticLoadoutCanvas order 780.
+        // During choice/map the speech bubble sits just above it.
+        // Once the large PACK opens, restore the old presenter layer so
+        // inventory placement/editing remains visually authoritative.
+        int bubbleOrder = expandedRewardPack
+            ? overlaySortingOrder
+            : Mathf.Max(dialogueMiniPackSortingOrder, 781);
+
+        dialogueRenderCanvas.sortingOrder = bubbleOrder;
+
+        if (dialogueTailCanvas != null)
+            dialogueTailCanvas.sortingOrder = bubbleOrder - 1;
     }
 
     private void ApplyDialogueMetadata()
