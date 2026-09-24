@@ -64,8 +64,6 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     [Tooltip("전투용 사회자 상체 Rect 안에서 말풍선 꼬리가 향할 기준점입니다. (0,0)=좌하단, (1,1)=우상단")]
     [SerializeField] private Vector2 combatTailPortraitAnchor = new(0.18f, 0.52f);
     [SerializeField] private Vector2 combatTailPivotOffset = new(-4f, -2f);
-    [SerializeField, Min(8f)] private float combatTailBaseWidth = 54f;
-    [SerializeField, Min(0f)] private float combatTailOutlineWidth = 7f;
 
     [Header("Glitch Boot")]
     [Tooltip("Shader가 이 프로퍼티를 지원하면 전투 리액션 얼굴에만 자동으로 지지직 강도를 적용합니다.")]
