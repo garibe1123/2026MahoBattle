@@ -62,6 +62,51 @@ public sealed class ScreenPresenterMotionSet
     }
 }
 
+[Serializable]
+public sealed class CombatPresenterMotionClip
+{
+    [Tooltip("전투 우측 상단 리액션 박스용 상체 Sprite입니다. Source가 Frame Size보다 크면 해당 셀 크기로 자동 Sprite Sheet 판별합니다.")]
+    public Sprite source;
+
+    [Tooltip("전투용 한 프레임의 픽셀 크기입니다. 상체 비율에 맞게 자유롭게 변경할 수 있습니다. 예: 192x128, 160x128.")]
+    public Vector2Int frameSize = new(192, 128);
+
+    [Tooltip("Sprite Sheet로 판별됐을 때 사용할 고정 FPS입니다.")]
+    [Min(1f)] public float fps = 10f;
+}
+
+[Serializable]
+public sealed class CombatPresenterMotionSet
+{
+    public CombatPresenterMotionClip idle = new();
+    public CombatPresenterMotionClip talk = new();
+    public CombatPresenterMotionClip curious = new();
+    public CombatPresenterMotionClip excited = new();
+    public CombatPresenterMotionClip surprised = new();
+    public CombatPresenterMotionClip flustered = new();
+    public CombatPresenterMotionClip concerned = new();
+    public CombatPresenterMotionClip bored = new();
+    public CombatPresenterMotionClip denied = new();
+    public CombatPresenterMotionClip shutdown = new();
+
+    public CombatPresenterMotionClip Get(ScreenPresenterMotionState state)
+    {
+        return state switch
+        {
+            ScreenPresenterMotionState.Talk => talk,
+            ScreenPresenterMotionState.Curious => curious,
+            ScreenPresenterMotionState.Excited => excited,
+            ScreenPresenterMotionState.Surprised => surprised,
+            ScreenPresenterMotionState.Flustered => flustered,
+            ScreenPresenterMotionState.Concerned => concerned,
+            ScreenPresenterMotionState.Bored => bored,
+            ScreenPresenterMotionState.Denied => denied,
+            ScreenPresenterMotionState.Shutdown => shutdown,
+            _ => idle
+        };
+    }
+}
+
 /// <summary>
 /// 전투 쇼 연출의 중앙 통제 매니저입니다.
 /// 씬에 Empty GameObject 하나를 만들고 이 컴포넌트를 붙인 뒤,
@@ -110,10 +155,15 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [SerializeField] private bool autoPlayPresenterDuringReward = true;
 
     [Header("화면 사회자 컷인")]
-    [Tooltip("화면 사회자 모션 세트입니다. 각 Source는 128x128이면 정적, 더 크면 128 셀 Sprite Sheet로 자동 판별합니다.")]
+    [Tooltip("Reward/Map에서 우측 하단에 크게 보여주는 사회자 모션 세트입니다. 128x128 기준 자동 시트 판별을 사용합니다.")]
     [SerializeField] private ScreenPresenterMotionSet screenPresenterMotions = new();
 
-    [Tooltip("화면 사회자 전용 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다. AI/CRT/Glitch 효과는 이 Material에서 처리합니다.")]
+    [Header("전투 리액션 사회자")]
+    [Tooltip("전투 중 우측 상단 리액션 박스에 사용할 상체 전용 이미지 세트입니다. 화면 사회자와 별도 소스를 사용합니다.")]
+    [SerializeField] private CombatPresenterMotionSet combatPresenterMotions = new();
+
+    [Header("사회자 공용 Material")]
+    [Tooltip("Reward/Map 큰 사회자와 전투 리액션 상체 사회자가 함께 사용하는 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다.")]
     [SerializeField] private Material screenPresenterMaterial;
 
     [Header("버드아이뷰 조명 Sprite Sheet")]
@@ -183,6 +233,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         return screenPresenterMotions != null
             ? screenPresenterMotions.Get(state)
+            : null;
+    }
+
+    public CombatPresenterMotionClip GetCombatPresenterMotion(ScreenPresenterMotionState state)
+    {
+        return combatPresenterMotions != null
+            ? combatPresenterMotions.Get(state)
             : null;
     }
 
