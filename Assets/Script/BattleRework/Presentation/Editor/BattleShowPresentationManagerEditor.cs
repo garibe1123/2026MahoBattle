@@ -78,6 +78,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         public int tailHash = int.MinValue;
 
         public bool previewLeft;
+        // 0=AUTO, 1=OUTLINE only, 2=INNER only
+        public int framePickMode;
         public float previewZoom = 1f;
         public Vector2 previewPan;
         public bool previewPanning;
@@ -331,9 +333,27 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             }
         }
 
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            EditorGUILayout.LabelField(
+                "Frame Pick",
+                GUILayout.Width(72f));
+
+            state.framePickMode =
+                GUILayout.Toolbar(
+                    state.framePickMode,
+                    new[]
+                    {
+                        "AUTO",
+                        "OUTLINE",
+                        "INNER"
+                    });
+        }
+
         EditorGUILayout.HelpBox(
             "Preview 조작: 휠 = 마우스 위치 기준 줌 / 가운데 마우스 드래그 = 화면 이동 / " +
-            "프레임 점은 보이는 사각형보다 넓은 판정 범위에서 가장 가까운 OUTLINE 또는 INNER 점 하나를 선택합니다.",
+            "AUTO는 가장 가까운 점을 선택하고, OUTLINE/INNER는 겹친 점도 해당 레이어만 강제로 선택합니다. " +
+            "클릭 판정은 보이는 점보다 넓게 잡혀 있습니다.",
             MessageType.None);
 
         EditorGUILayout.Space(6f);
@@ -603,6 +623,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (e.type == EventType.MouseDown &&
             e.button == 2)
         {
+            state.activeFrameHandle = -1;
+            state.activeTailPoint = -1;
+            state.activeTailWidth = -1;
             state.previewPanning = true;
             state.previewPanStartMouse =
                 e.mousePosition;
@@ -878,6 +901,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         for (int i = 0; i < 4; i++)
         {
+            bool allowOutline =
+                state.framePickMode != 2;
+
+            bool allowInner =
+                state.framePickMode != 1;
+
             Vector2 outlinePosition =
                 LocalPointToGui(
                     outline[i],
@@ -887,7 +916,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 (e.mousePosition -
                  outlinePosition).sqrMagnitude;
 
-            if (outlineDistanceSq <= hitRadiusSq &&
+            if (allowOutline &&
+                outlineDistanceSq <= hitRadiusSq &&
                 outlineDistanceSq < bestDistanceSq)
             {
                 bestDistanceSq =
@@ -905,7 +935,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 (e.mousePosition -
                  innerPosition).sqrMagnitude;
 
-            if (innerDistanceSq <= hitRadiusSq &&
+            if (allowInner &&
+                innerDistanceSq <= hitRadiusSq &&
                 innerDistanceSq < bestDistanceSq)
             {
                 bestDistanceSq =
@@ -1021,6 +1052,16 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 state.activeFrameHandle = -1;
                 e.Use();
             }
+        }
+
+        if (state.activeFrameHandle == cornerIndex &&
+            state.activeFrameIsInner == isInner)
+        {
+            EditorGUI.DrawRect(
+                CenteredRect(
+                    position,
+                    FrameHandleSize + 6f),
+                Color.white);
         }
 
         EditorGUI.DrawRect(
