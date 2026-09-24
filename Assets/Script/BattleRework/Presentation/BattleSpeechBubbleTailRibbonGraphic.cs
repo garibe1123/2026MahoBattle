@@ -394,9 +394,7 @@ public sealed class BattleSpeechBubbleTailRibbonGraphic : MonoBehaviour
                 (point.x <
                  (b.x - a.x) *
                  (point.y - a.y) /
-                 Mathf.Max(
-                     0.000001f,
-                     b.y - a.y) +
+                 (b.y - a.y) +
                  a.x);
 
             if (intersects)
