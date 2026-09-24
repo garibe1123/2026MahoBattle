@@ -58,6 +58,9 @@ public sealed class BattleSpeechBubbleFrameStyle
     public Color outlineColor = new(0.012f, 0.012f, 0.018f, 0.99f);
     public Color fillColor = new(0.97f, 0.97f, 0.94f, 1f);
 
+    [SerializeField, HideInInspector]
+    private bool strokeThicknessInitialized;
+
     public float FillInsetLeft =>
         Mathf.Max(0f, strokeLeft - outlineLeft);
 
@@ -82,7 +85,8 @@ public sealed class BattleSpeechBubbleFrameStyle
             strokeLeft = 10f,
             strokeBottom = 11f,
             strokeRight = 10f,
-            strokeTop = 11f
+            strokeTop = 11f,
+            strokeThicknessInitialized = true
         };
     }
 
@@ -98,8 +102,23 @@ public sealed class BattleSpeechBubbleFrameStyle
             strokeLeft = 9f,
             strokeBottom = 10f,
             strokeRight = 9f,
-            strokeTop = 10f
+            strokeTop = 10f,
+            strokeThicknessInitialized = true
         };
+    }
+
+    public void EnsureStrokeThicknessDefaults()
+    {
+        if (strokeThicknessInitialized)
+            return;
+
+        // 이전 버전은 Outset + FillInset 조합으로 약 2px의 내부 Stroke를 만들었습니다.
+        // 기존 Scene 데이터는 새 Stroke 필드가 없으므로 현재 Outset + 2px로 자동 승계합니다.
+        strokeLeft = Mathf.Max(strokeLeft, outlineLeft + 2f);
+        strokeBottom = Mathf.Max(strokeBottom, outlineBottom + 2f);
+        strokeRight = Mathf.Max(strokeRight, outlineRight + 2f);
+        strokeTop = Mathf.Max(strokeTop, outlineTop + 2f);
+        strokeThicknessInitialized = true;
     }
 
     public int ComputeHash()
