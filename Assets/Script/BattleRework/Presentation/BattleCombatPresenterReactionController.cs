@@ -86,6 +86,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private bool pendingElite;
     private bool pendingBoss;
     private bool pendingClear;
+    private bool clearReactionShownForCurrentRoom;
     private float pendingKillResolveAt = -1f;
 
     private readonly Dictionary<string, int> lastLineIndex = new();
@@ -215,6 +216,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
     private void HandleCombatStarted(RoomDefinitionSO _)
     {
+        clearReactionShownForCurrentRoom = false;
         ClearPendingKills();
         HideImmediate();
     }
@@ -222,19 +224,20 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private void HandleCombatCleared(RoomDefinitionSO _)
     {
         // Normally the last MonsterDefeated callback already marks pendingClear.
-        // This is a safety path for rooms that are cleared externally.
-        if (pendingKillCount <= 0)
-        {
-            ShowReaction(
-                "ALL CLEAR!",
-                PickLine(
-                    "clear",
-                    "좋습니다! 무대 정리됐습니다!",
-                    "깔끔하게 끝냈네요. 다음 코너 준비하죠!",
-                    "전원 정리! 이걸로 이번 무대 종료입니다!"),
-                ScreenPresenterMotionState.Excited,
-                ReactionPriority.High);
-        }
+        // This is only a safety path for externally-completed rooms.
+        if (clearReactionShownForCurrentRoom || pendingKillCount > 0)
+            return;
+
+        clearReactionShownForCurrentRoom = true;
+        ShowReaction(
+            "ALL CLEAR!",
+            PickLine(
+                "clear",
+                "좋습니다! 무대 정리됐습니다!",
+                "깔끔하게 끝냈네요. 다음 코너 준비하죠!",
+                "전원 정리! 이걸로 이번 무대 종료입니다!"),
+            ScreenPresenterMotionState.Excited,
+            ReactionPriority.High);
     }
 
     private void HandleMonsterDefeated(MonsterController monster)
@@ -263,6 +266,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         if (clear && kills >= 3)
         {
+            clearReactionShownForCurrentRoom = true;
             ShowReaction(
                 "FINISH!",
                 PickLine(
@@ -277,6 +281,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         if (boss)
         {
+            if (clear)
+                clearReactionShownForCurrentRoom = true;
+
             ShowReaction(
                 "BOSS DOWN!",
                 PickLine(
@@ -333,6 +340,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         if (clear)
         {
+            clearReactionShownForCurrentRoom = true;
             ShowReaction(
                 "ALL CLEAR!",
                 PickLine(
