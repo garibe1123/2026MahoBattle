@@ -808,7 +808,10 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             bubbleRect.gameObject.AddComponent<BattleSpeechBubbleTailPresetController>();
         bubbleTailGraphic.Configure(
             bubbleRect,
-            tailPivotRect);
+            tailPivotRect,
+            presentation != null
+                ? presentation.SpeechBubbleTailSprites
+                : null);
 
         GameObject badge = new("ReactionTagBadge", typeof(RectTransform));
         badge.transform.SetParent(bubbleRect, false);
