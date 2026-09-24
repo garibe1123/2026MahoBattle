@@ -593,10 +593,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueRect = root.GetComponent<RectTransform>();
         dialogueRect.anchorMin = dialogueRect.anchorMax = new Vector2(0.5f, 0f);
         dialogueRect.pivot = new Vector2(0.5f, 0f);
-        dialogueRect.sizeDelta =
-            frameStyle != null
-                ? frameStyle.size
-                : dialogueSize;
+        // 선택씬 말풍선의 디자인 크기는 고정입니다.
+        // 실제 화면 비율/해상도 대응은 CanvasScaler가 담당합니다.
+        dialogueRect.sizeDelta = dialogueSize;
 
         dialogueRect.anchoredPosition =
             dialogueVisibleOffset - Vector2.up * dialogueHiddenOffsetY;
@@ -646,13 +645,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         faceRect.pivot = new Vector2(0.5f, 0.5f);
         faceRect.offsetMin =
             new Vector2(
-                frameStyle != null ? frameStyle.fillInsetLeft : 2f,
-                frameStyle != null ? frameStyle.fillInsetBottom : 2f);
+                frameStyle != null ? frameStyle.FillInsetLeft : 2f,
+                frameStyle != null ? frameStyle.FillInsetBottom : 2f);
 
         faceRect.offsetMax =
             new Vector2(
-                -(frameStyle != null ? frameStyle.fillInsetRight : 2f),
-                -(frameStyle != null ? frameStyle.fillInsetTop : 2f));
+                -(frameStyle != null ? frameStyle.FillInsetRight : 2f),
+                -(frameStyle != null ? frameStyle.FillInsetTop : 2f));
         Image faceImage = face.AddComponent<Image>();
         faceImage.color = bubbleFill;
         faceImage.raycastTarget = false;
@@ -749,10 +748,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         face.transform.SetSiblingIndex(2);
 
         dialogueRect.localScale =
-            Vector3.one *
-            (frameStyle != null
-                ? frameStyle.startScale
-                : dialogueBubbleStartScale);
+            Vector3.one * dialogueBubbleStartScale;
     }
 
     // ---------------------------------------------------------------------
@@ -1361,41 +1357,23 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueGroup.alpha = clamped;
         dialogueRect.anchoredPosition = dialogueVisibleOffset;
 
-        BattleSpeechBubbleFrameStyle frameStyle =
-            presentation != null
-                ? presentation.SelectionSpeechBubbleFrameStyle
-                : null;
-
-        float startScale =
-            frameStyle != null
-                ? frameStyle.startScale
-                : dialogueBubbleStartScale;
-
-        float overshootScale =
-            frameStyle != null
-                ? frameStyle.overshootScale
-                : dialogueBubbleOvershootScale;
-
-        float settledScale =
-            frameStyle != null
-                ? frameStyle.settledScale
-                : 1f;
-
+        // Pop Scale은 기존 선택씬 연출값으로 고정합니다.
+        // 화면 비율 스케일링은 CanvasScaler가 담당합니다.
         float scale;
         if (clamped < 0.72f)
         {
             float t = clamped / 0.72f;
             scale = Mathf.Lerp(
-                startScale,
-                overshootScale,
+                dialogueBubbleStartScale,
+                dialogueBubbleOvershootScale,
                 Smooth01(t));
         }
         else
         {
             float t = (clamped - 0.72f) / 0.28f;
             scale = Mathf.Lerp(
-                overshootScale,
-                settledScale,
+                dialogueBubbleOvershootScale,
+                1f,
                 Smooth01(t));
         }
 
