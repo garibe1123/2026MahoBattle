@@ -23,8 +23,16 @@ public sealed class BattleSpeechBubbleTailRibbonGraphic : MonoBehaviour
     [SerializeField] private RectTransform targetPivot;
 
     [Header("Ribbon")]
+    [Tooltip("꼬리 높이입니다. 레퍼런스처럼 말풍선 일부로 보이도록 너무 얇게 만들지 않습니다.")]
     [SerializeField, Min(24f)] private float ribbonHeight = 74f;
-    [SerializeField, Range(0f, 18f)] private float bubbleOverlap = 8f;
+    [Tooltip("꼬리가 말풍선 안쪽으로 살짝 파고들어 자연스럽게 붙도록 하는 값입니다.")]
+    [SerializeField, Range(0f, 24f)] private float bubbleOverlap = 10f;
+    [Tooltip("Pivot까지 실제로 닿지 않고, 이 최소 길이 이상만 짧게 튀어나옵니다.")]
+    [SerializeField, Min(40f)] private float minRibbonLength = 130f;
+    [Tooltip("멀리 있는 Pivot을 향해도 꼬리가 창처럼 길어지지 않도록 최대 길이를 제한합니다.")]
+    [SerializeField, Min(60f)] private float maxRibbonLength = 210f;
+    [Tooltip("Pivot 거리 중 꼬리 길이로 사용할 비율입니다. 최종 길이는 Min/Max로 Clamp됩니다.")]
+    [SerializeField, Range(0.15f, 0.55f)] private float ribbonDistanceRatio = 0.34f;
     [SerializeField, Range(0.05f, 0.42f)] private float edgeCornerPadding = 0.14f;
 
     private RectTransform ribbonRect;
@@ -135,22 +143,45 @@ public sealed class BattleSpeechBubbleTailRibbonGraphic : MonoBehaviour
         SetVisible(true);
 
         Vector2 forward = delta / distance;
+
+        // IMPORTANT:
+        // targetPivot은 꼬리 "방향"만 결정합니다.
+        // 꼬리를 Pivot까지 전부 늘리면 말풍선 꼬리가 아니라 창/연결선처럼 보이므로,
+        // 짧은 고정 비율 길이로 제한합니다.
         Vector2 start =
             basePoint -
             forward * Mathf.Max(0f, bubbleOverlap);
 
-        Vector2 end = target;
-        Vector2 line = end - start;
+        float minimum =
+            Mathf.Max(40f, minRibbonLength);
 
-        float length = line.magnitude;
-        if (length <= 1f)
+        float maximum =
+            Mathf.Max(minimum, maxRibbonLength);
+
+        float desiredLength =
+            distance *
+            Mathf.Clamp(ribbonDistanceRatio, 0.15f, 0.55f);
+
+        float resolvedLength =
+            Mathf.Clamp(
+                desiredLength,
+                minimum,
+                maximum);
+
+        // Pivot이 아주 가까운 경우에는 Pivot을 지나치지 않도록 한 번 더 제한합니다.
+        resolvedLength =
+            Mathf.Min(
+                resolvedLength,
+                Mathf.Max(24f, distance - 8f));
+
+        if (resolvedLength <= 1f)
         {
             SetVisible(false);
             return;
         }
 
         float angle =
-            Mathf.Atan2(line.y, line.x) *
+            Mathf.Atan2(forward.y, forward.x) *
             Mathf.Rad2Deg;
 
         ribbonRect.anchoredPosition = start;
@@ -159,7 +190,7 @@ public sealed class BattleSpeechBubbleTailRibbonGraphic : MonoBehaviour
 
         ribbonRect.sizeDelta =
             new Vector2(
-                length,
+                resolvedLength,
                 Mathf.Max(24f, ribbonHeight));
     }
 
@@ -251,27 +282,28 @@ public sealed class BattleSpeechBubbleTailRibbonGraphic : MonoBehaviour
 
         Vector2[] outer =
         {
-            // Bubble-side notch / fork.
-            new Vector2(0.00f, 0.50f),
-            new Vector2(0.075f, 0.78f),
-            new Vector2(0.135f, 0.68f),
+            // Bubble-side connection: broad body with a comic-style notch.
+            new Vector2(0.00f, 0.34f),
+            new Vector2(0.12f, 0.39f),
+            new Vector2(0.085f, 0.20f),
+            new Vector2(0.27f, 0.39f),
 
-            // Long asymmetric upper body.
-            new Vector2(0.22f, 0.76f),
-            new Vector2(0.70f, 0.70f),
-            new Vector2(0.86f, 0.66f),
+            // Main ribbon body.
+            new Vector2(0.72f, 0.36f),
+            new Vector2(0.86f, 0.40f),
 
-            // Speaker-side pointed tip.
+            // Short pointed speaker-facing tip.
             new Vector2(1.00f, 0.50f),
 
-            // Lower body comes back with a different angle.
-            new Vector2(0.88f, 0.35f),
-            new Vector2(0.66f, 0.29f),
-            new Vector2(0.20f, 0.31f),
+            // Bottom edge intentionally differs from the top edge for a hand-cut look.
+            new Vector2(0.86f, 0.62f),
+            new Vector2(0.68f, 0.66f),
+            new Vector2(0.27f, 0.63f),
 
-            // Lower notch.
-            new Vector2(0.135f, 0.42f),
-            new Vector2(0.075f, 0.32f)
+            // Matching lower notch.
+            new Vector2(0.085f, 0.82f),
+            new Vector2(0.12f, 0.61f),
+            new Vector2(0.00f, 0.66f)
         };
 
         Vector2 center =
