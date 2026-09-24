@@ -805,7 +805,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleBack.raycastTarget = false;
 
         GameObject tail = new("BubbleTail", typeof(RectTransform));
-        tail.transform.SetParent(bubbleRect, false);
+        tail.transform.SetParent(popupRect, false);
         RectTransform tailRect = tail.GetComponent<RectTransform>();
         Stretch(tailRect, Vector2.zero, Vector2.zero);
         bubbleTailGraphic = tail.AddComponent<BattleSpeechBubbleTailGraphic>();
