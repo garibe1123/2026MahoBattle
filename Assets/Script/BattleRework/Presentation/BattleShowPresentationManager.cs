@@ -166,6 +166,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("Reward/Map 큰 사회자와 전투 리액션 상체 사회자가 함께 사용하는 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다.")]
     [SerializeField] private Material screenPresenterMaterial;
 
+    [Header("말풍선 꼬리 스타일")]
+    [Tooltip("전투/아이템/맵 선택이 공통으로 사용하는 코드 생성 말풍선 꼬리 프로파일입니다. Pivot/폭/Stroke를 수정하면 Editor Preview와 런타임에 동일하게 반영됩니다.")]
+    [SerializeField] private BattleSpeechBubbleTailStyle speechBubbleTailStyle = new();
+
     [Header("버드아이뷰 조명 Sprite Sheet")]
     [Tooltip("플레이어와 사회자 발밑 조명에 사용할 Sprite Sheet 프레임입니다. 비어 있으면 BattleHUD가 만드는 기본 타원형 조명을 사용합니다.")]
     [SerializeField] private Sprite[] spotlightFrames;
@@ -228,6 +232,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public BattleShowFloorTemplateSO DefaultFloorTemplate => defaultFloorTemplate;
 
     public Material ScreenPresenterMaterial => screenPresenterMaterial;
+
+    public BattleSpeechBubbleTailStyle SpeechBubbleTailStyle =>
+        speechBubbleTailStyle ??= new BattleSpeechBubbleTailStyle();
 
     public ScreenPresenterMotionClip GetScreenPresenterMotion(ScreenPresenterMotionState state)
     {
