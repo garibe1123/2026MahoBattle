@@ -2,79 +2,162 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// 말풍선 Edge와 캐릭터 쪽 Target Pivot을 꺾인 리본형 Mesh로 연결합니다.
+/// 말풍선 Edge와 캐릭터 Target Pivot 사이를 Unity 기본 Image 조각으로 연결합니다.
 ///
-/// 레퍼런스처럼 곧은 삼각형이 아니라 중간이 한두 번 꺾이는 Jagged Tail을 만들며,
-/// Bubble/Target이 이동·회전·스케일되어도 매 프레임 자동으로 다시 계산합니다.
+/// 이전 Custom Graphic Mesh 방식은 중첩 Canvas/회전/스케일 조합에서 렌더링이
+/// 누락될 수 있어 사용하지 않습니다. 이 버전은 4개의 실제 UI Image 세그먼트를
+/// 사용하므로 전투/Reward/Map 어디서든 동일하게 확실히 렌더링됩니다.
+///
+/// 각 세그먼트는 검은 Outer Image + 흰 Inner Image 두 겹이며,
+/// 중간 중심점을 좌우로 꺾어서 레퍼런스의 각진 말풍선 꼬리 느낌을 만듭니다.
 /// </summary>
 [DisallowMultipleComponent]
-public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
+public sealed class BattleSpeechBubbleTailGraphic : MonoBehaviour
 {
+    private const int SegmentCount = 4;
+
     [SerializeField] private RectTransform bubbleRect;
     [SerializeField] private RectTransform targetPivot;
 
     [Header("Tail Shape")]
-    [SerializeField, Min(12f)] private float baseWidth = 56f;
-    [SerializeField, Min(0f)] private float outlineWidth = 7f;
-    [SerializeField, Min(0f)] private float jagDepth = 18f;
-    [SerializeField, Range(0.05f, 0.45f)] private float edgeCornerPadding = 0.14f;
+    [SerializeField, Min(16f)] private float baseWidth = 68f;
+    [SerializeField, Min(1f)] private float outlineWidth = 8f;
+    [SerializeField, Min(0f)] private float jagDepth = 22f;
+    [SerializeField, Range(0.05f, 0.42f)] private float edgeCornerPadding = 0.14f;
+    [SerializeField, Min(0f)] private float segmentOverlap = 9f;
 
-    [SerializeField] private Color fillColor = new(0.97f, 0.97f, 0.94f, 1f);
-    [SerializeField] private Color outlineColor = new(0.015f, 0.015f, 0.02f, 1f);
+    [SerializeField] private Color fillColor =
+        new(0.97f, 0.97f, 0.94f, 1f);
+
+    [SerializeField] private Color outlineColor =
+        new(0.015f, 0.015f, 0.02f, 1f);
 
     private readonly Vector3[] worldCorners = new Vector3[4];
+    private readonly RectTransform[] outerRects = new RectTransform[SegmentCount];
+    private readonly RectTransform[] innerRects = new RectTransform[SegmentCount];
+    private readonly Image[] outerImages = new Image[SegmentCount];
+    private readonly Image[] innerImages = new Image[SegmentCount];
 
-    protected override void Awake()
-    {
-        base.Awake();
-        raycastTarget = false;
-    }
+    private bool visualsBuilt;
 
     public void Configure(
         RectTransform bubble,
         RectTransform target,
         Color fill,
         Color outline,
-        float width = 56f,
-        float outlineThickness = 7f)
+        float width = 68f,
+        float outlineThickness = 8f)
     {
         bubbleRect = bubble;
         targetPivot = target;
         fillColor = fill;
         outlineColor = outline;
-        baseWidth = Mathf.Max(12f, width);
-        outlineWidth = Mathf.Max(0f, outlineThickness);
-        raycastTarget = false;
-        SetVerticesDirty();
+        baseWidth = Mathf.Max(16f, width);
+        outlineWidth = Mathf.Max(1f, outlineThickness);
+
+        EnsureVisuals();
+        ApplyColors();
+        RebuildTail();
     }
 
     public void SetTarget(RectTransform target)
     {
         targetPivot = target;
-        SetVerticesDirty();
+        RebuildTail();
+    }
+
+    private void Awake()
+    {
+        EnsureVisuals();
+    }
+
+    private void OnEnable()
+    {
+        EnsureVisuals();
+        RebuildTail();
     }
 
     private void LateUpdate()
     {
-        if (bubbleRect != null && targetPivot != null)
-            SetVerticesDirty();
+        RebuildTail();
     }
 
-    protected override void OnPopulateMesh(VertexHelper vh)
+    private void EnsureVisuals()
     {
-        vh.Clear();
-
-        if (bubbleRect == null || targetPivot == null || rectTransform == null)
+        if (visualsBuilt)
             return;
+
+        visualsBuilt = true;
+
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            GameObject outerObject =
+                new($"TailOuter_{i + 1}", typeof(RectTransform));
+
+            outerObject.transform.SetParent(transform, false);
+            RectTransform outer = outerObject.GetComponent<RectTransform>();
+            outer.anchorMin = outer.anchorMax = new Vector2(0.5f, 0.5f);
+            outer.pivot = new Vector2(0.5f, 0.5f);
+
+            Image outerImage = outerObject.AddComponent<Image>();
+            outerImage.sprite = BattleHudSpriteCache.DefaultSprite;
+            outerImage.type = Image.Type.Simple;
+            outerImage.raycastTarget = false;
+
+            GameObject innerObject =
+                new($"TailInner_{i + 1}", typeof(RectTransform));
+
+            innerObject.transform.SetParent(outer, false);
+            RectTransform inner = innerObject.GetComponent<RectTransform>();
+            inner.anchorMin = inner.anchorMax = new Vector2(0.5f, 0.5f);
+            inner.pivot = new Vector2(0.5f, 0.5f);
+            inner.anchoredPosition = Vector2.zero;
+
+            Image innerImage = innerObject.AddComponent<Image>();
+            innerImage.sprite = BattleHudSpriteCache.DefaultSprite;
+            innerImage.type = Image.Type.Simple;
+            innerImage.raycastTarget = false;
+
+            outerRects[i] = outer;
+            innerRects[i] = inner;
+            outerImages[i] = outerImage;
+            innerImages[i] = innerImage;
+        }
+
+        ApplyColors();
+    }
+
+    private void ApplyColors()
+    {
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            if (outerImages[i] != null)
+                outerImages[i].color = outlineColor;
+
+            if (innerImages[i] != null)
+                innerImages[i].color = fillColor;
+        }
+    }
+
+    private void RebuildTail()
+    {
+        if (!visualsBuilt ||
+            bubbleRect == null ||
+            targetPivot == null ||
+            transform is not RectTransform root)
+        {
+            SetVisible(false);
+            return;
+        }
 
         bubbleRect.GetWorldCorners(worldCorners);
 
         Vector2[] corners = new Vector2[4];
         for (int i = 0; i < 4; i++)
-            corners[i] = rectTransform.InverseTransformPoint(worldCorners[i]);
+            corners[i] = root.InverseTransformPoint(worldCorners[i]);
 
         Vector2 target =
-            rectTransform.InverseTransformPoint(targetPivot.position);
+            root.InverseTransformPoint(targetPivot.position);
 
         ResolveBestEdge(
             corners,
@@ -83,57 +166,64 @@ public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
             out Vector2 edgeDirection,
             out float edgeLength);
 
-        if (edgeLength <= 0.001f)
-            return;
+        Vector2 delta = target - baseCenter;
+        float distance = delta.magnitude;
 
-        Vector2 toTarget = target - baseCenter;
-        float distance = toTarget.magnitude;
-        if (distance <= 1f)
+        if (edgeLength <= 0.001f || distance <= 8f)
+        {
+            SetVisible(false);
             return;
+        }
 
-        Vector2 forward = toTarget / distance;
+        SetVisible(true);
+
         Vector2 side = edgeDirection.normalized;
-
-        float maxHalfWidth =
-            edgeLength *
-            (0.5f - Mathf.Clamp(edgeCornerPadding, 0.05f, 0.45f));
-
-        float outerBaseWidth =
-            Mathf.Min(baseWidth, Mathf.Max(12f, maxHalfWidth * 2f));
-
-        // Outer black ink ribbon.
-        AddJaggedRibbon(
-            vh,
-            baseCenter,
-            target,
-            side,
-            forward,
-            outerBaseWidth,
+        float jag = Mathf.Min(
             Mathf.Max(0f, jagDepth),
-            outlineColor);
+            distance * 0.20f);
 
-        // Inner white ribbon leaves a black outline all the way to the point.
-        float innerInset = Mathf.Max(1f, outlineWidth);
-        float innerBaseWidth =
-            Mathf.Max(8f, outerBaseWidth - innerInset * 2f);
+        // First point is pulled a few pixels into the bubble so the tail visibly
+        // joins the white face instead of looking detached.
+        Vector2 forward = delta / distance;
+        Vector2 p0 = baseCenter - forward * 5f;
+        Vector2 p1 = Vector2.Lerp(baseCenter, target, 0.30f) - side * jag;
+        Vector2 p2 = Vector2.Lerp(baseCenter, target, 0.56f) + side * jag * 0.72f;
+        Vector2 p3 = Vector2.Lerp(baseCenter, target, 0.79f) - side * jag * 0.34f;
+        Vector2 p4 = target;
 
-        Vector2 innerStart =
-            baseCenter + forward * (innerInset * 0.35f);
+        Vector2[] points = { p0, p1, p2, p3, p4 };
 
-        Vector2 innerEnd =
-            target - forward * Mathf.Min(
-                innerInset * 1.15f,
-                distance * 0.16f);
+        float maxWidth =
+            Mathf.Max(
+                18f,
+                edgeLength *
+                (0.5f - Mathf.Clamp(edgeCornerPadding, 0.05f, 0.42f)) *
+                0.75f);
 
-        AddJaggedRibbon(
-            vh,
-            innerStart,
-            innerEnd,
-            side,
-            forward,
-            innerBaseWidth,
-            Mathf.Max(0f, jagDepth - innerInset * 0.55f),
-            fillColor);
+        float startWidth = Mathf.Min(baseWidth, maxWidth);
+
+        float[] widthScale =
+        {
+            1.00f,
+            0.74f,
+            0.50f,
+            0.27f
+        };
+
+        for (int i = 0; i < SegmentCount; i++)
+        {
+            float width =
+                Mathf.Max(8f, startWidth * widthScale[i]);
+
+            LayoutSegment(
+                outerRects[i],
+                innerRects[i],
+                points[i],
+                points[i + 1],
+                width,
+                outlineWidth,
+                segmentOverlap);
+        }
     }
 
     private void ResolveBestEdge(
@@ -154,6 +244,7 @@ public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
             Vector2 b = corners[(i + 1) % 4];
             Vector2 edge = b - a;
             float lengthSq = edge.sqrMagnitude;
+
             if (lengthSq <= 0.0001f)
                 continue;
 
@@ -162,113 +253,78 @@ public sealed class BattleSpeechBubbleTailGraphic : MaskableGraphic
                 lengthSq;
 
             float padding =
-                Mathf.Clamp(edgeCornerPadding, 0.05f, 0.45f);
+                Mathf.Clamp(edgeCornerPadding, 0.05f, 0.42f);
 
             t = Mathf.Clamp(t, padding, 1f - padding);
 
             Vector2 point = Vector2.Lerp(a, b, t);
-            float distanceSq = (target - point).sqrMagnitude;
+            float sqrDistance = (target - point).sqrMagnitude;
 
-            if (distanceSq >= bestDistance)
+            if (sqrDistance >= bestDistance)
                 continue;
 
-            bestDistance = distanceSq;
+            bestDistance = sqrDistance;
             baseCenter = point;
             edgeLength = Mathf.Sqrt(lengthSq);
             edgeDirection = edge / edgeLength;
         }
     }
 
-    private static void AddJaggedRibbon(
-        VertexHelper vh,
-        Vector2 start,
-        Vector2 end,
-        Vector2 side,
-        Vector2 forward,
-        float startWidth,
-        float jag,
-        Color color)
+    private static void LayoutSegment(
+        RectTransform outer,
+        RectTransform inner,
+        Vector2 from,
+        Vector2 to,
+        float outerWidth,
+        float outline,
+        float overlap)
     {
-        const int SectionCount = 6;
+        if (outer == null || inner == null)
+            return;
 
-        float[] t =
+        Vector2 delta = to - from;
+        float length = delta.magnitude;
+
+        if (length <= 0.1f)
         {
-            0f,
-            0.20f,
-            0.42f,
-            0.64f,
-            0.82f,
-            1f
-        };
-
-        float[] widthScale =
-        {
-            1f,
-            0.70f,
-            0.60f,
-            0.43f,
-            0.28f,
-            0.035f
-        };
-
-        // Alternating lateral offsets make the tail kink like the supplied comic reference.
-        float[] lateral =
-        {
-            0f,
-            -0.58f,
-            0.42f,
-            -0.30f,
-            0.14f,
-            0f
-        };
-
-        Vector2[] left = new Vector2[SectionCount];
-        Vector2[] right = new Vector2[SectionCount];
-
-        for (int i = 0; i < SectionCount; i++)
-        {
-            Vector2 center =
-                Vector2.Lerp(start, end, t[i]) +
-                side * (jag * lateral[i]);
-
-            float half =
-                Mathf.Max(
-                    i == SectionCount - 1 ? 0.75f : 2f,
-                    startWidth * widthScale[i] * 0.5f);
-
-            // Small forward bite at the two middle joints gives the silhouette
-            // a sharper arrow/comic cut rather than a smooth ribbon.
-            if (i == 2)
-                center -= forward * Mathf.Min(5f, jag * 0.28f);
-            else if (i == 3)
-                center += forward * Mathf.Min(4f, jag * 0.20f);
-
-            left[i] = center - side * half;
-            right[i] = center + side * half;
+            outer.gameObject.SetActive(false);
+            return;
         }
 
-        int startVertex = vh.currentVertCount;
-        UIVertex vertex = UIVertex.simpleVert;
-        vertex.color = color;
+        outer.gameObject.SetActive(true);
 
-        for (int i = 0; i < SectionCount; i++)
+        Vector2 direction = delta / length;
+        Vector2 midpoint = (from + to) * 0.5f;
+
+        float angle =
+            Mathf.Atan2(direction.y, direction.x) *
+            Mathf.Rad2Deg;
+
+        outer.anchoredPosition = midpoint;
+        outer.localRotation = Quaternion.Euler(0f, 0f, angle);
+        outer.sizeDelta =
+            new Vector2(
+                length + Mathf.Max(0f, overlap),
+                Mathf.Max(4f, outerWidth));
+
+        float innerWidth =
+            Mathf.Max(2f, outerWidth - outline * 2f);
+
+        inner.sizeDelta =
+            new Vector2(
+                Mathf.Max(2f, length + Mathf.Max(0f, overlap) - outline * 0.75f),
+                innerWidth);
+
+        inner.anchoredPosition = Vector2.zero;
+        inner.localRotation = Quaternion.identity;
+    }
+
+    private void SetVisible(bool visible)
+    {
+        for (int i = 0; i < SegmentCount; i++)
         {
-            vertex.position = left[i];
-            vh.AddVert(vertex);
-
-            vertex.position = right[i];
-            vh.AddVert(vertex);
-        }
-
-        for (int i = 0; i < SectionCount - 1; i++)
-        {
-            int a = startVertex + i * 2;
-            int b = a + 1;
-            int c = a + 2;
-            int d = a + 3;
-
-            vh.AddTriangle(a, b, c);
-            vh.AddTriangle(b, d, c);
+            if (outerRects[i] != null)
+                outerRects[i].gameObject.SetActive(visible);
         }
     }
 }
