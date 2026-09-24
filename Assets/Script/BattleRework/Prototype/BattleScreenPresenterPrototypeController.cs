@@ -187,10 +187,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private CanvasGroup dialogueGroup;
     private Canvas dialogueRenderCanvas;
     private RectTransform dialogueRect;
-    private Canvas dialogueTailCanvas;
-    private CanvasGroup dialogueTailGroup;
     private RectTransform dialogueTailPivotRect;
-    private BattleSpeechBubbleTailRibbonGraphic dialogueTailGraphic;
+    private BattleSpeechBubbleTailPresetController dialogueTailGraphic;
     private Text nameText;
     private Text contextText;
     private Text dialogueText;
@@ -599,35 +597,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueGroup.interactable = false;
         dialogueGroup.blocksRaycasts = false;
 
-        // Pivot-driven jagged tail. This sits behind the bubble but reaches the
-        // presenter pivot even while the presenter idles, hops or scales.
-        GameObject tail = new("PresenterDialogueTail", typeof(RectTransform));
-        tail.transform.SetParent(overlayRoot, false);
-        RectTransform tailRect = tail.GetComponent<RectTransform>();
-        tailRect.anchorMin = Vector2.zero;
-        tailRect.anchorMax = Vector2.one;
-        tailRect.pivot = new Vector2(0.5f, 0.5f);
-        tailRect.offsetMin = Vector2.zero;
-        tailRect.offsetMax = Vector2.zero;
-
-        dialogueTailCanvas = tail.AddComponent<Canvas>();
-        dialogueTailCanvas.overrideSorting = true;
-        dialogueTailCanvas.sortingOrder = dialogueMiniPackSortingOrder - 1;
-
-        dialogueTailGroup = tail.AddComponent<CanvasGroup>();
-        dialogueTailGroup.alpha = 0f;
-        dialogueTailGroup.interactable = false;
-        dialogueTailGroup.blocksRaycasts = false;
-
+        // Short comic preset tail. It is a child of the bubble so it shares the
+        // same pop animation, alpha and sorting. The presenter Pivot only picks direction.
         dialogueTailGraphic =
-            tail.AddComponent<BattleSpeechBubbleTailRibbonGraphic>();
+            dialogueRect.gameObject.AddComponent<BattleSpeechBubbleTailPresetController>();
         dialogueTailGraphic.Configure(
             dialogueRect,
-            dialogueTailPivotRect,
-            bubbleFill,
-            bubbleInk,
-            dialogueTailBaseWidth,
-            dialogueTailOutlineWidth);
+            dialogueTailPivotRect);
 
         // Rough black ink silhouette slightly larger than the white face.
         GameObject ink = new("BubbleInkBack", typeof(RectTransform));
@@ -1342,9 +1318,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         float clamped = Mathf.Clamp01(value);
 
         dialogueGroup.alpha = clamped;
-        if (dialogueTailGroup != null)
-            dialogueTailGroup.alpha = clamped;
-
         dialogueRect.anchoredPosition = dialogueVisibleOffset;
 
         float scale;
@@ -1389,9 +1362,6 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             : Mathf.Max(dialogueMiniPackSortingOrder, 781);
 
         dialogueRenderCanvas.sortingOrder = bubbleOrder;
-
-        if (dialogueTailCanvas != null)
-            dialogueTailCanvas.sortingOrder = bubbleOrder - 1;
     }
 
     private void ApplyDialogueMetadata()
