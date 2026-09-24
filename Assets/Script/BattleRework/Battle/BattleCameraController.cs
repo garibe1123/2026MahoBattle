@@ -60,7 +60,10 @@ public class BattleCameraController : MonoBehaviour
     [FormerlySerializedAs("mapCursorTrackingSharpness")]
     [SerializeField, Min(1f)] private float showCursorTrackingSharpness = 5.6f;
 
-    [Header("Map Cursor Focus")]
+    [Header("Reward / Map Cursor Focus")]
+    [Tooltip("아이템 선택 중 커서가 실제 TV 화면 안에 있을 때 Reward 기본 줌에 곱할 비율입니다. 아이템 정보 가독성을 위해 Map보다 조금 더 강하게 당깁니다.")]
+    [SerializeField, Range(0.65f, 1f)] private float rewardCursorZoomRatio = 0.76f;
+
     [Tooltip("맵 선택 중 커서가 실제 TV 화면 안에 있을 때 Show 기본 줌에 곱할 비율입니다. 1보다 작을수록 화면을 더 가까이 봅니다.")]
     [SerializeField, Range(0.65f, 1f)] private float mapCursorZoomRatio = 0.84f;
 
@@ -549,17 +552,36 @@ public class BattleCameraController : MonoBehaviour
             ? showStage.ShowCameraSize
             : normalZoom;
 
-        // Map은 기본 Show 프레임을 유지하다가 실제 TV 화면 안으로 커서가 들어왔을 때만
-        // 아이템 선택 화면처럼 한 단계 가까이 들어갑니다. showCursorTracking은
-        // BattleShowWorldSetController가 Mounted TV Rect 기준으로 판정하므로 Node Hover에 종속되지 않습니다.
-        bool mapCursorFocused = showFraming &&
-                                showCursorTracking &&
-                                runManager != null &&
-                                runManager.State == BattleRunState.SelectingNode &&
-                                showStage != null &&
-                                showStage.IsMapMode;
-        if (mapCursorFocused)
+        // Reward / Map 모두 TV 안으로 커서가 들어오면 한 단계 더 가까이 들어갑니다.
+        // showCursorTracking은 Mounted TV Rect 기준이므로 카드/노드 UI가 커서 아래에 있을 때
+        // 자연스럽게 확대 + 패닝되고, TV 밖으로 빠지면 기본 Show 프레임으로 복귀합니다.
+        bool rewardCursorFocused =
+            showFraming &&
+            showCursorTracking &&
+            runManager != null &&
+            runManager.State == BattleRunState.Reward &&
+            showStage != null &&
+            showStage.IsRewardMode;
+
+        bool mapCursorFocused =
+            showFraming &&
+            showCursorTracking &&
+            runManager != null &&
+            runManager.State == BattleRunState.SelectingNode &&
+            showStage != null &&
+            showStage.IsMapMode;
+
+        if (rewardCursorFocused)
+        {
+            float ratio = rewardCursorZoomRatio > 0.001f
+                ? rewardCursorZoomRatio
+                : 0.76f;
+            showZoom *= Mathf.Clamp(ratio, 0.65f, 1f);
+        }
+        else if (mapCursorFocused)
+        {
             showZoom *= Mathf.Clamp(mapCursorZoomRatio, 0.65f, 1f);
+        }
 
         float clampedShowZoom = Mathf.Clamp(
             showZoom,
