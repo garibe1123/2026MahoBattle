@@ -107,19 +107,6 @@ public sealed class CombatPresenterMotionSet
     }
 }
 
-[Serializable]
-public sealed class SpeechBubbleTailSpriteSet
-{
-    [Tooltip("오른쪽 위 방향의 짧은 만화식 꼬리 Sprite입니다. 비어 있으면 Resources 기본 CC0 기반 PNG를 사용합니다.")]
-    public Sprite rightUp;
-
-    [Tooltip("오른쪽 수평 방향의 짧은 만화식 꼬리 Sprite입니다. 비어 있으면 Resources 기본 CC0 기반 PNG를 사용합니다.")]
-    public Sprite rightMid;
-
-    [Tooltip("오른쪽 아래 방향의 짧은 만화식 꼬리 Sprite입니다. 비어 있으면 Resources 기본 CC0 기반 PNG를 사용합니다.")]
-    public Sprite rightDown;
-}
-
 /// <summary>
 /// 전투 쇼 연출의 중앙 통제 매니저입니다.
 /// 씬에 Empty GameObject 하나를 만들고 이 컴포넌트를 붙인 뒤,
@@ -174,10 +161,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Header("전투 리액션 사회자")]
     [Tooltip("전투 중 우측 상단 리액션 박스에 사용할 상체 전용 이미지 세트입니다. 화면 사회자와 별도 소스를 사용합니다.")]
     [SerializeField] private CombatPresenterMotionSet combatPresenterMotions = new();
-
-    [Header("말풍선 꼬리 Override")]
-    [Tooltip("전투/아이템/맵 선택에서 공용으로 사용할 짧은 만화식 꼬리 Sprite입니다. 비워두면 Resources/BattleShow/SpeechTails의 기본 CC0 기반 PNG를 자동 사용합니다.")]
-    [SerializeField] private SpeechBubbleTailSpriteSet speechBubbleTailSprites = new();
 
     [Header("사회자 공용 Material")]
     [Tooltip("Reward/Map 큰 사회자와 전투 리액션 상체 사회자가 함께 사용하는 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다.")]
@@ -259,9 +242,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             ? combatPresenterMotions.Get(state)
             : null;
     }
-
-    public SpeechBubbleTailSpriteSet SpeechBubbleTailSprites =>
-        speechBubbleTailSprites;
 
     private void Awake()
     {
