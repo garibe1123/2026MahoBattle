@@ -61,6 +61,11 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     [SerializeField, Range(-8f, 8f)] private float bubbleRotation = -2.5f;
     [SerializeField, Range(0.7f, 1f)] private float bubbleStartScale = 0.86f;
     [SerializeField, Range(1f, 1.15f)] private float bubbleOvershootScale = 1.055f;
+    [Tooltip("전투용 사회자 상체 Rect 안에서 말풍선 꼬리가 향할 기준점입니다. (0,0)=좌하단, (1,1)=우상단")]
+    [SerializeField] private Vector2 combatTailPortraitAnchor = new(0.18f, 0.52f);
+    [SerializeField] private Vector2 combatTailPivotOffset = new(-4f, -2f);
+    [SerializeField, Min(8f)] private float combatTailBaseWidth = 54f;
+    [SerializeField, Min(0f)] private float combatTailOutlineWidth = 7f;
 
     [Header("Glitch Boot")]
     [Tooltip("Shader가 이 프로퍼티를 지원하면 전투 리액션 얼굴에만 자동으로 지지직 강도를 적용합니다.")]
@@ -94,7 +99,8 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private RectTransform bubbleRect;
     private CanvasGroup bubbleGroup;
     private Image bubbleBack;
-    private RectTransform bubbleTailRect;
+    private RectTransform tailPivotRect;
+    private BattleSpeechBubbleTailGraphic bubbleTailGraphic;
     private RectTransform tagBadgeRect;
     private Text tagText;
     private Text lineText;
@@ -758,6 +764,14 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         portraitImage.raycastTarget = false;
         portraitImage.sprite = BattleHudSpriteCache.DefaultSprite;
 
+        GameObject tailPivot = new("CombatTailPivot", typeof(RectTransform));
+        tailPivot.transform.SetParent(portraitRect, false);
+        tailPivotRect = tailPivot.GetComponent<RectTransform>();
+        tailPivotRect.anchorMin = tailPivotRect.anchorMax = combatTailPortraitAnchor;
+        tailPivotRect.pivot = new Vector2(0.5f, 0.5f);
+        tailPivotRect.sizeDelta = Vector2.zero;
+        tailPivotRect.anchoredPosition = combatTailPivotOffset;
+
         // Angular speech bubble inspired by comic/game-show cut-ins.
         GameObject bubble = new("ReactionSpeechBubble", typeof(RectTransform));
         bubble.transform.SetParent(popupRect, false);
@@ -790,18 +804,19 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleBack.color = new Color(0.97f, 0.97f, 0.94f, 1f);
         bubbleBack.raycastTarget = false;
 
-        // Tail: a rotated square tucked under the portrait side.
         GameObject tail = new("BubbleTail", typeof(RectTransform));
         tail.transform.SetParent(bubbleRect, false);
-        bubbleTailRect = tail.GetComponent<RectTransform>();
-        bubbleTailRect.anchorMin = bubbleTailRect.anchorMax = new Vector2(1f, 0.56f);
-        bubbleTailRect.pivot = new Vector2(0.5f, 0.5f);
-        bubbleTailRect.sizeDelta = new Vector2(42f, 42f);
-        bubbleTailRect.anchoredPosition = new Vector2(12f, 0f);
-        bubbleTailRect.localRotation = Quaternion.Euler(0f, 0f, 45f);
-        Image tailImage = tail.AddComponent<Image>();
-        tailImage.color = bubbleBack.color;
-        tailImage.raycastTarget = false;
+        RectTransform tailRect = tail.GetComponent<RectTransform>();
+        Stretch(tailRect, Vector2.zero, Vector2.zero);
+        bubbleTailGraphic = tail.AddComponent<BattleSpeechBubbleTailGraphic>();
+        bubbleTailGraphic.Configure(
+            bubbleRect,
+            tailPivotRect,
+            bubbleBack.color,
+            new Color(0.015f, 0.015f, 0.02f, 1f),
+            combatTailBaseWidth,
+            combatTailOutlineWidth);
+        tail.transform.SetAsFirstSibling();
 
         GameObject badge = new("ReactionTagBadge", typeof(RectTransform));
         badge.transform.SetParent(bubbleRect, false);
