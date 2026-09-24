@@ -53,6 +53,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         public Texture2D previewTexture;
         public int previewHash = int.MinValue;
+
+        public Texture2D framePreviewTexture;
+        public int framePreviewHash = int.MinValue;
+
         public bool previewLeft;
 
         public int activeCenterHandle = -1;
@@ -161,6 +165,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     {
         ReleasePreviewTexture(selectionState);
         ReleasePreviewTexture(combatState);
+        ReleaseFramePreviewTexture(selectionState);
+        ReleaseFramePreviewTexture(combatState);
 
         if (GUIUtility.hotControl != 0 &&
             (selectionState.activeCenterHandle >= 0 ||
@@ -255,6 +261,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         {
             serializedObject.ApplyModifiedProperties();
             serializedObject.Update();
+
+            if (frameChanged)
+                frameStyle.EnsureCornerStrokeDefaults();
+
             EditorUtility.SetDirty(manager);
             InvalidatePreview(state);
             Repaint();
@@ -316,11 +326,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorStyles.miniLabel);
 
         EditorGUILayout.LabelField(
-            $"Stroke Thickness L/B/R/T : " +
-            $"{frameStyle.strokeLeft:0.#} / " +
-            $"{frameStyle.strokeBottom:0.#} / " +
-            $"{frameStyle.strokeRight:0.#} / " +
-            $"{frameStyle.strokeTop:0.#}",
+            $"Corner Stroke TL / BL / TR / BR : " +
+            $"{frameStyle.strokeTopLeft:0.#} / " +
+            $"{frameStyle.strokeBottomLeft:0.#} / " +
+            $"{frameStyle.strokeTopRight:0.#} / " +
+            $"{frameStyle.strokeBottomRight:0.#}",
             EditorStyles.miniBoldLabel);
 
         EditorGUILayout.LabelField(
@@ -333,7 +343,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorStyles.miniLabel);
 
         EditorGUILayout.LabelField(
-            "Preview: 빨강 O-* = Outline Outset / 초록 S-* = 실제 Frame Stroke / 색 점 = Tail Pivot / 흰 W = Tail Width",
+            "Preview: 빨강 O-* = Outline Outset / 초록 S-TL·BL·TR·BR = 꼭짓점 Stroke / 색 점 = Tail Pivot / 흰 W = Tail Width",
             EditorStyles.miniLabel);
     }
 
@@ -411,6 +421,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             tailStyle,
             frameStyle.fillColor);
 
+        EnsureFramePreviewTexture(
+            state,
+            frameStyle);
+
         DrawCheckerboard(
             rect,
             compact ? 10f : 14f);
@@ -443,30 +457,29 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 (frameStyle.outlineTop +
                  frameStyle.outlineBottom) * scaleY);
 
-        Rect fillRect =
-            new Rect(
-                bubbleRoot.xMin +
-                frameStyle.FillInsetLeft * scaleX,
-                bubbleRoot.yMin +
-                frameStyle.FillInsetTop * scaleY,
-                Mathf.Max(
-                    1f,
-                    bubbleRoot.width -
-                    (frameStyle.FillInsetLeft +
-                     frameStyle.FillInsetRight) * scaleX),
-                Mathf.Max(
-                    1f,
-                    bubbleRoot.height -
-                    (frameStyle.FillInsetTop +
-                     frameStyle.FillInsetBottom) * scaleY));
+        frameStyle.EnsureCornerStrokeDefaults();
+
+        Vector2[] fillCorners =
+            frameStyle.GetFillCorners(
+                PreviewDesignSize);
+
+        Vector2[] fillCornerGui =
+            ConvertFrameCornersToGui(
+                fillCorners,
+                bubbleRoot);
 
         EditorGUI.DrawRect(
             outlineRect,
             frameStyle.outlineColor);
 
-        EditorGUI.DrawRect(
-            fillRect,
-            frameStyle.fillColor);
+        if (state.framePreviewTexture != null)
+        {
+            GUI.DrawTexture(
+                bubbleRoot,
+                state.framePreviewTexture,
+                ScaleMode.StretchToFill,
+                true);
+        }
 
         Rect tailRect =
             CalculateTailPreviewRect(
@@ -514,7 +527,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 DrawFrameHandles(
                     bubbleRoot,
                     outlineRect,
-                    fillRect,
+                    fillCornerGui,
                     frameStyle,
                     state,
                     scaleX,
@@ -633,6 +646,39 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             tailHeight * 0.5f,
             tailWidth,
             tailHeight);
+    }
+
+    private static Vector2[] ConvertFrameCornersToGui(
+        Vector2[] runtimeCorners,
+        Rect bubbleRoot)
+    {
+        if (runtimeCorners == null)
+            return null;
+
+        Vector2[] result =
+            new Vector2[runtimeCorners.Length];
+
+        for (int i = 0;
+             i < runtimeCorners.Length;
+             i++)
+        {
+            float nx =
+                runtimeCorners[i].x /
+                PreviewDesignSize.x;
+
+            float ny =
+                runtimeCorners[i].y /
+                PreviewDesignSize.y;
+
+            result[i] =
+                new Vector2(
+                    bubbleRoot.xMin +
+                    nx * bubbleRoot.width,
+                    bubbleRoot.yMax -
+                    ny * bubbleRoot.height);
+        }
+
+        return result;
     }
 
     private static void DrawCheckerboard(
@@ -780,12 +826,13 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private void DrawFrameHandles(
         Rect bubbleRoot,
         Rect outlineRect,
-        Rect fillRect,
+        Vector2[] fillCorners,
         BattleSpeechBubbleFrameStyle frameStyle,
         SpeechEditorState state,
         float scaleX,
         float scaleY)
     {
+        // 빨강: 기존처럼 Outline Outset을 방향별로 조절.
         DrawFrameHandle(
             state,
             1,
@@ -796,7 +843,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             "O-L",
             MouseCursor.ResizeHorizontal,
             frameStyle.outlineLeft,
-            scaleX);
+            scaleX,
+            scaleY);
 
         DrawFrameHandle(
             state,
@@ -808,6 +856,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             "O-B",
             MouseCursor.ResizeVertical,
             frameStyle.outlineBottom,
+            scaleX,
             scaleY);
 
         DrawFrameHandle(
@@ -820,7 +869,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             "O-R",
             MouseCursor.ResizeHorizontal,
             frameStyle.outlineRight,
-            scaleX);
+            scaleX,
+            scaleY);
 
         DrawFrameHandle(
             state,
@@ -832,54 +882,59 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             "O-T",
             MouseCursor.ResizeVertical,
             frameStyle.outlineTop,
+            scaleX,
+            scaleY);
+
+        if (fillCorners == null ||
+            fillCorners.Length < 4)
+        {
+            return;
+        }
+
+        // 초록: 실제 Fill의 네 꼭짓점에 붙는 Corner Stroke 핸들.
+        // 배열 순서 = TL, TR, BR, BL.
+        DrawFrameHandle(
+            state,
+            5,
+            fillCorners[0],
+            new Color(0.25f, 1f, 0.48f, 1f),
+            "S-TL",
+            MouseCursor.MoveArrow,
+            frameStyle.strokeTopLeft,
+            scaleX,
             scaleY);
 
         DrawFrameHandle(
             state,
-            5,
-            new Vector2(
-                fillRect.xMin,
-                fillRect.center.y),
-            new Color(0.25f, 1f, 0.48f, 1f),
-            "S-L",
-            MouseCursor.ResizeHorizontal,
-            frameStyle.strokeLeft,
-            scaleX);
-
-        DrawFrameHandle(
-            state,
             6,
-            new Vector2(
-                fillRect.center.x,
-                fillRect.yMax),
+            fillCorners[3],
             new Color(0.25f, 1f, 0.48f, 1f),
-            "S-B",
-            MouseCursor.ResizeVertical,
-            frameStyle.strokeBottom,
+            "S-BL",
+            MouseCursor.MoveArrow,
+            frameStyle.strokeBottomLeft,
+            scaleX,
             scaleY);
 
         DrawFrameHandle(
             state,
             7,
-            new Vector2(
-                fillRect.xMax,
-                fillRect.center.y),
+            fillCorners[1],
             new Color(0.25f, 1f, 0.48f, 1f),
-            "S-R",
-            MouseCursor.ResizeHorizontal,
-            frameStyle.strokeRight,
-            scaleX);
+            "S-TR",
+            MouseCursor.MoveArrow,
+            frameStyle.strokeTopRight,
+            scaleX,
+            scaleY);
 
         DrawFrameHandle(
             state,
             8,
-            new Vector2(
-                fillRect.center.x,
-                fillRect.yMin),
+            fillCorners[2],
             new Color(0.25f, 1f, 0.48f, 1f),
-            "S-T",
-            MouseCursor.ResizeVertical,
-            frameStyle.strokeTop,
+            "S-BR",
+            MouseCursor.MoveArrow,
+            frameStyle.strokeBottomRight,
+            scaleX,
             scaleY);
     }
 
@@ -891,7 +946,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         string label,
         MouseCursor cursor,
         float currentValue,
-        float unitsPerPreviewPixel)
+        float scaleX,
+        float scaleY)
     {
         Rect marker =
             CenteredRect(
@@ -928,12 +984,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             state.frameDragStartValue =
                 currentValue;
             state.frameUnitsPerPreviewPixel =
-                handleIndex == 1 ||
-                handleIndex == 3 ||
-                handleIndex == 5 ||
-                handleIndex == 7
-                    ? new Vector2(unitsPerPreviewPixel, 0f)
-                    : new Vector2(0f, unitsPerPreviewPixel);
+                new Vector2(
+                    1f / Mathf.Max(0.0001f, scaleX),
+                    1f / Mathf.Max(0.0001f, scaleY));
 
             Undo.RecordObject(
                 Manager,
@@ -985,42 +1038,61 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         int handleIndex,
         Vector2 delta)
     {
-        float units =
-            handleIndex == 1 ||
-            handleIndex == 3 ||
-            handleIndex == 5 ||
-            handleIndex == 7
-                ? state.frameUnitsPerPreviewPixel.x
-                : state.frameUnitsPerPreviewPixel.y;
+        Vector2 units =
+            state.frameUnitsPerPreviewPixel;
+
+        float designDx =
+            delta.x * units.x;
+
+        // GUI Y는 아래가 +이므로 디자인 좌표에서는 부호를 반전합니다.
+        float designDy =
+            -delta.y * units.y;
 
         float value =
             state.frameDragStartValue;
 
         switch (handleIndex)
         {
-            case 1: // O-L : 왼쪽으로 끌수록 증가
-                value -= delta.x * units;
+            case 1: // O-L
+                value -= designDx;
                 break;
-            case 2: // O-B : 아래로 끌수록 증가
-                value += delta.y * units;
+
+            case 2: // O-B
+                value -= designDy;
                 break;
-            case 3: // O-R : 오른쪽으로 끌수록 증가
-                value += delta.x * units;
+
+            case 3: // O-R
+                value += designDx;
                 break;
-            case 4: // O-T : 위로 끌수록 증가
-                value -= delta.y * units;
+
+            case 4: // O-T
+                value += designDy;
                 break;
-            case 5: // S-L : Fill 경계를 안쪽(오른쪽)으로 끌수록 증가
-                value += delta.x * units;
+
+            // Corner Stroke:
+            // 각 꼭짓점에서 프레임 중심을 향하는 두 축 이동량의 평균을 사용합니다.
+            case 5: // TL -> inward (+X, -Y)
+                value +=
+                    (designDx - designDy) *
+                    0.5f;
                 break;
-            case 6: // S-B : Fill 경계를 안쪽(위쪽)으로 끌수록 증가
-                value -= delta.y * units;
+
+            case 6: // BL -> inward (+X, +Y)
+                value +=
+                    (designDx + designDy) *
+                    0.5f;
                 break;
-            case 7: // S-R : Fill 경계를 안쪽(왼쪽)으로 끌수록 증가
-                value -= delta.x * units;
+
+            case 7: // TR -> inward (-X, -Y)
+                value +=
+                    (-designDx - designDy) *
+                    0.5f;
                 break;
-            case 8: // S-T : Fill 경계를 안쪽(아래쪽)으로 끌수록 증가
-                value += delta.y * units;
+
+            case 8: // BR -> inward (-X, +Y)
+                value +=
+                    (-designDx + designDy) *
+                    0.5f;
                 break;
         }
 
@@ -1031,10 +1103,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 2 => "outlineBottom",
                 3 => "outlineRight",
                 4 => "outlineTop",
-                5 => "strokeLeft",
-                6 => "strokeBottom",
-                7 => "strokeRight",
-                8 => "strokeTop",
+                5 => "strokeTopLeft",
+                6 => "strokeBottomLeft",
+                7 => "strokeTopRight",
+                8 => "strokeBottomRight",
                 _ => string.Empty
             };
 
@@ -1047,10 +1119,22 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         float min =
             handleIndex switch
             {
-                5 => frameStyle.outlineLeft,
-                6 => frameStyle.outlineBottom,
-                7 => frameStyle.outlineRight,
-                8 => frameStyle.outlineTop,
+                5 => Mathf.Max(
+                    frameStyle.outlineLeft,
+                    frameStyle.outlineTop),
+
+                6 => Mathf.Max(
+                    frameStyle.outlineLeft,
+                    frameStyle.outlineBottom),
+
+                7 => Mathf.Max(
+                    frameStyle.outlineRight,
+                    frameStyle.outlineTop),
+
+                8 => Mathf.Max(
+                    frameStyle.outlineRight,
+                    frameStyle.outlineBottom),
+
                 _ => 0f
             };
 
@@ -1058,7 +1142,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             Mathf.Clamp(
                 value,
                 min,
-                handleIndex <= 4 ? 48f : 64f);
+                handleIndex <= 4
+                    ? 48f
+                    : 96f);
 
         WriteFrameFloat(
             state,
@@ -1657,6 +1743,39 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             size);
     }
 
+    private void EnsureFramePreviewTexture(
+        SpeechEditorState state,
+        BattleSpeechBubbleFrameStyle style)
+    {
+        if (state == null ||
+            style == null)
+        {
+            return;
+        }
+
+        style.EnsureCornerStrokeDefaults();
+
+        int hash =
+            style.ComputeHash();
+
+        if (state.framePreviewTexture != null &&
+            state.framePreviewHash == hash)
+        {
+            return;
+        }
+
+        ReleaseFramePreviewTexture(state);
+
+        state.framePreviewHash =
+            hash;
+
+        state.framePreviewTexture =
+            BattleSpeechBubbleFrameTextureBuilder.BuildFillTexture(
+                style,
+                PreviewDesignSize,
+                $"BattleSpeechFrame_{state.previewLabel}_EditorPreview");
+    }
+
     private void EnsurePreviewTexture(
         SpeechEditorState state,
         BattleSpeechBubbleTailStyle style,
@@ -1713,7 +1832,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         state.previewHash =
             int.MinValue;
 
+        state.framePreviewHash =
+            int.MinValue;
+
         ReleasePreviewTexture(state);
+        ReleaseFramePreviewTexture(state);
     }
 
     private static void ReleasePreviewTexture(
@@ -1729,6 +1852,21 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             state.previewTexture);
 
         state.previewTexture = null;
+    }
+
+    private static void ReleaseFramePreviewTexture(
+        SpeechEditorState state)
+    {
+        if (state == null ||
+            state.framePreviewTexture == null)
+        {
+            return;
+        }
+
+        DestroyImmediate(
+            state.framePreviewTexture);
+
+        state.framePreviewTexture = null;
     }
 }
 #endif
