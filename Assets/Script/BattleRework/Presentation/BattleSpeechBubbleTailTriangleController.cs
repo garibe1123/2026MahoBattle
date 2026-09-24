@@ -25,23 +25,28 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     [Header("Triangle")]
     [Tooltip("X는 꼬리 길이, Y는 말풍선에 붙는 밑변 폭입니다.")]
-    [SerializeField] private Vector2 triangleSize = new(98f, 46f);
+    [SerializeField] private Vector2 triangleSize = new(138f, 64f);
 
     [Tooltip("말풍선 안쪽으로 꼬리를 겹치는 깊이입니다. 밑변의 검은 이음선을 BubbleFace 뒤로 숨깁니다.")]
-    [SerializeField, Range(0f, 40f)] private float overlap = 24f;
+    [SerializeField, Range(0f, 48f)] private float overlap = 30f;
 
     [Tooltip("꼬리가 말풍선 위/아래 모서리에 너무 가까워지지 않도록 제한합니다.")]
     [SerializeField, Range(0f, 80f)] private float edgePadding = 34f;
 
     [Header("Stroke")]
-    [Tooltip("런타임 Sprite에서 사용하는 검은 외곽선 두께(텍스처 픽셀 기준)입니다.")]
-    [SerializeField, Range(1, 12)] private int outlinePixels = 5;
+    [Tooltip("런타임 Sprite에서 사용하는 검은 외곽선 두께(텍스처 픽셀 기준)입니다. 말풍선 본체 외곽선과 비슷한 체감 두께로 맞춥니다.")]
+    [SerializeField, Range(1, 16)] private int outlinePixels = 9;
+
+    [Header("Tip Shape")]
+    [Tooltip("뾰족한 끝을 삼각형 중심보다 위로 올리는 양입니다. 양수일수록 위쪽을 향한 만화식 꼬리 느낌이 강해집니다.")]
+    [SerializeField, Range(-16f, 16f)] private float tipVerticalBiasPixels = 8f;
     [SerializeField] private Color outlineColor = new(0.015f, 0.015f, 0.02f, 1f);
     [SerializeField] private Color fillColor = new(0.97f, 0.97f, 0.94f, 1f);
 
     private RectTransform triangleRect;
     private Image triangleImage;
     private int appliedOutlinePixels = -1;
+    private float appliedTipVerticalBiasPixels = float.NaN;
     private Color appliedOutlineColor;
     private Color appliedFillColor;
 
@@ -142,6 +147,9 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         if (!force &&
             appliedOutlinePixels == outlinePixels &&
+            Mathf.Approximately(
+                appliedTipVerticalBiasPixels,
+                tipVerticalBiasPixels) &&
             ColorsApproximatelyEqual(appliedOutlineColor, outlineColor) &&
             ColorsApproximatelyEqual(appliedFillColor, fillColor) &&
             cachedTriangleSprite != null)
@@ -153,6 +161,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         }
 
         appliedOutlinePixels = outlinePixels;
+        appliedTipVerticalBiasPixels = tipVerticalBiasPixels;
         appliedOutlineColor = outlineColor;
         appliedFillColor = fillColor;
 
@@ -296,10 +305,17 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 0f,
                 RuntimeTextureHeight - 3f);
 
+        float tipY =
+            Mathf.Clamp(
+                (RuntimeTextureHeight - 1f) * 0.5f +
+                tipVerticalBiasPixels,
+                4f,
+                RuntimeTextureHeight - 5f);
+
         Vector2 outerTip =
             new Vector2(
                 RuntimeTextureWidth - 1f,
-                (RuntimeTextureHeight - 1f) * 0.5f);
+                tipY);
 
         RasterizeTriangle(
             pixels,
@@ -329,7 +345,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         Vector2 innerTip =
             new Vector2(
                 RuntimeTextureWidth - 1f - inset * 1.65f,
-                (RuntimeTextureHeight - 1f) * 0.5f);
+                tipY);
 
         RasterizeTriangle(
             pixels,
