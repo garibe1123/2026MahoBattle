@@ -9,8 +9,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private const float CenterHandleSize = 12f;
     private const float WidthHandleSize = 9f;
 
-    private const string TailStylePropertyName =
-        "speechBubbleTailStyle";
+    private const string SelectionTailStylePropertyName =
+        "selectionSpeechBubbleTailStyle";
+
+    private const string CombatTailStylePropertyName =
+        "combatSpeechBubbleTailStyle";
 
     private static readonly string[] CenterPointPropertyNames =
     {
@@ -29,12 +32,41 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         "pivot3HalfWidth"
     };
 
-    private Texture2D previewTexture;
-    private int previewHash = int.MinValue;
-    private bool previewLeft;
+    private sealed class TailEditorState
+    {
+        public readonly string propertyName;
+        public readonly string title;
+        public readonly string previewLabel;
 
-    private int activeCenterHandle = -1;
-    private int activeWidthHandle = -1;
+        public Texture2D previewTexture;
+        public int previewHash = int.MinValue;
+        public bool previewLeft;
+
+        public int activeCenterHandle = -1;
+        public int activeWidthHandle = -1;
+
+        public TailEditorState(
+            string propertyName,
+            string title,
+            string previewLabel)
+        {
+            this.propertyName = propertyName;
+            this.title = title;
+            this.previewLabel = previewLabel;
+        }
+    }
+
+    private readonly TailEditorState selectionTailState =
+        new(
+            SelectionTailStylePropertyName,
+            "선택씬 말풍선 꼬리 스타일",
+            "SELECTION / REWARD / MAP");
+
+    private readonly TailEditorState combatTailState =
+        new(
+            CombatTailStylePropertyName,
+            "전투씬 말풍선 꼬리 스타일",
+            "COMBAT REACTION");
 
     private BattleShowPresentationManager Manager =>
         target as BattleShowPresentationManager;
@@ -43,16 +75,30 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     {
         serializedObject.Update();
 
-        // Tail Style은 기본 Inspector 위치에서는 제외하고
-        // 아래 Preview 바로 위의 전용 편집 패널에서만 그립니다.
+        // 두 Tail Style은 기본 Inspector 위치에서 숨기고,
+        // Inspector 하단의 전용 변수 + Preview 블록에서 각각 한 번만 그립니다.
         DrawPropertiesExcluding(
             serializedObject,
-            TailStylePropertyName);
+            SelectionTailStylePropertyName,
+            CombatTailStylePropertyName);
 
         serializedObject.ApplyModifiedProperties();
 
-        EditorGUILayout.Space(10f);
-        DrawTailEditorSection();
+        EditorGUILayout.Space(12f);
+
+        DrawTailEditorSection(
+            selectionTailState,
+            Manager != null
+                ? Manager.SelectionSpeechBubbleTailStyle
+                : null);
+
+        DrawSectionDivider();
+
+        DrawTailEditorSection(
+            combatTailState,
+            Manager != null
+                ? Manager.CombatSpeechBubbleTailStyle
+                : null);
     }
 
     public override bool HasPreviewGUI()
@@ -64,56 +110,70 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         Rect rect,
         GUIStyle background)
     {
+        if (Manager == null)
+            return;
+
+        // Unity Inspector 하단 기본 Preview 창에는 선택씬 프로파일을 표시합니다.
+        // 두 프로파일의 상세 편집 Preview는 OnInspectorGUI 안에 각각 별도로 있습니다.
         DrawTailPreview(
             rect,
+            Manager.SelectionSpeechBubbleTailStyle,
+            selectionTailState,
             compact: true,
             interactive: false);
     }
 
     private void OnDisable()
     {
-        ReleasePreviewTexture();
+        ReleasePreviewTexture(selectionTailState);
+        ReleasePreviewTexture(combatTailState);
 
         if (GUIUtility.hotControl != 0 &&
-            (activeCenterHandle >= 0 ||
-             activeWidthHandle >= 0))
+            (selectionTailState.activeCenterHandle >= 0 ||
+             selectionTailState.activeWidthHandle >= 0 ||
+             combatTailState.activeCenterHandle >= 0 ||
+             combatTailState.activeWidthHandle >= 0))
         {
             GUIUtility.hotControl = 0;
         }
 
-        activeCenterHandle = -1;
-        activeWidthHandle = -1;
+        ResetActiveHandles(selectionTailState);
+        ResetActiveHandles(combatTailState);
     }
 
-    private void DrawTailEditorSection()
+    private void DrawTailEditorSection(
+        TailEditorState state,
+        BattleSpeechBubbleTailStyle style)
     {
         BattleShowPresentationManager manager =
             Manager;
 
-        if (manager == null)
+        if (manager == null ||
+            style == null)
+        {
             return;
+        }
 
         SerializedProperty styleProperty =
             serializedObject.FindProperty(
-                TailStylePropertyName);
+                state.propertyName);
 
         if (styleProperty == null)
         {
             EditorGUILayout.HelpBox(
-                "speechBubbleTailStyle SerializedProperty를 찾지 못했습니다.",
+                $"{state.propertyName} SerializedProperty를 찾지 못했습니다.",
                 MessageType.Error);
             return;
         }
 
         EditorGUILayout.LabelField(
-            "말풍선 꼬리 스타일",
+            state.title,
             EditorStyles.boldLabel);
 
         EditorGUILayout.HelpBox(
-            "아래 변수와 Preview는 같은 Runtime Builder를 사용합니다. " +
-            "Preview의 ROOT/P1/P2/P3/TIP을 직접 드래그하면 Pivot이 수정되고, " +
-            "흰색 W 핸들을 드래그하면 해당 Pivot의 Half Width가 수정됩니다. " +
-            "Stroke 두께는 바로 위 Stroke Root→Tip 값으로 조절하세요.",
+            "이 블록은 다른 씬의 꼬리와 완전히 독립된 값입니다. " +
+            "색 점(ROOT/P1/P2/P3/TIP)을 드래그하면 중심 Pivot, 흰 W 핸들을 드래그하면 Half Width가 수정됩니다. " +
+            "Stroke Root→Tip 값을 다르게 주면 진행 방향에 따라 외곽선 두께도 변화합니다.",
             MessageType.Info);
 
         styleProperty.isExpanded = true;
@@ -134,13 +194,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             serializedObject.Update();
 
             EditorUtility.SetDirty(manager);
-            InvalidatePreview();
+            InvalidatePreview(state);
             Repaint();
             SceneView.RepaintAll();
         }
-
-        BattleSpeechBubbleTailStyle style =
-            manager.SpeechBubbleTailStyle;
 
         EditorGUILayout.Space(6f);
 
@@ -149,6 +206,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             if (GUILayout.Button("기본 삼각형"))
             {
                 ApplyPreset(
+                    state,
                     style,
                     lightning: false);
             }
@@ -156,13 +214,14 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             if (GUILayout.Button("번개형"))
             {
                 ApplyPreset(
+                    state,
                     style,
                     lightning: true);
             }
 
-            previewLeft =
+            state.previewLeft =
                 GUILayout.Toggle(
-                    previewLeft,
+                    state.previewLeft,
                     "왼쪽 Flip",
                     "Button",
                     GUILayout.Width(90f));
@@ -178,6 +237,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         DrawTailPreview(
             previewRect,
+            style,
+            state,
             compact: false,
             interactive: true);
 
@@ -197,7 +258,29 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorStyles.miniLabel);
     }
 
+    private static void DrawSectionDivider()
+    {
+        EditorGUILayout.Space(14f);
+
+        Rect line =
+            GUILayoutUtility.GetRect(
+                1f,
+                1f,
+                GUILayout.ExpandWidth(true));
+
+        EditorGUI.DrawRect(
+            line,
+            new Color(
+                0.28f,
+                0.28f,
+                0.28f,
+                1f));
+
+        EditorGUILayout.Space(14f);
+    }
+
     private void ApplyPreset(
+        TailEditorState state,
         BattleSpeechBubbleTailStyle style,
         bool lightning)
     {
@@ -213,8 +296,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         Undo.RecordObject(
             manager,
             lightning
-                ? "Apply Speech Tail Lightning Preset"
-                : "Apply Speech Tail Triangle Preset");
+                ? $"Apply {state.title} Lightning Preset"
+                : $"Apply {state.title} Triangle Preset");
 
         if (lightning)
             style.ApplyLightningPreset();
@@ -225,26 +308,27 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         serializedObject.Update();
 
-        InvalidatePreview();
+        InvalidatePreview(state);
         Repaint();
         SceneView.RepaintAll();
     }
 
     private void DrawTailPreview(
         Rect rect,
+        BattleSpeechBubbleTailStyle style,
+        TailEditorState state,
         bool compact,
         bool interactive)
     {
-        BattleShowPresentationManager manager =
-            Manager;
-
-        if (manager == null)
+        if (style == null ||
+            state == null)
+        {
             return;
+        }
 
-        BattleSpeechBubbleTailStyle style =
-            manager.SpeechBubbleTailStyle;
-
-        EnsurePreviewTexture(style);
+        EnsurePreviewTexture(
+            state,
+            style);
 
         EditorGUI.DrawRect(
             rect,
@@ -269,7 +353,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         Rect bubbleOuter =
             new Rect(
-                previewLeft
+                state.previewLeft
                     ? rect.xMax - margin - bubbleWidth
                     : rect.x + margin,
                 rect.center.y -
@@ -304,7 +388,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 0.94f,
                 1f));
 
-        if (previewTexture == null)
+        if (state.previewTexture == null)
             return;
 
         Rect tailRect =
@@ -312,12 +396,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 bubbleOuter,
                 style,
                 compact,
-                previewLeft);
+                state.previewLeft);
 
         Matrix4x4 oldMatrix =
             GUI.matrix;
 
-        if (previewLeft)
+        if (state.previewLeft)
         {
             GUIUtility.ScaleAroundPivot(
                 new Vector2(-1f, 1f),
@@ -326,7 +410,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         GUI.DrawTexture(
             tailRect,
-            previewTexture,
+            state.previewTexture,
             ScaleMode.StretchToFill,
             true);
 
@@ -338,21 +422,21 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             DrawCenterLine(
                 tailRect,
                 style,
-                previewLeft);
+                state.previewLeft);
 
             if (interactive)
             {
                 DrawInteractiveHandles(
                     tailRect,
                     style,
-                    previewLeft);
+                    state);
             }
             else
             {
                 DrawPassiveCenterMarkers(
                     tailRect,
                     style,
-                    previewLeft);
+                    state.previewLeft);
             }
         }
 
@@ -362,9 +446,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 rect.y + 6f,
                 rect.width - 16f,
                 18f),
-            previewLeft
-                ? "LEFT PREVIEW"
-                : "RIGHT PREVIEW",
+            state.previewLeft
+                ? $"{state.previewLabel} / LEFT"
+                : $"{state.previewLabel} / RIGHT",
             EditorStyles.miniBoldLabel);
     }
 
@@ -462,7 +546,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private void DrawInteractiveHandles(
         Rect tailRect,
         BattleSpeechBubbleTailStyle style,
-        bool flipped)
+        TailEditorState state)
     {
         Vector2[] points =
             BattleSpeechBubbleTailTextureBuilder
@@ -479,47 +563,47 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         Color[] colors =
         {
-            new(0.40f, 0.92f, 1f, 1f),
-            new(1f, 0.78f, 0.20f, 1f),
-            new(1f, 0.48f, 0.25f, 1f),
-            new(0.90f, 0.28f, 0.80f, 1f),
-            new(0.35f, 1f, 0.48f, 1f)
+            new Color(0.40f, 0.92f, 1f, 1f),
+            new Color(1f, 0.78f, 0.20f, 1f),
+            new Color(1f, 0.48f, 0.25f, 1f),
+            new Color(0.90f, 0.28f, 0.80f, 1f),
+            new Color(0.35f, 1f, 0.48f, 1f)
         };
 
         for (int i = 0; i < points.Length; i++)
         {
             DrawCenterHandle(
+                state,
                 i,
                 labels[i],
                 colors[i],
                 points,
-                tailRect,
-                flipped);
+                tailRect);
         }
 
         for (int i = 0; i < 4; i++)
         {
             DrawWidthHandle(
+                state,
                 i,
                 points,
-                tailRect,
-                flipped);
+                tailRect);
         }
     }
 
     private void DrawCenterHandle(
+        TailEditorState state,
         int index,
         string label,
         Color color,
         Vector2[] points,
-        Rect tailRect,
-        bool flipped)
+        Rect tailRect)
     {
         Vector2 position =
             NormalizedToGui(
                 points[index],
                 tailRect,
-                flipped);
+                state.previewLeft);
 
         Rect marker =
             CenteredRect(
@@ -546,21 +630,21 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             GUIUtility.hotControl =
                 controlId;
 
-            activeCenterHandle =
+            state.activeCenterHandle =
                 index;
 
-            activeWidthHandle =
+            state.activeWidthHandle =
                 -1;
 
             Undo.RecordObject(
                 Manager,
-                $"Move Speech Tail {label}");
+                $"Move {state.title} {label}");
 
             current.Use();
         }
 
         if (GUIUtility.hotControl == controlId &&
-            activeCenterHandle == index)
+            state.activeCenterHandle == index)
         {
             if (current.type == EventType.MouseDrag)
             {
@@ -568,9 +652,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     GuiToNormalized(
                         current.mousePosition,
                         tailRect,
-                        flipped);
+                        state.previewLeft);
 
                 WriteCenterPoint(
+                    state,
                     index,
                     normalized);
 
@@ -579,7 +664,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             else if (current.type == EventType.MouseUp)
             {
                 GUIUtility.hotControl = 0;
-                activeCenterHandle = -1;
+                state.activeCenterHandle = -1;
                 current.Use();
             }
         }
@@ -599,23 +684,23 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void DrawWidthHandle(
+        TailEditorState state,
         int index,
         Vector2[] points,
-        Rect tailRect,
-        bool flipped)
+        Rect tailRect)
     {
         Vector2 center =
             NormalizedToGui(
                 points[index],
                 tailRect,
-                flipped);
+                state.previewLeft);
 
         Vector2 tangent =
             ResolveGuiTangent(
                 points,
                 index,
                 tailRect,
-                flipped);
+                state.previewLeft);
 
         Vector2 normal =
             new Vector2(
@@ -631,8 +716,15 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (normal.y > 0f)
             normal = -normal;
 
+        BattleSpeechBubbleTailStyle style =
+            state.propertyName == SelectionTailStylePropertyName
+                ? Manager.SelectionSpeechBubbleTailStyle
+                : Manager.CombatSpeechBubbleTailStyle;
+
         float halfWidth =
-            ReadWidthValue(index);
+            ReadWidthValue(
+                style,
+                index);
 
         Vector2 handlePosition =
             center +
@@ -665,21 +757,21 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             GUIUtility.hotControl =
                 controlId;
 
-            activeWidthHandle =
+            state.activeWidthHandle =
                 index;
 
-            activeCenterHandle =
+            state.activeCenterHandle =
                 -1;
 
             Undo.RecordObject(
                 Manager,
-                $"Resize Speech Tail Width {index}");
+                $"Resize {state.title} Width {index}");
 
             current.Use();
         }
 
         if (GUIUtility.hotControl == controlId &&
-            activeWidthHandle == index)
+            state.activeWidthHandle == index)
         {
             if (current.type == EventType.MouseDrag)
             {
@@ -700,6 +792,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                         0.50f);
 
                 WriteWidthValue(
+                    state,
                     index,
                     normalizedWidth);
 
@@ -708,7 +801,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             else if (current.type == EventType.MouseUp)
             {
                 GUIUtility.hotControl = 0;
-                activeWidthHandle = -1;
+                state.activeWidthHandle = -1;
                 current.Use();
             }
         }
@@ -737,7 +830,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorStyles.miniLabel);
     }
 
-    private void DrawPassiveCenterMarkers(
+    private static void DrawPassiveCenterMarkers(
         Rect tailRect,
         BattleSpeechBubbleTailStyle style,
         bool flipped)
@@ -763,6 +856,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void WriteCenterPoint(
+        TailEditorState state,
         int index,
         Vector2 normalized)
     {
@@ -782,7 +876,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         SerializedProperty style =
             serializedObject.FindProperty(
-                TailStylePropertyName);
+                state.propertyName);
 
         if (style == null)
             return;
@@ -809,12 +903,13 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         EditorUtility.SetDirty(manager);
 
-        InvalidatePreview();
+        InvalidatePreview(state);
         Repaint();
         SceneView.RepaintAll();
     }
 
     private void WriteWidthValue(
+        TailEditorState state,
         int index,
         float value)
     {
@@ -832,7 +927,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         SerializedProperty style =
             serializedObject.FindProperty(
-                TailStylePropertyName);
+                state.propertyName);
 
         if (style == null)
             return;
@@ -848,18 +943,15 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         EditorUtility.SetDirty(manager);
 
-        InvalidatePreview();
+        InvalidatePreview(state);
         Repaint();
         SceneView.RepaintAll();
     }
 
-    private float ReadWidthValue(int index)
+    private static float ReadWidthValue(
+        BattleSpeechBubbleTailStyle style,
+        int index)
     {
-        BattleSpeechBubbleTailStyle style =
-            Manager != null
-                ? Manager.SpeechBubbleTailStyle
-                : null;
-
         if (style == null)
             return 0.1f;
 
@@ -1007,6 +1099,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     }
 
     private void EnsurePreviewTexture(
+        TailEditorState state,
         BattleSpeechBubbleTailStyle style)
     {
         int hash =
@@ -1014,18 +1107,18 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 ? style.ComputeHash()
                 : 0;
 
-        if (previewTexture != null &&
-            previewHash == hash)
+        if (state.previewTexture != null &&
+            state.previewHash == hash)
         {
             return;
         }
 
-        ReleasePreviewTexture();
+        ReleasePreviewTexture(state);
 
-        previewHash =
+        state.previewHash =
             hash;
 
-        previewTexture =
+        state.previewTexture =
             BattleSpeechBubbleTailTextureBuilder
                 .BuildTexture(
                     style,
@@ -1034,24 +1127,44 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                         0.97f,
                         0.94f,
                         1f),
-                    "BattleSpeechTail_EditorPreview");
+                    $"BattleSpeechTail_{state.previewLabel}_EditorPreview");
     }
 
-    private void InvalidatePreview()
+    private static void ResetActiveHandles(
+        TailEditorState state)
     {
-        previewHash =
-            int.MinValue;
-
-        ReleasePreviewTexture();
-    }
-
-    private void ReleasePreviewTexture()
-    {
-        if (previewTexture == null)
+        if (state == null)
             return;
 
-        DestroyImmediate(previewTexture);
-        previewTexture = null;
+        state.activeCenterHandle = -1;
+        state.activeWidthHandle = -1;
+    }
+
+    private void InvalidatePreview(
+        TailEditorState state)
+    {
+        if (state == null)
+            return;
+
+        state.previewHash =
+            int.MinValue;
+
+        ReleasePreviewTexture(state);
+    }
+
+    private static void ReleasePreviewTexture(
+        TailEditorState state)
+    {
+        if (state == null ||
+            state.previewTexture == null)
+        {
+            return;
+        }
+
+        DestroyImmediate(
+            state.previewTexture);
+
+        state.previewTexture = null;
     }
 }
 #endif
