@@ -190,7 +190,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private Canvas dialogueTailCanvas;
     private CanvasGroup dialogueTailGroup;
     private RectTransform dialogueTailPivotRect;
-    private BattleSpeechBubbleTailGraphic dialogueTailGraphic;
+    private BattleSpeechBubbleTailLineRenderer dialogueTailGraphic;
     private Text nameText;
     private Text contextText;
     private Text dialogueText;
@@ -620,7 +620,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueTailGroup.blocksRaycasts = false;
 
         dialogueTailGraphic =
-            tail.AddComponent<BattleSpeechBubbleTailGraphic>();
+            tail.AddComponent<BattleSpeechBubbleTailLineRenderer>();
         dialogueTailGraphic.Configure(
             dialogueRect,
             dialogueTailPivotRect,
