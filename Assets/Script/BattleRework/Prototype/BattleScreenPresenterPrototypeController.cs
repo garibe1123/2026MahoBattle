@@ -186,7 +186,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private Canvas dialogueRenderCanvas;
     private RectTransform dialogueRect;
     private RectTransform dialogueTailPivotRect;
-    private BattleSpeechBubbleTailPresetController dialogueTailGraphic;
+    private BattleSpeechBubbleTailTriangleController dialogueTailGraphic;
     private Text nameText;
     private Text contextText;
     private Text dialogueText;
@@ -623,13 +623,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         // Static white comic tail. It overlaps the BubbleFace edge so the tail
         // reads as one continuous speech-bubble silhouette instead of a detached pointer.
         dialogueTailGraphic =
-            dialogueRect.gameObject.AddComponent<BattleSpeechBubbleTailPresetController>();
+            dialogueRect.gameObject.AddComponent<BattleSpeechBubbleTailTriangleController>();
         dialogueTailGraphic.Configure(
             dialogueRect,
             dialogueTailPivotRect,
-            presentation != null
-                ? presentation.SpeechBubbleTailSprites
-                : null);
+            bubbleFill);
 
         // Small black badge replaces the old flat "SHOW HOST" strip.
         GameObject badge = new("PresenterNameBadge", typeof(RectTransform));
