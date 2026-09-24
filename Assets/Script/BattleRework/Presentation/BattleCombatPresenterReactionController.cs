@@ -490,8 +490,20 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         if (bubbleGroup != null)
             bubbleGroup.alpha = 0f;
+
         if (bubbleRect != null)
-            bubbleRect.localScale = Vector3.one * bubbleStartScale;
+        {
+            BattleSpeechBubbleFrameStyle frameStyle =
+                presentation != null
+                    ? presentation.CombatSpeechBubbleFrameStyle
+                    : null;
+
+            bubbleRect.localScale =
+                Vector3.one *
+                (frameStyle != null
+                    ? frameStyle.startScale
+                    : bubbleStartScale);
+        }
 
         ApplyGlitch(glitchBootStrength, glitchNoiseStrength, glitchRgbSplit);
     }
@@ -566,21 +578,41 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
                 if (bubbleRect != null)
                 {
+                    BattleSpeechBubbleFrameStyle frameStyle =
+                        presentation != null
+                            ? presentation.CombatSpeechBubbleFrameStyle
+                            : null;
+
+                    float startScale =
+                        frameStyle != null
+                            ? frameStyle.startScale
+                            : bubbleStartScale;
+
+                    float overshootScale =
+                        frameStyle != null
+                            ? frameStyle.overshootScale
+                            : bubbleOvershootScale;
+
+                    float settledScale =
+                        frameStyle != null
+                            ? frameStyle.settledScale
+                            : 1f;
+
                     float scale;
                     if (t < 0.72f)
                     {
                         float a = t / 0.72f;
                         scale = Mathf.Lerp(
-                            bubbleStartScale,
-                            bubbleOvershootScale,
+                            startScale,
+                            overshootScale,
                             EaseOutCubic(a));
                     }
                     else
                     {
                         float b = (t - 0.72f) / 0.28f;
                         scale = Mathf.Lerp(
-                            bubbleOvershootScale,
-                            1f,
+                            overshootScale,
+                            settledScale,
                             b);
                     }
 
@@ -591,8 +623,20 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 {
                     if (bubbleGroup != null)
                         bubbleGroup.alpha = 1f;
+
                     if (bubbleRect != null)
-                        bubbleRect.localScale = Vector3.one;
+                    {
+                        BattleSpeechBubbleFrameStyle frameStyle =
+                            presentation != null
+                                ? presentation.CombatSpeechBubbleFrameStyle
+                                : null;
+
+                        bubbleRect.localScale =
+                            Vector3.one *
+                            (frameStyle != null
+                                ? frameStyle.settledScale
+                                : 1f);
+                    }
 
                     phaseTime = 0f;
                     typeProgress = 0f;
@@ -653,7 +697,27 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
                 if (bubbleRect != null)
                 {
-                    float scale = Mathf.Lerp(1f, 0.92f, t);
+                    BattleSpeechBubbleFrameStyle frameStyle =
+                        presentation != null
+                            ? presentation.CombatSpeechBubbleFrameStyle
+                            : null;
+
+                    float settledScale =
+                        frameStyle != null
+                            ? frameStyle.settledScale
+                            : 1f;
+
+                    float shutdownScale =
+                        frameStyle != null
+                            ? frameStyle.shutdownScale
+                            : 0.92f;
+
+                    float scale =
+                        Mathf.Lerp(
+                            settledScale,
+                            shutdownScale,
+                            t);
+
                     bubbleRect.localScale = Vector3.one * scale;
                 }
 
@@ -692,8 +756,20 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         if (bubbleGroup != null)
             bubbleGroup.alpha = 0f;
+
         if (bubbleRect != null)
-            bubbleRect.localScale = Vector3.one;
+        {
+            BattleSpeechBubbleFrameStyle frameStyle =
+                presentation != null
+                    ? presentation.CombatSpeechBubbleFrameStyle
+                    : null;
+
+            bubbleRect.localScale =
+                Vector3.one *
+                (frameStyle != null
+                    ? frameStyle.settledScale
+                    : 1f);
+        }
 
         if (lineText != null)
             lineText.text = string.Empty;
@@ -770,15 +846,31 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         tailPivotRect.sizeDelta = Vector2.zero;
         tailPivotRect.anchoredPosition = combatTailPivotOffset;
 
+        BattleSpeechBubbleFrameStyle frameStyle =
+            presentation != null
+                ? presentation.CombatSpeechBubbleFrameStyle
+                : null;
+
         // Angular speech bubble inspired by comic/game-show cut-ins.
         GameObject bubble = new("ReactionSpeechBubble", typeof(RectTransform));
         bubble.transform.SetParent(popupRect, false);
         bubbleRect = bubble.GetComponent<RectTransform>();
         bubbleRect.anchorMin = bubbleRect.anchorMax = new Vector2(1f, 1f);
         bubbleRect.pivot = new Vector2(1f, 1f);
-        bubbleRect.sizeDelta = bubbleSize;
+        bubbleRect.sizeDelta =
+            frameStyle != null
+                ? frameStyle.size
+                : bubbleSize;
+
         bubbleRect.anchoredPosition = bubbleOffset;
-        bubbleRect.localRotation = Quaternion.Euler(0f, 0f, bubbleRotation);
+
+        bubbleRect.localRotation =
+            Quaternion.Euler(
+                0f,
+                0f,
+                frameStyle != null
+                    ? frameStyle.rotation
+                    : bubbleRotation);
 
         bubbleGroup = bubble.AddComponent<CanvasGroup>();
         bubbleGroup.alpha = 0f;
@@ -789,17 +881,39 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         GameObject shadow = new("BubbleInkBack", typeof(RectTransform));
         shadow.transform.SetParent(bubbleRect, false);
         RectTransform shadowRect = shadow.GetComponent<RectTransform>();
-        Stretch(shadowRect, new Vector2(-7f, -8f), new Vector2(7f, 8f));
+        Stretch(
+            shadowRect,
+            new Vector2(
+                -(frameStyle != null ? frameStyle.outlineLeft : 7f),
+                -(frameStyle != null ? frameStyle.outlineBottom : 8f)),
+            new Vector2(
+                frameStyle != null ? frameStyle.outlineRight : 7f,
+                frameStyle != null ? frameStyle.outlineTop : 8f));
+
         Image shadowImage = shadow.AddComponent<Image>();
-        shadowImage.color = new Color(0.015f, 0.015f, 0.02f, 0.98f);
+        shadowImage.color =
+            frameStyle != null
+                ? frameStyle.outlineColor
+                : new Color(0.015f, 0.015f, 0.02f, 0.98f);
         shadowImage.raycastTarget = false;
 
         GameObject face = new("BubbleFace", typeof(RectTransform));
         face.transform.SetParent(bubbleRect, false);
         RectTransform faceRect = face.GetComponent<RectTransform>();
-        Stretch(faceRect, new Vector2(2f, 2f), new Vector2(-2f, -2f));
+        Stretch(
+            faceRect,
+            new Vector2(
+                frameStyle != null ? frameStyle.fillInsetLeft : 2f,
+                frameStyle != null ? frameStyle.fillInsetBottom : 2f),
+            new Vector2(
+                -(frameStyle != null ? frameStyle.fillInsetRight : 2f),
+                -(frameStyle != null ? frameStyle.fillInsetTop : 2f)));
+
         bubbleBack = face.AddComponent<Image>();
-        bubbleBack.color = new Color(0.97f, 0.97f, 0.94f, 1f);
+        bubbleBack.color =
+            frameStyle != null
+                ? frameStyle.fillColor
+                : new Color(0.97f, 0.97f, 0.94f, 1f);
         bubbleBack.raycastTarget = false;
 
         // Short comic tail preset: targetPivot selects direction only.
