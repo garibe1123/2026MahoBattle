@@ -128,8 +128,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [Tooltip("Reward/Map 화면 사회자 Rect 안에서 말풍선 꼬리가 향할 기준점입니다.")]
     [SerializeField] private Vector2 dialogueTailPresenterAnchor = new(0.28f, 0.58f);
     [SerializeField] private Vector2 dialogueTailPivotOffset = new(0f, 0f);
-    [SerializeField, Min(8f)] private float dialogueTailBaseWidth = 62f;
-    [SerializeField, Min(0f)] private float dialogueTailOutlineWidth = 7f;
+    [SerializeField, Min(8f)] private float dialogueTailBaseWidth = 68f;
+    [SerializeField, Min(0f)] private float dialogueTailOutlineWidth = 8f;
+    [SerializeField, Range(-6f, 6f)] private float dialogueBubbleRotation = -1.5f;
+    [SerializeField, Range(0.75f, 1f)] private float dialogueBubbleStartScale = 0.88f;
+    [SerializeField, Range(1f, 1.12f)] private float dialogueBubbleOvershootScale = 1.04f;
 
     [Header("Show Camera")]
     [Tooltip("Reward TV 화면을 얼마나 크게 잡을지 조절합니다. 1보다 작으면 더 줌인합니다.")]
@@ -559,7 +562,12 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private void BuildDialogue()
     {
-        GameObject root = new("PresenterDialogue", typeof(RectTransform));
+        Color bubbleFill = new(0.97f, 0.97f, 0.94f, 1f);
+        Color bubbleInk = new(0.012f, 0.012f, 0.018f, 0.99f);
+        Color bubbleText = new(0.035f, 0.035f, 0.045f, 1f);
+        Color bubbleMuted = new(0.24f, 0.25f, 0.29f, 1f);
+
+        GameObject root = new("PresenterDialogueBubble", typeof(RectTransform));
         root.transform.SetParent(overlayRoot, false);
 
         dialogueRect = root.GetComponent<RectTransform>();
@@ -568,11 +576,16 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueRect.sizeDelta = dialogueSize;
         dialogueRect.anchoredPosition =
             dialogueVisibleOffset - Vector2.up * dialogueHiddenOffsetY;
+        dialogueRect.localRotation =
+            Quaternion.Euler(0f, 0f, dialogueBubbleRotation);
 
-        Image back = root.AddComponent<Image>();
-        back.color = dialogueBack;
-        back.raycastTarget = false;
+        dialogueGroup = root.AddComponent<CanvasGroup>();
+        dialogueGroup.alpha = 0f;
+        dialogueGroup.interactable = false;
+        dialogueGroup.blocksRaycasts = false;
 
+        // Pivot-driven jagged tail. This sits behind the bubble but reaches the
+        // presenter pivot even while the presenter idles, hops or scales.
         GameObject tail = new("PresenterDialogueTail", typeof(RectTransform));
         tail.transform.SetParent(dialogueRect, false);
         RectTransform tailRect = tail.GetComponent<RectTransform>();
@@ -587,32 +600,63 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueTailGraphic.Configure(
             dialogueRect,
             dialogueTailPivotRect,
-            dialogueBack,
-            new Color(0.005f, 0.006f, 0.01f, 0.98f),
+            bubbleFill,
+            bubbleInk,
             dialogueTailBaseWidth,
             dialogueTailOutlineWidth);
-        tail.transform.SetAsFirstSibling();
 
-        dialogueGroup = root.AddComponent<CanvasGroup>();
-        dialogueGroup.alpha = 0f;
-        dialogueGroup.interactable = false;
-        dialogueGroup.blocksRaycasts = false;
+        // Rough black ink silhouette slightly larger than the white face.
+        GameObject ink = new("BubbleInkBack", typeof(RectTransform));
+        ink.transform.SetParent(dialogueRect, false);
+        RectTransform inkRect = ink.GetComponent<RectTransform>();
+        inkRect.anchorMin = Vector2.zero;
+        inkRect.anchorMax = Vector2.one;
+        inkRect.pivot = new Vector2(0.5f, 0.5f);
+        inkRect.offsetMin = new Vector2(-8f, -9f);
+        inkRect.offsetMax = new Vector2(8f, 9f);
+        Image inkImage = ink.AddComponent<Image>();
+        inkImage.color = bubbleInk;
+        inkImage.raycastTarget = false;
+
+        GameObject face = new("BubbleFace", typeof(RectTransform));
+        face.transform.SetParent(dialogueRect, false);
+        RectTransform faceRect = face.GetComponent<RectTransform>();
+        faceRect.anchorMin = Vector2.zero;
+        faceRect.anchorMax = Vector2.one;
+        faceRect.pivot = new Vector2(0.5f, 0.5f);
+        faceRect.offsetMin = new Vector2(2f, 2f);
+        faceRect.offsetMax = new Vector2(-2f, -2f);
+        Image faceImage = face.AddComponent<Image>();
+        faceImage.color = bubbleFill;
+        faceImage.raycastTarget = false;
+
+        // Small black badge replaces the old flat "SHOW HOST" strip.
+        GameObject badge = new("PresenterNameBadge", typeof(RectTransform));
+        badge.transform.SetParent(dialogueRect, false);
+        RectTransform badgeRect = badge.GetComponent<RectTransform>();
+        badgeRect.anchorMin = badgeRect.anchorMax = new Vector2(0f, 1f);
+        badgeRect.pivot = new Vector2(0f, 0.5f);
+        badgeRect.sizeDelta = new Vector2(210f, 38f);
+        badgeRect.anchoredPosition = new Vector2(22f, 5f);
+        badgeRect.localRotation = Quaternion.Euler(0f, 0f, 2.5f);
+        Image badgeImage = badge.AddComponent<Image>();
+        badgeImage.color = bubbleInk;
+        badgeImage.raycastTarget = false;
 
         nameText = CreateText(
-            dialogueRect,
+            badgeRect,
             "PresenterName",
             "SHOW HOST",
             17,
             FontStyle.Bold,
-            TextAnchor.MiddleLeft,
-            accent);
-
+            TextAnchor.MiddleCenter,
+            Color.white);
         Place(
             nameText.rectTransform,
-            new Vector2(0f, 1f),
-            new Vector2(0f, 1f),
-            new Vector2(26f, -12f),
-            new Vector2(220f, 30f));
+            new Vector2(0.5f, 0.5f),
+            new Vector2(0.5f, 0.5f),
+            Vector2.zero,
+            new Vector2(190f, 30f));
 
         contextText = CreateText(
             dialogueRect,
@@ -621,14 +665,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             11,
             FontStyle.Bold,
             TextAnchor.MiddleRight,
-            muted);
-
+            bubbleMuted);
         Place(
             contextText.rectTransform,
             new Vector2(1f, 1f),
             new Vector2(1f, 1f),
-            new Vector2(-24f, -12f),
-            new Vector2(550f, 28f));
+            new Vector2(-24f, -11f),
+            new Vector2(560f, 26f));
 
         dialogueText = CreateText(
             dialogueRect,
@@ -637,13 +680,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             27,
             FontStyle.Bold,
             TextAnchor.MiddleLeft,
-            white);
+            bubbleText);
 
         RectTransform textRect = dialogueText.rectTransform;
         textRect.anchorMin = Vector2.zero;
         textRect.anchorMax = Vector2.one;
-        textRect.offsetMin = new Vector2(26f, 18f);
-        textRect.offsetMax = new Vector2(-30f, -38f);
+        textRect.offsetMin = new Vector2(30f, 18f);
+        textRect.offsetMax = new Vector2(-34f, -38f);
         dialogueText.horizontalOverflow = HorizontalWrapMode.Wrap;
         dialogueText.verticalOverflow = VerticalWrapMode.Truncate;
         dialogueText.lineSpacing = 1.04f;
@@ -656,13 +699,19 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             FontStyle.Bold,
             TextAnchor.LowerRight,
             hotAccent);
-
         Place(
             liveText.rectTransform,
             new Vector2(1f, 0f),
             new Vector2(1f, 0f),
-            new Vector2(-18f, 9f),
-            new Vector2(110f, 20f));
+            new Vector2(-20f, 8f),
+            new Vector2(120f, 20f));
+
+        tail.transform.SetAsFirstSibling();
+        ink.transform.SetSiblingIndex(1);
+        face.transform.SetSiblingIndex(2);
+
+        dialogueRect.localScale =
+            Vector3.one * dialogueBubbleStartScale;
     }
 
     // ---------------------------------------------------------------------
@@ -1269,10 +1318,27 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         float clamped = Mathf.Clamp01(value);
 
         dialogueGroup.alpha = clamped;
-        dialogueRect.anchoredPosition = Vector2.Lerp(
-            dialogueVisibleOffset - Vector2.up * dialogueHiddenOffsetY,
-            dialogueVisibleOffset,
-            clamped);
+        dialogueRect.anchoredPosition = dialogueVisibleOffset;
+
+        float scale;
+        if (clamped < 0.72f)
+        {
+            float t = clamped / 0.72f;
+            scale = Mathf.Lerp(
+                dialogueBubbleStartScale,
+                dialogueBubbleOvershootScale,
+                Smooth01(t));
+        }
+        else
+        {
+            float t = (clamped - 0.72f) / 0.28f;
+            scale = Mathf.Lerp(
+                dialogueBubbleOvershootScale,
+                1f,
+                Smooth01(t));
+        }
+
+        dialogueRect.localScale = Vector3.one * scale;
     }
 
     private void ApplyDialogueMetadata()
