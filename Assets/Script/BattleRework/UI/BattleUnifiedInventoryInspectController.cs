@@ -1082,10 +1082,21 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         if (!rewardEdit)
         {
-            // Combat TAB tooltip is owned by BattleKineticLoadoutUI.
-            // Never hide it from the Reward layout owner.
+            // Reward Choosing의 월드 상품 Hover Preview는
+            // BattleRewardCardActionController가 외부 Detail Panel을 소유합니다.
+            // 이 경우에는 여기서 매 프레임 숨기지 않습니다.
+            bool rewardChoicePreview =
+                IsRewardChoice() &&
+                detailController != null &&
+                detailController.IsRewardPreviewActive;
+
+            if (rewardChoicePreview)
+                return;
+
+            // Combat TAB tooltip은 BattleKineticLoadoutUI가 별도로 소유합니다.
             if (detailGroup != null)
                 detailGroup.alpha = 0f;
+
             detailController?.Hide();
             return;
         }
