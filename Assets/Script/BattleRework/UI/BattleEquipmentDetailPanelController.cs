@@ -32,6 +32,12 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     [Header("Panel")]
     [SerializeField] private Vector2 panelSize = new(430f, 570f);
 
+    [Header("Reward Showcase Preview")]
+    [Tooltip("월드 상품 Hover 시 아이템 Screen Point에서 설명 Panel을 좌/우로 얼마나 띄울지 정합니다.")]
+    [SerializeField, Min(0f)] private float rewardPreviewSideGap = 34f;
+    [Tooltip("Reward 설명 Panel이 화면 가장자리에 붙지 않도록 유지하는 여백입니다.")]
+    [SerializeField, Min(0f)] private float rewardPreviewScreenPadding = 24f;
+
     [Header("Theme")]
     [SerializeField] private Color inkColor = new(0.025f, 0.022f, 0.040f, 0.985f);
     [SerializeField] private Color paperColor = new(0.95f, 0.91f, 0.78f, 1f);
@@ -214,6 +220,23 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         previewRewardIndex = rewardIndex;
         rewardPreviewActive = true;
         RefreshRewardPreview(rewardIndex, equipment);
+
+        if (group != null)
+            group.alpha = 1f;
+
+        return true;
+    }
+
+    public bool PreviewRewardAtScreenPoint(
+        int rewardIndex,
+        Vector2 itemScreenPoint)
+    {
+        if (!PreviewReward(rewardIndex))
+            return false;
+
+        PlaceRewardPreviewBeside(
+            itemScreenPoint);
+
         return true;
     }
 
@@ -225,6 +248,9 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         rewardPreviewActive = false;
         previewRewardIndex = -1;
         displayedSlot = -1;
+
+        if (group != null)
+            group.alpha = 0f;
     }
 
     public void Hide()
@@ -261,6 +287,99 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
             PreviewReward(rewardIndex);
         else if (rewardPreviewActive && previewRewardIndex == rewardIndex)
             ClearRewardPreview();
+    }
+
+    private void PlaceRewardPreviewBeside(
+        Vector2 itemScreenPoint)
+    {
+        EnsureUi();
+
+        if (root == null ||
+            canvas == null)
+        {
+            return;
+        }
+
+        RectTransform canvasRect =
+            canvas.transform as RectTransform;
+
+        if (canvasRect == null)
+            return;
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                canvasRect,
+                itemScreenPoint,
+                null,
+                out Vector2 localPoint))
+        {
+            return;
+        }
+
+        bool placeLeft =
+            itemScreenPoint.x >
+            Screen.width * 0.58f;
+
+        root.anchorMin =
+            root.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        root.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        float horizontalOffset =
+            panelSize.x * 0.5f +
+            Mathf.Max(
+                0f,
+                rewardPreviewSideGap);
+
+        Vector2 target =
+            localPoint +
+            new Vector2(
+                placeLeft
+                    ? -horizontalOffset
+                    : horizontalOffset,
+                0f);
+
+        Rect canvasBounds =
+            canvasRect.rect;
+
+        float halfWidth =
+            panelSize.x * 0.5f;
+
+        float halfHeight =
+            panelSize.y * 0.5f;
+
+        float padding =
+            Mathf.Max(
+                0f,
+                rewardPreviewScreenPadding);
+
+        target.x =
+            Mathf.Clamp(
+                target.x,
+                canvasBounds.xMin +
+                halfWidth +
+                padding,
+                canvasBounds.xMax -
+                halfWidth -
+                padding);
+
+        target.y =
+            Mathf.Clamp(
+                target.y,
+                canvasBounds.yMin +
+                halfHeight +
+                padding,
+                canvasBounds.yMax -
+                halfHeight -
+                padding);
+
+        root.anchoredPosition =
+            target;
     }
 
     private void RefreshCurrentContent()
