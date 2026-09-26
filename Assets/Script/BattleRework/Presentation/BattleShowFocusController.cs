@@ -8,7 +8,8 @@ using UnityEngine.UI;
 /// - Normal Battle에서는 완전히 OFF.
 /// - Player / Presenter는 캐릭터 하부 쪽으로 내려간 타원형 Stage Focus.
 /// - TV / Screen은 실제 WorldSpace RectTransform을 기준으로 사각형 Focus.
-/// - Reward Item / Map 대상에는 별도 천장 Spotlight를 만들지 않음.
+/// - Reward Item Hover는 월드 상품 전용 Spotlight + Focus hole을 사용합니다.
+/// - Map 대상은 기존 화면 Focus 정책을 유지합니다.
 /// - 배경 암전은 RoomExiting / Show 전환 시작부터 먼저 진행합니다.
 /// - Player / Presenter / Screen Focus는 실제 WorldSet 전환이 끝나 화면이 자리잡은 뒤에만 켭니다.
 /// - Reward는 기존보다 강한 쇼 암전을 유지하고, 첫 Map은 Base가 조금 더 읽히도록 약하게 암전.
