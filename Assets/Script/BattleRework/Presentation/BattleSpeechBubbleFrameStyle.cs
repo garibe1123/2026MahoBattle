@@ -22,6 +22,10 @@ public sealed class BattleSpeechBubbleRuntimeVariationSettings
     [Range(0f, 6f)]
     public float frameInnerCornerJitter = 1.2f;
 
+    [Tooltip("런타임 변형 시 기본 Frame Stroke보다 평균적으로 얼마나 더 굵게 만들지 정합니다. OUTLINE은 바깥으로, INNER는 안쪽으로 절반씩 이동해 총 간격을 늘립니다.")]
+    [Range(0f, 8f)]
+    public float frameStrokeBiasPixels = 2.5f;
+
     [Tooltip("말풍선 전체 회전값에 더하는 최대 각도 편차입니다.")]
     [Range(0f, 2f)]
     public float frameRotationJitter = 0.30f;
@@ -35,7 +39,11 @@ public sealed class BattleSpeechBubbleRuntimeVariationSettings
     [Range(0f, 0.35f)]
     public float tailWidthRatioJitter = 0.10f;
 
-    [Tooltip("Tail Stroke 두께의 비율 편차입니다. 0.12면 기준값의 ±12%입니다.")]
+    [Tooltip("Tail Stroke를 랜덤 흔들기 전에 적용하는 기본 배율입니다. 1.15면 원본보다 15% 굵은 값을 중심으로 랜덤이 적용됩니다.")]
+    [Range(0.75f, 1.75f)]
+    public float tailStrokeBaseMultiplier = 1.15f;
+
+    [Tooltip("Tail Stroke 두께의 비율 편차입니다. 0.12면 위 기본 배율을 적용한 값에서 ±12%입니다.")]
     [Range(0f, 0.40f)]
     public float tailStrokeRatioJitter = 0.12f;
 
@@ -498,52 +506,87 @@ public sealed class BattleSpeechBubbleFrameStyle
                 0f,
                 variation.frameInnerCornerJitter);
 
+        float strokeBias =
+            Mathf.Max(
+                0f,
+                variation.frameStrokeBiasPixels);
+
+        float halfStrokeBias =
+            strokeBias * 0.5f;
+
+        // 기본 Stroke보다 굵은 쪽을 중심으로 변형합니다.
+        // OUTLINE은 Root 바깥 방향, INNER는 Root 안쪽 방향으로
+        // 각각 절반씩 벌려 총 Stroke 간격을 늘립니다.
         result.outlineTopLeft =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                outlineTopLeft,
+                outlineTopLeft +
+                new Vector2(
+                    -halfStrokeBias,
+                    halfStrokeBias),
                 outlineJitter);
 
         result.outlineTopRight =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                outlineTopRight,
+                outlineTopRight +
+                new Vector2(
+                    halfStrokeBias,
+                    halfStrokeBias),
                 outlineJitter);
 
         result.outlineBottomRight =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                outlineBottomRight,
+                outlineBottomRight +
+                new Vector2(
+                    halfStrokeBias,
+                    -halfStrokeBias),
                 outlineJitter);
 
         result.outlineBottomLeft =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                outlineBottomLeft,
+                outlineBottomLeft +
+                new Vector2(
+                    -halfStrokeBias,
+                    -halfStrokeBias),
                 outlineJitter);
 
         result.fillTopLeft =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                fillTopLeft,
+                fillTopLeft +
+                new Vector2(
+                    halfStrokeBias,
+                    -halfStrokeBias),
                 innerJitter);
 
         result.fillTopRight =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                fillTopRight,
+                fillTopRight +
+                new Vector2(
+                    -halfStrokeBias,
+                    -halfStrokeBias),
                 innerJitter);
 
         result.fillBottomRight =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                fillBottomRight,
+                fillBottomRight +
+                new Vector2(
+                    -halfStrokeBias,
+                    halfStrokeBias),
                 innerJitter);
 
         result.fillBottomLeft =
             BattleSpeechBubbleVariationRandom.Jitter(
                 random,
-                fillBottomLeft,
+                fillBottomLeft +
+                new Vector2(
+                    halfStrokeBias,
+                    halfStrokeBias),
                 innerJitter);
 
         return result;
