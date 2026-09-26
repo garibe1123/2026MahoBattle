@@ -1383,6 +1383,40 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         return true;
     }
 
+    public bool PlayRewardTransfer(
+        Vector2 startScreen,
+        BattleEquipmentSO equipment,
+        int targetSlot,
+        bool toHand,
+        EquipmentRarity rarity,
+        Action onArrive,
+        Action onComplete)
+    {
+        EnsureOverlayCanvas();
+
+        if (equipment == null ||
+            transferGhostRoot == null)
+        {
+            return false;
+        }
+
+        if (rewardTransferRoutine != null)
+            StopCoroutine(rewardTransferRoutine);
+
+        rewardTransferRoutine =
+            StartCoroutine(
+                RewardTransferRoutine(
+                    startScreen,
+                    equipment,
+                    targetSlot,
+                    toHand,
+                    rarity,
+                    onArrive,
+                    onComplete));
+
+        return true;
+    }
+
     private IEnumerator RewardTransferRoutine(
         Vector2 startScreen,
         BattleEquipmentSO equipment,
