@@ -167,6 +167,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("Reward/Map 큰 사회자와 전투 리액션 상체 사회자가 함께 사용하는 Shader Material입니다. 비어 있으면 기본 UI Material을 사용합니다.")]
     [SerializeField] private Material screenPresenterMaterial;
 
+    [Header("말풍선 Stroke Material")]
+    [Tooltip("선택씬/전투씬 말풍선의 OUTLINE에만 적용할 UI Material입니다. 홀로그램/글리치 등 Stroke 전용 효과를 넣을 때 사용합니다. Fill에는 적용되지 않습니다.")]
+    [SerializeField] private Material speechBubbleStrokeMaterial;
+
     [Header("선택씬 말풍선 프레임 스타일")]
     [Tooltip("Reward / 아이템 선택 / 맵 선택에서 사용하는 말풍선 본체 크기/외곽/Scale 스타일입니다.")]
     [SerializeField] private BattleSpeechBubbleFrameStyle selectionSpeechBubbleFrameStyle =
@@ -256,6 +260,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public BattleShowFloorTemplateSO DefaultFloorTemplate => defaultFloorTemplate;
 
     public Material ScreenPresenterMaterial => screenPresenterMaterial;
+
+    public Material SpeechBubbleStrokeMaterial =>
+        speechBubbleStrokeMaterial;
 
     public BattleSpeechBubbleFrameStyle SelectionSpeechBubbleFrameStyle
     {
