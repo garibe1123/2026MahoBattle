@@ -31,9 +31,25 @@ public sealed class BattleSpeechBubbleRuntimeVariationSettings
     public float frameRotationJitter = 0.30f;
 
     [Header("Tail")]
-    [Tooltip("P1/P2/P3 중간 Pivot의 X/Y 최대 정규화 편차입니다. ROOT와 TIP 위치는 변경하지 않습니다.")]
+    [Tooltip("P1/P2/P3 중간 Pivot의 X/Y 최대 정규화 편차입니다. ROOT와 TIP 위치는 변경하지 않습니다. 번개 재생성이 꺼졌거나 1 Pivot일 때 주로 사용합니다.")]
     [Range(0f, 0.15f)]
     public float tailPivotPositionJitter = 0.035f;
+
+    [Header("Tail Lightning Pattern")]
+    [Tooltip("2개 이상의 Pivot을 쓰는 꼬리는 원본 Pivot 위치를 단순 흔드는 대신 ROOT→TIP 사이 번개 경로를 매번 새로 생성합니다.")]
+    public bool regenerateLightningPattern = true;
+
+    [Tooltip("번개 경로를 새로 생성할 확률입니다. 1이면 번개형 꼬리는 대사마다 항상 다른 경로를 사용합니다.")]
+    [Range(0f, 1f)]
+    public float tailLightningPatternChance = 1f;
+
+    [Tooltip("ROOT→TIP 기준선에서 각 Pivot이 위/아래로 튀는 정도입니다. 값이 클수록 번개 굴곡 변화가 확실하게 보입니다.")]
+    [Range(0f, 0.35f)]
+    public float tailLightningAmplitude = 0.18f;
+
+    [Tooltip("번개 Pivot의 진행 방향(X) 간격을 얼마나 불규칙하게 만들지 정합니다.")]
+    [Range(0f, 0.15f)]
+    public float tailLightningXJitter = 0.065f;
 
     [Tooltip("Tail 각 구간 반폭의 비율 편차입니다. 0.10이면 기준값의 ±10%입니다.")]
     [Range(0f, 0.35f)]
