@@ -219,8 +219,13 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         bool choice = phase == BattleRewardPhase.Choosing;
         bool transferring = phase == BattleRewardPhase.Transferring;
         bool packEdit = phase == BattleRewardPhase.PackEditing;
-        bool worldShowcaseChoice =
+
+        bool worldShowcaseExpected =
             choice &&
+            showWorldSet != null;
+
+        bool worldShowcaseChoice =
+            worldShowcaseExpected &&
             IsWorldShowcaseChoice();
 
         SetEquipmentDetailPanelSuppressed(
@@ -231,10 +236,14 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         {
             SetLockedVisible(false);
 
-            if (worldShowcaseChoice)
+            if (worldShowcaseExpected)
             {
+                // 첫 Reward 프레임에 Showcase가 아직 Build 중이어도
+                // 예전 TV Card가 한 프레임 번쩍 보이지 않게 먼저 숨깁니다.
                 SetWorldShowcaseCardUiHidden();
-                HandleWorldShowcaseInput();
+
+                if (worldShowcaseChoice)
+                    HandleWorldShowcaseInput();
             }
             else
             {
@@ -272,9 +281,15 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         if (rewardFlow.Phase == BattleRewardPhase.Choosing)
         {
-            if (IsWorldShowcaseChoice())
+            if (showWorldSet != null)
             {
-                ApplyWorldShowcasePresentation();
+                SetWorldShowcaseCardUiHidden();
+
+                if (IsWorldShowcaseChoice())
+                    ApplyWorldShowcasePresentation();
+                else
+                    equipmentDetailPanel?.ClearRewardPreview();
+
                 return;
             }
 
