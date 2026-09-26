@@ -988,11 +988,14 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         int selectedIndex = rewardFlow.SelectedChoiceIndex;
         BattleEquipmentSO selectedReward = rewardFlow.SelectedChoice;
 
+        Vector2 worldSourceScreen =
+            Vector2.zero;
+
         bool hasWorldSource =
             showWorldSet != null &&
             showWorldSet.TryGetRewardShowcaseScreenPoint(
                 selectedIndex,
-                out Vector2 worldSourceScreen);
+                out worldSourceScreen);
 
         CardRef selectedCardRef =
             FindCard(
