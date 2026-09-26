@@ -23,9 +23,9 @@ using UnityEngine.UI;
 /// - 실제 Presenter Sprite가 비어 있으면 BattleHudSpriteCache.DefaultSprite를 표시합니다.
 ///
 /// 카메라:
-/// - Persistent 4x4 + 10x2 Screen Carrier + TV의 실제 최종 Bounds를 기준으로 계산합니다.
-/// - TV 자체는 커서 Hover로 확대하지 않습니다. 커서 반응은 카메라 Tracking만 사용합니다.
-/// - Presenter 유닛은 카메라 기준에 개입하지 않아 Reward/Map 전환에서 카메라 기준이 바뀌지 않습니다.
+/// - Reward는 Persistent 4x4 위의 월드 상품 Showcase를 기준으로 잡고, Hover Item으로 Smooth Zoom합니다.
+/// - Map은 기존 Mounted TV 기준 Framing / Cursor Tracking을 그대로 사용합니다.
+/// - Presenter 유닛은 카메라 기준 Bounds에는 개입하지 않습니다.
 /// </summary>
 [DefaultExecutionOrder(20000)]
 [DisallowMultipleComponent]
