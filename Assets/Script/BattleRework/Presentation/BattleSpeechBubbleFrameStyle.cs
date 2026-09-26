@@ -637,6 +637,121 @@ public static class BattleSpeechBubbleFrameTextureBuilder
 {
     private const int TextureHeight = 192;
 
+    public static Texture2D BuildOutlineMaskTexture(
+        BattleSpeechBubbleFrameStyle style,
+        Vector2 runtimeSize,
+        string textureName,
+        out Rect localBounds)
+    {
+        style ??=
+            BattleSpeechBubbleFrameStyle.CreateCombatDefault();
+
+        style.EnsureCornerPointDefaults();
+
+        localBounds =
+            style.GetLocalBounds(
+                runtimeSize);
+
+        ResolveTextureSize(
+            localBounds,
+            out int width,
+            out int height);
+
+        Texture2D texture =
+            CreateTexture(
+                width,
+                height,
+                textureName);
+
+        Color32[] pixels =
+            CreateTransparentPixels(
+                width,
+                height);
+
+        Vector2[] outline =
+            ConvertToTexture(
+                style.GetOutlineCorners(runtimeSize),
+                localBounds,
+                width,
+                height);
+
+        Vector2[] fill =
+            ConvertToTexture(
+                style.GetFillCorners(runtimeSize),
+                localBounds,
+                width,
+                height);
+
+        RasterizePolygon(
+            pixels,
+            width,
+            height,
+            outline,
+            new Color32(255, 255, 255, 255));
+
+        // 내부 Fill 영역을 투명하게 다시 지워서 Stroke만 남깁니다.
+        RasterizePolygon(
+            pixels,
+            width,
+            height,
+            fill,
+            new Color32(0, 0, 0, 0));
+
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    public static Texture2D BuildFillMaskTexture(
+        BattleSpeechBubbleFrameStyle style,
+        Vector2 runtimeSize,
+        string textureName,
+        out Rect localBounds)
+    {
+        style ??=
+            BattleSpeechBubbleFrameStyle.CreateCombatDefault();
+
+        style.EnsureCornerPointDefaults();
+
+        localBounds =
+            style.GetLocalBounds(
+                runtimeSize);
+
+        ResolveTextureSize(
+            localBounds,
+            out int width,
+            out int height);
+
+        Texture2D texture =
+            CreateTexture(
+                width,
+                height,
+                textureName);
+
+        Color32[] pixels =
+            CreateTransparentPixels(
+                width,
+                height);
+
+        Vector2[] fill =
+            ConvertToTexture(
+                style.GetFillCorners(runtimeSize),
+                localBounds,
+                width,
+                height);
+
+        RasterizePolygon(
+            pixels,
+            width,
+            height,
+            fill,
+            new Color32(255, 255, 255, 255));
+
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
     public static Texture2D BuildFrameTexture(
         BattleSpeechBubbleFrameStyle style,
         Vector2 runtimeSize,
@@ -652,53 +767,21 @@ public static class BattleSpeechBubbleFrameTextureBuilder
             style.GetLocalBounds(
                 runtimeSize);
 
-        float boundsWidth =
-            Mathf.Max(
-                1f,
-                localBounds.width);
-
-        float boundsHeight =
-            Mathf.Max(
-                1f,
-                localBounds.height);
-
-        float aspect =
-            Mathf.Max(
-                0.25f,
-                boundsWidth /
-                boundsHeight);
-
-        int width =
-            Mathf.Clamp(
-                Mathf.RoundToInt(
-                    TextureHeight * aspect),
-                128,
-                2048);
-
-        int height =
-            TextureHeight;
+        ResolveTextureSize(
+            localBounds,
+            out int width,
+            out int height);
 
         Texture2D texture =
-            new(
+            CreateTexture(
                 width,
                 height,
-                TextureFormat.RGBA32,
-                false)
-            {
-                filterMode = FilterMode.Bilinear,
-                wrapMode = TextureWrapMode.Clamp,
-                hideFlags = HideFlags.HideAndDontSave,
-                name = textureName
-            };
+                textureName);
 
         Color32[] pixels =
-            new Color32[width * height];
-
-        Color32 transparent =
-            new(0, 0, 0, 0);
-
-        for (int i = 0; i < pixels.Length; i++)
-            pixels[i] = transparent;
+            CreateTransparentPixels(
+                width,
+                height);
 
         Vector2[] outline =
             ConvertToTexture(
@@ -732,6 +815,72 @@ public static class BattleSpeechBubbleFrameTextureBuilder
         texture.Apply(false, true);
 
         return texture;
+    }
+
+    private static void ResolveTextureSize(
+        Rect localBounds,
+        out int width,
+        out int height)
+    {
+        float boundsWidth =
+            Mathf.Max(
+                1f,
+                localBounds.width);
+
+        float boundsHeight =
+            Mathf.Max(
+                1f,
+                localBounds.height);
+
+        float aspect =
+            Mathf.Max(
+                0.25f,
+                boundsWidth /
+                boundsHeight);
+
+        width =
+            Mathf.Clamp(
+                Mathf.RoundToInt(
+                    TextureHeight * aspect),
+                128,
+                2048);
+
+        height =
+            TextureHeight;
+    }
+
+    private static Texture2D CreateTexture(
+        int width,
+        int height,
+        string textureName)
+    {
+        return new Texture2D(
+            width,
+            height,
+            TextureFormat.RGBA32,
+            false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave,
+            name = textureName
+        };
+    }
+
+    private static Color32[] CreateTransparentPixels(
+        int width,
+        int height)
+    {
+        Color32[] pixels =
+            new Color32[width * height];
+
+        Color32 transparent =
+            new(0, 0, 0, 0);
+
+        for (int i = 0; i < pixels.Length; i++)
+            pixels[i] = transparent;
+
+        return pixels;
     }
 
     private static Vector2[] ConvertToTexture(
