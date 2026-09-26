@@ -974,6 +974,15 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             return;
         }
 
+        // Persistent 4x4 중심 좌표를 Capture하기 전에는 상품을 만들지 않습니다.
+        // Reward State가 Show Transition보다 한 프레임 먼저 바뀌어도 (0,0)에 잠깐 생성되지 않습니다.
+        if (!dockCaptured ||
+            stageRoot == null ||
+            !stageRoot.activeInHierarchy)
+        {
+            return;
+        }
+
         EnsureRewardShowcase(
             forceRebuild: false);
 
