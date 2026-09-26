@@ -53,7 +53,12 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         RewardIntro,
         MapIntro,
         RewardConfirm,
-        MapConfirm,
+        MapConfirmElite,
+        MapConfirmShop,
+        MapConfirmEvent,
+        MapConfirmHigh,
+        MapConfirmMid,
+        MapConfirmLow,
         Saw,
         OddWeapon,
         RareItem,
@@ -328,20 +333,106 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (owner == null || node == null)
             return;
 
+        int clampedStars =
+            Mathf.Clamp(
+                stars,
+                1,
+                5);
+
+        string line;
+        Mood mood;
+
+        switch (node.type)
+        {
+            case BattleNodeType.Elite:
+                line =
+                    owner.PickLine(
+                        PresenterLineKey.MapConfirmElite,
+                        "오, 엘리트로 가네요. 좋아요, 이건 좀 집중해서 봐야겠습니다.",
+                        "결국 여기 들어갑니다. 편한 길은 아니고... 대신 볼 건 많겠네요.",
+                        "엘리트 확정이네요. 자, 여기부터는 한 번 삐끗하면 꽤 아픕니다.",
+                        "어, 이쪽을 고르네요. 이번엔 확실히 세게 가는데?",
+                        "좋습니다, 엘리트 코스. 이건 결과가 어떻게 나오든 화면은 나오겠네요.",
+                        "여기군요. 음... 위험한 대신 보상까지 생각하면 이해는 갑니다.");
+                mood = Mood.Excited;
+                break;
+
+            case BattleNodeType.Shop:
+                line =
+                    owner.PickLine(
+                        PresenterLineKey.MapConfirmShop,
+                        "오, 상점으로 가네요. 그럼 잠깐 장비부터 정리하고 가죠.",
+                        "여기로 정했네요. 좋아요, 전투 전에 한 번 숨 돌릴 수 있겠어요.",
+                        "상점 확정. 음... 돈 남아 있으면 여기서 좀 쓰겠네요.",
+                        "이쪽이군요. 급하게 갈 건 없고, 뭐 살지 천천히 보면 되겠네요.",
+                        "좋습니다, 쇼핑 타임. 다음 전투 전에 세팅 한번 만져보죠.",
+                        "어, 상점 가네요. 괜히 들어갔다가 지갑만 비우는 건 아니겠죠.");
+                mood = Mood.Neutral;
+                break;
+
+            case BattleNodeType.Event:
+                line =
+                    owner.PickLine(
+                        PresenterLineKey.MapConfirmEvent,
+                        "오, 이벤트로 가네요. 이건 저도 뭐가 나올지 모르겠습니다.",
+                        "결국 이쪽이군요. 좋아요, 이런 건 직접 열어봐야 알죠.",
+                        "이벤트 확정. 음... 좋은 게 나올지, 이상한 게 나올지 한번 보죠.",
+                        "어, 여기 들어가네요. 정보가 없어서 오히려 좀 궁금한데?",
+                        "이쪽이군요. 자, 예상은 그만하고 그냥 열어보죠.",
+                        "좋습니다, 이벤트 코스. 이런 건 괜히 눌러보고 싶게 만들어놨죠.");
+                mood = Mood.Curious;
+                break;
+
+            default:
+                if (clampedStars >= 4)
+                {
+                    line =
+                        owner.PickLine(
+                            PresenterLineKey.MapConfirmHigh,
+                            "오, 결국 이쪽으로 가네요. 좋아요, 이번 판은 좀 볼 만하겠는데요.",
+                            "여기로 정했네요. 자, 이제 슬슬 긴장 좀 해야겠습니다.",
+                            "아, 이쪽이구나. 다음 판 그림 제대로 나오겠는데?",
+                            "어, 이 길을 택하네요. 생각보다 과감하게 가는데?",
+                            "좋습니다, 높은 쪽으로 갑니다. 말보다 직접 보는 게 빠르겠네요.",
+                            "이쪽이네요. 음... 아까부터 눈은 갔는데, 진짜 들어가네.",
+                            "결국 센 쪽을 고르네요. 편하게 갈 생각은 없나 봅니다.");
+                    mood = Mood.Excited;
+                }
+                else if (clampedStars == 3)
+                {
+                    line =
+                        owner.PickLine(
+                            PresenterLineKey.MapConfirmMid,
+                            "이쪽으로 정했네요. 딱 무난하게 이어가기 좋은 선택이네요.",
+                            "오, 여기군요. 너무 세지도 않고 너무 심심하지도 않고.",
+                            "별 세 개 쪽으로 갑니다. 음... 깔끔하게 한 판 보기 좋겠네요.",
+                            "결국 이쪽이네요. 크게 무리하진 않고, 그렇다고 쉬어가진 않고.",
+                            "좋아요, 여기로 갑니다. 다음 판은 딱 중간 템포겠네요.",
+                            "이쪽 선택이군요. 뭐, 지금 흐름엔 이 정도가 잘 맞아 보이네요.");
+                    mood = Mood.Neutral;
+                }
+                else
+                {
+                    line =
+                        owner.PickLine(
+                            PresenterLineKey.MapConfirmLow,
+                            "아, 이쪽으로 가네요. 이번 판은 좀 편하게 넘기겠는데요.",
+                            "여기로 정했네요. 뭐, 굳이 매번 무리할 필요는 없죠.",
+                            "오케이, 이쪽이면 잠깐 숨 돌릴 수 있겠네요.",
+                            "이쪽 선택이군요. 다음 큰 판 전에 정리 한번 하고 가는 느낌이네요.",
+                            "음, 안전한 쪽으로 가네요. 깔끔하게 넘겨보죠.",
+                            "여기군요. 크게 힘줄 구간은 아니고, 바로 이어가면 되겠네요.",
+                            "좋아요, 이번엔 좀 잔잔하게 갑니다. 이런 판도 있어야죠.");
+                    mood = Mood.Neutral;
+                }
+                break;
+        }
+
         owner.QueueCopy(
             "NEXT COURSE",
             $"ROUTE LOCKED / STAGE {Mathf.Max(1, node.depth + 1):00}",
-            owner.PickLine(
-                PresenterLineKey.MapConfirm,
-                "오, 결국 이쪽으로 가네요. 그럼 다음 무대는 여기군요.",
-                "이쪽으로 정했네요. 좋아요, 바로 이어서 보죠.",
-                "아, 여기로 가는구나. 다음 판 그림 좀 나오겠는데요?",
-                "오, 여기네요. 솔직히 이쪽은 좀 궁금했어요.",
-                "결국 이쪽이군요. 자, 무대 바뀝니다. 한번 가보죠.",
-                "어, 이 길을 택하네요. 생각보다 과감하게 가는데?",
-                "좋습니다, 루트 확정. 이제 말보다 직접 보는 게 빠르겠네요.",
-                "이쪽이네요. 음... 아까부터 눈이 좀 가긴 했는데, 결국 여기로 옵니다."),
-            Mood.Excited);
+            line,
+            mood);
     }
 
     public static void NotifyPresenterMotion(
