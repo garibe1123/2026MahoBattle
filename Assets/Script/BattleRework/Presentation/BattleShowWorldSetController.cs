@@ -33,6 +33,16 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 {
     private enum ShowMode { None, Reward, Map }
 
+    private sealed class RewardShowcaseItem
+    {
+        public int index;
+        public BattleEquipmentSO equipment;
+        public GameObject root;
+        public SpriteRenderer baseRenderer;
+        public SpriteRenderer itemRenderer;
+        public BattleCharacterLightVisual spotlight;
+    }
+
     private const int ScreenCarrierWidth = 10;
     private const int ScreenCarrierDepth = 2;
     private const int PresenterCarrierWidth = 6;
@@ -57,10 +67,28 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField] private int carrierFloorSortingOrder = -18;
 
     [Header("Reward Camera Focus")]
-    [Tooltip("Reward에서는 Persistent Base/Carrier가 아니라 TV 자체를 거의 풀스크린으로 잡습니다.")]
-    [SerializeField, Min(0f)] private float rewardCameraPadding = 0.08f;
-    [Tooltip("16:9 기준 Reward TV가 화면 대부분을 차지하도록 하는 최소 Orthographic Size입니다.")]
+    [Tooltip("Reward 기본 진입 시 상품 Base 전체가 들어오도록 주는 여백입니다.")]
+    [SerializeField, Min(0f)] private float rewardCameraPadding = 0.38f;
+    [Tooltip("Reward 상품 전체를 보여줄 때의 최소 Orthographic Size입니다.")]
     [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 2.55f;
+
+    [Header("Reward Item Showcase")]
+    [Tooltip("상품 Base 중심 간 World 간격입니다. 기본 1이면 Floor 한 칸 간격입니다.")]
+    [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 1.15f;
+    [Tooltip("Persistent 4x4 중심에서 상품 진열 행을 위/아래로 이동합니다.")]
+    [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.15f;
+    [Tooltip("아이템 Hover 시 사용할 Orthographic Size입니다. BattleCamera Show Min Zoom보다 작으면 Camera 쪽 최소값에서 제한됩니다.")]
+    [SerializeField, Min(0.5f)] private float rewardItemHoverCameraSize = 2.20f;
+    [Tooltip("월드 좌표 Hover 판정 시 1칸 Base 바깥으로 추가하는 여유입니다.")]
+    [SerializeField, Range(0f, 0.5f)] private float rewardHoverBoundsPaddingWorld = 0.10f;
+
+    [Header("Reward Item Spotlight")]
+    [SerializeField] private Color rewardSpotlightColor = new(1f, 0.96f, 0.78f, 1f);
+    [SerializeField, Range(0f, 1f)] private float rewardSpotlightPoolAlpha = 0.34f;
+    [SerializeField, Range(0f, 1f)] private float rewardSpotlightBeamAlpha = 0.58f;
+    [SerializeField, Min(0.2f)] private float rewardSpotlightWidth = 1.8f;
+    [SerializeField, Min(0.2f)] private float rewardSpotlightHeight = 2.4f;
+    [SerializeField, Min(0.1f)] private float rewardSpotlightFadeSharpness = 10f;
 
     [Header("Map Camera Focus")]
     [Tooltip("Map 선택에서는 Persistent Base/Carrier 전체가 아니라 TV 화면을 주 피사체로 잡습니다.")]
@@ -81,6 +109,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private BattleCameraController battleCamera;
     private RoomBaseTemplate baseTemplate;
     private BattleShowPresentationManager presentation;
+    private BattleRewardFlow rewardFlow;
 
     private RectTransform rewardScreen;
     private RectTransform mapScreen;
@@ -103,6 +132,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private MapBlock screenCarrier;
     private MapBlock presenterCarrier;
+
+    private GameObject rewardShowcaseRoot;
+    private readonly List<RewardShowcaseItem> rewardShowcaseItems = new();
+    private int rewardShowcaseSignature;
+    private int rewardHoveredIndex = -1;
+    private int rewardSelectedIndex = -1;
 
     private Coroutine bindRoutine;
     private Coroutine transitionRoutine;
@@ -131,10 +166,80 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     public Vector3 CameraTargetWorld => cameraTargetWorld;
     public float ShowCameraSize => Mathf.Max(0.1f, cameraSizeWorld);
     public RectTransform MountedTvRect => tvRect;
+    public bool HasRewardShowcase =>
+        rewardShowcaseRoot != null &&
+        rewardShowcaseRoot.activeInHierarchy &&
+        rewardShowcaseItems.Count > 0;
+    public int RewardHoveredIndex => rewardHoveredIndex;
+    public int RewardSelectedIndex => rewardSelectedIndex;
+
     public Transform PresenterWorldTransform =>
         presenterRenderer != null && presenterRenderer.enabled && presenterRenderer.gameObject.activeInHierarchy
             ? presenterTransform
             : null;
+
+    public void SetRewardShowcaseSelectedIndex(int index)
+    {
+        rewardSelectedIndex =
+            FindRewardShowcaseItem(index) != null
+                ? index
+                : -1;
+    }
+
+    public bool TryGetRewardShowcaseScreenPoint(
+        int index,
+        out Vector2 screenPoint)
+    {
+        screenPoint = Vector2.zero;
+
+        RewardShowcaseItem item =
+            FindRewardShowcaseItem(index);
+
+        Camera camera = Camera.main;
+        if (item == null ||
+            item.itemRenderer == null ||
+            camera == null)
+        {
+            return false;
+        }
+
+        Vector3 world =
+            item.itemRenderer.bounds.center;
+
+        Vector3 screen =
+            camera.WorldToScreenPoint(world);
+
+        if (screen.z <= 0f)
+            return false;
+
+        screenPoint =
+            new Vector2(
+                screen.x,
+                screen.y);
+
+        return true;
+    }
+
+    public bool TryGetRewardShowcaseWorldPosition(
+        int index,
+        out Vector3 worldPosition)
+    {
+        worldPosition = Vector3.zero;
+
+        RewardShowcaseItem item =
+            FindRewardShowcaseItem(index);
+
+        if (item == null ||
+            item.itemRenderer == null)
+        {
+            return false;
+        }
+
+        worldPosition =
+            item.itemRenderer.bounds.center;
+
+        return true;
+    }
 
     public void SetExternalGate(bool held)
     {
@@ -259,6 +364,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (player == null) player = FindFirstObjectByType<PlayerController>();
         if (battleCamera == null) battleCamera = FindFirstObjectByType<BattleCameraController>();
         if (baseTemplate == null) baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        if (rewardFlow == null) rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
         if (presentation == null)
         {
             presentation = BattleShowPresentationManager.Instance != null
@@ -388,6 +494,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         ResolveUi();
         desiredMode = ResolveDesiredMode();
         UpdatePresenter();
+        UpdateRewardShowcase();
         UpdatePointerTracking();
 
         if (transitionRoutine == null && desiredMode != currentMode)
@@ -502,6 +609,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         SetContent(mode);
+
+        if (mode == ShowMode.Reward)
+            EnsureRewardShowcase(forceRebuild: true);
+        else
+            DestroyRewardShowcase();
+
         ComputeSharedCameraFrame();
 
         float screenDuration = 0f;
@@ -549,6 +662,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             yield return new WaitForSecondsRealtime(presenterDuration + 0.03f);
 
         DestroyPresenterCarrier();
+        DestroyRewardShowcase();
         currentMode = ShowMode.Map;
         SetContent(ShowMode.Map);
         ComputeSharedCameraFrame();
@@ -579,6 +693,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         currentMode = ShowMode.Reward;
         SetContent(ShowMode.Reward);
+        EnsureRewardShowcase(forceRebuild: true);
 
         if (presenterCarrier != null)
         {
@@ -620,6 +735,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (tvObject != null)
             tvObject.SetActive(false);
 
+        DestroyRewardShowcase();
         ClearAllCarriers(false);
         if (stageRoot != null)
             stageRoot.SetActive(false);
@@ -841,6 +957,564 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             presenterCarrier.transform.DOKill();
     }
 
+    private void UpdateRewardShowcase()
+    {
+        bool rewardActive =
+            (currentMode == ShowMode.Reward ||
+             desiredMode == ShowMode.Reward) &&
+            runManager != null &&
+            runManager.RunActive &&
+            runManager.State == BattleRunState.Reward;
+
+        if (!rewardActive)
+        {
+            if (rewardShowcaseRoot != null)
+                DestroyRewardShowcase();
+
+            return;
+        }
+
+        EnsureRewardShowcase(
+            forceRebuild: false);
+
+        bool choosing =
+            rewardFlow == null ||
+            rewardFlow.Phase == BattleRewardPhase.Choosing;
+
+        int nextHover =
+            choosing &&
+            !stageTransitioning &&
+            !externalGate
+                ? ResolveRewardShowcaseHover()
+                : -1;
+
+        if (nextHover != rewardHoveredIndex)
+        {
+            rewardHoveredIndex =
+                nextHover;
+
+            ApplyRewardShowcaseFocus();
+        }
+
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item?.spotlight == null)
+                continue;
+
+            bool hovered =
+                choosing &&
+                item.index == rewardHoveredIndex;
+
+            item.spotlight.SetTarget(
+                hovered,
+                hovered ? 1f : 0f);
+        }
+    }
+
+    private void EnsureRewardShowcase(
+        bool forceRebuild)
+    {
+        if (stageRoot == null ||
+            runManager == null)
+        {
+            return;
+        }
+
+        IReadOnlyList<BattleEquipmentSO> choices =
+            runManager.CurrentRewardChoices;
+
+        int signature =
+            ComputeRewardShowcaseSignature(
+                choices);
+
+        if (!forceRebuild &&
+            rewardShowcaseRoot != null &&
+            signature == rewardShowcaseSignature)
+        {
+            if (!rewardShowcaseRoot.activeSelf)
+                rewardShowcaseRoot.SetActive(true);
+
+            return;
+        }
+
+        DestroyRewardShowcase();
+
+        if (choices == null ||
+            choices.Count <= 0)
+        {
+            return;
+        }
+
+        rewardShowcaseSignature =
+            signature;
+
+        rewardShowcaseRoot =
+            new GameObject(
+                "RewardItemShowcase");
+
+        rewardShowcaseRoot.transform.SetParent(
+            stageRoot.transform,
+            true);
+
+        float spacing =
+            Mathf.Max(
+                0.5f,
+                rewardShowcaseSpacingWorld);
+
+        float startX =
+            stageAnchorWorld.x -
+            (choices.Count - 1) *
+            spacing *
+            0.5f;
+
+        float rowY =
+            stageAnchorWorld.y +
+            rewardShowcaseRowYOffsetWorld;
+
+        float floorPpu =
+            presentation != null
+                ? presentation.GetFloorPixelsPerUnit()
+                : 32f;
+
+        Vector2 floorTileSize =
+            presentation != null
+                ? presentation.GetFloorTileWorldSize()
+                : Vector2.one;
+
+        SpriteRenderer playerRenderer =
+            player != null
+                ? player.GetComponentInChildren<SpriteRenderer>(true)
+                : null;
+
+        int sortingLayerId =
+            playerRenderer != null
+                ? playerRenderer.sortingLayerID
+                : 0;
+
+        for (int i = 0;
+             i < choices.Count;
+             i++)
+        {
+            BattleEquipmentSO equipment =
+                choices[i];
+
+            if (equipment == null)
+                continue;
+
+            Vector3 baseWorld =
+                new(
+                    startX +
+                    i * spacing,
+                    rowY,
+                    0f);
+
+            GameObject itemRoot =
+                new(
+                    $"RewardShowcase_{i}_{equipment.GetDisplayName()}");
+
+            itemRoot.transform.SetParent(
+                rewardShowcaseRoot.transform,
+                true);
+
+            itemRoot.transform.position =
+                baseWorld;
+
+            GameObject baseObject =
+                new("RewardBase");
+
+            baseObject.transform.SetParent(
+                itemRoot.transform,
+                false);
+
+            SpriteRenderer baseRenderer =
+                baseObject.AddComponent<SpriteRenderer>();
+
+            Sprite baseSprite =
+                presentation != null
+                    ? presentation.GetRewardBaseSprite(
+                        equipment.rarity)
+                    : null;
+
+            baseRenderer.sprite =
+                baseSprite;
+
+            baseRenderer.sortingLayerID =
+                sortingLayerId;
+
+            baseRenderer.sortingOrder =
+                BattleWorldSorting.FloorOrder +
+                48;
+
+            if (baseSprite != null)
+            {
+                Vector2 baseWorldSize =
+                    new(
+                        Mathf.Max(
+                            0.001f,
+                            Mathf.Abs(
+                                baseSprite.bounds.size.x)),
+                        Mathf.Max(
+                            0.001f,
+                            Mathf.Abs(
+                                baseSprite.bounds.size.y)));
+
+                baseObject.transform.localScale =
+                    new Vector3(
+                        floorTileSize.x /
+                        baseWorldSize.x,
+                        floorTileSize.y /
+                        baseWorldSize.y,
+                        1f);
+            }
+
+            GameObject iconObject =
+                new("RewardItemSprite");
+
+            iconObject.transform.SetParent(
+                itemRoot.transform,
+                false);
+
+            float pixelYOffset =
+                presentation != null
+                    ? presentation.RewardItemPixelYOffset
+                    : -4;
+
+            iconObject.transform.localPosition =
+                new Vector3(
+                    0f,
+                    pixelYOffset /
+                    Mathf.Max(
+                        1f,
+                        floorPpu),
+                    0f);
+
+            SpriteRenderer itemRenderer =
+                iconObject.AddComponent<SpriteRenderer>();
+
+            itemRenderer.sprite =
+                equipment.icon;
+
+            itemRenderer.sortingLayerID =
+                sortingLayerId;
+
+            itemRenderer.sortingOrder =
+                BattleWorldSorting.WorldYToOrder(
+                    baseWorld.y,
+                    120 + i);
+
+            if (equipment.icon != null)
+            {
+                float iconPpu =
+                    Mathf.Max(
+                        1f,
+                        equipment.icon.pixelsPerUnit);
+
+                float ppuScale =
+                    iconPpu /
+                    Mathf.Max(
+                        1f,
+                        floorPpu);
+
+                iconObject.transform.localScale =
+                    new Vector3(
+                        ppuScale,
+                        ppuScale,
+                        1f);
+            }
+
+            BattleCharacterLightVisual spotlight =
+                itemRoot.AddComponent<BattleCharacterLightVisual>();
+
+            spotlight.Configure(
+                itemRenderer,
+                rewardSpotlightColor,
+                rewardSpotlightColor,
+                rewardSpotlightPoolAlpha,
+                rewardSpotlightWidth,
+                0.18f,
+                0.045f,
+                rewardSpotlightFadeSharpness);
+
+            spotlight.ConfigureKeyLight(
+                true,
+                rewardSpotlightColor,
+                rewardSpotlightBeamAlpha,
+                rewardSpotlightWidth,
+                rewardSpotlightHeight,
+                0.24f);
+
+            spotlight.SetImmediate(0f);
+
+            rewardShowcaseItems.Add(
+                new RewardShowcaseItem
+                {
+                    index = i,
+                    equipment = equipment,
+                    root = itemRoot,
+                    baseRenderer = baseRenderer,
+                    itemRenderer = itemRenderer,
+                    spotlight = spotlight
+                });
+        }
+
+        rewardHoveredIndex = -1;
+        rewardSelectedIndex = -1;
+
+        rewardShowcaseRoot.SetActive(true);
+
+        ComputeSharedCameraFrame();
+    }
+
+    private int ResolveRewardShowcaseHover()
+    {
+        Camera camera =
+            Camera.main;
+
+        if (camera == null ||
+            !Input.mousePresent)
+        {
+            return -1;
+        }
+
+        Vector3 mouse =
+            Input.mousePosition;
+
+        Vector3 world =
+            camera.ScreenToWorldPoint(
+                new Vector3(
+                    mouse.x,
+                    mouse.y,
+                    Mathf.Abs(
+                        camera.transform.position.z)));
+
+        int bestIndex = -1;
+        float bestDistance = float.PositiveInfinity;
+
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item == null ||
+                item.baseRenderer == null)
+            {
+                continue;
+            }
+
+            Bounds bounds =
+                item.baseRenderer.bounds;
+
+            bounds.Expand(
+                new Vector3(
+                    rewardHoverBoundsPaddingWorld * 2f,
+                    rewardHoverBoundsPaddingWorld * 2f,
+                    0f));
+
+            bool contains =
+                world.x >= bounds.min.x &&
+                world.x <= bounds.max.x &&
+                world.y >= bounds.min.y &&
+                world.y <= bounds.max.y;
+
+            if (!contains &&
+                item.itemRenderer != null &&
+                item.itemRenderer.sprite != null)
+            {
+                Bounds itemBounds =
+                    item.itemRenderer.bounds;
+
+                contains =
+                    world.x >= itemBounds.min.x &&
+                    world.x <= itemBounds.max.x &&
+                    world.y >= itemBounds.min.y &&
+                    world.y <= itemBounds.max.y;
+            }
+
+            if (!contains)
+                continue;
+
+            Vector2 delta =
+                (Vector2)world -
+                (Vector2)bounds.center;
+
+            float distance =
+                delta.sqrMagnitude;
+
+            if (distance >= bestDistance)
+                continue;
+
+            bestDistance =
+                distance;
+
+            bestIndex =
+                item.index;
+        }
+
+        return bestIndex;
+    }
+
+    private void ApplyRewardShowcaseFocus()
+    {
+        if (rewardHoveredIndex < 0)
+        {
+            ComputeSharedCameraFrame();
+            return;
+        }
+
+        RewardShowcaseItem item =
+            FindRewardShowcaseItem(
+                rewardHoveredIndex);
+
+        if (item == null ||
+            item.itemRenderer == null)
+        {
+            ComputeSharedCameraFrame();
+            return;
+        }
+
+        Vector3 focus =
+            item.itemRenderer.bounds.center;
+
+        focus.z = 0f;
+
+        OverrideShowCameraFrame(
+            focus,
+            rewardItemHoverCameraSize);
+    }
+
+    private RewardShowcaseItem FindRewardShowcaseItem(
+        int index)
+    {
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item != null &&
+                item.index == index)
+            {
+                return item;
+            }
+        }
+
+        return null;
+    }
+
+    private bool TryGetRewardShowcaseBounds(
+        out Bounds bounds)
+    {
+        bounds =
+            default;
+
+        bool initialized =
+            false;
+
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item == null ||
+                item.baseRenderer == null)
+            {
+                continue;
+            }
+
+            Bounds next =
+                item.baseRenderer.bounds;
+
+            if (item.itemRenderer != null &&
+                item.itemRenderer.sprite != null)
+            {
+                next.Encapsulate(
+                    item.itemRenderer.bounds);
+            }
+
+            if (!initialized)
+            {
+                bounds =
+                    next;
+
+                initialized =
+                    true;
+            }
+            else
+            {
+                bounds.Encapsulate(
+                    next);
+            }
+        }
+
+        return initialized;
+    }
+
+    private int ComputeRewardShowcaseSignature(
+        IReadOnlyList<BattleEquipmentSO> choices)
+    {
+        unchecked
+        {
+            int hash = 17;
+
+            if (choices == null)
+                return hash;
+
+            hash =
+                hash * 31 +
+                choices.Count;
+
+            for (int i = 0;
+                 i < choices.Count;
+                 i++)
+            {
+                hash =
+                    hash * 31 +
+                    (choices[i] != null
+                        ? choices[i].GetInstanceID()
+                        : 0);
+            }
+
+            return hash;
+        }
+    }
+
+    private void DestroyRewardShowcase()
+    {
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item?.spotlight != null)
+                item.spotlight.SetImmediate(0f);
+        }
+
+        rewardShowcaseItems.Clear();
+        rewardHoveredIndex = -1;
+        rewardSelectedIndex = -1;
+        rewardShowcaseSignature = 0;
+
+        if (rewardShowcaseRoot != null)
+        {
+            Destroy(
+                rewardShowcaseRoot);
+
+            rewardShowcaseRoot = null;
+        }
+    }
+
     private void ComputeSharedCameraFrame()
     {
         tvMountedWorld = ResolveMountedTvWorld();
@@ -857,13 +1531,23 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         bool tvDecisionFocus = rewardFocus || mapFocus;
 
         Bounds bounds;
-        if (tvDecisionFocus)
+        if (rewardFocus &&
+            TryGetRewardShowcaseBounds(
+                out Bounds rewardBounds))
         {
-            // Reward/Map are decision screens. The information on the TV is the primary
-            // gameplay surface, so do NOT include the persistent base or carrier in framing.
+            // Reward는 TV 카드가 아니라 Persistent Base 위의 실제 상품 진열대를
+            // 주 피사체로 사용합니다. Map은 기존 TV Framing을 그대로 유지합니다.
+            bounds =
+                rewardBounds;
+        }
+        else if (tvDecisionFocus)
+        {
             bounds = new Bounds(
                 tvMountedWorld,
-                new Vector3(tvWorldSize.x, tvWorldSize.y, 0.1f));
+                new Vector3(
+                    tvWorldSize.x,
+                    tvWorldSize.y,
+                    0.1f));
         }
         else
         {
@@ -935,6 +1619,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void UpdatePointerTracking()
     {
+        // Reward 상품 선택은 TV 커서 좌표가 아니라 월드 Item/Base Hover가
+        // 카메라 Focus를 직접 소유합니다. Map의 기존 TV 추적은 그대로 유지합니다.
+        if (currentMode == ShowMode.Reward &&
+            HasRewardShowcase)
+        {
+            battleCamera?.SetShowCursorTracking(
+                false,
+                Vector2.zero);
+            return;
+        }
+
         if (battleCamera == null || tvRect == null || currentMode == ShowMode.None ||
             stageTransitioning || externalGate || tvObject == null || !tvObject.activeSelf)
         {
