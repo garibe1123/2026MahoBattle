@@ -98,7 +98,10 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private CanvasGroup bubbleGroup;
     private Image bubbleBack;
     private RectTransform tailPivotRect;
+    private BattleSpeechBubbleFrameFillController bubbleFrameController;
     private BattleSpeechBubbleTailTriangleController bubbleTailGraphic;
+    private BattleSpeechBubbleFrameStyle runtimeBubbleFrameStyle;
+    private BattleSpeechBubbleTailStyle runtimeBubbleTailStyle;
     private RectTransform tagBadgeRect;
     private Text tagText;
     private Text lineText;
@@ -470,6 +473,8 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         typeProgress = 0f;
         visibleCharacters = 0;
 
+        RefreshBubbleVisualVariation();
+
         if (tagText != null)
             tagText.text = tag ?? string.Empty;
         if (lineText != null)
@@ -688,6 +693,62 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         }
     }
 
+    private void RefreshBubbleVisualVariation()
+    {
+        if (bubbleRect == null ||
+            bubbleFrameController == null ||
+            bubbleTailGraphic == null)
+        {
+            return;
+        }
+
+        BattleSpeechBubbleFrameStyle baseFrame =
+            presentation != null
+                ? presentation.CombatSpeechBubbleFrameStyle
+                : BattleSpeechBubbleFrameStyle.CreateCombatDefault();
+
+        BattleSpeechBubbleTailStyle baseTail =
+            presentation != null
+                ? presentation.CombatSpeechBubbleTailStyle
+                : new BattleSpeechBubbleTailStyle();
+
+        BattleSpeechBubbleRuntimeVariationSettings variation =
+            presentation != null
+                ? presentation.CombatSpeechBubbleVariation
+                : null;
+
+        int seed =
+            BattleSpeechBubbleVariationRandom.NextSeed(
+                GetInstanceID());
+
+        runtimeBubbleFrameStyle =
+            baseFrame.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x27C8D13);
+
+        runtimeBubbleTailStyle =
+            baseTail.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x62E1A4B);
+
+        bubbleRect.localRotation =
+            Quaternion.Euler(
+                0f,
+                0f,
+                runtimeBubbleFrameStyle.rotation);
+
+        bubbleFrameController.Configure(
+            bubbleBack,
+            runtimeBubbleFrameStyle,
+            bubbleSize);
+
+        bubbleTailGraphic.Configure(
+            bubbleRect,
+            tailPivotRect,
+            runtimeBubbleFrameStyle.fillColor,
+            runtimeBubbleTailStyle);
+    }
+
     private void HideImmediate()
     {
         if (popupGroup != null)
@@ -821,10 +882,10 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleBack = frame.AddComponent<Image>();
         bubbleBack.raycastTarget = false;
 
-        BattleSpeechBubbleFrameFillController frameController =
+        bubbleFrameController =
             frame.AddComponent<BattleSpeechBubbleFrameFillController>();
 
-        frameController.Configure(
+        bubbleFrameController.Configure(
             bubbleBack,
             activeFrameStyle,
             bubbleSize);
