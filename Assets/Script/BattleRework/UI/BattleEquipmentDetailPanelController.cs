@@ -197,6 +197,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         rewardPreviewActive = false;
         previewRewardIndex = -1;
         displayedSlot = slotIndex;
+        RestoreDefaultPanelPlacement();
         RefreshPanel(slotIndex, runtimeSlot, equipment);
         return true;
     }
@@ -263,6 +264,8 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         // 비활성화/명시적 Hide 시 잔상이 남지 않도록 한 번만 즉시 숨깁니다.
         if (group != null)
             group.alpha = 0f;
+
+        RestoreDefaultPanelPlacement();
     }
 
     /// <summary>
@@ -287,6 +290,32 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
             PreviewReward(rewardIndex);
         else if (rewardPreviewActive && previewRewardIndex == rewardIndex)
             ClearRewardPreview();
+    }
+
+    private void RestoreDefaultPanelPlacement()
+    {
+        if (root == null)
+            return;
+
+        root.anchorMin =
+            root.anchorMax =
+                new Vector2(
+                    1f,
+                    0.5f);
+
+        root.pivot =
+            new Vector2(
+                1f,
+                0.5f);
+
+        root.anchoredPosition =
+            Vector2.zero;
+
+        root.localRotation =
+            Quaternion.identity;
+
+        root.localScale =
+            Vector3.one;
     }
 
     private void PlaceRewardPreviewBeside(
