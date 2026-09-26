@@ -211,9 +211,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 bubbleRect.pivot;
 
         tailRect.sizeDelta =
-            new Vector2(
-                Mathf.Max(8f, activeStyle.uiSize.x),
-                Mathf.Max(8f, activeStyle.uiSize.y));
+            BattleSpeechBubbleTailTextureBuilder.GetRenderSize(
+                activeStyle.uiSize);
 
         Vector3 bubbleCenterWorld =
             bubbleRect.TransformPoint(
@@ -249,9 +248,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         BattleSpeechBubbleTailStyle activeStyle)
     {
         Vector2 size =
-            new(
-                Mathf.Max(8f, activeStyle.uiSize.x),
-                Mathf.Max(8f, activeStyle.uiSize.y));
+            BattleSpeechBubbleTailTextureBuilder.GetRenderSize(
+                activeStyle.uiSize);
 
         float padding =
             Mathf.Min(
