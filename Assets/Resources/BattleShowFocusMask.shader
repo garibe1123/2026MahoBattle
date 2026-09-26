@@ -23,6 +23,11 @@ Shader "UI/BattleShowFocusMask"
         _ScreenRect ("Screen Rect MinMax", Vector) = (0.4,0.4,0.6,0.6)
         _ScreenStrength ("Screen Strength", Range(0,1)) = 0
 
+        _ItemCenter ("Reward Item Center", Vector) = (0.5,0.5,0,0)
+        _ItemRadius ("Reward Item Radius", Float) = 0.1
+        _ItemStrength ("Reward Item Strength", Range(0,1)) = 0
+        _ItemFeather ("Reward Item Feather", Float) = 0.018
+
         _CharacterVerticalRatio ("Character Vertical Ratio", Range(0.2,1)) = 0.58
         _CharacterLowerOffset ("Character Lower Offset", Range(0,1)) = 0.24
         _CircleFeather ("Character Feather", Float) = 0.018
@@ -88,6 +93,11 @@ Shader "UI/BattleShowFocusMask"
 
             float4 _ScreenRect;
             float _ScreenStrength;
+
+            float4 _ItemCenter;
+            float _ItemRadius;
+            float _ItemStrength;
+            float _ItemFeather;
 
             float _CharacterVerticalRatio;
             float _CharacterLowerOffset;
@@ -182,7 +192,27 @@ Shader "UI/BattleShowFocusMask"
                     (1.0 - smoothstep(-_RectFeather, _RectFeather, screenSd))
                     * _ScreenStrength;
 
-                float exposed = saturate(max(playerHole, max(presenterHole, screenHole)));
+                float itemDistance =
+                    AspectDistance(
+                        uv,
+                        _ItemCenter.xy);
+
+                float itemHole =
+                    (1.0 - smoothstep(
+                        max(0.0, _ItemRadius - _ItemFeather),
+                        _ItemRadius + _ItemFeather,
+                        itemDistance))
+                    * _ItemStrength;
+
+                float exposed =
+                    saturate(
+                        max(
+                            itemHole,
+                            max(
+                                playerHole,
+                                max(
+                                    presenterHole,
+                                    screenHole))));
                 float finalAlpha = dimAlpha * _Presentation * (1.0 - exposed);
 
                 return fixed4(
