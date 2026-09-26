@@ -66,6 +66,11 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float openingMapFarDimAlpha = 0.92f;
     [SerializeField, Range(0.05f, 1.5f)] private float openingMapDimFalloffRadius = 0.66f;
 
+    [Header("Reward Item Focus")]
+    [Tooltip("Reward 상품 Hover 시 암전 Mask에서 상품 주변을 밝게 뚫는 World 반경입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardItemFocusRadiusWorld = 0.92f;
+    [SerializeField, Range(0.001f, 0.08f)] private float rewardItemFocusFeather = 0.020f;
+
     [Header("Character Stage Focus")]
     [SerializeField, Min(0.1f)] private float playerFocusRadiusWorld = 1.48f;
     [SerializeField, Min(0.1f)] private float presenterFocusRadiusWorld = 1.92f;
@@ -257,6 +262,31 @@ public sealed class BattleShowFocusController : MonoBehaviour
         Vector4 screenRect = new(0.5f, 0.5f, 0.5f, 0.5f);
         bool screenVisible = TryProjectScreenRect(camera, out screenRect);
 
+        Vector2 rewardItemUv = new(0.5f, 0.5f);
+        float rewardItemRadiusUv = 0f;
+        bool rewardItemVisible = false;
+
+        bool rewardSelection =
+            runManager != null &&
+            runManager.RunActive &&
+            runManager.State == BattleRunState.Reward &&
+            showWorldSet != null &&
+            showWorldSet.RewardHoveredIndex >= 0;
+
+        if (rewardSelection &&
+            showWorldSet.TryGetRewardShowcaseWorldPosition(
+                showWorldSet.RewardHoveredIndex,
+                out Vector3 rewardItemWorld))
+        {
+            rewardItemVisible =
+                TryProjectWorldPoint(
+                    camera,
+                    rewardItemWorld,
+                    rewardItemFocusRadiusWorld,
+                    out rewardItemUv,
+                    out rewardItemRadiusUv);
+        }
+
         bool mapSelection =
             runManager != null &&
             runManager.RunActive &&
@@ -303,6 +333,30 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         runtimeMaterial.SetVector("_ScreenRect", screenRect);
         runtimeMaterial.SetFloat("_ScreenStrength", screenVisible ? currentFocusBlend : 0f);
+
+        runtimeMaterial.SetVector(
+            "_ItemCenter",
+            new Vector4(
+                rewardItemUv.x,
+                rewardItemUv.y,
+                0f,
+                0f));
+
+        runtimeMaterial.SetFloat(
+            "_ItemRadius",
+            rewardItemRadiusUv);
+
+        runtimeMaterial.SetFloat(
+            "_ItemStrength",
+            rewardItemVisible
+                ? currentFocusBlend
+                : 0f);
+
+        runtimeMaterial.SetFloat(
+            "_ItemFeather",
+            Mathf.Max(
+                0.0001f,
+                rewardItemFocusFeather));
 
         float activeVerticalRatio = useUnifiedStageStyle
             ? stageLighting.UnifiedCharacterVerticalRatio
@@ -549,6 +603,74 @@ public sealed class BattleShowFocusController : MonoBehaviour
         }
     }
 
+    private bool TryProjectWorldPoint(
+        Camera camera,
+        Vector3 worldPoint,
+        float radiusWorld,
+        out Vector2 centerUv,
+        out float radiusUv)
+    {
+        centerUv =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        radiusUv = 0f;
+
+        if (camera == null)
+            return false;
+
+        Vector3 centerScreen =
+            camera.WorldToScreenPoint(
+                worldPoint);
+
+        if (centerScreen.z <= 0f)
+            return false;
+
+        Vector3 edgeWorld =
+            worldPoint +
+            camera.transform.right *
+            Mathf.Max(
+                0.01f,
+                radiusWorld);
+
+        Vector3 edgeScreen =
+            camera.WorldToScreenPoint(
+                edgeWorld);
+
+        float width =
+            Mathf.Max(
+                1f,
+                Screen.width);
+
+        float height =
+            Mathf.Max(
+                1f,
+                Screen.height);
+
+        centerUv =
+            new Vector2(
+                Mathf.Clamp01(
+                    centerScreen.x /
+                    width),
+                Mathf.Clamp01(
+                    centerScreen.y /
+                    height));
+
+        radiusUv =
+            Mathf.Abs(
+                edgeScreen.x -
+                centerScreen.x) /
+            height;
+
+        radiusUv =
+            Mathf.Max(
+                0.0001f,
+                radiusUv);
+
+        return true;
+    }
+
     private bool TryProjectCharacter(
         Camera camera,
         Transform target,
@@ -641,6 +763,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
             runtimeMaterial.SetFloat("_PlayerStrength", 0f);
             runtimeMaterial.SetFloat("_PresenterStrength", 0f);
             runtimeMaterial.SetFloat("_ScreenStrength", 0f);
+            runtimeMaterial.SetFloat("_ItemStrength", 0f);
         }
 
         if (overlayImage != null)
