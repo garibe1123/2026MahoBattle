@@ -833,7 +833,7 @@ public static class BattleSpeechBubbleTailTextureBuilder
                     style.pivot1HalfWidth,
                     0.01f,
                     0.50f) *
-                TextureHeight;
+                ContentHeight;
         }
 
         if (pivotCount >= 2)
@@ -843,7 +843,7 @@ public static class BattleSpeechBubbleTailTextureBuilder
                     style.pivot2HalfWidth,
                     0.01f,
                     0.50f) *
-                TextureHeight;
+                ContentHeight;
         }
 
         if (pivotCount >= 3)
@@ -853,7 +853,7 @@ public static class BattleSpeechBubbleTailTextureBuilder
                     style.pivot3HalfWidth,
                     0.005f,
                     0.50f) *
-                TextureHeight;
+                ContentHeight;
         }
 
         result[index] = 0f;
