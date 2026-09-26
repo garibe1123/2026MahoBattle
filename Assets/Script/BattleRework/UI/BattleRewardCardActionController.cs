@@ -601,7 +601,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             {
                 equipmentDetailPanel?.PreviewRewardAtScreenPoint(
                     hovered,
-                    screenPoint);
+                    screenPoint,
+                    selectedIndex == hovered);
             }
 
             if (hovered != previousHover &&
