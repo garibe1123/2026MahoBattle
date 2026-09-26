@@ -241,28 +241,45 @@ public sealed class BattleSpeechBubbleTailStyle
                 0f,
                 variation.tailPivotPositionJitter);
 
-        // ROOT 중심(rootY)과 TIP 좌표는 의도적으로 그대로 둡니다.
-        // 중간 꺾임만 흔들어서 말풍선이 가리키는 시작/끝 위치는 매번 동일합니다.
-        result.pivot1 =
-            ClampRuntimePivot(
-                BattleSpeechBubbleVariationRandom.Jitter(
-                    random,
-                    pivot1,
-                    pivotJitter));
+        bool useFreshLightningPattern =
+            variation.regenerateLightningPattern &&
+            result.pivotCount >= 2 &&
+            random.NextDouble() <=
+            Mathf.Clamp01(
+                variation.tailLightningPatternChance);
 
-        result.pivot2 =
-            ClampRuntimePivot(
-                BattleSpeechBubbleVariationRandom.Jitter(
-                    random,
-                    pivot2,
-                    pivotJitter));
+        if (useFreshLightningPattern)
+        {
+            RegenerateLightningPivots(
+                result,
+                random,
+                variation);
+        }
+        else
+        {
+            // ROOT 중심(rootY)과 TIP 좌표는 의도적으로 그대로 둡니다.
+            // 중간 꺾임만 흔들어서 말풍선이 가리키는 시작/끝 위치는 매번 동일합니다.
+            result.pivot1 =
+                ClampRuntimePivot(
+                    BattleSpeechBubbleVariationRandom.Jitter(
+                        random,
+                        pivot1,
+                        pivotJitter));
 
-        result.pivot3 =
-            ClampRuntimePivot(
-                BattleSpeechBubbleVariationRandom.Jitter(
-                    random,
-                    pivot3,
-                    pivotJitter));
+            result.pivot2 =
+                ClampRuntimePivot(
+                    BattleSpeechBubbleVariationRandom.Jitter(
+                        random,
+                        pivot2,
+                        pivotJitter));
+
+            result.pivot3 =
+                ClampRuntimePivot(
+                    BattleSpeechBubbleVariationRandom.Jitter(
+                        random,
+                        pivot3,
+                        pivotJitter));
+        }
 
         float widthJitter =
             Mathf.Max(
@@ -352,6 +369,172 @@ public sealed class BattleSpeechBubbleTailStyle
                     strokeJitter));
 
         return result;
+    }
+
+    private static void RegenerateLightningPivots(
+        BattleSpeechBubbleTailStyle style,
+        System.Random random,
+        BattleSpeechBubbleRuntimeVariationSettings variation)
+    {
+        if (style == null ||
+            random == null ||
+            variation == null)
+        {
+            return;
+        }
+
+        int pivotCount =
+            Mathf.Clamp(
+                style.pivotCount,
+                0,
+                3);
+
+        if (pivotCount <= 0)
+            return;
+
+        Vector2 root =
+            new(
+                0f,
+                Mathf.Clamp01(style.rootY));
+
+        Vector2 fixedTip =
+            ClampRuntimePivot(
+                style.tip);
+
+        float amplitude =
+            Mathf.Clamp(
+                variation.tailLightningAmplitude,
+                0f,
+                0.35f);
+
+        float xJitter =
+            Mathf.Clamp(
+                variation.tailLightningXJitter,
+                0f,
+                0.15f);
+
+        // 첫 굴곡이 위로 갈지 아래로 갈지만 랜덤으로 고르고,
+        // 이후에는 부호를 교차시켜 번개처럼 명확한 지그재그를 만듭니다.
+        float firstSign =
+            random.NextDouble() < 0.5
+                ? -1f
+                : 1f;
+
+        Vector2[] generated =
+            new Vector2[pivotCount];
+
+        float previousX =
+            root.x;
+
+        for (int i = 0; i < pivotCount; i++)
+        {
+            float t =
+                (i + 1f) /
+                (pivotCount + 1f);
+
+            float idealX =
+                Mathf.Lerp(
+                    root.x,
+                    fixedTip.x,
+                    t);
+
+            float minGap =
+                Mathf.Max(
+                    0.055f,
+                    fixedTip.x /
+                    Mathf.Max(
+                        8f,
+                        (pivotCount + 1f) * 4f));
+
+            float remaining =
+                pivotCount -
+                i;
+
+            float minX =
+                previousX +
+                minGap;
+
+            float maxX =
+                fixedTip.x -
+                minGap *
+                remaining;
+
+            float x =
+                idealX +
+                BattleSpeechBubbleVariationRandom.Signed(
+                    random,
+                    xJitter);
+
+            if (maxX >= minX)
+            {
+                x =
+                    Mathf.Clamp(
+                        x,
+                        minX,
+                        maxX);
+            }
+            else
+            {
+                x =
+                    Mathf.Clamp(
+                        idealX,
+                        previousX + 0.01f,
+                        fixedTip.x - 0.01f);
+            }
+
+            float baselineY =
+                Mathf.Lerp(
+                    root.y,
+                    fixedTip.y,
+                    t);
+
+            float sign =
+                ((i & 1) == 0)
+                    ? firstSign
+                    : -firstSign;
+
+            float amplitudeScale =
+                BattleSpeechBubbleVariationRandom.Range(
+                    random,
+                    0.72f,
+                    1.22f);
+
+            float y =
+                baselineY +
+                sign *
+                amplitude *
+                amplitudeScale;
+
+            // 완벽히 규칙적인 톱니 모양이 되지 않도록 작은 추가 편차를 줍니다.
+            y +=
+                BattleSpeechBubbleVariationRandom.Signed(
+                    random,
+                    amplitude * 0.18f);
+
+            generated[i] =
+                new Vector2(
+                    Mathf.Clamp01(x),
+                    Mathf.Clamp(
+                        y,
+                        0.04f,
+                        0.96f));
+
+            previousX =
+                generated[i].x;
+        }
+
+        if (pivotCount >= 1)
+            style.pivot1 = generated[0];
+
+        if (pivotCount >= 2)
+            style.pivot2 = generated[1];
+
+        if (pivotCount >= 3)
+            style.pivot3 = generated[2];
+
+        // ROOT와 TIP은 생성 과정에서 절대 변경하지 않습니다.
+        style.rootY = root.y;
+        style.tip = fixedTip;
     }
 
     private static Vector2 ClampRuntimePivot(
