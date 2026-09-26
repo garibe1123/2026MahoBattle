@@ -2,6 +2,127 @@ using System;
 using UnityEngine;
 using UnityEngine.Serialization;
 
+
+/// <summary>
+/// 말풍선이 열릴 때 한 번만 샘플링하는 미세 런타임 변형 범위입니다.
+/// 원본 Style을 직접 변경하지 않고 복제본에만 적용합니다.
+/// </summary>
+[Serializable]
+public sealed class BattleSpeechBubbleRuntimeVariationSettings
+{
+    [Tooltip("켜면 대사가 열릴 때마다 Frame/Tail의 런타임 복제본을 미세하게 변형합니다.")]
+    public bool enabled = true;
+
+    [Header("Frame")]
+    [Tooltip("검은 OUTLINE 네 꼭짓점의 최대 픽셀 흔들림입니다.")]
+    [Range(0f, 8f)]
+    public float frameOutlineCornerJitter = 2.2f;
+
+    [Tooltip("흰 INNER 네 꼭짓점의 최대 픽셀 흔들림입니다. OUTLINE과 별도로 흔들려 Stroke 비율도 조금씩 달라집니다.")]
+    [Range(0f, 6f)]
+    public float frameInnerCornerJitter = 1.2f;
+
+    [Tooltip("말풍선 전체 회전값에 더하는 최대 각도 편차입니다.")]
+    [Range(0f, 2f)]
+    public float frameRotationJitter = 0.30f;
+
+    [Header("Tail")]
+    [Tooltip("P1/P2/P3 중간 Pivot의 X/Y 최대 정규화 편차입니다. ROOT와 TIP 위치는 변경하지 않습니다.")]
+    [Range(0f, 0.15f)]
+    public float tailPivotPositionJitter = 0.035f;
+
+    [Tooltip("Tail 각 구간 반폭의 비율 편차입니다. 0.10이면 기준값의 ±10%입니다.")]
+    [Range(0f, 0.35f)]
+    public float tailWidthRatioJitter = 0.10f;
+
+    [Tooltip("Tail Stroke 두께의 비율 편차입니다. 0.12면 기준값의 ±12%입니다.")]
+    [Range(0f, 0.40f)]
+    public float tailStrokeRatioJitter = 0.12f;
+
+    [Tooltip("활성 Pivot 수를 기준값에서 최대 몇 단계까지 바꿀지 정합니다. 기본 1이면 3 Pivot 꼬리는 2~3 사이에서만 변합니다.")]
+    [Range(0, 3)]
+    public int tailPivotCountVariation = 1;
+
+    [Tooltip("Pivot 수 자체를 바꿀 확률입니다. 실패하면 Pivot 수는 원본 그대로 유지합니다.")]
+    [Range(0f, 1f)]
+    public float tailPivotCountChangeChance = 0.20f;
+}
+
+/// <summary>
+/// UnityEngine.Random 전역 상태와 분리된 말풍선 전용 난수 유틸리티입니다.
+/// UI 변형이 드랍/전투 등의 게임플레이 난수 순서를 바꾸지 않게 합니다.
+/// </summary>
+internal static class BattleSpeechBubbleVariationRandom
+{
+    private static int sequence;
+
+    public static int NextSeed(int salt = 0)
+    {
+        unchecked
+        {
+            sequence++;
+            return
+                Environment.TickCount ^
+                (sequence * 7919) ^
+                (salt * 486187739);
+        }
+    }
+
+    public static float Range(
+        System.Random random,
+        float min,
+        float max)
+    {
+        if (random == null ||
+            max <= min)
+        {
+            return min;
+        }
+
+        return
+            min +
+            (float)random.NextDouble() *
+            (max - min);
+    }
+
+    public static float Signed(
+        System.Random random,
+        float magnitude)
+    {
+        float amount =
+            Mathf.Max(0f, magnitude);
+
+        return Range(
+            random,
+            -amount,
+            amount);
+    }
+
+    public static Vector2 Jitter(
+        System.Random random,
+        Vector2 value,
+        float magnitude)
+    {
+        return value +
+            new Vector2(
+                Signed(random, magnitude),
+                Signed(random, magnitude));
+    }
+
+    public static float Ratio(
+        System.Random random,
+        float value,
+        float ratioJitter)
+    {
+        float ratio =
+            Mathf.Max(0f, ratioJitter);
+
+        return
+            value *
+            (1f + Signed(random, ratio));
+    }
+}
+
 /// <summary>
 /// 말풍선 본체를 두 개의 독립된 4점 사변형으로 정의합니다.
 ///
@@ -324,6 +445,108 @@ public sealed class BattleSpeechBubbleFrameStyle
             minY = Mathf.Min(minY, points[i].y);
             maxY = Mathf.Max(maxY, points[i].y);
         }
+    }
+
+    public BattleSpeechBubbleFrameStyle CreateRuntimeVariant(
+        BattleSpeechBubbleRuntimeVariationSettings variation,
+        int seed)
+    {
+        EnsureCornerPointDefaults();
+
+        BattleSpeechBubbleFrameStyle result =
+            new BattleSpeechBubbleFrameStyle
+            {
+                rotation = rotation,
+                outlineTopLeft = outlineTopLeft,
+                outlineTopRight = outlineTopRight,
+                outlineBottomRight = outlineBottomRight,
+                outlineBottomLeft = outlineBottomLeft,
+                fillTopLeft = fillTopLeft,
+                fillTopRight = fillTopRight,
+                fillBottomRight = fillBottomRight,
+                fillBottomLeft = fillBottomLeft,
+                outlineColor = outlineColor,
+                fillColor = fillColor,
+                cornerPointsInitialized = true
+            };
+
+        if (variation == null ||
+            !variation.enabled)
+        {
+            return result;
+        }
+
+        System.Random random =
+            new(seed);
+
+        result.rotation =
+            Mathf.Clamp(
+                rotation +
+                BattleSpeechBubbleVariationRandom.Signed(
+                    random,
+                    variation.frameRotationJitter),
+                -12f,
+                12f);
+
+        float outlineJitter =
+            Mathf.Max(
+                0f,
+                variation.frameOutlineCornerJitter);
+
+        float innerJitter =
+            Mathf.Max(
+                0f,
+                variation.frameInnerCornerJitter);
+
+        result.outlineTopLeft =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                outlineTopLeft,
+                outlineJitter);
+
+        result.outlineTopRight =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                outlineTopRight,
+                outlineJitter);
+
+        result.outlineBottomRight =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                outlineBottomRight,
+                outlineJitter);
+
+        result.outlineBottomLeft =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                outlineBottomLeft,
+                outlineJitter);
+
+        result.fillTopLeft =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                fillTopLeft,
+                innerJitter);
+
+        result.fillTopRight =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                fillTopRight,
+                innerJitter);
+
+        result.fillBottomRight =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                fillBottomRight,
+                innerJitter);
+
+        result.fillBottomLeft =
+            BattleSpeechBubbleVariationRandom.Jitter(
+                random,
+                fillBottomLeft,
+                innerJitter);
+
+        return result;
     }
 
     public int ComputeHash()
