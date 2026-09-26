@@ -740,13 +740,19 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleFrameController.Configure(
             bubbleBack,
             runtimeBubbleFrameStyle,
-            bubbleSize);
+            bubbleSize,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null);
 
         bubbleTailGraphic.Configure(
             bubbleRect,
             tailPivotRect,
             runtimeBubbleFrameStyle.fillColor,
-            runtimeBubbleTailStyle);
+            runtimeBubbleTailStyle,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null);
     }
 
     private void HideImmediate()
@@ -888,7 +894,10 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         bubbleFrameController.Configure(
             bubbleBack,
             activeFrameStyle,
-            bubbleSize);
+            bubbleSize,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null);
 
         bubbleTailGraphic =
             bubbleRect.gameObject.AddComponent<BattleSpeechBubbleTailTriangleController>();
@@ -898,6 +907,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             activeFrameStyle.fillColor,
             presentation != null
                 ? presentation.CombatSpeechBubbleTailStyle
+                : null,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
                 : null);
 
         GameObject badge = new("ReactionTagBadge", typeof(RectTransform));
