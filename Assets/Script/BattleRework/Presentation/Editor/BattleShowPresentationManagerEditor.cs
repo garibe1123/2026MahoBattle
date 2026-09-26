@@ -211,6 +211,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         }
 
         frameStyle.EnsureCornerPointDefaults();
+        tailStyle.EnsurePivotCountDefaults();
 
         SerializedProperty frame =
             serializedObject.FindProperty(
@@ -260,6 +261,62 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             "TAIL / 말풍선 꼬리",
             EditorStyles.boldLabel);
 
+        using (new EditorGUILayout.HorizontalScope())
+        {
+            EditorGUILayout.LabelField(
+                "활성 Pivot 수",
+                GUILayout.Width(88f));
+
+            int currentPivotCount =
+                tailStyle.ActivePivotCount;
+
+            int nextPivotCount =
+                GUILayout.Toolbar(
+                    currentPivotCount,
+                    new[]
+                    {
+                        "0 / TRI",
+                        "1",
+                        "2",
+                        "3 / FULL"
+                    });
+
+            if (nextPivotCount != currentPivotCount)
+            {
+                Undo.RecordObject(
+                    Manager,
+                    "Change Speech Tail Pivot Count");
+
+                SerializedProperty pivotCountProperty =
+                    tail.FindPropertyRelative(
+                        "pivotCount");
+
+                if (pivotCountProperty != null)
+                {
+                    pivotCountProperty.intValue =
+                        nextPivotCount;
+
+                    serializedObject.ApplyModifiedProperties();
+                    serializedObject.Update();
+
+                    tailStyle.EnsurePivotCountDefaults();
+                    EditorUtility.SetDirty(Manager);
+
+                    state.activeTailPoint = -1;
+                    state.activeTailWidth = -1;
+
+                    Invalidate(state);
+                    Repaint();
+                    SceneView.RepaintAll();
+                }
+            }
+        }
+
+        EditorGUILayout.HelpBox(
+            "0 Pivot = ROOT → TIP만 사용하는 단순 삼각형 / 1~3 Pivot = 중간 꺾임점을 순서대로 추가합니다. " +
+            "비활성 Pivot 값은 보존되므로 다시 늘리면 기존 위치가 복원됩니다.",
+            MessageType.None);
+
         tail.isExpanded = true;
 
         EditorGUI.BeginChangeCheck();
@@ -288,26 +345,36 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         using (new EditorGUILayout.HorizontalScope())
         {
-            if (GUILayout.Button("꼬리 기본 삼각형"))
+            if (GUILayout.Button("기본 삼각형 (0 Pivot)"))
             {
                 Undo.RecordObject(
                     Manager,
                     "Apply Tail Triangle Preset");
 
                 tailStyle.ApplyTrianglePreset();
+                serializedObject.Update();
                 EditorUtility.SetDirty(Manager);
+                state.activeTailPoint = -1;
+                state.activeTailWidth = -1;
                 Invalidate(state);
+                Repaint();
+                SceneView.RepaintAll();
             }
 
-            if (GUILayout.Button("꼬리 번개형"))
+            if (GUILayout.Button("번개형 (3 Pivot)"))
             {
                 Undo.RecordObject(
                     Manager,
                     "Apply Tail Lightning Preset");
 
                 tailStyle.ApplyLightningPreset();
+                serializedObject.Update();
                 EditorUtility.SetDirty(Manager);
+                state.activeTailPoint = -1;
+                state.activeTailWidth = -1;
                 Invalidate(state);
+                Repaint();
+                SceneView.RepaintAll();
             }
 
             state.previewLeft =
@@ -1242,26 +1309,20 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             BattleSpeechBubbleTailTextureBuilder
                 .GetCenterPointsNormalized(style);
 
-        string[] labels =
-        {
-            "ROOT",
-            "P1",
-            "P2",
-            "P3",
-            "TIP"
-        };
-
-        Color[] colors =
-        {
-            new(0.40f, 0.92f, 1f, 1f),
-            new(1f, 0.78f, 0.20f, 1f),
-            new(1f, 0.48f, 0.25f, 1f),
-            new(0.90f, 0.28f, 0.80f, 1f),
-            new(0.35f, 1f, 0.48f, 1f)
-        };
-
         for (int i = 0; i < points.Length; i++)
         {
+            string label =
+                i == 0
+                    ? "ROOT"
+                    : i == points.Length - 1
+                        ? "TIP"
+                        : $"P{i}";
+
+            Color color =
+                ResolveTailPointColor(
+                    i,
+                    points.Length);
+
             Vector2 position =
                 TailPointToGui(
                     points[i],
@@ -1297,7 +1358,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
                 Undo.RecordObject(
                     Manager,
-                    $"Move {state.title} Tail {labels[i]}");
+                    $"Move {state.title} Tail {label}");
 
                 e.Use();
             }
@@ -1330,7 +1391,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
             EditorGUI.DrawRect(
                 marker,
-                colors[i]);
+                color);
 
             GUI.Label(
                 new Rect(
@@ -1338,11 +1399,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     position.y - 9f,
                     45f,
                     18f),
-                labels[i],
+                label,
                 EditorStyles.miniBoldLabel);
         }
 
-        for (int i = 0; i < 4; i++)
+        for (int i = 0; i < points.Length - 1; i++)
         {
             DrawTailWidthHandle(
                 state,
@@ -1350,6 +1411,48 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 points,
                 i);
         }
+    }
+
+    private static Color ResolveTailPointColor(
+        int index,
+        int pointCount)
+    {
+        if (index <= 0)
+        {
+            return new Color(
+                0.40f,
+                0.92f,
+                1f,
+                1f);
+        }
+
+        if (index >= pointCount - 1)
+        {
+            return new Color(
+                0.35f,
+                1f,
+                0.48f,
+                1f);
+        }
+
+        return index switch
+        {
+            1 => new Color(
+                1f,
+                0.78f,
+                0.20f,
+                1f),
+            2 => new Color(
+                1f,
+                0.48f,
+                0.25f,
+                1f),
+            _ => new Color(
+                0.90f,
+                0.28f,
+                0.80f,
+                1f)
+        };
     }
 
     private void DrawTailWidthHandle(
@@ -1526,11 +1629,30 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (tail == null)
             return;
 
+        BattleSpeechBubbleTailStyle activeStyle =
+            state.tailProperty ==
+            SelectionTailProperty
+                ? Manager.SelectionSpeechBubbleTailStyle
+                : Manager.CombatSpeechBubbleTailStyle;
+
+        activeStyle?.EnsurePivotCountDefaults();
+
+        int pointCount =
+            activeStyle != null
+                ? activeStyle.ActivePointCount
+                : 5;
+
         if (index == 0)
         {
             tail.FindPropertyRelative(
                 "rootY").floatValue =
                 value.y;
+        }
+        else if (index == pointCount - 1)
+        {
+            tail.FindPropertyRelative(
+                "tip").vector2Value =
+                value;
         }
         else
         {
