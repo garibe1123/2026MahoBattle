@@ -306,39 +306,49 @@ public sealed class BattleSpeechBubbleTailStyle
                 0f,
                 variation.tailStrokeRatioJitter);
 
+        float strokeBaseMultiplier =
+            Mathf.Max(
+                0.01f,
+                variation.tailStrokeBaseMultiplier);
+
         result.strokeRoot =
             ClampStroke(
                 BattleSpeechBubbleVariationRandom.Ratio(
                     random,
-                    strokeRoot,
+                    strokeRoot *
+                    strokeBaseMultiplier,
                     strokeJitter));
 
         result.strokePivot1 =
             ClampStroke(
                 BattleSpeechBubbleVariationRandom.Ratio(
                     random,
-                    strokePivot1,
+                    strokePivot1 *
+                    strokeBaseMultiplier,
                     strokeJitter));
 
         result.strokePivot2 =
             ClampStroke(
                 BattleSpeechBubbleVariationRandom.Ratio(
                     random,
-                    strokePivot2,
+                    strokePivot2 *
+                    strokeBaseMultiplier,
                     strokeJitter));
 
         result.strokePivot3 =
             ClampStroke(
                 BattleSpeechBubbleVariationRandom.Ratio(
                     random,
-                    strokePivot3,
+                    strokePivot3 *
+                    strokeBaseMultiplier,
                     strokeJitter));
 
         result.strokeTip =
             ClampStroke(
                 BattleSpeechBubbleVariationRandom.Ratio(
                     random,
-                    strokeTip,
+                    strokeTip *
+                    strokeBaseMultiplier,
                     strokeJitter));
 
         return result;
