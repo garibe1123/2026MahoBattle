@@ -314,7 +314,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "오, 결국 이쪽으로 가네요. 이건 다음 판에서 바로 티 나겠는데요.",
                 "이걸로 정했네요. 좋아요, 그럼 다음 무대에서 한번 보죠.",
                 "아, 이쪽이구나. 음... 나쁘지 않은데?",
-                "결국 이걸 집네요. 자, 이 선택이 어떻게 굴러갈지 보겠습니다.",
+                "결국 이걸 집네요. 자, 이 선택이 어떻게 굴러갈지 한번 봐야겠네요!",
                 "좋네요. 이건 실전에서 어떻게 나올지 좀 궁금하네요.",
                 "어, 잠깐 고민하더니 여기로 왔네요. 이 정도면 이유가 있겠죠.",
                 "자, 픽 나왔습니다. 화려한 선택은 아닌데 은근 오래 갈 수도 있어요.",
@@ -348,7 +348,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 line =
                     owner.PickLine(
                         PresenterLineKey.MapConfirmElite,
-                        "오, 엘리트로 가네요. 좋아요, 이건 좀 집중해서 봐야겠습니다.",
+                        "오, 엘리트로 가네요. 좋아요, 이건 좀 집중해서 봐야겠네요!",
                         "결국 여기 들어갑니다. 편한 길은 아니고... 대신 볼 건 많겠네요.",
                         "엘리트 확정이네요. 자, 여기부터는 한 번 삐끗하면 꽤 아픕니다.",
                         "어, 이쪽을 고르네요. 이번엔 확실히 세게 가는데?",
@@ -374,7 +374,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 line =
                     owner.PickLine(
                         PresenterLineKey.MapConfirmEvent,
-                        "오, 이벤트로 가네요. 이건 저도 뭐가 나올지 모르겠습니다.",
+                        "오, 이벤트로 가네요. 이건 저도 뭐가 나올지 모르겠네요.",
                         "결국 이쪽이군요. 좋아요, 이런 건 직접 열어봐야 알죠.",
                         "이벤트 확정. 음... 좋은 게 나올지, 이상한 게 나올지 한번 보죠.",
                         "어, 여기 들어가네요. 정보가 없어서 오히려 좀 궁금한데?",
@@ -390,7 +390,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                         owner.PickLine(
                             PresenterLineKey.MapConfirmHigh,
                             "오, 결국 이쪽으로 가네요. 좋아요, 이번 판은 좀 볼 만하겠는데요.",
-                            "여기로 정했네요. 자, 이제 슬슬 긴장 좀 해야겠습니다.",
+                            "여기로 정했네요. 자, 이제 슬슬 긴장 좀 해야겠네요!",
                             "아, 이쪽이구나. 다음 판 그림 제대로 나오겠는데?",
                             "어, 이 길을 택하네요. 생각보다 과감하게 가는데?",
                             "좋습니다, 높은 쪽으로 갑니다. 말보다 직접 보는 게 빠르겠네요.",
@@ -513,7 +513,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "오, 이번엔 이런 식으로 나왔네요. 뭘 집으려나.",
                     "하나씩 보죠. 급하게 고를 건 아니니까.",
                     "이번 후보는 이렇네요. 뭐가 눈에 들어오려나.",
-                    "자, 보상 시간입니다. 전투보다 이때 고민이 더 길어지는 경우가 있거든요.",
+                    "자, 보상 시간이네요. 이상하게 전투보다 이때 고민이 더 길어질 때가 있거든요.",
                     "어... 잠깐만. 이번 건 첫인상부터 좀 갈리겠는데?",
                     "세팅 바꿀 타이밍이긴 하죠. 여기서 뭐 하나 제대로 건지면 다음 판이 편해집니다."),
                 Mood.Neutral);
@@ -1677,7 +1677,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "오늘 나온 것 중엔 제일 이상한 축인데... 그래서 후보인가.",
                     "자, 설명이 길어지는 장비는 대체로 둘 중 하나예요. 재밌거나, 골치 아프거나.",
                     "이런 건 직접 써보기 전까지 감이 안 와요. 그래서 더 보고 싶긴 하고.",
-                    "어, 딱 봐도 평범하게 굴러가진 않겠네요. 그건 확실합니다."),
+                    "어, 딱 봐도 평범하게 굴러가진 않겠네요. 그건 확실하네요."),
                 Mood.Curious);
             return;
         }
@@ -1715,7 +1715,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "이런 건 전투 들어가면 바로 티 나겠는데요.",
                     "다음 전투 좀 화끈하게 가려면 이쪽이겠네요.",
                     "음... 이건 좀 끌리는데. 터지는 맛은 있겠네요.",
-                    "자, 조용히 풀 생각은 없어 보입니다. 이런 장비는 들어가는 순간 분위기 바뀌죠.",
+                    "자, 조용히 풀 생각은 없어 보이네요. 이런 장비는 들어가는 순간 분위기 확 바뀌죠.",
                     "이건 성능도 성능인데 화면 맛이 확실하겠어요.",
                     "어... 너무 과하면 본인도 같이 정신없을 텐데. 그래도 재밌긴 하겠다."),
                 Mood.Excited);
@@ -1765,7 +1765,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "특별하진 않은데 기본은 해주겠네요.",
                     "음, 무난하네요. 그래도 후보에서 빠질 정도는 아니고.",
                     "이건 실제로 써봐야 느낌 오겠네요.",
-                    "자, 딱 봤을 때는 평범합니다. 근데 이런 게 은근 조합 타면 세거든요.",
+                    "자, 딱 봤을 때는 좀 평범하죠. 근데 이런 게 은근 조합 타면 세거든요.",
                     "어... 첫인상은 약한데, 그렇다고 바로 넘길 정도는 아니네요.",
                     "이건 설명만 보고 결론 내리기 좀 애매해요. 실제 손에 들어가야 알겠는데."),
             selected ? Mood.Curious : Mood.Neutral);
@@ -1810,7 +1810,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                         "전투는 아니고 쇼핑이네요. 이것도 나쁘진 않죠.",
                         "여긴 잠깐 템포 좀 내려가겠네요. 뭐 살지가 더 중요하겠고.",
                         "음, 브레이크 타임이네요. 지갑은 좀 바빠지겠지만.",
-                        "자, 여기선 칼보다 계산기가 더 중요합니다. 돈이 얼마나 남았더라.",
+                        "자, 여기선 칼보다 계산기가 더 중요하겠네요. 돈이 얼마나 남았더라.",
                         "어, 상점이면 급하게 갈 필요 없죠. 한번 싹 보고 가도 되고.",
                         "이런 데서 괜히 하나 샀다가 다음 보상 보고 후회하는 경우도 있거든요."),
                     Mood.Neutral);
@@ -1848,7 +1848,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                             "이건 다음 장면 좀 기대해도 되겠네요. 어디 고를지 보죠.",
                             "자, 여기 들어가면 분위기 확 바뀝니다. 슬슬 집중해서 봐야겠는데요.",
                             "어... 난이도 꽤 높네요. 편하게 갈 생각이면 다른 쪽 보는 게 맞고.",
-                            "이건 성공하면 하이라이트, 꼬이면 그대로 사고입니다. 선택은 본인이 하겠죠."),
+                            "이건 성공하면 하이라이트고, 꼬이면 그대로 사고 나는 거죠. 선택은 본인이 하겠고요."),
                         Mood.Excited);
                     break;
                 }
@@ -1885,7 +1885,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                         "이번엔 편하게 볼 수 있겠네요.",
                         "음... 긴장감은 잠깐 내려놓으셔도 되겠네요.",
                         "이번 코스는 잔잔하네요. 다음 큰 무대 전 워밍업 정도인가.",
-                        "자, 여기서는 큰 거 기대 안 하셔도 됩니다. 그냥 깔끔하게 넘기는 구간 같네요.",
+                        "자, 여기서는 큰 건 좀 내려놓고 봐도 되겠네요. 그냥 깔끔하게 넘기는 구간 같아요.",
                         "어... 솔직히 이건 좀 심심해 보이는데. 대신 체력 아끼기엔 좋겠죠.",
                         "이 정도면 한 손 놓고 보셔도... 아니, 그건 좀 그렇고. 아무튼 여유는 있겠네요."),
                     Mood.Neutral);
