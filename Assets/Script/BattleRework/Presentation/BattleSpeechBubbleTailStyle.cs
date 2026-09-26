@@ -602,7 +602,49 @@ public sealed class BattleSpeechBubbleTailStyle
 public static class BattleSpeechBubbleTailTextureBuilder
 {
     public const int TextureWidth = 384;
-    public const int TextureHeight = 192;
+
+    // 기존 192px은 실제 Tail Shape가 차지하는 "콘텐츠 높이"로 유지합니다.
+    // 번개 Pivot/폭이 위아래로 튀어도 잘리지 않도록 투명 오버스캔을
+    // 위/아래에 각각 96px 추가합니다.
+    public const int ContentHeight = 192;
+    public const int VerticalPadding = 96;
+    public const int TextureHeight =
+        ContentHeight +
+        VerticalPadding * 2;
+
+    public static float VerticalDisplayScale =>
+        (float)TextureHeight /
+        ContentHeight;
+
+    public static Vector2 GetRenderSize(
+        Vector2 contentSize)
+    {
+        return new Vector2(
+            Mathf.Max(
+                8f,
+                contentSize.x),
+            Mathf.Max(
+                8f,
+                contentSize.y) *
+            VerticalDisplayScale);
+    }
+
+    public static Rect GetContentRect(
+        Rect renderRect)
+    {
+        float contentHeight =
+            renderRect.height /
+            Mathf.Max(
+                0.0001f,
+                VerticalDisplayScale);
+
+        return new Rect(
+            renderRect.x,
+            renderRect.center.y -
+            contentHeight * 0.5f,
+            renderRect.width,
+            contentHeight);
+    }
 
     public static Texture2D BuildTexture(
         BattleSpeechBubbleTailStyle sourceStyle,
@@ -758,7 +800,9 @@ public static class BattleSpeechBubbleTailTextureBuilder
             pixels[i] =
                 new Vector2(
                     normalized[i].x * (TextureWidth - 1f),
-                    normalized[i].y * (TextureHeight - 1f));
+                    VerticalPadding +
+                    normalized[i].y *
+                    (ContentHeight - 1f));
         }
 
         return pixels;
@@ -780,7 +824,7 @@ public static class BattleSpeechBubbleTailTextureBuilder
                 style.rootHalfWidth,
                 0.02f,
                 0.50f) *
-            TextureHeight;
+            ContentHeight;
 
         if (pivotCount >= 1)
         {
