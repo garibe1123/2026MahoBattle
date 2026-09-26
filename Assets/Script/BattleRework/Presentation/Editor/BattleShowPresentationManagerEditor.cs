@@ -549,12 +549,16 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 true);
         }
 
-        Rect tailRect =
+        Rect tailRenderRect =
             CalculateTailRect(
                 bubbleRoot,
                 tailStyle,
                 compact,
                 state.previewLeft);
+
+        Rect tailContentRect =
+            BattleSpeechBubbleTailTextureBuilder.GetContentRect(
+                tailRenderRect);
 
         if (state.tailTexture != null)
         {
@@ -565,11 +569,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             {
                 GUIUtility.ScaleAroundPivot(
                     new Vector2(-1f, 1f),
-                    tailRect.center);
+                    tailRenderRect.center);
             }
 
             GUI.DrawTexture(
-                tailRect,
+                tailRenderRect,
                 state.tailTexture,
                 ScaleMode.StretchToFill,
                 true);
@@ -581,7 +585,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         if (!compact)
         {
             DrawTailCenterLine(
-                tailRect,
+                tailContentRect,
                 tailStyle,
                 state.previewLeft);
 
@@ -593,7 +597,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     state);
 
                 DrawTailHandles(
-                    tailRect,
+                    tailContentRect,
                     tailStyle,
                     state);
             }
@@ -1226,7 +1230,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     1f,
                     style.uiSize.y));
 
-        float height =
+        float contentHeight =
             Mathf.Min(
                 Mathf.Max(
                     34f,
@@ -1234,7 +1238,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 compact ? 68f : 112f);
 
         float width =
-            height * aspect;
+            contentHeight * aspect;
+
+        float renderHeight =
+            contentHeight *
+            BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale;
 
         float overlap =
             Mathf.Clamp(
@@ -1252,9 +1260,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 bubbleRoot.xMax -
                 overlap,
                 bubbleRoot.center.y -
-                height * 0.5f,
+                renderHeight * 0.5f,
                 width,
-                height);
+                renderHeight);
         }
 
         return new Rect(
@@ -1262,9 +1270,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             width +
             overlap,
             bubbleRoot.center.y -
-            height * 0.5f,
+            renderHeight * 0.5f,
             width,
-            height);
+            renderHeight);
     }
 
     private static void DrawTailCenterLine(
