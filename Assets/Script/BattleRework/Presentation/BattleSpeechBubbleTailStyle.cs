@@ -164,6 +164,213 @@ public sealed class BattleSpeechBubbleTailStyle
         strokeTip = 22f;
     }
 
+    public BattleSpeechBubbleTailStyle CreateRuntimeVariant(
+        BattleSpeechBubbleRuntimeVariationSettings variation,
+        int seed)
+    {
+        EnsurePivotCountDefaults();
+
+        BattleSpeechBubbleTailStyle result =
+            new BattleSpeechBubbleTailStyle
+            {
+                uiSize = uiSize,
+                overlap = overlap,
+                edgePadding = edgePadding,
+                pivotCount = pivotCount,
+                rootY = rootY,
+                pivot1 = pivot1,
+                pivot2 = pivot2,
+                pivot3 = pivot3,
+                tip = tip,
+                rootHalfWidth = rootHalfWidth,
+                pivot1HalfWidth = pivot1HalfWidth,
+                pivot2HalfWidth = pivot2HalfWidth,
+                pivot3HalfWidth = pivot3HalfWidth,
+                strokeRoot = strokeRoot,
+                strokePivot1 = strokePivot1,
+                strokePivot2 = strokePivot2,
+                strokePivot3 = strokePivot3,
+                strokeTip = strokeTip,
+                outlineColor = outlineColor,
+                pivotCountInitialized = true
+            };
+
+        if (variation == null ||
+            !variation.enabled)
+        {
+            return result;
+        }
+
+        System.Random random =
+            new(seed);
+
+        int basePivotCount =
+            ActivePivotCount;
+
+        int variationSteps =
+            Mathf.Clamp(
+                variation.tailPivotCountVariation,
+                0,
+                3);
+
+        if (variationSteps > 0 &&
+            random.NextDouble() <
+            Mathf.Clamp01(
+                variation.tailPivotCountChangeChance))
+        {
+            int minPivotCount =
+                Mathf.Max(
+                    0,
+                    basePivotCount -
+                    variationSteps);
+
+            int maxPivotCount =
+                Mathf.Min(
+                    3,
+                    basePivotCount +
+                    variationSteps);
+
+            result.pivotCount =
+                random.Next(
+                    minPivotCount,
+                    maxPivotCount + 1);
+        }
+
+        float pivotJitter =
+            Mathf.Max(
+                0f,
+                variation.tailPivotPositionJitter);
+
+        // ROOT 중심(rootY)과 TIP 좌표는 의도적으로 그대로 둡니다.
+        // 중간 꺾임만 흔들어서 말풍선이 가리키는 시작/끝 위치는 매번 동일합니다.
+        result.pivot1 =
+            ClampRuntimePivot(
+                BattleSpeechBubbleVariationRandom.Jitter(
+                    random,
+                    pivot1,
+                    pivotJitter));
+
+        result.pivot2 =
+            ClampRuntimePivot(
+                BattleSpeechBubbleVariationRandom.Jitter(
+                    random,
+                    pivot2,
+                    pivotJitter));
+
+        result.pivot3 =
+            ClampRuntimePivot(
+                BattleSpeechBubbleVariationRandom.Jitter(
+                    random,
+                    pivot3,
+                    pivotJitter));
+
+        float widthJitter =
+            Mathf.Max(
+                0f,
+                variation.tailWidthRatioJitter);
+
+        result.rootHalfWidth =
+            ClampHalfWidth(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    rootHalfWidth,
+                    widthJitter),
+                0.08f);
+
+        result.pivot1HalfWidth =
+            ClampHalfWidth(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    pivot1HalfWidth,
+                    widthJitter),
+                0.04f);
+
+        result.pivot2HalfWidth =
+            ClampHalfWidth(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    pivot2HalfWidth,
+                    widthJitter),
+                0.03f);
+
+        result.pivot3HalfWidth =
+            ClampHalfWidth(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    pivot3HalfWidth,
+                    widthJitter),
+                0.01f);
+
+        float strokeJitter =
+            Mathf.Max(
+                0f,
+                variation.tailStrokeRatioJitter);
+
+        result.strokeRoot =
+            ClampStroke(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    strokeRoot,
+                    strokeJitter));
+
+        result.strokePivot1 =
+            ClampStroke(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    strokePivot1,
+                    strokeJitter));
+
+        result.strokePivot2 =
+            ClampStroke(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    strokePivot2,
+                    strokeJitter));
+
+        result.strokePivot3 =
+            ClampStroke(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    strokePivot3,
+                    strokeJitter));
+
+        result.strokeTip =
+            ClampStroke(
+                BattleSpeechBubbleVariationRandom.Ratio(
+                    random,
+                    strokeTip,
+                    strokeJitter));
+
+        return result;
+    }
+
+    private static Vector2 ClampRuntimePivot(
+        Vector2 point)
+    {
+        return new Vector2(
+            Mathf.Clamp01(point.x),
+            Mathf.Clamp01(point.y));
+    }
+
+    private static float ClampHalfWidth(
+        float value,
+        float minimum)
+    {
+        return Mathf.Clamp(
+            value,
+            minimum,
+            0.50f);
+    }
+
+    private static float ClampStroke(
+        float value)
+    {
+        return Mathf.Clamp(
+            value,
+            1f,
+            48f);
+    }
+
     public int ComputeHash()
     {
         EnsurePivotCountDefaults();
