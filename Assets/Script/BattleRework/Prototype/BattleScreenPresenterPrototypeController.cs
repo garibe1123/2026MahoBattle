@@ -186,7 +186,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private Canvas dialogueRenderCanvas;
     private RectTransform dialogueRect;
     private RectTransform dialogueTailPivotRect;
+    private BattleSpeechBubbleFrameFillController dialogueFrameController;
     private BattleSpeechBubbleTailTriangleController dialogueTailGraphic;
+    private BattleSpeechBubbleFrameStyle runtimeDialogueFrameStyle;
+    private BattleSpeechBubbleTailStyle runtimeDialogueTailStyle;
     private Text nameText;
     private Text contextText;
     private Text dialogueText;
@@ -641,10 +644,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         Image frameImage = frame.AddComponent<Image>();
         frameImage.raycastTarget = false;
 
-        BattleSpeechBubbleFrameFillController frameController =
+        dialogueFrameController =
             frame.AddComponent<BattleSpeechBubbleFrameFillController>();
 
-        frameController.Configure(
+        dialogueFrameController.Configure(
             frameImage,
             activeFrameStyle,
             dialogueSize);
@@ -1228,6 +1231,62 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             Time.unscaledTime + Mathf.Max(5f, boredLineRepeatSeconds);
     }
 
+    private void RefreshDialogueVisualVariation()
+    {
+        if (dialogueRect == null ||
+            dialogueFrameController == null ||
+            dialogueTailGraphic == null)
+        {
+            return;
+        }
+
+        BattleSpeechBubbleFrameStyle baseFrame =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleFrameStyle
+                : BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
+
+        BattleSpeechBubbleTailStyle baseTail =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleTailStyle
+                : new BattleSpeechBubbleTailStyle();
+
+        BattleSpeechBubbleRuntimeVariationSettings variation =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleVariation
+                : null;
+
+        int seed =
+            BattleSpeechBubbleVariationRandom.NextSeed(
+                GetInstanceID());
+
+        runtimeDialogueFrameStyle =
+            baseFrame.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x1735A91);
+
+        runtimeDialogueTailStyle =
+            baseTail.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x51B7C2D);
+
+        dialogueRect.localRotation =
+            Quaternion.Euler(
+                0f,
+                0f,
+                runtimeDialogueFrameStyle.rotation);
+
+        dialogueFrameController.Configure(
+            null,
+            runtimeDialogueFrameStyle,
+            dialogueSize);
+
+        dialogueTailGraphic.Configure(
+            dialogueRect,
+            dialogueTailPivotRect,
+            runtimeDialogueFrameStyle.fillColor,
+            runtimeDialogueTailStyle);
+    }
+
     private void BeginPendingDialogue()
     {
         if (!hasPendingCopy || dialogueText == null)
@@ -1238,6 +1297,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         activeComment = pendingComment;
         activeMood = pendingMood;
         hasPendingCopy = false;
+
+        // 같은 기본 디자인을 유지하되, 이 대사가 열리는 순간 한 번만
+        // Frame Stroke/Corner와 Tail 중간 Pivot을 미세하게 변형합니다.
+        RefreshDialogueVisualVariation();
 
         ApplyDialogueMetadata();
 
