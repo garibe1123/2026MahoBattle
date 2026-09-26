@@ -55,6 +55,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private BattleRewardFlow rewardFlow;
     private BattleEquipmentDetailPanelController equipmentDetailPanel;
     private BattleInventoryInteractionController inventoryInteraction;
+    private BattleShowWorldSetController showWorldSet;
 
     private RectTransform rewardScreen;
     private RectTransform rewardInner;
@@ -167,6 +168,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private void OnDisable()
     {
         RestoreEquipmentDetailPanel();
+        equipmentDetailPanel?.ClearRewardPreview();
+        showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
         HideChoiceOnlyUi();
         SetLockedVisible(false);
     }
@@ -196,6 +199,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             choicePresentationDirty = true;
             SetLockedVisible(false);
             SetEquipmentDetailPanelSuppressed(false);
+            equipmentDetailPanel?.ClearRewardPreview();
+            showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
             HideChoiceOnlyUi();
             return;
         }
@@ -214,18 +219,35 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         bool choice = phase == BattleRewardPhase.Choosing;
         bool transferring = phase == BattleRewardPhase.Transferring;
         bool packEdit = phase == BattleRewardPhase.PackEditing;
+        bool worldShowcaseChoice =
+            choice &&
+            IsWorldShowcaseChoice();
 
-        SetEquipmentDetailPanelSuppressed(choice || transferring);
+        SetEquipmentDetailPanelSuppressed(
+            transferring ||
+            (choice && !worldShowcaseChoice));
 
         if (choice)
         {
             SetLockedVisible(false);
-            SetChoiceInteractable(true);
+
+            if (worldShowcaseChoice)
+            {
+                SetWorldShowcaseCardUiHidden();
+                HandleWorldShowcaseInput();
+            }
+            else
+            {
+                SetChoiceInteractable(true);
+            }
+
             HandleConfirmShortcut();
         }
         else if (transferring)
         {
             hoveredRewardIndex = -1;
+            equipmentDetailPanel?.ClearRewardPreview();
+            showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
             SetChoiceInteractable(false);
             HideChoiceOnlyUi();
             SetLockedVisible(true);
@@ -234,6 +256,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         else if (packEdit)
         {
             hoveredRewardIndex = -1;
+            equipmentDetailPanel?.ClearRewardPreview();
+            showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
             SetChoiceInteractable(false);
             HideChoiceOnlyUi();
             SetLockedVisible(true);
@@ -248,6 +272,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         if (rewardFlow.Phase == BattleRewardPhase.Choosing)
         {
+            if (IsWorldShowcaseChoice())
+            {
+                ApplyWorldShowcasePresentation();
+                return;
+            }
+
             int selectedIndex = rewardFlow.SelectedChoiceIndex;
             bool hasSelection = rewardFlow.SelectedChoice != null;
             bool refreshStatic =
@@ -280,6 +310,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             equipmentDetailPanel = FindFirstObjectByType<BattleEquipmentDetailPanelController>(FindObjectsInactive.Include);
         if (inventoryInteraction == null)
             inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>(FindObjectsInactive.Include);
+        if (showWorldSet == null)
+            showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>(FindObjectsInactive.Include);
     }
 
     private void ResolveUi(bool forceCards)
@@ -460,6 +492,143 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 continue;
             // Reward card interaction is owned here; legacy drag/hover relays were removed.
         }
+    }
+
+    private bool IsWorldShowcaseChoice()
+    {
+        return
+            showWorldSet != null &&
+            showWorldSet.HasRewardShowcase &&
+            rewardFlow != null &&
+            rewardFlow.Phase == BattleRewardPhase.Choosing;
+    }
+
+    private void SetWorldShowcaseCardUiHidden()
+    {
+        if (rewardCardGroup != null)
+        {
+            rewardCardGroup.alpha = 0f;
+            rewardCardGroup.blocksRaycasts = false;
+            rewardCardGroup.interactable = false;
+        }
+
+        for (int i = 0;
+             i < cards.Count;
+             i++)
+        {
+            CardRef card =
+                cards[i];
+
+            if (card?.button != null)
+                card.button.interactable = false;
+        }
+
+        if (inlineDetailRoot != null &&
+            inlineDetailRoot.gameObject.activeSelf)
+        {
+            inlineDetailRoot.gameObject.SetActive(false);
+        }
+
+        if (decideRoot != null &&
+            decideRoot.gameObject.activeSelf)
+        {
+            decideRoot.gameObject.SetActive(false);
+        }
+
+        HideLegacyChoiceDescription();
+        LayoutSkipButton();
+    }
+
+    private void HandleWorldShowcaseInput()
+    {
+        if (showWorldSet == null ||
+            rewardFlow == null ||
+            BattlePauseController.IsPaused)
+        {
+            return;
+        }
+
+        int hovered =
+            showWorldSet.RewardHoveredIndex;
+
+        if (hovered < 0 ||
+            !Input.GetMouseButtonDown(0))
+        {
+            return;
+        }
+
+        if (rewardFlow.SelectedChoiceIndex == hovered &&
+            rewardFlow.CanConfirmChoice)
+        {
+            ConfirmSelectedReward();
+            return;
+        }
+
+        SelectReward(
+            hovered);
+    }
+
+    private void ApplyWorldShowcasePresentation()
+    {
+        if (showWorldSet == null ||
+            rewardFlow == null)
+        {
+            return;
+        }
+
+        SetWorldShowcaseCardUiHidden();
+
+        int hovered =
+            showWorldSet.RewardHoveredIndex;
+
+        int previousHover =
+            hoveredRewardIndex;
+
+        hoveredRewardIndex =
+            hovered;
+
+        int selectedIndex =
+            rewardFlow.SelectedChoiceIndex;
+
+        showWorldSet.SetRewardShowcaseSelectedIndex(
+            selectedIndex);
+
+        if (hovered >= 0)
+        {
+            if (showWorldSet.TryGetRewardShowcaseScreenPoint(
+                    hovered,
+                    out Vector2 screenPoint))
+            {
+                equipmentDetailPanel?.PreviewRewardAtScreenPoint(
+                    hovered,
+                    screenPoint);
+            }
+
+            if (hovered != previousHover &&
+                runManager != null &&
+                hovered <
+                runManager.CurrentRewardChoices.Count)
+            {
+                BattleScreenPresenterPrototypeController.NotifyRewardHover(
+                    runManager.CurrentRewardChoices[hovered]);
+            }
+        }
+        else
+        {
+            equipmentDetailPanel?.ClearRewardPreview();
+        }
+
+        lastChoiceSelectedIndex =
+            selectedIndex;
+
+        lastChoiceHoveredIndex =
+            hoveredRewardIndex;
+
+        lastChoiceHadSelection =
+            rewardFlow.SelectedChoice != null;
+
+        choicePresentationDirty =
+            false;
     }
 
     private void ApplyChoicePresentation(bool refreshStatic)
@@ -818,10 +987,22 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         int selectedIndex = rewardFlow.SelectedChoiceIndex;
         BattleEquipmentSO selectedReward = rewardFlow.SelectedChoice;
-        CardRef selectedCardRef = FindCard(selectedIndex);
-        RectTransform sourceRect = selectedCardRef != null && selectedCardRef.icon != null
-            ? selectedCardRef.icon.rectTransform
-            : selectedCardRef?.rect;
+
+        bool hasWorldSource =
+            showWorldSet != null &&
+            showWorldSet.TryGetRewardShowcaseScreenPoint(
+                selectedIndex,
+                out Vector2 worldSourceScreen);
+
+        CardRef selectedCardRef =
+            FindCard(
+                selectedIndex);
+
+        RectTransform sourceRect =
+            selectedCardRef != null &&
+            selectedCardRef.icon != null
+                ? selectedCardRef.icon.rectTransform
+                : selectedCardRef?.rect;
 
         if (!rewardFlow.ConfirmSelectedChoice())
             return;
@@ -835,16 +1016,26 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         SetLockedVisible(true);
         SetLockedCopy("INSTALLING REWARD", "TRANSFER TO PACK");
 
-        bool transferStarted = inventoryInteraction != null &&
-                               selectedReward != null &&
-                               inventoryInteraction.PlayRewardTransfer(
-                                   sourceRect,
-                                   selectedReward,
-                                   rewardFlow.TransferTargetSlot,
-                                   rewardFlow.TransferToHand,
-                                   selectedReward.rarity,
-                                   CommitRewardTransferArrival,
-                                   CompleteRewardTransfer);
+        bool transferStarted =
+            inventoryInteraction != null &&
+            selectedReward != null &&
+            (hasWorldSource
+                ? inventoryInteraction.PlayRewardTransfer(
+                    worldSourceScreen,
+                    selectedReward,
+                    rewardFlow.TransferTargetSlot,
+                    rewardFlow.TransferToHand,
+                    selectedReward.rarity,
+                    CommitRewardTransferArrival,
+                    CompleteRewardTransfer)
+                : inventoryInteraction.PlayRewardTransfer(
+                    sourceRect,
+                    selectedReward,
+                    rewardFlow.TransferTargetSlot,
+                    rewardFlow.TransferToHand,
+                    selectedReward.rarity,
+                    CommitRewardTransferArrival,
+                    CompleteRewardTransfer));
 
         if (!transferStarted)
         {
