@@ -4,12 +4,9 @@ using UnityEngine.UI;
 /// <summary>
 /// 말풍선 옆에 붙는 코드 생성 Tail.
 ///
-/// 외부 PNG는 사용하지 않습니다.
-/// BattleSpeechBubbleTailStyle의 Pivot/폭/Stroke 값을
-/// BattleSpeechBubbleTailTextureBuilder로 Texture2D에 Rasterize한 뒤
-/// Unity 기본 Image로 표시합니다.
-///
-/// Editor Preview와 Runtime이 같은 Builder를 사용하므로 모양이 동일합니다.
+/// OUTLINE / FILL을 별도 UI Image로 분리합니다.
+/// OUTLINE에는 Stroke Material을 적용할 수 있고,
+/// FILL은 기본 UI Material을 유지합니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
@@ -21,23 +18,30 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private Color fillColor =
         new(0.97f, 0.97f, 0.94f, 1f);
 
-    private RectTransform tailRect;
-    private Image tailImage;
+    private Material strokeMaterial;
 
-    private Texture2D runtimeTexture;
-    private Sprite runtimeSprite;
+    private RectTransform tailRect;
+    private Image outlineImage;
+    private Image fillImage;
+
+    private Texture2D outlineTexture;
+    private Texture2D fillTexture;
+    private Sprite outlineSprite;
+    private Sprite fillSprite;
     private int appliedHash = int.MinValue;
 
     public void Configure(
         RectTransform bubble,
         RectTransform target,
         Color color,
-        BattleSpeechBubbleTailStyle tailStyle)
+        BattleSpeechBubbleTailStyle tailStyle,
+        Material outlineMaterial = null)
     {
         bubbleRect = bubble;
         targetPivot = target;
         fillColor = color;
         style = tailStyle ?? new BattleSpeechBubbleTailStyle();
+        strokeMaterial = outlineMaterial;
 
         EnsureTail();
         RefreshSpriteIfNeeded(force: true);
@@ -77,21 +81,40 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     private void OnDestroy()
     {
-        ReleaseRuntimeSprite();
+        ReleaseRuntimeSprites();
     }
 
     private void EnsureTail()
     {
         if (tailRect != null &&
-            tailImage != null)
+            outlineImage != null &&
+            fillImage != null)
         {
             return;
         }
 
-        GameObject tail =
-            new("TailShape", typeof(RectTransform));
+        Transform existingTail =
+            transform.Find(
+                "TailShape");
 
-        tail.transform.SetParent(transform, false);
+        GameObject tail;
+
+        if (existingTail != null)
+        {
+            tail =
+                existingTail.gameObject;
+        }
+        else
+        {
+            tail =
+                new GameObject(
+                    "TailShape",
+                    typeof(RectTransform));
+
+            tail.transform.SetParent(
+                transform,
+                false);
+        }
 
         tailRect =
             tail.GetComponent<RectTransform>();
@@ -108,29 +131,90 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         tailRect.pivot =
             new Vector2(0.5f, 0.5f);
 
-        tailImage =
-            tail.AddComponent<Image>();
+        outlineImage =
+            tail.GetComponent<Image>();
 
-        tailImage.type =
+        if (outlineImage == null)
+            outlineImage = tail.AddComponent<Image>();
+
+        outlineImage.type =
             Image.Type.Simple;
 
-        tailImage.preserveAspect =
+        outlineImage.preserveAspect =
             false;
 
-        tailImage.raycastTarget =
+        outlineImage.raycastTarget =
             false;
 
-        tailImage.color =
-            Color.white;
+        Transform existingFill =
+            tail.transform.Find(
+                "TailFill");
 
-        // Bubble Face 이후, 텍스트/배지 이전에 생성되도록 호출자가 구성합니다.
+        GameObject fillObject;
+
+        if (existingFill != null)
+        {
+            fillObject =
+                existingFill.gameObject;
+        }
+        else
+        {
+            fillObject =
+                new GameObject(
+                    "TailFill",
+                    typeof(RectTransform));
+
+            fillObject.transform.SetParent(
+                tail.transform,
+                false);
+        }
+
+        RectTransform fillRect =
+            fillObject.GetComponent<RectTransform>();
+
+        fillRect.anchorMin =
+            Vector2.zero;
+
+        fillRect.anchorMax =
+            Vector2.one;
+
+        fillRect.pivot =
+            new Vector2(0.5f, 0.5f);
+
+        fillRect.offsetMin =
+            Vector2.zero;
+
+        fillRect.offsetMax =
+            Vector2.zero;
+
+        fillImage =
+            fillObject.GetComponent<Image>();
+
+        if (fillImage == null)
+            fillImage = fillObject.AddComponent<Image>();
+
+        fillImage.type =
+            Image.Type.Simple;
+
+        fillImage.preserveAspect =
+            false;
+
+        fillImage.raycastTarget =
+            false;
+
+        fillObject.transform.SetAsLastSibling();
+
+        // Bubble Frame 이후, 텍스트/배지 이전에 Tail 전체가 오도록 유지합니다.
         tail.transform.SetAsLastSibling();
     }
 
     private void RefreshSpriteIfNeeded(bool force)
     {
-        if (tailImage == null)
+        if (outlineImage == null ||
+            fillImage == null)
+        {
             return;
+        }
 
         BattleSpeechBubbleTailStyle activeStyle =
             style ?? new BattleSpeechBubbleTailStyle();
@@ -143,60 +227,102 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             hash =
                 hash * 31 +
                 fillColor.GetHashCode();
+
+            hash =
+                hash * 31 +
+                (strokeMaterial != null
+                    ? strokeMaterial.GetInstanceID()
+                    : 0);
         }
 
         if (!force &&
             hash == appliedHash &&
-            runtimeSprite != null)
+            outlineSprite != null &&
+            fillSprite != null)
         {
-            if (tailImage.sprite != runtimeSprite)
-                tailImage.sprite = runtimeSprite;
+            if (outlineImage.sprite != outlineSprite)
+                outlineImage.sprite = outlineSprite;
 
+            if (fillImage.sprite != fillSprite)
+                fillImage.sprite = fillSprite;
+
+            ApplyImageStyle(
+                activeStyle);
             return;
         }
 
-        appliedHash = hash;
+        appliedHash =
+            hash;
 
-        ReleaseRuntimeSprite();
+        ReleaseRuntimeSprites();
 
-        runtimeTexture =
-            BattleSpeechBubbleTailTextureBuilder.BuildTexture(
+        outlineTexture =
+            BattleSpeechBubbleTailTextureBuilder.BuildOutlineMaskTexture(
                 activeStyle,
-                fillColor,
-                "BattleSpeechTail_Runtime");
+                "BattleSpeechTail_OutlineMask_Runtime");
 
-        runtimeSprite =
-            Sprite.Create(
-                runtimeTexture,
-                new Rect(
-                    0f,
-                    0f,
-                    runtimeTexture.width,
-                    runtimeTexture.height),
-                new Vector2(0.5f, 0.5f),
-                100f,
-                0,
-                SpriteMeshType.FullRect);
+        fillTexture =
+            BattleSpeechBubbleTailTextureBuilder.BuildFillMaskTexture(
+                activeStyle,
+                "BattleSpeechTail_FillMask_Runtime");
 
-        runtimeSprite.name =
-            "BattleSpeechTail_RuntimeSprite";
+        outlineSprite =
+            CreateRuntimeSprite(
+                outlineTexture,
+                "BattleSpeechTail_Outline_RuntimeSprite");
 
-        runtimeSprite.hideFlags =
-            HideFlags.HideAndDontSave;
+        fillSprite =
+            CreateRuntimeSprite(
+                fillTexture,
+                "BattleSpeechTail_Fill_RuntimeSprite");
 
-        tailImage.sprite =
-            runtimeSprite;
+        outlineImage.sprite =
+            outlineSprite;
+
+        fillImage.sprite =
+            fillSprite;
+
+        ApplyImageStyle(
+            activeStyle);
+    }
+
+    private void ApplyImageStyle(
+        BattleSpeechBubbleTailStyle activeStyle)
+    {
+        if (outlineImage != null)
+        {
+            outlineImage.color =
+                activeStyle != null
+                    ? activeStyle.outlineColor
+                    : Color.black;
+
+            outlineImage.material =
+                strokeMaterial;
+        }
+
+        if (fillImage != null)
+        {
+            fillImage.color =
+                fillColor;
+
+            fillImage.material =
+                null;
+        }
     }
 
     private void RefreshPlacement()
     {
         if (tailRect == null ||
-            tailImage == null ||
+            outlineImage == null ||
+            fillImage == null ||
             bubbleRect == null ||
             targetPivot == null)
         {
-            if (tailImage != null)
-                tailImage.enabled = false;
+            if (outlineImage != null)
+                outlineImage.enabled = false;
+
+            if (fillImage != null)
+                fillImage.enabled = false;
 
             return;
         }
@@ -204,7 +330,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         BattleSpeechBubbleTailStyle activeStyle =
             style ?? new BattleSpeechBubbleTailStyle();
 
-        tailImage.enabled = true;
+        outlineImage.enabled = true;
+        fillImage.enabled = true;
 
         tailRect.anchorMin =
             tailRect.anchorMax =
@@ -253,7 +380,9 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         float padding =
             Mathf.Min(
-                Mathf.Max(0f, activeStyle.edgePadding),
+                Mathf.Max(
+                    0f,
+                    activeStyle.edgePadding),
                 bubble.height * 0.45f);
 
         float y =
@@ -264,7 +393,9 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         float outside =
             size.x * 0.5f -
-            Mathf.Max(0f, activeStyle.overlap);
+            Mathf.Max(
+                0f,
+                activeStyle.overlap);
 
         tailRect.anchoredPosition =
             new Vector2(
@@ -273,8 +404,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                     : bubble.xMin - outside,
                 y);
 
-        // 좌측은 180도 회전하지 않고 X Flip만 사용합니다.
-        // 번개형 Pivot의 위/아래 방향이 뒤집히지 않습니다.
         tailRect.localRotation =
             Quaternion.identity;
 
@@ -284,18 +413,59 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 : new Vector3(-1f, 1f, 1f);
     }
 
-    private void ReleaseRuntimeSprite()
+    private static Sprite CreateRuntimeSprite(
+        Texture2D texture,
+        string spriteName)
     {
-        if (runtimeSprite != null)
+        if (texture == null)
+            return null;
+
+        Sprite sprite =
+            Sprite.Create(
+                texture,
+                new Rect(
+                    0f,
+                    0f,
+                    texture.width,
+                    texture.height),
+                new Vector2(0.5f, 0.5f),
+                100f,
+                0,
+                SpriteMeshType.FullRect);
+
+        sprite.name =
+            spriteName;
+
+        sprite.hideFlags =
+            HideFlags.HideAndDontSave;
+
+        return sprite;
+    }
+
+    private void ReleaseRuntimeSprites()
+    {
+        if (outlineSprite != null)
         {
-            Destroy(runtimeSprite);
-            runtimeSprite = null;
+            Destroy(outlineSprite);
+            outlineSprite = null;
         }
 
-        if (runtimeTexture != null)
+        if (fillSprite != null)
         {
-            Destroy(runtimeTexture);
-            runtimeTexture = null;
+            Destroy(fillSprite);
+            fillSprite = null;
+        }
+
+        if (outlineTexture != null)
+        {
+            Destroy(outlineTexture);
+            outlineTexture = null;
+        }
+
+        if (fillTexture != null)
+        {
+            Destroy(fillTexture);
+            fillTexture = null;
         }
     }
 }
