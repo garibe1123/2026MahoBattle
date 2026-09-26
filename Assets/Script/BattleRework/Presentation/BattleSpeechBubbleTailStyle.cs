@@ -646,6 +646,123 @@ public static class BattleSpeechBubbleTailTextureBuilder
             contentHeight);
     }
 
+    public static Texture2D BuildOutlineMaskTexture(
+        BattleSpeechBubbleTailStyle sourceStyle,
+        string textureName = "BattleSpeechTailOutlineMask")
+    {
+        BattleSpeechBubbleTailStyle style =
+            sourceStyle ?? new BattleSpeechBubbleTailStyle();
+
+        style.EnsurePivotCountDefaults();
+
+        Texture2D texture =
+            CreateTexture(
+                textureName);
+
+        Color32[] pixels =
+            CreateTransparentPixels();
+
+        Vector2[] centers =
+            GetCenterPointsPixels(style);
+
+        float[] outerHalfWidths =
+            GetOuterHalfWidthsPixels(style);
+
+        float[] strokes =
+            GetStrokePixels(style);
+
+        BuildRibbonPolygon(
+            centers,
+            outerHalfWidths,
+            out Vector2[] outerPolygon);
+
+        RasterizePolygon(
+            pixels,
+            outerPolygon,
+            new Color32(
+                255,
+                255,
+                255,
+                255));
+
+        BuildInnerGeometry(
+            centers,
+            outerHalfWidths,
+            strokes,
+            out Vector2[] innerCenters,
+            out float[] innerHalfWidths);
+
+        BuildRibbonPolygon(
+            innerCenters,
+            innerHalfWidths,
+            out Vector2[] innerPolygon);
+
+        // Fill 영역을 다시 투명하게 지워 순수 Stroke Alpha Mask만 남깁니다.
+        RasterizePolygon(
+            pixels,
+            innerPolygon,
+            new Color32(
+                0,
+                0,
+                0,
+                0));
+
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
+    public static Texture2D BuildFillMaskTexture(
+        BattleSpeechBubbleTailStyle sourceStyle,
+        string textureName = "BattleSpeechTailFillMask")
+    {
+        BattleSpeechBubbleTailStyle style =
+            sourceStyle ?? new BattleSpeechBubbleTailStyle();
+
+        style.EnsurePivotCountDefaults();
+
+        Texture2D texture =
+            CreateTexture(
+                textureName);
+
+        Color32[] pixels =
+            CreateTransparentPixels();
+
+        Vector2[] centers =
+            GetCenterPointsPixels(style);
+
+        float[] outerHalfWidths =
+            GetOuterHalfWidthsPixels(style);
+
+        float[] strokes =
+            GetStrokePixels(style);
+
+        BuildInnerGeometry(
+            centers,
+            outerHalfWidths,
+            strokes,
+            out Vector2[] innerCenters,
+            out float[] innerHalfWidths);
+
+        BuildRibbonPolygon(
+            innerCenters,
+            innerHalfWidths,
+            out Vector2[] innerPolygon);
+
+        RasterizePolygon(
+            pixels,
+            innerPolygon,
+            new Color32(
+                255,
+                255,
+                255,
+                255));
+
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return texture;
+    }
+
     public static Texture2D BuildTexture(
         BattleSpeechBubbleTailStyle sourceStyle,
         Color fillColor,
@@ -748,6 +865,100 @@ public static class BattleSpeechBubbleTailTextureBuilder
         texture.SetPixels32(pixels);
         texture.Apply(false, true);
         return texture;
+    }
+
+    private static Texture2D CreateTexture(
+        string textureName)
+    {
+        return new Texture2D(
+            TextureWidth,
+            TextureHeight,
+            TextureFormat.RGBA32,
+            false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave,
+            name = textureName
+        };
+    }
+
+    private static Color32[] CreateTransparentPixels()
+    {
+        Color32[] pixels =
+            new Color32[
+                TextureWidth *
+                TextureHeight];
+
+        Color32 transparent =
+            new(0, 0, 0, 0);
+
+        for (int i = 0;
+             i < pixels.Length;
+             i++)
+        {
+            pixels[i] =
+                transparent;
+        }
+
+        return pixels;
+    }
+
+    private static void BuildInnerGeometry(
+        Vector2[] centers,
+        float[] outerHalfWidths,
+        float[] strokes,
+        out Vector2[] innerCenters,
+        out float[] innerHalfWidths)
+    {
+        int pointCount =
+            centers != null
+                ? centers.Length
+                : 0;
+
+        innerCenters =
+            centers != null
+                ? (Vector2[])centers.Clone()
+                : System.Array.Empty<Vector2>();
+
+        innerHalfWidths =
+            new float[pointCount];
+
+        if (pointCount <= 0)
+            return;
+
+        Vector2 tipTangent =
+            ResolveTangent(
+                centers,
+                pointCount - 1);
+
+        innerCenters[pointCount - 1] -=
+            tipTangent *
+            Mathf.Max(
+                1f,
+                strokes[pointCount - 1] *
+                1.25f);
+
+        for (int i = 0;
+             i < pointCount;
+             i++)
+        {
+            if (i == 0)
+            {
+                innerHalfWidths[i] =
+                    outerHalfWidths[i];
+            }
+            else
+            {
+                innerHalfWidths[i] =
+                    Mathf.Max(
+                        0f,
+                        outerHalfWidths[i] -
+                        Mathf.Max(
+                            1f,
+                            strokes[i]));
+            }
+        }
     }
 
     public static Vector2[] GetCenterPointsNormalized(
