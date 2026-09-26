@@ -230,10 +230,21 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 
     public bool PreviewRewardAtScreenPoint(
         int rewardIndex,
-        Vector2 itemScreenPoint)
+        Vector2 itemScreenPoint,
+        bool selected = false)
     {
         if (!PreviewReward(rewardIndex))
             return false;
+
+        if (selected &&
+            stateLabel != null)
+        {
+            stateLabel.text =
+                "SELECTED  //  CLICK AGAIN TO ACQUIRE";
+
+            stateLabel.color =
+                accentYellow;
+        }
 
         PlaceRewardPreviewBeside(
             itemScreenPoint);
