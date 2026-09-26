@@ -171,6 +171,28 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("선택씬/전투씬 말풍선의 OUTLINE에만 적용할 UI Material입니다. 홀로그램/글리치 등 Stroke 전용 효과를 넣을 때 사용합니다. Fill에는 적용되지 않습니다.")]
     [SerializeField] private Material speechBubbleStrokeMaterial;
 
+    [Header("Reward 상품 진열 Base")]
+    [Tooltip("모든 등급이 공통으로 fallback하는 기본 1칸 상품 Base Sprite입니다. 권장 아트 크기/PPU는 Floor와 동일합니다.")]
+    [SerializeField] private Sprite rewardBasicBaseSprite;
+
+    [Tooltip("Common 전용 Base. 비어 있으면 Basic Base를 사용합니다.")]
+    [SerializeField] private Sprite rewardCommonBaseSprite;
+
+    [Tooltip("Uncommon 전용 Base. 비어 있으면 Basic Base를 사용합니다.")]
+    [SerializeField] private Sprite rewardUncommonBaseSprite;
+
+    [Tooltip("Rare 전용 Base. 비어 있으면 Basic Base를 사용합니다.")]
+    [SerializeField] private Sprite rewardRareBaseSprite;
+
+    [Tooltip("Epic 전용 Base. 비어 있으면 Basic Base를 사용합니다.")]
+    [SerializeField] private Sprite rewardEpicBaseSprite;
+
+    [Tooltip("Unique 전용 Base. 비어 있으면 Basic Base를 사용합니다.")]
+    [SerializeField] private Sprite rewardUniqueBaseSprite;
+
+    [Tooltip("아이템 Sprite 중심을 Base 중심에서 세로로 이동할 픽셀 값입니다. 음수면 아래로 내려갑니다. Floor PPU 기준으로 World Offset으로 환산됩니다.")]
+    [SerializeField] private int rewardItemPixelYOffset = -4;
+
     [Header("선택씬 말풍선 프레임 스타일")]
     [Tooltip("Reward / 아이템 선택 / 맵 선택에서 사용하는 말풍선 본체 크기/외곽/Scale 스타일입니다.")]
     [SerializeField] private BattleSpeechBubbleFrameStyle selectionSpeechBubbleFrameStyle =
@@ -263,6 +285,87 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public Material SpeechBubbleStrokeMaterial =>
         speechBubbleStrokeMaterial;
+
+    public int RewardItemPixelYOffset =>
+        rewardItemPixelYOffset;
+
+    public Sprite GetRewardBaseSprite(
+        EquipmentRarity rarity)
+    {
+        Sprite raritySprite =
+            rarity switch
+            {
+                EquipmentRarity.Common => rewardCommonBaseSprite,
+                EquipmentRarity.Uncommon => rewardUncommonBaseSprite,
+                EquipmentRarity.Rare => rewardRareBaseSprite,
+                EquipmentRarity.Epic => rewardEpicBaseSprite,
+                EquipmentRarity.Unique => rewardUniqueBaseSprite,
+                _ => null
+            };
+
+        if (raritySprite != null)
+            return raritySprite;
+
+        if (rewardBasicBaseSprite != null)
+            return rewardBasicBaseSprite;
+
+        // Basic까지 비어 있으면 Showcase가 사라지지 않도록 현재 Floor를 최후 fallback으로 사용합니다.
+        return GetFirstFloorSprite();
+    }
+
+    public float GetFloorPixelsPerUnit(
+        float fallback = 32f)
+    {
+        Sprite floor =
+            GetFirstFloorSprite();
+
+        return floor != null &&
+               floor.pixelsPerUnit > 0.001f
+            ? floor.pixelsPerUnit
+            : Mathf.Max(
+                1f,
+                fallback);
+    }
+
+    public Vector2 GetFloorTileWorldSize()
+    {
+        Sprite floor =
+            GetFirstFloorSprite();
+
+        if (floor == null)
+            return Vector2.one;
+
+        return new Vector2(
+            Mathf.Max(
+                0.01f,
+                Mathf.Abs(
+                    floor.bounds.size.x)),
+            Mathf.Max(
+                0.01f,
+                Mathf.Abs(
+                    floor.bounds.size.y)));
+    }
+
+    private Sprite GetFirstFloorSprite()
+    {
+        Sprite[] variants =
+            ActiveFloorTemplate != null
+                ? ActiveFloorTemplate.FloorVariants
+                : null;
+
+        if (variants == null)
+            return null;
+
+        for (int i = 0;
+             i < variants.Length;
+             i++)
+        {
+            if (variants[i] != null)
+                return variants[i];
+        }
+
+        return null;
+    }
 
     public BattleSpeechBubbleFrameStyle SelectionSpeechBubbleFrameStyle
     {
