@@ -741,7 +741,10 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueFrameController.Configure(
             frameImage,
             activeFrameStyle,
-            dialogueSize);
+            dialogueSize,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null);
 
         dialogueTailGraphic =
             dialogueRect.gameObject.AddComponent<BattleSpeechBubbleTailTriangleController>();
@@ -751,6 +754,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             activeFrameStyle.fillColor,
             presentation != null
                 ? presentation.SelectionSpeechBubbleTailStyle
+                : null,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
                 : null);
 
         // Small black badge replaces the old flat "SHOW HOST" strip.
@@ -1369,13 +1375,19 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueFrameController.Configure(
             null,
             runtimeDialogueFrameStyle,
-            dialogueSize);
+            dialogueSize,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null);
 
         dialogueTailGraphic.Configure(
             dialogueRect,
             dialogueTailPivotRect,
             runtimeDialogueFrameStyle.fillColor,
-            runtimeDialogueTailStyle);
+            runtimeDialogueTailStyle,
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null);
     }
 
     private void BeginPendingDialogue()
