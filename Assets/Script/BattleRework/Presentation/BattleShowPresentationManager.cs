@@ -177,6 +177,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [FormerlySerializedAs("speechBubbleTailStyle")]
     [SerializeField] private BattleSpeechBubbleTailStyle selectionSpeechBubbleTailStyle = new();
 
+    [Header("선택씬 말풍선 런타임 변형")]
+    [Tooltip("대사가 열릴 때마다 Frame/Tail을 원본 스타일에서 미세하게 변형합니다. 원본 Serialized 값은 바뀌지 않습니다.")]
+    [SerializeField] private BattleSpeechBubbleRuntimeVariationSettings selectionSpeechBubbleVariation = new();
+
     [Header("전투씬 말풍선 프레임 스타일")]
     [Tooltip("전투 중 우측 상단 사회자 리액션 말풍선 본체의 크기/외곽/Scale 스타일입니다.")]
     [SerializeField] private BattleSpeechBubbleFrameStyle combatSpeechBubbleFrameStyle =
@@ -185,6 +189,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Header("전투씬 말풍선 꼬리 스타일")]
     [Tooltip("전투 중 우측 상단 사회자 리액션 말풍선에서만 사용하는 별도 꼬리 프로파일입니다.")]
     [SerializeField] private BattleSpeechBubbleTailStyle combatSpeechBubbleTailStyle = new();
+
+    [Header("전투씬 말풍선 런타임 변형")]
+    [Tooltip("전투 리액션 말풍선이 뜰 때마다 Frame/Tail을 원본 스타일에서 미세하게 변형합니다.")]
+    [SerializeField] private BattleSpeechBubbleRuntimeVariationSettings combatSpeechBubbleVariation = new();
 
     [Header("버드아이뷰 조명 Sprite Sheet")]
     [Tooltip("플레이어와 사회자 발밑 조명에 사용할 Sprite Sheet 프레임입니다. 비어 있으면 BattleHUD가 만드는 기본 타원형 조명을 사용합니다.")]
@@ -264,6 +272,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public BattleSpeechBubbleTailStyle SelectionSpeechBubbleTailStyle =>
         selectionSpeechBubbleTailStyle ??= new BattleSpeechBubbleTailStyle();
 
+    public BattleSpeechBubbleRuntimeVariationSettings SelectionSpeechBubbleVariation =>
+        selectionSpeechBubbleVariation ??= new BattleSpeechBubbleRuntimeVariationSettings();
+
     public BattleSpeechBubbleFrameStyle CombatSpeechBubbleFrameStyle
     {
         get
@@ -278,6 +289,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public BattleSpeechBubbleTailStyle CombatSpeechBubbleTailStyle =>
         combatSpeechBubbleTailStyle ??= new BattleSpeechBubbleTailStyle();
+
+    public BattleSpeechBubbleRuntimeVariationSettings CombatSpeechBubbleVariation =>
+        combatSpeechBubbleVariation ??= new BattleSpeechBubbleRuntimeVariationSettings();
 
     public ScreenPresenterMotionClip GetScreenPresenterMotion(ScreenPresenterMotionState state)
     {
