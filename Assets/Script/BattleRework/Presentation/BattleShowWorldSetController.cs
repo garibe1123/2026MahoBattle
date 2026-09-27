@@ -41,6 +41,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         public GameObject root;
         public SpriteRenderer baseRenderer;
         public SpriteRenderer itemRenderer;
+        public Transform itemTransform;
+        public Vector3 itemBaseLocalPosition;
         public BattleCharacterLightVisual spotlight;
     }
 
@@ -484,6 +486,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         desiredMode = ResolveDesiredMode();
         UpdatePresenter();
         UpdateRewardShowcase();
+        UpdateRewardShowcaseFloatAnimation();
         UpdatePointerTracking();
 
         if (transitionRoutine == null && desiredMode != currentMode)
@@ -1306,6 +1309,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                     root = itemRoot,
                     baseRenderer = baseRenderer,
                     itemRenderer = itemRenderer,
+                    itemTransform = iconObject.transform,
+                    itemBaseLocalPosition = iconObject.transform.localPosition,
                     spotlight = spotlight
                 });
         }
@@ -1316,6 +1321,83 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         rewardShowcaseRoot.SetActive(true);
 
         ComputeSharedCameraFrame();
+    }
+
+    /// <summary>
+    /// Reward 상품의 Base는 고정하고 아이템 Sprite만 위/아래로 둥둥 움직입니다.
+    /// 진폭은 BattleShowPresentationManager의 Pixel 값으로 관리하고,
+    /// 실제 World 이동량은 현재 Floor PPU 기준으로 환산합니다.
+    /// </summary>
+    private void UpdateRewardShowcaseFloatAnimation()
+    {
+        if (rewardShowcaseItems.Count <= 0)
+            return;
+
+        bool enabledFloat =
+            presentation == null ||
+            presentation.RewardItemFloatEnabled;
+
+        float floorPpu =
+            presentation != null
+                ? presentation.GetFloorPixelsPerUnit()
+                : 32f;
+
+        float amplitudeWorld =
+            enabledFloat
+                ? (presentation != null
+                    ? presentation.RewardItemFloatAmplitudePixels
+                    : 4) /
+                  Mathf.Max(
+                      1f,
+                      floorPpu)
+                : 0f;
+
+        float cyclesPerSecond =
+            presentation != null
+                ? presentation.RewardItemFloatCyclesPerSecond
+                : 0.60f;
+
+        float phaseStep =
+            presentation != null
+                ? presentation.RewardItemFloatPhaseStep
+                : 0.72f;
+
+        float phaseTime =
+            Time.unscaledTime *
+            cyclesPerSecond *
+            Mathf.PI *
+            2f;
+
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item == null ||
+                item.itemTransform == null)
+            {
+                continue;
+            }
+
+            Vector3 position =
+                item.itemBaseLocalPosition;
+
+            if (enabledFloat &&
+                amplitudeWorld > 0.0001f)
+            {
+                position.y +=
+                    Mathf.Sin(
+                        phaseTime +
+                        item.index *
+                        phaseStep) *
+                    amplitudeWorld;
+            }
+
+            item.itemTransform.localPosition =
+                position;
+        }
     }
 
     private int ResolveRewardShowcaseHover()
