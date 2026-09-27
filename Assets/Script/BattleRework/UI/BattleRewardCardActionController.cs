@@ -48,6 +48,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField] private Color selectAccent = new(1f, 0.79f, 0.08f, 1f);
     [SerializeField] private Color hoverCyan = new(0.12f, 0.88f, 0.92f, 1f);
 
+    [Header("World Reward Inspect - PACK Style")]
+    [SerializeField] private Vector2 worldInspectSize = new(360f, 220f);
+    [SerializeField, Min(4f)] private float worldInspectGap = 18f;
+    [SerializeField, Min(0f)] private float worldInspectScreenMargin = 24f;
+    [SerializeField] private Vector2 worldSkipSize = new(214f, 40f);
+
     [Header("Selection Locked")]
     [SerializeField] private Color lockedBack = new(0.006f, 0.008f, 0.012f, 0.90f);
 
@@ -87,6 +93,21 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private bool detailPanelWasEnabled;
     private bool detailPanelSuppressed;
+
+    private Canvas worldInspectCanvas;
+    private RectTransform worldInspectRoot;
+    private CanvasGroup worldInspectGroup;
+    private Text worldInspectTitle;
+    private Text worldInspectMeta;
+    private Text worldInspectDescription;
+    private Text worldInspectTags;
+    private Text worldInspectStats;
+    private Text worldInspectHint;
+    private RectTransform worldSkipRoot;
+    private CanvasGroup worldSkipGroup;
+    private Button worldSkipButton;
+    private Text worldSkipLabel;
+
     private int hoveredRewardIndex = -1;
     private RectTransform cachedCardRoot;
     private int cachedCardCount = -1;
@@ -170,6 +191,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         RestoreEquipmentDetailPanel();
         equipmentDetailPanel?.ClearRewardPreview();
         showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
+        HideWorldShowcaseUi(true);
         HideChoiceOnlyUi();
         SetLockedVisible(false);
     }
@@ -201,6 +223,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             SetEquipmentDetailPanelSuppressed(false);
             equipmentDetailPanel?.ClearRewardPreview();
             showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
+            HideWorldShowcaseUi(true);
             HideChoiceOnlyUi();
             return;
         }
@@ -228,9 +251,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldShowcaseExpected &&
             IsWorldShowcaseChoice();
 
+        // Reward 선택에서는 구형 ITEM // DATA 상세창을 절대 사용하지 않습니다.
+        // 월드 Showcase는 PACK 스타일의 전용 경량 Tooltip을 사용합니다.
         SetEquipmentDetailPanelSuppressed(
-            transferring ||
-            (choice && !worldShowcaseChoice));
+            choice ||
+            transferring);
 
         if (choice)
         {
@@ -257,6 +282,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             hoveredRewardIndex = -1;
             equipmentDetailPanel?.ClearRewardPreview();
             showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
+            HideWorldShowcaseUi(true);
             SetChoiceInteractable(false);
             HideChoiceOnlyUi();
             SetLockedVisible(true);
@@ -267,6 +293,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             hoveredRewardIndex = -1;
             equipmentDetailPanel?.ClearRewardPreview();
             showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
+            HideWorldShowcaseUi(true);
             SetChoiceInteractable(false);
             HideChoiceOnlyUi();
             SetLockedVisible(true);
@@ -288,7 +315,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 if (IsWorldShowcaseChoice())
                     ApplyWorldShowcasePresentation();
                 else
-                    equipmentDetailPanel?.ClearRewardPreview();
+                    HideWorldShowcaseUi(false);
 
                 return;
             }
@@ -551,7 +578,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         HideLegacyChoiceDescription();
-        LayoutSkipButton();
+        EnsureWorldShowcaseUi();
+        SetWorldSkipVisible(true);
     }
 
     private void HandleWorldShowcaseInput()
@@ -614,9 +642,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                     hovered,
                     out Vector2 screenPoint))
             {
-                equipmentDetailPanel?.PreviewRewardAtScreenPoint(
+                ShowWorldRewardInspect(
                     hovered,
                     screenPoint,
+                    showWorldSet.ShouldPlaceRewardDetailRight(hovered),
                     selectedIndex == hovered);
             }
 
@@ -631,7 +660,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
         else
         {
-            equipmentDetailPanel?.ClearRewardPreview();
+            HideWorldRewardInspect();
         }
 
         lastChoiceSelectedIndex =
@@ -645,6 +674,558 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         choicePresentationDirty =
             false;
+    }
+
+    private void EnsureWorldShowcaseUi()
+    {
+        if (worldInspectCanvas != null)
+            return;
+
+        GameObject canvasObject =
+            new("BattleRewardWorldInspectCanvas");
+
+        canvasObject.transform.SetParent(
+            transform,
+            false);
+
+        worldInspectCanvas =
+            canvasObject.AddComponent<Canvas>();
+
+        worldInspectCanvas.renderMode =
+            RenderMode.ScreenSpaceOverlay;
+
+        worldInspectCanvas.overrideSorting =
+            true;
+
+        // BattleKineticLoadoutUI(780)와 같은 UI 언어를 쓰되,
+        // Reward Hover 정보가 그 위에서 읽히도록 한 단계만 올립니다.
+        worldInspectCanvas.sortingOrder =
+            790;
+
+        CanvasScaler scaler =
+            canvasObject.AddComponent<CanvasScaler>();
+
+        scaler.uiScaleMode =
+            CanvasScaler.ScaleMode.ScaleWithScreenSize;
+
+        scaler.referenceResolution =
+            new Vector2(
+                1920f,
+                1080f);
+
+        scaler.matchWidthOrHeight =
+            0.5f;
+
+        canvasObject.AddComponent<GraphicRaycaster>();
+
+        Color packInk =
+            new(
+                0.028f,
+                0.030f,
+                0.036f,
+                0.965f);
+
+        Color packPaper =
+            new(
+                0.92f,
+                0.94f,
+                0.97f,
+                1f);
+
+        Color packCyan =
+            new(
+                0.15f,
+                0.88f,
+                0.92f,
+                1f);
+
+        worldInspectRoot =
+            CreateRect(
+                canvasObject.transform,
+                "RewardWorldItemTooltip",
+                worldInspectSize);
+
+        worldInspectRoot.anchorMin =
+            worldInspectRoot.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        worldInspectRoot.pivot =
+            new Vector2(
+                0f,
+                0.5f);
+
+        Image back =
+            worldInspectRoot.gameObject.AddComponent<Image>();
+
+        back.color =
+            packInk;
+
+        back.raycastTarget =
+            false;
+
+        Outline outline =
+            worldInspectRoot.gameObject.AddComponent<Outline>();
+
+        outline.effectColor =
+            new Color(
+                packPaper.r,
+                packPaper.g,
+                packPaper.b,
+                0.24f);
+
+        outline.effectDistance =
+            new Vector2(
+                2f,
+                -2f);
+
+        worldInspectGroup =
+            worldInspectRoot.gameObject.AddComponent<CanvasGroup>();
+
+        worldInspectGroup.alpha =
+            0f;
+
+        worldInspectGroup.blocksRaycasts =
+            false;
+
+        worldInspectGroup.interactable =
+            false;
+
+        worldInspectTitle =
+            CreateText(
+                worldInspectRoot,
+                "ITEM",
+                20,
+                FontStyle.Bold,
+                TextAnchor.UpperLeft,
+                packPaper);
+
+        SetAnchors(
+            worldInspectTitle.rectTransform,
+            new Vector2(
+                0.06f,
+                0.76f),
+            new Vector2(
+                0.94f,
+                0.94f));
+
+        worldInspectMeta =
+            CreateText(
+                worldInspectRoot,
+                "COMMON / MANUAL",
+                10,
+                FontStyle.Bold,
+                TextAnchor.UpperLeft,
+                packCyan);
+
+        SetAnchors(
+            worldInspectMeta.rectTransform,
+            new Vector2(
+                0.06f,
+                0.66f),
+            new Vector2(
+                0.94f,
+                0.76f));
+
+        worldInspectDescription =
+            CreateText(
+                worldInspectRoot,
+                "NO DESCRIPTION",
+                12,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                packPaper);
+
+        SetAnchors(
+            worldInspectDescription.rectTransform,
+            new Vector2(
+                0.06f,
+                0.39f),
+            new Vector2(
+                0.94f,
+                0.65f));
+
+        worldInspectDescription.horizontalOverflow =
+            HorizontalWrapMode.Wrap;
+
+        worldInspectDescription.verticalOverflow =
+            VerticalWrapMode.Truncate;
+
+        worldInspectTags =
+            CreateText(
+                worldInspectRoot,
+                "NO TAG",
+                10,
+                FontStyle.Bold,
+                TextAnchor.UpperLeft,
+                packCyan);
+
+        SetAnchors(
+            worldInspectTags.rectTransform,
+            new Vector2(
+                0.06f,
+                0.25f),
+            new Vector2(
+                0.94f,
+                0.38f));
+
+        worldInspectStats =
+            CreateText(
+                worldInspectRoot,
+                "DMG ×1.00   MOVE ×1.00   RANGE ×1.00",
+                10,
+                FontStyle.Bold,
+                TextAnchor.LowerLeft,
+                packPaper);
+
+        SetAnchors(
+            worldInspectStats.rectTransform,
+            new Vector2(
+                0.06f,
+                0.10f),
+            new Vector2(
+                0.94f,
+                0.24f));
+
+        worldInspectHint =
+            CreateText(
+                worldInspectRoot,
+                "CLICK TO SELECT",
+                9,
+                FontStyle.Bold,
+                TextAnchor.LowerRight,
+                packCyan);
+
+        SetAnchors(
+            worldInspectHint.rectTransform,
+            new Vector2(
+                0.06f,
+                0.025f),
+            new Vector2(
+                0.94f,
+                0.105f));
+
+        worldInspectRoot.gameObject.SetActive(
+            false);
+
+        worldSkipRoot =
+            CreateRect(
+                canvasObject.transform,
+                "RewardWorldSkip",
+                worldSkipSize);
+
+        worldSkipRoot.anchorMin =
+            worldSkipRoot.anchorMax =
+                new Vector2(
+                    1f,
+                    1f);
+
+        worldSkipRoot.pivot =
+            new Vector2(
+                1f,
+                1f);
+
+        worldSkipRoot.anchoredPosition =
+            new Vector2(
+                -26f,
+                -24f);
+
+        Image skipBackground =
+            worldSkipRoot.gameObject.AddComponent<Image>();
+
+        skipBackground.color =
+            new Color(
+                packInk.r,
+                packInk.g,
+                packInk.b,
+                0.90f);
+
+        skipBackground.raycastTarget =
+            true;
+
+        Outline skipOutline =
+            worldSkipRoot.gameObject.AddComponent<Outline>();
+
+        skipOutline.effectColor =
+            new Color(
+                packPaper.r,
+                packPaper.g,
+                packPaper.b,
+                0.24f);
+
+        skipOutline.effectDistance =
+            new Vector2(
+                2f,
+                -2f);
+
+        worldSkipGroup =
+            worldSkipRoot.gameObject.AddComponent<CanvasGroup>();
+
+        worldSkipButton =
+            worldSkipRoot.gameObject.AddComponent<Button>();
+
+        worldSkipButton.targetGraphic =
+            skipBackground;
+
+        worldSkipButton.onClick.AddListener(
+            SkipReward);
+
+        worldSkipLabel =
+            CreateText(
+                worldSkipRoot,
+                "SKIP REWARD",
+                11,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                packPaper);
+
+        Stretch(
+            worldSkipLabel.rectTransform);
+
+        worldSkipRoot.gameObject.SetActive(
+            false);
+    }
+
+    private void ShowWorldRewardInspect(
+        int rewardIndex,
+        Vector2 itemScreenPoint,
+        bool placeRight,
+        bool selected)
+    {
+        EnsureWorldShowcaseUi();
+
+        BattleEquipmentSO equipment =
+            GetReward(
+                rewardIndex);
+
+        if (equipment == null ||
+            worldInspectRoot == null ||
+            worldInspectGroup == null)
+        {
+            HideWorldRewardInspect();
+            return;
+        }
+
+        worldInspectTitle.text =
+            equipment.GetDisplayName().ToUpperInvariant();
+
+        worldInspectMeta.text =
+            $"{equipment.rarity.ToString().ToUpperInvariant()} / {equipment.type.ToString().ToUpperInvariant()}";
+
+        worldInspectDescription.text =
+            !string.IsNullOrWhiteSpace(
+                equipment.description)
+                ? equipment.description.Trim()
+                : "NO DESCRIPTION";
+
+        worldInspectTags.text =
+            equipment.tags != null &&
+            equipment.tags.Count > 0
+                ? string.Join(
+                    "  /  ",
+                    equipment.tags).ToUpperInvariant()
+                : "NO TAG";
+
+        worldInspectStats.text =
+            $"DMG ×{equipment.damageMultiplier:0.00}   " +
+            $"MOVE ×{equipment.moveSpeedMultiplier:0.00}   " +
+            $"RANGE ×{equipment.rangeMultiplier:0.00}";
+
+        worldInspectHint.text =
+            selected
+                ? "SELECTED  //  CLICK AGAIN TO TAKE"
+                : "CLICK TO SELECT";
+
+        worldInspectHint.color =
+            selected
+                ? selectAccent
+                : new Color(
+                    0.15f,
+                    0.88f,
+                    0.92f,
+                    1f);
+
+        PlaceWorldInspect(
+            itemScreenPoint,
+            placeRight);
+
+        if (!worldInspectRoot.gameObject.activeSelf)
+            worldInspectRoot.gameObject.SetActive(true);
+
+        worldInspectRoot.SetAsLastSibling();
+        worldInspectGroup.alpha = 1f;
+        worldInspectGroup.blocksRaycasts = false;
+        worldInspectGroup.interactable = false;
+    }
+
+    private void PlaceWorldInspect(
+        Vector2 itemScreenPoint,
+        bool placeRight)
+    {
+        if (worldInspectCanvas == null ||
+            worldInspectRoot == null)
+        {
+            return;
+        }
+
+        RectTransform canvasRect =
+            worldInspectCanvas.transform as RectTransform;
+
+        if (canvasRect == null ||
+            !RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                canvasRect,
+                itemScreenPoint,
+                null,
+                out Vector2 itemLocal))
+        {
+            return;
+        }
+
+        worldInspectRoot.anchorMin =
+            worldInspectRoot.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        worldInspectRoot.pivot =
+            placeRight
+                ? new Vector2(
+                    0f,
+                    0.5f)
+                : new Vector2(
+                    1f,
+                    0.5f);
+
+        Vector2 target =
+            itemLocal +
+            new Vector2(
+                placeRight
+                    ? Mathf.Max(
+                        4f,
+                        worldInspectGap)
+                    : -Mathf.Max(
+                        4f,
+                        worldInspectGap),
+                0f);
+
+        Rect canvasBounds =
+            canvasRect.rect;
+
+        float left =
+            target.x -
+            worldInspectSize.x *
+            worldInspectRoot.pivot.x;
+
+        float right =
+            left +
+            worldInspectSize.x;
+
+        float bottom =
+            target.y -
+            worldInspectSize.y *
+            worldInspectRoot.pivot.y;
+
+        float top =
+            bottom +
+            worldInspectSize.y;
+
+        float margin =
+            Mathf.Max(
+                0f,
+                worldInspectScreenMargin);
+
+        if (left <
+            canvasBounds.xMin + margin)
+        {
+            target.x +=
+                canvasBounds.xMin +
+                margin -
+                left;
+        }
+
+        if (right >
+            canvasBounds.xMax - margin)
+        {
+            target.x -=
+                right -
+                (canvasBounds.xMax -
+                 margin);
+        }
+
+        if (bottom <
+            canvasBounds.yMin + margin)
+        {
+            target.y +=
+                canvasBounds.yMin +
+                margin -
+                bottom;
+        }
+
+        if (top >
+            canvasBounds.yMax - margin)
+        {
+            target.y -=
+                top -
+                (canvasBounds.yMax -
+                 margin);
+        }
+
+        worldInspectRoot.anchoredPosition =
+            target;
+
+        worldInspectRoot.localScale =
+            Vector3.one;
+
+        worldInspectRoot.localRotation =
+            Quaternion.identity;
+    }
+
+    private void HideWorldRewardInspect()
+    {
+        if (worldInspectGroup != null)
+            worldInspectGroup.alpha = 0f;
+
+        if (worldInspectRoot != null &&
+            worldInspectRoot.gameObject.activeSelf)
+        {
+            worldInspectRoot.gameObject.SetActive(false);
+        }
+    }
+
+    private void SetWorldSkipVisible(
+        bool visible)
+    {
+        EnsureWorldShowcaseUi();
+
+        if (worldSkipRoot == null ||
+            worldSkipGroup == null)
+        {
+            return;
+        }
+
+        if (worldSkipRoot.gameObject.activeSelf != visible)
+            worldSkipRoot.gameObject.SetActive(visible);
+
+        worldSkipGroup.alpha =
+            visible ? 1f : 0f;
+
+        worldSkipGroup.blocksRaycasts =
+            visible &&
+            !BattlePauseController.IsPaused;
+
+        worldSkipGroup.interactable =
+            visible &&
+            !BattlePauseController.IsPaused;
+    }
+
+    private void HideWorldShowcaseUi(
+        bool hideSkip)
+    {
+        HideWorldRewardInspect();
+
+        if (hideSkip)
+            SetWorldSkipVisible(false);
     }
 
     private void ApplyChoicePresentation(bool refreshStatic)
