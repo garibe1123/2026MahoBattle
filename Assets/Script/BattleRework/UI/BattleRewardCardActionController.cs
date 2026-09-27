@@ -8,11 +8,12 @@ using UnityEngine.UI;
 /// Reward 후보 선택 화면의 authoritative UI owner입니다.
 ///
 /// 책임:
-/// - Reward 카드 Hover / Click / 선택 상태
-/// - 카드 크기/위치/Outline/아이콘 강조
-/// - 선택 카드 내부 DESCRIPTION / EFFECTS / TAGS / 결정 버튼
+/// - Reward 월드 아이템 Hover / Click / 선택 상태
+/// - 월드 아이템 위에 커서를 올렸을 때 표시되는 PACK 스타일 설명 Tooltip
+/// - Hover Tooltip의 위치 / 크기 / Pivot / Auto Flip 제어
 /// - 아이템 획득 포기 버튼
 /// - PACK 편집 진입 뒤 Selection Locked 오버레이
+/// - 구형 Reward 카드 UI는 fallback 호환용으로만 유지
 ///
 /// Reward business state는 BattleRewardFlow가 단독 소유합니다.
 /// 이 클래스는 BattleHUD.pendingRewardIndex나 다른 Controller의 private field를 Reflection으로 읽지 않습니다.
@@ -48,23 +49,23 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField] private Color selectAccent = new(1f, 0.79f, 0.08f, 1f);
     [SerializeField] private Color hoverCyan = new(0.12f, 0.88f, 0.92f, 1f);
 
-    [Header("World Reward Inspect - PACK Style")]
-    [Tooltip("Hover 설명창의 Screen Space 크기입니다. Play Mode에서도 바로 조정할 수 있습니다.")]
+    [Header("Reward Item Hover Description (커서 올리면 뜨는 설명창)")]
+    [Tooltip("Reward 선택 중 월드 아이템/Base 위에 커서를 올렸을 때 나타나는 PACK 스타일 설명창의 크기입니다. Play Mode에서 바로 조정할 수 있습니다.")]
     [SerializeField] private Vector2 worldInspectSize = new(360f, 220f);
 
-    [Tooltip("아이템 Screen Point 기준 설명창 이동값입니다. X는 좌우, Y는 상하입니다. 기본값은 아이템 아래쪽입니다.")]
+    [Tooltip("Reward 아이템에 커서를 올렸을 때 뜨는 설명창의 위치입니다. 기준점은 Hover 중인 아이템의 Screen Point이며, X는 좌우 / Y는 상하 이동입니다. 예: (0, -56) = 아이템 아래쪽.")]
     [SerializeField] private Vector2 worldInspectOffset = new(0f, -56f);
 
-    [Tooltip("설명창 RectTransform Pivot입니다. 아래 배치는 (0.5, 1), 오른쪽 배치는 (0, 0.5) 정도가 편합니다.")]
+    [Tooltip("Hover 설명창의 RectTransform Pivot입니다. 아이템 아래 배치는 (0.5, 1), 오른쪽 옆 배치는 (0, 0.5), 왼쪽 옆 배치는 (1, 0.5)를 권장합니다.")]
     [SerializeField] private Vector2 worldInspectPivot = new(0.5f, 1f);
 
-    [Tooltip("켜면 X Offset을 아이템 위치에 따라 좌/우 자동 반전합니다. 끄면 worldInspectOffset 값을 그대로 사용합니다.")]
+    [Tooltip("Hover 설명창을 좌/우 자동 배치하고 싶을 때 사용합니다. 켜면 아이템이 오른쪽 그룹에 있을 때 X Offset을 반전합니다. 아래 고정 배치를 원하면 끄는 편이 좋습니다.")]
     [SerializeField] private bool worldInspectAutoFlipX;
 
-    [Tooltip("Auto Flip X가 켜졌을 때 Pivot X도 좌우 반전합니다.")]
+    [Tooltip("World Inspect Auto Flip X가 켜졌을 때 설명창 Pivot X도 함께 반전합니다. 좌/우 옆 배치용 옵션입니다.")]
     [SerializeField] private bool worldInspectAutoFlipPivotX = true;
 
-    [Tooltip("설명창이 화면 밖으로 빠지지 않도록 유지하는 여백입니다.")]
+    [Tooltip("Hover 설명창이 화면 바깥으로 잘리지 않도록 Screen Edge에서 확보할 최소 여백입니다.")]
     [SerializeField, Min(0f)] private float worldInspectScreenMargin = 24f;
 
     [SerializeField] private Vector2 worldSkipSize = new(214f, 40f);
@@ -634,6 +635,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             hovered);
     }
 
+    /// <summary>
+    /// Reward 월드 쇼케이스의 Hover 표시를 갱신합니다.
+    /// BattleShowWorldSetController.RewardHoveredIndex가 0 이상이면
+    /// 해당 아이템에 커서가 올라가 있는 상태이며, 이때 Hover 설명창을 표시합니다.
+    /// 커서가 상품에서 빠지면 설명창을 즉시 숨깁니다.
+    /// </summary>
     private void ApplyWorldShowcasePresentation()
     {
         if (showWorldSet == null ||
@@ -1010,6 +1017,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             false);
     }
 
+    /// <summary>
+    /// Reward 아이템 위에 커서가 올라갔을 때 호출되는 설명창 표시 함수입니다.
+    /// 아이템 이름 / 등급 / 타입 / 설명 / 태그 / DMG / MOVE / RANGE를
+    /// PACK 스타일의 작은 Screen Space Tooltip으로 표시합니다.
+    /// </summary>
     private void ShowWorldRewardInspect(
         int rewardIndex,
         Vector2 itemScreenPoint,
@@ -1082,6 +1094,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         worldInspectGroup.interactable = false;
     }
 
+    /// <summary>
+    /// Hover 설명창을 현재 아이템의 Screen Point 기준으로 배치합니다.
+    /// 실제 튜닝 값은 Inspector의 Reward Item Hover Description 섹션에서 조절합니다.
+    /// worldInspectOffset / worldInspectPivot / Auto Flip 설정이 여기서 적용됩니다.
+    /// </summary>
     private void PlaceWorldInspect(
         Vector2 itemScreenPoint,
         bool placeRight)
@@ -1227,6 +1244,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             Quaternion.identity;
     }
 
+    /// <summary>
+    /// Reward 아이템에서 커서가 빠졌을 때 Hover 설명창을 숨깁니다.
+    /// </summary>
     private void HideWorldRewardInspect()
     {
         if (worldInspectGroup != null)
