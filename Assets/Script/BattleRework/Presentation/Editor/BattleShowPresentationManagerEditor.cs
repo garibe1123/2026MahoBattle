@@ -64,6 +64,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         "rewardHoverBoundsPaddingWorld",
         "rewardHoverStickyScreenRadius",
 
+        "rewardCameraPositionOffsetWorld",
         "rewardCameraPadding",
         "rewardCameraMinSize",
         "rewardItemHoverCameraSize",
@@ -275,6 +276,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
     private void DrawRewardTuningTabs()
     {
+        EditorGUI.BeginChangeCheck();
+
         EditorGUILayout.LabelField(
             "REWARD SHOWCASE",
             EditorStyles.boldLabel);
@@ -397,6 +400,14 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorGUI.indentLevel++;
 
             DrawRewardProperty(
+                "rewardCameraPositionOffsetWorld",
+                "Camera Position Offset (World)");
+
+            EditorGUILayout.HelpBox(
+                "Camera Position Offset = Reward 카메라 기준점을 이동합니다. X는 좌우, Y는 상하이며 Overview와 Item Hover 모두에 적용됩니다.",
+                MessageType.None);
+
+            DrawRewardProperty(
                 "rewardCameraPadding",
                 "Overview Padding");
             DrawRewardProperty(
@@ -494,6 +505,16 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 "rewardShowcasePositionOffsetWorld",
                 "Showcase Position Offset (World)");
 
+            EditorGUILayout.Space(5f);
+
+            EditorGUILayout.LabelField(
+                "Reward 카메라 위치",
+                EditorStyles.boldLabel);
+
+            DrawRewardProperty(
+                "rewardCameraPositionOffsetWorld",
+                "Camera Position Offset (World)");
+
             EditorGUILayout.Space(6f);
 
             EditorGUILayout.LabelField(
@@ -540,7 +561,21 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         EditorGUILayout.EndFoldoutHeaderGroup();
 
-        serializedObject.ApplyModifiedProperties();
+        bool rewardChanged =
+            EditorGUI.EndChangeCheck();
+
+        bool applied =
+            serializedObject.ApplyModifiedProperties();
+
+        if ((rewardChanged || applied) &&
+            Manager != null)
+        {
+            Manager.NotifyRewardTuningChanged();
+            EditorUtility.SetDirty(Manager);
+            Repaint();
+            SceneView.RepaintAll();
+        }
+
         serializedObject.Update();
     }
 
