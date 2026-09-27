@@ -1114,8 +1114,15 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             new GameObject(
                 "RewardItemShowcase");
 
+        Transform showcaseParent =
+            screenCarrier != null
+                ? screenCarrier.transform
+                : stageRoot.transform;
+
+        // Reward 상품은 제거된 TV와 같은 Stage Unit을 타고 들어옵니다.
+        // Screen Carrier가 진입할 때 Base/Item도 함께 이동하고, 도킹 뒤 Hover를 엽니다.
         rewardShowcaseRoot.transform.SetParent(
-            stageRoot.transform,
+            showcaseParent,
             true);
 
         float spacing =
