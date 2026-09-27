@@ -53,6 +53,10 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float showMinZoom = 2.2f;
     [Tooltip("Reward Item Hover에서는 상품 하나를 더 가까이 잡기 위해 일반 Show 최소 줌보다 낮은 값을 허용합니다.")]
     [SerializeField, Min(0.1f)] private float rewardItemHoverMinZoom = 1.45f;
+    [Tooltip("Reward Item Hover에서 좌우 Pivot이 움직이는 속도입니다. Map Show의 이동 속도와 분리합니다.")]
+    [SerializeField, Min(0.1f)] private float rewardItemHoverFollowSharpness = 5.4f;
+    [Tooltip("Reward Item Hover에서 줌이 들어오고 빠지는 속도입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardItemHoverZoomSharpness = 7.0f;
     [Tooltip("Reward/Map Show 전용 최대 줌입니다.")]
     [SerializeField, Min(0.1f)] private float showMaxZoom = 9.5f;
 
@@ -608,7 +612,11 @@ public class BattleCameraController : MonoBehaviour
             Mathf.Max(activeShowMinZoom, showMaxZoom));
         float desiredZoom = Mathf.Lerp(normalZoom, clampedShowZoom, showBlend);
         float normalZoomSpeed = activeFocus != null ? cinematicZoomSharpness : zoomSharpness;
-        float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showFollowSharpness, showBlend);
+        float showZoomSpeed =
+            rewardItemHovered
+                ? rewardItemHoverZoomSharpness
+                : showFollowSharpness;
+        float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showZoomSpeed, showBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
         controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, desiredZoom, zoomT);
 
@@ -631,7 +639,11 @@ public class BattleCameraController : MonoBehaviour
         Vector3 current = movementRoot.position;
         Vector2 unaffectedCurrent = (Vector2)current - lastCameraEffectOffset;
         float normalFollowSpeed = activeFocus != null ? cinematicFollowSharpness : followSharpness;
-        float followSpeed = Mathf.Lerp(normalFollowSpeed, showFollowSharpness, showBlend);
+        float showPositionSpeed =
+            rewardItemHovered
+                ? rewardItemHoverFollowSharpness
+                : showFollowSharpness;
+        float followSpeed = Mathf.Lerp(normalFollowSpeed, showPositionSpeed, showBlend);
         float followT = !showFraming && inspecting && activeFocus == null
             ? 1f
             : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
