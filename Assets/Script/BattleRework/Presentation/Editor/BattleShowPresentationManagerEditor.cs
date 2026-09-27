@@ -322,12 +322,6 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 floorWorldHeight *
                 floorPpu);
 
-        float floorPixelWidth =
-            Mathf.Max(
-                1f,
-                floorWorldWidth *
-                floorPpu);
-
         float desiredTileHeight =
             70f;
 
