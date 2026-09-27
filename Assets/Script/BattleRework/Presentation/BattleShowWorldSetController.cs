@@ -23,7 +23,8 @@ using UnityEngine.UI;
 /// - 실제 Presenter Sprite가 비어 있으면 BattleHudSpriteCache.DefaultSprite를 표시합니다.
 ///
 /// 카메라:
-/// - Reward는 Persistent 4x4 위의 월드 상품 Showcase를 기준으로 잡고, Hover Item으로 Smooth Zoom합니다.
+/// - Reward는 기존 Mounted TV가 있던 월드 위치의 상품 Showcase를 기준으로 잡고, Hover Item으로 Smooth Zoom합니다.
+/// - Reward 동안 TV/Display 자체는 숨기며, Map에서만 다시 표시합니다.
 /// - Map은 기존 Mounted TV 기준 Framing / Cursor Tracking을 그대로 사용합니다.
 /// - Presenter 유닛은 카메라 기준 Bounds에는 개입하지 않습니다.
 /// </summary>
@@ -75,10 +76,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [Header("Reward Item Showcase")]
     [Tooltip("상품 Base 중심 간 World 간격입니다. 기본 1이면 Floor 한 칸 간격입니다.")]
     [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 1.15f;
-    [Tooltip("Persistent 4x4 중심에서 상품 진열 행을 위/아래로 이동합니다.")]
-    [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.15f;
-    [Tooltip("아이템 Hover 시 사용할 Orthographic Size입니다. BattleCamera Show Min Zoom보다 작으면 Camera 쪽 최소값에서 제한됩니다.")]
-    [SerializeField, Min(0.5f)] private float rewardItemHoverCameraSize = 2.20f;
+    [Tooltip("기존 TV 중심 위치에서 상품 진열 행을 위/아래로 이동합니다. Reward 상품은 플레이어 Base가 아니라 이 TV 자리에서 전시됩니다.")]
+    [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.20f;
+    [Tooltip("아이템 Hover 시 사용할 Orthographic Size입니다. Reward Hover 전용 최소 줌은 BattleCameraController에서 별도로 허용합니다.")]
+    [SerializeField, Min(0.5f)] private float rewardItemHoverCameraSize = 1.75f;
+    [Tooltip("Hover 시 Camera Target을 Item 중심에서 설명창 쪽으로 이동시켜 Item이 화면 한쪽에 자리잡게 합니다. X는 좌/우 설명창에 따라 자동 반전됩니다.")]
+    [SerializeField] private Vector2 rewardItemHoverCameraPivotOffset = new(0.92f, 0.10f);
     [Tooltip("월드 좌표 Hover 판정 시 1칸 Base 바깥으로 추가하는 여유입니다.")]
     [SerializeField, Range(0f, 0.5f)] private float rewardHoverBoundsPaddingWorld = 0.10f;
 
@@ -172,6 +175,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         rewardShowcaseItems.Count > 0;
     public int RewardHoveredIndex => rewardHoveredIndex;
     public int RewardSelectedIndex => rewardSelectedIndex;
+
+    public bool ShouldPlaceRewardDetailRight(int index)
+    {
+        if (rewardShowcaseItems.Count <= 1)
+            return true;
+
+        int rightSideCount =
+            (rewardShowcaseItems.Count + 1) / 2;
+
+        return index < rightSideCount;
+    }
 
     public Transform PresenterWorldTransform =>
         presenterRenderer != null && presenterRenderer.enabled && presenterRenderer.gameObject.activeInHierarchy
@@ -1075,14 +1089,19 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 0.5f,
                 rewardShowcaseSpacingWorld);
 
+        // Reward 상품은 플레이어가 서 있는 Persistent 4x4가 아니라,
+        // Reward에서 제거한 기존 TV/Display가 차지하던 월드 위치를 사용합니다.
+        Vector3 showcaseCenter =
+            ResolveMountedTvWorld();
+
         float startX =
-            stageAnchorWorld.x -
+            showcaseCenter.x -
             (choices.Count - 1) *
             spacing *
             0.5f;
 
         float rowY =
-            stageAnchorWorld.y +
+            showcaseCenter.y +
             rewardShowcaseRowYOffsetWorld;
 
         float floorPpu =
@@ -1391,6 +1410,24 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         Vector3 focus =
             item.itemRenderer.bounds.center;
 
+        bool detailOnRight =
+            ShouldPlaceRewardDetailRight(
+                rewardHoveredIndex);
+
+        float side =
+            detailOnRight
+                ? 1f
+                : -1f;
+
+        // Camera가 Item 정중앙을 찍으면 설명창이 Item을 덮고 화면이 답답해집니다.
+        // 설명창이 열릴 반대편에 Item이 남도록 Camera Pivot을 설명창 쪽으로 이동합니다.
+        focus.x +=
+            rewardItemHoverCameraPivotOffset.x *
+            side;
+
+        focus.y +=
+            rewardItemHoverCameraPivotOffset.y;
+
         focus.z = 0f;
 
         OverrideShowCameraFrame(
@@ -1606,12 +1643,20 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void SetContent(ShowMode mode)
     {
+        // Reward는 더 이상 Mounted TV/PrizeSelectionScreen을 사용하지 않습니다.
+        // TV가 있던 월드 위치는 RewardShowcase가 그대로 차지하며,
+        // Map으로 넘어갈 때만 같은 Screen Carrier의 TV를 다시 켭니다.
         if (rewardScreen != null)
-            rewardScreen.gameObject.SetActive(mode == ShowMode.Reward);
+            rewardScreen.gameObject.SetActive(false);
+
         if (mapScreen != null)
             mapScreen.gameObject.SetActive(mode == ShowMode.Map);
-        if (mapContent != null && mode == ShowMode.Map)
-            mapContent.gameObject.SetActive(true);
+
+        if (mapContent != null)
+            mapContent.gameObject.SetActive(mode == ShowMode.Map);
+
+        if (tvObject != null)
+            tvObject.SetActive(mode == ShowMode.Map);
 
         MaintainEquipmentDock();
     }
