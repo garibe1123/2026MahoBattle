@@ -51,6 +51,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         "rewardBaseAnimationFps",
         "rewardBaseAnimationLoop",
 
+        "rewardBoosterSpriteSheet",
+        "rewardBoosterFrameSize",
+        "rewardBoosterFps",
+        "rewardBoosterLoop",
+        "rewardBoosterOffsetPixels",
+
         "rewardItemPixelYOffset",
         "rewardItemFloatEnabled",
         "rewardItemFloatAmplitudePixels",
@@ -90,6 +96,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private bool rewardCameraTabOpen;
     private bool rewardSpotlightTabOpen;
     private bool rewardPreviewTabOpen;
+
+    private Vector2 rewardBoosterDragStartMouse;
+    private Vector2 rewardBoosterDragStartOffset;
+    private int rewardPreviewBoosterStartFrame = -1;
 
     private static readonly string[] OutlineCornerProperties =
     {
@@ -241,7 +251,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         return
             Manager != null &&
             (Manager.RewardItemFloatEnabled ||
-             Manager.RewardBaseAnimationEnabled);
+             Manager.RewardBoosterSpriteSheet != null);
     }
 
     public override bool HasPreviewGUI()
@@ -290,7 +300,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         rewardBaseTabOpen =
             EditorGUILayout.BeginFoldoutHeaderGroup(
                 rewardBaseTabOpen,
-                "01. BASE SPRITE / SHEET ANIMATION");
+                "01. BASE / BOOSTER SPRITE SHEET");
 
         if (rewardBaseTabOpen)
         {
@@ -299,36 +309,33 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             DrawRewardProperty(
                 "rewardBasicBaseSprite",
                 "Basic Base Sprite");
-            DrawRewardProperty(
-                "rewardCommonBaseSprite",
-                "Common Base Sprite");
-            DrawRewardProperty(
-                "rewardUncommonBaseSprite",
-                "Uncommon Base Sprite");
-            DrawRewardProperty(
-                "rewardRareBaseSprite",
-                "Rare Base Sprite");
-            DrawRewardProperty(
-                "rewardEpicBaseSprite",
-                "Epic Base Sprite");
-            DrawRewardProperty(
-                "rewardUniqueBaseSprite",
-                "Unique Base Sprite");
+
+            EditorGUILayout.HelpBox(
+                "Reward Base는 모든 등급에서 Basic Base Sprite 한 장만 사용합니다. Base 자체는 정적입니다.",
+                MessageType.None);
 
             EditorGUILayout.Space(5f);
 
             DrawRewardProperty(
-                "rewardBaseAnimationEnabled",
-                "Base Sheet Animation");
+                "rewardBoosterSpriteSheet",
+                "Booster Sprite Sheet");
             DrawRewardProperty(
-                "rewardBaseAnimationFrameSize",
-                "Frame Size (px)");
+                "rewardBoosterFrameSize",
+                "Booster Frame Size (px)");
             DrawRewardProperty(
-                "rewardBaseAnimationFps",
-                "Animation FPS");
+                "rewardBoosterFps",
+                "Booster FPS");
             DrawRewardProperty(
-                "rewardBaseAnimationLoop",
-                "Loop");
+                "rewardBoosterLoop",
+                "Booster Loop");
+            DrawRewardProperty(
+                "rewardBoosterOffsetPixels",
+                "Booster Offset From Base (px)");
+
+            EditorGUILayout.HelpBox(
+                "Booster는 Base와 별도 Sprite Sheet입니다. 각 Reward 상품이 시작될 때 첫 프레임을 랜덤으로 선택합니다. " +
+                "정확한 위치는 05. LIVE PREVIEW에서 Booster를 직접 드래그해서 배치할 수 있습니다.",
+                MessageType.Info);
 
             EditorGUI.indentLevel--;
         }
@@ -514,6 +521,20 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             DrawRewardProperty(
                 "rewardCameraPositionOffsetWorld",
                 "Camera Position Offset (World)");
+
+            EditorGUILayout.Space(6f);
+
+            EditorGUILayout.LabelField(
+                "Booster 위치",
+                EditorStyles.boldLabel);
+
+            DrawRewardProperty(
+                "rewardBoosterOffsetPixels",
+                "Booster Offset From Base (px)");
+
+            EditorGUILayout.HelpBox(
+                "아래 Preview에서 Booster 불빛을 왼쪽 마우스로 직접 잡아 드래그할 수 있습니다.",
+                MessageType.None);
 
             EditorGUILayout.Space(6f);
 
