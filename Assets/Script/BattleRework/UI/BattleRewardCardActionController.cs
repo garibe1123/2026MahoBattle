@@ -49,9 +49,24 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField] private Color hoverCyan = new(0.12f, 0.88f, 0.92f, 1f);
 
     [Header("World Reward Inspect - PACK Style")]
+    [Tooltip("Hover 설명창의 Screen Space 크기입니다. Play Mode에서도 바로 조정할 수 있습니다.")]
     [SerializeField] private Vector2 worldInspectSize = new(360f, 220f);
-    [SerializeField, Min(4f)] private float worldInspectGap = 18f;
+
+    [Tooltip("아이템 Screen Point 기준 설명창 이동값입니다. X는 좌우, Y는 상하입니다. 기본값은 아이템 아래쪽입니다.")]
+    [SerializeField] private Vector2 worldInspectOffset = new(0f, -56f);
+
+    [Tooltip("설명창 RectTransform Pivot입니다. 아래 배치는 (0.5, 1), 오른쪽 배치는 (0, 0.5) 정도가 편합니다.")]
+    [SerializeField] private Vector2 worldInspectPivot = new(0.5f, 1f);
+
+    [Tooltip("켜면 X Offset을 아이템 위치에 따라 좌/우 자동 반전합니다. 끄면 worldInspectOffset 값을 그대로 사용합니다.")]
+    [SerializeField] private bool worldInspectAutoFlipX;
+
+    [Tooltip("Auto Flip X가 켜졌을 때 Pivot X도 좌우 반전합니다.")]
+    [SerializeField] private bool worldInspectAutoFlipPivotX = true;
+
+    [Tooltip("설명창이 화면 밖으로 빠지지 않도록 유지하는 여백입니다.")]
     [SerializeField, Min(0f)] private float worldInspectScreenMargin = 24f;
+
     [SerializeField] private Vector2 worldSkipSize = new(214f, 40f);
 
     [Header("Selection Locked")]
@@ -1096,47 +1111,70 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                     0.5f,
                     0.5f);
 
+        Vector2 pivot =
+            new(
+                Mathf.Clamp01(
+                    worldInspectPivot.x),
+                Mathf.Clamp01(
+                    worldInspectPivot.y));
+
+        Vector2 offset =
+            worldInspectOffset;
+
+        if (worldInspectAutoFlipX &&
+            !placeRight)
+        {
+            offset.x =
+                -offset.x;
+
+            if (worldInspectAutoFlipPivotX)
+            {
+                pivot.x =
+                    1f -
+                    pivot.x;
+            }
+        }
+
         worldInspectRoot.pivot =
-            placeRight
-                ? new Vector2(
-                    0f,
-                    0.5f)
-                : new Vector2(
-                    1f,
-                    0.5f);
+            pivot;
+
+        // Play Mode 중 Inspector에서 Size를 바꿔도 즉시 반영됩니다.
+        worldInspectRoot.sizeDelta =
+            new Vector2(
+                Mathf.Max(
+                    80f,
+                    worldInspectSize.x),
+                Mathf.Max(
+                    60f,
+                    worldInspectSize.y));
 
         Vector2 target =
             itemLocal +
-            new Vector2(
-                placeRight
-                    ? Mathf.Max(
-                        4f,
-                        worldInspectGap)
-                    : -Mathf.Max(
-                        4f,
-                        worldInspectGap),
-                0f);
+            offset;
 
         Rect canvasBounds =
             canvasRect.rect;
 
+        Vector2 activeSize =
+            worldInspectRoot.sizeDelta;
+
         float left =
             target.x -
-            worldInspectSize.x *
+            activeSize.x *
             worldInspectRoot.pivot.x;
 
         float right =
             left +
-            worldInspectSize.x;
+            activeSize.x;
 
         float bottom =
             target.y -
-            worldInspectSize.y *
+            activeSize.y *
             worldInspectRoot.pivot.y;
 
         float top =
             bottom +
-            worldInspectSize.y;
+            activeSize.y;
 
         float margin =
             Mathf.Max(
