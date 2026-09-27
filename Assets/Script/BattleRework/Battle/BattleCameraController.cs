@@ -49,26 +49,10 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0f)] private float showFollowSharpness = 7.2f;
     [SerializeField, Min(0.5f)] private float showTransitionSharpness = 3.2f;
     [SerializeField, Min(1f)] private float showTransitionMaxSpeed = 14f;
-    [Tooltip("Reward/Map Show 전용 최소 줌입니다. 일반 전투 minZoom과 분리되어 TV를 크게 잡을 수 있습니다.")]
+    [Tooltip("Reward/Map Show 전용 최소 줌입니다. Reward Hover 전용 최소 줌은 BattleShowPresentationManager에서 관리합니다.")]
     [SerializeField, Min(0.1f)] private float showMinZoom = 2.2f;
-    [Tooltip("Reward Item Hover에서는 상품 하나를 더 가까이 잡기 위해 일반 Show 최소 줌보다 낮은 값을 허용합니다.")]
-    [SerializeField, Min(0.1f)] private float rewardItemHoverMinZoom = 1.45f;
-    [Tooltip("Reward Item Hover에서 좌우 Pivot이 움직이는 속도입니다. Map Show의 이동 속도와 분리합니다.")]
-    [SerializeField, Min(0.1f)] private float rewardItemHoverFollowSharpness = 5.4f;
-    [Tooltip("Reward Item Hover에서 줌이 들어오고 빠지는 속도입니다.")]
-    [SerializeField, Min(0.1f)] private float rewardItemHoverZoomSharpness = 7.0f;
     [Tooltip("Reward/Map Show 전용 최대 줌입니다.")]
     [SerializeField, Min(0.1f)] private float showMaxZoom = 9.5f;
-
-    [Header("Reward Cursor Tracking")]
-    [Tooltip("Reward 가상 Display 안에서 커서가 움직일 때 Camera가 따라가는 최대 World 거리입니다.")]
-    [SerializeField] private Vector2 rewardCursorPanDistance = new(1.55f, 0.85f);
-
-    [Tooltip("Reward Cursor Pan이 커서를 따라가는 속도입니다.")]
-    [SerializeField, Min(0.1f)] private float rewardCursorTrackingSharpness = 5.6f;
-
-    [Tooltip("Reward 가상 Display 안에 커서가 있을 때 현재 Reward Zoom에 곱하는 비율입니다. 1이면 추가 줌 없음, 작을수록 더 확대됩니다.")]
-    [SerializeField, Range(0.50f, 1f)] private float rewardCursorZoomRatio = 0.88f;
 
     [Header("Map Cursor Tracking")]
     [FormerlySerializedAs("mapCursorPanDistance")]
@@ -121,6 +105,7 @@ public class BattleCameraController : MonoBehaviour
     private bool showFraming;
     private float showBlend;
     private BattleSceneManager battleSceneManager;
+    private BattleShowPresentationManager presentation;
     private Rigidbody2D followBody;
     private Transform resolvedFollowBodyTarget;
     private Vector2 currentPlayerLead;
@@ -368,6 +353,10 @@ public class BattleCameraController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (showStage == null)
             showStage = FindFirstObjectByType<BattleShowWorldSetController>();
+        if (presentation == null)
+            presentation = BattleShowPresentationManager.Instance != null
+                ? BattleShowPresentationManager.Instance
+                : FindFirstObjectByType<BattleShowPresentationManager>();
 
         if (battleSceneManager == null && transform.parent == null)
             battleSceneManager = FindFirstObjectByType<BattleSceneManager>();
@@ -555,12 +544,16 @@ public class BattleCameraController : MonoBehaviour
 
         Vector2 activeCursorPanDistance =
             rewardShowCursor
-                ? rewardCursorPanDistance
+                ? (presentation != null
+                    ? presentation.RewardCursorPanDistance
+                    : new Vector2(1.55f, 0.85f))
                 : showCursorPanDistance;
 
         float activeCursorTrackingSharpness =
             rewardShowCursor
-                ? rewardCursorTrackingSharpness
+                ? (presentation != null
+                    ? presentation.RewardCursorTrackingSharpness
+                    : 5.6f)
                 : showCursorTrackingSharpness;
 
         float cursorT =
@@ -620,10 +613,16 @@ public class BattleCameraController : MonoBehaviour
 
         if (rewardCursorFocused)
         {
-            float ratio = rewardCursorZoomRatio > 0.001f
-                ? rewardCursorZoomRatio
-                : 0.76f;
-            showZoom *= Mathf.Clamp(ratio, 0.65f, 1f);
+            float ratio =
+                presentation != null
+                    ? presentation.RewardCursorZoomRatio
+                    : 0.88f;
+
+            showZoom *=
+                Mathf.Clamp(
+                    ratio,
+                    0.50f,
+                    1f);
         }
         else if (mapCursorFocused)
         {
@@ -642,9 +641,9 @@ public class BattleCameraController : MonoBehaviour
             rewardItemHovered
                 ? Mathf.Min(
                     showMinZoom,
-                    Mathf.Max(
-                        0.1f,
-                        rewardItemHoverMinZoom))
+                    presentation != null
+                        ? presentation.RewardItemHoverMinZoom
+                        : 1.45f)
                 : showMinZoom;
 
         float clampedShowZoom = Mathf.Clamp(
@@ -655,7 +654,9 @@ public class BattleCameraController : MonoBehaviour
         float normalZoomSpeed = activeFocus != null ? cinematicZoomSharpness : zoomSharpness;
         float showZoomSpeed =
             rewardItemHovered
-                ? rewardItemHoverZoomSharpness
+                ? (presentation != null
+                    ? presentation.RewardItemHoverZoomSharpness
+                    : 7.0f)
                 : showFollowSharpness;
         float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showZoomSpeed, showBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
@@ -682,7 +683,9 @@ public class BattleCameraController : MonoBehaviour
         float normalFollowSpeed = activeFocus != null ? cinematicFollowSharpness : followSharpness;
         float showPositionSpeed =
             rewardItemHovered
-                ? rewardItemHoverFollowSharpness
+                ? (presentation != null
+                    ? presentation.RewardItemHoverFollowSharpness
+                    : 5.4f)
                 : showFollowSharpness;
         float followSpeed = Mathf.Lerp(normalFollowSpeed, showPositionSpeed, showBlend);
         float followT = !showFraming && inspecting && activeFocus == null
