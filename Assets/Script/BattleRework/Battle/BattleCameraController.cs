@@ -60,15 +60,22 @@ public class BattleCameraController : MonoBehaviour
     [Tooltip("Reward/Map Show 전용 최대 줌입니다.")]
     [SerializeField, Min(0.1f)] private float showMaxZoom = 9.5f;
 
-    [Header("Shared TV Cursor Tracking")]
+    [Header("Reward Cursor Tracking")]
+    [Tooltip("Reward 가상 Display 안에서 커서가 움직일 때 Camera가 따라가는 최대 World 거리입니다.")]
+    [SerializeField] private Vector2 rewardCursorPanDistance = new(1.55f, 0.85f);
+
+    [Tooltip("Reward Cursor Pan이 커서를 따라가는 속도입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardCursorTrackingSharpness = 5.6f;
+
+    [Tooltip("Reward 가상 Display 안에 커서가 있을 때 현재 Reward Zoom에 곱하는 비율입니다. 1이면 추가 줌 없음, 작을수록 더 확대됩니다.")]
+    [SerializeField, Range(0.50f, 1f)] private float rewardCursorZoomRatio = 0.88f;
+
+    [Header("Map Cursor Tracking")]
     [FormerlySerializedAs("mapCursorPanDistance")]
     [SerializeField] private Vector2 showCursorPanDistance = new(2.45f, 1.35f);
+
     [FormerlySerializedAs("mapCursorTrackingSharpness")]
     [SerializeField, Min(1f)] private float showCursorTrackingSharpness = 5.6f;
-
-    [Header("Reward / Map Cursor Focus")]
-    [Tooltip("아이템 선택 중 커서가 실제 TV 화면 안에 있을 때 Reward 기본 줌에 곱할 비율입니다. 아이템 정보 가독성을 위해 Map보다 조금 더 강하게 당깁니다.")]
-    [SerializeField, Range(0.65f, 1f)] private float rewardCursorZoomRatio = 0.76f;
 
     [Tooltip("맵 선택 중 커서가 실제 TV 화면 안에 있을 때 Show 기본 줌에 곱할 비율입니다. 1보다 작을수록 화면을 더 가까이 봅니다.")]
     [SerializeField, Range(0.65f, 1f)] private float mapCursorZoomRatio = 0.84f;
@@ -538,11 +545,45 @@ public class BattleCameraController : MonoBehaviour
         if (Mathf.Abs(showBlend - targetBlend) < 0.001f)
             showBlend = targetBlend;
 
-        float cursorT = 1f - Mathf.Exp(-Mathf.Max(1f, showCursorTrackingSharpness) * Time.unscaledDeltaTime);
-        Vector2 targetCursorPan = showFraming && showCursorTracking
-            ? Vector2.Scale(requestedShowCursorDirection, showCursorPanDistance)
-            : Vector2.zero;
-        currentShowCursorPan = Vector2.Lerp(currentShowCursorPan, targetCursorPan, cursorT);
+        bool rewardShowCursor =
+            showFraming &&
+            showCursorTracking &&
+            runManager != null &&
+            runManager.State == BattleRunState.Reward &&
+            showStage != null &&
+            showStage.IsRewardMode;
+
+        Vector2 activeCursorPanDistance =
+            rewardShowCursor
+                ? rewardCursorPanDistance
+                : showCursorPanDistance;
+
+        float activeCursorTrackingSharpness =
+            rewardShowCursor
+                ? rewardCursorTrackingSharpness
+                : showCursorTrackingSharpness;
+
+        float cursorT =
+            1f -
+            Mathf.Exp(
+                -Mathf.Max(
+                    0.1f,
+                    activeCursorTrackingSharpness) *
+                Time.unscaledDeltaTime);
+
+        Vector2 targetCursorPan =
+            showFraming &&
+            showCursorTracking
+                ? Vector2.Scale(
+                    requestedShowCursorDirection,
+                    activeCursorPanDistance)
+                : Vector2.zero;
+
+        currentShowCursorPan =
+            Vector2.Lerp(
+                currentShowCursorPan,
+                targetCursorPan,
+                cursorT);
 
         UpdatePlayerLead();
 
