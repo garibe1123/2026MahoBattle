@@ -193,6 +193,23 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("아이템 Sprite 중심을 Base 중심에서 세로로 이동할 픽셀 값입니다. 음수면 아래로 내려갑니다. Floor PPU 기준으로 World Offset으로 환산됩니다.")]
     [SerializeField] private int rewardItemPixelYOffset = -4;
 
+    [Header("Reward 상품 둥둥 애니메이션")]
+    [Tooltip("켜면 Reward 상품의 Base는 고정하고, 아이템 Sprite만 위아래로 천천히 둥둥 움직입니다.")]
+    [SerializeField] private bool rewardItemFloatEnabled = true;
+
+    [Tooltip("아이템이 위/아래로 움직이는 최대 거리입니다. Floor PPU 기준 픽셀 단위이며, 4면 중심에서 ±4px 움직입니다.")]
+    [SerializeField, Range(0, 24)] private int rewardItemFloatAmplitudePixels = 4;
+
+    [Tooltip("둥둥 애니메이션의 초당 왕복 주기 수입니다. 0.6이면 약 1.67초에 한 번 위아래 한 사이클을 돕니다.")]
+    [SerializeField, Range(0.05f, 4f)] private float rewardItemFloatCyclesPerSecond = 0.60f;
+
+    [Tooltip("옆 상품과 애니메이션 타이밍을 얼마나 어긋나게 할지 정합니다. 0이면 모두 같이 움직이고, 값이 커질수록 각 상품이 따로 둥둥 뜹니다.")]
+    [SerializeField, Range(0f, 3.1416f)] private float rewardItemFloatPhaseStep = 0.72f;
+
+    [Header("Reward 상품 Inspector Preview")]
+    [Tooltip("BattleShowPresentationManager Inspector의 Reward Preview에서 Base 위에 올려볼 임시 아이템 Sprite입니다. 실제 게임에서는 각 Equipment의 icon을 사용합니다.")]
+    [SerializeField] private Sprite rewardPreviewItemSprite;
+
     [Header("Reward 상품 진열 Layout")]
     [Tooltip("상품 Base 중심끼리의 World 간격입니다. 아이템들이 너무 붙어 보이면 이 값을 올립니다.")]
     [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 2.30f;
@@ -357,6 +374,23 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public int RewardItemPixelYOffset =>
         rewardItemPixelYOffset;
+
+    // Reward Item Float
+    public bool RewardItemFloatEnabled =>
+        rewardItemFloatEnabled;
+
+    public int RewardItemFloatAmplitudePixels =>
+        Mathf.Max(0, rewardItemFloatAmplitudePixels);
+
+    public float RewardItemFloatCyclesPerSecond =>
+        Mathf.Max(0.01f, rewardItemFloatCyclesPerSecond);
+
+    public float RewardItemFloatPhaseStep =>
+        Mathf.Max(0f, rewardItemFloatPhaseStep);
+
+    // Inspector Preview only. Runtime Reward uses BattleEquipmentSO.icon.
+    public Sprite RewardPreviewItemSprite =>
+        rewardPreviewItemSprite;
 
     // Reward Showcase Layout
     public float RewardShowcaseSpacingWorld =>
