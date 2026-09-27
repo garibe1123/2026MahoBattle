@@ -60,7 +60,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         "rewardShowcaseSpacingWorld",
         "rewardShowcaseMinTileSpacingMultiplier",
-        "rewardShowcaseRowYOffsetWorld",
+        "rewardShowcasePositionOffsetWorld",
         "rewardHoverBoundsPaddingWorld",
         "rewardHoverStickyScreenRadius",
 
@@ -348,8 +348,12 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 "rewardShowcaseMinTileSpacingMultiplier",
                 "Minimum Tile Spacing");
             DrawRewardProperty(
-                "rewardShowcaseRowYOffsetWorld",
-                "Showcase Row Y (World)");
+                "rewardShowcasePositionOffsetWorld",
+                "Showcase Position Offset (World)");
+
+            EditorGUILayout.HelpBox(
+                "Showcase Position Offset = 기존 TV/Display 중심 기준으로 Base + Item 진열대 전체를 이동합니다. X는 좌우, Y는 상하입니다.",
+                MessageType.None);
 
             EditorGUILayout.Space(5f);
 
@@ -483,7 +487,17 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorGUILayout.Space(4f);
 
             EditorGUILayout.LabelField(
-                "Base 기준 위치 / Float 빠른 조절",
+                "진열대 전체 위치",
+                EditorStyles.boldLabel);
+
+            DrawRewardProperty(
+                "rewardShowcasePositionOffsetWorld",
+                "Showcase Position Offset (World)");
+
+            EditorGUILayout.Space(6f);
+
+            EditorGUILayout.LabelField(
+                "Base 기준 Item 위치 / Float 빠른 조절",
                 EditorStyles.boldLabel);
 
             DrawRewardIntSlider(
@@ -758,13 +772,25 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             tileHeight /
             floorPixelHeight;
 
-        float centerX =
-            inner.center.x;
+        Vector2 showcaseOffset =
+            Manager.RewardShowcasePositionOffsetWorld;
 
+        float previewWorldScale =
+            worldToGui *
+            layoutScale;
+
+        float centerX =
+            inner.center.x +
+            showcaseOffset.x *
+            previewWorldScale;
+
+        // GUI Y축은 아래 방향이 +이므로 World Y는 부호를 뒤집어 적용합니다.
         float baseCenterY =
             inner.y +
             inner.height *
-            0.66f;
+            0.66f -
+            showcaseOffset.y *
+            previewWorldScale;
 
         double editorTime =
             EditorApplication.timeSinceStartup;
