@@ -39,10 +39,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         public int index;
         public BattleEquipmentSO equipment;
         public GameObject root;
+        public Vector3 rootBaseLocalPosition;
         public SpriteRenderer baseRenderer;
         public SpriteRenderer itemRenderer;
-        public Transform itemTransform;
-        public Vector3 itemBaseLocalPosition;
+        public List<Sprite> baseAnimationFrames;
+        public int baseAnimationFrameIndex;
+        public float baseAnimationFrameTimer;
         public BattleCharacterLightVisual spotlight;
     }
 
@@ -486,6 +488,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         desiredMode = ResolveDesiredMode();
         UpdatePresenter();
         UpdateRewardShowcase();
+        UpdateRewardBaseAnimation();
         UpdateRewardShowcaseFloatAnimation();
         UpdatePointerTracking();
 
@@ -1173,6 +1176,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             itemRoot.transform.position =
                 baseWorld;
 
+            Vector3 rootBaseLocalPosition =
+                itemRoot.transform.localPosition;
+
             GameObject baseObject =
                 new("RewardBase");
 
@@ -1189,8 +1195,18 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                         equipment.rarity)
                     : null;
 
+            List<Sprite> baseAnimationFrames =
+                BuildRewardBaseAnimationFrames(
+                    baseSprite);
+
+            Sprite displayBaseSprite =
+                baseAnimationFrames != null &&
+                baseAnimationFrames.Count > 0
+                    ? baseAnimationFrames[0]
+                    : baseSprite;
+
             baseRenderer.sprite =
-                baseSprite;
+                displayBaseSprite;
 
             baseRenderer.sortingLayerID =
                 sortingLayerId;
@@ -1201,18 +1217,18 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 carrierFloorSortingOrder +
                 12;
 
-            if (baseSprite != null)
+            if (displayBaseSprite != null)
             {
                 Vector2 baseWorldSize =
                     new(
                         Mathf.Max(
                             0.001f,
                             Mathf.Abs(
-                                baseSprite.bounds.size.x)),
+                                displayBaseSprite.bounds.size.x)),
                         Mathf.Max(
                             0.001f,
                             Mathf.Abs(
-                                baseSprite.bounds.size.y)));
+                                displayBaseSprite.bounds.size.y)));
 
                 baseObject.transform.localScale =
                     new Vector3(
@@ -1307,10 +1323,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                     index = i,
                     equipment = equipment,
                     root = itemRoot,
+                    rootBaseLocalPosition = rootBaseLocalPosition,
                     baseRenderer = baseRenderer,
                     itemRenderer = itemRenderer,
-                    itemTransform = iconObject.transform,
-                    itemBaseLocalPosition = iconObject.transform.localPosition,
+                    baseAnimationFrames = baseAnimationFrames,
+                    baseAnimationFrameIndex = 0,
+                    baseAnimationFrameTimer = 0f,
                     spotlight = spotlight
                 });
         }
@@ -1324,7 +1342,217 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     }
 
     /// <summary>
-    /// Reward 상품의 Base는 고정하고 아이템 Sprite만 위/아래로 둥둥 움직입니다.
+    /// Reward Base Sprite가 설정된 Frame Size보다 큰 경우 런타임 Sprite Sheet 프레임을 만듭니다.
+    /// 프레임 순서는 좌→우, 위→아래이며 정적 Sprite는 별도 프레임을 만들지 않습니다.
+    /// </summary>
+    private List<Sprite> BuildRewardBaseAnimationFrames(
+        Sprite source)
+    {
+        if (source == null ||
+            presentation == null ||
+            !presentation.RewardBaseAnimationEnabled)
+        {
+            return null;
+        }
+
+        Vector2Int frameSize =
+            presentation.RewardBaseAnimationFrameSize;
+
+        int cellWidth =
+            Mathf.Max(
+                1,
+                frameSize.x);
+
+        int cellHeight =
+            Mathf.Max(
+                1,
+                frameSize.y);
+
+        int width =
+            Mathf.RoundToInt(
+                source.rect.width);
+
+        int height =
+            Mathf.RoundToInt(
+                source.rect.height);
+
+        bool isSheet =
+            width > cellWidth ||
+            height > cellHeight;
+
+        if (!isSheet)
+            return null;
+
+        int columns =
+            Mathf.Max(
+                1,
+                width / cellWidth);
+
+        int rows =
+            Mathf.Max(
+                1,
+                height / cellHeight);
+
+        List<Sprite> frames =
+            new(
+                columns *
+                rows);
+
+        Rect sourceRect =
+            source.rect;
+
+        for (int row = 0;
+             row < rows;
+             row++)
+        {
+            for (int column = 0;
+                 column < columns;
+                 column++)
+            {
+                float x =
+                    sourceRect.x +
+                    column *
+                    cellWidth;
+
+                // Artist sheet order = top-left → right → next row.
+                // Unity texture Rect origin = bottom-left.
+                float y =
+                    sourceRect.y +
+                    sourceRect.height -
+                    (row + 1) *
+                    cellHeight;
+
+                if (x + cellWidth >
+                        sourceRect.xMax + 0.01f ||
+                    y <
+                        sourceRect.y - 0.01f)
+                {
+                    continue;
+                }
+
+                Sprite frame =
+                    Sprite.Create(
+                        source.texture,
+                        new Rect(
+                            x,
+                            y,
+                            cellWidth,
+                            cellHeight),
+                        new Vector2(
+                            0.5f,
+                            0.5f),
+                        source.pixelsPerUnit,
+                        0,
+                        SpriteMeshType.FullRect);
+
+                frame.name =
+                    $"{source.name}_RewardBase_{row:00}_{column:00}";
+
+                frame.hideFlags =
+                    HideFlags.HideAndDontSave;
+
+                frames.Add(
+                    frame);
+            }
+        }
+
+        if (frames.Count <= 1)
+        {
+            for (int i = 0;
+                 i < frames.Count;
+                 i++)
+            {
+                if (frames[i] != null)
+                    Destroy(frames[i]);
+            }
+
+            return null;
+        }
+
+        return frames;
+    }
+
+    private void UpdateRewardBaseAnimation()
+    {
+        if (rewardShowcaseItems.Count <= 0)
+            return;
+
+        bool enabledAnimation =
+            presentation != null &&
+            presentation.RewardBaseAnimationEnabled;
+
+        if (!enabledAnimation)
+            return;
+
+        float fps =
+            presentation != null
+                ? presentation.RewardBaseAnimationFps
+                : 8f;
+
+        float frameDuration =
+            1f /
+            Mathf.Max(
+                1f,
+                fps);
+
+        bool loop =
+            presentation == null ||
+            presentation.RewardBaseAnimationLoop;
+
+        float deltaTime =
+            Time.unscaledDeltaTime;
+
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item == null ||
+                item.baseRenderer == null ||
+                item.baseAnimationFrames == null ||
+                item.baseAnimationFrames.Count <= 1)
+            {
+                continue;
+            }
+
+            item.baseAnimationFrameTimer +=
+                deltaTime;
+
+            while (item.baseAnimationFrameTimer >=
+                   frameDuration)
+            {
+                item.baseAnimationFrameTimer -=
+                    frameDuration;
+
+                if (item.baseAnimationFrameIndex <
+                    item.baseAnimationFrames.Count - 1)
+                {
+                    item.baseAnimationFrameIndex++;
+                }
+                else if (loop)
+                {
+                    item.baseAnimationFrameIndex = 0;
+                }
+                else
+                {
+                    item.baseAnimationFrameTimer = 0f;
+                    break;
+                }
+            }
+
+            item.baseRenderer.sprite =
+                item.baseAnimationFrames[
+                    Mathf.Clamp(
+                        item.baseAnimationFrameIndex,
+                        0,
+                        item.baseAnimationFrames.Count - 1)];
+        }
+    }
+
+    /// <summary>
+    /// Reward 상품은 Base와 Item을 하나의 진열 유닛으로 묶어 함께 위/아래로 둥둥 움직입니다.
     /// 진폭은 BattleShowPresentationManager의 Pixel 값으로 관리하고,
     /// 실제 World 이동량은 현재 Floor PPU 기준으로 환산합니다.
     /// </summary>
@@ -1376,13 +1604,13 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 rewardShowcaseItems[i];
 
             if (item == null ||
-                item.itemTransform == null)
+                item.root == null)
             {
                 continue;
             }
 
             Vector3 position =
-                item.itemBaseLocalPosition;
+                item.rootBaseLocalPosition;
 
             if (enabledFloat &&
                 amplitudeWorld > 0.0001f)
@@ -1395,7 +1623,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                     amplitudeWorld;
             }
 
-            item.itemTransform.localPosition =
+            item.root.transform.localPosition =
                 position;
         }
     }
@@ -1647,6 +1875,22 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
             if (item?.spotlight != null)
                 item.spotlight.SetImmediate(0f);
+
+            if (item?.baseAnimationFrames != null)
+            {
+                for (int frameIndex = 0;
+                     frameIndex < item.baseAnimationFrames.Count;
+                     frameIndex++)
+                {
+                    Sprite frame =
+                        item.baseAnimationFrames[frameIndex];
+
+                    if (frame != null)
+                        Destroy(frame);
+                }
+
+                item.baseAnimationFrames.Clear();
+            }
         }
 
         rewardShowcaseItems.Clear();
