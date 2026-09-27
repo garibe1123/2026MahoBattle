@@ -77,7 +77,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [Tooltip("상품 Base 중심 간 World 간격입니다. TV가 있던 가로 무대를 넓게 쓰도록 기본값을 크게 잡습니다.")]
     [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 2.30f;
     [Tooltip("Floor 한 칸 폭 대비 상품 간 최소 간격 배수입니다. Base가 커져도 상품끼리 너무 붙지 않게 보장합니다.")]
-    [SerializeField, Min(1f)] private float rewardShowcaseMinTileSpacingMultiplier = 2.0f;
+    [SerializeField, Min(1f)] private float rewardShowcaseMinTileSpacingMultiplier = 2.30f;
     [Tooltip("기존 TV 중심 위치에서 상품 진열 행을 위/아래로 이동합니다. Reward 상품은 플레이어 Base가 아니라 이 TV 자리에서 전시됩니다.")]
     [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.20f;
     [Tooltip("아이템 Hover 시 사용할 Orthographic Size입니다. Reward Hover 전용 최소 줌은 BattleCameraController에서 별도로 허용합니다.")]
@@ -1898,127 +1898,79 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         screenRect =
             default;
 
-        if (camera == null ||
-            rewardShowcaseItems.Count <= 0)
+        if (camera == null)
+            return false;
+
+        // Reward에서 TV 자체는 숨기지만 Cursor Tracking 기준은 예전 TV와 동일하게 유지합니다.
+        // 즉, 기존 Display가 차지하던 월드 사각형 전체를 보이지 않는 가상 화면으로 사용합니다.
+        Vector3 center =
+            ResolveMountedTvWorld();
+
+        Vector2 size =
+            new(
+                tvCanvasSize.x /
+                Mathf.Max(
+                    32f,
+                    tvPixelsPerUnit),
+                tvCanvasSize.y /
+                Mathf.Max(
+                    32f,
+                    tvPixelsPerUnit));
+
+        Vector3 minWorld =
+            center -
+            new Vector3(
+                size.x * 0.5f,
+                size.y * 0.5f,
+                0f);
+
+        Vector3 maxWorld =
+            center +
+            new Vector3(
+                size.x * 0.5f,
+                size.y * 0.5f,
+                0f);
+
+        Vector3 minScreen =
+            camera.WorldToScreenPoint(
+                minWorld);
+
+        Vector3 maxScreen =
+            camera.WorldToScreenPoint(
+                maxWorld);
+
+        if (minScreen.z <= 0f ||
+            maxScreen.z <= 0f)
         {
             return false;
         }
 
-        bool initialized =
-            false;
+        float xMin =
+            Mathf.Min(
+                minScreen.x,
+                maxScreen.x);
 
-        Vector2 min =
-            new(
-                float.PositiveInfinity,
-                float.PositiveInfinity);
-
-        Vector2 max =
-            new(
-                float.NegativeInfinity,
-                float.NegativeInfinity);
-
-        for (int i = 0;
-             i < rewardShowcaseItems.Count;
-             i++)
-        {
-            RewardShowcaseItem item =
-                rewardShowcaseItems[i];
-
-            if (item == null ||
-                item.baseRenderer == null)
-            {
-                continue;
-            }
-
-            Bounds bounds =
-                item.baseRenderer.bounds;
-
-            if (item.itemRenderer != null &&
-                item.itemRenderer.sprite != null)
-            {
-                bounds.Encapsulate(
-                    item.itemRenderer.bounds);
-            }
-
-            Vector3 screenMin =
-                camera.WorldToScreenPoint(
-                    bounds.min);
-
-            Vector3 screenMax =
-                camera.WorldToScreenPoint(
-                    bounds.max);
-
-            if (screenMin.z <= 0f ||
-                screenMax.z <= 0f)
-            {
-                continue;
-            }
-
-            Vector2 nextMin =
-                Vector2.Min(
-                    new Vector2(
-                        screenMin.x,
-                        screenMin.y),
-                    new Vector2(
-                        screenMax.x,
-                        screenMax.y));
-
-            Vector2 nextMax =
-                Vector2.Max(
-                    new Vector2(
-                        screenMin.x,
-                        screenMin.y),
-                    new Vector2(
-                        screenMax.x,
-                        screenMax.y));
-
-            min =
-                Vector2.Min(
-                    min,
-                    nextMin);
-
-            max =
-                Vector2.Max(
-                    max,
-                    nextMax);
-
-            initialized =
-                true;
-        }
-
-        if (!initialized)
-            return false;
-
-        // 예전 TV처럼 커서를 꽤 자유롭게 움직일 수 있도록
-        // 실제 상품 Bounds보다 넓은 가상 Display 영역을 만듭니다.
-        float horizontalPadding =
+        float xMax =
             Mathf.Max(
-                120f,
-                Screen.width * 0.055f);
+                minScreen.x,
+                maxScreen.x);
 
-        float verticalPadding =
+        float yMin =
+            Mathf.Min(
+                minScreen.y,
+                maxScreen.y);
+
+        float yMax =
             Mathf.Max(
-                90f,
-                Screen.height * 0.10f);
-
-        min.x -=
-            horizontalPadding;
-
-        max.x +=
-            horizontalPadding;
-
-        min.y -=
-            verticalPadding;
-
-        max.y +=
-            verticalPadding;
+                minScreen.y,
+                maxScreen.y);
 
         screenRect =
             Rect.MinMaxRect(
-                min.x,
-                min.y,
-                max.x,
-                max.y);
+                xMin,
+                yMin,
+                xMax,
+                yMax);
 
         return
             screenRect.width > 1f &&
