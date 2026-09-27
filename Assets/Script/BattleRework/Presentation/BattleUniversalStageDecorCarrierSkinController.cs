@@ -790,10 +790,20 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     private void BuildPlacementDirectionOrder(BattleDecorAttachSide side, System.Random random)
     {
         placementDirectionOrder.Clear();
+
+        // Reward 아이템 선택씬에서는 위쪽 Decor가 화면/상품 영역을 덮는 일이 많습니다.
+        // 이 구간에 한해서 Top 방향을 완전히 비활성화하고,
+        // Auto는 Left / Right / Bottom만 사용합니다.
+        // 전투/룰렛/맵 등 다른 상태에서는 기존 4방향 규칙을 그대로 유지합니다.
+        bool blockTopDuringReward =
+            runManager != null &&
+            runManager.State == BattleRunState.Reward;
+
         switch (side)
         {
             case BattleDecorAttachSide.Top:
-                placementDirectionOrder.Add(Vector2.up);
+                if (!blockTopDuringReward)
+                    placementDirectionOrder.Add(Vector2.up);
                 break;
             case BattleDecorAttachSide.Bottom:
                 placementDirectionOrder.Add(Vector2.down);
@@ -805,7 +815,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             default:
                 placementDirectionOrder.Add(Vector2.left);
                 placementDirectionOrder.Add(Vector2.right);
-                placementDirectionOrder.Add(Vector2.up);
+                if (!blockTopDuringReward)
+                    placementDirectionOrder.Add(Vector2.up);
                 placementDirectionOrder.Add(Vector2.down);
                 break;
         }
