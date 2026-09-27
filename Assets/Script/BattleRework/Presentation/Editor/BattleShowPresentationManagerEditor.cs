@@ -293,8 +293,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorStyles.boldLabel);
 
         EditorGUILayout.HelpBox(
-            "Reward 상품 연출값을 한 곳에서 관리합니다. 각 탭은 기본적으로 닫혀 있으며 필요한 항목만 열어 조절합니다. " +
-            "Preview 탭에서는 Base 기준 Item 높이와 Float 폭/속도를 바로 바꾸면서 결과를 확인할 수 있습니다.",
+            "Reward 상품 연출값을 한 곳에서 관리합니다. Base는 공통 정적 Sprite 한 장을 사용하고 Booster만 별도 Sprite Sheet로 재생합니다. " +
+            "Preview 탭에서는 Booster를 직접 클릭/드래그해 Base 기준 위치를 잡을 수 있습니다.",
             MessageType.Info);
 
         rewardBaseTabOpen =
@@ -893,11 +893,6 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 EditorStyles.centeredGreyMiniLabel);
         }
 
-        HandleRewardBoosterDrag(
-            boosterRect,
-            previewPixelScale,
-            boosterOffsetProperty);
-
         Rect baseRect =
             new(
                 centerX -
@@ -994,6 +989,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 0.72f,
                 0.80f,
                 1f);
+
+        HandleRewardBoosterDrag(
+            boosterRect,
+            previewPixelScale,
+            boosterOffsetProperty);
 
         GUI.Label(
             new Rect(
