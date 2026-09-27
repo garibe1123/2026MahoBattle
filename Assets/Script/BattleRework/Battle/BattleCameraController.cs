@@ -51,6 +51,8 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(1f)] private float showTransitionMaxSpeed = 14f;
     [Tooltip("Reward/Map Show 전용 최소 줌입니다. 일반 전투 minZoom과 분리되어 TV를 크게 잡을 수 있습니다.")]
     [SerializeField, Min(0.1f)] private float showMinZoom = 2.2f;
+    [Tooltip("Reward Item Hover에서는 상품 하나를 더 가까이 잡기 위해 일반 Show 최소 줌보다 낮은 값을 허용합니다.")]
+    [SerializeField, Min(0.1f)] private float rewardItemHoverMinZoom = 1.45f;
     [Tooltip("Reward/Map Show 전용 최대 줌입니다.")]
     [SerializeField, Min(0.1f)] private float showMaxZoom = 9.5f;
 
@@ -583,10 +585,27 @@ public class BattleCameraController : MonoBehaviour
             showZoom *= Mathf.Clamp(mapCursorZoomRatio, 0.65f, 1f);
         }
 
+        bool rewardItemHovered =
+            showFraming &&
+            runManager != null &&
+            runManager.State == BattleRunState.Reward &&
+            showStage != null &&
+            showStage.IsRewardMode &&
+            showStage.RewardHoveredIndex >= 0;
+
+        float activeShowMinZoom =
+            rewardItemHovered
+                ? Mathf.Min(
+                    showMinZoom,
+                    Mathf.Max(
+                        0.1f,
+                        rewardItemHoverMinZoom))
+                : showMinZoom;
+
         float clampedShowZoom = Mathf.Clamp(
             showZoom,
-            Mathf.Min(showMinZoom, showMaxZoom),
-            Mathf.Max(showMinZoom, showMaxZoom));
+            Mathf.Min(activeShowMinZoom, showMaxZoom),
+            Mathf.Max(activeShowMinZoom, showMaxZoom));
         float desiredZoom = Mathf.Lerp(normalZoom, clampedShowZoom, showBlend);
         float normalZoomSpeed = activeFocus != null ? cinematicZoomSharpness : zoomSharpness;
         float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showFollowSharpness, showBlend);
