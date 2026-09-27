@@ -120,6 +120,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private int rewardHoveredIndex = -1;
     private int rewardSelectedIndex = -1;
     private Vector2 rewardHoverAnchorScreen;
+    private int appliedRewardTuningRevision = int.MinValue;
 
     private Coroutine bindRoutine;
     private Coroutine transitionRoutine;
@@ -488,6 +489,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         desiredMode = ResolveDesiredMode();
         UpdatePresenter();
         UpdateRewardShowcase();
+        RefreshRewardTuningIfChanged();
         UpdateRewardBaseAnimation();
         UpdateRewardShowcaseFloatAnimation();
         UpdatePointerTracking();
@@ -952,6 +954,80 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             presenterCarrier.transform.DOKill();
     }
 
+    /// <summary>
+    /// BattleShowPresentationManager Inspector 값이 Play Mode 중 바뀌면
+    /// 현재 Reward Showcase와 Camera framing을 즉시 다시 적용합니다.
+    /// 생성 시점 캐시 때문에 Position Offset / Base Sheet / Spotlight 등이
+    /// 이전 값으로 남는 문제를 막기 위한 Live Refresh 경로입니다.
+    /// </summary>
+    private void RefreshRewardTuningIfChanged()
+    {
+        if (presentation == null)
+            return;
+
+        int revision =
+            presentation.RewardTuningRevision;
+
+        if (revision ==
+            appliedRewardTuningRevision)
+        {
+            return;
+        }
+
+        appliedRewardTuningRevision =
+            revision;
+
+        bool rewardActive =
+            (currentMode == ShowMode.Reward ||
+             desiredMode == ShowMode.Reward) &&
+            runManager != null &&
+            runManager.RunActive &&
+            runManager.State == BattleRunState.Reward;
+
+        if (!rewardActive ||
+            !dockCaptured ||
+            stageRoot == null ||
+            !stageRoot.activeInHierarchy)
+        {
+            return;
+        }
+
+        int previousHoveredIndex =
+            rewardHoveredIndex;
+
+        int previousSelectedIndex =
+            rewardSelectedIndex;
+
+        EnsureRewardShowcase(
+            forceRebuild: true);
+
+        if (FindRewardShowcaseItem(
+                previousSelectedIndex) != null)
+        {
+            rewardSelectedIndex =
+                previousSelectedIndex;
+        }
+
+        if (FindRewardShowcaseItem(
+                previousHoveredIndex) != null)
+        {
+            rewardHoveredIndex =
+                previousHoveredIndex;
+
+            rewardHoverAnchorScreen =
+                Input.mousePresent
+                    ? (Vector2)Input.mousePosition
+                    : Vector2.zero;
+
+            ApplyRewardShowcaseFocus();
+        }
+        else
+        {
+            rewardHoveredIndex = -1;
+            ComputeSharedCameraFrame();
+        }
+    }
+
     private void UpdateRewardShowcase()
     {
         bool rewardActive =
@@ -1345,6 +1421,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         rewardShowcaseRoot.SetActive(true);
 
         ComputeSharedCameraFrame();
+
+        if (presentation != null)
+        {
+            appliedRewardTuningRevision =
+                presentation.RewardTuningRevision;
+        }
     }
 
     /// <summary>
@@ -1764,6 +1846,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         focus.y +=
             (presentation != null ? presentation.RewardItemHoverCameraPivotOffset : new Vector2(0.92f, 0.10f)).y;
 
+        Vector2 cameraOffset =
+            presentation != null
+                ? presentation.RewardCameraPositionOffsetWorld
+                : Vector2.zero;
+
+        focus.x +=
+            cameraOffset.x;
+
+        focus.y +=
+            cameraOffset.y;
+
         focus.z = 0f;
 
         OverrideShowCameraFrame(
@@ -1965,6 +2058,20 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
 
         cameraTargetWorld = new Vector3(bounds.center.x, bounds.center.y, 0f);
+
+        if (rewardFocus)
+        {
+            Vector2 cameraOffset =
+                presentation != null
+                    ? presentation.RewardCameraPositionOffsetWorld
+                    : Vector2.zero;
+
+            cameraTargetWorld.x +=
+                cameraOffset.x;
+
+            cameraTargetWorld.y +=
+                cameraOffset.y;
+        }
 
         float padding = rewardFocus
             ? Mathf.Max(0f, (presentation != null ? presentation.RewardCameraPadding : 0.38f))
