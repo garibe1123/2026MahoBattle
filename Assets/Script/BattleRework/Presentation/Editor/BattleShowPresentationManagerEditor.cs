@@ -179,7 +179,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     {
         return
             Manager != null &&
-            Manager.RewardItemFloatEnabled;
+            (Manager.RewardItemFloatEnabled ||
+             Manager.RewardBaseAnimationEnabled);
     }
 
     public override bool HasPreviewGUI()
@@ -222,8 +223,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             EditorStyles.boldLabel);
 
         EditorGUILayout.HelpBox(
-            "위의 Reward Base / Layout / Camera / Spotlight / 둥둥 애니메이션 값을 확인하는 미리보기입니다. " +
-            "Base는 고정되고 Item Sprite만 실제 런타임과 같은 속도/진폭/위상으로 움직입니다. " +
+            "위의 Reward Base / Sprite Sheet / Layout / Camera / Spotlight / 둥둥 애니메이션 값을 확인하는 미리보기입니다. " +
+            "Base와 Item Sprite가 하나의 유닛처럼 함께 둥둥 움직이며, Base Sprite Sheet도 실제 FPS/Loop 설정대로 재생됩니다. " +
             "Preview Item Sprite는 Inspector 확인용이며 실제 게임에서는 Equipment icon을 사용합니다.",
             MessageType.Info);
 
@@ -288,6 +289,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 18f),
             $"LIVE REWARD SHOWCASE  //  FLOAT {Manager.RewardItemFloatAmplitudePixels}px  " +
             $"@ {Manager.RewardItemFloatCyclesPerSecond:0.00} cycle/s  //  " +
+            $"BASE {Manager.RewardBaseAnimationFps:0.#} FPS  //  " +
             $"SPACING {Manager.RewardShowcaseSpacingWorld:0.00}",
             titleStyle);
 
@@ -401,26 +403,6 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                  0.5f) *
                 centerSpacing;
 
-            Rect baseRect =
-                new(
-                    x - tileWidth * 0.5f,
-                    baseCenterY - tileHeight * 0.5f,
-                    tileWidth,
-                    tileHeight);
-
-            Sprite baseSprite =
-                Manager.GetRewardBaseSprite(
-                    rarities[i]);
-
-            DrawSpriteInRect(
-                baseRect,
-                baseSprite,
-                new Color(
-                    1f,
-                    1f,
-                    1f,
-                    1f));
-
             float floatPixels =
                 0f;
 
@@ -434,11 +416,33 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     Manager.RewardItemFloatAmplitudePixels;
             }
 
-            float itemCenterY =
+            // Runtime과 동일하게 Base + Item 전체가 한 유닛으로 같이 Float합니다.
+            // GUI Y축은 아래가 +이므로 World 위쪽 이동은 Screen Y에서 빼줍니다.
+            float floatingCenterY =
                 baseCenterY -
-                Manager.RewardItemPixelYOffset *
-                previewPixelScale -
                 floatPixels *
+                previewPixelScale;
+
+            Rect baseRect =
+                new(
+                    x - tileWidth * 0.5f,
+                    floatingCenterY - tileHeight * 0.5f,
+                    tileWidth,
+                    tileHeight);
+
+            Sprite baseSprite =
+                Manager.GetRewardBaseSprite(
+                    rarities[i]);
+
+            DrawRewardBaseFrameInRect(
+                baseRect,
+                baseSprite,
+                editorTime,
+                Color.white);
+
+            float itemCenterY =
+                floatingCenterY -
+                Manager.RewardItemPixelYOffset *
                 previewPixelScale;
 
             Rect itemRect;
@@ -523,7 +527,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                     Mathf.Max(
                         45f,
                         tileWidth * 0.7f),
-                    baseRect.yMax + 7f,
+                    baseCenterY +
+                    tileHeight * 0.5f +
+                    7f,
                     Mathf.Max(
                         90f,
                         tileWidth * 1.4f),
@@ -550,8 +556,214 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 inner.yMax - 22f,
                 inner.width - 8f,
                 18f),
-            "BASE FIXED / ITEM FLOAT ONLY / 실제 런타임과 동일한 Pixel → Floor PPU 변환",
+            "BASE + ITEM FLOAT TOGETHER / BASE SPRITE SHEET LIVE / Pixel → Floor PPU 동일",
             footerStyle);
+    }
+
+    private void DrawRewardBaseFrameInRect(
+        Rect rect,
+        Sprite source,
+        double editorTime,
+        Color tint)
+    {
+        if (source == null ||
+            source.texture == null ||
+            Manager == null ||
+            !Manager.RewardBaseAnimationEnabled)
+        {
+            DrawSpriteInRect(
+                rect,
+                source,
+                tint);
+            return;
+        }
+
+        Vector2Int frameSize =
+            Manager.RewardBaseAnimationFrameSize;
+
+        int cellWidth =
+            Mathf.Max(
+                1,
+                frameSize.x);
+
+        int cellHeight =
+            Mathf.Max(
+                1,
+                frameSize.y);
+
+        int width =
+            Mathf.RoundToInt(
+                source.rect.width);
+
+        int height =
+            Mathf.RoundToInt(
+                source.rect.height);
+
+        bool isSheet =
+            width > cellWidth ||
+            height > cellHeight;
+
+        if (!isSheet)
+        {
+            DrawSpriteInRect(
+                rect,
+                source,
+                tint);
+            return;
+        }
+
+        int columns =
+            Mathf.Max(
+                1,
+                width / cellWidth);
+
+        int rows =
+            Mathf.Max(
+                1,
+                height / cellHeight);
+
+        int frameCount =
+            Mathf.Max(
+                1,
+                columns *
+                rows);
+
+        int rawFrame =
+            Mathf.Max(
+                0,
+                Mathf.FloorToInt(
+                    (float)editorTime *
+                    Manager.RewardBaseAnimationFps));
+
+        int frameIndex =
+            Manager.RewardBaseAnimationLoop
+                ? rawFrame % frameCount
+                : Mathf.Min(
+                    rawFrame,
+                    frameCount - 1);
+
+        int row =
+            frameIndex /
+            columns;
+
+        int column =
+            frameIndex %
+            columns;
+
+        Rect sourceRect =
+            source.rect;
+
+        float pixelX =
+            sourceRect.x +
+            column *
+            cellWidth;
+
+        float pixelY =
+            sourceRect.y +
+            sourceRect.height -
+            (row + 1) *
+            cellHeight;
+
+        if (pixelX + cellWidth >
+                sourceRect.xMax + 0.01f ||
+            pixelY <
+                sourceRect.y - 0.01f)
+        {
+            DrawSpriteInRect(
+                rect,
+                source,
+                tint);
+            return;
+        }
+
+        Rect uv =
+            new(
+                pixelX /
+                source.texture.width,
+                pixelY /
+                source.texture.height,
+                cellWidth /
+                (float)source.texture.width,
+                cellHeight /
+                (float)source.texture.height);
+
+        DrawTextureRegionInRect(
+            rect,
+            source.texture,
+            uv,
+            cellWidth /
+            (float)cellHeight,
+            tint);
+    }
+
+    private static void DrawTextureRegionInRect(
+        Rect rect,
+        Texture texture,
+        Rect uv,
+        float contentAspect,
+        Color tint)
+    {
+        if (texture == null ||
+            rect.width <= 0f ||
+            rect.height <= 0f)
+        {
+            return;
+        }
+
+        float rectAspect =
+            rect.width /
+            Mathf.Max(
+                1f,
+                rect.height);
+
+        Rect fitted =
+            rect;
+
+        if (contentAspect > rectAspect)
+        {
+            float height =
+                rect.width /
+                Mathf.Max(
+                    0.001f,
+                    contentAspect);
+
+            fitted.y +=
+                (rect.height -
+                 height) *
+                0.5f;
+
+            fitted.height =
+                height;
+        }
+        else
+        {
+            float width =
+                rect.height *
+                contentAspect;
+
+            fitted.x +=
+                (rect.width -
+                 width) *
+                0.5f;
+
+            fitted.width =
+                width;
+        }
+
+        Color oldColor =
+            GUI.color;
+
+        GUI.color =
+            tint;
+
+        GUI.DrawTextureWithTexCoords(
+            fitted,
+            texture,
+            uv,
+            true);
+
+        GUI.color =
+            oldColor;
     }
 
     private static void DrawSpriteInRect(
