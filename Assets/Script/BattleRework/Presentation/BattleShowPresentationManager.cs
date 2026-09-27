@@ -631,14 +631,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             : null;
     }
 
-    private void OnValidate()
-    {
-        unchecked
-        {
-            rewardTuningRevision++;
-        }
-    }
-
     /// <summary>
     /// Custom Inspector에서 ApplyModifiedProperties 직후 호출하는 명시적 Refresh 신호입니다.
     /// OnValidate가 호출되지 않는 특수 Editor 경로에서도 Play Mode 변경을 놓치지 않습니다.
@@ -2081,6 +2073,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 #if UNITY_EDITOR
     private void OnValidate()
     {
+        // Inspector에서 Reward 관련 Serialized 값이 바뀌면
+        // 현재 Play Mode Showcase가 다음 Update에서 즉시 다시 적용하도록 Revision을 올립니다.
+        unchecked
+        {
+            rewardTuningRevision++;
+        }
+
         if (defaultFloorTemplate == null)
         {
             Debug.LogWarning(
