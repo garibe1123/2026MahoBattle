@@ -30,6 +30,66 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private const string CombatTailProperty =
         "combatSpeechBubbleTailStyle";
 
+    // Reward 관련 값은 일반 Inspector에서 중복 표시하지 않고,
+    // 아래의 접이식 Reward 탭에서만 정리해서 보여줍니다.
+    private static readonly string[] DefaultInspectorExcludedProperties =
+    {
+        SelectionFrameProperty,
+        SelectionTailProperty,
+        CombatFrameProperty,
+        CombatTailProperty,
+
+        "rewardBasicBaseSprite",
+        "rewardCommonBaseSprite",
+        "rewardUncommonBaseSprite",
+        "rewardRareBaseSprite",
+        "rewardEpicBaseSprite",
+        "rewardUniqueBaseSprite",
+
+        "rewardBaseAnimationEnabled",
+        "rewardBaseAnimationFrameSize",
+        "rewardBaseAnimationFps",
+        "rewardBaseAnimationLoop",
+
+        "rewardItemPixelYOffset",
+        "rewardItemFloatEnabled",
+        "rewardItemFloatAmplitudePixels",
+        "rewardItemFloatCyclesPerSecond",
+        "rewardItemFloatPhaseStep",
+        "rewardPreviewItemSprite",
+
+        "rewardShowcaseSpacingWorld",
+        "rewardShowcaseMinTileSpacingMultiplier",
+        "rewardShowcaseRowYOffsetWorld",
+        "rewardHoverBoundsPaddingWorld",
+        "rewardHoverStickyScreenRadius",
+
+        "rewardCameraPadding",
+        "rewardCameraMinSize",
+        "rewardItemHoverCameraSize",
+        "rewardItemHoverCameraPivotOffset",
+        "rewardItemHoverMinZoom",
+        "rewardItemHoverFollowSharpness",
+        "rewardItemHoverZoomSharpness",
+        "rewardCursorPanDistance",
+        "rewardCursorTrackingSharpness",
+        "rewardCursorZoomRatio",
+
+        "rewardSpotlightColor",
+        "rewardSpotlightPoolAlpha",
+        "rewardSpotlightBeamAlpha",
+        "rewardSpotlightWidth",
+        "rewardSpotlightBeamLength",
+        "rewardSpotlightBeamVerticalOffset",
+        "rewardSpotlightFadeSharpness"
+    };
+
+    private bool rewardBaseTabOpen;
+    private bool rewardLayoutFloatTabOpen;
+    private bool rewardCameraTabOpen;
+    private bool rewardSpotlightTabOpen;
+    private bool rewardPreviewTabOpen;
+
     private static readonly string[] OutlineCornerProperties =
     {
         "outlineTopLeft",
@@ -138,18 +198,18 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     {
         serializedObject.Update();
 
-        DrawPropertiesExcluding(
-            serializedObject,
-            SelectionFrameProperty,
-            SelectionTailProperty,
-            CombatFrameProperty,
-            CombatTailProperty);
-
-        serializedObject.ApplyModifiedProperties();
+        // Reward는 작업 빈도가 높으므로 Inspector 최상단에 접이식 탭으로 둡니다.
+        // 처음에는 모두 닫혀 있고 필요한 영역만 열어 튜닝합니다.
+        DrawRewardTuningTabs();
 
         EditorGUILayout.Space(12f);
+        DrawDivider();
 
-        DrawRewardShowcasePreviewSection();
+        DrawPropertiesExcluding(
+            serializedObject,
+            DefaultInspectorExcludedProperties);
+
+        serializedObject.ApplyModifiedProperties();
 
         EditorGUILayout.Space(12f);
         DrawDivider();
@@ -213,29 +273,355 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             GUIUtility.hotControl = 0;
     }
 
-    private void DrawRewardShowcasePreviewSection()
+    private void DrawRewardTuningTabs()
     {
-        if (Manager == null)
-            return;
-
         EditorGUILayout.LabelField(
-            "Reward 상품 Preview",
+            "REWARD SHOWCASE",
             EditorStyles.boldLabel);
 
         EditorGUILayout.HelpBox(
-            "위의 Reward Base / Sprite Sheet / Layout / Camera / Spotlight / 둥둥 애니메이션 값을 확인하는 미리보기입니다. " +
-            "Base와 Item Sprite가 하나의 유닛처럼 함께 둥둥 움직이며, Base Sprite Sheet도 실제 FPS/Loop 설정대로 재생됩니다. " +
-            "Preview Item Sprite는 Inspector 확인용이며 실제 게임에서는 Equipment icon을 사용합니다.",
+            "Reward 상품 연출값을 한 곳에서 관리합니다. 각 탭은 기본적으로 닫혀 있으며 필요한 항목만 열어 조절합니다. " +
+            "Preview 탭에서는 Base 기준 Item 높이와 Float 폭/속도를 바로 바꾸면서 결과를 확인할 수 있습니다.",
             MessageType.Info);
 
-        Rect previewRect =
-            GUILayoutUtility.GetRect(
-                160f,
-                RewardPreviewHeight,
-                GUILayout.ExpandWidth(true));
+        rewardBaseTabOpen =
+            EditorGUILayout.BeginFoldoutHeaderGroup(
+                rewardBaseTabOpen,
+                "01. BASE SPRITE / SHEET ANIMATION");
 
-        DrawRewardShowcasePreview(
-            previewRect);
+        if (rewardBaseTabOpen)
+        {
+            EditorGUI.indentLevel++;
+
+            DrawRewardProperty(
+                "rewardBasicBaseSprite",
+                "Basic Base Sprite");
+            DrawRewardProperty(
+                "rewardCommonBaseSprite",
+                "Common Base Sprite");
+            DrawRewardProperty(
+                "rewardUncommonBaseSprite",
+                "Uncommon Base Sprite");
+            DrawRewardProperty(
+                "rewardRareBaseSprite",
+                "Rare Base Sprite");
+            DrawRewardProperty(
+                "rewardEpicBaseSprite",
+                "Epic Base Sprite");
+            DrawRewardProperty(
+                "rewardUniqueBaseSprite",
+                "Unique Base Sprite");
+
+            EditorGUILayout.Space(5f);
+
+            DrawRewardProperty(
+                "rewardBaseAnimationEnabled",
+                "Base Sheet Animation");
+            DrawRewardProperty(
+                "rewardBaseAnimationFrameSize",
+                "Frame Size (px)");
+            DrawRewardProperty(
+                "rewardBaseAnimationFps",
+                "Animation FPS");
+            DrawRewardProperty(
+                "rewardBaseAnimationLoop",
+                "Loop");
+
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+
+        rewardLayoutFloatTabOpen =
+            EditorGUILayout.BeginFoldoutHeaderGroup(
+                rewardLayoutFloatTabOpen,
+                "02. LAYOUT / FLOAT MOTION");
+
+        if (rewardLayoutFloatTabOpen)
+        {
+            EditorGUI.indentLevel++;
+
+            DrawRewardProperty(
+                "rewardShowcaseSpacingWorld",
+                "Base Center Spacing (World)");
+            DrawRewardProperty(
+                "rewardShowcaseMinTileSpacingMultiplier",
+                "Minimum Tile Spacing");
+            DrawRewardProperty(
+                "rewardShowcaseRowYOffsetWorld",
+                "Showcase Row Y (World)");
+
+            EditorGUILayout.Space(5f);
+
+            DrawRewardProperty(
+                "rewardItemPixelYOffset",
+                "Item Y From Base (px)");
+            DrawRewardProperty(
+                "rewardItemFloatEnabled",
+                "Float Base + Item Together");
+            DrawRewardProperty(
+                "rewardItemFloatAmplitudePixels",
+                "Float Amplitude (±px)");
+            DrawRewardProperty(
+                "rewardItemFloatCyclesPerSecond",
+                "Float Speed (cycle/s)");
+            DrawRewardProperty(
+                "rewardItemFloatPhaseStep",
+                "Float Phase Step");
+
+            EditorGUILayout.Space(5f);
+
+            DrawRewardProperty(
+                "rewardHoverBoundsPaddingWorld",
+                "Hover Bounds Padding");
+            DrawRewardProperty(
+                "rewardHoverStickyScreenRadius",
+                "Hover Sticky Radius (px)");
+
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+
+        rewardCameraTabOpen =
+            EditorGUILayout.BeginFoldoutHeaderGroup(
+                rewardCameraTabOpen,
+                "03. CAMERA / CURSOR TRACKING");
+
+        if (rewardCameraTabOpen)
+        {
+            EditorGUI.indentLevel++;
+
+            DrawRewardProperty(
+                "rewardCameraPadding",
+                "Overview Padding");
+            DrawRewardProperty(
+                "rewardCameraMinSize",
+                "Overview Min Zoom");
+            DrawRewardProperty(
+                "rewardItemHoverCameraSize",
+                "Hover Zoom");
+            DrawRewardProperty(
+                "rewardItemHoverCameraPivotOffset",
+                "Hover Camera Pivot");
+            DrawRewardProperty(
+                "rewardItemHoverMinZoom",
+                "Hover Min Zoom");
+            DrawRewardProperty(
+                "rewardItemHoverFollowSharpness",
+                "Hover Follow Speed");
+            DrawRewardProperty(
+                "rewardItemHoverZoomSharpness",
+                "Hover Zoom Speed");
+
+            EditorGUILayout.Space(5f);
+
+            DrawRewardProperty(
+                "rewardCursorPanDistance",
+                "Cursor Pan Distance");
+            DrawRewardProperty(
+                "rewardCursorTrackingSharpness",
+                "Cursor Tracking Speed");
+            DrawRewardProperty(
+                "rewardCursorZoomRatio",
+                "Cursor Zoom Ratio");
+
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+
+        rewardSpotlightTabOpen =
+            EditorGUILayout.BeginFoldoutHeaderGroup(
+                rewardSpotlightTabOpen,
+                "04. SPOTLIGHT");
+
+        if (rewardSpotlightTabOpen)
+        {
+            EditorGUI.indentLevel++;
+
+            DrawRewardProperty(
+                "rewardSpotlightColor",
+                "Color");
+            DrawRewardProperty(
+                "rewardSpotlightPoolAlpha",
+                "Pool Alpha");
+            DrawRewardProperty(
+                "rewardSpotlightBeamAlpha",
+                "Beam Alpha");
+            DrawRewardProperty(
+                "rewardSpotlightWidth",
+                "Beam Width");
+            DrawRewardProperty(
+                "rewardSpotlightBeamLength",
+                "Beam Length");
+            DrawRewardProperty(
+                "rewardSpotlightBeamVerticalOffset",
+                "Beam Vertical Offset");
+            DrawRewardProperty(
+                "rewardSpotlightFadeSharpness",
+                "Fade Speed");
+
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+
+        rewardPreviewTabOpen =
+            EditorGUILayout.BeginFoldoutHeaderGroup(
+                rewardPreviewTabOpen,
+                "05. LIVE PREVIEW / QUICK CONTROLS");
+
+        if (rewardPreviewTabOpen)
+        {
+            EditorGUI.indentLevel++;
+
+            DrawRewardProperty(
+                "rewardPreviewItemSprite",
+                "Preview Item Sprite");
+
+            EditorGUILayout.Space(4f);
+
+            EditorGUILayout.LabelField(
+                "Base 기준 위치 / Float 빠른 조절",
+                EditorStyles.boldLabel);
+
+            DrawRewardIntSlider(
+                "rewardItemPixelYOffset",
+                "Item Y From Base (px)",
+                -64,
+                64);
+
+            DrawRewardIntSlider(
+                "rewardItemFloatAmplitudePixels",
+                "Float Amplitude (±px)",
+                0,
+                24);
+
+            DrawRewardFloatSlider(
+                "rewardItemFloatCyclesPerSecond",
+                "Float Speed (cycle/s)",
+                0.05f,
+                4f);
+
+            DrawRewardFloatSlider(
+                "rewardItemFloatPhaseStep",
+                "Float Phase Step",
+                0f,
+                Mathf.PI);
+
+            EditorGUILayout.Space(7f);
+
+            Rect previewRect =
+                GUILayoutUtility.GetRect(
+                    160f,
+                    RewardPreviewHeight,
+                    GUILayout.ExpandWidth(true));
+
+            DrawRewardShowcasePreview(
+                previewRect);
+
+            EditorGUI.indentLevel--;
+        }
+
+        EditorGUILayout.EndFoldoutHeaderGroup();
+
+        serializedObject.ApplyModifiedProperties();
+        serializedObject.Update();
+    }
+
+    private void DrawRewardProperty(
+        string propertyName,
+        string label)
+    {
+        SerializedProperty property =
+            serializedObject.FindProperty(
+                propertyName);
+
+        if (property == null)
+        {
+            EditorGUILayout.HelpBox(
+                $"Reward SerializedProperty를 찾지 못했습니다: {propertyName}",
+                MessageType.Error);
+            return;
+        }
+
+        EditorGUILayout.PropertyField(
+            property,
+            new GUIContent(
+                label,
+                property.tooltip),
+            includeChildren: true);
+    }
+
+    private void DrawRewardIntSlider(
+        string propertyName,
+        string label,
+        int min,
+        int max)
+    {
+        SerializedProperty property =
+            serializedObject.FindProperty(
+                propertyName);
+
+        if (property == null)
+            return;
+
+        EditorGUI.BeginChangeCheck();
+
+        int next =
+            EditorGUILayout.IntSlider(
+                new GUIContent(
+                    label,
+                    property.tooltip),
+                property.intValue,
+                min,
+                max);
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            property.intValue =
+                next;
+
+            serializedObject.ApplyModifiedProperties();
+            EditorUtility.SetDirty(Manager);
+            Repaint();
+        }
+    }
+
+    private void DrawRewardFloatSlider(
+        string propertyName,
+        string label,
+        float min,
+        float max)
+    {
+        SerializedProperty property =
+            serializedObject.FindProperty(
+                propertyName);
+
+        if (property == null)
+            return;
+
+        EditorGUI.BeginChangeCheck();
+
+        float next =
+            EditorGUILayout.Slider(
+                new GUIContent(
+                    label,
+                    property.tooltip),
+                property.floatValue,
+                min,
+                max);
+
+        if (EditorGUI.EndChangeCheck())
+        {
+            property.floatValue =
+                next;
+
+            serializedObject.ApplyModifiedProperties();
+            EditorUtility.SetDirty(Manager);
+            Repaint();
+        }
     }
 
     private void DrawRewardShowcasePreview(
