@@ -84,6 +84,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField] private Vector2 rewardItemHoverCameraPivotOffset = new(0.92f, 0.10f);
     [Tooltip("월드 좌표 Hover 판정 시 1칸 Base 바깥으로 추가하는 여유입니다.")]
     [SerializeField, Range(0f, 0.5f)] private float rewardHoverBoundsPaddingWorld = 0.10f;
+    [Tooltip("Hover Camera Pivot이 움직이는 동안 Item이 커서 아래에서 빠져도 Hover가 바로 해제되지 않도록 유지하는 Screen Pixel 반경입니다.")]
+    [SerializeField, Min(0f)] private float rewardHoverStickyScreenRadius = 120f;
 
     [Header("Reward Item Spotlight")]
     [SerializeField] private Color rewardSpotlightColor = new(1f, 0.96f, 0.78f, 1f);
@@ -141,6 +143,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private int rewardShowcaseSignature;
     private int rewardHoveredIndex = -1;
     private int rewardSelectedIndex = -1;
+    private Vector2 rewardHoverAnchorScreen;
 
     private Coroutine bindRoutine;
     private Coroutine transitionRoutine;
@@ -1004,17 +1007,48 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             rewardFlow == null ||
             rewardFlow.Phase == BattleRewardPhase.Choosing;
 
-        int nextHover =
+        int directHover =
             choosing &&
             !stageTransitioning &&
             !externalGate
                 ? ResolveRewardShowcaseHover()
                 : -1;
 
+        int nextHover =
+            directHover;
+
+        if (directHover >= 0)
+        {
+            if (directHover != rewardHoveredIndex)
+                rewardHoverAnchorScreen = Input.mousePosition;
+        }
+        else if (choosing &&
+                 rewardHoveredIndex >= 0 &&
+                 Input.mousePresent)
+        {
+            float stickyRadius =
+                Mathf.Max(
+                    0f,
+                    rewardHoverStickyScreenRadius);
+
+            if (((Vector2)Input.mousePosition -
+                 rewardHoverAnchorScreen).sqrMagnitude <=
+                stickyRadius * stickyRadius)
+            {
+                // Camera Pivot 때문에 Item 자체가 커서 아래에서 이동해도,
+                // 사용자가 커서를 실제로 옮기기 전에는 Hover를 유지합니다.
+                nextHover =
+                    rewardHoveredIndex;
+            }
+        }
+
         if (nextHover != rewardHoveredIndex)
         {
             rewardHoveredIndex =
                 nextHover;
+
+            if (rewardHoveredIndex >= 0)
+                rewardHoverAnchorScreen = Input.mousePosition;
 
             ApplyRewardShowcaseFocus();
         }
@@ -1550,6 +1584,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         rewardShowcaseItems.Clear();
         rewardHoveredIndex = -1;
         rewardSelectedIndex = -1;
+        rewardHoverAnchorScreen = Vector2.zero;
         rewardShowcaseSignature = 0;
 
         if (rewardShowcaseRoot != null)
