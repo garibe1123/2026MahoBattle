@@ -240,6 +240,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [SerializeField, Min(0f)] private float rewardHoverStickyScreenRadius = 120f;
 
     [Header("Reward 카메라")]
+    [Tooltip("Reward 카메라의 전체 기준 위치를 이동합니다. X는 좌우, Y는 상하 World Offset입니다. Overview와 Item Hover 카메라에 모두 적용됩니다.")]
+    [SerializeField] private Vector2 rewardCameraPositionOffsetWorld = Vector2.zero;
+
     [Tooltip("Reward 전체 상품 View를 잡을 때 Bounds 바깥에 추가하는 World 여백입니다.")]
     [SerializeField, Min(0f)] private float rewardCameraPadding = 0.38f;
 
@@ -373,6 +376,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool warnedMissingTemplate;
     private float nextFieldTemplateScan;
 
+    // Play Mode Inspector 튜닝 즉시 반영용 Revision.
+    // Serialized Reward 값이 바뀔 때 OnValidate가 증가시키고,
+    // BattleShowWorldSetController가 변경을 감지해 현재 Showcase를 Refresh합니다.
+    [NonSerialized] private int rewardTuningRevision;
+
     private readonly HashSet<MapBlock> decoratedBlocks = new();
     /// <summary>런타임 임시 교체가 없으면 Inspector의 Default Floor Template을 사용합니다.</summary>
     public BattleShowFloorTemplateSO ActiveFloorTemplate =>
@@ -437,6 +445,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         Mathf.Max(0f, rewardHoverStickyScreenRadius);
 
     // Reward Camera
+    public Vector2 RewardCameraPositionOffsetWorld =>
+        rewardCameraPositionOffsetWorld;
+
+    public int RewardTuningRevision =>
+        rewardTuningRevision;
+
     public float RewardCameraPadding =>
         Mathf.Max(0f, rewardCameraPadding);
 
@@ -615,6 +629,26 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         return combatPresenterMotions != null
             ? combatPresenterMotions.Get(state)
             : null;
+    }
+
+    private void OnValidate()
+    {
+        unchecked
+        {
+            rewardTuningRevision++;
+        }
+    }
+
+    /// <summary>
+    /// Custom Inspector에서 ApplyModifiedProperties 직후 호출하는 명시적 Refresh 신호입니다.
+    /// OnValidate가 호출되지 않는 특수 Editor 경로에서도 Play Mode 변경을 놓치지 않습니다.
+    /// </summary>
+    public void NotifyRewardTuningChanged()
+    {
+        unchecked
+        {
+            rewardTuningRevision++;
+        }
     }
 
     private void Awake()
