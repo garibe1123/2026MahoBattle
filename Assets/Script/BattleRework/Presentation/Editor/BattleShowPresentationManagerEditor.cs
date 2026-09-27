@@ -743,18 +743,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 inner.y + 2f,
                 inner.width - 8f,
                 18f),
-            $"LIVE REWARD SHOWCASE  //  FLOAT {Manager.RewardItemFloatAmplitudePixels}px  " +
-            $"@ {Manager.RewardItemFloatCyclesPerSecond:0.00} cycle/s  //  " +
-            $"BASE {Manager.RewardBaseAnimationFps:0.#} FPS  //  " +
-            $"SPACING {Manager.RewardShowcaseSpacingWorld:0.00}",
+            $"REWARD UNIT PREVIEW  //  BOOSTER {Manager.RewardBoosterFps:0.#} FPS  //  " +
+            $"FLOAT {Manager.RewardItemFloatAmplitudePixels}px",
             titleStyle);
-
-        EquipmentRarity[] rarities =
-        {
-            EquipmentRarity.Common,
-            EquipmentRarity.Rare,
-            EquipmentRarity.Unique
-        };
 
         float floorPpu =
             Mathf.Max(
@@ -781,231 +772,217 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 floorPpu);
 
         float desiredTileHeight =
-            70f;
-
-        float worldToGui =
-            desiredTileHeight /
-            floorWorldHeight;
-
-        float centerSpacing =
-            Manager.RewardShowcaseSpacingWorld *
-            worldToGui;
-
-        float tileWidth =
-            floorWorldWidth *
-            worldToGui;
+            Mathf.Min(
+                108f,
+                Mathf.Max(
+                    72f,
+                    inner.height * 0.50f));
 
         float tileHeight =
-            floorWorldHeight *
-            worldToGui;
+            desiredTileHeight;
 
-        float requiredWidth =
-            tileWidth +
-            centerSpacing *
-            (rarities.Length - 1);
-
-        float availableWidth =
-            Mathf.Max(
-                40f,
-                inner.width - 48f);
-
-        float layoutScale =
-            requiredWidth > availableWidth
-                ? availableWidth /
-                  requiredWidth
-                : 1f;
-
-        centerSpacing *=
-            layoutScale;
-
-        tileWidth *=
-            layoutScale;
-
-        tileHeight *=
-            layoutScale;
+        float tileWidth =
+            tileHeight *
+            floorWorldWidth /
+            floorWorldHeight;
 
         float previewPixelScale =
             tileHeight /
             floorPixelHeight;
 
-        Vector2 showcaseOffset =
-            Manager.RewardShowcasePositionOffsetWorld;
-
-        float previewWorldScale =
-            worldToGui *
-            layoutScale;
-
         float centerX =
-            inner.center.x +
-            showcaseOffset.x *
-            previewWorldScale;
+            inner.center.x;
 
-        // GUI Y축은 아래 방향이 +이므로 World Y는 부호를 뒤집어 적용합니다.
         float baseCenterY =
             inner.y +
             inner.height *
-            0.66f -
-            showcaseOffset.y *
-            previewWorldScale;
+            0.61f;
 
         double editorTime =
             EditorApplication.timeSinceStartup;
 
-        float floatPhase =
-            (float)editorTime *
-            Manager.RewardItemFloatCyclesPerSecond *
-            Mathf.PI *
-            2f;
+        float floatPixels =
+            0f;
+
+        if (Manager.RewardItemFloatEnabled)
+        {
+            float floatPhase =
+                (float)editorTime *
+                Manager.RewardItemFloatCyclesPerSecond *
+                Mathf.PI *
+                2f;
+
+            floatPixels =
+                Mathf.Sin(floatPhase) *
+                Manager.RewardItemFloatAmplitudePixels;
+        }
+
+        // Runtime과 동일하게 Base / Item / Booster 전체가 같은 Root를 타고 Float합니다.
+        float floatingCenterY =
+            baseCenterY -
+            floatPixels *
+            previewPixelScale;
+
+        SerializedProperty boosterOffsetProperty =
+            serializedObject.FindProperty(
+                "rewardBoosterOffsetPixels");
+
+        Vector2 boosterOffsetPixels =
+            boosterOffsetProperty != null
+                ? boosterOffsetProperty.vector2Value
+                : Manager.RewardBoosterOffsetPixels;
+
+        Vector2Int boosterFrameSize =
+            Manager.RewardBoosterFrameSize;
+
+        float boosterWidth =
+            Mathf.Max(
+                18f,
+                boosterFrameSize.x *
+                previewPixelScale);
+
+        float boosterHeight =
+            Mathf.Max(
+                18f,
+                boosterFrameSize.y *
+                previewPixelScale);
+
+        float boosterCenterX =
+            centerX +
+            boosterOffsetPixels.x *
+            previewPixelScale;
+
+        float boosterCenterY =
+            floatingCenterY -
+            boosterOffsetPixels.y *
+            previewPixelScale;
+
+        Rect boosterRect =
+            new(
+                boosterCenterX -
+                boosterWidth * 0.5f,
+                boosterCenterY -
+                boosterHeight * 0.5f,
+                boosterWidth,
+                boosterHeight);
+
+        Sprite boosterSheet =
+            Manager.RewardBoosterSpriteSheet;
+
+        if (boosterSheet != null)
+        {
+            DrawRewardBoosterFrameInRect(
+                boosterRect,
+                boosterSheet,
+                editorTime,
+                Color.white);
+        }
+        else
+        {
+            EditorGUI.DrawRect(
+                boosterRect,
+                new Color(
+                    1f,
+                    0.62f,
+                    0.16f,
+                    0.26f));
+
+            GUI.Label(
+                boosterRect,
+                "BOOSTER",
+                EditorStyles.centeredGreyMiniLabel);
+        }
+
+        HandleRewardBoosterDrag(
+            boosterRect,
+            previewPixelScale,
+            boosterOffsetProperty);
+
+        Rect baseRect =
+            new(
+                centerX -
+                tileWidth * 0.5f,
+                floatingCenterY -
+                tileHeight * 0.5f,
+                tileWidth,
+                tileHeight);
+
+        // Base는 더 이상 애니메이션하지 않고 Basic 한 장만 사용합니다.
+        DrawSpriteInRect(
+            baseRect,
+            Manager.GetRewardBaseSprite(
+                EquipmentRarity.Common),
+            Color.white);
 
         Sprite previewItem =
             Manager.RewardPreviewItemSprite;
 
-        for (int i = 0;
-             i < rarities.Length;
-             i++)
+        float itemCenterY =
+            floatingCenterY -
+            Manager.RewardItemPixelYOffset *
+            previewPixelScale;
+
+        if (previewItem != null)
         {
-            float x =
-                centerX +
-                (i -
-                 (rarities.Length - 1) *
-                 0.5f) *
-                centerSpacing;
+            float itemWidth =
+                Mathf.Max(
+                    8f,
+                    previewItem.rect.width *
+                    previewPixelScale);
 
-            float floatPixels =
-                0f;
+            float itemHeight =
+                Mathf.Max(
+                    8f,
+                    previewItem.rect.height *
+                    previewPixelScale);
 
-            if (Manager.RewardItemFloatEnabled)
-            {
-                floatPixels =
-                    Mathf.Sin(
-                        floatPhase +
-                        i *
-                        Manager.RewardItemFloatPhaseStep) *
-                    Manager.RewardItemFloatAmplitudePixels;
-            }
-
-            // Runtime과 동일하게 Base + Item 전체가 한 유닛으로 같이 Float합니다.
-            // GUI Y축은 아래가 +이므로 World 위쪽 이동은 Screen Y에서 빼줍니다.
-            float floatingCenterY =
-                baseCenterY -
-                floatPixels *
-                previewPixelScale;
-
-            Rect baseRect =
+            Rect itemRect =
                 new(
-                    x - tileWidth * 0.5f,
-                    floatingCenterY - tileHeight * 0.5f,
-                    tileWidth,
-                    tileHeight);
+                    centerX -
+                    itemWidth * 0.5f,
+                    itemCenterY -
+                    itemHeight * 0.5f,
+                    itemWidth,
+                    itemHeight);
 
-            Sprite baseSprite =
-                Manager.GetRewardBaseSprite(
-                    rarities[i]);
-
-            DrawRewardBaseFrameInRect(
-                baseRect,
-                baseSprite,
-                editorTime,
+            DrawSpriteInRect(
+                itemRect,
+                previewItem,
                 Color.white);
+        }
+        else
+        {
+            float placeholder =
+                Mathf.Max(
+                    18f,
+                    16f *
+                    previewPixelScale);
 
-            float itemCenterY =
-                floatingCenterY -
-                Manager.RewardItemPixelYOffset *
-                previewPixelScale;
+            Rect itemRect =
+                new(
+                    centerX -
+                    placeholder * 0.5f,
+                    itemCenterY -
+                    placeholder * 0.5f,
+                    placeholder,
+                    placeholder);
 
-            Rect itemRect;
-
-            if (previewItem != null)
-            {
-                float itemWidth =
-                    Mathf.Max(
-                        8f,
-                        previewItem.rect.width *
-                        previewPixelScale);
-
-                float itemHeight =
-                    Mathf.Max(
-                        8f,
-                        previewItem.rect.height *
-                        previewPixelScale);
-
-                itemRect =
-                    new Rect(
-                        x - itemWidth * 0.5f,
-                        itemCenterY -
-                        itemHeight * 0.5f,
-                        itemWidth,
-                        itemHeight);
-
-                DrawSpriteInRect(
-                    itemRect,
-                    previewItem,
-                    Color.white);
-            }
-            else
-            {
-                float placeholder =
-                    Mathf.Max(
-                        16f,
-                        12f *
-                        layoutScale);
-
-                itemRect =
-                    new Rect(
-                        x - placeholder * 0.5f,
-                        itemCenterY -
-                        placeholder * 0.5f,
-                        placeholder,
-                        placeholder);
-
-                EditorGUI.DrawRect(
-                    itemRect,
-                    new Color(
-                        0.93f,
-                        0.96f,
-                        1f,
-                        0.95f));
-
-                GUI.Label(
-                    new Rect(
-                        itemRect.x - 14f,
-                        itemRect.y - 17f,
-                        itemRect.width + 28f,
-                        15f),
-                    "ITEM",
-                    EditorStyles.centeredGreyMiniLabel);
-            }
-
-            GUIStyle rarityStyle =
-                new(EditorStyles.miniBoldLabel);
-
-            rarityStyle.alignment =
-                TextAnchor.MiddleCenter;
-
-            rarityStyle.normal.textColor =
+            EditorGUI.DrawRect(
+                itemRect,
                 new Color(
-                    0.78f,
-                    0.82f,
-                    0.90f,
-                    1f);
+                    0.93f,
+                    0.96f,
+                    1f,
+                    0.95f));
 
             GUI.Label(
                 new Rect(
-                    x -
-                    Mathf.Max(
-                        45f,
-                        tileWidth * 0.7f),
-                    baseCenterY +
-                    tileHeight * 0.5f +
-                    7f,
-                    Mathf.Max(
-                        90f,
-                        tileWidth * 1.4f),
-                    18f),
-                rarities[i]
-                    .ToString()
-                    .ToUpperInvariant(),
-                rarityStyle);
+                    itemRect.x - 18f,
+                    itemRect.y - 17f,
+                    itemRect.width + 36f,
+                    15f),
+                "ITEM",
+                EditorStyles.centeredGreyMiniLabel);
         }
 
         GUIStyle footerStyle =
@@ -1013,9 +990,9 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         footerStyle.normal.textColor =
             new Color(
-                0.62f,
-                0.66f,
-                0.73f,
+                0.68f,
+                0.72f,
+                0.80f,
                 1f);
 
         GUI.Label(
@@ -1024,11 +1001,174 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 inner.yMax - 22f,
                 inner.width - 8f,
                 18f),
-            "BASE + ITEM FLOAT TOGETHER / BASE SPRITE SHEET LIVE / Pixel → Floor PPU 동일",
+            $"BOOSTER DRAG: ({boosterOffsetPixels.x:0.#}, {boosterOffsetPixels.y:0.#}) px  //  " +
+            "왼쪽 클릭 + 드래그로 Base 기준 위치 조절",
             footerStyle);
     }
 
-    private void DrawRewardBaseFrameInRect(
+    private void HandleRewardBoosterDrag(
+        Rect boosterRect,
+        float previewPixelScale,
+        SerializedProperty boosterOffsetProperty)
+    {
+        if (boosterOffsetProperty == null)
+            return;
+
+        Rect hitRect =
+            Rect.MinMaxRect(
+                boosterRect.xMin - 10f,
+                boosterRect.yMin - 10f,
+                boosterRect.xMax + 10f,
+                boosterRect.yMax + 10f);
+
+        EditorGUIUtility.AddCursorRect(
+            hitRect,
+            MouseCursor.MoveArrow);
+
+        int controlId =
+            GUIUtility.GetControlID(
+                FocusType.Passive);
+
+        Event current =
+            Event.current;
+
+        switch (current.GetTypeForControl(controlId))
+        {
+            case EventType.MouseDown:
+                if (current.button == 0 &&
+                    hitRect.Contains(
+                        current.mousePosition))
+                {
+                    Undo.RecordObject(
+                        Manager,
+                        "Move Reward Booster");
+
+                    rewardBoosterDragStartMouse =
+                        current.mousePosition;
+
+                    rewardBoosterDragStartOffset =
+                        boosterOffsetProperty.vector2Value;
+
+                    GUIUtility.hotControl =
+                        controlId;
+
+                    current.Use();
+                }
+                break;
+
+            case EventType.MouseDrag:
+                if (current.button == 0 &&
+                    GUIUtility.hotControl ==
+                    controlId)
+                {
+                    Vector2 mouseDelta =
+                        current.mousePosition -
+                        rewardBoosterDragStartMouse;
+
+                    float safeScale =
+                        Mathf.Max(
+                            0.001f,
+                            previewPixelScale);
+
+                    boosterOffsetProperty.vector2Value =
+                        rewardBoosterDragStartOffset +
+                        new Vector2(
+                            mouseDelta.x /
+                            safeScale,
+                            -mouseDelta.y /
+                            safeScale);
+
+                    GUI.changed =
+                        true;
+
+                    Repaint();
+                    current.Use();
+                }
+                break;
+
+            case EventType.MouseUp:
+                if (current.button == 0 &&
+                    GUIUtility.hotControl ==
+                    controlId)
+                {
+                    GUIUtility.hotControl =
+                        0;
+
+                    current.Use();
+                }
+                break;
+        }
+
+        bool active =
+            GUIUtility.hotControl ==
+            controlId;
+
+        bool hovered =
+            hitRect.Contains(
+                Event.current.mousePosition);
+
+        if (active ||
+            hovered)
+        {
+            Color guide =
+                active
+                    ? new Color(
+                        1f,
+                        0.84f,
+                        0.24f,
+                        0.95f)
+                    : new Color(
+                        1f,
+                        1f,
+                        1f,
+                        0.50f);
+
+            DrawRewardPreviewOutline(
+                hitRect,
+                guide);
+        }
+    }
+
+    private static void DrawRewardPreviewOutline(
+        Rect rect,
+        Color color)
+    {
+        const float thickness = 1f;
+
+        EditorGUI.DrawRect(
+            new Rect(
+                rect.xMin,
+                rect.yMin,
+                rect.width,
+                thickness),
+            color);
+
+        EditorGUI.DrawRect(
+            new Rect(
+                rect.xMin,
+                rect.yMax - thickness,
+                rect.width,
+                thickness),
+            color);
+
+        EditorGUI.DrawRect(
+            new Rect(
+                rect.xMin,
+                rect.yMin,
+                thickness,
+                rect.height),
+            color);
+
+        EditorGUI.DrawRect(
+            new Rect(
+                rect.xMax - thickness,
+                rect.yMin,
+                thickness,
+                rect.height),
+            color);
+    }
+
+    private void DrawRewardBoosterFrameInRect(
         Rect rect,
         Sprite source,
         double editorTime,
@@ -1036,18 +1176,13 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     {
         if (source == null ||
             source.texture == null ||
-            Manager == null ||
-            !Manager.RewardBaseAnimationEnabled)
+            Manager == null)
         {
-            DrawSpriteInRect(
-                rect,
-                source,
-                tint);
             return;
         }
 
         Vector2Int frameSize =
-            Manager.RewardBaseAnimationFrameSize;
+            Manager.RewardBoosterFrameSize;
 
         int cellWidth =
             Mathf.Max(
@@ -1083,12 +1218,14 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         int columns =
             Mathf.Max(
                 1,
-                width / cellWidth);
+                width /
+                cellWidth);
 
         int rows =
             Mathf.Max(
                 1,
-                height / cellHeight);
+                height /
+                cellHeight);
 
         int frameCount =
             Mathf.Max(
@@ -1096,17 +1233,28 @@ public sealed class BattleShowPresentationManagerEditor : Editor
                 columns *
                 rows);
 
+        if (rewardPreviewBoosterStartFrame < 0)
+        {
+            rewardPreviewBoosterStartFrame =
+                UnityEngine.Random.Range(
+                    0,
+                    frameCount);
+        }
+
         int rawFrame =
             Mathf.Max(
                 0,
                 Mathf.FloorToInt(
                     (float)editorTime *
-                    Manager.RewardBaseAnimationFps));
+                    Manager.RewardBoosterFps));
 
         int frameIndex =
-            Manager.RewardBaseAnimationLoop
-                ? rawFrame % frameCount
+            Manager.RewardBoosterLoop
+                ? (rawFrame +
+                   rewardPreviewBoosterStartFrame) %
+                  frameCount
                 : Mathf.Min(
+                    rewardPreviewBoosterStartFrame +
                     rawFrame,
                     frameCount - 1);
 
