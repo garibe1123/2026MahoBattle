@@ -203,6 +203,22 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("켜면 Base Sprite Sheet 마지막 프레임 뒤에 처음 프레임으로 돌아가 반복합니다. 끄면 마지막 프레임에서 멈춥니다.")]
     [SerializeField] private bool rewardBaseAnimationLoop = true;
 
+    [Header("Reward Booster Sprite Sheet")]
+    [Tooltip("Base와 별도로 재생할 부스터/불빛/파티클 Sprite Sheet입니다. Sprite Mode=Single 전체 시트를 넣는 방식을 권장합니다.")]
+    [SerializeField] private Sprite rewardBoosterSpriteSheet;
+
+    [Tooltip("Booster Sprite Sheet 한 프레임의 픽셀 크기입니다. 시트는 좌→우, 위→아래 순서로 재생합니다.")]
+    [SerializeField] private Vector2Int rewardBoosterFrameSize = new(32, 32);
+
+    [Tooltip("Booster Sprite Sheet 재생 FPS입니다.")]
+    [SerializeField, Range(1f, 30f)] private float rewardBoosterFps = 12f;
+
+    [Tooltip("켜면 Booster 마지막 프레임 뒤에 처음 프레임으로 돌아가 반복합니다.")]
+    [SerializeField] private bool rewardBoosterLoop = true;
+
+    [Tooltip("Base 중심 기준 Booster의 위치입니다. X/Y 모두 Floor PPU 기준 픽셀 단위입니다. Preview에서 Booster를 직접 드래그해 수정할 수 있습니다.")]
+    [SerializeField] private Vector2 rewardBoosterOffsetPixels = new(0f, -16f);
+
     [Tooltip("아이템 Sprite 중심을 Base 중심에서 세로로 이동할 픽셀 값입니다. 음수면 아래로 내려갑니다. Floor PPU 기준으로 World Offset으로 환산됩니다.")]
     [SerializeField] private int rewardItemPixelYOffset = -4;
 
@@ -396,20 +412,23 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public int RewardItemPixelYOffset =>
         rewardItemPixelYOffset;
 
-    // Reward Base Sprite Sheet Animation
-    public bool RewardBaseAnimationEnabled =>
-        rewardBaseAnimationEnabled;
+    // Reward Booster Sprite Sheet
+    public Sprite RewardBoosterSpriteSheet =>
+        rewardBoosterSpriteSheet;
 
-    public Vector2Int RewardBaseAnimationFrameSize =>
+    public Vector2Int RewardBoosterFrameSize =>
         new(
-            Mathf.Max(1, rewardBaseAnimationFrameSize.x),
-            Mathf.Max(1, rewardBaseAnimationFrameSize.y));
+            Mathf.Max(1, rewardBoosterFrameSize.x),
+            Mathf.Max(1, rewardBoosterFrameSize.y));
 
-    public float RewardBaseAnimationFps =>
-        Mathf.Max(1f, rewardBaseAnimationFps);
+    public float RewardBoosterFps =>
+        Mathf.Max(1f, rewardBoosterFps);
 
-    public bool RewardBaseAnimationLoop =>
-        rewardBaseAnimationLoop;
+    public bool RewardBoosterLoop =>
+        rewardBoosterLoop;
+
+    public Vector2 RewardBoosterOffsetPixels =>
+        rewardBoosterOffsetPixels;
 
     // Reward Item Float
     public bool RewardItemFloatEnabled =>
@@ -506,20 +525,9 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public Sprite GetRewardBaseSprite(
         EquipmentRarity rarity)
     {
-        Sprite raritySprite =
-            rarity switch
-            {
-                EquipmentRarity.Common => rewardCommonBaseSprite,
-                EquipmentRarity.Uncommon => rewardUncommonBaseSprite,
-                EquipmentRarity.Rare => rewardRareBaseSprite,
-                EquipmentRarity.Epic => rewardEpicBaseSprite,
-                EquipmentRarity.Unique => rewardUniqueBaseSprite,
-                _ => null
-            };
-
-        if (raritySprite != null)
-            return raritySprite;
-
+        // Reward Base는 이제 등급과 무관하게 Basic 한 장만 사용합니다.
+        // 기존 rarity 전용 Serialized 필드는 이전 씬/프리팹 데이터 호환을 위해 남겨두되
+        // 런타임 진열에는 사용하지 않습니다.
         if (rewardBasicBaseSprite != null)
             return rewardBasicBaseSprite;
 
