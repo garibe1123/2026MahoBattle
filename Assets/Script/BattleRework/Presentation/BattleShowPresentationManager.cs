@@ -193,6 +193,75 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("아이템 Sprite 중심을 Base 중심에서 세로로 이동할 픽셀 값입니다. 음수면 아래로 내려갑니다. Floor PPU 기준으로 World Offset으로 환산됩니다.")]
     [SerializeField] private int rewardItemPixelYOffset = -4;
 
+    [Header("Reward 상품 진열 Layout")]
+    [Tooltip("상품 Base 중심끼리의 World 간격입니다. 아이템들이 너무 붙어 보이면 이 값을 올립니다.")]
+    [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 2.30f;
+
+    [Tooltip("Floor 한 칸 폭 대비 최소 상품 간격 배수입니다. 위 간격값이 작아도 이 배수보다 좁아지지 않습니다.")]
+    [SerializeField, Min(1f)] private float rewardShowcaseMinTileSpacingMultiplier = 2.30f;
+
+    [Tooltip("기존 TV/Display 중심을 기준으로 상품 진열 행 전체를 위/아래로 이동합니다.")]
+    [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.20f;
+
+    [Tooltip("아이템/Base Hover 판정 영역에 추가할 World 여유입니다.")]
+    [SerializeField, Range(0f, 0.5f)] private float rewardHoverBoundsPaddingWorld = 0.10f;
+
+    [Tooltip("Hover 중 카메라가 움직여 아이템이 커서 아래에서 빠져도 Hover를 유지할 Screen Pixel 반경입니다.")]
+    [SerializeField, Min(0f)] private float rewardHoverStickyScreenRadius = 120f;
+
+    [Header("Reward 카메라")]
+    [Tooltip("Reward 전체 상품 View를 잡을 때 Bounds 바깥에 추가하는 World 여백입니다.")]
+    [SerializeField, Min(0f)] private float rewardCameraPadding = 0.38f;
+
+    [Tooltip("Reward 전체 상품 View의 최소 Orthographic Size입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 2.55f;
+
+    [Tooltip("아이템에 커서를 올렸을 때 목표로 하는 Orthographic Size입니다. 작을수록 더 크게 줌인합니다.")]
+    [SerializeField, Min(0.5f)] private float rewardItemHoverCameraSize = 1.75f;
+
+    [Tooltip("아이템 Hover 시 Camera Target을 Item 중심에서 얼마나 이동할지 정합니다. X/Y 모두 World 단위입니다.")]
+    [SerializeField] private Vector2 rewardItemHoverCameraPivotOffset = new(0.92f, 0.10f);
+
+    [Tooltip("Hover 중 허용할 최소 Orthographic Size입니다. Camera Size를 더 작게 잡고 싶으면 이 값도 함께 낮춥니다.")]
+    [SerializeField, Min(0.1f)] private float rewardItemHoverMinZoom = 1.45f;
+
+    [Tooltip("Hover 시 Camera 위치가 목표 Pivot을 따라가는 속도입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardItemHoverFollowSharpness = 5.4f;
+
+    [Tooltip("Hover 시 Camera Zoom이 목표값으로 들어오고 빠지는 속도입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardItemHoverZoomSharpness = 7.0f;
+
+    [Tooltip("가상 Reward Display 안에서 커서를 움직일 때 Camera가 따라가는 최대 World 거리입니다.")]
+    [SerializeField] private Vector2 rewardCursorPanDistance = new(1.55f, 0.85f);
+
+    [Tooltip("Reward Cursor Tracking이 커서를 따라가는 속도입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardCursorTrackingSharpness = 5.6f;
+
+    [Tooltip("Reward Display 안에 커서가 들어왔을 때 현재 Reward Zoom에 곱하는 비율입니다. 1이면 추가 줌 없음, 작을수록 더 줌인합니다.")]
+    [SerializeField, Range(0.50f, 1f)] private float rewardCursorZoomRatio = 0.88f;
+
+    [Header("Reward 아이템 Spotlight")]
+    [Tooltip("아이템 Hover Spotlight의 색상입니다.")]
+    [SerializeField] private Color rewardSpotlightColor = new(1f, 0.96f, 0.78f, 1f);
+
+    [Tooltip("아이템 발밑 Light Pool의 최대 Alpha입니다.")]
+    [SerializeField, Range(0f, 1f)] private float rewardSpotlightPoolAlpha = 0.34f;
+
+    [Tooltip("위에서 내려오는 Spotlight Beam의 최대 Alpha입니다.")]
+    [SerializeField, Range(0f, 1f)] private float rewardSpotlightBeamAlpha = 0.58f;
+
+    [Tooltip("Spotlight / Light Pool의 가로 폭 배율입니다.")]
+    [SerializeField, Min(0.2f)] private float rewardSpotlightWidth = 1.8f;
+
+    [Tooltip("Spotlight Beam의 세로 길이 배율입니다. 길게 내리고 싶으면 이 값을 올립니다.")]
+    [SerializeField, Min(0.2f)] private float rewardSpotlightBeamLength = 2.4f;
+
+    [Tooltip("Spotlight Beam의 세로 위치 비율입니다. 빛줄기 시작/끝 위치를 미세하게 조정할 때 사용합니다.")]
+    [SerializeField, Range(-1f, 1f)] private float rewardSpotlightBeamVerticalOffset = 0.24f;
+
+    [Tooltip("Spotlight가 켜지고 꺼질 때 Fade 반응 속도입니다.")]
+    [SerializeField, Min(0.1f)] private float rewardSpotlightFadeSharpness = 10f;
+
     [Header("선택씬 말풍선 프레임 스타일")]
     [Tooltip("Reward / 아이템 선택 / 맵 선택에서 사용하는 말풍선 본체 크기/외곽/Scale 스타일입니다.")]
     [SerializeField] private BattleSpeechBubbleFrameStyle selectionSpeechBubbleFrameStyle =
@@ -288,6 +357,75 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public int RewardItemPixelYOffset =>
         rewardItemPixelYOffset;
+
+    // Reward Showcase Layout
+    public float RewardShowcaseSpacingWorld =>
+        Mathf.Max(0.5f, rewardShowcaseSpacingWorld);
+
+    public float RewardShowcaseMinTileSpacingMultiplier =>
+        Mathf.Max(1f, rewardShowcaseMinTileSpacingMultiplier);
+
+    public float RewardShowcaseRowYOffsetWorld =>
+        rewardShowcaseRowYOffsetWorld;
+
+    public float RewardHoverBoundsPaddingWorld =>
+        Mathf.Max(0f, rewardHoverBoundsPaddingWorld);
+
+    public float RewardHoverStickyScreenRadius =>
+        Mathf.Max(0f, rewardHoverStickyScreenRadius);
+
+    // Reward Camera
+    public float RewardCameraPadding =>
+        Mathf.Max(0f, rewardCameraPadding);
+
+    public float RewardCameraMinSize =>
+        Mathf.Max(0.1f, rewardCameraMinSize);
+
+    public float RewardItemHoverCameraSize =>
+        Mathf.Max(0.5f, rewardItemHoverCameraSize);
+
+    public Vector2 RewardItemHoverCameraPivotOffset =>
+        rewardItemHoverCameraPivotOffset;
+
+    public float RewardItemHoverMinZoom =>
+        Mathf.Max(0.1f, rewardItemHoverMinZoom);
+
+    public float RewardItemHoverFollowSharpness =>
+        Mathf.Max(0.1f, rewardItemHoverFollowSharpness);
+
+    public float RewardItemHoverZoomSharpness =>
+        Mathf.Max(0.1f, rewardItemHoverZoomSharpness);
+
+    public Vector2 RewardCursorPanDistance =>
+        rewardCursorPanDistance;
+
+    public float RewardCursorTrackingSharpness =>
+        Mathf.Max(0.1f, rewardCursorTrackingSharpness);
+
+    public float RewardCursorZoomRatio =>
+        Mathf.Clamp(rewardCursorZoomRatio, 0.50f, 1f);
+
+    // Reward Spotlight
+    public Color RewardSpotlightColor =>
+        rewardSpotlightColor;
+
+    public float RewardSpotlightPoolAlpha =>
+        Mathf.Clamp01(rewardSpotlightPoolAlpha);
+
+    public float RewardSpotlightBeamAlpha =>
+        Mathf.Clamp01(rewardSpotlightBeamAlpha);
+
+    public float RewardSpotlightWidth =>
+        Mathf.Max(0.2f, rewardSpotlightWidth);
+
+    public float RewardSpotlightBeamLength =>
+        Mathf.Max(0.2f, rewardSpotlightBeamLength);
+
+    public float RewardSpotlightBeamVerticalOffset =>
+        Mathf.Clamp(rewardSpotlightBeamVerticalOffset, -1f, 1f);
+
+    public float RewardSpotlightFadeSharpness =>
+        Mathf.Max(0.1f, rewardSpotlightFadeSharpness);
 
     public Sprite GetRewardBaseSprite(
         EquipmentRarity rarity)
