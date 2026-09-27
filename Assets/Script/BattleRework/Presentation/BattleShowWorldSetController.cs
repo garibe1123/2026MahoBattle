@@ -1123,15 +1123,21 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         Vector3 showcaseCenter =
             ResolveMountedTvWorld();
 
+        Vector2 showcaseOffset =
+            presentation != null
+                ? presentation.RewardShowcasePositionOffsetWorld
+                : new Vector2(0f, -0.20f);
+
         float startX =
-            showcaseCenter.x -
+            showcaseCenter.x +
+            showcaseOffset.x -
             (choices.Count - 1) *
             spacing *
             0.5f;
 
         float rowY =
             showcaseCenter.y +
-            (presentation != null ? presentation.RewardShowcaseRowYOffsetWorld : -0.20f);
+            showcaseOffset.y;
 
         float floorPpu =
             presentation != null
