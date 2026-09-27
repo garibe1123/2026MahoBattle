@@ -1196,7 +1196,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private void SetWorldSkipVisible(
         bool visible)
     {
-        EnsureWorldShowcaseUi();
+        if (visible)
+            EnsureWorldShowcaseUi();
 
         if (worldSkipRoot == null ||
             worldSkipGroup == null)
