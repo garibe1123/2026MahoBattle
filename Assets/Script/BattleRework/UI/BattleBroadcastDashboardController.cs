@@ -154,6 +154,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private static Sprite viewerMetricSprite;
     private static Sprite likeMetricSprite;
 
+    public BattleCombatTabFocus CurrentFocus => focus;
+
     private BattleRunManager subscribedRunManager;
     private BattleKineticLoadoutUI subscribedLoadout;
     private FanMissionSystem subscribedMissionSystem;
