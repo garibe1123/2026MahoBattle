@@ -293,7 +293,7 @@ public sealed class BattleUiSpatialSurface : MonoBehaviour
                     point);
         }
 
-        return Rect.MinMaxRect(
+        return UnityEngine.Rect.MinMaxRect(
             min.x,
             min.y,
             max.x,
