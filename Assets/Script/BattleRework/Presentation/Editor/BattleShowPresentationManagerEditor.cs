@@ -1,11 +1,13 @@
 #if UNITY_EDITOR
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Sprites;
 
 [CustomEditor(typeof(BattleShowPresentationManager))]
 public sealed class BattleShowPresentationManagerEditor : Editor
 {
     private const float PreviewHeight = 340f;
+    private const float RewardPreviewHeight = 230f;
     private const float FrameHandleSize = 12f;
     private const float FrameHandleHitSize = 26f;
     private const float TailPointHandleSize = 12f;
@@ -147,6 +149,11 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         EditorGUILayout.Space(12f);
 
+        DrawRewardShowcasePreviewSection();
+
+        EditorGUILayout.Space(12f);
+        DrawDivider();
+
         DrawSection(
             selectionState,
             Manager != null
@@ -166,6 +173,13 @@ public sealed class BattleShowPresentationManagerEditor : Editor
             Manager != null
                 ? Manager.CombatSpeechBubbleTailStyle
                 : null);
+    }
+
+    public override bool RequiresConstantRepaint()
+    {
+        return
+            Manager != null &&
+            Manager.RewardItemFloatEnabled;
     }
 
     public override bool HasPreviewGUI()
@@ -196,6 +210,452 @@ public sealed class BattleShowPresentationManagerEditor : Editor
 
         if (GUIUtility.hotControl != 0)
             GUIUtility.hotControl = 0;
+    }
+
+    private void DrawRewardShowcasePreviewSection()
+    {
+        if (Manager == null)
+            return;
+
+        EditorGUILayout.LabelField(
+            "Reward 상품 Preview",
+            EditorStyles.boldLabel);
+
+        EditorGUILayout.HelpBox(
+            "위의 Reward Base / Layout / Camera / Spotlight / 둥둥 애니메이션 값을 확인하는 미리보기입니다. " +
+            "Base는 고정되고 Item Sprite만 실제 런타임과 같은 속도/진폭/위상으로 움직입니다. " +
+            "Preview Item Sprite는 Inspector 확인용이며 실제 게임에서는 Equipment icon을 사용합니다.",
+            MessageType.Info);
+
+        Rect previewRect =
+            GUILayoutUtility.GetRect(
+                160f,
+                RewardPreviewHeight,
+                GUILayout.ExpandWidth(true));
+
+        DrawRewardShowcasePreview(
+            previewRect);
+    }
+
+    private void DrawRewardShowcasePreview(
+        Rect rect)
+    {
+        if (Manager == null)
+            return;
+
+        EditorGUI.DrawRect(
+            rect,
+            new Color(
+                0.075f,
+                0.080f,
+                0.095f,
+                1f));
+
+        Rect inner =
+            new(
+                rect.x + 12f,
+                rect.y + 12f,
+                Mathf.Max(
+                    1f,
+                    rect.width - 24f),
+                Mathf.Max(
+                    1f,
+                    rect.height - 24f));
+
+        EditorGUI.DrawRect(
+            new Rect(
+                inner.x,
+                inner.yMax - 1f,
+                inner.width,
+                1f),
+            new Color(
+                1f,
+                1f,
+                1f,
+                0.12f));
+
+        GUIStyle titleStyle =
+            new(EditorStyles.miniBoldLabel);
+
+        titleStyle.normal.textColor =
+            Color.white;
+
+        GUI.Label(
+            new Rect(
+                inner.x + 4f,
+                inner.y + 2f,
+                inner.width - 8f,
+                18f),
+            $"LIVE REWARD SHOWCASE  //  FLOAT {Manager.RewardItemFloatAmplitudePixels}px  " +
+            $"@ {Manager.RewardItemFloatCyclesPerSecond:0.00} cycle/s  //  " +
+            $"SPACING {Manager.RewardShowcaseSpacingWorld:0.00}",
+            titleStyle);
+
+        EquipmentRarity[] rarities =
+        {
+            EquipmentRarity.Common,
+            EquipmentRarity.Rare,
+            EquipmentRarity.Unique
+        };
+
+        float floorPpu =
+            Mathf.Max(
+                1f,
+                Manager.GetFloorPixelsPerUnit());
+
+        Vector2 floorWorldSize =
+            Manager.GetFloorTileWorldSize();
+
+        float floorWorldHeight =
+            Mathf.Max(
+                0.01f,
+                floorWorldSize.y);
+
+        float floorWorldWidth =
+            Mathf.Max(
+                0.01f,
+                floorWorldSize.x);
+
+        float floorPixelHeight =
+            Mathf.Max(
+                1f,
+                floorWorldHeight *
+                floorPpu);
+
+        float floorPixelWidth =
+            Mathf.Max(
+                1f,
+                floorWorldWidth *
+                floorPpu);
+
+        float desiredTileHeight =
+            70f;
+
+        float worldToGui =
+            desiredTileHeight /
+            floorWorldHeight;
+
+        float centerSpacing =
+            Manager.RewardShowcaseSpacingWorld *
+            worldToGui;
+
+        float tileWidth =
+            floorWorldWidth *
+            worldToGui;
+
+        float tileHeight =
+            floorWorldHeight *
+            worldToGui;
+
+        float requiredWidth =
+            tileWidth +
+            centerSpacing *
+            (rarities.Length - 1);
+
+        float availableWidth =
+            Mathf.Max(
+                40f,
+                inner.width - 48f);
+
+        float layoutScale =
+            requiredWidth > availableWidth
+                ? availableWidth /
+                  requiredWidth
+                : 1f;
+
+        centerSpacing *=
+            layoutScale;
+
+        tileWidth *=
+            layoutScale;
+
+        tileHeight *=
+            layoutScale;
+
+        float previewPixelScale =
+            tileHeight /
+            floorPixelHeight;
+
+        float centerX =
+            inner.center.x;
+
+        float baseCenterY =
+            inner.y +
+            inner.height *
+            0.66f;
+
+        double editorTime =
+            EditorApplication.timeSinceStartup;
+
+        float floatPhase =
+            (float)editorTime *
+            Manager.RewardItemFloatCyclesPerSecond *
+            Mathf.PI *
+            2f;
+
+        Sprite previewItem =
+            Manager.RewardPreviewItemSprite;
+
+        for (int i = 0;
+             i < rarities.Length;
+             i++)
+        {
+            float x =
+                centerX +
+                (i -
+                 (rarities.Length - 1) *
+                 0.5f) *
+                centerSpacing;
+
+            Rect baseRect =
+                new(
+                    x - tileWidth * 0.5f,
+                    baseCenterY - tileHeight * 0.5f,
+                    tileWidth,
+                    tileHeight);
+
+            Sprite baseSprite =
+                Manager.GetRewardBaseSprite(
+                    rarities[i]);
+
+            DrawSpriteInRect(
+                baseRect,
+                baseSprite,
+                new Color(
+                    1f,
+                    1f,
+                    1f,
+                    1f));
+
+            float floatPixels =
+                0f;
+
+            if (Manager.RewardItemFloatEnabled)
+            {
+                floatPixels =
+                    Mathf.Sin(
+                        floatPhase +
+                        i *
+                        Manager.RewardItemFloatPhaseStep) *
+                    Manager.RewardItemFloatAmplitudePixels;
+            }
+
+            float itemCenterY =
+                baseCenterY -
+                Manager.RewardItemPixelYOffset *
+                previewPixelScale -
+                floatPixels *
+                previewPixelScale;
+
+            Rect itemRect;
+
+            if (previewItem != null)
+            {
+                float itemWidth =
+                    Mathf.Max(
+                        8f,
+                        previewItem.rect.width *
+                        previewPixelScale);
+
+                float itemHeight =
+                    Mathf.Max(
+                        8f,
+                        previewItem.rect.height *
+                        previewPixelScale);
+
+                itemRect =
+                    new Rect(
+                        x - itemWidth * 0.5f,
+                        itemCenterY -
+                        itemHeight * 0.5f,
+                        itemWidth,
+                        itemHeight);
+
+                DrawSpriteInRect(
+                    itemRect,
+                    previewItem,
+                    Color.white);
+            }
+            else
+            {
+                float placeholder =
+                    Mathf.Max(
+                        16f,
+                        12f *
+                        layoutScale);
+
+                itemRect =
+                    new Rect(
+                        x - placeholder * 0.5f,
+                        itemCenterY -
+                        placeholder * 0.5f,
+                        placeholder,
+                        placeholder);
+
+                EditorGUI.DrawRect(
+                    itemRect,
+                    new Color(
+                        0.93f,
+                        0.96f,
+                        1f,
+                        0.95f));
+
+                GUI.Label(
+                    new Rect(
+                        itemRect.x - 14f,
+                        itemRect.y - 17f,
+                        itemRect.width + 28f,
+                        15f),
+                    "ITEM",
+                    EditorStyles.centeredGreyMiniLabel);
+            }
+
+            GUIStyle rarityStyle =
+                new(EditorStyles.miniBoldLabel);
+
+            rarityStyle.alignment =
+                TextAnchor.MiddleCenter;
+
+            rarityStyle.normal.textColor =
+                new Color(
+                    0.78f,
+                    0.82f,
+                    0.90f,
+                    1f);
+
+            GUI.Label(
+                new Rect(
+                    x -
+                    Mathf.Max(
+                        45f,
+                        tileWidth * 0.7f),
+                    baseRect.yMax + 7f,
+                    Mathf.Max(
+                        90f,
+                        tileWidth * 1.4f),
+                    18f),
+                rarities[i]
+                    .ToString()
+                    .ToUpperInvariant(),
+                rarityStyle);
+        }
+
+        GUIStyle footerStyle =
+            new(EditorStyles.miniLabel);
+
+        footerStyle.normal.textColor =
+            new Color(
+                0.62f,
+                0.66f,
+                0.73f,
+                1f);
+
+        GUI.Label(
+            new Rect(
+                inner.x + 4f,
+                inner.yMax - 22f,
+                inner.width - 8f,
+                18f),
+            "BASE FIXED / ITEM FLOAT ONLY / 실제 런타임과 동일한 Pixel → Floor PPU 변환",
+            footerStyle);
+    }
+
+    private static void DrawSpriteInRect(
+        Rect rect,
+        Sprite sprite,
+        Color tint)
+    {
+        if (rect.width <= 0f ||
+            rect.height <= 0f)
+        {
+            return;
+        }
+
+        if (sprite == null ||
+            sprite.texture == null)
+        {
+            EditorGUI.DrawRect(
+                rect,
+                new Color(
+                    0.22f,
+                    0.24f,
+                    0.29f,
+                    1f));
+
+            return;
+        }
+
+        Vector4 outerUv =
+            DataUtility.GetOuterUV(
+                sprite);
+
+        Rect uv =
+            Rect.MinMaxRect(
+                outerUv.x,
+                outerUv.y,
+                outerUv.z,
+                outerUv.w);
+
+        float spriteAspect =
+            sprite.rect.width /
+            Mathf.Max(
+                1f,
+                sprite.rect.height);
+
+        float rectAspect =
+            rect.width /
+            Mathf.Max(
+                1f,
+                rect.height);
+
+        Rect fitted =
+            rect;
+
+        if (spriteAspect > rectAspect)
+        {
+            float height =
+                rect.width /
+                Mathf.Max(
+                    0.001f,
+                    spriteAspect);
+
+            fitted.y +=
+                (rect.height -
+                 height) *
+                0.5f;
+
+            fitted.height =
+                height;
+        }
+        else
+        {
+            float width =
+                rect.height *
+                spriteAspect;
+
+            fitted.x +=
+                (rect.width -
+                 width) *
+                0.5f;
+
+            fitted.width =
+                width;
+        }
+
+        Color oldColor =
+            GUI.color;
+
+        GUI.color =
+            tint;
+
+        GUI.DrawTextureWithTexCoords(
+            fitted,
+            sprite.texture,
+            uv,
+            true);
+
+        GUI.color =
+            oldColor;
     }
 
     private void DrawSection(
