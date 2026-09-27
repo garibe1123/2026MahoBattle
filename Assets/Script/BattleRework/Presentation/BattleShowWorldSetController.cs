@@ -74,8 +74,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 2.55f;
 
     [Header("Reward Item Showcase")]
-    [Tooltip("상품 Base 중심 간 World 간격입니다. 기본 1이면 Floor 한 칸 간격입니다.")]
-    [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 1.15f;
+    [Tooltip("상품 Base 중심 간 World 간격입니다. TV가 있던 가로 무대를 넓게 쓰도록 기본값을 크게 잡습니다.")]
+    [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 2.30f;
+    [Tooltip("Floor 한 칸 폭 대비 상품 간 최소 간격 배수입니다. Base가 커져도 상품끼리 너무 붙지 않게 보장합니다.")]
+    [SerializeField, Min(1f)] private float rewardShowcaseMinTileSpacingMultiplier = 2.0f;
     [Tooltip("기존 TV 중심 위치에서 상품 진열 행을 위/아래로 이동합니다. Reward 상품은 플레이어 Base가 아니라 이 TV 자리에서 전시됩니다.")]
     [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.20f;
     [Tooltip("아이템 Hover 시 사용할 Orthographic Size입니다. Reward Hover 전용 최소 줌은 BattleCameraController에서 별도로 허용합니다.")]
@@ -1125,10 +1127,20 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             showcaseParent,
             true);
 
+        Vector2 floorTileSize =
+            presentation != null
+                ? presentation.GetFloorTileWorldSize()
+                : Vector2.one;
+
         float spacing =
             Mathf.Max(
-                0.5f,
-                rewardShowcaseSpacingWorld);
+                Mathf.Max(
+                    0.5f,
+                    rewardShowcaseSpacingWorld),
+                floorTileSize.x *
+                Mathf.Max(
+                    1f,
+                    rewardShowcaseMinTileSpacingMultiplier));
 
         // Reward 상품은 플레이어가 서 있는 Persistent 4x4가 아니라,
         // Reward에서 제거한 기존 TV/Display가 차지하던 월드 위치를 사용합니다.
@@ -1149,11 +1161,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             presentation != null
                 ? presentation.GetFloorPixelsPerUnit()
                 : 32f;
-
-        Vector2 floorTileSize =
-            presentation != null
-                ? presentation.GetFloorTileWorldSize()
-                : Vector2.one;
 
         SpriteRenderer playerRenderer =
             player != null
@@ -1717,10 +1724,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void UpdatePointerTracking()
     {
-        // Reward 상품 선택은 TV 커서 좌표가 아니라 월드 Item/Base Hover가
-        // 카메라 Focus를 직접 소유합니다. Map의 기존 TV 추적은 그대로 유지합니다.
-        if (currentMode == ShowMode.Reward &&
-            HasRewardShowcase)
+        if (battleCamera == null ||
+            currentMode == ShowMode.None ||
+            stageTransitioning ||
+            externalGate)
         {
             battleCamera?.SetShowCursorTracking(
                 false,
@@ -1728,35 +1735,294 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             return;
         }
 
-        if (battleCamera == null || tvRect == null || currentMode == ShowMode.None ||
-            stageTransitioning || externalGate || tvObject == null || !tvObject.activeSelf)
+        if (currentMode == ShowMode.Reward &&
+            HasRewardShowcase)
         {
-            battleCamera?.SetShowCursorTracking(false, Vector2.zero);
+            UpdateRewardPointerTracking();
+            return;
+        }
+
+        if (tvRect == null ||
+            tvObject == null ||
+            !tvObject.activeSelf)
+        {
+            battleCamera.SetShowCursorTracking(
+                false,
+                Vector2.zero);
             return;
         }
 
         Camera camera = Camera.main;
         Vector2 local = Vector2.zero;
-        bool valid = camera != null && RectTransformUtility.ScreenPointToLocalPointInRectangle(
-            tvRect,
-            Input.mousePosition,
-            camera,
-            out local);
-        bool inside = valid && tvRect.rect.Contains(local);
-        Vector2 normalized = Vector2.zero;
+
+        bool valid =
+            camera != null &&
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                tvRect,
+                Input.mousePosition,
+                camera,
+                out local);
+
+        bool inside =
+            valid &&
+            tvRect.rect.Contains(local);
+
+        Vector2 normalized =
+            Vector2.zero;
 
         if (inside)
         {
-            Rect rect = tvRect.rect;
-            float halfWidth = Mathf.Max(1f, rect.width * 0.5f);
-            float halfHeight = Mathf.Max(1f, rect.height * 0.5f);
-            Vector2 centered = local - rect.center;
-            normalized = new Vector2(
-                Mathf.Clamp(centered.x / halfWidth, -1f, 1f),
-                Mathf.Clamp(centered.y / halfHeight, -1f, 1f));
+            Rect rect =
+                tvRect.rect;
+
+            float halfWidth =
+                Mathf.Max(
+                    1f,
+                    rect.width * 0.5f);
+
+            float halfHeight =
+                Mathf.Max(
+                    1f,
+                    rect.height * 0.5f);
+
+            Vector2 centered =
+                local -
+                rect.center;
+
+            normalized =
+                new Vector2(
+                    Mathf.Clamp(
+                        centered.x /
+                        halfWidth,
+                        -1f,
+                        1f),
+                    Mathf.Clamp(
+                        centered.y /
+                        halfHeight,
+                        -1f,
+                        1f));
         }
 
-        battleCamera.SetShowCursorTracking(inside, normalized);
+        battleCamera.SetShowCursorTracking(
+            inside,
+            normalized);
+    }
+
+    private void UpdateRewardPointerTracking()
+    {
+        Camera camera =
+            Camera.main;
+
+        if (camera == null ||
+            !Input.mousePresent ||
+            !TryGetRewardTrackingScreenRect(
+                camera,
+                out Rect trackingRect))
+        {
+            battleCamera?.SetShowCursorTracking(
+                false,
+                Vector2.zero);
+            return;
+        }
+
+        Vector2 mouse =
+            Input.mousePosition;
+
+        // 기존 TV 커서 Tracking과 같은 방식으로,
+        // Reward에서는 'TV가 있던 상품 무대'의 Screen Rect를 가상 Display로 사용합니다.
+        bool inside =
+            trackingRect.Contains(
+                mouse);
+
+        // Hover 중 Camera가 이동해 상품이 커서 아래에서 빠져도,
+        // Sticky Hover 범위 안에서는 Tracking까지 같이 유지합니다.
+        if (!inside &&
+            rewardHoveredIndex >= 0)
+        {
+            float sticky =
+                Mathf.Max(
+                    0f,
+                    rewardHoverStickyScreenRadius);
+
+            inside =
+                (mouse -
+                 rewardHoverAnchorScreen).sqrMagnitude <=
+                sticky * sticky;
+        }
+
+        if (!inside)
+        {
+            battleCamera.SetShowCursorTracking(
+                false,
+                Vector2.zero);
+            return;
+        }
+
+        Vector2 center =
+            trackingRect.center;
+
+        float halfWidth =
+            Mathf.Max(
+                1f,
+                trackingRect.width *
+                0.5f);
+
+        float halfHeight =
+            Mathf.Max(
+                1f,
+                trackingRect.height *
+                0.5f);
+
+        Vector2 normalized =
+            new(
+                Mathf.Clamp(
+                    (mouse.x - center.x) /
+                    halfWidth,
+                    -1f,
+                    1f),
+                Mathf.Clamp(
+                    (mouse.y - center.y) /
+                    halfHeight,
+                    -1f,
+                    1f));
+
+        battleCamera.SetShowCursorTracking(
+            true,
+            normalized);
+    }
+
+    private bool TryGetRewardTrackingScreenRect(
+        Camera camera,
+        out Rect screenRect)
+    {
+        screenRect =
+            default;
+
+        if (camera == null ||
+            rewardShowcaseItems.Count <= 0)
+        {
+            return false;
+        }
+
+        bool initialized =
+            false;
+
+        Vector2 min =
+            new(
+                float.PositiveInfinity,
+                float.PositiveInfinity);
+
+        Vector2 max =
+            new(
+                float.NegativeInfinity,
+                float.NegativeInfinity);
+
+        for (int i = 0;
+             i < rewardShowcaseItems.Count;
+             i++)
+        {
+            RewardShowcaseItem item =
+                rewardShowcaseItems[i];
+
+            if (item == null ||
+                item.baseRenderer == null)
+            {
+                continue;
+            }
+
+            Bounds bounds =
+                item.baseRenderer.bounds;
+
+            if (item.itemRenderer != null &&
+                item.itemRenderer.sprite != null)
+            {
+                bounds.Encapsulate(
+                    item.itemRenderer.bounds);
+            }
+
+            Vector3 screenMin =
+                camera.WorldToScreenPoint(
+                    bounds.min);
+
+            Vector3 screenMax =
+                camera.WorldToScreenPoint(
+                    bounds.max);
+
+            if (screenMin.z <= 0f ||
+                screenMax.z <= 0f)
+            {
+                continue;
+            }
+
+            Vector2 nextMin =
+                Vector2.Min(
+                    new Vector2(
+                        screenMin.x,
+                        screenMin.y),
+                    new Vector2(
+                        screenMax.x,
+                        screenMax.y));
+
+            Vector2 nextMax =
+                Vector2.Max(
+                    new Vector2(
+                        screenMin.x,
+                        screenMin.y),
+                    new Vector2(
+                        screenMax.x,
+                        screenMax.y));
+
+            min =
+                Vector2.Min(
+                    min,
+                    nextMin);
+
+            max =
+                Vector2.Max(
+                    max,
+                    nextMax);
+
+            initialized =
+                true;
+        }
+
+        if (!initialized)
+            return false;
+
+        // 예전 TV처럼 커서를 꽤 자유롭게 움직일 수 있도록
+        // 실제 상품 Bounds보다 넓은 가상 Display 영역을 만듭니다.
+        float horizontalPadding =
+            Mathf.Max(
+                120f,
+                Screen.width * 0.055f);
+
+        float verticalPadding =
+            Mathf.Max(
+                90f,
+                Screen.height * 0.10f);
+
+        min.x -=
+            horizontalPadding;
+
+        max.x +=
+            horizontalPadding;
+
+        min.y -=
+            verticalPadding;
+
+        max.y +=
+            verticalPadding;
+
+        screenRect =
+            Rect.MinMaxRect(
+                min.x,
+                min.y,
+                max.x,
+                max.y);
+
+        return
+            screenRect.width > 1f &&
+            screenRect.height > 1f;
     }
 
     private void UpdatePresenter()
