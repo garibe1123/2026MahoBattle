@@ -230,8 +230,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("Floor 한 칸 폭 대비 최소 상품 간격 배수입니다. 위 간격값이 작아도 이 배수보다 좁아지지 않습니다.")]
     [SerializeField, Min(1f)] private float rewardShowcaseMinTileSpacingMultiplier = 2.30f;
 
-    [Tooltip("기존 TV/Display 중심을 기준으로 상품 진열 행 전체를 위/아래로 이동합니다.")]
-    [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.20f;
+    [Tooltip("기존 TV/Display 중심을 기준으로 Reward Base + Item 진열대 전체를 이동합니다. X는 좌우, Y는 상하 World Offset입니다.")]
+    [SerializeField] private Vector2 rewardShowcasePositionOffsetWorld = new(0f, -0.20f);
 
     [Tooltip("아이템/Base Hover 판정 영역에 추가할 World 여유입니다.")]
     [SerializeField, Range(0f, 0.5f)] private float rewardHoverBoundsPaddingWorld = 0.10f;
@@ -427,8 +427,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public float RewardShowcaseMinTileSpacingMultiplier =>
         Mathf.Max(1f, rewardShowcaseMinTileSpacingMultiplier);
 
-    public float RewardShowcaseRowYOffsetWorld =>
-        rewardShowcaseRowYOffsetWorld;
+    public Vector2 RewardShowcasePositionOffsetWorld =>
+        rewardShowcasePositionOffsetWorld;
 
     public float RewardHoverBoundsPaddingWorld =>
         Mathf.Max(0f, rewardHoverBoundsPaddingWorld);
