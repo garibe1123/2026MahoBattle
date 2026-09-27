@@ -591,6 +591,14 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
         }
 
+        // SKIP REWARD 같은 Screen UI를 클릭했을 때 뒤의 월드 상품 클릭까지
+        // 동시에 처리되는 것을 막습니다.
+        if (EventSystem.current != null &&
+            EventSystem.current.IsPointerOverGameObject())
+        {
+            return;
+        }
+
         int hovered =
             showWorldSet.RewardHoveredIndex;
 
