@@ -1215,9 +1215,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             baseRenderer.sortingLayerID =
                 sortingLayerId;
 
+            // Showcase는 Screen Carrier 위에 올라가므로 Persistent Floor용
+            // -12000 계층이 아니라 Carrier보다 확실히 앞에서 렌더합니다.
             baseRenderer.sortingOrder =
-                BattleWorldSorting.FloorOrder +
-                48;
+                carrierFloorSortingOrder +
+                12;
 
             if (baseSprite != null)
             {
@@ -1272,9 +1274,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 sortingLayerId;
 
             itemRenderer.sortingOrder =
-                BattleWorldSorting.WorldYToOrder(
-                    baseWorld.y,
-                    120 + i);
+                carrierFloorSortingOrder +
+                24 +
+                i;
 
             if (equipment.icon != null)
             {
