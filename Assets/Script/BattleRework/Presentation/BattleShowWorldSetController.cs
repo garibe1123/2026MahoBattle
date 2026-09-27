@@ -67,36 +67,6 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Range(0f, 2f)] private float carrierImpactStrength = 1.05f;
     [SerializeField] private int carrierFloorSortingOrder = -18;
 
-    [Header("Reward Camera Focus")]
-    [Tooltip("Reward 기본 진입 시 상품 Base 전체가 들어오도록 주는 여백입니다.")]
-    [SerializeField, Min(0f)] private float rewardCameraPadding = 0.38f;
-    [Tooltip("Reward 상품 전체를 보여줄 때의 최소 Orthographic Size입니다.")]
-    [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 2.55f;
-
-    [Header("Reward Item Showcase")]
-    [Tooltip("상품 Base 중심 간 World 간격입니다. TV가 있던 가로 무대를 넓게 쓰도록 기본값을 크게 잡습니다.")]
-    [SerializeField, Min(0.5f)] private float rewardShowcaseSpacingWorld = 2.30f;
-    [Tooltip("Floor 한 칸 폭 대비 상품 간 최소 간격 배수입니다. Base가 커져도 상품끼리 너무 붙지 않게 보장합니다.")]
-    [SerializeField, Min(1f)] private float rewardShowcaseMinTileSpacingMultiplier = 2.30f;
-    [Tooltip("기존 TV 중심 위치에서 상품 진열 행을 위/아래로 이동합니다. Reward 상품은 플레이어 Base가 아니라 이 TV 자리에서 전시됩니다.")]
-    [SerializeField] private float rewardShowcaseRowYOffsetWorld = -0.20f;
-    [Tooltip("아이템 Hover 시 사용할 Orthographic Size입니다. Reward Hover 전용 최소 줌은 BattleCameraController에서 별도로 허용합니다.")]
-    [SerializeField, Min(0.5f)] private float rewardItemHoverCameraSize = 1.75f;
-    [Tooltip("Hover 시 Camera Target을 Item 중심에서 설명창 쪽으로 이동시켜 Item이 화면 한쪽에 자리잡게 합니다. X는 좌/우 설명창에 따라 자동 반전됩니다.")]
-    [SerializeField] private Vector2 rewardItemHoverCameraPivotOffset = new(0.92f, 0.10f);
-    [Tooltip("월드 좌표 Hover 판정 시 1칸 Base 바깥으로 추가하는 여유입니다.")]
-    [SerializeField, Range(0f, 0.5f)] private float rewardHoverBoundsPaddingWorld = 0.10f;
-    [Tooltip("Hover Camera Pivot이 움직이는 동안 Item이 커서 아래에서 빠져도 Hover가 바로 해제되지 않도록 유지하는 Screen Pixel 반경입니다.")]
-    [SerializeField, Min(0f)] private float rewardHoverStickyScreenRadius = 120f;
-
-    [Header("Reward Item Spotlight")]
-    [SerializeField] private Color rewardSpotlightColor = new(1f, 0.96f, 0.78f, 1f);
-    [SerializeField, Range(0f, 1f)] private float rewardSpotlightPoolAlpha = 0.34f;
-    [SerializeField, Range(0f, 1f)] private float rewardSpotlightBeamAlpha = 0.58f;
-    [SerializeField, Min(0.2f)] private float rewardSpotlightWidth = 1.8f;
-    [SerializeField, Min(0.2f)] private float rewardSpotlightHeight = 2.4f;
-    [SerializeField, Min(0.1f)] private float rewardSpotlightFadeSharpness = 10f;
-
     [Header("Map Camera Focus")]
     [Tooltip("Map 선택에서는 Persistent Base/Carrier 전체가 아니라 TV 화면을 주 피사체로 잡습니다.")]
     [SerializeField, Min(0f)] private float mapCameraPadding = 0.22f;
@@ -1031,7 +1001,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             float stickyRadius =
                 Mathf.Max(
                     0f,
-                    rewardHoverStickyScreenRadius);
+                    (presentation != null ? presentation.RewardHoverStickyScreenRadius : 120f));
 
             if (((Vector2)Input.mousePosition -
                  rewardHoverAnchorScreen).sqrMagnitude <=
@@ -1136,11 +1106,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             Mathf.Max(
                 Mathf.Max(
                     0.5f,
-                    rewardShowcaseSpacingWorld),
+                    (presentation != null ? presentation.RewardShowcaseSpacingWorld : 2.30f)),
                 floorTileSize.x *
                 Mathf.Max(
                     1f,
-                    rewardShowcaseMinTileSpacingMultiplier));
+                    (presentation != null ? presentation.RewardShowcaseMinTileSpacingMultiplier : 2.30f)));
 
         // Reward 상품은 플레이어가 서 있는 Persistent 4x4가 아니라,
         // Reward에서 제거한 기존 TV/Display가 차지하던 월드 위치를 사용합니다.
@@ -1155,7 +1125,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         float rowY =
             showcaseCenter.y +
-            rewardShowcaseRowYOffsetWorld;
+            (presentation != null ? presentation.RewardShowcaseRowYOffsetWorld : -0.20f);
 
         float floorPpu =
             presentation != null
@@ -1310,21 +1280,21 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
             spotlight.Configure(
                 itemRenderer,
-                rewardSpotlightColor,
-                rewardSpotlightColor,
-                rewardSpotlightPoolAlpha,
-                rewardSpotlightWidth,
+                (presentation != null ? presentation.RewardSpotlightColor : new Color(1f, 0.96f, 0.78f, 1f)),
+                (presentation != null ? presentation.RewardSpotlightColor : new Color(1f, 0.96f, 0.78f, 1f)),
+                (presentation != null ? presentation.RewardSpotlightPoolAlpha : 0.34f),
+                (presentation != null ? presentation.RewardSpotlightWidth : 1.8f),
                 0.18f,
                 0.045f,
-                rewardSpotlightFadeSharpness);
+                (presentation != null ? presentation.RewardSpotlightFadeSharpness : 10f));
 
             spotlight.ConfigureKeyLight(
                 true,
-                rewardSpotlightColor,
-                rewardSpotlightBeamAlpha,
-                rewardSpotlightWidth,
-                rewardSpotlightHeight,
-                0.24f);
+                (presentation != null ? presentation.RewardSpotlightColor : new Color(1f, 0.96f, 0.78f, 1f)),
+                (presentation != null ? presentation.RewardSpotlightBeamAlpha : 0.58f),
+                (presentation != null ? presentation.RewardSpotlightWidth : 1.8f),
+                (presentation != null ? presentation.RewardSpotlightBeamLength : 2.4f),
+                (presentation != null ? presentation.RewardSpotlightBeamVerticalOffset : 0.24f));
 
             spotlight.SetImmediate(0f);
 
@@ -1391,8 +1361,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
             bounds.Expand(
                 new Vector3(
-                    rewardHoverBoundsPaddingWorld * 2f,
-                    rewardHoverBoundsPaddingWorld * 2f,
+                    (presentation != null ? presentation.RewardHoverBoundsPaddingWorld : 0.10f) * 2f,
+                    (presentation != null ? presentation.RewardHoverBoundsPaddingWorld : 0.10f) * 2f,
                     0f));
 
             bool contains =
@@ -1472,17 +1442,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         // Camera가 Item 정중앙을 찍으면 설명창이 Item을 덮고 화면이 답답해집니다.
         // 설명창이 열릴 반대편에 Item이 남도록 Camera Pivot을 설명창 쪽으로 이동합니다.
         focus.x +=
-            rewardItemHoverCameraPivotOffset.x *
+            (presentation != null ? presentation.RewardItemHoverCameraPivotOffset : new Vector2(0.92f, 0.10f)).x *
             side;
 
         focus.y +=
-            rewardItemHoverCameraPivotOffset.y;
+            (presentation != null ? presentation.RewardItemHoverCameraPivotOffset : new Vector2(0.92f, 0.10f)).y;
 
         focus.z = 0f;
 
         OverrideShowCameraFrame(
             focus,
-            rewardItemHoverCameraSize);
+            (presentation != null ? presentation.RewardItemHoverCameraSize : 1.75f));
     }
 
     private RewardShowcaseItem FindRewardShowcaseItem(
@@ -1665,7 +1635,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         cameraTargetWorld = new Vector3(bounds.center.x, bounds.center.y, 0f);
 
         float padding = rewardFocus
-            ? Mathf.Max(0f, rewardCameraPadding)
+            ? Mathf.Max(0f, (presentation != null ? presentation.RewardCameraPadding : 0.38f))
             : Mathf.Max(0f, mapCameraPadding);
 
         float aspect = Camera.main != null && Camera.main.aspect > 0.01f
@@ -1675,7 +1645,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         float sizeByHeight = bounds.extents.y + padding;
         float sizeByWidth = (bounds.extents.x + padding) / Mathf.Max(0.1f, aspect);
         float minSize = rewardFocus
-            ? rewardCameraMinSize
+            ? (presentation != null ? presentation.RewardCameraMinSize : 2.55f)
             : mapCameraMinSize;
 
         cameraSizeWorld = Mathf.Max(
@@ -1842,7 +1812,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             float sticky =
                 Mathf.Max(
                     0f,
-                    rewardHoverStickyScreenRadius);
+                    (presentation != null ? presentation.RewardHoverStickyScreenRadius : 120f));
 
             inside =
                 (mouse -
