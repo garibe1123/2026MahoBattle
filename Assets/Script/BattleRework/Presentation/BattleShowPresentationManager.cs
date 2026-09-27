@@ -190,11 +190,24 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [Tooltip("Unique 전용 Base. 비어 있으면 Basic Base를 사용합니다.")]
     [SerializeField] private Sprite rewardUniqueBaseSprite;
 
+    [Header("Reward Base Sprite Sheet Animation")]
+    [Tooltip("켜면 등급별 Base Sprite가 Frame Size보다 큰 경우 Sprite Sheet로 자동 판별해 재생합니다. 정확히 한 프레임 크기면 정적 Sprite로 사용합니다.")]
+    [SerializeField] private bool rewardBaseAnimationEnabled = true;
+
+    [Tooltip("Base Sprite Sheet 한 프레임의 픽셀 크기입니다. 예: 32x32. 시트는 좌→우, 위→아래 순서로 재생합니다.")]
+    [SerializeField] private Vector2Int rewardBaseAnimationFrameSize = new(32, 32);
+
+    [Tooltip("Base Sprite Sheet 재생 FPS입니다.")]
+    [SerializeField, Range(1f, 30f)] private float rewardBaseAnimationFps = 8f;
+
+    [Tooltip("켜면 Base Sprite Sheet 마지막 프레임 뒤에 처음 프레임으로 돌아가 반복합니다. 끄면 마지막 프레임에서 멈춥니다.")]
+    [SerializeField] private bool rewardBaseAnimationLoop = true;
+
     [Tooltip("아이템 Sprite 중심을 Base 중심에서 세로로 이동할 픽셀 값입니다. 음수면 아래로 내려갑니다. Floor PPU 기준으로 World Offset으로 환산됩니다.")]
     [SerializeField] private int rewardItemPixelYOffset = -4;
 
     [Header("Reward 상품 둥둥 애니메이션")]
-    [Tooltip("켜면 Reward 상품의 Base는 고정하고, 아이템 Sprite만 위아래로 천천히 둥둥 움직입니다.")]
+    [Tooltip("켜면 Reward 상품의 Base와 아이템 Sprite가 하나의 진열 유닛처럼 함께 위아래로 천천히 둥둥 움직입니다.")]
     [SerializeField] private bool rewardItemFloatEnabled = true;
 
     [Tooltip("아이템이 위/아래로 움직이는 최대 거리입니다. Floor PPU 기준 픽셀 단위이며, 4면 중심에서 ±4px 움직입니다.")]
@@ -374,6 +387,21 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     public int RewardItemPixelYOffset =>
         rewardItemPixelYOffset;
+
+    // Reward Base Sprite Sheet Animation
+    public bool RewardBaseAnimationEnabled =>
+        rewardBaseAnimationEnabled;
+
+    public Vector2Int RewardBaseAnimationFrameSize =>
+        new(
+            Mathf.Max(1, rewardBaseAnimationFrameSize.x),
+            Mathf.Max(1, rewardBaseAnimationFrameSize.y));
+
+    public float RewardBaseAnimationFps =>
+        Mathf.Max(1f, rewardBaseAnimationFps);
+
+    public bool RewardBaseAnimationLoop =>
+        rewardBaseAnimationLoop;
 
     // Reward Item Float
     public bool RewardItemFloatEnabled =>
