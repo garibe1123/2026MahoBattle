@@ -34,8 +34,21 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float focusedTiltStrength = 1f;
     [SerializeField, Range(0f, 1f)] private float restTiltStrength = 0.80f;
     [SerializeField, Range(0f, 1f)] private float suppressedTiltStrength = 0.50f;
-    [SerializeField, Range(0f, 1f)] private float combatHudTiltStrength = 0.40f;
+    [SerializeField, Range(0f, 1f)] private float combatHudTiltStrength = 0.58f;
     [SerializeField, Range(0f, 0.25f)] private float pointerDeadZone = 0.01f;
+
+    [Header("COMBAT HUD PLAYER PIVOT")]
+    [Tooltip("TAB이 닫힌 전투 HUD Tilt에서 플레이어 화면 위치가 차지하는 비중입니다.")]
+    [SerializeField, Range(0f, 1f)] private float combatPlayerTiltWeight = 0.82f;
+
+    [Tooltip("TAB이 닫힌 전투 HUD Tilt에서 마우스 커서가 차지하는 보조 비중입니다.")]
+    [SerializeField, Range(0f, 1f)] private float combatCursorTiltWeight = 0.18f;
+
+    [Tooltip("화면 위/아래에 있는 HUD가 Screen Center 쪽을 바라보게 만드는 기본 X축 기울기입니다.")]
+    [SerializeField, Range(0f, 12f)] private float centerGatherTiltX = 3.0f;
+
+    [Tooltip("화면 좌/우에 있는 HUD가 Screen Center 쪽을 바라보게 만드는 기본 Y축 기울기입니다.")]
+    [SerializeField, Range(0f, 16f)] private float centerGatherTiltY = 5.5f;
 
     [Header("DEPTH")]
     [Tooltip("Depth Score 1당 RectTransform Z 이동량입니다. 현재 Battle UI 관례대로 음수 Z가 앞으로 옵니다.")]
@@ -69,6 +82,8 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
     private BattleRuleRouletteController rouletteController;
     private BattleBroadcastDashboardController dashboardController;
     private BattleKineticItemBarUI miniPackUi;
+    private PlayerController player;
+    private Camera playerScreenCamera;
 
     private BattleUiSpatialSurface packSurface;
     private BattleUiSpatialSurface rulesSurface;
@@ -159,6 +174,8 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
         rouletteController = null;
         dashboardController = null;
         miniPackUi = null;
+        player = null;
+        playerScreenCamera = null;
 
         packSurface = null;
         rulesSurface = null;
@@ -229,13 +246,18 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
         Vector2 normalizedPointer =
             ResolveNormalizedPointer();
 
+        Vector2 normalizedPlayer =
+            ResolveNormalizedPlayerScreenPosition();
+
         ApplyPersistentCombatHud(
             normalizedPointer,
+            normalizedPlayer,
             tabOpen,
             deltaTime);
 
         ApplyTabSpatialLayout(
             normalizedPointer,
+            normalizedPlayer,
             tabOpen,
             focus,
             deltaTime);
@@ -272,6 +294,25 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
             miniPackUi =
                 Object.FindFirstObjectByType<BattleKineticItemBarUI>(
                     FindObjectsInactive.Include);
+        }
+
+        if (player == null)
+        {
+            player =
+                Object.FindFirstObjectByType<PlayerController>(
+                    FindObjectsInactive.Include);
+        }
+
+        if (playerScreenCamera == null)
+        {
+            playerScreenCamera =
+                Camera.main;
+
+            if (playerScreenCamera == null)
+            {
+                playerScreenCamera =
+                    Object.FindFirstObjectByType<Camera>();
+            }
         }
 
         RectTransform fullRoot =
@@ -458,30 +499,105 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
     private void ApplyPersistentCombatHud(
         Vector2 normalizedPointer,
+        Vector2 normalizedPlayer,
         bool tabOpen,
         float deltaTime)
     {
-        float strength =
-            tabOpen
-                ? suppressedTiltStrength * 0.35f
-                : combatHudTiltStrength;
+        if (tabOpen)
+        {
+            float tabStrength =
+                suppressedTiltStrength *
+                0.35f;
 
-        ApplyTiltOnlySurface(
+            ApplyTiltOnlySurface(
+                compactSurface,
+                normalizedPointer,
+                tabStrength,
+                deltaTime);
+
+            ApplyTiltOnlySurface(
+                miniPackSurface,
+                normalizedPointer,
+                tabStrength * 0.72f,
+                deltaTime);
+
+            ApplyTiltOnlySurface(
+                metricSurface,
+                normalizedPointer,
+                tabStrength * 0.68f,
+                deltaTime);
+
+            return;
+        }
+
+        // 전투 중에는 Cursor보다 Player의 화면상 위치를 주 Pivot으로 사용합니다.
+        // Player가 오른쪽으로 이동하면 UI의 Y축 Tilt도 오른쪽 방향으로 더 기울고,
+        // Cursor는 미세한 보조 입력으로만 남습니다.
+        Vector2 combatDriver =
+            ResolveCombatHudDriver(
+                normalizedPlayer,
+                normalizedPointer);
+
+        ApplyCombatHudSurface(
             compactSurface,
-            normalizedPointer,
-            strength,
+            combatDriver,
+            combatHudTiltStrength,
             deltaTime);
 
-        ApplyTiltOnlySurface(
+        ApplyCombatHudSurface(
             miniPackSurface,
-            normalizedPointer,
-            strength * 0.72f,
+            combatDriver,
+            combatHudTiltStrength * 0.82f,
             deltaTime);
 
-        ApplyTiltOnlySurface(
+        ApplyCombatHudSurface(
             metricSurface,
-            normalizedPointer,
-            strength * 0.68f,
+            combatDriver,
+            combatHudTiltStrength * 0.78f,
+            deltaTime);
+    }
+
+    private void ApplyCombatHudSurface(
+        BattleUiSpatialSurface surface,
+        Vector2 combatDriver,
+        float strength,
+        float deltaTime)
+    {
+        if (surface == null ||
+            !surface.IsRenderable)
+        {
+            return;
+        }
+
+        float edgeSafety =
+            ResolveEdgeTiltSafety(
+                surface);
+
+        float surfaceStrength =
+            strength *
+            surface.TiltMultiplier *
+            edgeSafety;
+
+        Vector2 dynamicTilt =
+            ResolveTilt(
+                combatDriver,
+                surfaceStrength);
+
+        Vector2 gatherTilt =
+            ResolveCenterGatherTilt(
+                surface) *
+            surface.TiltMultiplier;
+
+        surface.BeginSpatialPass(
+            dynamicTilt +
+            gatherTilt,
+            tiltSharpness,
+            deltaTime);
+
+        surface.ApplyDepth(
+            0f,
+            spatialSortingBase,
+            depthSharpness,
             deltaTime);
     }
 
@@ -522,6 +638,7 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
     private void ApplyTabSpatialLayout(
         Vector2 normalizedPointer,
+        Vector2 normalizedPlayer,
         bool tabOpen,
         BattleCombatTabFocus focus,
         float deltaTime)
@@ -584,12 +701,34 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
                 ResolveEdgeTiltSafety(
                     surface);
 
-            Vector2 tilt =
-                ResolveTilt(
-                    normalizedPointer,
-                    strength *
-                    surface.TiltMultiplier *
-                    edgeSafety);
+            Vector2 tilt;
+
+            if (!tabOpen)
+            {
+                Vector2 combatDriver =
+                    ResolveCombatHudDriver(
+                        normalizedPlayer,
+                        normalizedPointer);
+
+                tilt =
+                    ResolveTilt(
+                        combatDriver,
+                        strength *
+                        surface.TiltMultiplier *
+                        edgeSafety) +
+                    ResolveCenterGatherTilt(
+                        surface) *
+                    surface.TiltMultiplier;
+            }
+            else
+            {
+                tilt =
+                    ResolveTilt(
+                        normalizedPointer,
+                        strength *
+                        surface.TiltMultiplier *
+                        edgeSafety);
+            }
 
             surface.BeginSpatialPass(
                 tilt,
@@ -900,6 +1039,121 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
             sortingOrder,
             depthSharpness,
             deltaTime);
+    }
+
+    private Vector2 ResolveNormalizedPlayerScreenPosition()
+    {
+        if (player == null ||
+            playerScreenCamera == null ||
+            Screen.width <= 0 ||
+            Screen.height <= 0)
+        {
+            return Vector2.zero;
+        }
+
+        Vector3 screen =
+            playerScreenCamera.WorldToScreenPoint(
+                player.transform.position);
+
+        if (screen.z < 0f)
+            return Vector2.zero;
+
+        return new Vector2(
+            Mathf.Clamp(
+                screen.x /
+                Mathf.Max(
+                    1f,
+                    Screen.width) *
+                2f -
+                1f,
+                -1f,
+                1f),
+            Mathf.Clamp(
+                screen.y /
+                Mathf.Max(
+                    1f,
+                    Screen.height) *
+                2f -
+                1f,
+                -1f,
+                1f));
+    }
+
+    private Vector2 ResolveCombatHudDriver(
+        Vector2 normalizedPlayer,
+        Vector2 normalizedPointer)
+    {
+        float playerWeight =
+            Mathf.Max(
+                0f,
+                combatPlayerTiltWeight);
+
+        float cursorWeight =
+            Mathf.Max(
+                0f,
+                combatCursorTiltWeight);
+
+        float total =
+            playerWeight +
+            cursorWeight;
+
+        if (total <= 0.0001f)
+            return Vector2.zero;
+
+        Vector2 driver =
+            (normalizedPlayer *
+             playerWeight +
+             normalizedPointer *
+             cursorWeight) /
+            total;
+
+        return new Vector2(
+            Mathf.Clamp(
+                driver.x,
+                -1f,
+                1f),
+            Mathf.Clamp(
+                driver.y,
+                -1f,
+                1f));
+    }
+
+    private Vector2 ResolveCenterGatherTilt(
+        BattleUiSpatialSurface surface)
+    {
+        if (surface == null ||
+            Screen.width <= 0 ||
+            Screen.height <= 0)
+        {
+            return Vector2.zero;
+        }
+
+        Rect rect =
+            surface.GetScreenRect();
+
+        Vector2 centerNormalized =
+            new(
+                rect.center.x /
+                Mathf.Max(
+                    1f,
+                    Screen.width) *
+                2f -
+                1f,
+                rect.center.y /
+                Mathf.Max(
+                    1f,
+                    Screen.height) *
+                2f -
+                1f);
+
+        // 오른쪽 HUD는 왼쪽(Screen Center)을 바라보고,
+        // 왼쪽 HUD는 오른쪽을 바라보도록 Y축 기본 자세를 줍니다.
+        // 위/아래도 같은 원리로 X축을 사용해 중앙으로 살짝 모읍니다.
+        return new Vector2(
+            centerNormalized.y *
+            centerGatherTiltX,
+            -centerNormalized.x *
+            centerGatherTiltY);
     }
 
     private Vector2 ResolveNormalizedPointer()
