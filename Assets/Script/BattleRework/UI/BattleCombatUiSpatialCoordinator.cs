@@ -28,14 +28,14 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
     [Header("CURSOR TILT")]
     [SerializeField] private bool enableSpatialUi = true;
-    [SerializeField, Range(0f, 12f)] private float maxTiltX = 4.0f;
-    [SerializeField, Range(0f, 16f)] private float maxTiltY = 6.0f;
-    [SerializeField, Range(1f, 30f)] private float tiltSharpness = 10f;
+    [SerializeField, Range(0f, 24f)] private float maxTiltX = 14.0f;
+    [SerializeField, Range(0f, 24f)] private float maxTiltY = 16.0f;
+    [SerializeField, Range(1f, 30f)] private float tiltSharpness = 12f;
     [SerializeField, Range(0f, 1f)] private float focusedTiltStrength = 1f;
-    [SerializeField, Range(0f, 1f)] private float restTiltStrength = 0.44f;
-    [SerializeField, Range(0f, 1f)] private float suppressedTiltStrength = 0.20f;
-    [SerializeField, Range(0f, 1f)] private float combatHudTiltStrength = 0.22f;
-    [SerializeField, Range(0f, 0.25f)] private float pointerDeadZone = 0.035f;
+    [SerializeField, Range(0f, 1f)] private float restTiltStrength = 0.80f;
+    [SerializeField, Range(0f, 1f)] private float suppressedTiltStrength = 0.50f;
+    [SerializeField, Range(0f, 1f)] private float combatHudTiltStrength = 0.40f;
+    [SerializeField, Range(0f, 0.25f)] private float pointerDeadZone = 0.01f;
 
     [Header("DEPTH")]
     [Tooltip("Depth Score 1당 RectTransform Z 이동량입니다. 현재 Battle UI 관례대로 음수 Z가 앞으로 옵니다.")]
@@ -56,9 +56,9 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
     [Header("SCREEN SAFETY")]
     [Tooltip("화면 가장자리로 갈수록 X/Y Tilt를 줄여 회전된 패널이 화면 밖으로 잘리는 양을 줄입니다.")]
-    [SerializeField] private bool reduceTiltNearScreenEdge = true;
+    [SerializeField] private bool reduceTiltNearScreenEdge = false;
     [SerializeField, Range(12f, 240f)] private float edgeTiltFadeDistance = 96f;
-    [SerializeField, Range(0f, 1f)] private float minimumEdgeTiltStrength = 0.32f;
+    [SerializeField, Range(0f, 1f)] private float minimumEdgeTiltStrength = 0.65f;
 
     [Header("AUTO BIND")]
     [SerializeField, Range(0.05f, 2f)] private float referenceScanInterval = 0.30f;
