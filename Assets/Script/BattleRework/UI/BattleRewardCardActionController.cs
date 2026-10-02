@@ -50,23 +50,18 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField] private Color hoverCyan = new(0.12f, 0.88f, 0.92f, 1f);
 
     [Header("Reward Item Hover Description (커서 올리면 뜨는 설명창)")]
-    [Tooltip("Reward 선택 중 월드 아이템/Base 위에 커서를 올렸을 때 나타나는 PACK 스타일 설명창의 크기입니다. Play Mode에서 바로 조정할 수 있습니다.")]
+    [Tooltip("Reward 선택 중 월드 아이템/Base 위에 커서를 올렸을 때 나타나는 설명창 크기입니다.")]
     [SerializeField] private Vector2 worldInspectSize = new(360f, 220f);
-
-    [Tooltip("Reward 아이템에 커서를 올렸을 때 뜨는 설명창의 위치입니다. 기준점은 Hover 중인 아이템의 Screen Point이며, X는 좌우 / Y는 상하 이동입니다. 예: (0, -56) = 아이템 아래쪽.")]
-    [SerializeField] private Vector2 worldInspectOffset = new(0f, -56f);
-
-    [Tooltip("Hover 설명창의 RectTransform Pivot입니다. 아이템 아래 배치는 (0.5, 1), 오른쪽 옆 배치는 (0, 0.5), 왼쪽 옆 배치는 (1, 0.5)를 권장합니다.")]
-    [SerializeField] private Vector2 worldInspectPivot = new(0.5f, 1f);
-
-    [Tooltip("Hover 설명창을 좌/우 자동 배치하고 싶을 때 사용합니다. 켜면 아이템이 오른쪽 그룹에 있을 때 X Offset을 반전합니다. 아래 고정 배치를 원하면 끄는 편이 좋습니다.")]
-    [SerializeField] private bool worldInspectAutoFlipX;
-
-    [Tooltip("World Inspect Auto Flip X가 켜졌을 때 설명창 Pivot X도 함께 반전합니다. 좌/우 옆 배치용 옵션입니다.")]
-    [SerializeField] private bool worldInspectAutoFlipPivotX = true;
-
-    [Tooltip("Hover 설명창이 화면 바깥으로 잘리지 않도록 Screen Edge에서 확보할 최소 여백입니다.")]
-    [SerializeField, Min(0f)] private float worldInspectScreenMargin = 24f;
+    [Tooltip("아이템에서 화면 중앙 쪽으로 설명창을 얼마나 끌어당길지 정합니다.")]
+    [SerializeField, Range(0f, 1f)] private float worldInspectCenterBias = 0.72f;
+    [Tooltip("아이템 중심과 설명창 사이에 확보할 최소 여백입니다.")]
+    [SerializeField, Min(0f)] private float worldInspectTargetClearance = 76f;
+    [Tooltip("설명창이 화면 바깥으로 잘리지 않도록 유지할 최소 여백입니다.")]
+    [SerializeField, Min(0f)] private float worldInspectScreenMargin = 28f;
+    [SerializeField, Range(0.7f, 1f)] private float worldInspectPopupStartScale = 0.88f;
+    [SerializeField, Range(1f, 1.15f)] private float worldInspectPopupOvershootScale = 1.045f;
+    [SerializeField, Range(0.05f, 0.30f)] private float worldInspectPopupDuration = 0.15f;
+    [SerializeField, Min(0f)] private float worldInspectPopupTravel = 24f;
 
     [SerializeField] private Vector2 worldSkipSize = new(214f, 40f);
 
@@ -78,6 +73,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private BattleEquipmentDetailPanelController equipmentDetailPanel;
     private BattleInventoryInteractionController inventoryInteraction;
     private BattleShowWorldSetController showWorldSet;
+    private BattleShowPresentationManager presentation;
 
     private RectTransform rewardScreen;
     private RectTransform rewardInner;
@@ -113,6 +109,17 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private Canvas worldInspectCanvas;
     private RectTransform worldInspectRoot;
     private CanvasGroup worldInspectGroup;
+    private RectTransform worldInspectTargetPivot;
+    private Image worldInspectFrameImage;
+    private BattleSpeechBubbleFrameFillController worldInspectFrameController;
+    private BattleSpeechBubbleTailTriangleController worldInspectTailController;
+    private BattleSpeechBubbleFrameStyle worldInspectRuntimeFrameStyle;
+    private BattleSpeechBubbleTailStyle worldInspectRuntimeTailStyle;
+    private bool worldInspectPopupAnimating;
+    private float worldInspectPopupTime;
+    private int worldInspectPopupContext = -1;
+    private Vector2 worldInspectPopupStartPosition;
+    private Vector2 worldInspectPopupTargetPosition;
     private Text worldInspectTitle;
     private Text worldInspectMeta;
     private Text worldInspectDescription;
@@ -322,6 +329,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (!IsReward() || rewardFlow == null)
             return;
 
+        UpdateWorldInspectPopupAnimation();
+
         if (rewardFlow.Phase == BattleRewardPhase.Choosing)
         {
             if (showWorldSet != null)
@@ -370,6 +379,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             inventoryInteraction = FindFirstObjectByType<BattleInventoryInteractionController>(FindObjectsInactive.Include);
         if (showWorldSet == null)
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>(FindObjectsInactive.Include);
+        if (presentation == null)
+            presentation = FindFirstObjectByType<BattleShowPresentationManager>(FindObjectsInactive.Include);
     }
 
     private void ResolveUi(bool forceCards)
@@ -769,6 +780,23 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 0.92f,
                 1f);
 
+        worldInspectTargetPivot =
+            CreateRect(
+                canvasObject.transform,
+                "RewardWorldItemTooltipTarget",
+                Vector2.zero);
+
+        worldInspectTargetPivot.anchorMin =
+            worldInspectTargetPivot.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        worldInspectTargetPivot.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
         worldInspectRoot =
             CreateRect(
                 canvasObject.transform,
@@ -783,32 +811,45 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         worldInspectRoot.pivot =
             new Vector2(
-                0f,
+                0.5f,
                 0.5f);
 
         Image back =
             worldInspectRoot.gameObject.AddComponent<Image>();
 
         back.color =
-            packInk;
+            Color.clear;
 
         back.raycastTarget =
             false;
 
-        Outline outline =
-            worldInspectRoot.gameObject.AddComponent<Outline>();
+        GameObject frameObject =
+            new(
+                "RewardWorldItemTooltipFrame",
+                typeof(RectTransform));
 
-        outline.effectColor =
-            new Color(
-                packPaper.r,
-                packPaper.g,
-                packPaper.b,
-                0.24f);
+        frameObject.transform.SetParent(
+            worldInspectRoot,
+            false);
 
-        outline.effectDistance =
-            new Vector2(
-                2f,
-                -2f);
+        worldInspectFrameImage =
+            frameObject.AddComponent<Image>();
+
+        worldInspectFrameImage.raycastTarget =
+            false;
+
+        worldInspectFrameController =
+            frameObject.AddComponent<
+                BattleSpeechBubbleFrameFillController>();
+
+        worldInspectTailController =
+            worldInspectRoot.gameObject.AddComponent<
+                BattleSpeechBubbleTailTriangleController>();
+
+        worldInspectTailController.SetExactTargetMode(
+            true);
+
+        frameObject.transform.SetAsFirstSibling();
 
         worldInspectGroup =
             worldInspectRoot.gameObject.AddComponent<CanvasGroup>();
@@ -1089,7 +1130,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldInspectRoot.gameObject.SetActive(true);
 
         worldInspectRoot.SetAsLastSibling();
-        worldInspectGroup.alpha = 1f;
+
+        PrepareWorldInspectPopup(
+            rewardIndex);
+
         worldInspectGroup.blocksRaycasts = false;
         worldInspectGroup.interactable = false;
     }
@@ -1104,7 +1148,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         bool placeRight)
     {
         if (worldInspectCanvas == null ||
-            worldInspectRoot == null)
+            worldInspectRoot == null ||
+            worldInspectTargetPivot == null)
         {
             return;
         }
@@ -1122,40 +1167,20 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
         }
 
+        worldInspectTargetPivot.anchoredPosition =
+            itemLocal;
+
         worldInspectRoot.anchorMin =
             worldInspectRoot.anchorMax =
                 new Vector2(
                     0.5f,
                     0.5f);
 
-        Vector2 pivot =
-            new(
-                Mathf.Clamp01(
-                    worldInspectPivot.x),
-                Mathf.Clamp01(
-                    worldInspectPivot.y));
-
-        Vector2 offset =
-            worldInspectOffset;
-
-        if (worldInspectAutoFlipX &&
-            !placeRight)
-        {
-            offset.x =
-                -offset.x;
-
-            if (worldInspectAutoFlipPivotX)
-            {
-                pivot.x =
-                    1f -
-                    pivot.x;
-            }
-        }
-
         worldInspectRoot.pivot =
-            pivot;
+            new Vector2(
+                0.5f,
+                0.5f);
 
-        // Play Mode 중 Inspector에서 Size를 바꿔도 즉시 반영됩니다.
         worldInspectRoot.sizeDelta =
             new Vector2(
                 Mathf.Max(
@@ -1165,83 +1190,340 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                     60f,
                     worldInspectSize.y));
 
-        Vector2 target =
-            itemLocal +
-            offset;
+        Vector2 screenCenter =
+            canvasRect.rect.center;
 
-        Rect canvasBounds =
-            canvasRect.rect;
+        Vector2 towardCenter =
+            screenCenter -
+            itemLocal;
+
+        if (towardCenter.sqrMagnitude < 0.001f)
+            towardCenter = Vector2.right;
+
+        towardCenter.Normalize();
+
+        Vector2 target =
+            Vector2.Lerp(
+                itemLocal,
+                screenCenter,
+                Mathf.Clamp01(
+                    worldInspectCenterBias));
 
         Vector2 activeSize =
             worldInspectRoot.sizeDelta;
 
-        float left =
-            target.x -
-            activeSize.x *
-            worldInspectRoot.pivot.x;
+        float halfAlongDirection =
+            Mathf.Abs(towardCenter.x) *
+            activeSize.x * 0.5f +
+            Mathf.Abs(towardCenter.y) *
+            activeSize.y * 0.5f;
 
-        float right =
-            left +
-            activeSize.x;
+        float minimumDistance =
+            halfAlongDirection +
+            Mathf.Max(
+                0f,
+                worldInspectTargetClearance);
 
-        float bottom =
-            target.y -
-            activeSize.y *
-            worldInspectRoot.pivot.y;
+        Vector2 fromItem =
+            target -
+            itemLocal;
 
-        float top =
-            bottom +
-            activeSize.y;
+        if (fromItem.magnitude < minimumDistance)
+        {
+            target =
+                itemLocal +
+                towardCenter *
+                minimumDistance;
+        }
+
+        Rect canvasBounds =
+            canvasRect.rect;
 
         float margin =
             Mathf.Max(
                 0f,
                 worldInspectScreenMargin);
 
-        if (left <
-            canvasBounds.xMin + margin)
-        {
-            target.x +=
+        float halfWidth =
+            activeSize.x * 0.5f;
+
+        float halfHeight =
+            activeSize.y * 0.5f;
+
+        target.x =
+            Mathf.Clamp(
+                target.x,
                 canvasBounds.xMin +
-                margin -
-                left;
-        }
+                halfWidth +
+                margin,
+                canvasBounds.xMax -
+                halfWidth -
+                margin);
 
-        if (right >
-            canvasBounds.xMax - margin)
-        {
-            target.x -=
-                right -
-                (canvasBounds.xMax -
-                 margin);
-        }
-
-        if (bottom <
-            canvasBounds.yMin + margin)
-        {
-            target.y +=
+        target.y =
+            Mathf.Clamp(
+                target.y,
                 canvasBounds.yMin +
-                margin -
-                bottom;
-        }
+                halfHeight +
+                margin,
+                canvasBounds.yMax -
+                halfHeight -
+                margin);
 
-        if (top >
-            canvasBounds.yMax - margin)
-        {
-            target.y -=
-                top -
-                (canvasBounds.yMax -
-                 margin);
-        }
-
-        worldInspectRoot.anchoredPosition =
+        worldInspectPopupTargetPosition =
             target;
 
-        worldInspectRoot.localScale =
-            Vector3.one;
+        if (!worldInspectPopupAnimating)
+            worldInspectRoot.anchoredPosition =
+                target;
 
         worldInspectRoot.localRotation =
             Quaternion.identity;
+    }
+
+    private void ConfigureWorldInspectBubble(
+        int seed)
+    {
+        if (worldInspectRoot == null ||
+            worldInspectTargetPivot == null ||
+            worldInspectFrameController == null ||
+            worldInspectTailController == null)
+        {
+            return;
+        }
+
+        BattleSpeechBubbleFrameStyle baseFrame =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleFrameStyle
+                : BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
+
+        BattleSpeechBubbleTailStyle baseTail =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleTailStyle
+                : new BattleSpeechBubbleTailStyle();
+
+        BattleSpeechBubbleRuntimeVariationSettings variation =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleVariation
+                : null;
+
+        worldInspectRuntimeFrameStyle =
+            baseFrame.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x3F21A7);
+
+        worldInspectRuntimeTailStyle =
+            baseTail.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x71B3C9);
+
+        worldInspectRuntimeFrameStyle.fillColor =
+            new Color(
+                0.028f,
+                0.030f,
+                0.036f,
+                0.985f);
+
+        worldInspectRuntimeFrameStyle.outlineColor =
+            paper;
+
+        worldInspectRuntimeFrameStyle.rotation =
+            0f;
+
+        Material strokeMaterial =
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null;
+
+        worldInspectFrameController.Configure(
+            worldInspectFrameImage,
+            worldInspectRuntimeFrameStyle,
+            worldInspectRoot.sizeDelta,
+            strokeMaterial);
+
+        worldInspectTailController.SetExactTargetMode(
+            true);
+
+        worldInspectTailController.Configure(
+            worldInspectRoot,
+            worldInspectTargetPivot,
+            worldInspectRuntimeFrameStyle.fillColor,
+            worldInspectRuntimeTailStyle,
+            strokeMaterial);
+    }
+
+    private void PrepareWorldInspectPopup(
+        int rewardIndex)
+    {
+        if (worldInspectRoot == null ||
+            worldInspectGroup == null ||
+            worldInspectTargetPivot == null)
+        {
+            return;
+        }
+
+        bool changed =
+            worldInspectPopupContext !=
+            rewardIndex;
+
+        worldInspectPopupContext =
+            rewardIndex;
+
+        Vector2 itemLocal =
+            worldInspectTargetPivot.anchoredPosition;
+
+        Vector2 travelDirection =
+            worldInspectPopupTargetPosition -
+            itemLocal;
+
+        if (travelDirection.sqrMagnitude < 0.001f)
+            travelDirection = Vector2.right;
+
+        travelDirection.Normalize();
+
+        worldInspectPopupStartPosition =
+            worldInspectPopupTargetPosition -
+            travelDirection *
+            Mathf.Max(
+                0f,
+                worldInspectPopupTravel);
+
+        worldInspectTailController?.SetTarget(
+            worldInspectTargetPivot);
+
+        if (changed)
+        {
+            ConfigureWorldInspectBubble(
+                rewardIndex);
+
+            worldInspectPopupTime =
+                0f;
+
+            worldInspectPopupAnimating =
+                true;
+
+            worldInspectRoot.anchoredPosition =
+                worldInspectPopupStartPosition;
+
+            worldInspectRoot.localScale =
+                Vector3.one *
+                worldInspectPopupStartScale;
+
+            worldInspectGroup.alpha =
+                0f;
+        }
+        else if (!worldInspectPopupAnimating)
+        {
+            worldInspectRoot.anchoredPosition =
+                worldInspectPopupTargetPosition;
+
+            worldInspectRoot.localScale =
+                Vector3.one;
+
+            worldInspectGroup.alpha =
+                1f;
+        }
+    }
+
+    private void UpdateWorldInspectPopupAnimation()
+    {
+        if (!worldInspectPopupAnimating ||
+            worldInspectRoot == null ||
+            worldInspectGroup == null)
+        {
+            return;
+        }
+
+        worldInspectPopupTime +=
+            Time.unscaledDeltaTime;
+
+        float t =
+            Mathf.Clamp01(
+                worldInspectPopupTime /
+                Mathf.Max(
+                    0.01f,
+                    worldInspectPopupDuration));
+
+        const float overshootPoint =
+            0.64f;
+
+        float scale;
+
+        if (t < overshootPoint)
+        {
+            float localT =
+                t /
+                overshootPoint;
+
+            localT =
+                1f -
+                Mathf.Pow(
+                    1f -
+                    Mathf.Clamp01(
+                        localT),
+                    3f);
+
+            scale =
+                Mathf.Lerp(
+                    worldInspectPopupStartScale,
+                    worldInspectPopupOvershootScale,
+                    localT);
+        }
+        else
+        {
+            float localT =
+                (t -
+                 overshootPoint) /
+                (1f -
+                 overshootPoint);
+
+            localT =
+                localT *
+                localT *
+                (3f -
+                 2f * localT);
+
+            scale =
+                Mathf.Lerp(
+                    worldInspectPopupOvershootScale,
+                    1f,
+                    localT);
+        }
+
+        float moveT =
+            1f -
+            Mathf.Pow(
+                1f - t,
+                3f);
+
+        worldInspectRoot.anchoredPosition =
+            Vector2.Lerp(
+                worldInspectPopupStartPosition,
+                worldInspectPopupTargetPosition,
+                moveT);
+
+        worldInspectRoot.localScale =
+            Vector3.one *
+            scale;
+
+        worldInspectGroup.alpha =
+            Mathf.Clamp01(
+                t * 2.8f);
+
+        if (t >= 1f)
+        {
+            worldInspectPopupAnimating =
+                false;
+
+            worldInspectRoot.anchoredPosition =
+                worldInspectPopupTargetPosition;
+
+            worldInspectRoot.localScale =
+                Vector3.one;
+
+            worldInspectGroup.alpha =
+                1f;
+        }
     }
 
     /// <summary>
@@ -1249,8 +1531,26 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     /// </summary>
     private void HideWorldRewardInspect()
     {
+        worldInspectPopupAnimating =
+            false;
+
+        worldInspectPopupContext =
+            -1;
+
+        if (worldInspectTailController != null)
+            worldInspectTailController.SetTarget(null);
+
         if (worldInspectGroup != null)
-            worldInspectGroup.alpha = 0f;
+        {
+            worldInspectGroup.alpha =
+                0f;
+
+            worldInspectGroup.blocksRaycasts =
+                false;
+
+            worldInspectGroup.interactable =
+                false;
+        }
 
         if (worldInspectRoot != null &&
             worldInspectRoot.gameObject.activeSelf)
