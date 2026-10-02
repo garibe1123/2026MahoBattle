@@ -51,7 +51,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     [Header("Reward Item Hover Description (커서 올리면 뜨는 설명창)")]
     [Tooltip("Reward 선택 중 월드 아이템/Base 위에 커서를 올렸을 때 나타나는 설명창 크기입니다.")]
-    [SerializeField] private Vector2 worldInspectSize = new(360f, 220f);
+    [SerializeField] private Vector2 worldInspectSize = new(420f, 360f);
     [Tooltip("아이템에서 화면 중앙 쪽으로 설명창을 얼마나 끌어당길지 정합니다.")]
     [SerializeField, Range(0f, 1f)] private float worldInspectCenterBias = 0.72f;
     [Tooltip("아이템 중심과 설명창 사이에 확보할 최소 여백입니다.")]
@@ -120,6 +120,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private int worldInspectPopupContext = -1;
     private Vector2 worldInspectPopupStartPosition;
     private Vector2 worldInspectPopupTargetPosition;
+    private Image worldInspectThumbnail;
     private Text worldInspectTitle;
     private Text worldInspectMeta;
     private Text worldInspectDescription;
@@ -863,6 +864,80 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         worldInspectGroup.interactable =
             false;
 
+        RectTransform worldVisualViewport =
+            CreateRect(
+                worldInspectRoot,
+                "ItemVisualViewport",
+                Vector2.zero);
+
+        SetAnchors(
+            worldVisualViewport,
+            new Vector2(
+                0.06f,
+                0.58f),
+            new Vector2(
+                0.94f,
+                0.93f));
+
+        Image worldVisualBack =
+            worldVisualViewport.gameObject.AddComponent<Image>();
+
+        worldVisualBack.color =
+            new Color(
+                packPaper.r,
+                packPaper.g,
+                packPaper.b,
+                0.055f);
+
+        worldVisualBack.raycastTarget =
+            false;
+
+        Outline worldVisualOutline =
+            worldVisualViewport.gameObject.AddComponent<Outline>();
+
+        worldVisualOutline.effectColor =
+            new Color(
+                packPaper.r,
+                packPaper.g,
+                packPaper.b,
+                0.16f);
+
+        worldVisualOutline.effectDistance =
+            new Vector2(
+                2f,
+                -2f);
+
+        worldInspectThumbnail =
+            CreateImage(
+                worldVisualViewport,
+                "ItemVisual",
+                Vector2.zero);
+
+        Stretch(
+            worldInspectThumbnail.rectTransform);
+
+        worldInspectThumbnail.rectTransform.offsetMin =
+            new Vector2(
+                14f,
+                14f);
+
+        worldInspectThumbnail.rectTransform.offsetMax =
+            new Vector2(
+                -14f,
+                -14f);
+
+        worldInspectThumbnail.sprite =
+            BattleHudSpriteCache.DefaultSprite;
+
+        worldInspectThumbnail.color =
+            Color.white;
+
+        worldInspectThumbnail.preserveAspect =
+            false;
+
+        worldInspectThumbnail.raycastTarget =
+            false;
+
         worldInspectTitle =
             CreateText(
                 worldInspectRoot,
@@ -876,10 +951,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldInspectTitle.rectTransform,
             new Vector2(
                 0.06f,
-                0.76f),
+                0.48f),
             new Vector2(
                 0.94f,
-                0.94f));
+                0.57f));
 
         worldInspectMeta =
             CreateText(
@@ -894,10 +969,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldInspectMeta.rectTransform,
             new Vector2(
                 0.06f,
-                0.66f),
+                0.415f),
             new Vector2(
                 0.94f,
-                0.76f));
+                0.48f));
 
         worldInspectDescription =
             CreateText(
@@ -912,10 +987,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldInspectDescription.rectTransform,
             new Vector2(
                 0.06f,
-                0.39f),
+                0.245f),
             new Vector2(
                 0.94f,
-                0.65f));
+                0.405f));
 
         worldInspectDescription.horizontalOverflow =
             HorizontalWrapMode.Wrap;
@@ -936,10 +1011,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldInspectTags.rectTransform,
             new Vector2(
                 0.06f,
-                0.25f),
+                0.165f),
             new Vector2(
                 0.94f,
-                0.38f));
+                0.235f));
 
         worldInspectStats =
             CreateText(
@@ -954,10 +1029,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldInspectStats.rectTransform,
             new Vector2(
                 0.06f,
-                0.10f),
+                0.085f),
             new Vector2(
                 0.94f,
-                0.24f));
+                0.155f));
 
         worldInspectHint =
             CreateText(
@@ -975,7 +1050,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 0.025f),
             new Vector2(
                 0.94f,
-                0.105f));
+                0.08f));
 
         worldInspectRoot.gameObject.SetActive(
             false);
@@ -1081,6 +1156,26 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         {
             HideWorldRewardInspect();
             return;
+        }
+
+        if (worldInspectThumbnail != null)
+        {
+            bool hasImage =
+                equipment.icon != null;
+
+            worldInspectThumbnail.sprite =
+                hasImage
+                    ? equipment.icon
+                    : BattleHudSpriteCache.DefaultSprite;
+
+            worldInspectThumbnail.color =
+                Color.white;
+
+            worldInspectThumbnail.preserveAspect =
+                hasImage;
+
+            worldInspectThumbnail.enabled =
+                true;
         }
 
         worldInspectTitle.text =
