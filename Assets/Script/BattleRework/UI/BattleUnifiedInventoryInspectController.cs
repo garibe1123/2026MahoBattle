@@ -781,21 +781,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             {
                 source = HasItem(pad) ? pad : -1;
             }
-            else if (hover >= 0)
+            else
             {
-                // Mouse/Keyboard에서는 현재 마우스 아래 슬롯이 가장 우선입니다.
-                // EMPTY/LOCKED 위에 있으면 상세 선택도 즉시 비웁니다.
+                // Mouse/Keyboard 상세창은 순수 Hover View입니다.
+                // 설명창 자체는 Raycast를 먹지 않으므로 다른 아이템으로 넘어가면
+                // 즉시 그 슬롯으로 교체되고, 아이템에서 벗어나면 바로 닫힙니다.
                 source = HasItem(hover) ? hover : -1;
-            }
-            else if (HasItem(mouse))
-            {
-                // 클릭한 아이템은 Hover가 없을 때만 고정 선택으로 남습니다.
-                source = mouse;
-            }
-            else if (!selectionSuppressed && rewardFlow != null && rewardFlow.ChosenRewardCommitted &&
-                     HasItem(rewardFlow.ChosenRewardSlot))
-            {
-                source = rewardFlow.ChosenRewardSlot;
             }
         }
         else if (combatTab && kineticLoadout != null)
