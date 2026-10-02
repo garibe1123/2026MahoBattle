@@ -530,8 +530,22 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 
         if (icon != null)
         {
-            icon.sprite = equipment.icon;
-            icon.enabled = equipment.icon != null;
+            bool hasImage =
+                equipment.icon != null;
+
+            icon.sprite =
+                hasImage
+                    ? equipment.icon
+                    : BattleHudSpriteCache.DefaultSprite;
+
+            icon.color =
+                Color.white;
+
+            icon.preserveAspect =
+                hasImage;
+
+            icon.enabled =
+                true;
         }
 
         if (description != null)
@@ -723,35 +737,94 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         slotLabel = CreateText(root, "PACK // 1-1", 10, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
         SetAnchors(slotLabel.rectTransform, new Vector2(0.54f, 0.90f), new Vector2(0.94f, 0.96f));
 
-        icon = CreateImage(root, "EquipmentIcon", new Vector2(104f, 104f));
-        icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.18f, 0.75f);
-        icon.rectTransform.anchoredPosition = Vector2.zero;
-        icon.preserveAspect = true;
-        icon.raycastTarget = false;
+        RectTransform visualViewport =
+            CreateRect(
+                root,
+                "EquipmentVisualViewport",
+                Vector2.zero);
 
-        RectTransform iconBack = CreateRect(root, "IconInkBack", new Vector2(126f, 116f));
-        iconBack.anchorMin = iconBack.anchorMax = new Vector2(0.18f, 0.75f);
-        iconBack.anchoredPosition = Vector2.zero;
-        iconBack.localRotation = Quaternion.Euler(0f, 0f, -4f);
-        Image ib = iconBack.gameObject.AddComponent<Image>();
-        ib.color = new Color(accentPink.r, accentPink.g, accentPink.b, 0.22f);
-        ib.raycastTarget = false;
-        icon.transform.SetAsLastSibling();
+        SetAnchors(
+            visualViewport,
+            new Vector2(
+                0.07f,
+                0.64f),
+            new Vector2(
+                0.93f,
+                0.87f));
+
+        Image visualBack =
+            visualViewport.gameObject.AddComponent<Image>();
+
+        visualBack.color =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.055f);
+
+        visualBack.raycastTarget =
+            false;
+
+        Outline visualOutline =
+            visualViewport.gameObject.AddComponent<Outline>();
+
+        visualOutline.effectColor =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.16f);
+
+        visualOutline.effectDistance =
+            new Vector2(
+                2f,
+                -2f);
+
+        icon =
+            CreateImage(
+                visualViewport,
+                "EquipmentVisual",
+                Vector2.zero);
+
+        Stretch(
+            icon.rectTransform);
+
+        icon.rectTransform.offsetMin =
+            new Vector2(
+                14f,
+                14f);
+
+        icon.rectTransform.offsetMax =
+            new Vector2(
+                -14f,
+                -14f);
+
+        icon.sprite =
+            BattleHudSpriteCache.DefaultSprite;
+
+        icon.color =
+            Color.white;
+
+        icon.preserveAspect =
+            false;
+
+        icon.raycastTarget =
+            false;
 
         title = CreateText(root, "ITEM NAME", 24, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        SetAnchors(title.rectTransform, new Vector2(0.36f, 0.72f), new Vector2(0.94f, 0.84f));
+        SetAnchors(title.rectTransform, new Vector2(0.07f, 0.555f), new Vector2(0.93f, 0.635f));
 
         rarityType = CreateText(root, "COMMON / MANUAL", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
-        SetAnchors(rarityType.rectTransform, new Vector2(0.36f, 0.65f), new Vector2(0.94f, 0.72f));
+        SetAnchors(rarityType.rectTransform, new Vector2(0.07f, 0.505f), new Vector2(0.48f, 0.555f));
 
-        stateLabel = CreateText(root, "ACTIVE // LV.1", 10, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow);
-        SetAnchors(stateLabel.rectTransform, new Vector2(0.36f, 0.59f), new Vector2(0.94f, 0.65f));
+        stateLabel = CreateText(root, "ACTIVE // LV.1", 10, FontStyle.Bold, TextAnchor.MiddleRight, accentYellow);
+        SetAnchors(stateLabel.rectTransform, new Vector2(0.50f, 0.505f), new Vector2(0.93f, 0.555f));
     }
 
     private void BuildBody()
     {
         RectTransform descBack = CreateRect(root, "DescriptionBack", Vector2.zero);
-        SetAnchors(descBack, new Vector2(0.07f, 0.39f), new Vector2(0.93f, 0.57f));
+        SetAnchors(descBack, new Vector2(0.07f, 0.335f), new Vector2(0.93f, 0.485f));
         Image db = descBack.gameObject.AddComponent<Image>();
         db.color = new Color(0f, 0f, 0f, 0.42f);
         db.raycastTarget = false;
@@ -762,24 +835,24 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         description.verticalOverflow = VerticalWrapMode.Truncate;
 
         Text statHeader = CreateText(root, "PARAMETERS", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentYellow);
-        SetAnchors(statHeader.rectTransform, new Vector2(0.07f, 0.335f), new Vector2(0.45f, 0.385f));
+        SetAnchors(statHeader.rectTransform, new Vector2(0.07f, 0.285f), new Vector2(0.45f, 0.33f));
 
         statText = CreateText(root, "DMG\nMOVE\nRANGE", 13, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(statText.rectTransform, new Vector2(0.07f, 0.17f), new Vector2(0.45f, 0.335f));
+        SetAnchors(statText.rectTransform, new Vector2(0.07f, 0.13f), new Vector2(0.45f, 0.285f));
 
         Text tagHeader = CreateText(root, "TAGS", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentPink);
-        SetAnchors(tagHeader.rectTransform, new Vector2(0.50f, 0.335f), new Vector2(0.91f, 0.385f));
+        SetAnchors(tagHeader.rectTransform, new Vector2(0.50f, 0.285f), new Vector2(0.91f, 0.33f));
 
         tagText = CreateText(root, "NO TAG", 11, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(tagText.rectTransform, new Vector2(0.50f, 0.245f), new Vector2(0.93f, 0.335f));
+        SetAnchors(tagText.rectTransform, new Vector2(0.50f, 0.21f), new Vector2(0.93f, 0.285f));
         tagText.horizontalOverflow = HorizontalWrapMode.Wrap;
         tagText.verticalOverflow = VerticalWrapMode.Truncate;
 
         synergyTitle = CreateText(root, "GRID LINK", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
-        SetAnchors(synergyTitle.rectTransform, new Vector2(0.50f, 0.19f), new Vector2(0.91f, 0.24f));
+        SetAnchors(synergyTitle.rectTransform, new Vector2(0.50f, 0.155f), new Vector2(0.91f, 0.205f));
 
         synergyText = CreateText(root, "NO ACTIVE GRID LINK", 11, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(synergyText.rectTransform, new Vector2(0.50f, 0.055f), new Vector2(0.93f, 0.19f));
+        SetAnchors(synergyText.rectTransform, new Vector2(0.50f, 0.045f), new Vector2(0.93f, 0.15f));
         synergyText.horizontalOverflow = HorizontalWrapMode.Wrap;
         synergyText.verticalOverflow = VerticalWrapMode.Truncate;
 
