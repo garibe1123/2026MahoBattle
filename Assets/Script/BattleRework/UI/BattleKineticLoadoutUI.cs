@@ -1659,7 +1659,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         fullGroup.blocksRaycasts = active;
         fullGroup.interactable = active;
 
-        if (!active)
+        // Reward PACK 편집도 같은 detailRoot를 재사용합니다.
+        // Combat TAB이 아닌 상태에서 매 프레임 Hide하면 Reward Hover Popup 애니메이션이
+        // 계속 처음부터 재시작하므로 Combat 소유 상태에서만 Hover를 정리합니다.
+        if (!active && combatActive)
             ClearPackHoverImmediate();
     }
 
