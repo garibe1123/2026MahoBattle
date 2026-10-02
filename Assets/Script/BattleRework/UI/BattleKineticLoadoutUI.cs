@@ -34,6 +34,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private PlayerController player;
     [SerializeField] private BattleKineticItemBarUI miniPackUI;
     [SerializeField] private BattleBroadcastDashboardController dashboardController;
+    [SerializeField] private BattleShowPresentationManager presentation;
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
@@ -57,15 +58,23 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Vector2 packFocusedOffset = new(-170f, -76f);
     [SerializeField] private Vector2 packInactiveCornerOffset = new(-378f, -146f);
     [SerializeField] private Vector2 itemTooltipSize = new(360f, 220f);
-    [SerializeField, Min(4f)] private float itemTooltipGap = 18f;
+
+    [Header("Item Info Popup")]
+    [Tooltip("선택 아이템에서 화면 중앙 쪽으로 설명창을 얼마나 끌어당길지 정합니다.")]
+    [SerializeField, Range(0f, 1f)] private float itemTooltipCenterBias = 0.72f;
+    [Tooltip("아이템 중심과 설명창 사이에 확보할 최소 여백입니다.")]
+    [SerializeField, Min(0f)] private float itemTooltipTargetClearance = 76f;
+    [Tooltip("설명창이 화면 가장자리에서 유지할 최소 여백입니다.")]
+    [SerializeField, Min(0f)] private float itemTooltipScreenMargin = 28f;
+    [SerializeField, Range(0.7f, 1f)] private float itemTooltipPopupStartScale = 0.88f;
+    [SerializeField, Range(1f, 1.15f)] private float itemTooltipPopupOvershootScale = 1.045f;
+    [SerializeField, Range(0.05f, 0.30f)] private float itemTooltipPopupDuration = 0.15f;
+    [SerializeField, Min(0f)] private float itemTooltipPopupTravel = 24f;
 
     [Header("Compact Vitals")]
     [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
     [SerializeField] private Color staminaColor = new(0.18f, 0.82f, 0.95f, 1f);
     [SerializeField] private Color vitalsTextColor = new(0.82f, 0.85f, 0.90f, 1f);
-
-    [Header("Grid Mouse")]
-    [SerializeField, Range(0.02f, 0.20f)] private float hoverExitGrace = 0.08f;
 
     private Canvas canvas;
     private CanvasGroup fullGroup;
@@ -90,6 +99,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform linkRoot;
     private RectTransform detailRoot;
     private CanvasGroup detailGroup;
+    private Image detailFrameImage;
+    private BattleSpeechBubbleFrameFillController detailFrameController;
+    private BattleSpeechBubbleTailTriangleController detailTailController;
+    private BattleSpeechBubbleFrameStyle runtimeDetailFrameStyle;
+    private BattleSpeechBubbleTailStyle runtimeDetailTailStyle;
+    private RectTransform detailTailTarget;
+    private int detailPopupContextHash = int.MinValue;
+    private bool detailPopupAnimating;
+    private float detailPopupTime;
+    private Vector2 detailPopupStartPosition;
+    private Vector2 detailPopupTargetPosition;
     private Text detailTitle;
     private Text detailDescription;
     private Text detailTags;
@@ -148,10 +168,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private bool combatActive;
     private bool lastNotifiedBoardVisible;
     private int hoveredSlot = -1;
-    private int pendingHoverExitSlot = -1;
-    private float hoverExitAt;
-    private Rect hoveredSlotEntryScreenRect;
-    private bool hoveredSlotEntryRectValid;
 
     public int SelectedIndex => selectedIndex;
     public bool SwitchHeld => switchHeld;
@@ -217,10 +233,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             UpdateSwitchInput();
 
         UpdateTabTimeTransition();
-        UpdateHoverExitGrace();
         UpdateCompactVitals();
         UpdateGridRaycastState();
         UpdateUiAnimation(combat);
+        UpdateDetailPopupAnimation();
     }
 
     private void ResolveReferences()
@@ -244,6 +260,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             miniPackUI = FindFirstObjectByType<BattleKineticItemBarUI>(FindObjectsInactive.Include);
         if (dashboardController == null)
             dashboardController = FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
+        if (presentation == null)
+            presentation = FindFirstObjectByType<BattleShowPresentationManager>(FindObjectsInactive.Include);
     }
 
     private void Subscribe()
@@ -979,12 +997,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailRoot.localRotation = Quaternion.identity;
 
         Image detailBack = detailRoot.gameObject.AddComponent<Image>();
-        detailBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.965f);
+        detailBack.color = Color.clear;
         detailBack.raycastTarget = false;
 
-        Outline detailOutline = detailRoot.gameObject.AddComponent<Outline>();
-        detailOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.24f);
-        detailOutline.effectDistance = new Vector2(2f, -2f);
+        BuildDetailBubbleVisual();
 
         detailTitle = CreateText(detailRoot, "EMPTY", 20, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
         SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.74f), new Vector2(0.94f, 0.94f));
@@ -1319,21 +1335,28 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailRoot.sizeDelta = itemTooltipSize;
         detailRoot.gameObject.SetActive(true);
         detailRoot.SetAsLastSibling();
-        detailRoot.anchoredPosition = ResolveTooltipPosition(slotRects[slotIndex]);
-        detailRoot.localScale = Vector3.one;
-        detailRoot.localRotation = Quaternion.identity;
+
+        PrepareDetailPopup(
+            slotRects[slotIndex],
+            slotIndex);
 
         Vector3 local = detailRoot.localPosition;
         local.z = -24f;
         detailRoot.localPosition = local;
 
-        detailGroup.alpha = 1f;
         detailGroup.blocksRaycasts = false;
         detailGroup.interactable = false;
     }
 
     public void HideRewardInspectTooltip()
     {
+        detailPopupAnimating = false;
+        detailPopupContextHash = int.MinValue;
+        detailTailTarget = null;
+
+        if (detailTailController != null)
+            detailTailController.SetTarget(null);
+
         if (detailGroup == null)
             return;
 
@@ -1420,15 +1443,20 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         detailRoot.gameObject.SetActive(true);
         detailRoot.SetAsLastSibling();
-        detailRoot.anchoredPosition = ResolveTooltipPosition(slotRects[targetSlotIndex]);
-        detailRoot.localScale = Vector3.one;
-        detailRoot.localRotation = Quaternion.identity;
+
+        int contextHash =
+            100000 +
+            sourceSlotIndex * 64 +
+            targetSlotIndex;
+
+        PrepareDetailPopup(
+            slotRects[targetSlotIndex],
+            contextHash);
 
         Vector3 local = detailRoot.localPosition;
         local.z = -28f;
         detailRoot.localPosition = local;
 
-        detailGroup.alpha = 1f;
         detailGroup.blocksRaycasts = false;
         detailGroup.interactable = false;
     }
@@ -1559,8 +1587,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         {
             if (hoveredSlot == index)
             {
-                pendingHoverExitSlot = index;
-                hoverExitAt = Time.unscaledTime + Mathf.Clamp(hoverExitGrace, 0.02f, 0.20f);
+                hoveredSlot = -1;
+
+                if (Input.mousePresent)
+                    HideRewardInspectTooltip();
             }
             return;
         }
@@ -1570,9 +1600,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         dashboardController?.SetPackFocus(true);
         hoveredSlot = index;
-        CaptureHoveredSlotEntryRect(index);
-        pendingHoverExitSlot = -1;
-        hoverExitAt = 0f;
 
         if (selectedIndex != index)
             SetSelectedIndexFromExternal(index, true);
@@ -1587,7 +1614,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
 
         hoveredSlot = index;
-        pendingHoverExitSlot = -1;
 
         if (selectedIndex != index)
             SetSelectedIndexFromExternal(index, true);
@@ -1598,59 +1624,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     public void ClearPackHoverImmediate()
     {
         hoveredSlot = -1;
-        pendingHoverExitSlot = -1;
-        hoverExitAt = 0f;
-        hoveredSlotEntryRectValid = false;
-    }
-
-    private void UpdateHoverExitGrace()
-    {
-        if (pendingHoverExitSlot < 0 || Time.unscaledTime < hoverExitAt)
-            return;
-
-        if (hoveredSlot == pendingHoverExitSlot &&
-            Input.mousePresent &&
-            IsPointerInsideHoveredSlotLatch(
-                pendingHoverExitSlot,
-                Input.mousePosition))
-        {
-            pendingHoverExitSlot = -1;
-            hoverExitAt = 0f;
-            return;
-        }
-
-        if (hoveredSlot == pendingHoverExitSlot)
-        {
-            hoveredSlot = -1;
-            hoveredSlotEntryRectValid = false;
-        }
-
-        pendingHoverExitSlot = -1;
-        hoverExitAt = 0f;
-    }
-
-    private void CaptureHoveredSlotEntryRect(int index)
-    {
-        if (index < 0 || index >= slotRects.Length || slotRects[index] == null)
-        {
-            hoveredSlotEntryRectValid = false;
-            return;
-        }
-
-        hoveredSlotEntryScreenRect = GetScreenRect(slotRects[index]);
-        hoveredSlotEntryRectValid = true;
-    }
-
-    private bool IsPointerInsideHoveredSlotLatch(int index, Vector2 pointer)
-    {
-        bool insideEntry =
-            hoveredSlotEntryRectValid &&
-            hoveredSlotEntryScreenRect.Contains(pointer);
-
-        if (index < 0 || index >= slotRects.Length || slotRects[index] == null)
-            return insideEntry;
-
-        return insideEntry || GetScreenRect(slotRects[index]).Contains(pointer);
+        HideRewardInspectTooltip();
     }
 
     private static Rect GetScreenRect(RectTransform rect)
@@ -1952,22 +1926,41 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 tooltipSlot < slotRects.Length &&
                 slotRects[tooltipSlot] != null;
 
-            Vector2 tooltipTarget = tooltipVisible
-                ? ResolveTooltipPosition(slotRects[tooltipSlot])
-                : detailRoot.anchoredPosition;
-
             if (tooltipVisible)
             {
-                detailRoot.anchoredPosition = Vector2.Lerp(
-                    detailRoot.anchoredPosition,
-                    tooltipTarget,
-                    t);
-            }
+                int contextHash =
+                    tooltipSlot;
 
-            detailRoot.localScale = Vector3.Lerp(
-                detailRoot.localScale,
-                Vector3.one * (tooltipVisible ? 1f : 0.94f),
-                t);
+                if (detailPopupContextHash != contextHash)
+                {
+                    SetDetailCompareMode(false);
+                    RefreshDetailForSlot(tooltipSlot);
+                    detailRoot.sizeDelta = itemTooltipSize;
+
+                    PrepareDetailPopup(
+                        slotRects[tooltipSlot],
+                        contextHash);
+                }
+                else if (!detailPopupAnimating)
+                {
+                    detailPopupTargetPosition =
+                        ResolveTooltipPosition(
+                            slotRects[tooltipSlot]);
+
+                    detailRoot.anchoredPosition =
+                        Vector2.Lerp(
+                            detailRoot.anchoredPosition,
+                            detailPopupTargetPosition,
+                            t);
+
+                    if (detailGroup != null)
+                        detailGroup.alpha = 1f;
+                }
+            }
+            else if (combat && Input.mousePresent)
+            {
+                HideRewardInspectTooltip();
+            }
 
             Vector3 detailLocal = detailRoot.localPosition;
             detailLocal.z = Mathf.Lerp(
@@ -1978,15 +1971,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             if (detailGroup != null)
             {
-                float tooltipReveal = tooltipVisible
-                    ? SmoothPackRange(packMorphProgress, 0.70f, 0.94f)
-                    : 0f;
-                detailGroup.alpha = Mathf.Lerp(
-                    detailGroup.alpha,
-                    tooltipReveal,
-                    t);
                 detailGroup.blocksRaycasts = false;
                 detailGroup.interactable = false;
+
+                if (!tooltipVisible &&
+                    combat)
+                {
+                    detailGroup.alpha = 0f;
+                }
             }
         }
 
@@ -2065,36 +2057,74 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (slot == null || fullRoot == null || detailRoot == null)
             return Vector2.zero;
 
-        Vector3 slotRightWorld = slot.TransformPoint(
-            new Vector3(slot.rect.xMax, slot.rect.center.y, 0f));
-        Vector3 slotCenterWorld = slot.TransformPoint(slot.rect.center);
+        Vector3 slotCenterWorld =
+            slot.TransformPoint(
+                slot.rect.center);
 
-        Vector2 rightLocal = fullRoot.InverseTransformPoint(slotRightWorld);
-        Vector2 centerLocal = fullRoot.InverseTransformPoint(slotCenterWorld);
+        Vector2 slotCenter =
+            fullRoot.InverseTransformPoint(
+                slotCenterWorld);
 
-        float gap = Mathf.Max(4f, itemTooltipGap);
-        Vector2 desired = new(
-            rightLocal.x + gap,
-            centerLocal.y);
+        Vector2 screenCenter =
+            fullRoot.rect.center;
 
-        detailRoot.pivot = new Vector2(0f, 0.5f);
+        Vector2 towardCenter =
+            screenCenter -
+            slotCenter;
 
-        // Detail/compare windows always open to the RIGHT of the hovered slot.
-        // We only correct against the actual Game View safe area; there is no
-        // left-side fallback anymore.
-        Vector2 clamped = ClampRightSideTooltipToViewport(
+        if (towardCenter.sqrMagnitude < 0.001f)
+            towardCenter = Vector2.right;
+
+        towardCenter.Normalize();
+
+        Vector2 desired =
+            Vector2.Lerp(
+                slotCenter,
+                screenCenter,
+                Mathf.Clamp01(
+                    itemTooltipCenterBias));
+
+        Vector2 size =
+            detailRoot.sizeDelta;
+
+        float halfAlongDirection =
+            Mathf.Abs(towardCenter.x) *
+            size.x * 0.5f +
+            Mathf.Abs(towardCenter.y) *
+            size.y * 0.5f;
+
+        float minimumDistance =
+            halfAlongDirection +
+            Mathf.Max(
+                0f,
+                itemTooltipTargetClearance);
+
+        Vector2 fromTarget =
+            desired -
+            slotCenter;
+
+        if (fromTarget.magnitude < minimumDistance)
+        {
+            desired =
+                slotCenter +
+                towardCenter *
+                minimumDistance;
+        }
+
+        detailRoot.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        return ClampTooltipToViewport(
             fullRoot,
             desired,
-            detailRoot.sizeDelta,
+            size,
             detailRoot.pivot,
-            24f);
-
-        // Never allow viewport correction to flip the tooltip to the slot's left.
-        clamped.x = Mathf.Max(clamped.x, rightLocal.x + 4f);
-        return clamped;
+            itemTooltipScreenMargin);
     }
 
-    private static Vector2 ClampRightSideTooltipToViewport(
+    private static Vector2 ClampTooltipToViewport(
         RectTransform parent,
         Vector2 pivotLocal,
         Vector2 size,
@@ -2104,14 +2134,24 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (parent == null)
             return pivotLocal;
 
-        Canvas canvas = parent.GetComponentInParent<Canvas>();
+        Canvas canvas =
+            parent.GetComponentInParent<Canvas>();
+
         Camera eventCamera =
-            canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay
+            canvas != null &&
+            canvas.renderMode != RenderMode.ScreenSpaceOverlay
                 ? canvas.worldCamera
                 : null;
 
-        float width = Mathf.Max(1f, size.x);
-        float height = Mathf.Max(1f, size.y);
+        float width =
+            Mathf.Max(
+                1f,
+                size.x);
+
+        float height =
+            Mathf.Max(
+                1f,
+                size.y);
 
         Vector2[] localCorners =
         {
@@ -2121,47 +2161,98 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             pivotLocal + new Vector2(-width * pivot.x, height * (1f - pivot.y))
         };
 
-        Vector2 screenMin = new(float.PositiveInfinity, float.PositiveInfinity);
-        Vector2 screenMax = new(float.NegativeInfinity, float.NegativeInfinity);
+        Vector2 screenMin =
+            new(
+                float.PositiveInfinity,
+                float.PositiveInfinity);
+
+        Vector2 screenMax =
+            new(
+                float.NegativeInfinity,
+                float.NegativeInfinity);
 
         for (int i = 0; i < localCorners.Length; i++)
         {
-            Vector2 screen = RectTransformUtility.WorldToScreenPoint(
-                eventCamera,
-                parent.TransformPoint(localCorners[i]));
-            screenMin = Vector2.Min(screenMin, screen);
-            screenMax = Vector2.Max(screenMax, screen);
+            Vector2 screen =
+                RectTransformUtility.WorldToScreenPoint(
+                    eventCamera,
+                    parent.TransformPoint(
+                        localCorners[i]));
+
+            screenMin =
+                Vector2.Min(
+                    screenMin,
+                    screen);
+
+            screenMax =
+                Vector2.Max(
+                    screenMax,
+                    screen);
         }
 
-        Rect viewport = eventCamera != null
-            ? eventCamera.pixelRect
-            : new Rect(0f, 0f, Screen.width, Screen.height);
+        Rect viewport =
+            eventCamera != null
+                ? eventCamera.pixelRect
+                : new Rect(
+                    0f,
+                    0f,
+                    Screen.width,
+                    Screen.height);
 
-        float safeMargin = Mathf.Max(0f, margin);
-        Rect safe = new(
-            viewport.xMin + safeMargin,
-            viewport.yMin + safeMargin,
-            Mathf.Max(1f, viewport.width - safeMargin * 2f),
-            Mathf.Max(1f, viewport.height - safeMargin * 2f));
+        float safeMargin =
+            Mathf.Max(
+                0f,
+                margin);
 
-        Vector2 correction = Vector2.zero;
+        Rect safe =
+            new(
+                viewport.xMin + safeMargin,
+                viewport.yMin + safeMargin,
+                Mathf.Max(
+                    1f,
+                    viewport.width -
+                    safeMargin * 2f),
+                Mathf.Max(
+                    1f,
+                    viewport.height -
+                    safeMargin * 2f));
+
+        Vector2 correction =
+            Vector2.zero;
+
+        if (screenMin.x < safe.xMin)
+            correction.x +=
+                safe.xMin -
+                screenMin.x;
+
         if (screenMax.x > safe.xMax)
-            correction.x -= screenMax.x - safe.xMax;
+            correction.x -=
+                screenMax.x -
+                safe.xMax;
+
         if (screenMin.y < safe.yMin)
-            correction.y += safe.yMin - screenMin.y;
+            correction.y +=
+                safe.yMin -
+                screenMin.y;
+
         if (screenMax.y > safe.yMax)
-            correction.y -= screenMax.y - safe.yMax;
+            correction.y -=
+                screenMax.y -
+                safe.yMax;
 
         if (correction.sqrMagnitude <= 0.0001f)
             return pivotLocal;
 
-        Vector2 pivotScreen = RectTransformUtility.WorldToScreenPoint(
-            eventCamera,
-            parent.TransformPoint(pivotLocal));
+        Vector2 pivotScreen =
+            RectTransformUtility.WorldToScreenPoint(
+                eventCamera,
+                parent.TransformPoint(
+                    pivotLocal));
 
         if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
                 parent,
-                pivotScreen + correction,
+                pivotScreen +
+                correction,
                 eventCamera,
                 out Vector2 correctedLocal))
         {
@@ -2169,6 +2260,317 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         }
 
         return correctedLocal;
+    }
+
+    private void BuildDetailBubbleVisual()
+    {
+        if (detailRoot == null)
+            return;
+
+        GameObject frameObject =
+            new(
+                "ItemDetailFrame",
+                typeof(RectTransform));
+
+        frameObject.transform.SetParent(
+            detailRoot,
+            false);
+
+        detailFrameImage =
+            frameObject.AddComponent<Image>();
+
+        detailFrameImage.raycastTarget =
+            false;
+
+        detailFrameController =
+            frameObject.AddComponent<
+                BattleSpeechBubbleFrameFillController>();
+
+        detailTailController =
+            detailRoot.gameObject.AddComponent<
+                BattleSpeechBubbleTailTriangleController>();
+
+        detailTailController.SetExactTargetMode(
+            true);
+
+        frameObject.transform.SetAsFirstSibling();
+    }
+
+    private void ConfigureDetailBubble(
+        RectTransform target,
+        int seed)
+    {
+        if (detailRoot == null ||
+            detailFrameController == null ||
+            detailTailController == null)
+        {
+            return;
+        }
+
+        BattleSpeechBubbleFrameStyle baseFrame =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleFrameStyle
+                : BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
+
+        BattleSpeechBubbleTailStyle baseTail =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleTailStyle
+                : new BattleSpeechBubbleTailStyle();
+
+        BattleSpeechBubbleRuntimeVariationSettings variation =
+            presentation != null
+                ? presentation.SelectionSpeechBubbleVariation
+                : null;
+
+        runtimeDetailFrameStyle =
+            baseFrame.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x514A71);
+
+        runtimeDetailTailStyle =
+            baseTail.CreateRuntimeVariant(
+                variation,
+                seed ^ 0x291D33);
+
+        runtimeDetailFrameStyle.fillColor =
+            new Color(
+                inkColor.r,
+                inkColor.g,
+                inkColor.b,
+                0.985f);
+
+        runtimeDetailFrameStyle.outlineColor =
+            paperColor;
+
+        runtimeDetailFrameStyle.rotation =
+            0f;
+
+        Material strokeMaterial =
+            presentation != null
+                ? presentation.SpeechBubbleStrokeMaterial
+                : null;
+
+        detailFrameController.Configure(
+            detailFrameImage,
+            runtimeDetailFrameStyle,
+            detailRoot.sizeDelta,
+            strokeMaterial);
+
+        detailTailTarget =
+            target;
+
+        detailTailController.SetExactTargetMode(
+            true);
+
+        detailTailController.Configure(
+            detailRoot,
+            target,
+            runtimeDetailFrameStyle.fillColor,
+            runtimeDetailTailStyle,
+            strokeMaterial);
+    }
+
+    private void PrepareDetailPopup(
+        RectTransform target,
+        int contextHash)
+    {
+        if (detailRoot == null ||
+            detailGroup == null ||
+            target == null)
+        {
+            return;
+        }
+
+        detailTailTarget =
+            target;
+
+        detailPopupTargetPosition =
+            ResolveTooltipPosition(
+                target);
+
+        Vector2 targetCenter =
+            fullRoot != null
+                ? (Vector2)fullRoot.InverseTransformPoint(
+                    target.TransformPoint(
+                        target.rect.center))
+                : detailPopupTargetPosition;
+
+        Vector2 travelDirection =
+            detailPopupTargetPosition -
+            targetCenter;
+
+        if (travelDirection.sqrMagnitude < 0.001f)
+            travelDirection = Vector2.right;
+
+        travelDirection.Normalize();
+
+        detailPopupStartPosition =
+            detailPopupTargetPosition -
+            travelDirection *
+            Mathf.Max(
+                0f,
+                itemTooltipPopupTravel);
+
+        bool contextChanged =
+            detailPopupContextHash !=
+            contextHash;
+
+        detailPopupContextHash =
+            contextHash;
+
+        if (contextChanged)
+        {
+            ConfigureDetailBubble(
+                target,
+                contextHash);
+
+            detailPopupTime =
+                0f;
+
+            detailPopupAnimating =
+                true;
+
+            detailRoot.anchoredPosition =
+                detailPopupStartPosition;
+
+            detailRoot.localScale =
+                Vector3.one *
+                itemTooltipPopupStartScale;
+
+            detailGroup.alpha =
+                0f;
+        }
+        else
+        {
+            detailTailController?.SetTarget(
+                target);
+
+            if (!detailPopupAnimating)
+            {
+                detailRoot.anchoredPosition =
+                    detailPopupTargetPosition;
+
+                detailRoot.localScale =
+                    Vector3.one;
+
+                detailGroup.alpha =
+                    1f;
+            }
+        }
+
+        detailRoot.localRotation =
+            Quaternion.identity;
+
+        detailGroup.blocksRaycasts =
+            false;
+
+        detailGroup.interactable =
+            false;
+    }
+
+    private void UpdateDetailPopupAnimation()
+    {
+        if (!detailPopupAnimating ||
+            detailRoot == null ||
+            detailGroup == null)
+        {
+            return;
+        }
+
+        if (detailTailTarget != null)
+        {
+            detailPopupTargetPosition =
+                ResolveTooltipPosition(
+                    detailTailTarget);
+
+            detailTailController?.SetTarget(
+                detailTailTarget);
+        }
+
+        detailPopupTime +=
+            Time.unscaledDeltaTime;
+
+        float t =
+            Mathf.Clamp01(
+                detailPopupTime /
+                Mathf.Max(
+                    0.01f,
+                    itemTooltipPopupDuration));
+
+        const float overshootPoint =
+            0.64f;
+
+        float scale;
+
+        if (t < overshootPoint)
+        {
+            float localT =
+                t /
+                overshootPoint;
+
+            localT =
+                EaseOutCubic(
+                    localT);
+
+            scale =
+                Mathf.Lerp(
+                    itemTooltipPopupStartScale,
+                    itemTooltipPopupOvershootScale,
+                    localT);
+        }
+        else
+        {
+            float localT =
+                (t -
+                 overshootPoint) /
+                (1f -
+                 overshootPoint);
+
+            localT =
+                localT *
+                localT *
+                (3f -
+                 2f * localT);
+
+            scale =
+                Mathf.Lerp(
+                    itemTooltipPopupOvershootScale,
+                    1f,
+                    localT);
+        }
+
+        float moveT =
+            EaseOutCubic(
+                t);
+
+        detailRoot.anchoredPosition =
+            Vector2.Lerp(
+                detailPopupStartPosition,
+                detailPopupTargetPosition,
+                moveT);
+
+        detailRoot.localScale =
+            Vector3.one *
+            scale;
+
+        detailGroup.alpha =
+            Mathf.Clamp01(
+                t * 2.8f);
+
+        if (t >= 1f)
+        {
+            detailPopupAnimating =
+                false;
+
+            detailRoot.anchoredPosition =
+                detailPopupTargetPosition;
+
+            detailRoot.localScale =
+                Vector3.one;
+
+            detailGroup.alpha =
+                1f;
+        }
     }
 
     private void UpdateTabHoldVisuals(float t, bool wantFull)
