@@ -57,7 +57,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Vector2 packRestOffset = new(-248f, -62f);
     [SerializeField] private Vector2 packFocusedOffset = new(-170f, -76f);
     [SerializeField] private Vector2 packInactiveCornerOffset = new(-378f, -146f);
-    [SerializeField] private Vector2 itemTooltipSize = new(360f, 220f);
+    [SerializeField] private Vector2 itemTooltipSize = new(420f, 360f);
 
     [Header("Item Info Popup")]
     [Tooltip("선택 아이템에서 화면 중앙 쪽으로 설명창을 얼마나 끌어당길지 정합니다.")]
@@ -110,6 +110,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private float detailPopupTime;
     private Vector2 detailPopupStartPosition;
     private Vector2 detailPopupTargetPosition;
+    private Image detailThumbnail;
     private Text detailTitle;
     private Text detailDescription;
     private Text detailTags;
@@ -1002,26 +1003,100 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         BuildDetailBubbleVisual();
 
+        RectTransform detailVisualViewport =
+            CreateRect(
+                detailRoot,
+                "ItemVisualViewport",
+                Vector2.zero);
+
+        SetAnchors(
+            detailVisualViewport,
+            new Vector2(
+                0.06f,
+                0.58f),
+            new Vector2(
+                0.94f,
+                0.93f));
+
+        Image detailVisualBack =
+            detailVisualViewport.gameObject.AddComponent<Image>();
+
+        detailVisualBack.color =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.055f);
+
+        detailVisualBack.raycastTarget =
+            false;
+
+        Outline detailVisualOutline =
+            detailVisualViewport.gameObject.AddComponent<Outline>();
+
+        detailVisualOutline.effectColor =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.16f);
+
+        detailVisualOutline.effectDistance =
+            new Vector2(
+                2f,
+                -2f);
+
+        detailThumbnail =
+            CreateImage(
+                detailVisualViewport,
+                "ItemVisual",
+                Vector2.zero);
+
+        Stretch(
+            detailThumbnail.rectTransform);
+
+        detailThumbnail.rectTransform.offsetMin =
+            new Vector2(
+                14f,
+                14f);
+
+        detailThumbnail.rectTransform.offsetMax =
+            new Vector2(
+                -14f,
+                -14f);
+
+        detailThumbnail.raycastTarget =
+            false;
+
+        detailThumbnail.sprite =
+            BattleHudSpriteCache.DefaultSprite;
+
+        detailThumbnail.color =
+            Color.white;
+
+        detailThumbnail.preserveAspect =
+            false;
+
         detailTitle = CreateText(detailRoot, "EMPTY", 20, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.74f), new Vector2(0.94f, 0.94f));
+        SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.48f), new Vector2(0.94f, 0.57f));
 
         detailDescription = CreateText(detailRoot, "NO DESCRIPTION", 12, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.43f), new Vector2(0.94f, 0.73f));
+        SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.285f), new Vector2(0.94f, 0.47f));
         detailDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
         detailDescription.verticalOverflow = VerticalWrapMode.Truncate;
 
         detailTags = CreateText(detailRoot, "—", 10, FontStyle.Bold, TextAnchor.UpperLeft, accentCyan);
-        SetAnchors(detailTags.rectTransform, new Vector2(0.06f, 0.25f), new Vector2(0.94f, 0.42f));
+        SetAnchors(detailTags.rectTransform, new Vector2(0.06f, 0.18f), new Vector2(0.94f, 0.275f));
 
         synergySummary = CreateText(detailRoot, "GRID LINK 0", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
-        SetAnchors(synergySummary.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.23f));
+        SetAnchors(synergySummary.rectTransform, new Vector2(0.06f, 0.045f), new Vector2(0.94f, 0.17f));
 
         compareRoot = CreateRect(detailRoot, "CompareRoot", Vector2.zero);
         Stretch(compareRoot);
         compareRoot.gameObject.SetActive(false);
 
         RectTransform sourceCard = CreateRect(compareRoot, "SourceCard", Vector2.zero);
-        SetAnchors(sourceCard, new Vector2(0.035f, 0.16f), new Vector2(0.43f, 0.94f));
+        SetAnchors(sourceCard, new Vector2(0.035f, 0.13f), new Vector2(0.43f, 0.95f));
         Image sourceBack = sourceCard.gameObject.AddComponent<Image>();
         sourceBack.color = new Color(0.035f, 0.040f, 0.050f, 0.98f);
         sourceBack.raycastTarget = false;
@@ -1029,20 +1104,20 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         sourceOutline.effectColor = accentYellow;
         sourceOutline.effectDistance = new Vector2(3f, -3f);
 
-        compareSourceIcon = CreateImage(sourceCard, "SourceIcon", new Vector2(72f, 72f));
-        compareSourceIcon.rectTransform.anchorMin = compareSourceIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.82f);
+        compareSourceIcon = CreateImage(sourceCard, "SourceIcon", new Vector2(120f, 112f));
+        compareSourceIcon.rectTransform.anchorMin = compareSourceIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.76f);
         compareSourceIcon.rectTransform.anchoredPosition = Vector2.zero;
         compareSourceIcon.preserveAspect = true;
         compareSourceIcon.raycastTarget = false;
 
         compareSourceName = CreateText(sourceCard, "SOURCE", 13, FontStyle.Bold, TextAnchor.UpperCenter, paperColor);
-        SetAnchors(compareSourceName.rectTransform, new Vector2(0.06f, 0.47f), new Vector2(0.94f, 0.68f));
+        SetAnchors(compareSourceName.rectTransform, new Vector2(0.06f, 0.40f), new Vector2(0.94f, 0.56f));
 
         compareSourceMeta = CreateText(sourceCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
-        SetAnchors(compareSourceMeta.rectTransform, new Vector2(0.06f, 0.08f), new Vector2(0.94f, 0.46f));
+        SetAnchors(compareSourceMeta.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.39f));
 
         RectTransform targetCard = CreateRect(compareRoot, "TargetCard", Vector2.zero);
-        SetAnchors(targetCard, new Vector2(0.57f, 0.16f), new Vector2(0.965f, 0.94f));
+        SetAnchors(targetCard, new Vector2(0.57f, 0.13f), new Vector2(0.965f, 0.95f));
         Image targetBack = targetCard.gameObject.AddComponent<Image>();
         targetBack.color = new Color(0.035f, 0.040f, 0.050f, 0.98f);
         targetBack.raycastTarget = false;
@@ -1050,17 +1125,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         targetOutline.effectColor = accentCyan;
         targetOutline.effectDistance = new Vector2(3f, -3f);
 
-        compareTargetIcon = CreateImage(targetCard, "TargetIcon", new Vector2(72f, 72f));
-        compareTargetIcon.rectTransform.anchorMin = compareTargetIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.82f);
+        compareTargetIcon = CreateImage(targetCard, "TargetIcon", new Vector2(120f, 112f));
+        compareTargetIcon.rectTransform.anchorMin = compareTargetIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.76f);
         compareTargetIcon.rectTransform.anchoredPosition = Vector2.zero;
         compareTargetIcon.preserveAspect = true;
         compareTargetIcon.raycastTarget = false;
 
         compareTargetName = CreateText(targetCard, "TARGET", 13, FontStyle.Bold, TextAnchor.UpperCenter, paperColor);
-        SetAnchors(compareTargetName.rectTransform, new Vector2(0.06f, 0.47f), new Vector2(0.94f, 0.68f));
+        SetAnchors(compareTargetName.rectTransform, new Vector2(0.06f, 0.40f), new Vector2(0.94f, 0.56f));
 
         compareTargetMeta = CreateText(targetCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
-        SetAnchors(compareTargetMeta.rectTransform, new Vector2(0.06f, 0.08f), new Vector2(0.94f, 0.46f));
+        SetAnchors(compareTargetMeta.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.39f));
 
         compareSwapLabel = CreateText(compareRoot, "<->\nSWAP", 15, FontStyle.Bold, TextAnchor.MiddleCenter, accentYellow);
         SetAnchors(compareSwapLabel.rectTransform, new Vector2(0.43f, 0.38f), new Vector2(0.57f, 0.72f));
@@ -1268,6 +1343,28 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         BattleEquipmentSlot slot = equipmentSystem.Slots[slotIndex];
         BattleEquipmentSO equipment = slot?.equipment;
+
+        if (detailThumbnail != null)
+        {
+            bool hasImage =
+                equipment != null &&
+                equipment.icon != null;
+
+            detailThumbnail.sprite =
+                hasImage
+                    ? equipment.icon
+                    : BattleHudSpriteCache.DefaultSprite;
+
+            detailThumbnail.color =
+                Color.white;
+
+            detailThumbnail.preserveAspect =
+                hasImage;
+
+            detailThumbnail.enabled =
+                equipment != null;
+        }
+
         if (detailTitle != null)
             detailTitle.text = equipment != null ? equipment.GetDisplayName().ToUpperInvariant() : "EMPTY SLOT";
 
@@ -1399,17 +1496,46 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         SetDetailCompareMode(true);
 
-        detailRoot.sizeDelta = new Vector2(620f, 300f);
+        detailRoot.sizeDelta = new Vector2(660f, 360f);
 
         if (compareSourceIcon != null)
         {
-            compareSourceIcon.sprite = source.icon;
-            compareSourceIcon.enabled = source.icon != null;
+            bool sourceHasImage =
+                source.icon != null;
+
+            compareSourceIcon.sprite =
+                sourceHasImage
+                    ? source.icon
+                    : BattleHudSpriteCache.DefaultSprite;
+
+            compareSourceIcon.color =
+                Color.white;
+
+            compareSourceIcon.preserveAspect =
+                sourceHasImage;
+
+            compareSourceIcon.enabled =
+                true;
         }
+
         if (compareTargetIcon != null)
         {
-            compareTargetIcon.sprite = target.icon;
-            compareTargetIcon.enabled = target.icon != null;
+            bool targetHasImage =
+                target.icon != null;
+
+            compareTargetIcon.sprite =
+                targetHasImage
+                    ? target.icon
+                    : BattleHudSpriteCache.DefaultSprite;
+
+            compareTargetIcon.color =
+                Color.white;
+
+            compareTargetIcon.preserveAspect =
+                targetHasImage;
+
+            compareTargetIcon.enabled =
+                true;
         }
 
         if (compareSourceName != null)
