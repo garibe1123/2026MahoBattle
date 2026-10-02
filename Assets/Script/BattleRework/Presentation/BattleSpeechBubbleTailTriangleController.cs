@@ -389,9 +389,13 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private void PlaceExactTarget(
         BattleSpeechBubbleTailStyle activeStyle)
     {
+        Vector3 targetCenterWorld =
+            targetPivot.TransformPoint(
+                targetPivot.rect.center);
+
         Vector2 targetLocal =
             bubbleRect.InverseTransformPoint(
-                targetPivot.position);
+                targetCenterWorld);
 
         Rect bubble =
             bubbleRect.rect;
