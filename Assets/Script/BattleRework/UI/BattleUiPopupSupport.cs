@@ -10,14 +10,21 @@ using UnityEngine.UI;
 public static class BattleUiHologramMaterialProvider
 {
     private static Material runtimeMaterial;
+    private static BattleUiHologramMaterialDriver driver;
+    private static readonly HashSet<Material> TrackedMaterials = new();
 
     public static Material Resolve(
         Material preferred = null)
     {
+        EnsureDriver();
+
         if (preferred != null &&
             preferred.HasProperty(
                 "_BattleUiUnscaledTime"))
         {
+            TrackedMaterials.Add(
+                preferred);
+
             ApplyTime(
                 preferred);
 
@@ -44,6 +51,9 @@ public static class BattleUiHologramMaterialProvider
 
         if (runtimeMaterial != null)
         {
+            TrackedMaterials.Add(
+                runtimeMaterial);
+
             ApplyTime(
                 runtimeMaterial);
 
@@ -55,9 +65,33 @@ public static class BattleUiHologramMaterialProvider
 
     public static void Tick()
     {
-        if (runtimeMaterial != null)
+        TrackedMaterials.RemoveWhere(
+            material =>
+                material == null);
+
+        foreach (Material material in TrackedMaterials)
             ApplyTime(
-                runtimeMaterial);
+                material);
+    }
+
+    private static void EnsureDriver()
+    {
+        if (driver != null)
+            return;
+
+        GameObject go =
+            new(
+                "BattleUiHologramMaterialDriver");
+
+        UnityEngine.Object.DontDestroyOnLoad(
+            go);
+
+        go.hideFlags =
+            HideFlags.HideAndDontSave;
+
+        driver =
+            go.AddComponent<
+                BattleUiHologramMaterialDriver>();
     }
 
     private static void ApplyTime(
@@ -73,6 +107,14 @@ public static class BattleUiHologramMaterialProvider
                 "_BattleUiUnscaledTime",
                 Time.unscaledTime);
         }
+    }
+}
+
+public sealed class BattleUiHologramMaterialDriver : MonoBehaviour
+{
+    private void Update()
+    {
+        BattleUiHologramMaterialProvider.Tick();
     }
 }
 
