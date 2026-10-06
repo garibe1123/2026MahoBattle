@@ -62,6 +62,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField, Range(1f, 1.15f)] private float worldInspectPopupOvershootScale = 1.045f;
     [SerializeField, Range(0.05f, 0.30f)] private float worldInspectPopupDuration = 0.15f;
     [SerializeField, Min(0f)] private float worldInspectPopupTravel = 24f;
+    [SerializeField, Range(0.04f, 0.14f)] private float worldInspectCloseDuration = 0.085f;
+    [SerializeField, Range(0.90f, 1f)] private float worldInspectCloseScale = 0.96f;
 
     [SerializeField] private Vector2 worldSkipSize = new(214f, 40f);
 
@@ -116,7 +118,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private BattleSpeechBubbleFrameStyle worldInspectRuntimeFrameStyle;
     private BattleSpeechBubbleTailStyle worldInspectRuntimeTailStyle;
     private bool worldInspectPopupAnimating;
+    private bool worldInspectPopupClosing;
     private float worldInspectPopupTime;
+    private float worldInspectCloseStartAlpha;
+    private float worldInspectCloseStartScale = 1f;
     private int worldInspectPopupContext = -1;
     private Vector2 worldInspectPopupStartPosition;
     private Vector2 worldInspectPopupTargetPosition;
@@ -1442,6 +1447,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
         }
 
+        worldInspectPopupClosing =
+            false;
+
         bool changed =
             worldInspectPopupContext !=
             rewardIndex;
@@ -1507,12 +1515,68 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void UpdateWorldInspectPopupAnimation()
     {
-        if (!worldInspectPopupAnimating ||
-            worldInspectRoot == null ||
+        if (worldInspectRoot == null ||
             worldInspectGroup == null)
         {
             return;
         }
+
+        if (worldInspectPopupClosing)
+        {
+            worldInspectPopupTime +=
+                Time.unscaledDeltaTime;
+
+            float closeT =
+                Mathf.Clamp01(
+                    worldInspectPopupTime /
+                    Mathf.Max(
+                        0.01f,
+                        worldInspectCloseDuration));
+
+            float easedClose =
+                closeT *
+                closeT *
+                (3f -
+                 2f *
+                 closeT);
+
+            worldInspectGroup.alpha =
+                Mathf.Lerp(
+                    worldInspectCloseStartAlpha,
+                    0f,
+                    easedClose);
+
+            worldInspectRoot.localScale =
+                Vector3.one *
+                Mathf.Lerp(
+                    worldInspectCloseStartScale,
+                    worldInspectCloseScale,
+                    easedClose);
+
+            if (closeT >= 1f)
+            {
+                worldInspectPopupClosing =
+                    false;
+
+                worldInspectGroup.alpha =
+                    0f;
+
+                worldInspectRoot.localScale =
+                    Vector3.one;
+
+                worldInspectTailController?.SetTarget(
+                    null);
+
+                if (worldInspectRoot.gameObject.activeSelf)
+                    worldInspectRoot.gameObject.SetActive(
+                        false);
+            }
+
+            return;
+        }
+
+        if (!worldInspectPopupAnimating)
+            return;
 
         worldInspectPopupTime +=
             Time.unscaledDeltaTime;
@@ -1611,32 +1675,57 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     /// </summary>
     private void HideWorldRewardInspect()
     {
-        worldInspectPopupAnimating =
-            false;
-
         worldInspectPopupContext =
             -1;
 
-        if (worldInspectTailController != null)
-            worldInspectTailController.SetTarget(null);
-
-        if (worldInspectGroup != null)
+        if (worldInspectGroup == null ||
+            worldInspectRoot == null)
         {
+            return;
+        }
+
+        worldInspectGroup.blocksRaycasts =
+            false;
+
+        worldInspectGroup.interactable =
+            false;
+
+        if (worldInspectPopupClosing)
+            return;
+
+        if (!worldInspectRoot.gameObject.activeSelf ||
+            worldInspectGroup.alpha <= 0.001f)
+        {
+            worldInspectPopupAnimating =
+                false;
+
+            worldInspectTailController?.SetTarget(
+                null);
+
             worldInspectGroup.alpha =
                 0f;
 
-            worldInspectGroup.blocksRaycasts =
-                false;
+            if (worldInspectRoot.gameObject.activeSelf)
+                worldInspectRoot.gameObject.SetActive(
+                    false);
 
-            worldInspectGroup.interactable =
-                false;
+            return;
         }
 
-        if (worldInspectRoot != null &&
-            worldInspectRoot.gameObject.activeSelf)
-        {
-            worldInspectRoot.gameObject.SetActive(false);
-        }
+        worldInspectPopupAnimating =
+            false;
+
+        worldInspectPopupClosing =
+            true;
+
+        worldInspectPopupTime =
+            0f;
+
+        worldInspectCloseStartAlpha =
+            worldInspectGroup.alpha;
+
+        worldInspectCloseStartScale =
+            worldInspectRoot.localScale.x;
     }
 
     private void SetWorldSkipVisible(
