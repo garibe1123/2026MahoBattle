@@ -170,10 +170,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         // Combat selection/detail is owned by BattleKineticLoadoutUI.
         SyncSelection(rewardEdit, false);
         HandleCancelInput(inspectContext);
+        HandleMouseOutsideCancel(inspectContext);
 
-        // 선택은 마우스가 보드를 벗어났다는 이유만으로 해제하지 않습니다.
-        // 명시적인 CANCEL / B / 바깥 영역 클릭만 Selection을 종료합니다.
-        SetDismissActive(inspectContext);
+        // Full-screen 투명 Graphic으로 바깥 클릭을 잡지 않습니다.
+        // GridBoard에는 Spatial nested Canvas가 붙을 수 있어서,
+        // 투명 Dismiss Canvas가 선택 직후 Grid 위로 올라와 입력을 먹는 문제가 있었습니다.
+        SetDismissActive(false);
     }
 
     private void LateUpdate()
@@ -880,6 +882,84 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             CancelSelection();
     }
 
+    private void HandleMouseOutsideCancel(bool inspectContext)
+    {
+        if (!inspectContext ||
+            BattlePauseController.IsPaused ||
+            !Input.mousePresent ||
+            !Input.GetMouseButtonDown(0) ||
+            inventoryInteraction == null ||
+            inventoryInteraction.PadModeActive ||
+            inventoryInteraction.DraggingSlot >= 0 ||
+            inventoryInteraction.SelectedRewardSlot < 0)
+        {
+            return;
+        }
+
+        Vector2 pointer =
+            Input.mousePosition;
+
+        // PACK 조작 영역과 현재 선택 관련 컨트롤은 모두 Selection 내부로 봅니다.
+        // 이 영역들을 클릭할 때 Cancel이 먼저 실행되면 Slot/Trash/Done/Button 입력이 깨집니다.
+        if (IsPointerInsideRect(boardRoot, pointer) ||
+            IsPointerInsideRect(builtInDetailRoot, pointer) ||
+            IsVisiblePointerInsideRect(selectionCancelRoot, selectionCancelGroup, pointer) ||
+            IsPointerInsideRect(trashRoot, pointer) ||
+            IsPointerInsideRect(doneRoot, pointer))
+        {
+            return;
+        }
+
+        // 다른 실제 UI 위를 누른 경우에도 해당 UI의 입력을 우선합니다.
+        // Selection 취소는 정말 빈 화면을 클릭했을 때만 수행합니다.
+        if (EventSystem.current != null &&
+            EventSystem.current.IsPointerOverGameObject())
+        {
+            return;
+        }
+
+        CancelSelection();
+    }
+
+    private static bool IsVisiblePointerInsideRect(
+        RectTransform rect,
+        CanvasGroup group,
+        Vector2 pointer)
+    {
+        return rect != null &&
+               group != null &&
+               group.alpha > 0.01f &&
+               rect.gameObject.activeInHierarchy &&
+               IsPointerInsideRect(
+                   rect,
+                   pointer);
+    }
+
+    private static bool IsPointerInsideRect(
+        RectTransform rect,
+        Vector2 pointer)
+    {
+        if (rect == null ||
+            !rect.gameObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        Canvas canvas =
+            rect.GetComponentInParent<Canvas>();
+
+        Camera eventCamera =
+            canvas != null &&
+            canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        return RectTransformUtility.RectangleContainsScreenPoint(
+            rect,
+            pointer,
+            eventCamera);
+    }
+
     private void EnsureFullSelectionFrames()
     {
         if (boardRoot == null)
@@ -1317,16 +1397,14 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
-        canvasObject.AddComponent<GraphicRaycaster>();
-
+        // 이 Canvas는 CANCEL SELECTION 버튼의 독립 Sorting 용도로만 남깁니다.
+        // 화면 전체 투명 Raycast Layer는 만들지 않습니다.
         dismissRoot = CreateRect(canvasObject.transform, "InventoryDismissBackground", Vector2.zero);
         Stretch(dismissRoot);
+
         Image image = dismissRoot.gameObject.AddComponent<Image>();
         image.color = Color.clear;
-        image.raycastTarget = true;
-
-        BattleUnifiedInventoryDismissRelay relay = dismissRoot.gameObject.AddComponent<BattleUnifiedInventoryDismissRelay>();
-        relay.Configure(this);
+        image.raycastTarget = false;
 
         dismissGroup = dismissRoot.gameObject.AddComponent<CanvasGroup>();
         dismissGroup.alpha = 0f;
@@ -1528,22 +1606,11 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         if (dismissGroup == null)
             return;
 
-        bool hasCancelableSelection =
-            inventoryInteraction != null &&
-            (inventoryInteraction.SelectedRewardSlot >= 0 ||
-             inventoryInteraction.PadPickedSlot >= 0 ||
-             inventoryInteraction.DraggingSlot >= 0);
-
-        // 투명 Dismiss Canvas는 실제 선택이 있을 때만 켭니다.
-        // 그렇지 않으면 Reward Edit 전체 화면의 낮은 Sorting UI를 불필요하게 막습니다.
-        bool interactable =
-            active &&
-            hasCancelableSelection &&
-            !BattlePauseController.IsPaused;
-
+        // 절대 입력을 먹지 않습니다.
+        // 바깥 클릭 취소는 HandleMouseOutsideCancel()에서 Screen Rect로 판정합니다.
         dismissGroup.alpha = 0f;
-        dismissGroup.blocksRaycasts = interactable;
-        dismissGroup.interactable = interactable;
+        dismissGroup.blocksRaycasts = false;
+        dismissGroup.interactable = false;
     }
 
     private void MaintainRewardBulletTime()
