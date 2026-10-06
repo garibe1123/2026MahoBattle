@@ -274,7 +274,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [SerializeField, Min(0.1f)] private float rewardCameraMinSize = 2.55f;
 
     [Tooltip("아이템에 커서를 올렸을 때 목표로 하는 Orthographic Size입니다. 작을수록 더 크게 줌인합니다.")]
-    [SerializeField, Min(0.5f)] private float rewardItemHoverCameraSize = 1.75f;
+    [SerializeField, Min(0.5f)] private float rewardItemHoverCameraSize = 1.55f;
 
     [Tooltip("아이템 Hover 시 Camera Target을 Item 중심에서 얼마나 이동할지 정합니다. X/Y 모두 World 단위입니다.")]
     [SerializeField] private Vector2 rewardItemHoverCameraPivotOffset = new(0.92f, 0.10f);
