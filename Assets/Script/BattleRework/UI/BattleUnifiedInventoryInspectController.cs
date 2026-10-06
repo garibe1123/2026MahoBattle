@@ -101,7 +101,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private bool selectionSuppressed;
     private int suppressedSourceSlot = -1;
     private int activeInspectSlot = -1;
-    private bool mouseWasInsideBoard;
     private bool inspectContextWasActive;
     private bool combatTabOpen;
     private bool combatActive;
@@ -139,7 +138,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         inspectContextWasActive = false;
         selectionSuppressed = false;
         suppressedSourceSlot = -1;
-        mouseWasInsideBoard = false;
         SetActiveInspectSlot(-1);
         RestoreBulletTime(true);
         SetDismissActive(false);
@@ -172,7 +170,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         // Combat selection/detail is owned by BattleKineticLoadoutUI.
         SyncSelection(rewardEdit, false);
         HandleCancelInput(inspectContext);
-        TrackMouseLeavingBoard(inspectContext);
+
+        // 선택은 마우스가 보드를 벗어났다는 이유만으로 해제하지 않습니다.
+        // 명시적인 CANCEL / B / 바깥 영역 클릭만 Selection을 종료합니다.
         SetDismissActive(inspectContext);
     }
 
@@ -765,11 +765,10 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         inspectContextWasActive = inspectContext;
 
         // PACK/Reward Edit를 닫았다가 다시 여는 것은 새 Inspect 세션입니다.
-        // 이전 세션에서 빈 공간 클릭/보드 이탈로 걸린 suppression을 다음 세션까지
+        // 이전 세션에서 명시적으로 걸린 suppression을 다음 세션까지
         // 유지하면 KineticLoadout이 같은 SelectedIndex를 복원해도 상세가 영구히 막힙니다.
         selectionSuppressed = false;
         suppressedSourceSlot = -1;
-        mouseWasInsideBoard = false;
 
         if (!inspectContext)
             SetActiveInspectSlot(-1);
@@ -879,34 +878,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         if (Input.GetKeyDown(KeyCode.JoystickButton1))
             CancelSelection();
-    }
-
-    private void TrackMouseLeavingBoard(bool inspectContext)
-    {
-        if (!inspectContext || boardRoot == null || !Input.mousePresent)
-        {
-            mouseWasInsideBoard = false;
-            return;
-        }
-
-        if (inventoryInteraction != null && inventoryInteraction.PadModeActive)
-        {
-            mouseWasInsideBoard = false;
-            return;
-        }
-
-        bool inside = RectTransformUtility.RectangleContainsScreenPoint(boardRoot, Input.mousePosition, null);
-        if (inside)
-        {
-            mouseWasInsideBoard = true;
-            return;
-        }
-
-        if (mouseWasInsideBoard)
-        {
-            mouseWasInsideBoard = false;
-            CancelSelection();
-        }
     }
 
     private void EnsureFullSelectionFrames()
@@ -1557,7 +1528,19 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         if (dismissGroup == null)
             return;
 
-        bool interactable = active && !BattlePauseController.IsPaused;
+        bool hasCancelableSelection =
+            inventoryInteraction != null &&
+            (inventoryInteraction.SelectedRewardSlot >= 0 ||
+             inventoryInteraction.PadPickedSlot >= 0 ||
+             inventoryInteraction.DraggingSlot >= 0);
+
+        // 투명 Dismiss Canvas는 실제 선택이 있을 때만 켭니다.
+        // 그렇지 않으면 Reward Edit 전체 화면의 낮은 Sorting UI를 불필요하게 막습니다.
+        bool interactable =
+            active &&
+            hasCancelableSelection &&
+            !BattlePauseController.IsPaused;
+
         dismissGroup.alpha = 0f;
         dismissGroup.blocksRaycasts = interactable;
         dismissGroup.interactable = interactable;
