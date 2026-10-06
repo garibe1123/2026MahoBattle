@@ -2476,9 +2476,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             0f;
 
         Material strokeMaterial =
-            presentation != null
-                ? presentation.SpeechBubbleStrokeMaterial
-                : null;
+            BattleUiHologramMaterialProvider.Resolve(
+                presentation != null
+                    ? presentation.SpeechBubbleStrokeMaterial
+                    : null);
 
         detailFrameController.Configure(
             detailFrameImage,
