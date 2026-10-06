@@ -70,6 +70,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField, Range(1f, 1.15f)] private float itemTooltipPopupOvershootScale = 1.045f;
     [SerializeField, Range(0.05f, 0.30f)] private float itemTooltipPopupDuration = 0.15f;
     [SerializeField, Min(0f)] private float itemTooltipPopupTravel = 24f;
+    [SerializeField, Range(0.04f, 0.14f)] private float itemTooltipCloseDuration = 0.085f;
+    [SerializeField, Range(0.90f, 1f)] private float itemTooltipCloseScale = 0.96f;
 
     [Header("Compact Vitals")]
     [SerializeField] private Color hpColor = new(0.95f, 0.18f, 0.30f, 1f);
@@ -107,7 +109,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform detailTailTarget;
     private int detailPopupContextHash = int.MinValue;
     private bool detailPopupAnimating;
+    private bool detailPopupClosing;
     private float detailPopupTime;
+    private float detailPopupCloseStartAlpha;
+    private float detailPopupCloseStartScale = 1f;
     private Vector2 detailPopupStartPosition;
     private Vector2 detailPopupTargetPosition;
     private BattleItemHeroThumbnail detailHeroThumbnail;
@@ -1452,19 +1457,33 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     public void HideRewardInspectTooltip()
     {
-        detailPopupAnimating = false;
-        detailPopupContextHash = int.MinValue;
-        detailTailTarget = null;
-
-        if (detailTailController != null)
-            detailTailController.SetTarget(null);
-
-        if (detailGroup == null)
+        if (detailGroup == null ||
+            detailRoot == null)
+        {
             return;
+        }
 
-        detailGroup.alpha = 0f;
         detailGroup.blocksRaycasts = false;
         detailGroup.interactable = false;
+
+        if (detailPopupClosing)
+            return;
+
+        if (detailGroup.alpha <= 0.001f)
+        {
+            detailPopupContextHash = int.MinValue;
+            detailTailTarget = null;
+            detailTailController?.SetTarget(null);
+            detailRoot.localScale = Vector3.one;
+            return;
+        }
+
+        detailPopupAnimating = false;
+        detailPopupClosing = true;
+        detailPopupContextHash = int.MinValue;
+        detailPopupTime = 0f;
+        detailPopupCloseStartAlpha = detailGroup.alpha;
+        detailPopupCloseStartScale = detailRoot.localScale.x;
     }
 
     public void ShowRewardCompareTooltip(int sourceSlotIndex, int targetSlotIndex)
@@ -2489,6 +2508,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
         }
 
+        detailPopupClosing =
+            false;
+
         detailTailTarget =
             target;
 
@@ -2578,12 +2600,70 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void UpdateDetailPopupAnimation()
     {
-        if (!detailPopupAnimating ||
-            detailRoot == null ||
+        if (detailRoot == null ||
             detailGroup == null)
         {
             return;
         }
+
+        if (detailPopupClosing)
+        {
+            detailPopupTime +=
+                Time.unscaledDeltaTime;
+
+            float closeT =
+                Mathf.Clamp01(
+                    detailPopupTime /
+                    Mathf.Max(
+                        0.01f,
+                        itemTooltipCloseDuration));
+
+            float easedClose =
+                closeT *
+                closeT *
+                (3f -
+                 2f *
+                 closeT);
+
+            detailGroup.alpha =
+                Mathf.Lerp(
+                    detailPopupCloseStartAlpha,
+                    0f,
+                    easedClose);
+
+            float scale =
+                Mathf.Lerp(
+                    detailPopupCloseStartScale,
+                    itemTooltipCloseScale,
+                    easedClose);
+
+            detailRoot.localScale =
+                Vector3.one *
+                scale;
+
+            if (closeT >= 1f)
+            {
+                detailPopupClosing =
+                    false;
+
+                detailGroup.alpha =
+                    0f;
+
+                detailRoot.localScale =
+                    Vector3.one;
+
+                detailTailTarget =
+                    null;
+
+                detailTailController?.SetTarget(
+                    null);
+            }
+
+            return;
+        }
+
+        if (!detailPopupAnimating)
+            return;
 
         if (detailTailTarget != null)
         {
