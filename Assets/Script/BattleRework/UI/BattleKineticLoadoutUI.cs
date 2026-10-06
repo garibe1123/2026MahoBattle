@@ -123,8 +123,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Text synergySummary;
 
     private RectTransform compareRoot;
-    private Image compareSourceIcon;
-    private Image compareTargetIcon;
+    private BattleItemHeroThumbnail compareSourceHeroThumbnail;
+    private BattleItemHeroThumbnail compareTargetHeroThumbnail;
     private BattleEquipmentBadgeStrip compareSourceBadgeStrip;
     private BattleEquipmentBadgeStrip compareTargetBadgeStrip;
     private Text compareSourceName;
@@ -1101,14 +1101,47 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         sourceOutline.effectColor = accentYellow;
         sourceOutline.effectDistance = new Vector2(3f, -3f);
 
-        compareSourceIcon = CreateImage(sourceCard, "SourceIcon", new Vector2(120f, 112f));
-        compareSourceIcon.rectTransform.anchorMin = compareSourceIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.76f);
-        compareSourceIcon.rectTransform.anchoredPosition = Vector2.zero;
-        compareSourceIcon.preserveAspect = true;
-        compareSourceIcon.raycastTarget = false;
+        RectTransform compareSourceVisual =
+            CreateRect(
+                sourceCard,
+                "SourceVisualViewport",
+                Vector2.zero);
+
+        SetAnchors(
+            compareSourceVisual,
+            new Vector2(
+                0.055f,
+                0.57f),
+            new Vector2(
+                0.945f,
+                0.955f));
+
+        Image compareSourceVisualBack =
+            compareSourceVisual.gameObject.AddComponent<Image>();
+
+        compareSourceVisualBack.color =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.045f);
+
+        compareSourceVisualBack.raycastTarget =
+            false;
+
+        compareSourceHeroThumbnail =
+            BattleItemHeroThumbnail.Attach(
+                compareSourceVisual,
+                paperColor,
+                new Color(
+                    0.035f,
+                    0.040f,
+                    0.050f,
+                    1f),
+                accentYellow);
 
         compareSourceName = CreateText(sourceCard, "SOURCE", 13, FontStyle.Bold, TextAnchor.UpperCenter, paperColor);
-        SetAnchors(compareSourceName.rectTransform, new Vector2(0.06f, 0.40f), new Vector2(0.94f, 0.56f));
+        SetAnchors(compareSourceName.rectTransform, new Vector2(0.06f, 0.40f), new Vector2(0.94f, 0.555f));
 
         compareSourceMeta = CreateText(sourceCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
         SetAnchors(compareSourceMeta.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.39f));
@@ -1135,14 +1168,47 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         targetOutline.effectColor = accentCyan;
         targetOutline.effectDistance = new Vector2(3f, -3f);
 
-        compareTargetIcon = CreateImage(targetCard, "TargetIcon", new Vector2(120f, 112f));
-        compareTargetIcon.rectTransform.anchorMin = compareTargetIcon.rectTransform.anchorMax = new Vector2(0.5f, 0.76f);
-        compareTargetIcon.rectTransform.anchoredPosition = Vector2.zero;
-        compareTargetIcon.preserveAspect = true;
-        compareTargetIcon.raycastTarget = false;
+        RectTransform compareTargetVisual =
+            CreateRect(
+                targetCard,
+                "TargetVisualViewport",
+                Vector2.zero);
+
+        SetAnchors(
+            compareTargetVisual,
+            new Vector2(
+                0.055f,
+                0.57f),
+            new Vector2(
+                0.945f,
+                0.955f));
+
+        Image compareTargetVisualBack =
+            compareTargetVisual.gameObject.AddComponent<Image>();
+
+        compareTargetVisualBack.color =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.045f);
+
+        compareTargetVisualBack.raycastTarget =
+            false;
+
+        compareTargetHeroThumbnail =
+            BattleItemHeroThumbnail.Attach(
+                compareTargetVisual,
+                paperColor,
+                new Color(
+                    0.035f,
+                    0.040f,
+                    0.050f,
+                    1f),
+                accentCyan);
 
         compareTargetName = CreateText(targetCard, "TARGET", 13, FontStyle.Bold, TextAnchor.UpperCenter, paperColor);
-        SetAnchors(compareTargetName.rectTransform, new Vector2(0.06f, 0.40f), new Vector2(0.94f, 0.56f));
+        SetAnchors(compareTargetName.rectTransform, new Vector2(0.06f, 0.40f), new Vector2(0.94f, 0.555f));
 
         compareTargetMeta = CreateText(targetCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
         SetAnchors(compareTargetMeta.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.39f));
@@ -1522,45 +1588,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         detailRoot.sizeDelta = new Vector2(660f, 360f);
 
-        if (compareSourceIcon != null)
-        {
-            bool sourceHasImage =
-                source.icon != null;
+        // 비교 좌측은 현재 선택/드래그 중인 source 아이템,
+        // 우측은 교환 대상 target 아이템을 각각 직접 표시합니다.
+        compareSourceHeroThumbnail?.Show(
+            source);
 
-            compareSourceIcon.sprite =
-                sourceHasImage
-                    ? source.icon
-                    : BattleHudSpriteCache.DefaultSprite;
-
-            compareSourceIcon.color =
-                Color.white;
-
-            compareSourceIcon.preserveAspect =
-                sourceHasImage;
-
-            compareSourceIcon.enabled =
-                true;
-        }
-
-        if (compareTargetIcon != null)
-        {
-            bool targetHasImage =
-                target.icon != null;
-
-            compareTargetIcon.sprite =
-                targetHasImage
-                    ? target.icon
-                    : BattleHudSpriteCache.DefaultSprite;
-
-            compareTargetIcon.color =
-                Color.white;
-
-            compareTargetIcon.preserveAspect =
-                targetHasImage;
-
-            compareTargetIcon.enabled =
-                true;
-        }
+        compareTargetHeroThumbnail?.Show(
+            target);
 
         compareSourceBadgeStrip?.Show(
             source);
@@ -1660,6 +1694,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         PrepareDetailPopup(
             slotRects[targetSlotIndex],
             contextHash);
+
+        // Compare에서는 가운데 SWAP만 관계 표시로 사용합니다.
+        // 일반 설명창용 Tail은 비교 카드 사이를 가로지르는 선처럼 보여 숨깁니다.
+        detailTailTarget =
+            null;
+
+        detailTailController?.SetTarget(
+            null);
 
         Vector3 local = detailRoot.localPosition;
         local.z = -28f;
