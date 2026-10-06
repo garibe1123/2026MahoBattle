@@ -39,6 +39,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
     private readonly Image[] slotIcons = new Image[SlotCount];
+    private readonly GameObject[] slotEmptyStates = new GameObject[SlotCount];
     private readonly Image[] slotAccents = new Image[SlotCount];
     private readonly Outline[] slotOutlines = new Outline[SlotCount];
     private readonly Text[] slotGrades = new Text[SlotCount];
@@ -256,6 +257,78 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             icon.raycastTarget = false;
             slotIcons[i] = icon;
 
+            RectTransform emptyState =
+                CreateRect(
+                    slot,
+                    "EmptyState",
+                    new Vector2(
+                        58f,
+                        48f));
+
+            emptyState.anchorMin =
+                emptyState.anchorMax =
+                    new Vector2(
+                        0.5f,
+                        0.5f);
+
+            emptyState.pivot =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+            emptyState.anchoredPosition =
+                Vector2.zero;
+
+            Image emptyPlate =
+                emptyState.gameObject.AddComponent<Image>();
+
+            emptyPlate.color =
+                new Color(
+                    paperColor.r,
+                    paperColor.g,
+                    paperColor.b,
+                    0.035f);
+
+            emptyPlate.raycastTarget =
+                false;
+
+            Outline emptyOutline =
+                emptyState.gameObject.AddComponent<Outline>();
+
+            emptyOutline.effectColor =
+                new Color(
+                    paperColor.r,
+                    paperColor.g,
+                    paperColor.b,
+                    0.24f);
+
+            emptyOutline.effectDistance =
+                new Vector2(
+                    1f,
+                    -1f);
+
+            Text emptyLabel =
+                CreateText(
+                    emptyState,
+                    "[EMPTY]",
+                    8,
+                    FontStyle.Bold,
+                    TextAnchor.MiddleCenter,
+                    new Color(
+                        paperColor.r,
+                        paperColor.g,
+                        paperColor.b,
+                        0.72f));
+
+            Stretch(
+                emptyLabel.rectTransform);
+
+            slotEmptyStates[i] =
+                emptyState.gameObject;
+
+            emptyState.gameObject.SetActive(
+                false);
+
             Text grade = CreateText(slot, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperRight, new Color(0.62f, 0.67f, 0.76f, 1f));
             SetAnchors(grade.rectTransform, new Vector2(0.50f, 0.70f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
@@ -334,6 +407,13 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
                 slotIcons[i].sprite = occupied ? equipment.icon : null;
                 slotIcons[i].enabled = unlocked && occupied && equipment.icon != null;
                 slotIcons[i].color = Color.white;
+            }
+
+            if (slotEmptyStates[i] != null)
+            {
+                slotEmptyStates[i].SetActive(
+                    unlocked &&
+                    !occupied);
             }
 
             if (slotGrades[i] != null)
