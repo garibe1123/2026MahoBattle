@@ -624,13 +624,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
         }
 
-        // SKIP REWARD 같은 Screen UI를 클릭했을 때 뒤의 월드 상품 클릭까지
-        // 동시에 처리되는 것을 막습니다.
-        if (EventSystem.current != null &&
-            EventSystem.current.IsPointerOverGameObject())
-        {
+        // 전체 EventSystem UI를 이유로 차단하면 Hover 설명창/호스트 대화창처럼
+        // Raycast와 무관한 Screen UI가 존재하는 것만으로 월드 상품 클릭까지 막힐 수 있습니다.
+        // 실제로 클릭을 먹어야 하는 Reward Screen UI만 명시적으로 차단합니다.
+        if (IsPointerOverWorldSkip())
             return;
-        }
 
         int hovered =
             showWorldSet.RewardHoveredIndex;
@@ -650,6 +648,32 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         SelectReward(
             hovered);
+    }
+
+    private bool IsPointerOverWorldSkip()
+    {
+        if (worldSkipRoot == null ||
+            worldSkipGroup == null ||
+            !worldSkipRoot.gameObject.activeInHierarchy ||
+            worldSkipGroup.alpha <= 0.01f ||
+            !Input.mousePresent)
+        {
+            return false;
+        }
+
+        Canvas skipCanvas =
+            worldSkipRoot.GetComponentInParent<Canvas>();
+
+        Camera eventCamera =
+            skipCanvas != null &&
+            skipCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? skipCanvas.worldCamera
+                : null;
+
+        return RectTransformUtility.RectangleContainsScreenPoint(
+            worldSkipRoot,
+            Input.mousePosition,
+            eventCamera);
     }
 
     /// <summary>
