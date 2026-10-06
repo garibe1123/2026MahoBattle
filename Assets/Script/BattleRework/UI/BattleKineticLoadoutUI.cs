@@ -57,7 +57,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Vector2 packRestOffset = new(-248f, -62f);
     [SerializeField] private Vector2 packFocusedOffset = new(-170f, -76f);
     [SerializeField] private Vector2 packInactiveCornerOffset = new(-378f, -146f);
-    [SerializeField] private Vector2 itemTooltipSize = new(420f, 360f);
+    [SerializeField] private Vector2 itemTooltipSize = new(470f, 400f);
 
     [Header("Item Info Popup")]
     [Tooltip("선택 아이템에서 화면 중앙 쪽으로 설명창을 얼마나 끌어당길지 정합니다.")]
@@ -67,7 +67,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [Tooltip("설명창이 화면 가장자리에서 유지할 최소 여백입니다.")]
     [SerializeField, Min(0f)] private float itemTooltipScreenMargin = 28f;
     [SerializeField, Range(0.7f, 1f)] private float itemTooltipPopupStartScale = 0.88f;
-    [SerializeField, Range(1f, 1.15f)] private float itemTooltipPopupOvershootScale = 1.045f;
+    [SerializeField, Range(1f, 1.15f)] private float itemTooltipPopupOvershootScale = 1.075f;
     [SerializeField, Range(0.05f, 0.30f)] private float itemTooltipPopupDuration = 0.15f;
     [SerializeField, Min(0f)] private float itemTooltipPopupTravel = 24f;
     [SerializeField, Range(0.04f, 0.14f)] private float itemTooltipCloseDuration = 0.085f;
@@ -1061,18 +1061,18 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 inkColor,
                 accentCyan);
 
-        detailTitle = CreateText(detailRoot, "EMPTY", 20, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
+        detailTitle = CreateText(detailRoot, "EMPTY", 24, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
         SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.505f), new Vector2(0.94f, 0.595f));
 
-        detailDescription = CreateText(detailRoot, "NO DESCRIPTION", 12, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
+        detailDescription = CreateText(detailRoot, "NO DESCRIPTION", 14, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
         SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.295f), new Vector2(0.94f, 0.495f));
         detailDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
         detailDescription.verticalOverflow = VerticalWrapMode.Truncate;
 
-        detailTags = CreateText(detailRoot, "—", 10, FontStyle.Bold, TextAnchor.UpperLeft, accentCyan);
+        detailTags = CreateText(detailRoot, "—", 12, FontStyle.Bold, TextAnchor.UpperLeft, accentCyan);
         SetAnchors(detailTags.rectTransform, new Vector2(0.06f, 0.18f), new Vector2(0.94f, 0.275f));
 
-        synergySummary = CreateText(detailRoot, "GRID LINK 0", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
+        synergySummary = CreateText(detailRoot, "GRID LINK 0", 11, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
         SetAnchors(synergySummary.rectTransform, new Vector2(0.06f, 0.045f), new Vector2(0.94f, 0.17f));
 
         detailBadgeStrip =
@@ -2284,7 +2284,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 float targetScale = !wantFull
                     ? 0.97f
                     : hovered
-                        ? 1.075f
+                        ? 1.115f
                         : selected
                             ? 1.06f
                             : equippedSlot ? 1.025f : unlocked ? 1f : 0.985f;
