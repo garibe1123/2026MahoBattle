@@ -259,6 +259,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private void OnDestroy()
     {
+        BattleUiAvoidanceResolver.UnregisterZone(
+            dialogueRect);
+
         RestoreCamera();
         ReleaseRuntimeMotionFrames();
 
@@ -734,6 +737,12 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         dialogueGroup.alpha = 0f;
         dialogueGroup.interactable = false;
         dialogueGroup.blocksRaycasts = false;
+
+        BattleUiAvoidanceResolver.RegisterZone(
+            dialogueRect,
+            90,
+            28f,
+            () => IsDialogueVisible);
 
         BattleSpeechBubbleFrameStyle activeFrameStyle =
             frameStyle ??
