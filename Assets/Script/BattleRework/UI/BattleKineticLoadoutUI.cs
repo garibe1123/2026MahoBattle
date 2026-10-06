@@ -2634,7 +2634,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     0f,
                     easedClose);
 
-            float scale =
+            float closeScale =
                 Mathf.Lerp(
                     detailPopupCloseStartScale,
                     itemTooltipCloseScale,
@@ -2642,7 +2642,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             detailRoot.localScale =
                 Vector3.one *
-                scale;
+                closeScale;
 
             if (closeT >= 1f)
             {
