@@ -133,6 +133,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private Text worldInspectTags;
     private Text worldInspectStats;
     private Text worldInspectHint;
+    private bool worldInspectSelectionVisualInitialized;
+    private bool worldInspectSelectionVisualSelected;
     private RectTransform worldSkipRoot;
     private CanvasGroup worldSkipGroup;
     private Button worldSkipButton;
@@ -1215,19 +1217,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             $"MOVE ×{equipment.moveSpeedMultiplier:0.00}   " +
             $"RANGE ×{equipment.rangeMultiplier:0.00}";
 
-        worldInspectHint.text =
-            selected
-                ? "SELECTED  //  CLICK AGAIN TO TAKE"
-                : "CLICK TO SELECT";
-
-        worldInspectHint.color =
-            selected
-                ? selectAccent
-                : new Color(
-                    0.15f,
-                    0.88f,
-                    0.92f,
-                    1f);
+        // 선택 여부는 텍스트가 아니라 Tooltip Frame 색으로 전달합니다.
+        // Unselected=cyan, Selected=yellow.
+        if (worldInspectHint != null)
+            worldInspectHint.gameObject.SetActive(false);
 
         worldInspectBadgeStrip?.Show(
             equipment);
@@ -1243,6 +1236,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         PrepareWorldInspectPopup(
             rewardIndex);
+
+        ApplyWorldInspectSelectionVisual(
+            selected);
 
         worldInspectGroup.blocksRaycasts = false;
         worldInspectGroup.interactable = false;
@@ -1410,7 +1406,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 0.985f);
 
         worldInspectRuntimeFrameStyle.outlineColor =
-            paper;
+            hoverCyan;
 
         worldInspectRuntimeFrameStyle.rotation =
             0f;
@@ -1430,12 +1426,73 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         worldInspectTailController.SetExactTargetMode(
             true);
 
+        worldInspectRuntimeTailStyle.outlineColor =
+            hoverCyan;
+
         worldInspectTailController.Configure(
             worldInspectRoot,
             worldInspectTargetPivot,
             worldInspectRuntimeFrameStyle.fillColor,
             worldInspectRuntimeTailStyle,
             strokeMaterial);
+    }
+
+    private void ApplyWorldInspectSelectionVisual(
+        bool selected)
+    {
+        if (worldInspectRuntimeFrameStyle == null ||
+            worldInspectRuntimeTailStyle == null ||
+            worldInspectFrameController == null ||
+            worldInspectTailController == null)
+        {
+            return;
+        }
+
+        if (worldInspectSelectionVisualInitialized &&
+            worldInspectSelectionVisualSelected == selected)
+        {
+            return;
+        }
+
+        worldInspectSelectionVisualInitialized =
+            true;
+
+        worldInspectSelectionVisualSelected =
+            selected;
+
+        Color frameColor =
+            selected
+                ? selectAccent
+                : hoverCyan;
+
+        worldInspectRuntimeFrameStyle.outlineColor =
+            frameColor;
+
+        worldInspectRuntimeTailStyle.outlineColor =
+            frameColor;
+
+        // Frame/꼬리는 같은 선택 색을 공유하고 Fill은 기존 어두운 배경을 유지합니다.
+        Material strokeMaterial =
+            BattleUiHologramMaterialProvider.Resolve(
+                presentation != null
+                    ? presentation.SpeechBubbleStrokeMaterial
+                    : null);
+
+        worldInspectFrameController.Configure(
+            worldInspectFrameImage,
+            worldInspectRuntimeFrameStyle,
+            worldInspectRoot.sizeDelta,
+            strokeMaterial);
+
+        worldInspectTailController.Configure(
+            worldInspectRoot,
+            worldInspectTargetPivot,
+            worldInspectRuntimeFrameStyle.fillColor,
+            worldInspectRuntimeTailStyle,
+            strokeMaterial);
+
+        worldInspectTailController.SetExactTargetMode(
+            true);
     }
 
     private void PrepareWorldInspectPopup(
@@ -1454,6 +1511,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         bool changed =
             worldInspectPopupContext !=
             rewardIndex;
+
+        if (changed)
+            worldInspectSelectionVisualInitialized = false;
 
         worldInspectPopupContext =
             rewardIndex;
