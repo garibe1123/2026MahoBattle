@@ -43,6 +43,10 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     [SerializeField] private Vector2 referenceResolution = new(1920f, 1080f);
     [SerializeField] private Vector2 popupSize = new(610f, 250f);
     [SerializeField] private Vector2 popupVisibleOffset = new(-24f, -24f);
+    [Tooltip("호스트 리액션이 처음 나타날 때 아래에서 위로 올라오는 거리입니다.")]
+    [SerializeField, Min(0f)] private float popupRiseDistance = 42f;
+    [Tooltip("호스트 리액션 위치가 최종 위치까지 부드럽게 올라오는 시간입니다.")]
+    [SerializeField, Range(0.08f, 0.45f)] private float popupRiseDuration = 0.22f;
 
     [Header("Reaction Timing")]
     [SerializeField, Range(0.04f, 0.30f)] private float portraitBootDuration = 0.13f;
@@ -109,6 +113,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private PopupPhase popupPhase = PopupPhase.Hidden;
     private float phaseTime;
     private float holdUntil;
+    private Vector2 popupRiseStartPosition;
+    private float popupRiseTime;
+    private bool popupRiseAnimating;
     private ReactionPriority activePriority;
     private string activeLine = string.Empty;
     private float typeProgress;
@@ -468,6 +475,11 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             return;
         }
 
+        bool wasVisible =
+            popupPhase != PopupPhase.Hidden &&
+            popupGroup != null &&
+            popupGroup.alpha > 0.001f;
+
         activePriority = priority;
         activeLine = line ?? string.Empty;
         typeProgress = 0f;
@@ -484,6 +496,27 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         phaseTime = 0f;
         popupPhase = PopupPhase.PortraitBoot;
+
+        if (popupRect != null)
+        {
+            popupRiseStartPosition =
+                wasVisible
+                    ? popupRect.anchoredPosition
+                    : popupVisibleOffset +
+                      Vector2.down *
+                      Mathf.Max(
+                          0f,
+                          popupRiseDistance);
+
+            popupRect.anchoredPosition =
+                popupRiseStartPosition;
+
+            popupRiseTime =
+                0f;
+
+            popupRiseAnimating =
+                true;
+        }
 
         if (popupGroup != null)
             popupGroup.alpha = 1f;
@@ -508,6 +541,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             return;
 
         float dt = Time.unscaledDeltaTime;
+
+        UpdatePopupRise(
+            dt);
 
         switch (popupPhase)
         {
@@ -693,6 +729,52 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         }
     }
 
+    private void UpdatePopupRise(float dt)
+    {
+        if (!popupRiseAnimating ||
+            popupRect == null)
+        {
+            return;
+        }
+
+        popupRiseTime +=
+            Mathf.Max(
+                0f,
+                dt);
+
+        float duration =
+            Mathf.Max(
+                0.08f,
+                popupRiseDuration);
+
+        float t =
+            Mathf.Clamp01(
+                popupRiseTime /
+                duration);
+
+        // 위치는 Overshoot 없이 EaseOutCubic으로만 마무리합니다.
+        // Host text가 갱신될 때 순간 점프하는 인상을 피하고
+        // 아래에서 위로 스르륵 올라오게 합니다.
+        float eased =
+            EaseOutCubic(
+                t);
+
+        popupRect.anchoredPosition =
+            Vector2.LerpUnclamped(
+                popupRiseStartPosition,
+                popupVisibleOffset,
+                eased);
+
+        if (t < 1f)
+            return;
+
+        popupRect.anchoredPosition =
+            popupVisibleOffset;
+
+        popupRiseAnimating =
+            false;
+    }
+
     private void RefreshBubbleVisualVariation()
     {
         if (bubbleRect == null ||
@@ -780,6 +862,12 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         typeProgress = 0f;
         visibleCharacters = 0;
         phaseTime = 0f;
+        popupRiseTime = 0f;
+        popupRiseAnimating = false;
+
+        if (popupRect != null)
+            popupRect.anchoredPosition = popupVisibleOffset;
+
         popupPhase = PopupPhase.Hidden;
         activePriority = ReactionPriority.None;
     }
