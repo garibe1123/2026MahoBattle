@@ -54,6 +54,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     [SerializeField, Range(0.25f, 0.95f)] private float padAxisThreshold = 0.55f;
     [SerializeField, Range(0.05f, 0.8f)] private float padAxisReleaseThreshold = 0.22f;
 
+    [Header("Drag Ghost")]
+    [Tooltip("드래그 중 아이템 카드가 커서에서 살짝 비켜 보이도록 하는 Screen-space Offset입니다.")]
+    [SerializeField] private Vector2 dragGhostMouseOffset = new(28f, -24f);
+    [SerializeField, Range(0.75f, 1f)] private float dragGhostStartScale = 0.86f;
+    [SerializeField, Range(1f, 1.25f)] private float dragGhostTargetScale = 1.08f;
+    [SerializeField, Range(6f, 30f)] private float dragGhostFollowSharpness = 20f;
+
     [Header("Reward Hand")]
     [SerializeField] private Vector2 handMouseOffset = new(72f, -72f);
     [SerializeField] private Vector2 handPadOffset = new(92f, 0f);
@@ -77,6 +84,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private RectTransform dragGhostRoot;
     private Image dragGhostIcon;
+    private CanvasGroup dragGhostGroup;
+    private Vector2 dragGhostTargetScreenPosition;
+    private bool dragGhostPositionInitialized;
     private RectTransform handGhostRoot;
     private Image handGhostIcon;
 
@@ -221,6 +231,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         UpdateTrashVisibility();
         UpdateRewardDoneState();
         UpdateRewardHandVisual();
+        UpdateDragGhostVisual();
     }
 
     private void ResolveReferences()
@@ -454,17 +465,49 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         flashedSlot = -1;
 
         BattleEquipmentSO equipment = equipmentSystem.Slots[slotIndex].equipment;
+
+        dragGhostTargetScreenPosition =
+            eventData.position +
+            dragGhostMouseOffset;
+
+        dragGhostPositionInitialized =
+            false;
+
         if (dragGhostRoot != null)
         {
             dragGhostRoot.gameObject.SetActive(true);
-            dragGhostRoot.position = eventData.position;
             dragGhostRoot.SetAsLastSibling();
+            dragGhostRoot.localScale =
+                Vector3.one *
+                dragGhostStartScale;
         }
+
+        if (dragGhostGroup != null)
+            dragGhostGroup.alpha = 1f;
+
         if (dragGhostIcon != null)
         {
-            dragGhostIcon.sprite = equipment != null ? equipment.icon : null;
-            dragGhostIcon.enabled = equipment != null && equipment.icon != null;
+            bool hasIcon =
+                equipment != null &&
+                equipment.icon != null;
+
+            dragGhostIcon.sprite =
+                hasIcon
+                    ? equipment.icon
+                    : BattleHudSpriteCache.DefaultSprite;
+
+            dragGhostIcon.color =
+                Color.white;
+
+            dragGhostIcon.preserveAspect =
+                hasIcon;
+
+            dragGhostIcon.enabled =
+                equipment != null;
         }
+
+        UpdateDragGhostVisual(
+            immediate: true);
 
         UpdateTrashVisibility();
         return true;
@@ -472,15 +515,33 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     internal void UpdateSlotDrag(PointerEventData eventData)
     {
-        if (draggingSlot >= 0 && dragGhostRoot != null && eventData != null)
-            dragGhostRoot.position = eventData.position;
+        if (draggingSlot < 0 ||
+            eventData == null)
+        {
+            return;
+        }
+
+        dragGhostTargetScreenPosition =
+            eventData.position +
+            dragGhostMouseOffset;
+
+        UpdateDragGhostVisual();
     }
 
     internal void EndSlotDrag()
     {
         draggingSlot = -1;
+        dragGhostPositionInitialized = false;
+
         if (dragGhostRoot != null)
-            dragGhostRoot.gameObject.SetActive(false);
+        {
+            dragGhostRoot.localScale =
+                Vector3.one;
+
+            dragGhostRoot.gameObject.SetActive(
+                false);
+        }
+
         UpdateTrashVisibility();
     }
 
@@ -1117,19 +1178,129 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void BuildDragGhost()
     {
-        dragGhostRoot = CreateRect(interactionRoot, "InventoryDragGhost", new Vector2(106f, 106f));
+        dragGhostRoot = CreateRect(interactionRoot, "InventoryDragGhost", new Vector2(122f, 122f));
+        dragGhostRoot.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
         Image back = dragGhostRoot.gameObject.AddComponent<Image>();
-        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.94f);
+        back.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
         back.raycastTarget = false;
+
         Outline outline = dragGhostRoot.gameObject.AddComponent<Outline>();
         outline.effectColor = accentYellow;
         outline.effectDistance = new Vector2(5f, -5f);
 
-        AddNonBlockingCanvas(dragGhostRoot.gameObject, 2200);
-        dragGhostIcon = CreateImage(dragGhostRoot, "Icon", new Vector2(84f, 84f));
+        // 다른 Tooltip/Frame보다 확실히 위에 보이도록 Drag Ghost는 최상위 Sorting을 사용합니다.
+        AddNonBlockingCanvas(dragGhostRoot.gameObject, 5200);
+        dragGhostGroup = dragGhostRoot.GetComponent<CanvasGroup>();
+
+        BattleUiHologramBorder.Attach(
+            dragGhostRoot,
+            new Color(
+                accentYellow.r,
+                accentYellow.g,
+                accentYellow.b,
+                0.92f));
+
+        dragGhostIcon = CreateImage(dragGhostRoot, "Icon", new Vector2(94f, 94f));
         Center(dragGhostIcon.rectTransform);
         dragGhostIcon.raycastTarget = false;
+
         dragGhostRoot.gameObject.SetActive(false);
+    }
+
+    private void UpdateDragGhostVisual(bool immediate = false)
+    {
+        if (draggingSlot < 0 ||
+            dragGhostRoot == null ||
+            !dragGhostRoot.gameObject.activeSelf)
+        {
+            return;
+        }
+
+        // IDrag 이벤트가 다른 Overlay에 의해 한 프레임 끊겨도 실제 마우스를 계속 추적합니다.
+        if (Input.mousePresent)
+        {
+            dragGhostTargetScreenPosition =
+                (Vector2)Input.mousePosition +
+                dragGhostMouseOffset;
+        }
+
+        Canvas parentCanvas =
+            dragGhostRoot.GetComponentInParent<Canvas>();
+
+        Camera eventCamera =
+            parentCanvas != null &&
+            parentCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? parentCanvas.worldCamera
+                : null;
+
+        RectTransform parentRect =
+            dragGhostRoot.parent as RectTransform;
+
+        if (parentRect != null &&
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                parentRect,
+                dragGhostTargetScreenPosition,
+                eventCamera,
+                out Vector2 localPoint))
+        {
+            if (immediate ||
+                !dragGhostPositionInitialized)
+            {
+                dragGhostRoot.anchoredPosition =
+                    localPoint;
+
+                dragGhostPositionInitialized =
+                    true;
+            }
+            else
+            {
+                float followT =
+                    1f -
+                    Mathf.Exp(
+                        -Mathf.Max(
+                            1f,
+                            dragGhostFollowSharpness) *
+                        Time.unscaledDeltaTime);
+
+                dragGhostRoot.anchoredPosition =
+                    Vector2.Lerp(
+                        dragGhostRoot.anchoredPosition,
+                        localPoint,
+                        followT);
+            }
+        }
+
+        float scaleT =
+            1f -
+            Mathf.Exp(
+                -18f *
+                Time.unscaledDeltaTime);
+
+        dragGhostRoot.localScale =
+            Vector3.Lerp(
+                dragGhostRoot.localScale,
+                Vector3.one *
+                dragGhostTargetScale,
+                immediate
+                    ? 1f
+                    : scaleT);
+
+        dragGhostRoot.localRotation =
+            Quaternion.Slerp(
+                dragGhostRoot.localRotation,
+                Quaternion.identity,
+                immediate
+                    ? 1f
+                    : scaleT);
+
+        dragGhostRoot.SetAsLastSibling();
+
+        if (dragGhostGroup != null)
+            dragGhostGroup.alpha = 1f;
     }
 
     private void BuildRewardHandGhost()
