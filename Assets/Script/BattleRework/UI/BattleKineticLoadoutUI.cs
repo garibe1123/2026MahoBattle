@@ -101,6 +101,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform linkRoot;
     private RectTransform detailRoot;
     private CanvasGroup detailGroup;
+    private RectTransform detailVisualViewport;
     private Image detailFrameImage;
     private BattleSpeechBubbleFrameFillController detailFrameController;
     private BattleSpeechBubbleTailTriangleController detailTailController;
@@ -1013,7 +1014,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         BuildDetailBubbleVisual();
 
-        RectTransform detailVisualViewport =
+        detailVisualViewport =
             CreateRect(
                 detailRoot,
                 "ItemVisualViewport",
@@ -1228,7 +1229,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 34f,
                 42f);
 
-        compareSwapLabel = CreateText(compareRoot, "<->\nSWAP", 15, FontStyle.Bold, TextAnchor.MiddleCenter, accentYellow);
+        compareSwapLabel = CreateText(compareRoot, "↔\nSWAP", 15, FontStyle.Bold, TextAnchor.MiddleCenter, accentYellow);
         SetAnchors(compareSwapLabel.rectTransform, new Vector2(0.43f, 0.40f), new Vector2(0.57f, 0.72f));
 
         // 가장 중요한 변화 하나만 크게 보여주는 Decision Line.
@@ -1809,7 +1810,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         }
 
         if (compareSwapLabel != null)
-            compareSwapLabel.text = "<->\nSWAP";
+            compareSwapLabel.text = "↔\nSWAP";
 
         detailRoot.gameObject.SetActive(true);
         detailRoot.SetAsLastSibling();
@@ -1867,6 +1868,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         if (compareRoot != null)
             compareRoot.gameObject.SetActive(compare);
+
+        // 일반 아이템 상세의 Hero Thumbnail 배경(사선/밴드 포함)은
+        // 비교 화면 뒤에 남으면 중앙 SWAP 영역을 가로지르는 장식처럼 보입니다.
+        // Compare에서는 완전히 끄고, 가운데에는 화살표 + SWAP 텍스트만 남깁니다.
+        if (detailVisualViewport != null)
+            detailVisualViewport.gameObject.SetActive(!compare);
 
         if (detailTitle != null)
             detailTitle.gameObject.SetActive(!compare);
