@@ -51,7 +51,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     [Header("Reward Item Hover Description (커서 올리면 뜨는 설명창)")]
     [Tooltip("Reward 선택 중 월드 아이템/Base 위에 커서를 올렸을 때 나타나는 설명창 크기입니다.")]
-    [SerializeField] private Vector2 worldInspectSize = new(420f, 360f);
+    [SerializeField] private Vector2 worldInspectSize = new(470f, 400f);
     [Tooltip("아이템에서 화면 중앙 쪽으로 설명창을 얼마나 끌어당길지 정합니다.")]
     [SerializeField, Range(0f, 1f)] private float worldInspectCenterBias = 0.72f;
     [Tooltip("아이템 중심과 설명창 사이에 확보할 최소 여백입니다.")]
@@ -59,7 +59,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [Tooltip("설명창이 화면 바깥으로 잘리지 않도록 유지할 최소 여백입니다.")]
     [SerializeField, Min(0f)] private float worldInspectScreenMargin = 28f;
     [SerializeField, Range(0.7f, 1f)] private float worldInspectPopupStartScale = 0.88f;
-    [SerializeField, Range(1f, 1.15f)] private float worldInspectPopupOvershootScale = 1.045f;
+    [SerializeField, Range(1f, 1.15f)] private float worldInspectPopupOvershootScale = 1.075f;
     [SerializeField, Range(0.05f, 0.30f)] private float worldInspectPopupDuration = 0.15f;
     [SerializeField, Min(0f)] private float worldInspectPopupTravel = 24f;
     [SerializeField, Range(0.04f, 0.14f)] private float worldInspectCloseDuration = 0.085f;
@@ -948,7 +948,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             CreateText(
                 worldInspectRoot,
                 "ITEM",
-                20,
+                24,
                 FontStyle.Bold,
                 TextAnchor.UpperLeft,
                 packPaper);
@@ -966,7 +966,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             CreateText(
                 worldInspectRoot,
                 "COMMON / MANUAL",
-                10,
+                11,
                 FontStyle.Bold,
                 TextAnchor.UpperLeft,
                 packCyan);
@@ -984,7 +984,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             CreateText(
                 worldInspectRoot,
                 "NO DESCRIPTION",
-                12,
+                14,
                 FontStyle.Normal,
                 TextAnchor.UpperLeft,
                 packPaper);
@@ -1008,7 +1008,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             CreateText(
                 worldInspectRoot,
                 "NO TAG",
-                10,
+                12,
                 FontStyle.Bold,
                 TextAnchor.UpperLeft,
                 packCyan);
@@ -1026,7 +1026,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             CreateText(
                 worldInspectRoot,
                 "DMG ×1.00   MOVE ×1.00   RANGE ×1.00",
-                10,
+                11,
                 FontStyle.Bold,
                 TextAnchor.LowerLeft,
                 packPaper);
@@ -1044,7 +1044,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             CreateText(
                 worldInspectRoot,
                 "CLICK TO SELECT",
-                9,
+                10,
                 FontStyle.Bold,
                 TextAnchor.LowerRight,
                 packCyan);
