@@ -1088,7 +1088,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         compareRoot.gameObject.SetActive(false);
 
         RectTransform sourceCard = CreateRect(compareRoot, "SourceCard", Vector2.zero);
-        SetAnchors(sourceCard, new Vector2(0.035f, 0.13f), new Vector2(0.43f, 0.95f));
+        SetAnchors(sourceCard, new Vector2(0.035f, 0.22f), new Vector2(0.43f, 0.95f));
         Image sourceBack = sourceCard.gameObject.AddComponent<Image>();
         sourceBack.color = new Color(0.035f, 0.040f, 0.050f, 0.98f);
         sourceBack.raycastTarget = false;
@@ -1122,7 +1122,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 42f);
 
         RectTransform targetCard = CreateRect(compareRoot, "TargetCard", Vector2.zero);
-        SetAnchors(targetCard, new Vector2(0.57f, 0.13f), new Vector2(0.965f, 0.95f));
+        SetAnchors(targetCard, new Vector2(0.57f, 0.22f), new Vector2(0.965f, 0.95f));
         Image targetBack = targetCard.gameObject.AddComponent<Image>();
         targetBack.color = new Color(0.035f, 0.040f, 0.050f, 0.98f);
         targetBack.raycastTarget = false;
@@ -1159,7 +1159,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         SetAnchors(compareSwapLabel.rectTransform, new Vector2(0.43f, 0.38f), new Vector2(0.57f, 0.72f));
 
         compareDeltaText = CreateText(compareRoot, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleCenter, accentCyan);
-        SetAnchors(compareDeltaText.rectTransform, new Vector2(0.08f, 0.01f), new Vector2(0.92f, 0.15f));
+        compareDeltaText.horizontalOverflow = HorizontalWrapMode.Wrap;
+        compareDeltaText.verticalOverflow = VerticalWrapMode.Truncate;
+        SetAnchors(compareDeltaText.rectTransform, new Vector2(0.06f, 0.015f), new Vector2(0.94f, 0.205f));
 
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
         boardGroup = boardRoot.gameObject.AddComponent<CanvasGroup>();
@@ -1563,12 +1565,61 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         if (compareDeltaText != null)
         {
+            string gainedTags =
+                BuildTagDelta(
+                    source,
+                    target);
+
+            string lostTags =
+                BuildTagDelta(
+                    target,
+                    source);
+
+            int currentLinks =
+                gridSynergy != null
+                    ? gridSynergy.ActiveLinks.Count
+                    : 0;
+
+            float currentGridBonus =
+                gridSynergy != null
+                    ? (gridSynergy.GridDamageMultiplier - 1f) * 100f
+                    : 0f;
+
+            int swappedLinks =
+                currentLinks;
+
+            float swappedGridMultiplier =
+                gridSynergy != null
+                    ? gridSynergy.GridDamageMultiplier
+                    : 1f;
+
+            gridSynergy?.EvaluateSwap(
+                sourceSlotIndex,
+                targetSlotIndex,
+                out swappedLinks,
+                out swappedGridMultiplier);
+
+            float swappedGridBonus =
+                (swappedGridMultiplier - 1f) *
+                100f;
+
             compareDeltaText.text =
-                $"IF SWAPPED  //  DMG {FormatCompareDelta(damageDelta)}   " +
+                $"STAT  //  DMG {FormatCompareDelta(damageDelta)}   " +
                 $"MOVE {FormatCompareDelta(moveDelta)}   " +
-                $"RANGE {FormatCompareDelta(rangeDelta)}";
+                $"RANGE {FormatCompareDelta(rangeDelta)}\n" +
+                $"GAIN  {gainedTags}    //    LOSE  {lostTags}\n" +
+                $"GRID  LINKS {currentLinks} > {swappedLinks}   " +
+                $"DMG +{currentGridBonus:0.#}% > +{swappedGridBonus:0.#}%";
+
+            float totalDirection =
+                damageDelta +
+                moveDelta +
+                rangeDelta +
+                (swappedGridBonus - currentGridBonus) *
+                0.5f;
+
             compareDeltaText.color =
-                damageDelta + moveDelta + rangeDelta >= 0f
+                totalDirection >= 0f
                     ? accentCyan
                     : accentYellow;
         }
@@ -1654,6 +1705,45 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             $"DMG   x{equipment.damageMultiplier:0.00}\n" +
             $"MOVE  x{equipment.moveSpeedMultiplier:0.00}\n" +
             $"RANGE x{equipment.rangeMultiplier:0.00}";
+    }
+
+    private static string BuildTagDelta(
+        BattleEquipmentSO from,
+        BattleEquipmentSO to)
+    {
+        if (to == null ||
+            to.tags == null ||
+            to.tags.Count == 0)
+        {
+            return "—";
+        }
+
+        List<string> tags =
+            new();
+
+        for (int i = 0; i < to.tags.Count; i++)
+        {
+            EquipmentTag tag =
+                to.tags[i];
+
+            bool alreadyHad =
+                from != null &&
+                from.tags != null &&
+                from.tags.Contains(
+                    tag);
+
+            if (!alreadyHad)
+            {
+                tags.Add(
+                    tag.ToString().ToUpperInvariant());
+            }
+        }
+
+        return tags.Count > 0
+            ? string.Join(
+                " / ",
+                tags)
+            : "—";
     }
 
     private static string FormatCompareDelta(float value)
