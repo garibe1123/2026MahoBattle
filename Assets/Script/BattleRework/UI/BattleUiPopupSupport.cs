@@ -528,8 +528,459 @@ public static class BattleUiAvoidanceResolver
 }
 
 /// <summary>
+/// 전용 일러스트가 없어도 아이템 Sprite 하나를 재구성해
+/// Ghost Crop + Accent Slash + Foreground Icon 형태의 Hero Thumbnail을 만듭니다.
+/// </summary>
+public sealed class BattleItemHeroThumbnail : MonoBehaviour
+{
+    private RectTransform rect;
+    private Image ghostImage;
+    private RectTransform slashRect;
+    private Image slashImage;
+    private Image foregroundImage;
+    private Text metaText;
+    private Color paperColor;
+    private Color inkColor;
+    private Color accentColor;
+    private bool built;
+
+    public static BattleItemHeroThumbnail Attach(
+        RectTransform parent,
+        Color paper,
+        Color ink,
+        Color accent)
+    {
+        if (parent == null)
+            return null;
+
+        GameObject go =
+            new(
+                "HeroThumbnailComposition",
+                typeof(RectTransform));
+
+        go.transform.SetParent(
+            parent,
+            false);
+
+        RectTransform root =
+            go.GetComponent<RectTransform>();
+
+        Stretch(root);
+
+        BattleItemHeroThumbnail hero =
+            go.AddComponent<BattleItemHeroThumbnail>();
+
+        hero.paperColor = paper;
+        hero.inkColor = ink;
+        hero.accentColor = accent;
+        hero.EnsureBuilt();
+
+        return hero;
+    }
+
+    public void Show(BattleEquipmentSO equipment)
+    {
+        EnsureBuilt();
+
+        bool hasImage =
+            equipment != null &&
+            equipment.icon != null;
+
+        Sprite sprite =
+            hasImage
+                ? equipment.icon
+                : BattleHudSpriteCache.DefaultSprite;
+
+        Color rarityAccent =
+            ResolveRarityAccent(
+                equipment);
+
+        if (slashImage != null)
+            slashImage.color =
+                new Color(
+                    rarityAccent.r,
+                    rarityAccent.g,
+                    rarityAccent.b,
+                    0.72f);
+
+        if (ghostImage != null)
+        {
+            ghostImage.sprite =
+                sprite;
+
+            ghostImage.preserveAspect =
+                hasImage;
+
+            ghostImage.color =
+                new Color(
+                    paperColor.r,
+                    paperColor.g,
+                    paperColor.b,
+                    hasImage
+                        ? 0.10f
+                        : 0.055f);
+        }
+
+        if (foregroundImage != null)
+        {
+            foregroundImage.sprite =
+                sprite;
+
+            foregroundImage.preserveAspect =
+                hasImage;
+
+            foregroundImage.color =
+                Color.white;
+        }
+
+        if (metaText != null)
+        {
+            metaText.text =
+                equipment != null
+                    ? $"{equipment.rarity.ToString().ToUpperInvariant()} // {equipment.type.ToString().ToUpperInvariant()}"
+                    : "ITEM // PREVIEW";
+
+            metaText.color =
+                rarityAccent;
+        }
+    }
+
+    private void EnsureBuilt()
+    {
+        if (built)
+            return;
+
+        built = true;
+
+        rect =
+            transform as RectTransform;
+
+        if (rect == null)
+            return;
+
+        Stretch(rect);
+
+        RectTransform gridBand =
+            CreateRect(
+                rect,
+                "HeroGridBand",
+                Vector2.zero);
+
+        gridBand.anchorMin =
+            new Vector2(
+                0f,
+                0.06f);
+
+        gridBand.anchorMax =
+            new Vector2(
+                1f,
+                0.34f);
+
+        gridBand.offsetMin =
+            Vector2.zero;
+
+        gridBand.offsetMax =
+            Vector2.zero;
+
+        Image gridBandImage =
+            gridBand.gameObject.AddComponent<Image>();
+
+        gridBandImage.color =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.035f);
+
+        gridBandImage.raycastTarget =
+            false;
+
+        slashRect =
+            CreateRect(
+                rect,
+                "HeroAccentSlash",
+                Vector2.zero);
+
+        slashRect.anchorMin =
+            slashRect.anchorMax =
+                new Vector2(
+                    0.50f,
+                    0.50f);
+
+        slashRect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        slashRect.sizeDelta =
+            new Vector2(
+                320f,
+                54f);
+
+        slashRect.anchoredPosition =
+            new Vector2(
+                18f,
+                -12f);
+
+        slashRect.localRotation =
+            Quaternion.Euler(
+                0f,
+                0f,
+                -11f);
+
+        slashImage =
+            slashRect.gameObject.AddComponent<Image>();
+
+        slashImage.color =
+            new Color(
+                accentColor.r,
+                accentColor.g,
+                accentColor.b,
+                0.72f);
+
+        slashImage.raycastTarget =
+            false;
+
+        RectTransform ghostRect =
+            CreateRect(
+                rect,
+                "GhostIcon",
+                new Vector2(
+                    228f,
+                    228f));
+
+        ghostRect.anchorMin =
+            ghostRect.anchorMax =
+                new Vector2(
+                    0.23f,
+                    0.49f);
+
+        ghostRect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        ghostRect.anchoredPosition =
+            new Vector2(
+                -20f,
+                -2f);
+
+        ghostRect.localRotation =
+            Quaternion.Euler(
+                0f,
+                0f,
+                -8f);
+
+        ghostImage =
+            ghostRect.gameObject.AddComponent<Image>();
+
+        ghostImage.raycastTarget =
+            false;
+
+        ghostImage.color =
+            new Color(
+                paperColor.r,
+                paperColor.g,
+                paperColor.b,
+                0.10f);
+
+        RectTransform foregroundRect =
+            CreateRect(
+                rect,
+                "ForegroundIcon",
+                new Vector2(
+                    112f,
+                    112f));
+
+        foregroundRect.anchorMin =
+            foregroundRect.anchorMax =
+                new Vector2(
+                    0.77f,
+                    0.52f);
+
+        foregroundRect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        foregroundRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -4f);
+
+        foregroundImage =
+            foregroundRect.gameObject.AddComponent<Image>();
+
+        foregroundImage.raycastTarget =
+            false;
+
+        RectTransform chip =
+            CreateRect(
+                rect,
+                "HeroTypeChip",
+                new Vector2(
+                    154f,
+                    22f));
+
+        chip.anchorMin =
+            chip.anchorMax =
+                new Vector2(
+                    0.04f,
+                    0.91f);
+
+        chip.pivot =
+            new Vector2(
+                0f,
+                1f);
+
+        Image chipBack =
+            chip.gameObject.AddComponent<Image>();
+
+        chipBack.color =
+            new Color(
+                inkColor.r,
+                inkColor.g,
+                inkColor.b,
+                0.78f);
+
+        chipBack.raycastTarget =
+            false;
+
+        metaText =
+            CreateText(
+                chip,
+                "HeroTypeText",
+                "ITEM // PREVIEW",
+                9,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                accentColor);
+
+        Stretch(
+            metaText.rectTransform);
+
+        metaText.rectTransform.offsetMin =
+            new Vector2(
+                8f,
+                0f);
+
+        metaText.rectTransform.offsetMax =
+            new Vector2(
+                -4f,
+                0f);
+
+        ghostRect.SetAsFirstSibling();
+        slashRect.SetSiblingIndex(1);
+        foregroundRect.SetAsLastSibling();
+        chip.SetAsLastSibling();
+    }
+
+    private Color ResolveRarityAccent(
+        BattleEquipmentSO equipment)
+    {
+        if (equipment == null)
+            return accentColor;
+
+        string rarity =
+            equipment.rarity.ToString();
+
+        return rarity switch
+        {
+            "Common" => new Color(0.76f, 0.80f, 0.84f, 1f),
+            "Uncommon" => new Color(0.18f, 0.92f, 0.72f, 1f),
+            "Rare" => new Color(0.20f, 0.72f, 1f, 1f),
+            "Epic" => new Color(0.78f, 0.34f, 1f, 1f),
+            "Unique" => new Color(1f, 0.78f, 0.16f, 1f),
+            _ => accentColor
+        };
+    }
+
+    private static RectTransform CreateRect(
+        Transform parent,
+        string name,
+        Vector2 size)
+    {
+        GameObject go =
+            new(
+                name,
+                typeof(RectTransform));
+
+        go.transform.SetParent(
+            parent,
+            false);
+
+        RectTransform rect =
+            go.GetComponent<RectTransform>();
+
+        rect.sizeDelta =
+            size;
+
+        return rect;
+    }
+
+    private static Text CreateText(
+        Transform parent,
+        string name,
+        string value,
+        int fontSize,
+        FontStyle style,
+        TextAnchor alignment,
+        Color color)
+    {
+        RectTransform rect =
+            CreateRect(
+                parent,
+                name,
+                Vector2.zero);
+
+        Text text =
+            rect.gameObject.AddComponent<Text>();
+
+        text.font =
+            Resources.GetBuiltinResource<Font>(
+                "LegacyRuntime.ttf");
+
+        text.text =
+            value;
+
+        text.fontSize =
+            fontSize;
+
+        text.fontStyle =
+            style;
+
+        text.alignment =
+            alignment;
+
+        text.color =
+            color;
+
+        text.raycastTarget =
+            false;
+
+        return text;
+    }
+
+    private static void Stretch(
+        RectTransform rect)
+    {
+        rect.anchorMin =
+            Vector2.zero;
+
+        rect.anchorMax =
+            Vector2.one;
+
+        rect.offsetMin =
+            Vector2.zero;
+
+        rect.offsetMax =
+            Vector2.zero;
+    }
+}
+
+/// <summary>
 /// 아이템 상세 카드 하단에 반쯤 걸치는 원형 속성 배지 스트립.
-/// 현재 EquipmentTag를 코드 심볼로 보여주고, 추후 Sprite 아이콘으로 교체할 수 있습니다.
+/// EquipmentTag를 런타임 생성 아이콘으로 표시하므로 별도 임시 문자 심볼이 필요 없습니다.
 /// </summary>
 public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
 {
@@ -538,8 +989,8 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
     private readonly RectTransform[] badgeRoots =
         new RectTransform[MaxBadges];
 
-    private readonly Text[] symbols =
-        new Text[MaxBadges];
+    private readonly Image[] icons =
+        new Image[MaxBadges];
 
     private readonly Text[] labels =
         new Text[MaxBadges];
@@ -547,18 +998,19 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
     private RectTransform rect;
     private Color frameColor;
     private Color fillColor;
-    private Color textColor;
+    private Color iconColor;
     private float badgeSize = 46f;
     private float spacing = 56f;
     private bool built;
 
     private static Sprite circleSprite;
+    private static readonly Dictionary<EquipmentTag, Sprite> TagSprites = new();
 
     public static BattleEquipmentBadgeStrip Attach(
         RectTransform parent,
         Color frame,
         Color fill,
-        Color text,
+        Color icon,
         float size = 46f,
         float gap = 56f)
     {
@@ -580,7 +1032,7 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
         strip.Configure(
             frame,
             fill,
-            text,
+            icon,
             size,
             gap);
 
@@ -590,13 +1042,13 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
     public void Configure(
         Color frame,
         Color fill,
-        Color text,
+        Color icon,
         float size,
         float gap)
     {
         frameColor = frame;
         fillColor = fill;
-        textColor = text;
+        iconColor = icon;
         badgeSize = Mathf.Max(28f, size);
         spacing = Mathf.Max(badgeSize + 4f, gap);
 
@@ -625,10 +1077,15 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
             EquipmentTag tag =
                 tags[i];
 
-            if (symbols[i] != null)
-                symbols[i].text =
-                    GetSymbol(
+            if (icons[i] != null)
+            {
+                icons[i].sprite =
+                    GetTagSprite(
                         tag);
+
+                icons[i].color =
+                    iconColor;
+            }
 
             if (labels[i] != null)
                 labels[i].text =
@@ -670,10 +1127,9 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
                 0.5f,
                 0.5f);
 
+        // 원 중심이 카드 하단선에 정확히 걸립니다.
         rect.anchoredPosition =
-            new Vector2(
-                0f,
-                0f);
+            Vector2.zero;
 
         rect.sizeDelta =
             new Vector2(
@@ -753,19 +1209,37 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
             innerImage.raycastTarget =
                 false;
 
-            Text symbol =
-                CreateText(
+            RectTransform iconRect =
+                CreateRect(
                     inner,
-                    "Symbol",
-                    string.Empty,
-                    Mathf.RoundToInt(
-                        badgeSize * 0.30f),
-                    FontStyle.Bold,
-                    TextAnchor.MiddleCenter,
-                    textColor);
+                    "Icon",
+                    Vector2.one *
+                    Mathf.Max(
+                        15f,
+                        badgeSize * 0.46f));
 
-            Stretch(
-                symbol.rectTransform);
+            iconRect.anchorMin =
+                iconRect.anchorMax =
+                    new Vector2(
+                        0.5f,
+                        0.5f);
+
+            iconRect.pivot =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+            Image iconImage =
+                iconRect.gameObject.AddComponent<Image>();
+
+            iconImage.raycastTarget =
+                false;
+
+            iconImage.preserveAspect =
+                true;
+
+            iconImage.color =
+                iconColor;
 
             Text label =
                 CreateText(
@@ -801,8 +1275,8 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
             badgeRoots[i] =
                 badge;
 
-            symbols[i] =
-                symbol;
+            icons[i] =
+                iconImage;
 
             labels[i] =
                 label;
@@ -862,32 +1336,6 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
         return result;
     }
 
-    private static string GetSymbol(
-        EquipmentTag tag)
-    {
-        return tag switch
-        {
-            EquipmentTag.Burn => "F",
-            EquipmentTag.Shock => "E",
-            EquipmentTag.Explosion => "*",
-            EquipmentTag.Area => "O",
-            EquipmentTag.Projectile => ">",
-            EquipmentTag.Melee => "X",
-            EquipmentTag.Dash => ">>",
-            EquipmentTag.Summon => "+",
-            EquipmentTag.Control => "C",
-            EquipmentTag.Defense => "D",
-            EquipmentTag.Heal => "H",
-            EquipmentTag.Resource => "R",
-            EquipmentTag.Sustain => "S",
-            EquipmentTag.Critical => "!",
-            EquipmentTag.Precision => ".",
-            EquipmentTag.Break => "#",
-            EquipmentTag.OddWeapon => "?",
-            _ => "-"
-        };
-    }
-
     private static string GetLabel(
         EquipmentTag tag)
     {
@@ -914,6 +1362,435 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
         };
     }
 
+    private static Sprite GetTagSprite(
+        EquipmentTag tag)
+    {
+        if (TagSprites.TryGetValue(
+                tag,
+                out Sprite cached) &&
+            cached != null)
+        {
+            return cached;
+        }
+
+        const int size = 64;
+
+        Texture2D texture =
+            new(
+                size,
+                size,
+                TextureFormat.RGBA32,
+                false);
+
+        texture.name =
+            "BattleUiTag_" +
+            tag +
+            "_Runtime";
+
+        texture.wrapMode =
+            TextureWrapMode.Clamp;
+
+        texture.filterMode =
+            FilterMode.Bilinear;
+
+        Color32[] pixels =
+            new Color32[
+                size *
+                size];
+
+        DrawTagIcon(
+            pixels,
+            size,
+            tag);
+
+        texture.SetPixels32(
+            pixels);
+
+        texture.Apply(
+            false,
+            true);
+
+        Sprite sprite =
+            Sprite.Create(
+                texture,
+                new Rect(
+                    0f,
+                    0f,
+                    size,
+                    size),
+                new Vector2(
+                    0.5f,
+                    0.5f),
+                64f);
+
+        sprite.name =
+            texture.name +
+            "_Sprite";
+
+        TagSprites[tag] =
+            sprite;
+
+        return sprite;
+    }
+
+    private static void DrawTagIcon(
+        Color32[] pixels,
+        int size,
+        EquipmentTag tag)
+    {
+        int c =
+            size / 2;
+
+        switch (tag)
+        {
+            case EquipmentTag.Shock:
+                DrawLine(pixels, size, c + 7, 7, c - 6, 29, 5);
+                DrawLine(pixels, size, c - 6, 29, c + 3, 29, 5);
+                DrawLine(pixels, size, c + 3, 29, c - 8, 57, 5);
+                DrawLine(pixels, size, c - 8, 57, c + 11, 34, 5);
+                DrawLine(pixels, size, c + 11, 34, c + 2, 34, 5);
+                DrawLine(pixels, size, c + 2, 34, c + 7, 7, 5);
+                break;
+
+            case EquipmentTag.Burn:
+                DrawLine(pixels, size, c, 7, c - 11, 27, 5);
+                DrawLine(pixels, size, c - 11, 27, c - 7, 48, 5);
+                DrawLine(pixels, size, c - 7, 48, c, 57, 5);
+                DrawLine(pixels, size, c, 57, c + 11, 45, 5);
+                DrawLine(pixels, size, c + 11, 45, c + 8, 25, 5);
+                DrawLine(pixels, size, c + 8, 25, c, 7, 5);
+                DrawLine(pixels, size, c, 25, c - 3, 43, 4);
+                break;
+
+            case EquipmentTag.Explosion:
+                DrawFilledCircle(pixels, size, c, c, 6);
+                for (int i = 0; i < 8; i++)
+                {
+                    float a = i * Mathf.PI * 0.25f;
+                    DrawLine(
+                        pixels,
+                        size,
+                        c + Mathf.RoundToInt(Mathf.Cos(a) * 12f),
+                        c + Mathf.RoundToInt(Mathf.Sin(a) * 12f),
+                        c + Mathf.RoundToInt(Mathf.Cos(a) * 26f),
+                        c + Mathf.RoundToInt(Mathf.Sin(a) * 26f),
+                        4);
+                }
+                break;
+
+            case EquipmentTag.Area:
+                DrawCircle(pixels, size, c, c, 22, 4);
+                DrawCircle(pixels, size, c, c, 10, 3);
+                break;
+
+            case EquipmentTag.Projectile:
+                DrawLine(pixels, size, 8, c, 51, c, 5);
+                DrawLine(pixels, size, 51, c, 38, c + 12, 5);
+                DrawLine(pixels, size, 51, c, 38, c - 12, 5);
+                break;
+
+            case EquipmentTag.Melee:
+                DrawLine(pixels, size, 13, 12, 51, 50, 5);
+                DrawLine(pixels, size, 51, 12, 13, 50, 5);
+                DrawLine(pixels, size, 10, 47, 18, 55, 5);
+                DrawLine(pixels, size, 54, 47, 46, 55, 5);
+                break;
+
+            case EquipmentTag.Dash:
+                DrawChevron(pixels, size, 15, c, 12, 5);
+                DrawChevron(pixels, size, 33, c, 12, 5);
+                break;
+
+            case EquipmentTag.Summon:
+                DrawCircle(pixels, size, c, c, 20, 4);
+                DrawLine(pixels, size, c, 16, c, 48, 4);
+                DrawLine(pixels, size, 16, c, 48, c, 4);
+                break;
+
+            case EquipmentTag.Control:
+                DrawLine(pixels, size, 13, 14, 13, 50, 4);
+                DrawLine(pixels, size, 13, 14, 23, 14, 4);
+                DrawLine(pixels, size, 13, 50, 23, 50, 4);
+                DrawLine(pixels, size, 51, 14, 51, 50, 4);
+                DrawLine(pixels, size, 51, 14, 41, 14, 4);
+                DrawLine(pixels, size, 51, 50, 41, 50, 4);
+                DrawFilledCircle(pixels, size, c, c, 5);
+                break;
+
+            case EquipmentTag.Defense:
+                DrawLine(pixels, size, c, 7, 13, 16, 5);
+                DrawLine(pixels, size, 13, 16, 16, 39, 5);
+                DrawLine(pixels, size, 16, 39, c, 56, 5);
+                DrawLine(pixels, size, c, 56, 48, 39, 5);
+                DrawLine(pixels, size, 48, 39, 51, 16, 5);
+                DrawLine(pixels, size, 51, 16, c, 7, 5);
+                break;
+
+            case EquipmentTag.Heal:
+                FillRect(pixels, size, c - 4, 11, 9, 42);
+                FillRect(pixels, size, 11, c - 4, 42, 9);
+                break;
+
+            case EquipmentTag.Resource:
+                DrawLine(pixels, size, c, 7, 53, c, 5);
+                DrawLine(pixels, size, 53, c, c, 57, 5);
+                DrawLine(pixels, size, c, 57, 11, c, 5);
+                DrawLine(pixels, size, 11, c, c, 7, 5);
+                break;
+
+            case EquipmentTag.Sustain:
+                DrawCircle(pixels, size, 22, c, 11, 4);
+                DrawCircle(pixels, size, 42, c, 11, 4);
+                DrawLine(pixels, size, 28, 24, 36, 40, 3);
+                DrawLine(pixels, size, 28, 40, 36, 24, 3);
+                break;
+
+            case EquipmentTag.Critical:
+                DrawLine(pixels, size, c, 8, c, 42, 6);
+                DrawFilledCircle(pixels, size, c, 53, 4);
+                DrawLine(pixels, size, 14, 14, 21, 21, 3);
+                DrawLine(pixels, size, 50, 14, 43, 21, 3);
+                break;
+
+            case EquipmentTag.Precision:
+                DrawCircle(pixels, size, c, c, 18, 4);
+                DrawCircle(pixels, size, c, c, 6, 3);
+                DrawLine(pixels, size, c, 4, c, 18, 3);
+                DrawLine(pixels, size, c, 46, c, 60, 3);
+                DrawLine(pixels, size, 4, c, 18, c, 3);
+                DrawLine(pixels, size, 46, c, 60, c, 3);
+                break;
+
+            case EquipmentTag.Break:
+                DrawLine(pixels, size, 29, 6, 21, 27, 5);
+                DrawLine(pixels, size, 21, 27, 33, 34, 5);
+                DrawLine(pixels, size, 33, 34, 25, 58, 5);
+                DrawLine(pixels, size, 33, 34, 47, 24, 4);
+                break;
+
+            case EquipmentTag.OddWeapon:
+                DrawCircle(pixels, size, c, 22, 13, 4);
+                DrawLine(pixels, size, 44, 22, 44, 29, 4);
+                DrawLine(pixels, size, 44, 29, c, 38, 4);
+                DrawLine(pixels, size, c, 38, c, 44, 4);
+                DrawFilledCircle(pixels, size, c, 54, 4);
+                break;
+
+            default:
+                DrawCircle(pixels, size, c, c, 18, 4);
+                break;
+        }
+    }
+
+    private static void DrawChevron(
+        Color32[] pixels,
+        int size,
+        int x,
+        int y,
+        int half,
+        int thickness)
+    {
+        DrawLine(
+            pixels,
+            size,
+            x,
+            y - half,
+            x + half,
+            y,
+            thickness);
+
+        DrawLine(
+            pixels,
+            size,
+            x + half,
+            y,
+            x,
+            y + half,
+            thickness);
+    }
+
+    private static void DrawLine(
+        Color32[] pixels,
+        int size,
+        int x0,
+        int y0,
+        int x1,
+        int y1,
+        int thickness)
+    {
+        int dx =
+            Mathf.Abs(
+                x1 - x0);
+
+        int dy =
+            Mathf.Abs(
+                y1 - y0);
+
+        int steps =
+            Mathf.Max(
+                1,
+                Mathf.Max(
+                    dx,
+                    dy));
+
+        for (int i = 0; i <= steps; i++)
+        {
+            float t =
+                i /
+                (float)steps;
+
+            int x =
+                Mathf.RoundToInt(
+                    Mathf.Lerp(
+                        x0,
+                        x1,
+                        t));
+
+            int y =
+                Mathf.RoundToInt(
+                    Mathf.Lerp(
+                        y0,
+                        y1,
+                        t));
+
+            DrawFilledCircle(
+                pixels,
+                size,
+                x,
+                y,
+                Mathf.Max(
+                    1,
+                    thickness / 2));
+        }
+    }
+
+    private static void DrawCircle(
+        Color32[] pixels,
+        int size,
+        int cx,
+        int cy,
+        int radius,
+        int thickness)
+    {
+        int inner =
+            Mathf.Max(
+                0,
+                radius - thickness);
+
+        int outer2 =
+            radius *
+            radius;
+
+        int inner2 =
+            inner *
+            inner;
+
+        for (int y = cy - radius; y <= cy + radius; y++)
+        {
+            for (int x = cx - radius; x <= cx + radius; x++)
+            {
+                int dx =
+                    x - cx;
+
+                int dy =
+                    y - cy;
+
+                int d2 =
+                    dx * dx +
+                    dy * dy;
+
+                if (d2 <= outer2 &&
+                    d2 >= inner2)
+                {
+                    SetPixel(
+                        pixels,
+                        size,
+                        x,
+                        y);
+                }
+            }
+        }
+    }
+
+    private static void DrawFilledCircle(
+        Color32[] pixels,
+        int size,
+        int cx,
+        int cy,
+        int radius)
+    {
+        int r2 =
+            radius *
+            radius;
+
+        for (int y = cy - radius; y <= cy + radius; y++)
+        {
+            for (int x = cx - radius; x <= cx + radius; x++)
+            {
+                int dx =
+                    x - cx;
+
+                int dy =
+                    y - cy;
+
+                if (dx * dx +
+                    dy * dy <= r2)
+                {
+                    SetPixel(
+                        pixels,
+                        size,
+                        x,
+                        y);
+                }
+            }
+        }
+    }
+
+    private static void FillRect(
+        Color32[] pixels,
+        int size,
+        int x,
+        int y,
+        int width,
+        int height)
+    {
+        for (int yy = y; yy < y + height; yy++)
+        {
+            for (int xx = x; xx < x + width; xx++)
+            {
+                SetPixel(
+                    pixels,
+                    size,
+                    xx,
+                    yy);
+            }
+        }
+    }
+
+    private static void SetPixel(
+        Color32[] pixels,
+        int size,
+        int x,
+        int y)
+    {
+        if (x < 0 ||
+            y < 0 ||
+            x >= size ||
+            y >= size)
+        {
+            return;
+        }
+
+        pixels[
+            y * size +
+            x] =
+            new Color32(
+                255,
+                255,
+                255,
+                255);
+    }
+
     private static Sprite GetCircleSprite()
     {
         if (circleSprite != null)
@@ -938,13 +1815,17 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
             FilterMode.Bilinear;
 
         Color32[] pixels =
-            new Color32[size * size];
+            new Color32[
+                size *
+                size];
 
         float center =
-            (size - 1) * 0.5f;
+            (size - 1) *
+            0.5f;
 
         float radius =
-            center - 1f;
+            center -
+            1f;
 
         float feather =
             1.25f;
@@ -971,7 +1852,9 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
                         feather +
                         0.5f);
 
-                pixels[y * size + x] =
+                pixels[
+                    y * size +
+                    x] =
                     new Color(
                         1f,
                         1f,
