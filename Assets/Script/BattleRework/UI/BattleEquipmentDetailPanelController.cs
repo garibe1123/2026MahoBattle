@@ -58,6 +58,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     private Text tagText;
     private Text synergyTitle;
     private Text synergyText;
+    private BattleEquipmentBadgeStrip badgeStrip;
 
     private BattleEquipmentSystem subscribedEquipmentSystem;
     private BattleGridSynergyController subscribedGridSynergy;
@@ -384,42 +385,14 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
                     : horizontalOffset,
                 0f);
 
-        Rect canvasBounds =
-            canvasRect.rect;
-
-        float halfWidth =
-            panelSize.x * 0.5f;
-
-        float halfHeight =
-            panelSize.y * 0.5f;
-
-        float padding =
-            Mathf.Max(
-                0f,
-                rewardPreviewScreenPadding);
-
-        target.x =
-            Mathf.Clamp(
-                target.x,
-                canvasBounds.xMin +
-                halfWidth +
-                padding,
-                canvasBounds.xMax -
-                halfWidth -
-                padding);
-
-        target.y =
-            Mathf.Clamp(
-                target.y,
-                canvasBounds.yMin +
-                halfHeight +
-                padding,
-                canvasBounds.yMax -
-                halfHeight -
-                padding);
-
         root.anchoredPosition =
-            target;
+            BattleUiAvoidanceResolver.Resolve(
+                canvasRect,
+                target,
+                panelSize,
+                root.pivot,
+                rewardPreviewScreenPadding,
+                itemScreenPoint);
     }
 
     private void RefreshCurrentContent()
@@ -565,6 +538,9 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 
         if (tagText != null)
             tagText.text = BuildTags(equipment);
+
+        badgeStrip?.Show(
+            equipment);
     }
 
     private static string BuildFallbackDescription(BattleEquipmentSO equipment)
@@ -861,6 +837,19 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         Image bs = bottomStroke.gameObject.AddComponent<Image>();
         bs.color = accentYellow;
         bs.raycastTarget = false;
+
+        badgeStrip =
+            BattleEquipmentBadgeStrip.Attach(
+                root,
+                paperColor,
+                new Color(
+                    inkColor.r,
+                    inkColor.g,
+                    inkColor.b,
+                    1f),
+                paperColor,
+                46f,
+                58f);
     }
 
     private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
