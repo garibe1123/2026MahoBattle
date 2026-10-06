@@ -160,6 +160,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
     private readonly Outline[] slotOutlines = new Outline[SlotCount];
     private readonly Image[] slotIcons = new Image[SlotCount];
+    private readonly GameObject[] slotEmptyStates = new GameObject[SlotCount];
     private readonly Text[] slotNames = new Text[SlotCount];
     private readonly Text[] slotGrades = new Text[SlotCount];
     private readonly Text[] slotStates = new Text[SlotCount];
@@ -1321,6 +1322,78 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             icon.raycastTarget = false;
             slotIcons[i] = icon;
 
+            RectTransform emptyState =
+                CreateRect(
+                    slot,
+                    "EmptyState",
+                    new Vector2(
+                        112f,
+                        92f));
+
+            emptyState.anchorMin =
+                emptyState.anchorMax =
+                    new Vector2(
+                        0.5f,
+                        0.56f);
+
+            emptyState.pivot =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+            emptyState.anchoredPosition =
+                Vector2.zero;
+
+            Image emptyPlate =
+                emptyState.gameObject.AddComponent<Image>();
+
+            emptyPlate.color =
+                new Color(
+                    paperColor.r,
+                    paperColor.g,
+                    paperColor.b,
+                    0.045f);
+
+            emptyPlate.raycastTarget =
+                false;
+
+            Outline emptyOutline =
+                emptyState.gameObject.AddComponent<Outline>();
+
+            emptyOutline.effectColor =
+                new Color(
+                    paperColor.r,
+                    paperColor.g,
+                    paperColor.b,
+                    0.28f);
+
+            emptyOutline.effectDistance =
+                new Vector2(
+                    2f,
+                    -2f);
+
+            Text emptyLabel =
+                CreateText(
+                    emptyState,
+                    "[EMPTY]",
+                    15,
+                    FontStyle.Bold,
+                    TextAnchor.MiddleCenter,
+                    new Color(
+                        paperColor.r,
+                        paperColor.g,
+                        paperColor.b,
+                        0.82f));
+
+            Stretch(
+                emptyLabel.rectTransform);
+
+            slotEmptyStates[i] =
+                emptyState.gameObject;
+
+            emptyState.gameObject.SetActive(
+                false);
+
             Text name = CreateText(slot, "EMPTY", 13, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
             SetAnchors(name.rectTransform, new Vector2(0.52f, 0.43f), new Vector2(0.94f, 0.80f));
             slotNames[i] = name;
@@ -1390,13 +1463,20 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 slotIcons[i].color = unlocked ? Color.white : new Color(0.46f, 0.49f, 0.56f, 0.52f);
             }
 
+            if (slotEmptyStates[i] != null)
+            {
+                slotEmptyStates[i].SetActive(
+                    unlocked &&
+                    equipment == null);
+            }
+
             if (slotNames[i] != null)
             {
                 slotNames[i].text = !unlocked
                     ? "LOCKED"
                     : equipment != null
                         ? equipment.GetDisplayName().ToUpperInvariant()
-                        : "EMPTY";
+                        : string.Empty;
                 slotNames[i].color = unlocked ? paperColor : new Color(0.48f, 0.51f, 0.58f, 1f);
             }
 
