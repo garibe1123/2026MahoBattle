@@ -131,6 +131,9 @@ public sealed class BattleUiHologramBorder : MonoBehaviour
 {
     private static Sprite borderSprite;
 
+    private Image borderImage;
+    private Color baseColor = Color.white;
+
     public static BattleUiHologramBorder Attach(
         RectTransform parent,
         Color color)
@@ -207,19 +210,46 @@ public sealed class BattleUiHologramBorder : MonoBehaviour
             border =
                 go.AddComponent<BattleUiHologramBorder>();
 
+        border.borderImage =
+            image;
+
+        border.baseColor =
+            color;
+
         return border;
+    }
+
+    public void SetAlpha(float alpha)
+    {
+        if (borderImage == null)
+            borderImage =
+                GetComponent<Image>();
+
+        if (borderImage == null)
+            return;
+
+        Color color =
+            baseColor;
+
+        color.a *=
+            Mathf.Clamp01(
+                alpha);
+
+        borderImage.color =
+            color;
     }
 
     private void LateUpdate()
     {
-        Image image =
-            GetComponent<Image>();
+        if (borderImage == null)
+            borderImage =
+                GetComponent<Image>();
 
-        if (image != null)
+        if (borderImage != null)
         {
-            image.material =
+            borderImage.material =
                 BattleUiHologramMaterialProvider.Resolve(
-                    image.material);
+                    borderImage.material);
         }
     }
 
