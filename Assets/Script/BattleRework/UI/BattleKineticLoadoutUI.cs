@@ -35,7 +35,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private BattleKineticItemBarUI miniPackUI;
     [SerializeField] private BattleBroadcastDashboardController dashboardController;
     [SerializeField] private BattleShowPresentationManager presentation;
-    [SerializeField] private BattleScreenPresenterPrototypeController screenPresenter;
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
@@ -67,8 +66,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField, Min(0f)] private float itemTooltipTargetClearance = 76f;
     [Tooltip("설명창이 화면 가장자리에서 유지할 최소 여백입니다.")]
     [SerializeField, Min(0f)] private float itemTooltipScreenMargin = 28f;
-    [Tooltip("호스트 대화창이 열려 있을 때 설명/비교 팝업과 확보할 추가 간격입니다.")]
-    [SerializeField, Min(0f)] private float itemTooltipHostDialogueGap = 28f;
     [SerializeField, Range(0.7f, 1f)] private float itemTooltipPopupStartScale = 0.88f;
     [SerializeField, Range(1f, 1.15f)] private float itemTooltipPopupOvershootScale = 1.045f;
     [SerializeField, Range(0.05f, 0.30f)] private float itemTooltipPopupDuration = 0.15f;
@@ -114,6 +111,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Vector2 detailPopupStartPosition;
     private Vector2 detailPopupTargetPosition;
     private Image detailThumbnail;
+    private BattleEquipmentBadgeStrip detailBadgeStrip;
     private Text detailTitle;
     private Text detailDescription;
     private Text detailTags;
@@ -122,6 +120,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform compareRoot;
     private Image compareSourceIcon;
     private Image compareTargetIcon;
+    private BattleEquipmentBadgeStrip compareSourceBadgeStrip;
+    private BattleEquipmentBadgeStrip compareTargetBadgeStrip;
     private Text compareSourceName;
     private Text compareTargetName;
     private Text compareSourceMeta;
@@ -266,8 +266,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             dashboardController = FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
         if (presentation == null)
             presentation = FindFirstObjectByType<BattleShowPresentationManager>(FindObjectsInactive.Include);
-        if (screenPresenter == null)
-            screenPresenter = FindFirstObjectByType<BattleScreenPresenterPrototypeController>(FindObjectsInactive.Include);
     }
 
     private void Subscribe()
@@ -1096,6 +1094,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         synergySummary = CreateText(detailRoot, "GRID LINK 0", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
         SetAnchors(synergySummary.rectTransform, new Vector2(0.06f, 0.045f), new Vector2(0.94f, 0.17f));
 
+        detailBadgeStrip =
+            BattleEquipmentBadgeStrip.Attach(
+                detailRoot,
+                paperColor,
+                new Color(
+                    inkColor.r,
+                    inkColor.g,
+                    inkColor.b,
+                    1f),
+                paperColor,
+                46f,
+                58f);
+
         compareRoot = CreateRect(detailRoot, "CompareRoot", Vector2.zero);
         Stretch(compareRoot);
         compareRoot.gameObject.SetActive(false);
@@ -1121,6 +1132,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         compareSourceMeta = CreateText(sourceCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
         SetAnchors(compareSourceMeta.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.39f));
 
+        compareSourceBadgeStrip =
+            BattleEquipmentBadgeStrip.Attach(
+                sourceCard,
+                accentYellow,
+                new Color(
+                    0.035f,
+                    0.040f,
+                    0.050f,
+                    1f),
+                paperColor,
+                34f,
+                42f);
+
         RectTransform targetCard = CreateRect(compareRoot, "TargetCard", Vector2.zero);
         SetAnchors(targetCard, new Vector2(0.57f, 0.13f), new Vector2(0.965f, 0.95f));
         Image targetBack = targetCard.gameObject.AddComponent<Image>();
@@ -1141,6 +1165,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         compareTargetMeta = CreateText(targetCard, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
         SetAnchors(compareTargetMeta.rectTransform, new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.39f));
+
+        compareTargetBadgeStrip =
+            BattleEquipmentBadgeStrip.Attach(
+                targetCard,
+                accentCyan,
+                new Color(
+                    0.035f,
+                    0.040f,
+                    0.050f,
+                    1f),
+                paperColor,
+                34f,
+                42f);
 
         compareSwapLabel = CreateText(compareRoot, "<->\nSWAP", 15, FontStyle.Bold, TextAnchor.MiddleCenter, accentYellow);
         SetAnchors(compareSwapLabel.rectTransform, new Vector2(0.43f, 0.38f), new Vector2(0.57f, 0.72f));
@@ -1370,6 +1407,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 equipment != null;
         }
 
+        detailBadgeStrip?.Show(
+            equipment);
+
         if (detailTitle != null)
             detailTitle.text = equipment != null ? equipment.GetDisplayName().ToUpperInvariant() : "EMPTY SLOT";
 
@@ -1543,6 +1583,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 true;
         }
 
+        compareSourceBadgeStrip?.Show(
+            source);
+
+        compareTargetBadgeStrip?.Show(
+            target);
+
         if (compareSourceName != null)
             compareSourceName.text = source.GetDisplayName().ToUpperInvariant();
         if (compareTargetName != null)
@@ -1629,6 +1675,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             detailTags.gameObject.SetActive(!compare);
         if (synergySummary != null)
             synergySummary.gameObject.SetActive(!compare);
+
+        detailBadgeStrip?.SetVisible(
+            !compare);
     }
 
     private static string BuildCompareItemMeta(
@@ -2250,295 +2299,27 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 0.5f,
                 0.5f);
 
-        Vector2 clamped =
-            ClampTooltipToViewport(
-                fullRoot,
-                desired,
-                size,
-                detailRoot.pivot,
-                itemTooltipScreenMargin);
-
-        return AvoidHostDialogue(
-            clamped,
-            size,
-            detailRoot.pivot);
-    }
-
-    private Vector2 AvoidHostDialogue(
-        Vector2 target,
-        Vector2 size,
-        Vector2 pivot)
-    {
-        if (fullRoot == null ||
-            screenPresenter == null ||
-            !screenPresenter.IsDialogueVisible ||
-            screenPresenter.DialogueRect == null)
-        {
-            return target;
-        }
-
-        Rect hostScreenRect =
-            GetScreenRect(
-                screenPresenter.DialogueRect);
-
-        Rect popupScreenRect =
-            GetScreenRectForLocalRect(
-                fullRoot,
-                target,
-                size,
-                pivot);
-
-        float gap =
-            Mathf.Max(
-                0f,
-                itemTooltipHostDialogueGap);
-
-        Rect blocked =
-            new(
-                hostScreenRect.xMin - gap,
-                hostScreenRect.yMin - gap,
-                hostScreenRect.width + gap * 2f,
-                hostScreenRect.height + gap * 2f);
-
-        if (!popupScreenRect.Overlaps(blocked))
-            return target;
-
-        float shiftUpPixels =
-            blocked.yMax -
-            popupScreenRect.yMin;
-
-        Canvas canvas =
+        Canvas parentCanvas =
             fullRoot.GetComponentInParent<Canvas>();
 
         Camera eventCamera =
-            canvas != null &&
-            canvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? canvas.worldCamera
+            parentCanvas != null &&
+            parentCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? parentCanvas.worldCamera
                 : null;
 
-        Vector2 pivotScreen =
+        Vector2 targetScreenPoint =
             RectTransformUtility.WorldToScreenPoint(
                 eventCamera,
-                fullRoot.TransformPoint(
-                    target));
+                slotCenterWorld);
 
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                fullRoot,
-                pivotScreen +
-                Vector2.up *
-                shiftUpPixels,
-                eventCamera,
-                out Vector2 shifted))
-        {
-            return target;
-        }
-
-        return ClampTooltipToViewport(
+        return BattleUiAvoidanceResolver.Resolve(
             fullRoot,
-            shifted,
+            desired,
             size,
-            pivot,
-            itemTooltipScreenMargin);
-    }
-
-    private static Rect GetScreenRectForLocalRect(
-        RectTransform parent,
-        Vector2 pivotLocal,
-        Vector2 size,
-        Vector2 pivot)
-    {
-        if (parent == null)
-            return default;
-
-        Canvas canvas =
-            parent.GetComponentInParent<Canvas>();
-
-        Camera eventCamera =
-            canvas != null &&
-            canvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? canvas.worldCamera
-                : null;
-
-        Vector2[] localCorners =
-        {
-            pivotLocal + new Vector2(-size.x * pivot.x, -size.y * pivot.y),
-            pivotLocal + new Vector2(size.x * (1f - pivot.x), -size.y * pivot.y),
-            pivotLocal + new Vector2(size.x * (1f - pivot.x), size.y * (1f - pivot.y)),
-            pivotLocal + new Vector2(-size.x * pivot.x, size.y * (1f - pivot.y))
-        };
-
-        Vector2 min =
-            new(
-                float.PositiveInfinity,
-                float.PositiveInfinity);
-
-        Vector2 max =
-            new(
-                float.NegativeInfinity,
-                float.NegativeInfinity);
-
-        for (int i = 0; i < localCorners.Length; i++)
-        {
-            Vector2 point =
-                RectTransformUtility.WorldToScreenPoint(
-                    eventCamera,
-                    parent.TransformPoint(
-                        localCorners[i]));
-
-            min =
-                Vector2.Min(
-                    min,
-                    point);
-
-            max =
-                Vector2.Max(
-                    max,
-                    point);
-        }
-
-        return Rect.MinMaxRect(
-            min.x,
-            min.y,
-            max.x,
-            max.y);
-    }
-
-    private static Vector2 ClampTooltipToViewport(
-        RectTransform parent,
-        Vector2 pivotLocal,
-        Vector2 size,
-        Vector2 pivot,
-        float margin)
-    {
-        if (parent == null)
-            return pivotLocal;
-
-        Canvas canvas =
-            parent.GetComponentInParent<Canvas>();
-
-        Camera eventCamera =
-            canvas != null &&
-            canvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? canvas.worldCamera
-                : null;
-
-        float width =
-            Mathf.Max(
-                1f,
-                size.x);
-
-        float height =
-            Mathf.Max(
-                1f,
-                size.y);
-
-        Vector2[] localCorners =
-        {
-            pivotLocal + new Vector2(-width * pivot.x, -height * pivot.y),
-            pivotLocal + new Vector2(width * (1f - pivot.x), -height * pivot.y),
-            pivotLocal + new Vector2(width * (1f - pivot.x), height * (1f - pivot.y)),
-            pivotLocal + new Vector2(-width * pivot.x, height * (1f - pivot.y))
-        };
-
-        Vector2 screenMin =
-            new(
-                float.PositiveInfinity,
-                float.PositiveInfinity);
-
-        Vector2 screenMax =
-            new(
-                float.NegativeInfinity,
-                float.NegativeInfinity);
-
-        for (int i = 0; i < localCorners.Length; i++)
-        {
-            Vector2 screen =
-                RectTransformUtility.WorldToScreenPoint(
-                    eventCamera,
-                    parent.TransformPoint(
-                        localCorners[i]));
-
-            screenMin =
-                Vector2.Min(
-                    screenMin,
-                    screen);
-
-            screenMax =
-                Vector2.Max(
-                    screenMax,
-                    screen);
-        }
-
-        Rect viewport =
-            eventCamera != null
-                ? eventCamera.pixelRect
-                : new Rect(
-                    0f,
-                    0f,
-                    Screen.width,
-                    Screen.height);
-
-        float safeMargin =
-            Mathf.Max(
-                0f,
-                margin);
-
-        Rect safe =
-            new(
-                viewport.xMin + safeMargin,
-                viewport.yMin + safeMargin,
-                Mathf.Max(
-                    1f,
-                    viewport.width -
-                    safeMargin * 2f),
-                Mathf.Max(
-                    1f,
-                    viewport.height -
-                    safeMargin * 2f));
-
-        Vector2 correction =
-            Vector2.zero;
-
-        if (screenMin.x < safe.xMin)
-            correction.x +=
-                safe.xMin -
-                screenMin.x;
-
-        if (screenMax.x > safe.xMax)
-            correction.x -=
-                screenMax.x -
-                safe.xMax;
-
-        if (screenMin.y < safe.yMin)
-            correction.y +=
-                safe.yMin -
-                screenMin.y;
-
-        if (screenMax.y > safe.yMax)
-            correction.y -=
-                screenMax.y -
-                safe.yMax;
-
-        if (correction.sqrMagnitude <= 0.0001f)
-            return pivotLocal;
-
-        Vector2 pivotScreen =
-            RectTransformUtility.WorldToScreenPoint(
-                eventCamera,
-                parent.TransformPoint(
-                    pivotLocal));
-
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                parent,
-                pivotScreen +
-                correction,
-                eventCamera,
-                out Vector2 correctedLocal))
-        {
-            return pivotLocal;
-        }
-
-        return correctedLocal;
+            detailRoot.pivot,
+            itemTooltipScreenMargin,
+            targetScreenPoint);
     }
 
     private void BuildDetailBubbleVisual()
