@@ -1632,9 +1632,33 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         // Anchors are pinned to the parent's pivot, so anchoredPosition maps
         // directly to combatRulePanel local coordinates.
-        winningRuleTab.anchoredPosition = new Vector2(
-            rightLocal3.x + localGap,
-            centerLocal3.y);
+        Vector2 desired =
+            new(
+                rightLocal3.x + localGap,
+                centerLocal3.y);
+
+        Canvas parentCanvas =
+            combatRulePanel.GetComponentInParent<Canvas>();
+
+        Camera eventCamera =
+            parentCanvas != null &&
+            parentCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? parentCanvas.worldCamera
+                : null;
+
+        Vector2 targetScreenPoint =
+            RectTransformUtility.WorldToScreenPoint(
+                eventCamera,
+                slotCenterWorld);
+
+        winningRuleTab.anchoredPosition =
+            BattleUiAvoidanceResolver.Resolve(
+                combatRulePanel,
+                desired,
+                detailSize,
+                winningRuleTab.pivot,
+                combatRuleScreenMargin,
+                targetScreenPoint);
 
         if (ruleDetailGroup != null)
         {
