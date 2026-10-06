@@ -1416,9 +1416,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             0f;
 
         Material strokeMaterial =
-            presentation != null
-                ? presentation.SpeechBubbleStrokeMaterial
-                : null;
+            BattleUiHologramMaterialProvider.Resolve(
+                presentation != null
+                    ? presentation.SpeechBubbleStrokeMaterial
+                    : null);
 
         worldInspectFrameController.Configure(
             worldInspectFrameImage,
