@@ -1055,15 +1055,35 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             return;
         }
 
-        EnsureRewardShowcase(
-            forceRebuild: false);
-
         bool choosing =
             rewardFlow == null ||
             rewardFlow.Phase == BattleRewardPhase.Choosing;
 
+        // Reward 확정 후에는 월드 Showcase를 화면 뒤에 남겨두지 않습니다.
+        // PACK 편집 UI가 열린 상태에서 월드 아이템이 뒤에 보이면
+        // 여전히 클릭 가능한 대상으로 오해하게 되고, 실제 입력은 Choosing 단계가 아니라서 먹지 않습니다.
+        if (!choosing)
+        {
+            rewardHoveredIndex =
+                -1;
+
+            rewardSelectedIndex =
+                -1;
+
+            if (rewardShowcaseRoot != null &&
+                rewardShowcaseRoot.activeSelf)
+            {
+                rewardShowcaseRoot.SetActive(
+                    false);
+            }
+
+            return;
+        }
+
+        EnsureRewardShowcase(
+            forceRebuild: false);
+
         int directHover =
-            choosing &&
             !stageTransitioning &&
             !externalGate
                 ? ResolveRewardShowcaseHover()
