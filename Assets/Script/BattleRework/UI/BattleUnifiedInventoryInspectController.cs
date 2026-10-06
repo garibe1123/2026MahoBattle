@@ -1281,35 +1281,36 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             detailGroup.alpha = 0f;
         detailController?.Hide();
 
-        // 실제 Mouse Drag 중에는 비교창을 띄우지 않습니다.
-        // Drag Ghost가 교환 의도를 보여주므로 상세 정보는 Source 아이템 하나만 유지합니다.
-        // 드래그가 끝난 뒤에는 기존 Hover/Selected 비교 규칙으로 즉시 복귀합니다.
-        bool mouseDragging =
-            inventoryInteraction != null &&
-            inventoryInteraction.DraggingSlot >= 0;
+        // Drag 중에도 다른 "점유 슬롯" 위에 올라가면 SWAP 비교를 즉시 보여줍니다.
+        // Source는 항상 DraggingSlot으로 고정되므로, 이전처럼 Target 정보가
+        // Source 상세를 덮어써서 교차되는 문제 없이 양쪽 카드가 명시적으로 분리됩니다.
+        int compareSource =
+            ResolveRewardCompareSourceSlot();
 
-        if (!mouseDragging)
+        int compareTarget =
+            Input.mousePresent && kineticLoadout != null
+                ? kineticLoadout.ResolveOccupiedSlotUnderPointer(
+                    Input.mousePosition)
+                : inventoryInteraction != null
+                    ? inventoryInteraction.HoveredSlot
+                    : -1;
+
+        if (compareSource >= 0 &&
+            compareTarget >= 0 &&
+            compareSource != compareTarget &&
+            HasItem(compareSource) &&
+            HasItem(compareTarget))
         {
-            int compareSource = ResolveRewardCompareSourceSlot();
-            int compareTarget =
-                Input.mousePresent && kineticLoadout != null
-                    ? kineticLoadout.ResolveOccupiedSlotUnderPointer(Input.mousePosition)
-                    : inventoryInteraction != null
-                        ? inventoryInteraction.HoveredSlot
-                        : -1;
+            kineticLoadout?.ShowRewardCompareTooltip(
+                compareSource,
+                compareTarget);
 
-            if (compareSource >= 0 &&
-                compareTarget >= 0 &&
-                compareSource != compareTarget &&
-                HasItem(compareSource) &&
-                HasItem(compareTarget))
-            {
-                kineticLoadout?.ShowRewardCompareTooltip(compareSource, compareTarget);
-                return;
-            }
+            return;
         }
 
-        kineticLoadout?.ShowRewardInspectTooltip(activeInspectSlot);
+        // 빈 슬롯 위에서는 SWAP이 아니므로 드래그 Source 아이템의 상세만 유지합니다.
+        kineticLoadout?.ShowRewardInspectTooltip(
+            activeInspectSlot);
     }
 
     private int ResolveRewardCompareSourceSlot()
