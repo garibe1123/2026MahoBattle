@@ -177,6 +177,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Image combatRulePanelBack;
     private Outline combatRulePanelOutline;
     private Image combatRulePanelPlate;
+    private BattleUiHologramBorder combatRuleHologramBorder;
     private RectTransform machineTab;
     private RectTransform winningRuleTab;
     private RectTransform resultListTab;
@@ -1721,13 +1722,18 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanelOutline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0f);
         combatRulePanelOutline.effectDistance = new Vector2(2f, -2f);
 
-        BattleUiHologramBorder.Attach(
-            panel,
-            new Color(
-                0.78f,
-                0.94f,
-                1f,
-                0.90f));
+        combatRuleHologramBorder =
+            BattleUiHologramBorder.Attach(
+                panel,
+                new Color(
+                    0.78f,
+                    0.94f,
+                    1f,
+                    0.90f));
+
+        // 평상시 전투 HUD에서는 슬롯만 보이고 Frame은 숨깁니다.
+        combatRuleHologramBorder?.SetAlpha(
+            0f);
 
         combatRulePanelGroup = panel.gameObject.AddComponent<CanvasGroup>();
         combatRulePanelGroup.alpha = 0f;
@@ -1941,6 +1947,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             color.a = 0.10f * combatRuleDrawerVisualAlpha;
             combatRulePanelPlate.color = color;
         }
+
+        // TAB을 열었을 때만 RULES Frame을 표시합니다.
+        // 평상시 전투 상태에서는 슬롯만 남기고 Frame/홀로그램 Border는 완전히 숨깁니다.
+        combatRuleHologramBorder?.SetAlpha(
+            combatTabOpen
+                ? combatRuleDrawerVisualAlpha
+                : 0f);
 
         HorizontalLayoutGroup layout = resultListTab != null
             ? resultListTab.GetComponent<HorizontalLayoutGroup>()
