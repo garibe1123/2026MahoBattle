@@ -18,19 +18,25 @@ public static class BattleUiHologramMaterialProvider
     {
         EnsureDriver();
 
-        if (preferred != null &&
-            preferred.HasProperty(
-                "_BattleUiUnscaledTime"))
+        // Inspector에서 지정한 Material은 Shader/Texture/Keyword/Property를
+        // 포함한 "완성된 외형"이므로 절대 다른 Shader Material로 바꾸지 않습니다.
+        // Unscaled Time 프로퍼티를 지원하는 경우에만 시간값을 추가로 갱신합니다.
+        if (preferred != null)
         {
-            TrackedMaterials.Add(
-                preferred);
+            if (preferred.HasProperty(
+                    "_BattleUiUnscaledTime"))
+            {
+                TrackedMaterials.Add(
+                    preferred);
 
-            ApplyTime(
-                preferred);
+                ApplyTime(
+                    preferred);
+            }
 
             return preferred;
         }
 
+        // Material이 아예 지정되지 않은 경우에만 공용 Hologram fallback을 사용합니다.
         if (runtimeMaterial == null)
         {
             Shader shader =
