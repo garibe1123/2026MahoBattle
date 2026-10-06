@@ -1452,9 +1452,6 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
     private readonly Image[] icons =
         new Image[MaxBadges];
 
-    private readonly Text[] labels =
-        new Text[MaxBadges];
-
     private RectTransform rect;
     private Color frameColor;
     private Color fillColor;
@@ -1547,10 +1544,7 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
                     iconColor;
             }
 
-            if (labels[i] != null)
-                labels[i].text =
-                    GetLabel(
-                        tag);
+
         }
 
         gameObject.SetActive(
@@ -1701,45 +1695,11 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
             iconImage.color =
                 iconColor;
 
-            Text label =
-                CreateText(
-                    badge,
-                    "Label",
-                    string.Empty,
-                    8,
-                    FontStyle.Bold,
-                    TextAnchor.UpperCenter,
-                    frameColor);
-
-            label.rectTransform.anchorMin =
-                label.rectTransform.anchorMax =
-                    new Vector2(
-                        0.5f,
-                        0f);
-
-            label.rectTransform.pivot =
-                new Vector2(
-                    0.5f,
-                    1f);
-
-            label.rectTransform.sizeDelta =
-                new Vector2(
-                    spacing,
-                    18f);
-
-            label.rectTransform.anchoredPosition =
-                new Vector2(
-                    0f,
-                    -badgeSize * 0.5f - 4f);
-
             badgeRoots[i] =
                 badge;
 
             icons[i] =
                 iconImage;
-
-            labels[i] =
-                label;
 
             badge.gameObject.SetActive(
                 false);
@@ -1794,32 +1754,6 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
         }
 
         return result;
-    }
-
-    private static string GetLabel(
-        EquipmentTag tag)
-    {
-        return tag switch
-        {
-            EquipmentTag.Projectile => "SHOT",
-            EquipmentTag.Melee => "MELEE",
-            EquipmentTag.Break => "BREAK",
-            EquipmentTag.Explosion => "BLAST",
-            EquipmentTag.Precision => "AIM",
-            EquipmentTag.Critical => "CRIT",
-            EquipmentTag.Area => "AREA",
-            EquipmentTag.Dash => "DASH",
-            EquipmentTag.Burn => "BURN",
-            EquipmentTag.Shock => "SHOCK",
-            EquipmentTag.Summon => "SUMMON",
-            EquipmentTag.Sustain => "SUSTAIN",
-            EquipmentTag.Defense => "DEF",
-            EquipmentTag.Heal => "HEAL",
-            EquipmentTag.Resource => "RESOURCE",
-            EquipmentTag.Control => "CONTROL",
-            EquipmentTag.OddWeapon => "ODD",
-            _ => tag.ToString().ToUpperInvariant()
-        };
     }
 
     private static Sprite GetTagSprite(
