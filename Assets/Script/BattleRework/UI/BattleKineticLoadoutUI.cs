@@ -110,7 +110,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private float detailPopupTime;
     private Vector2 detailPopupStartPosition;
     private Vector2 detailPopupTargetPosition;
-    private Image detailThumbnail;
+    private BattleItemHeroThumbnail detailHeroThumbnail;
     private BattleEquipmentBadgeStrip detailBadgeStrip;
     private Text detailTitle;
     private Text detailDescription;
@@ -1049,42 +1049,18 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 2f,
                 -2f);
 
-        detailThumbnail =
-            CreateImage(
+        detailHeroThumbnail =
+            BattleItemHeroThumbnail.Attach(
                 detailVisualViewport,
-                "ItemVisual",
-                Vector2.zero);
-
-        Stretch(
-            detailThumbnail.rectTransform);
-
-        detailThumbnail.rectTransform.offsetMin =
-            new Vector2(
-                14f,
-                14f);
-
-        detailThumbnail.rectTransform.offsetMax =
-            new Vector2(
-                -14f,
-                -14f);
-
-        detailThumbnail.raycastTarget =
-            false;
-
-        detailThumbnail.sprite =
-            BattleHudSpriteCache.DefaultSprite;
-
-        detailThumbnail.color =
-            Color.white;
-
-        detailThumbnail.preserveAspect =
-            false;
+                paperColor,
+                inkColor,
+                accentCyan);
 
         detailTitle = CreateText(detailRoot, "EMPTY", 20, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.48f), new Vector2(0.94f, 0.57f));
+        SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.505f), new Vector2(0.94f, 0.595f));
 
         detailDescription = CreateText(detailRoot, "NO DESCRIPTION", 12, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.285f), new Vector2(0.94f, 0.47f));
+        SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.295f), new Vector2(0.94f, 0.495f));
         detailDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
         detailDescription.verticalOverflow = VerticalWrapMode.Truncate;
 
@@ -1386,26 +1362,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         BattleEquipmentSlot slot = equipmentSystem.Slots[slotIndex];
         BattleEquipmentSO equipment = slot?.equipment;
 
-        if (detailThumbnail != null)
-        {
-            bool hasImage =
-                equipment != null &&
-                equipment.icon != null;
-
-            detailThumbnail.sprite =
-                hasImage
-                    ? equipment.icon
-                    : BattleHudSpriteCache.DefaultSprite;
-
-            detailThumbnail.color =
-                Color.white;
-
-            detailThumbnail.preserveAspect =
-                hasImage;
-
-            detailThumbnail.enabled =
-                equipment != null;
-        }
+        detailHeroThumbnail?.Show(
+            equipment);
 
         detailBadgeStrip?.Show(
             equipment);
