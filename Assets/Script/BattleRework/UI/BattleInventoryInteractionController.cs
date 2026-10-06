@@ -1280,22 +1280,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 -18f *
                 Time.unscaledDeltaTime);
 
+        // immediate는 위치만 즉시 맞추고, Scale은 항상 Tween합니다.
+        // BeginSlotDrag에서 0.86으로 시작해도 즉시 1.08로 덮어쓰던 문제를 방지합니다.
         dragGhostRoot.localScale =
             Vector3.Lerp(
                 dragGhostRoot.localScale,
                 Vector3.one *
                 dragGhostTargetScale,
-                immediate
-                    ? 1f
-                    : scaleT);
+                scaleT);
 
         dragGhostRoot.localRotation =
             Quaternion.Slerp(
                 dragGhostRoot.localRotation,
                 Quaternion.identity,
-                immediate
-                    ? 1f
-                    : scaleT);
+                scaleT);
 
         dragGhostRoot.SetAsLastSibling();
 
