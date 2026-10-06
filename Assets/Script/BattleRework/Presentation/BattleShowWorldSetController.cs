@@ -1928,7 +1928,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         OverrideShowCameraFrame(
             focus,
-            (presentation != null ? presentation.RewardItemHoverCameraSize : 1.75f));
+            (presentation != null ? presentation.RewardItemHoverCameraSize : 1.55f));
     }
 
     private RewardShowcaseItem FindRewardShowcaseItem(
