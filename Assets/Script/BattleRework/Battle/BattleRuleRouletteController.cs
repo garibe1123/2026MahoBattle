@@ -1682,18 +1682,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatRulePanelPlate = null;
 
-        combatRuleStateText = CreateText(
-            panel,
-            "RuleState",
-            10,
-            FontStyle.Bold,
-            TextAnchor.MiddleLeft);
-        combatRuleStateText.color = new Color(0.62f, 0.67f, 0.76f, 1f);
-        SetRect(
-            combatRuleStateText.rectTransform,
-            new Vector2(0.04f, 0.87f),
-            new Vector2(0.96f, 0.98f));
-        combatRuleStateText.text = "RULES // HOLD TAB TO INSPECT";
+        // Combat RULES HUD는 슬롯만 표시합니다.
+        // 기존 상단 상태 문구("RULES // HOLD TAB TO INSPECT" 등)는 제거합니다.
+        combatRuleStateText = null;
 
         return panel;
     }
