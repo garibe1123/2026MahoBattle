@@ -49,6 +49,7 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
     private RectTransform root;
     private CanvasGroup group;
     private Image icon;
+    private BattleItemHeroThumbnail heroThumbnail;
     private Text slotLabel;
     private Text title;
     private Text rarityType;
@@ -501,25 +502,8 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
         if (rarityType != null)
             rarityType.text = $"{equipment.rarity.ToString().ToUpperInvariant()}  /  {equipment.type.ToString().ToUpperInvariant()}";
 
-        if (icon != null)
-        {
-            bool hasImage =
-                equipment.icon != null;
-
-            icon.sprite =
-                hasImage
-                    ? equipment.icon
-                    : BattleHudSpriteCache.DefaultSprite;
-
-            icon.color =
-                Color.white;
-
-            icon.preserveAspect =
-                hasImage;
-
-            icon.enabled =
-                true;
-        }
+        heroThumbnail?.Show(
+            equipment);
 
         if (description != null)
         {
@@ -756,36 +740,12 @@ public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
                 2f,
                 -2f);
 
-        icon =
-            CreateImage(
+        heroThumbnail =
+            BattleItemHeroThumbnail.Attach(
                 visualViewport,
-                "EquipmentVisual",
-                Vector2.zero);
-
-        Stretch(
-            icon.rectTransform);
-
-        icon.rectTransform.offsetMin =
-            new Vector2(
-                14f,
-                14f);
-
-        icon.rectTransform.offsetMax =
-            new Vector2(
-                -14f,
-                -14f);
-
-        icon.sprite =
-            BattleHudSpriteCache.DefaultSprite;
-
-        icon.color =
-            Color.white;
-
-        icon.preserveAspect =
-            false;
-
-        icon.raycastTarget =
-            false;
+                paperColor,
+                inkColor,
+                accentCyan);
 
         title = CreateText(root, "ITEM NAME", 24, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
         SetAnchors(title.rectTransform, new Vector2(0.07f, 0.555f), new Vector2(0.93f, 0.635f));
