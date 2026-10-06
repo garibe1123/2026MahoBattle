@@ -2483,6 +2483,14 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         return rect;
     }
 
+    private static Image CreateImage(Transform parent, string name, Vector2 size)
+    {
+        RectTransform rect = CreateRect(parent, name, size);
+        Image image = rect.gameObject.AddComponent<Image>();
+        image.raycastTarget = false;
+        return image;
+    }
+
     private static Text CreateText(Transform parent, string value, int fontSize, FontStyle style, TextAnchor alignment, Color color)
     {
         RectTransform rect = CreateRect(parent, "Text", Vector2.zero);
