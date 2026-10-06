@@ -132,6 +132,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private Text compareSourceMeta;
     private Text compareTargetMeta;
     private Text compareSwapLabel;
+    private Text comparePrimaryDeltaText;
     private Text compareDeltaText;
 
     private CanvasGroup compactGroup;
@@ -1227,12 +1228,38 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 42f);
 
         compareSwapLabel = CreateText(compareRoot, "<->\nSWAP", 15, FontStyle.Bold, TextAnchor.MiddleCenter, accentYellow);
-        SetAnchors(compareSwapLabel.rectTransform, new Vector2(0.43f, 0.38f), new Vector2(0.57f, 0.72f));
+        SetAnchors(compareSwapLabel.rectTransform, new Vector2(0.43f, 0.40f), new Vector2(0.57f, 0.72f));
 
-        compareDeltaText = CreateText(compareRoot, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleCenter, accentCyan);
+        // 가장 중요한 변화 하나만 크게 보여주는 Decision Line.
+        comparePrimaryDeltaText =
+            CreateText(
+                compareRoot,
+                "NO MAJOR CHANGE",
+                15,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                paperColor);
+
+        comparePrimaryDeltaText.horizontalOverflow =
+            HorizontalWrapMode.Overflow;
+
+        comparePrimaryDeltaText.verticalOverflow =
+            VerticalWrapMode.Truncate;
+
+        SetAnchors(
+            comparePrimaryDeltaText.rectTransform,
+            new Vector2(
+                0.14f,
+                0.125f),
+            new Vector2(
+                0.86f,
+                0.215f));
+
+        // 나머지 수치/태그/GRID 변화는 작은 보조 정보로 유지합니다.
+        compareDeltaText = CreateText(compareRoot, string.Empty, 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.72f, 0.76f, 0.82f, 1f));
         compareDeltaText.horizontalOverflow = HorizontalWrapMode.Wrap;
         compareDeltaText.verticalOverflow = VerticalWrapMode.Truncate;
-        SetAnchors(compareDeltaText.rectTransform, new Vector2(0.06f, 0.015f), new Vector2(0.94f, 0.205f));
+        SetAnchors(compareDeltaText.rectTransform, new Vector2(0.045f, 0.012f), new Vector2(0.955f, 0.118f));
 
         boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
         boardGroup = boardRoot.gameObject.AddComponent<CanvasGroup>();
@@ -1659,25 +1686,46 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 (swappedGridMultiplier - 1f) *
                 100f;
 
-            compareDeltaText.text =
-                $"STAT  //  DMG {FormatCompareDelta(damageDelta)}   " +
-                $"MOVE {FormatCompareDelta(moveDelta)}   " +
-                $"RANGE {FormatCompareDelta(rangeDelta)}\n" +
-                $"GAIN  {gainedTags}    //    LOSE  {lostTags}\n" +
-                $"GRID  LINKS {currentLinks} > {swappedLinks}   " +
-                $"DMG +{currentGridBonus:0.#}% > +{swappedGridBonus:0.#}%";
+            float gridDamageDelta =
+                swappedGridBonus -
+                currentGridBonus;
 
-            float totalDirection =
-                damageDelta +
-                moveDelta +
-                rangeDelta +
-                (swappedGridBonus - currentGridBonus) *
-                0.5f;
+            if (comparePrimaryDeltaText != null)
+            {
+                string primaryText =
+                    BuildPrimaryCompareDelta(
+                        damageDelta,
+                        moveDelta,
+                        rangeDelta,
+                        currentLinks,
+                        swappedLinks,
+                        gridDamageDelta,
+                        gainedTags,
+                        lostTags,
+                        out float primaryDirection);
+
+                comparePrimaryDeltaText.text =
+                    primaryText;
+
+                comparePrimaryDeltaText.color =
+                    primaryDirection > 0.01f
+                        ? accentCyan
+                        : primaryDirection < -0.01f
+                            ? accentYellow
+                            : paperColor;
+            }
+
+            compareDeltaText.text =
+                $"STAT // DMG {FormatCompareDelta(damageDelta)}   MOVE {FormatCompareDelta(moveDelta)}   RANGE {FormatCompareDelta(rangeDelta)}" +
+                $"    |    GRID // LINKS {currentLinks}>{swappedLinks}   DMG +{currentGridBonus:0.#}%>+{swappedGridBonus:0.#}%\n" +
+                $"GAIN {gainedTags}    |    LOSE {lostTags}";
 
             compareDeltaText.color =
-                totalDirection >= 0f
-                    ? accentCyan
-                    : accentYellow;
+                new Color(
+                    0.72f,
+                    0.76f,
+                    0.82f,
+                    1f);
         }
 
         if (compareSwapLabel != null)
@@ -1769,6 +1817,125 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             $"DMG   x{equipment.damageMultiplier:0.00}\n" +
             $"MOVE  x{equipment.moveSpeedMultiplier:0.00}\n" +
             $"RANGE x{equipment.rangeMultiplier:0.00}";
+    }
+
+    private static string BuildPrimaryCompareDelta(
+        float damageDelta,
+        float moveDelta,
+        float rangeDelta,
+        int currentLinks,
+        int swappedLinks,
+        float gridDamageDelta,
+        string gainedTags,
+        string lostTags,
+        out float direction)
+    {
+        int linkDelta =
+            swappedLinks -
+            currentLinks;
+
+        if (linkDelta != 0)
+        {
+            direction =
+                Mathf.Sign(
+                    linkDelta);
+
+            return
+                $"GRID LINK {(linkDelta > 0 ? "+" : string.Empty)}{linkDelta}";
+        }
+
+        float bestScore = 0f;
+        string bestText = "NO MAJOR CHANGE";
+        direction = 0f;
+
+        void Consider(
+            float score,
+            float value,
+            string label)
+        {
+            if (score <= bestScore)
+                return;
+
+            bestScore =
+                score;
+
+            direction =
+                Mathf.Sign(
+                    value);
+
+            bestText =
+                $"{label} {FormatCompareDelta(value)}";
+        }
+
+        // 실전 영향이 큰 순서대로 가중치를 조금 다르게 둡니다.
+        Consider(
+            Mathf.Abs(gridDamageDelta) * 1.25f,
+            gridDamageDelta,
+            "GRID DMG");
+
+        Consider(
+            Mathf.Abs(damageDelta),
+            damageDelta,
+            "DMG");
+
+        Consider(
+            Mathf.Abs(moveDelta) * 0.80f,
+            moveDelta,
+            "MOVE");
+
+        Consider(
+            Mathf.Abs(rangeDelta) * 0.75f,
+            rangeDelta,
+            "RANGE");
+
+        string gainedPrimary =
+            ExtractFirstCompareTag(
+                gainedTags);
+
+        if (gainedPrimary != null &&
+            12f > bestScore)
+        {
+            bestScore = 12f;
+            direction = 1f;
+            bestText =
+                $"GAIN {gainedPrimary}";
+        }
+
+        string lostPrimary =
+            ExtractFirstCompareTag(
+                lostTags);
+
+        if (lostPrimary != null &&
+            12f > bestScore)
+        {
+            direction = -1f;
+            bestText =
+                $"LOSE {lostPrimary}";
+        }
+
+        return bestText;
+    }
+
+    private static string ExtractFirstCompareTag(
+        string tags)
+    {
+        if (string.IsNullOrWhiteSpace(
+                tags) ||
+            tags == "—")
+        {
+            return null;
+        }
+
+        int separator =
+            tags.IndexOf(
+                " / ",
+                StringComparison.Ordinal);
+
+        return separator > 0
+            ? tags.Substring(
+                0,
+                separator)
+            : tags;
     }
 
     private static string BuildTagDelta(
