@@ -120,7 +120,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private int worldInspectPopupContext = -1;
     private Vector2 worldInspectPopupStartPosition;
     private Vector2 worldInspectPopupTargetPosition;
-    private Image worldInspectThumbnail;
+    private BattleItemHeroThumbnail worldInspectHeroThumbnail;
     private BattleEquipmentBadgeStrip worldInspectBadgeStrip;
     private Text worldInspectTitle;
     private Text worldInspectMeta;
@@ -932,36 +932,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 2f,
                 -2f);
 
-        worldInspectThumbnail =
-            CreateImage(
+        worldInspectHeroThumbnail =
+            BattleItemHeroThumbnail.Attach(
                 worldVisualViewport,
-                "ItemVisual",
-                Vector2.zero);
-
-        Stretch(
-            worldInspectThumbnail.rectTransform);
-
-        worldInspectThumbnail.rectTransform.offsetMin =
-            new Vector2(
-                14f,
-                14f);
-
-        worldInspectThumbnail.rectTransform.offsetMax =
-            new Vector2(
-                -14f,
-                -14f);
-
-        worldInspectThumbnail.sprite =
-            BattleHudSpriteCache.DefaultSprite;
-
-        worldInspectThumbnail.color =
-            Color.white;
-
-        worldInspectThumbnail.preserveAspect =
-            false;
-
-        worldInspectThumbnail.raycastTarget =
-            false;
+                packPaper,
+                packInk,
+                packCyan);
 
         worldInspectTitle =
             CreateText(
@@ -976,10 +952,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             worldInspectTitle.rectTransform,
             new Vector2(
                 0.06f,
-                0.48f),
+                0.505f),
             new Vector2(
                 0.94f,
-                0.57f));
+                0.595f));
 
         worldInspectMeta =
             CreateText(
@@ -1206,25 +1182,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
         }
 
-        if (worldInspectThumbnail != null)
-        {
-            bool hasImage =
-                equipment.icon != null;
-
-            worldInspectThumbnail.sprite =
-                hasImage
-                    ? equipment.icon
-                    : BattleHudSpriteCache.DefaultSprite;
-
-            worldInspectThumbnail.color =
-                Color.white;
-
-            worldInspectThumbnail.preserveAspect =
-                hasImage;
-
-            worldInspectThumbnail.enabled =
-                true;
-        }
+        worldInspectHeroThumbnail?.Show(
+            equipment);
 
         worldInspectTitle.text =
             equipment.GetDisplayName().ToUpperInvariant();
