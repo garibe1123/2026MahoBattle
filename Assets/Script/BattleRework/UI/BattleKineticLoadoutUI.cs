@@ -35,6 +35,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private BattleKineticItemBarUI miniPackUI;
     [SerializeField] private BattleBroadcastDashboardController dashboardController;
     [SerializeField] private BattleShowPresentationManager presentation;
+    [SerializeField] private BattleScreenPresenterPrototypeController screenPresenter;
 
     [Header("Switch Input")]
     [SerializeField, Min(0.05f)] private float holdThreshold = 0.14f;
@@ -66,6 +67,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField, Min(0f)] private float itemTooltipTargetClearance = 76f;
     [Tooltip("설명창이 화면 가장자리에서 유지할 최소 여백입니다.")]
     [SerializeField, Min(0f)] private float itemTooltipScreenMargin = 28f;
+    [Tooltip("호스트 대화창이 열려 있을 때 설명/비교 팝업과 확보할 추가 간격입니다.")]
+    [SerializeField, Min(0f)] private float itemTooltipHostDialogueGap = 28f;
     [SerializeField, Range(0.7f, 1f)] private float itemTooltipPopupStartScale = 0.88f;
     [SerializeField, Range(1f, 1.15f)] private float itemTooltipPopupOvershootScale = 1.045f;
     [SerializeField, Range(0.05f, 0.30f)] private float itemTooltipPopupDuration = 0.15f;
@@ -263,6 +266,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             dashboardController = FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
         if (presentation == null)
             presentation = FindFirstObjectByType<BattleShowPresentationManager>(FindObjectsInactive.Include);
+        if (screenPresenter == null)
+            screenPresenter = FindFirstObjectByType<BattleScreenPresenterPrototypeController>(FindObjectsInactive.Include);
     }
 
     private void Subscribe()
@@ -2245,12 +2250,157 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 0.5f,
                 0.5f);
 
+        Vector2 clamped =
+            ClampTooltipToViewport(
+                fullRoot,
+                desired,
+                size,
+                detailRoot.pivot,
+                itemTooltipScreenMargin);
+
+        return AvoidHostDialogue(
+            clamped,
+            size,
+            detailRoot.pivot);
+    }
+
+    private Vector2 AvoidHostDialogue(
+        Vector2 target,
+        Vector2 size,
+        Vector2 pivot)
+    {
+        if (fullRoot == null ||
+            screenPresenter == null ||
+            !screenPresenter.IsDialogueVisible ||
+            screenPresenter.DialogueRect == null)
+        {
+            return target;
+        }
+
+        Rect hostScreenRect =
+            GetScreenRect(
+                screenPresenter.DialogueRect);
+
+        Rect popupScreenRect =
+            GetScreenRectForLocalRect(
+                fullRoot,
+                target,
+                size,
+                pivot);
+
+        float gap =
+            Mathf.Max(
+                0f,
+                itemTooltipHostDialogueGap);
+
+        Rect blocked =
+            new(
+                hostScreenRect.xMin - gap,
+                hostScreenRect.yMin - gap,
+                hostScreenRect.width + gap * 2f,
+                hostScreenRect.height + gap * 2f);
+
+        if (!popupScreenRect.Overlaps(blocked))
+            return target;
+
+        float shiftUpPixels =
+            blocked.yMax -
+            popupScreenRect.yMin;
+
+        Canvas canvas =
+            fullRoot.GetComponentInParent<Canvas>();
+
+        Camera eventCamera =
+            canvas != null &&
+            canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        Vector2 pivotScreen =
+            RectTransformUtility.WorldToScreenPoint(
+                eventCamera,
+                fullRoot.TransformPoint(
+                    target));
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                fullRoot,
+                pivotScreen +
+                Vector2.up *
+                shiftUpPixels,
+                eventCamera,
+                out Vector2 shifted))
+        {
+            return target;
+        }
+
         return ClampTooltipToViewport(
             fullRoot,
-            desired,
+            shifted,
             size,
-            detailRoot.pivot,
+            pivot,
             itemTooltipScreenMargin);
+    }
+
+    private static Rect GetScreenRectForLocalRect(
+        RectTransform parent,
+        Vector2 pivotLocal,
+        Vector2 size,
+        Vector2 pivot)
+    {
+        if (parent == null)
+            return default;
+
+        Canvas canvas =
+            parent.GetComponentInParent<Canvas>();
+
+        Camera eventCamera =
+            canvas != null &&
+            canvas.renderMode != RenderMode.ScreenSpaceOverlay
+                ? canvas.worldCamera
+                : null;
+
+        Vector2[] localCorners =
+        {
+            pivotLocal + new Vector2(-size.x * pivot.x, -size.y * pivot.y),
+            pivotLocal + new Vector2(size.x * (1f - pivot.x), -size.y * pivot.y),
+            pivotLocal + new Vector2(size.x * (1f - pivot.x), size.y * (1f - pivot.y)),
+            pivotLocal + new Vector2(-size.x * pivot.x, size.y * (1f - pivot.y))
+        };
+
+        Vector2 min =
+            new(
+                float.PositiveInfinity,
+                float.PositiveInfinity);
+
+        Vector2 max =
+            new(
+                float.NegativeInfinity,
+                float.NegativeInfinity);
+
+        for (int i = 0; i < localCorners.Length; i++)
+        {
+            Vector2 point =
+                RectTransformUtility.WorldToScreenPoint(
+                    eventCamera,
+                    parent.TransformPoint(
+                        localCorners[i]));
+
+            min =
+                Vector2.Min(
+                    min,
+                    point);
+
+            max =
+                Vector2.Max(
+                    max,
+                    point);
+        }
+
+        return Rect.MinMaxRect(
+            min.x,
+            min.y,
+            max.x,
+            max.y);
     }
 
     private static Vector2 ClampTooltipToViewport(
