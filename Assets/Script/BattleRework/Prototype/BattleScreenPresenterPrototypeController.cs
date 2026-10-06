@@ -222,6 +222,18 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private readonly Dictionary<PresenterLineKey, int> lastLineByEvent = new();
 
+    /// <summary>
+    /// 다른 Screen-Space UI가 현재 호스트 대화창을 피해 배치할 때 사용하는 읽기 전용 정보입니다.
+    /// Dialogue 자체의 위치/수명 소유권은 이 Controller에 그대로 남습니다.
+    /// </summary>
+    public RectTransform DialogueRect => dialogueRect;
+
+    public bool IsDialogueVisible =>
+        dialogueRect != null &&
+        dialogueGroup != null &&
+        dialogueGroup.alpha > 0.01f &&
+        dialoguePhase != DialoguePhase.Hidden;
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
     {
