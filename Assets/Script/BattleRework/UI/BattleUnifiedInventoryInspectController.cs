@@ -64,6 +64,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     [SerializeField] private Color selectedAccent = new(1f, 0.80f, 0.08f, 1f);
     [SerializeField] private Color hoverAccent = new(0.14f, 0.92f, 0.94f, 1f);
     [SerializeField] private Color pickedAccent = new(1f, 0.18f, 0.52f, 1f);
+    [SerializeField, Range(0.06f, 0.30f)] private float selectedFillAlpha = 0.18f;
+    [SerializeField] private Vector2 selectionCancelSize = new(190f, 38f);
+    [SerializeField, Min(0f)] private float selectionCancelGap = 12f;
 
     private RectTransform fullRoot;
     private CanvasGroup fullGroup;
@@ -90,6 +93,10 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private Canvas dismissCanvas;
     private CanvasGroup dismissGroup;
     private RectTransform dismissRoot;
+    private RectTransform selectionCancelRoot;
+    private CanvasGroup selectionCancelGroup;
+    private Button selectionCancelButton;
+    private Text selectionCancelLabel;
 
     private bool selectionSuppressed;
     private int suppressedSourceSlot = -1;
@@ -185,6 +192,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         AttachContextControls(rewardEdit, combat);
         ApplySelectionFrames(rewardEdit, rewardEdit);
         ApplyRewardInspectTooltip(rewardEdit);
+        UpdateSelectionCancelButton(rewardEdit);
     }
 
     private void ResolveReferences()
@@ -855,6 +863,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         suppressedSourceSlot = current;
         activeInspectSlot = -1;
 
+        inventoryInteraction?.ClearInspectSelection();
         kineticLoadout?.ClearExternalSelection();
         kineticLoadout?.HideRewardInspectTooltip();
         detailController?.SelectSlotFromPointer(-1);
@@ -959,21 +968,45 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             if (frame == null)
                 continue;
 
-            bool selected = inspectContext && !selectionSuppressed && i == activeInspectSlot && HasItem(i);
-            if (frame.activeSelf != selected)
-                frame.SetActive(selected);
-            if (!selected)
-                continue;
+            bool picked = rewardEdit && inventoryInteraction != null &&
+                          inventoryInteraction.PadPickedSlot == i;
 
-            bool picked = rewardEdit && inventoryInteraction != null && inventoryInteraction.PadPickedSlot == i;
+            bool padSelected = rewardEdit && inventoryInteraction != null &&
+                               inventoryInteraction.PadModeActive &&
+                               inventoryInteraction.PadSelectedSlot == i;
+
             bool mouseSelected = rewardEdit && inventoryInteraction != null &&
-                                 !inventoryInteraction.PadModeActive && inventoryInteraction.SelectedRewardSlot == i;
+                                 !inventoryInteraction.PadModeActive &&
+                                 inventoryInteraction.SelectedRewardSlot == i;
+
             bool hovered = rewardEdit && inventoryInteraction != null &&
-                           !inventoryInteraction.PadModeActive && inventoryInteraction.HoveredSlot == i;
+                           !inventoryInteraction.PadModeActive &&
+                           inventoryInteraction.HoveredSlot == i;
+
+            bool previewSelected =
+                inspectContext &&
+                !selectionSuppressed &&
+                i == activeInspectSlot &&
+                HasItem(i);
+
+            // 클릭 선택은 Hover가 다른 슬롯으로 이동해도 계속 남습니다.
+            // Selected=노랑, Hover=청록을 동시에 보여줘 현재 선택과 미리보기를 분리합니다.
+            bool visible =
+                HasItem(i) &&
+                (picked ||
+                 padSelected ||
+                 mouseSelected ||
+                 previewSelected);
+
+            if (frame.activeSelf != visible)
+                frame.SetActive(visible);
+
+            if (!visible)
+                continue;
 
             Color color = picked
                 ? pickedAccent
-                : mouseSelected
+                : mouseSelected || padSelected
                     ? selectedAccent
                     : hovered
                         ? hoverAccent
@@ -981,13 +1014,144 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
             float thickness = picked
                 ? Mathf.Lerp(5.5f, 7f, pulse01)
-                : mouseSelected
-                    ? Mathf.Lerp(4f, 5.4f, pulse01)
+                : mouseSelected || padSelected
+                    ? Mathf.Lerp(5.2f, 6.8f, pulse01)
                     : hovered
                         ? 3f
                         : Mathf.Lerp(3.8f, 5f, pulse01);
 
-            ApplyStrokeEdges(frame.GetComponent<RectTransform>(), color, thickness);
+            RectTransform frameRect =
+                frame.GetComponent<RectTransform>();
+
+            ApplyStrokeEdges(
+                frameRect,
+                color,
+                thickness);
+
+            ApplySelectionDecor(
+                frameRect,
+                color,
+                mouseSelected || padSelected || picked,
+                picked,
+                pulse01);
+        }
+    }
+
+    private void ApplySelectionDecor(
+        RectTransform frame,
+        Color color,
+        bool lockedSelection,
+        bool picked,
+        float pulse01)
+    {
+        if (frame == null)
+            return;
+
+        RectTransform fill =
+            frame.Find("SelectionFill") as RectTransform;
+
+        if (fill == null)
+        {
+            fill =
+                CreateRect(
+                    frame,
+                    "SelectionFill",
+                    Vector2.zero);
+
+            Stretch(fill);
+            fill.SetAsFirstSibling();
+
+            Image fillImage =
+                fill.gameObject.AddComponent<Image>();
+
+            fillImage.raycastTarget =
+                false;
+        }
+
+        Image fillGraphic =
+            fill.GetComponent<Image>();
+
+        if (fillGraphic != null)
+        {
+            float alpha =
+                lockedSelection
+                    ? Mathf.Lerp(
+                        selectedFillAlpha * 0.72f,
+                        selectedFillAlpha,
+                        pulse01)
+                    : 0.035f;
+
+            if (picked)
+                alpha = Mathf.Max(alpha, 0.16f);
+
+            fillGraphic.color =
+                new Color(
+                    color.r,
+                    color.g,
+                    color.b,
+                    alpha);
+        }
+
+        RectTransform selectedBar =
+            frame.Find("SelectedStateBar") as RectTransform;
+
+        if (selectedBar == null)
+        {
+            selectedBar =
+                CreateRect(
+                    frame,
+                    "SelectedStateBar",
+                    Vector2.zero);
+
+            selectedBar.anchorMin =
+                new Vector2(
+                    0f,
+                    0f);
+
+            selectedBar.anchorMax =
+                new Vector2(
+                    1f,
+                    0f);
+
+            selectedBar.pivot =
+                new Vector2(
+                    0.5f,
+                    0f);
+
+            selectedBar.sizeDelta =
+                new Vector2(
+                    0f,
+                    7f);
+
+            selectedBar.anchoredPosition =
+                Vector2.zero;
+
+            Image barImage =
+                selectedBar.gameObject.AddComponent<Image>();
+
+            barImage.raycastTarget =
+                false;
+        }
+
+        selectedBar.gameObject.SetActive(
+            lockedSelection);
+
+        Image selectedBarImage =
+            selectedBar.GetComponent<Image>();
+
+        if (selectedBarImage != null)
+        {
+            selectedBarImage.color =
+                new Color(
+                    color.r,
+                    color.g,
+                    color.b,
+                    lockedSelection
+                        ? Mathf.Lerp(
+                            0.76f,
+                            1f,
+                            pulse01)
+                        : 0f);
         }
     }
 
@@ -1196,6 +1360,183 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         dismissGroup.alpha = 0f;
         dismissGroup.blocksRaycasts = false;
         dismissGroup.interactable = false;
+
+        BuildSelectionCancelButton(canvasObject.transform);
+    }
+
+    private void BuildSelectionCancelButton(Transform parent)
+    {
+        selectionCancelRoot =
+            CreateRect(
+                parent,
+                "InventorySelectionCancel",
+                selectionCancelSize);
+
+        selectionCancelRoot.anchorMin =
+            selectionCancelRoot.anchorMax =
+                new Vector2(
+                    0f,
+                    0f);
+
+        selectionCancelRoot.pivot =
+            new Vector2(
+                0.5f,
+                1f);
+
+        Canvas buttonCanvas =
+            selectionCancelRoot.gameObject.AddComponent<Canvas>();
+
+        buttonCanvas.overrideSorting =
+            true;
+
+        buttonCanvas.sortingOrder =
+            1580;
+
+        selectionCancelRoot.gameObject.AddComponent<GraphicRaycaster>();
+
+        Image back =
+            selectionCancelRoot.gameObject.AddComponent<Image>();
+
+        back.color =
+            new Color(
+                0.035f,
+                0.030f,
+                0.055f,
+                0.97f);
+
+        back.raycastTarget =
+            true;
+
+        Outline outline =
+            selectionCancelRoot.gameObject.AddComponent<Outline>();
+
+        outline.effectColor =
+            selectedAccent;
+
+        outline.effectDistance =
+            new Vector2(
+                3f,
+                -3f);
+
+        selectionCancelButton =
+            selectionCancelRoot.gameObject.AddComponent<Button>();
+
+        selectionCancelButton.transition =
+            Selectable.Transition.None;
+
+        selectionCancelButton.onClick.AddListener(
+            CancelSelection);
+
+        selectionCancelLabel =
+            selectionCancelRoot.gameObject.AddComponent<Text>();
+
+        selectionCancelLabel.font =
+            Resources.GetBuiltinResource<Font>(
+                "LegacyRuntime.ttf");
+
+        selectionCancelLabel.text =
+            "CANCEL SELECTION";
+
+        selectionCancelLabel.fontSize =
+            12;
+
+        selectionCancelLabel.fontStyle =
+            FontStyle.Bold;
+
+        selectionCancelLabel.alignment =
+            TextAnchor.MiddleCenter;
+
+        selectionCancelLabel.color =
+            selectedAccent;
+
+        selectionCancelLabel.raycastTarget =
+            false;
+
+        selectionCancelGroup =
+            selectionCancelRoot.gameObject.AddComponent<CanvasGroup>();
+
+        selectionCancelGroup.alpha =
+            0f;
+
+        selectionCancelGroup.blocksRaycasts =
+            false;
+
+        selectionCancelGroup.interactable =
+            false;
+
+        selectionCancelRoot.gameObject.SetActive(
+            true);
+    }
+
+    private void UpdateSelectionCancelButton(bool rewardEdit)
+    {
+        if (selectionCancelRoot == null ||
+            selectionCancelGroup == null)
+        {
+            return;
+        }
+
+        bool mouseSelection =
+            rewardEdit &&
+            inventoryInteraction != null &&
+            !inventoryInteraction.PadModeActive &&
+            inventoryInteraction.DraggingSlot < 0 &&
+            inventoryInteraction.SelectedRewardSlot >= 0 &&
+            HasItem(
+                inventoryInteraction.SelectedRewardSlot);
+
+        selectionCancelGroup.alpha =
+            mouseSelection
+                ? 1f
+                : 0f;
+
+        selectionCancelGroup.blocksRaycasts =
+            mouseSelection;
+
+        selectionCancelGroup.interactable =
+            mouseSelection;
+
+        if (!mouseSelection ||
+            builtInDetailRoot == null)
+        {
+            return;
+        }
+
+        Vector3[] corners =
+            new Vector3[4];
+
+        builtInDetailRoot.GetWorldCorners(
+            corners);
+
+        Vector2 bottomCenterScreen =
+            new Vector2(
+                (corners[0].x + corners[3].x) * 0.5f,
+                Mathf.Min(
+                    corners[0].y,
+                    corners[3].y));
+
+        bottomCenterScreen.y -=
+            Mathf.Max(
+                0f,
+                selectionCancelGap);
+
+        RectTransform canvasRect =
+            dismissCanvas != null
+                ? dismissCanvas.transform as RectTransform
+                : null;
+
+        if (canvasRect != null &&
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                canvasRect,
+                bottomCenterScreen,
+                null,
+                out Vector2 localPoint))
+        {
+            selectionCancelRoot.anchoredPosition =
+                localPoint;
+        }
+
+        selectionCancelRoot.SetAsLastSibling();
     }
 
     private void SetDismissActive(bool active)
