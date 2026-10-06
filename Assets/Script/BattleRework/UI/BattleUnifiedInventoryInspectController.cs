@@ -1424,11 +1424,23 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         selectionCancelButton.transition =
             Selectable.Transition.None;
 
+        selectionCancelButton.targetGraphic =
+            back;
+
         selectionCancelButton.onClick.AddListener(
             CancelSelection);
 
+        RectTransform labelRect =
+            CreateRect(
+                selectionCancelRoot,
+                "Label",
+                Vector2.zero);
+
+        Stretch(
+            labelRect);
+
         selectionCancelLabel =
-            selectionCancelRoot.gameObject.AddComponent<Text>();
+            labelRect.gameObject.AddComponent<Text>();
 
         selectionCancelLabel.font =
             Resources.GetBuiltinResource<Font>(
