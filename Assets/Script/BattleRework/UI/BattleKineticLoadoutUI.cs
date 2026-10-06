@@ -1612,11 +1612,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     ? gridSynergy.GridDamageMultiplier
                     : 1f;
 
-            gridSynergy?.EvaluateSwap(
-                sourceSlotIndex,
-                targetSlotIndex,
-                out swappedLinks,
-                out swappedGridMultiplier);
+            if (gridSynergy != null)
+            {
+                gridSynergy.EvaluateSwap(
+                    sourceSlotIndex,
+                    targetSlotIndex,
+                    out swappedLinks,
+                    out swappedGridMultiplier);
+            }
 
             float swappedGridBonus =
                 (swappedGridMultiplier - 1f) *
