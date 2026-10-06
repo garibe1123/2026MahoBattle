@@ -1846,7 +1846,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         float bestScore = 0f;
         string bestText = "NO MAJOR CHANGE";
-        direction = 0f;
+        float bestDirection = 0f;
 
         void Consider(
             float score,
@@ -1859,7 +1859,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             bestScore =
                 score;
 
-            direction =
+            bestDirection =
                 Mathf.Sign(
                     value);
 
@@ -1896,7 +1896,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             12f > bestScore)
         {
             bestScore = 12f;
-            direction = 1f;
+            bestDirection = 1f;
             bestText =
                 $"GAIN {gainedPrimary}";
         }
@@ -1908,10 +1908,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (lostPrimary != null &&
             12f > bestScore)
         {
-            direction = -1f;
+            bestDirection = -1f;
             bestText =
                 $"LOSE {lostPrimary}";
         }
+
+        direction =
+            bestDirection;
 
         return bestText;
     }
