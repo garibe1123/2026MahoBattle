@@ -276,6 +276,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private void Update()
     {
+        // Final Review에서는 PointerEnter 이벤트만 믿지 않습니다.
+        // START BATTLE / 다른 Overlay Rect가 슬롯 Hitbox 일부와 겹쳐도
+        // 실제 마우스가 Rule Slot 위에 있으면 항상 상세를 띄웁니다.
+        if (finalReviewMode)
+            UpdateFinalReviewRuleHover();
+
         if (!combatHudMode || resultListTab == null || combatRulePanel == null)
             return;
 
@@ -1562,6 +1568,84 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     internal float GetRuleHoverScale() => Mathf.Max(1f, ruleHoverScale);
 
+    private void UpdateFinalReviewRuleHover()
+    {
+        if (!finalReviewMode ||
+            !Input.mousePresent ||
+            ruleSlotViews.Count == 0)
+        {
+            return;
+        }
+
+        Vector2 pointer =
+            Input.mousePosition;
+
+        RuleSlotView hoveredView =
+            null;
+
+        for (int i = 0; i < ruleSlotViews.Count; i++)
+        {
+            RuleSlotView view =
+                ruleSlotViews[i];
+
+            if (view == null ||
+                view.root == null ||
+                view.boundRule == null ||
+                !view.root.gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            if (RectTransformUtility.RectangleContainsScreenPoint(
+                    view.root,
+                    pointer,
+                    null))
+            {
+                hoveredView =
+                    view;
+                break;
+            }
+        }
+
+        BattleRuleSlotPointerFeedback nextHover =
+            hoveredView?.pointerFeedback;
+
+        if (nextHover == activeRuleSlotHover)
+            return;
+
+        if (activeRuleSlotHover != null)
+        {
+            BattleRuleDefinition previousRule =
+                null;
+
+            for (int i = 0; i < ruleSlotViews.Count; i++)
+            {
+                RuleSlotView view =
+                    ruleSlotViews[i];
+
+                if (view?.pointerFeedback ==
+                    activeRuleSlotHover)
+                {
+                    previousRule =
+                        view.boundRule;
+                    break;
+                }
+            }
+
+            HandleRuleSlotPointerExit(
+                previousRule,
+                activeRuleSlotHover);
+        }
+
+        if (hoveredView != null &&
+            hoveredView.pointerFeedback != null)
+        {
+            HandleRuleSlotPointerEnter(
+                hoveredView.boundRule,
+                hoveredView.pointerFeedback);
+        }
+    }
+
     internal void HandleRuleSlotPointerEnter(
         BattleRuleDefinition rule,
         BattleRuleSlotPointerFeedback source)
@@ -1572,15 +1656,23 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (combatHudMode && !combatTabOpen)
             return;
 
+        // Roulette Final Review와 Combat TAB 모두 동일한 Hover Owner를 사용합니다.
+        // 첫 번째 슬롯만 EventSystem Overlay에 가려지는 경우에도 Polling이 여기로 들어옵니다.
+        if (activeRuleSlotHover != null &&
+            activeRuleSlotHover != source)
+        {
+            activeRuleSlotHover.SetHoveredFromOwner(
+                false);
+        }
+
+        activeRuleSlotHover =
+            source;
+
+        activeRuleSlotHover?.SetHoveredFromOwner(
+            true);
+
         if (combatHudMode)
         {
-            // Panel compact -> focused Tween 중 슬롯 Rect가 이동해도,
-            // 한 번 들어온 아이콘은 다른 아이콘/Panel Exit 전까지 Hover를 유지합니다.
-            if (activeRuleSlotHover != null && activeRuleSlotHover != source)
-                activeRuleSlotHover.SetHoveredFromOwner(false);
-
-            activeRuleSlotHover = source;
-            activeRuleSlotHover?.SetHoveredFromOwner(true);
             combatLastInspectedRule = rule;
             RefreshCombatRuleStateText();
         }
