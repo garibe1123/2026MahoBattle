@@ -145,7 +145,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 0f;
     [Tooltip("상세는 프레임 밖 Tooltip로 분리되므로 Focus 프레임 자체는 우측으로 추가 확장하지 않습니다.")]
     [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0f;
-    [Tooltip("평상시 룰 아이콘 Row의 화면 좌측 상단 여백입니다.")]
+    [Tooltip("평상시 룰 아이콘 Row의 화면 우측 상단 여백입니다. X/Y는 화면 모서리에서 안쪽으로 들어오는 거리입니다.")]
     [SerializeField] private Vector2 combatRulePersistentTopLeftMargin = new(34f, 34f);
     [Tooltip("TAB에서 PACK GridBoard 윗면과 룰 모듈 사이 세로 여백입니다.")]
     [SerializeField, Min(0f)] private float combatRulePackGap = 22f;
@@ -1226,11 +1226,19 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         RestoreCombatRulePanelToOverlay();
         combatRulePanel.gameObject.SetActive(true);
         combatRulePanel.sizeDelta = resolvedCombatRuleCompactSize;
-        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
-        combatRulePanel.pivot = new Vector2(0f, 1f);
+
+        // 전투 HUD의 최종 정착 기준을 처음부터 화면 우측 상단으로 고정합니다.
+        // 이전에는 Roulette -> Combat 전환 직후 Top-Left 기준으로 한 번 정착한 뒤
+        // AnimateCombatRulePanel이 다시 위치/Scale/Z를 보정해서 "뚝" 손보는 느낌이 났습니다.
+        combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(1f, 1f);
+        combatRulePanel.pivot = new Vector2(1f, 1f);
         combatRulePanel.anchoredPosition = ResolveCombatRulePersistentPosition();
-        combatRulePanel.localRotation = Quaternion.identity;
-        combatRulePanel.localScale = Vector3.one;
+        combatRulePanel.localRotation = Quaternion.Euler(2.8f, -6f, 0f);
+        combatRulePanel.localScale = Vector3.one * 0.92f;
+
+        Vector3 settledPanelLocal = combatRulePanel.localPosition;
+        settledPanelLocal.z = 24f;
+        combatRulePanel.localPosition = settledPanelLocal;
 
         if (combatRulePanelGroup != null)
             combatRulePanelGroup.alpha = 0f;
@@ -1681,10 +1689,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private RectTransform CreateCombatRulePanel(RectTransform parent)
     {
         RectTransform panel = CreateRect(parent, "CombatRulePanel");
-        panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0f);
-        panel.pivot = new Vector2(0f, 1f);
+
+        // Persistent RULES HUD는 생성 순간부터 우측 상단 기준을 사용합니다.
+        // 임시 Center/Bottom 좌표를 거쳤다가 전투 시작 시 Anchor를 바꾸지 않습니다.
+        panel.anchorMin = panel.anchorMax = new Vector2(1f, 1f);
+        panel.pivot = new Vector2(1f, 1f);
         panel.sizeDelta = ResolveCombatRuleCompactSize();
-        panel.anchoredPosition = new Vector2(-926f, 1046f);
+        panel.anchoredPosition = ResolveCombatRulePersistentPosition();
         panel.localRotation = Quaternion.identity;
 
         combatRulePanelBack = panel.gameObject.AddComponent<Image>();
@@ -2062,8 +2073,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private Vector2 ResolveCombatRulePersistentPosition()
     {
+        // Anchor/Pivot이 (1,1)이므로 화면 우측 상단에서 안쪽 방향은 X-, Y- 입니다.
         return new Vector2(
-            Mathf.Abs(combatRulePersistentTopLeftMargin.x),
+            -Mathf.Abs(combatRulePersistentTopLeftMargin.x),
             -Mathf.Abs(combatRulePersistentTopLeftMargin.y));
     }
 
@@ -2229,13 +2241,13 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         {
             ReparentCombatRulePanelPreservingWorld(
                 rouletteBackdrop,
-                new Vector2(0f, 1f),
-                new Vector2(0f, 1f));
+                new Vector2(1f, 1f),
+                new Vector2(1f, 1f));
         }
         else
         {
-            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(0f, 1f);
-            combatRulePanel.pivot = new Vector2(0f, 1f);
+            combatRulePanel.anchorMin = combatRulePanel.anchorMax = new Vector2(1f, 1f);
+            combatRulePanel.pivot = new Vector2(1f, 1f);
         }
     }
 
