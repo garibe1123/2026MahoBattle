@@ -58,8 +58,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     [SerializeField, Min(0f)] private float worldInspectTargetClearance = 76f;
     [Tooltip("설명창이 화면 바깥으로 잘리지 않도록 유지할 최소 여백입니다.")]
     [SerializeField, Min(0f)] private float worldInspectScreenMargin = 28f;
-    [Tooltip("호스트 대화창이 열려 있을 때 아이템 설명창과 확보할 추가 간격입니다.")]
-    [SerializeField, Min(0f)] private float worldInspectHostDialogueGap = 28f;
     [SerializeField, Range(0.7f, 1f)] private float worldInspectPopupStartScale = 0.88f;
     [SerializeField, Range(1f, 1.15f)] private float worldInspectPopupOvershootScale = 1.045f;
     [SerializeField, Range(0.05f, 0.30f)] private float worldInspectPopupDuration = 0.15f;
@@ -76,7 +74,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private BattleInventoryInteractionController inventoryInteraction;
     private BattleShowWorldSetController showWorldSet;
     private BattleShowPresentationManager presentation;
-    private BattleScreenPresenterPrototypeController screenPresenter;
 
     private RectTransform rewardScreen;
     private RectTransform rewardInner;
@@ -124,6 +121,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private Vector2 worldInspectPopupStartPosition;
     private Vector2 worldInspectPopupTargetPosition;
     private Image worldInspectThumbnail;
+    private BattleEquipmentBadgeStrip worldInspectBadgeStrip;
     private Text worldInspectTitle;
     private Text worldInspectMeta;
     private Text worldInspectDescription;
@@ -385,8 +383,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>(FindObjectsInactive.Include);
         if (presentation == null)
             presentation = FindFirstObjectByType<BattleShowPresentationManager>(FindObjectsInactive.Include);
-        if (screenPresenter == null)
-            screenPresenter = FindFirstObjectByType<BattleScreenPresenterPrototypeController>(FindObjectsInactive.Include);
     }
 
     private void ResolveUi(bool forceCards)
@@ -1081,6 +1077,19 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 0.94f,
                 0.08f));
 
+        worldInspectBadgeStrip =
+            BattleEquipmentBadgeStrip.Attach(
+                worldInspectRoot,
+                packPaper,
+                new Color(
+                    packInk.r,
+                    packInk.g,
+                    packInk.b,
+                    1f),
+                packPaper,
+                46f,
+                58f);
+
         worldInspectRoot.gameObject.SetActive(
             false);
 
@@ -1160,6 +1169,16 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         worldSkipRoot.gameObject.SetActive(
             false);
+
+        BattleUiAvoidanceResolver.RegisterZone(
+            worldSkipRoot,
+            80,
+            18f,
+            () =>
+                worldSkipRoot != null &&
+                worldSkipRoot.gameObject.activeInHierarchy &&
+                worldSkipGroup != null &&
+                worldSkipGroup.alpha > 0.01f);
     }
 
     /// <summary>
@@ -1245,6 +1264,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                     0.88f,
                     0.92f,
                     1f);
+
+        worldInspectBadgeStrip?.Show(
+            equipment);
 
         PlaceWorldInspect(
             itemScreenPoint,
@@ -1360,47 +1382,14 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 minimumDistance;
         }
 
-        Rect canvasBounds =
-            canvasRect.rect;
-
-        float margin =
-            Mathf.Max(
-                0f,
-                worldInspectScreenMargin);
-
-        float halfWidth =
-            activeSize.x * 0.5f;
-
-        float halfHeight =
-            activeSize.y * 0.5f;
-
-        target.x =
-            Mathf.Clamp(
-                target.x,
-                canvasBounds.xMin +
-                halfWidth +
-                margin,
-                canvasBounds.xMax -
-                halfWidth -
-                margin);
-
-        target.y =
-            Mathf.Clamp(
-                target.y,
-                canvasBounds.yMin +
-                halfHeight +
-                margin,
-                canvasBounds.yMax -
-                halfHeight -
-                margin);
-
         target =
-            AvoidHostDialogue(
+            BattleUiAvoidanceResolver.Resolve(
                 canvasRect,
                 target,
                 activeSize,
                 worldInspectRoot.pivot,
-                margin);
+                worldInspectScreenMargin,
+                itemScreenPoint);
 
         worldInspectPopupTargetPosition =
             target;
@@ -1411,212 +1400,6 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         worldInspectRoot.localRotation =
             Quaternion.identity;
-    }
-
-    private Vector2 AvoidHostDialogue(
-        RectTransform canvasRect,
-        Vector2 target,
-        Vector2 size,
-        Vector2 pivot,
-        float screenMargin)
-    {
-        if (canvasRect == null ||
-            screenPresenter == null ||
-            !screenPresenter.IsDialogueVisible ||
-            screenPresenter.DialogueRect == null)
-        {
-            return target;
-        }
-
-        Rect hostScreenRect =
-            GetScreenRect(
-                screenPresenter.DialogueRect);
-
-        Rect popupScreenRect =
-            GetScreenRectForLocalRect(
-                canvasRect,
-                target,
-                size,
-                pivot);
-
-        float gap =
-            Mathf.Max(
-                0f,
-                worldInspectHostDialogueGap);
-
-        Rect blocked =
-            new(
-                hostScreenRect.xMin - gap,
-                hostScreenRect.yMin - gap,
-                hostScreenRect.width + gap * 2f,
-                hostScreenRect.height + gap * 2f);
-
-        if (!popupScreenRect.Overlaps(blocked))
-            return target;
-
-        float shiftUpPixels =
-            blocked.yMax -
-            popupScreenRect.yMin;
-
-        Vector2 pivotScreen =
-            RectTransformUtility.WorldToScreenPoint(
-                null,
-                canvasRect.TransformPoint(
-                    target));
-
-        Vector2 shiftedScreen =
-            pivotScreen +
-            Vector2.up *
-            shiftUpPixels;
-
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                canvasRect,
-                shiftedScreen,
-                null,
-                out Vector2 shiftedLocal))
-        {
-            return target;
-        }
-
-        Rect canvasBounds =
-            canvasRect.rect;
-
-        float halfWidth =
-            size.x * 0.5f;
-
-        float halfHeight =
-            size.y * 0.5f;
-
-        float margin =
-            Mathf.Max(
-                0f,
-                screenMargin);
-
-        shiftedLocal.x =
-            Mathf.Clamp(
-                shiftedLocal.x,
-                canvasBounds.xMin +
-                halfWidth +
-                margin,
-                canvasBounds.xMax -
-                halfWidth -
-                margin);
-
-        shiftedLocal.y =
-            Mathf.Clamp(
-                shiftedLocal.y,
-                canvasBounds.yMin +
-                halfHeight +
-                margin,
-                canvasBounds.yMax -
-                halfHeight -
-                margin);
-
-        return shiftedLocal;
-    }
-
-    private static Rect GetScreenRect(
-        RectTransform rect)
-    {
-        if (rect == null)
-            return default;
-
-        Vector3[] corners =
-            new Vector3[4];
-
-        rect.GetWorldCorners(
-            corners);
-
-        Canvas canvas =
-            rect.GetComponentInParent<Canvas>();
-
-        Camera eventCamera =
-            canvas != null &&
-            canvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? canvas.worldCamera
-                : null;
-
-        Vector2 min =
-            RectTransformUtility.WorldToScreenPoint(
-                eventCamera,
-                corners[0]);
-
-        Vector2 max =
-            min;
-
-        for (int i = 1; i < corners.Length; i++)
-        {
-            Vector2 point =
-                RectTransformUtility.WorldToScreenPoint(
-                    eventCamera,
-                    corners[i]);
-
-            min =
-                Vector2.Min(
-                    min,
-                    point);
-
-            max =
-                Vector2.Max(
-                    max,
-                    point);
-        }
-
-        return Rect.MinMaxRect(
-            min.x,
-            min.y,
-            max.x,
-            max.y);
-    }
-
-    private static Rect GetScreenRectForLocalRect(
-        RectTransform parent,
-        Vector2 pivotLocal,
-        Vector2 size,
-        Vector2 pivot)
-    {
-        Vector2[] localCorners =
-        {
-            pivotLocal + new Vector2(-size.x * pivot.x, -size.y * pivot.y),
-            pivotLocal + new Vector2(size.x * (1f - pivot.x), -size.y * pivot.y),
-            pivotLocal + new Vector2(size.x * (1f - pivot.x), size.y * (1f - pivot.y)),
-            pivotLocal + new Vector2(-size.x * pivot.x, size.y * (1f - pivot.y))
-        };
-
-        Vector2 min =
-            new(
-                float.PositiveInfinity,
-                float.PositiveInfinity);
-
-        Vector2 max =
-            new(
-                float.NegativeInfinity,
-                float.NegativeInfinity);
-
-        for (int i = 0; i < localCorners.Length; i++)
-        {
-            Vector2 point =
-                RectTransformUtility.WorldToScreenPoint(
-                    null,
-                    parent.TransformPoint(
-                        localCorners[i]));
-
-            min =
-                Vector2.Min(
-                    min,
-                    point);
-
-            max =
-                Vector2.Max(
-                    max,
-                    point);
-        }
-
-        return Rect.MinMaxRect(
-            min.x,
-            min.y,
-            max.x,
-            max.y);
     }
 
     private void ConfigureWorldInspectBubble(
