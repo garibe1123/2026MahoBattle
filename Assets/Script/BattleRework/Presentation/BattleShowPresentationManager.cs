@@ -168,8 +168,16 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [SerializeField] private Material screenPresenterMaterial;
 
     [Header("말풍선 Stroke Material")]
-    [Tooltip("선택씬/전투씬 말풍선의 OUTLINE에만 적용할 UI Material입니다. 홀로그램/글리치 등 Stroke 전용 효과를 넣을 때 사용합니다. Fill에는 적용되지 않습니다.")]
+    [Tooltip("선택씬/전투씬 말풍선의 OUTLINE에만 적용할 UI Material입니다. Fill에는 적용되지 않습니다.")]
     [SerializeField] private Material speechBubbleStrokeMaterial;
+    [Tooltip("켜면 UI 전용 Unscaled-Time 홀로그램 Shader를 사용해 TAB Time Stop 중에도 Stroke 애니메이션을 계속 재생합니다.")]
+    [SerializeField] private bool useUnscaledSpeechBubbleHologram = true;
+    [SerializeField, Range(8f, 160f)] private float speechBubbleHologramScanlineDensity = 74f;
+    [SerializeField, Range(-8f, 8f)] private float speechBubbleHologramScanlineSpeed = 1.8f;
+    [SerializeField, Range(0f, 0.8f)] private float speechBubbleHologramScanlineStrength = 0.24f;
+    [SerializeField, Range(0f, 0.8f)] private float speechBubbleHologramNoiseStrength = 0.15f;
+    [SerializeField, Range(0f, 0.8f)] private float speechBubbleHologramPulseStrength = 0.12f;
+    [SerializeField, Range(0f, 1f)] private float speechBubbleHologramCyanBoost = 0.12f;
 
     [Header("Reward 상품 진열 Base")]
     [Tooltip("모든 등급이 공통으로 fallback하는 기본 1칸 상품 Base Sprite입니다. 권장 아트 크기/PPU는 Floor와 동일합니다.")]
@@ -390,6 +398,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool selectionShowPresentationActive;
     private bool subscribed;
     private bool warnedMissingTemplate;
+    private Material runtimeSpeechBubbleStrokeMaterial;
     private float nextFieldTemplateScan;
 
     // Play Mode Inspector 튜닝 즉시 반영용 Revision.
@@ -407,7 +416,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public Material ScreenPresenterMaterial => screenPresenterMaterial;
 
     public Material SpeechBubbleStrokeMaterial =>
-        speechBubbleStrokeMaterial;
+        ResolveSpeechBubbleStrokeMaterial();
 
     public int RewardItemPixelYOffset =>
         rewardItemPixelYOffset;
@@ -688,6 +697,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (runtimeSpeechBubbleStrokeMaterial != null)
+        {
+            Destroy(runtimeSpeechBubbleStrokeMaterial);
+            runtimeSpeechBubbleStrokeMaterial = null;
+        }
+
         if (Instance == this)
             Instance = null;
     }
@@ -702,6 +717,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
         if (selectionShowPresentationActive)
             ResolveHudSpotlightImages();
+
+        UpdateSpeechBubbleHologramMaterial();
 
         if (autoApplyTemplateToSlidingField &&
             ActiveFloorTemplate != null &&
@@ -719,6 +736,80 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         }
 
         CleanupDecoratedBlocks();
+    }
+
+    private Material ResolveSpeechBubbleStrokeMaterial()
+    {
+        if (!useUnscaledSpeechBubbleHologram)
+            return speechBubbleStrokeMaterial;
+
+        if (speechBubbleStrokeMaterial != null &&
+            speechBubbleStrokeMaterial.HasProperty("_BattleUiUnscaledTime"))
+        {
+            return speechBubbleStrokeMaterial;
+        }
+
+        if (runtimeSpeechBubbleStrokeMaterial != null)
+            return runtimeSpeechBubbleStrokeMaterial;
+
+        Shader shader =
+            Shader.Find(
+                "UI/BattleUiHologramStroke");
+
+        if (shader == null)
+            return speechBubbleStrokeMaterial;
+
+        runtimeSpeechBubbleStrokeMaterial =
+            new Material(
+                shader)
+            {
+                name = "BattleUiHologramStroke_Runtime",
+                hideFlags = HideFlags.HideAndDontSave
+            };
+
+        if (speechBubbleStrokeMaterial != null &&
+            speechBubbleStrokeMaterial.HasProperty("_Color") &&
+            runtimeSpeechBubbleStrokeMaterial.HasProperty("_Color"))
+        {
+            runtimeSpeechBubbleStrokeMaterial.SetColor(
+                "_Color",
+                speechBubbleStrokeMaterial.GetColor(
+                    "_Color"));
+        }
+
+        UpdateSpeechBubbleHologramMaterial();
+
+        return runtimeSpeechBubbleStrokeMaterial;
+    }
+
+    private void UpdateSpeechBubbleHologramMaterial()
+    {
+        Material material =
+            ResolveSpeechBubbleStrokeMaterial();
+
+        if (material == null ||
+            !material.HasProperty(
+                "_BattleUiUnscaledTime"))
+        {
+            return;
+        }
+
+        material.SetFloat(
+            "_BattleUiUnscaledTime",
+            Time.unscaledTime);
+
+        if (material.HasProperty("_ScanlineDensity"))
+            material.SetFloat("_ScanlineDensity", speechBubbleHologramScanlineDensity);
+        if (material.HasProperty("_ScanlineSpeed"))
+            material.SetFloat("_ScanlineSpeed", speechBubbleHologramScanlineSpeed);
+        if (material.HasProperty("_ScanlineStrength"))
+            material.SetFloat("_ScanlineStrength", speechBubbleHologramScanlineStrength);
+        if (material.HasProperty("_NoiseStrength"))
+            material.SetFloat("_NoiseStrength", speechBubbleHologramNoiseStrength);
+        if (material.HasProperty("_PulseStrength"))
+            material.SetFloat("_PulseStrength", speechBubbleHologramPulseStrength);
+        if (material.HasProperty("_CyanBoost"))
+            material.SetFloat("_CyanBoost", speechBubbleHologramCyanBoost);
     }
 
     /// <summary>
