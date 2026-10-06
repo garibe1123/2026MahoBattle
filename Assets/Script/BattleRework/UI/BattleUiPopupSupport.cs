@@ -874,11 +874,16 @@ public static class BattleUiAvoidanceResolver
 public sealed class BattleItemHeroThumbnail : MonoBehaviour
 {
     private RectTransform rect;
+    private RectTransform gridBandRect;
+    private RectTransform ghostRect;
     private Image ghostImage;
     private RectTransform slashRect;
     private Image slashImage;
+    private RectTransform foregroundRect;
     private Image foregroundImage;
+    private RectTransform chipRect;
     private Text metaText;
+    private Vector2 lastLayoutSize;
     private Color paperColor;
     private Color inkColor;
     private Color accentColor;
@@ -907,6 +912,11 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
 
         Stretch(root);
 
+        // Ghost/Slash는 Hero Viewport보다 크게 그리는 연출이므로
+        // 반드시 Viewport 안에서 잘리게 합니다.
+        if (parent.GetComponent<RectMask2D>() == null)
+            parent.gameObject.AddComponent<RectMask2D>();
+
         BattleItemHeroThumbnail hero =
             go.AddComponent<BattleItemHeroThumbnail>();
 
@@ -921,6 +931,7 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
     public void Show(BattleEquipmentSO equipment)
     {
         EnsureBuilt();
+        UpdateResponsiveLayout(force: true);
 
         bool hasImage =
             equipment != null &&
@@ -1000,30 +1011,30 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
 
         Stretch(rect);
 
-        RectTransform gridBand =
+        gridBandRect =
             CreateRect(
                 rect,
                 "HeroGridBand",
                 Vector2.zero);
 
-        gridBand.anchorMin =
+        gridBandRect.anchorMin =
             new Vector2(
                 0f,
                 0.06f);
 
-        gridBand.anchorMax =
+        gridBandRect.anchorMax =
             new Vector2(
                 1f,
                 0.34f);
 
-        gridBand.offsetMin =
+        gridBandRect.offsetMin =
             Vector2.zero;
 
-        gridBand.offsetMax =
+        gridBandRect.offsetMax =
             Vector2.zero;
 
         Image gridBandImage =
-            gridBand.gameObject.AddComponent<Image>();
+            gridBandRect.gameObject.AddComponent<Image>();
 
         gridBandImage.color =
             new Color(
@@ -1081,7 +1092,7 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
         slashImage.raycastTarget =
             false;
 
-        RectTransform ghostRect =
+        ghostRect =
             CreateRect(
                 rect,
                 "GhostIcon",
@@ -1124,7 +1135,7 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
                 paperColor.b,
                 0.10f);
 
-        RectTransform foregroundRect =
+        foregroundRect =
             CreateRect(
                 rect,
                 "ForegroundIcon",
@@ -1154,7 +1165,7 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
         foregroundImage.raycastTarget =
             false;
 
-        RectTransform chip =
+        chipRect =
             CreateRect(
                 rect,
                 "HeroTypeChip",
@@ -1162,19 +1173,19 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
                     154f,
                     22f));
 
-        chip.anchorMin =
-            chip.anchorMax =
+        chipRect.anchorMin =
+            chipRect.anchorMax =
                 new Vector2(
                     0.04f,
                     0.91f);
 
-        chip.pivot =
+        chipRect.pivot =
             new Vector2(
                 0f,
                 1f);
 
         Image chipBack =
-            chip.gameObject.AddComponent<Image>();
+            chipRect.gameObject.AddComponent<Image>();
 
         chipBack.color =
             new Color(
@@ -1188,7 +1199,7 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
 
         metaText =
             CreateText(
-                chip,
+                chipRect,
                 "HeroTypeText",
                 "ITEM // PREVIEW",
                 9,
@@ -1212,7 +1223,116 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
         ghostRect.SetAsFirstSibling();
         slashRect.SetSiblingIndex(1);
         foregroundRect.SetAsLastSibling();
-        chip.SetAsLastSibling();
+        chipRect.SetAsLastSibling();
+
+        UpdateResponsiveLayout(force: true);
+    }
+
+    private void LateUpdate()
+    {
+        UpdateResponsiveLayout(force: false);
+    }
+
+    private void OnRectTransformDimensionsChange()
+    {
+        UpdateResponsiveLayout(force: true);
+    }
+
+    private void UpdateResponsiveLayout(bool force)
+    {
+        if (rect == null)
+            return;
+
+        Vector2 size =
+            rect.rect.size;
+
+        if (size.x <= 1f ||
+            size.y <= 1f)
+        {
+            return;
+        }
+
+        if (!force &&
+            (size - lastLayoutSize).sqrMagnitude < 0.25f)
+        {
+            return;
+        }
+
+        lastLayoutSize =
+            size;
+
+        if (slashRect != null)
+        {
+            slashRect.sizeDelta =
+                new Vector2(
+                    Mathf.Clamp(
+                        size.x * 1.06f,
+                        120f,
+                        360f),
+                    Mathf.Clamp(
+                        size.y * 0.28f,
+                        18f,
+                        56f));
+
+            slashRect.anchoredPosition =
+                new Vector2(
+                    size.x * 0.035f,
+                    -size.y * 0.08f);
+        }
+
+        float ghostSize =
+            Mathf.Clamp(
+                Mathf.Min(
+                    size.x * 0.62f,
+                    size.y * 1.42f),
+                56f,
+                228f);
+
+        if (ghostRect != null)
+        {
+            ghostRect.sizeDelta =
+                Vector2.one *
+                ghostSize;
+
+            ghostRect.anchoredPosition =
+                new Vector2(
+                    -size.x * 0.055f,
+                    -size.y * 0.01f);
+        }
+
+        float foregroundSize =
+            Mathf.Clamp(
+                Mathf.Min(
+                    size.x * 0.29f,
+                    size.y * 0.78f),
+                34f,
+                112f);
+
+        if (foregroundRect != null)
+        {
+            foregroundRect.sizeDelta =
+                Vector2.one *
+                foregroundSize;
+
+            foregroundRect.anchoredPosition =
+                new Vector2(
+                    0f,
+                    -size.y * 0.025f);
+        }
+
+        if (chipRect != null)
+        {
+            chipRect.sizeDelta =
+                new Vector2(
+                    Mathf.Clamp(
+                        size.x * 0.44f,
+                        88f,
+                        154f),
+                    Mathf.Clamp(
+                        size.y * 0.16f,
+                        16f,
+                        22f));
+        }
     }
 
     private Color ResolveRarityAccent(
