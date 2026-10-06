@@ -781,11 +781,22 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             {
                 source = HasItem(pad) ? pad : -1;
             }
+            else if (inventoryInteraction.DraggingSlot >= 0)
+            {
+                // Mouse Drag 중에는 Hover 대상이 아니라 "들고 있는 Source 아이템"을
+                // 상세 정보의 Owner로 고정합니다.
+                // 그래야 다른 슬롯 위를 지나도 Target 아이템 정보로 교차되지 않습니다.
+                int dragging =
+                    inventoryInteraction.DraggingSlot;
+
+                source =
+                    HasItem(dragging)
+                        ? dragging
+                        : -1;
+            }
             else
             {
-                // Mouse/Keyboard 상세창은 순수 Hover View입니다.
-                // 설명창 자체는 Raycast를 먹지 않으므로 다른 아이템으로 넘어가면
-                // 즉시 그 슬롯으로 교체되고, 아이템에서 벗어나면 바로 닫힙니다.
+                // 평상시 Mouse/Keyboard 상세창은 순수 Hover View입니다.
                 source = HasItem(hover) ? hover : -1;
             }
         }
@@ -1106,22 +1117,32 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             detailGroup.alpha = 0f;
         detailController?.Hide();
 
-        int compareSource = ResolveRewardCompareSourceSlot();
-        int compareTarget =
-            Input.mousePresent && kineticLoadout != null
-                ? kineticLoadout.ResolveOccupiedSlotUnderPointer(Input.mousePosition)
-                : inventoryInteraction != null
-                    ? inventoryInteraction.HoveredSlot
-                    : -1;
+        // 실제 Mouse Drag 중에는 비교창을 띄우지 않습니다.
+        // Drag Ghost가 교환 의도를 보여주므로 상세 정보는 Source 아이템 하나만 유지합니다.
+        // 드래그가 끝난 뒤에는 기존 Hover/Selected 비교 규칙으로 즉시 복귀합니다.
+        bool mouseDragging =
+            inventoryInteraction != null &&
+            inventoryInteraction.DraggingSlot >= 0;
 
-        if (compareSource >= 0 &&
-            compareTarget >= 0 &&
-            compareSource != compareTarget &&
-            HasItem(compareSource) &&
-            HasItem(compareTarget))
+        if (!mouseDragging)
         {
-            kineticLoadout?.ShowRewardCompareTooltip(compareSource, compareTarget);
-            return;
+            int compareSource = ResolveRewardCompareSourceSlot();
+            int compareTarget =
+                Input.mousePresent && kineticLoadout != null
+                    ? kineticLoadout.ResolveOccupiedSlotUnderPointer(Input.mousePosition)
+                    : inventoryInteraction != null
+                        ? inventoryInteraction.HoveredSlot
+                        : -1;
+
+            if (compareSource >= 0 &&
+                compareTarget >= 0 &&
+                compareSource != compareTarget &&
+                HasItem(compareSource) &&
+                HasItem(compareTarget))
+            {
+                kineticLoadout?.ShowRewardCompareTooltip(compareSource, compareTarget);
+                return;
+            }
         }
 
         kineticLoadout?.ShowRewardInspectTooltip(activeInspectSlot);
