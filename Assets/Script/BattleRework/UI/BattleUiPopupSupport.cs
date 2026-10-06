@@ -4,6 +4,268 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
+/// Battle UI에서 공통으로 쓰는 Unscaled-Time 홀로그램 Stroke Material 공급자.
+/// BattleShowPresentationManager가 씬에 없더라도 Runtime fallback Material을 보장합니다.
+/// </summary>
+public static class BattleUiHologramMaterialProvider
+{
+    private static Material runtimeMaterial;
+
+    public static Material Resolve(
+        Material preferred = null)
+    {
+        if (preferred != null &&
+            preferred.HasProperty(
+                "_BattleUiUnscaledTime"))
+        {
+            ApplyTime(
+                preferred);
+
+            return preferred;
+        }
+
+        if (runtimeMaterial == null)
+        {
+            Shader shader =
+                Shader.Find(
+                    "UI/BattleUiHologramStroke");
+
+            if (shader != null)
+            {
+                runtimeMaterial =
+                    new Material(
+                        shader)
+                    {
+                        name = "BattleUiHologramStroke_SharedRuntime",
+                        hideFlags = HideFlags.HideAndDontSave
+                    };
+            }
+        }
+
+        if (runtimeMaterial != null)
+        {
+            ApplyTime(
+                runtimeMaterial);
+
+            return runtimeMaterial;
+        }
+
+        return preferred;
+    }
+
+    public static void Tick()
+    {
+        if (runtimeMaterial != null)
+            ApplyTime(
+                runtimeMaterial);
+    }
+
+    private static void ApplyTime(
+        Material material)
+    {
+        if (material == null)
+            return;
+
+        if (material.HasProperty(
+                "_BattleUiUnscaledTime"))
+        {
+            material.SetFloat(
+                "_BattleUiUnscaledTime",
+                Time.unscaledTime);
+        }
+    }
+}
+
+/// <summary>
+/// 단순 Rect 패널에 Fill과 분리된 홀로그램 Border를 얹습니다.
+/// </summary>
+public sealed class BattleUiHologramBorder : MonoBehaviour
+{
+    private static Sprite borderSprite;
+
+    public static BattleUiHologramBorder Attach(
+        RectTransform parent,
+        Color color)
+    {
+        if (parent == null)
+            return null;
+
+        Transform existing =
+            parent.Find(
+                "HologramBorder");
+
+        GameObject go;
+
+        if (existing != null)
+        {
+            go =
+                existing.gameObject;
+        }
+        else
+        {
+            go =
+                new GameObject(
+                    "HologramBorder",
+                    typeof(RectTransform));
+            go.transform.SetParent(
+                parent,
+                false);
+        }
+
+        RectTransform rect =
+            go.GetComponent<RectTransform>();
+
+        rect.anchorMin =
+            Vector2.zero;
+        rect.anchorMax =
+            Vector2.one;
+        rect.offsetMin =
+            Vector2.zero;
+        rect.offsetMax =
+            Vector2.zero;
+        rect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        Image image =
+            go.GetComponent<Image>();
+
+        if (image == null)
+            image =
+                go.AddComponent<Image>();
+
+        image.sprite =
+            GetBorderSprite();
+
+        image.type =
+            Image.Type.Sliced;
+
+        image.color =
+            color;
+
+        image.material =
+            BattleUiHologramMaterialProvider.Resolve();
+
+        image.raycastTarget =
+            false;
+
+        go.transform.SetAsLastSibling();
+
+        BattleUiHologramBorder border =
+            go.GetComponent<BattleUiHologramBorder>();
+
+        if (border == null)
+            border =
+                go.AddComponent<BattleUiHologramBorder>();
+
+        return border;
+    }
+
+    private void LateUpdate()
+    {
+        Image image =
+            GetComponent<Image>();
+
+        if (image != null)
+        {
+            image.material =
+                BattleUiHologramMaterialProvider.Resolve(
+                    image.material);
+        }
+    }
+
+    private static Sprite GetBorderSprite()
+    {
+        if (borderSprite != null)
+            return borderSprite;
+
+        const int size = 16;
+        const int edge = 3;
+
+        Texture2D texture =
+            new(
+                size,
+                size,
+                TextureFormat.RGBA32,
+                false);
+
+        texture.name =
+            "BattleUiHologramBorder_Runtime";
+
+        texture.wrapMode =
+            TextureWrapMode.Clamp;
+
+        texture.filterMode =
+            FilterMode.Bilinear;
+
+        Color32[] pixels =
+            new Color32[
+                size *
+                size];
+
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                bool border =
+                    x < edge ||
+                    y < edge ||
+                    x >= size - edge ||
+                    y >= size - edge;
+
+                pixels[
+                    y * size +
+                    x] =
+                    border
+                        ? new Color32(
+                            255,
+                            255,
+                            255,
+                            255)
+                        : new Color32(
+                            255,
+                            255,
+                            255,
+                            0);
+            }
+        }
+
+        texture.SetPixels32(
+            pixels);
+
+        texture.Apply(
+            false,
+            true);
+
+        borderSprite =
+            Sprite.Create(
+                texture,
+                new Rect(
+                    0f,
+                    0f,
+                    size,
+                    size),
+                new Vector2(
+                    0.5f,
+                    0.5f),
+                100f,
+                0,
+                SpriteMeshType.FullRect,
+                new Vector4(
+                    edge,
+                    edge,
+                    edge,
+                    edge));
+
+        borderSprite.name =
+            "BattleUiHologramBorder_RuntimeSprite";
+
+        return borderSprite;
+    }
+}
+
+/// <summary>
 /// Screen-space popup 배치를 한 곳에서 결정합니다.
 ///
 /// - 화면 Safe Area를 항상 보장합니다.
