@@ -740,15 +740,17 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private Material ResolveSpeechBubbleStrokeMaterial()
     {
+        // Inspector에서 지정한 Stroke Material은 기존 Host Dialogue와 동일한
+        // Shader/Texture/Keyword 구성을 그대로 사용합니다.
+        // 이전 구현은 _BattleUiUnscaledTime이 없으면 다른 Runtime Shader로
+        // 강제 교체해서 원본 효과가 단색으로 보일 수 있었습니다.
+        if (speechBubbleStrokeMaterial != null)
+            return speechBubbleStrokeMaterial;
+
         if (!useUnscaledSpeechBubbleHologram)
-            return speechBubbleStrokeMaterial;
+            return null;
 
-        if (speechBubbleStrokeMaterial != null &&
-            speechBubbleStrokeMaterial.HasProperty("_BattleUiUnscaledTime"))
-        {
-            return speechBubbleStrokeMaterial;
-        }
-
+        // 명시 Material이 없을 때만 테스트/안전용 fallback을 생성합니다.
         if (runtimeSpeechBubbleStrokeMaterial != null)
             return runtimeSpeechBubbleStrokeMaterial;
 
@@ -757,7 +759,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 "UI/BattleUiHologramStroke");
 
         if (shader == null)
-            return speechBubbleStrokeMaterial;
+            return null;
 
         runtimeSpeechBubbleStrokeMaterial =
             new Material(
@@ -766,16 +768,6 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                 name = "BattleUiHologramStroke_Runtime",
                 hideFlags = HideFlags.HideAndDontSave
             };
-
-        if (speechBubbleStrokeMaterial != null &&
-            speechBubbleStrokeMaterial.HasProperty("_Color") &&
-            runtimeSpeechBubbleStrokeMaterial.HasProperty("_Color"))
-        {
-            runtimeSpeechBubbleStrokeMaterial.SetColor(
-                "_Color",
-                speechBubbleStrokeMaterial.GetColor(
-                    "_Color"));
-        }
 
         UpdateSpeechBubbleHologramMaterial();
 
