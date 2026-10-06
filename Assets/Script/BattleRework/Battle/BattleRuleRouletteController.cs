@@ -134,14 +134,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     [SerializeField, Range(1f, 1.35f)] private float ruleHoverScale = 1.16f;
 
     [Header("Combat TAB Rule Panel")]
-    [SerializeField, Min(70f)] private float combatRuleCompactMinWidth = 88f;
-    [SerializeField, Min(70f)] private float combatRuleCompactHeight = 94f;
+    [SerializeField, Min(70f)] private float combatRuleCompactMinWidth = 76f;
+    [SerializeField, Min(70f)] private float combatRuleCompactHeight = 78f;
     [Tooltip("TAB Open 상태에서 RULES 프레임이 한 단계 커질 때의 높이입니다.")]
-    [SerializeField, Min(80f)] private float combatRuleTabHeight = 110f;
-    [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 36f;
-    [SerializeField, Min(0f)] private float combatRuleTabExtraWidth = 28f;
-    [SerializeField, Min(260f)] private float combatRuleFocusedMinWidth = 330f;
-    [SerializeField, Min(120f)] private float combatRuleFocusedHeight = 142f;
+    [SerializeField, Min(80f)] private float combatRuleTabHeight = 94f;
+    [SerializeField, Min(0f)] private float combatRuleHorizontalPadding = 18f;
+    [SerializeField, Min(0f)] private float combatRuleTabExtraWidth = 10f;
+    [SerializeField, Min(110f)] private float combatRuleFocusedMinWidth = 132f;
+    [SerializeField, Min(100f)] private float combatRuleFocusedHeight = 112f;
     [SerializeField, Min(0f)] private float combatRuleFocusedExtraWidth = 0f;
     [Tooltip("상세는 프레임 밖 Tooltip로 분리되므로 Focus 프레임 자체는 우측으로 추가 확장하지 않습니다.")]
     [SerializeField, Range(0f, 0.30f)] private float combatRuleFocusedRightExpansion = 0f;
@@ -1247,10 +1247,21 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0f, 1f);
         resultListTab.pivot = new Vector2(0f, 1f);
         resultListTab.sizeDelta = new Vector2(activeWidth, Mathf.Max(48f, ruleSlotSize));
-        resultListTab.anchoredPosition = new Vector2(8f, -8f);
-        resultListTab.localRotation = Quaternion.identity;
 
         float compactIconScale = Mathf.Clamp(combatHudScale, 0.30f, 1f);
+        float compactRowHeight =
+            Mathf.Max(48f, ruleSlotSize) *
+            compactIconScale;
+        float compactTopInset =
+            Mathf.Max(
+                6f,
+                (resolvedCombatRuleCompactSize.y - compactRowHeight) * 0.5f);
+
+        resultListTab.anchoredPosition =
+            new Vector2(
+                8f,
+                -compactTopInset);
+        resultListTab.localRotation = Quaternion.identity;
         Vector3 targetResultScale = Vector3.one * compactIconScale;
         Vector3 targetResultWorld = resultListTab.position;
 
@@ -1708,7 +1719,15 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         combatRulePanelOutline = panel.gameObject.AddComponent<Outline>();
         combatRulePanelOutline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0f);
-        combatRulePanelOutline.effectDistance = new Vector2(4f, -4f);
+        combatRulePanelOutline.effectDistance = new Vector2(2f, -2f);
+
+        BattleUiHologramBorder.Attach(
+            panel,
+            new Color(
+                0.78f,
+                0.94f,
+                1f,
+                0.90f));
 
         combatRulePanelGroup = panel.gameObject.AddComponent<CanvasGroup>();
         combatRulePanelGroup.alpha = 0f;
@@ -1934,7 +1953,17 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 Vector3.one * targetIconScale,
                 t);
 
+            float scaledRowHeight =
+                Mathf.Max(48f, ruleSlotSize) *
+                targetIconScale;
+
+            float rowTopInset =
+                Mathf.Max(
+                    6f,
+                    (targetSize.y - scaledRowHeight) * 0.5f);
+
             Vector2 rowTarget;
+
             if (combatTabOpen)
             {
                 if (layout != null)
@@ -1942,9 +1971,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
                 resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0.5f, 1f);
                 resultListTab.pivot = new Vector2(0.5f, 1f);
-                rowTarget = focused
-                    ? new Vector2(0f, -42f)
-                    : new Vector2(0f, -36f);
+                rowTarget =
+                    new Vector2(
+                        0f,
+                        -rowTopInset);
             }
             else
             {
@@ -1953,7 +1983,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
                 resultListTab.anchorMin = resultListTab.anchorMax = new Vector2(0f, 1f);
                 resultListTab.pivot = new Vector2(0f, 1f);
-                rowTarget = new Vector2(8f, -24f);
+                rowTarget =
+                    new Vector2(
+                        8f,
+                        -rowTopInset);
             }
 
             resultListTab.anchoredPosition = Vector2.Lerp(
