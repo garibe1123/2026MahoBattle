@@ -188,6 +188,165 @@ public sealed class BattleGridSynergyController : MonoBehaviour
         GridSynergiesChanged?.Invoke();
     }
 
+    /// <summary>
+    /// 실제 Inventory를 변경하지 않고 두 슬롯을 맞바꿨을 때의 Grid Link 결과를 계산합니다.
+    /// 비교 Tooltip 전용 Preview이며 Runtime Damage에는 적용하지 않습니다.
+    /// </summary>
+    public void EvaluateSwap(
+        int firstSlot,
+        int secondSlot,
+        out int linkCount,
+        out float damageMultiplier)
+    {
+        linkCount = 0;
+        damageMultiplier = 1f;
+
+        if (equipmentSystem == null)
+            ResolveReferences();
+
+        if (equipmentSystem == null)
+            return;
+
+        IReadOnlyList<BattleEquipmentSlot> slots =
+            equipmentSystem.Slots;
+
+        int unlocked =
+            Mathf.Min(
+                equipmentSystem.UnlockedSlotCount,
+                BattleEquipmentSystem.MaxSlotCount);
+
+        float multiplier =
+            1f;
+
+        for (int index = 0; index < unlocked; index++)
+        {
+            int x =
+                index %
+                GridSize;
+
+            int y =
+                index /
+                GridSize;
+
+            if (x + 1 < GridSize)
+            {
+                EvaluatePreviewPair(
+                    index,
+                    index + 1,
+                    firstSlot,
+                    secondSlot,
+                    slots,
+                    unlocked,
+                    ref linkCount,
+                    ref multiplier);
+            }
+
+            if (y + 1 < GridSize)
+            {
+                EvaluatePreviewPair(
+                    index,
+                    index + GridSize,
+                    firstSlot,
+                    secondSlot,
+                    slots,
+                    unlocked,
+                    ref linkCount,
+                    ref multiplier);
+            }
+        }
+
+        damageMultiplier =
+            Mathf.Min(
+                Mathf.Max(
+                    1f,
+                    maximumGridDamageMultiplier),
+                multiplier);
+    }
+
+    private void EvaluatePreviewPair(
+        int a,
+        int b,
+        int firstSlot,
+        int secondSlot,
+        IReadOnlyList<BattleEquipmentSlot> slots,
+        int unlocked,
+        ref int linkCount,
+        ref float multiplier)
+    {
+        if (a < 0 ||
+            b < 0 ||
+            a >= unlocked ||
+            b >= unlocked ||
+            a >= slots.Count ||
+            b >= slots.Count)
+        {
+            return;
+        }
+
+        BattleEquipmentSO first =
+            ResolvePreviewEquipment(
+                a,
+                firstSlot,
+                secondSlot,
+                slots);
+
+        BattleEquipmentSO second =
+            ResolvePreviewEquipment(
+                b,
+                firstSlot,
+                secondSlot,
+                slots);
+
+        if (first == null ||
+            second == null)
+        {
+            return;
+        }
+
+        if (!TryResolveKind(
+                first,
+                second,
+                out _,
+                out _,
+                out float damage))
+        {
+            return;
+        }
+
+        linkCount++;
+
+        multiplier *=
+            Mathf.Max(
+                1f,
+                damage);
+    }
+
+    private static BattleEquipmentSO ResolvePreviewEquipment(
+        int index,
+        int firstSlot,
+        int secondSlot,
+        IReadOnlyList<BattleEquipmentSlot> slots)
+    {
+        if (index == firstSlot &&
+            secondSlot >= 0 &&
+            secondSlot < slots.Count)
+        {
+            return slots[secondSlot]?.equipment;
+        }
+
+        if (index == secondSlot &&
+            firstSlot >= 0 &&
+            firstSlot < slots.Count)
+        {
+            return slots[firstSlot]?.equipment;
+        }
+
+        return index >= 0 &&
+               index < slots.Count
+            ? slots[index]?.equipment
+            : null;
+    }
+
     private void TryCreateLink(
         int a,
         int b,
