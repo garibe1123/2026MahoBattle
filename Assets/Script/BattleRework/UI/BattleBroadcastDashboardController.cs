@@ -645,6 +645,15 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionDetailGroup.blocksRaycasts = false;
         missionDetailGroup.interactable = false;
 
+        BattleUiAvoidanceResolver.RegisterZone(
+            missionDetailRoot,
+            60,
+            22f,
+            () =>
+                focus == BattleCombatTabFocus.Mission &&
+                missionDetailGroup != null &&
+                missionDetailGroup.alpha > 0.05f);
+
         missionDetailTitle = CreateText(missionDetailRoot, "NO ACTIVE MISSION", 22, FontStyle.Bold, TextAnchor.UpperLeft, paperColor, "Title");
         SetAnchors(missionDetailTitle.rectTransform, new Vector2(0.06f, 0.78f), new Vector2(0.94f, 0.95f));
 
@@ -691,6 +700,15 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         chatGroup = chatPanel.gameObject.AddComponent<CanvasGroup>();
         chatGroup.blocksRaycasts = false;
         chatGroup.interactable = false;
+
+        BattleUiAvoidanceResolver.RegisterZone(
+            chatPanel,
+            60,
+            20f,
+            () =>
+                focus == BattleCombatTabFocus.Chat &&
+                chatGroup != null &&
+                chatGroup.alpha > 0.05f);
 
         chatHeader = CreateText(
             chatPanel,
