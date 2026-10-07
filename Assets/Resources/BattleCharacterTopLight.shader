@@ -5,6 +5,8 @@ Shader "Sprites/BattleCharacterTopLight"
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
         _GlowColor ("Glow Color", Color) = (1,1,1,1)
         _Strength ("Strength", Range(0,1)) = 0.04
+        _HorizontalBias ("Horizontal Light Bias", Range(-1,1)) = 0
+        _DirectionalAmount ("Directional Amount", Range(0,1)) = 0.55
     }
 
     SubShader
@@ -48,6 +50,8 @@ Shader "Sprites/BattleCharacterTopLight"
             sampler2D _MainTex;
             fixed4 _GlowColor;
             float _Strength;
+            float _HorizontalBias;
+            float _DirectionalAmount;
 
             v2f vert(appdata_t v)
             {
@@ -62,7 +66,25 @@ Shader "Sprites/BattleCharacterTopLight"
             {
                 fixed4 sprite = tex2D(_MainTex, i.uv) * i.color;
                 float top = smoothstep(0.08, 0.95, i.uv.y);
-                float directional = lerp(0.18, 1.0, top);
+                float topLight = lerp(0.18, 1.0, top);
+
+                float sideCoord = (i.uv.x - 0.5) * 2.0;
+                float sideLight = saturate(
+                    0.5 +
+                    sideCoord *
+                    _HorizontalBias *
+                    0.5);
+
+                float sideShaping = lerp(
+                    0.58,
+                    1.0,
+                    sideLight);
+
+                float directional = topLight * lerp(
+                    1.0,
+                    sideShaping,
+                    saturate(abs(_HorizontalBias) * _DirectionalAmount));
+
                 float alpha = sprite.a * saturate(_Strength) * directional;
                 return fixed4(_GlowColor.rgb, alpha);
             }
