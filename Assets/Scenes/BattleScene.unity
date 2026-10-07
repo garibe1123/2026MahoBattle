@@ -1267,7 +1267,7 @@ MonoBehaviour:
   stageFlow: {fileID: 0}
   player: {fileID: 0}
   bindingRefreshInterval: 0.2
-  usePlayerCombatPointLight: 1
+  usePlayerCombatPointLight: 0
   combatLightAnchor: {fileID: 0}
   combatPointLightColor: {r: 1, g: 0.985, b: 0.94, a: 1}
   combatPointLightIntensity: 0.48
