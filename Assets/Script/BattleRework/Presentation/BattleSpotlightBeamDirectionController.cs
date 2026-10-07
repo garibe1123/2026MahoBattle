@@ -7,15 +7,12 @@ using UnityEngine.SceneManagement;
 #endif
 
 /// <summary>
-/// Artist-facing control for the trapezoid/cone part of character spotlights.
+/// Artist-facing control for character spotlight beams plus the Combat fake-3D follow rig.
 ///
-/// This controller is event-driven. It never applies settings from Update/LateUpdate.
-/// Values are pushed only when:
-/// - this component is enabled,
-/// - an Inspector value changes during Play Mode,
-/// - a public property changes,
-/// - Apply Beam Settings Now is invoked,
-/// - a BattleCharacterLightVisual creates its beam later and registers itself.
+/// Static artist settings are still push-based. During Combat only, LateUpdate simulates a
+/// virtual overhead light source and aim target, smooths their 3D direction with Quaternion
+/// interpolation, then projects that state back into the 2D beam as rotation, shear, length,
+/// width and intensity changes.
 /// </summary>
 [DefaultExecutionOrder(31900)]
 [DisallowMultipleComponent]
@@ -43,20 +40,27 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     [Tooltip("캐릭터를 기준으로 계산된 Beam 위치에 추가하는 월드 좌표 오프셋입니다. X는 좌우, Y는 위아래 이동입니다.")]
     [SerializeField] private Vector2 beamLocalOffset = Vector2.zero;
 
-    [Header("COMBAT PLAYER SPOTLIGHT — MOTION")]
-    [Tooltip("전투 중 발밑 Pool이 플레이어 이동보다 늦게 따라오는 정도입니다.")]
-    [SerializeField, Min(0.1f)] private float poolLagSharpness = 6.8f;
-    [SerializeField, Min(0f)] private float maxPoolLagDistance = 0.24f;
-    [SerializeField, Min(0f)] private float poolLagPerSpeed = 0.030f;
+    [Header("COMBAT PLAYER SPOTLIGHT — FAKE 3D RIG")]
+    [Tooltip("가상의 천장 광원 높이입니다. 높을수록 같은 이동량에서도 Beam 기울기가 작아집니다.")]
+    [SerializeField, Min(0.5f)] private float virtualLightHeight = 5.2f;
+    [Tooltip("Player를 향하는 Aim Target 추종 속도입니다.")]
+    [SerializeField, Min(0.1f)] private float aimFollowSharpness = 13f;
+    [Tooltip("천장 Light Source의 추종 속도입니다. Aim보다 느리게 두어 실제 조명 헤드처럼 지연시킵니다.")]
+    [SerializeField, Min(0.1f)] private float sourceFollowSharpness = 4.2f;
+    [Tooltip("Player 속도에 비례해 가상 Light Source가 뒤에 남는 시간값입니다.")]
+    [SerializeField, Min(0f)] private float sourceVelocityTrailSeconds = 0.14f;
+    [Tooltip("급가속/급회전 때 Light Source가 추가로 뒤에 남는 양입니다.")]
+    [SerializeField, Min(0f)] private float sourceAccelerationTrail = 0.006f;
+    [SerializeField, Min(0f)] private float maxSourceLagDistance = 1.15f;
+    [SerializeField, Range(1f, 45f)] private float maxRigTiltDegrees = 22f;
+    [SerializeField, Min(0.1f)] private float angularFollowSharpness = 5.2f;
 
-    [Tooltip("전투 중 상부 Beam이 이동 반대 방향으로 기울어지는 최대 각도입니다.")]
-    [SerializeField, Range(0f, 16f)] private float maxBeamTiltDegrees = 11f;
-    [Tooltip("상하 이동 때 조명 헤드가 앞뒤로 숙여지는 보조 각도입니다.")]
-    [SerializeField, Range(0f, 10f)] private float maxBeamPitchDegrees = 5f;
-    [Tooltip("좌우 이동 때 평면 회전과 함께 주는 아주 약한 Y축 틸트입니다.")]
-    [SerializeField, Range(0f, 8f)] private float maxBeamYawDegrees = 4f;
-    [SerializeField, Min(0.1f)] private float speedForFullBeamTilt = 3f;
-    [SerializeField, Min(0.1f)] private float beamTiltSharpness = 3.8f;
+    [Header("COMBAT BEAM PROJECTION")]
+    [SerializeField, Range(0f, 20f)] private float maxBeamRollDegrees = 12f;
+    [SerializeField, Range(0f, 0.5f)] private float maxBeamShear = 0.22f;
+    [SerializeField, Range(0f, 0.35f)] private float maxBeamLengthBoost = 0.16f;
+    [SerializeField, Range(0f, 0.35f)] private float maxBeamWidthBoost = 0.10f;
+    [SerializeField, Range(0f, 0.8f)] private float tiltOpacityLoss = 0.24f;
 
     private BattleCharacterLightVisual[] lightVisuals;
 
@@ -65,12 +69,16 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     private PlayerController player;
     private Transform playerBeamTransform;
     private SpriteRenderer playerBeamRenderer;
-    private Transform playerPoolTransform;
+    private MaterialPropertyBlock beamProperties;
 
     private Vector2 lastPlayerPosition;
+    private Vector2 lastPlayerVelocity;
     private bool hasMotionSample;
-    private Vector2 currentPoolLag;
-    private Quaternion currentBeamMotionRotation = Quaternion.identity;
+    private Vector2 virtualAimWorld;
+    private Vector2 virtualSourceWorld;
+    private Quaternion currentVirtualRotation = Quaternion.identity;
+    private Vector2 currentGroundDirection = Vector2.down;
+    private float currentTilt01;
 
     public BeamShapeDirection Direction
     {
@@ -113,6 +121,32 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             RefreshTargets();
             ApplyToAll();
         }
+    }
+
+    public static bool TryGetCombatProjection(
+        out Vector2 groundDirection,
+        out float tilt01)
+    {
+        groundDirection = Vector2.right;
+        tilt01 = 0f;
+
+        if (activeInstance == null ||
+            !activeInstance.isActiveAndEnabled ||
+            !activeInstance.IsCombatPlayerMotionActive() ||
+            !activeInstance.hasMotionSample)
+        {
+            return false;
+        }
+
+        groundDirection =
+            activeInstance.currentGroundDirection.sqrMagnitude > 0.0001f
+                ? activeInstance.currentGroundDirection.normalized
+                : Vector2.right;
+
+        tilt01 = Mathf.Clamp01(
+            activeInstance.currentTilt01);
+
+        return true;
     }
 
 #if UNITY_EDITOR
@@ -217,33 +251,20 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     private void LateUpdate()
     {
         ResolveCombatReferences();
+        ResolvePlayerSpotlightChildren();
 
-        if (!IsCombatPlayerMotionActive())
+        if (!IsCombatPlayerMotionActive() ||
+            playerBeamTransform == null ||
+            playerBeamRenderer == null ||
+            playerBeamRenderer.sprite == null)
         {
             ResetCombatMotion();
+            ClearBeamProjectionProperties();
             return;
         }
 
-        ResolvePlayerSpotlightChildren();
-        if (playerBeamTransform == null && playerPoolTransform == null)
-            return;
-
-        Vector2 playerPosition = player.transform.position;
-        if (!hasMotionSample)
-        {
-            lastPlayerPosition = playerPosition;
-            hasMotionSample = true;
-            return;
-        }
-
-        float dt = Mathf.Min(0.05f, Mathf.Max(0.001f, Time.unscaledDeltaTime));
-        Vector2 velocity = (playerPosition - lastPlayerPosition) / dt;
-        lastPlayerPosition = playerPosition;
-
-        UpdatePoolLag(velocity);
-        UpdateBeamQuaternion(velocity);
-        ApplyPoolLag();
-        ApplyBeamQuaternion();
+        UpdateVirtualLightRig();
+        ApplyFake3DBeamProjection();
     }
 
     private void ResolveCombatReferences()
@@ -267,7 +288,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             player = resolvedPlayer;
             playerBeamTransform = null;
             playerBeamRenderer = null;
-            playerPoolTransform = null;
+            beamProperties = null;
             ResetCombatMotion();
         }
     }
@@ -305,151 +326,326 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
                 : null;
         }
 
-        if (playerPoolTransform == null)
-        {
-            playerPoolTransform = FindRecursive(
-                player.transform,
-                BattleCharacterLightVisual.PoolRendererName);
-        }
     }
 
-    private void UpdatePoolLag(Vector2 velocity)
+    private void UpdateVirtualLightRig()
     {
-        Vector2 desired =
+        if (player == null)
+            return;
+
+        float dt =
+            Mathf.Min(
+                0.05f,
+                Mathf.Max(
+                    0.001f,
+                    Time.unscaledDeltaTime));
+
+        Vector2 playerPosition =
+            player.transform.position;
+
+        if (!hasMotionSample ||
+            Vector2.Distance(
+                playerPosition,
+                lastPlayerPosition) > 3f)
+        {
+            lastPlayerPosition = playerPosition;
+            lastPlayerVelocity = Vector2.zero;
+            virtualAimWorld = playerPosition;
+            virtualSourceWorld = playerPosition;
+            currentVirtualRotation =
+                Quaternion.LookRotation(
+                    Vector3.back,
+                    Vector3.up);
+            currentGroundDirection = Vector2.down;
+            currentTilt01 = 0f;
+            hasMotionSample = true;
+            return;
+        }
+
+        Vector2 velocity =
+            (playerPosition - lastPlayerPosition) / dt;
+
+        Vector2 acceleration =
+            (velocity - lastPlayerVelocity) / dt;
+
+        acceleration =
             Vector2.ClampMagnitude(
-                -velocity * Mathf.Max(0f, poolLagPerSpeed),
-                Mathf.Max(0f, maxPoolLagDistance));
+                acceleration,
+                30f);
 
-        float t =
+        lastPlayerPosition = playerPosition;
+        lastPlayerVelocity = velocity;
+
+        float aimT =
             1f -
             Mathf.Exp(
-                -Mathf.Max(0.1f, poolLagSharpness) *
-                Time.unscaledDeltaTime);
+                -Mathf.Max(0.1f, aimFollowSharpness) *
+                dt);
 
-        currentPoolLag =
+        virtualAimWorld =
             Vector2.Lerp(
-                currentPoolLag,
-                desired,
-                t);
+                virtualAimWorld,
+                playerPosition,
+                aimT);
 
-        if (desired.sqrMagnitude < 0.000001f &&
-            currentPoolLag.sqrMagnitude < 0.000001f)
-        {
-            currentPoolLag = Vector2.zero;
-        }
-    }
+        Vector2 sourceTrail =
+            -velocity *
+            Mathf.Max(
+                0f,
+                sourceVelocityTrailSeconds);
 
-    private void UpdateBeamQuaternion(Vector2 velocity)
-    {
-        float safeFullSpeed = Mathf.Max(0.1f, speedForFullBeamTilt);
-        float normalizedHorizontal =
-            Mathf.Clamp(
-                velocity.x / safeFullSpeed,
-                -1f,
-                1f);
-        float normalizedVertical =
-            Mathf.Clamp(
-                velocity.y / safeFullSpeed,
-                -1f,
-                1f);
+        sourceTrail +=
+            -acceleration *
+            Mathf.Max(
+                0f,
+                sourceAccelerationTrail);
 
-        float targetRoll =
-            -normalizedHorizontal *
-            Mathf.Max(0f, maxBeamTiltDegrees);
-        float targetPitch =
-            normalizedVertical *
-            Mathf.Max(0f, maxBeamPitchDegrees);
-        float targetYaw =
-            -normalizedHorizontal *
-            Mathf.Max(0f, maxBeamYawDegrees);
+        sourceTrail =
+            Vector2.ClampMagnitude(
+                sourceTrail,
+                Mathf.Max(
+                    0f,
+                    maxSourceLagDistance));
 
-        Quaternion target =
-            Quaternion.Euler(
-                targetPitch,
-                targetYaw,
-                targetRoll);
+        Vector2 desiredSource =
+            playerPosition +
+            sourceTrail;
 
-        float t =
+        float sourceT =
             1f -
             Mathf.Exp(
-                -Mathf.Max(0.1f, beamTiltSharpness) *
-                Time.unscaledDeltaTime);
+                -Mathf.Max(0.1f, sourceFollowSharpness) *
+                dt);
 
-        currentBeamMotionRotation =
+        virtualSourceWorld =
+            Vector2.Lerp(
+                virtualSourceWorld,
+                desiredSource,
+                sourceT);
+
+        Vector2 planar =
+            virtualAimWorld -
+            virtualSourceWorld;
+
+        Vector3 desiredDirection =
+            new(
+                planar.x,
+                planar.y,
+                -Mathf.Max(
+                    0.5f,
+                    virtualLightHeight));
+
+        if (desiredDirection.sqrMagnitude < 0.0001f)
+            desiredDirection = Vector3.back;
+
+        Quaternion targetRotation =
+            Quaternion.LookRotation(
+                desiredDirection.normalized,
+                Vector3.up);
+
+        float angularT =
+            1f -
+            Mathf.Exp(
+                -Mathf.Max(0.1f, angularFollowSharpness) *
+                dt);
+
+        currentVirtualRotation =
             Quaternion.Slerp(
-                currentBeamMotionRotation,
-                target,
-                t);
+                currentVirtualRotation,
+                targetRotation,
+                angularT);
 
-        if (Mathf.Abs(normalizedHorizontal) < 0.001f &&
-            Mathf.Abs(normalizedVertical) < 0.001f &&
-            Quaternion.Angle(
-                currentBeamMotionRotation,
-                Quaternion.identity) < 0.01f)
+        Vector3 forward =
+            currentVirtualRotation *
+            Vector3.forward;
+
+        Vector2 projectedGround =
+            new(
+                forward.x,
+                forward.y);
+
+        float groundMagnitude =
+            projectedGround.magnitude;
+
+        if (groundMagnitude > 0.0001f)
         {
-            currentBeamMotionRotation = Quaternion.identity;
-        }
-    }
-
-    private void ApplyPoolLag()
-    {
-        if (playerPoolTransform == null)
-            return;
-
-        Vector3 basePosition = playerPoolTransform.position;
-        playerPoolTransform.position = new Vector3(
-            basePosition.x + currentPoolLag.x,
-            basePosition.y + currentPoolLag.y,
-            basePosition.z);
-    }
-
-    private void ApplyBeamQuaternion()
-    {
-        if (playerBeamTransform == null ||
-            playerBeamRenderer == null ||
-            playerBeamRenderer.sprite == null)
-        {
-            return;
+            currentGroundDirection =
+                projectedGround /
+                groundMagnitude;
         }
 
-        // BattleCharacterLightVisual has already restored the authored transform this frame.
-        Quaternion authoredRotation = playerBeamTransform.rotation;
-        Vector3 authoredCenter = playerBeamTransform.position;
+        float maxTiltSin =
+            Mathf.Sin(
+                Mathf.Deg2Rad *
+                Mathf.Clamp(
+                    maxRigTiltDegrees,
+                    1f,
+                    45f));
 
-        float beamHeight =
+        currentTilt01 =
+            Mathf.Clamp01(
+                groundMagnitude /
+                Mathf.Max(
+                    0.001f,
+                    maxTiltSin));
+    }
+
+    private void ApplyFake3DBeamProjection()
+    {
+        Quaternion authoredRotation =
+            playerBeamTransform.rotation;
+
+        Vector3 authoredCenter =
+            playerBeamTransform.position;
+
+        Vector3 authoredLocalScale =
+            playerBeamTransform.localScale;
+
+        float authoredWorldHeight =
             playerBeamRenderer.sprite.bounds.size.y *
-            Mathf.Abs(playerBeamTransform.lossyScale.y);
-        if (beamHeight <= 0.0001f)
+            Mathf.Abs(
+                playerBeamTransform.lossyScale.y);
+
+        if (authoredWorldHeight <= 0.0001f)
             return;
 
-        // Treat the narrow upper edge as a virtual lamp/source pivot.
-        Vector3 sourcePoint =
-            authoredCenter +
-            authoredRotation *
-            (Vector3.up * (beamHeight * 0.5f));
+        float tilt =
+            Mathf.Clamp01(
+                currentTilt01);
+
+        float rollDegrees =
+            -currentGroundDirection.x *
+            Mathf.Max(
+                0f,
+                maxBeamRollDegrees) *
+            tilt;
 
         Quaternion finalRotation =
             authoredRotation *
-            currentBeamMotionRotation;
+            Quaternion.AngleAxis(
+                rollDegrees,
+                Vector3.forward);
+
+        float lengthScale =
+            1f +
+            Mathf.Max(
+                0f,
+                maxBeamLengthBoost) *
+            tilt;
+
+        float widthScale =
+            1f +
+            Mathf.Max(
+                0f,
+                maxBeamWidthBoost) *
+            tilt;
+
+        Vector3 sourcePoint =
+            authoredCenter +
+            authoredRotation *
+            (Vector3.up *
+             (authoredWorldHeight * 0.5f));
+
+        playerBeamTransform.localScale =
+            new Vector3(
+                authoredLocalScale.x * widthScale,
+                authoredLocalScale.y * lengthScale,
+                authoredLocalScale.z);
+
+        float finalHalfHeight =
+            authoredWorldHeight *
+            lengthScale *
+            0.5f;
 
         Vector3 finalCenter =
             sourcePoint +
             finalRotation *
-            (Vector3.down * (beamHeight * 0.5f));
+            (Vector3.down *
+             finalHalfHeight);
 
         playerBeamTransform.SetPositionAndRotation(
             finalCenter,
             finalRotation);
+
+        beamProperties ??=
+            new MaterialPropertyBlock();
+
+        playerBeamRenderer.GetPropertyBlock(
+            beamProperties);
+
+        beamProperties.SetFloat(
+            "_BeamShear",
+            currentGroundDirection.x *
+            Mathf.Max(0f, maxBeamShear) *
+            tilt);
+
+        beamProperties.SetFloat(
+            "_BeamBottomWidthScale",
+            1f + 0.18f * tilt);
+
+        beamProperties.SetFloat(
+            "_BeamOpacityScale",
+            Mathf.Clamp01(
+                1f -
+                Mathf.Max(0f, tiltOpacityLoss) *
+                tilt));
+
+        playerBeamRenderer.SetPropertyBlock(
+            beamProperties);
+    }
+
+    private void ClearBeamProjectionProperties()
+    {
+        if (playerBeamRenderer == null)
+            return;
+
+        beamProperties ??=
+            new MaterialPropertyBlock();
+
+        playerBeamRenderer.GetPropertyBlock(
+            beamProperties);
+
+        beamProperties.SetFloat(
+            "_BeamShear",
+            0f);
+
+        beamProperties.SetFloat(
+            "_BeamBottomWidthScale",
+            1f);
+
+        beamProperties.SetFloat(
+            "_BeamOpacityScale",
+            1f);
+
+        playerBeamRenderer.SetPropertyBlock(
+            beamProperties);
     }
 
     private void ResetCombatMotion()
     {
         hasMotionSample = false;
-        currentPoolLag = Vector2.zero;
-        currentBeamMotionRotation = Quaternion.identity;
+        lastPlayerVelocity = Vector2.zero;
+        currentVirtualRotation =
+            Quaternion.LookRotation(
+                Vector3.back,
+                Vector3.up);
+        currentGroundDirection = Vector2.down;
+        currentTilt01 = 0f;
 
         if (player != null)
-            lastPlayerPosition = player.transform.position;
+        {
+            Vector2 playerPosition =
+                player.transform.position;
+
+            lastPlayerPosition =
+                playerPosition;
+
+            virtualAimWorld =
+                playerPosition;
+
+            virtualSourceWorld =
+                playerPosition;
+        }
     }
 
     private static Transform FindRecursive(Transform root, string targetName)
