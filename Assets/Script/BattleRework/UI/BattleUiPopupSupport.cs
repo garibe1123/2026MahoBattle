@@ -11,6 +11,7 @@ using UnityEngine.UI;
 /// </summary>
 public static class BattleUiSortingContract
 {
+    public const int InventoryInteractionBase = 1550;
     public const int RewardPack = 32100;
     public const int RewardTransientBase = 32300;
     public const int RewardDragGhost = 32400;
