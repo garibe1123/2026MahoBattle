@@ -909,11 +909,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         tabSubtleNoiseMaterial.SetFloat(
             "_NoiseStrength",
-            0.022f);
+            0.014f);
 
         tabSubtleNoiseMaterial.SetFloat(
             "_NoiseSpeed",
-            11f);
+            14f);
 
         tabSubtleNoiseMaterial.SetColor(
             "_NoiseTint",
