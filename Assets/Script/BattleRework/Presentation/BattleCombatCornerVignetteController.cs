@@ -28,17 +28,17 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
     [Header("Corner Vignette")]
     [SerializeField] private Color vignetteColor = Color.black;
     [Tooltip("전체 코너/엣지 비네팅 강도입니다. 0이면 효과가 완전히 꺼집니다.")]
-    [SerializeField, Range(0f, 1f)] private float overallStrength = 1f;
+    [SerializeField, Range(0f, 1f)] private float overallStrength = 0.72f;
     [Tooltip("화면 변 중앙부까지 아주 약하게 먹는 암부입니다. 너무 높이면 일반 비네팅처럼 보입니다.")]
-    [SerializeField, Range(0f, 0.25f)] private float edgeDarkness = 0.045f;
+    [SerializeField, Range(0f, 0.25f)] private float edgeDarkness = 0.025f;
     [Tooltip("네 귀퉁이에 추가되는 주 암부입니다.")]
-    [SerializeField, Range(0f, 0.5f)] private float cornerDarkness = 0.22f;
+    [SerializeField, Range(0f, 0.5f)] private float cornerDarkness = 0.16f;
     [Tooltip("좌우 끝에서 안쪽으로 암부가 퍼지는 범위입니다. 높을수록 중앙 쪽으로 넓게 퍼집니다.")]
-    [SerializeField, Range(0.05f, 0.6f)] private float horizontalFalloff = 0.25f;
+    [SerializeField, Range(0.05f, 0.6f)] private float horizontalFalloff = 0.20f;
     [Tooltip("상하 끝에서 안쪽으로 암부가 퍼지는 범위입니다. 높을수록 중앙 쪽으로 넓게 퍼집니다.")]
-    [SerializeField, Range(0.05f, 0.6f)] private float verticalFalloff = 0.31f;
+    [SerializeField, Range(0.05f, 0.6f)] private float verticalFalloff = 0.26f;
     [Tooltip("값이 낮을수록 코너 암부가 넓고 부드럽게 퍼지고, 높을수록 모서리에 집중됩니다.")]
-    [SerializeField, Range(0.25f, 4f)] private float cornerPower = 0.78f;
+    [SerializeField, Range(0.25f, 4f)] private float cornerPower = 0.95f;
 
     [Header("Blend")]
     [SerializeField, Min(0.1f)] private float fadeInSharpness = 5.5f;
@@ -365,10 +365,14 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
             return;
 
         overlayMaterial.SetColor("_VignetteColor", vignetteColor);
-        float signalStrength =
-            currentBlend * overallStrength +
+        // Low HP / Damage 반응도 Combat gate를 반드시 통과하게 합니다.
+        // 전투가 끝나 Show로 넘어갈 때 상태성 암부가 화면에 잔류하지 않도록
+        // 기본 렌즈 비네팅과 reactive vignette를 하나의 Combat blend로 묶습니다.
+        float reactiveStrength =
             lowHpBlend * lowHpExtraVignette +
             damageBurst * damageBurstVignette;
+        float signalStrength =
+            currentBlend * (overallStrength + reactiveStrength);
 
         overlayMaterial.SetFloat("_Strength", Mathf.Clamp01(signalStrength));
         overlayMaterial.SetFloat("_EdgeDarkness", Mathf.Clamp(edgeDarkness, 0f, 0.25f));
