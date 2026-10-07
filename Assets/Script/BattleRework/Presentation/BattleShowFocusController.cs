@@ -175,24 +175,12 @@ public sealed class BattleShowFocusController : MonoBehaviour
         float now = Time.unscaledTime;
         float deltaTime = Time.unscaledDeltaTime;
 
-        bool combatStateActive =
-            (stageFlow != null && stageFlow.IsCombatPhase) ||
-            (runManager != null &&
-             runManager.RunActive &&
-             runManager.State == BattleRunState.Combat);
-
-        bool combatFocusRequested =
-            useCombatPlayerFocus &&
-            combatStateActive &&
-            player != null &&
-            player.IsAlive &&
-            player.gameObject.activeInHierarchy;
-
-        currentCombatBlend = MoveTowards01(
-            currentCombatBlend,
-            combatFocusRequested ? 1f : 0f,
-            combatFocusFadeDuration,
-            deltaTime);
+        // Combat focus is owned exclusively by BattleCombatFocusMaskController.
+        // Keep the Show canvas completely out of normal battle so vignette/focus math
+        // can never stack inside the same UI object again.
+        bool combatFocusRequested = false;
+        currentCombatBlend = 0f;
+        combatFocusWorldInitialized = false;
 
         if (selectionShowRequested && showStageBecameActiveAt < 0f)
             showStageBecameActiveAt = now;
@@ -382,9 +370,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
                 : openingMap ? openingMapDimFalloffRadius : dimFalloffRadius;
 
         float presentationBlend =
-            Mathf.Max(
-                currentDimBlend,
-                currentCombatBlend);
+            currentDimBlend;
 
         runtimeMaterial.SetColor("_MaskColor", dimColor);
         runtimeMaterial.SetFloat("_Presentation", presentationBlend);
