@@ -691,12 +691,24 @@ public sealed class BattleSpotlightController : MonoBehaviour
                     lengthScale,
                     authoredScale.z);
 
-            MaterialPropertyBlock properties =
-                visual == hoveredRewardVisual
-                    ? rewardProjectionProperties ??=
-                        new MaterialPropertyBlock()
-                    : beamProperties ??=
-                        new MaterialPropertyBlock();
+            MaterialPropertyBlock properties;
+
+            if (visual == hoveredRewardVisual)
+            {
+                rewardProjectionProperties ??=
+                    new MaterialPropertyBlock();
+
+                properties =
+                    rewardProjectionProperties;
+            }
+            else
+            {
+                beamProperties ??=
+                    new MaterialPropertyBlock();
+
+                properties =
+                    beamProperties;
+            }
 
             renderer.GetPropertyBlock(
                 properties);
