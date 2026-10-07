@@ -1083,8 +1083,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (handGhostIcon != null)
         {
-            handGhostIcon.sprite = hand.equipment != null ? hand.equipment.icon : null;
-            handGhostIcon.enabled = hand.equipment != null && hand.equipment.icon != null;
+            bool hasEquipment = hand.equipment != null;
+            bool hasIcon = hasEquipment && hand.equipment.icon != null;
+            handGhostIcon.sprite = hasIcon ? hand.equipment.icon : BattleHudSpriteCache.DefaultSprite;
+            handGhostIcon.preserveAspect = hasIcon;
+            handGhostIcon.color = Color.white;
+            handGhostIcon.enabled = hasEquipment;
         }
 
         if (padModeActive)
