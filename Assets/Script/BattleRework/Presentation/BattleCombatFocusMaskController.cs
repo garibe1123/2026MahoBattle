@@ -316,38 +316,45 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
             return;
         }
 
-        float rawAngle = ResolveScreenDirectionAngle(
-            camera,
-            focusWorld,
-            directionWorld);
+        Vector2 screenDirection =
+            ResolveScreenDirection(
+                camera,
+                focusWorld,
+                directionWorld);
 
-        // Moderate rig tilt should already read clearly on screen.
-        // sqrt boosts the middle of the response without making the maximum unstable.
+        // No focus-hole rotation. Motion only changes the apparent scale of the
+        // horizontally flattened footprint, preserving the top-down lighting read.
         float visualTilt =
             Mathf.Sqrt(
                 Mathf.Clamp01(tilt01));
 
-        // At rest the footprint must always read as a horizontally flattened top-down ellipse.
-        // Only rotate toward the movement/light direction once the fake-3D rig actually tilts.
-        float angle =
-            rawAngle *
-            Mathf.SmoothStep(
+        float directionalBoost =
+            Mathf.Max(
                 0f,
-                1f,
-                visualTilt);
+                maxDirectionalElongation);
 
-        float elongation =
+        float scaleX =
             1f +
             visualTilt *
-            Mathf.Max(0f, maxDirectionalElongation);
+            (
+                0.08f +
+                directionalBoost *
+                Mathf.Abs(
+                    screenDirection.x));
+
+        float scaleY =
+            1f +
+            visualTilt *
+            (
+                0.04f +
+                directionalBoost *
+                0.55f *
+                Mathf.Abs(
+                    screenDirection.y));
 
         float dynamicVerticalRatio =
             Mathf.Clamp(
-                verticalRatio *
-                Mathf.Lerp(
-                    1f,
-                    0.90f,
-                    visualTilt),
+                verticalRatio,
                 0.55f,
                 1f);
 
@@ -362,9 +369,11 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
             "_VerticalRatio",
             dynamicVerticalRatio);
         runtimeMaterial.SetFloat(
-            "_Elongation",
-            Mathf.Clamp(elongation, 1f, 1.5f));
-        runtimeMaterial.SetFloat("_RotationRadians", angle);
+            "_ScaleX",
+            Mathf.Clamp(scaleX, 1f, 1.8f));
+        runtimeMaterial.SetFloat(
+            "_ScaleY",
+            Mathf.Clamp(scaleY, 1f, 1.8f));
         runtimeMaterial.SetFloat(
             "_Feather",
             Mathf.Max(0.0001f, feather));
@@ -372,7 +381,7 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
         overlayImage.enabled = true;
     }
 
-    private static float ResolveScreenDirectionAngle(
+    private static Vector2 ResolveScreenDirection(
         Camera camera,
         Vector3 centerWorld,
         Vector2 directionWorld)
@@ -380,11 +389,13 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
         if (camera == null ||
             directionWorld.sqrMagnitude < 0.0001f)
         {
-            return 0f;
+            return Vector2.right;
         }
 
         Vector3 centerScreen =
-            camera.WorldToScreenPoint(centerWorld);
+            camera.WorldToScreenPoint(
+                centerWorld);
+
         Vector3 directionScreen =
             camera.WorldToScreenPoint(
                 centerWorld +
@@ -396,11 +407,9 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
                 directionScreen.y - centerScreen.y);
 
         if (screenDelta.sqrMagnitude < 0.0001f)
-            return 0f;
+            return Vector2.right;
 
-        return Mathf.Atan2(
-            screenDelta.y,
-            screenDelta.x);
+        return screenDelta.normalized;
     }
 
     private static bool TryProjectWorldPoint(
