@@ -92,11 +92,11 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Range(0f, 1f)] public float playerPoolAlpha = 0.14f;
     [Min(0.1f)] public float playerPoolWidthMultiplier = 2.10f;
     [Range(0.05f, 0.55f)] public float playerPoolHeightRatio = 0.32f;
-    [Range(0f, 1f)] public float playerKeyLightAlpha = 0.04f;
-    [Min(0.2f)] public float playerKeyLightWidthMultiplier = 1.62f;
-    [Min(0.2f)] public float playerKeyLightHeightMultiplier = 1.72f;
-    [Range(-1f, 1f)] public float playerKeyLightVerticalOffsetRatio = 0.34f;
-    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.06f;
+    [Range(0f, 1f)] public float playerKeyLightAlpha = 0.022f;
+    [Min(0.2f)] public float playerKeyLightWidthMultiplier = 1.58f;
+    [Min(0.2f)] public float playerKeyLightHeightMultiplier = 1.60f;
+    [Range(-1f, 1f)] public float playerKeyLightVerticalOffsetRatio = 0.30f;
+    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.08f;
     [Range(0f, 1f)] public float playerCombatStrength = 1f;
 
     [Header("Enemy Contact Light")]
@@ -116,7 +116,7 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Min(0.1f)] public float presenterPoolWidthMultiplier = 1.85f;
     [Range(0.05f, 0.55f)] public float presenterPoolHeightRatio = 0.30f;
     [Tooltip("Keep the presenter beam subtle; most of the readable light should come from the floor pool and sprite top-light.")]
-    [Range(0f, 1f)] public float presenterKeyLightAlpha = 0.04f;
+    [Range(0f, 1f)] public float presenterKeyLightAlpha = 0.026f;
     [Min(0.2f)] public float presenterKeyLightWidthMultiplier = 1.50f;
     [Min(0.2f)] public float presenterKeyLightHeightMultiplier = 1.42f;
     [Range(-1f, 1f)] public float presenterKeyLightVerticalOffsetRatio = 0.10f;
