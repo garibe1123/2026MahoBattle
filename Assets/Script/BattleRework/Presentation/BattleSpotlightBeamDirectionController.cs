@@ -64,6 +64,18 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float beamSourceLagVisualScale = 0.82f;
     [SerializeField, Min(0f)] private float maxBeamSourceVisualOffset = 0.78f;
 
+    [Header("REWARD / MAP SPOTLIGHT — IDLE BREATH")]
+    [SerializeField] private bool useShowSpotlightIdle = true;
+    [SerializeField, Min(0.05f)] private float rewardIdleCyclesPerSecond = 0.30f;
+    [SerializeField, Min(0.05f)] private float mapIdleCyclesPerSecond = 0.22f;
+    [SerializeField, Range(0f, 0.10f)] private float rewardIdleWidthAmplitude = 0.035f;
+    [SerializeField, Range(0f, 0.10f)] private float rewardIdleLengthAmplitude = 0.045f;
+    [SerializeField, Range(0f, 0.15f)] private float rewardIdleAlphaAmplitude = 0.055f;
+    [SerializeField, Range(0f, 0.10f)] private float mapIdleWidthAmplitude = 0.020f;
+    [SerializeField, Range(0f, 0.10f)] private float mapIdleLengthAmplitude = 0.028f;
+    [SerializeField, Range(0f, 0.15f)] private float mapIdleAlphaAmplitude = 0.035f;
+    [SerializeField, Min(0.1f)] private float showIdleRefreshInterval = 0.40f;
+
     private BattleCharacterLightVisual[] lightVisuals;
 
     private BattleRunManager runManager;
@@ -82,6 +94,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     private Vector2 virtualSourceWorld;
     private Vector2 currentGroundDirection = Vector2.down;
     private float currentTilt01;
+    private float nextShowIdleRefresh;
 
     public BeamShapeDirection Direction
     {
@@ -256,18 +269,21 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         ResolveCombatReferences();
         ResolvePlayerSpotlightChildren();
 
-        if (!IsCombatPlayerMotionActive() ||
-            playerBeamTransform == null ||
-            playerBeamRenderer == null ||
-            playerBeamRenderer.sprite == null)
+        if (IsCombatPlayerMotionActive() &&
+            playerBeamTransform != null &&
+            playerBeamRenderer != null &&
+            playerBeamRenderer.sprite != null)
         {
-            ResetCombatMotion();
-            ClearBeamProjectionProperties();
+            UpdateVirtualLightRig();
+            ApplyFake3DBeamProjection();
             return;
         }
 
-        UpdateVirtualLightRig();
-        ApplyFake3DBeamProjection();
+        ResetCombatMotion();
+        ClearBeamProjectionProperties();
+
+        if (IsShowSpotlightIdleActive())
+            ApplyShowSpotlightIdle();
     }
 
     private void ResolveCombatReferences()
@@ -314,6 +330,155 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
         // StageFlow와 RunState가 전환 프레임에 잠깐 어긋나도 전투 조명 반응이 끊기지 않게 합니다.
         return stageCombat || runCombat;
+    }
+
+
+    private bool IsShowSpotlightIdleActive()
+    {
+        if (!useShowSpotlightIdle ||
+            runManager == null ||
+            !runManager.RunActive)
+        {
+            return false;
+        }
+
+        return runManager.State == BattleRunState.Reward ||
+               runManager.State == BattleRunState.SelectingNode;
+    }
+
+    private void ApplyShowSpotlightIdle()
+    {
+        if (Time.unscaledTime >= nextShowIdleRefresh ||
+            lightVisuals == null ||
+            lightVisuals.Length == 0)
+        {
+            RefreshTargets();
+            nextShowIdleRefresh =
+                Time.unscaledTime +
+                Mathf.Max(
+                    0.1f,
+                    showIdleRefreshInterval);
+        }
+
+        if (lightVisuals == null)
+            return;
+
+        bool reward =
+            runManager != null &&
+            runManager.State == BattleRunState.Reward;
+
+        float cycles =
+            reward
+                ? rewardIdleCyclesPerSecond
+                : mapIdleCyclesPerSecond;
+
+        float widthAmplitude =
+            reward
+                ? rewardIdleWidthAmplitude
+                : mapIdleWidthAmplitude;
+
+        float lengthAmplitude =
+            reward
+                ? rewardIdleLengthAmplitude
+                : mapIdleLengthAmplitude;
+
+        float alphaAmplitude =
+            reward
+                ? rewardIdleAlphaAmplitude
+                : mapIdleAlphaAmplitude;
+
+        for (int i = 0; i < lightVisuals.Length; i++)
+        {
+            BattleCharacterLightVisual visual =
+                lightVisuals[i];
+
+            if (visual == null ||
+                !visual.isActiveAndEnabled ||
+                visual.CurrentSpotlightStrength <= 0.01f)
+            {
+                continue;
+            }
+
+            Transform beam =
+                visual.transform.Find(
+                    BattleCharacterLightVisual.KeyRendererName);
+
+            if (beam == null)
+                continue;
+
+            SpriteRenderer renderer =
+                beam.GetComponent<SpriteRenderer>();
+
+            if (renderer == null ||
+                !renderer.enabled)
+            {
+                continue;
+            }
+
+            float phase =
+                Mathf.Abs(
+                    visual.GetInstanceID() % 997) *
+                0.0137f;
+
+            float time =
+                Time.unscaledTime *
+                Mathf.Max(0.05f, cycles) *
+                Mathf.PI *
+                2f;
+
+            float primary =
+                Mathf.Sin(
+                    time +
+                    phase);
+
+            float secondary =
+                Mathf.Sin(
+                    time * 0.47f +
+                    phase * 1.71f);
+
+            float breath =
+                Mathf.Clamp(
+                    primary * 0.72f +
+                    secondary * 0.28f,
+                    -1f,
+                    1f);
+
+            float widthScale =
+                1f +
+                breath *
+                widthAmplitude;
+
+            float lengthScale =
+                1f +
+                Mathf.Sin(
+                    time +
+                    phase +
+                    0.65f) *
+                lengthAmplitude;
+
+            Vector3 baseScale =
+                beam.localScale;
+
+            beam.localScale =
+                new Vector3(
+                    baseScale.x * widthScale,
+                    baseScale.y * lengthScale,
+                    baseScale.z);
+
+            Color baseColor =
+                renderer.color;
+
+            baseColor.a *=
+                Mathf.Clamp(
+                    1f +
+                    breath *
+                    alphaAmplitude,
+                    0.80f,
+                    1.15f);
+
+            renderer.color =
+                baseColor;
+        }
     }
 
     private void ResolvePlayerSpotlightChildren()
