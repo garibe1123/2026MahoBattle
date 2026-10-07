@@ -469,11 +469,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
         if (poolRenderer != null)
         {
-            Color color = poolColor;
-            color.a = poolMaxAlpha * visibility;
-            poolRenderer.color = color;
-            poolRenderer.sharedMaterial = spotlightMaterial;
-            poolRenderer.enabled = spotlightMaterial != null && color.a > 0.001f;
+            // Legacy ellipse footprint is intentionally retired.
+            // Character grounding/focus is now provided by the full-screen focus mask hole,
+            // which reads correctly in the top-down battle camera and avoids a flat side-view decal.
+            poolRenderer.enabled = false;
         }
 
         if (glowRenderer != null)
