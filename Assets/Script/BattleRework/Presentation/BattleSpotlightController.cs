@@ -105,6 +105,16 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField, Range(0f, 0.30f)] private float focusFeatherPulse = 0.12f;
     [SerializeField, Min(0.1f)] private float visualRefreshInterval = 0.40f;
 
+    [Header("Reward Item — Player-like Projection")]
+    [SerializeField] private bool useRewardItemProjection = true;
+    [Tooltip("아이템 Float 이동 속도가 이 값에 도달하면 이동 반응을 100%로 봅니다.")]
+    [SerializeField, Min(0.05f)] private float rewardProjectionFullSpeed = 0.42f;
+    [SerializeField, Range(0f, 0.45f)] private float rewardProjectionWidthBoost = 0.16f;
+    [SerializeField, Range(0f, 0.65f)] private float rewardProjectionLengthBoost = 0.24f;
+    [SerializeField, Range(0f, 0.60f)] private float rewardProjectionBottomSpread = 0.28f;
+    [SerializeField, Range(0f, 0.60f)] private float rewardProjectionOpacityLoss = 0.18f;
+    [SerializeField, Range(0f, 1f)] private float rewardProjectionIdleInfluence = 0.55f;
+
     [Header("Focus Fade")]
     [SerializeField, Min(0.1f)] private float combatFadeSharpness = 8f;
     [SerializeField, Min(0.1f)] private float showFadeSharpness = 6f;
@@ -135,6 +145,14 @@ public sealed class BattleSpotlightController : MonoBehaviour
     private SpriteRenderer playerGlowRenderer;
     private MaterialPropertyBlock beamProperties;
     private MaterialPropertyBlock glowProperties;
+
+    private BattleCharacterLightVisual rewardProjectedVisual;
+    private Transform rewardProjectedBeam;
+    private SpriteRenderer rewardProjectedRenderer;
+    private MaterialPropertyBlock rewardProjectionProperties;
+    private Vector2 rewardLastPosition;
+    private bool rewardMotionSample;
+    private int rewardProjectedIndex = -1;
 
     private Vector2 lastPlayerPosition, lastPlayerVelocity;
     private Vector2 virtualAimWorld, virtualSourceWorld;
@@ -273,6 +291,9 @@ public sealed class BattleSpotlightController : MonoBehaviour
             ClearCombatBeamProperties();
         }
 
+        if (previous == SpotlightMode.Reward)
+            ClearRewardProjection();
+
         hasTransitionFocusSource =
             previous != SpotlightMode.None &&
             hasLastAppliedFocusFrame;
@@ -324,15 +345,28 @@ public sealed class BattleSpotlightController : MonoBehaviour
         bool ready = showWorldSet != null && showWorldSet.IsShowActive;
         focusBlend = Damp01(focusBlend, ready ? 1f : 0f, showFadeSharpness, Time.unscaledDeltaTime);
 
-        if (useShowIdle && ready) ApplyShowIdle(reward);
-        if (ready) ApplyFocus(BuildShowFocusFrame(reward));
-        else HideFocusIfZero();
+        if (!reward)
+            ClearRewardProjection();
+
+        if (useShowIdle && ready)
+            ApplyShowIdle(reward);
+
+        if (reward && ready)
+            ApplyRewardPlayerLikeProjection();
+        else if (reward)
+            ClearRewardProjection();
+
+        if (ready)
+            ApplyFocus(BuildShowFocusFrame(reward));
+        else
+            HideFocusIfZero();
     }
 
     private void UpdateInactive()
     {
         ResetCombatMotion();
         ClearCombatBeamProperties();
+        ClearRewardProjection();
         focusBlend = Damp01(focusBlend, 0f, showFadeSharpness, Time.unscaledDeltaTime);
         HideFocusIfZero();
     }
@@ -453,6 +487,179 @@ public sealed class BattleSpotlightController : MonoBehaviour
             color.a *= Mathf.Clamp(1f + breath * alphaAmp, 0.80f, 1.15f);
             renderer.color = color;
         }
+    }
+
+    private void ApplyRewardPlayerLikeProjection()
+    {
+        if (!useRewardItemProjection ||
+            showWorldSet == null ||
+            showWorldSet.RewardHoveredIndex < 0)
+        {
+            ClearRewardProjection();
+            return;
+        }
+
+        int hoveredIndex = showWorldSet.RewardHoveredIndex;
+
+        if (!showWorldSet.TryGetRewardShowcaseSpotlight(
+                hoveredIndex,
+                out BattleCharacterLightVisual visual) ||
+            visual == null ||
+            !visual.isActiveAndEnabled)
+        {
+            ClearRewardProjection();
+            return;
+        }
+
+        if (visual != rewardProjectedVisual ||
+            hoveredIndex != rewardProjectedIndex)
+        {
+            ClearRewardProjection();
+
+            rewardProjectedVisual = visual;
+            rewardProjectedIndex = hoveredIndex;
+            rewardProjectedBeam =
+                visual.transform.Find(
+                    BattleCharacterLightVisual.KeyRendererName);
+
+            rewardProjectedRenderer =
+                rewardProjectedBeam != null
+                    ? rewardProjectedBeam.GetComponent<SpriteRenderer>()
+                    : null;
+
+            rewardLastPosition =
+                visual.transform.position;
+
+            rewardMotionSample = false;
+        }
+
+        if (rewardProjectedBeam == null ||
+            rewardProjectedRenderer == null ||
+            !rewardProjectedRenderer.enabled)
+        {
+            return;
+        }
+
+        float dt =
+            Mathf.Min(
+                0.05f,
+                Mathf.Max(
+                    0.001f,
+                    Time.unscaledDeltaTime));
+
+        Vector2 position =
+            rewardProjectedVisual.transform.position;
+
+        float speed01 = 0f;
+
+        if (rewardMotionSample)
+        {
+            float speed =
+                (position - rewardLastPosition).magnitude /
+                dt;
+
+            speed01 =
+                Mathf.Clamp01(
+                    speed /
+                    Mathf.Max(
+                        0.05f,
+                        rewardProjectionFullSpeed));
+        }
+
+        rewardLastPosition = position;
+        rewardMotionSample = true;
+
+        float idleWave =
+            Mathf.Abs(
+                EvaluateIdleBreath(
+                    Time.unscaledTime,
+                    rewardIdleCyclesPerSecond,
+                    0.91f));
+
+        float response =
+            Mathf.Clamp01(
+                speed01 * 0.65f +
+                idleWave *
+                Mathf.Clamp01(
+                    rewardProjectionIdleInfluence));
+
+        response =
+            Mathf.Sqrt(
+                response);
+
+        Vector3 scale =
+            rewardProjectedBeam.localScale;
+
+        rewardProjectedBeam.localScale =
+            new Vector3(
+                scale.x *
+                (1f +
+                 Mathf.Max(
+                     0f,
+                     rewardProjectionWidthBoost) *
+                 response),
+                scale.y *
+                (1f +
+                 Mathf.Max(
+                     0f,
+                     rewardProjectionLengthBoost) *
+                 response),
+                scale.z);
+
+        rewardProjectionProperties ??=
+            new MaterialPropertyBlock();
+
+        rewardProjectedRenderer.GetPropertyBlock(
+            rewardProjectionProperties);
+
+        rewardProjectionProperties.SetFloat(
+            "_BeamBottomWidthScale",
+            1f +
+            Mathf.Max(
+                0f,
+                rewardProjectionBottomSpread) *
+            response);
+
+        rewardProjectionProperties.SetFloat(
+            "_BeamOpacityScale",
+            Mathf.Clamp01(
+                1f -
+                Mathf.Max(
+                    0f,
+                    rewardProjectionOpacityLoss) *
+                response));
+
+        rewardProjectedRenderer.SetPropertyBlock(
+            rewardProjectionProperties);
+    }
+
+    private void ClearRewardProjection()
+    {
+        if (rewardProjectedRenderer != null)
+        {
+            rewardProjectionProperties ??=
+                new MaterialPropertyBlock();
+
+            rewardProjectedRenderer.GetPropertyBlock(
+                rewardProjectionProperties);
+
+            rewardProjectionProperties.SetFloat(
+                "_BeamBottomWidthScale",
+                1f);
+
+            rewardProjectionProperties.SetFloat(
+                "_BeamOpacityScale",
+                1f);
+
+            rewardProjectedRenderer.SetPropertyBlock(
+                rewardProjectionProperties);
+        }
+
+        rewardProjectedVisual = null;
+        rewardProjectedBeam = null;
+        rewardProjectedRenderer = null;
+        rewardProjectedIndex = -1;
+        rewardMotionSample = false;
     }
 
     private FocusFrame BuildCombatFocusFrame()
