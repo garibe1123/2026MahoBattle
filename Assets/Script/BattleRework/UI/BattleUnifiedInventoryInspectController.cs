@@ -91,8 +91,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private readonly RectTransform[] fullSlotRects = new RectTransform[SlotCount];
 
     private Canvas dismissCanvas;
-    private CanvasGroup dismissGroup;
-    private RectTransform dismissRoot;
     private RectTransform selectionCancelRoot;
     private CanvasGroup selectionCancelGroup;
     private Button selectionCancelButton;
@@ -142,7 +140,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         suppressedSourceSlot = -1;
         SetActiveInspectSlot(-1);
         RestoreBulletTime(true);
-        SetDismissActive(false);
     }
 
     private void Update()
@@ -174,10 +171,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         HandleCancelInput(inspectContext);
         HandleMouseOutsideCancel(inspectContext);
 
-        // Full-screen 투명 Graphic으로 바깥 클릭을 잡지 않습니다.
-        // GridBoard에는 Spatial nested Canvas가 붙을 수 있어서,
-        // 투명 Dismiss Canvas가 선택 직후 Grid 위로 올라와 입력을 먹는 문제가 있었습니다.
-        SetDismissActive(false);
+        // 바깥 클릭 취소는 HandleMouseOutsideCancel()의 Screen Rect 판정만 사용합니다.
     }
 
     private void LateUpdate()
@@ -1099,12 +1093,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             if (slot == null)
                 continue;
 
-            // 이전 Interaction controller가 만들던 Full Grid selection frame은 더 이상 렌더하지 않습니다.
-            // Full Grid 선택 표현은 이 클래스의 UnifiedSelectionFrame 하나만 소유합니다.
-            Transform legacyInteractionFrame = slot.Find("InteractionFullSelectionFrame");
-            if (legacyInteractionFrame != null && legacyInteractionFrame.gameObject.activeSelf)
-                legacyInteractionFrame.gameObject.SetActive(false);
-
             if (fullSelectionFrames[i] != null)
                 continue;
 
@@ -1612,20 +1600,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
         scaler.referenceResolution = new Vector2(1920f, 1080f);
         scaler.matchWidthOrHeight = 0.5f;
-        // 이 Canvas는 CANCEL SELECTION 버튼의 독립 Sorting 용도로만 남깁니다.
-        // 화면 전체 투명 Raycast Layer는 만들지 않습니다.
-        dismissRoot = CreateRect(canvasObject.transform, "InventoryDismissBackground", Vector2.zero);
-        Stretch(dismissRoot);
-
-        Image image = dismissRoot.gameObject.AddComponent<Image>();
-        image.color = Color.clear;
-        image.raycastTarget = false;
-
-        dismissGroup = dismissRoot.gameObject.AddComponent<CanvasGroup>();
-        dismissGroup.alpha = 0f;
-        dismissGroup.blocksRaycasts = false;
-        dismissGroup.interactable = false;
-
+        // 이 Canvas는 CANCEL SELECTION 버튼의 독립 Sorting 용도입니다.
+        // 바깥 클릭은 별도 Screen Rect 판정으로 처리합니다.
         BuildSelectionCancelButton(canvasObject.transform);
     }
 
@@ -1816,18 +1792,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         selectionCancelRoot.SetAsLastSibling();
     }
 
-    private void SetDismissActive(bool active)
-    {
-        if (dismissGroup == null)
-            return;
-
-        // 절대 입력을 먹지 않습니다.
-        // 바깥 클릭 취소는 HandleMouseOutsideCancel()에서 Screen Rect로 판정합니다.
-        dismissGroup.alpha = 0f;
-        dismissGroup.blocksRaycasts = false;
-        dismissGroup.interactable = false;
-    }
-
     private void MaintainRewardBulletTime()
     {
         ResolveReferences();
@@ -1889,21 +1853,5 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         rect.anchorMax = Vector2.one;
         rect.offsetMin = Vector2.zero;
         rect.offsetMax = Vector2.zero;
-    }
-}
-
-internal sealed class BattleUnifiedInventoryDismissRelay : MonoBehaviour, IPointerClickHandler
-{
-    private BattleUnifiedInventoryInspectController owner;
-
-    public void Configure(BattleUnifiedInventoryInspectController controller)
-    {
-        owner = controller;
-    }
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        if (eventData.button == PointerEventData.InputButton.Left)
-            owner?.CancelSelection();
     }
 }
