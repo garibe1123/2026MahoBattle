@@ -2,11 +2,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Shared fullscreen focus mask for Combat / Reward / Map Selection.
+/// Reward / Map Selection 전용 fullscreen focus mask.
 ///
 /// 규칙:
-/// - Combat에서는 기존 Reward Item과 같은 mask-hole 언어를 Player에 재사용합니다.
-/// - Character floor ellipse는 사용하지 않고, Player/Presenter는 원형 Focus hole을 사용합니다.
+/// - Normal Combat에는 관여하지 않습니다. BattleCombatFocusMaskController가 별도 Canvas를 소유합니다.
+/// - Player / Presenter character hole은 위아래가 아주 약하게 눌린 타원형을 사용합니다.
 /// - TV / Screen은 실제 WorldSpace RectTransform을 기준으로 사각형 Focus.
 /// - Reward Item Hover는 월드 상품 전용 Spotlight + Focus hole을 사용합니다.
 /// - Map 대상은 기존 화면 Focus 정책을 유지합니다.
