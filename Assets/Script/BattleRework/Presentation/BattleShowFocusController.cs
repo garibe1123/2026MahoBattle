@@ -2,11 +2,11 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward / Map Selection 전용 Show Focus Mask.
+/// Shared fullscreen focus mask for Combat / Reward / Map Selection.
 ///
 /// 규칙:
-/// - Normal Battle에서는 완전히 OFF.
-/// - Player / Presenter는 캐릭터 하부 쪽으로 내려간 타원형 Stage Focus.
+/// - Combat에서는 기존 Reward Item과 같은 mask-hole 언어를 Player에 재사용합니다.
+/// - Character floor ellipse는 사용하지 않고, Player/Presenter는 원형 Focus hole을 사용합니다.
 /// - TV / Screen은 실제 WorldSpace RectTransform을 기준으로 사각형 Focus.
 /// - Reward Item Hover는 월드 상품 전용 Spotlight + Focus hole을 사용합니다.
 /// - Map 대상은 기존 화면 Focus 정책을 유지합니다.
@@ -428,16 +428,10 @@ public sealed class BattleShowFocusController : MonoBehaviour
                 0.0001f,
                 rewardItemFocusFeather));
 
-        float activeVerticalRatio = combatFocusRequested
-            ? 1f
-            : useUnifiedStageStyle
-                ? stageLighting.UnifiedCharacterVerticalRatio
-                : characterVerticalRatio;
-        float activeLowerOffset = combatFocusRequested
-            ? 0f
-            : useUnifiedStageStyle
-                ? stageLighting.UnifiedCharacterLowerOffset
-                : characterLowerOffset;
+        // Character focus now follows the same circular-hole language as Reward Item focus.
+        // Keep these hard circular so serialized legacy ellipse values cannot reintroduce the old look.
+        float activeVerticalRatio = 1f;
+        float activeLowerOffset = 0f;
         float activeCharacterFeather = combatFocusRequested
             ? combatPlayerFocusFeather
             : useUnifiedStageStyle
