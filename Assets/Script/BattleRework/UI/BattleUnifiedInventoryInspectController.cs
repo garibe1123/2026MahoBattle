@@ -857,9 +857,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                         ? dragging
                         : -1;
             }
+            else if (HasItem(mouse))
+            {
+                source = mouse;
+            }
             else
             {
-                // 평상시 Mouse/Keyboard 상세창은 순수 Hover View입니다.
                 source = HasItem(hover) ? hover : -1;
             }
         }
