@@ -252,6 +252,7 @@ public class BattleRunManager : MonoBehaviour
 
         CaptureStartRoomOrigin();
         RestoreStartRoomOrigin();
+        ResetPersistentStageForNewRun();
 
         List<BattleNodeData> starts = nodeGraph.GetStartNodes();
         if (starts.Count == 0)
@@ -291,6 +292,13 @@ public class BattleRunManager : MonoBehaviour
         roomStartedWithMonsters = false;
         SetState(BattleRunState.None);
         StartRun();
+    }
+
+    private void ResetPersistentStageForNewRun()
+    {
+        RoomBaseTemplate baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
+        baseTemplate?.ResetForNewRun();
+        BattleStageTransitionController.Instance?.ResetForNewRun();
     }
 
     private static bool TryGetStartBaseRoom(IReadOnlyList<BattleNodeData> choices, out RoomDefinitionSO room)

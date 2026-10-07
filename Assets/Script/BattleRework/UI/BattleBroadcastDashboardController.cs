@@ -61,6 +61,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField] private RunProgressSystem runProgress;
     [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
     [SerializeField] private BattleRuleRouletteController rouletteController;
+    [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Motion")]
     [SerializeField, Range(4f, 30f)] private float layoutSharpness = 14f;
@@ -238,6 +239,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
         if (rouletteController == null)
             rouletteController = FindFirstObjectByType<BattleRuleRouletteController>(FindObjectsInactive.Include);
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
     }
 
     private void Subscribe()
@@ -809,13 +812,13 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void TrackPointerFocus()
     {
-        if (!Input.mousePresent)
+        if (inputRouter == null || !inputRouter.PointerPresent)
         {
             SetFocus(BattleCombatTabFocus.None);
             return;
         }
 
-        Vector2 mouse = Input.mousePosition;
+        Vector2 mouse = inputRouter.PointerPosition;
 
         // Once a panel starts moving because of focus, keep that focus while the
         // pointer remains inside either the entry rect OR the animated current rect.

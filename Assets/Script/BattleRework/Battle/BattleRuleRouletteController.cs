@@ -203,6 +203,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private RectTransform combatRuleDockRoot;
     private BattleKineticLoadoutUI kineticLoadout;
     private BattleBroadcastDashboardController dashboardController;
+    private BattleInputRouter inputRouter;
     private BattleKineticLoadoutUI subscribedCombatLoadout;
     private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
     private Coroutine detailLayoutTweenRoutine;
@@ -1567,18 +1568,20 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     }
 
     internal float GetRuleHoverScale() => Mathf.Max(1f, ruleHoverScale);
+    internal bool PointerPresent => inputRouter != null && inputRouter.PointerPresent;
+    internal Vector2 PointerPosition => inputRouter != null ? inputRouter.PointerPosition : Vector2.zero;
 
     private void UpdateFinalReviewRuleHover()
     {
         if (!finalReviewMode ||
-            !Input.mousePresent ||
+            !PointerPresent ||
             ruleSlotViews.Count == 0)
         {
             return;
         }
 
         Vector2 pointer =
-            Input.mousePosition;
+            PointerPosition;
 
         RuleSlotView hoveredView =
             null;
@@ -2492,6 +2495,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>(FindObjectsInactive.Include);
         if (dashboardController == null)
             dashboardController = FindFirstObjectByType<BattleBroadcastDashboardController>(FindObjectsInactive.Include);
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
 
         SubscribeCombatTabEvents();
     }
@@ -2785,9 +2790,9 @@ public sealed class BattleRuleSlotPointerFeedback :
         if (root == null)
             return;
 
-        if (hovered && rule != null && owner != null && Input.mousePresent)
+        if (hovered && rule != null && owner != null && owner.PointerPresent)
         {
-            Vector2 pointer = Input.mousePosition;
+            Vector2 pointer = owner.PointerPosition;
             bool insideEntry = entryRectValid && entryScreenRect.Contains(pointer);
             bool insideCurrent = GetScreenRect(root).Contains(pointer);
 

@@ -19,6 +19,7 @@ public class BattleEquipmentSystem : MonoBehaviour
     public const int GridSize = 3;
 
     [SerializeField] private PlayerShootingSystem shootingSystem;
+    [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Persistent Capacity")]
     [SerializeField, Range(1, MaxSlotCount)] private int unlockedSlotCount = 2;
@@ -38,13 +39,6 @@ public class BattleEquipmentSystem : MonoBehaviour
     // 같은 shootingData를 여러 슬롯이 공유할 수 있으므로 currentWeaponSO 비교만으로
     // 장착 슬롯을 역추적하지 않습니다. 슬롯 번호 자체를 이 시스템이 authoritative하게 소유합니다.
     [SerializeField, HideInInspector] private int equippedSlotIndex = -1;
-
-    private static readonly KeyCode[] SlotKeys =
-    {
-        KeyCode.Alpha1, KeyCode.Alpha2, KeyCode.Alpha3,
-        KeyCode.Alpha4, KeyCode.Alpha5, KeyCode.Alpha6,
-        KeyCode.Alpha7, KeyCode.Alpha8, KeyCode.Alpha9
-    };
 
     public IReadOnlyList<BattleEquipmentSlot> Slots => slots;
     public IReadOnlyList<BattleEquipmentSO> StartingEquipment => startingEquipment;
@@ -74,17 +68,47 @@ public class BattleEquipmentSystem : MonoBehaviour
         BootstrapEquippedSlotFromShootingSystem();
     }
 
-    private void Update()
+    private void OnEnable()
     {
-        if (!enableNumberKeyEquip)
+        if (!Application.isPlaying)
             return;
 
-        int count = Mathf.Min(unlockedSlotCount, SlotKeys.Length);
-        for (int i = 0; i < count; i++)
-        {
-            if (Input.GetKeyDown(SlotKeys[i]))
-                EquipSlot(i);
-        }
+        ResolveInputRouter();
+        SubscribeInput();
+    }
+
+    private void OnDisable()
+    {
+        UnsubscribeInput();
+    }
+
+    private void ResolveInputRouter()
+    {
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
+    }
+
+    private void SubscribeInput()
+    {
+        if (inputRouter == null)
+            return;
+
+        inputRouter.SlotPressed -= HandleSlotPressed;
+        inputRouter.SlotPressed += HandleSlotPressed;
+    }
+
+    private void UnsubscribeInput()
+    {
+        if (inputRouter != null)
+            inputRouter.SlotPressed -= HandleSlotPressed;
+    }
+
+    private void HandleSlotPressed(int index)
+    {
+        if (!enableNumberKeyEquip || index < 0 || index >= unlockedSlotCount)
+            return;
+
+        EquipSlot(index);
     }
 
     public bool ValidateConfiguration(out string report)

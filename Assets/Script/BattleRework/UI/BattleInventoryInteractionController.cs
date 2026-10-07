@@ -41,6 +41,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleRewardFlow rewardFlow;
+    [SerializeField] private BattleInputRouter inputRouter;
 
     [Header("Theme")]
     [SerializeField] private Color inkColor = new(0.035f, 0.030f, 0.055f, 0.995f);
@@ -237,6 +238,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
         if (rewardFlow == null)
         {
             rewardFlow = GetComponent<BattleRewardFlow>();
@@ -319,14 +322,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             selectedRewardSlot = -1;
         }
         padModeActive = true;
-    }
-
-    private static bool IsKeyboardDirectionalInputHeld()
-    {
-        return Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.D) ||
-               Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.S) ||
-               Input.GetKey(KeyCode.LeftArrow) || Input.GetKey(KeyCode.RightArrow) ||
-               Input.GetKey(KeyCode.UpArrow) || Input.GetKey(KeyCode.DownArrow);
     }
 
     private void ResolveMiniPack()
@@ -732,11 +727,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             return;
         }
 
-        // Legacy Horizontal/Vertical axis에는 키보드와 패드가 함께 묶여 있으므로,
-        // 키보드 방향 입력이 눌린 동안에는 axis를 패드 입력으로 해석하지 않습니다.
-        bool keyboardDirectionHeld = IsKeyboardDirectionalInputHeld();
-        float axisX = keyboardDirectionHeld ? 0f : Input.GetAxisRaw("Horizontal");
-        float axisY = keyboardDirectionHeld ? 0f : Input.GetAxisRaw("Vertical");
+        Vector2 padNavigate = inputRouter != null ? inputRouter.GamepadNavigate : Vector2.zero;
+        float axisX = padNavigate.x;
+        float axisY = padNavigate.y;
         float magnitude = Mathf.Max(Mathf.Abs(axisX), Mathf.Abs(axisY));
 
         if (!padAxisLatched && magnitude >= padAxisThreshold)
@@ -758,20 +751,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             padAxisLatched = false;
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton0))
+        if (inputRouter != null && inputRouter.GamepadSubmitPressedThisFrame)
         {
             ActivatePadMode();
             HandlePadSubmit();
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton1))
+        if (inputRouter != null && inputRouter.GamepadCancelPressedThisFrame)
         {
             ActivatePadMode();
             selectedRewardSlot = -1;
             padPickedSlot = -1;
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton3))
+        if (inputRouter != null && inputRouter.DiscardPressedThisFrame)
         {
             ActivatePadMode();
             if (rewardFlow.HasHand)
@@ -788,7 +781,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             }
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton7))
+        if (inputRouter != null && inputRouter.DonePressedThisFrame)
         {
             ActivatePadMode();
             RequestRewardCompletion();
@@ -874,8 +867,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void HandlePadConfirmInput()
     {
-        bool keyboardDirectionHeld = IsKeyboardDirectionalInputHeld();
-        float x = keyboardDirectionHeld ? 0f : Input.GetAxisRaw("Horizontal");
+        float x = inputRouter != null ? inputRouter.GamepadNavigate.x : 0f;
         if (!padAxisLatched && Mathf.Abs(x) >= padAxisThreshold)
         {
             ActivatePadMode();
@@ -888,17 +880,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             padAxisLatched = false;
         }
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton0))
+        if (inputRouter != null && inputRouter.GamepadSubmitPressedThisFrame)
         {
             ActivatePadMode();
             ResolveDiscard(confirmYesSelected);
         }
-        else if (Input.GetKeyDown(KeyCode.JoystickButton1))
+        else if (inputRouter != null && inputRouter.GamepadCancelPressedThisFrame)
         {
             ActivatePadMode();
             ResolveDiscard(false);
         }
-        else if (Input.GetKeyDown(KeyCode.Escape))
+        else if (inputRouter != null && inputRouter.KeyboardCancelPressedThisFrame)
         {
             // KBM에서는 방향 선택 없이 Escape만 취소 shortcut으로 허용합니다.
             ActivateMouseMode();
@@ -1098,9 +1090,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             if (slot != null)
                 handGhostRoot.position = slot.position + (Vector3)handPadOffset;
         }
-        else if (Input.mousePresent)
+        else if (inputRouter != null && inputRouter.PointerPresent)
         {
-            handGhostRoot.position = Input.mousePosition + (Vector3)handMouseOffset;
+            handGhostRoot.position = inputRouter.PointerPosition + (Vector3)handMouseOffset;
         }
 
         handGhostRoot.SetAsLastSibling();
@@ -1185,10 +1177,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         }
 
         // IDrag 이벤트가 다른 Overlay에 의해 한 프레임 끊겨도 실제 마우스를 계속 추적합니다.
-        if (Input.mousePresent)
+        if (inputRouter != null && inputRouter.PointerPresent)
         {
             dragGhostTargetScreenPosition =
-                (Vector2)Input.mousePosition +
+                (Vector2)inputRouter.PointerPosition +
                 dragGhostMouseOffset;
         }
 

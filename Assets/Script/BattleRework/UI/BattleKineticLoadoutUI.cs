@@ -2144,7 +2144,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             {
                 hoveredSlot = -1;
 
-                if (Input.mousePresent)
+                if ((inputRouter != null && inputRouter.PointerPresent))
                     HideRewardInspectTooltip();
             }
             return;
@@ -2515,7 +2515,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                         detailGroup.alpha = 1f;
                 }
             }
-            else if (combat && Input.mousePresent)
+            else if (combat && (inputRouter != null && inputRouter.PointerPresent))
             {
                 HideRewardInspectTooltip();
             }
@@ -2607,7 +2607,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         if (hoveredSlot >= 0)
             return hoveredSlot;
 
-        return !Input.mousePresent ? selectedIndex : -1;
+        return !(inputRouter != null && inputRouter.PointerPresent) ? selectedIndex : -1;
     }
 
     private Vector2 ResolveTooltipPosition(RectTransform slot)

@@ -153,6 +153,33 @@ public class RoomBaseTemplate : MonoBehaviour
     }
 
     /// <summary>
+    /// 새 Run이 시작될 때 이전 Run에서 승격한 runtime anchor를 버리고
+    /// BattleRoomManager의 원래 RoomOrigin을 다시 authoritative start anchor로 사용합니다.
+    /// 기존 Base 인스턴스는 유지하되 위치와 4x4 계약만 즉시 복구합니다.
+    /// </summary>
+    public void ResetForNewRun()
+    {
+        activeRoom = null;
+        hasRuntimeAnchor = false;
+        runtimeTileOrigin = Vector3.zero;
+        activeWorldSize = new Vector2(FixedBaseTiles, FixedBaseTiles);
+
+        ResolveSystems();
+        ResolveOrigin();
+
+        if (activeBase == null)
+        {
+            EnsurePersistentBase();
+            return;
+        }
+
+        ApplyExact4x4Sizing(activeBase);
+        MoveExistingBaseToResolvedAnchor();
+        EnsureVisibleBase();
+        EnsureWalkableBaseSource();
+    }
+
+    /// <summary>
     /// Guarantees that a visible, walkable 4x4 base exists even when no RoomDefinitionSO is active yet.
     /// </summary>
     public bool EnsurePersistentBase()

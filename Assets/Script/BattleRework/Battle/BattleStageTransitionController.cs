@@ -91,7 +91,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private bool hasShowAnchor;
     private bool preparedForIncomingNode;
     private bool selectionCollapsePrepared;
-    private bool subscribed;
+    private BattleRunManager subscribedRunManager;
     private bool showStageGateHeld;
     private bool collapseOpenShowOnComplete = true;
 
@@ -204,6 +204,18 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     {
         ResolveSystems();
 
+        if (Subscribe())
+        {
+            baseTemplate?.EnsurePersistentBase();
+            CaptureCurrentBase();
+            CaptureShowAnchorFromBase();
+            EnsureBaseVisible();
+            EnsurePlayerVisible();
+
+            if (runManager != null)
+                HandleStateChanged(runManager.State);
+        }
+
         if (flowState != BattleStageFlowState.ShowEntering || showStage == null || showStage.IsTransitioning)
             return;
 
@@ -239,28 +251,67 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             decorStage = FindFirstObjectByType<BattleUniversalStageDecorCarrierSkinController>();
     }
 
-    private void Subscribe()
+    private bool Subscribe()
     {
-        if (subscribed || runManager == null)
-            return;
+        if (runManager == null || subscribedRunManager == runManager)
+            return false;
+
+        Unsubscribe();
+        ResetTransientStageState();
 
         // StateChanged is the single logical trigger for stage transitions.
         // RewardSelectionRequested used to call collapse a second time and is intentionally not subscribed here.
-        runManager.StateChanged += HandleStateChanged;
-        runManager.NodeEntered += HandleNodeEntered;
-        runManager.RunEnded += HandleRunEnded;
-        subscribed = true;
+        subscribedRunManager = runManager;
+        subscribedRunManager.StateChanged += HandleStateChanged;
+        subscribedRunManager.NodeEntered += HandleNodeEntered;
+        subscribedRunManager.RunEnded += HandleRunEnded;
+        return true;
     }
 
     private void Unsubscribe()
     {
-        if (!subscribed || runManager == null)
-            return;
+        if (subscribedRunManager != null)
+        {
+            subscribedRunManager.StateChanged -= HandleStateChanged;
+            subscribedRunManager.NodeEntered -= HandleNodeEntered;
+            subscribedRunManager.RunEnded -= HandleRunEnded;
+        }
 
-        runManager.StateChanged -= HandleStateChanged;
-        runManager.NodeEntered -= HandleNodeEntered;
-        runManager.RunEnded -= HandleRunEnded;
-        subscribed = false;
+        subscribedRunManager = null;
+    }
+
+    public void ResetForNewRun()
+    {
+        ResolveSystems();
+        ResetTransientStageState();
+
+        baseTemplate?.EnsurePersistentBase();
+        CaptureCurrentBase();
+        CaptureShowAnchorFromBase();
+        EnsureBaseVisible();
+        EnsurePlayerVisible();
+    }
+
+    private void ResetTransientStageState()
+    {
+        if (collapseRoutine != null)
+            StopCoroutine(collapseRoutine);
+        if (queuedNodeEntryRoutine != null)
+            StopCoroutine(queuedNodeEntryRoutine);
+
+        collapseRoutine = null;
+        queuedNodeEntryRoutine = null;
+        queuedNode = null;
+
+        preparedForIncomingNode = false;
+        selectionCollapsePrepared = false;
+        hasPreservedBaseOrigin = false;
+        hasShowAnchor = false;
+        collapseOpenShowOnComplete = true;
+        pendingShowState = BattleStageFlowState.MapShow;
+
+        ReleaseShowStageGate();
+        SetFlowState(BattleStageFlowState.Base);
     }
 
     private void HandleStateChanged(BattleRunState next)

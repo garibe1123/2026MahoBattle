@@ -90,6 +90,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private PlayerController player;
     private BattleHUD hud;
     private BattleCameraController battleCameraController;
+    private BattleInputRouter inputRouter;
+    private BattleRunManager graphOwner;
     private NodeGraphSO graph;
 
     private readonly Dictionary<string, Vector2> resolvedMapPositions = new();
@@ -175,12 +177,35 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             hud = FindFirstObjectByType<BattleHUD>();
         if (battleCameraController == null)
             battleCameraController = FindFirstObjectByType<BattleCameraController>();
+        if (inputRouter == null && Application.isPlaying)
+            inputRouter = BattleInputRouter.ResolveOrCreate(this);
 
-        if (runManager != null && graph == null)
+        RefreshGraphBinding();
+    }
+
+    private void RefreshGraphBinding()
+    {
+        NodeGraphSO nextGraph = null;
+        if (runManager != null)
         {
             FieldInfo field = typeof(BattleRunManager).GetField("nodeGraph", InstanceFields);
-            graph = field != null ? field.GetValue(runManager) as NodeGraphSO : null;
+            nextGraph = field != null ? field.GetValue(runManager) as NodeGraphSO : null;
         }
+
+        if (graphOwner == runManager && graph == nextGraph)
+            return;
+
+        graphOwner = runManager;
+        graph = nextGraph;
+
+        resolvedMapPositions.Clear();
+        roomLayouts.Clear();
+        visitedNodeIds.Clear();
+        currentTargetLocalTiles.Clear();
+        mapSelectionActive = runManager != null && runManager.WaitingForNodeSelection;
+        stageMapSelectionLocked = false;
+        trackedStageMapButton = null;
+        trackedStageMapPointerAnchor = Vector2.zero;
     }
 
     private void Subscribe()
@@ -1884,8 +1909,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
         }
 
+        if (inputRouter == null || !inputRouter.PointerPresent)
+        {
+            ClearTrackedStageMapHover();
+            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            return;
+        }
+
         Camera eventCamera = ResolveStageMapEventCamera();
-        Vector2 pointer = Input.mousePosition;
+        Vector2 pointer = inputRouter.PointerPosition;
         Button directHit = FindStageMapButtonUnderPointer(pointer, eventCamera);
 
         if (directHit != null)

@@ -78,6 +78,30 @@ public sealed class BattleInputRouter : MonoBehaviour
     public Vector2 PointerPosition => Pointer.current != null ? Pointer.current.position.ReadValue() : Vector2.zero;
     public Vector2 ScrollDelta => Mouse.current != null ? Mouse.current.scroll.ReadValue() : Vector2.zero;
 
+    /// <summary>
+    /// Reward PACK처럼 UI ActionMap 안에서도 패드와 KBM 조작 규칙을 분리해야 하는 화면에서 사용합니다.
+    /// D-Pad가 눌린 경우 Stick보다 D-Pad를 우선합니다.
+    /// </summary>
+    public Vector2 GamepadNavigate
+    {
+        get
+        {
+            if (!UiEnabled || Gamepad.current == null)
+                return Vector2.zero;
+
+            Vector2 stick = Gamepad.current.leftStick.ReadValue();
+            Vector2 dpad = Gamepad.current.dpad.ReadValue();
+            return dpad.sqrMagnitude > stick.sqrMagnitude ? dpad : stick;
+        }
+    }
+
+    public bool GamepadSubmitPressedThisFrame =>
+        UiEnabled && Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame;
+    public bool GamepadCancelPressedThisFrame =>
+        UiEnabled && Gamepad.current != null && Gamepad.current.buttonEast.wasPressedThisFrame;
+    public bool KeyboardCancelPressedThisFrame =>
+        UiEnabled && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
+
     /// <summary>Reward PACK 전용 보조 액션. Gamepad Y / North.</summary>
     public bool DiscardPressedThisFrame => UiEnabled && Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame;
     /// <summary>Reward PACK 완료 보조 액션. Gamepad Start.</summary>
