@@ -3,6 +3,9 @@ Shader "Sprites/BattleSoftKeyLight"
     Properties
     {
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
+        _BeamShear ("Beam Shear", Range(-0.5,0.5)) = 0
+        _BeamBottomWidthScale ("Beam Bottom Width Scale", Range(0.5,2)) = 1
+        _BeamOpacityScale ("Beam Opacity Scale", Range(0,1)) = 1
     }
 
     SubShader
@@ -44,10 +47,31 @@ Shader "Sprites/BattleSoftKeyLight"
             };
 
             sampler2D _MainTex;
+            float _BeamShear;
+            float _BeamBottomWidthScale;
+            float _BeamOpacityScale;
 
             v2f vert(appdata_t v)
             {
                 v2f o;
+
+                float bottomWeight =
+                    1.0 - saturate(v.texcoord.y);
+
+                // Keep the narrow source edge almost fixed while the lower cone is
+                // directionally stretched and sheared by the fake-3D light rig.
+                v.vertex.x *=
+                    lerp(
+                        1.0,
+                        max(0.01, _BeamBottomWidthScale),
+                        bottomWeight);
+
+                v.vertex.x +=
+                    _BeamShear *
+                    bottomWeight *
+                    abs(v.vertex.y) *
+                    2.0;
+
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.color = v.color;
                 o.uv = v.texcoord;
@@ -57,7 +81,11 @@ Shader "Sprites/BattleSoftKeyLight"
             fixed4 frag(v2f i) : SV_Target
             {
                 fixed4 tex = tex2D(_MainTex, i.uv);
-                return fixed4(i.color.rgb, tex.a * i.color.a);
+                return fixed4(
+                    i.color.rgb,
+                    tex.a *
+                    i.color.a *
+                    saturate(_BeamOpacityScale));
             }
             ENDCG
         }
