@@ -1435,7 +1435,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             return inventoryInteraction.PadPickedSlot;
         }
 
-        return inventoryInteraction.SelectedRewardSlot;
+        return -1;
     }
 
     private void EnsureDismissCanvas()
