@@ -90,6 +90,9 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float combatPlayerFocusRadiusWorld = 1.62f;
     [SerializeField, Range(0.001f, 0.08f)] private float combatPlayerFocusFeather = 0.030f;
     [SerializeField, Min(0.01f)] private float combatFocusFadeDuration = 0.18f;
+    [Tooltip("원형 Focus hole이 플레이어보다 살짝 늦게 따라오는 정도입니다.")]
+    [SerializeField, Min(0.1f)] private float combatFocusFollowSharpness = 7.2f;
+    [SerializeField, Min(0f)] private float combatFocusMaxLagWorld = 0.28f;
 
     [Header("Screen Rect Focus")]
     [Tooltip("0에 가까울수록 TV 실제 화면 경계에 딱 맞는 직사각형입니다.")]
@@ -109,6 +112,8 @@ public sealed class BattleShowFocusController : MonoBehaviour
     private float currentDimBlend;
     private float currentFocusBlend;
     private float currentCombatBlend;
+    private Vector3 currentCombatFocusWorld;
+    private bool combatFocusWorldInitialized;
 
     private bool hasLastShowFrame;
     private Vector3 lastShowTarget;
@@ -276,10 +281,15 @@ public sealed class BattleShowFocusController : MonoBehaviour
             Vector3 playerFocusWorld =
                 ResolvePlayerVisualCenter();
 
+            currentCombatFocusWorld =
+                ResolveCombatFocusWorldPosition(
+                    playerFocusWorld,
+                    deltaTime);
+
             playerVisible =
                 TryProjectWorldPoint(
                     camera,
-                    playerFocusWorld,
+                    currentCombatFocusWorld,
                     combatPlayerFocusRadiusWorld,
                     out playerUv,
                     out playerRadiusUv);
@@ -439,8 +449,50 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, activeCharacterFeather));
         runtimeMaterial.SetFloat("_RectFeather", Mathf.Max(0.0001f, rectFeather));
 
+        if (!combatFocusRequested)
+            combatFocusWorldInitialized = false;
+
         if (overlayImage != null)
             overlayImage.enabled = presentationBlend > 0.0001f;
+    }
+
+    private Vector3 ResolveCombatFocusWorldPosition(
+        Vector3 targetWorld,
+        float deltaTime)
+    {
+        if (!combatFocusWorldInitialized)
+        {
+            currentCombatFocusWorld = targetWorld;
+            combatFocusWorldInitialized = true;
+            return currentCombatFocusWorld;
+        }
+
+        float t =
+            1f -
+            Mathf.Exp(
+                -Mathf.Max(0.1f, combatFocusFollowSharpness) *
+                Mathf.Max(0f, deltaTime));
+
+        Vector3 next =
+            Vector3.Lerp(
+                currentCombatFocusWorld,
+                targetWorld,
+                t);
+
+        Vector3 lag =
+            next - targetWorld;
+
+        if (lag.magnitude > combatFocusMaxLagWorld &&
+            combatFocusMaxLagWorld > 0f)
+        {
+            next =
+                targetWorld +
+                lag.normalized *
+                combatFocusMaxLagWorld;
+        }
+
+        currentCombatFocusWorld = next;
+        return currentCombatFocusWorld;
     }
 
     private Vector3 ResolvePlayerVisualCenter()
@@ -860,6 +912,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
         currentDimBlend = 0f;
         currentFocusBlend = 0f;
         currentCombatBlend = 0f;
+        combatFocusWorldInitialized = false;
         showStageBecameActiveAt = -1f;
         showScreenBecameReadyAt = -1f;
 
