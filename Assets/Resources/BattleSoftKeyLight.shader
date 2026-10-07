@@ -19,7 +19,7 @@ Shader "Sprites/BattleSoftKeyLight"
         Cull Off
         Lighting Off
         ZWrite Off
-        Blend SrcAlpha One
+        Blend SrcAlpha OneMinusSrcAlpha
         ColorMask RGB
 
         Pass
