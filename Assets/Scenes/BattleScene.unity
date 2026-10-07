@@ -1238,19 +1238,19 @@ MonoBehaviour:
   runManager: {fileID: 100013}
   stageFlow: {fileID: 0}
   vignetteColor: {r: 0, g: 0, b: 0, a: 1}
-  overallStrength: 0.72
-  edgeDarkness: 0.025
-  cornerDarkness: 0.16
+  overallStrength: 0.92
+  edgeDarkness: 0.045
+  cornerDarkness: 0.24
   horizontalFalloff: 0.2
   verticalFalloff: 0.26
-  cornerPower: 0.95
+  cornerPower: 1.08
   fadeInSharpness: 5.5
   fadeOutSharpness: 8
   warningThreshold: 0.35
   criticalThreshold: 0.2
   lastChanceThreshold: 0.1
-  lowHpExtraVignette: 0.16
-  damageBurstVignette: 0.08
+  lowHpExtraVignette: 0.2
+  damageBurstVignette: 0.1
 --- !u!114 &529217571
 MonoBehaviour:
   m_ObjectHideFlags: 0
