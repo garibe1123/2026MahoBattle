@@ -27,11 +27,21 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField] private BattleRoomManager roomManager;
     [SerializeField] private BattleRunManager runManager;
     [SerializeField] private BattleShowWorldSetController showStage;
+    [SerializeField] private BattleColorGradingController colorGrading;
     [SerializeField] private Transform movementRoot;
 
     [Header("Player Follow")]
     [SerializeField, Min(0f)] private float followSharpness = 11f;
     [SerializeField, Min(0f)] private float returnFromInspectionSharpness = 7f;
+
+    [Header("Combat Camera Feel")]
+    [Tooltip("일반 Combat Follow에만 적용합니다. Show / Reward / Map / 강제 Focus는 기존 카메라 경로를 유지합니다.")]
+    [SerializeField] private bool useCombatCameraFeel = true;
+    [Tooltip("Player가 이 월드 범위 안에서 움직이는 동안 카메라 기준점은 움직이지 않습니다. 값은 중심에서 각 축으로 허용할 거리입니다.")]
+    [SerializeField] private Vector2 combatDeadZone = new(0.48f, 0.28f);
+    [SerializeField, Min(1f)] private float combatFollowSpring = 52f;
+    [SerializeField, Min(0f)] private float combatFollowDamping = 12.5f;
+    [SerializeField, Min(0.1f)] private float combatMaxFollowSpeed = 16f;
 
     [Header("Player Camera Lead")]
     [SerializeField, Min(0f)] private float playerLeadDistance = 0.80f;
@@ -81,6 +91,13 @@ public class BattleCameraController : MonoBehaviour
     [SerializeField, Min(0.01f)] private float maxImpulseOffset = 0.18f;
     [SerializeField, Min(0.01f)] private float maxImpulseVelocity = 5.2f;
 
+    [Header("Combat Camera Reaction")]
+    [Tooltip("기존 PushCameraImpulse strength를 회전/줌/렌즈 반응 강도로 변환할 배율입니다.")]
+    [SerializeField, Min(0f)] private float impulseReactionGain = 2.5f;
+    [SerializeField, Range(0f, 1f)] private float maxReactionRotationDegrees = 0.42f;
+    [SerializeField, Range(0f, 0.08f)] private float maxReactionZoomRatio = 0.024f;
+    [SerializeField, Min(0.1f)] private float reactionReturnSharpness = 13f;
+
     private sealed class CameraFocusRequest
     {
         public int id;
@@ -110,6 +127,10 @@ public class BattleCameraController : MonoBehaviour
     private Transform resolvedFollowBodyTarget;
     private Vector2 currentPlayerLead;
 
+    private bool combatAnchorInitialized;
+    private Vector2 combatFramingAnchor;
+    private Vector2 combatFollowVelocity;
+
     private readonly List<CameraFocusRequest> focusRequests = new();
     private int nextFocusRequestId = 1;
 
@@ -124,6 +145,12 @@ public class BattleCameraController : MonoBehaviour
     private Vector2 directionalImpulseVelocity;
     private float directionalImpulseEndTime;
     private Vector2 lastCameraEffectOffset;
+
+    private Transform cameraEffectRotationTarget;
+    private Quaternion baseCameraEffectLocalRotation = Quaternion.identity;
+    private float currentReactionRotationDegrees;
+    private float currentReactionZoomRatio;
+    private float lastCameraZoomEffect;
 
     public float CurrentZoom => controlledCamera != null ? controlledCamera.orthographicSize : 0f;
     public bool IsInspecting => inspecting;
@@ -218,6 +245,18 @@ public class BattleCameraController : MonoBehaviour
         directionalImpulseEndTime = Mathf.Max(
             directionalImpulseEndTime,
             Time.unscaledTime + Mathf.Max(0.01f, duration));
+
+        if (IsCombatReactionAllowed())
+            PushSecondaryCameraReaction(resolvedDirection, safeStrength, duration);
+    }
+
+    /// <summary>
+    /// 전투용 카메라 반응 API입니다. 기존 PushCameraImpulse와 동일한 위치 충격에
+    /// Rotation / Zoom / Optics transient를 함께 얹습니다.
+    /// </summary>
+    public void PlayCameraReaction(Vector2 direction, float strength, float duration = 0.15f)
+    {
+        PushCameraImpulse(direction, strength, duration);
     }
 
     public Transform FollowTarget => followTarget;
@@ -353,6 +392,8 @@ public class BattleCameraController : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (showStage == null)
             showStage = FindFirstObjectByType<BattleShowWorldSetController>();
+        if (colorGrading == null)
+            colorGrading = FindFirstObjectByType<BattleColorGradingController>();
         if (presentation == null)
             presentation = BattleShowPresentationManager.Instance != null
                 ? BattleShowPresentationManager.Instance
@@ -374,6 +415,8 @@ public class BattleCameraController : MonoBehaviour
         resolvedFollowBodyTarget = followTarget;
         followBody = followTarget != null ? followTarget.GetComponent<Rigidbody2D>() : null;
         currentPlayerLead = Vector2.zero;
+        combatAnchorInitialized = false;
+        combatFollowVelocity = Vector2.zero;
     }
 
     private void ResolveMovementRoot()
@@ -389,9 +432,14 @@ public class BattleCameraController : MonoBehaviour
         if (shakePivot == null)
         {
             movementRoot = cameraTransform;
+            cameraEffectRotationTarget = cameraTransform;
+            baseCameraEffectLocalRotation = cameraTransform.localRotation;
             rigResolved = true;
             return;
         }
+
+        cameraEffectRotationTarget = shakePivot;
+        baseCameraEffectLocalRotation = shakePivot.localRotation;
 
         if (shakePivot.parent != null && shakePivot.parent.name == "CameraRig")
         {
@@ -411,6 +459,8 @@ public class BattleCameraController : MonoBehaviour
 
         shakePivot.SetParent(rig, true);
         movementRoot = rig;
+        cameraEffectRotationTarget = shakePivot;
+        baseCameraEffectLocalRotation = shakePivot.localRotation;
         rigResolved = true;
     }
 
@@ -424,6 +474,9 @@ public class BattleCameraController : MonoBehaviour
         maxZoom = Mathf.Max(minZoom, maxZoom);
         targetZoom = Mathf.Clamp(controlledCamera.orthographicSize, minZoom, maxZoom);
         zoomBeforeShow = targetZoom;
+        lastCameraZoomEffect = 0f;
+        combatAnchorInitialized = false;
+        combatFollowVelocity = Vector2.zero;
         initialized = true;
     }
 
@@ -660,7 +713,18 @@ public class BattleCameraController : MonoBehaviour
                 : showFollowSharpness;
         float zoomSpeed = Mathf.Lerp(normalZoomSpeed, showZoomSpeed, showBlend);
         float zoomT = 1f - Mathf.Exp(-Mathf.Max(0f, zoomSpeed) * Time.unscaledDeltaTime);
-        controlledCamera.orthographicSize = Mathf.Lerp(controlledCamera.orthographicSize, desiredZoom, zoomT);
+
+        UpdateSecondaryCameraReaction();
+
+        float unaffectedZoom = controlledCamera.orthographicSize - lastCameraZoomEffect;
+        float baseZoom = Mathf.Lerp(unaffectedZoom, desiredZoom, zoomT);
+        lastCameraZoomEffect = IsCombatReactionAllowed()
+            ? -baseZoom * currentReactionZoomRatio
+            : 0f;
+        controlledCamera.orthographicSize = Mathf.Clamp(
+            baseZoom + lastCameraZoomEffect,
+            Mathf.Min(minZoom, showMinZoom) * 0.85f,
+            Mathf.Max(maxZoom, showMaxZoom) * 1.10f);
 
         if (!showFraming && !inspecting && panOffset.sqrMagnitude > 0.0001f)
         {
@@ -670,9 +734,23 @@ public class BattleCameraController : MonoBehaviour
                 panOffset = Vector2.zero;
         }
 
-        Vector2 normalTarget = activeFocus != null
-            ? ResolveFocusPosition(activeFocus)
-            : (Vector2)followTarget.position + panOffset + currentPlayerLead;
+        bool directCombatFollow = IsDirectCombatFollow(activeFocus);
+
+        Vector2 normalTarget;
+        if (directCombatFollow && useCombatCameraFeel)
+        {
+            Vector2 anchor = ResolveCombatFramingAnchor(followTarget.position);
+            normalTarget = anchor + panOffset + currentPlayerLead;
+        }
+        else
+        {
+            combatAnchorInitialized = false;
+            combatFollowVelocity = Vector2.zero;
+            normalTarget = activeFocus != null
+                ? ResolveFocusPosition(activeFocus)
+                : (Vector2)followTarget.position + panOffset + currentPlayerLead;
+        }
+
         Vector2 showTarget = showStage != null && showStage.HasCameraAnchor
             ? (Vector2)showStage.CameraTargetWorld + currentShowCursorPan
             : normalTarget;
@@ -688,10 +766,20 @@ public class BattleCameraController : MonoBehaviour
                     : 5.4f)
                 : showFollowSharpness;
         float followSpeed = Mathf.Lerp(normalFollowSpeed, showPositionSpeed, showBlend);
-        float followT = !showFraming && inspecting && activeFocus == null
-            ? 1f
-            : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
-        Vector2 next = Vector2.Lerp(unaffectedCurrent, desiredTarget, followT);
+
+        Vector2 next;
+        if (directCombatFollow && useCombatCameraFeel && showBlend <= 0.001f)
+        {
+            next = IntegrateCombatFollow(unaffectedCurrent, desiredTarget);
+        }
+        else
+        {
+            combatFollowVelocity = Vector2.zero;
+            float followT = !showFraming && inspecting && activeFocus == null
+                ? 1f
+                : 1f - Mathf.Exp(-Mathf.Max(0f, followSpeed) * Time.unscaledDeltaTime);
+            next = Vector2.Lerp(unaffectedCurrent, desiredTarget, followT);
+        }
 
         if ((showFraming || showBlend > 0f) && showTransitionMaxSpeed > 0f)
         {
@@ -705,6 +793,132 @@ public class BattleCameraController : MonoBehaviour
         lastCameraEffectOffset = directionalImpulseOffset + EvaluateSelectionShakeOffset();
         Vector2 shaken = next + lastCameraEffectOffset;
         movementRoot.position = new Vector3(shaken.x, shaken.y, current.z);
+        ApplyCameraReactionRotation();
+    }
+
+    private bool IsDirectCombatFollow(CameraFocusRequest activeFocus)
+    {
+        return runManager != null &&
+               runManager.State == BattleRunState.Combat &&
+               !showFraming &&
+               !inspecting &&
+               activeFocus == null;
+    }
+
+    private bool IsCombatReactionAllowed()
+    {
+        return runManager != null &&
+               runManager.State == BattleRunState.Combat &&
+               !showFraming;
+    }
+
+    private Vector2 ResolveCombatFramingAnchor(Vector2 playerPosition)
+    {
+        if (!combatAnchorInitialized)
+        {
+            combatFramingAnchor = playerPosition;
+            combatAnchorInitialized = true;
+            return combatFramingAnchor;
+        }
+
+        float deadX = Mathf.Max(0f, combatDeadZone.x);
+        float deadY = Mathf.Max(0f, combatDeadZone.y);
+        Vector2 delta = playerPosition - combatFramingAnchor;
+
+        if (Mathf.Abs(delta.x) > deadX)
+            combatFramingAnchor.x = playerPosition.x - Mathf.Sign(delta.x) * deadX;
+        if (Mathf.Abs(delta.y) > deadY)
+            combatFramingAnchor.y = playerPosition.y - Mathf.Sign(delta.y) * deadY;
+
+        return combatFramingAnchor;
+    }
+
+    private Vector2 IntegrateCombatFollow(Vector2 current, Vector2 target)
+    {
+        float dt = Mathf.Min(0.033f, Mathf.Max(0.001f, Time.unscaledDeltaTime));
+        Vector2 displacement = target - current;
+        Vector2 acceleration =
+            displacement * Mathf.Max(1f, combatFollowSpring) -
+            combatFollowVelocity * Mathf.Max(0f, combatFollowDamping);
+
+        combatFollowVelocity += acceleration * dt;
+        combatFollowVelocity = Vector2.ClampMagnitude(
+            combatFollowVelocity,
+            Mathf.Max(0.1f, combatMaxFollowSpeed));
+
+        Vector2 next = current + combatFollowVelocity * dt;
+        if (displacement.sqrMagnitude < 0.000004f &&
+            combatFollowVelocity.sqrMagnitude < 0.0004f)
+        {
+            combatFollowVelocity = Vector2.zero;
+            next = target;
+        }
+
+        return next;
+    }
+
+    private void PushSecondaryCameraReaction(Vector2 direction, float impulseStrength, float duration)
+    {
+        float normalizedStrength = Mathf.Clamp01(
+            Mathf.Max(0f, impulseStrength) * Mathf.Max(0f, impulseReactionGain));
+        if (normalizedStrength <= 0f)
+            return;
+
+        float horizontal = Mathf.Abs(direction.x) > 0.15f
+            ? -Mathf.Sign(direction.x)
+            : (Random.value < 0.5f ? -1f : 1f);
+
+        currentReactionRotationDegrees = Mathf.Clamp(
+            currentReactionRotationDegrees +
+            horizontal * maxReactionRotationDegrees * normalizedStrength,
+            -maxReactionRotationDegrees,
+            maxReactionRotationDegrees);
+
+        currentReactionZoomRatio = Mathf.Clamp(
+            Mathf.Max(
+                currentReactionZoomRatio,
+                maxReactionZoomRatio * normalizedStrength),
+            0f,
+            maxReactionZoomRatio);
+
+        if (colorGrading == null)
+            colorGrading = FindFirstObjectByType<BattleColorGradingController>();
+
+        if (colorGrading != null)
+            colorGrading.PushCameraReaction(normalizedStrength, duration);
+    }
+
+    private void UpdateSecondaryCameraReaction()
+    {
+        if (!IsCombatReactionAllowed())
+        {
+            currentReactionRotationDegrees = 0f;
+            currentReactionZoomRatio = 0f;
+            return;
+        }
+
+        float t = 1f - Mathf.Exp(
+            -Mathf.Max(0.1f, reactionReturnSharpness) * Time.unscaledDeltaTime);
+
+        currentReactionRotationDegrees =
+            Mathf.Lerp(currentReactionRotationDegrees, 0f, t);
+        currentReactionZoomRatio =
+            Mathf.Lerp(currentReactionZoomRatio, 0f, t);
+
+        if (Mathf.Abs(currentReactionRotationDegrees) < 0.001f)
+            currentReactionRotationDegrees = 0f;
+        if (currentReactionZoomRatio < 0.00005f)
+            currentReactionZoomRatio = 0f;
+    }
+
+    private void ApplyCameraReactionRotation()
+    {
+        if (cameraEffectRotationTarget == null)
+            return;
+
+        cameraEffectRotationTarget.localRotation =
+            baseCameraEffectLocalRotation *
+            Quaternion.Euler(0f, 0f, currentReactionRotationDegrees);
     }
 
     private void UpdatePlayerLead()
@@ -867,10 +1081,20 @@ public class BattleCameraController : MonoBehaviour
                 position.z);
         }
 
+        if (controlledCamera != null && Mathf.Abs(lastCameraZoomEffect) > 0.00001f)
+            controlledCamera.orthographicSize -= lastCameraZoomEffect;
+
+        if (cameraEffectRotationTarget != null)
+            cameraEffectRotationTarget.localRotation = baseCameraEffectLocalRotation;
+
         lastCameraEffectOffset = Vector2.zero;
+        lastCameraZoomEffect = 0f;
         directionalImpulseOffset = Vector2.zero;
         directionalImpulseVelocity = Vector2.zero;
         directionalImpulseEndTime = 0f;
+        currentReactionRotationDegrees = 0f;
+        currentReactionZoomRatio = 0f;
+        combatFollowVelocity = Vector2.zero;
         selectionShakeStartedAt = -1f;
         selectionShakeDuration = 0f;
         selectionShakeAmplitude = 0f;
@@ -883,6 +1107,9 @@ public class BattleCameraController : MonoBehaviour
 
         ClearCameraEffects();
         currentPlayerLead = Vector2.zero;
+        combatFramingAnchor = followTarget.position;
+        combatAnchorInitialized = true;
+        combatFollowVelocity = Vector2.zero;
         Vector3 current = movementRoot.position;
         movementRoot.position = new Vector3(followTarget.position.x, followTarget.position.y, current.z);
     }
