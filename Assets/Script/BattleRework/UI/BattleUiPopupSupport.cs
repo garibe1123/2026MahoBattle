@@ -4,6 +4,21 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
+/// Reward PACK 편집 중의 절대 Sorting 계약.
+/// World-space TV는 20000+, Presenter는 최대 32000까지 사용하므로
+/// Reward 조작 UI는 32100~32600 보호 구간을 사용합니다.
+/// 이 범위 안에서는 PACK < transient/drag < cancel < detail 순서를 고정합니다.
+/// </summary>
+public static class BattleUiSortingContract
+{
+    public const int RewardPack = 32100;
+    public const int RewardTransientBase = 32300;
+    public const int RewardDragGhost = 32400;
+    public const int RewardSelectionCancel = 32500;
+    public const int RewardDetail = 32600;
+}
+
+/// <summary>
 /// Battle UI에서 공통으로 쓰는 Unscaled-Time 홀로그램 Stroke Material 공급자.
 /// BattleShowPresentationManager가 씬에 없더라도 Runtime fallback Material을 보장합니다.
 /// </summary>
