@@ -63,8 +63,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     public float UnifiedFarDimAlpha => farDimAlpha;
     public float UnifiedDimFalloffRadius => dimFalloffRadius;
     public float UnifiedPlayerFocusRadiusWorld => playerFocusRadiusWorld;
-    public float UnifiedCharacterVerticalRatio => characterVerticalRatio;
-    public float UnifiedCharacterLowerOffset => characterLowerOffset;
+    public float UnifiedCharacterVerticalRatio => 1f;
+    public float UnifiedCharacterLowerOffset => 0f;
     public float UnifiedCharacterFeather => characterFeather;
     public float UnifiedDimFadeInDuration => preCombatFadeInDuration;
 
@@ -421,8 +421,9 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         overlayMaterial.SetFloat("_PlayerStrength", playerVisible ? currentStageDim : 0f);
         overlayMaterial.SetFloat("_PresenterStrength", 0f);
         overlayMaterial.SetFloat("_ScreenStrength", 0f);
-        overlayMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(characterVerticalRatio, 0.2f, 1f));
-        overlayMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(characterLowerOffset));
+        // Use the same circular mask-hole language as Combat/Reward Item focus.
+        overlayMaterial.SetFloat("_CharacterVerticalRatio", 1f);
+        overlayMaterial.SetFloat("_CharacterLowerOffset", 0f);
         overlayMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, characterFeather));
         overlayMaterial.SetFloat("_RectFeather", 0.0035f);
 
