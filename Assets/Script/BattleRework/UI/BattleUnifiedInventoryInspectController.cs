@@ -195,6 +195,11 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         ApplySelectionFrames(rewardEdit, rewardEdit);
         ApplyRewardInspectTooltip(rewardEdit);
         UpdateSelectionCancelButton(rewardEdit);
+
+        // Reward TV/Presenter보다 PACK을 앞에, Detail을 그보다 더 앞에 고정합니다.
+        // Spatial coordinator가 매 프레임 sorting을 계산하더라도 이 Controller가
+        // 더 늦은 ExecutionOrder에서 Reward 전용 절대 순서를 최종 확정합니다.
+        ApplyRewardForegroundSorting(rewardPackVisible);
     }
 
     private void ResolveReferences()
@@ -638,6 +643,55 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         float t = Mathf.Clamp01((value - start) / (end - start));
         return t * t * (3f - 2f * t);
+    }
+
+    private void ApplyRewardForegroundSorting(bool rewardPackVisible)
+    {
+        if (!rewardPackVisible)
+            return;
+
+        if (boardRoot != null)
+        {
+            Canvas boardCanvas =
+                boardRoot.GetComponent<Canvas>();
+
+            if (boardCanvas == null)
+                boardCanvas = boardRoot.gameObject.AddComponent<Canvas>();
+
+            boardCanvas.overrideSorting =
+                true;
+
+            boardCanvas.sortingOrder =
+                BattleUiSortingContract.RewardPack;
+
+            // PACK은 실제 Slot click/drag Owner이므로 Raycaster를 보장합니다.
+            if (boardRoot.GetComponent<GraphicRaycaster>() == null)
+                boardRoot.gameObject.AddComponent<GraphicRaycaster>();
+        }
+
+        if (builtInDetailRoot != null)
+        {
+            Canvas detailCanvas =
+                builtInDetailRoot.GetComponent<Canvas>();
+
+            if (detailCanvas == null)
+                detailCanvas = builtInDetailRoot.gameObject.AddComponent<Canvas>();
+
+            detailCanvas.overrideSorting =
+                true;
+
+            detailCanvas.sortingOrder =
+                BattleUiSortingContract.RewardDetail;
+
+            // Tooltip은 클릭을 먹지 않습니다.
+            GraphicRaycaster detailRaycaster =
+                builtInDetailRoot.GetComponent<GraphicRaycaster>();
+
+            if (detailRaycaster != null)
+                detailRaycaster.enabled = false;
+
+            builtInDetailRoot.SetAsLastSibling();
+        }
     }
 
     private void ApplyFullInventoryLayout(bool rewardEdit)
@@ -1440,7 +1494,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             true;
 
         buttonCanvas.sortingOrder =
-            1580;
+            BattleUiSortingContract.RewardSelectionCancel;
 
         selectionCancelRoot.gameObject.AddComponent<GraphicRaycaster>();
 
