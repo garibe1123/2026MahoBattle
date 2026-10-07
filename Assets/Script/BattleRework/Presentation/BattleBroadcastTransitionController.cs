@@ -253,7 +253,7 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
             return false;
         if (FindFirstObjectByType<BattleShowWorldSetController>(FindObjectsInactive.Include) == null)
             return false;
-        if (FindFirstObjectByType<BattleSpotlightBeamDirectionController>(FindObjectsInactive.Include) == null)
+        if (FindFirstObjectByType<BattleSpotlightController>(FindObjectsInactive.Include) == null)
             return false;
 
         return true;
