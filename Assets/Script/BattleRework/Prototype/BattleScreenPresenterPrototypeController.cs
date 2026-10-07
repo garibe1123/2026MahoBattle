@@ -808,20 +808,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             Vector2.zero,
             new Vector2(190f, 30f));
 
-        contextText = CreateText(
-            dialogueRect,
-            "Context",
-            string.Empty,
-            11,
-            FontStyle.Bold,
-            TextAnchor.MiddleRight,
-            bubbleMuted);
-        Place(
-            contextText.rectTransform,
-            new Vector2(1f, 1f),
-            new Vector2(1f, 1f),
-            new Vector2(-24f, -11f),
-            new Vector2(560f, 26f));
+        // 우측 상단 상황/아이템 메타 텍스트는 사용하지 않습니다.
+        // 대화창은 SHOW HOST 라벨과 본문에만 시선을 집중시킵니다.
+        contextText = null;
 
         dialogueText = CreateText(
             dialogueRect,
@@ -1594,12 +1583,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (nameText != null)
             nameText.text = "SHOW HOST";
 
-        if (contextText != null)
-        {
-            contextText.text = string.IsNullOrWhiteSpace(activeKeyword)
-                ? activeHeader
-                : $"{activeHeader} / {activeKeyword}";
-        }
+        // Context metadata display intentionally removed.
 
         if (liveText != null)
         {
