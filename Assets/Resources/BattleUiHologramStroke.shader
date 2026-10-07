@@ -7,10 +7,10 @@ Shader "UI/BattleUiHologramStroke"
         _BattleUiUnscaledTime ("Unscaled Time", Float) = 0
         _ScanlineDensity ("Scanline Density", Range(8,160)) = 74
         _ScanlineSpeed ("Scanline Speed", Range(-8,8)) = 1.8
-        _ScanlineStrength ("Scanline Strength", Range(0,0.8)) = 0.24
-        _NoiseStrength ("Noise Strength", Range(0,0.8)) = 0.15
-        _PulseStrength ("Pulse Strength", Range(0,0.8)) = 0.12
-        _CyanBoost ("Cyan Boost", Range(0,1)) = 0.12
+        _ScanlineStrength ("Scanline Strength", Range(0,0.8)) = 0
+        _NoiseStrength ("Noise Strength", Range(0,0.8)) = 0.035
+        _PulseStrength ("Pulse Strength", Range(0,0.8)) = 0.02
+        _CyanBoost ("Cyan Boost", Range(0,1)) = 0
 
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
@@ -142,7 +142,6 @@ Shader "UI/BattleUiHologramStroke"
 
                 float brightness =
                     1.0 +
-                    scan * _ScanlineStrength +
                     noise * _NoiseStrength +
                     pulse * _PulseStrength;
 
@@ -155,8 +154,7 @@ Shader "UI/BattleUiHologramStroke"
                         0.0,
                         0.72,
                         1.0) *
-                    _CyanBoost *
-                    (0.35 + scan * 0.65);
+                    _CyanBoost;
 
                 float alpha =
                     source.a *
