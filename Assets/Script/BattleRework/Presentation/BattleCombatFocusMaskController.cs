@@ -316,7 +316,7 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
             return;
         }
 
-        float angle = ResolveScreenDirectionAngle(
+        float rawAngle = ResolveScreenDirectionAngle(
             camera,
             focusWorld,
             directionWorld);
@@ -327,10 +327,29 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
             Mathf.Sqrt(
                 Mathf.Clamp01(tilt01));
 
+        // At rest the footprint must always read as a horizontally flattened top-down ellipse.
+        // Only rotate toward the movement/light direction once the fake-3D rig actually tilts.
+        float angle =
+            rawAngle *
+            Mathf.SmoothStep(
+                0f,
+                1f,
+                visualTilt);
+
         float elongation =
             1f +
             visualTilt *
             Mathf.Max(0f, maxDirectionalElongation);
+
+        float dynamicVerticalRatio =
+            Mathf.Clamp(
+                verticalRatio *
+                Mathf.Lerp(
+                    1f,
+                    0.90f,
+                    visualTilt),
+                0.55f,
+                1f);
 
         runtimeMaterial.SetColor("_MaskColor", dimColor);
         runtimeMaterial.SetFloat("_Presentation", currentBlend);
@@ -341,7 +360,7 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
         runtimeMaterial.SetFloat("_Radius", radiusUv);
         runtimeMaterial.SetFloat(
             "_VerticalRatio",
-            Mathf.Clamp(verticalRatio, 0.55f, 1f));
+            dynamicVerticalRatio);
         runtimeMaterial.SetFloat(
             "_Elongation",
             Mathf.Clamp(elongation, 1f, 1.5f));
