@@ -369,10 +369,6 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             lastPlayerVelocity = Vector2.zero;
             virtualAimWorld = playerPosition;
             virtualSourceWorld = playerPosition;
-            currentVirtualRotation =
-                Quaternion.LookRotation(
-                    Vector3.back,
-                    Vector3.up);
             currentGroundDirection = Vector2.down;
             currentTilt01 = 0f;
             hasMotionSample = true;
