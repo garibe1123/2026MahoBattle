@@ -36,7 +36,6 @@ internal enum BattleInventorySurface
 public sealed class BattleInventoryInteractionController : MonoBehaviour
 {
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
-    private const int OverlaySortingOrder = 1550;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
@@ -132,8 +131,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     private RectTransform miniPackRoot;
     private readonly GameObject[] miniSelectionFrames = new GameObject[SlotCount];
     private readonly Outline[] miniSelectionOutlines = new Outline[SlotCount];
-    private readonly GameObject[] fullSelectionFrames = new GameObject[SlotCount];
-    private readonly Outline[] fullSelectionOutlines = new Outline[SlotCount];
 
     // Input state only. These names remain stable until Phase 6 removes legacy visual reflection users.
     private int selectedRewardSlot = -1;
