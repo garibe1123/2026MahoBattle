@@ -52,15 +52,14 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     [Tooltip("급가속/급회전 때 Light Source가 추가로 뒤에 남는 양입니다.")]
     [SerializeField, Min(0f)] private float sourceAccelerationTrail = 0.011f;
     [SerializeField, Min(0f)] private float maxSourceLagDistance = 1.75f;
-    [SerializeField, Range(1f, 45f)] private float maxRigTiltDegrees = 32f;
-    [SerializeField, Min(0.1f)] private float angularFollowSharpness = 3.4f;
+    [Tooltip("가상 광원과 Aim의 각도가 이 값에 도달하면 Scale 반응을 100%로 봅니다.")]
+    [SerializeField, Range(5f, 45f)] private float fullScaleResponseAngleDegrees = 26f;
 
-    [Header("COMBAT BEAM PROJECTION")]
-    [SerializeField, Range(0f, 28f)] private float maxBeamRollDegrees = 18f;
-    [SerializeField, Range(0f, 0.65f)] private float maxBeamShear = 0.36f;
-    [SerializeField, Range(0f, 0.50f)] private float maxBeamLengthBoost = 0.30f;
-    [SerializeField, Range(0f, 0.45f)] private float maxBeamWidthBoost = 0.18f;
-    [SerializeField, Range(0f, 0.8f)] private float tiltOpacityLoss = 0.34f;
+    [Header("COMBAT BEAM PROJECTION — SCALE ONLY")]
+    [SerializeField, Range(0f, 0.65f)] private float maxBeamLengthBoost = 0.38f;
+    [SerializeField, Range(0f, 0.45f)] private float maxBeamWidthBoost = 0.22f;
+    [SerializeField, Range(0f, 0.60f)] private float maxBeamBottomWidthBoost = 0.34f;
+    [SerializeField, Range(0f, 0.8f)] private float tiltOpacityLoss = 0.26f;
     [Tooltip("가상 Light Source가 뒤에 남을 때 Beam 상단 원점도 같이 이동시키는 비율입니다.")]
     [SerializeField, Range(0f, 1f)] private float beamSourceLagVisualScale = 0.82f;
     [SerializeField, Min(0f)] private float maxBeamSourceVisualOffset = 0.78f;
@@ -81,7 +80,6 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     private bool hasMotionSample;
     private Vector2 virtualAimWorld;
     private Vector2 virtualSourceWorld;
-    private Quaternion currentVirtualRotation = Quaternion.identity;
     private Vector2 currentGroundDirection = Vector2.down;
     private float currentTilt01;
 
@@ -446,67 +444,38 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             virtualAimWorld -
             virtualSourceWorld;
 
-        Vector3 desiredDirection =
-            new(
-                planar.x,
-                planar.y,
-                -Mathf.Max(
+        float planarDistance =
+            planar.magnitude;
+
+        if (planarDistance > 0.0001f)
+        {
+            currentGroundDirection =
+                planar /
+                planarDistance;
+        }
+
+        // No dynamic Quaternion rotation. The virtual source/aim offset only drives
+        // apparent beam scale and spread.
+        float responseAngleRadians =
+            Mathf.Atan2(
+                planarDistance,
+                Mathf.Max(
                     0.5f,
                     virtualLightHeight));
 
-        if (desiredDirection.sqrMagnitude < 0.0001f)
-            desiredDirection = Vector3.back;
-
-        Quaternion targetRotation =
-            Quaternion.LookRotation(
-                desiredDirection.normalized,
-                Vector3.up);
-
-        float angularT =
-            1f -
-            Mathf.Exp(
-                -Mathf.Max(0.1f, angularFollowSharpness) *
-                dt);
-
-        currentVirtualRotation =
-            Quaternion.Slerp(
-                currentVirtualRotation,
-                targetRotation,
-                angularT);
-
-        Vector3 forward =
-            currentVirtualRotation *
-            Vector3.forward;
-
-        Vector2 projectedGround =
-            new(
-                forward.x,
-                forward.y);
-
-        float groundMagnitude =
-            projectedGround.magnitude;
-
-        if (groundMagnitude > 0.0001f)
-        {
-            currentGroundDirection =
-                projectedGround /
-                groundMagnitude;
-        }
-
-        float maxTiltSin =
-            Mathf.Sin(
-                Mathf.Deg2Rad *
-                Mathf.Clamp(
-                    maxRigTiltDegrees,
-                    1f,
-                    45f));
+        float fullResponseRadians =
+            Mathf.Deg2Rad *
+            Mathf.Clamp(
+                fullScaleResponseAngleDegrees,
+                5f,
+                45f);
 
         currentTilt01 =
             Mathf.Clamp01(
-                groundMagnitude /
+                responseAngleRadians /
                 Mathf.Max(
                     0.001f,
-                    maxTiltSin));
+                    fullResponseRadians));
     }
 
     private void ApplyFake3DBeamProjection()
@@ -533,19 +502,6 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             Mathf.Sqrt(
                 Mathf.Clamp01(
                     currentTilt01));
-
-        float rollDegrees =
-            -currentGroundDirection.x *
-            Mathf.Max(
-                0f,
-                maxBeamRollDegrees) *
-            tilt;
-
-        Quaternion finalRotation =
-            authoredRotation *
-            Quaternion.AngleAxis(
-                rollDegrees,
-                Vector3.forward);
 
         float lengthScale =
             1f +
@@ -600,13 +556,14 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
         Vector3 finalCenter =
             sourcePoint +
-            finalRotation *
+            authoredRotation *
             (Vector3.down *
              finalHalfHeight);
 
-        playerBeamTransform.SetPositionAndRotation(
-            finalCenter,
-            finalRotation);
+        playerBeamTransform.position =
+            finalCenter;
+        playerBeamTransform.rotation =
+            authoredRotation;
 
         beamProperties ??=
             new MaterialPropertyBlock();
@@ -615,14 +572,12 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             beamProperties);
 
         beamProperties.SetFloat(
-            "_BeamShear",
-            currentGroundDirection.x *
-            Mathf.Max(0f, maxBeamShear) *
-            tilt);
-
-        beamProperties.SetFloat(
             "_BeamBottomWidthScale",
-            1f + 0.30f * tilt);
+            1f +
+            Mathf.Max(
+                0f,
+                maxBeamBottomWidthBoost) *
+            tilt);
 
         beamProperties.SetFloat(
             "_BeamOpacityScale",
@@ -678,10 +633,6 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             beamProperties);
 
         beamProperties.SetFloat(
-            "_BeamShear",
-            0f);
-
-        beamProperties.SetFloat(
             "_BeamBottomWidthScale",
             1f);
 
@@ -717,10 +668,6 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     {
         hasMotionSample = false;
         lastPlayerVelocity = Vector2.zero;
-        currentVirtualRotation =
-            Quaternion.LookRotation(
-                Vector3.back,
-                Vector3.up);
         currentGroundDirection = Vector2.down;
         currentTilt01 = 0f;
 
