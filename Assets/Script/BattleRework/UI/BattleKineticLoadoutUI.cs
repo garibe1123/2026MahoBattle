@@ -1804,7 +1804,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             compareDeltaText.text =
                 $"STAT // DMG {FormatCompareDelta(damageDelta)}   MOVE {FormatCompareDelta(moveDelta)}   RANGE {FormatCompareDelta(rangeDelta)}" +
                 $"    |    GRID // LINKS {currentLinks}>{swappedLinks}   DMG +{currentGridBonus:0.#}%>+{swappedGridBonus:0.#}%\n" +
-                $"GAIN {gainedTags}    |    LOSE {lostTags}";
+                $"TARGET TAGS {gainedTags}    |    SOURCE TAGS {lostTags}";
 
             compareDeltaText.color =
                 new Color(
