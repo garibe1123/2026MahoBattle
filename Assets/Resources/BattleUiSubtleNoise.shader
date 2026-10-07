@@ -5,8 +5,8 @@ Shader "UI/BattleUiSubtleNoise"
         [PerRendererData] _MainTex ("Sprite Texture", 2D) = "white" {}
         _Color ("Tint", Color) = (1,1,1,1)
         _BattleUiUnscaledTime ("Unscaled Time", Float) = 0
-        _NoiseStrength ("Noise Strength", Range(0,0.12)) = 0.022
-        _NoiseSpeed ("Noise Speed", Range(1,30)) = 11
+        _NoiseStrength ("Noise Strength", Range(0,0.12)) = 0.014
+        _NoiseSpeed ("Noise Speed", Range(1,30)) = 14
         _NoiseTint ("Noise Tint", Color) = (0.76,0.79,0.82,1)
 
         _StencilComp ("Stencil Comparison", Float) = 8
@@ -110,20 +110,50 @@ Shader "UI/BattleUiSubtleNoise"
                 float t = _BattleUiUnscaledTime;
                 float frame = floor(t * max(1.0, _NoiseSpeed));
 
+                // 좌표를 시간에 따라 밀지 않고, 고정된 화면 셀에
+                // 프레임별 Hash salt만 바꿔 실제 영상 Grain처럼 깜빡입니다.
                 float2 fineCell =
-                    floor(i.texcoord * _ScreenParams.xy * 0.58 + frame);
+                    floor(i.texcoord * _ScreenParams.xy * 0.58);
 
                 float2 coarseCell =
-                    floor(i.texcoord * _ScreenParams.xy * 0.16 + frame * 0.37);
+                    floor(i.texcoord * _ScreenParams.xy * 0.16);
+
+                float frameSalt =
+                    Hash21(
+                        float2(
+                            frame * 0.7548777,
+                            frame * 0.5698403));
+
+                float2 temporalSalt =
+                    float2(
+                        frameSalt * 347.17,
+                        frameSalt * 911.73);
+
+                float staticFine =
+                    Hash21(fineCell + 13.37) - 0.5;
+
+                float temporalFine =
+                    Hash21(fineCell + temporalSalt) - 0.5;
+
+                float staticCoarse =
+                    Hash21(coarseCell + 91.71) - 0.5;
+
+                float temporalCoarse =
+                    Hash21(
+                        coarseCell +
+                        temporalSalt * 0.37 +
+                        31.19) - 0.5;
 
                 float fine =
-                    Hash21(fineCell) - 0.5;
+                    staticFine * 0.28 +
+                    temporalFine * 0.72;
 
                 float coarse =
-                    Hash21(coarseCell + 19.73) - 0.5;
+                    staticCoarse * 0.45 +
+                    temporalCoarse * 0.55;
 
                 float grain =
-                    abs(fine * 0.78 + coarse * 0.22) * 2.0;
+                    abs(fine * 0.82 + coarse * 0.18) * 2.0;
 
                 float alpha =
                     source.a *
