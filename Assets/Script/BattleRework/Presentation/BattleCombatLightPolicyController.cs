@@ -4,8 +4,8 @@ using UnityEngine.Rendering.Universal;
 /// <summary>
 /// Combat lighting policy override.
 ///
-/// Combat에서는 캐릭터별 Stage Spotlight(Beam/Top Glow/Pool)를 사용하지 않습니다.
-/// 대신 Player를 따라가는 약한 원형 Point Light 하나만 유지해 전투 가독성을 확보합니다.
+/// Combat에서도 Player의 Stage Spotlight(Beam/Top Glow/Pool)를 유지합니다.
+/// 원형 Point Light는 선택적 보조광일 뿐이며 기본값은 OFF입니다.
 /// Reward/Map/대기실의 Spotlight 연출은 기존 Presentation Controller가 계속 소유합니다.
 /// </summary>
 [DefaultExecutionOrder(32700)]
@@ -25,8 +25,8 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
     [Header("COMBAT CHARACTER LIGHT POLICY")]
     [SerializeField, Min(0.10f)] private float bindingRefreshInterval = 0.75f;
 
-    [Header("PLAYER COMBAT POINT LIGHT")]
-    [SerializeField] private bool usePlayerCombatPointLight = true;
+    [Header("PLAYER COMBAT POINT LIGHT (OPTIONAL FILL)")]
+    [SerializeField] private bool usePlayerCombatPointLight = false;
     [Tooltip("있으면 이 Transform을 플레이어 발밑 조명의 기준점으로 사용합니다. 비어 있으면 CombatLightAnchor 이름을 찾고, 그것도 없으면 시작 시 Sprite 하단을 기준점으로 캐시합니다.")]
     [SerializeField] private Transform combatLightAnchor;
     [SerializeField] private Color combatPointLightColor = new(1f, 0.985f, 0.94f, 1f);
@@ -87,7 +87,9 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
         if (Time.unscaledTime >= nextBindingRefresh)
             RefreshBindings();
 
-        SuppressAllCombatCharacterSpotlights();
+        // Player의 Beam/Pool/Top Glow는 BattleFieldCinematicDirector와
+        // BattlePlayerStageLightingController가 계속 구동합니다.
+        // 여기서는 더 이상 CharacterLightVisual을 0으로 강제하지 않습니다.
         SetCombatPointLightEnabled(usePlayerCombatPointLight);
         if (usePlayerCombatPointLight)
             UpdateCombatPointLightPosition();
@@ -285,7 +287,7 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
 
         Bounds bounds = playerSpriteRenderer.bounds;
         Vector3 worldFoot = new(
-            bounds.center.x,
+            player.transform.position.x,
             bounds.min.y,
             player.transform.position.z);
 
