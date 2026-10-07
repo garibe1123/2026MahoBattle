@@ -1238,14 +1238,19 @@ MonoBehaviour:
   runManager: {fileID: 100013}
   stageFlow: {fileID: 0}
   vignetteColor: {r: 0, g: 0, b: 0, a: 1}
-  overallStrength: 1
-  edgeDarkness: 0.045
-  cornerDarkness: 0.22
-  horizontalFalloff: 0.25
-  verticalFalloff: 0.31
-  cornerPower: 0.78
+  overallStrength: 0.72
+  edgeDarkness: 0.025
+  cornerDarkness: 0.16
+  horizontalFalloff: 0.2
+  verticalFalloff: 0.26
+  cornerPower: 0.95
   fadeInSharpness: 5.5
   fadeOutSharpness: 8
+  warningThreshold: 0.35
+  criticalThreshold: 0.2
+  lastChanceThreshold: 0.1
+  lowHpExtraVignette: 0.16
+  damageBurstVignette: 0.08
 --- !u!114 &529217571
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1263,12 +1268,13 @@ MonoBehaviour:
   player: {fileID: 0}
   bindingRefreshInterval: 0.2
   usePlayerCombatPointLight: 1
-  combatPointLightColor: {r: 1, g: 0.96, b: 0.84, a: 1}
+  combatLightAnchor: {fileID: 0}
+  combatPointLightColor: {r: 1, g: 0.985, b: 0.94, a: 1}
   combatPointLightIntensity: 0.48
-  combatPointLightInnerRadius: 1.15
-  combatPointLightOuterRadius: 3.35
-  combatPointLightFalloff: 0.72
-  combatPointLightOffset: {x: 0, y: 0.12}
+  combatPointLightInnerRadius: 0.8
+  combatPointLightOuterRadius: 2.4
+  combatPointLightFalloff: 0.8
+  combatPointLightOffset: {x: 0, y: 0.05}
 --- !u!114 &529217572
 MonoBehaviour:
   m_ObjectHideFlags: 0
