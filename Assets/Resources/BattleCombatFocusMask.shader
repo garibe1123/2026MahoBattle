@@ -8,9 +8,9 @@ Shader "UI/BattleCombatFocusMask"
         _DimAlpha ("Dim Alpha", Range(0,1)) = 0.24
         _Center ("Focus Center", Vector) = (0.5,0.5,0,0)
         _Radius ("Focus Radius", Float) = 0.12
-        _VerticalRatio ("Vertical Ratio", Range(0.2,1)) = 0.86
-        _Elongation ("Directional Elongation", Range(1,1.5)) = 1
-        _RotationRadians ("Rotation Radians", Float) = 0
+        _VerticalRatio ("Vertical Ratio", Range(0.2,1)) = 0.72
+        _ScaleX ("Dynamic Scale X", Range(1,1.8)) = 1
+        _ScaleY ("Dynamic Scale Y", Range(1,1.8)) = 1
         _Feather ("Feather", Float) = 0.03
     }
 
@@ -58,8 +58,8 @@ Shader "UI/BattleCombatFocusMask"
             float4 _Center;
             float _Radius;
             float _VerticalRatio;
-            float _Elongation;
-            float _RotationRadians;
+            float _ScaleX;
+            float _ScaleY;
             float _Feather;
 
             v2f vert(appdata_t v)
@@ -77,18 +77,19 @@ Shader "UI/BattleCombatFocusMask"
                 float2 delta = i.uv - _Center.xy;
                 delta.x *= aspect;
 
-                float c = cos(_RotationRadians);
-                float s = sin(_RotationRadians);
-                float2 rotated = float2(
-                    c * delta.x + s * delta.y,
-                    -s * delta.x + c * delta.y);
-
                 float safeRadius = max(0.0001, _Radius);
-                float major = safeRadius * max(1.0, _Elongation);
-                float minor = safeRadius * max(0.05, _VerticalRatio);
+                float major =
+                    safeRadius *
+                    max(1.0, _ScaleX);
+
+                float minor =
+                    safeRadius *
+                    max(0.05, _VerticalRatio) *
+                    max(1.0, _ScaleY);
+
                 float2 normalized = float2(
-                    rotated.x / major,
-                    rotated.y / minor);
+                    delta.x / major,
+                    delta.y / minor);
 
                 float distanceFromCenter = length(normalized);
                 float normalizedFeather = max(0.0001, _Feather) / safeRadius;
