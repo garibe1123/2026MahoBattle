@@ -410,34 +410,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         frame.gameObject.SetActive(false);
     }
 
-    private void EnsureFullSelectionFrame(RectTransform slot, int index)
-    {
-        if (index < 0 || index >= SlotCount || fullSelectionFrames[index] != null)
-            return;
-
-        RectTransform frame = slot.Find("InteractionFullSelectionFrame") as RectTransform;
-        if (frame == null)
-        {
-            frame = CreateRect(slot, "InteractionFullSelectionFrame", Vector2.zero);
-            Stretch(frame);
-            Image image = frame.gameObject.AddComponent<Image>();
-            image.color = Color.clear;
-            image.raycastTarget = false;
-            frame.SetAsLastSibling();
-        }
-
-        Outline outline = frame.GetComponent<Outline>();
-        if (outline == null)
-            outline = frame.gameObject.AddComponent<Outline>();
-        outline.effectColor = accentYellow;
-        outline.effectDistance = new Vector2(5f, -5f);
-        outline.useGraphicAlpha = false;
-
-        fullSelectionFrames[index] = frame.gameObject;
-        fullSelectionOutlines[index] = outline;
-        frame.gameObject.SetActive(false);
-    }
-
     internal bool BeginSlotDrag(int slotIndex, BattleInventorySurface surface, PointerEventData eventData)
     {
         if (eventData == null || discardModalOpen || equipmentSystem == null || !HasItem(slotIndex))
