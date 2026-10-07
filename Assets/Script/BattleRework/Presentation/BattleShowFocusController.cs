@@ -1,112 +1,30 @@
 using UnityEngine;
-using UnityEngine.UI;
 
 /// <summary>
-/// Reward / Map Selection 전용 fullscreen focus mask.
+/// Reward / Map show camera hand-off only.
 ///
-/// 규칙:
-/// - Normal Combat에는 관여하지 않습니다. BattleCombatFocusMaskController가 별도 Canvas를 소유합니다.
-/// - Player / Presenter character hole은 위아래가 아주 약하게 눌린 타원형을 사용합니다.
-/// - TV / Screen은 실제 WorldSpace RectTransform을 기준으로 사각형 Focus.
-/// - Reward Item Hover는 월드 상품 전용 Spotlight + Focus hole을 사용합니다.
-/// - Map 대상은 기존 화면 Focus 정책을 유지합니다.
-/// - 배경 암전은 RoomExiting / Show 전환 시작부터 먼저 진행합니다.
-/// - Player / Presenter / Screen Focus는 실제 WorldSet 전환이 끝나 화면이 자리잡은 뒤에만 켭니다.
-/// - Reward는 기존보다 강한 쇼 암전을 유지하고, 첫 Map은 Base가 조금 더 읽히도록 약하게 암전.
+/// Spotlight beam, focus mask, combat follow and Reward/Map idle animation are owned by
+/// BattleSpotlightController. This component only preserves the show camera frame while
+/// focus visuals fade out during state transitions.
 /// </summary>
 [DefaultExecutionOrder(26000)]
 [DisallowMultipleComponent]
 public sealed class BattleShowFocusController : MonoBehaviour
 {
-    private const string ShaderName = "UI/BattleShowFocusMask";
-    private const string MountedTvName = "BattleShowMountedTV";
-    private const string ScreenInnerName = "ScreenInner";
-
     private static BattleShowFocusController instance;
 
     [Header("References")]
     [SerializeField] private BattleCameraController battleCamera;
     [SerializeField] private BattleShowWorldSetController showWorldSet;
     [SerializeField] private BattleRunManager runManager;
-    [SerializeField] private PlayerController player;
-    [SerializeField] private BattlePlayerStageLightingController stageLighting;
 
-    [Header("Overlay")]
-    [Tooltip("BattleHUD(기본 500)보다 뒤에 두어 월드만 암전시키고 HUD는 그대로 유지합니다.")]
-    [SerializeField] private int overlaySortingOrder = 450;
-    [SerializeField] private Color dimColor = Color.black;
-
-    [Header("Reward / Normal Map Enter")]
-    [SerializeField, Min(0f)] private float cameraLeadBeforeDim = 0.10f;
-    [SerializeField, Min(0.01f)] private float dimFadeInDuration = 0.20f;
-    [Tooltip("실제 TV/Carrier가 자리잡은 뒤 Spotlight가 켜지기 시작하기까지의 짧은 간격입니다.")]
-    [SerializeField, Min(0f)] private float focusLeadAfterDim = 0.02f;
-    [SerializeField, Min(0.01f)] private float focusFadeInDuration = 0.16f;
-
-    [Header("Opening Map Enter")]
-    [Tooltip("첫 맵 선택은 TV Carrier가 도킹하기 전부터 카메라/암전이 시작됩니다.")]
-    [SerializeField, Min(0f)] private float openingMapCameraLeadBeforeDim = 0.025f;
-    [SerializeField, Min(0.01f)] private float openingMapDimFadeInDuration = 0.30f;
-    [Tooltip("첫 맵 TV가 자리잡은 뒤 Spotlight가 켜지기 시작하기까지의 짧은 간격입니다.")]
-    [SerializeField, Min(0f)] private float openingMapFocusLeadAfterDim = 0.02f;
-    [SerializeField, Min(0.01f)] private float openingMapFocusFadeInDuration = 0.19f;
-
-    [Header("Show Exit Order")]
+    [Header("Show Exit Camera Hold")]
     [SerializeField, Min(0.01f)] private float exitFocusFadeDuration = 0.12f;
     [SerializeField, Min(0.01f)] private float exitDimFadeDuration = 0.18f;
     [SerializeField, Min(0f)] private float cameraReturnDelay = 0.05f;
 
-    [Header("Reward / Normal Map Background Dim")]
-    [SerializeField, Range(0f, 1f)] private float nearDimAlpha = 0.62f;
-    [SerializeField, Range(0f, 1f)] private float farDimAlpha = 0.96f;
-    [SerializeField, Range(0.05f, 1.5f)] private float dimFalloffRadius = 0.58f;
-
-    [Header("Opening Map Background Dim")]
-    [Tooltip("첫 4x4 Base가 완전히 사라져 보이지 않도록 Reward보다 덜 어둡게 유지합니다.")]
-    [SerializeField, Range(0f, 1f)] private float openingMapNearDimAlpha = 0.48f;
-    [SerializeField, Range(0f, 1f)] private float openingMapFarDimAlpha = 0.92f;
-    [SerializeField, Range(0.05f, 1.5f)] private float openingMapDimFalloffRadius = 0.66f;
-
-    [Header("Reward Item Focus")]
-    [Tooltip("Reward 상품 Hover 시 암전 Mask에서 상품 주변을 밝게 뚫는 World 반경입니다.")]
-    [SerializeField, Min(0.1f)] private float rewardItemFocusRadiusWorld = 0.92f;
-    [SerializeField, Range(0.001f, 0.08f)] private float rewardItemFocusFeather = 0.020f;
-
-    [Header("Reward / Map Focus Idle")]
-    [SerializeField] private bool useShowFocusIdle = true;
-    [SerializeField, Min(0.05f)] private float rewardFocusIdleCyclesPerSecond = 0.30f;
-    [SerializeField, Min(0.05f)] private float mapFocusIdleCyclesPerSecond = 0.22f;
-    [SerializeField, Range(0f, 0.10f)] private float rewardFocusRadiusPulse = 0.045f;
-    [SerializeField, Range(0f, 0.10f)] private float mapFocusRadiusPulse = 0.025f;
-    [SerializeField, Range(0f, 0.30f)] private float focusFeatherPulse = 0.12f;
-
-    [Header("Character Stage Focus")]
-    [SerializeField, Min(0.1f)] private float playerFocusRadiusWorld = 1.48f;
-    [SerializeField, Min(0.1f)] private float presenterFocusRadiusWorld = 1.92f;
-    [Tooltip("1이면 원형, 작을수록 위아래로 눌린 타원형입니다.")]
-    [SerializeField, Range(0.2f, 1f)] private float characterVerticalRatio = 0.86f;
-    [Tooltip("Focus 중심을 Sprite 중심보다 아주 조금만 아래로 내립니다.")]
-    [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.02f;
-    [SerializeField, Range(0.001f, 0.08f)] private float characterFeather = 0.018f;
-
-    [Header("Screen Rect Focus")]
-    [Tooltip("0에 가까울수록 TV 실제 화면 경계에 딱 맞는 직사각형입니다.")]
-    [SerializeField, Range(0.0001f, 0.04f)] private float rectFeather = 0.0035f;
-    [SerializeField, Range(-0.05f, 0.05f)] private float screenRectPadding = 0.002f;
-
-    private Canvas overlayCanvas;
-    private Image overlayImage;
-    private Material runtimeMaterial;
-    private Shader focusShader;
-    private RectTransform tvFocusRect;
-
     private bool runSubscribed;
     private bool selectionShowRequested;
-    private float showStageBecameActiveAt = -1f;
-    private float showScreenBecameReadyAt = -1f;
-    private float currentDimBlend;
-    private float currentFocusBlend;
-
     private bool hasLastShowFrame;
     private Vector3 lastShowTarget;
     private float lastShowZoom;
@@ -125,29 +43,22 @@ public sealed class BattleShowFocusController : MonoBehaviour
         instance = this;
         ResolveReferences();
         SubscribeRunState();
-        EnsureOverlay();
-        ApplyHiddenImmediate();
     }
 
     private void OnEnable()
     {
         ResolveReferences();
         SubscribeRunState();
-        EnsureOverlay();
     }
 
     private void OnDisable()
     {
         UnsubscribeRunState();
         ReleaseExitCameraHold();
-        ApplyHiddenImmediate();
     }
 
     private void OnDestroy()
     {
-        if (runtimeMaterial != null)
-            Destroy(runtimeMaterial);
-
         if (instance == this)
             instance = null;
     }
@@ -156,344 +67,29 @@ public sealed class BattleShowFocusController : MonoBehaviour
     {
         ResolveReferences();
         SubscribeRunState();
-        ResolveTvFocusRect();
-        EnsureOverlay();
 
-        Camera camera = Camera.main;
-        if (runtimeMaterial == null || camera == null)
+        if (!selectionShowRequested ||
+            showWorldSet == null ||
+            !showWorldSet.IsShowActive)
+        {
             return;
-
-        float now = Time.unscaledTime;
-        float deltaTime = Time.unscaledDeltaTime;
-
-        if (selectionShowRequested && showStageBecameActiveAt < 0f)
-            showStageBecameActiveAt = now;
-
-        bool stageActive = selectionShowRequested && showWorldSet != null && showWorldSet.IsShowActive;
-        if (stageActive)
-        {
-            lastShowTarget = showWorldSet.CameraTargetWorld;
-            lastShowZoom = showWorldSet.ShowCameraSize;
-            hasLastShowFrame = true;
         }
 
-        bool openingMap = IsOpeningMapShow();
-        bool screenReady = IsPhysicalShowScreenReady();
-        if (screenReady)
-        {
-            if (showScreenBecameReadyAt < 0f)
-                showScreenBecameReadyAt = now;
-        }
-        else
-        {
-            showScreenBecameReadyAt = -1f;
-        }
-
-        if (selectionShowRequested && showStageBecameActiveAt >= 0f)
-        {
-            // 암전은 Show 요청/Room Exit가 시작되는 순간부터 독립적으로 진행합니다.
-            // Screen Carrier가 아직 화면 밖에 있어도 먼저 무대를 거의 어둡게 만듭니다.
-            float elapsed = now - showStageBecameActiveAt;
-            float lead = openingMap ? openingMapCameraLeadBeforeDim : cameraLeadBeforeDim;
-            float dimDuration = openingMap ? openingMapDimFadeInDuration : dimFadeInDuration;
-            float dimTarget = SmoothRange(
-                elapsed,
-                lead,
-                lead + Mathf.Max(0.01f, dimDuration));
-
-            currentDimBlend = MoveTowards01(currentDimBlend, dimTarget, dimDuration, deltaTime);
-
-            // Spotlight / TV Rect Focus는 WorldSet의 물리 전환이 끝난 뒤에만 시작합니다.
-            // Reward -> Map처럼 같은 TV를 유지하는 전환도 Presenter/Content 전환 중에는 잠깐 Focus를 내립니다.
-            if (screenReady && showScreenBecameReadyAt >= 0f)
-            {
-                float focusElapsed = now - showScreenBecameReadyAt;
-                float focusLead = openingMap ? openingMapFocusLeadAfterDim : focusLeadAfterDim;
-                float focusDuration = openingMap ? openingMapFocusFadeInDuration : focusFadeInDuration;
-                float focusTarget = SmoothRange(
-                    focusElapsed,
-                    Mathf.Max(0f, focusLead),
-                    Mathf.Max(0f, focusLead) + Mathf.Max(0.01f, focusDuration));
-
-                currentFocusBlend = MoveTowards01(
-                    currentFocusBlend,
-                    focusTarget,
-                    focusDuration,
-                    deltaTime);
-            }
-            else
-            {
-                currentFocusBlend = MoveTowards01(
-                    currentFocusBlend,
-                    0f,
-                    exitFocusFadeDuration,
-                    deltaTime);
-            }
-        }
-        else if (!selectionShowRequested)
-        {
-            showScreenBecameReadyAt = -1f;
-            currentFocusBlend = MoveTowards01(
-                currentFocusBlend,
-                0f,
-                exitFocusFadeDuration,
-                deltaTime);
-
-            if (currentFocusBlend <= 0.001f)
-            {
-                currentDimBlend = MoveTowards01(
-                    currentDimBlend,
-                    0f,
-                    exitDimFadeDuration,
-                    deltaTime);
-            }
-        }
-
-        Vector2 playerUv = new(0.5f, 0.5f);
-        float playerRadiusUv = 0f;
-        bool playerVisible = TryProjectCharacter(
-            camera,
-            player != null && player.IsAlive ? player.transform : null,
-            playerFocusRadiusWorld,
-            out playerUv,
-            out playerRadiusUv);
-
-        Transform presenter = showWorldSet != null ? showWorldSet.PresenterWorldTransform : null;
-        Vector2 presenterUv = new(0.5f, 0.5f);
-        float presenterRadiusUv = 0f;
-        bool presenterVisible = TryProjectCharacter(
-            camera,
-            presenter,
-            presenterFocusRadiusWorld,
-            out presenterUv,
-            out presenterRadiusUv);
-
-        Vector4 screenRect = new(0.5f, 0.5f, 0.5f, 0.5f);
-        bool screenVisible = TryProjectScreenRect(camera, out screenRect);
-
-        Vector2 rewardItemUv = new(0.5f, 0.5f);
-        float rewardItemRadiusUv = 0f;
-        bool rewardItemVisible = false;
-
-        bool rewardSelection =
-            runManager != null &&
-            runManager.RunActive &&
-            runManager.State == BattleRunState.Reward &&
-            showWorldSet != null &&
-            showWorldSet.RewardHoveredIndex >= 0;
-
-        if (rewardSelection &&
-            showWorldSet.TryGetRewardShowcaseWorldPosition(
-                showWorldSet.RewardHoveredIndex,
-                out Vector3 rewardItemWorld))
-        {
-            rewardItemVisible =
-                TryProjectWorldPoint(
-                    camera,
-                    rewardItemWorld,
-                    rewardItemFocusRadiusWorld,
-                    out rewardItemUv,
-                    out rewardItemRadiusUv);
-        }
-
-        bool mapSelection =
-            runManager != null &&
-            runManager.RunActive &&
-            runManager.State == BattleRunState.SelectingNode;
-        bool useUnifiedStageStyle = mapSelection && stageLighting != null;
-
-        float rewardIdleWave =
-            rewardSelection && useShowFocusIdle
-                ? EvaluateIdleBreath(
-                    now,
-                    rewardFocusIdleCyclesPerSecond,
-                    0.37f)
-                : 0f;
-
-        float mapIdleWave =
-            mapSelection && useShowFocusIdle
-                ? EvaluateIdleBreath(
-                    now,
-                    mapFocusIdleCyclesPerSecond,
-                    1.11f)
-                : 0f;
-
-        if (rewardSelection && rewardItemVisible)
-        {
-            rewardItemRadiusUv *=
-                1f +
-                rewardIdleWave *
-                rewardFocusRadiusPulse;
-        }
-
-        if (mapSelection)
-        {
-            presenterRadiusUv *=
-                1f +
-                EvaluateIdleBreath(
-                    now,
-                    mapFocusIdleCyclesPerSecond,
-                    2.43f) *
-                mapFocusRadiusPulse;
-        }
-
-        // 맵 선택은 전투 Room이 붙을 때의 강한 Stage Spotlight 언어를 그대로 사용합니다.
-        // Reward는 기존 Show 스타일을 유지합니다.
-        float activeNearDim = useUnifiedStageStyle
-            ? stageLighting.UnifiedNearDimAlpha
-            : openingMap ? openingMapNearDimAlpha : nearDimAlpha;
-        float activeFarDim = useUnifiedStageStyle
-            ? stageLighting.UnifiedFarDimAlpha
-            : openingMap ? openingMapFarDimAlpha : farDimAlpha;
-        float activeDimRadius = useUnifiedStageStyle
-            ? stageLighting.UnifiedDimFalloffRadius
-            : openingMap ? openingMapDimFalloffRadius : dimFalloffRadius;
-
-        float presentationBlend =
-            currentDimBlend;
-
-        runtimeMaterial.SetColor("_MaskColor", dimColor);
-        runtimeMaterial.SetFloat("_Presentation", presentationBlend);
-
-        runtimeMaterial.SetVector("_DimCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
-        runtimeMaterial.SetFloat("_NearDimAlpha", activeNearDim);
-        runtimeMaterial.SetFloat("_FarDimAlpha", activeFarDim);
-        runtimeMaterial.SetFloat("_DimRadius", Mathf.Max(0.001f, activeDimRadius));
-
-        if (useUnifiedStageStyle && camera != null && player != null && player.IsAlive)
-        {
-            TryProjectCharacter(
-                camera,
-                player.transform,
-                stageLighting.UnifiedPlayerFocusRadiusWorld,
-                out playerUv,
-                out playerRadiusUv);
-        }
-
-        if (mapSelection && useShowFocusIdle)
-        {
-            playerRadiusUv *=
-                1f +
-                mapIdleWave *
-                mapFocusRadiusPulse;
-        }
-
-        runtimeMaterial.SetVector("_PlayerCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
-        runtimeMaterial.SetFloat("_PlayerRadius", playerRadiusUv);
-        runtimeMaterial.SetFloat(
-            "_PlayerStrength",
-            playerVisible ? currentFocusBlend : 0f);
-
-        runtimeMaterial.SetVector("_PresenterCenter", new Vector4(presenterUv.x, presenterUv.y, 0f, 0f));
-        runtimeMaterial.SetFloat("_PresenterRadius", presenterRadiusUv);
-        runtimeMaterial.SetFloat("_PresenterStrength", presenterVisible ? currentFocusBlend : 0f);
-
-        runtimeMaterial.SetVector("_ScreenRect", screenRect);
-        runtimeMaterial.SetFloat("_ScreenStrength", screenVisible ? currentFocusBlend : 0f);
-
-        runtimeMaterial.SetVector(
-            "_ItemCenter",
-            new Vector4(
-                rewardItemUv.x,
-                rewardItemUv.y,
-                0f,
-                0f));
-
-        runtimeMaterial.SetFloat(
-            "_ItemRadius",
-            rewardItemRadiusUv);
-
-        runtimeMaterial.SetFloat(
-            "_ItemStrength",
-            rewardItemVisible
-                ? currentFocusBlend
-                : 0f);
-
-        float activeItemFeather =
-            rewardItemFocusFeather *
-            (
-                1f +
-                rewardIdleWave *
-                focusFeatherPulse);
-
-        runtimeMaterial.SetFloat(
-            "_ItemFeather",
-            Mathf.Max(
-                0.0001f,
-                activeItemFeather));
-
-        // Character focus keeps the shared, slightly flattened stage-light footprint.
-        // Idle motion only breathes radius/feather; it never rotates the shape.
-        float activeVerticalRatio = useUnifiedStageStyle
-            ? stageLighting.UnifiedCharacterVerticalRatio
-            : characterVerticalRatio;
-        float activeLowerOffset = useUnifiedStageStyle
-            ? stageLighting.UnifiedCharacterLowerOffset
-            : characterLowerOffset;
-        float activeCharacterFeather = useUnifiedStageStyle
-            ? stageLighting.UnifiedCharacterFeather
-            : characterFeather;
-
-        if (mapSelection && useShowFocusIdle)
-        {
-            activeCharacterFeather *=
-                1f +
-                mapIdleWave *
-                focusFeatherPulse;
-        }
-
-        runtimeMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(activeVerticalRatio, 0.2f, 1f));
-        runtimeMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(activeLowerOffset));
-        runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, activeCharacterFeather));
-        runtimeMaterial.SetFloat("_RectFeather", Mathf.Max(0.0001f, rectFeather));
-
-        if (overlayImage != null)
-            overlayImage.enabled = presentationBlend > 0.0001f;
-    }
-
-    private static float EvaluateIdleBreath(
-        float time,
-        float cyclesPerSecond,
-        float phase)
-    {
-        float omega =
-            Mathf.Max(
-                0.05f,
-                cyclesPerSecond) *
-            Mathf.PI *
-            2f;
-
-        float primary =
-            Mathf.Sin(
-                time * omega +
-                phase);
-
-        float secondary =
-            Mathf.Sin(
-                time * omega * 0.43f +
-                phase * 1.67f);
-
-        return Mathf.Clamp(
-            primary * 0.74f +
-            secondary * 0.26f,
-            -1f,
-            1f);
+        lastShowTarget = showWorldSet.CameraTargetWorld;
+        lastShowZoom = showWorldSet.ShowCameraSize;
+        hasLastShowFrame = true;
     }
 
     private void ResolveReferences()
     {
         if (battleCamera == null)
             battleCamera = FindFirstObjectByType<BattleCameraController>();
+
         if (showWorldSet == null)
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
+
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (player == null)
-            player = FindFirstObjectByType<PlayerController>();
-        if (stageLighting == null)
-            stageLighting = BattlePlayerStageLightingController.Instance != null
-                ? BattlePlayerStageLightingController.Instance
-                : FindFirstObjectByType<BattlePlayerStageLightingController>(FindObjectsInactive.Include);
     }
 
     private void SubscribeRunState()
@@ -520,21 +116,14 @@ public sealed class BattleShowFocusController : MonoBehaviour
     private void HandleRunStateChanged(BattleRunState _)
     {
         bool nextShow = IsSelectionShowRequested();
+
         if (nextShow == selectionShowRequested)
             return;
 
         if (nextShow)
-        {
             ReleaseExitCameraHold();
-            showStageBecameActiveAt = Time.unscaledTime;
-            showScreenBecameReadyAt = -1f;
-        }
         else
-        {
             HoldLastShowCameraFrame();
-            showStageBecameActiveAt = -1f;
-            showScreenBecameReadyAt = -1f;
-        }
 
         selectionShowRequested = nextShow;
     }
@@ -548,22 +137,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
                runManager.State == BattleRunState.SelectingNode;
     }
 
-    private bool IsOpeningMapShow()
-    {
-        return runManager != null &&
-               runManager.RunActive &&
-               runManager.State == BattleRunState.SelectingNode &&
-               runManager.IsInStartArea;
-    }
-
-    private bool IsPhysicalShowScreenReady()
-    {
-        if (!selectionShowRequested || showWorldSet == null || showWorldSet.IsTransitioning)
-            return false;
-
-        return showWorldSet.IsRewardMode || showWorldSet.IsMapMode;
-    }
-
     private void HoldLastShowCameraFrame()
     {
         if (battleCamera == null)
@@ -572,26 +145,32 @@ public sealed class BattleShowFocusController : MonoBehaviour
         ReleaseExitCameraHold();
 
         Camera camera = Camera.main;
-        Vector3 holdTarget = hasLastShowFrame
-            ? lastShowTarget
-            : camera != null
-                ? camera.transform.position
-                : Vector3.zero;
-        float holdZoom = hasLastShowFrame
-            ? lastShowZoom
-            : camera != null
-                ? camera.orthographicSize
-                : 0f;
 
-        float holdDuration = Mathf.Max(0.01f, exitFocusFadeDuration) +
-                             Mathf.Max(0.01f, exitDimFadeDuration) +
-                             Mathf.Max(0f, cameraReturnDelay);
+        Vector3 holdTarget =
+            hasLastShowFrame
+                ? lastShowTarget
+                : camera != null
+                    ? camera.transform.position
+                    : Vector3.zero;
 
-        exitCameraHoldRequest = battleCamera.FocusPosition(
-            holdTarget,
-            holdDuration,
-            holdZoom,
-            BattleCameraFocusPriority.Show);
+        float holdZoom =
+            hasLastShowFrame
+                ? lastShowZoom
+                : camera != null
+                    ? camera.orthographicSize
+                    : 0f;
+
+        float holdDuration =
+            Mathf.Max(0.01f, exitFocusFadeDuration) +
+            Mathf.Max(0.01f, exitDimFadeDuration) +
+            Mathf.Max(0f, cameraReturnDelay);
+
+        exitCameraHoldRequest =
+            battleCamera.FocusPosition(
+                holdTarget,
+                holdDuration,
+                holdZoom,
+                BattleCameraFocusPriority.Show);
     }
 
     private void ReleaseExitCameraHold()
@@ -601,295 +180,5 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         battleCamera?.ReleaseFocus(exitCameraHoldRequest);
         exitCameraHoldRequest = 0;
-    }
-
-    private void ResolveTvFocusRect()
-    {
-        if (tvFocusRect != null && tvFocusRect.gameObject.activeInHierarchy)
-            return;
-        if (showWorldSet == null)
-        {
-            tvFocusRect = null;
-            return;
-        }
-
-        RectTransform fallback = null;
-        RectTransform[] rects = showWorldSet.GetComponentsInChildren<RectTransform>(true);
-        for (int i = 0; i < rects.Length; i++)
-        {
-            RectTransform rect = rects[i];
-            if (rect == null || rect.name != ScreenInnerName || !IsUnderMountedTv(rect))
-                continue;
-
-            fallback ??= rect;
-            if (rect.gameObject.activeInHierarchy)
-            {
-                tvFocusRect = rect;
-                return;
-            }
-        }
-
-        tvFocusRect = fallback != null ? fallback : showWorldSet.MountedTvRect;
-    }
-
-    private static bool IsUnderMountedTv(Transform transform)
-    {
-        Transform current = transform;
-        while (current != null)
-        {
-            if (current.name == MountedTvName)
-                return true;
-            current = current.parent;
-        }
-        return false;
-    }
-
-    private void EnsureOverlay()
-    {
-        if (overlayCanvas != null && overlayImage != null && runtimeMaterial != null)
-            return;
-
-        if (focusShader == null)
-            focusShader = Shader.Find(ShaderName);
-        if (focusShader == null)
-            focusShader = Resources.Load<Shader>("BattleShowFocusMask");
-
-        if (focusShader == null)
-        {
-            Debug.LogError(
-                $"[BattleShowFocusController] Shader '{ShaderName}'를 찾지 못했습니다. " +
-                "Assets/Resources/BattleShowFocusMask.shader를 확인하세요.",
-                this);
-            enabled = false;
-            return;
-        }
-
-        if (overlayCanvas == null)
-        {
-            GameObject canvasObject = new("BattleShowFocusCanvas");
-            canvasObject.transform.SetParent(transform, false);
-
-            overlayCanvas = canvasObject.AddComponent<Canvas>();
-            overlayCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            overlayCanvas.overrideSorting = true;
-            overlayCanvas.sortingOrder = overlaySortingOrder;
-
-            CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-            scaler.referenceResolution = new Vector2(1920f, 1080f);
-            scaler.matchWidthOrHeight = 0.5f;
-        }
-
-        if (overlayImage == null)
-        {
-            GameObject imageObject = new("ShowFocusMask");
-            imageObject.transform.SetParent(overlayCanvas.transform, false);
-
-            RectTransform rect = imageObject.AddComponent<RectTransform>();
-            rect.anchorMin = Vector2.zero;
-            rect.anchorMax = Vector2.one;
-            rect.offsetMin = Vector2.zero;
-            rect.offsetMax = Vector2.zero;
-
-            overlayImage = imageObject.AddComponent<Image>();
-            overlayImage.raycastTarget = false;
-            overlayImage.color = Color.white;
-        }
-
-        if (runtimeMaterial == null)
-        {
-            runtimeMaterial = new Material(focusShader)
-            {
-                name = "BattleShowFocusMask_Runtime"
-            };
-            overlayImage.material = runtimeMaterial;
-        }
-    }
-
-    private bool TryProjectWorldPoint(
-        Camera camera,
-        Vector3 worldPoint,
-        float radiusWorld,
-        out Vector2 centerUv,
-        out float radiusUv)
-    {
-        centerUv =
-            new Vector2(
-                0.5f,
-                0.5f);
-
-        radiusUv = 0f;
-
-        if (camera == null)
-            return false;
-
-        Vector3 centerScreen =
-            camera.WorldToScreenPoint(
-                worldPoint);
-
-        if (centerScreen.z <= 0f)
-            return false;
-
-        Vector3 edgeWorld =
-            worldPoint +
-            camera.transform.right *
-            Mathf.Max(
-                0.01f,
-                radiusWorld);
-
-        Vector3 edgeScreen =
-            camera.WorldToScreenPoint(
-                edgeWorld);
-
-        float width =
-            Mathf.Max(
-                1f,
-                Screen.width);
-
-        float height =
-            Mathf.Max(
-                1f,
-                Screen.height);
-
-        centerUv =
-            new Vector2(
-                Mathf.Clamp01(
-                    centerScreen.x /
-                    width),
-                Mathf.Clamp01(
-                    centerScreen.y /
-                    height));
-
-        radiusUv =
-            Mathf.Abs(
-                edgeScreen.x -
-                centerScreen.x) /
-            height;
-
-        radiusUv =
-            Mathf.Max(
-                0.0001f,
-                radiusUv);
-
-        return true;
-    }
-
-    private bool TryProjectCharacter(
-        Camera camera,
-        Transform target,
-        float radiusWorld,
-        out Vector2 centerUv,
-        out float radiusUv)
-    {
-        centerUv = new Vector2(0.5f, 0.5f);
-        radiusUv = 0f;
-
-        if (camera == null || target == null || !target.gameObject.activeInHierarchy)
-            return false;
-
-        Vector3 centerScreen = camera.WorldToScreenPoint(target.position);
-        if (centerScreen.z <= 0f)
-            return false;
-
-        Vector3 edgeWorld = target.position + camera.transform.right * Mathf.Max(0.01f, radiusWorld);
-        Vector3 edgeScreen = camera.WorldToScreenPoint(edgeWorld);
-
-        float width = Mathf.Max(1f, Screen.width);
-        float height = Mathf.Max(1f, Screen.height);
-
-        centerUv = new Vector2(
-            Mathf.Clamp01(centerScreen.x / width),
-            Mathf.Clamp01(centerScreen.y / height));
-
-        radiusUv = Mathf.Abs(edgeScreen.x - centerScreen.x) / height;
-        radiusUv = Mathf.Max(0.0001f, radiusUv);
-        return true;
-    }
-
-    private bool TryProjectScreenRect(Camera camera, out Vector4 rectUv)
-    {
-        rectUv = new Vector4(0.5f, 0.5f, 0.5f, 0.5f);
-
-        if (camera == null || tvFocusRect == null || !tvFocusRect.gameObject.activeInHierarchy)
-            return false;
-
-        Vector3[] corners = new Vector3[4];
-        tvFocusRect.GetWorldCorners(corners);
-
-        float minX = float.PositiveInfinity;
-        float minY = float.PositiveInfinity;
-        float maxX = float.NegativeInfinity;
-        float maxY = float.NegativeInfinity;
-
-        float width = Mathf.Max(1f, Screen.width);
-        float height = Mathf.Max(1f, Screen.height);
-
-        for (int i = 0; i < corners.Length; i++)
-        {
-            Vector3 screen = camera.WorldToScreenPoint(corners[i]);
-            if (screen.z <= 0f)
-                return false;
-
-            float x = screen.x / width;
-            float y = screen.y / height;
-
-            minX = Mathf.Min(minX, x);
-            minY = Mathf.Min(minY, y);
-            maxX = Mathf.Max(maxX, x);
-            maxY = Mathf.Max(maxY, y);
-        }
-
-        minX -= screenRectPadding;
-        minY -= screenRectPadding;
-        maxX += screenRectPadding;
-        maxY += screenRectPadding;
-
-        rectUv = new Vector4(
-            Mathf.Clamp01(minX),
-            Mathf.Clamp01(minY),
-            Mathf.Clamp01(maxX),
-            Mathf.Clamp01(maxY));
-
-        return rectUv.z > rectUv.x && rectUv.w > rectUv.y;
-    }
-
-    private void ApplyHiddenImmediate()
-    {
-        currentDimBlend = 0f;
-        currentFocusBlend = 0f;
-        showStageBecameActiveAt = -1f;
-        showScreenBecameReadyAt = -1f;
-
-        if (runtimeMaterial != null)
-        {
-            runtimeMaterial.SetFloat("_Presentation", 0f);
-            runtimeMaterial.SetFloat("_PlayerStrength", 0f);
-            runtimeMaterial.SetFloat("_PresenterStrength", 0f);
-            runtimeMaterial.SetFloat("_ScreenStrength", 0f);
-            runtimeMaterial.SetFloat("_ItemStrength", 0f);
-        }
-
-        if (overlayImage != null)
-            overlayImage.enabled = false;
-    }
-
-    private static float MoveTowards01(float current, float target, float duration, float deltaTime)
-    {
-        if (duration <= 0.0001f)
-            return Mathf.Clamp01(target);
-
-        return Mathf.MoveTowards(
-            Mathf.Clamp01(current),
-            Mathf.Clamp01(target),
-            Mathf.Max(0f, deltaTime) / duration);
-    }
-
-    private static float SmoothRange(float value, float from, float to)
-    {
-        if (to <= from)
-            return value >= to ? 1f : 0f;
-
-        float t = Mathf.InverseLerp(from, to, value);
-        return t * t * (3f - 2f * t);
     }
 }
