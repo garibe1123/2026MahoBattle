@@ -39,6 +39,13 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private Image analogOverlay;
     private Material analogOverlayMaterial;
 
+    [Header("CAMERA OPTICS REACTION")]
+    [SerializeField, Range(0f, 0.40f)] private float reactionExposureKick = 0.16f;
+    [SerializeField, Range(0f, 1f)] private float reactionBloomKick = 0.22f;
+    [SerializeField, Range(0f, 0.20f)] private float reactionChromaticKick = 0.05f;
+    [SerializeField, Range(0f, 0.10f)] private float reactionLensDistortionKick = 0.018f;
+    [SerializeField, Min(0.05f)] private float defaultReactionDuration = 0.18f;
+
     private BattleLightingProfileSO lightingProfile;
     private float currentWeight;
     private float targetWeight;
@@ -46,6 +53,11 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private bool showMode;
     private float lastKillEmphasis;
     private float lowHpEmphasis;
+
+    private float cameraReactionPeak;
+    private float cameraReactionStartedAt = -1f;
+    private float cameraReactionEndsAt = -1f;
+    private float currentCameraReaction;
 
     public float CurrentWeight => currentWeight;
 
@@ -131,12 +143,38 @@ public sealed class BattleColorGradingController : MonoBehaviour
         ApplyAnalogMaterialParameters();
     }
 
+    /// <summary>
+    /// 짧은 카메라 렌즈 반응을 누적합니다.
+    /// Profile의 기본 룩은 유지하고 Exposure / Bloom / CA / Lens Distortion만
+    /// transient envelope로 잠깐 가산한 뒤 자동 복귀합니다.
+    /// </summary>
+    public void PushCameraReaction(float strength, float duration = -1f)
+    {
+        float normalizedStrength = Mathf.Clamp01(strength);
+        if (normalizedStrength <= 0f)
+            return;
+
+        float safeDuration = duration > 0f
+            ? Mathf.Max(0.05f, duration)
+            : Mathf.Max(0.05f, defaultReactionDuration);
+
+        float now = Time.unscaledTime;
+        cameraReactionPeak = Mathf.Max(currentCameraReaction, normalizedStrength);
+        cameraReactionStartedAt = now;
+        cameraReactionEndsAt = now + safeDuration;
+        currentCameraReaction = cameraReactionPeak;
+
+        ApplyDynamicOverrides();
+    }
+
     private void ApplyDynamicOverrides()
     {
         if (lightingProfile == null ||
             colorAdjustments == null ||
+            bloom == null ||
             vignette == null ||
-            chromaticAberration == null)
+            chromaticAberration == null ||
+            lensDistortion == null)
         {
             return;
         }
@@ -145,11 +183,21 @@ public sealed class BattleColorGradingController : MonoBehaviour
             20f * lastKillEmphasis +
             12f * lowHpEmphasis;
 
+        colorAdjustments.postExposure.Override(
+            lightingProfile.postExposure +
+            reactionExposureKick * currentCameraReaction);
+
         colorAdjustments.saturation.Override(
             Mathf.Clamp(
                 lightingProfile.saturation - combinedSaturationLoss,
                 -100f,
                 100f));
+
+        bloom.intensity.Override(
+            Mathf.Max(
+                0f,
+                lightingProfile.bloomIntensity +
+                reactionBloomKick * currentCameraReaction));
 
         vignette.intensity.Override(
             Mathf.Clamp01(
@@ -160,7 +208,15 @@ public sealed class BattleColorGradingController : MonoBehaviour
         chromaticAberration.intensity.Override(
             Mathf.Clamp01(
                 lightingProfile.chromaticAberrationIntensity +
-                0.08f * lowHpEmphasis));
+                0.08f * lowHpEmphasis +
+                reactionChromaticKick * currentCameraReaction));
+
+        lensDistortion.intensity.Override(
+            Mathf.Clamp(
+                lightingProfile.lensDistortionIntensity -
+                reactionLensDistortionKick * currentCameraReaction,
+                -1f,
+                1f));
     }
 
     public void SetPresentationMode(bool combat, bool show)
@@ -200,8 +256,40 @@ public sealed class BattleColorGradingController : MonoBehaviour
             currentWeight = targetWeight;
 
         volume.weight = currentWeight;
+        UpdateCameraReactionEnvelope();
         UpdateAnalogOverlay();
         EnableCameraPostProcessing();
+    }
+
+    private void UpdateCameraReactionEnvelope()
+    {
+        float nextReaction = 0f;
+
+        if (cameraReactionEndsAt > cameraReactionStartedAt &&
+            Time.unscaledTime < cameraReactionEndsAt)
+        {
+            float duration = Mathf.Max(
+                0.05f,
+                cameraReactionEndsAt - cameraReactionStartedAt);
+            float elapsed = Mathf.Clamp01(
+                (Time.unscaledTime - cameraReactionStartedAt) / duration);
+            float remaining = 1f - elapsed;
+            float smoothRemaining =
+                remaining * remaining * (3f - 2f * remaining);
+            nextReaction = cameraReactionPeak * smoothRemaining;
+        }
+        else
+        {
+            cameraReactionPeak = 0f;
+            cameraReactionStartedAt = -1f;
+            cameraReactionEndsAt = -1f;
+        }
+
+        if (Mathf.Abs(currentCameraReaction - nextReaction) <= 0.0001f)
+            return;
+
+        currentCameraReaction = nextReaction;
+        ApplyDynamicOverrides();
     }
 
     private void OnDestroy()
