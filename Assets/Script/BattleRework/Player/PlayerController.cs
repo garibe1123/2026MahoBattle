@@ -36,6 +36,12 @@ public class PlayerController : MonoBehaviour, IDamageable
     [SerializeField] private float hitIFrameDuration = 0.5f;
     [SerializeField] private float rollIFrameDuration = 0.15f;
 
+    [Header("Hit Camera Reaction")]
+    [SerializeField] private BattleCameraController battleCamera;
+    [SerializeField, Range(0f, 0.30f)] private float hitCameraImpulseStrength = 0.10f;
+    [SerializeField, Range(0f, 0.30f)] private float hitCameraDamageBonus = 0.08f;
+    [SerializeField, Min(0.03f)] private float hitCameraImpulseDuration = 0.14f;
+
     [Header("Roll Chain")]
     [SerializeField] private float rollStaminaCost = 30f;
     [SerializeField] private int maxConsecutiveRolls = 3;
@@ -105,6 +111,8 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (battleCamera == null)
+            battleCamera = FindFirstObjectByType<BattleCameraController>();
         if (inputRouter == null)
             inputRouter = BattleInputRouter.ResolveOrCreate(this);
 
@@ -129,6 +137,8 @@ public class PlayerController : MonoBehaviour, IDamageable
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (battleCamera == null)
+            battleCamera = FindFirstObjectByType<BattleCameraController>();
         if (inputRouter == null && Application.isPlaying)
             inputRouter = BattleInputRouter.ResolveOrCreate(this);
 
@@ -469,9 +479,26 @@ public class PlayerController : MonoBehaviour, IDamageable
             rb.linearVelocity = Vector2.zero;
     }
 
-    public void ReceiveDamage(DamageContext context, float finalDamage) => TakeDamage(finalDamage);
+    public void ReceiveDamage(DamageContext context, float finalDamage)
+    {
+        TakeDamageInternal(
+            finalDamage,
+            context.HitPoint,
+            hasHitPoint: true);
+    }
 
     public void TakeDamage(float damage)
+    {
+        TakeDamageInternal(
+            damage,
+            transform.position,
+            hasHitPoint: false);
+    }
+
+    private void TakeDamageInternal(
+        float damage,
+        Vector2 hitPoint,
+        bool hasHitPoint)
     {
         if (!IsAlive || hitInvincible || rollInvincible)
             return;
@@ -483,6 +510,11 @@ public class PlayerController : MonoBehaviour, IDamageable
         currentHp = Mathf.Max(0f, currentHp - applied);
         HpChanged?.Invoke(currentHp, maxHp);
 
+        PlayHitCameraReaction(
+            applied,
+            hitPoint,
+            hasHitPoint);
+
         if (anim != null)
             anim.StartBlink(hitIFrameDuration);
 
@@ -493,6 +525,58 @@ public class PlayerController : MonoBehaviour, IDamageable
         }
 
         StartCoroutine(HitInvincibleRoutine(hitIFrameDuration));
+    }
+
+    private void PlayHitCameraReaction(
+        float appliedDamage,
+        Vector2 hitPoint,
+        bool hasHitPoint)
+    {
+        if (battleCamera == null)
+            battleCamera = FindFirstObjectByType<BattleCameraController>();
+
+        if (battleCamera == null)
+            return;
+
+        Vector2 direction = Vector2.zero;
+
+        if (hasHitPoint)
+        {
+            direction =
+                (Vector2)transform.position -
+                hitPoint;
+        }
+
+        if (direction.sqrMagnitude <= 0.0001f)
+        {
+            direction =
+                moveInput.sqrMagnitude > 0.0001f
+                    ? -moveInput
+                    : Vector2.down;
+        }
+
+        float damage01 =
+            Mathf.Clamp01(
+                appliedDamage /
+                Mathf.Max(
+                    1f,
+                    MaxHp));
+
+        float strength =
+            Mathf.Max(
+                0f,
+                hitCameraImpulseStrength) +
+            damage01 *
+            Mathf.Max(
+                0f,
+                hitCameraDamageBonus);
+
+        battleCamera.PlayCameraReaction(
+            direction.normalized,
+            strength,
+            Mathf.Max(
+                0.03f,
+                hitCameraImpulseDuration));
     }
 
     private IEnumerator HitInvincibleRoutine(float duration)
