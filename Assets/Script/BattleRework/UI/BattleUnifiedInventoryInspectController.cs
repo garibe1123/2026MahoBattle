@@ -1309,6 +1309,52 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         }
     }
 
+    private void ApplyDragStateDecor(
+        RectTransform frame,
+        bool dragSource,
+        bool dragTarget,
+        bool targetUnlocked,
+        bool targetOccupied,
+        float pulse01)
+    {
+        if (frame == null)
+            return;
+
+        RectTransform layer = frame.Find("DragStateFill") as RectTransform;
+        if (layer == null)
+        {
+            layer = CreateRect(frame, "DragStateFill", Vector2.zero);
+            Stretch(layer);
+            layer.SetAsFirstSibling();
+            Image image = layer.gameObject.AddComponent<Image>();
+            image.raycastTarget = false;
+        }
+
+        layer.gameObject.SetActive(dragSource || dragTarget);
+
+        Image graphic = layer.GetComponent<Image>();
+        if (graphic == null)
+            return;
+
+        if (dragSource)
+        {
+            graphic.color = new Color(0f, 0f, 0f, Mathf.Lerp(0.30f, 0.42f, pulse01));
+            return;
+        }
+
+        Color color = !targetUnlocked
+            ? pickedAccent
+            : targetOccupied
+                ? selectedAccent
+                : hoverAccent;
+
+        graphic.color = new Color(
+            color.r,
+            color.g,
+            color.b,
+            dragTarget ? Mathf.Lerp(0.07f, 0.14f, pulse01) : 0f);
+    }
+
     private static void DisableLegacyOutlineFrame(RectTransform frame)
     {
         if (frame == null)
