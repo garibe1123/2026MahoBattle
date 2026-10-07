@@ -1114,7 +1114,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         interactionCanvas = canvasObject.AddComponent<Canvas>();
         interactionCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
         interactionCanvas.overrideSorting = true;
-        interactionCanvas.sortingOrder = OverlaySortingOrder;
+        interactionCanvas.sortingOrder = BattleUiSortingContract.InventoryInteractionBase;
 
         CanvasScaler scaler = canvasObject.AddComponent<CanvasScaler>();
         scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
