@@ -92,12 +92,12 @@ public sealed class BattleSpotlightController : MonoBehaviour
 
     [Header("Reward / Map Idle")]
     [SerializeField] private bool useShowIdle = true;
-    [SerializeField, Min(0.05f)] private float rewardIdleCyclesPerSecond = 0.30f;
-    [SerializeField, Min(0.05f)] private float mapIdleCyclesPerSecond = 0.22f;
-    [SerializeField, Range(0f, 0.10f)] private float rewardBeamWidthAmplitude = 0.015f;
-    [SerializeField, Range(0f, 0.10f)] private float rewardBeamLengthAmplitude = 0.020f;
-    [SerializeField, Range(0f, 0.10f)] private float mapBeamWidthAmplitude = 0.010f;
-    [SerializeField, Range(0f, 0.10f)] private float mapBeamLengthAmplitude = 0.014f;
+    [SerializeField, Min(0.03f)] private float rewardIdleCyclesPerSecond = 0.12f;
+    [SerializeField, Min(0.03f)] private float mapIdleCyclesPerSecond = 0.09f;
+    [SerializeField, Range(0f, 0.05f)] private float rewardBeamWidthAmplitude = 0.006f;
+    [SerializeField, Range(0f, 0.05f)] private float rewardBeamLengthAmplitude = 0.008f;
+    [SerializeField, Range(0f, 0.05f)] private float mapBeamWidthAmplitude = 0.004f;
+    [SerializeField, Range(0f, 0.05f)] private float mapBeamLengthAmplitude = 0.006f;
     [SerializeField, Range(0f, 0.10f)] private float rewardFocusRadiusPulse = 0.045f;
     [SerializeField, Range(0f, 0.10f)] private float mapFocusRadiusPulse = 0.025f;
     [SerializeField, Range(0f, 0.30f)] private float focusFeatherPulse = 0.12f;
@@ -123,16 +123,16 @@ public sealed class BattleSpotlightController : MonoBehaviour
 
     [Header("Mode Transition Tween")]
     [Tooltip("Combat / Reward / Map 전환 때 Spotlight 크기와 밝기가 새 프로필로 정착하는 시간입니다.")]
-    [SerializeField, Min(0.08f)] private float modeTransitionDuration = 0.54f;
-    [SerializeField, Range(0.65f, 1f)] private float transitionStartScale = 0.90f;
-    [SerializeField, Range(0f, 0.18f)] private float transitionScaleOvershoot = 0.07f;
-    [SerializeField, Range(0.1f, 1f)] private float transitionStartAlpha = 0.58f;
-    [SerializeField, Range(0f, 0.15f)] private float focusTransitionOvershoot = 0.045f;
+    [SerializeField, Min(0.08f)] private float modeTransitionDuration = 0.62f;
+    [SerializeField, Range(0.80f, 1f)] private float transitionStartScale = 0.96f;
+    [SerializeField, Range(0f, 0.08f)] private float transitionScaleOvershoot = 0.018f;
+    [SerializeField, Range(0.1f, 1f)] private float transitionStartAlpha = 0.72f;
+    [SerializeField, Range(0f, 0.08f)] private float focusTransitionOvershoot = 0.015f;
 
     [Header("Stage Light Flicker")]
     [Tooltip("모드 전환 때 공연 조명처럼 짧게 세 번 꺼졌다 켜지는 펄스를 넣습니다.")]
     [SerializeField] private bool useStageLightFlicker = true;
-    [SerializeField, Range(0f, 0.95f)] private float stageFlickerStrength = 0.82f;
+    [SerializeField, Range(0f, 0.75f)] private float stageFlickerStrength = 0.42f;
 
     private SpotlightMode mode;
     private Canvas focusCanvas;
@@ -153,6 +153,7 @@ public sealed class BattleSpotlightController : MonoBehaviour
     private SpriteRenderer rewardProjectedRenderer;
     private MaterialPropertyBlock rewardProjectionProperties;
     private Vector2 rewardLastPosition;
+    private Vector2 rewardFilteredVelocity;
     private bool rewardMotionSample;
     private int rewardProjectedIndex = -1;
 
@@ -269,7 +270,9 @@ public sealed class BattleSpotlightController : MonoBehaviour
             default: UpdateInactive(); break;
         }
 
-        ApplyModeTransitionToBeams();
+        if (mode == SpotlightMode.Combat)
+            ApplyModeTransitionToBeams();
+
         FinishModeTransitionIfSettled();
     }
 
@@ -363,12 +366,9 @@ public sealed class BattleSpotlightController : MonoBehaviour
         if (!reward)
             ClearRewardProjection();
 
-        if (useShowIdle && ready)
-            ApplyShowIdle(reward);
-
-        if (reward && ready)
-            ApplyRewardPlayerLikeProjection();
-        else if (reward)
+        if (ready)
+            ApplyShowBeamMotion(reward);
+        else
             ClearRewardProjection();
 
         if (ready)
@@ -511,71 +511,223 @@ public sealed class BattleSpotlightController : MonoBehaviour
         }
     }
 
-    private void ApplyShowIdle(bool reward)
+    private void ApplyShowBeamMotion(bool reward)
     {
         RefreshVisualsIfNeeded();
-        if (lightVisuals == null) return;
+        if (lightVisuals == null)
+            return;
 
-        float cycles = reward ? rewardIdleCyclesPerSecond : mapIdleCyclesPerSecond;
-        float widthAmp = reward ? rewardBeamWidthAmplitude : mapBeamWidthAmplitude;
-        float lengthAmp = reward ? rewardBeamLengthAmplitude : mapBeamLengthAmplitude;
-        float time = Time.unscaledTime * Mathf.Max(0.05f, cycles) * Mathf.PI * 2f;
+        BattleCharacterLightVisual hoveredRewardVisual =
+            ResolveHoveredRewardProjectionVisual(reward);
+
+        float cycles =
+            reward
+                ? rewardIdleCyclesPerSecond
+                : mapIdleCyclesPerSecond;
+
+        float widthAmplitude =
+            reward
+                ? rewardBeamWidthAmplitude
+                : mapBeamWidthAmplitude;
+
+        float lengthAmplitude =
+            reward
+                ? rewardBeamLengthAmplitude
+                : mapBeamLengthAmplitude;
+
+        float idlePhase =
+            Time.unscaledTime *
+            Mathf.Max(0.03f, cycles) *
+            Mathf.PI *
+            2f;
+
+        float idleWidth =
+            useShowIdle
+                ? Mathf.Sin(idlePhase)
+                : 0f;
+
+        float idleLength =
+            useShowIdle
+                ? Mathf.Sin(idlePhase - 0.55f)
+                : 0f;
+
+        float transitionScale = 1f;
+        float transitionAlpha = 1f;
+
+        if (modeTransitionActive)
+        {
+            float t =
+                GetModeTransition01();
+
+            float flicker =
+                EvaluateStageLightFlicker(t);
+
+            transitionScale =
+                EvaluateBeamTransitionScale(
+                    t,
+                    flicker);
+
+            transitionAlpha =
+                EvaluateBeamTransitionAlpha(
+                    t,
+                    flicker);
+        }
+
+        float rewardSpeed01 = 0f;
+        float rewardSignedVertical01 = 0f;
+
+        if (reward &&
+            hoveredRewardVisual != null &&
+            useRewardItemProjection)
+        {
+            UpdateRewardProjectionMotion(
+                hoveredRewardVisual,
+                out rewardSpeed01,
+                out rewardSignedVertical01);
+        }
 
         foreach (BattleCharacterLightVisual visual in lightVisuals)
         {
-            if (visual == null || !visual.isActiveAndEnabled || visual.CurrentSpotlightStrength <= 0.01f)
+            if (visual == null ||
+                !visual.isActiveAndEnabled ||
+                visual.CurrentSpotlightStrength <= 0.01f)
+            {
                 continue;
+            }
 
-            Transform beam = visual.transform.Find(BattleCharacterLightVisual.KeyRendererName);
-            SpriteRenderer renderer = beam != null ? beam.GetComponent<SpriteRenderer>() : null;
-            if (renderer == null || !renderer.enabled) continue;
+            Transform beam =
+                visual.transform.Find(
+                    BattleCharacterLightVisual.KeyRendererName);
 
-            float phase =
-                Mathf.Abs(
-                    visual.GetInstanceID() % 997) *
-                0.0137f;
+            SpriteRenderer renderer =
+                beam != null
+                    ? beam.GetComponent<SpriteRenderer>()
+                    : null;
 
-            float widthWave =
-                Mathf.Sin(
-                    time +
-                    phase);
+            if (beam == null ||
+                renderer == null ||
+                !renderer.enabled)
+            {
+                continue;
+            }
 
-            float lengthWave =
-                Mathf.Sin(
-                    time * 0.73f +
-                    phase +
-                    1.15f);
-
-            // Idle never touches alpha. It only makes the lamp aperture breathe
-            // slightly around its authored size instead of accumulating brightness.
-            Vector3 baseScale =
+            // BattleCharacterLightVisual already restored the authored size earlier
+            // this frame. Compose every show effect from that single baseline and
+            // write the transform exactly once.
+            Vector3 authoredScale =
                 beam.localScale;
+
+            float widthScale =
+                1f +
+                idleWidth *
+                widthAmplitude;
+
+            float lengthScale =
+                1f +
+                idleLength *
+                lengthAmplitude;
+
+            float bottomWidthScale = 1f;
+            float opacityScale =
+                transitionAlpha;
+
+            if (reward &&
+                visual == hoveredRewardVisual &&
+                useRewardItemProjection)
+            {
+                float speedResponse =
+                    Mathf.Sqrt(
+                        Mathf.Clamp01(
+                            rewardSpeed01));
+
+                widthScale *=
+                    1f +
+                    Mathf.Max(
+                        0f,
+                        rewardProjectionWidthBoost) *
+                    speedResponse *
+                    0.30f;
+
+                lengthScale *=
+                    Mathf.Clamp(
+                        1f +
+                        rewardSignedVertical01 *
+                        Mathf.Max(
+                            0f,
+                            rewardProjectionLengthBoost) *
+                        0.20f,
+                        0.95f,
+                        1.06f);
+
+                bottomWidthScale =
+                    1f +
+                    Mathf.Max(
+                        0f,
+                        rewardProjectionBottomSpread) *
+                    speedResponse *
+                    0.36f;
+
+                opacityScale *=
+                    Mathf.Clamp01(
+                        1f -
+                        Mathf.Max(
+                            0f,
+                            rewardProjectionOpacityLoss) *
+                        speedResponse *
+                        0.32f);
+            }
+
+            widthScale *=
+                transitionScale;
+
+            lengthScale *=
+                transitionScale;
 
             beam.localScale =
                 new Vector3(
-                    baseScale.x *
-                    (1f +
-                     widthWave *
-                     widthAmp),
-                    baseScale.y *
-                    (1f +
-                     lengthWave *
-                     lengthAmp),
-                    baseScale.z);
+                    authoredScale.x *
+                    widthScale,
+                    authoredScale.y *
+                    lengthScale,
+                    authoredScale.z);
+
+            MaterialPropertyBlock properties =
+                visual == hoveredRewardVisual
+                    ? rewardProjectionProperties ??=
+                        new MaterialPropertyBlock()
+                    : beamProperties ??=
+                        new MaterialPropertyBlock();
+
+            renderer.GetPropertyBlock(
+                properties);
+
+            properties.SetFloat(
+                "_BeamBottomWidthScale",
+                bottomWidthScale);
+
+            properties.SetFloat(
+                "_BeamOpacityScale",
+                opacityScale);
+
+            renderer.SetPropertyBlock(
+                properties);
         }
     }
 
-    private void ApplyRewardPlayerLikeProjection()
+    private BattleCharacterLightVisual ResolveHoveredRewardProjectionVisual(
+        bool reward)
     {
-        if (!useRewardItemProjection ||
+        if (!reward ||
+            !useRewardItemProjection ||
             showWorldSet == null ||
             showWorldSet.RewardHoveredIndex < 0)
         {
             ClearRewardProjection();
-            return;
+            return null;
         }
 
-        int hoveredIndex = showWorldSet.RewardHoveredIndex;
+        int hoveredIndex =
+            showWorldSet.RewardHoveredIndex;
 
         if (!showWorldSet.TryGetRewardShowcaseSpotlight(
                 hoveredIndex,
@@ -584,7 +736,7 @@ public sealed class BattleSpotlightController : MonoBehaviour
             !visual.isActiveAndEnabled)
         {
             ClearRewardProjection();
-            return;
+            return null;
         }
 
         if (visual != rewardProjectedVisual ||
@@ -606,15 +758,25 @@ public sealed class BattleSpotlightController : MonoBehaviour
             rewardLastPosition =
                 visual.transform.position;
 
+            rewardFilteredVelocity =
+                Vector2.zero;
+
             rewardMotionSample = false;
         }
 
-        if (rewardProjectedBeam == null ||
-            rewardProjectedRenderer == null ||
-            !rewardProjectedRenderer.enabled)
-        {
+        return visual;
+    }
+
+    private void UpdateRewardProjectionMotion(
+        BattleCharacterLightVisual visual,
+        out float speed01,
+        out float signedVertical01)
+    {
+        speed01 = 0f;
+        signedVertical01 = 0f;
+
+        if (visual == null)
             return;
-        }
 
         float dt =
             Mathf.Min(
@@ -624,98 +786,57 @@ public sealed class BattleSpotlightController : MonoBehaviour
                     Time.unscaledDeltaTime));
 
         Vector2 position =
-            rewardProjectedVisual.transform.position;
+            visual.transform.position;
 
-        float speed01 = 0f;
-        float signedVertical01 = 0f;
-
-        if (rewardMotionSample)
+        if (!rewardMotionSample)
         {
-            Vector2 velocity =
-                (position - rewardLastPosition) /
-                dt;
+            rewardLastPosition =
+                position;
 
-            float fullSpeed =
-                Mathf.Max(
-                    0.05f,
-                    rewardProjectionFullSpeed);
+            rewardFilteredVelocity =
+                Vector2.zero;
 
-            speed01 =
-                Mathf.Clamp01(
-                    velocity.magnitude /
-                    fullSpeed);
-
-            signedVertical01 =
-                Mathf.Clamp(
-                    velocity.y /
-                    fullSpeed,
-                    -1f,
-                    1f);
+            rewardMotionSample = true;
+            return;
         }
 
-        rewardLastPosition = position;
-        rewardMotionSample = true;
+        Vector2 rawVelocity =
+            (position - rewardLastPosition) /
+            dt;
 
-        float response =
-            Mathf.Sqrt(
-                speed01);
+        rewardLastPosition =
+            position;
 
-        Vector3 scale =
-            rewardProjectedBeam.localScale;
+        // Float animation and layout movement can move by tiny discrete amounts.
+        // Low-pass the derivative before it ever reaches the light.
+        float filterT =
+            1f -
+            Mathf.Exp(
+                -4.0f *
+                dt);
 
-        float widthScale =
-            1f +
+        rewardFilteredVelocity =
+            Vector2.Lerp(
+                rewardFilteredVelocity,
+                rawVelocity,
+                filterT);
+
+        float fullSpeed =
             Mathf.Max(
-                0f,
-                rewardProjectionWidthBoost) *
-            response *
-            0.55f;
+                0.05f,
+                rewardProjectionFullSpeed);
 
-        float lengthScale =
-            1f +
-            signedVertical01 *
-            Mathf.Max(
-                0f,
-                rewardProjectionLengthBoost) *
-            0.38f;
-
-        lengthScale =
-            Mathf.Clamp(
-                lengthScale,
-                0.92f,
-                1.12f);
-
-        rewardProjectedBeam.localScale =
-            new Vector3(
-                scale.x * widthScale,
-                scale.y * lengthScale,
-                scale.z);
-
-        rewardProjectionProperties ??=
-            new MaterialPropertyBlock();
-
-        rewardProjectedRenderer.GetPropertyBlock(
-            rewardProjectionProperties);
-
-        rewardProjectionProperties.SetFloat(
-            "_BeamBottomWidthScale",
-            1f +
-            Mathf.Max(
-                0f,
-                rewardProjectionBottomSpread) *
-            response);
-
-        rewardProjectionProperties.SetFloat(
-            "_BeamOpacityScale",
+        speed01 =
             Mathf.Clamp01(
-                1f -
-                Mathf.Max(
-                    0f,
-                    rewardProjectionOpacityLoss) *
-                response));
+                rewardFilteredVelocity.magnitude /
+                fullSpeed);
 
-        rewardProjectedRenderer.SetPropertyBlock(
-            rewardProjectionProperties);
+        signedVertical01 =
+            Mathf.Clamp(
+                rewardFilteredVelocity.y /
+                fullSpeed,
+                -1f,
+                1f);
     }
 
     private void ClearRewardProjection()
@@ -745,6 +866,7 @@ public sealed class BattleSpotlightController : MonoBehaviour
         rewardProjectedRenderer = null;
         rewardProjectedIndex = -1;
         rewardMotionSample = false;
+        rewardFilteredVelocity = Vector2.zero;
     }
 
     private FocusFrame BuildSpotlightOffDimFrame()
@@ -1354,9 +1476,9 @@ public sealed class BattleSpotlightController : MonoBehaviour
         if (!useStageLightFlicker || t >= 0.68f)
             return 1f;
 
-        float p1 = SmoothPulse(t, 0.13f, 0.060f) * 1.00f;
-        float p2 = SmoothPulse(t, 0.31f, 0.052f) * 0.72f;
-        float p3 = SmoothPulse(t, 0.50f, 0.046f) * 0.44f;
+        float p1 = SmoothPulse(t, 0.15f, 0.095f) * 0.68f;
+        float p2 = SmoothPulse(t, 0.34f, 0.082f) * 0.42f;
+        float p3 = SmoothPulse(t, 0.54f, 0.070f) * 0.24f;
 
         float dip = Mathf.Max(p1, Mathf.Max(p2, p3));
         return Mathf.Clamp01(
@@ -1378,14 +1500,11 @@ public sealed class BattleSpotlightController : MonoBehaviour
             Mathf.Max(0f, transitionScaleOvershoot) *
             (1f - 0.25f * t);
 
-        float flickerCompression =
-            (1f - flicker) * 0.025f;
-
+        // Flicker changes light output only. Never kick the beam size.
         return Mathf.Max(
             0.5f,
             baseScale +
-            overshoot -
-            flickerCompression);
+            overshoot);
     }
 
     private float EvaluateBeamTransitionAlpha(float t, float flicker)
@@ -1412,14 +1531,11 @@ public sealed class BattleSpotlightController : MonoBehaviour
             Mathf.Sin(Mathf.PI * Mathf.Clamp01(t)) *
             Mathf.Max(0f, focusTransitionOvershoot);
 
-        float flickerCompression =
-            (1f - flicker) * 0.018f;
-
+        // Keep the aperture spatially stable while the lamp output flickers.
         return Mathf.Max(
             0.55f,
             baseScale +
-            overshoot -
-            flickerCompression);
+            overshoot);
     }
 
     private static FocusFrame LerpFocusFrame(
