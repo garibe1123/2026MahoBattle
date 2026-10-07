@@ -524,10 +524,19 @@ public class BattleCameraController : MonoBehaviour
 
         if (showFraming)
         {
+            // Combat의 마지막 프레임에서 남아 있던 위치/회전/줌 반응이
+            // Reward/Map Show 프레이밍으로 섞이지 않게 여기서 명시적으로 정리합니다.
+            ClearCameraEffects();
+            combatAnchorInitialized = false;
+            combatFollowVelocity = Vector2.zero;
             zoomBeforeShow = targetZoom;
         }
         else
         {
+            // 다음 Combat은 이전 Dead Zone anchor를 재사용하지 않고
+            // 현재 Player 위치에서 새로 기준점을 잡습니다.
+            combatAnchorInitialized = false;
+            combatFollowVelocity = Vector2.zero;
             targetZoom = Mathf.Clamp(zoomBeforeShow, minZoom, maxZoom);
             SetShowCursorTracking(false, Vector2.zero);
         }
