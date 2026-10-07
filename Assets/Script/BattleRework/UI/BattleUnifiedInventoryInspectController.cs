@@ -1062,16 +1062,24 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         EnsureFullSelectionFrames();
         float pulse01 = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 6.2f);
 
+        bool dragging =
+            rewardEdit &&
+            inventoryInteraction != null &&
+            !inventoryInteraction.PadModeActive &&
+            inventoryInteraction.DraggingSlot >= 0;
+
+        int dragSourceSlot =
+            dragging
+                ? inventoryInteraction.DraggingSlot
+                : -1;
+
+        int dragTargetSlot =
+            dragging
+                ? inventoryInteraction.HoveredSlot
+                : -1;
+
         for (int i = 0; i < SlotCount; i++)
         {
-            RectTransform slot = fullSlotRects[i];
-            if (slot != null)
-            {
-                Transform legacyInteractionFrame = slot.Find("InteractionFullSelectionFrame");
-                if (legacyInteractionFrame != null && legacyInteractionFrame.gameObject.activeSelf)
-                    legacyInteractionFrame.gameObject.SetActive(false);
-            }
-
             GameObject frame = fullSelectionFrames[i];
             if (frame == null)
                 continue;
@@ -1097,14 +1105,30 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                 i == activeInspectSlot &&
                 HasItem(i);
 
-            // 클릭 선택은 Hover가 다른 슬롯으로 이동해도 계속 남습니다.
-            // Selected=노랑, Hover=청록을 동시에 보여줘 현재 선택과 미리보기를 분리합니다.
+            bool dragSource =
+                dragging &&
+                i == dragSourceSlot;
+
+            bool dragTarget =
+                dragging &&
+                i == dragTargetSlot &&
+                i != dragSourceSlot;
+
+            bool targetUnlocked =
+                equipmentSystem != null &&
+                equipmentSystem.IsSlotUnlocked(i);
+
+            bool targetOccupied =
+                HasItem(i);
+
             bool visible =
-                HasItem(i) &&
-                (picked ||
-                 padSelected ||
-                 mouseSelected ||
-                 previewSelected);
+                (HasItem(i) &&
+                 (picked ||
+                  padSelected ||
+                  mouseSelected ||
+                  previewSelected)) ||
+                dragSource ||
+                dragTarget;
 
             if (frame.activeSelf != visible)
                 frame.SetActive(visible);
@@ -1112,21 +1136,35 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             if (!visible)
                 continue;
 
-            Color color = picked
-                ? pickedAccent
-                : mouseSelected || padSelected
-                    ? selectedAccent
-                    : hovered
-                        ? hoverAccent
-                        : selectedAccent;
+            Color color =
+                dragTarget
+                    ? !targetUnlocked
+                        ? pickedAccent
+                        : targetOccupied
+                            ? selectedAccent
+                            : hoverAccent
+                    : dragSource
+                        ? selectedAccent
+                        : picked
+                            ? pickedAccent
+                            : mouseSelected || padSelected
+                                ? selectedAccent
+                                : hovered
+                                    ? hoverAccent
+                                    : selectedAccent;
 
-            float thickness = picked
-                ? Mathf.Lerp(5.5f, 7f, pulse01)
-                : mouseSelected || padSelected
-                    ? Mathf.Lerp(5.2f, 6.8f, pulse01)
-                    : hovered
-                        ? 3f
-                        : Mathf.Lerp(3.8f, 5f, pulse01);
+            float thickness =
+                dragTarget
+                    ? Mathf.Lerp(5.4f, 7.2f, pulse01)
+                    : dragSource
+                        ? Mathf.Lerp(4.6f, 6.0f, pulse01)
+                        : picked
+                            ? Mathf.Lerp(5.5f, 7f, pulse01)
+                            : mouseSelected || padSelected
+                                ? Mathf.Lerp(5.2f, 6.8f, pulse01)
+                                : hovered
+                                    ? 3f
+                                    : Mathf.Lerp(3.8f, 5f, pulse01);
 
             RectTransform frameRect =
                 frame.GetComponent<RectTransform>();
@@ -1139,8 +1177,16 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             ApplySelectionDecor(
                 frameRect,
                 color,
-                mouseSelected || padSelected || picked,
+                mouseSelected || padSelected || picked || dragSource,
                 picked,
+                pulse01);
+
+            ApplyDragStateDecor(
+                frameRect,
+                dragSource,
+                dragTarget,
+                targetUnlocked,
+                targetOccupied,
                 pulse01);
         }
     }
