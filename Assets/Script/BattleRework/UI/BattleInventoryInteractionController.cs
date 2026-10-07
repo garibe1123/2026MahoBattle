@@ -33,7 +33,7 @@ internal enum BattleInventorySurface
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(30750)]
-public sealed class BattleInventoryInteractionController : MonoBehaviour
+public sealed class BattleInventoryInteractionController : MonoBehaviour, IInputModal
 {
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
 
@@ -667,10 +667,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         if (!HasItem(slotIndex))
             return;
 
+        ResolveReferences();
+
         pendingDiscardSlot = slotIndex;
         confirmYesSelected = false;
         discardModalOpen = true;
         padPickedSlot = -1;
+        inputRouter?.PushModal(this);
 
         BattleEquipmentSO equipment = equipmentSystem.Slots[slotIndex].equipment;
         string itemName = equipment != null ? equipment.GetDisplayName() : "ITEM";
@@ -709,11 +712,21 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
     private void HideDiscardConfirm()
     {
+        bool wasOpen = discardModalOpen;
         discardModalOpen = false;
         pendingDiscardSlot = -1;
         confirmYesSelected = false;
         if (discardConfirmRoot != null)
             discardConfirmRoot.gameObject.SetActive(false);
+
+        if (wasOpen)
+            inputRouter?.PopModal(this);
+    }
+
+    public void RequestClose()
+    {
+        if (discardModalOpen)
+            ResolveDiscard(false);
     }
 
     private void HandlePadPackInput()
