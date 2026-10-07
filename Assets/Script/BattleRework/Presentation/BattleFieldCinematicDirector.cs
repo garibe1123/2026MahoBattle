@@ -506,6 +506,10 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             activeLightingProfile.playerTopLightStrength,
             activeLightingProfile.characterLightFadeSharpness);
 
+        // Player sprites can be offset children. Keep the stage beam/pool horizontally
+        // centered on the gameplay Player transform instead of SpriteRenderer.bounds.center.x.
+        visual.SetPlacementAnchor(player != null ? player.transform : visual.transform, true);
+
         visual.ConfigureKeyLight(
             true,
             activeLightingProfile.playerKeyLightColor,
