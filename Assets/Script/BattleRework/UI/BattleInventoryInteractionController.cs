@@ -1573,8 +1573,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     {
         if (transferGhostIcon != null)
         {
-            transferGhostIcon.sprite = equipment.icon;
-            transferGhostIcon.enabled = equipment.icon != null;
+            bool hasIcon = equipment.icon != null;
+            transferGhostIcon.sprite = hasIcon ? equipment.icon : BattleHudSpriteCache.DefaultSprite;
+            transferGhostIcon.preserveAspect = hasIcon;
+            transferGhostIcon.color = Color.white;
+            transferGhostIcon.enabled = true;
         }
 
         if (transferGhostOutline != null)
