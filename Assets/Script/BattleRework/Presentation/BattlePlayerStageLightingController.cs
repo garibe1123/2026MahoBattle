@@ -39,8 +39,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float farDimAlpha = 0.97f;
     [SerializeField, Range(0.05f, 1.5f)] private float dimFalloffRadius = 0.56f;
     [SerializeField, Min(0.1f)] private float playerFocusRadiusWorld = 1.62f;
-    [SerializeField, Range(0.2f, 1f)] private float characterVerticalRatio = 0.46f;
-    [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.22f;
+    [SerializeField, Range(0.2f, 1f)] private float characterVerticalRatio = 0.86f;
+    [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.02f;
     [SerializeField, Range(0.001f, 0.08f)] private float characterFeather = 0.018f;
     [SerializeField, Min(0.01f)] private float preCombatFadeInDuration = 0.14f;
     [SerializeField, Min(0.01f)] private float combatRevealDuration = 0.22f;
@@ -63,8 +63,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
     public float UnifiedFarDimAlpha => farDimAlpha;
     public float UnifiedDimFalloffRadius => dimFalloffRadius;
     public float UnifiedPlayerFocusRadiusWorld => playerFocusRadiusWorld;
-    public float UnifiedCharacterVerticalRatio => 0.86f;
-    public float UnifiedCharacterLowerOffset => 0.02f;
+    public float UnifiedCharacterVerticalRatio => characterVerticalRatio;
+    public float UnifiedCharacterLowerOffset => characterLowerOffset;
     public float UnifiedCharacterFeather => characterFeather;
     public float UnifiedDimFadeInDuration => preCombatFadeInDuration;
 
@@ -422,8 +422,8 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         overlayMaterial.SetFloat("_PresenterStrength", 0f);
         overlayMaterial.SetFloat("_ScreenStrength", 0f);
         // Use the same circular mask-hole language as Combat/Reward Item focus.
-        overlayMaterial.SetFloat("_CharacterVerticalRatio", 0.86f);
-        overlayMaterial.SetFloat("_CharacterLowerOffset", 0.02f);
+        overlayMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(characterVerticalRatio, 0.2f, 1f));
+        overlayMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(characterLowerOffset));
         overlayMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, characterFeather));
         overlayMaterial.SetFloat("_RectFeather", 0.0035f);
 
