@@ -72,6 +72,14 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float rewardItemFocusRadiusWorld = 0.92f;
     [SerializeField, Range(0.001f, 0.08f)] private float rewardItemFocusFeather = 0.020f;
 
+    [Header("Reward / Map Focus Idle")]
+    [SerializeField] private bool useShowFocusIdle = true;
+    [SerializeField, Min(0.05f)] private float rewardFocusIdleCyclesPerSecond = 0.30f;
+    [SerializeField, Min(0.05f)] private float mapFocusIdleCyclesPerSecond = 0.22f;
+    [SerializeField, Range(0f, 0.10f)] private float rewardFocusRadiusPulse = 0.045f;
+    [SerializeField, Range(0f, 0.10f)] private float mapFocusRadiusPulse = 0.025f;
+    [SerializeField, Range(0f, 0.30f)] private float focusFeatherPulse = 0.12f;
+
     [Header("Character Stage Focus")]
     [SerializeField, Min(0.1f)] private float playerFocusRadiusWorld = 1.48f;
     [SerializeField, Min(0.1f)] private float presenterFocusRadiusWorld = 1.92f;
@@ -294,6 +302,49 @@ public sealed class BattleShowFocusController : MonoBehaviour
             runManager.State == BattleRunState.SelectingNode;
         bool useUnifiedStageStyle = mapSelection && stageLighting != null;
 
+        float rewardIdleWave =
+            rewardSelection && useShowFocusIdle
+                ? EvaluateIdleBreath(
+                    now,
+                    rewardFocusIdleCyclesPerSecond,
+                    0.37f)
+                : 0f;
+
+        float mapIdleWave =
+            mapSelection && useShowFocusIdle
+                ? EvaluateIdleBreath(
+                    now,
+                    mapFocusIdleCyclesPerSecond,
+                    1.11f)
+                : 0f;
+
+        if (rewardSelection && rewardItemVisible)
+        {
+            rewardItemRadiusUv *=
+                1f +
+                rewardIdleWave *
+                rewardFocusRadiusPulse;
+        }
+
+        if (mapSelection)
+        {
+            float mapRadiusScale =
+                1f +
+                mapIdleWave *
+                mapFocusRadiusPulse;
+
+            playerRadiusUv *=
+                mapRadiusScale;
+
+            presenterRadiusUv *=
+                1f +
+                EvaluateIdleBreath(
+                    now,
+                    mapFocusIdleCyclesPerSecond,
+                    2.43f) *
+                mapFocusRadiusPulse;
+        }
+
         // 맵 선택은 전투 Room이 붙을 때의 강한 Stage Spotlight 언어를 그대로 사용합니다.
         // Reward는 기존 Show 스타일을 유지합니다.
         float activeNearDim = useUnifiedStageStyle
@@ -358,11 +409,18 @@ public sealed class BattleShowFocusController : MonoBehaviour
                 ? currentFocusBlend
                 : 0f);
 
+        float activeItemFeather =
+            rewardItemFocusFeather *
+            (
+                1f +
+                rewardIdleWave *
+                focusFeatherPulse);
+
         runtimeMaterial.SetFloat(
             "_ItemFeather",
             Mathf.Max(
                 0.0001f,
-                rewardItemFocusFeather));
+                activeItemFeather));
 
         // Character focus now follows the same circular-hole language as Reward Item focus.
         // Keep these hard circular so serialized legacy ellipse values cannot reintroduce the old look.
@@ -376,6 +434,14 @@ public sealed class BattleShowFocusController : MonoBehaviour
             ? stageLighting.UnifiedCharacterFeather
             : characterFeather;
 
+        if (mapSelection && useShowFocusIdle)
+        {
+            activeCharacterFeather *=
+                1f +
+                mapIdleWave *
+                focusFeatherPulse;
+        }
+
         runtimeMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(activeVerticalRatio, 0.2f, 1f));
         runtimeMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(activeLowerOffset));
         runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, activeCharacterFeather));
@@ -383,6 +449,35 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         if (overlayImage != null)
             overlayImage.enabled = presentationBlend > 0.0001f;
+    }
+
+    private static float EvaluateIdleBreath(
+        float time,
+        float cyclesPerSecond,
+        float phase)
+    {
+        float omega =
+            Mathf.Max(
+                0.05f,
+                cyclesPerSecond) *
+            Mathf.PI *
+            2f;
+
+        float primary =
+            Mathf.Sin(
+                time * omega +
+                phase);
+
+        float secondary =
+            Mathf.Sin(
+                time * omega * 0.43f +
+                phase * 1.67f);
+
+        return Mathf.Clamp(
+            primary * 0.74f +
+            secondary * 0.26f,
+            -1f,
+            1f);
     }
 
     private void ResolveReferences()
