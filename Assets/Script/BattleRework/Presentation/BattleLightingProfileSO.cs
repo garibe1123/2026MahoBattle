@@ -89,38 +89,38 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     public Color playerPoolColor = new(1f, 0.95f, 0.88f, 1f);
     public Color playerKeyLightColor = new(1f, 0.975f, 0.92f, 1f);
     public Color playerTopLightColor = new(1f, 0.985f, 0.94f, 1f);
-    [Range(0f, 1f)] public float playerPoolAlpha = 0.16f;
-    [Min(0.1f)] public float playerPoolWidthMultiplier = 2.05f;
-    [Range(0.05f, 0.55f)] public float playerPoolHeightRatio = 0.22f;
-    [Range(0f, 1f)] public float playerKeyLightAlpha = 0.055f;
-    [Min(0.2f)] public float playerKeyLightWidthMultiplier = 1.55f;
-    [Min(0.2f)] public float playerKeyLightHeightMultiplier = 1.90f;
-    [Range(-1f, 1f)] public float playerKeyLightVerticalOffsetRatio = 0.40f;
-    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.04f;
+    [Range(0f, 1f)] public float playerPoolAlpha = 0.14f;
+    [Min(0.1f)] public float playerPoolWidthMultiplier = 2.10f;
+    [Range(0.05f, 0.55f)] public float playerPoolHeightRatio = 0.32f;
+    [Range(0f, 1f)] public float playerKeyLightAlpha = 0.04f;
+    [Min(0.2f)] public float playerKeyLightWidthMultiplier = 1.62f;
+    [Min(0.2f)] public float playerKeyLightHeightMultiplier = 1.72f;
+    [Range(-1f, 1f)] public float playerKeyLightVerticalOffsetRatio = 0.34f;
+    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.03f;
     [Range(0f, 1f)] public float playerCombatStrength = 1f;
 
     [Header("Enemy Contact Light")]
     public Color enemyPoolColor = new(0.92f, 0.95f, 1f, 1f);
     public Color enemyTopLightColor = Color.white;
-    [Range(0f, 1f)] public float enemyPoolAlpha = 0.04f;
-    [Min(0.1f)] public float enemyPoolWidthMultiplier = 1.10f;
-    [Range(0.05f, 0.55f)] public float enemyPoolHeightRatio = 0.11f;
+    [Range(0f, 1f)] public float enemyPoolAlpha = 0.035f;
+    [Min(0.1f)] public float enemyPoolWidthMultiplier = 1.25f;
+    [Range(0.05f, 0.55f)] public float enemyPoolHeightRatio = 0.28f;
     [Range(0f, 0.35f)] public float enemyTopLightStrength = 0f;
     [Range(0f, 1f)] public float enemyCombatStrength = 0.45f;
 
     [Header("Presenter Stage Light")]
-    public Color presenterPoolColor = new(1f, 0.84f, 0.60f, 1f);
-    public Color presenterKeyLightColor = new(1f, 0.90f, 0.72f, 1f);
-    public Color presenterTopLightColor = new(1f, 0.95f, 0.82f, 1f);
-    [Range(0f, 1f)] public float presenterPoolAlpha = 0.24f;
-    [Min(0.1f)] public float presenterPoolWidthMultiplier = 1.48f;
-    [Range(0.05f, 0.55f)] public float presenterPoolHeightRatio = 0.15f;
+    public Color presenterPoolColor = new(1f, 0.92f, 0.80f, 1f);
+    public Color presenterKeyLightColor = new(1f, 0.95f, 0.86f, 1f);
+    public Color presenterTopLightColor = new(1f, 0.97f, 0.90f, 1f);
+    [Range(0f, 1f)] public float presenterPoolAlpha = 0.16f;
+    [Min(0.1f)] public float presenterPoolWidthMultiplier = 1.85f;
+    [Range(0.05f, 0.55f)] public float presenterPoolHeightRatio = 0.30f;
     [Tooltip("Keep the presenter beam subtle; most of the readable light should come from the floor pool and sprite top-light.")]
-    [Range(0f, 1f)] public float presenterKeyLightAlpha = 0.075f;
-    [Min(0.2f)] public float presenterKeyLightWidthMultiplier = 1.35f;
-    [Min(0.2f)] public float presenterKeyLightHeightMultiplier = 1.30f;
-    [Range(-1f, 1f)] public float presenterKeyLightVerticalOffsetRatio = 0.12f;
-    [Range(0f, 0.35f)] public float presenterTopLightStrength = 0.05f;
+    [Range(0f, 1f)] public float presenterKeyLightAlpha = 0.04f;
+    [Min(0.2f)] public float presenterKeyLightWidthMultiplier = 1.50f;
+    [Min(0.2f)] public float presenterKeyLightHeightMultiplier = 1.42f;
+    [Range(-1f, 1f)] public float presenterKeyLightVerticalOffsetRatio = 0.10f;
+    [Range(0f, 0.35f)] public float presenterTopLightStrength = 0.035f;
 
     [Header("Shared Character Fade")]
     [Min(0.1f)] public float characterLightFadeSharpness = 6.8f;
