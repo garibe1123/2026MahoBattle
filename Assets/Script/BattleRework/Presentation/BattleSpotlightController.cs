@@ -109,6 +109,19 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float combatFadeSharpness = 8f;
     [SerializeField, Min(0.1f)] private float showFadeSharpness = 6f;
 
+    [Header("Mode Transition Tween")]
+    [Tooltip("Combat / Reward / Map 전환 때 Spotlight 크기와 밝기가 새 프로필로 정착하는 시간입니다.")]
+    [SerializeField, Min(0.08f)] private float modeTransitionDuration = 0.54f;
+    [SerializeField, Range(0.65f, 1f)] private float transitionStartScale = 0.90f;
+    [SerializeField, Range(0f, 0.18f)] private float transitionScaleOvershoot = 0.07f;
+    [SerializeField, Range(0.1f, 1f)] private float transitionStartAlpha = 0.58f;
+    [SerializeField, Range(0f, 0.15f)] private float focusTransitionOvershoot = 0.045f;
+
+    [Header("Stage Light Flicker")]
+    [Tooltip("모드 전환 때 공연 조명처럼 짧게 세 번 꺼졌다 켜지는 펄스를 넣습니다.")]
+    [SerializeField] private bool useStageLightFlicker = true;
+    [SerializeField, Range(0f, 0.95f)] private float stageFlickerStrength = 0.82f;
+
     private SpotlightMode mode;
     private Canvas focusCanvas;
     private Image focusImage;
@@ -132,6 +145,13 @@ public sealed class BattleSpotlightController : MonoBehaviour
     private Vector3 combatFocusWorld;
     private bool combatFocusInitialized;
     private float focusBlend;
+
+    private bool modeTransitionActive;
+    private float modeTransitionStartedAt = -1f;
+    private FocusFrame transitionFromFocusFrame;
+    private bool hasTransitionFocusSource;
+    private FocusFrame lastAppliedFocusFrame;
+    private bool hasLastAppliedFocusFrame;
 
     public static BattleSpotlightController Instance => activeInstance;
 
@@ -227,6 +247,9 @@ public sealed class BattleSpotlightController : MonoBehaviour
             case SpotlightMode.Map: UpdateShow(reward: false); break;
             default: UpdateInactive(); break;
         }
+
+        ApplyModeTransitionToBeams();
+        FinishModeTransitionIfSettled();
     }
 
     private SpotlightMode ResolveMode()
@@ -242,15 +265,35 @@ public sealed class BattleSpotlightController : MonoBehaviour
 
     private void ChangeMode(SpotlightMode next)
     {
-        if (mode == SpotlightMode.Combat)
+        SpotlightMode previous = mode;
+
+        if (previous == SpotlightMode.Combat)
         {
             ResetCombatMotion();
             ClearCombatBeamProperties();
         }
 
+        hasTransitionFocusSource =
+            previous != SpotlightMode.None &&
+            hasLastAppliedFocusFrame;
+
+        if (hasTransitionFocusSource)
+            transitionFromFocusFrame = lastAppliedFocusFrame;
+
         mode = next;
         combatFocusInitialized = false;
-        if (mode != SpotlightMode.Combat) ClearCombatBeamProperties();
+
+        if (mode != SpotlightMode.Combat)
+            ClearCombatBeamProperties();
+
+        modeTransitionActive =
+            next != SpotlightMode.None;
+
+        modeTransitionStartedAt =
+            modeTransitionActive
+                ? Time.unscaledTime
+                : -1f;
+
         PushArtistSettings();
     }
 
@@ -529,6 +572,30 @@ public sealed class BattleSpotlightController : MonoBehaviour
     private void ApplyFocus(FocusFrame f)
     {
         if (focusMaterial == null || focusBlend <= 0.0001f) { HideFocusIfZero(); return; }
+
+        float transitionT = GetModeTransition01();
+        float ease = Smooth01(transitionT);
+
+        if (modeTransitionActive && hasTransitionFocusSource)
+            f = LerpFocusFrame(transitionFromFocusFrame, f, ease);
+
+        if (modeTransitionActive)
+        {
+            float flicker = EvaluateStageLightFlicker(transitionT);
+            float focusScale = EvaluateFocusTransitionScale(transitionT, flicker);
+
+            f.playerRadius *= focusScale;
+            f.presenterRadius *= focusScale;
+            f.itemRadius *= focusScale;
+
+            // The darkness itself stays stable; only the exposed spotlight apertures flicker.
+            f.playerStrength *= flicker;
+            f.presenterStrength *= flicker;
+            f.itemStrength *= flicker;
+        }
+
+        lastAppliedFocusFrame = f;
+        hasLastAppliedFocusFrame = true;
 
         focusMaterial.SetColor("_MaskColor", Color.black);
         focusMaterial.SetFloat("_Presentation", focusBlend);
@@ -854,6 +921,8 @@ public sealed class BattleSpotlightController : MonoBehaviour
     private void HideFocusImmediate()
     {
         focusBlend = 0f;
+        hasLastAppliedFocusFrame = false;
+        hasTransitionFocusSource = false;
         if (focusMaterial != null)
         {
             focusMaterial.SetFloat("_Presentation", 0f);
@@ -865,6 +934,223 @@ public sealed class BattleSpotlightController : MonoBehaviour
             focusMaterial.SetFloat("_PlayerScaleY", 1f);
         }
         if (focusImage != null) focusImage.enabled = false;
+    }
+
+    private void ApplyModeTransitionToBeams()
+    {
+        if (!modeTransitionActive || mode == SpotlightMode.None)
+            return;
+
+        RefreshVisualsIfNeeded();
+
+        float t = GetModeTransition01();
+        float flicker = EvaluateStageLightFlicker(t);
+        float scaleEnvelope = EvaluateBeamTransitionScale(t, flicker);
+        float alphaEnvelope = EvaluateBeamTransitionAlpha(t, flicker);
+
+        if (mode == SpotlightMode.Combat)
+        {
+            ResolvePlayerBeam();
+            ApplyBeamTransitionEnvelope(
+                playerBeamTransform,
+                playerBeamRenderer,
+                scaleEnvelope,
+                alphaEnvelope);
+            return;
+        }
+
+        if (lightVisuals == null)
+            return;
+
+        foreach (BattleCharacterLightVisual visual in lightVisuals)
+        {
+            if (visual == null ||
+                !visual.isActiveAndEnabled ||
+                visual.CurrentSpotlightStrength <= 0.01f)
+                continue;
+
+            Transform beam = visual.transform.Find(BattleCharacterLightVisual.KeyRendererName);
+            SpriteRenderer renderer = beam != null ? beam.GetComponent<SpriteRenderer>() : null;
+
+            ApplyBeamTransitionEnvelope(
+                beam,
+                renderer,
+                scaleEnvelope,
+                alphaEnvelope);
+        }
+    }
+
+    private static void ApplyBeamTransitionEnvelope(
+        Transform beam,
+        SpriteRenderer renderer,
+        float scaleEnvelope,
+        float alphaEnvelope)
+    {
+        if (beam == null || renderer == null || !renderer.enabled)
+            return;
+
+        Vector3 scale = beam.localScale;
+        beam.localScale = new Vector3(
+            scale.x * scaleEnvelope,
+            scale.y * scaleEnvelope,
+            scale.z);
+
+        Color color = renderer.color;
+        color.a *= alphaEnvelope;
+        renderer.color = color;
+    }
+
+    private float GetModeTransition01()
+    {
+        if (!modeTransitionActive || modeTransitionStartedAt < 0f)
+            return 1f;
+
+        float duration = Mathf.Max(0.08f, modeTransitionDuration);
+        return Mathf.Clamp01(
+            (Time.unscaledTime - modeTransitionStartedAt) /
+            duration);
+    }
+
+    private void FinishModeTransitionIfSettled()
+    {
+        if (!modeTransitionActive || GetModeTransition01() < 1f)
+            return;
+
+        modeTransitionActive = false;
+        modeTransitionStartedAt = -1f;
+        hasTransitionFocusSource = false;
+    }
+
+    private float EvaluateStageLightFlicker(float t)
+    {
+        if (!useStageLightFlicker || t >= 0.68f)
+            return 1f;
+
+        float p1 = SmoothPulse(t, 0.13f, 0.060f) * 1.00f;
+        float p2 = SmoothPulse(t, 0.31f, 0.052f) * 0.72f;
+        float p3 = SmoothPulse(t, 0.50f, 0.046f) * 0.44f;
+
+        float dip = Mathf.Max(p1, Mathf.Max(p2, p3));
+        return Mathf.Clamp01(
+            1f -
+            Mathf.Clamp01(stageFlickerStrength) *
+            dip);
+    }
+
+    private float EvaluateBeamTransitionScale(float t, float flicker)
+    {
+        float ease = Smooth01(t);
+        float baseScale = Mathf.Lerp(
+            Mathf.Clamp(transitionStartScale, 0.65f, 1f),
+            1f,
+            ease);
+
+        float overshoot =
+            Mathf.Sin(Mathf.PI * Mathf.Clamp01(t)) *
+            Mathf.Max(0f, transitionScaleOvershoot) *
+            (1f - 0.25f * t);
+
+        float flickerCompression =
+            (1f - flicker) * 0.025f;
+
+        return Mathf.Max(
+            0.5f,
+            baseScale +
+            overshoot -
+            flickerCompression);
+    }
+
+    private float EvaluateBeamTransitionAlpha(float t, float flicker)
+    {
+        float baseAlpha = Mathf.Lerp(
+            Mathf.Clamp01(transitionStartAlpha),
+            1f,
+            Smooth01(t));
+
+        return Mathf.Clamp01(
+            baseAlpha *
+            flicker);
+    }
+
+    private float EvaluateFocusTransitionScale(float t, float flicker)
+    {
+        float ease = Smooth01(t);
+        float baseScale = Mathf.Lerp(
+            Mathf.Clamp(transitionStartScale, 0.65f, 1f),
+            1f,
+            ease);
+
+        float overshoot =
+            Mathf.Sin(Mathf.PI * Mathf.Clamp01(t)) *
+            Mathf.Max(0f, focusTransitionOvershoot);
+
+        float flickerCompression =
+            (1f - flicker) * 0.018f;
+
+        return Mathf.Max(
+            0.55f,
+            baseScale +
+            overshoot -
+            flickerCompression);
+    }
+
+    private static FocusFrame LerpFocusFrame(
+        FocusFrame from,
+        FocusFrame to,
+        float t)
+    {
+        return new FocusFrame
+        {
+            dimCenter = Vector2.LerpUnclamped(from.dimCenter, to.dimCenter, t),
+            nearDim = Mathf.LerpUnclamped(from.nearDim, to.nearDim, t),
+            farDim = Mathf.LerpUnclamped(from.farDim, to.farDim, t),
+            dimRadius = Mathf.LerpUnclamped(from.dimRadius, to.dimRadius, t),
+
+            playerCenter = Vector2.LerpUnclamped(from.playerCenter, to.playerCenter, t),
+            playerRadius = Mathf.LerpUnclamped(from.playerRadius, to.playerRadius, t),
+            playerStrength = Mathf.LerpUnclamped(from.playerStrength, to.playerStrength, t),
+            playerScaleX = Mathf.LerpUnclamped(from.playerScaleX, to.playerScaleX, t),
+            playerScaleY = Mathf.LerpUnclamped(from.playerScaleY, to.playerScaleY, t),
+
+            presenterCenter = Vector2.LerpUnclamped(from.presenterCenter, to.presenterCenter, t),
+            presenterRadius = Mathf.LerpUnclamped(from.presenterRadius, to.presenterRadius, t),
+            presenterStrength = Mathf.LerpUnclamped(from.presenterStrength, to.presenterStrength, t),
+
+            screenRect = Vector4.LerpUnclamped(from.screenRect, to.screenRect, t),
+            screenStrength = Mathf.LerpUnclamped(from.screenStrength, to.screenStrength, t),
+
+            itemCenter = Vector2.LerpUnclamped(from.itemCenter, to.itemCenter, t),
+            itemRadius = Mathf.LerpUnclamped(from.itemRadius, to.itemRadius, t),
+            itemStrength = Mathf.LerpUnclamped(from.itemStrength, to.itemStrength, t),
+            itemFeather = Mathf.LerpUnclamped(from.itemFeather, to.itemFeather, t),
+
+            characterVerticalRatio = Mathf.LerpUnclamped(
+                from.characterVerticalRatio,
+                to.characterVerticalRatio,
+                t),
+            characterLowerOffset = Mathf.LerpUnclamped(
+                from.characterLowerOffset,
+                to.characterLowerOffset,
+                t),
+            characterFeather = Mathf.LerpUnclamped(
+                from.characterFeather,
+                to.characterFeather,
+                t),
+            rectFeather = Mathf.LerpUnclamped(from.rectFeather, to.rectFeather, t)
+        };
+    }
+
+    private static float SmoothPulse(float t, float center, float halfWidth)
+    {
+        float distance = Mathf.Abs(t - center);
+        float normalized = 1f - distance / Mathf.Max(0.0001f, halfWidth);
+        return Smooth01(Mathf.Clamp01(normalized));
+    }
+
+    private static float Smooth01(float t)
+    {
+        t = Mathf.Clamp01(t);
+        return t * t * (3f - 2f * t);
     }
 
     private static float Damp01(float current, float target, float sharpness, float dt)
