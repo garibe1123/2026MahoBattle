@@ -61,6 +61,9 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     [SerializeField, Range(0f, 0.35f)] private float maxBeamLengthBoost = 0.16f;
     [SerializeField, Range(0f, 0.35f)] private float maxBeamWidthBoost = 0.10f;
     [SerializeField, Range(0f, 0.8f)] private float tiltOpacityLoss = 0.24f;
+    [Tooltip("가상 Light Source가 뒤에 남을 때 Beam 상단 원점도 약간 같이 이동시키는 비율입니다.")]
+    [SerializeField, Range(0f, 1f)] private float beamSourceLagVisualScale = 0.55f;
+    [SerializeField, Min(0f)] private float maxBeamSourceVisualOffset = 0.46f;
 
     private BattleCharacterLightVisual[] lightVisuals;
 
@@ -561,6 +564,26 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             authoredRotation *
             (Vector3.up *
              (authoredWorldHeight * 0.5f));
+
+        // The virtual ceiling source is slower than the aim target. Project part of that
+        // lag back into the 2D source edge so the lamp origin itself visibly trails motion.
+        Vector2 sourceLag =
+            virtualSourceWorld -
+            virtualAimWorld;
+
+        Vector2 sourceVisualOffset =
+            Vector2.ClampMagnitude(
+                sourceLag *
+                Mathf.Clamp01(beamSourceLagVisualScale),
+                Mathf.Max(
+                    0f,
+                    maxBeamSourceVisualOffset));
+
+        sourcePoint +=
+            new Vector3(
+                sourceVisualOffset.x,
+                sourceVisualOffset.y * 0.45f,
+                0f);
 
         playerBeamTransform.localScale =
             new Vector3(
