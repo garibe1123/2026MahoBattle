@@ -328,14 +328,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         if (mapSelection)
         {
-            float mapRadiusScale =
-                1f +
-                mapIdleWave *
-                mapFocusRadiusPulse;
-
-            playerRadiusUv *=
-                mapRadiusScale;
-
             presenterRadiusUv *=
                 1f +
                 EvaluateIdleBreath(
@@ -376,6 +368,14 @@ public sealed class BattleShowFocusController : MonoBehaviour
                 stageLighting.UnifiedPlayerFocusRadiusWorld,
                 out playerUv,
                 out playerRadiusUv);
+        }
+
+        if (mapSelection && useShowFocusIdle)
+        {
+            playerRadiusUv *=
+                1f +
+                mapIdleWave *
+                mapFocusRadiusPulse;
         }
 
         runtimeMaterial.SetVector("_PlayerCenter", new Vector4(playerUv.x, playerUv.y, 0f, 0f));
@@ -422,8 +422,8 @@ public sealed class BattleShowFocusController : MonoBehaviour
                 0.0001f,
                 activeItemFeather));
 
-        // Character focus now follows the same circular-hole language as Reward Item focus.
-        // Keep these hard circular so serialized legacy ellipse values cannot reintroduce the old look.
+        // Character focus keeps the shared, slightly flattened stage-light footprint.
+        // Idle motion only breathes radius/feather; it never rotates the shape.
         float activeVerticalRatio = useUnifiedStageStyle
             ? stageLighting.UnifiedCharacterVerticalRatio
             : characterVerticalRatio;
