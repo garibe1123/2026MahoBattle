@@ -868,25 +868,15 @@ public static class BattleUiAvoidanceResolver
 }
 
 /// <summary>
-/// 전용 일러스트가 없어도 아이템 Sprite 하나를 재구성해
-/// Ghost Crop + Accent Slash + Foreground Icon 형태의 Hero Thumbnail을 만듭니다.
+/// 전용 일러스트가 없어도 아이템 Sprite 하나를 단정한 단일 프리뷰로 보여줍니다.
+/// 장식용 색 띠 / 대각선 Slash / Ghost 복제 이미지는 사용하지 않습니다.
 /// </summary>
 public sealed class BattleItemHeroThumbnail : MonoBehaviour
 {
     private RectTransform rect;
-    private RectTransform gridBandRect;
-    private RectTransform ghostRect;
-    private Image ghostImage;
-    private RectTransform slashRect;
-    private Image slashImage;
     private RectTransform foregroundRect;
     private Image foregroundImage;
-    private RectTransform chipRect;
-    private Text metaText;
     private Vector2 lastLayoutSize;
-    private Color paperColor;
-    private Color inkColor;
-    private Color accentColor;
     private bool built;
 
     public static BattleItemHeroThumbnail Attach(
@@ -912,17 +902,12 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
 
         Stretch(root);
 
-        // Ghost/Slash는 Hero Viewport보다 크게 그리는 연출이므로
-        // 반드시 Viewport 안에서 잘리게 합니다.
         if (parent.GetComponent<RectMask2D>() == null)
             parent.gameObject.AddComponent<RectMask2D>();
 
         BattleItemHeroThumbnail hero =
             go.AddComponent<BattleItemHeroThumbnail>();
 
-        hero.paperColor = paper;
-        hero.inkColor = ink;
-        hero.accentColor = accent;
         hero.EnsureBuilt();
 
         return hero;
@@ -942,36 +927,6 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
                 ? equipment.icon
                 : BattleHudSpriteCache.DefaultSprite;
 
-        Color rarityAccent =
-            ResolveRarityAccent(
-                equipment);
-
-        if (slashImage != null)
-            slashImage.color =
-                new Color(
-                    rarityAccent.r,
-                    rarityAccent.g,
-                    rarityAccent.b,
-                    0.72f);
-
-        if (ghostImage != null)
-        {
-            ghostImage.sprite =
-                sprite;
-
-            ghostImage.preserveAspect =
-                hasImage;
-
-            ghostImage.color =
-                new Color(
-                    paperColor.r,
-                    paperColor.g,
-                    paperColor.b,
-                    hasImage
-                        ? 0.10f
-                        : 0.055f);
-        }
-
         if (foregroundImage != null)
         {
             foregroundImage.sprite =
@@ -982,17 +937,9 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
 
             foregroundImage.color =
                 Color.white;
-        }
 
-        if (metaText != null)
-        {
-            metaText.text =
-                equipment != null
-                    ? $"{equipment.rarity.ToString().ToUpperInvariant()} // {equipment.type.ToString().ToUpperInvariant()}"
-                    : "ITEM // PREVIEW";
-
-            metaText.color =
-                rarityAccent;
+            foregroundImage.enabled =
+                equipment != null;
         }
     }
 
@@ -1011,143 +958,19 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
 
         Stretch(rect);
 
-        gridBandRect =
-            CreateRect(
-                rect,
-                "HeroGridBand",
-                Vector2.zero);
-
-        gridBandRect.anchorMin =
-            new Vector2(
-                0f,
-                0.06f);
-
-        gridBandRect.anchorMax =
-            new Vector2(
-                1f,
-                0.34f);
-
-        gridBandRect.offsetMin =
-            Vector2.zero;
-
-        gridBandRect.offsetMax =
-            Vector2.zero;
-
-        Image gridBandImage =
-            gridBandRect.gameObject.AddComponent<Image>();
-
-        gridBandImage.color =
-            new Color(
-                paperColor.r,
-                paperColor.g,
-                paperColor.b,
-                0.035f);
-
-        gridBandImage.raycastTarget =
-            false;
-
-        slashRect =
-            CreateRect(
-                rect,
-                "HeroAccentSlash",
-                Vector2.zero);
-
-        slashRect.anchorMin =
-            slashRect.anchorMax =
-                new Vector2(
-                    0.50f,
-                    0.50f);
-
-        slashRect.pivot =
-            new Vector2(
-                0.5f,
-                0.5f);
-
-        slashRect.sizeDelta =
-            new Vector2(
-                320f,
-                54f);
-
-        slashRect.anchoredPosition =
-            new Vector2(
-                18f,
-                -12f);
-
-        slashRect.localRotation =
-            Quaternion.Euler(
-                0f,
-                0f,
-                -11f);
-
-        slashImage =
-            slashRect.gameObject.AddComponent<Image>();
-
-        slashImage.color =
-            new Color(
-                accentColor.r,
-                accentColor.g,
-                accentColor.b,
-                0.72f);
-
-        slashImage.raycastTarget =
-            false;
-
-        ghostRect =
-            CreateRect(
-                rect,
-                "GhostIcon",
-                new Vector2(
-                    228f,
-                    228f));
-
-        ghostRect.anchorMin =
-            ghostRect.anchorMax =
-                new Vector2(
-                    0.23f,
-                    0.49f);
-
-        ghostRect.pivot =
-            new Vector2(
-                0.5f,
-                0.5f);
-
-        ghostRect.anchoredPosition =
-            new Vector2(
-                -20f,
-                -2f);
-
-        ghostRect.localRotation =
-            Quaternion.Euler(
-                0f,
-                0f,
-                -8f);
-
-        ghostImage =
-            ghostRect.gameObject.AddComponent<Image>();
-
-        ghostImage.raycastTarget =
-            false;
-
-        ghostImage.color =
-            new Color(
-                paperColor.r,
-                paperColor.g,
-                paperColor.b,
-                0.10f);
-
         foregroundRect =
             CreateRect(
                 rect,
                 "ForegroundIcon",
                 new Vector2(
-                    112f,
-                    112f));
+                    132f,
+                    132f));
 
         foregroundRect.anchorMin =
             foregroundRect.anchorMax =
                 new Vector2(
-                    0.77f,
-                    0.52f);
+                    0.5f,
+                    0.5f);
 
         foregroundRect.pivot =
             new Vector2(
@@ -1155,9 +978,7 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
                 0.5f);
 
         foregroundRect.anchoredPosition =
-            new Vector2(
-                0f,
-                -4f);
+            Vector2.zero;
 
         foregroundImage =
             foregroundRect.gameObject.AddComponent<Image>();
@@ -1165,65 +986,8 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
         foregroundImage.raycastTarget =
             false;
 
-        chipRect =
-            CreateRect(
-                rect,
-                "HeroTypeChip",
-                new Vector2(
-                    154f,
-                    22f));
-
-        chipRect.anchorMin =
-            chipRect.anchorMax =
-                new Vector2(
-                    0.04f,
-                    0.91f);
-
-        chipRect.pivot =
-            new Vector2(
-                0f,
-                1f);
-
-        Image chipBack =
-            chipRect.gameObject.AddComponent<Image>();
-
-        chipBack.color =
-            new Color(
-                inkColor.r,
-                inkColor.g,
-                inkColor.b,
-                0.78f);
-
-        chipBack.raycastTarget =
-            false;
-
-        metaText =
-            CreateText(
-                chipRect,
-                "HeroTypeText",
-                "ITEM // PREVIEW",
-                9,
-                FontStyle.Bold,
-                TextAnchor.MiddleLeft,
-                accentColor);
-
-        Stretch(
-            metaText.rectTransform);
-
-        metaText.rectTransform.offsetMin =
-            new Vector2(
-                8f,
-                0f);
-
-        metaText.rectTransform.offsetMax =
-            new Vector2(
-                -4f,
-                0f);
-
-        ghostRect.SetAsFirstSibling();
-        slashRect.SetSiblingIndex(1);
-        foregroundRect.SetAsLastSibling();
-        chipRect.SetAsLastSibling();
+        foregroundImage.color =
+            Color.white;
 
         UpdateResponsiveLayout(force: true);
     }
@@ -1261,52 +1025,13 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
         lastLayoutSize =
             size;
 
-        if (slashRect != null)
-        {
-            slashRect.sizeDelta =
-                new Vector2(
-                    Mathf.Clamp(
-                        size.x * 1.06f,
-                        120f,
-                        360f),
-                    Mathf.Clamp(
-                        size.y * 0.28f,
-                        18f,
-                        56f));
-
-            slashRect.anchoredPosition =
-                new Vector2(
-                    size.x * 0.035f,
-                    -size.y * 0.08f);
-        }
-
-        float ghostSize =
-            Mathf.Clamp(
-                Mathf.Min(
-                    size.x * 0.62f,
-                    size.y * 1.42f),
-                56f,
-                228f);
-
-        if (ghostRect != null)
-        {
-            ghostRect.sizeDelta =
-                Vector2.one *
-                ghostSize;
-
-            ghostRect.anchoredPosition =
-                new Vector2(
-                    -size.x * 0.055f,
-                    -size.y * 0.01f);
-        }
-
         float foregroundSize =
             Mathf.Clamp(
                 Mathf.Min(
-                    size.x * 0.29f,
-                    size.y * 0.78f),
-                34f,
-                112f);
+                    size.x * 0.40f,
+                    size.y * 0.80f),
+                42f,
+                150f);
 
         if (foregroundRect != null)
         {
@@ -1315,44 +1040,11 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
                 foregroundSize;
 
             foregroundRect.anchoredPosition =
-                new Vector2(
-                    0f,
-                    -size.y * 0.025f);
+                Vector2.zero;
+
+            foregroundRect.localRotation =
+                Quaternion.identity;
         }
-
-        if (chipRect != null)
-        {
-            chipRect.sizeDelta =
-                new Vector2(
-                    Mathf.Clamp(
-                        size.x * 0.44f,
-                        88f,
-                        154f),
-                    Mathf.Clamp(
-                        size.y * 0.16f,
-                        16f,
-                        22f));
-        }
-    }
-
-    private Color ResolveRarityAccent(
-        BattleEquipmentSO equipment)
-    {
-        if (equipment == null)
-            return accentColor;
-
-        string rarity =
-            equipment.rarity.ToString();
-
-        return rarity switch
-        {
-            "Common" => new Color(0.76f, 0.80f, 0.84f, 1f),
-            "Uncommon" => new Color(0.18f, 0.92f, 0.72f, 1f),
-            "Rare" => new Color(0.20f, 0.72f, 1f, 1f),
-            "Epic" => new Color(0.78f, 0.34f, 1f, 1f),
-            "Unique" => new Color(1f, 0.78f, 0.16f, 1f),
-            _ => accentColor
-        };
     }
 
     private static RectTransform CreateRect(
@@ -1378,52 +1070,12 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
         return rect;
     }
 
-    private static Text CreateText(
-        Transform parent,
-        string name,
-        string value,
-        int fontSize,
-        FontStyle style,
-        TextAnchor alignment,
-        Color color)
-    {
-        RectTransform rect =
-            CreateRect(
-                parent,
-                name,
-                Vector2.zero);
-
-        Text text =
-            rect.gameObject.AddComponent<Text>();
-
-        text.font =
-            Resources.GetBuiltinResource<Font>(
-                "LegacyRuntime.ttf");
-
-        text.text =
-            value;
-
-        text.fontSize =
-            fontSize;
-
-        text.fontStyle =
-            style;
-
-        text.alignment =
-            alignment;
-
-        text.color =
-            color;
-
-        text.raycastTarget =
-            false;
-
-        return text;
-    }
-
     private static void Stretch(
         RectTransform rect)
     {
+        if (rect == null)
+            return;
+
         rect.anchorMin =
             Vector2.zero;
 
@@ -1435,6 +1087,12 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
 
         rect.offsetMax =
             Vector2.zero;
+
+        rect.localScale =
+            Vector3.one;
+
+        rect.localRotation =
+            Quaternion.identity;
     }
 }
 
