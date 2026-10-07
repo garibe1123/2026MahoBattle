@@ -283,7 +283,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             poolRenderer.sprite = GetOrCreatePoolSprite();
         }
 
-        // Beam and pool intentionally use the same additive light material so they read as one lamp.
+        // Beam and pool share the same soft alpha-blended material so the footprint and
+        // atmospheric beam read as one lamp without additive white burn-out.
         Material spotlightMaterial = GetOrCreateKeyLightMaterial();
         if (keyRenderer != null)
             keyRenderer.sharedMaterial = spotlightMaterial;
