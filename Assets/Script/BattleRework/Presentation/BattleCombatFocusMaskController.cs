@@ -31,18 +31,18 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
     [SerializeField] private Color dimColor = Color.black;
     [Tooltip("비네팅과 분리된 균일 암전입니다. 값이 낮을수록 더 투명합니다.")]
     [SerializeField, Range(0f, 1f)] private float dimAlpha = 0.24f;
-    [SerializeField, Min(0.1f)] private float focusRadiusWorld = 1.72f;
-    [Tooltip("1은 원, 0.86은 위아래가 아주 약하게 눌린 탑다운용 타원입니다.")]
-    [SerializeField, Range(0.65f, 1f)] private float verticalRatio = 0.86f;
-    [SerializeField, Range(0.001f, 0.10f)] private float feather = 0.035f;
+    [SerializeField, Min(0.1f)] private float focusRadiusWorld = 1.78f;
+    [Tooltip("1은 원입니다. Combat 기본은 0.72로 위아래가 확실히 눌린 탑다운용 타원입니다.")]
+    [SerializeField, Range(0.55f, 1f)] private float verticalRatio = 0.72f;
+    [SerializeField, Range(0.001f, 0.10f)] private float feather = 0.040f;
     [SerializeField, Min(0.1f)] private float fadeSharpness = 8f;
 
     [Header("Focus Motion")]
     [Tooltip("Focus hole은 Player보다 약간 늦게 따라옵니다.")]
-    [SerializeField, Min(0.1f)] private float followSharpness = 7.2f;
-    [SerializeField, Min(0f)] private float maxLagWorld = 0.30f;
-    [Tooltip("가상 광원이 기울수록 타원이 이동 방향으로 조금 길어집니다.")]
-    [SerializeField, Range(0f, 0.35f)] private float maxDirectionalElongation = 0.16f;
+    [SerializeField, Min(0.1f)] private float followSharpness = 5.4f;
+    [SerializeField, Min(0f)] private float maxLagWorld = 0.42f;
+    [Tooltip("가상 광원이 기울수록 타원이 이동 방향으로 더 길어집니다.")]
+    [SerializeField, Range(0f, 0.45f)] private float maxDirectionalElongation = 0.28f;
 
     private Canvas overlayCanvas;
     private Image overlayImage;
@@ -321,9 +321,15 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
             focusWorld,
             directionWorld);
 
+        // Moderate rig tilt should already read clearly on screen.
+        // sqrt boosts the middle of the response without making the maximum unstable.
+        float visualTilt =
+            Mathf.Sqrt(
+                Mathf.Clamp01(tilt01));
+
         float elongation =
             1f +
-            Mathf.Clamp01(tilt01) *
+            visualTilt *
             Mathf.Max(0f, maxDirectionalElongation);
 
         runtimeMaterial.SetColor("_MaskColor", dimColor);
@@ -335,7 +341,7 @@ public sealed class BattleCombatFocusMaskController : MonoBehaviour
         runtimeMaterial.SetFloat("_Radius", radiusUv);
         runtimeMaterial.SetFloat(
             "_VerticalRatio",
-            Mathf.Clamp(verticalRatio, 0.65f, 1f));
+            Mathf.Clamp(verticalRatio, 0.55f, 1f));
         runtimeMaterial.SetFloat(
             "_Elongation",
             Mathf.Clamp(elongation, 1f, 1.5f));
