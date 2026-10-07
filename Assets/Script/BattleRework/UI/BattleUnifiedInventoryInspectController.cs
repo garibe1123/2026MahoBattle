@@ -107,6 +107,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private BattleKineticLoadoutUI subscribedCombatLoadout;
     private BattleRunManager subscribedRunManager;
     private float nextResolveTime;
+    private bool rewardUiValidationPending;
+    private float rewardUiValidationAt;
 
     public int ActiveInspectSlot => activeInspectSlot;
 
@@ -200,6 +202,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         // Spatial coordinator가 매 프레임 sorting을 계산하더라도 이 Controller가
         // 더 늦은 ExecutionOrder에서 Reward 전용 절대 순서를 최종 확정합니다.
         ApplyRewardForegroundSorting(rewardPackVisible);
+        ValidateRewardUiOnce(rewardPackVisible);
     }
 
     private void ResolveReferences()
@@ -826,8 +829,71 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         selectionSuppressed = false;
         suppressedSourceSlot = -1;
 
+        rewardUiValidationPending =
+            inspectContext;
+
+        rewardUiValidationAt =
+            Time.unscaledTime +
+            0.75f;
+
         if (!inspectContext)
             SetActiveInspectSlot(-1);
+    }
+
+    private void ValidateRewardUiOnce(bool rewardPackVisible)
+    {
+        if (!rewardPackVisible ||
+            !rewardUiValidationPending ||
+            Time.unscaledTime < rewardUiValidationAt)
+        {
+            return;
+        }
+
+        rewardUiValidationPending =
+            false;
+
+        ResolveUi();
+        EnsureFullSelectionFrames();
+
+        string missing =
+            string.Empty;
+
+        void AddMissing(string label)
+        {
+            if (missing.Length > 0)
+                missing += ", ";
+
+            missing += label;
+        }
+
+        if (fullRoot == null)
+            AddMissing("LoadoutSwitchFull");
+
+        if (boardRoot == null)
+            AddMissing("GridBoard");
+
+        if (builtInDetailRoot == null)
+            AddMissing("DetailPanel");
+
+        if (trashRoot == null)
+            AddMissing("InventoryTrash");
+
+        if (doneRoot == null)
+            AddMissing("RewardPackDone");
+
+        for (int i = 0; i < SlotCount; i++)
+        {
+            if (fullSlotRects[i] == null)
+                AddMissing($"GridSlot_{i}");
+        }
+
+        if (missing.Length == 0)
+            return;
+
+        Debug.LogError(
+            $"[BattleInventoryUI] Reward PACK 필수 참조를 찾지 못했습니다: {missing}. " +
+            "Hierarchy 이름 변경 또는 UI 생성 순서를 확인하세요.",
+            this);
     }
 
     private void SyncSelection(bool rewardEdit, bool combatTab)
