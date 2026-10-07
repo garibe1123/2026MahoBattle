@@ -23,7 +23,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private const int GridSize = BattleEquipmentSystem.GridSize;
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int CanvasSortingOrder = 780;
-    private const int TabNoiseBandCount = 12;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
@@ -89,12 +88,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform tabHoldBarRight;
     private Image tabHoldBarLeftImage;
     private Image tabHoldBarRightImage;
-    private readonly RectTransform[] tabNoiseBands = new RectTransform[TabNoiseBandCount];
-    private readonly Image[] tabNoiseBandImages = new Image[TabNoiseBandCount];
-    private readonly float[] tabNoiseBandSeeds = new float[TabNoiseBandCount];
-    private readonly float[] tabNoiseBandBaseY = new float[TabNoiseBandCount];
-    private readonly float[] tabNoiseBandWidth = new float[TabNoiseBandCount];
-    private readonly float[] tabNoiseBandSpeed = new float[TabNoiseBandCount];
+    private Image tabSubtleNoiseImage;
+    private Material tabSubtleNoiseMaterial;
     private Text tabTimeFlowText;
     private RectTransform boardRoot;
     private CanvasGroup boardGroup;
@@ -226,6 +221,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         UnsubscribeInput();
         ForceRestoreTabTime();
+
+        if (tabSubtleNoiseMaterial != null)
+            Destroy(tabSubtleNoiseMaterial);
     }
 
     private void Update()
@@ -757,8 +755,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         tabHoldSignalGroup.blocksRaycasts = false;
         tabHoldSignalGroup.interactable = false;
 
+        BuildTabSubtleNoise(root);
         BuildTabScreenFrame(root);
-        BuildTabNoiseBands(root);
 
         tabHoldGlyphRoot = CreateRect(
             root,
@@ -864,65 +862,72 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         v.raycastTarget = false;
     }
 
-    private void BuildTabNoiseBands(RectTransform root)
+    private void BuildTabSubtleNoise(RectTransform root)
     {
-        for (int i = 0; i < TabNoiseBandCount; i++)
-        {
-            float seed = 17.17f + i * 9.731f;
-            tabNoiseBandSeeds[i] = seed;
-            tabNoiseBandBaseY[i] = Mathf.Lerp(
-                -0.46f,
-                0.46f,
-                Hash01(seed * 1.37f));
-            tabNoiseBandWidth[i] = Mathf.Lerp(
-                0.18f,
-                0.88f,
-                Hash01(seed * 2.11f));
-            tabNoiseBandSpeed[i] = Mathf.Lerp(
-                5.5f,
-                21f,
-                Hash01(seed * 3.07f));
+        if (root == null)
+            return;
 
-            RectTransform band = CreateRect(
+        RectTransform noiseRect =
+            CreateRect(
                 root,
-                $"NoiseBand_{i:00}",
-                new Vector2(0f, 2f));
+                "TabSubtleNoise",
+                Vector2.zero);
 
-            float width = tabNoiseBandWidth[i];
-            float center = Mathf.Lerp(
-                width * 0.5f,
-                1f - width * 0.5f,
-                Hash01(seed * 4.19f));
+        Stretch(
+            noiseRect);
 
-            band.anchorMin = new Vector2(center - width * 0.5f, 0.5f);
-            band.anchorMax = new Vector2(center + width * 0.5f, 0.5f);
-            band.pivot = new Vector2(0.5f, 0.5f);
-            band.anchoredPosition = new Vector2(0f, tabNoiseBandBaseY[i] * 1080f);
-            band.sizeDelta = new Vector2(0f, 1f);
+        tabSubtleNoiseImage =
+            noiseRect.gameObject.AddComponent<Image>();
 
-            Image image = band.gameObject.AddComponent<Image>();
-            Color baseColor = i % 5 == 0
-                ? accentPink
-                : i % 3 == 0
-                    ? paperColor
-                    : accentCyan;
-            image.color = new Color(
-                baseColor.r,
-                baseColor.g,
-                baseColor.b,
-                0f);
-            image.raycastTarget = false;
+        tabSubtleNoiseImage.color =
+            Color.white;
 
-            tabNoiseBands[i] = band;
-            tabNoiseBandImages[i] = image;
+        tabSubtleNoiseImage.raycastTarget =
+            false;
+
+        Shader shader =
+            Shader.Find(
+                "UI/BattleUiSubtleNoise");
+
+        if (shader == null)
+        {
+            tabSubtleNoiseImage.enabled =
+                false;
+
+            return;
         }
-    }
 
-    private static float Hash01(float value)
-    {
-        return Mathf.Repeat(
-            Mathf.Sin(value * 12.9898f + 78.233f) * 43758.5453f,
-            1f);
+        tabSubtleNoiseMaterial =
+            new Material(
+                shader)
+            {
+                name =
+                    "BattleTabSubtleNoise_Runtime",
+                hideFlags =
+                    HideFlags.HideAndDontSave
+            };
+
+        tabSubtleNoiseMaterial.SetFloat(
+            "_NoiseStrength",
+            0.022f);
+
+        tabSubtleNoiseMaterial.SetFloat(
+            "_NoiseSpeed",
+            11f);
+
+        tabSubtleNoiseMaterial.SetColor(
+            "_NoiseTint",
+            new Color(
+                0.76f,
+                0.79f,
+                0.82f,
+                1f));
+
+        tabSubtleNoiseImage.material =
+            BattleUiHologramMaterialProvider.Resolve(
+                tabSubtleNoiseMaterial);
+
+        noiseRect.SetAsFirstSibling();
     }
 
     private void BuildCompactUi(Transform parent)
@@ -3124,8 +3129,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 t);
         }
 
-        UpdateTabNoiseBands(t, visual);
-
         if (tabTimeFlowText != null)
         {
             float shownScale = timeScaleController != null
@@ -3142,78 +3145,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             tabTimeFlowText.text =
                 $"{phase}  //  TIME FLOW {shownScale:0.00}x";
-        }
-    }
-
-    private void UpdateTabNoiseBands(float t, float visual)
-    {
-        if (tabNoiseBands == null || tabNoiseBandImages == null)
-            return;
-
-        float now = Time.unscaledTime;
-        float height = fullRoot != null
-            ? Mathf.Max(720f, fullRoot.rect.height)
-            : 1080f;
-
-        for (int i = 0; i < TabNoiseBandCount; i++)
-        {
-            RectTransform band = tabNoiseBands[i];
-            Image image = tabNoiseBandImages[i];
-            if (band == null || image == null)
-                continue;
-
-            float seed = tabNoiseBandSeeds[i];
-            float speed = Mathf.Max(1f, tabNoiseBandSpeed[i]);
-
-            float smoothA = Mathf.PerlinNoise(
-                seed,
-                now * speed * 0.057f);
-            float smoothB = Mathf.PerlinNoise(
-                seed * 1.913f,
-                now * speed * 0.113f);
-
-            float stepIndex = Mathf.Floor(now * speed * 0.72f);
-            float stepped = Hash01(seed + stepIndex * 5.731f);
-            float steppedB = Hash01(seed * 2.17f + stepIndex * 9.103f);
-
-            // Most frames are quiet. A few bands flare for a frame or two,
-            // avoiding the obvious "all scanlines moving together" look.
-            float burst = Mathf.Clamp01((stepped - 0.62f) / 0.38f);
-            burst *= burst;
-
-            float baseY = tabNoiseBandBaseY[i] * height;
-            float drift = (smoothA - 0.5f) * Mathf.Lerp(5f, 24f, smoothB);
-            float jump = burst * (steppedB - 0.5f) * Mathf.Lerp(18f, 92f, stepped);
-            float xJitter = burst * (Hash01(seed + stepIndex * 3.19f) - 0.5f) * 48f;
-
-            band.anchoredPosition = Vector2.Lerp(
-                band.anchoredPosition,
-                new Vector2(xJitter, baseY + drift + jump),
-                Mathf.Clamp01(t * Mathf.Lerp(0.55f, 1.65f, burst)));
-
-            Vector2 size = band.sizeDelta;
-            float thickness =
-                Mathf.Lerp(0.6f, 1.5f, smoothB) +
-                burst * Mathf.Lerp(1.2f, 4.5f, steppedB);
-            size.y = Mathf.Lerp(size.y, thickness, t);
-            band.sizeDelta = size;
-
-            Color color = image.color;
-
-            float quietAlpha = Mathf.Lerp(
-                0.010f,
-                0.055f,
-                smoothA * smoothB);
-            float burstAlpha = burst * Mathf.Lerp(
-                0.08f,
-                0.32f,
-                steppedB);
-            float dropout = Hash01(seed * 4.31f + stepIndex * 1.73f) < 0.17f
-                ? 0.12f
-                : 1f;
-
-            color.a = visual * (quietAlpha + burstAlpha) * dropout;
-            image.color = Color.Lerp(image.color, color, t);
         }
     }
 
