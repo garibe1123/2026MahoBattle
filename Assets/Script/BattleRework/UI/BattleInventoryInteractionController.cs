@@ -1193,7 +1193,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         outline.effectDistance = new Vector2(5f, -5f);
 
         // 다른 Tooltip/Frame보다 확실히 위에 보이도록 Drag Ghost는 최상위 Sorting을 사용합니다.
-        AddNonBlockingCanvas(dragGhostRoot.gameObject, 5200);
+        AddNonBlockingCanvas(
+            dragGhostRoot.gameObject,
+            BattleUiSortingContract.RewardDragGhost);
         dragGhostGroup = dragGhostRoot.GetComponent<CanvasGroup>();
 
         BattleUiHologramBorder.Attach(
@@ -1311,7 +1313,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         outline.effectColor = accentPink;
         outline.effectDistance = new Vector2(6f, -6f);
 
-        AddNonBlockingCanvas(handGhostRoot.gameObject, 2210);
+        AddNonBlockingCanvas(
+            handGhostRoot.gameObject,
+            BattleUiSortingContract.RewardTransientBase + 10);
         handGhostIcon = CreateImage(handGhostRoot, "Icon", new Vector2(88f, 88f));
         Center(handGhostIcon.rectTransform);
         handGhostIcon.raycastTarget = false;
@@ -1329,7 +1333,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         transferGhostOutline.effectColor = accentYellow;
         transferGhostOutline.effectDistance = new Vector2(6f, -6f);
 
-        AddNonBlockingCanvas(transferGhostRoot.gameObject, 2240);
+        AddNonBlockingCanvas(
+            transferGhostRoot.gameObject,
+            BattleUiSortingContract.RewardTransientBase + 40);
         transferGhostIcon = CreateImage(transferGhostRoot, "Icon", new Vector2(88f, 88f));
         Center(transferGhostIcon.rectTransform);
         transferGhostIcon.raycastTarget = false;
@@ -1345,7 +1351,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             Image icon = trail.gameObject.AddComponent<Image>();
             icon.preserveAspect = true;
             icon.raycastTarget = false;
-            AddNonBlockingCanvas(trail.gameObject, 2230 - i);
+            AddNonBlockingCanvas(
+                trail.gameObject,
+                BattleUiSortingContract.RewardTransientBase + 30 - i);
             trail.gameObject.SetActive(false);
 
             transferTrailRoots[i] = trail;
@@ -1362,7 +1370,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         impactOutline.effectDistance = new Vector2(8f, -8f);
         impactOutline.useGraphicAlpha = false;
 
-        AddNonBlockingCanvas(transferImpactRoot.gameObject, 2250);
+        AddNonBlockingCanvas(
+            transferImpactRoot.gameObject,
+            BattleUiSortingContract.RewardTransientBase + 50);
         transferImpactGroup = transferImpactRoot.GetComponent<CanvasGroup>();
         transferImpactRoot.gameObject.SetActive(false);
     }
@@ -1391,7 +1401,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
             paperColor);
         Stretch(deniedText.rectTransform);
 
-        AddNonBlockingCanvas(deniedRoot.gameObject, 2270);
+        AddNonBlockingCanvas(
+            deniedRoot.gameObject,
+            BattleUiSortingContract.RewardTransientBase + 70);
         deniedGroup = deniedRoot.GetComponent<CanvasGroup>();
         deniedRoot.gameObject.SetActive(false);
 
@@ -1405,7 +1417,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
         guideOutline.effectDistance = new Vector2(7f, -7f);
         guideOutline.useGraphicAlpha = false;
 
-        AddNonBlockingCanvas(deniedGuideRoot.gameObject, 2260);
+        AddNonBlockingCanvas(
+            deniedGuideRoot.gameObject,
+            BattleUiSortingContract.RewardTransientBase + 60);
         deniedGuideGroup = deniedGuideRoot.GetComponent<CanvasGroup>();
         deniedGuideRoot.gameObject.SetActive(false);
     }
