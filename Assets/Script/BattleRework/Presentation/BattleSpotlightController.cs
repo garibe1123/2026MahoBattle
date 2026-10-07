@@ -94,12 +94,10 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField] private bool useShowIdle = true;
     [SerializeField, Min(0.05f)] private float rewardIdleCyclesPerSecond = 0.30f;
     [SerializeField, Min(0.05f)] private float mapIdleCyclesPerSecond = 0.22f;
-    [SerializeField, Range(0f, 0.10f)] private float rewardBeamWidthAmplitude = 0.035f;
-    [SerializeField, Range(0f, 0.10f)] private float rewardBeamLengthAmplitude = 0.045f;
-    [SerializeField, Range(0f, 0.15f)] private float rewardBeamAlphaAmplitude = 0.055f;
-    [SerializeField, Range(0f, 0.10f)] private float mapBeamWidthAmplitude = 0.020f;
-    [SerializeField, Range(0f, 0.10f)] private float mapBeamLengthAmplitude = 0.028f;
-    [SerializeField, Range(0f, 0.15f)] private float mapBeamAlphaAmplitude = 0.035f;
+    [SerializeField, Range(0f, 0.10f)] private float rewardBeamWidthAmplitude = 0.015f;
+    [SerializeField, Range(0f, 0.10f)] private float rewardBeamLengthAmplitude = 0.020f;
+    [SerializeField, Range(0f, 0.10f)] private float mapBeamWidthAmplitude = 0.010f;
+    [SerializeField, Range(0f, 0.10f)] private float mapBeamLengthAmplitude = 0.014f;
     [SerializeField, Range(0f, 0.10f)] private float rewardFocusRadiusPulse = 0.045f;
     [SerializeField, Range(0f, 0.10f)] private float mapFocusRadiusPulse = 0.025f;
     [SerializeField, Range(0f, 0.30f)] private float focusFeatherPulse = 0.12f;
@@ -112,12 +110,16 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField, Range(0f, 0.45f)] private float rewardProjectionWidthBoost = 0.16f;
     [SerializeField, Range(0f, 0.65f)] private float rewardProjectionLengthBoost = 0.24f;
     [SerializeField, Range(0f, 0.60f)] private float rewardProjectionBottomSpread = 0.28f;
-    [SerializeField, Range(0f, 0.60f)] private float rewardProjectionOpacityLoss = 0.18f;
-    [SerializeField, Range(0f, 1f)] private float rewardProjectionIdleInfluence = 0.55f;
+    [SerializeField, Range(0f, 0.60f)] private float rewardProjectionOpacityLoss = 0.12f;
 
     [Header("Focus Fade")]
     [SerializeField, Min(0.1f)] private float combatFadeSharpness = 8f;
     [SerializeField, Min(0.1f)] private float showFadeSharpness = 6f;
+
+    [Header("Spotlight Off Dim")]
+    [SerializeField, Range(0f, 1f)] private float spotlightOffDimAlpha = 0.34f;
+    [SerializeField, Min(0f)] private float spotlightOffDimHoldDuration = 0.10f;
+    [SerializeField, Min(0.05f)] private float spotlightOffDimFadeDuration = 0.34f;
 
     [Header("Mode Transition Tween")]
     [Tooltip("Combat / Reward / Map 전환 때 Spotlight 크기와 밝기가 새 프로필로 정착하는 시간입니다.")]
@@ -170,6 +172,7 @@ public sealed class BattleSpotlightController : MonoBehaviour
     private bool hasTransitionFocusSource;
     private FocusFrame lastAppliedFocusFrame;
     private bool hasLastAppliedFocusFrame;
+    private float spotlightOffDimStartedAt = -1f;
 
     public static BattleSpotlightController Instance => activeInstance;
 
@@ -307,6 +310,15 @@ public sealed class BattleSpotlightController : MonoBehaviour
         if (mode != SpotlightMode.Combat)
             ClearCombatBeamProperties();
 
+        if (next == SpotlightMode.None && previous != SpotlightMode.None)
+            spotlightOffDimStartedAt = Time.unscaledTime;
+        else if (next != SpotlightMode.None)
+            spotlightOffDimStartedAt = -1f;
+
+        ApplyFloorPoolPolicy(
+            next == SpotlightMode.Reward ||
+            next == SpotlightMode.Map);
+
         modeTransitionActive =
             next != SpotlightMode.None;
 
@@ -320,6 +332,8 @@ public sealed class BattleSpotlightController : MonoBehaviour
 
     private void UpdateCombat()
     {
+        ApplyFloorPoolPolicy(false);
+
         float dt = Time.unscaledDeltaTime;
         bool valid = player != null && player.IsAlive && player.gameObject.activeInHierarchy;
         focusBlend = Damp01(focusBlend, valid ? 1f : 0f, combatFadeSharpness, dt);
@@ -341,6 +355,7 @@ public sealed class BattleSpotlightController : MonoBehaviour
     {
         ResetCombatMotion();
         ClearCombatBeamProperties();
+        ApplyFloorPoolPolicy(true);
 
         bool ready = showWorldSet != null && showWorldSet.IsShowActive;
         focusBlend = Damp01(focusBlend, ready ? 1f : 0f, showFadeSharpness, Time.unscaledDeltaTime);
@@ -367,7 +382,52 @@ public sealed class BattleSpotlightController : MonoBehaviour
         ResetCombatMotion();
         ClearCombatBeamProperties();
         ClearRewardProjection();
-        focusBlend = Damp01(focusBlend, 0f, showFadeSharpness, Time.unscaledDeltaTime);
+        ApplyFloorPoolPolicy(false);
+
+        if (spotlightOffDimStartedAt >= 0f)
+        {
+            float elapsed =
+                Time.unscaledTime -
+                spotlightOffDimStartedAt;
+
+            float hold =
+                Mathf.Max(
+                    0f,
+                    spotlightOffDimHoldDuration);
+
+            float fade =
+                Mathf.Max(
+                    0.05f,
+                    spotlightOffDimFadeDuration);
+
+            float envelope =
+                elapsed <= hold
+                    ? 1f
+                    : 1f -
+                      Smooth01(
+                          (elapsed - hold) /
+                          fade);
+
+            focusBlend =
+                Mathf.Clamp01(
+                    envelope);
+
+            if (focusBlend > 0.001f)
+            {
+                ApplyFocus(
+                    BuildSpotlightOffDimFrame());
+                return;
+            }
+
+            spotlightOffDimStartedAt = -1f;
+        }
+
+        focusBlend = Damp01(
+            focusBlend,
+            0f,
+            showFadeSharpness,
+            Time.unscaledDeltaTime);
+
         HideFocusIfZero();
     }
 
@@ -459,7 +519,6 @@ public sealed class BattleSpotlightController : MonoBehaviour
         float cycles = reward ? rewardIdleCyclesPerSecond : mapIdleCyclesPerSecond;
         float widthAmp = reward ? rewardBeamWidthAmplitude : mapBeamWidthAmplitude;
         float lengthAmp = reward ? rewardBeamLengthAmplitude : mapBeamLengthAmplitude;
-        float alphaAmp = reward ? rewardBeamAlphaAmplitude : mapBeamAlphaAmplitude;
         float time = Time.unscaledTime * Mathf.Max(0.05f, cycles) * Mathf.PI * 2f;
 
         foreach (BattleCharacterLightVisual visual in lightVisuals)
@@ -471,21 +530,38 @@ public sealed class BattleSpotlightController : MonoBehaviour
             SpriteRenderer renderer = beam != null ? beam.GetComponent<SpriteRenderer>() : null;
             if (renderer == null || !renderer.enabled) continue;
 
-            float phase = Mathf.Abs(visual.GetInstanceID() % 997) * 0.0137f;
-            float breath = Mathf.Clamp(
-                Mathf.Sin(time + phase) * 0.72f +
-                Mathf.Sin(time * 0.47f + phase * 1.71f) * 0.28f,
-                -1f, 1f);
+            float phase =
+                Mathf.Abs(
+                    visual.GetInstanceID() % 997) *
+                0.0137f;
 
-            Vector3 baseScale = beam.localScale;
-            beam.localScale = new Vector3(
-                baseScale.x * (1f + breath * widthAmp),
-                baseScale.y * (1f + Mathf.Sin(time + phase + 0.65f) * lengthAmp),
-                baseScale.z);
+            float widthWave =
+                Mathf.Sin(
+                    time +
+                    phase);
 
-            Color color = renderer.color;
-            color.a *= Mathf.Clamp(1f + breath * alphaAmp, 0.80f, 1.15f);
-            renderer.color = color;
+            float lengthWave =
+                Mathf.Sin(
+                    time * 0.73f +
+                    phase +
+                    1.15f);
+
+            // Idle never touches alpha. It only makes the lamp aperture breathe
+            // slightly around its authored size instead of accumulating brightness.
+            Vector3 baseScale =
+                beam.localScale;
+
+            beam.localScale =
+                new Vector3(
+                    baseScale.x *
+                    (1f +
+                     widthWave *
+                     widthAmp),
+                    baseScale.y *
+                    (1f +
+                     lengthWave *
+                     lengthAmp),
+                    baseScale.z);
         }
     }
 
@@ -551,59 +627,68 @@ public sealed class BattleSpotlightController : MonoBehaviour
             rewardProjectedVisual.transform.position;
 
         float speed01 = 0f;
+        float signedVertical01 = 0f;
 
         if (rewardMotionSample)
         {
-            float speed =
-                (position - rewardLastPosition).magnitude /
+            Vector2 velocity =
+                (position - rewardLastPosition) /
                 dt;
+
+            float fullSpeed =
+                Mathf.Max(
+                    0.05f,
+                    rewardProjectionFullSpeed);
 
             speed01 =
                 Mathf.Clamp01(
-                    speed /
-                    Mathf.Max(
-                        0.05f,
-                        rewardProjectionFullSpeed));
+                    velocity.magnitude /
+                    fullSpeed);
+
+            signedVertical01 =
+                Mathf.Clamp(
+                    velocity.y /
+                    fullSpeed,
+                    -1f,
+                    1f);
         }
 
         rewardLastPosition = position;
         rewardMotionSample = true;
 
-        float idleWave =
-            Mathf.Abs(
-                EvaluateIdleBreath(
-                    Time.unscaledTime,
-                    rewardIdleCyclesPerSecond,
-                    0.91f));
-
         float response =
-            Mathf.Clamp01(
-                speed01 * 0.65f +
-                idleWave *
-                Mathf.Clamp01(
-                    rewardProjectionIdleInfluence));
-
-        response =
             Mathf.Sqrt(
-                response);
+                speed01);
 
         Vector3 scale =
             rewardProjectedBeam.localScale;
 
+        float widthScale =
+            1f +
+            Mathf.Max(
+                0f,
+                rewardProjectionWidthBoost) *
+            response *
+            0.55f;
+
+        float lengthScale =
+            1f +
+            signedVertical01 *
+            Mathf.Max(
+                0f,
+                rewardProjectionLengthBoost) *
+            0.38f;
+
+        lengthScale =
+            Mathf.Clamp(
+                lengthScale,
+                0.92f,
+                1.12f);
+
         rewardProjectedBeam.localScale =
             new Vector3(
-                scale.x *
-                (1f +
-                 Mathf.Max(
-                     0f,
-                     rewardProjectionWidthBoost) *
-                 response),
-                scale.y *
-                (1f +
-                 Mathf.Max(
-                     0f,
-                     rewardProjectionLengthBoost) *
-                 response),
+                scale.x * widthScale,
+                scale.y * lengthScale,
                 scale.z);
 
         rewardProjectionProperties ??=
@@ -660,6 +745,25 @@ public sealed class BattleSpotlightController : MonoBehaviour
         rewardProjectedRenderer = null;
         rewardProjectedIndex = -1;
         rewardMotionSample = false;
+    }
+
+    private FocusFrame BuildSpotlightOffDimFrame()
+    {
+        FocusFrame frame =
+            DefaultFrame();
+
+        frame.nearDim =
+            spotlightOffDimAlpha;
+        frame.farDim =
+            spotlightOffDimAlpha;
+        frame.dimRadius = 1f;
+
+        frame.playerStrength = 0f;
+        frame.presenterStrength = 0f;
+        frame.screenStrength = 0f;
+        frame.itemStrength = 0f;
+
+        return frame;
     }
 
     private FocusFrame BuildCombatFocusFrame()
@@ -982,6 +1086,23 @@ public sealed class BattleSpotlightController : MonoBehaviour
     {
         lightVisuals = FindObjectsByType<BattleCharacterLightVisual>(
             FindObjectsInactive.Include, FindObjectsSortMode.None);
+    }
+
+
+    private void ApplyFloorPoolPolicy(bool enabled)
+    {
+        RefreshVisualsIfNeeded();
+
+        if (lightVisuals == null)
+            return;
+
+        foreach (BattleCharacterLightVisual visual in lightVisuals)
+        {
+            if (visual == null)
+                continue;
+
+            visual.SetFloorPoolEnabled(enabled);
+        }
     }
 
     private void RefreshVisualsIfNeeded()
