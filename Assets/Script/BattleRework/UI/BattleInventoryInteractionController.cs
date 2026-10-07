@@ -1105,7 +1105,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         }
         else if (inputRouter != null && inputRouter.PointerPresent)
         {
-            handGhostRoot.position = inputRouter.PointerPosition + (Vector3)handMouseOffset;
+            handGhostRoot.position = (Vector3)inputRouter.PointerPosition + (Vector3)handMouseOffset;
         }
 
         handGhostRoot.SetAsLastSibling();
