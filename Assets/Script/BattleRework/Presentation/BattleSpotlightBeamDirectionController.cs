@@ -69,7 +69,9 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     private PlayerController player;
     private Transform playerBeamTransform;
     private SpriteRenderer playerBeamRenderer;
+    private SpriteRenderer playerGlowRenderer;
     private MaterialPropertyBlock beamProperties;
+    private MaterialPropertyBlock glowMotionProperties;
 
     private Vector2 lastPlayerPosition;
     private Vector2 lastPlayerVelocity;
@@ -288,7 +290,9 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
             player = resolvedPlayer;
             playerBeamTransform = null;
             playerBeamRenderer = null;
+            playerGlowRenderer = null;
             beamProperties = null;
+            glowMotionProperties = null;
             ResetCombatMotion();
         }
     }
@@ -326,6 +330,18 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
                 : null;
         }
 
+        if (playerGlowRenderer == null)
+        {
+            Transform glow =
+                FindRecursive(
+                    player.transform,
+                    BattleCharacterLightVisual.GlowRendererName);
+
+            playerGlowRenderer =
+                glow != null
+                    ? glow.GetComponent<SpriteRenderer>()
+                    : null;
+        }
     }
 
     private void UpdateVirtualLightRig()
@@ -592,6 +608,37 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
         playerBeamRenderer.SetPropertyBlock(
             beamProperties);
+
+        ApplyDirectionalPlayerTopLight(tilt);
+    }
+
+    private void ApplyDirectionalPlayerTopLight(float tilt)
+    {
+        if (playerGlowRenderer == null)
+            return;
+
+        glowMotionProperties ??=
+            new MaterialPropertyBlock();
+
+        playerGlowRenderer.GetPropertyBlock(
+            glowMotionProperties);
+
+        // If the virtual light source trails on the left, the player's left/top side
+        // receives more additive top light, and vice versa.
+        glowMotionProperties.SetFloat(
+            "_HorizontalBias",
+            Mathf.Clamp(
+                -currentGroundDirection.x *
+                Mathf.Clamp01(tilt),
+                -1f,
+                1f));
+
+        glowMotionProperties.SetFloat(
+            "_DirectionalAmount",
+            0.72f);
+
+        playerGlowRenderer.SetPropertyBlock(
+            glowMotionProperties);
     }
 
     private void ClearBeamProjectionProperties()
@@ -619,6 +666,26 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
         playerBeamRenderer.SetPropertyBlock(
             beamProperties);
+
+        if (playerGlowRenderer != null)
+        {
+            glowMotionProperties ??=
+                new MaterialPropertyBlock();
+
+            playerGlowRenderer.GetPropertyBlock(
+                glowMotionProperties);
+
+            glowMotionProperties.SetFloat(
+                "_HorizontalBias",
+                0f);
+
+            glowMotionProperties.SetFloat(
+                "_DirectionalAmount",
+                0.55f);
+
+            playerGlowRenderer.SetPropertyBlock(
+                glowMotionProperties);
+        }
     }
 
     private void ResetCombatMotion()
