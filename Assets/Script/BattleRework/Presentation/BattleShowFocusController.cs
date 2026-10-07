@@ -366,8 +366,8 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         // Character focus now follows the same circular-hole language as Reward Item focus.
         // Keep these hard circular so serialized legacy ellipse values cannot reintroduce the old look.
-        float activeVerticalRatio = 1f;
-        float activeLowerOffset = 0f;
+        float activeVerticalRatio = 0.86f;
+        float activeLowerOffset = 0.02f;
         float activeCharacterFeather = useUnifiedStageStyle
             ? stageLighting.UnifiedCharacterFeather
             : characterFeather;
