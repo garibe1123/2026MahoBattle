@@ -42,28 +42,28 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
     [Header("COMBAT PLAYER SPOTLIGHT — FAKE 3D RIG")]
     [Tooltip("가상의 천장 광원 높이입니다. 높을수록 같은 이동량에서도 Beam 기울기가 작아집니다.")]
-    [SerializeField, Min(0.5f)] private float virtualLightHeight = 5.2f;
+    [SerializeField, Min(0.5f)] private float virtualLightHeight = 3.8f;
     [Tooltip("Player를 향하는 Aim Target 추종 속도입니다.")]
-    [SerializeField, Min(0.1f)] private float aimFollowSharpness = 13f;
-    [Tooltip("천장 Light Source의 추종 속도입니다. Aim보다 느리게 두어 실제 조명 헤드처럼 지연시킵니다.")]
-    [SerializeField, Min(0.1f)] private float sourceFollowSharpness = 4.2f;
+    [SerializeField, Min(0.1f)] private float aimFollowSharpness = 16f;
+    [Tooltip("천장 Light Source의 추종 속도입니다. Aim보다 훨씬 느리게 두어 실제 조명 헤드처럼 지연시킵니다.")]
+    [SerializeField, Min(0.1f)] private float sourceFollowSharpness = 2.9f;
     [Tooltip("Player 속도에 비례해 가상 Light Source가 뒤에 남는 시간값입니다.")]
-    [SerializeField, Min(0f)] private float sourceVelocityTrailSeconds = 0.14f;
+    [SerializeField, Min(0f)] private float sourceVelocityTrailSeconds = 0.22f;
     [Tooltip("급가속/급회전 때 Light Source가 추가로 뒤에 남는 양입니다.")]
-    [SerializeField, Min(0f)] private float sourceAccelerationTrail = 0.006f;
-    [SerializeField, Min(0f)] private float maxSourceLagDistance = 1.15f;
-    [SerializeField, Range(1f, 45f)] private float maxRigTiltDegrees = 22f;
-    [SerializeField, Min(0.1f)] private float angularFollowSharpness = 5.2f;
+    [SerializeField, Min(0f)] private float sourceAccelerationTrail = 0.011f;
+    [SerializeField, Min(0f)] private float maxSourceLagDistance = 1.75f;
+    [SerializeField, Range(1f, 45f)] private float maxRigTiltDegrees = 32f;
+    [SerializeField, Min(0.1f)] private float angularFollowSharpness = 3.4f;
 
     [Header("COMBAT BEAM PROJECTION")]
-    [SerializeField, Range(0f, 20f)] private float maxBeamRollDegrees = 12f;
-    [SerializeField, Range(0f, 0.5f)] private float maxBeamShear = 0.22f;
-    [SerializeField, Range(0f, 0.35f)] private float maxBeamLengthBoost = 0.16f;
-    [SerializeField, Range(0f, 0.35f)] private float maxBeamWidthBoost = 0.10f;
-    [SerializeField, Range(0f, 0.8f)] private float tiltOpacityLoss = 0.24f;
-    [Tooltip("가상 Light Source가 뒤에 남을 때 Beam 상단 원점도 약간 같이 이동시키는 비율입니다.")]
-    [SerializeField, Range(0f, 1f)] private float beamSourceLagVisualScale = 0.55f;
-    [SerializeField, Min(0f)] private float maxBeamSourceVisualOffset = 0.46f;
+    [SerializeField, Range(0f, 28f)] private float maxBeamRollDegrees = 18f;
+    [SerializeField, Range(0f, 0.65f)] private float maxBeamShear = 0.36f;
+    [SerializeField, Range(0f, 0.50f)] private float maxBeamLengthBoost = 0.30f;
+    [SerializeField, Range(0f, 0.45f)] private float maxBeamWidthBoost = 0.18f;
+    [SerializeField, Range(0f, 0.8f)] private float tiltOpacityLoss = 0.34f;
+    [Tooltip("가상 Light Source가 뒤에 남을 때 Beam 상단 원점도 같이 이동시키는 비율입니다.")]
+    [SerializeField, Range(0f, 1f)] private float beamSourceLagVisualScale = 0.82f;
+    [SerializeField, Min(0f)] private float maxBeamSourceVisualOffset = 0.78f;
 
     private BattleCharacterLightVisual[] lightVisuals;
 
@@ -528,9 +528,11 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
         if (authoredWorldHeight <= 0.0001f)
             return;
 
+        // Boost medium motion so the fake-3D response is visible before reaching full speed.
         float tilt =
-            Mathf.Clamp01(
-                currentTilt01);
+            Mathf.Sqrt(
+                Mathf.Clamp01(
+                    currentTilt01));
 
         float rollDegrees =
             -currentGroundDirection.x *
@@ -620,7 +622,7 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 
         beamProperties.SetFloat(
             "_BeamBottomWidthScale",
-            1f + 0.18f * tilt);
+            1f + 0.30f * tilt);
 
         beamProperties.SetFloat(
             "_BeamOpacityScale",
