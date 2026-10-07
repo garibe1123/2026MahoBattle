@@ -63,8 +63,8 @@ public sealed class BattleLightingProfileSO : ScriptableObject
 
     [Header("Vignette")]
     [Tooltip("Soft lens-style corner falloff. Keep the center readable while the four corners gently sink into black.")]
-    [Range(0f, 1f)] public float vignetteIntensity = 0.14f;
-    [Range(0.01f, 1f)] public float vignetteSmoothness = 0.48f;
+    [Range(0f, 1f)] public float vignetteIntensity = 0.20f;
+    [Range(0.01f, 1f)] public float vignetteSmoothness = 0.54f;
     public Color vignetteColor = Color.black;
 
     [Header("Tonemapping")]
@@ -86,17 +86,17 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     public Color analogOverlayTint = new(0.015f, 0.02f, 0.025f, 1f);
 
     [Header("Player Key Spotlight")]
-    public Color playerPoolColor = new(1f, 0.90f, 0.72f, 1f);
-    public Color playerKeyLightColor = new(1f, 0.94f, 0.80f, 1f);
-    public Color playerTopLightColor = new(1f, 0.97f, 0.86f, 1f);
-    [Range(0f, 1f)] public float playerPoolAlpha = 0.22f;
-    [Min(0.1f)] public float playerPoolWidthMultiplier = 1.62f;
-    [Range(0.05f, 0.55f)] public float playerPoolHeightRatio = 0.15f;
-    [Range(0f, 1f)] public float playerKeyLightAlpha = 0.26f;
-    [Min(0.2f)] public float playerKeyLightWidthMultiplier = 1.78f;
-    [Min(0.2f)] public float playerKeyLightHeightMultiplier = 2.30f;
-    [Range(-1f, 1f)] public float playerKeyLightVerticalOffsetRatio = 0.45f;
-    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.08f;
+    public Color playerPoolColor = new(1f, 0.95f, 0.88f, 1f);
+    public Color playerKeyLightColor = new(1f, 0.975f, 0.92f, 1f);
+    public Color playerTopLightColor = new(1f, 0.985f, 0.94f, 1f);
+    [Range(0f, 1f)] public float playerPoolAlpha = 0.16f;
+    [Min(0.1f)] public float playerPoolWidthMultiplier = 2.05f;
+    [Range(0.05f, 0.55f)] public float playerPoolHeightRatio = 0.22f;
+    [Range(0f, 1f)] public float playerKeyLightAlpha = 0.055f;
+    [Min(0.2f)] public float playerKeyLightWidthMultiplier = 1.55f;
+    [Min(0.2f)] public float playerKeyLightHeightMultiplier = 1.90f;
+    [Range(-1f, 1f)] public float playerKeyLightVerticalOffsetRatio = 0.40f;
+    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.04f;
     [Range(0f, 1f)] public float playerCombatStrength = 1f;
 
     [Header("Enemy Contact Light")]
