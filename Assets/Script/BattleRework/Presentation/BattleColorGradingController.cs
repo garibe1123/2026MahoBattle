@@ -219,10 +219,25 @@ public sealed class BattleColorGradingController : MonoBehaviour
                 1f));
     }
 
+    public void ClearCameraReaction()
+    {
+        cameraReactionPeak = 0f;
+        cameraReactionStartedAt = -1f;
+        cameraReactionEndsAt = -1f;
+        currentCameraReaction = 0f;
+        ApplyDynamicOverrides();
+    }
+
     public void SetPresentationMode(bool combat, bool show)
     {
         combatMode = combat;
         showMode = show;
+
+        // Combat에서 발생한 과노출/CA/Lens kick이 Reward/Map/대기 단계로
+        // 한두 프레임이라도 넘어가지 않게 상태 전환 시 명시적으로 원복합니다.
+        if (!combatMode || showMode)
+            ClearCameraReaction();
+
         RefreshTargetWeight();
     }
 
