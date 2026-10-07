@@ -147,7 +147,9 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         }
         else if (combat)
         {
-            SetExistingPlayerPresentationLightsSuppressed(true);
+            // Combat도 Player는 실제 Beam + Pool spotlight rig를 유지합니다.
+            // 강도/색/크기는 BattleFieldCinematicDirector가 LightingProfile로 계속 소유합니다.
+            SetExistingPlayerPresentationLightsSuppressed(false);
         }
     }
 
@@ -172,7 +174,9 @@ public sealed class BattlePlayerStageLightingController : MonoBehaviour
         }
         else if (combat)
         {
-            SetExistingPlayerPresentationLightsSuppressed(true);
+            // Combat도 Player는 실제 Beam + Pool spotlight rig를 유지합니다.
+            // 강도/색/크기는 BattleFieldCinematicDirector가 LightingProfile로 계속 소유합니다.
+            SetExistingPlayerPresentationLightsSuppressed(false);
         }
     }
 
