@@ -76,9 +76,9 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float playerFocusRadiusWorld = 1.48f;
     [SerializeField, Min(0.1f)] private float presenterFocusRadiusWorld = 1.92f;
     [Tooltip("1이면 원형, 작을수록 위아래로 눌린 타원형입니다.")]
-    [SerializeField, Range(0.2f, 1f)] private float characterVerticalRatio = 0.48f;
-    [Tooltip("Focus 중심을 Sprite 중심보다 아래로 내립니다. 발밑 Stage Light 느낌을 강화합니다.")]
-    [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.20f;
+    [SerializeField, Range(0.2f, 1f)] private float characterVerticalRatio = 0.86f;
+    [Tooltip("Focus 중심을 Sprite 중심보다 아주 조금만 아래로 내립니다.")]
+    [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.02f;
     [SerializeField, Range(0.001f, 0.08f)] private float characterFeather = 0.018f;
 
     [Header("Screen Rect Focus")]
@@ -366,8 +366,12 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         // Character focus now follows the same circular-hole language as Reward Item focus.
         // Keep these hard circular so serialized legacy ellipse values cannot reintroduce the old look.
-        float activeVerticalRatio = 0.86f;
-        float activeLowerOffset = 0.02f;
+        float activeVerticalRatio = useUnifiedStageStyle
+            ? stageLighting.UnifiedCharacterVerticalRatio
+            : characterVerticalRatio;
+        float activeLowerOffset = useUnifiedStageStyle
+            ? stageLighting.UnifiedCharacterLowerOffset
+            : characterLowerOffset;
         float activeCharacterFeather = useUnifiedStageStyle
             ? stageLighting.UnifiedCharacterFeather
             : characterFeather;
