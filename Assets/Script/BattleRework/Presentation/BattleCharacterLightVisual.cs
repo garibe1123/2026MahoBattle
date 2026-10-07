@@ -63,6 +63,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private float targetVisibility;
     private float targetStrength = 1f;
     private float currentVisibility;
+    private bool floorPoolEnabled;
 
     // Optional world anchor used for characters whose visual SpriteRenderer is offset from
     // the gameplay root. Player combat lighting uses this to keep the beam/pool centered
@@ -143,6 +144,15 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     {
         targetVisibility = active ? 1f : 0f;
         targetStrength = Mathf.Clamp01(strength);
+    }
+
+    public void SetFloorPoolEnabled(bool enabled)
+    {
+        if (floorPoolEnabled == enabled)
+            return;
+
+        floorPoolEnabled = enabled;
+        ApplyVisualState();
     }
 
     public void SetImmediate(float visibility)
@@ -469,10 +479,15 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
         if (poolRenderer != null)
         {
-            // Legacy ellipse footprint is intentionally retired.
-            // Character grounding/focus is now provided by the full-screen focus mask hole,
-            // which reads correctly in the top-down battle camera and avoids a flat side-view decal.
-            poolRenderer.enabled = false;
+            Color color = poolColor;
+            color.a = poolMaxAlpha * visibility;
+
+            poolRenderer.color = color;
+            poolRenderer.sharedMaterial = spotlightMaterial;
+            poolRenderer.enabled =
+                floorPoolEnabled &&
+                spotlightMaterial != null &&
+                color.a > 0.001f;
         }
 
         if (glowRenderer != null)
