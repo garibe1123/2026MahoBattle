@@ -342,6 +342,16 @@ public sealed class BattleShowFocusController : MonoBehaviour
                     out rewardItemRadiusUv);
         }
 
+        // Combat deliberately reuses the exact Reward Item circular-hole channel.
+        // This keeps the battle player focus visually identical to the item-selection mask
+        // instead of maintaining a second character-specific footprint shape.
+        if (combatFocusRequested)
+        {
+            rewardItemUv = playerUv;
+            rewardItemRadiusUv = playerRadiusUv;
+            rewardItemVisible = playerVisible;
+        }
+
         bool mapSelection =
             runManager != null &&
             runManager.RunActive &&
@@ -393,9 +403,9 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetFloat("_PlayerRadius", playerRadiusUv);
         runtimeMaterial.SetFloat(
             "_PlayerStrength",
-            playerVisible
-                ? (combatFocusRequested ? currentCombatBlend : currentFocusBlend)
-                : 0f);
+            combatFocusRequested
+                ? 0f
+                : (playerVisible ? currentFocusBlend : 0f));
 
         runtimeMaterial.SetVector("_PresenterCenter", new Vector4(presenterUv.x, presenterUv.y, 0f, 0f));
         runtimeMaterial.SetFloat("_PresenterRadius", presenterRadiusUv);
@@ -419,14 +429,16 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetFloat(
             "_ItemStrength",
             rewardItemVisible
-                ? currentFocusBlend
+                ? (combatFocusRequested ? currentCombatBlend : currentFocusBlend)
                 : 0f);
 
         runtimeMaterial.SetFloat(
             "_ItemFeather",
             Mathf.Max(
                 0.0001f,
-                rewardItemFocusFeather));
+                combatFocusRequested
+                    ? combatPlayerFocusFeather
+                    : rewardItemFocusFeather));
 
         // Character focus now follows the same circular-hole language as Reward Item focus.
         // Keep these hard circular so serialized legacy ellipse values cannot reintroduce the old look.
