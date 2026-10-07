@@ -96,7 +96,7 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Min(0.2f)] public float playerKeyLightWidthMultiplier = 1.62f;
     [Min(0.2f)] public float playerKeyLightHeightMultiplier = 1.72f;
     [Range(-1f, 1f)] public float playerKeyLightVerticalOffsetRatio = 0.34f;
-    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.03f;
+    [Range(0f, 0.35f)] public float playerTopLightStrength = 0.06f;
     [Range(0f, 1f)] public float playerCombatStrength = 1f;
 
     [Header("Enemy Contact Light")]
