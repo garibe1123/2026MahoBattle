@@ -245,6 +245,26 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         return true;
     }
 
+
+    public bool TryGetRewardShowcaseSpotlight(
+        int index,
+        out BattleCharacterLightVisual spotlight)
+    {
+        spotlight = null;
+
+        RewardShowcaseItem item =
+            FindRewardShowcaseItem(index);
+
+        if (item == null ||
+            item.spotlight == null)
+        {
+            return false;
+        }
+
+        spotlight = item.spotlight;
+        return true;
+    }
+
     public void SetExternalGate(bool held)
     {
         externalGate = held;
