@@ -17,7 +17,7 @@ using UnityEngine.SceneManagement;
 /// - Apply Beam Settings Now is invoked,
 /// - a BattleCharacterLightVisual creates its beam later and registers itself.
 /// </summary>
-[DefaultExecutionOrder(32900)]
+[DefaultExecutionOrder(31900)]
 [DisallowMultipleComponent]
 public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 {
@@ -50,13 +50,13 @@ public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
     [SerializeField, Min(0f)] private float poolLagPerSpeed = 0.030f;
 
     [Tooltip("전투 중 상부 Beam이 이동 반대 방향으로 기울어지는 최대 각도입니다.")]
-    [SerializeField, Range(0f, 16f)] private float maxBeamTiltDegrees = 9f;
+    [SerializeField, Range(0f, 16f)] private float maxBeamTiltDegrees = 11f;
     [Tooltip("상하 이동 때 조명 헤드가 앞뒤로 숙여지는 보조 각도입니다.")]
-    [SerializeField, Range(0f, 10f)] private float maxBeamPitchDegrees = 4.5f;
+    [SerializeField, Range(0f, 10f)] private float maxBeamPitchDegrees = 5f;
     [Tooltip("좌우 이동 때 평면 회전과 함께 주는 아주 약한 Y축 틸트입니다.")]
-    [SerializeField, Range(0f, 8f)] private float maxBeamYawDegrees = 3.5f;
-    [SerializeField, Min(0.1f)] private float speedForFullBeamTilt = 3.5f;
-    [SerializeField, Min(0.1f)] private float beamTiltSharpness = 5.6f;
+    [SerializeField, Range(0f, 8f)] private float maxBeamYawDegrees = 4f;
+    [SerializeField, Min(0.1f)] private float speedForFullBeamTilt = 3f;
+    [SerializeField, Min(0.1f)] private float beamTiltSharpness = 3.8f;
 
     private BattleCharacterLightVisual[] lightVisuals;
 
