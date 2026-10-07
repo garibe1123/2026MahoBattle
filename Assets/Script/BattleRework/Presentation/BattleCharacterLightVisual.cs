@@ -20,9 +20,11 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
     // A stage spotlight should visually open/close, not only change alpha.
     // Beam and floor pool share this same aperture value.
-    private const float ClosedApertureScale = 0.26f;
-    private const float ClosedBeamHeightScale = 0.82f;
-    private const float ClosedPoolHeightScale = 0.42f;
+    // 밝기 변화 때문에 스포트라이트 형상이 과하게 오므라들면 탑다운 화면에서
+    // 세로 기둥/납작한 접시처럼 보입니다. 형상은 거의 유지하고 alpha 위주로 페이드합니다.
+    private const float ClosedApertureScale = 0.84f;
+    private const float ClosedBeamHeightScale = 0.92f;
+    private const float ClosedPoolHeightScale = 0.88f;
 
     private static Sprite sharedPoolSprite;
     private static Sprite sharedKeyLightSprite;
@@ -359,8 +361,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             keyRenderer.sortingOrder = targetRenderer.sortingOrder - 2;
         }
 
-        float basePoolWidth = Mathf.Max(0.72f, spriteWidth * poolWidthMultiplier);
-        float basePoolHeight = Mathf.Max(0.11f, basePoolWidth * poolHeightRatio);
+        float basePoolWidth = Mathf.Max(0.82f, spriteWidth * poolWidthMultiplier);
+        // 공용 spotlight는 어느 캐릭터에서도 납작한 선처럼 보이지 않도록 최소 세로 비율을 보장합니다.
+        float effectivePoolHeightRatio = Mathf.Max(0.28f, poolHeightRatio);
+        float basePoolHeight = Mathf.Max(0.18f, basePoolWidth * effectivePoolHeightRatio);
         float poolWidth = basePoolWidth * widthScale;
         float poolHeight = basePoolHeight * poolHeightScale;
         float poolY = bounds.min.y + Mathf.Max(0.02f, spriteHeight * 0.035f);
@@ -539,8 +543,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (sharedPoolSprite != null)
             return sharedPoolSprite;
 
-        const int width = 96;
-        const int height = 32;
+        const int width = 128;
+        const int height = 64;
         Texture2D texture = new(width, height, TextureFormat.RGBA32, false, true)
         {
             name = "RuntimeCharacterLightPool",
@@ -558,9 +562,20 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             {
                 float nx = ((x + 0.5f) / width) * 2f - 1f;
                 float distance = Mathf.Sqrt(nx * nx + ny * ny);
-                float edge = Mathf.Clamp01(1f - distance);
-                float alpha = Mathf.SmoothStep(0f, 1f, edge);
-                alpha = alpha * alpha * (0.82f + 0.18f * edge);
+
+                // 넓은 중심 + 긴 feather. 중앙이 핫스팟처럼 눌려 보이지 않고
+                // 바닥 전체에 부드럽게 퍼지는 조명 footprint를 만듭니다.
+                float softEdge =
+                    1f - Mathf.SmoothStep(
+                        0.12f,
+                        1f,
+                        Mathf.Clamp01(distance));
+                float centerLift =
+                    Mathf.Lerp(
+                        0.72f,
+                        1f,
+                        1f - Mathf.Clamp01(distance));
+                float alpha = softEdge * centerLift * 0.70f;
 
                 pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
             }
@@ -600,21 +615,40 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         for (int y = 0; y < height; y++)
         {
             float v = (y + 0.5f) / height;
-            float verticalFadeIn = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.02f, 0.20f, v));
-            float verticalFadeOut = 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.82f, 1f, v));
+            // Beam은 주광원이 아니라 공기 중에 아주 희미하게 보이는 volume hint입니다.
+            // 긴 불투명 기둥이 생기지 않도록 중앙 plateau를 없애고 상/하단 모두 길게 feather합니다.
+            float verticalFadeIn = Mathf.SmoothStep(
+                0f,
+                1f,
+                Mathf.InverseLerp(0.00f, 0.30f, v));
+            float verticalFadeOut =
+                1f - Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    Mathf.InverseLerp(0.58f, 1.00f, v));
             float vertical = verticalFadeIn * verticalFadeOut;
 
             // Texture Y=0 is the broad floor side and Y=1 is the narrow source side.
-            // SpriteRenderer.flipY is now owned by BattleSpotlightBeamDirectionController settings.
-            float widthAtHeight = Mathf.Lerp(1.00f, 0.32f, v);
+            float widthAtHeight = Mathf.Lerp(1.00f, 0.22f, v);
 
             for (int x = 0; x < width; x++)
             {
                 float nx = Mathf.Abs(((x + 0.5f) / width) * 2f - 1f);
                 float normalizedX = nx / Mathf.Max(0.001f, widthAtHeight);
-                float horizontal = 1f - Mathf.SmoothStep(0.40f, 1f, normalizedX);
-                float centerLift = Mathf.Lerp(0.82f, 1f, 1f - Mathf.Clamp01(normalizedX));
-                float alpha = Mathf.Clamp01(horizontal * vertical * centerLift);
+                float horizontal =
+                    1f - Mathf.SmoothStep(
+                        0.08f,
+                        1f,
+                        normalizedX);
+                float centerLift = Mathf.Lerp(
+                    0.72f,
+                    1f,
+                    1f - Mathf.Clamp01(normalizedX));
+
+                // Global beam opacity ceiling. Profile alpha still controls per-character emphasis.
+                float alpha =
+                    Mathf.Clamp01(horizontal * vertical * centerLift) *
+                    0.28f;
 
                 pixels[y * width + x] = new Color(1f, 1f, 1f, alpha);
             }
