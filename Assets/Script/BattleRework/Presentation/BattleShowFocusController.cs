@@ -28,7 +28,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField] private BattleCameraController battleCamera;
     [SerializeField] private BattleShowWorldSetController showWorldSet;
     [SerializeField] private BattleRunManager runManager;
-    [SerializeField] private BattleStageTransitionController stageFlow;
     [SerializeField] private PlayerController player;
     [SerializeField] private BattlePlayerStageLightingController stageLighting;
 
@@ -82,19 +81,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float characterLowerOffset = 0.20f;
     [SerializeField, Range(0.001f, 0.08f)] private float characterFeather = 0.018f;
 
-    [Header("Combat Player Focus — Shared Mask")]
-    [SerializeField] private bool useCombatPlayerFocus = true;
-    [Tooltip("전투에서는 전체 월드에 균일한 반투명 암전을 깔고 Item 방식 원형 hole만 남깁니다.")]
-    [SerializeField, Range(0f, 1f)] private float combatNearDimAlpha = 0.30f;
-    [SerializeField, Range(0f, 1f)] private float combatFarDimAlpha = 0.30f;
-    [SerializeField, Range(0.05f, 1.5f)] private float combatDimFalloffRadius = 1f;
-    [SerializeField, Min(0.1f)] private float combatPlayerFocusRadiusWorld = 1.72f;
-    [SerializeField, Range(0.001f, 0.08f)] private float combatPlayerFocusFeather = 0.030f;
-    [SerializeField, Min(0.01f)] private float combatFocusFadeDuration = 0.18f;
-    [Tooltip("원형 Focus hole이 플레이어보다 살짝 늦게 따라오는 정도입니다.")]
-    [SerializeField, Min(0.1f)] private float combatFocusFollowSharpness = 7.2f;
-    [SerializeField, Min(0f)] private float combatFocusMaxLagWorld = 0.28f;
-
     [Header("Screen Rect Focus")]
     [Tooltip("0에 가까울수록 TV 실제 화면 경계에 딱 맞는 직사각형입니다.")]
     [SerializeField, Range(0.0001f, 0.04f)] private float rectFeather = 0.0035f;
@@ -112,9 +98,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
     private float showScreenBecameReadyAt = -1f;
     private float currentDimBlend;
     private float currentFocusBlend;
-    private float currentCombatBlend;
-    private Vector3 currentCombatFocusWorld;
-    private bool combatFocusWorldInitialized;
 
     private bool hasLastShowFrame;
     private Vector3 lastShowTarget;
@@ -174,13 +157,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         float now = Time.unscaledTime;
         float deltaTime = Time.unscaledDeltaTime;
-
-        // Combat focus is owned exclusively by BattleCombatFocusMaskController.
-        // Keep the Show canvas completely out of normal battle so vignette/focus math
-        // can never stack inside the same UI object again.
-        bool combatFocusRequested = false;
-        currentCombatBlend = 0f;
-        combatFocusWorldInitialized = false;
 
         if (selectionShowRequested && showStageBecameActiveAt < 0f)
             showStageBecameActiveAt = now;
@@ -267,35 +243,12 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         Vector2 playerUv = new(0.5f, 0.5f);
         float playerRadiusUv = 0f;
-        bool playerVisible;
-
-        if (combatFocusRequested)
-        {
-            Vector3 playerFocusWorld =
-                ResolvePlayerVisualCenter();
-
-            currentCombatFocusWorld =
-                ResolveCombatFocusWorldPosition(
-                    playerFocusWorld,
-                    deltaTime);
-
-            playerVisible =
-                TryProjectWorldPoint(
-                    camera,
-                    currentCombatFocusWorld,
-                    combatPlayerFocusRadiusWorld,
-                    out playerUv,
-                    out playerRadiusUv);
-        }
-        else
-        {
-            playerVisible = TryProjectCharacter(
-                camera,
-                player != null && player.IsAlive ? player.transform : null,
-                playerFocusRadiusWorld,
-                out playerUv,
-                out playerRadiusUv);
-        }
+        bool playerVisible = TryProjectCharacter(
+            camera,
+            player != null && player.IsAlive ? player.transform : null,
+            playerFocusRadiusWorld,
+            out playerUv,
+            out playerRadiusUv);
 
         Transform presenter = showWorldSet != null ? showWorldSet.PresenterWorldTransform : null;
         Vector2 presenterUv = new(0.5f, 0.5f);
@@ -335,16 +288,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
                     out rewardItemRadiusUv);
         }
 
-        // Combat deliberately reuses the exact Reward Item circular-hole channel.
-        // This keeps the battle player focus visually identical to the item-selection mask
-        // instead of maintaining a second character-specific footprint shape.
-        if (combatFocusRequested)
-        {
-            rewardItemUv = playerUv;
-            rewardItemRadiusUv = playerRadiusUv;
-            rewardItemVisible = playerVisible;
-        }
-
         bool mapSelection =
             runManager != null &&
             runManager.RunActive &&
@@ -353,21 +296,15 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
         // 맵 선택은 전투 Room이 붙을 때의 강한 Stage Spotlight 언어를 그대로 사용합니다.
         // Reward는 기존 Show 스타일을 유지합니다.
-        float activeNearDim = combatFocusRequested
-            ? combatNearDimAlpha
-            : useUnifiedStageStyle
-                ? stageLighting.UnifiedNearDimAlpha
-                : openingMap ? openingMapNearDimAlpha : nearDimAlpha;
-        float activeFarDim = combatFocusRequested
-            ? combatFarDimAlpha
-            : useUnifiedStageStyle
-                ? stageLighting.UnifiedFarDimAlpha
-                : openingMap ? openingMapFarDimAlpha : farDimAlpha;
-        float activeDimRadius = combatFocusRequested
-            ? combatDimFalloffRadius
-            : useUnifiedStageStyle
-                ? stageLighting.UnifiedDimFalloffRadius
-                : openingMap ? openingMapDimFalloffRadius : dimFalloffRadius;
+        float activeNearDim = useUnifiedStageStyle
+            ? stageLighting.UnifiedNearDimAlpha
+            : openingMap ? openingMapNearDimAlpha : nearDimAlpha;
+        float activeFarDim = useUnifiedStageStyle
+            ? stageLighting.UnifiedFarDimAlpha
+            : openingMap ? openingMapFarDimAlpha : farDimAlpha;
+        float activeDimRadius = useUnifiedStageStyle
+            ? stageLighting.UnifiedDimFalloffRadius
+            : openingMap ? openingMapDimFalloffRadius : dimFalloffRadius;
 
         float presentationBlend =
             currentDimBlend;
@@ -394,9 +331,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetFloat("_PlayerRadius", playerRadiusUv);
         runtimeMaterial.SetFloat(
             "_PlayerStrength",
-            combatFocusRequested
-                ? 0f
-                : (playerVisible ? currentFocusBlend : 0f));
+            playerVisible ? currentFocusBlend : 0f);
 
         runtimeMaterial.SetVector("_PresenterCenter", new Vector4(presenterUv.x, presenterUv.y, 0f, 0f));
         runtimeMaterial.SetFloat("_PresenterRadius", presenterRadiusUv);
@@ -420,115 +355,30 @@ public sealed class BattleShowFocusController : MonoBehaviour
         runtimeMaterial.SetFloat(
             "_ItemStrength",
             rewardItemVisible
-                ? (combatFocusRequested ? currentCombatBlend : currentFocusBlend)
+                ? currentFocusBlend
                 : 0f);
 
         runtimeMaterial.SetFloat(
             "_ItemFeather",
             Mathf.Max(
                 0.0001f,
-                combatFocusRequested
-                    ? combatPlayerFocusFeather
-                    : rewardItemFocusFeather));
+                rewardItemFocusFeather));
 
         // Character focus now follows the same circular-hole language as Reward Item focus.
         // Keep these hard circular so serialized legacy ellipse values cannot reintroduce the old look.
         float activeVerticalRatio = 1f;
         float activeLowerOffset = 0f;
-        float activeCharacterFeather = combatFocusRequested
-            ? combatPlayerFocusFeather
-            : useUnifiedStageStyle
-                ? stageLighting.UnifiedCharacterFeather
-                : characterFeather;
+        float activeCharacterFeather = useUnifiedStageStyle
+            ? stageLighting.UnifiedCharacterFeather
+            : characterFeather;
 
         runtimeMaterial.SetFloat("_CharacterVerticalRatio", Mathf.Clamp(activeVerticalRatio, 0.2f, 1f));
         runtimeMaterial.SetFloat("_CharacterLowerOffset", Mathf.Clamp01(activeLowerOffset));
         runtimeMaterial.SetFloat("_CircleFeather", Mathf.Max(0.0001f, activeCharacterFeather));
         runtimeMaterial.SetFloat("_RectFeather", Mathf.Max(0.0001f, rectFeather));
 
-        if (!combatFocusRequested)
-            combatFocusWorldInitialized = false;
-
         if (overlayImage != null)
             overlayImage.enabled = presentationBlend > 0.0001f;
-    }
-
-    private Vector3 ResolveCombatFocusWorldPosition(
-        Vector3 targetWorld,
-        float deltaTime)
-    {
-        if (!combatFocusWorldInitialized)
-        {
-            currentCombatFocusWorld = targetWorld;
-            combatFocusWorldInitialized = true;
-            return currentCombatFocusWorld;
-        }
-
-        float t =
-            1f -
-            Mathf.Exp(
-                -Mathf.Max(0.1f, combatFocusFollowSharpness) *
-                Mathf.Max(0f, deltaTime));
-
-        Vector3 next =
-            Vector3.Lerp(
-                currentCombatFocusWorld,
-                targetWorld,
-                t);
-
-        Vector3 lag =
-            next - targetWorld;
-
-        if (lag.magnitude > combatFocusMaxLagWorld &&
-            combatFocusMaxLagWorld > 0f)
-        {
-            next =
-                targetWorld +
-                lag.normalized *
-                combatFocusMaxLagWorld;
-        }
-
-        currentCombatFocusWorld = next;
-        return currentCombatFocusWorld;
-    }
-
-    private Vector3 ResolvePlayerVisualCenter()
-    {
-        if (player == null)
-            return Vector3.zero;
-
-        SpriteRenderer[] renderers =
-            player.GetComponentsInChildren<SpriteRenderer>(true);
-
-        SpriteRenderer best = null;
-        float bestArea = -1f;
-
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            SpriteRenderer renderer = renderers[i];
-            if (renderer == null ||
-                renderer.name == BattleCharacterLightVisual.KeyRendererName ||
-                renderer.name == BattleCharacterLightVisual.PoolRendererName ||
-                renderer.name == BattleCharacterLightVisual.GlowRendererName)
-            {
-                continue;
-            }
-
-            float area =
-                Mathf.Abs(
-                    renderer.bounds.size.x *
-                    renderer.bounds.size.y);
-
-            if (area <= bestArea)
-                continue;
-
-            bestArea = area;
-            best = renderer;
-        }
-
-        return best != null
-            ? best.bounds.center
-            : player.transform.position;
     }
 
     private void ResolveReferences()
@@ -539,10 +389,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
-        if (stageFlow == null)
-            stageFlow = BattleStageTransitionController.Instance != null
-                ? BattleStageTransitionController.Instance
-                : FindFirstObjectByType<BattleStageTransitionController>();
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
         if (stageLighting == null)
@@ -912,8 +758,6 @@ public sealed class BattleShowFocusController : MonoBehaviour
     {
         currentDimBlend = 0f;
         currentFocusBlend = 0f;
-        currentCombatBlend = 0f;
-        combatFocusWorldInitialized = false;
         showStageBecameActiveAt = -1f;
         showScreenBecameReadyAt = -1f;
 
