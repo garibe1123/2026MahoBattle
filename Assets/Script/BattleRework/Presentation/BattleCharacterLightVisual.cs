@@ -117,7 +117,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     }
 
     /// <summary>
-    /// Artist-facing beam controls supplied by BattleSpotlightBeamDirectionController.
+    /// Artist-facing beam controls supplied by BattleSpotlightController.
     /// This stores the values once; the normal placement pass then respects them instead of
     /// resetting rotation/direction every LateUpdate.
     /// </summary>
