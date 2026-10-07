@@ -1443,6 +1443,18 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
     {
         discardConfirmRoot = CreateRect(interactionRoot, "InventoryDiscardConfirm", Vector2.zero);
         Stretch(discardConfirmRoot);
+
+        Canvas modalCanvas =
+            discardConfirmRoot.gameObject.AddComponent<Canvas>();
+
+        modalCanvas.overrideSorting =
+            true;
+
+        modalCanvas.sortingOrder =
+            BattleUiSortingContract.RewardModal;
+
+        discardConfirmRoot.gameObject.AddComponent<GraphicRaycaster>();
+
         Image dim = discardConfirmRoot.gameObject.AddComponent<Image>();
         dim.color = new Color(0f, 0f, 0f, 0.72f);
         dim.raycastTarget = true;
