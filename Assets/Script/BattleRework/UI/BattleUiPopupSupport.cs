@@ -905,22 +905,30 @@ public sealed class BattleItemHeroThumbnail : MonoBehaviour
         if (parent == null)
             return null;
 
+        RectTransform maskRoot =
+            CreateRect(
+                parent,
+                "HeroThumbnailMask",
+                Vector2.zero);
+
+        Stretch(maskRoot);
+
+        if (maskRoot.GetComponent<RectMask2D>() == null)
+            maskRoot.gameObject.AddComponent<RectMask2D>();
+
         GameObject go =
             new(
                 "HeroThumbnailComposition",
                 typeof(RectTransform));
 
         go.transform.SetParent(
-            parent,
+            maskRoot,
             false);
 
         RectTransform root =
             go.GetComponent<RectTransform>();
 
         Stretch(root);
-
-        if (parent.GetComponent<RectMask2D>() == null)
-            parent.gameObject.AddComponent<RectMask2D>();
 
         BattleItemHeroThumbnail hero =
             go.AddComponent<BattleItemHeroThumbnail>();
