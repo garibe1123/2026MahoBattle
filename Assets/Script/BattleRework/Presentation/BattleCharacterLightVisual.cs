@@ -161,14 +161,14 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             targetRenderer = ResolveRenderer();
 
         EnsureRig();
-        BattleSpotlightBeamDirectionController.ApplyCurrentSettingsTo(this);
+        BattleSpotlightController.ApplyCurrentSettingsTo(this);
         ApplyVisualState();
     }
 
     private void OnEnable()
     {
         EnsureRig();
-        BattleSpotlightBeamDirectionController.ApplyCurrentSettingsTo(this);
+        BattleSpotlightController.ApplyCurrentSettingsTo(this);
         ApplyVisualState();
     }
 
@@ -319,7 +319,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         // Critical ordering fix: if the beam is created after the settings controller has already
         // run OnEnable, immediately pull the current controller values now.
         if (beamCreated)
-            BattleSpotlightBeamDirectionController.ApplyCurrentSettingsTo(this);
+            BattleSpotlightController.ApplyCurrentSettingsTo(this);
     }
 
     private void UpdatePlacement()
