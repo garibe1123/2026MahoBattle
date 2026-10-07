@@ -17,7 +17,7 @@ using UnityEngine.SceneManagement;
 /// - Apply Beam Settings Now is invoked,
 /// - a BattleCharacterLightVisual creates its beam later and registers itself.
 /// </summary>
-[DefaultExecutionOrder(34000)]
+[DefaultExecutionOrder(32900)]
 [DisallowMultipleComponent]
 public sealed class BattleSpotlightBeamDirectionController : MonoBehaviour
 {
