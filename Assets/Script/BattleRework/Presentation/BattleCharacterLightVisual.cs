@@ -62,6 +62,12 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private float targetStrength = 1f;
     private float currentVisibility;
 
+    // Optional world anchor used for characters whose visual SpriteRenderer is offset from
+    // the gameplay root. Player combat lighting uses this to keep the beam/pool centered
+    // on the Player transform instead of drifting with an offset child renderer.
+    private Transform placementAnchor;
+    private bool lockHorizontalToPlacementAnchor;
+
     public float CurrentSpotlightStrength => Mathf.Clamp01(currentVisibility);
 
     public void Configure(
@@ -123,6 +129,12 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             keyRenderer.flipY = !beamNarrowAtTop;
 
         ApplyBeamOrientation();
+    }
+
+    public void SetPlacementAnchor(Transform anchor, bool lockHorizontal = true)
+    {
+        placementAnchor = anchor;
+        lockHorizontalToPlacementAnchor = anchor != null && lockHorizontal;
     }
 
     public void SetTarget(bool active, float strength = 1f)
@@ -312,6 +324,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         Bounds bounds = targetRenderer.bounds;
         float spriteWidth = Mathf.Max(0.2f, bounds.size.x);
         float spriteHeight = Mathf.Max(0.2f, bounds.size.y);
+        float placementX =
+            lockHorizontalToPlacementAnchor && placementAnchor != null
+                ? placementAnchor.position.x
+                : bounds.center.x;
 
         // One aperture drives both the cone and its footprint.
         float aperture = ResolveSpotlightAperture();
@@ -328,7 +344,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             float keyY = bounds.center.y + spriteHeight * keyLightVerticalOffsetRatio;
 
             keyTransform.position = new Vector3(
-                bounds.center.x + beamWorldOffset.x,
+                placementX + beamWorldOffset.x,
                 keyY + beamWorldOffset.y,
                 targetRenderer.transform.position.z);
             ApplyBeamOrientation();
@@ -352,7 +368,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (poolTransform != null && poolRenderer != null && poolRenderer.sprite != null)
         {
             poolTransform.position = new Vector3(
-                bounds.center.x,
+                placementX,
                 poolY,
                 targetRenderer.transform.position.z);
             poolTransform.rotation = Quaternion.identity;
