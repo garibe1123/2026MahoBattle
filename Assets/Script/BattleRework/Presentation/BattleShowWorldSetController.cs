@@ -80,6 +80,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     [Header("Presenter")]
     [SerializeField] private Sprite presenterFallbackSprite;
+
+    [Header("Sorting Cache")]
+    [Tooltip("필드 SpriteRenderer의 최고 Sorting Order를 다시 스캔하는 주기입니다. 매 프레임 전역 탐색하지 않습니다.")]
+    [SerializeField, Range(0.10f, 2f)] private float fieldSortingRefreshInterval = 0.50f;
     [SerializeField, Min(0.5f)] private float presenterWorldHeight = 3.6f;
     [SerializeField] private float presenterPadYOffset = 0.20f;
     [SerializeField, Range(0f, 1f)] private float presenterRightPadding = 0.15f;
@@ -88,6 +92,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private BattleRunManager runManager;
     private BattleHUD hud;
     private PlayerController player;
+    private SpriteRenderer playerSortingRenderer;
     private BattleCameraController battleCamera;
     private RoomBaseTemplate baseTemplate;
     private BattleShowPresentationManager presentation;
@@ -141,6 +146,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private Vector3 tvMountedWorld;
     private Vector3 cameraTargetWorld;
     private float cameraSizeWorld = 6.1f;
+
+    private int cachedFieldSortingLayerId = int.MinValue;
+    private int cachedHighestFieldOrder = -1000;
+    private float nextFieldSortingRefreshTime;
 
     public bool IsShowActive => currentMode != ShowMode.None || stageTransitioning;
     public bool IsTransitioning => stageTransitioning;
@@ -357,6 +366,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (runManager == null) runManager = FindFirstObjectByType<BattleRunManager>();
         if (hud == null) hud = FindFirstObjectByType<BattleHUD>();
         if (player == null) player = FindFirstObjectByType<PlayerController>();
+        if (player != null && playerSortingRenderer == null)
+            playerSortingRenderer = player.GetComponentInChildren<SpriteRenderer>(true);
         if (battleCamera == null) battleCamera = FindFirstObjectByType<BattleCameraController>();
         if (baseTemplate == null) baseTemplate = FindFirstObjectByType<RoomBaseTemplate>();
         if (rewardFlow == null) rewardFlow = FindFirstObjectByType<BattleRewardFlow>(FindObjectsInactive.Include);
@@ -2541,11 +2552,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void UpdateSorting()
     {
-        SpriteRenderer playerRenderer = player != null ? player.GetComponentInChildren<SpriteRenderer>(true) : null;
+        if (playerSortingRenderer == null && player != null)
+            playerSortingRenderer = player.GetComponentInChildren<SpriteRenderer>(true);
+
+        SpriteRenderer playerRenderer = playerSortingRenderer;
         if (playerRenderer == null)
             return;
 
-        int fieldOrder = GetHighestFieldOrder(playerRenderer.sortingLayerID);
+        int fieldOrder =
+            GetHighestFieldOrderCached(
+                playerRenderer.sortingLayerID);
+
         int playerOrder = playerRenderer.sortingOrder;
         int resolvedTvOrder = Mathf.Max(
             ProtectedShowCanvasOrder,
@@ -2568,21 +2585,57 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
     }
 
-    private static int GetHighestFieldOrder(int sortingLayerId)
+    private int GetHighestFieldOrderCached(int sortingLayerId)
     {
+        bool layerChanged =
+            cachedFieldSortingLayerId != sortingLayerId;
+
+        bool refreshDue =
+            Time.unscaledTime >= nextFieldSortingRefreshTime;
+
+        if (!layerChanged && !refreshDue)
+            return cachedHighestFieldOrder;
+
+        cachedFieldSortingLayerId =
+            sortingLayerId;
+
+        nextFieldSortingRefreshTime =
+            Time.unscaledTime +
+            Mathf.Max(
+                0.10f,
+                fieldSortingRefreshInterval);
+
         int highest = -1000;
-        BattleWalkableField[] fields = FindObjectsByType<BattleWalkableField>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
+
+        BattleWalkableField[] fields =
+            FindObjectsByType<BattleWalkableField>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
 
         for (int i = 0; i < fields.Length; i++)
         {
-            BattleWalkableField field = fields[i];
-            SpriteRenderer renderer = field != null ? field.GetComponent<SpriteRenderer>() : null;
-            if (renderer != null && renderer.sortingLayerID == sortingLayerId)
-                highest = Mathf.Max(highest, renderer.sortingOrder);
+            BattleWalkableField field =
+                fields[i];
+
+            SpriteRenderer renderer =
+                field != null
+                    ? field.GetComponent<SpriteRenderer>()
+                    : null;
+
+            if (renderer != null &&
+                renderer.sortingLayerID == sortingLayerId)
+            {
+                highest =
+                    Mathf.Max(
+                        highest,
+                        renderer.sortingOrder);
+            }
         }
-        return highest;
+
+        cachedHighestFieldOrder =
+            highest;
+
+        return cachedHighestFieldOrder;
     }
 
     private static RectTransform FindRect(string name)
