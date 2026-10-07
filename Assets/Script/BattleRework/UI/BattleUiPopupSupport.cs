@@ -17,6 +17,7 @@ public static class BattleUiSortingContract
     public const int RewardDragGhost = 32400;
     public const int RewardSelectionCancel = 32500;
     public const int RewardDetail = 32600;
+    public const int RewardModal = 32700;
 }
 
 /// <summary>
