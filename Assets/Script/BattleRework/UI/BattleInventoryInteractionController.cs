@@ -984,15 +984,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
                 flashed,
                 pulse01);
 
-            ApplySelectionStroke(
-                fullSelectionFrames[i],
-                fullSelectionOutlines[i],
-                active,
-                picked,
-                padSelected || mouseSelected,
-                hover,
-                flashed,
-                pulse01);
         }
 
         if (flashedSlot >= 0 && Time.unscaledTime >= flashUntil)
