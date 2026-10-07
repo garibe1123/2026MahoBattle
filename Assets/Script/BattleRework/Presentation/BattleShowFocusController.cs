@@ -28,6 +28,7 @@ public sealed class BattleShowFocusController : MonoBehaviour
     [SerializeField] private BattleCameraController battleCamera;
     [SerializeField] private BattleShowWorldSetController showWorldSet;
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleStageTransitionController stageFlow;
     [SerializeField] private PlayerController player;
     [SerializeField] private BattlePlayerStageLightingController stageLighting;
 
@@ -83,11 +84,11 @@ public sealed class BattleShowFocusController : MonoBehaviour
 
     [Header("Combat Player Focus — Shared Mask")]
     [SerializeField] private bool useCombatPlayerFocus = true;
-    [Tooltip("전투에서는 Reward/Map보다 훨씬 투명한 암전을 사용합니다.")]
-    [SerializeField, Range(0f, 1f)] private float combatNearDimAlpha = 0.18f;
-    [SerializeField, Range(0f, 1f)] private float combatFarDimAlpha = 0.48f;
-    [SerializeField, Range(0.05f, 1.5f)] private float combatDimFalloffRadius = 0.72f;
-    [SerializeField, Min(0.1f)] private float combatPlayerFocusRadiusWorld = 1.62f;
+    [Tooltip("전투에서는 전체 월드에 균일한 반투명 암전을 깔고 Item 방식 원형 hole만 남깁니다.")]
+    [SerializeField, Range(0f, 1f)] private float combatNearDimAlpha = 0.30f;
+    [SerializeField, Range(0f, 1f)] private float combatFarDimAlpha = 0.30f;
+    [SerializeField, Range(0.05f, 1.5f)] private float combatDimFalloffRadius = 1f;
+    [SerializeField, Min(0.1f)] private float combatPlayerFocusRadiusWorld = 1.72f;
     [SerializeField, Range(0.001f, 0.08f)] private float combatPlayerFocusFeather = 0.030f;
     [SerializeField, Min(0.01f)] private float combatFocusFadeDuration = 0.18f;
     [Tooltip("원형 Focus hole이 플레이어보다 살짝 늦게 따라오는 정도입니다.")]
@@ -174,11 +175,15 @@ public sealed class BattleShowFocusController : MonoBehaviour
         float now = Time.unscaledTime;
         float deltaTime = Time.unscaledDeltaTime;
 
+        bool combatStateActive =
+            (stageFlow != null && stageFlow.IsCombatPhase) ||
+            (runManager != null &&
+             runManager.RunActive &&
+             runManager.State == BattleRunState.Combat);
+
         bool combatFocusRequested =
             useCombatPlayerFocus &&
-            runManager != null &&
-            runManager.RunActive &&
-            runManager.State == BattleRunState.Combat &&
+            combatStateActive &&
             player != null &&
             player.IsAlive &&
             player.gameObject.activeInHierarchy;
@@ -548,6 +553,10 @@ public sealed class BattleShowFocusController : MonoBehaviour
             showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (stageFlow == null)
+            stageFlow = BattleStageTransitionController.Instance != null
+                ? BattleStageTransitionController.Instance
+                : FindFirstObjectByType<BattleStageTransitionController>();
         if (player == null)
             player = FindFirstObjectByType<PlayerController>();
         if (stageLighting == null)
