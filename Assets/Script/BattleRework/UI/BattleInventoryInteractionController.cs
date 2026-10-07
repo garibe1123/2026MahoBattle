@@ -380,8 +380,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour
 
         if (surface == BattleInventorySurface.MiniPack)
             EnsureMiniSelectionFrame(rect, index);
-        else if (surface == BattleInventorySurface.ExpandedGrid)
-            EnsureFullSelectionFrame(rect, index);
     }
 
     private void EnsureMiniSelectionFrame(RectTransform slot, int index)
