@@ -1980,29 +1980,30 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             rangeDelta,
             "RANGE");
 
-        string gainedPrimary =
+        string targetPrimary =
             ExtractFirstCompareTag(
                 gainedTags);
 
-        if (gainedPrimary != null &&
+        if (targetPrimary != null &&
             12f > bestScore)
         {
             bestScore = 12f;
-            bestDirection = 1f;
+            bestDirection = 0f;
             bestText =
-                $"GAIN {gainedPrimary}";
+                $"TARGET TAG {targetPrimary}";
         }
 
-        string lostPrimary =
+        string sourcePrimary =
             ExtractFirstCompareTag(
                 lostTags);
 
-        if (lostPrimary != null &&
-            12f > bestScore)
+        if (sourcePrimary != null &&
+            11.5f > bestScore)
         {
-            bestDirection = -1f;
+            bestScore = 11.5f;
+            bestDirection = 0f;
             bestText =
-                $"LOSE {lostPrimary}";
+                $"SOURCE TAG {sourcePrimary}";
         }
 
         direction =
