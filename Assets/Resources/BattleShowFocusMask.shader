@@ -15,6 +15,8 @@ Shader "UI/BattleShowFocusMask"
         _PlayerCenter ("Player Center", Vector) = (0.5,0.5,0,0)
         _PlayerRadius ("Player Radius", Float) = 0.1
         _PlayerStrength ("Player Strength", Range(0,1)) = 0
+        _PlayerScaleX ("Player Scale X", Range(1,1.8)) = 1
+        _PlayerScaleY ("Player Scale Y", Range(1,1.8)) = 1
 
         _PresenterCenter ("Presenter Center", Vector) = (0.5,0.5,0,0)
         _PresenterRadius ("Presenter Radius", Float) = 0.1
@@ -86,6 +88,8 @@ Shader "UI/BattleShowFocusMask"
             float4 _PlayerCenter;
             float _PlayerRadius;
             float _PlayerStrength;
+            float _PlayerScaleX;
+            float _PlayerScaleY;
 
             float4 _PresenterCenter;
             float _PresenterRadius;
@@ -127,6 +131,8 @@ Shader "UI/BattleShowFocusMask"
                 float radius,
                 float verticalRatio,
                 float lowerOffset,
+                float scaleX,
+                float scaleY,
                 float feather)
             {
                 float aspect = _ScreenParams.x / max(1.0, _ScreenParams.y);
@@ -139,8 +145,8 @@ Shader "UI/BattleShowFocusMask"
                 delta.x *= aspect;
 
                 float2 normalizedDistance = float2(
-                    delta.x / safeRadius,
-                    delta.y / (safeRadius * safeVertical));
+                    delta.x / (safeRadius * max(1.0, scaleX)),
+                    delta.y / (safeRadius * safeVertical * max(1.0, scaleY)));
 
                 float distanceFromCenter = length(normalizedDistance);
                 float normalizedFeather = feather / safeRadius;
@@ -174,6 +180,8 @@ Shader "UI/BattleShowFocusMask"
                         _PlayerRadius,
                         _CharacterVerticalRatio,
                         _CharacterLowerOffset,
+                        _PlayerScaleX,
+                        _PlayerScaleY,
                         _CircleFeather)
                     * _PlayerStrength;
 
@@ -184,6 +192,8 @@ Shader "UI/BattleShowFocusMask"
                         _PresenterRadius,
                         _CharacterVerticalRatio,
                         _CharacterLowerOffset,
+                        1.0,
+                        1.0,
                         _CircleFeather)
                     * _PresenterStrength;
 
