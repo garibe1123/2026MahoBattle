@@ -4377,6 +4377,7 @@ internal sealed class BattleScriptCardVisual :
     private Vector2 baseDetailPosition;
     private Vector2[] baseStackPositions = Array.Empty<Vector2>();
     private Quaternion baseDetailRotation;
+    private Vector3 baseDetailScale = Vector3.one;
     private Quaternion[] baseStackRotations = Array.Empty<Quaternion>();
     private Vector3[] baseStackScales = Array.Empty<Vector3>();
     private Vector2 baseBackAPosition;
@@ -4511,6 +4512,9 @@ internal sealed class BattleScriptCardVisual :
 
             baseDetailRotation =
                 detailPage.localRotation;
+
+            baseDetailScale =
+                detailPage.localScale;
         }
 
         baseStackPositions =
@@ -4876,17 +4880,44 @@ internal sealed class BattleScriptCardVisual :
 
         if (detailPage != null)
         {
+            float yaw01 =
+                Mathf.Abs(
+                    pointer.x) *
+                activeWeight;
+
+            float yawDirection =
+                Mathf.Sign(
+                    pointer.x);
+
             Vector2 targetPosition =
                 baseDetailPosition +
                 new Vector2(
-                    pointer.x * 2.8f,
+                    pointer.x * 3.6f,
                     pointer.y * 1.7f) *
-                activeWeight;
+                activeWeight +
+                new Vector2(
+                    yawDirection *
+                    yaw01 *
+                    1.8f,
+                    0f);
 
             float targetRoll =
                 (-pointer.x * 0.95f +
                  pointer.y * 0.18f) *
                 activeWeight;
+
+            float horizontalCompression =
+                1f -
+                yaw01 *
+                0.026f;
+
+            Vector3 targetScale =
+                new(
+                    baseDetailScale.x *
+                    horizontalCompression,
+                    baseDetailScale.y *
+                    (1f + yaw01 * 0.004f),
+                    baseDetailScale.z);
 
             detailPage.anchoredPosition =
                 Vector2.Lerp(
@@ -4902,6 +4933,12 @@ internal sealed class BattleScriptCardVisual :
                         0f,
                         0f,
                         targetRoll),
+                    response);
+
+            detailPage.localScale =
+                Vector3.Lerp(
+                    detailPage.localScale,
+                    targetScale,
                     response);
         }
 
@@ -4966,12 +5003,6 @@ internal sealed class BattleScriptCardVisual :
                  0.10f) *
                 trackingStrength;
 
-            page.anchoredPosition =
-                Vector2.Lerp(
-                    page.anchoredPosition,
-                    targetPosition,
-                    pageResponse);
-
             page.localRotation =
                 Quaternion.Slerp(
                     page.localRotation,
@@ -4982,11 +5013,51 @@ internal sealed class BattleScriptCardVisual :
                         targetRoll),
                     pageResponse);
 
+            float yaw01 =
+                Mathf.Abs(
+                    pointer.x) *
+                trackingStrength;
+
+            float yawDirection =
+                Mathf.Sign(
+                    pointer.x);
+
+            float depthParallax =
+                Mathf.Lerp(
+                    1.0f,
+                    0.35f,
+                    depth01);
+
+            targetPosition.x +=
+                yawDirection *
+                yaw01 *
+                2.15f *
+                depthParallax;
+
+            page.anchoredPosition =
+                Vector2.Lerp(
+                    page.anchoredPosition,
+                    targetPosition,
+                    pageResponse);
+
+            Vector3 baseScale =
+                baseStackScales[i];
+
+            float horizontalCompression =
+                1f -
+                yaw01 *
+                Mathf.Lerp(
+                    0.024f,
+                    0.010f,
+                    depth01);
+
             Vector3 targetScale =
-                baseStackScales[i] *
-                (1f +
-                 0.0035f *
-                 trackingStrength);
+                new(
+                    baseScale.x *
+                    horizontalCompression,
+                    baseScale.y *
+                    (1f + yaw01 * 0.0025f),
+                    baseScale.z);
 
             page.localScale =
                 Vector3.Lerp(
@@ -5421,6 +5492,9 @@ internal sealed class BattleScriptCardVisual :
 
             detailPage.localRotation =
                 baseDetailRotation;
+
+            detailPage.localScale =
+                baseDetailScale;
         }
 
         if (stackPages != null)
@@ -6187,6 +6261,19 @@ internal sealed class BattleScriptTurningPageMesh :
                 isotropicVertex =
                     cursorTilt *
                     isotropicVertex;
+
+                float yawDepthWedge =
+                    pointer.x *
+                    xNorm *
+                    Mathf.Lerp(
+                        0.55f,
+                        1.35f,
+                        row01) *
+                    hoverWeight;
+
+                isotropicVertex.z +=
+                    cameraSide *
+                    yawDepthWedge;
 
                 vertices[index] =
                     new Vector3(
