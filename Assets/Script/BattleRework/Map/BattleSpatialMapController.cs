@@ -134,6 +134,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private AudioClip mapDeniedFallbackClip;
     private static Sprite mapRatingStarSprite;
     private static Sprite scriptPaperSprite;
+    private static Sprite scriptSpotlightBeamSprite;
     private float resolvedMapHorizontalSpacing;
     private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
@@ -1542,6 +1543,66 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     id,
                     root));
 
+        Color accent =
+            node.type == BattleNodeType.Elite
+                ? scriptEliteAccent
+                : scriptNormalAccent;
+
+        RectTransform stageBase =
+            CreateScriptStageImage(
+                root,
+                "ScriptStageBase",
+                BattleHudSpriteCache.RoundedPanel,
+                new Vector2(
+                    scriptCardSize.x * 0.82f,
+                    48f),
+                new Vector2(
+                    0f,
+                    -scriptCardSize.y * 0.46f),
+                new Color(
+                    0.055f,
+                    0.050f,
+                    0.045f,
+                    0.94f));
+
+        RectTransform lightPool =
+            CreateScriptStageImage(
+                root,
+                "ScriptLightPool",
+                BattleHudSpriteCache.FloorSpotlight,
+                new Vector2(
+                    scriptCardSize.x * 1.02f,
+                    74f),
+                new Vector2(
+                    0f,
+                    -scriptCardSize.y * 0.44f),
+                new Color(
+                    1f,
+                    0.90f,
+                    0.66f,
+                    0.20f));
+
+        RectTransform lightBeam =
+            CreateScriptStageImage(
+                root,
+                "ScriptSpotlightBeam",
+                GetScriptSpotlightBeamSprite(),
+                new Vector2(
+                    scriptCardSize.x * 1.18f,
+                    scriptCardSize.y * 1.34f),
+                new Vector2(
+                    0f,
+                    8f),
+                new Color(
+                    1f,
+                    0.94f,
+                    0.76f,
+                    0.15f));
+
+        stageBase.SetAsFirstSibling();
+        lightBeam.SetSiblingIndex(1);
+        lightPool.SetSiblingIndex(2);
+
         GameObject visualObject =
             new(
                 "PaperVisual",
@@ -1616,11 +1677,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         backA.SetSiblingIndex(2);
         front.SetAsLastSibling();
 
-        Color accent =
-            node.type == BattleNodeType.Elite
-                ? scriptEliteAccent
-                : scriptNormalAccent;
-
         Outline frontOutline =
             front.gameObject.AddComponent<Outline>();
 
@@ -1667,6 +1723,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             front,
             backA,
             backB,
+            stageBase,
+            lightPool,
+            lightBeam,
             visualGroup,
             phase,
             scriptIdleFloatPixels,
@@ -1678,6 +1737,57 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptPaperFlutterDegrees,
             scriptPaperFlutterCyclesPerSecond,
             accent);
+    }
+
+    private static RectTransform CreateScriptStageImage(
+        Transform parent,
+        string name,
+        Sprite sprite,
+        Vector2 size,
+        Vector2 anchoredPosition,
+        Color color)
+    {
+        GameObject go =
+            new(
+                name,
+                typeof(RectTransform));
+
+        go.transform.SetParent(
+            parent,
+            false);
+
+        RectTransform rect =
+            go.GetComponent<RectTransform>();
+
+        rect.anchorMin =
+            rect.anchorMax =
+                new Vector2(0.5f, 0.5f);
+
+        rect.pivot =
+            new Vector2(0.5f, 0.5f);
+
+        rect.sizeDelta =
+            size;
+
+        rect.anchoredPosition =
+            anchoredPosition;
+
+        Image image =
+            go.AddComponent<Image>();
+
+        image.sprite =
+            sprite;
+
+        image.preserveAspect =
+            false;
+
+        image.color =
+            color;
+
+        image.raycastTarget =
+            false;
+
+        return rect;
     }
 
     private RectTransform CreateScriptPage(
@@ -2237,6 +2347,130 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             new Vector2(
                 -padding.x,
                 -padding.y);
+    }
+
+    private static Sprite GetScriptSpotlightBeamSprite()
+    {
+        if (scriptSpotlightBeamSprite != null)
+            return scriptSpotlightBeamSprite;
+
+        const int width = 64;
+        const int height = 128;
+
+        Texture2D texture =
+            new(
+                width,
+                height,
+                TextureFormat.RGBA32,
+                false,
+                true)
+            {
+                name =
+                    "RuntimeScriptSpotlightBeam",
+                filterMode =
+                    FilterMode.Bilinear,
+                wrapMode =
+                    TextureWrapMode.Clamp,
+                hideFlags =
+                    HideFlags.HideAndDontSave
+            };
+
+        for (int y = 0; y < height; y++)
+        {
+            float v =
+                y /
+                (float)(
+                    height - 1);
+
+            // Narrow source at the top, wider pool-facing edge at the bottom.
+            float halfWidth =
+                Mathf.Lerp(
+                    0.48f,
+                    0.16f,
+                    v);
+
+            float vertical =
+                Mathf.Sin(
+                    Mathf.Clamp01(
+                        v) *
+                    Mathf.PI);
+
+            vertical =
+                Mathf.Pow(
+                    Mathf.Max(
+                        0f,
+                        vertical),
+                    0.65f);
+
+            vertical *=
+                Mathf.Lerp(
+                    0.72f,
+                    0.34f,
+                    v);
+
+            for (int x = 0; x < width; x++)
+            {
+                float u =
+                    (x /
+                     (float)(
+                         width - 1) -
+                     0.5f);
+
+                float normalized =
+                    Mathf.Abs(u) /
+                    Mathf.Max(
+                        0.001f,
+                        halfWidth);
+
+                float edge =
+                    1f -
+                    Mathf.SmoothStep(
+                        0.60f,
+                        1f,
+                        normalized);
+
+                float alpha =
+                    Mathf.Clamp01(
+                        edge *
+                        vertical);
+
+                texture.SetPixel(
+                    x,
+                    y,
+                    new Color(
+                        1f,
+                        1f,
+                        1f,
+                        alpha));
+            }
+        }
+
+        texture.Apply(
+            false,
+            true);
+
+        scriptSpotlightBeamSprite =
+            Sprite.Create(
+                texture,
+                new Rect(
+                    0f,
+                    0f,
+                    width,
+                    height),
+                new Vector2(
+                    0.5f,
+                    0.5f),
+                100f,
+                0,
+                SpriteMeshType.FullRect);
+
+        scriptSpotlightBeamSprite.name =
+            "RuntimeScriptSpotlightBeamSprite";
+
+        scriptSpotlightBeamSprite.hideFlags =
+            HideFlags.HideAndDontSave;
+
+        return scriptSpotlightBeamSprite;
     }
 
     private static Sprite GetScriptPaperSprite()
@@ -3393,7 +3627,17 @@ internal sealed class BattleScriptCardVisual :
     private RectTransform frontPage;
     private RectTransform backPageA;
     private RectTransform backPageB;
+    private RectTransform stageBase;
+    private RectTransform lightPool;
+    private RectTransform lightBeam;
     private CanvasGroup visualGroup;
+    private Image stageBaseImage;
+    private Image lightPoolImage;
+    private Image lightBeamImage;
+
+    private Vector2 baseStagePosition;
+    private Vector2 basePoolPosition;
+    private Vector2 baseBeamPosition;
 
     private float phase;
     private float idleFloatPixels;
@@ -3423,6 +3667,9 @@ internal sealed class BattleScriptCardVisual :
         RectTransform front,
         RectTransform backA,
         RectTransform backB,
+        RectTransform stageBaseRect,
+        RectTransform lightPoolRect,
+        RectTransform lightBeamRect,
         CanvasGroup group,
         float idlePhase,
         float floatPixels,
@@ -3439,7 +3686,34 @@ internal sealed class BattleScriptCardVisual :
         frontPage = front;
         backPageA = backA;
         backPageB = backB;
+        stageBase = stageBaseRect;
+        lightPool = lightPoolRect;
+        lightBeam = lightBeamRect;
         visualGroup = group;
+
+        stageBaseImage =
+            stageBase != null
+                ? stageBase.GetComponent<Image>()
+                : null;
+
+        lightPoolImage =
+            lightPool != null
+                ? lightPool.GetComponent<Image>()
+                : null;
+
+        lightBeamImage =
+            lightBeam != null
+                ? lightBeam.GetComponent<Image>()
+                : null;
+
+        if (stageBase != null)
+            baseStagePosition = stageBase.anchoredPosition;
+
+        if (lightPool != null)
+            basePoolPosition = lightPool.anchoredPosition;
+
+        if (lightBeam != null)
+            baseBeamPosition = lightBeam.anchoredPosition;
 
         phase = idlePhase;
         idleFloatPixels = Mathf.Max(0f, floatPixels);
@@ -3653,6 +3927,189 @@ internal sealed class BattleScriptCardVisual :
             selected,
             motionT,
             time);
+
+        ApplyStageLighting(
+            hovered,
+            selected,
+            motionT,
+            time);
+    }
+
+    private void ApplyStageLighting(
+        bool hovered,
+        bool isSelected,
+        float t,
+        float time)
+    {
+        float lightAmount =
+            isSelected
+                ? 1f
+                : hovered
+                    ? 0.88f
+                    : suppressed
+                        ? 0.16f
+                        : 0.46f;
+
+        float driftPhase =
+            time *
+            idleCyclesPerSecond *
+            Mathf.PI *
+            2f +
+            phase +
+            1.41f;
+
+        float driftX =
+            Mathf.Sin(
+                driftPhase *
+                0.73f) *
+            2.4f;
+
+        float driftY =
+            Mathf.Sin(
+                driftPhase *
+                0.51f +
+                0.82f) *
+            1.4f;
+
+        if (lightPool != null)
+        {
+            Vector2 target =
+                basePoolPosition +
+                new Vector2(
+                    driftX * 0.32f,
+                    driftY * 0.28f);
+
+            lightPool.anchoredPosition =
+                Vector2.Lerp(
+                    lightPool.anchoredPosition,
+                    target,
+                    t);
+
+            float targetScale =
+                Mathf.Lerp(
+                    0.96f,
+                    1.08f,
+                    lightAmount);
+
+            lightPool.localScale =
+                Vector3.Lerp(
+                    lightPool.localScale,
+                    Vector3.one *
+                    targetScale,
+                    t);
+        }
+
+        if (lightBeam != null)
+        {
+            Vector2 target =
+                baseBeamPosition +
+                new Vector2(
+                    driftX,
+                    driftY +
+                    (hovered
+                        ? 3f
+                        : 0f));
+
+            lightBeam.anchoredPosition =
+                Vector2.Lerp(
+                    lightBeam.anchoredPosition,
+                    target,
+                    t);
+
+            float beamScale =
+                Mathf.Lerp(
+                    0.96f,
+                    1.07f,
+                    lightAmount);
+
+            lightBeam.localScale =
+                Vector3.Lerp(
+                    lightBeam.localScale,
+                    new Vector3(
+                        beamScale,
+                        Mathf.Lerp(
+                            0.98f,
+                            1.06f,
+                            lightAmount),
+                        1f),
+                    t);
+        }
+
+        if (stageBase != null)
+        {
+            stageBase.anchoredPosition =
+                Vector2.Lerp(
+                    stageBase.anchoredPosition,
+                    baseStagePosition,
+                    t);
+
+            float baseScale =
+                isSelected
+                    ? 1.055f
+                    : hovered
+                        ? 1.035f
+                        : 1f;
+
+            stageBase.localScale =
+                Vector3.Lerp(
+                    stageBase.localScale,
+                    Vector3.one *
+                    baseScale,
+                    t);
+        }
+
+        if (lightPoolImage != null)
+        {
+            Color color =
+                lightPoolImage.color;
+
+            color.a =
+                Mathf.Lerp(
+                    color.a,
+                    Mathf.Lerp(
+                        0.09f,
+                        0.34f,
+                        lightAmount),
+                    t);
+
+            lightPoolImage.color =
+                color;
+        }
+
+        if (lightBeamImage != null)
+        {
+            Color color =
+                lightBeamImage.color;
+
+            color.a =
+                Mathf.Lerp(
+                    color.a,
+                    Mathf.Lerp(
+                        0.055f,
+                        0.27f,
+                        lightAmount),
+                    t);
+
+            lightBeamImage.color =
+                color;
+        }
+
+        if (stageBaseImage != null)
+        {
+            Color color =
+                stageBaseImage.color;
+
+            color.a =
+                Mathf.Lerp(
+                    color.a,
+                    suppressed
+                        ? 0.38f
+                        : 0.94f,
+                    t);
+
+            stageBaseImage.color =
+                color;
+        }
     }
 
     private void ApplyPaperFlutter(
