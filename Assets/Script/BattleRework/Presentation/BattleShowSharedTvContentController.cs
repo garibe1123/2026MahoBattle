@@ -167,7 +167,8 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         return runManager.State switch
         {
             BattleRunState.Reward => ContentMode.Reward,
-            BattleRunState.SelectingNode => ContentMode.Map,
+            // Script Selection no longer lives inside the TV viewport.
+            BattleRunState.SelectingNode => ContentMode.None,
             _ => ContentMode.None
         };
     }
@@ -184,7 +185,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         legacyMapFrame = FindRect(LegacyMapFrameName);
         mapContent = FindRect(MapContentName);
 
-        if (sharedFrame == null || legacyMapFrame == null || mapContent == null)
+        if (sharedFrame == null || legacyMapFrame == null)
             return false;
 
         // WorldSet이 두 화면을 실제 Mounted TV에 옮긴 뒤 병합합니다.
@@ -201,7 +202,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         BuildTransitionOverlay();
 
         legacyMapFrame.gameObject.SetActive(false);
-        bound = viewport != null && rewardView != null && mapContent != null;
+        bound = viewport != null && rewardView != null;
         return bound;
     }
 
@@ -213,9 +214,6 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
             viewport = existingRect;
             rewardView = viewport.Find(RewardViewName) as RectTransform;
             viewportGroup = viewport.GetComponent<CanvasGroup>() ?? viewport.gameObject.AddComponent<CanvasGroup>();
-
-            if (mapContent.parent != viewport)
-                mapContent.SetParent(viewport, false);
 
             ResolveRewardInteractionRoots();
             KeepRewardInteractionRootsDirect();
@@ -252,9 +250,6 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
 
         ResolveRewardInteractionRoots();
         KeepRewardInteractionRootsDirect();
-
-        mapContent.SetParent(viewport, false);
-        mapContent.SetAsLastSibling();
 
         viewportBasePosition = viewport.anchoredPosition;
         viewportBaseScale = viewport.localScale;
@@ -499,7 +494,7 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
 
     private void ApplyModeImmediate(ContentMode mode)
     {
-        if (sharedFrame == null || rewardView == null || mapContent == null)
+        if (sharedFrame == null || rewardView == null)
             return;
 
         if (mode != ContentMode.None && !sharedFrame.gameObject.activeSelf)
@@ -534,12 +529,6 @@ public sealed class BattleShowSharedTvContentController : MonoBehaviour
         if (!showReward && rewardNoticeRoot != null && rewardNoticeRoot.gameObject.activeSelf)
             rewardNoticeRoot.gameObject.SetActive(false);
 
-        if (mapContent != null)
-        {
-            bool showMap = mode == ContentMode.Map;
-            if (mapContent.gameObject.activeSelf != showMap)
-                mapContent.gameObject.SetActive(showMap);
-        }
     }
 
     private static RectTransform FindChildRect(Transform root, string targetName)
