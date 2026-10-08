@@ -113,6 +113,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private CanvasGroup tvGroup;
     private Vector3 tvBaseScale;
 
+    private GameObject scriptSelectionObject;
+    private Canvas scriptSelectionCanvas;
+    private RectTransform scriptSelectionRect;
+    private CanvasGroup scriptSelectionGroup;
+
     private Transform presenterTransform;
     private SpriteRenderer presenterRenderer;
     private Sprite lastPresenterSprite;
@@ -453,6 +458,60 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         tvRect.localScale = tvBaseScale;
         tvObject.SetActive(false);
 
+        scriptSelectionObject =
+            new GameObject(
+                "BattleScriptSelectionCanvas");
+
+        scriptSelectionObject.transform.SetParent(
+            stageRoot.transform,
+            false);
+
+        scriptSelectionCanvas =
+            scriptSelectionObject.AddComponent<Canvas>();
+
+        scriptSelectionCanvas.renderMode =
+            RenderMode.WorldSpace;
+
+        scriptSelectionCanvas.overrideSorting =
+            true;
+
+        scriptSelectionCanvas.sortingOrder =
+            ProtectedShowCanvasOrder + 10;
+
+        scriptSelectionCanvas.worldCamera =
+            Camera.main;
+
+        scriptSelectionObject.AddComponent<GraphicRaycaster>();
+
+        scriptSelectionGroup =
+            scriptSelectionObject.AddComponent<CanvasGroup>();
+
+        scriptSelectionGroup.interactable =
+            false;
+
+        scriptSelectionGroup.blocksRaycasts =
+            false;
+
+        scriptSelectionRect =
+            scriptSelectionObject.GetComponent<RectTransform>();
+
+        scriptSelectionRect.sizeDelta =
+            tvCanvasSize +
+            new Vector2(
+                180f,
+                120f);
+
+        scriptSelectionRect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        scriptSelectionRect.localScale =
+            tvBaseScale;
+
+        scriptSelectionObject.SetActive(
+            false);
+
         GameObject presenterObject = new("PresenterWorldSprite");
         presenterObject.transform.SetParent(stageRoot.transform, false);
         presenterTransform = presenterObject.transform;
@@ -467,12 +526,118 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private void ReparentScreens()
     {
         ReparentToTv(rewardScreen);
-        ReparentToTv(mapScreen);
+        ReparentScriptSelection();
+
+        if (mapScreen != null)
+            mapScreen.gameObject.SetActive(false);
 
         if (legacyMapCanvas != null)
             legacyMapCanvas.SetActive(false);
         if (rewardLoadoutStrip != null)
             rewardLoadoutStrip.gameObject.SetActive(false);
+    }
+
+    private void ReparentScriptSelection()
+    {
+        if (mapContent == null ||
+            scriptSelectionRect == null)
+        {
+            return;
+        }
+
+        mapContent.SetParent(
+            scriptSelectionRect,
+            false);
+
+        mapContent.anchorMin =
+            Vector2.zero;
+
+        mapContent.anchorMax =
+            Vector2.one;
+
+        mapContent.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        mapContent.offsetMin =
+            new Vector2(
+                18f,
+                14f);
+
+        mapContent.offsetMax =
+            new Vector2(
+                -18f,
+                -14f);
+
+        mapContent.localScale =
+            Vector3.one;
+
+        mapContent.localRotation =
+            Quaternion.identity;
+
+        Mask[] masks =
+            mapContent.GetComponentsInParent<Mask>(
+                true);
+
+        for (int i = 0; i < masks.Length; i++)
+        {
+            if (masks[i] != null &&
+                masks[i].transform !=
+                mapContent)
+            {
+                masks[i].enabled = false;
+            }
+        }
+
+        RectMask2D[] rectMasks =
+            mapContent.GetComponentsInParent<RectMask2D>(
+                true);
+
+        for (int i = 0; i < rectMasks.Length; i++)
+        {
+            if (rectMasks[i] != null &&
+                rectMasks[i].transform !=
+                mapContent)
+            {
+                rectMasks[i].enabled = false;
+            }
+        }
+    }
+
+    private void MountScriptSelectionToScreenCarrier()
+    {
+        if (scriptSelectionRect == null ||
+            scriptSelectionObject == null ||
+            screenCarrier == null)
+        {
+            return;
+        }
+
+        scriptSelectionRect.SetParent(
+            screenCarrier.transform,
+            false);
+
+        scriptSelectionRect.localRotation =
+            Quaternion.identity;
+
+        scriptSelectionRect.localScale =
+            tvBaseScale;
+
+        float worldHeight =
+            scriptSelectionRect.sizeDelta.y /
+            Mathf.Max(
+                32f,
+                tvPixelsPerUnit);
+
+        scriptSelectionRect.localPosition =
+            ResolveTvMountLocalPosition() +
+            Vector3.up *
+            (worldHeight * 0.5f);
+
+        scriptSelectionObject.SetActive(
+            currentMode == ShowMode.Map ||
+            desiredMode == ShowMode.Map);
     }
 
     private void ReparentToTv(RectTransform rect)
@@ -623,6 +788,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             ScreenCarrierDepth,
             screenCarrierDestination);
         MountTvToScreenCarrier();
+        MountScriptSelectionToScreenCarrier();
         HideScreenCarrierTopHandle();
 
         if (mode == ShowMode.Reward)
@@ -961,8 +1127,20 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (tvRect != null && stageRoot != null && tvRect.parent != stageRoot.transform)
             tvRect.SetParent(stageRoot.transform, true);
 
+        if (scriptSelectionRect != null &&
+            stageRoot != null &&
+            scriptSelectionRect.parent != stageRoot.transform)
+        {
+            scriptSelectionRect.SetParent(
+                stageRoot.transform,
+                true);
+        }
+
         if (!keepTvVisible && tvObject != null)
             tvObject.SetActive(false);
+
+        if (scriptSelectionObject != null)
+            scriptSelectionObject.SetActive(false);
 
         DestroyPresenterCarrier();
         DestroyCarrier(ref screenCarrier);
@@ -2228,32 +2406,65 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void SetContent(ShowMode mode)
     {
-        // Reward는 더 이상 Mounted TV/PrizeSelectionScreen을 사용하지 않습니다.
-        // TV가 있던 월드 위치는 RewardShowcase가 그대로 차지하며,
-        // Map으로 넘어갈 때만 같은 Screen Carrier의 TV를 다시 켭니다.
+        // Reward / Script Selection 모두 더 이상 Mounted TV Display를 사용하지 않습니다.
+        // Script Selection은 독립 World-Space Canvas에서 떠 있는 대본 카드로 표시합니다.
         if (rewardScreen != null)
             rewardScreen.gameObject.SetActive(false);
 
         if (mapScreen != null)
-            mapScreen.gameObject.SetActive(mode == ShowMode.Map);
+            mapScreen.gameObject.SetActive(false);
 
         if (mapContent != null)
             mapContent.gameObject.SetActive(mode == ShowMode.Map);
 
         if (tvObject != null)
-            tvObject.SetActive(mode == ShowMode.Map);
+            tvObject.SetActive(false);
+
+        if (scriptSelectionObject != null)
+        {
+            scriptSelectionObject.SetActive(
+                mode == ShowMode.Map);
+
+            if (mode == ShowMode.Map)
+            {
+                MountScriptSelectionToScreenCarrier();
+                ReparentScriptSelection();
+            }
+        }
 
         MaintainEquipmentDock();
     }
 
     private void SetInteraction(bool enabledInteraction)
     {
-        if (tvGroup == null)
-            return;
+        bool active =
+            enabledInteraction &&
+            currentMode != ShowMode.None &&
+            !externalGate;
 
-        bool active = enabledInteraction && currentMode != ShowMode.None && !externalGate;
-        tvGroup.interactable = active;
-        tvGroup.blocksRaycasts = active;
+        if (tvGroup != null)
+        {
+            tvGroup.interactable =
+                active &&
+                currentMode != ShowMode.Map;
+
+            tvGroup.blocksRaycasts =
+                active &&
+                currentMode != ShowMode.Map;
+        }
+
+        if (scriptSelectionGroup != null)
+        {
+            bool scriptActive =
+                active &&
+                currentMode == ShowMode.Map;
+
+            scriptSelectionGroup.interactable =
+                scriptActive;
+
+            scriptSelectionGroup.blocksRaycasts =
+                scriptActive;
+        }
     }
 
     private void UpdatePointerTracking()
