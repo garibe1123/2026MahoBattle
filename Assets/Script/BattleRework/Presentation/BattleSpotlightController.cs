@@ -43,6 +43,7 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField] private BattleStageTransitionController stageFlow;
     [SerializeField] private BattleShowWorldSetController showWorldSet;
     [SerializeField] private BattlePlayerStageLightingController stageLighting;
+    [SerializeField] private BattleSpatialMapController spatialMap;
     [SerializeField] private PlayerController player;
 
     [Header("Shared Beam")]
@@ -89,6 +90,10 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField, Range(0.001f, 0.08f)] private float showCharacterFeather = 0.018f;
     [SerializeField, Range(0.0001f, 0.04f)] private float screenRectFeather = 0.0035f;
     [SerializeField, Range(-0.05f, 0.05f)] private float screenRectPadding = 0.002f;
+
+    [Header("Script Selection Focus")]
+    [SerializeField, Min(0.1f)] private float mapScriptFocusRadiusWorld = 1.32f;
+    [SerializeField, Range(0.001f, 0.08f)] private float mapScriptFocusFeather = 0.024f;
 
     [Header("Reward / Map Idle")]
     [SerializeField] private bool useShowIdle = true;
@@ -1075,11 +1080,33 @@ public sealed class BattleSpotlightController : MonoBehaviour
             frame.farDim = stageLighting != null ? stageLighting.UnifiedFarDimAlpha : rewardFarDimAlpha;
             frame.dimRadius = stageLighting != null ? stageLighting.UnifiedDimFalloffRadius : rewardDimRadius;
 
-            if (TryProjectScreenRect(camera, out frame.screenRect))
-                frame.screenStrength = 1f;
+            // Script Selection no longer uses the old rectangular TV/display aperture.
+            frame.screenStrength = 0f;
+
+            if (spatialMap != null &&
+                spatialMap.TryGetHoveredScriptWorldPosition(out Vector3 scriptWorld) &&
+                TryProjectWorldPoint(
+                    camera,
+                    scriptWorld,
+                    mapScriptFocusRadiusWorld,
+                    out frame.itemCenter,
+                    out frame.itemRadius))
+            {
+                frame.itemStrength = 1f;
+                frame.itemRadius *=
+                    1f +
+                    wave *
+                    mapFocusRadiusPulse;
+
+                frame.dimCenter =
+                    frame.itemCenter;
+            }
         }
 
-        frame.itemFeather = Mathf.Max(0.0001f, rewardItemFeather * (1f + wave * focusFeatherPulse));
+        frame.itemFeather = Mathf.Max(
+            0.0001f,
+            (reward ? rewardItemFeather : mapScriptFocusFeather) *
+            (1f + wave * focusFeatherPulse));
         frame.characterVerticalRatio = !reward && stageLighting != null
             ? stageLighting.UnifiedCharacterVerticalRatio : showCharacterVerticalRatio;
         frame.characterLowerOffset = !reward && stageLighting != null
@@ -1273,6 +1300,7 @@ public sealed class BattleSpotlightController : MonoBehaviour
                 ? BattleStageTransitionController.Instance
                 : FindFirstObjectByType<BattleStageTransitionController>();
         if (showWorldSet == null) showWorldSet = FindFirstObjectByType<BattleShowWorldSetController>();
+        if (spatialMap == null) spatialMap = FindFirstObjectByType<BattleSpatialMapController>();
         if (stageLighting == null)
             stageLighting = BattlePlayerStageLightingController.Instance != null
                 ? BattlePlayerStageLightingController.Instance
