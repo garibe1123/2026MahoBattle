@@ -1411,31 +1411,16 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (font == null)
             return;
 
-        GameObject title = new("Title", typeof(RectTransform));
-        title.transform.SetParent(stageMapPanel, false);
-        RectTransform titleRect = title.GetComponent<RectTransform>();
-        titleRect.anchorMin = new Vector2(0f, 1f);
-        titleRect.anchorMax = new Vector2(1f, 1f);
-        titleRect.pivot = new Vector2(0.5f, 1f);
-        titleRect.anchoredPosition = new Vector2(0f, -16f);
-        titleRect.sizeDelta = new Vector2(0f, 40f);
-
-        Text titleText = title.AddComponent<Text>();
-        titleText.font = font;
-        titleText.text = "SCRIPT SELECT";
-        titleText.fontSize = 27;
-        titleText.fontStyle = FontStyle.Bold;
-        titleText.alignment = TextAnchor.MiddleCenter;
-        titleText.color = new Color(0.95f, 0.91f, 0.80f, 1f);
-        titleText.raycastTarget = false;
-
+        // The old "SCRIPT SELECT" headline is intentionally removed.
+        // Keep only a quiet context line so the floating paper stack is the visual focus.
         GameObject subtitle = new("Subtitle", typeof(RectTransform));
         subtitle.transform.SetParent(stageMapPanel, false);
+
         RectTransform subtitleRect = subtitle.GetComponent<RectTransform>();
         subtitleRect.anchorMin = new Vector2(0f, 1f);
         subtitleRect.anchorMax = new Vector2(1f, 1f);
         subtitleRect.pivot = new Vector2(0.5f, 1f);
-        subtitleRect.anchoredPosition = new Vector2(0f, -54f);
+        subtitleRect.anchoredPosition = new Vector2(0f, -22f);
         subtitleRect.sizeDelta = new Vector2(0f, 22f);
 
         Text subtitleText = subtitle.AddComponent<Text>();
@@ -1444,10 +1429,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             runManager != null && runManager.IsInStartArea
                 ? "CHOOSE THE OPENING SCRIPT"
                 : "CHOOSE THE NEXT SCRIPT";
-        subtitleText.fontSize = 11;
+        subtitleText.fontSize = 10;
         subtitleText.fontStyle = FontStyle.Bold;
         subtitleText.alignment = TextAnchor.MiddleCenter;
-        subtitleText.color = new Color(0.58f, 0.61f, 0.66f, 1f);
+        subtitleText.color = new Color(0.58f, 0.61f, 0.66f, 0.84f);
         subtitleText.raycastTarget = false;
     }
 
@@ -1667,31 +1652,65 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             CreateScriptPage(
                 visualRoot,
                 "PaperShadow",
-                new Color(0f, 0f, 0f, 0.30f),
-                new Vector2(10f, -12f),
-                -1.8f);
+                new Color(0f, 0f, 0f, 0.28f),
+                new Vector2(11f, -13f),
+                -0.6f);
+
+        RectTransform[] paperStack =
+            new RectTransform[6];
+
+        for (int i = 0; i < paperStack.Length; i++)
+        {
+            float depth01 =
+                i /
+                Mathf.Max(
+                    1f,
+                    paperStack.Length - 1f);
+
+            Vector2 offset =
+                new(
+                    2.0f +
+                    i * 1.15f,
+                    -1.7f -
+                    i * 1.25f);
+
+            float rotation =
+                Mathf.Lerp(
+                    -0.55f,
+                    0.75f,
+                    depth01);
+
+            Color paperLayerColor =
+                Color.Lerp(
+                    scriptPaperTint,
+                    new Color(
+                        0.78f,
+                        0.75f,
+                        0.68f,
+                        1f),
+                    0.08f +
+                    depth01 * 0.13f);
+
+            paperStack[i] =
+                CreateScriptPage(
+                    visualRoot,
+                    $"PaperStack_{i:00}",
+                    paperLayerColor,
+                    offset,
+                    rotation);
+        }
 
         RectTransform backB =
-            CreateScriptPage(
-                visualRoot,
-                "BackPageB",
-                Color.Lerp(
-                    scriptPaperTint,
-                    Color.gray,
-                    0.22f),
-                new Vector2(8f, -5f),
-                3.4f);
+            paperStack[
+                paperStack.Length - 1];
 
         RectTransform backA =
-            CreateScriptPage(
-                visualRoot,
-                "BackPageA",
-                Color.Lerp(
-                    scriptPaperTint,
-                    Color.white,
-                    0.04f),
-                new Vector2(-6f, -2f),
-                -2.6f);
+            paperStack[
+                paperStack.Length - 2];
+
+        CreateScriptPaperThicknessEdges(
+            visualRoot,
+            paperStack.Length);
 
         RectTransform front =
             CreateScriptPage(
@@ -1702,8 +1721,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 0f);
 
         shadow.SetAsFirstSibling();
-        backB.SetSiblingIndex(1);
-        backA.SetSiblingIndex(2);
+
+        for (int i = 0; i < paperStack.Length; i++)
+        {
+            paperStack[i].SetSiblingIndex(
+                1 + i);
+        }
+
         front.SetAsLastSibling();
 
         Outline frontOutline =
@@ -1820,6 +1844,66 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             false;
 
         return rect;
+    }
+
+    private void CreateScriptPaperThicknessEdges(
+        Transform parent,
+        int sheetCount)
+    {
+        float thickness =
+            Mathf.Clamp(
+                sheetCount * 1.15f,
+                5f,
+                10f);
+
+        RectTransform bottomEdge =
+            CreateScriptStageImage(
+                parent,
+                "PaperStackBottomEdge",
+                BattleHudSpriteCache.RoundedPanel,
+                new Vector2(
+                    scriptCardSize.x - 7f,
+                    thickness),
+                new Vector2(
+                    4.2f,
+                    -scriptCardSize.y * 0.5f -
+                    thickness * 0.12f),
+                new Color(
+                    0.68f,
+                    0.65f,
+                    0.58f,
+                    0.92f));
+
+        bottomEdge.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        RectTransform rightEdge =
+            CreateScriptStageImage(
+                parent,
+                "PaperStackRightEdge",
+                BattleHudSpriteCache.RoundedPanel,
+                new Vector2(
+                    thickness,
+                    scriptCardSize.y - 8f),
+                new Vector2(
+                    scriptCardSize.x * 0.5f +
+                    thickness * 0.04f,
+                    -4.4f),
+                new Color(
+                    0.62f,
+                    0.60f,
+                    0.54f,
+                    0.88f));
+
+        rightEdge.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        bottomEdge.SetAsFirstSibling();
+        rightEdge.SetAsFirstSibling();
     }
 
     private RectTransform CreateScriptPage(
@@ -3936,17 +4020,70 @@ internal sealed class BattleScriptCardVisual :
         AddPaperWaveEffects(
             frontPage,
             effects,
-            subdividePage: true);
+            subdividePage: true,
+            amplitudeMultiplier: 1f);
 
-        AddPaperWaveEffects(
-            backPageA,
-            effects,
-            subdividePage: true);
+        if (visualRoot != null)
+        {
+            int stackCount = 0;
 
-        AddPaperWaveEffects(
-            backPageB,
-            effects,
-            subdividePage: true);
+            for (int i = 0; i < visualRoot.childCount; i++)
+            {
+                Transform child =
+                    visualRoot.GetChild(i);
+
+                if (child == null ||
+                    !child.name.StartsWith(
+                        "PaperStack_",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                stackCount++;
+            }
+
+            int stackIndex = 0;
+
+            for (int i = 0; i < visualRoot.childCount; i++)
+            {
+                RectTransform child =
+                    visualRoot.GetChild(i)
+                    as RectTransform;
+
+                if (child == null ||
+                    !child.name.StartsWith(
+                        "PaperStack_",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                float depth01 =
+                    stackCount <= 1
+                        ? 1f
+                        : stackIndex /
+                          (float)(
+                              stackCount - 1);
+
+                // Deeper sheets move less, so the stack reads as paper thickness
+                // instead of several independent cards.
+                float multiplier =
+                    Mathf.Lerp(
+                        0.72f,
+                        0.24f,
+                        depth01);
+
+                AddPaperWaveEffects(
+                    child,
+                    effects,
+                    subdividePage: true,
+                    amplitudeMultiplier:
+                        multiplier);
+
+                stackIndex++;
+            }
+        }
 
         paperWaveEffects =
             effects.ToArray();
@@ -3955,7 +4092,8 @@ internal sealed class BattleScriptCardVisual :
     private void AddPaperWaveEffects(
         RectTransform pageRoot,
         List<BattleScriptPaperWaveEffect> effects,
-        bool subdividePage)
+        bool subdividePage,
+        float amplitudeMultiplier)
     {
         if (pageRoot == null)
             return;
@@ -3990,7 +4128,8 @@ internal sealed class BattleScriptCardVisual :
                 visualRoot,
                 subdivide,
                 phase,
-                paperWaveCyclesPerSecond);
+                paperWaveCyclesPerSecond,
+                amplitudeMultiplier);
 
             effects.Add(
                 effect);
@@ -4227,6 +4366,7 @@ internal sealed class BattleScriptPaperWaveEffect :
     private float cyclesPerSecond = 0.38f;
     private float amplitudePixels;
     private float shearPixels;
+    private float amplitudeMultiplier = 1f;
 
     private const int HorizontalSegments = 10;
     private const int VerticalSegments = 14;
@@ -4235,7 +4375,8 @@ internal sealed class BattleScriptPaperWaveEffect :
         RectTransform root,
         bool subdivide,
         float initialPhase,
-        float cycles)
+        float cycles,
+        float multiplier)
     {
         waveRoot = root;
         subdividePage = subdivide;
@@ -4244,6 +4385,10 @@ internal sealed class BattleScriptPaperWaveEffect :
             Mathf.Max(
                 0.01f,
                 cycles);
+
+        amplitudeMultiplier =
+            Mathf.Clamp01(
+                multiplier);
 
         if (graphic != null)
             graphic.SetVerticesDirty();
@@ -4257,7 +4402,8 @@ internal sealed class BattleScriptPaperWaveEffect :
         amplitudePixels =
             Mathf.Max(
                 0f,
-                amplitude);
+                amplitude) *
+            amplitudeMultiplier;
 
         shearPixels =
             shear;
