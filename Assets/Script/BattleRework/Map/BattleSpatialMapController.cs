@@ -3377,6 +3377,419 @@ internal static class BattleStageSelectTestDefaultsEditor
 #endif
 
 
+internal sealed class BattleScriptCardVisual :
+    MonoBehaviour,
+    IPointerEnterHandler,
+    IPointerExitHandler
+{
+    private RectTransform visualRoot;
+    private RectTransform frontPage;
+    private RectTransform backPageA;
+    private RectTransform backPageB;
+    private CanvasGroup visualGroup;
+
+    private float phase;
+    private float idleFloatPixels;
+    private float idleCyclesPerSecond;
+    private float hoverLiftPixels;
+    private float hoverScale;
+    private float hoverDepth;
+    private Vector3 hoverEuler;
+    private float flutterDegrees;
+    private float flutterCyclesPerSecond;
+    private Color accentColor;
+
+    private bool pointerHover;
+    private bool trackedHover;
+    private bool selected;
+    private bool suppressed;
+
+    private Vector2 baseFrontPosition;
+    private Vector2 baseBackAPosition;
+    private Vector2 baseBackBPosition;
+    private Quaternion baseFrontRotation;
+    private Quaternion baseBackARotation;
+    private Quaternion baseBackBRotation;
+
+    public void Configure(
+        RectTransform animatedRoot,
+        RectTransform front,
+        RectTransform backA,
+        RectTransform backB,
+        CanvasGroup group,
+        float idlePhase,
+        float floatPixels,
+        float floatCycles,
+        float hoverLift,
+        float selectedHoverScale,
+        float depth,
+        Vector3 isoEuler,
+        float paperFlutterDegrees,
+        float paperFlutterCycles,
+        Color accent)
+    {
+        visualRoot = animatedRoot;
+        frontPage = front;
+        backPageA = backA;
+        backPageB = backB;
+        visualGroup = group;
+
+        phase = idlePhase;
+        idleFloatPixels = Mathf.Max(0f, floatPixels);
+        idleCyclesPerSecond = Mathf.Max(0.01f, floatCycles);
+        hoverLiftPixels = Mathf.Max(0f, hoverLift);
+        hoverScale = Mathf.Max(1f, selectedHoverScale);
+        hoverDepth = Mathf.Max(0f, depth);
+        hoverEuler = isoEuler;
+        flutterDegrees = Mathf.Max(0f, paperFlutterDegrees);
+        flutterCyclesPerSecond = Mathf.Max(0.01f, paperFlutterCycles);
+        accentColor = accent;
+
+        if (frontPage != null)
+        {
+            baseFrontPosition = frontPage.anchoredPosition;
+            baseFrontRotation = frontPage.localRotation;
+        }
+
+        if (backPageA != null)
+        {
+            baseBackAPosition = backPageA.anchoredPosition;
+            baseBackARotation = backPageA.localRotation;
+        }
+
+        if (backPageB != null)
+        {
+            baseBackBPosition = backPageB.anchoredPosition;
+            baseBackBRotation = backPageB.localRotation;
+        }
+
+        ApplyImmediate();
+    }
+
+    public void SetTrackedHover(bool value)
+    {
+        trackedHover = value;
+    }
+
+    public void SetSelected(bool value)
+    {
+        selected = value;
+        if (value)
+        {
+            pointerHover = false;
+            trackedHover = false;
+        }
+    }
+
+    public void SetSuppressed(bool value)
+    {
+        suppressed = value;
+    }
+
+    public void OnPointerEnter(PointerEventData eventData)
+    {
+        if (!selected)
+            pointerHover = true;
+    }
+
+    public void OnPointerExit(PointerEventData eventData)
+    {
+        if (!selected)
+            pointerHover = false;
+    }
+
+    private void Update()
+    {
+        if (visualRoot == null)
+            return;
+
+        bool hovered =
+            !selected &&
+            !suppressed &&
+            (pointerHover || trackedHover);
+
+        float dt =
+            Mathf.Max(
+                0f,
+                Time.unscaledDeltaTime);
+
+        float motionT =
+            1f -
+            Mathf.Exp(
+                -10.5f *
+                dt);
+
+        float time =
+            Time.unscaledTime;
+
+        float idlePhase =
+            time *
+            idleCyclesPerSecond *
+            Mathf.PI *
+            2f +
+            phase;
+
+        float idleY =
+            Mathf.Sin(idlePhase) *
+            idleFloatPixels;
+
+        float idleRoll =
+            Mathf.Sin(
+                idlePhase * 0.61f +
+                0.8f) *
+            0.65f;
+
+        float idlePitch =
+            Mathf.Sin(
+                idlePhase * 0.43f +
+                1.7f) *
+            0.85f;
+
+        float targetScale =
+            selected
+                ? hoverScale * 1.055f
+                : hovered
+                    ? hoverScale
+                    : suppressed
+                        ? 0.965f
+                        : 1f;
+
+        float targetY =
+            idleY +
+            (selected
+                ? hoverLiftPixels * 1.35f
+                : hovered
+                    ? hoverLiftPixels
+                    : 0f);
+
+        float targetZ =
+            selected
+                ? -hoverDepth * 1.35f
+                : hovered
+                    ? -hoverDepth
+                    : suppressed
+                        ? 10f
+                        : 0f;
+
+        Vector3 targetEuler;
+
+        if (selected)
+        {
+            targetEuler =
+                new Vector3(
+                    0.4f,
+                    0f,
+                    0f);
+        }
+        else if (hovered)
+        {
+            targetEuler =
+                hoverEuler +
+                new Vector3(
+                    idlePitch * 0.35f,
+                    idleRoll * 0.20f,
+                    idleRoll * 0.16f);
+        }
+        else
+        {
+            targetEuler =
+                new Vector3(
+                    1.2f + idlePitch,
+                    idleRoll * 1.65f,
+                    idleRoll);
+        }
+
+        Vector3 targetPosition =
+            new(
+                0f,
+                targetY,
+                targetZ);
+
+        visualRoot.localPosition =
+            Vector3.Lerp(
+                visualRoot.localPosition,
+                targetPosition,
+                motionT);
+
+        visualRoot.localScale =
+            Vector3.Lerp(
+                visualRoot.localScale,
+                Vector3.one *
+                targetScale,
+                motionT);
+
+        visualRoot.localRotation =
+            Quaternion.Slerp(
+                visualRoot.localRotation,
+                Quaternion.Euler(
+                    targetEuler),
+                motionT);
+
+        float targetAlpha =
+            selected || hovered
+                ? 1f
+                : suppressed
+                    ? 0.26f
+                    : 0.91f;
+
+        if (visualGroup != null)
+        {
+            visualGroup.alpha =
+                Mathf.Lerp(
+                    visualGroup.alpha,
+                    targetAlpha,
+                    motionT);
+        }
+
+        ApplyPaperFlutter(
+            hovered,
+            selected,
+            motionT,
+            time);
+    }
+
+    private void ApplyPaperFlutter(
+        bool hovered,
+        bool isSelected,
+        float t,
+        float time)
+    {
+        float activeAmount =
+            isSelected
+                ? 0.16f
+                : hovered
+                    ? 1f
+                    : 0.22f;
+
+        if (suppressed)
+            activeAmount *= 0.16f;
+
+        float flutterPhase =
+            time *
+            flutterCyclesPerSecond *
+            Mathf.PI *
+            2f +
+            phase * 1.37f;
+
+        float flutter =
+            Mathf.Sin(
+                flutterPhase) *
+            flutterDegrees *
+            activeAmount;
+
+        float secondary =
+            Mathf.Sin(
+                flutterPhase * 0.63f +
+                1.1f) *
+            flutterDegrees *
+            0.42f *
+            activeAmount;
+
+        if (frontPage != null)
+        {
+            Quaternion targetRotation =
+                baseFrontRotation *
+                Quaternion.Euler(
+                    flutter * 0.32f,
+                    secondary * 0.26f,
+                    flutter * 0.18f);
+
+            frontPage.localRotation =
+                Quaternion.Slerp(
+                    frontPage.localRotation,
+                    targetRotation,
+                    t);
+
+            Vector2 targetPosition =
+                baseFrontPosition +
+                new Vector2(
+                    secondary * 0.20f,
+                    flutter * 0.14f);
+
+            frontPage.anchoredPosition =
+                Vector2.Lerp(
+                    frontPage.anchoredPosition,
+                    targetPosition,
+                    t);
+        }
+
+        if (backPageA != null)
+        {
+            Quaternion targetRotation =
+                baseBackARotation *
+                Quaternion.Euler(
+                    -flutter * 0.24f,
+                    secondary * 0.20f,
+                    -flutter * 0.42f);
+
+            backPageA.localRotation =
+                Quaternion.Slerp(
+                    backPageA.localRotation,
+                    targetRotation,
+                    t);
+
+            Vector2 targetPosition =
+                baseBackAPosition +
+                new Vector2(
+                    -flutter * 0.35f,
+                    secondary * 0.32f);
+
+            backPageA.anchoredPosition =
+                Vector2.Lerp(
+                    backPageA.anchoredPosition,
+                    targetPosition,
+                    t);
+        }
+
+        if (backPageB != null)
+        {
+            Quaternion targetRotation =
+                baseBackBRotation *
+                Quaternion.Euler(
+                    flutter * 0.18f,
+                    -secondary * 0.18f,
+                    flutter * 0.34f);
+
+            backPageB.localRotation =
+                Quaternion.Slerp(
+                    backPageB.localRotation,
+                    targetRotation,
+                    t);
+
+            Vector2 targetPosition =
+                baseBackBPosition +
+                new Vector2(
+                    flutter * 0.26f,
+                    -secondary * 0.30f);
+
+            backPageB.anchoredPosition =
+                Vector2.Lerp(
+                    backPageB.anchoredPosition,
+                    targetPosition,
+                    t);
+        }
+    }
+
+    private void ApplyImmediate()
+    {
+        if (visualRoot != null)
+        {
+            visualRoot.localPosition =
+                Vector3.zero;
+
+            visualRoot.localScale =
+                Vector3.one;
+
+            visualRoot.localRotation =
+                Quaternion.identity;
+        }
+
+        if (visualGroup != null)
+            visualGroup.alpha = 0.91f;
+    }
+}
+
+
 internal sealed class BattleStageMapLinkVisual : MonoBehaviour
 {
     private string fromId;
