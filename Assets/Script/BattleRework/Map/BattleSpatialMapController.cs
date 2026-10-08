@@ -2354,38 +2354,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         titleText.resizeTextMinSize = 12;
         titleText.resizeTextMaxSize = 20;
 
-        Text subtitleText =
-            CreateScriptText(
-                front,
-                "ScriptSubtitle",
-                subtitle,
-                9,
-                FontStyle.Italic,
-                TextAnchor.MiddleCenter,
-                new Color(
-                    scriptInkColor.r,
-                    scriptInkColor.g,
-                    scriptInkColor.b,
-                    0.72f));
-
-        RectTransform subtitleRect =
-            subtitleText.rectTransform;
-
-        subtitleRect.anchorMin =
-            subtitleRect.anchorMax =
-                new Vector2(0.5f, 1f);
-
-        subtitleRect.pivot =
-            new Vector2(0.5f, 1f);
-
-        subtitleRect.anchoredPosition =
-            new Vector2(0f, -98f);
-
-        subtitleRect.sizeDelta =
-            new Vector2(
-                scriptCardSize.x - 34f,
-                26f);
-
         GameObject coverObject =
             new(
                 "ScriptImage",
@@ -2461,7 +2429,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             CreateScriptText(
                 front,
                 "Footer",
-                "HOVER TO READ  /  CLICK TO LOCK",
+                "HOVER TO OPEN",
                 8,
                 FontStyle.Bold,
                 TextAnchor.MiddleCenter,
@@ -2501,10 +2469,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
         }
 
-        string title =
-            ResolveScriptTitle(
-                node);
-
         string subtitle =
             ResolveScriptSubtitle(
                 node);
@@ -2513,15 +2477,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             CreateScriptText(
                 detail,
                 "DetailHeader",
-                "SCENE NOTES",
-                9,
+                "PRODUCTION NOTES",
+                10,
                 FontStyle.Bold,
                 TextAnchor.MiddleLeft,
                 new Color(
                     accent.r,
                     accent.g,
                     accent.b,
-                    0.88f));
+                    0.90f));
 
         RectTransform headerRect =
             header.rectTransform;
@@ -2540,90 +2504,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         headerRect.anchoredPosition =
             new Vector2(
                 0f,
-                -18f);
+                -20f);
 
         headerRect.sizeDelta =
             new Vector2(
                 scriptCardSize.x - 34f,
-                18f);
-
-        Text titleText =
-            CreateScriptText(
-                detail,
-                "DetailTitle",
-                title,
-                17,
-                FontStyle.Bold,
-                TextAnchor.UpperLeft,
-                scriptInkColor);
-
-        RectTransform titleRect =
-            titleText.rectTransform;
-
-        titleRect.anchorMin =
-            titleRect.anchorMax =
-                new Vector2(
-                    0.5f,
-                    1f);
-
-        titleRect.pivot =
-            new Vector2(
-                0.5f,
-                1f);
-
-        titleRect.anchoredPosition =
-            new Vector2(
-                0f,
-                -42f);
-
-        titleRect.sizeDelta =
-            new Vector2(
-                scriptCardSize.x - 34f,
-                48f);
-
-        titleText.resizeTextForBestFit =
-            true;
-
-        titleText.resizeTextMinSize = 11;
-        titleText.resizeTextMaxSize = 17;
-
-        Text description =
-            CreateScriptText(
-                detail,
-                "DetailDescription",
-                subtitle,
-                9,
-                FontStyle.Italic,
-                TextAnchor.UpperLeft,
-                new Color(
-                    scriptInkColor.r,
-                    scriptInkColor.g,
-                    scriptInkColor.b,
-                    0.74f));
-
-        RectTransform descriptionRect =
-            description.rectTransform;
-
-        descriptionRect.anchorMin =
-            descriptionRect.anchorMax =
-                new Vector2(
-                    0.5f,
-                    1f);
-
-        descriptionRect.pivot =
-            new Vector2(
-                0.5f,
-                1f);
-
-        descriptionRect.anchoredPosition =
-            new Vector2(
-                0f,
-                -92f);
-
-        descriptionRect.sizeDelta =
-            new Vector2(
-                scriptCardSize.x - 34f,
-                42f);
+                20f);
 
         RectTransform divider =
             CreateScriptStageImage(
@@ -2635,7 +2521,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     1.5f),
                 new Vector2(
                     0f,
-                    12f),
+                    88f),
                 new Color(
                     scriptInkColor.r,
                     scriptInkColor.g,
@@ -2655,10 +2541,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 : node.GetBattleRatingStars();
 
         string detailBody =
-            $"TAKE      {Mathf.Max(1, node.depth + 1):00}\n" +
-            $"TYPE      {node.type.ToString().ToUpperInvariant()}\n" +
-            $"ROOM      {roomLabel}\n" +
-            $"RATING    {Mathf.Clamp(stars, 1, 5)} / 5";
+            $"TAKE        {Mathf.Max(1, node.depth + 1):00}\n" +
+            $"TYPE        {node.type.ToString().ToUpperInvariant()}\n" +
+            $"LOCATION    {roomLabel}\n" +
+            $"RATING      {Mathf.Clamp(stars, 1, 5)} / 5";
 
         Text body =
             CreateScriptText(
@@ -2672,7 +2558,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     scriptInkColor.r,
                     scriptInkColor.g,
                     scriptInkColor.b,
-                    0.86f));
+                    0.88f));
 
         RectTransform bodyRect =
             body.rectTransform;
@@ -2681,22 +2567,98 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             bodyRect.anchorMax =
                 new Vector2(
                     0.5f,
-                    0.5f);
+                    1f);
 
         bodyRect.pivot =
             new Vector2(
                 0.5f,
-                0.5f);
+                1f);
 
         bodyRect.anchoredPosition =
             new Vector2(
                 0f,
-                -4f);
+                -58f);
 
         bodyRect.sizeDelta =
             new Vector2(
                 scriptCardSize.x - 38f,
-                92f);
+                88f);
+
+        Text noteLabel =
+            CreateScriptText(
+                detail,
+                "NoteLabel",
+                "DIRECTOR NOTE",
+                8,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                new Color(
+                    accent.r,
+                    accent.g,
+                    accent.b,
+                    0.78f));
+
+        RectTransform noteLabelRect =
+            noteLabel.rectTransform;
+
+        noteLabelRect.anchorMin =
+            noteLabelRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        noteLabelRect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        noteLabelRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -30f);
+
+        noteLabelRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 38f,
+                18f);
+
+        Text note =
+            CreateScriptText(
+                detail,
+                "DetailNote",
+                subtitle,
+                9,
+                FontStyle.Italic,
+                TextAnchor.UpperLeft,
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.72f));
+
+        RectTransform noteRect =
+            note.rectTransform;
+
+        noteRect.anchorMin =
+            noteRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        noteRect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        noteRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -60f);
+
+        noteRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 38f,
+                48f);
 
         bool rated =
             node.type == BattleNodeType.Combat ||
