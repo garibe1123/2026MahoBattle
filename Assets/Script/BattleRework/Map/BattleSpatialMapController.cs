@@ -86,8 +86,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0.08f, 0.40f)] private float scriptPageTurnDuration = 0.18f;
     [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
     [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnSlidePixels")]
-    [SerializeField, Range(0f, 70f)] private float scriptPageTurnLiftPixels = 30f;
-    [SerializeField, Range(0f, 12f)] private float scriptPageTurnRollDegrees = 3.2f;
+    [SerializeField, Range(8f, 70f)] private float scriptPageCurlPixels = 28f;
+    [SerializeField, Range(0f, 12f)] private float scriptPageTurnRollDegrees = 2.0f;
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
     [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
@@ -1819,7 +1819,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptIdleWaveStrength,
             scriptPageTurnDuration,
             scriptPageReturnDuration,
-            scriptPageTurnLiftPixels,
+            scriptPageCurlPixels,
             scriptPageTurnRollDegrees,
             accent);
     }
@@ -4031,12 +4031,13 @@ internal sealed class BattleScriptCardVisual :
     private float idleWaveStrength;
     private float pageTurnDuration;
     private float pageReturnDuration;
-    private float pageTurnLiftPixels;
+    private float pageCurlPixels;
     private float pageTurnRollDegrees;
     private float pageTurn01;
     private Color accentColor;
 
     private BattleScriptPaperWaveEffect[] paperWaveEffects;
+    private BattleScriptPaperWaveEffect[] frontPageWaveEffects;
 
     private bool pointerHover;
     private bool trackedHover;
@@ -4072,7 +4073,7 @@ internal sealed class BattleScriptCardVisual :
         float idleWave,
         float turnDuration,
         float returnDuration,
-        float turnLiftPixels,
+        float curlPixels,
         float turnRollDegrees,
         Color accent)
     {
@@ -4122,7 +4123,7 @@ internal sealed class BattleScriptCardVisual :
         idleWaveStrength = Mathf.Clamp01(idleWave);
         pageTurnDuration = Mathf.Max(0.08f, turnDuration);
         pageReturnDuration = Mathf.Max(0.10f, returnDuration);
-        pageTurnLiftPixels = Mathf.Max(0f, turnLiftPixels);
+        pageCurlPixels = Mathf.Max(8f, curlPixels);
         pageTurnRollDegrees = Mathf.Max(0f, turnRollDegrees);
         accentColor = accent;
 
@@ -4388,8 +4389,10 @@ internal sealed class BattleScriptCardVisual :
             Mathf.Clamp01(
                 normalized);
 
-        // The upper edge stays pinned. The free lower edge quickly rises,
-        // flutters once around the midpoint, then folds almost flat above it.
+        // Do not "lift the whole sheet". The cover stays pinned at its top edge.
+        // The mesh itself rolls upward: the curl front travels from the free
+        // bottom edge toward the top and compresses the already-turned region
+        // into a rounded strip.
         float eased =
             1f -
             Mathf.Pow(
@@ -4401,34 +4404,21 @@ internal sealed class BattleScriptCardVisual :
                 eased *
                 Mathf.PI);
 
-        float verticalFold =
-            Mathf.Lerp(
-                1f,
-                0.045f,
-                eased);
-
-        float horizontalBreath =
-            1f +
-            flap *
-            0.018f;
-
         frontPage.localScale =
             new Vector3(
-                horizontalBreath,
-                verticalFold,
+                1f +
+                flap *
+                0.008f,
+                1f,
                 1f);
 
         frontPage.anchoredPosition =
             baseFrontPosition +
             new Vector2(
                 0f,
-                pageTurnLiftPixels *
-                eased +
                 flap *
-                4.5f);
+                1.5f);
 
-        // Only a tiny Z roll remains to keep the flip organic.
-        // No left/right hinge and no X/Y 3D rotation are used.
         frontPage.localRotation =
             baseFrontRotation *
             Quaternion.Euler(
@@ -4436,6 +4426,24 @@ internal sealed class BattleScriptCardVisual :
                 0f,
                 pageTurnRollDegrees *
                 flap);
+
+        if (frontPageWaveEffects == null)
+            return;
+
+        for (int i = 0;
+             i < frontPageWaveEffects.Length;
+             i++)
+        {
+            BattleScriptPaperWaveEffect effect =
+                frontPageWaveEffects[i];
+
+            if (effect == null)
+                continue;
+
+            effect.SetPageCurl(
+                eased,
+                pageCurlPixels);
+        }
     }
 
     private void InstallPaperWaveEffects()
@@ -4519,6 +4527,12 @@ internal sealed class BattleScriptCardVisual :
 
         paperWaveEffects =
             effects.ToArray();
+
+        frontPageWaveEffects =
+            frontPage != null
+                ? frontPage.GetComponentsInChildren<BattleScriptPaperWaveEffect>(
+                    true)
+                : Array.Empty<BattleScriptPaperWaveEffect>();
     }
 
     private void AddPaperWaveEffects(
@@ -4813,6 +4827,8 @@ internal sealed class BattleScriptPaperWaveEffect :
     private float amplitudePixels;
     private float shearPixels;
     private float amplitudeMultiplier = 1f;
+    private float pageCurl01;
+    private float pageCurlPixels;
 
     private const int HorizontalSegments = 10;
     private const int VerticalSegments = 14;
@@ -4856,6 +4872,24 @@ internal sealed class BattleScriptPaperWaveEffect :
 
         phase =
             wavePhase;
+
+        if (graphic != null)
+            graphic.SetVerticesDirty();
+    }
+
+
+    public void SetPageCurl(
+        float normalized,
+        float curlPixels)
+    {
+        pageCurl01 =
+            Mathf.Clamp01(
+                normalized);
+
+        pageCurlPixels =
+            Mathf.Max(
+                0f,
+                curlPixels);
 
         if (graphic != null)
             graphic.SetVerticesDirty();
@@ -4988,6 +5022,80 @@ internal sealed class BattleScriptPaperWaveEffect :
             rootLocal.x +=
                 shearPixels *
                 (v - 0.5f);
+
+            if (pageCurl01 > 0.0001f)
+            {
+                // v = 0 is the free bottom edge, v = 1 is the pinned top edge.
+                // The moving curl front starts at the bottom and travels upward.
+                float curlFront =
+                    Mathf.Clamp01(
+                        pageCurl01 *
+                        1.04f);
+
+                if (v < curlFront)
+                {
+                    float turnedDepth =
+                        Mathf.Clamp01(
+                            (curlFront - v) /
+                            Mathf.Max(
+                                0.001f,
+                                curlFront));
+
+                    // Most of the turned sheet is gathered close to the moving
+                    // curl front. This produces the visual of paper rolling up
+                    // instead of uniformly shrinking.
+                    float gatheredV =
+                        Mathf.Lerp(
+                            v,
+                            curlFront -
+                            turnedDepth *
+                            Mathf.Lerp(
+                                0.012f,
+                                0.055f,
+                                1f - pageCurl01),
+                            Mathf.SmoothStep(
+                                0f,
+                                1f,
+                                pageCurl01));
+
+                    float arc =
+                        Mathf.Sin(
+                            turnedDepth *
+                            Mathf.PI);
+
+                    float roundLift =
+                        arc *
+                        pageCurlPixels *
+                        Mathf.Lerp(
+                            0.55f,
+                            1f,
+                            pageCurl01);
+
+                    rootLocal.y =
+                        rootRect.yMin +
+                        gatheredV *
+                        height +
+                        roundLift;
+
+                    // A rolled sheet swells slightly around the curl instead of
+                    // looking like a perfectly straight compressed rectangle.
+                    float centerDistance =
+                        Mathf.Abs(
+                            u - 0.5f) *
+                        2f;
+
+                    float crown =
+                        1f -
+                        centerDistance *
+                        centerDistance;
+
+                    rootLocal.x +=
+                        (u - 0.5f) *
+                        roundLift *
+                        0.055f *
+                        crown;
+                }
+            }
 
             Vector3 deformedWorld =
                 waveRoot.TransformPoint(
