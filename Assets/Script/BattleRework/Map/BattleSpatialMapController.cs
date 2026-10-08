@@ -85,11 +85,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [Header("Script Page Turn")]
     [SerializeField, Range(0.08f, 0.40f)] private float scriptPageTurnDuration = 0.18f;
     [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
+    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageCurlPixels")]
     [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnSlidePixels")]
     [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnLiftPixels")]
-    [SerializeField, Range(8f, 90f)] private float scriptPageCurlPixels = 38f;
-    [SerializeField, Range(4f, 90f)] private float scriptPageCurlDepthPixels = 46f;
-    [SerializeField, Range(0f, 12f)] private float scriptPageTurnRollDegrees = 2.0f;
+    [SerializeField, Range(18f, 72f)] private float scriptPageRollHeightPixels = 36f;
+    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageCurlDepthPixels")]
+    [SerializeField, Range(3f, 24f)] private float scriptTurnedPageOffsetPixels = 10f;
+    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnRollDegrees")]
+    [SerializeField, Range(0f, 8f)] private float scriptTurnedPageRollDegrees = 2.2f;
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
     [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
@@ -1721,6 +1724,26 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             visualRoot,
             paperStack.Length);
 
+        RectTransform turnedPageBack =
+            CreateScriptPage(
+                visualRoot,
+                "TurnedPageBack",
+                Color.Lerp(
+                    scriptPaperTint,
+                    Color.white,
+                    0.025f),
+                new Vector2(
+                    4f,
+                    7f),
+                -1.4f);
+
+        CanvasGroup turnedPageBackGroup =
+            turnedPageBack.gameObject.AddComponent<CanvasGroup>();
+
+        turnedPageBackGroup.alpha = 0f;
+        turnedPageBackGroup.interactable = false;
+        turnedPageBackGroup.blocksRaycasts = false;
+
         RectTransform detail =
             CreateScriptPage(
                 visualRoot,
@@ -1734,13 +1757,63 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     -0.8f),
                 0.15f);
 
+        GameObject coverMaskObject =
+            new(
+                "CoverClip",
+                typeof(RectTransform));
+
+        coverMaskObject.transform.SetParent(
+            visualRoot,
+            false);
+
+        RectTransform coverMask =
+            coverMaskObject.GetComponent<RectTransform>();
+
+        coverMask.anchorMin =
+            coverMask.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        coverMask.pivot =
+            new Vector2(
+                0.5f,
+                1f);
+
+        coverMask.sizeDelta =
+            scriptCardSize;
+
+        coverMask.anchoredPosition =
+            new Vector2(
+                0f,
+                scriptCardSize.y * 0.5f);
+
+        coverMaskObject.AddComponent<RectMask2D>();
+
         RectTransform front =
             CreateScriptPage(
-                visualRoot,
+                coverMask,
                 "CoverPage",
                 scriptPaperTint,
                 Vector2.zero,
                 0f);
+
+        front.anchorMin =
+            front.anchorMax =
+                new Vector2(
+                    0.5f,
+                    1f);
+
+        front.pivot =
+            new Vector2(
+                0.5f,
+                1f);
+
+        front.sizeDelta =
+            scriptCardSize;
+
+        front.anchoredPosition =
+            Vector2.zero;
 
         shadow.SetAsFirstSibling();
 
@@ -1750,10 +1823,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 1 + i);
         }
 
-        detail.SetSiblingIndex(
+        turnedPageBack.SetSiblingIndex(
             1 + paperStack.Length);
 
-        front.SetAsLastSibling();
+        detail.SetSiblingIndex(
+            2 + paperStack.Length);
+
+        coverMask.SetAsLastSibling();
 
         Outline frontOutline =
             front.gameObject.AddComponent<Outline>();
@@ -1773,6 +1849,18 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         CreateScriptClip(front);
         CreateScriptCardContent(front, node, accent);
         CreateScriptDetailContent(detail, node, accent);
+
+        BattleScriptPageTurnRig pageTurnRig =
+            CreateScriptPageTurnRig(
+                visualRoot,
+                coverMask,
+                front,
+                detail,
+                turnedPageBack,
+                turnedPageBackGroup,
+                scriptPageRollHeightPixels,
+                scriptTurnedPageOffsetPixels,
+                scriptTurnedPageRollDegrees);
 
         float side =
             Mathf.Abs(basePosition.x) < 0.01f
@@ -1803,6 +1891,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             visualRoot,
             front,
             detail,
+            pageTurnRig,
             backA,
             backB,
             stageBase,
@@ -1821,10 +1910,160 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptIdleWaveStrength,
             scriptPageTurnDuration,
             scriptPageReturnDuration,
-            scriptPageCurlPixels,
-            scriptPageCurlDepthPixels,
-            scriptPageTurnRollDegrees,
             accent);
+    }
+
+    private BattleScriptPageTurnRig CreateScriptPageTurnRig(
+        RectTransform visualRoot,
+        RectTransform coverMask,
+        RectTransform coverPage,
+        RectTransform detailPage,
+        RectTransform turnedPageBack,
+        CanvasGroup turnedPageBackGroup,
+        float rollHeight,
+        float turnedOffset,
+        float turnedRoll)
+    {
+        GameObject curlRootObject =
+            new(
+                "PageTurnCurl",
+                typeof(RectTransform));
+
+        curlRootObject.transform.SetParent(
+            visualRoot,
+            false);
+
+        RectTransform curlRoot =
+            curlRootObject.GetComponent<RectTransform>();
+
+        curlRoot.anchorMin =
+            curlRoot.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        curlRoot.pivot =
+            new Vector2(
+                    0.5f,
+                    0.5f);
+
+        curlRoot.sizeDelta =
+            scriptCardSize;
+
+        curlRoot.anchoredPosition =
+            Vector2.zero;
+
+        CanvasGroup curlGroup =
+            curlRootObject.AddComponent<CanvasGroup>();
+
+        curlGroup.alpha = 0f;
+        curlGroup.interactable = false;
+        curlGroup.blocksRaycasts = false;
+
+        const int stripCount = 9;
+
+        for (int i = 0; i < stripCount; i++)
+        {
+            GameObject stripObject =
+                new(
+                    $"CurlStrip_{i:00}",
+                    typeof(RectTransform));
+
+            stripObject.transform.SetParent(
+                curlRoot,
+                false);
+
+            RectTransform strip =
+                stripObject.GetComponent<RectTransform>();
+
+            strip.anchorMin =
+                strip.anchorMax =
+                    new Vector2(
+                        0.5f,
+                        0.5f);
+
+            strip.pivot =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+            strip.sizeDelta =
+                new Vector2(
+                    scriptCardSize.x,
+                    Mathf.Max(
+                        3f,
+                        rollHeight /
+                        stripCount *
+                        1.35f));
+
+            Image image =
+                stripObject.AddComponent<Image>();
+
+            image.sprite =
+                GetScriptPaperSprite();
+
+            image.type =
+                Image.Type.Simple;
+
+            float depth01 =
+                i /
+                (float)(
+                    stripCount - 1);
+
+            float shade =
+                Mathf.Lerp(
+                    0.72f,
+                    1.02f,
+                    Mathf.Sin(
+                        depth01 *
+                        Mathf.PI));
+
+            image.color =
+                new Color(
+                    scriptPaperTint.r * shade,
+                    scriptPaperTint.g * shade,
+                    scriptPaperTint.b * shade,
+                    1f);
+
+            image.raycastTarget = false;
+        }
+
+        RectTransform curlShadow =
+            CreateScriptStageImage(
+                curlRoot,
+                "CurlShadow",
+                null,
+                new Vector2(
+                    scriptCardSize.x * 0.94f,
+                    8f),
+                Vector2.zero,
+                new Color(
+                    0f,
+                    0f,
+                    0f,
+                    0.20f));
+
+        curlShadow.SetAsFirstSibling();
+
+        BattleScriptPageTurnRig rig =
+            visualRoot.gameObject.AddComponent<BattleScriptPageTurnRig>();
+
+        rig.Configure(
+            visualRoot,
+            coverMask,
+            coverPage,
+            detailPage,
+            curlRoot,
+            curlGroup,
+            curlShadow,
+            turnedPageBack,
+            turnedPageBackGroup,
+            scriptCardSize,
+            rollHeight,
+            turnedOffset,
+            turnedRoll);
+
+        return rig;
     }
 
     private static RectTransform CreateScriptStageImage(
