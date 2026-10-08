@@ -1713,6 +1713,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ResolveScriptCameraFacingSide(
                 visualRoot);
 
+        // Script Selection Canvas is scaled as (s, s, 1). Convert all paper
+        // depth values so one local Z unit has the same world size as one UI
+        // pixel on X/Y. Without this, Z is tens of times deeper than the page.
+        float scriptDepthScale =
+            ResolveScriptLocalDepthScale(
+                visualRoot);
+
         int scriptSeed =
             StableHash(
                 node.id ?? string.Empty);
@@ -1782,7 +1789,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 paperStack[i],
                 cameraSide *
                 (-scriptPageDepthStep *
-                 (2.4f + i * 0.72f)),
+                 (2.4f + i * 0.72f)) *
+                scriptDepthScale,
                 new Vector3(
                     0f,
                     0f,
@@ -1826,7 +1834,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             detail,
             cameraSide *
             scriptPageDepthStep *
-            0.75f,
+            0.75f *
+            scriptDepthScale,
             new Vector3(
                 0f,
                 0f,
@@ -1857,7 +1866,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 0f,
                 cameraSide *
                 scriptPageDepthStep *
-                2.0f);
+                2.0f *
+                scriptDepthScale);
 
         turningPageTransform.localRotation =
             Quaternion.identity;
@@ -1907,7 +1917,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 0f,
                 cameraSide *
                 scriptPageDepthStep *
-                2.15f);
+                2.15f *
+                scriptDepthScale);
 
         front.localRotation =
             Quaternion.Euler(
@@ -1970,6 +1981,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptTurningMeshYawDegrees,
             scriptTurningMeshRollDegrees,
             scriptTurningMeshPoseResponse,
+            scriptDepthScale,
             coverContentGroup,
             detailGroup,
             parentCanvas,
@@ -2049,7 +2061,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptPageTurnDuration,
             scriptPageReturnDuration,
             hoverPoseEuler,
-            cameraSide * scriptHoverPoseDepth,
+            cameraSide *
+            scriptHoverPoseDepth *
+            scriptDepthScale,
             scriptHoverPoseResponse,
             accent);
     }
@@ -2076,6 +2090,32 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return Mathf.Abs(localZ) > 0.001f
             ? Mathf.Sign(localZ)
             : 1f;
+    }
+
+    private static float ResolveScriptLocalDepthScale(
+        Transform localSpace)
+    {
+        if (localSpace == null)
+            return 1f;
+
+        Vector3 lossy =
+            localSpace.lossyScale;
+
+        float xyScale =
+            (Mathf.Abs(lossy.x) +
+             Mathf.Abs(lossy.y)) *
+            0.5f;
+
+        float zScale =
+            Mathf.Max(
+                0.000001f,
+                Mathf.Abs(lossy.z));
+
+        return Mathf.Clamp(
+            xyScale /
+            zScale,
+            0.0001f,
+            1f);
     }
 
     private static float ScriptSigned01(
@@ -5256,6 +5296,7 @@ internal sealed class BattleScriptTurningPageMesh :
     private float maxYawDegrees = 7.2f;
     private float maxRollDegrees = 2f;
     private float poseResponse = 12f;
+    private float depthAxisScale = 1f;
     private float sideBias;
 
     private CanvasGroup contentGroup;
@@ -5282,6 +5323,7 @@ internal sealed class BattleScriptTurningPageMesh :
         float yawDegrees,
         float rollDegrees,
         float response,
+        float localDepthScale,
         CanvasGroup coverContentGroup,
         CanvasGroup detailPageGroup,
         Canvas owningCanvas,
@@ -5318,6 +5360,12 @@ internal sealed class BattleScriptTurningPageMesh :
 
         poseResponse =
             Mathf.Max(2f, response);
+
+        depthAxisScale =
+            Mathf.Clamp(
+                localDepthScale,
+                0.0001f,
+                1f);
 
         contentGroup =
             coverContentGroup;
@@ -5560,8 +5608,8 @@ internal sealed class BattleScriptTurningPageMesh :
         transform.localRotation =
             baseLocalRotation *
             Quaternion.Euler(
-                currentPitch,
-                currentYaw,
+                0f,
+                0f,
                 currentRoll);
 
         float backSettle =
@@ -5576,7 +5624,8 @@ internal sealed class BattleScriptTurningPageMesh :
         local.z +=
             backDepthOffset *
             backSettle *
-            0.08f;
+            0.08f *
+            depthAxisScale;
 
         transform.localPosition =
             local;
@@ -5884,8 +5933,8 @@ internal sealed class BattleScriptTurningPageMesh :
                     rowCount +
                     y;
 
-                vertices[index] =
-                    new Vector3(
+                Vector3 isotropicVertex =
+                    new(
                         Mathf.Lerp(
                             -width * 0.5f,
                             width * 0.5f,
@@ -5893,6 +5942,25 @@ internal sealed class BattleScriptTurningPageMesh :
                         lateralBow,
                         yz.x,
                         yz.y);
+
+                // X/Y are UI-pixel units while Canvas Z is unscaled. Apply
+                // cursor Pitch/Yaw before converting Z into local Canvas units.
+                Quaternion cursorTilt =
+                    Quaternion.Euler(
+                        currentPitch,
+                        currentYaw,
+                        0f);
+
+                isotropicVertex =
+                    cursorTilt *
+                    isotropicVertex;
+
+                vertices[index] =
+                    new Vector3(
+                        isotropicVertex.x,
+                        isotropicVertex.y,
+                        isotropicVertex.z *
+                        depthAxisScale);
 
                 uvs[index] =
                     new Vector2(
