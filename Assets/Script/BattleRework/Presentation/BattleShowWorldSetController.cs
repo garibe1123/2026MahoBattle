@@ -2317,6 +2317,17 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             tvCanvasSize.x / Mathf.Max(32f, tvPixelsPerUnit),
             tvCanvasSize.y / Mathf.Max(32f, tvPixelsPerUnit));
 
+        Vector2 scriptWorldSize =
+            scriptSelectionRect != null
+                ? new Vector2(
+                    scriptSelectionRect.rect.width *
+                    Mathf.Abs(
+                        scriptSelectionRect.lossyScale.x),
+                    scriptSelectionRect.rect.height *
+                    Mathf.Abs(
+                        scriptSelectionRect.lossyScale.y))
+                : tvWorldSize;
+
         bool rewardFocus =
             currentMode == ShowMode.Reward ||
             desiredMode == ShowMode.Reward;
@@ -2337,11 +2348,22 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         }
         else if (tvDecisionFocus)
         {
+            Vector3 focusCenter =
+                mapFocus &&
+                scriptSelectionRect != null
+                    ? scriptSelectionRect.position
+                    : tvMountedWorld;
+
+            Vector2 focusSize =
+                mapFocus
+                    ? scriptWorldSize
+                    : tvWorldSize;
+
             bounds = new Bounds(
-                tvMountedWorld,
+                focusCenter,
                 new Vector3(
-                    tvWorldSize.x,
-                    tvWorldSize.y,
+                    focusSize.x,
+                    focusSize.y,
                     0.1f));
         }
         else
