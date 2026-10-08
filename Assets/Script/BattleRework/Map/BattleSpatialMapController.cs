@@ -5565,17 +5565,20 @@ internal sealed class BattleScriptTurningPageMesh :
         local.z +=
             backDepthOffset *
             backSettle *
-            0.16f;
+            0.08f;
 
         transform.localPosition =
             local;
 
         if (contentGroup != null)
         {
+            // The printed cover belongs to the physical turning sheet.
+            // Remove it before the detail page starts appearing so the two
+            // information sets never read as one overlapped UI.
             float contentHide =
                 Mathf.SmoothStep(
-                    0.14f,
-                    0.31f,
+                    0.10f,
+                    0.24f,
                     turn01);
 
             contentGroup.alpha =
@@ -5585,12 +5588,12 @@ internal sealed class BattleScriptTurningPageMesh :
 
         if (detailGroup != null)
         {
-            // Hidden while the intact cover is still readable. The production
-            // notes only appear once the cover has visibly lifted away.
+            // Reveal hidden production information only after the cover has
+            // visibly left the front plane.
             detailGroup.alpha =
                 Mathf.SmoothStep(
-                    0.27f,
-                    0.56f,
+                    0.28f,
+                    0.50f,
                     turn01);
         }
 
@@ -5602,7 +5605,7 @@ internal sealed class BattleScriptTurningPageMesh :
                 canvasSortingLayerId;
 
             meshRenderer.sortingOrder =
-                turn01 < 0.70f
+                turn01 < 0.54f
                     ? canvasSortingOrder + 2
                     : canvasSortingOrder - 1;
         }
@@ -5705,34 +5708,36 @@ internal sealed class BattleScriptTurningPageMesh :
                     height,
                     0f);
 
-            // Final folded state. The free edge occupies only ~42% of the
-            // original projected height and sits behind the detail page.
+            // Final folded state: the turned cover sits BEHIND the detail
+            // page, but its curled edge rises above the top of the stack.
+            // This makes the already-turned sheet visibly remain there instead
+            // of becoming completely occluded by DetailPage.
             Vector2 folded0 =
                 flat0;
 
             Vector2 folded1 =
                 new(
-                    topY -
-                    height * 0.06f,
+                    topY +
+                    height * 0.075f,
                     cameraSide *
                     safeDepth *
-                    0.72f);
+                    0.78f);
 
             Vector2 folded2 =
                 new(
-                    topY -
-                    height * 0.15f,
-                    -cameraSide *
+                    topY +
+                    height * 0.165f,
+                    cameraSide *
                     safeDepth *
-                    0.18f);
+                    0.08f);
 
             Vector2 folded3 =
                 new(
-                    topY -
-                    height * 0.42f,
+                    topY +
+                    height * 0.045f,
                     -cameraSide *
                     safeDepth *
-                    0.58f);
+                    0.62f);
 
             Vector2 p0 =
                 Vector2.Lerp(
@@ -5762,17 +5767,17 @@ internal sealed class BattleScriptTurningPageMesh :
             // are also bounded, the sheet can never shoot through the camera.
             p1.x +=
                 height *
-                0.06f *
+                0.045f *
                 turnBell;
 
             p2.x +=
                 height *
-                0.11f *
+                0.085f *
                 turnBell;
 
             p3.x +=
                 height *
-                0.045f *
+                0.030f *
                 turnBell;
 
             p1.y +=
