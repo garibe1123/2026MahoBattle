@@ -2386,7 +2386,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             CreateScriptStageImage(
                 detail,
                 "DetailDivider",
-                BattleHudSpriteCache.Solid32,
+                null,
                 new Vector2(
                     scriptCardSize.x - 34f,
                     1.5f),
