@@ -5,16 +5,15 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Stage Map UI를 정돈하고, 실제 선택 지점만 강하게 강조합니다.
+/// Script Selection UI.
+/// 내부적으로는 기존 NodeGraph/SelectingNode를 그대로 사용하지만,
+/// 플레이어에게는 "다음 맵 경로"가 아니라 "다음 공연 대본/장면"을 고르는 화면으로 보입니다.
 ///
-/// - Reward 쪽 장식이 공용 TV Frame에 남아도 Map에서는 정렬/톤을 다시 잡습니다.
-/// - MapSelectionContent를 TV Safe Area 전체로 확장합니다.
-/// - Map 전용 Mask/RectMask를 잠시 풀어 가장자리 노드 잘림을 줄입니다.
-/// - 보이는 Node 자체만 Pointer Target으로 사용해 보이지 않는 Hover/Click 영역을 만들지 않습니다.
-/// - World Space Canvas의 GraphicRaycaster / worldCamera / CanvasGroup 입력 상태를 보강합니다.
-/// - selectable/current/hover 상태에만 강한 Accent를 사용합니다.
-/// - Hover 시 노드가 커지고, 밝은 박스 + 어두운 아이콘/라벨로 반전되어 커서 위치를 즉시 읽을 수 있게 합니다.
-/// - 정적인 Map Frame/Hierarchy는 매 프레임 다시 쓰지 않고 진입/저주기 refresh 때만 갱신합니다.
+/// - Reward 쪽 장식이 공용 TV Frame에 남아도 Script Select에서는 정렬/톤을 다시 잡습니다.
+/// - 기존 MapSelectionContent를 TV Safe Area 전체로 확장해 재사용합니다.
+/// - 선택 가능한 Script Node만 강하게 강조합니다.
+/// - Hover는 "대본 읽기", Click은 "대본 확정" 의미로 표현합니다.
+/// - 내부 맵 그래프 데이터 구조는 변경하지 않습니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32580)]
@@ -38,7 +37,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
 
-    [Header("Purposeful Map Theme")]
+    [Header("Script Selection Theme")]
     [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.040f, 0.995f);
     [SerializeField] private Color panelColor = new(0.052f, 0.055f, 0.068f, 0.995f);
     [SerializeField] private Color paperColor = new(0.93f, 0.90f, 0.80f, 1f);
@@ -410,8 +409,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (text == null)
             return;
 
-        bool opening = runManager != null && runManager.IsInStartArea;
-        text.text = opening ? "FIRST STAGE" : "NEXT STAGE";
+        text.text = "SCRIPT SELECT";
         text.alignment = TextAnchor.MiddleLeft;
         text.fontStyle = FontStyle.Bold;
         text.fontSize = 24;
@@ -432,8 +430,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             return;
 
         text.text = runManager != null && runManager.IsInStartArea
-            ? "CHOOSE ONE START ROUTE"
-            : "CHOOSE ONE HIGHLIGHTED ROUTE";
+            ? "CHOOSE THE OPENING SCRIPT"
+            : "CHOOSE THE NEXT SCRIPT";
         text.alignment = TextAnchor.MiddleLeft;
         text.fontStyle = FontStyle.Bold;
         text.fontSize = 10;
@@ -549,7 +547,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
         Text text = rect.gameObject.AddComponent<Text>();
         text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.text = "HOVER = PREVIEW   //   CLICK = SELECT";
+        text.text = "HOVER = READ   //   CLICK = SELECT SCRIPT";
         text.fontSize = 11;
         text.fontStyle = FontStyle.Bold;
         text.alignment = TextAnchor.MiddleRight;
@@ -567,7 +565,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private static string ExtractNodeType(string source)
     {
         if (string.IsNullOrWhiteSpace(source))
-            return "STAGE";
+            return "SCENE";
 
         string normalized = source.Replace("\r", string.Empty);
         int newline = normalized.IndexOf('\n');
@@ -740,7 +738,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
     private Color paperColor;
     private Color mutedColor;
     private Color baseIconColor = Color.white;
-    private string baseLabel = "STAGE";
+    private string baseLabel = "SCENE";
     private bool hovered;
     private bool selected;
     private bool trackedHover;
@@ -970,7 +968,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
         if (label != null)
         {
             label.gameObject.SetActive(true);
-            label.text = baseLabel + "\nSELECT";
+            label.text = baseLabel + "\nREAD / SELECT";
             label.color = inkColor;
             label.fontStyle = FontStyle.Bold;
         }
@@ -999,7 +997,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
         if (label != null)
         {
             label.gameObject.SetActive(true);
-            label.text = baseLabel + "\nSELECTED";
+            label.text = baseLabel + "\nSCRIPT LOCKED";
             label.color = inkColor;
             label.fontStyle = FontStyle.Bold;
         }
@@ -1023,7 +1021,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
                 }
                 if (label != null)
                 {
-                    label.text = baseLabel + "\nCURRENT";
+                    label.text = baseLabel + "\nON AIR";
                     label.color = stateAccent;
                     label.fontStyle = FontStyle.Bold;
                 }
@@ -1040,7 +1038,7 @@ internal sealed class BattleStageMapNodePointerFeedback :
                 }
                 if (label != null)
                 {
-                    label.text = baseLabel + "\nAVAILABLE";
+                    label.text = baseLabel + "\nAVAILABLE SCRIPT";
                     label.color = paperColor;
                     label.fontStyle = FontStyle.Bold;
                 }
@@ -1119,7 +1117,18 @@ internal sealed class BattleStageMapNodePointerFeedback :
             return "STAGE";
 
         string normalized = source.Replace("\r", string.Empty).Trim();
-        string[] states = { "AVAILABLE", "SELECT", "SELECTED", "CURRENT", "LOCKED" };
+        string[] states =
+        {
+            "AVAILABLE",
+            "AVAILABLE SCRIPT",
+            "SELECT",
+            "READ / SELECT",
+            "SELECTED",
+            "SCRIPT LOCKED",
+            "CURRENT",
+            "ON AIR",
+            "LOCKED"
+        };
 
         for (int i = 0; i < states.Length; i++)
         {
