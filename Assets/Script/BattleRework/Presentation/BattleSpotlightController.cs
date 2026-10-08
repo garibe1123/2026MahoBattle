@@ -112,6 +112,13 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField, Range(0f, 0.60f)] private float rewardProjectionBottomSpread = 0.28f;
     [SerializeField, Range(0f, 0.60f)] private float rewardProjectionOpacityLoss = 0.12f;
 
+    [Header("Reward Spotlight Drift")]
+    [SerializeField] private bool useRewardSpotlightDrift = true;
+    [Tooltip("아이템 Float와 정확히 겹치지 않도록 조명 Rig만 별도 위상으로 천천히 떠다니는 World 오프셋입니다.")]
+    [SerializeField] private Vector2 rewardSpotlightDriftAmplitudeWorld = new(0.055f, 0.030f);
+    [SerializeField, Min(0.02f)] private float rewardSpotlightDriftCyclesPerSecond = 0.10f;
+    [SerializeField, Range(-3.14159f, 3.14159f)] private float rewardSpotlightDriftPhaseOffset = 1.30f;
+
     [Header("Focus Fade")]
     [SerializeField, Min(0.1f)] private float combatFadeSharpness = 8f;
     [SerializeField, Min(0.1f)] private float showFadeSharpness = 6f;
@@ -611,11 +618,14 @@ public sealed class BattleSpotlightController : MonoBehaviour
                 continue;
             }
 
-            // BattleCharacterLightVisual already restored the authored size earlier
+            // BattleCharacterLightVisual already restored the authored placement earlier
             // this frame. Compose every show effect from that single baseline and
             // write the transform exactly once.
             Vector3 authoredScale =
                 beam.localScale;
+
+            Vector3 authoredPosition =
+                beam.position;
 
             float widthScale =
                 1f +
@@ -691,6 +701,33 @@ public sealed class BattleSpotlightController : MonoBehaviour
                     lengthScale,
                     authoredScale.z);
 
+            if (reward)
+            {
+                Vector2 drift =
+                    EvaluateRewardSpotlightDrift(
+                        visual);
+
+                beam.position =
+                    authoredPosition +
+                    new Vector3(
+                        drift.x,
+                        drift.y,
+                        0f);
+
+                Transform pool =
+                    visual.transform.Find(
+                        BattleCharacterLightVisual.PoolRendererName);
+
+                if (pool != null)
+                {
+                    pool.position +=
+                        new Vector3(
+                            drift.x,
+                            drift.y,
+                            0f);
+                }
+            }
+
             MaterialPropertyBlock properties;
 
             if (visual == hoveredRewardVisual)
@@ -724,6 +761,42 @@ public sealed class BattleSpotlightController : MonoBehaviour
             renderer.SetPropertyBlock(
                 properties);
         }
+    }
+
+    private Vector2 EvaluateRewardSpotlightDrift(
+        BattleCharacterLightVisual visual)
+    {
+        if (!useRewardSpotlightDrift ||
+            visual == null)
+        {
+            return Vector2.zero;
+        }
+
+        float phase =
+            Time.unscaledTime *
+            Mathf.Max(
+                0.02f,
+                rewardSpotlightDriftCyclesPerSecond) *
+            Mathf.PI *
+            2f;
+
+        phase +=
+            rewardSpotlightDriftPhaseOffset;
+
+        // A tiny stable per-item phase keeps each lamp independent without
+        // introducing frame-to-frame noise or random jitter.
+        phase +=
+            Mathf.Abs(
+                visual.GetInstanceID() % 31) *
+            0.031f;
+
+        return new Vector2(
+            Mathf.Sin(phase) *
+            rewardSpotlightDriftAmplitudeWorld.x,
+            Mathf.Sin(
+                phase * 0.71f +
+                1.17f) *
+            rewardSpotlightDriftAmplitudeWorld.y);
     }
 
     private BattleCharacterLightVisual ResolveHoveredRewardProjectionVisual(
@@ -966,12 +1039,34 @@ public sealed class BattleSpotlightController : MonoBehaviour
             frame.dimRadius = rewardDimRadius;
 
             if (showWorldSet != null && showWorldSet.RewardHoveredIndex >= 0 &&
-                showWorldSet.TryGetRewardShowcaseWorldPosition(showWorldSet.RewardHoveredIndex, out Vector3 itemWorld) &&
-                TryProjectWorldPoint(camera, itemWorld, rewardItemRadiusWorld,
-                    out frame.itemCenter, out frame.itemRadius))
+                showWorldSet.TryGetRewardShowcaseWorldPosition(showWorldSet.RewardHoveredIndex, out Vector3 itemWorld))
             {
-                frame.itemStrength = 1f;
-                frame.itemRadius *= 1f + wave * rewardFocusRadiusPulse;
+                if (rewardProjectedVisual != null)
+                {
+                    Vector2 drift =
+                        EvaluateRewardSpotlightDrift(
+                            rewardProjectedVisual);
+
+                    itemWorld +=
+                        new Vector3(
+                            drift.x,
+                            drift.y,
+                            0f);
+                }
+
+                if (TryProjectWorldPoint(
+                        camera,
+                        itemWorld,
+                        rewardItemRadiusWorld,
+                        out frame.itemCenter,
+                        out frame.itemRadius))
+                {
+                    frame.itemStrength = 1f;
+                    frame.itemRadius *=
+                        1f +
+                        wave *
+                        rewardFocusRadiusPulse;
+                }
             }
         }
         else
