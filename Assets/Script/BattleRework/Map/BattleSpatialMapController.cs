@@ -73,12 +73,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(24f, 120f)] private float scriptCardGap = 52f;
     [SerializeField, Range(0f, 24f)] private float scriptIdleFloatPixels = 7f;
     [SerializeField, Range(0.03f, 0.40f)] private float scriptIdleCyclesPerSecond = 0.10f;
-    [SerializeField, Range(1f, 24f)] private float scriptHoverLiftPixels = 13f;
-    [SerializeField, Range(1f, 1.30f)] private float scriptHoverScale = 1.13f;
-    [SerializeField, Range(0f, 28f)] private float scriptHoverDepth = 18f;
-    [SerializeField] private Vector3 scriptHoverIsoEuler = new(8f, -12f, -1.5f);
-    [SerializeField, Range(0f, 8f)] private float scriptPaperFlutterDegrees = 2.4f;
-    [SerializeField, Range(0.10f, 1.2f)] private float scriptPaperFlutterCyclesPerSecond = 0.46f;
+    [SerializeField, Range(1f, 24f)] private float scriptHoverLiftPixels = 10f;
+    [SerializeField, Range(1f, 1.20f)] private float scriptHoverScale = 1.08f;
+    [Tooltip("3D Y축 회전 대신 UI 메쉬를 사선으로 밀어 아이소 느낌을 냅니다. 카메라 방향 깊이는 전혀 바꾸지 않습니다.")]
+    [SerializeField, Range(0f, 24f)] private float scriptHoverShearPixels = 11f;
+    [SerializeField, Range(0f, 10f)] private float scriptPaperWavePixels = 4.2f;
+    [SerializeField, Range(0.05f, 1.2f)] private float scriptPaperWaveCyclesPerSecond = 0.38f;
+    [SerializeField, Range(0f, 1f)] private float scriptIdleWaveStrength = 0.24f;
+    [SerializeField, Range(0f, 2f)] private float scriptHoverRollDegrees = 0.65f;
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
     [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
@@ -1722,18 +1724,20 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         CreateScriptClip(front);
         CreateScriptCardContent(front, node, accent);
 
-        Vector3 hoverEuler =
-            scriptHoverIsoEuler;
-
         float side =
             Mathf.Abs(basePosition.x) < 0.01f
                 ? 1f
                 : Mathf.Sign(basePosition.x);
 
-        hoverEuler.y =
+        float hoverShear =
             -side *
             Mathf.Abs(
-                scriptHoverIsoEuler.y);
+                scriptHoverShearPixels);
+
+        float hoverRoll =
+            -side *
+            Mathf.Abs(
+                scriptHoverRollDegrees);
 
         float phase =
             Mathf.Abs(
@@ -1759,10 +1763,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptIdleCyclesPerSecond,
             scriptHoverLiftPixels,
             scriptHoverScale,
-            scriptHoverDepth,
-            hoverEuler,
-            scriptPaperFlutterDegrees,
-            scriptPaperFlutterCyclesPerSecond,
+            hoverShear,
+            hoverRoll,
+            scriptPaperWavePixels,
+            scriptPaperWaveCyclesPerSecond,
+            scriptIdleWaveStrength,
             accent);
     }
 
@@ -3671,11 +3676,14 @@ internal sealed class BattleScriptCardVisual :
     private float idleCyclesPerSecond;
     private float hoverLiftPixels;
     private float hoverScale;
-    private float hoverDepth;
-    private Vector3 hoverEuler;
-    private float flutterDegrees;
-    private float flutterCyclesPerSecond;
+    private float hoverShearPixels;
+    private float hoverRollDegrees;
+    private float paperWavePixels;
+    private float paperWaveCyclesPerSecond;
+    private float idleWaveStrength;
     private Color accentColor;
+
+    private BattleScriptPaperWaveEffect[] paperWaveEffects;
 
     private bool pointerHover;
     private bool trackedHover;
@@ -3703,10 +3711,11 @@ internal sealed class BattleScriptCardVisual :
         float floatCycles,
         float hoverLift,
         float selectedHoverScale,
-        float depth,
-        Vector3 isoEuler,
-        float paperFlutterDegrees,
-        float paperFlutterCycles,
+        float hoverShear,
+        float hoverRoll,
+        float wavePixels,
+        float waveCycles,
+        float idleWave,
         Color accent)
     {
         visualRoot = animatedRoot;
@@ -3747,11 +3756,14 @@ internal sealed class BattleScriptCardVisual :
         idleCyclesPerSecond = Mathf.Max(0.01f, floatCycles);
         hoverLiftPixels = Mathf.Max(0f, hoverLift);
         hoverScale = Mathf.Max(1f, selectedHoverScale);
-        hoverDepth = Mathf.Max(0f, depth);
-        hoverEuler = isoEuler;
-        flutterDegrees = Mathf.Max(0f, paperFlutterDegrees);
-        flutterCyclesPerSecond = Mathf.Max(0.01f, paperFlutterCycles);
+        hoverShearPixels = hoverShear;
+        hoverRollDegrees = hoverRoll;
+        paperWavePixels = Mathf.Max(0f, wavePixels);
+        paperWaveCyclesPerSecond = Mathf.Max(0.01f, waveCycles);
+        idleWaveStrength = Mathf.Clamp01(idleWave);
         accentColor = accent;
+
+        InstallPaperWaveEffects();
 
         if (frontPage != null)
         {
@@ -3824,7 +3836,7 @@ internal sealed class BattleScriptCardVisual :
         float motionT =
             1f -
             Mathf.Exp(
-                -10.5f *
+                -8.0f *
                 dt);
 
         float time =
@@ -3845,73 +3857,39 @@ internal sealed class BattleScriptCardVisual :
             Mathf.Sin(
                 idlePhase * 0.61f +
                 0.8f) *
-            0.65f;
-
-        float idlePitch =
-            Mathf.Sin(
-                idlePhase * 0.43f +
-                1.7f) *
-            0.85f;
+            0.32f;
 
         float targetScale =
             selected
-                ? hoverScale * 1.055f
+                ? hoverScale * 1.025f
                 : hovered
                     ? hoverScale
                     : suppressed
-                        ? 0.965f
+                        ? 0.975f
                         : 1f;
 
         float targetY =
             idleY +
             (selected
-                ? hoverLiftPixels * 1.35f
+                ? hoverLiftPixels * 1.12f
                 : hovered
                     ? hoverLiftPixels
                     : 0f);
 
-        float targetZ =
-            selected
-                ? -hoverDepth * 1.35f
-                : hovered
-                    ? -hoverDepth
-                    : suppressed
-                        ? 10f
-                        : 0f;
-
-        Vector3 targetEuler;
-
-        if (selected)
-        {
-            targetEuler =
-                new Vector3(
-                    0.4f,
-                    0f,
-                    0f);
-        }
-        else if (hovered)
-        {
-            targetEuler =
-                hoverEuler +
-                new Vector3(
-                    idlePitch * 0.35f,
-                    idleRoll * 0.20f,
-                    idleRoll * 0.16f);
-        }
-        else
-        {
-            targetEuler =
-                new Vector3(
-                    1.2f + idlePitch,
-                    idleRoll * 1.65f,
-                    idleRoll);
-        }
-
+        // Never move a World-Space UI card toward/away from the camera.
+        // Faux depth is produced only by scale + mesh shear.
         Vector3 targetPosition =
             new(
                 0f,
                 targetY,
-                targetZ);
+                0f);
+
+        float targetRoll =
+            selected
+                ? 0f
+                : hovered
+                    ? hoverRollDegrees
+                    : idleRoll;
 
         visualRoot.localPosition =
             Vector3.Lerp(
@@ -3930,7 +3908,9 @@ internal sealed class BattleScriptCardVisual :
             Quaternion.Slerp(
                 visualRoot.localRotation,
                 Quaternion.Euler(
-                    targetEuler),
+                    0f,
+                    0f,
+                    targetRoll),
                 motionT);
 
         float targetAlpha =
@@ -3949,17 +3929,125 @@ internal sealed class BattleScriptCardVisual :
                     motionT);
         }
 
-        ApplyPaperFlutter(
-            hovered,
-            selected,
-            motionT,
-            time);
+        float targetWave =
+            suppressed
+                ? paperWavePixels * 0.05f
+                : selected
+                    ? paperWavePixels * 0.16f
+                    : hovered
+                        ? paperWavePixels
+                        : paperWavePixels *
+                          idleWaveStrength;
+
+        float targetShear =
+            hovered
+                ? hoverShearPixels
+                : selected
+                    ? 0f
+                    : 0f;
+
+        ApplyPaperWave(
+            targetWave,
+            targetShear,
+            phase);
 
         ApplyStageLighting(
             hovered,
             selected,
             motionT,
             time);
+    }
+
+    private void InstallPaperWaveEffects()
+    {
+        List<BattleScriptPaperWaveEffect> effects =
+            new();
+
+        AddPaperWaveEffects(
+            frontPage,
+            effects,
+            subdividePage: true);
+
+        AddPaperWaveEffects(
+            backPageA,
+            effects,
+            subdividePage: true);
+
+        AddPaperWaveEffects(
+            backPageB,
+            effects,
+            subdividePage: true);
+
+        paperWaveEffects =
+            effects.ToArray();
+    }
+
+    private void AddPaperWaveEffects(
+        RectTransform pageRoot,
+        List<BattleScriptPaperWaveEffect> effects,
+        bool subdividePage)
+    {
+        if (pageRoot == null)
+            return;
+
+        Graphic[] graphics =
+            pageRoot.GetComponentsInChildren<Graphic>(
+                true);
+
+        for (int i = 0; i < graphics.Length; i++)
+        {
+            Graphic graphic =
+                graphics[i];
+
+            if (graphic == null)
+                continue;
+
+            BattleScriptPaperWaveEffect effect =
+                graphic.GetComponent<BattleScriptPaperWaveEffect>();
+
+            if (effect == null)
+            {
+                effect =
+                    graphic.gameObject.AddComponent<BattleScriptPaperWaveEffect>();
+            }
+
+            bool subdivide =
+                subdividePage &&
+                graphic.transform ==
+                pageRoot;
+
+            effect.Configure(
+                visualRoot,
+                subdivide,
+                phase,
+                paperWaveCyclesPerSecond);
+
+            effects.Add(
+                effect);
+        }
+    }
+
+    private void ApplyPaperWave(
+        float amplitudePixels,
+        float shearPixels,
+        float wavePhase)
+    {
+        if (paperWaveEffects == null)
+            return;
+
+        for (int i = 0; i < paperWaveEffects.Length; i++)
+        {
+            BattleScriptPaperWaveEffect effect =
+                paperWaveEffects[i];
+
+            if (effect == null)
+                continue;
+
+            effect.SetState(
+                amplitudePixels,
+                shearPixels,
+                wavePhase);
+        }
     }
 
     private void ApplyStageLighting(
@@ -4139,128 +4227,6 @@ internal sealed class BattleScriptCardVisual :
         }
     }
 
-    private void ApplyPaperFlutter(
-        bool hovered,
-        bool isSelected,
-        float t,
-        float time)
-    {
-        float activeAmount =
-            isSelected
-                ? 0.16f
-                : hovered
-                    ? 1f
-                    : 0.22f;
-
-        if (suppressed)
-            activeAmount *= 0.16f;
-
-        float flutterPhase =
-            time *
-            flutterCyclesPerSecond *
-            Mathf.PI *
-            2f +
-            phase * 1.37f;
-
-        float flutter =
-            Mathf.Sin(
-                flutterPhase) *
-            flutterDegrees *
-            activeAmount;
-
-        float secondary =
-            Mathf.Sin(
-                flutterPhase * 0.63f +
-                1.1f) *
-            flutterDegrees *
-            0.42f *
-            activeAmount;
-
-        if (frontPage != null)
-        {
-            Quaternion targetRotation =
-                baseFrontRotation *
-                Quaternion.Euler(
-                    flutter * 0.32f,
-                    secondary * 0.26f,
-                    flutter * 0.18f);
-
-            frontPage.localRotation =
-                Quaternion.Slerp(
-                    frontPage.localRotation,
-                    targetRotation,
-                    t);
-
-            Vector2 targetPosition =
-                baseFrontPosition +
-                new Vector2(
-                    secondary * 0.20f,
-                    flutter * 0.14f);
-
-            frontPage.anchoredPosition =
-                Vector2.Lerp(
-                    frontPage.anchoredPosition,
-                    targetPosition,
-                    t);
-        }
-
-        if (backPageA != null)
-        {
-            Quaternion targetRotation =
-                baseBackARotation *
-                Quaternion.Euler(
-                    -flutter * 0.24f,
-                    secondary * 0.20f,
-                    -flutter * 0.42f);
-
-            backPageA.localRotation =
-                Quaternion.Slerp(
-                    backPageA.localRotation,
-                    targetRotation,
-                    t);
-
-            Vector2 targetPosition =
-                baseBackAPosition +
-                new Vector2(
-                    -flutter * 0.35f,
-                    secondary * 0.32f);
-
-            backPageA.anchoredPosition =
-                Vector2.Lerp(
-                    backPageA.anchoredPosition,
-                    targetPosition,
-                    t);
-        }
-
-        if (backPageB != null)
-        {
-            Quaternion targetRotation =
-                baseBackBRotation *
-                Quaternion.Euler(
-                    flutter * 0.18f,
-                    -secondary * 0.18f,
-                    flutter * 0.34f);
-
-            backPageB.localRotation =
-                Quaternion.Slerp(
-                    backPageB.localRotation,
-                    targetRotation,
-                    t);
-
-            Vector2 targetPosition =
-                baseBackBPosition +
-                new Vector2(
-                    flutter * 0.26f,
-                    -secondary * 0.30f);
-
-            backPageB.anchoredPosition =
-                Vector2.Lerp(
-                    backPageB.anchoredPosition,
-                    targetPosition,
-                    t);
-        }
-    }
-
     private void ApplyImmediate()
     {
         if (visualRoot != null)
@@ -4277,6 +4243,301 @@ internal sealed class BattleScriptCardVisual :
 
         if (visualGroup != null)
             visualGroup.alpha = 0.91f;
+    }
+}
+
+
+
+internal sealed class BattleScriptPaperWaveEffect :
+    BaseMeshEffect
+{
+    private RectTransform waveRoot;
+    private bool subdividePage;
+    private float phase;
+    private float cyclesPerSecond = 0.38f;
+    private float amplitudePixels;
+    private float shearPixels;
+
+    private const int HorizontalSegments = 10;
+    private const int VerticalSegments = 14;
+
+    public void Configure(
+        RectTransform root,
+        bool subdivide,
+        float initialPhase,
+        float cycles)
+    {
+        waveRoot = root;
+        subdividePage = subdivide;
+        phase = initialPhase;
+        cyclesPerSecond =
+            Mathf.Max(
+                0.01f,
+                cycles);
+
+        if (graphic != null)
+            graphic.SetVerticesDirty();
+    }
+
+    public void SetState(
+        float amplitude,
+        float shear,
+        float wavePhase)
+    {
+        amplitudePixels =
+            Mathf.Max(
+                0f,
+                amplitude);
+
+        shearPixels =
+            shear;
+
+        phase =
+            wavePhase;
+
+        if (graphic != null)
+            graphic.SetVerticesDirty();
+    }
+
+    public override void ModifyMesh(
+        VertexHelper vh)
+    {
+        if (!IsActive() ||
+            vh == null ||
+            waveRoot == null)
+        {
+            return;
+        }
+
+        if (subdividePage &&
+            graphic is Image)
+        {
+            BuildSubdividedPage(
+                vh);
+        }
+
+        float timePhase =
+            Time.unscaledTime *
+            cyclesPerSecond *
+            Mathf.PI *
+            2f +
+            phase;
+
+        Rect rootRect =
+            waveRoot.rect;
+
+        float width =
+            Mathf.Max(
+                1f,
+                rootRect.width);
+
+        float height =
+            Mathf.Max(
+                1f,
+                rootRect.height);
+
+        UIVertex vertex =
+            new();
+
+        for (int i = 0;
+             i < vh.currentVertCount;
+             i++)
+        {
+            vh.PopulateUIVertex(
+                ref vertex,
+                i);
+
+            Vector3 world =
+                transform.TransformPoint(
+                    vertex.position);
+
+            Vector3 rootLocal =
+                waveRoot.InverseTransformPoint(
+                    world);
+
+            float u =
+                Mathf.Clamp01(
+                    (rootLocal.x -
+                     rootRect.xMin) /
+                    width);
+
+            float v =
+                Mathf.Clamp01(
+                    (rootLocal.y -
+                     rootRect.yMin) /
+                    height);
+
+            float edge =
+                Mathf.Pow(
+                    Mathf.Clamp01(
+                        Mathf.Abs(
+                            u - 0.5f) *
+                        2f),
+                    1.35f);
+
+            float edgeWeight =
+                Mathf.Lerp(
+                    0.30f,
+                    1f,
+                    edge);
+
+            float primary =
+                Mathf.Sin(
+                    u *
+                    Mathf.PI *
+                    2.15f +
+                    timePhase);
+
+            float secondary =
+                Mathf.Sin(
+                    u *
+                    Mathf.PI *
+                    4.10f -
+                    timePhase *
+                    0.63f +
+                    0.9f);
+
+            float verticalWave =
+                (primary *
+                 0.78f +
+                 secondary *
+                 0.22f) *
+                amplitudePixels *
+                edgeWeight;
+
+            float crossWave =
+                Mathf.Sin(
+                    v *
+                    Mathf.PI *
+                    1.35f +
+                    timePhase *
+                    0.71f +
+                    1.2f) *
+                amplitudePixels *
+                0.16f *
+                edgeWeight;
+
+            rootLocal.y +=
+                verticalWave;
+
+            rootLocal.x +=
+                crossWave;
+
+            rootLocal.x +=
+                shearPixels *
+                (v - 0.5f);
+
+            Vector3 deformedWorld =
+                waveRoot.TransformPoint(
+                    rootLocal);
+
+            vertex.position =
+                transform.InverseTransformPoint(
+                    deformedWorld);
+
+            vh.SetUIVertex(
+                vertex,
+                i);
+        }
+    }
+
+    private void BuildSubdividedPage(
+        VertexHelper vh)
+    {
+        Rect rect =
+            graphic.rectTransform.rect;
+
+        Color32 color =
+            graphic.color;
+
+        vh.Clear();
+
+        for (int y = 0;
+             y <= VerticalSegments;
+             y++)
+        {
+            float v =
+                y /
+                (float)VerticalSegments;
+
+            float py =
+                Mathf.Lerp(
+                    rect.yMin,
+                    rect.yMax,
+                    v);
+
+            for (int x = 0;
+                 x <= HorizontalSegments;
+                 x++)
+            {
+                float u =
+                    x /
+                    (float)HorizontalSegments;
+
+                float px =
+                    Mathf.Lerp(
+                        rect.xMin,
+                        rect.xMax,
+                        u);
+
+                UIVertex vertex =
+                    UIVertex.simpleVert;
+
+                vertex.position =
+                    new Vector3(
+                        px,
+                        py,
+                        0f);
+
+                vertex.color =
+                    color;
+
+                vertex.uv0 =
+                    new Vector2(
+                        u,
+                        v);
+
+                vh.AddVert(
+                    vertex);
+            }
+        }
+
+        int stride =
+            HorizontalSegments + 1;
+
+        for (int y = 0;
+             y < VerticalSegments;
+             y++)
+        {
+            for (int x = 0;
+                 x < HorizontalSegments;
+                 x++)
+            {
+                int a =
+                    y *
+                    stride +
+                    x;
+
+                int b =
+                    a + 1;
+
+                int c =
+                    a + stride;
+
+                int d =
+                    c + 1;
+
+                vh.AddTriangle(
+                    a,
+                    c,
+                    b);
+
+                vh.AddTriangle(
+                    b,
+                    c,
+                    d);
+            }
+        }
     }
 }
 
