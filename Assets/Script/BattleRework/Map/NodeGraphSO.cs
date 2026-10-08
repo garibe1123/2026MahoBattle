@@ -31,6 +31,14 @@ public class BattleNodeData
     [Tooltip("0이면 depth와 node type으로 자동 계산합니다. 실제 전투 표시는 항상 1~5성입니다.")]
     [Range(0, 5)] public int battleRatingStars;
 
+    [Header("Script Selection Presentation")]
+    [Tooltip("대본 선택 화면에서 표지로 사용할 이미지입니다. 비어 있으면 타입 기반 기본 표지를 사용합니다.")]
+    public Sprite scriptImage;
+    [Tooltip("대본 카드의 큰 제목입니다. 비어 있으면 Room ID 또는 Node Type을 사용합니다.")]
+    public string scriptTitle;
+    [Tooltip("대본 카드의 작은 부제/한 줄 설명입니다. 비어 있으면 Node Type 기반 문구를 사용합니다.")]
+    public string scriptSubtitle;
+
     public int GetBattleRatingStars()
     {
         if (battleRatingStars > 0)
