@@ -103,14 +103,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0f, 2f)] private float scriptCoverBaseRollDegrees = 0.20f;
 
     [Header("Script Hover 3D Pose")]
-    [SerializeField, Range(0f, 9f)] private float scriptHoverPosePitchDegrees = 4.8f;
-    [SerializeField, Range(0f, 10f)] private float scriptHoverPoseYawDegrees = 6.2f;
-    [SerializeField, Range(0f, 5f)] private float scriptHoverPoseRollDegrees = 1.7f;
-    [SerializeField, Range(0f, 0.8f)] private float scriptHoverPoseDepth = 0.28f;
+    [SerializeField, Range(0f, 5f)] private float scriptHoverPoseRollDegrees = 2.1f;
+    [SerializeField, Range(0f, 0.35f)] private float scriptHoverPoseDepth = 0.10f;
     [SerializeField, Range(2f, 24f)] private float scriptHoverPoseResponse = 9.5f;
-    [SerializeField, Range(0f, 1.5f)] private float scriptHoverPosePitchVariation = 0.65f;
-    [SerializeField, Range(0f, 2f)] private float scriptHoverPoseYawVariation = 0.90f;
-    [SerializeField, Range(0f, 1f)] private float scriptHoverPoseRollVariation = 0.40f;
+    [SerializeField, Range(0f, 1f)] private float scriptHoverPoseRollVariation = 0.36f;
 
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
@@ -1930,10 +1926,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             cameraSide *
             scriptPageDepthStep *
             2.0f,
-            new Vector3(
-                0f,
-                0f,
-                scriptCoverBaseRollDegrees));
+            Vector3.zero);
 
         coverMaskObject.AddComponent<RectMask2D>();
 
@@ -1961,6 +1954,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         front.anchoredPosition =
             Vector2.zero;
+
+        front.localRotation =
+            Quaternion.Euler(
+                0f,
+                0f,
+                scriptCoverBaseRollDegrees);
 
         shadow.SetAsFirstSibling();
 
@@ -2040,19 +2039,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         Vector3 hoverPoseEuler =
             new(
-                -scriptHoverPosePitchDegrees +
-                ScriptSigned01(
-                    scriptSeed,
-                    301) *
-                scriptHoverPosePitchVariation,
-
-                -poseSide *
-                scriptHoverPoseYawDegrees +
-                ScriptSigned01(
-                    scriptSeed,
-                    303) *
-                scriptHoverPoseYawVariation,
-
+                0f,
+                0f,
                 -poseSide *
                 scriptHoverPoseRollDegrees +
                 ScriptSigned01(
@@ -4611,10 +4599,18 @@ internal sealed class BattleScriptCardVisual :
         pageReturnDuration = Mathf.Max(0.10f, returnDuration);
         hoverPoseEuler =
             new Vector3(
-                Mathf.Clamp(poseEuler.x, -9f, 9f),
-                Mathf.Clamp(poseEuler.y, -10f, 10f),
-                Mathf.Clamp(poseEuler.z, -5f, 5f));
-        hoverPoseDepth = Mathf.Clamp(poseDepth, -0.8f, 0.8f);
+                0f,
+                0f,
+                Mathf.Clamp(
+                    poseEuler.z,
+                    -5f,
+                    5f));
+
+        hoverPoseDepth =
+            Mathf.Clamp(
+                poseDepth,
+                -0.35f,
+                0.35f);
         hoverPoseResponse = Mathf.Max(2f, poseResponse);
         accentColor = accent;
 
@@ -4624,7 +4620,10 @@ internal sealed class BattleScriptCardVisual :
                 hoverPoseRoot.localPosition;
 
             hoverPoseBaseRotation =
-                hoverPoseRoot.localRotation;
+                Quaternion.identity;
+
+            hoverPoseRoot.localRotation =
+                Quaternion.identity;
         }
 
         if (frontPage != null)
@@ -4885,9 +4884,10 @@ internal sealed class BattleScriptCardVisual :
                     : 0f;
 
         Quaternion targetRotation =
-            hoverPoseBaseRotation *
             Quaternion.Euler(
-                hoverPoseEuler *
+                0f,
+                0f,
+                hoverPoseEuler.z *
                 weight);
 
         Vector3 targetPosition =
