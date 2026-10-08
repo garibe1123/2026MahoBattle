@@ -68,6 +68,22 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField] private Color mapElite = new(1f, 0.38f, 0.20f, 1f);
     [SerializeField] private Color mapLink = new(0.30f, 0.35f, 0.43f, 0.96f);
 
+    [Header("Script Selection Cards")]
+    [SerializeField] private Vector2 scriptCardSize = new(218f, 302f);
+    [SerializeField, Range(24f, 120f)] private float scriptCardGap = 52f;
+    [SerializeField, Range(0f, 24f)] private float scriptIdleFloatPixels = 7f;
+    [SerializeField, Range(0.03f, 0.40f)] private float scriptIdleCyclesPerSecond = 0.10f;
+    [SerializeField, Range(1f, 24f)] private float scriptHoverLiftPixels = 13f;
+    [SerializeField, Range(1f, 1.30f)] private float scriptHoverScale = 1.13f;
+    [SerializeField, Range(0f, 28f)] private float scriptHoverDepth = 18f;
+    [SerializeField] private Vector3 scriptHoverIsoEuler = new(8f, -12f, -1.5f);
+    [SerializeField, Range(0f, 8f)] private float scriptPaperFlutterDegrees = 2.4f;
+    [SerializeField, Range(0.10f, 1.2f)] private float scriptPaperFlutterCyclesPerSecond = 0.46f;
+    [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
+    [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
+    [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
+    [SerializeField] private Color scriptNormalAccent = new(0.16f, 0.34f, 0.40f, 1f);
+
     [Header("32px Tile / 48px Character Test Scale")]
     [SerializeField, Min(0.5f)] private float testPlayerWorldHeight = 1.5f;
     [SerializeField, Min(0.1f)] private float testPlayerWorldColliderRadius = 0.60f;
@@ -117,6 +133,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private AudioSource mapFeedbackAudio;
     private AudioClip mapDeniedFallbackClip;
     private static Sprite mapRatingStarSprite;
+    private static Sprite scriptPaperSprite;
     private float resolvedMapHorizontalSpacing;
     private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
