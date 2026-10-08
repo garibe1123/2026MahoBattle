@@ -2886,42 +2886,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
         }
 
-        RectTransform card =
-            trackedStageMapButton.transform
-            as RectTransform;
-
-        if (card == null)
-            return;
-
-        Vector2 localCenter =
-            stageMapPanel.InverseTransformPoint(
-                card.TransformPoint(
-                    card.rect.center));
-
-        Rect panelRect =
-            stageMapPanel.rect;
-
-        Vector2 normalized =
-            new(
-                panelRect.width > 0.001f
-                    ? Mathf.Clamp(
-                        localCenter.x /
-                        (panelRect.width * 0.5f),
-                        -1f,
-                        1f)
-                    : 0f,
-                panelRect.height > 0.001f
-                    ? Mathf.Clamp(
-                        localCenter.y /
-                        (panelRect.height * 0.5f),
-                        -1f,
-                        1f)
-                    : 0f);
-
+        // Script Selection keeps the show camera fixed.
+        // Hover feedback belongs to the paper mesh/light rig only; moving the
+        // camera at the same time reintroduces edge clipping and visual twitch.
         battleCameraController?.SetMapCursorTracking(
-            true,
-            normalized *
-            0.72f);
+            false,
+            Vector2.zero);
     }
 
     private Button FindStageMapButtonUnderPointer(
