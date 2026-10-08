@@ -2042,6 +2042,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             front,
             detail,
             turningPageMesh,
+            paperStack,
             backA,
             backB,
             stageBase,
@@ -4327,6 +4328,7 @@ internal sealed class BattleScriptCardVisual :
     private RectTransform visualRoot;
     private RectTransform frontPage;
     private RectTransform detailPage;
+    private RectTransform[] stackPages = Array.Empty<RectTransform>();
     private RectTransform backPageA;
     private RectTransform backPageB;
     private RectTransform stageBase;
@@ -4372,6 +4374,11 @@ internal sealed class BattleScriptCardVisual :
     private bool suppressed;
 
     private Vector2 baseFrontPosition;
+    private Vector2 baseDetailPosition;
+    private Vector2[] baseStackPositions = Array.Empty<Vector2>();
+    private Quaternion baseDetailRotation;
+    private Quaternion[] baseStackRotations = Array.Empty<Quaternion>();
+    private Vector3[] baseStackScales = Array.Empty<Vector3>();
     private Vector2 baseBackAPosition;
     private Vector2 baseBackBPosition;
     private Quaternion baseFrontRotation;
@@ -4384,6 +4391,7 @@ internal sealed class BattleScriptCardVisual :
         RectTransform front,
         RectTransform detail,
         BattleScriptTurningPageMesh turningMesh,
+        RectTransform[] paperStack,
         RectTransform backA,
         RectTransform backB,
         RectTransform stageBaseRect,
@@ -4412,6 +4420,9 @@ internal sealed class BattleScriptCardVisual :
         frontPage = front;
         detailPage = detail;
         turningPageMesh = turningMesh;
+        stackPages =
+            paperStack ??
+            Array.Empty<RectTransform>();
         backPageA = backA;
         backPageB = backB;
         stageBase = stageBaseRect;
@@ -4491,6 +4502,47 @@ internal sealed class BattleScriptCardVisual :
 
             baseFrontRotation =
                 frontPage.localRotation;
+        }
+
+        if (detailPage != null)
+        {
+            baseDetailPosition =
+                detailPage.anchoredPosition;
+
+            baseDetailRotation =
+                detailPage.localRotation;
+        }
+
+        baseStackPositions =
+            new Vector2[
+                stackPages.Length];
+
+        baseStackRotations =
+            new Quaternion[
+                stackPages.Length];
+
+        baseStackScales =
+            new Vector3[
+                stackPages.Length];
+
+        for (int i = 0;
+             i < stackPages.Length;
+             i++)
+        {
+            RectTransform page =
+                stackPages[i];
+
+            if (page == null)
+                continue;
+
+            baseStackPositions[i] =
+                page.anchoredPosition;
+
+            baseStackRotations[i] =
+                page.localRotation;
+
+            baseStackScales[i] =
+                page.localScale;
         }
 
         InstallPaperWaveEffects();
@@ -4631,6 +4683,12 @@ internal sealed class BattleScriptCardVisual :
                 pointerCurrent,
                 pointerTarget,
                 pointerT);
+
+        UpdateUnderlyingPageTracking(
+            pointerCurrent,
+            hovered,
+            selected,
+            dt);
 
         float time =
             Time.unscaledTime;
@@ -4793,6 +4851,149 @@ internal sealed class BattleScriptCardVisual :
             selected,
             motionT,
             time);
+    }
+
+    private void UpdateUnderlyingPageTracking(
+        Vector2 pointer,
+        bool hovered,
+        bool isSelected,
+        float dt)
+    {
+        float activeWeight =
+            hovered
+                ? 1f
+                : isSelected
+                    ? 0.48f
+                    : 0f;
+
+        float response =
+            1f -
+            Mathf.Exp(
+                -9.0f *
+                Mathf.Max(
+                    0f,
+                    dt));
+
+        if (detailPage != null)
+        {
+            Vector2 targetPosition =
+                baseDetailPosition +
+                new Vector2(
+                    pointer.x * 2.8f,
+                    pointer.y * 1.7f) *
+                activeWeight;
+
+            float targetRoll =
+                (-pointer.x * 0.95f +
+                 pointer.y * 0.18f) *
+                activeWeight;
+
+            detailPage.anchoredPosition =
+                Vector2.Lerp(
+                    detailPage.anchoredPosition,
+                    targetPosition,
+                    response);
+
+            detailPage.localRotation =
+                Quaternion.Slerp(
+                    detailPage.localRotation,
+                    baseDetailRotation *
+                    Quaternion.Euler(
+                        0f,
+                        0f,
+                        targetRoll),
+                    response);
+        }
+
+        int count =
+            stackPages != null
+                ? stackPages.Length
+                : 0;
+
+        for (int i = 0;
+             i < count;
+             i++)
+        {
+            RectTransform page =
+                stackPages[i];
+
+            if (page == null)
+                continue;
+
+            float depth01 =
+                count <= 1
+                    ? 0f
+                    : i /
+                      (float)(
+                          count - 1);
+
+            // Front-most backing sheet follows the cursor most. Deeper pages
+            // progressively lag and move less so the stack reads as real paper.
+            float trackingStrength =
+                Mathf.Lerp(
+                    0.66f,
+                    0.20f,
+                    depth01) *
+                activeWeight;
+
+            float pageResponse =
+                1f -
+                Mathf.Exp(
+                    -Mathf.Lerp(
+                        8.2f,
+                        4.8f,
+                        depth01) *
+                    Mathf.Max(
+                        0f,
+                        dt));
+
+            Vector2 targetPosition =
+                baseStackPositions[i] +
+                new Vector2(
+                    pointer.x *
+                    2.15f,
+                    pointer.y *
+                    1.25f) *
+                trackingStrength;
+
+            float targetRoll =
+                (-pointer.x *
+                 Mathf.Lerp(
+                     0.72f,
+                     0.30f,
+                     depth01) +
+                 pointer.y *
+                 0.10f) *
+                trackingStrength;
+
+            page.anchoredPosition =
+                Vector2.Lerp(
+                    page.anchoredPosition,
+                    targetPosition,
+                    pageResponse);
+
+            page.localRotation =
+                Quaternion.Slerp(
+                    page.localRotation,
+                    baseStackRotations[i] *
+                    Quaternion.Euler(
+                        0f,
+                        0f,
+                        targetRoll),
+                    pageResponse);
+
+            Vector3 targetScale =
+                baseStackScales[i] *
+                (1f +
+                 0.0035f *
+                 trackingStrength);
+
+            page.localScale =
+                Vector3.Lerp(
+                    page.localScale,
+                    targetScale,
+                    pageResponse);
+        }
     }
 
     private void UpdateHoverPose(
@@ -5213,6 +5414,38 @@ internal sealed class BattleScriptCardVisual :
 
     private void ApplyImmediate()
     {
+        if (detailPage != null)
+        {
+            detailPage.anchoredPosition =
+                baseDetailPosition;
+
+            detailPage.localRotation =
+                baseDetailRotation;
+        }
+
+        if (stackPages != null)
+        {
+            for (int i = 0;
+                 i < stackPages.Length;
+                 i++)
+            {
+                RectTransform page =
+                    stackPages[i];
+
+                if (page == null)
+                    continue;
+
+                page.anchoredPosition =
+                    baseStackPositions[i];
+
+                page.localRotation =
+                    baseStackRotations[i];
+
+                page.localScale =
+                    baseStackScales[i];
+            }
+        }
+
         if (hoverPoseRoot != null)
         {
             hoverPoseRoot.localPosition =
