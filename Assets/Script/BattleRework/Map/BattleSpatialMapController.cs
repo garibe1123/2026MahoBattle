@@ -4253,7 +4253,7 @@ internal sealed class BattleScriptCardVisual :
     private RectTransform lightPool;
     private RectTransform lightBeam;
     private CanvasGroup visualGroup;
-    private CanvasGroup frontPageGroup;
+    private BattleScriptPageTurnRig pageTurnRig;
     private Image stageBaseImage;
     private Image lightPoolImage;
     private Image lightBeamImage;
@@ -4274,14 +4274,10 @@ internal sealed class BattleScriptCardVisual :
     private float idleWaveStrength;
     private float pageTurnDuration;
     private float pageReturnDuration;
-    private float pageCurlPixels;
-    private float pageCurlDepthPixels;
-    private float pageTurnRollDegrees;
     private float pageTurn01;
     private Color accentColor;
 
     private BattleScriptPaperWaveEffect[] paperWaveEffects;
-    private BattleScriptPaperWaveEffect[] frontPageWaveEffects;
 
     private bool pointerHover;
     private bool trackedHover;
@@ -4299,6 +4295,7 @@ internal sealed class BattleScriptCardVisual :
         RectTransform animatedRoot,
         RectTransform front,
         RectTransform detail,
+        BattleScriptPageTurnRig turnRig,
         RectTransform backA,
         RectTransform backB,
         RectTransform stageBaseRect,
@@ -4317,14 +4314,12 @@ internal sealed class BattleScriptCardVisual :
         float idleWave,
         float turnDuration,
         float returnDuration,
-        float curlPixels,
-        float curlDepthPixels,
-        float turnRollDegrees,
         Color accent)
     {
         visualRoot = animatedRoot;
         frontPage = front;
         detailPage = detail;
+        pageTurnRig = turnRig;
         backPageA = backA;
         backPageB = backB;
         stageBase = stageBaseRect;
@@ -4368,37 +4363,10 @@ internal sealed class BattleScriptCardVisual :
         idleWaveStrength = Mathf.Clamp01(idleWave);
         pageTurnDuration = Mathf.Max(0.08f, turnDuration);
         pageReturnDuration = Mathf.Max(0.10f, returnDuration);
-        pageCurlPixels = Mathf.Max(8f, curlPixels);
-        pageCurlDepthPixels = Mathf.Max(4f, curlDepthPixels);
-        pageTurnRollDegrees = Mathf.Max(0f, turnRollDegrees);
         accentColor = accent;
 
         if (frontPage != null)
         {
-            frontPageGroup =
-                frontPage.GetComponent<CanvasGroup>();
-
-            if (frontPageGroup == null)
-                frontPageGroup = frontPage.gameObject.AddComponent<CanvasGroup>();
-
-            frontPageGroup.interactable = false;
-            frontPageGroup.blocksRaycasts = false;
-
-            float halfHeight =
-                frontPage.rect.height *
-                0.5f;
-
-            // Hold the paper by its top edge. The lower edge is free to flap upward.
-            frontPage.pivot =
-                new Vector2(
-                    0.5f,
-                    1f);
-
-            frontPage.anchoredPosition =
-                new Vector2(
-                    0f,
-                    halfHeight);
-
             baseFrontPosition =
                 frontPage.anchoredPosition;
 
@@ -4637,76 +4605,16 @@ internal sealed class BattleScriptCardVisual :
     private void ApplyPageTurn(
         float normalized)
     {
-        if (frontPage == null)
-            return;
-
         float t =
             Mathf.Clamp01(
                 normalized);
 
-        // Keep the actual RectTransform almost fixed. The page shape is produced
-        // by the subdivided mesh so it reads as flexible paper, not a rigid card.
         float eased =
             t * t *
             (3f - 2f * t);
 
-        float flap =
-            Mathf.Sin(
-                eased *
-                Mathf.PI);
-
-        frontPage.localScale =
-            Vector3.one;
-
-        frontPage.anchoredPosition =
-            baseFrontPosition +
-            new Vector2(
-                0f,
-                flap *
-                0.8f);
-
-        frontPage.localRotation =
-            baseFrontRotation *
-            Quaternion.Euler(
-                0f,
-                0f,
-                pageTurnRollDegrees *
-                flap *
-                0.35f);
-
-        if (frontPageGroup != null)
-        {
-            // Keep the curved sheet visible through almost the whole turn.
-            // Only dissolve it after the arc has reached the top of the stack.
-            float hide =
-                Mathf.SmoothStep(
-                    0.84f,
-                    0.985f,
-                    eased);
-
-            frontPageGroup.alpha =
-                1f -
-                hide;
-        }
-
-        if (frontPageWaveEffects == null)
-            return;
-
-        for (int i = 0;
-             i < frontPageWaveEffects.Length;
-             i++)
-        {
-            BattleScriptPaperWaveEffect effect =
-                frontPageWaveEffects[i];
-
-            if (effect == null)
-                continue;
-
-            effect.SetPageCurl(
-                eased,
-                pageCurlPixels,
-                pageCurlDepthPixels);
-        }
+        pageTurnRig?.SetProgress(
+            eased);
     }
 
     private void InstallPaperWaveEffects()
@@ -4790,12 +4698,6 @@ internal sealed class BattleScriptCardVisual :
 
         paperWaveEffects =
             effects.ToArray();
-
-        frontPageWaveEffects =
-            frontPage != null
-                ? frontPage.GetComponentsInChildren<BattleScriptPaperWaveEffect>(
-                    true)
-                : Array.Empty<BattleScriptPaperWaveEffect>();
     }
 
     private void AddPaperWaveEffects(
@@ -5071,17 +4973,8 @@ internal sealed class BattleScriptCardVisual :
                 baseFrontRotation;
         }
 
-        if (frontPageGroup != null)
-            frontPageGroup.alpha = 1f;
-
-        if (frontPageWaveEffects != null)
-        {
-            for (int i = 0; i < frontPageWaveEffects.Length; i++)
-                frontPageWaveEffects[i]?.SetPageCurl(
-                    0f,
-                    pageCurlPixels,
-                    pageCurlDepthPixels);
-        }
+        pageTurnRig?.SetProgress(
+            0f);
 
         pageTurn01 = 0f;
 
