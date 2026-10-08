@@ -5557,8 +5557,8 @@ internal sealed class BattleScriptTurningPageMesh :
         {
             float contentHide =
                 Mathf.SmoothStep(
-                    0.035f,
-                    0.16f,
+                    0.12f,
+                    0.30f,
                     turn01);
 
             contentGroup.alpha =
@@ -5574,7 +5574,7 @@ internal sealed class BattleScriptTurningPageMesh :
                 canvasSortingLayerId;
 
             meshRenderer.sortingOrder =
-                turn01 < 0.54f
+                turn01 < 0.78f
                     ? canvasSortingOrder + 2
                     : canvasSortingOrder - 1;
         }
@@ -5607,35 +5607,51 @@ internal sealed class BattleScriptTurningPageMesh :
             height /
             VerticalSegments;
 
+        float progress =
+            Mathf.Clamp01(
+                turn01);
+
+        // A real top-hinged page must travel beyond 180 degrees to settle
+        // behind the detail page. 205 degrees leaves it visibly resting above
+        // the stack instead of disappearing into a flat 180-degree overlap.
+        float flipEase =
+            1f -
+            Mathf.Pow(
+                1f - progress,
+                2.15f);
+
         float baseFlip =
             Mathf.Lerp(
                 0f,
-                152f,
-                Mathf.SmoothStep(
-                    0f,
-                    1f,
-                    turn01)) *
+                205f,
+                flipEase) *
             Mathf.Deg2Rad;
 
-        float curlBell =
+        // Broad flexible curvature during the flip, plus a smaller residual
+        // curve after the page has landed behind the hinge.
+        float turnBell =
             Mathf.Sin(
-                Mathf.Clamp01(turn01) *
+                progress *
                 Mathf.PI);
 
-        float persistentCurl =
-            Mathf.Lerp(
-                0f,
-                17f,
-                Mathf.SmoothStep(
-                    0.68f,
-                    1f,
-                    turn01)) *
+        float movingCurl =
+            turnBell *
+            34f *
             Mathf.Deg2Rad;
 
-        float dynamicCurl =
-            curlBell *
-            48f *
+        float restingCurl =
+            Mathf.SmoothStep(
+                0.72f,
+                1f,
+                progress) *
+            14f *
             Mathf.Deg2Rad;
+
+        float depthCompression =
+            curveDepthPixels /
+            Mathf.Max(
+                1f,
+                height * 0.38f);
 
         for (int x = 0;
              x <= HorizontalSegments;
@@ -5654,7 +5670,8 @@ internal sealed class BattleScriptTurningPageMesh :
                 height *
                 0.5f;
 
-            float currentZ = 0f;
+            float currentZ =
+                0f;
 
             int firstIndex =
                 x *
@@ -5685,33 +5702,35 @@ internal sealed class BattleScriptTurningPageMesh :
                     (y - 0.5f) /
                     VerticalSegments;
 
-                float centerBulge =
+                // One continuous sheet: every row shares the same global flip.
+                // Only a smooth center-weighted bend changes the tangent.
+                float centerCurve =
                     Mathf.Sin(
                         sMid *
                         Mathf.PI);
 
-                float cursorLead =
+                float cursorAsymmetry =
                     pointer.x *
                     xNorm *
-                    7.5f *
+                    5.0f *
                     Mathf.Deg2Rad *
                     hoverWeight *
-                    curlBell;
+                    turnBell;
 
-                float asymmetry =
+                float seededAsymmetry =
                     sideBias *
                     xNorm *
-                    2.0f *
+                    1.4f *
                     Mathf.Deg2Rad *
-                    curlBell;
+                    turnBell;
 
                 float tangentAngle =
                     baseFlip +
-                    (dynamicCurl +
-                     persistentCurl) *
-                    centerBulge +
-                    cursorLead +
-                    asymmetry;
+                    (movingCurl +
+                     restingCurl) *
+                    centerCurve +
+                    cursorAsymmetry +
+                    seededAsymmetry;
 
                 currentY -=
                     Mathf.Cos(
@@ -5722,21 +5741,26 @@ internal sealed class BattleScriptTurningPageMesh :
                     cameraSide *
                     Mathf.Sin(
                         tangentAngle) *
-                    segmentLength;
+                    segmentLength *
+                    depthCompression;
 
                 float row01 =
                     y /
                     (float)VerticalSegments;
 
-                float lateralTwist =
+                // Tiny lateral bow only. This keeps the page organic without
+                // making columns start their turns at different times.
+                float lateralBow =
                     pointer.x *
                     Mathf.Sin(
                         row01 *
                         Mathf.PI) *
-                    2.2f *
+                    Mathf.Sin(
+                        u *
+                        Mathf.PI) *
+                    1.25f *
                     hoverWeight *
-                    (0.35f +
-                     curlBell * 0.65f);
+                    turnBell;
 
                 int index =
                     x *
@@ -5749,8 +5773,7 @@ internal sealed class BattleScriptTurningPageMesh :
                             -width * 0.5f,
                             width * 0.5f,
                             u) +
-                        lateralTwist *
-                        xNorm,
+                        lateralBow,
                         currentY,
                         currentZ);
 
@@ -5766,16 +5789,21 @@ internal sealed class BattleScriptTurningPageMesh :
 
                 float shade =
                     Mathf.Lerp(
-                        0.70f,
+                        0.68f,
                         1f,
                         facing);
 
                 Color shaded =
                     paperColor;
 
-                shaded.r *= shade;
-                shaded.g *= shade;
-                shaded.b *= shade;
+                shaded.r *=
+                    shade;
+
+                shaded.g *=
+                    shade;
+
+                shaded.b *=
+                    shade;
 
                 colors[index] =
                     shaded;
