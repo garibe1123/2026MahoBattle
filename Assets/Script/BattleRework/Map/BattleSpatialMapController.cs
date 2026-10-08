@@ -81,6 +81,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0.05f, 1.2f)] private float scriptPaperWaveCyclesPerSecond = 0.38f;
     [SerializeField, Range(0f, 1f)] private float scriptIdleWaveStrength = 0.24f;
     [SerializeField, Range(0f, 2f)] private float scriptHoverRollDegrees = 0.65f;
+
+    [Header("Script Page Turn")]
+    [SerializeField, Range(0.08f, 0.40f)] private float scriptPageTurnDuration = 0.18f;
+    [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
+    [SerializeField, Range(0f, 70f)] private float scriptPageTurnSlidePixels = 34f;
+    [SerializeField, Range(0f, 16f)] private float scriptPageTurnRollDegrees = 7.5f;
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
     [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
@@ -1712,10 +1718,23 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             visualRoot,
             paperStack.Length);
 
+        RectTransform detail =
+            CreateScriptPage(
+                visualRoot,
+                "DetailPage",
+                Color.Lerp(
+                    scriptPaperTint,
+                    Color.white,
+                    0.035f),
+                new Vector2(
+                    0.8f,
+                    -0.8f),
+                0.15f);
+
         RectTransform front =
             CreateScriptPage(
                 visualRoot,
-                "FrontPage",
+                "CoverPage",
                 scriptPaperTint,
                 Vector2.zero,
                 0f);
@@ -1727,6 +1746,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             paperStack[i].SetSiblingIndex(
                 1 + i);
         }
+
+        detail.SetSiblingIndex(
+            1 + paperStack.Length);
 
         front.SetAsLastSibling();
 
@@ -1747,6 +1769,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         CreateScriptClip(front);
         CreateScriptCardContent(front, node, accent);
+        CreateScriptDetailContent(detail, node, accent);
 
         float side =
             Mathf.Abs(basePosition.x) < 0.01f
@@ -1776,6 +1799,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         visual.Configure(
             visualRoot,
             front,
+            detail,
             backA,
             backB,
             stageBase,
@@ -1792,6 +1816,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptPaperWavePixels,
             scriptPaperWaveCyclesPerSecond,
             scriptIdleWaveStrength,
+            scriptPageTurnDuration,
+            scriptPageReturnDuration,
+            scriptPageTurnSlidePixels,
+            scriptPageTurnRollDegrees,
             accent);
     }
 
@@ -2186,23 +2214,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 new Vector2(8f, 8f));
         }
 
-        bool rated =
-            node.type == BattleNodeType.Combat ||
-            node.type == BattleNodeType.Elite;
-
-        if (rated)
-        {
-            int stars =
-                runManager != null
-                    ? runManager.ResolveBattleRatingStars(node)
-                    : node.GetBattleRatingStars();
-
-            AddScriptRatingStars(
-                front,
-                stars,
-                accent);
-        }
-
         Text footer =
             CreateScriptText(
                 front,
@@ -2234,6 +2245,287 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             new Vector2(
                 scriptCardSize.x - 24f,
                 18f);
+    }
+
+    private void CreateScriptDetailContent(
+        RectTransform detail,
+        BattleNodeData node,
+        Color accent)
+    {
+        if (detail == null ||
+            node == null)
+        {
+            return;
+        }
+
+        string title =
+            ResolveScriptTitle(
+                node);
+
+        string subtitle =
+            ResolveScriptSubtitle(
+                node);
+
+        Text header =
+            CreateScriptText(
+                detail,
+                "DetailHeader",
+                "SCENE NOTES",
+                9,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                new Color(
+                    accent.r,
+                    accent.g,
+                    accent.b,
+                    0.88f));
+
+        RectTransform headerRect =
+            header.rectTransform;
+
+        headerRect.anchorMin =
+            headerRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    1f);
+
+        headerRect.pivot =
+            new Vector2(
+                0.5f,
+                1f);
+
+        headerRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -18f);
+
+        headerRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 34f,
+                18f);
+
+        Text titleText =
+            CreateScriptText(
+                detail,
+                "DetailTitle",
+                title,
+                17,
+                FontStyle.Bold,
+                TextAnchor.UpperLeft,
+                scriptInkColor);
+
+        RectTransform titleRect =
+            titleText.rectTransform;
+
+        titleRect.anchorMin =
+            titleRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    1f);
+
+        titleRect.pivot =
+            new Vector2(
+                0.5f,
+                1f);
+
+        titleRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -42f);
+
+        titleRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 34f,
+                48f);
+
+        titleText.resizeTextForBestFit =
+            true;
+
+        titleText.resizeTextMinSize = 11;
+        titleText.resizeTextMaxSize = 17;
+
+        Text description =
+            CreateScriptText(
+                detail,
+                "DetailDescription",
+                subtitle,
+                9,
+                FontStyle.Italic,
+                TextAnchor.UpperLeft,
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.74f));
+
+        RectTransform descriptionRect =
+            description.rectTransform;
+
+        descriptionRect.anchorMin =
+            descriptionRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    1f);
+
+        descriptionRect.pivot =
+            new Vector2(
+                0.5f,
+                1f);
+
+        descriptionRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -92f);
+
+        descriptionRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 34f,
+                42f);
+
+        RectTransform divider =
+            CreateScriptStageImage(
+                detail,
+                "DetailDivider",
+                BattleHudSpriteCache.Solid32,
+                new Vector2(
+                    scriptCardSize.x - 34f,
+                    1.5f),
+                new Vector2(
+                    0f,
+                    12f),
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.22f));
+
+        divider.SetAsFirstSibling();
+
+        string roomLabel =
+            ResolveScriptRoomLabel(
+                node);
+
+        int stars =
+            runManager != null
+                ? runManager.ResolveBattleRatingStars(
+                    node)
+                : node.GetBattleRatingStars();
+
+        string detailBody =
+            $"TAKE      {Mathf.Max(1, node.depth + 1):00}\n" +
+            $"TYPE      {node.type.ToString().ToUpperInvariant()}\n" +
+            $"ROOM      {roomLabel}\n" +
+            $"RATING    {Mathf.Clamp(stars, 1, 5)} / 5";
+
+        Text body =
+            CreateScriptText(
+                detail,
+                "DetailBody",
+                detailBody,
+                10,
+                FontStyle.Normal,
+                TextAnchor.UpperLeft,
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.86f));
+
+        RectTransform bodyRect =
+            body.rectTransform;
+
+        bodyRect.anchorMin =
+            bodyRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0.5f);
+
+        bodyRect.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        bodyRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -4f);
+
+        bodyRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 38f,
+                92f);
+
+        bool rated =
+            node.type == BattleNodeType.Combat ||
+            node.type == BattleNodeType.Elite;
+
+        if (rated)
+        {
+            AddScriptRatingStars(
+                detail,
+                stars,
+                accent);
+        }
+
+        Text footer =
+            CreateScriptText(
+                detail,
+                "DetailFooter",
+                "CLICK TO LOCK THIS TAKE",
+                8,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                new Color(
+                    accent.r,
+                    accent.g,
+                    accent.b,
+                    0.76f));
+
+        RectTransform footerRect =
+            footer.rectTransform;
+
+        footerRect.anchorMin =
+            footerRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    0f);
+
+        footerRect.pivot =
+            new Vector2(
+                0.5f,
+                0f);
+
+        footerRect.anchoredPosition =
+            new Vector2(
+                0f,
+                15f);
+
+        footerRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 26f,
+                18f);
+    }
+
+    private static string ResolveScriptRoomLabel(
+        BattleNodeData node)
+    {
+        if (node == null ||
+            node.room == null ||
+            string.IsNullOrWhiteSpace(
+                node.room.roomId))
+        {
+            return "UNASSIGNED";
+        }
+
+        return node.room.roomId
+            .Replace(
+                "TEST_",
+                string.Empty)
+            .Replace(
+                '_',
+                ' ')
+            .Trim()
+            .ToUpperInvariant();
     }
 
     private Text CreateScriptText(
@@ -3711,6 +4003,7 @@ internal sealed class BattleScriptCardVisual :
 {
     private RectTransform visualRoot;
     private RectTransform frontPage;
+    private RectTransform detailPage;
     private RectTransform backPageA;
     private RectTransform backPageB;
     private RectTransform stageBase;
@@ -3735,6 +4028,11 @@ internal sealed class BattleScriptCardVisual :
     private float paperWavePixels;
     private float paperWaveCyclesPerSecond;
     private float idleWaveStrength;
+    private float pageTurnDuration;
+    private float pageReturnDuration;
+    private float pageTurnSlidePixels;
+    private float pageTurnRollDegrees;
+    private float pageTurn01;
     private Color accentColor;
 
     private BattleScriptPaperWaveEffect[] paperWaveEffects;
@@ -3754,6 +4052,7 @@ internal sealed class BattleScriptCardVisual :
     public void Configure(
         RectTransform animatedRoot,
         RectTransform front,
+        RectTransform detail,
         RectTransform backA,
         RectTransform backB,
         RectTransform stageBaseRect,
@@ -3770,10 +4069,15 @@ internal sealed class BattleScriptCardVisual :
         float wavePixels,
         float waveCycles,
         float idleWave,
+        float turnDuration,
+        float returnDuration,
+        float turnSlidePixels,
+        float turnRollDegrees,
         Color accent)
     {
         visualRoot = animatedRoot;
         frontPage = front;
+        detailPage = detail;
         backPageA = backA;
         backPageB = backB;
         stageBase = stageBaseRect;
@@ -3815,15 +4119,36 @@ internal sealed class BattleScriptCardVisual :
         paperWavePixels = Mathf.Max(0f, wavePixels);
         paperWaveCyclesPerSecond = Mathf.Max(0.01f, waveCycles);
         idleWaveStrength = Mathf.Clamp01(idleWave);
+        pageTurnDuration = Mathf.Max(0.08f, turnDuration);
+        pageReturnDuration = Mathf.Max(0.10f, returnDuration);
+        pageTurnSlidePixels = Mathf.Max(0f, turnSlidePixels);
+        pageTurnRollDegrees = Mathf.Max(0f, turnRollDegrees);
         accentColor = accent;
-
-        InstallPaperWaveEffects();
 
         if (frontPage != null)
         {
-            baseFrontPosition = frontPage.anchoredPosition;
-            baseFrontRotation = frontPage.localRotation;
+            float halfWidth =
+                frontPage.rect.width *
+                0.5f;
+
+            frontPage.pivot =
+                new Vector2(
+                    0f,
+                    0.5f);
+
+            frontPage.anchoredPosition =
+                new Vector2(
+                    -halfWidth,
+                    0f);
+
+            baseFrontPosition =
+                frontPage.anchoredPosition;
+
+            baseFrontRotation =
+                frontPage.localRotation;
         }
+
+        InstallPaperWaveEffects();
 
         if (backPageA != null)
         {
@@ -3993,6 +4318,32 @@ internal sealed class BattleScriptCardVisual :
                         : paperWavePixels *
                           idleWaveStrength;
 
+        float turnTarget =
+            hovered || selected
+                ? 1f
+                : 0f;
+
+        float turnSpeed =
+            turnTarget > pageTurn01
+                ? 1f /
+                  Mathf.Max(
+                      0.08f,
+                      pageTurnDuration)
+                : 1f /
+                  Mathf.Max(
+                      0.10f,
+                      pageReturnDuration);
+
+        pageTurn01 =
+            Mathf.MoveTowards(
+                pageTurn01,
+                turnTarget,
+                dt *
+                turnSpeed);
+
+        ApplyPageTurn(
+            pageTurn01);
+
         float targetShear =
             hovered
                 ? hoverShearPixels
@@ -4012,6 +4363,59 @@ internal sealed class BattleScriptCardVisual :
             time);
     }
 
+    private void ApplyPageTurn(
+        float normalized)
+    {
+        if (frontPage == null)
+            return;
+
+        float t =
+            Mathf.Clamp01(
+                normalized);
+
+        // Fast at the start, then settle as the cover reaches the spine.
+        float eased =
+            1f -
+            Mathf.Pow(
+                1f - t,
+                3f);
+
+        float fold =
+            Mathf.Lerp(
+                1f,
+                0.045f,
+                eased);
+
+        float lift =
+            Mathf.Sin(
+                eased *
+                Mathf.PI);
+
+        frontPage.localScale =
+            new Vector3(
+                fold,
+                1f +
+                lift *
+                0.025f,
+                1f);
+
+        frontPage.anchoredPosition =
+            baseFrontPosition +
+            new Vector2(
+                -pageTurnSlidePixels *
+                eased,
+                lift *
+                5f);
+
+        frontPage.localRotation =
+            baseFrontRotation *
+            Quaternion.Euler(
+                0f,
+                0f,
+                -pageTurnRollDegrees *
+                lift);
+    }
+
     private void InstallPaperWaveEffects()
     {
         List<BattleScriptPaperWaveEffect> effects =
@@ -4022,6 +4426,12 @@ internal sealed class BattleScriptCardVisual :
             effects,
             subdividePage: true,
             amplitudeMultiplier: 1f);
+
+        AddPaperWaveEffects(
+            detailPage,
+            effects,
+            subdividePage: true,
+            amplitudeMultiplier: 0.38f);
 
         if (visualRoot != null)
         {
@@ -4349,6 +4759,20 @@ internal sealed class BattleScriptCardVisual :
             visualRoot.localRotation =
                 Quaternion.identity;
         }
+
+        if (frontPage != null)
+        {
+            frontPage.localScale =
+                Vector3.one;
+
+            frontPage.anchoredPosition =
+                baseFrontPosition;
+
+            frontPage.localRotation =
+                baseFrontRotation;
+        }
+
+        pageTurn01 = 0f;
 
         if (visualGroup != null)
             visualGroup.alpha = 0.91f;
