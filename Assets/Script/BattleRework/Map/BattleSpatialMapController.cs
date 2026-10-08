@@ -85,18 +85,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [Header("Script Page Turn")]
     [SerializeField, Range(0.08f, 0.40f)] private float scriptPageTurnDuration = 0.18f;
     [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
-    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageCurlPixels")]
-    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnSlidePixels")]
-    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnLiftPixels")]
-    [SerializeField, Range(18f, 72f)] private float scriptPageRollHeightPixels = 36f;
-    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageCurlDepthPixels")]
-    [SerializeField, Range(3f, 24f)] private float scriptTurnedPageOffsetPixels = 10f;
-    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnRollDegrees")]
-    [SerializeField, Range(0f, 8f)] private float scriptTurnedPageRollDegrees = 2.2f;
 
     [Header("Script Paper 3D Layering")]
     [SerializeField, Range(0.10f, 1.50f)] private float scriptPageDepthStep = 0.38f;
-    [SerializeField, Range(0.25f, 3.0f)] private float scriptCurlDepth = 1.15f;
     [SerializeField, Range(0f, 10f)] private float scriptStackRandomOffsetPixels = 5.5f;
     [SerializeField, Range(0f, 3f)] private float scriptStackRandomRollDegrees = 1.35f;
     [SerializeField, Range(0f, 3f)] private float scriptDetailBaseRollDegrees = 1.15f;
@@ -1844,48 +1835,31 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         GameObject turningPageObject =
             new(
-                "TurningCoverMesh",
-                typeof(RectTransform));
+                "TurningCoverMesh");
 
         turningPageObject.transform.SetParent(
             visualRoot,
             false);
 
-        RectTransform turningPageRect =
-            turningPageObject.GetComponent<RectTransform>();
+        Transform turningPageTransform =
+            turningPageObject.transform;
 
-        turningPageRect.anchorMin =
-            turningPageRect.anchorMax =
-                new Vector2(
-                    0.5f,
-                    0.5f);
+        turningPageTransform.localPosition =
+            new Vector3(
+                0f,
+                0f,
+                cameraSide *
+                scriptPageDepthStep *
+                2.0f);
 
-        turningPageRect.pivot =
-            new Vector2(
-                    0.5f,
-                    0.5f);
+        turningPageTransform.localRotation =
+            Quaternion.identity;
 
-        turningPageRect.sizeDelta =
-            scriptCardSize;
-
-        turningPageRect.anchoredPosition =
-            Vector2.zero;
-
-        SetScriptPage3DTransform(
-            turningPageRect,
-            cameraSide *
-            scriptPageDepthStep *
-            2.0f,
-            Vector3.zero);
+        turningPageTransform.localScale =
+            Vector3.one;
 
         BattleScriptTurningPageMesh turningPageMesh =
             turningPageObject.AddComponent<BattleScriptTurningPageMesh>();
-
-        turningPageMesh.color =
-            scriptPaperTint;
-
-        turningPageMesh.raycastTarget =
-            false;
 
         GameObject coverContentObject =
             new(
@@ -1893,28 +1867,40 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 typeof(RectTransform));
 
         coverContentObject.transform.SetParent(
-            turningPageRect,
+            visualRoot,
             false);
 
         RectTransform front =
             coverContentObject.GetComponent<RectTransform>();
 
         front.anchorMin =
-            Vector2.zero;
+            new Vector2(
+                0.5f,
+                0.5f);
 
         front.anchorMax =
-            Vector2.one;
+            new Vector2(
+                0.5f,
+                0.5f);
 
         front.pivot =
             new Vector2(
                 0.5f,
                 0.5f);
 
-        front.offsetMin =
+        front.sizeDelta =
+            scriptCardSize;
+
+        front.anchoredPosition =
             Vector2.zero;
 
-        front.offsetMax =
-            Vector2.zero;
+        front.localPosition =
+            new Vector3(
+                0f,
+                0f,
+                cameraSide *
+                scriptPageDepthStep *
+                2.15f);
 
         front.localRotation =
             Quaternion.Euler(
@@ -1931,6 +1917,25 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         coverContentGroup.blocksRaycasts =
             false;
 
+        Canvas parentCanvas =
+            visualRoot.GetComponentInParent<Canvas>();
+
+        Canvas coverCanvas =
+            coverContentObject.AddComponent<Canvas>();
+
+        coverCanvas.overrideSorting =
+            true;
+
+        if (parentCanvas != null)
+        {
+            coverCanvas.sortingLayerID =
+                parentCanvas.sortingLayerID;
+
+            coverCanvas.sortingOrder =
+                parentCanvas.sortingOrder +
+                3;
+        }
+
         shadow.SetAsFirstSibling();
 
         for (int i = 0; i < paperStack.Length; i++)
@@ -1942,13 +1947,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         detail.SetSiblingIndex(
             1 + paperStack.Length);
 
-        turningPageRect.SetAsLastSibling();
-
         CreateScriptClip(front);
         CreateScriptCardContent(front, node, accent);
         CreateScriptDetailContent(detail, node, accent);
 
         turningPageMesh.Configure(
+            scriptCardSize,
+            scriptPaperTint,
             cameraSide,
             scriptTurningMeshDepthPixels,
             -cameraSide *
@@ -1959,6 +1964,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptTurningMeshRollDegrees,
             scriptTurningMeshPoseResponse,
             coverContentGroup,
+            parentCanvas,
             ScriptSigned01(
                 scriptSeed,
                 211));
@@ -2038,165 +2044,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             cameraSide * scriptHoverPoseDepth,
             scriptHoverPoseResponse,
             accent);
-    }
-
-    private BattleScriptPageTurnRig CreateScriptPageTurnRig(
-        RectTransform visualRoot,
-        RectTransform coverMask,
-        RectTransform coverPage,
-        RectTransform detailPage,
-        RectTransform turnedPageBack,
-        CanvasGroup turnedPageBackGroup,
-        float rollHeight,
-        float turnedOffset,
-        float turnedRoll,
-        float cameraSide,
-        float curlDepth,
-        float curlPhaseBias)
-    {
-        GameObject curlRootObject =
-            new(
-                "PageTurnCurl",
-                typeof(RectTransform));
-
-        curlRootObject.transform.SetParent(
-            visualRoot,
-            false);
-
-        RectTransform curlRoot =
-            curlRootObject.GetComponent<RectTransform>();
-
-        curlRoot.anchorMin =
-            curlRoot.anchorMax =
-                new Vector2(
-                    0.5f,
-                    0.5f);
-
-        curlRoot.pivot =
-            new Vector2(
-                    0.5f,
-                    0.5f);
-
-        curlRoot.sizeDelta =
-            scriptCardSize;
-
-        curlRoot.anchoredPosition =
-            Vector2.zero;
-
-        CanvasGroup curlGroup =
-            curlRootObject.AddComponent<CanvasGroup>();
-
-        curlGroup.alpha = 0f;
-        curlGroup.interactable = false;
-        curlGroup.blocksRaycasts = false;
-
-        const int stripCount = 9;
-
-        for (int i = 0; i < stripCount; i++)
-        {
-            GameObject stripObject =
-                new(
-                    $"CurlStrip_{i:00}",
-                    typeof(RectTransform));
-
-            stripObject.transform.SetParent(
-                curlRoot,
-                false);
-
-            RectTransform strip =
-                stripObject.GetComponent<RectTransform>();
-
-            strip.anchorMin =
-                strip.anchorMax =
-                    new Vector2(
-                        0.5f,
-                        0.5f);
-
-            strip.pivot =
-                new Vector2(
-                    0.5f,
-                    0.5f);
-
-            strip.sizeDelta =
-                new Vector2(
-                    scriptCardSize.x,
-                    Mathf.Max(
-                        3f,
-                        rollHeight /
-                        stripCount *
-                        1.35f));
-
-            Image image =
-                stripObject.AddComponent<Image>();
-
-            image.sprite =
-                GetScriptPaperSprite();
-
-            image.type =
-                Image.Type.Simple;
-
-            float depth01 =
-                i /
-                (float)(
-                    stripCount - 1);
-
-            float shade =
-                Mathf.Lerp(
-                    0.72f,
-                    1.02f,
-                    Mathf.Sin(
-                        depth01 *
-                        Mathf.PI));
-
-            image.color =
-                new Color(
-                    scriptPaperTint.r * shade,
-                    scriptPaperTint.g * shade,
-                    scriptPaperTint.b * shade,
-                    1f);
-
-            image.raycastTarget = false;
-        }
-
-        RectTransform curlShadow =
-            CreateScriptStageImage(
-                curlRoot,
-                "CurlShadow",
-                null,
-                new Vector2(
-                    scriptCardSize.x * 0.94f,
-                    8f),
-                Vector2.zero,
-                new Color(
-                    0f,
-                    0f,
-                    0f,
-                    0.20f));
-
-        curlShadow.SetAsFirstSibling();
-
-        BattleScriptPageTurnRig rig =
-            visualRoot.gameObject.AddComponent<BattleScriptPageTurnRig>();
-
-        rig.Configure(
-            visualRoot,
-            coverMask,
-            coverPage,
-            detailPage,
-            curlRoot,
-            curlGroup,
-            curlShadow,
-            turnedPageBack,
-            turnedPageBackGroup,
-            scriptCardSize,
-            rollHeight,
-            turnedOffset,
-            turnedRoll,
-            cameraSide,
-            curlDepth,
-            curlPhaseBias);
-
-        return rig;
     }
 
     private float ResolveScriptCameraFacingSide(
@@ -5371,463 +5218,24 @@ internal sealed class BattleScriptCardVisual :
 
 
 
-internal sealed class BattleScriptPageTurnRig :
+internal sealed class BattleScriptTurningPageMesh :
     MonoBehaviour
 {
-    private RectTransform visualRoot;
-    private RectTransform coverMask;
-    private RectTransform coverPage;
-    private RectTransform detailPage;
-    private RectTransform curlRoot;
-    private CanvasGroup curlGroup;
-    private RectTransform curlShadow;
-    private RectTransform turnedPageBack;
-    private CanvasGroup turnedPageBackGroup;
-
-    private RectTransform[] curlStrips =
-        Array.Empty<RectTransform>();
-
-    private Vector2 cardSize;
-    private float rollHeight;
-    private float turnedOffset;
-    private float turnedRoll;
-    private float cameraSide = 1f;
-    private float curlDepth = 7f;
-    private float curlPhaseBias;
-
-    private Vector2 coverMaskBasePosition;
-    private Vector2 coverPageBasePosition;
-    private Vector2 turnedPageBasePosition;
-    private Vector3 detailBaseLocalPosition;
-    private Quaternion detailBaseRotation;
-    private Vector3 turnedPageBaseLocalPosition;
-    private Quaternion turnedPageBaseRotation;
-    private Vector3 turnedPageBaseScale;
-
-    public void Configure(
-        RectTransform root,
-        RectTransform mask,
-        RectTransform cover,
-        RectTransform detail,
-        RectTransform curl,
-        CanvasGroup curlCanvasGroup,
-        RectTransform shadow,
-        RectTransform turnedBack,
-        CanvasGroup turnedBackGroup,
-        Vector2 size,
-        float rollHeightPixels,
-        float turnedOffsetPixels,
-        float turnedRollDegrees,
-        float cameraFacingSide,
-        float curlDepthUnits,
-        float phaseBias)
-    {
-        visualRoot = root;
-        coverMask = mask;
-        coverPage = cover;
-        detailPage = detail;
-        curlRoot = curl;
-        curlGroup = curlCanvasGroup;
-        curlShadow = shadow;
-        turnedPageBack = turnedBack;
-        turnedPageBackGroup = turnedBackGroup;
-
-        cardSize = size;
-        rollHeight =
-            Mathf.Max(
-                12f,
-                rollHeightPixels);
-
-        turnedOffset =
-            Mathf.Max(
-                0f,
-                turnedOffsetPixels);
-
-        turnedRoll =
-            turnedRollDegrees;
-
-        cameraSide =
-            Mathf.Abs(
-                cameraFacingSide) > 0.001f
-                ? Mathf.Sign(
-                    cameraFacingSide)
-                : 1f;
-
-        curlDepth =
-            Mathf.Max(
-                1f,
-                curlDepthUnits);
-
-        curlPhaseBias =
-            Mathf.Clamp(
-                phaseBias,
-                -1f,
-                1f);
-
-        if (coverMask != null)
-            coverMaskBasePosition =
-                coverMask.anchoredPosition;
-
-        if (coverPage != null)
-            coverPageBasePosition =
-                coverPage.anchoredPosition;
-
-        if (detailPage != null)
-        {
-            detailBaseLocalPosition =
-                detailPage.localPosition;
-
-            detailBaseRotation =
-                detailPage.localRotation;
-        }
-
-        if (turnedPageBack != null)
-        {
-            turnedPageBasePosition =
-                turnedPageBack.anchoredPosition;
-
-            turnedPageBaseLocalPosition =
-                turnedPageBack.localPosition;
-
-            turnedPageBaseRotation =
-                turnedPageBack.localRotation;
-
-            turnedPageBaseScale =
-                turnedPageBack.localScale;
-        }
-
-        if (curlRoot != null)
-        {
-            List<RectTransform> strips =
-                new();
-
-            for (int i = 0;
-                 i < curlRoot.childCount;
-                 i++)
-            {
-                RectTransform child =
-                    curlRoot.GetChild(i)
-                    as RectTransform;
-
-                if (child == null ||
-                    !child.name.StartsWith(
-                        "CurlStrip_",
-                        StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                strips.Add(
-                    child);
-            }
-
-            curlStrips =
-                strips.ToArray();
-        }
-
-        SetProgress(
-            0f);
-    }
-
-    public void SetProgress(
-        float normalized)
-    {
-        float t =
-            Mathf.Clamp01(
-                normalized);
-
-        float open =
-            t * t *
-            (3f - 2f * t);
-
-        float topY =
-            cardSize.y *
-            0.5f;
-
-        float visibleHeight =
-            Mathf.Max(
-                0.75f,
-                cardSize.y *
-                (1f - open));
-
-        float creaseY =
-            topY -
-            visibleHeight;
-
-        if (coverMask != null)
-        {
-            coverMask.sizeDelta =
-                new Vector2(
-                    cardSize.x +
-                    2f,
-                    visibleHeight);
-
-            coverMask.anchoredPosition =
-                coverMaskBasePosition;
-        }
-
-        if (coverPage != null)
-        {
-            coverPage.anchoredPosition =
-                coverPageBasePosition;
-        }
-
-        float curlVisibility =
-            Mathf.Clamp01(
-                Mathf.Sin(
-                    t *
-                    Mathf.PI) *
-                1.28f);
-
-        if (curlGroup != null)
-            curlGroup.alpha =
-                curlVisibility;
-
-        if (curlRoot != null)
-            curlRoot.anchoredPosition =
-                Vector2.zero;
-
-        int stripCount =
-            curlStrips != null
-                ? curlStrips.Length
-                : 0;
-
-        for (int i = 0;
-             i < stripCount;
-             i++)
-        {
-            RectTransform strip =
-                curlStrips[i];
-
-            if (strip == null)
-                continue;
-
-            float s =
-                stripCount <= 1
-                    ? 0.5f
-                    : i /
-                      (float)(
-                          stripCount - 1);
-
-            float angle =
-                Mathf.Lerp(
-                    -1.20f,
-                    1.20f,
-                    s);
-
-            float arcY =
-                Mathf.Sin(
-                    angle) *
-                rollHeight *
-                0.42f;
-
-            float crown =
-                Mathf.Cos(
-                    angle);
-
-            float widthScale =
-                Mathf.Lerp(
-                    0.94f,
-                    1.015f,
-                    Mathf.Clamp01(
-                        crown));
-
-            float handLead =
-                Mathf.SmoothStep(
-                    0f,
-                    1f,
-                    t) *
-                Mathf.Sin(
-                    s *
-                    Mathf.PI) *
-                2.2f;
-
-            strip.anchoredPosition =
-                new Vector2(
-                    handLead,
-                    creaseY +
-                    arcY);
-
-            float crown01 =
-                Mathf.Clamp01(
-                    crown);
-
-            float depth =
-                cameraSide *
-                curlDepth *
-                crown01 *
-                curlVisibility;
-
-            Vector3 stripLocal =
-                strip.localPosition;
-
-            stripLocal.z =
-                depth;
-
-            strip.localPosition =
-                stripLocal;
-
-            Vector2 size =
-                strip.sizeDelta;
-
-            size.x =
-                cardSize.x *
-                widthScale;
-
-            size.y =
-                Mathf.Max(
-                    2.5f,
-                    rollHeight /
-                    Mathf.Max(
-                        1,
-                        stripCount) *
-                    Mathf.Lerp(
-                        0.80f,
-                        1.28f,
-                        Mathf.Clamp01(
-                            crown)));
-
-            strip.sizeDelta =
-                size;
-
-            float pitch =
-                angle *
-                Mathf.Rad2Deg *
-                0.115f *
-                curlVisibility;
-
-            float yaw =
-                curlPhaseBias *
-                0.65f *
-                crown01 *
-                curlVisibility;
-
-            float roll =
-                -angle *
-                Mathf.Rad2Deg *
-                0.028f *
-                curlVisibility;
-
-            strip.localRotation =
-                Quaternion.Euler(
-                    pitch,
-                    yaw,
-                    roll);
-
-            strip.localScale =
-                new Vector3(
-                    1f,
-                    Mathf.Lerp(
-                        0.82f,
-                        1f,
-                        Mathf.Clamp01(
-                            crown)),
-                    1f);
-        }
-
-        if (curlShadow != null)
-        {
-            curlShadow.anchoredPosition =
-                new Vector2(
-                    0f,
-                    creaseY -
-                    rollHeight *
-                    0.18f);
-
-            curlShadow.sizeDelta =
-                new Vector2(
-                    cardSize.x *
-                    Mathf.Lerp(
-                        0.90f,
-                        0.97f,
-                        curlVisibility),
-                    Mathf.Lerp(
-                        3f,
-                        10f,
-                        curlVisibility));
-        }
-
-        float settle =
-            Mathf.SmoothStep(
-                0.52f,
-                0.96f,
-                t);
-
-        if (turnedPageBackGroup != null)
-            turnedPageBackGroup.alpha =
-                settle;
-
-        if (turnedPageBack != null)
-        {
-            Vector3 turnedTarget =
-                turnedPageBaseLocalPosition +
-                new Vector3(
-                    2.5f * settle,
-                    turnedOffset * settle,
-                    -cameraSide *
-                    0.28f *
-                    settle);
-
-            turnedPageBack.localPosition =
-                Vector3.Lerp(
-                    turnedPageBaseLocalPosition,
-                    turnedTarget,
-                    settle);
-
-            turnedPageBack.localRotation =
-                Quaternion.Slerp(
-                    turnedPageBaseRotation,
-                    turnedPageBaseRotation *
-                    Quaternion.Euler(
-                        0f,
-                        0f,
-                        -turnedRoll * settle),
-                    settle);
-
-            turnedPageBack.localScale =
-                Vector3.Lerp(
-                    turnedPageBaseScale *
-                    0.985f,
-                    turnedPageBaseScale,
-                    settle);
-        }
-
-        if (detailPage != null)
-        {
-            Vector3 detailTarget =
-                detailBaseLocalPosition +
-                new Vector3(
-                    curlPhaseBias * 0.85f * open,
-                    0.65f * open,
-                    cameraSide * 0.22f * open);
-
-            detailPage.localPosition =
-                Vector3.Lerp(
-                    detailBaseLocalPosition,
-                    detailTarget,
-                    open);
-
-            detailPage.localRotation =
-                Quaternion.Slerp(
-                    detailBaseRotation,
-                    detailBaseRotation *
-                    Quaternion.Euler(
-                        0f,
-                        0f,
-                        -0.24f *
-                        curlPhaseBias *
-                        open),
-                    open);
-        }
-    }
-}
-
-
-internal sealed class BattleScriptTurningPageMesh :
-    MaskableGraphic
-{
     private const int HorizontalSegments = 14;
-    private const int VerticalSegments = 24;
+    private const int VerticalSegments = 28;
+
+    private MeshFilter meshFilter;
+    private MeshRenderer meshRenderer;
+    private Mesh mesh;
+    private Material material;
+
+    private Vector3[] vertices;
+    private Vector2[] uvs;
+    private Color32[] colors;
+    private int[] triangles;
+
+    private Vector2 pageSize;
+    private Color paperColor = Color.white;
 
     private float turn01;
     private Vector2 pointer;
@@ -5843,6 +5251,9 @@ internal sealed class BattleScriptTurningPageMesh :
     private float sideBias;
 
     private CanvasGroup contentGroup;
+    private Canvas parentCanvas;
+    private int canvasSortingOrder;
+    private int canvasSortingLayerId;
 
     private Vector3 baseLocalPosition;
     private Quaternion baseLocalRotation;
@@ -5852,6 +5263,8 @@ internal sealed class BattleScriptTurningPageMesh :
     private float currentRoll;
 
     public void Configure(
+        Vector2 size,
+        Color color,
         float cameraFacingSide,
         float curveDepth,
         float backDepth,
@@ -5860,45 +5273,46 @@ internal sealed class BattleScriptTurningPageMesh :
         float rollDegrees,
         float response,
         CanvasGroup coverContentGroup,
+        Canvas owningCanvas,
         float deterministicSideBias)
     {
+        pageSize =
+            new Vector2(
+                Mathf.Max(1f, size.x),
+                Mathf.Max(1f, size.y));
+
+        paperColor =
+            color;
+
         cameraSide =
             Mathf.Abs(
                 cameraFacingSide) > 0.001f
-                ? Mathf.Sign(
-                    cameraFacingSide)
+                ? Mathf.Sign(cameraFacingSide)
                 : 1f;
 
         curveDepthPixels =
-            Mathf.Max(
-                1f,
-                curveDepth);
+            Mathf.Max(1f, curveDepth);
 
         backDepthOffset =
             backDepth;
 
         maxPitchDegrees =
-            Mathf.Max(
-                0f,
-                pitchDegrees);
+            Mathf.Max(0f, pitchDegrees);
 
         maxYawDegrees =
-            Mathf.Max(
-                0f,
-                yawDegrees);
+            Mathf.Max(0f, yawDegrees);
 
         maxRollDegrees =
-            Mathf.Max(
-                0f,
-                rollDegrees);
+            Mathf.Max(0f, rollDegrees);
 
         poseResponse =
-            Mathf.Max(
-                2f,
-                response);
+            Mathf.Max(2f, response);
 
         contentGroup =
             coverContentGroup;
+
+        parentCanvas =
+            owningCanvas;
 
         sideBias =
             Mathf.Clamp(
@@ -5907,12 +5321,14 @@ internal sealed class BattleScriptTurningPageMesh :
                 1f);
 
         baseLocalPosition =
-            rectTransform.localPosition;
+            transform.localPosition;
 
         baseLocalRotation =
-            rectTransform.localRotation;
+            transform.localRotation;
 
-        SetVerticesDirty();
+        EnsureRenderer();
+        BuildTopology();
+        RebuildMesh();
     }
 
     public void SetState(
@@ -5921,25 +5337,151 @@ internal sealed class BattleScriptTurningPageMesh :
         float interactionWeight)
     {
         turn01 =
-            Mathf.Clamp01(
-                normalizedTurn);
+            Mathf.Clamp01(normalizedTurn);
 
         pointer =
             new Vector2(
-                Mathf.Clamp(
-                    normalizedPointer.x,
-                    -1f,
-                    1f),
-                Mathf.Clamp(
-                    normalizedPointer.y,
-                    -1f,
-                    1f));
+                Mathf.Clamp(normalizedPointer.x, -1f, 1f),
+                Mathf.Clamp(normalizedPointer.y, -1f, 1f));
 
         hoverWeight =
-            Mathf.Clamp01(
-                interactionWeight);
+            Mathf.Clamp01(interactionWeight);
 
-        SetVerticesDirty();
+        RebuildMesh();
+    }
+
+    private void EnsureRenderer()
+    {
+        meshFilter =
+            GetComponent<MeshFilter>();
+
+        if (meshFilter == null)
+            meshFilter =
+                gameObject.AddComponent<MeshFilter>();
+
+        meshRenderer =
+            GetComponent<MeshRenderer>();
+
+        if (meshRenderer == null)
+            meshRenderer =
+                gameObject.AddComponent<MeshRenderer>();
+
+        mesh =
+            new Mesh
+            {
+                name = "RuntimeScriptTurningPage",
+                hideFlags = HideFlags.HideAndDontSave
+            };
+
+        mesh.MarkDynamic();
+        meshFilter.sharedMesh = mesh;
+
+        Shader shader =
+            Shader.Find("Sprites/Default");
+
+        if (shader == null)
+            shader =
+                Shader.Find("Unlit/Transparent");
+
+        if (shader != null)
+        {
+            material =
+                new Material(shader)
+                {
+                    name = "RuntimeScriptTurningPageMaterial",
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+
+            material.mainTexture =
+                Texture2D.whiteTexture;
+
+            material.color =
+                Color.white;
+
+            meshRenderer.sharedMaterial =
+                material;
+        }
+
+        if (parentCanvas != null)
+        {
+            canvasSortingLayerId =
+                parentCanvas.sortingLayerID;
+
+            canvasSortingOrder =
+                parentCanvas.sortingOrder;
+
+            meshRenderer.sortingLayerID =
+                canvasSortingLayerId;
+        }
+    }
+
+    private void BuildTopology()
+    {
+        int columnCount =
+            HorizontalSegments + 1;
+
+        int rowCount =
+            VerticalSegments + 1;
+
+        int vertexCount =
+            columnCount *
+            rowCount;
+
+        vertices =
+            new Vector3[
+                vertexCount];
+
+        uvs =
+            new Vector2[
+                vertexCount];
+
+        colors =
+            new Color32[
+                vertexCount];
+
+        triangles =
+            new int[
+                HorizontalSegments *
+                VerticalSegments *
+                6];
+
+        int tri = 0;
+
+        for (int x = 0; x < HorizontalSegments; x++)
+        {
+            for (int y = 0; y < VerticalSegments; y++)
+            {
+                int a =
+                    x *
+                    rowCount +
+                    y;
+
+                int b =
+                    (x + 1) *
+                    rowCount +
+                    y;
+
+                int c =
+                    a + 1;
+
+                int d =
+                    b + 1;
+
+                triangles[tri++] = a;
+                triangles[tri++] = c;
+                triangles[tri++] = b;
+
+                triangles[tri++] = b;
+                triangles[tri++] = c;
+                triangles[tri++] = d;
+            }
+        }
+
+        mesh.Clear();
+        mesh.vertices = vertices;
+        mesh.uv = uvs;
+        mesh.colors32 = colors;
+        mesh.triangles = triangles;
     }
 
     private void Update()
@@ -5949,7 +5491,7 @@ internal sealed class BattleScriptTurningPageMesh :
                 0f,
                 Time.unscaledDeltaTime);
 
-        float t =
+        float response =
             1f -
             Mathf.Exp(
                 -poseResponse *
@@ -5974,21 +5516,21 @@ internal sealed class BattleScriptTurningPageMesh :
             Mathf.Lerp(
                 currentPitch,
                 targetPitch,
-                t);
+                response);
 
         currentYaw =
             Mathf.Lerp(
                 currentYaw,
                 targetYaw,
-                t);
+                response);
 
         currentRoll =
             Mathf.Lerp(
                 currentRoll,
                 targetRoll,
-                t);
+                response);
 
-        rectTransform.localRotation =
+        transform.localRotation =
             baseLocalRotation *
             Quaternion.Euler(
                 currentPitch,
@@ -6008,15 +5550,15 @@ internal sealed class BattleScriptTurningPageMesh :
             backDepthOffset *
             backSettle;
 
-        rectTransform.localPosition =
+        transform.localPosition =
             local;
 
         if (contentGroup != null)
         {
             float contentHide =
                 Mathf.SmoothStep(
-                    0.10f,
-                    0.34f,
+                    0.035f,
+                    0.16f,
                     turn01);
 
             contentGroup.alpha =
@@ -6024,46 +5566,76 @@ internal sealed class BattleScriptTurningPageMesh :
                 contentHide;
         }
 
+        if (meshRenderer != null)
+        {
+            // Before the page passes vertical it must cover the detail page.
+            // After that point it becomes the physical sheet resting behind it.
+            meshRenderer.sortingLayerID =
+                canvasSortingLayerId;
+
+            meshRenderer.sortingOrder =
+                turn01 < 0.54f
+                    ? canvasSortingOrder + 2
+                    : canvasSortingOrder - 1;
+        }
+
         if (hoverWeight > 0.001f ||
             turn01 > 0.001f)
         {
-            SetVerticesDirty();
+            RebuildMesh();
         }
     }
 
-    protected override void OnPopulateMesh(
-        VertexHelper vh)
+    private void RebuildMesh()
     {
-        vh.Clear();
+        if (mesh == null ||
+            vertices == null)
+        {
+            return;
+        }
 
-        Rect rect =
-            rectTransform.rect;
+        int rowCount =
+            VerticalSegments + 1;
 
         float width =
-            Mathf.Max(
-                1f,
-                rect.width);
+            pageSize.x;
 
         float height =
-            Mathf.Max(
-                1f,
-                rect.height);
+            pageSize.y;
 
         float segmentLength =
             height /
             VerticalSegments;
 
-        float[] yPositions =
-            new float[
-                VerticalSegments + 1];
+        float baseFlip =
+            Mathf.Lerp(
+                0f,
+                152f,
+                Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    turn01)) *
+            Mathf.Deg2Rad;
 
-        float[] zPositions =
-            new float[
-                VerticalSegments + 1];
+        float curlBell =
+            Mathf.Sin(
+                Mathf.Clamp01(turn01) *
+                Mathf.PI);
 
-        float[] rowAngles =
-            new float[
-                VerticalSegments + 1];
+        float persistentCurl =
+            Mathf.Lerp(
+                0f,
+                17f,
+                Mathf.SmoothStep(
+                    0.68f,
+                    1f,
+                    turn01)) *
+            Mathf.Deg2Rad;
+
+        float dynamicCurl =
+            curlBell *
+            48f *
+            Mathf.Deg2Rad;
 
         for (int x = 0;
              x <= HorizontalSegments;
@@ -6078,216 +5650,157 @@ internal sealed class BattleScriptTurningPageMesh :
                 2f -
                 1f;
 
-            yPositions[0] =
-                rect.yMax;
+            float currentY =
+                height *
+                0.5f;
 
-            zPositions[0] =
-                0f;
+            float currentZ = 0f;
 
-            rowAngles[0] =
-                0f;
+            int firstIndex =
+                x *
+                rowCount;
+
+            vertices[firstIndex] =
+                new Vector3(
+                    Mathf.Lerp(
+                        -width * 0.5f,
+                        width * 0.5f,
+                        u),
+                    currentY,
+                    currentZ);
+
+            uvs[firstIndex] =
+                new Vector2(
+                    u,
+                    1f);
+
+            colors[firstIndex] =
+                paperColor;
 
             for (int y = 1;
                  y <= VerticalSegments;
                  y++)
             {
-                float downMid =
+                float sMid =
                     (y - 0.5f) /
                     VerticalSegments;
 
-                float sideLead =
+                float centerBulge =
+                    Mathf.Sin(
+                        sMid *
+                        Mathf.PI);
+
+                float cursorLead =
                     pointer.x *
                     xNorm *
-                    0.10f *
-                    hoverWeight;
+                    7.5f *
+                    Mathf.Deg2Rad *
+                    hoverWeight *
+                    curlBell;
 
-                sideLead +=
+                float asymmetry =
                     sideBias *
                     xNorm *
-                    0.025f;
+                    2.0f *
+                    Mathf.Deg2Rad *
+                    curlBell;
 
-                float startTime =
-                    Mathf.Clamp(
-                        (1f - downMid) *
-                        0.62f -
-                        sideLead,
-                        0f,
-                        0.92f);
+                float tangentAngle =
+                    baseFlip +
+                    (dynamicCurl +
+                     persistentCurl) *
+                    centerBulge +
+                    cursorLead +
+                    asymmetry;
 
-                float localProgress =
-                    Mathf.Clamp01(
-                        (turn01 - startTime) /
-                        Mathf.Max(
-                            0.001f,
-                            1f - startTime));
-
-                float eased =
-                    localProgress *
-                    localProgress *
-                    (3f -
-                     2f *
-                     localProgress);
-
-                float angle =
-                    Mathf.PI *
-                    eased;
-
-                rowAngles[y] =
-                    angle;
-
-                yPositions[y] =
-                    yPositions[y - 1] -
+                currentY -=
                     Mathf.Cos(
-                        angle) *
+                        tangentAngle) *
                     segmentLength;
 
-                float depthScale =
-                    curveDepthPixels /
-                    Mathf.Max(
-                        1f,
-                        height *
-                        0.36f);
-
-                zPositions[y] =
-                    zPositions[y - 1] +
+                currentZ +=
                     cameraSide *
                     Mathf.Sin(
-                        angle) *
-                    segmentLength *
-                    depthScale;
-            }
+                        tangentAngle) *
+                    segmentLength;
 
-            for (int y = 0;
-                 y <= VerticalSegments;
-                 y++)
-            {
-                float v =
+                float row01 =
                     y /
                     (float)VerticalSegments;
 
-                float baseX =
-                    Mathf.Lerp(
-                        rect.xMin,
-                        rect.xMax,
-                        u);
+                float lateralTwist =
+                    pointer.x *
+                    Mathf.Sin(
+                        row01 *
+                        Mathf.PI) *
+                    2.2f *
+                    hoverWeight *
+                    (0.35f +
+                     curlBell * 0.65f);
 
-                float angle =
-                    rowAngles[y];
+                int index =
+                    x *
+                    rowCount +
+                    y;
+
+                vertices[index] =
+                    new Vector3(
+                        Mathf.Lerp(
+                            -width * 0.5f,
+                            width * 0.5f,
+                            u) +
+                        lateralTwist *
+                        xNorm,
+                        currentY,
+                        currentZ);
+
+                uvs[index] =
+                    new Vector2(
+                        u,
+                        1f - row01);
 
                 float facing =
                     Mathf.Abs(
                         Mathf.Cos(
-                            angle));
+                            tangentAngle));
 
                 float shade =
                     Mathf.Lerp(
-                        0.76f,
+                        0.70f,
                         1f,
                         facing);
 
-                float freeEdge =
-                    1f -
-                    v;
+                Color shaded =
+                    paperColor;
 
-                float idleWave =
-                    Mathf.Sin(
-                        Time.unscaledTime *
-                        0.85f +
-                        u *
-                        Mathf.PI *
-                        2.2f +
-                        sideBias *
-                        1.7f) *
-                    0.85f *
-                    (1f - turn01) *
-                    freeEdge;
+                shaded.r *= shade;
+                shaded.g *= shade;
+                shaded.b *= shade;
 
-                float handBias =
-                    pointer.x *
-                    Mathf.SmoothStep(
-                        0.28f,
-                        1f,
-                        freeEdge) *
-                    Mathf.Sin(
-                        u *
-                        Mathf.PI) *
-                    1.15f *
-                    hoverWeight;
-
-                UIVertex vertex =
-                    UIVertex.simpleVert;
-
-                vertex.position =
-                    new Vector3(
-                        baseX +
-                        handBias,
-                        yPositions[y] +
-                        idleWave,
-                        zPositions[y]);
-
-                Color vertexColor =
-                    color;
-
-                vertexColor.r *=
-                    shade;
-
-                vertexColor.g *=
-                    shade;
-
-                vertexColor.b *=
-                    shade;
-
-                vertex.color =
-                    vertexColor;
-
-                vertex.uv0 =
-                    new Vector2(
-                        u,
-                        1f - v);
-
-                vh.AddVert(
-                    vertex);
+                colors[index] =
+                    shaded;
             }
         }
 
-        int stride =
-            VerticalSegments + 1;
+        mesh.vertices =
+            vertices;
 
-        for (int x = 0;
-             x < HorizontalSegments;
-             x++)
-        {
-            for (int y = 0;
-                 y < VerticalSegments;
-                 y++)
-            {
-                int a =
-                    x *
-                    stride +
-                    y;
+        mesh.uv =
+            uvs;
 
-                int b =
-                    (x + 1) *
-                    stride +
-                    y;
+        mesh.colors32 =
+            colors;
 
-                int c =
-                    a + 1;
+        mesh.RecalculateBounds();
+    }
 
-                int d =
-                    b + 1;
+    private void OnDestroy()
+    {
+        if (mesh != null)
+            Destroy(mesh);
 
-                vh.AddTriangle(
-                    a,
-                    c,
-                    b);
-
-                vh.AddTriangle(
-                    b,
-                    c,
-                    d);
-            }
-        }
+        if (material != null)
+            Destroy(material);
     }
 }
 
