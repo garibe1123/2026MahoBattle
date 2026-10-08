@@ -1833,6 +1833,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 scriptDetailBaseRollDegrees +
                 detailRandomRoll));
 
+        CanvasGroup detailGroup =
+            detail.gameObject.AddComponent<CanvasGroup>();
+
+        detailGroup.alpha = 0f;
+        detailGroup.interactable = false;
+        detailGroup.blocksRaycasts = false;
+
         GameObject turningPageObject =
             new(
                 "TurningCoverMesh");
@@ -1964,6 +1971,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptTurningMeshRollDegrees,
             scriptTurningMeshPoseResponse,
             coverContentGroup,
+            detailGroup,
             parentCanvas,
             ScriptSigned01(
                 scriptSeed,
@@ -5251,6 +5259,7 @@ internal sealed class BattleScriptTurningPageMesh :
     private float sideBias;
 
     private CanvasGroup contentGroup;
+    private CanvasGroup detailGroup;
     private Canvas parentCanvas;
     private int canvasSortingOrder;
     private int canvasSortingLayerId;
@@ -5273,6 +5282,7 @@ internal sealed class BattleScriptTurningPageMesh :
         float rollDegrees,
         float response,
         CanvasGroup coverContentGroup,
+        CanvasGroup detailPageGroup,
         Canvas owningCanvas,
         float deterministicSideBias)
     {
@@ -5310,6 +5320,12 @@ internal sealed class BattleScriptTurningPageMesh :
 
         contentGroup =
             coverContentGroup;
+
+        detailGroup =
+            detailPageGroup;
+
+        if (detailGroup != null)
+            detailGroup.alpha = 0f;
 
         parentCanvas =
             owningCanvas;
@@ -5549,7 +5565,7 @@ internal sealed class BattleScriptTurningPageMesh :
         local.z +=
             backDepthOffset *
             backSettle *
-            0.32f;
+            0.16f;
 
         transform.localPosition =
             local;
@@ -5558,13 +5574,24 @@ internal sealed class BattleScriptTurningPageMesh :
         {
             float contentHide =
                 Mathf.SmoothStep(
-                    0.22f,
-                    0.46f,
+                    0.14f,
+                    0.31f,
                     turn01);
 
             contentGroup.alpha =
                 1f -
                 contentHide;
+        }
+
+        if (detailGroup != null)
+        {
+            // Hidden while the intact cover is still readable. The production
+            // notes only appear once the cover has visibly lifted away.
+            detailGroup.alpha =
+                Mathf.SmoothStep(
+                    0.27f,
+                    0.56f,
+                    turn01);
         }
 
         if (meshRenderer != null)
@@ -5575,7 +5602,7 @@ internal sealed class BattleScriptTurningPageMesh :
                 canvasSortingLayerId;
 
             meshRenderer.sortingOrder =
-                turn01 < 0.74f
+                turn01 < 0.70f
                     ? canvasSortingOrder + 2
                     : canvasSortingOrder - 1;
         }
@@ -5612,12 +5639,11 @@ internal sealed class BattleScriptTurningPageMesh :
             Mathf.Clamp01(
                 turn01);
 
-        // Hold the intact sheet briefly, then accelerate through the flip.
-        // This avoids the current "instant image swap" feeling.
+        // Keep a complete readable sheet briefly, then lift it in one motion.
         float liftProgress =
             Mathf.Clamp01(
-                (progress - 0.10f) /
-                0.90f);
+                (progress - 0.08f) /
+                0.92f);
 
         float flipEase =
             liftProgress *
@@ -5626,13 +5652,13 @@ internal sealed class BattleScriptTurningPageMesh :
              2f *
              liftProgress);
 
-        // Do not finish as a flat 180~205 degree board.
-        // 150 degrees gets the sheet behind the hinge, while the per-row
-        // resting curl below bends the free half back downward behind it.
+        // The hinge itself only goes somewhat past vertical. The free lower
+        // half then continues around the back, producing a compact S-curve
+        // instead of a giant page standing above the card.
         float baseFlip =
             Mathf.Lerp(
                 0f,
-                150f,
+                124f,
                 flipEase) *
             Mathf.Deg2Rad;
 
@@ -5643,20 +5669,21 @@ internal sealed class BattleScriptTurningPageMesh :
 
         float movingCurl =
             turnBell *
-            30f *
+            27f *
             Mathf.Deg2Rad;
 
         float settle =
             Mathf.SmoothStep(
-                0.62f,
+                0.58f,
                 1f,
                 progress);
 
-        // Strong residual bend is intentional: the final page should occupy
-        // roughly half the projected height and visibly curl down behind.
+        // At rest the lower half reaches roughly 338 degrees:
+        // it has gone over the top and is travelling downward again behind
+        // the stack, which is the missing behaviour in the previous version.
         float restingCurl =
             settle *
-            92f *
+            214f *
             Mathf.Deg2Rad;
 
         float depthCompression =
@@ -5738,8 +5765,8 @@ internal sealed class BattleScriptTurningPageMesh :
 
                 float lowerHalf =
                     Mathf.SmoothStep(
-                        0.36f,
-                        1f,
+                        0.30f,
+                        0.96f,
                         sMid);
 
                 float transitionCurl =
@@ -5748,8 +5775,9 @@ internal sealed class BattleScriptTurningPageMesh :
 
                 float foldedBackCurl =
                     restingCurl *
-                    lowerHalf *
-                    lowerHalf;
+                    Mathf.Pow(
+                        lowerHalf,
+                        1.18f);
 
                 float tangentAngle =
                     baseFlip +
@@ -5815,7 +5843,7 @@ internal sealed class BattleScriptTurningPageMesh :
 
                 float shade =
                     Mathf.Lerp(
-                        0.68f,
+                        0.88f,
                         1f,
                         facing);
 
