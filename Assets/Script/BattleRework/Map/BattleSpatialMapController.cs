@@ -83,8 +83,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0f, 2f)] private float scriptHoverRollDegrees = 0.65f;
 
     [Header("Script Page Turn")]
-    [SerializeField, Range(0.08f, 0.40f)] private float scriptPageTurnDuration = 0.18f;
-    [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
+    [SerializeField, Range(0.30f, 0.80f)] private float scriptPageTurnDuration = 0.46f;
+    [SerializeField, Range(0.24f, 0.70f)] private float scriptPageReturnDuration = 0.34f;
 
     [Header("Script Paper 3D Layering")]
     [SerializeField, Range(0.10f, 1.50f)] private float scriptPageDepthStep = 0.38f;
@@ -4405,8 +4405,8 @@ internal sealed class BattleScriptCardVisual :
         paperWavePixels = Mathf.Max(0f, wavePixels);
         paperWaveCyclesPerSecond = Mathf.Max(0.01f, waveCycles);
         idleWaveStrength = Mathf.Clamp01(idleWave);
-        pageTurnDuration = Mathf.Max(0.08f, turnDuration);
-        pageReturnDuration = Mathf.Max(0.10f, returnDuration);
+        pageTurnDuration = Mathf.Max(0.38f, turnDuration);
+        pageReturnDuration = Mathf.Max(0.28f, returnDuration);
         hoverPoseEuler =
             new Vector3(
                 0f,
@@ -5539,7 +5539,7 @@ internal sealed class BattleScriptTurningPageMesh :
 
         float backSettle =
             Mathf.SmoothStep(
-                0.72f,
+                0.74f,
                 1f,
                 turn01);
 
@@ -5548,7 +5548,8 @@ internal sealed class BattleScriptTurningPageMesh :
 
         local.z +=
             backDepthOffset *
-            backSettle;
+            backSettle *
+            0.32f;
 
         transform.localPosition =
             local;
@@ -5557,8 +5558,8 @@ internal sealed class BattleScriptTurningPageMesh :
         {
             float contentHide =
                 Mathf.SmoothStep(
-                    0.12f,
-                    0.30f,
+                    0.22f,
+                    0.46f,
                     turn01);
 
             contentGroup.alpha =
@@ -5574,7 +5575,7 @@ internal sealed class BattleScriptTurningPageMesh :
                 canvasSortingLayerId;
 
             meshRenderer.sortingOrder =
-                turn01 < 0.78f
+                turn01 < 0.74f
                     ? canvasSortingOrder + 2
                     : canvasSortingOrder - 1;
         }
@@ -5611,40 +5612,51 @@ internal sealed class BattleScriptTurningPageMesh :
             Mathf.Clamp01(
                 turn01);
 
-        // A real top-hinged page must travel beyond 180 degrees to settle
-        // behind the detail page. 205 degrees leaves it visibly resting above
-        // the stack instead of disappearing into a flat 180-degree overlap.
-        float flipEase =
-            1f -
-            Mathf.Pow(
-                1f - progress,
-                2.15f);
+        // Hold the intact sheet briefly, then accelerate through the flip.
+        // This avoids the current "instant image swap" feeling.
+        float liftProgress =
+            Mathf.Clamp01(
+                (progress - 0.10f) /
+                0.90f);
 
+        float flipEase =
+            liftProgress *
+            liftProgress *
+            (3f -
+             2f *
+             liftProgress);
+
+        // Do not finish as a flat 180~205 degree board.
+        // 150 degrees gets the sheet behind the hinge, while the per-row
+        // resting curl below bends the free half back downward behind it.
         float baseFlip =
             Mathf.Lerp(
                 0f,
-                205f,
+                150f,
                 flipEase) *
             Mathf.Deg2Rad;
 
-        // Broad flexible curvature during the flip, plus a smaller residual
-        // curve after the page has landed behind the hinge.
         float turnBell =
             Mathf.Sin(
-                progress *
+                liftProgress *
                 Mathf.PI);
 
         float movingCurl =
             turnBell *
-            34f *
+            30f *
             Mathf.Deg2Rad;
 
-        float restingCurl =
+        float settle =
             Mathf.SmoothStep(
-                0.72f,
+                0.62f,
                 1f,
-                progress) *
-            14f *
+                progress);
+
+        // Strong residual bend is intentional: the final page should occupy
+        // roughly half the projected height and visibly curl down behind.
+        float restingCurl =
+            settle *
+            92f *
             Mathf.Deg2Rad;
 
         float depthCompression =
@@ -5724,11 +5736,25 @@ internal sealed class BattleScriptTurningPageMesh :
                     Mathf.Deg2Rad *
                     turnBell;
 
+                float lowerHalf =
+                    Mathf.SmoothStep(
+                        0.36f,
+                        1f,
+                        sMid);
+
+                float transitionCurl =
+                    movingCurl *
+                    centerCurve;
+
+                float foldedBackCurl =
+                    restingCurl *
+                    lowerHalf *
+                    lowerHalf;
+
                 float tangentAngle =
                     baseFlip +
-                    (movingCurl +
-                     restingCurl) *
-                    centerCurve +
+                    transitionCurl +
+                    foldedBackCurl +
                     cursorAsymmetry +
                     seededAsymmetry;
 
