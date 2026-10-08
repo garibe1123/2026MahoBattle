@@ -1411,7 +1411,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (font == null)
             return;
 
-        // The old "SCRIPT SELECT" headline is intentionally removed.
+        // The old selection headline is intentionally removed.
         // Keep only a quiet context line so the floating paper stack is the visual focus.
         GameObject subtitle = new("Subtitle", typeof(RectTransform));
         subtitle.transform.SetParent(stageMapPanel, false);
