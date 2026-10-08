@@ -143,6 +143,33 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         ? baseTemplate.FixedTileOriginWorld
         : new Vector3(currentBaseWorldTile.x, currentBaseWorldTile.y, 0f);
 
+
+    public bool TryGetHoveredScriptWorldPosition(
+        out Vector3 worldPosition)
+    {
+        worldPosition = Vector3.zero;
+
+        if (!mapSelectionActive ||
+            trackedStageMapButton == null ||
+            !trackedStageMapButton.gameObject.activeInHierarchy)
+        {
+            return false;
+        }
+
+        RectTransform rect =
+            trackedStageMapButton.transform
+            as RectTransform;
+
+        if (rect == null)
+            return false;
+
+        worldPosition =
+            rect.TransformPoint(
+                rect.rect.center);
+
+        return true;
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void CreateRuntimeHost()
     {
