@@ -108,6 +108,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(2f, 24f)] private float scriptHoverPoseResponse = 9.5f;
     [SerializeField, Range(0f, 1f)] private float scriptHoverPoseRollVariation = 0.36f;
 
+    [Header("Turning Cover Mesh")]
+    [SerializeField, Range(8f, 48f)] private float scriptTurningMeshDepthPixels = 24f;
+    [SerializeField, Range(0f, 9f)] private float scriptTurningMeshPitchDegrees = 5.2f;
+    [SerializeField, Range(0f, 12f)] private float scriptTurningMeshYawDegrees = 7.2f;
+    [SerializeField, Range(0f, 5f)] private float scriptTurningMeshRollDegrees = 2.0f;
+    [SerializeField, Range(2f, 28f)] private float scriptTurningMeshPoseResponse = 12f;
+
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
     [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
@@ -1803,61 +1810,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             visualRoot,
             paperStack.Length);
 
-        RectTransform turnedPageBack =
-            CreateScriptPage(
-                visualRoot,
-                "TurnedPageBack",
-                Color.Lerp(
-                    scriptPaperTint,
-                    Color.white,
-                    0.025f),
-                new Vector2(
-                    4f,
-                    7f),
-                -1.4f);
-
-        float turnedRandomX =
-            ScriptSigned01(
-                scriptSeed,
-                101);
-
-        float turnedRandomY =
-            ScriptSigned01(
-                scriptSeed,
-                103);
-
-        float turnedRandomRoll =
-            ScriptSigned01(
-                scriptSeed,
-                107);
-
-        turnedPageBack.anchoredPosition +=
-            new Vector2(
-                turnedRandomX *
-                scriptStackRandomOffsetPixels *
-                0.72f,
-                turnedRandomY *
-                scriptStackRandomOffsetPixels *
-                0.52f);
-
-        SetScriptPage3DTransform(
-            turnedPageBack,
-            cameraSide *
-            (-scriptPageDepthStep * 0.85f),
-            new Vector3(
-                0f,
-                0f,
-                -1.0f +
-                turnedRandomRoll *
-                scriptStackRandomRollDegrees));
-
-        CanvasGroup turnedPageBackGroup =
-            turnedPageBack.gameObject.AddComponent<CanvasGroup>();
-
-        turnedPageBackGroup.alpha = 0f;
-        turnedPageBackGroup.interactable = false;
-        turnedPageBackGroup.blocksRaycasts = false;
-
         float detailRandomRoll =
             ScriptSigned01(
                 scriptSeed,
@@ -1890,69 +1842,78 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 scriptDetailBaseRollDegrees +
                 detailRandomRoll));
 
-        GameObject coverMaskObject =
+        GameObject turningPageObject =
             new(
-                "CoverClip",
+                "TurningCoverMesh",
                 typeof(RectTransform));
 
-        coverMaskObject.transform.SetParent(
+        turningPageObject.transform.SetParent(
             visualRoot,
             false);
 
-        RectTransform coverMask =
-            coverMaskObject.GetComponent<RectTransform>();
+        RectTransform turningPageRect =
+            turningPageObject.GetComponent<RectTransform>();
 
-        coverMask.anchorMin =
-            coverMask.anchorMax =
+        turningPageRect.anchorMin =
+            turningPageRect.anchorMax =
                 new Vector2(
                     0.5f,
                     0.5f);
 
-        coverMask.pivot =
+        turningPageRect.pivot =
             new Vector2(
-                0.5f,
-                1f);
+                    0.5f,
+                    0.5f);
 
-        coverMask.sizeDelta =
+        turningPageRect.sizeDelta =
             scriptCardSize;
 
-        coverMask.anchoredPosition =
-            new Vector2(
-                0f,
-                scriptCardSize.y * 0.5f);
+        turningPageRect.anchoredPosition =
+            Vector2.zero;
 
         SetScriptPage3DTransform(
-            coverMask,
+            turningPageRect,
             cameraSide *
             scriptPageDepthStep *
             2.0f,
             Vector3.zero);
 
-        coverMaskObject.AddComponent<RectMask2D>();
+        BattleScriptTurningPageMesh turningPageMesh =
+            turningPageObject.AddComponent<BattleScriptTurningPageMesh>();
+
+        turningPageMesh.color =
+            scriptPaperTint;
+
+        turningPageMesh.raycastTarget =
+            false;
+
+        GameObject coverContentObject =
+            new(
+                "CoverContent",
+                typeof(RectTransform));
+
+        coverContentObject.transform.SetParent(
+            turningPageRect,
+            false);
 
         RectTransform front =
-            CreateScriptPage(
-                coverMask,
-                "CoverPage",
-                scriptPaperTint,
-                Vector2.zero,
-                0f);
+            coverContentObject.GetComponent<RectTransform>();
 
         front.anchorMin =
-            front.anchorMax =
-                new Vector2(
-                    0.5f,
-                    1f);
+            Vector2.zero;
+
+        front.anchorMax =
+            Vector2.one;
 
         front.pivot =
             new Vector2(
                 0.5f,
-                1f);
+                0.5f);
 
-        front.sizeDelta =
-            scriptCardSize;
+        front.offsetMin =
+            Vector2.zero;
 
-        front.anchoredPosition =
+        front.offsetMax =
             Vector2.zero;
 
         front.localRotation =
@@ -1960,6 +1921,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 0f,
                 0f,
                 scriptCoverBaseRollDegrees);
+
+        CanvasGroup coverContentGroup =
+            coverContentObject.AddComponent<CanvasGroup>();
+
+        coverContentGroup.interactable =
+            false;
+
+        coverContentGroup.blocksRaycasts =
+            false;
 
         shadow.SetAsFirstSibling();
 
@@ -1969,47 +1939,29 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 1 + i);
         }
 
-        turnedPageBack.SetSiblingIndex(
+        detail.SetSiblingIndex(
             1 + paperStack.Length);
 
-        detail.SetSiblingIndex(
-            2 + paperStack.Length);
-
-        coverMask.SetAsLastSibling();
-
-        Outline frontOutline =
-            front.gameObject.AddComponent<Outline>();
-
-        frontOutline.effectColor =
-            new Color(
-                accent.r,
-                accent.g,
-                accent.b,
-                0.38f);
-
-        frontOutline.effectDistance =
-            new Vector2(2f, -2f);
-
-        frontOutline.useGraphicAlpha = false;
+        turningPageRect.SetAsLastSibling();
 
         CreateScriptClip(front);
         CreateScriptCardContent(front, node, accent);
         CreateScriptDetailContent(detail, node, accent);
 
-        BattleScriptPageTurnRig pageTurnRig =
-            CreateScriptPageTurnRig(
-                visualRoot,
-                coverMask,
-                front,
-                detail,
-                turnedPageBack,
-                turnedPageBackGroup,
-                scriptPageRollHeightPixels,
-                scriptTurnedPageOffsetPixels,
-                scriptTurnedPageRollDegrees,
-                cameraSide,
-                scriptCurlDepth,
-                ScriptSigned01(scriptSeed, 211));
+        turningPageMesh.Configure(
+            cameraSide,
+            scriptTurningMeshDepthPixels,
+            -cameraSide *
+            scriptPageDepthStep *
+            3.2f,
+            scriptTurningMeshPitchDegrees,
+            scriptTurningMeshYawDegrees,
+            scriptTurningMeshRollDegrees,
+            scriptTurningMeshPoseResponse,
+            coverContentGroup,
+            ScriptSigned01(
+                scriptSeed,
+                211));
 
         float side =
             Mathf.Abs(basePosition.x) < 0.01f
@@ -2063,7 +2015,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             visualRoot,
             front,
             detail,
-            pageTurnRig,
+            turningPageMesh,
             backA,
             backB,
             stageBase,
@@ -3797,6 +3749,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         trackedStageMapPointerAnchor =
             pointer;
+
+        BattleScriptCardVisual visual =
+            button != null
+                ? button.GetComponent<BattleScriptCardVisual>()
+                : null;
+
+        visual?.SetPointerScreenPosition(
+            pointer,
+            ResolveStageMapEventCamera());
     }
 
     private void ClearTrackedStageMapHover()
@@ -4477,7 +4438,7 @@ internal sealed class BattleScriptCardVisual :
     private RectTransform lightPool;
     private RectTransform lightBeam;
     private CanvasGroup visualGroup;
-    private BattleScriptPageTurnRig pageTurnRig;
+    private BattleScriptTurningPageMesh turningPageMesh;
     private Image stageBaseImage;
     private Image lightPoolImage;
     private Image lightBeamImage;
@@ -4499,6 +4460,8 @@ internal sealed class BattleScriptCardVisual :
     private float pageTurnDuration;
     private float pageReturnDuration;
     private float pageTurn01;
+    private Vector2 pointerTarget;
+    private Vector2 pointerCurrent;
     private Vector3 hoverPoseEuler;
     private float hoverPoseDepth;
     private float hoverPoseResponse;
@@ -4525,7 +4488,7 @@ internal sealed class BattleScriptCardVisual :
         RectTransform animatedRoot,
         RectTransform front,
         RectTransform detail,
-        BattleScriptPageTurnRig turnRig,
+        BattleScriptTurningPageMesh turningMesh,
         RectTransform backA,
         RectTransform backB,
         RectTransform stageBaseRect,
@@ -4553,7 +4516,7 @@ internal sealed class BattleScriptCardVisual :
         visualRoot = animatedRoot;
         frontPage = front;
         detailPage = detail;
-        pageTurnRig = turnRig;
+        turningPageMesh = turningMesh;
         backPageA = backA;
         backPageB = backB;
         stageBase = stageBaseRect;
@@ -4655,6 +4618,59 @@ internal sealed class BattleScriptCardVisual :
     public void SetTrackedHover(bool value)
     {
         trackedHover = value;
+
+        if (!value &&
+            !pointerHover)
+        {
+            pointerTarget =
+                Vector2.zero;
+        }
+    }
+
+    public void SetPointerScreenPosition(
+        Vector2 screenPosition,
+        Camera eventCamera)
+    {
+        RectTransform interactionRect =
+            transform as RectTransform;
+
+        if (interactionRect == null)
+            return;
+
+        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
+                interactionRect,
+                screenPosition,
+                eventCamera,
+                out Vector2 localPoint))
+        {
+            return;
+        }
+
+        Rect rect =
+            interactionRect.rect;
+
+        float halfWidth =
+            Mathf.Max(
+                1f,
+                rect.width * 0.5f);
+
+        float halfHeight =
+            Mathf.Max(
+                1f,
+                rect.height * 0.5f);
+
+        pointerTarget =
+            new Vector2(
+                Mathf.Clamp(
+                    localPoint.x /
+                    halfWidth,
+                    -1f,
+                    1f),
+                Mathf.Clamp(
+                    localPoint.y /
+                    halfHeight,
+                    -1f,
+                    1f));
     }
 
     public void SetSelected(bool value)
@@ -4682,6 +4698,10 @@ internal sealed class BattleScriptCardVisual :
     {
         if (!selected)
             pointerHover = false;
+
+        if (!trackedHover)
+            pointerTarget =
+                Vector2.zero;
     }
 
     private void Update()
@@ -4704,6 +4724,18 @@ internal sealed class BattleScriptCardVisual :
             Mathf.Exp(
                 -8.0f *
                 dt);
+
+        float pointerT =
+            1f -
+            Mathf.Exp(
+                -12f *
+                dt);
+
+        pointerCurrent =
+            Vector2.Lerp(
+                pointerCurrent,
+                pointerTarget,
+                pointerT);
 
         float time =
             Time.unscaledTime;
@@ -4930,22 +4962,26 @@ internal sealed class BattleScriptCardVisual :
             t * t *
             (3f - 2f * t);
 
-        pageTurnRig?.SetProgress(
-            eased);
+        float hoverWeight =
+            suppressed
+                ? 0f
+                : selected
+                    ? 0.62f
+                    : pointerHover ||
+                      trackedHover
+                        ? 1f
+                        : 0f;
+
+        turningPageMesh?.SetState(
+            eased,
+            pointerCurrent,
+            hoverWeight);
     }
 
     private void InstallPaperWaveEffects()
     {
         List<BattleScriptPaperWaveEffect> effects =
             new();
-
-        AddPaperWaveEffects(
-            frontPage,
-            effects,
-            subdividePage: true,
-            amplitudeMultiplier: 1f,
-            phaseOffset: 0f,
-            cycleMultiplier: 1.0f);
 
         AddPaperWaveEffects(
             detailPage,
@@ -5315,7 +5351,15 @@ internal sealed class BattleScriptCardVisual :
                 baseFrontRotation;
         }
 
-        pageTurnRig?.SetProgress(
+        pointerTarget =
+            Vector2.zero;
+
+        pointerCurrent =
+            Vector2.zero;
+
+        turningPageMesh?.SetState(
+            0f,
+            Vector2.zero,
             0f);
 
         pageTurn01 = 0f;
