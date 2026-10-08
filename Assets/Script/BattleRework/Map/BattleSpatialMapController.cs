@@ -102,6 +102,16 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0f, 3f)] private float scriptDetailBaseRollDegrees = 1.15f;
     [SerializeField, Range(0f, 2f)] private float scriptCoverBaseRollDegrees = 0.20f;
 
+    [Header("Script Hover 3D Pose")]
+    [SerializeField, Range(0f, 9f)] private float scriptHoverPosePitchDegrees = 4.8f;
+    [SerializeField, Range(0f, 10f)] private float scriptHoverPoseYawDegrees = 6.2f;
+    [SerializeField, Range(0f, 5f)] private float scriptHoverPoseRollDegrees = 1.7f;
+    [SerializeField, Range(0f, 0.8f)] private float scriptHoverPoseDepth = 0.28f;
+    [SerializeField, Range(2f, 24f)] private float scriptHoverPoseResponse = 9.5f;
+    [SerializeField, Range(0f, 1.5f)] private float scriptHoverPosePitchVariation = 0.65f;
+    [SerializeField, Range(0f, 2f)] private float scriptHoverPoseYawVariation = 0.90f;
+    [SerializeField, Range(0f, 1f)] private float scriptHoverPoseRollVariation = 0.40f;
+
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
     [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
@@ -1638,13 +1648,41 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         lightBeam.SetSiblingIndex(1);
         lightPool.SetSiblingIndex(2);
 
+        GameObject hoverPoseObject =
+            new(
+                "HoverPoseRoot",
+                typeof(RectTransform));
+
+        hoverPoseObject.transform.SetParent(
+            root,
+            false);
+
+        RectTransform hoverPoseRoot =
+            hoverPoseObject.GetComponent<RectTransform>();
+
+        hoverPoseRoot.anchorMin =
+            hoverPoseRoot.anchorMax =
+                new Vector2(0.5f, 0.5f);
+
+        hoverPoseRoot.pivot =
+            new Vector2(0.5f, 0.5f);
+
+        hoverPoseRoot.sizeDelta =
+            scriptCardSize;
+
+        hoverPoseRoot.anchoredPosition =
+            Vector2.zero;
+
+        hoverPoseRoot.localRotation =
+            Quaternion.identity;
+
         GameObject visualObject =
             new(
                 "PaperVisual",
                 typeof(RectTransform));
 
         visualObject.transform.SetParent(
-            root,
+            hoverPoseRoot,
             false);
 
         RectTransform visualRoot =
@@ -1989,6 +2027,39 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             Mathf.Abs(
                 scriptHoverRollDegrees);
 
+        float poseSide =
+            Mathf.Abs(
+                basePosition.x) > 0.01f
+                ? Mathf.Sign(
+                    basePosition.x)
+                : ScriptSigned01(
+                    scriptSeed,
+                    313) >= 0f
+                    ? 1f
+                    : -1f;
+
+        Vector3 hoverPoseEuler =
+            new(
+                -scriptHoverPosePitchDegrees +
+                ScriptSigned01(
+                    scriptSeed,
+                    301) *
+                scriptHoverPosePitchVariation,
+
+                -poseSide *
+                scriptHoverPoseYawDegrees +
+                ScriptSigned01(
+                    scriptSeed,
+                    303) *
+                scriptHoverPoseYawVariation,
+
+                -poseSide *
+                scriptHoverPoseRollDegrees +
+                ScriptSigned01(
+                    scriptSeed,
+                    307) *
+                scriptHoverPoseRollVariation);
+
         float phase =
             Mathf.Abs(
                 StableHash(node.id) % 1009) /
@@ -2000,6 +2071,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             rootObject.AddComponent<BattleScriptCardVisual>();
 
         visual.Configure(
+            hoverPoseRoot,
             visualRoot,
             front,
             detail,
@@ -2022,6 +2094,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptIdleWaveStrength,
             scriptPageTurnDuration,
             scriptPageReturnDuration,
+            hoverPoseEuler,
+            cameraSide * scriptHoverPoseDepth,
+            scriptHoverPoseResponse,
             accent);
     }
 
@@ -4404,6 +4479,7 @@ internal sealed class BattleScriptCardVisual :
     IPointerEnterHandler,
     IPointerExitHandler
 {
+    private RectTransform hoverPoseRoot;
     private RectTransform visualRoot;
     private RectTransform frontPage;
     private RectTransform detailPage;
@@ -4435,6 +4511,11 @@ internal sealed class BattleScriptCardVisual :
     private float pageTurnDuration;
     private float pageReturnDuration;
     private float pageTurn01;
+    private Vector3 hoverPoseEuler;
+    private float hoverPoseDepth;
+    private float hoverPoseResponse;
+    private Vector3 hoverPoseBasePosition;
+    private Quaternion hoverPoseBaseRotation;
     private Color accentColor;
 
     private BattleScriptPaperWaveEffect[] paperWaveEffects;
@@ -4452,6 +4533,7 @@ internal sealed class BattleScriptCardVisual :
     private Quaternion baseBackBRotation;
 
     public void Configure(
+        RectTransform poseRoot,
         RectTransform animatedRoot,
         RectTransform front,
         RectTransform detail,
@@ -4474,8 +4556,12 @@ internal sealed class BattleScriptCardVisual :
         float idleWave,
         float turnDuration,
         float returnDuration,
+        Vector3 poseEuler,
+        float poseDepth,
+        float poseResponse,
         Color accent)
     {
+        hoverPoseRoot = poseRoot;
         visualRoot = animatedRoot;
         frontPage = front;
         detailPage = detail;
@@ -4523,7 +4609,23 @@ internal sealed class BattleScriptCardVisual :
         idleWaveStrength = Mathf.Clamp01(idleWave);
         pageTurnDuration = Mathf.Max(0.08f, turnDuration);
         pageReturnDuration = Mathf.Max(0.10f, returnDuration);
+        hoverPoseEuler =
+            new Vector3(
+                Mathf.Clamp(poseEuler.x, -9f, 9f),
+                Mathf.Clamp(poseEuler.y, -10f, 10f),
+                Mathf.Clamp(poseEuler.z, -5f, 5f));
+        hoverPoseDepth = Mathf.Clamp(poseDepth, -0.8f, 0.8f);
+        hoverPoseResponse = Mathf.Max(2f, poseResponse);
         accentColor = accent;
+
+        if (hoverPoseRoot != null)
+        {
+            hoverPoseBasePosition =
+                hoverPoseRoot.localPosition;
+
+            hoverPoseBaseRotation =
+                hoverPoseRoot.localRotation;
+        }
 
         if (frontPage != null)
         {
@@ -4653,7 +4755,7 @@ internal sealed class BattleScriptCardVisual :
             selected
                 ? 0f
                 : hovered
-                    ? hoverRollDegrees
+                    ? hoverRollDegrees * 0.22f
                     : idleRoll;
 
         visualRoot.localPosition =
@@ -4677,6 +4779,11 @@ internal sealed class BattleScriptCardVisual :
                     0f,
                     targetRoll),
                 motionT);
+
+        UpdateHoverPose(
+            hovered,
+            selected,
+            dt);
 
         float targetAlpha =
             selected || hovered
@@ -4760,6 +4867,56 @@ internal sealed class BattleScriptCardVisual :
             selected,
             motionT,
             time);
+    }
+
+    private void UpdateHoverPose(
+        bool hovered,
+        bool isSelected,
+        float dt)
+    {
+        if (hoverPoseRoot == null)
+            return;
+
+        float weight =
+            hovered
+                ? 1f
+                : isSelected
+                    ? 0.58f
+                    : 0f;
+
+        Quaternion targetRotation =
+            hoverPoseBaseRotation *
+            Quaternion.Euler(
+                hoverPoseEuler *
+                weight);
+
+        Vector3 targetPosition =
+            hoverPoseBasePosition +
+            new Vector3(
+                0f,
+                0f,
+                hoverPoseDepth *
+                weight);
+
+        float response =
+            1f -
+            Mathf.Exp(
+                -hoverPoseResponse *
+                Mathf.Max(
+                    0f,
+                    dt));
+
+        hoverPoseRoot.localRotation =
+            Quaternion.Slerp(
+                hoverPoseRoot.localRotation,
+                targetRotation,
+                response);
+
+        hoverPoseRoot.localPosition =
+            Vector3.Lerp(
+                hoverPoseRoot.localPosition,
+                targetPosition,
+                response);
     }
 
     private void ApplyPageTurn(
@@ -5125,6 +5282,15 @@ internal sealed class BattleScriptCardVisual :
 
     private void ApplyImmediate()
     {
+        if (hoverPoseRoot != null)
+        {
+            hoverPoseRoot.localPosition =
+                hoverPoseBasePosition;
+
+            hoverPoseRoot.localRotation =
+                hoverPoseBaseRotation;
+        }
+
         if (visualRoot != null)
         {
             visualRoot.localPosition =
