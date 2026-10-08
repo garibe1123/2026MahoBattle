@@ -86,6 +86,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0.08f, 0.40f)] private float scriptPageTurnDuration = 0.18f;
     [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
     [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnSlidePixels")]
+    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnLiftPixels")]
     [SerializeField, Range(8f, 70f)] private float scriptPageCurlPixels = 28f;
     [SerializeField, Range(0f, 12f)] private float scriptPageTurnRollDegrees = 2.0f;
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
