@@ -288,6 +288,23 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private void ApplyMapFrame()
     {
+        if (IsDetachedScriptSelection())
+        {
+            if (mapContent != null)
+            {
+                mapContent.anchorMin = Vector2.zero;
+                mapContent.anchorMax = Vector2.one;
+                mapContent.offsetMin = new Vector2(18f, 14f);
+                mapContent.offsetMax = new Vector2(-18f, -14f);
+                mapContent.pivot = new Vector2(0.5f, 0.5f);
+                mapContent.localRotation = Quaternion.identity;
+            }
+
+            DisableMapClipping(mapContent);
+            DisableRewardAccentsDuringMap();
+            return;
+        }
+
         if (sharedFrame == null)
             return;
 
@@ -350,8 +367,14 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
         if (tvGroup != null)
         {
-            tvGroup.interactable = true;
-            tvGroup.blocksRaycasts = true;
+            bool detachedScript =
+                IsDetachedScriptSelection();
+
+            tvGroup.interactable =
+                !detachedScript;
+
+            tvGroup.blocksRaycasts =
+                !detachedScript;
         }
 
         if (tvCanvas != null)
@@ -670,6 +693,19 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         }
         rewardAccentStates.Clear();
         rewardAccentsResolved = false;
+    }
+
+    private bool IsDetachedScriptSelection()
+    {
+        if (mapContent == null)
+            return false;
+
+        Canvas canvas =
+            mapContent.GetComponentInParent<Canvas>();
+
+        return canvas != null &&
+               canvas.name ==
+               "BattleScriptSelectionCanvas";
     }
 
     private static RectTransform FindRect(string objectName)
