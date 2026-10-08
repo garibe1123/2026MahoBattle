@@ -87,7 +87,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
     [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnSlidePixels")]
     [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnLiftPixels")]
-    [SerializeField, Range(8f, 70f)] private float scriptPageCurlPixels = 28f;
+    [SerializeField, Range(8f, 90f)] private float scriptPageCurlPixels = 38f;
+    [SerializeField, Range(4f, 90f)] private float scriptPageCurlDepthPixels = 46f;
     [SerializeField, Range(0f, 12f)] private float scriptPageTurnRollDegrees = 2.0f;
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
@@ -1821,6 +1822,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptPageTurnDuration,
             scriptPageReturnDuration,
             scriptPageCurlPixels,
+            scriptPageCurlDepthPixels,
             scriptPageTurnRollDegrees,
             accent);
     }
@@ -4034,6 +4036,7 @@ internal sealed class BattleScriptCardVisual :
     private float pageTurnDuration;
     private float pageReturnDuration;
     private float pageCurlPixels;
+    private float pageCurlDepthPixels;
     private float pageTurnRollDegrees;
     private float pageTurn01;
     private Color accentColor;
@@ -4076,6 +4079,7 @@ internal sealed class BattleScriptCardVisual :
         float turnDuration,
         float returnDuration,
         float curlPixels,
+        float curlDepthPixels,
         float turnRollDegrees,
         Color accent)
     {
@@ -4126,6 +4130,7 @@ internal sealed class BattleScriptCardVisual :
         pageTurnDuration = Mathf.Max(0.08f, turnDuration);
         pageReturnDuration = Mathf.Max(0.10f, returnDuration);
         pageCurlPixels = Mathf.Max(8f, curlPixels);
+        pageCurlDepthPixels = Mathf.Max(4f, curlDepthPixels);
         pageTurnRollDegrees = Mathf.Max(0f, turnRollDegrees);
         accentColor = accent;
 
@@ -4460,7 +4465,8 @@ internal sealed class BattleScriptCardVisual :
 
             effect.SetPageCurl(
                 eased,
-                pageCurlPixels);
+                pageCurlPixels,
+                pageCurlDepthPixels);
         }
     }
 
@@ -4832,7 +4838,10 @@ internal sealed class BattleScriptCardVisual :
         if (frontPageWaveEffects != null)
         {
             for (int i = 0; i < frontPageWaveEffects.Length; i++)
-                frontPageWaveEffects[i]?.SetPageCurl(0f, pageCurlPixels);
+                frontPageWaveEffects[i]?.SetPageCurl(
+                    0f,
+                    pageCurlPixels,
+                    pageCurlDepthPixels);
         }
 
         pageTurn01 = 0f;
@@ -4856,6 +4865,7 @@ internal sealed class BattleScriptPaperWaveEffect :
     private float amplitudeMultiplier = 1f;
     private float pageCurl01;
     private float pageCurlPixels;
+    private float pageCurlDepthPixels;
 
     private const int HorizontalSegments = 14;
     private const int VerticalSegments = 24;
@@ -4907,7 +4917,8 @@ internal sealed class BattleScriptPaperWaveEffect :
 
     public void SetPageCurl(
         float normalized,
-        float curlPixels)
+        float curlPixels,
+        float curlDepthPixels)
     {
         pageCurl01 =
             Mathf.Clamp01(
@@ -4917,6 +4928,11 @@ internal sealed class BattleScriptPaperWaveEffect :
             Mathf.Max(
                 0f,
                 curlPixels);
+
+        pageCurlDepthPixels =
+            Mathf.Max(
+                0f,
+                curlDepthPixels);
 
         if (graphic != null)
             graphic.SetVerticesDirty();
@@ -5052,11 +5068,8 @@ internal sealed class BattleScriptPaperWaveEffect :
 
             if (pageCurl01 > 0.0001f)
             {
-                // Natural page lift: treat the sheet length as an arc around a
-                // horizontal cylinder. v=1 is the pinned top edge, v=0 is free.
-                // At small progress this converges to the original flat sheet;
-                // at mid-turn it becomes a broad arch instead of collapsing into
-                // a narrow horizontal strip.
+                // True paper lift in the Y/Z plane.
+                // v=1 is pinned to the stack, v=0 is the free edge.
                 float progress =
                     Mathf.Clamp01(
                         pageCurl01);
@@ -5064,83 +5077,145 @@ internal sealed class BattleScriptPaperWaveEffect :
                 float down01 =
                     1f - v;
 
-                float bendAngle =
+                // Do not bend the entire sheet uniformly from frame one.
+                // Curvature grows from the free edge and travels toward the top.
+                float activeLength =
                     Mathf.Lerp(
-                        0.001f,
-                        Mathf.PI * 0.94f,
+                        0.24f,
+                        1f,
                         progress);
 
-                float radius =
-                    height /
-                    Mathf.Max(
-                        0.001f,
-                        bendAngle);
+                float active =
+                    Mathf.Clamp01(
+                        down01 /
+                        Mathf.Max(
+                            0.001f,
+                            activeLength));
+
+                float bendProgress =
+                    Mathf.SmoothStep(
+                        0f,
+                        1f,
+                        progress);
+
+                float maxAngle =
+                    Mathf.Lerp(
+                        0.18f,
+                        Mathf.PI * 0.92f,
+                        bendProgress);
 
                 float theta =
-                    bendAngle *
-                    down01;
+                    maxAngle *
+                    active;
 
-                float projectedDown =
-                    radius *
-                    Mathf.Sin(
-                        theta);
+                float arcLength =
+                    height *
+                    activeLength;
+
+                float radius =
+                    arcLength /
+                    Mathf.Max(
+                        0.001f,
+                        maxAngle);
 
                 float topY =
                     rootRect.yMax;
 
+                float flatRemainder =
+                    Mathf.Max(
+                        0f,
+                        down01 -
+                        activeLength) *
+                    height;
+
+                float arcDown =
+                    radius *
+                    Mathf.Sin(
+                        theta);
+
                 rootLocal.y =
                     topY -
-                    projectedDown;
+                    flatRemainder -
+                    arcDown;
 
-                // Extra soft lift makes the free edge feel hand-raised rather
-                // than mechanically hinged. It peaks around the middle.
+                // Give the arc real depth. Resolve which local Z direction faces
+                // the camera so this works regardless of how the world-space
+                // Canvas is oriented.
+                float cameraSide = -1f;
+
+                Camera camera =
+                    Camera.main;
+
+                if (camera != null)
+                {
+                    float cameraLocalZ =
+                        waveRoot.InverseTransformPoint(
+                            camera.transform.position).z;
+
+                    if (Mathf.Abs(cameraLocalZ) > 0.0001f)
+                    {
+                        cameraSide =
+                            Mathf.Sign(
+                                cameraLocalZ);
+                    }
+                }
+
+                float arcDepth =
+                    radius *
+                    (1f -
+                     Mathf.Cos(
+                         theta));
+
+                float depthScale =
+                    pageCurlDepthPixels /
+                    Mathf.Max(
+                        1f,
+                        height * 0.25f);
+
+                rootLocal.z +=
+                    cameraSide *
+                    arcDepth *
+                    depthScale;
+
                 float turnBell =
                     Mathf.Sin(
                         progress *
                         Mathf.PI);
 
-                float freeEdgeWeight =
-                    Mathf.Pow(
-                        down01,
-                        1.55f);
-
-                float extraLift =
-                    pageCurlPixels *
-                    0.46f *
-                    turnBell *
-                    freeEdgeWeight;
-
-                // Slight right-side lead: similar to pinching one upper corner
-                // of a real A4 sheet while lifting it from the stack.
+                // A hand does not pull the whole edge equally. Let the right side
+                // lead slightly, matching the reference where one corner is held.
                 float handBias =
                     Mathf.SmoothStep(
-                        0.48f,
+                        0.42f,
                         1f,
                         u) *
                     pageCurlPixels *
-                    0.18f *
+                    0.16f *
                     turnBell *
-                    freeEdgeWeight;
+                    Mathf.Pow(
+                        down01,
+                        1.45f);
 
                 rootLocal.y +=
-                    extraLift +
                     handBias;
 
-                // Give the projected silhouette a shallow lateral crown. This
-                // is deliberately small: the dominant read should be the large
-                // smooth vertical arc.
-                float lateral =
+                rootLocal.z +=
+                    cameraSide *
+                    handBias *
+                    0.46f;
+
+                // Very small lateral bow keeps the silhouette from reading as a
+                // perfectly rigid cylinder.
+                float lateralBow =
                     (u - 0.5f) *
                     Mathf.Sin(
                         theta) *
                     pageCurlPixels *
-                    0.10f;
+                    0.085f;
 
                 rootLocal.x +=
-                    lateral;
+                    lateralBow;
 
-                // Curvature shading: vertices near the steepest part of the arc
-                // darken slightly, making the bend legible in an unlit UI Canvas.
                 float facing =
                     Mathf.Abs(
                         Mathf.Cos(
@@ -5148,7 +5223,7 @@ internal sealed class BattleScriptPaperWaveEffect :
 
                 float shade =
                     Mathf.Lerp(
-                        0.78f,
+                        0.72f,
                         1f,
                         facing);
 
