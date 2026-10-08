@@ -85,8 +85,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [Header("Script Page Turn")]
     [SerializeField, Range(0.08f, 0.40f)] private float scriptPageTurnDuration = 0.18f;
     [SerializeField, Range(0.10f, 0.55f)] private float scriptPageReturnDuration = 0.24f;
-    [SerializeField, Range(0f, 70f)] private float scriptPageTurnSlidePixels = 34f;
-    [SerializeField, Range(0f, 16f)] private float scriptPageTurnRollDegrees = 7.5f;
+    [UnityEngine.Serialization.FormerlySerializedAs("scriptPageTurnSlidePixels")]
+    [SerializeField, Range(0f, 70f)] private float scriptPageTurnLiftPixels = 30f;
+    [SerializeField, Range(0f, 12f)] private float scriptPageTurnRollDegrees = 3.2f;
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
     [SerializeField] private Color scriptEliteAccent = new(0.64f, 0.11f, 0.15f, 1f);
@@ -1818,7 +1819,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptIdleWaveStrength,
             scriptPageTurnDuration,
             scriptPageReturnDuration,
-            scriptPageTurnSlidePixels,
+            scriptPageTurnLiftPixels,
             scriptPageTurnRollDegrees,
             accent);
     }
@@ -4030,7 +4031,7 @@ internal sealed class BattleScriptCardVisual :
     private float idleWaveStrength;
     private float pageTurnDuration;
     private float pageReturnDuration;
-    private float pageTurnSlidePixels;
+    private float pageTurnLiftPixels;
     private float pageTurnRollDegrees;
     private float pageTurn01;
     private Color accentColor;
@@ -4071,7 +4072,7 @@ internal sealed class BattleScriptCardVisual :
         float idleWave,
         float turnDuration,
         float returnDuration,
-        float turnSlidePixels,
+        float turnLiftPixels,
         float turnRollDegrees,
         Color accent)
     {
@@ -4121,25 +4122,26 @@ internal sealed class BattleScriptCardVisual :
         idleWaveStrength = Mathf.Clamp01(idleWave);
         pageTurnDuration = Mathf.Max(0.08f, turnDuration);
         pageReturnDuration = Mathf.Max(0.10f, returnDuration);
-        pageTurnSlidePixels = Mathf.Max(0f, turnSlidePixels);
+        pageTurnLiftPixels = Mathf.Max(0f, turnLiftPixels);
         pageTurnRollDegrees = Mathf.Max(0f, turnRollDegrees);
         accentColor = accent;
 
         if (frontPage != null)
         {
-            float halfWidth =
-                frontPage.rect.width *
+            float halfHeight =
+                frontPage.rect.height *
                 0.5f;
 
+            // Hold the paper by its top edge. The lower edge is free to flap upward.
             frontPage.pivot =
                 new Vector2(
-                    0f,
-                    0.5f);
+                    0.5f,
+                    1f);
 
             frontPage.anchoredPosition =
                 new Vector2(
-                    -halfWidth,
-                    0f);
+                    0f,
+                    halfHeight);
 
             baseFrontPosition =
                 frontPage.anchoredPosition;
@@ -4344,12 +4346,25 @@ internal sealed class BattleScriptCardVisual :
         ApplyPageTurn(
             pageTurn01);
 
+        float turnFlutter =
+            Mathf.Sin(
+                pageTurn01 *
+                Mathf.PI);
+
         float targetShear =
             hovered
-                ? hoverShearPixels
+                ? hoverShearPixels *
+                  (1f - pageTurn01 * 0.72f)
                 : selected
                     ? 0f
                     : 0f;
+
+        // The cover catches a brief extra wave while the lower edge flips upward.
+        // Detail/back sheets receive only their configured attenuated fraction.
+        targetWave +=
+            paperWavePixels *
+            0.82f *
+            turnFlutter;
 
         ApplyPaperWave(
             targetWave,
@@ -4373,47 +4388,54 @@ internal sealed class BattleScriptCardVisual :
             Mathf.Clamp01(
                 normalized);
 
-        // Fast at the start, then settle as the cover reaches the spine.
+        // The upper edge stays pinned. The free lower edge quickly rises,
+        // flutters once around the midpoint, then folds almost flat above it.
         float eased =
             1f -
             Mathf.Pow(
                 1f - t,
                 3f);
 
-        float fold =
+        float flap =
+            Mathf.Sin(
+                eased *
+                Mathf.PI);
+
+        float verticalFold =
             Mathf.Lerp(
                 1f,
                 0.045f,
                 eased);
 
-        float lift =
-            Mathf.Sin(
-                eased *
-                Mathf.PI);
+        float horizontalBreath =
+            1f +
+            flap *
+            0.018f;
 
         frontPage.localScale =
             new Vector3(
-                fold,
-                1f +
-                lift *
-                0.025f,
+                horizontalBreath,
+                verticalFold,
                 1f);
 
         frontPage.anchoredPosition =
             baseFrontPosition +
             new Vector2(
-                -pageTurnSlidePixels *
-                eased,
-                lift *
-                5f);
+                0f,
+                pageTurnLiftPixels *
+                eased +
+                flap *
+                4.5f);
 
+        // Only a tiny Z roll remains to keep the flip organic.
+        // No left/right hinge and no X/Y 3D rotation are used.
         frontPage.localRotation =
             baseFrontRotation *
             Quaternion.Euler(
                 0f,
                 0f,
-                -pageTurnRollDegrees *
-                lift);
+                pageTurnRollDegrees *
+                flap);
     }
 
     private void InstallPaperWaveEffects()
