@@ -32,7 +32,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private const string MapContentName = "MapSelectionContent";
     private const string MountedTvName = "BattleShowMountedTV";
     private const string RewardAccentName = "RewardKineticAccentLayer";
-    private const string ControlHintName = "MapControlHint";
+    private const string ControlHintName = "ScriptControlHint";
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
