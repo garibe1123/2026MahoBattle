@@ -4012,6 +4012,7 @@ internal sealed class BattleScriptCardVisual :
     private RectTransform lightPool;
     private RectTransform lightBeam;
     private CanvasGroup visualGroup;
+    private CanvasGroup frontPageGroup;
     private Image stageBaseImage;
     private Image lightPoolImage;
     private Image lightBeamImage;
@@ -4130,6 +4131,15 @@ internal sealed class BattleScriptCardVisual :
 
         if (frontPage != null)
         {
+            frontPageGroup =
+                frontPage.GetComponent<CanvasGroup>();
+
+            if (frontPageGroup == null)
+                frontPageGroup = frontPage.gameObject.AddComponent<CanvasGroup>();
+
+            frontPageGroup.interactable = false;
+            frontPageGroup.blocksRaycasts = false;
+
             float halfHeight =
                 frontPage.rect.height *
                 0.5f;
@@ -4390,15 +4400,11 @@ internal sealed class BattleScriptCardVisual :
             Mathf.Clamp01(
                 normalized);
 
-        // Do not "lift the whole sheet". The cover stays pinned at its top edge.
-        // The mesh itself rolls upward: the curl front travels from the free
-        // bottom edge toward the top and compresses the already-turned region
-        // into a rounded strip.
+        // Keep the actual RectTransform almost fixed. The page shape is produced
+        // by the subdivided mesh so it reads as flexible paper, not a rigid card.
         float eased =
-            1f -
-            Mathf.Pow(
-                1f - t,
-                3f);
+            t * t *
+            (3f - 2f * t);
 
         float flap =
             Mathf.Sin(
@@ -4406,19 +4412,14 @@ internal sealed class BattleScriptCardVisual :
                 Mathf.PI);
 
         frontPage.localScale =
-            new Vector3(
-                1f +
-                flap *
-                0.008f,
-                1f,
-                1f);
+            Vector3.one;
 
         frontPage.anchoredPosition =
             baseFrontPosition +
             new Vector2(
                 0f,
                 flap *
-                1.5f);
+                0.8f);
 
         frontPage.localRotation =
             baseFrontRotation *
@@ -4426,7 +4427,23 @@ internal sealed class BattleScriptCardVisual :
                 0f,
                 0f,
                 pageTurnRollDegrees *
-                flap);
+                flap *
+                0.35f);
+
+        if (frontPageGroup != null)
+        {
+            // Keep the curved sheet visible through almost the whole turn.
+            // Only dissolve it after the arc has reached the top of the stack.
+            float hide =
+                Mathf.SmoothStep(
+                    0.84f,
+                    0.985f,
+                    eased);
+
+            frontPageGroup.alpha =
+                1f -
+                hide;
+        }
 
         if (frontPageWaveEffects == null)
             return;
@@ -4809,6 +4826,15 @@ internal sealed class BattleScriptCardVisual :
                 baseFrontRotation;
         }
 
+        if (frontPageGroup != null)
+            frontPageGroup.alpha = 1f;
+
+        if (frontPageWaveEffects != null)
+        {
+            for (int i = 0; i < frontPageWaveEffects.Length; i++)
+                frontPageWaveEffects[i]?.SetPageCurl(0f, pageCurlPixels);
+        }
+
         pageTurn01 = 0f;
 
         if (visualGroup != null)
@@ -4831,8 +4857,8 @@ internal sealed class BattleScriptPaperWaveEffect :
     private float pageCurl01;
     private float pageCurlPixels;
 
-    private const int HorizontalSegments = 10;
-    private const int VerticalSegments = 14;
+    private const int HorizontalSegments = 14;
+    private const int VerticalSegments = 24;
 
     public void Configure(
         RectTransform root,
@@ -5026,76 +5052,115 @@ internal sealed class BattleScriptPaperWaveEffect :
 
             if (pageCurl01 > 0.0001f)
             {
-                // v = 0 is the free bottom edge, v = 1 is the pinned top edge.
-                // The moving curl front starts at the bottom and travels upward.
-                float curlFront =
+                // Natural page lift: treat the sheet length as an arc around a
+                // horizontal cylinder. v=1 is the pinned top edge, v=0 is free.
+                // At small progress this converges to the original flat sheet;
+                // at mid-turn it becomes a broad arch instead of collapsing into
+                // a narrow horizontal strip.
+                float progress =
                     Mathf.Clamp01(
-                        pageCurl01 *
-                        1.04f);
+                        pageCurl01);
 
-                if (v < curlFront)
-                {
-                    float turnedDepth =
-                        Mathf.Clamp01(
-                            (curlFront - v) /
-                            Mathf.Max(
-                                0.001f,
-                                curlFront));
+                float down01 =
+                    1f - v;
 
-                    // Most of the turned sheet is gathered close to the moving
-                    // curl front. This produces the visual of paper rolling up
-                    // instead of uniformly shrinking.
-                    float gatheredV =
-                        Mathf.Lerp(
-                            v,
-                            curlFront -
-                            turnedDepth *
-                            Mathf.Lerp(
-                                0.012f,
-                                0.055f,
-                                1f - pageCurl01),
-                            Mathf.SmoothStep(
-                                0f,
-                                1f,
-                                pageCurl01));
+                float bendAngle =
+                    Mathf.Lerp(
+                        0.001f,
+                        Mathf.PI * 0.94f,
+                        progress);
 
-                    float arc =
-                        Mathf.Sin(
-                            turnedDepth *
-                            Mathf.PI);
+                float radius =
+                    height /
+                    Mathf.Max(
+                        0.001f,
+                        bendAngle);
 
-                    float roundLift =
-                        arc *
-                        pageCurlPixels *
-                        Mathf.Lerp(
-                            0.55f,
-                            1f,
-                            pageCurl01);
+                float theta =
+                    bendAngle *
+                    down01;
 
-                    rootLocal.y =
-                        rootRect.yMin +
-                        gatheredV *
-                        height +
-                        roundLift;
+                float projectedDown =
+                    radius *
+                    Mathf.Sin(
+                        theta);
 
-                    // A rolled sheet swells slightly around the curl instead of
-                    // looking like a perfectly straight compressed rectangle.
-                    float centerDistance =
-                        Mathf.Abs(
-                            u - 0.5f) *
-                        2f;
+                float topY =
+                    rootRect.yMax;
 
-                    float crown =
-                        1f -
-                        centerDistance *
-                        centerDistance;
+                rootLocal.y =
+                    topY -
+                    projectedDown;
 
-                    rootLocal.x +=
-                        (u - 0.5f) *
-                        roundLift *
-                        0.055f *
-                        crown;
-                }
+                // Extra soft lift makes the free edge feel hand-raised rather
+                // than mechanically hinged. It peaks around the middle.
+                float turnBell =
+                    Mathf.Sin(
+                        progress *
+                        Mathf.PI);
+
+                float freeEdgeWeight =
+                    Mathf.Pow(
+                        down01,
+                        1.55f);
+
+                float extraLift =
+                    pageCurlPixels *
+                    0.46f *
+                    turnBell *
+                    freeEdgeWeight;
+
+                // Slight right-side lead: similar to pinching one upper corner
+                // of a real A4 sheet while lifting it from the stack.
+                float handBias =
+                    Mathf.SmoothStep(
+                        0.48f,
+                        1f,
+                        u) *
+                    pageCurlPixels *
+                    0.18f *
+                    turnBell *
+                    freeEdgeWeight;
+
+                rootLocal.y +=
+                    extraLift +
+                    handBias;
+
+                // Give the projected silhouette a shallow lateral crown. This
+                // is deliberately small: the dominant read should be the large
+                // smooth vertical arc.
+                float lateral =
+                    (u - 0.5f) *
+                    Mathf.Sin(
+                        theta) *
+                    pageCurlPixels *
+                    0.10f;
+
+                rootLocal.x +=
+                    lateral;
+
+                // Curvature shading: vertices near the steepest part of the arc
+                // darken slightly, making the bend legible in an unlit UI Canvas.
+                float facing =
+                    Mathf.Abs(
+                        Mathf.Cos(
+                            theta));
+
+                float shade =
+                    Mathf.Lerp(
+                        0.78f,
+                        1f,
+                        facing);
+
+                Color shaded =
+                    vertex.color;
+
+                shaded.r *= shade;
+                shaded.g *= shade;
+                shaded.b *= shade;
+
+                vertex.color =
+                    shaded;
             }
 
             Vector3 deformedWorld =
