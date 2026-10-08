@@ -5260,6 +5260,7 @@ internal sealed class BattleScriptTurningPageMesh :
 
     private CanvasGroup contentGroup;
     private CanvasGroup detailGroup;
+    private GameObject contentObject;
     private Canvas parentCanvas;
     private int canvasSortingOrder;
     private int canvasSortingLayerId;
@@ -5320,6 +5321,11 @@ internal sealed class BattleScriptTurningPageMesh :
 
         contentGroup =
             coverContentGroup;
+
+        contentObject =
+            contentGroup != null
+                ? contentGroup.gameObject
+                : null;
 
         detailGroup =
             detailPageGroup;
@@ -5413,6 +5419,11 @@ internal sealed class BattleScriptTurningPageMesh :
 
             material.color =
                 Color.white;
+
+            if (material.HasProperty("_Cull"))
+                material.SetInt("_Cull", 0);
+
+            material.renderQueue = 3000;
 
             meshRenderer.sharedMaterial =
                 material;
@@ -5572,28 +5583,40 @@ internal sealed class BattleScriptTurningPageMesh :
 
         if (contentGroup != null)
         {
-            // The printed cover belongs to the physical turning sheet.
-            // Remove it before the detail page starts appearing so the two
-            // information sets never read as one overlapped UI.
-            float contentHide =
-                Mathf.SmoothStep(
-                    0.10f,
-                    0.24f,
-                    turn01);
+            // Cover artwork is only the front print. Once the physical sheet
+            // has lifted enough to show its back side, remove the UI artwork
+            // completely so it can never remain over DetailPage.
+            bool shouldShowCover =
+                turn01 < 0.27f;
 
-            contentGroup.alpha =
-                1f -
-                contentHide;
+            if (contentObject != null &&
+                contentObject.activeSelf != shouldShowCover)
+            {
+                contentObject.SetActive(
+                    shouldShowCover);
+            }
+
+            if (shouldShowCover)
+            {
+                float contentHide =
+                    Mathf.SmoothStep(
+                        0.07f,
+                        0.23f,
+                        turn01);
+
+                contentGroup.alpha =
+                    1f -
+                    contentHide;
+            }
         }
 
         if (detailGroup != null)
         {
-            // Reveal hidden production information only after the cover has
-            // visibly left the front plane.
+            // Hidden information starts only after the printed cover is gone.
             detailGroup.alpha =
                 Mathf.SmoothStep(
-                    0.28f,
-                    0.50f,
+                    0.30f,
+                    0.52f,
                     turn01);
         }
 
@@ -5718,26 +5741,26 @@ internal sealed class BattleScriptTurningPageMesh :
             Vector2 folded1 =
                 new(
                     topY +
-                    height * 0.075f,
+                    height * 0.115f,
                     cameraSide *
                     safeDepth *
-                    0.78f);
+                    0.92f);
 
             Vector2 folded2 =
                 new(
                     topY +
-                    height * 0.165f,
+                    height * 0.285f,
                     cameraSide *
                     safeDepth *
-                    0.08f);
+                    0.02f);
 
             Vector2 folded3 =
                 new(
                     topY +
-                    height * 0.045f,
+                    height * 0.105f,
                     -cameraSide *
                     safeDepth *
-                    0.62f);
+                    0.78f);
 
             Vector2 p0 =
                 Vector2.Lerp(
@@ -5767,17 +5790,17 @@ internal sealed class BattleScriptTurningPageMesh :
             // are also bounded, the sheet can never shoot through the camera.
             p1.x +=
                 height *
-                0.045f *
+                0.050f *
                 turnBell;
 
             p2.x +=
                 height *
-                0.085f *
+                0.095f *
                 turnBell;
 
             p3.x +=
                 height *
-                0.030f *
+                0.035f *
                 turnBell;
 
             p1.y +=
