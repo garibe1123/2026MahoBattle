@@ -100,11 +100,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float scriptHoverPoseRollVariation = 0.36f;
 
     [Header("Turning Cover Mesh")]
-    [SerializeField, Range(8f, 48f)] private float scriptTurningMeshDepthPixels = 24f;
-    [SerializeField, Range(0f, 9f)] private float scriptTurningMeshPitchDegrees = 5.2f;
-    [SerializeField, Range(0f, 12f)] private float scriptTurningMeshYawDegrees = 7.2f;
-    [SerializeField, Range(0f, 5f)] private float scriptTurningMeshRollDegrees = 2.0f;
-    [SerializeField, Range(2f, 28f)] private float scriptTurningMeshPoseResponse = 12f;
+    [SerializeField, Range(4f, 20f)] private float scriptTurningMeshDepthPixels = 10f;
+    [SerializeField, Range(0f, 5f)] private float scriptTurningMeshPitchDegrees = 3.0f;
+    [SerializeField, Range(0f, 7f)] private float scriptTurningMeshYawDegrees = 4.0f;
+    [SerializeField, Range(0f, 3f)] private float scriptTurningMeshRollDegrees = 1.5f;
+    [SerializeField, Range(2f, 28f)] private float scriptTurningMeshPoseResponse = 10f;
 
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
@@ -5631,66 +5631,17 @@ internal sealed class BattleScriptTurningPageMesh :
         float height =
             pageSize.y;
 
-        float segmentLength =
-            height /
-            VerticalSegments;
-
         float progress =
             Mathf.Clamp01(
                 turn01);
 
-        // Keep a complete readable sheet briefly, then lift it in one motion.
-        float liftProgress =
-            Mathf.Clamp01(
-                (progress - 0.08f) /
-                0.92f);
+        float safeDepth =
+            Mathf.Min(
+                curveDepthPixels,
+                height * 0.045f);
 
-        float flipEase =
-            liftProgress *
-            liftProgress *
-            (3f -
-             2f *
-             liftProgress);
-
-        // The hinge itself only goes somewhat past vertical. The free lower
-        // half then continues around the back, producing a compact S-curve
-        // instead of a giant page standing above the card.
-        float baseFlip =
-            Mathf.Lerp(
-                0f,
-                124f,
-                flipEase) *
-            Mathf.Deg2Rad;
-
-        float turnBell =
-            Mathf.Sin(
-                liftProgress *
-                Mathf.PI);
-
-        float movingCurl =
-            turnBell *
-            27f *
-            Mathf.Deg2Rad;
-
-        float settle =
-            Mathf.SmoothStep(
-                0.58f,
-                1f,
-                progress);
-
-        // At rest the lower half reaches roughly 338 degrees:
-        // it has gone over the top and is travelling downward again behind
-        // the stack, which is the missing behaviour in the previous version.
-        float restingCurl =
-            settle *
-            214f *
-            Mathf.Deg2Rad;
-
-        float depthCompression =
-            curveDepthPixels /
-            Mathf.Max(
-                1f,
-                height * 0.38f);
+        float topY =
+            height * 0.5f;
 
         for (int x = 0;
              x <= HorizontalSegments;
@@ -5705,105 +5656,189 @@ internal sealed class BattleScriptTurningPageMesh :
                 2f -
                 1f;
 
-            float currentY =
+            // Cursor position may make one side lead slightly, but the page
+            // remains one coherent sheet. The lead is deliberately capped.
+            float columnProgress =
+                Mathf.Clamp01(
+                    progress +
+                    pointer.x *
+                    xNorm *
+                    0.035f *
+                    hoverWeight +
+                    sideBias *
+                    xNorm *
+                    0.010f);
+
+            float p =
+                columnProgress *
+                columnProgress *
+                (3f -
+                 2f *
+                 columnProgress);
+
+            float turnBell =
+                Mathf.Sin(
+                    columnProgress *
+                    Mathf.PI);
+
+            // Flat sheet control points.
+            Vector2 flat0 =
+                new(
+                    topY,
+                    0f);
+
+            Vector2 flat1 =
+                new(
+                    topY -
+                    height * 0.33f,
+                    0f);
+
+            Vector2 flat2 =
+                new(
+                    topY -
+                    height * 0.67f,
+                    0f);
+
+            Vector2 flat3 =
+                new(
+                    topY -
+                    height,
+                    0f);
+
+            // Final folded state. The free edge occupies only ~42% of the
+            // original projected height and sits behind the detail page.
+            Vector2 folded0 =
+                flat0;
+
+            Vector2 folded1 =
+                new(
+                    topY -
+                    height * 0.06f,
+                    cameraSide *
+                    safeDepth *
+                    0.72f);
+
+            Vector2 folded2 =
+                new(
+                    topY -
+                    height * 0.15f,
+                    -cameraSide *
+                    safeDepth *
+                    0.18f);
+
+            Vector2 folded3 =
+                new(
+                    topY -
+                    height * 0.42f,
+                    -cameraSide *
+                    safeDepth *
+                    0.58f);
+
+            Vector2 p0 =
+                Vector2.Lerp(
+                    flat0,
+                    folded0,
+                    p);
+
+            Vector2 p1 =
+                Vector2.Lerp(
+                    flat1,
+                    folded1,
+                    p);
+
+            Vector2 p2 =
+                Vector2.Lerp(
+                    flat2,
+                    folded2,
+                    p);
+
+            Vector2 p3 =
+                Vector2.Lerp(
+                    flat3,
+                    folded3,
+                    p);
+
+            // During the actual flip, make one broad arch. Since these offsets
+            // are also bounded, the sheet can never shoot through the camera.
+            p1.x +=
                 height *
-                0.5f;
+                0.06f *
+                turnBell;
 
-            float currentZ =
-                0f;
+            p2.x +=
+                height *
+                0.11f *
+                turnBell;
 
-            int firstIndex =
-                x *
-                rowCount;
+            p3.x +=
+                height *
+                0.045f *
+                turnBell;
 
-            vertices[firstIndex] =
-                new Vector3(
-                    Mathf.Lerp(
-                        -width * 0.5f,
-                        width * 0.5f,
-                        u),
-                    currentY,
-                    currentZ);
+            p1.y +=
+                cameraSide *
+                safeDepth *
+                0.55f *
+                turnBell;
 
-            uvs[firstIndex] =
-                new Vector2(
-                    u,
-                    1f);
+            p2.y +=
+                cameraSide *
+                safeDepth *
+                0.82f *
+                turnBell;
 
-            colors[firstIndex] =
-                paperColor;
+            p3.y +=
+                cameraSide *
+                safeDepth *
+                0.38f *
+                turnBell;
 
-            for (int y = 1;
+            for (int y = 0;
                  y <= VerticalSegments;
                  y++)
             {
-                float sMid =
-                    (y - 0.5f) /
-                    VerticalSegments;
-
-                // One continuous sheet: every row shares the same global flip.
-                // Only a smooth center-weighted bend changes the tangent.
-                float centerCurve =
-                    Mathf.Sin(
-                        sMid *
-                        Mathf.PI);
-
-                float cursorAsymmetry =
-                    pointer.x *
-                    xNorm *
-                    5.0f *
-                    Mathf.Deg2Rad *
-                    hoverWeight *
-                    turnBell;
-
-                float seededAsymmetry =
-                    sideBias *
-                    xNorm *
-                    1.4f *
-                    Mathf.Deg2Rad *
-                    turnBell;
-
-                float lowerHalf =
-                    Mathf.SmoothStep(
-                        0.30f,
-                        0.96f,
-                        sMid);
-
-                float transitionCurl =
-                    movingCurl *
-                    centerCurve;
-
-                float foldedBackCurl =
-                    restingCurl *
-                    Mathf.Pow(
-                        lowerHalf,
-                        1.18f);
-
-                float tangentAngle =
-                    baseFlip +
-                    transitionCurl +
-                    foldedBackCurl +
-                    cursorAsymmetry +
-                    seededAsymmetry;
-
-                currentY -=
-                    Mathf.Cos(
-                        tangentAngle) *
-                    segmentLength;
-
-                currentZ +=
-                    cameraSide *
-                    Mathf.Sin(
-                        tangentAngle) *
-                    segmentLength *
-                    depthCompression;
-
                 float row01 =
                     y /
                     (float)VerticalSegments;
 
-                // Tiny lateral bow only. This keeps the page organic without
-                // making columns start their turns at different times.
+                float oneMinus =
+                    1f -
+                    row01;
+
+                Vector2 yz =
+                    oneMinus *
+                    oneMinus *
+                    oneMinus *
+                    p0 +
+                    3f *
+                    oneMinus *
+                    oneMinus *
+                    row01 *
+                    p1 +
+                    3f *
+                    oneMinus *
+                    row01 *
+                    row01 *
+                    p2 +
+                    row01 *
+                    row01 *
+                    row01 *
+                    p3;
+
+                Vector2 tangent =
+                    3f *
+                    oneMinus *
+                    oneMinus *
+                    (p1 - p0) +
+                    6f *
+                    oneMinus *
+                    row01 *
+                    (p2 - p1) +
+                    3f *
+                    row01 *
+                    row01 *
+                    (p3 - p2);
+
                 float lateralBow =
                     pointer.x *
                     Mathf.Sin(
@@ -5812,7 +5847,7 @@ internal sealed class BattleScriptTurningPageMesh :
                     Mathf.Sin(
                         u *
                         Mathf.PI) *
-                    1.25f *
+                    0.90f *
                     hoverWeight *
                     turnBell;
 
@@ -5828,36 +5863,36 @@ internal sealed class BattleScriptTurningPageMesh :
                             width * 0.5f,
                             u) +
                         lateralBow,
-                        currentY,
-                        currentZ);
+                        yz.x,
+                        yz.y);
 
                 uvs[index] =
                     new Vector2(
                         u,
                         1f - row01);
 
-                float facing =
+                float tangentLength =
+                    Mathf.Max(
+                        0.0001f,
+                        tangent.magnitude);
+
+                float depthSlope =
                     Mathf.Abs(
-                        Mathf.Cos(
-                            tangentAngle));
+                        tangent.y) /
+                    tangentLength;
 
                 float shade =
                     Mathf.Lerp(
-                        0.88f,
                         1f,
-                        facing);
+                        0.90f,
+                        depthSlope);
 
                 Color shaded =
                     paperColor;
 
-                shaded.r *=
-                    shade;
-
-                shaded.g *=
-                    shade;
-
-                shaded.b *=
-                    shade;
+                shaded.r *= shade;
+                shaded.g *= shade;
+                shaded.b *= shade;
 
                 colors[index] =
                     shaded;
