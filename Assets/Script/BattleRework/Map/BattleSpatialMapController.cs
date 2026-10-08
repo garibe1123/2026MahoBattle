@@ -95,14 +95,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Range(0f, 8f)] private float scriptTurnedPageRollDegrees = 2.2f;
 
     [Header("Script Paper 3D Layering")]
-    [SerializeField, Range(0.5f, 6f)] private float scriptPageDepthStep = 2.0f;
-    [SerializeField, Range(1f, 12f)] private float scriptCurlDepth = 7.0f;
+    [SerializeField, Range(0.10f, 1.50f)] private float scriptPageDepthStep = 0.38f;
+    [SerializeField, Range(0.25f, 3.0f)] private float scriptCurlDepth = 1.15f;
     [SerializeField, Range(0f, 10f)] private float scriptStackRandomOffsetPixels = 5.5f;
-    [SerializeField, Range(0f, 5f)] private float scriptStackRandomPitchDegrees = 1.8f;
-    [SerializeField, Range(0f, 6f)] private float scriptStackRandomYawDegrees = 2.4f;
-    [SerializeField, Range(0f, 5f)] private float scriptStackRandomRollDegrees = 1.6f;
-    [SerializeField] private Vector3 scriptDetailBaseEuler = new(1.6f, -2.6f, 1.15f);
-    [SerializeField] private Vector3 scriptCoverBaseEuler = new(-0.35f, 0.65f, -0.25f);
+    [SerializeField, Range(0f, 3f)] private float scriptStackRandomRollDegrees = 1.35f;
+    [SerializeField, Range(0f, 3f)] private float scriptDetailBaseRollDegrees = 1.15f;
+    [SerializeField, Range(0f, 2f)] private float scriptCoverBaseRollDegrees = 0.20f;
 
     [SerializeField] private Color scriptPaperTint = new(0.93f, 0.89f, 0.79f, 1f);
     [SerializeField] private Color scriptInkColor = new(0.10f, 0.085f, 0.07f, 1f);
@@ -1708,16 +1706,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     scriptSeed,
                     i * 17 + 5);
 
-            float randomPitch =
-                ScriptSigned01(
-                    scriptSeed,
-                    i * 17 + 7);
-
-            float randomYaw =
-                ScriptSigned01(
-                    scriptSeed,
-                    i * 17 + 11);
-
             float randomRoll =
                 ScriptSigned01(
                     scriptSeed,
@@ -1764,10 +1752,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 (-scriptPageDepthStep *
                  (2.4f + i * 0.72f)),
                 new Vector3(
-                    randomPitch *
-                    scriptStackRandomPitchDegrees,
-                    randomYaw *
-                    scriptStackRandomYawDegrees,
+                    0f,
+                    0f,
                     rotation));
         }
 
@@ -1825,11 +1811,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             cameraSide *
             (-scriptPageDepthStep * 0.85f),
             new Vector3(
-                1.1f +
-                turnedRandomY * 0.8f,
-                -1.7f +
-                turnedRandomX * 0.9f,
-                -1.4f +
+                0f,
+                0f,
+                -1.0f +
                 turnedRandomRoll *
                 scriptStackRandomRollDegrees));
 
@@ -1839,18 +1823,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         turnedPageBackGroup.alpha = 0f;
         turnedPageBackGroup.interactable = false;
         turnedPageBackGroup.blocksRaycasts = false;
-
-        float detailRandomPitch =
-            ScriptSigned01(
-                scriptSeed,
-                131) *
-            0.55f;
-
-        float detailRandomYaw =
-            ScriptSigned01(
-                scriptSeed,
-                137) *
-            0.75f;
 
         float detailRandomRoll =
             ScriptSigned01(
@@ -1878,10 +1850,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             cameraSide *
             scriptPageDepthStep *
             0.75f,
-            scriptDetailBaseEuler +
             new Vector3(
-                detailRandomPitch,
-                detailRandomYaw,
+                0f,
+                0f,
+                scriptDetailBaseRollDegrees +
                 detailRandomRoll));
 
         GameObject coverMaskObject =
@@ -1920,7 +1892,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             cameraSide *
             scriptPageDepthStep *
             2.0f,
-            scriptCoverBaseEuler);
+            new Vector3(
+                0f,
+                0f,
+                scriptCoverBaseRollDegrees));
 
         coverMaskObject.AddComponent<RectMask2D>();
 
@@ -5508,17 +5483,20 @@ internal sealed class BattleScriptPageTurnRig :
             float pitch =
                 angle *
                 Mathf.Rad2Deg *
-                0.34f;
+                0.115f *
+                curlVisibility;
 
             float yaw =
                 curlPhaseBias *
-                2.2f *
-                crown01;
+                0.65f *
+                crown01 *
+                curlVisibility;
 
             float roll =
                 -angle *
                 Mathf.Rad2Deg *
-                0.045f;
+                0.028f *
+                curlVisibility;
 
             strip.localRotation =
                 Quaternion.Euler(
@@ -5577,7 +5555,7 @@ internal sealed class BattleScriptPageTurnRig :
                     2.5f * settle,
                     turnedOffset * settle,
                     -cameraSide *
-                    1.15f *
+                    0.28f *
                     settle);
 
             turnedPageBack.localPosition =
@@ -5591,8 +5569,8 @@ internal sealed class BattleScriptPageTurnRig :
                     turnedPageBaseRotation,
                     turnedPageBaseRotation *
                     Quaternion.Euler(
-                        -1.15f * settle,
-                        curlPhaseBias * 1.6f * settle,
+                        0f,
+                        0f,
                         -turnedRoll * settle),
                     settle);
 
@@ -5609,9 +5587,9 @@ internal sealed class BattleScriptPageTurnRig :
             Vector3 detailTarget =
                 detailBaseLocalPosition +
                 new Vector3(
-                    curlPhaseBias * 1.4f * open,
-                    1.2f * open,
-                    cameraSide * 0.85f * open);
+                    curlPhaseBias * 0.85f * open,
+                    0.65f * open,
+                    cameraSide * 0.22f * open);
 
             detailPage.localPosition =
                 Vector3.Lerp(
@@ -5624,9 +5602,11 @@ internal sealed class BattleScriptPageTurnRig :
                     detailBaseRotation,
                     detailBaseRotation *
                     Quaternion.Euler(
-                        -0.55f * open,
-                        0.85f * curlPhaseBias * open,
-                        -0.35f * curlPhaseBias * open),
+                        0f,
+                        0f,
+                        -0.24f *
+                        curlPhaseBias *
+                        open),
                     open);
         }
     }
