@@ -3070,7 +3070,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         bool visible,
         string message)
     {
-        EnsureRouteStatus();
+        if (!visible &&
+            routeStatusRoot == null)
+        {
+            return;
+        }
+
+        if (visible)
+            EnsureRouteStatus();
 
         if (routeStatusRoot == null)
             return;
