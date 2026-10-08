@@ -1272,7 +1272,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     }
 
     // ---------------------------------------------------------------------
-    // Horizontal Stage Map - selection state only
+    // Script Selection - replaces the legacy route-map presentation
     // ---------------------------------------------------------------------
 
     private void EnsureStageMapUI()
@@ -1284,12 +1284,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (hud == null || hud.MapSelectionRoot == null)
             return;
 
-        // 맵은 HUD 전면 Overlay가 아니라 바닥/캐릭터 뒤의 World Space 화면에 그립니다.
         stageMapPanel = hud.MapSelectionRoot;
         stageMapCanvas = stageMapPanel.GetComponentInParent<Canvas>();
         stageMapCanvasGroup = stageMapPanel.GetComponent<CanvasGroup>();
         if (stageMapCanvasGroup == null)
             stageMapCanvasGroup = stageMapPanel.gameObject.AddComponent<CanvasGroup>();
+
         stageMapCanvasGroup.alpha = 0f;
         stageMapPanelRestPosition = stageMapPanel.anchoredPosition;
         resolvedMapHorizontalSpacing = mapHorizontalSpacing;
@@ -1300,7 +1300,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         if (stageMapPanel == null)
             EnsureStageMapUI();
-        if (stageMapPanel == null || graph == null)
+        if (stageMapPanel == null)
             return;
 
         if (!mapSelectionActive)
@@ -1309,266 +1309,1028 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
         }
 
-        bool reveal = !stageMapPanel.gameObject.activeSelf ||
-                      stageMapCanvasGroup == null ||
-                      stageMapCanvasGroup.alpha <= 0.001f;
+        bool reveal =
+            !stageMapPanel.gameObject.activeSelf ||
+            stageMapCanvasGroup == null ||
+            stageMapCanvasGroup.alpha <= 0.001f;
+
         stageMapPanel.gameObject.SetActive(true);
+        stageMapSelectionLocked = false;
 
         for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
             Destroy(stageMapPanel.GetChild(i).gameObject);
 
-        BuildResolvedLayout();
-        CreateStageMapTitle();
+        routeStatusRoot = null;
+        routeStatusText = null;
+        routeStatusGroup = null;
 
-        HashSet<string> available = new();
-        if (runManager != null)
+        CreateScriptSelectionTitle();
+
+        IReadOnlyList<BattleNodeData> choices =
+            runManager != null
+                ? runManager.NextNodeChoices
+                : null;
+
+        if ((choices == null || choices.Count == 0) &&
+            graph != null &&
+            runManager != null &&
+            runManager.IsInStartArea)
         {
-            IReadOnlyList<BattleNodeData> choices = runManager.NextNodeChoices;
+            choices = graph.GetStartNodes();
+        }
+
+        if (choices != null)
+        {
+            int validCount = 0;
             for (int i = 0; i < choices.Count; i++)
+            {
                 if (choices[i] != null)
-                    available.Add(choices[i].id);
-        }
-
-        List<Vector2> positions = new();
-        if (graph.nodes != null)
-        {
-            for (int i = 0; i < graph.nodes.Count; i++)
-            {
-                BattleNodeData node = graph.nodes[i];
-                if (node != null)
-                    positions.Add(ResolveNodeMapPosition(node));
+                    validCount++;
             }
-        }
 
-        Vector2 startMarkerPosition = ResolveStartBaseMapPosition(positions);
-        positions.Add(startMarkerPosition);
-
-        Vector2 mapCenter = CalculateMapCenter(positions);
-        ResolveStageMapSpacing(positions);
-
-        IReadOnlyList<BattleNodeData> startNodes = graph.GetStartNodes();
-        for (int i = 0; i < startNodes.Count; i++)
-        {
-            BattleNodeData startNode = startNodes[i];
-            if (startNode != null)
-                DrawMapLink("__START__", startNode.id, startMarkerPosition, ResolveNodeMapPosition(startNode), mapCenter);
-        }
-
-        if (graph.nodes != null)
-        {
-            for (int i = 0; i < graph.nodes.Count; i++)
+            int visualIndex = 0;
+            for (int i = 0; i < choices.Count; i++)
             {
-                BattleNodeData node = graph.nodes[i];
+                BattleNodeData node = choices[i];
                 if (node == null)
                     continue;
 
-                List<BattleNodeData> next = graph.GetNextNodes(node);
-                for (int n = 0; n < next.Count; n++)
-                    DrawMapLink(node.id, next[n].id, ResolveNodeMapPosition(node), ResolveNodeMapPosition(next[n]), mapCenter);
+                DrawScriptCard(
+                    node,
+                    visualIndex,
+                    Mathf.Max(1, validCount));
+
+                visualIndex++;
             }
         }
 
-        DrawStartBaseMarker(startMarkerPosition, mapCenter);
-
-        if (graph.nodes == null)
-            return;
-
-        for (int i = 0; i < graph.nodes.Count; i++)
-        {
-            BattleNodeData node = graph.nodes[i];
-            if (node == null)
-                continue;
-
-            bool selectable = available.Contains(node.id);
-            bool current = runManager != null && runManager.CurrentNode == node;
-            Color color = mapUnknown;
-            if (current)
-                color = mapCurrent;
-            else if (selectable)
-                color = node.type == BattleNodeType.Elite ? mapElite : mapAvailable;
-            else if (visitedNodeIds.Contains(node.id))
-                color = mapVisited;
-
-            DrawStageNode(node, ResolveNodeMapPosition(node), color, mapCenter, selectable, current);
-        }
+        CreateScriptSelectionHint();
 
         if (reveal)
             PlayStageMapReveal();
+        else if (stageMapCanvasGroup != null)
+        {
+            stageMapCanvasGroup.alpha = 1f;
+            stageMapCanvasGroup.blocksRaycasts = true;
+        }
     }
 
-    private void CreateStageMapTitle()
+    private void CreateScriptSelectionTitle()
     {
         Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
         if (font == null)
             return;
 
-        GameObject title = new("Title");
+        GameObject title = new("Title", typeof(RectTransform));
         title.transform.SetParent(stageMapPanel, false);
-        Text text = title.AddComponent<Text>();
-        text.font = font;
-        bool openingWaitingRoom = runManager != null && runManager.IsInStartArea;
-        text.text = openingWaitingRoom
-            ? "[  MAP SELECT  ]"
-            : "CHOOSE THE NEXT TAKE";
-        text.alignment = TextAnchor.MiddleCenter;
-        text.fontSize = 28;
-        text.fontStyle = FontStyle.Bold;
-        text.color = Color.white;
-        text.raycastTarget = false;
+        RectTransform titleRect = title.GetComponent<RectTransform>();
+        titleRect.anchorMin = new Vector2(0f, 1f);
+        titleRect.anchorMax = new Vector2(1f, 1f);
+        titleRect.pivot = new Vector2(0.5f, 1f);
+        titleRect.anchoredPosition = new Vector2(0f, -16f);
+        titleRect.sizeDelta = new Vector2(0f, 40f);
 
-        RectTransform rect = title.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0f, 1f);
-        rect.anchorMax = new Vector2(1f, 1f);
-        rect.pivot = new Vector2(0.5f, 1f);
-        rect.anchoredPosition = new Vector2(0f, -18f);
-        rect.sizeDelta = new Vector2(0f, 42f);
+        Text titleText = title.AddComponent<Text>();
+        titleText.font = font;
+        titleText.text = "SCRIPT SELECT";
+        titleText.fontSize = 27;
+        titleText.fontStyle = FontStyle.Bold;
+        titleText.alignment = TextAnchor.MiddleCenter;
+        titleText.color = new Color(0.95f, 0.91f, 0.80f, 1f);
+        titleText.raycastTarget = false;
 
-        GameObject sub = new("Subtitle");
-        sub.transform.SetParent(stageMapPanel, false);
-        Text subText = sub.AddComponent<Text>();
-        subText.font = font;
-        subText.text = openingWaitingRoom
-            ? "WAITING ROOM  /  CHOOSE YOUR FIRST STAGE"
-            : "START  →  FINAL   /   CLICK ONE OF THE HIGHLIGHTED ROUTES";
-        subText.alignment = TextAnchor.MiddleCenter;
-        subText.fontSize = 12;
-        subText.color = new Color(0.62f, 0.67f, 0.76f, 1f);
-        subText.raycastTarget = false;
+        GameObject subtitle = new("Subtitle", typeof(RectTransform));
+        subtitle.transform.SetParent(stageMapPanel, false);
+        RectTransform subtitleRect = subtitle.GetComponent<RectTransform>();
+        subtitleRect.anchorMin = new Vector2(0f, 1f);
+        subtitleRect.anchorMax = new Vector2(1f, 1f);
+        subtitleRect.pivot = new Vector2(0.5f, 1f);
+        subtitleRect.anchoredPosition = new Vector2(0f, -54f);
+        subtitleRect.sizeDelta = new Vector2(0f, 22f);
 
-        RectTransform subRect = sub.GetComponent<RectTransform>();
-        subRect.anchorMin = new Vector2(0f, 1f);
-        subRect.anchorMax = new Vector2(1f, 1f);
-        subRect.pivot = new Vector2(0.5f, 1f);
-        subRect.anchoredPosition = new Vector2(0f, -56f);
-        subRect.sizeDelta = new Vector2(0f, 24f);
+        Text subtitleText = subtitle.AddComponent<Text>();
+        subtitleText.font = font;
+        subtitleText.text =
+            runManager != null && runManager.IsInStartArea
+                ? "CHOOSE THE OPENING SCRIPT"
+                : "CHOOSE THE NEXT SCRIPT";
+        subtitleText.fontSize = 11;
+        subtitleText.fontStyle = FontStyle.Bold;
+        subtitleText.alignment = TextAnchor.MiddleCenter;
+        subtitleText.color = new Color(0.58f, 0.61f, 0.66f, 1f);
+        subtitleText.raycastTarget = false;
     }
 
-    private void DrawStageNode(
-        BattleNodeData node,
-        Vector2 position,
-        Color color,
-        Vector2 mapCenter,
-        bool selectable,
-        bool current)
+    private void CreateScriptSelectionHint()
     {
-        GameObject go = new($"StageNode_{node.id}");
-        go.transform.SetParent(stageMapPanel, false);
+        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        if (font == null)
+            return;
 
-        Image image = go.AddComponent<Image>();
-        image.color = color;
-        image.raycastTarget = selectable;
+        GameObject hint = new("ScriptControlHint", typeof(RectTransform));
+        hint.transform.SetParent(stageMapPanel, false);
+        RectTransform rect = hint.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
+        rect.pivot = new Vector2(0.5f, 0f);
+        rect.anchoredPosition = new Vector2(0f, 16f);
+        rect.sizeDelta = new Vector2(640f, 24f);
 
-        Outline outline = go.AddComponent<Outline>();
-        outline.effectColor = selectable
-            ? new Color(mapAvailable.r, mapAvailable.g, mapAvailable.b, 0.82f)
-            : current
-                ? new Color(mapCurrent.r, mapCurrent.g, mapCurrent.b, 0.82f)
-                : new Color(1f, 1f, 1f, 0.10f);
-        outline.effectDistance = selectable || current
-            ? new Vector2(2f, -2f)
-            : new Vector2(1f, -1f);
+        Text text = hint.AddComponent<Text>();
+        text.font = font;
+        text.text = "HOVER = READ SCRIPT    /    CLICK = LOCK TAKE";
+        text.fontSize = 10;
+        text.fontStyle = FontStyle.Bold;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = new Color(0.56f, 0.72f, 0.75f, 0.92f);
+        text.raycastTarget = false;
+    }
 
-        RectTransform rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = new Vector2(
-            (position.x - mapCenter.x) * resolvedMapHorizontalSpacing,
-            (position.y - mapCenter.y) * resolvedMapVerticalSpacing - 20f);
-        float size = mapNodeSize * (node.type == BattleNodeType.Elite ? 1.18f : 1f);
-        rect.sizeDelta = Vector2.one * size;
+    private void DrawScriptCard(
+        BattleNodeData node,
+        int index,
+        int count)
+    {
+        if (node == null || stageMapPanel == null)
+            return;
 
-        BattleStageMapDeniedPointerRelay denyRelay =
-            go.AddComponent<BattleStageMapDeniedPointerRelay>();
-        denyRelay.Configure(this, rect, selectable, current);
+        float panelWidth =
+            stageMapPanel.rect.width > 1f
+                ? stageMapPanel.rect.width
+                : selectionMapSize.x;
 
-        if (selectable && runManager != null)
+        float availableWidth =
+            Mathf.Max(
+                620f,
+                panelWidth - 150f);
+
+        float spacing =
+            count <= 1
+                ? 0f
+                : Mathf.Min(
+                    scriptCardSize.x + scriptCardGap,
+                    availableWidth /
+                    Mathf.Max(1, count - 1));
+
+        float centerIndex =
+            (count - 1) * 0.5f;
+
+        float offsetIndex =
+            index - centerIndex;
+
+        Vector2 basePosition =
+            new(
+                offsetIndex * spacing,
+                -28f -
+                Mathf.Abs(offsetIndex) * 7f);
+
+        GameObject rootObject =
+            new(
+                $"ScriptCard_{node.id}",
+                typeof(RectTransform));
+
+        rootObject.transform.SetParent(
+            stageMapPanel,
+            false);
+
+        RectTransform root =
+            rootObject.GetComponent<RectTransform>();
+
+        root.anchorMin =
+            root.anchorMax =
+                new Vector2(0.5f, 0.5f);
+
+        root.pivot =
+            new Vector2(0.5f, 0.5f);
+
+        root.sizeDelta =
+            scriptCardSize;
+
+        root.anchoredPosition =
+            basePosition;
+
+        Image hitTarget =
+            rootObject.AddComponent<Image>();
+
+        hitTarget.color =
+            new Color(1f, 1f, 1f, 0.001f);
+
+        hitTarget.raycastTarget = true;
+
+        Button button =
+            rootObject.AddComponent<Button>();
+
+        button.targetGraphic =
+            hitTarget;
+
+        button.transition =
+            Selectable.Transition.None;
+
+        Navigation navigation =
+            button.navigation;
+
+        navigation.mode =
+            Navigation.Mode.None;
+
+        button.navigation =
+            navigation;
+
+        string id = node.id;
+
+        button.onClick.AddListener(
+            () =>
+                BeginStageNodeSelection(
+                    id,
+                    root));
+
+        GameObject visualObject =
+            new(
+                "PaperVisual",
+                typeof(RectTransform));
+
+        visualObject.transform.SetParent(
+            root,
+            false);
+
+        RectTransform visualRoot =
+            visualObject.GetComponent<RectTransform>();
+
+        visualRoot.anchorMin =
+            visualRoot.anchorMax =
+                new Vector2(0.5f, 0.5f);
+
+        visualRoot.pivot =
+            new Vector2(0.5f, 0.5f);
+
+        visualRoot.sizeDelta =
+            scriptCardSize;
+
+        visualRoot.anchoredPosition =
+            Vector2.zero;
+
+        CanvasGroup visualGroup =
+            visualObject.AddComponent<CanvasGroup>();
+
+        visualGroup.blocksRaycasts = false;
+        visualGroup.interactable = false;
+
+        RectTransform shadow =
+            CreateScriptPage(
+                visualRoot,
+                "PaperShadow",
+                new Color(0f, 0f, 0f, 0.30f),
+                new Vector2(10f, -12f),
+                -1.8f);
+
+        RectTransform backB =
+            CreateScriptPage(
+                visualRoot,
+                "BackPageB",
+                Color.Lerp(
+                    scriptPaperTint,
+                    Color.gray,
+                    0.22f),
+                new Vector2(8f, -5f),
+                3.4f);
+
+        RectTransform backA =
+            CreateScriptPage(
+                visualRoot,
+                "BackPageA",
+                Color.Lerp(
+                    scriptPaperTint,
+                    Color.white,
+                    0.04f),
+                new Vector2(-6f, -2f),
+                -2.6f);
+
+        RectTransform front =
+            CreateScriptPage(
+                visualRoot,
+                "FrontPage",
+                scriptPaperTint,
+                Vector2.zero,
+                0f);
+
+        shadow.SetAsFirstSibling();
+        backB.SetSiblingIndex(1);
+        backA.SetSiblingIndex(2);
+        front.SetAsLastSibling();
+
+        Color accent =
+            node.type == BattleNodeType.Elite
+                ? scriptEliteAccent
+                : scriptNormalAccent;
+
+        Outline frontOutline =
+            front.gameObject.AddComponent<Outline>();
+
+        frontOutline.effectColor =
+            new Color(
+                accent.r,
+                accent.g,
+                accent.b,
+                0.38f);
+
+        frontOutline.effectDistance =
+            new Vector2(2f, -2f);
+
+        frontOutline.useGraphicAlpha = false;
+
+        CreateScriptClip(front);
+        CreateScriptCardContent(front, node, accent);
+
+        Vector3 hoverEuler =
+            scriptHoverIsoEuler;
+
+        float side =
+            Mathf.Abs(basePosition.x) < 0.01f
+                ? 1f
+                : Mathf.Sign(basePosition.x);
+
+        hoverEuler.y =
+            -side *
+            Mathf.Abs(
+                scriptHoverIsoEuler.y);
+
+        float phase =
+            Mathf.Abs(
+                StableHash(node.id) % 1009) /
+            1009f *
+            Mathf.PI *
+            2f;
+
+        BattleScriptCardVisual visual =
+            rootObject.AddComponent<BattleScriptCardVisual>();
+
+        visual.Configure(
+            visualRoot,
+            front,
+            backA,
+            backB,
+            visualGroup,
+            phase,
+            scriptIdleFloatPixels,
+            scriptIdleCyclesPerSecond,
+            scriptHoverLiftPixels,
+            scriptHoverScale,
+            scriptHoverDepth,
+            hoverEuler,
+            scriptPaperFlutterDegrees,
+            scriptPaperFlutterCyclesPerSecond,
+            accent);
+    }
+
+    private RectTransform CreateScriptPage(
+        Transform parent,
+        string name,
+        Color color,
+        Vector2 offset,
+        float rotation)
+    {
+        GameObject page =
+            new(
+                name,
+                typeof(RectTransform));
+
+        page.transform.SetParent(
+            parent,
+            false);
+
+        RectTransform rect =
+            page.GetComponent<RectTransform>();
+
+        rect.anchorMin =
+            rect.anchorMax =
+                new Vector2(0.5f, 0.5f);
+
+        rect.pivot =
+            new Vector2(0.5f, 0.5f);
+
+        rect.sizeDelta =
+            scriptCardSize;
+
+        rect.anchoredPosition =
+            offset;
+
+        rect.localRotation =
+            Quaternion.Euler(
+                0f,
+                0f,
+                rotation);
+
+        Image image =
+            page.AddComponent<Image>();
+
+        image.sprite =
+            GetScriptPaperSprite();
+
+        image.type =
+            Image.Type.Simple;
+
+        image.color =
+            color;
+
+        image.raycastTarget = false;
+
+        return rect;
+    }
+
+    private void CreateScriptClip(
+        RectTransform front)
+    {
+        GameObject clip =
+            new(
+                "ScriptClip",
+                typeof(RectTransform));
+
+        clip.transform.SetParent(
+            front,
+            false);
+
+        RectTransform rect =
+            clip.GetComponent<RectTransform>();
+
+        rect.anchorMin =
+            rect.anchorMax =
+                new Vector2(0.5f, 1f);
+
+        rect.pivot =
+            new Vector2(0.5f, 1f);
+
+        rect.anchoredPosition =
+            new Vector2(0f, 8f);
+
+        rect.sizeDelta =
+            new Vector2(28f, 18f);
+
+        Image image =
+            clip.AddComponent<Image>();
+
+        image.sprite =
+            GetScriptPaperSprite();
+
+        image.color =
+            new Color(0.24f, 0.20f, 0.14f, 1f);
+
+        image.raycastTarget = false;
+    }
+
+    private void CreateScriptCardContent(
+        RectTransform front,
+        BattleNodeData node,
+        Color accent)
+    {
+        Font font =
+            Resources.GetBuiltinResource<Font>(
+                "LegacyRuntime.ttf");
+
+        if (font == null)
+            return;
+
+        string title =
+            ResolveScriptTitle(node);
+
+        string subtitle =
+            ResolveScriptSubtitle(node);
+
+        Text take =
+            CreateScriptText(
+                front,
+                "TakeNumber",
+                $"TAKE {Mathf.Max(1, node.depth + 1):00}",
+                10,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.66f));
+
+        RectTransform takeRect =
+            take.rectTransform;
+
+        takeRect.anchorMin =
+            takeRect.anchorMax =
+                new Vector2(0.5f, 1f);
+
+        takeRect.pivot =
+            new Vector2(0.5f, 1f);
+
+        takeRect.anchoredPosition =
+            new Vector2(0f, -18f);
+
+        takeRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 30f,
+                18f);
+
+        Text titleText =
+            CreateScriptText(
+                front,
+                "ScriptTitle",
+                title,
+                20,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                scriptInkColor);
+
+        RectTransform titleRect =
+            titleText.rectTransform;
+
+        titleRect.anchorMin =
+            titleRect.anchorMax =
+                new Vector2(0.5f, 1f);
+
+        titleRect.pivot =
+            new Vector2(0.5f, 1f);
+
+        titleRect.anchoredPosition =
+            new Vector2(0f, -46f);
+
+        titleRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 28f,
+                54f);
+
+        titleText.resizeTextForBestFit = true;
+        titleText.resizeTextMinSize = 12;
+        titleText.resizeTextMaxSize = 20;
+
+        Text subtitleText =
+            CreateScriptText(
+                front,
+                "ScriptSubtitle",
+                subtitle,
+                9,
+                FontStyle.Italic,
+                TextAnchor.MiddleCenter,
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.72f));
+
+        RectTransform subtitleRect =
+            subtitleText.rectTransform;
+
+        subtitleRect.anchorMin =
+            subtitleRect.anchorMax =
+                new Vector2(0.5f, 1f);
+
+        subtitleRect.pivot =
+            new Vector2(0.5f, 1f);
+
+        subtitleRect.anchoredPosition =
+            new Vector2(0f, -98f);
+
+        subtitleRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 34f,
+                26f);
+
+        GameObject coverObject =
+            new(
+                "ScriptImage",
+                typeof(RectTransform));
+
+        coverObject.transform.SetParent(
+            front,
+            false);
+
+        RectTransform coverRect =
+            coverObject.GetComponent<RectTransform>();
+
+        coverRect.anchorMin =
+            coverRect.anchorMax =
+                new Vector2(0.5f, 0.5f);
+
+        coverRect.pivot =
+            new Vector2(0.5f, 0.5f);
+
+        coverRect.anchoredPosition =
+            new Vector2(0f, 4f);
+
+        coverRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 42f,
+                112f);
+
+        Image cover =
+            coverObject.AddComponent<Image>();
+
+        cover.raycastTarget = false;
+
+        if (node.scriptImage != null)
         {
-            Button button = go.AddComponent<Button>();
-            button.targetGraphic = image;
-            button.transition = Selectable.Transition.None;
-            Navigation navigation = button.navigation;
-            navigation.mode = Navigation.Mode.None;
-            button.navigation = navigation;
+            cover.sprite =
+                node.scriptImage;
 
-            string id = node.id;
-            button.onClick.AddListener(() => BeginStageNodeSelection(id, rect));
+            cover.preserveAspect = true;
+            cover.color = Color.white;
+        }
+        else
+        {
+            cover.sprite =
+                GetScriptPaperSprite();
+
+            cover.color =
+                new Color(
+                    accent.r,
+                    accent.g,
+                    accent.b,
+                    0.18f);
+
+            Text typeText =
+                CreateScriptText(
+                    coverRect,
+                    "FallbackType",
+                    node.type.ToString().ToUpperInvariant(),
+                    18,
+                    FontStyle.Bold,
+                    TextAnchor.MiddleCenter,
+                    new Color(
+                        scriptInkColor.r,
+                        scriptInkColor.g,
+                        scriptInkColor.b,
+                        0.82f));
+
+            StretchRect(
+                typeText.rectTransform,
+                new Vector2(8f, 8f));
         }
 
-        AddNodeLabel(go.transform, node, selectable, current);
-    }
+        bool rated =
+            node.type == BattleNodeType.Combat ||
+            node.type == BattleNodeType.Elite;
 
-    private void AddNodeLabel(Transform parent, BattleNodeData node, bool selectable, bool current)
-    {
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null)
-            return;
-
-        bool rated = node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite;
         if (rated)
         {
-            int stars = runManager != null
-                ? runManager.ResolveBattleRatingStars(node)
-                : node.GetBattleRatingStars();
-            AddNodeRatingStars(parent, stars);
+            int stars =
+                runManager != null
+                    ? runManager.ResolveBattleRatingStars(node)
+                    : node.GetBattleRatingStars();
+
+            AddScriptRatingStars(
+                front,
+                stars,
+                accent);
         }
 
-        GameObject label = new("Label");
-        label.transform.SetParent(parent, false);
-        Text text = label.AddComponent<Text>();
-        text.font = font;
+        Text footer =
+            CreateScriptText(
+                front,
+                "Footer",
+                "HOVER TO READ  /  CLICK TO LOCK",
+                8,
+                FontStyle.Bold,
+                TextAnchor.MiddleCenter,
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.58f));
 
-        string type = node.type.ToString().ToUpperInvariant();
-        string status = current ? "CURRENT" : selectable ? "AVAILABLE" : "LOCKED";
-        text.text = $"{type}\n{status}";
+        RectTransform footerRect =
+            footer.rectTransform;
 
-        text.fontSize = selectable || current ? 11 : 9;
-        text.fontStyle = selectable || current ? FontStyle.Bold : FontStyle.Normal;
-        text.alignment = TextAnchor.UpperCenter;
-        text.color = Color.white;
-        text.raycastTarget = false;
+        footerRect.anchorMin =
+            footerRect.anchorMax =
+                new Vector2(0.5f, 0f);
 
-        RectTransform rect = label.GetComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0f);
-        rect.anchorMax = new Vector2(0.5f, 0f);
-        rect.pivot = new Vector2(0.5f, 1f);
-        rect.anchoredPosition = rated ? new Vector2(0f, -26f) : new Vector2(0f, -7f);
-        rect.sizeDelta = rated ? new Vector2(120f, 38f) : new Vector2(120f, 46f);
+        footerRect.pivot =
+            new Vector2(0.5f, 0f);
+
+        footerRect.anchoredPosition =
+            new Vector2(0f, 16f);
+
+        footerRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 24f,
+                18f);
     }
 
-    private void AddNodeRatingStars(Transform parent, int activeStars)
+    private Text CreateScriptText(
+        Transform parent,
+        string name,
+        string value,
+        int size,
+        FontStyle style,
+        TextAnchor alignment,
+        Color color)
     {
-        GameObject row = new("RatingStars");
-        row.transform.SetParent(parent, false);
-        RectTransform rowRect = row.AddComponent<RectTransform>();
-        rowRect.anchorMin = rowRect.anchorMax = new Vector2(0.5f, 0f);
-        rowRect.pivot = new Vector2(0.5f, 1f);
-        rowRect.anchoredPosition = new Vector2(0f, -7f);
-        rowRect.sizeDelta = new Vector2(82f, 15f);
+        GameObject textObject =
+            new(
+                name,
+                typeof(RectTransform));
+
+        textObject.transform.SetParent(
+            parent,
+            false);
+
+        Text text =
+            textObject.AddComponent<Text>();
+
+        text.font =
+            Resources.GetBuiltinResource<Font>(
+                "LegacyRuntime.ttf");
+
+        text.text =
+            value ?? string.Empty;
+
+        text.fontSize =
+            size;
+
+        text.fontStyle =
+            style;
+
+        text.alignment =
+            alignment;
+
+        text.color =
+            color;
+
+        text.raycastTarget = false;
+
+        return text;
+    }
+
+    private void AddScriptRatingStars(
+        Transform parent,
+        int activeStars,
+        Color accent)
+    {
+        GameObject row =
+            new(
+                "RatingStars",
+                typeof(RectTransform));
+
+        row.transform.SetParent(
+            parent,
+            false);
+
+        RectTransform rowRect =
+            row.GetComponent<RectTransform>();
+
+        rowRect.anchorMin =
+            rowRect.anchorMax =
+                new Vector2(0.5f, 0f);
+
+        rowRect.pivot =
+            new Vector2(0.5f, 0f);
+
+        rowRect.anchoredPosition =
+            new Vector2(0f, 40f);
+
+        rowRect.sizeDelta =
+            new Vector2(92f, 16f);
 
         const float starSize = 13f;
-        const float gap = 3f;
-        float totalWidth = starSize * 5f + gap * 4f;
-        float startX = -totalWidth * 0.5f + starSize * 0.5f;
-        int clampedStars = Mathf.Clamp(activeStars, 1, 5);
-        Sprite starSprite = GetMapRatingStarSprite();
+        const float gap = 4f;
+
+        float total =
+            starSize * 5f +
+            gap * 4f;
+
+        float startX =
+            -total * 0.5f +
+            starSize * 0.5f;
+
+        Sprite starSprite =
+            GetMapRatingStarSprite();
+
+        int clamped =
+            Mathf.Clamp(
+                activeStars,
+                1,
+                5);
 
         for (int i = 0; i < 5; i++)
         {
-            GameObject starObject = new($"RatingStar_{i}");
-            starObject.transform.SetParent(rowRect, false);
-            RectTransform starRect = starObject.AddComponent<RectTransform>();
-            starRect.anchorMin = starRect.anchorMax = new Vector2(0.5f, 0.5f);
-            starRect.pivot = new Vector2(0.5f, 0.5f);
-            starRect.sizeDelta = Vector2.one * starSize;
-            starRect.anchoredPosition = new Vector2(startX + i * (starSize + gap), 0f);
+            GameObject starObject =
+                new(
+                    $"RatingStar_{i}",
+                    typeof(RectTransform));
 
-            Image star = starObject.AddComponent<Image>();
-            star.sprite = starSprite;
+            starObject.transform.SetParent(
+                rowRect,
+                false);
+
+            RectTransform starRect =
+                starObject.GetComponent<RectTransform>();
+
+            starRect.anchorMin =
+                starRect.anchorMax =
+                    new Vector2(0.5f, 0.5f);
+
+            starRect.pivot =
+                new Vector2(0.5f, 0.5f);
+
+            starRect.sizeDelta =
+                Vector2.one *
+                starSize;
+
+            starRect.anchoredPosition =
+                new Vector2(
+                    startX +
+                    i *
+                    (starSize + gap),
+                    0f);
+
+            Image star =
+                starObject.AddComponent<Image>();
+
+            star.sprite =
+                starSprite;
+
             star.preserveAspect = true;
             star.raycastTarget = false;
-            star.color = i < clampedStars
-                ? new Color(1f, 0.78f, 0.14f, 1f)
-                : new Color(0.48f, 0.52f, 0.60f, 0.28f);
+
+            star.color =
+                i < clamped
+                    ? new Color(
+                        0.90f,
+                        0.65f,
+                        0.18f,
+                        1f)
+                    : new Color(
+                        accent.r,
+                        accent.g,
+                        accent.b,
+                        0.18f);
         }
+    }
+
+    private string ResolveScriptTitle(
+        BattleNodeData node)
+    {
+        if (node == null)
+            return "UNTITLED SCRIPT";
+
+        if (!string.IsNullOrWhiteSpace(
+                node.scriptTitle))
+        {
+            return node.scriptTitle.Trim();
+        }
+
+        if (node.room != null &&
+            !string.IsNullOrWhiteSpace(
+                node.room.roomId))
+        {
+            string roomTitle =
+                node.room.roomId
+                    .Replace("TEST_", string.Empty)
+                    .Replace('_', ' ')
+                    .Trim();
+
+            if (!string.IsNullOrWhiteSpace(
+                    roomTitle))
+            {
+                return roomTitle.ToUpperInvariant();
+            }
+        }
+
+        return node.type switch
+        {
+            BattleNodeType.Elite => "SPECIAL PERFORMANCE",
+            BattleNodeType.Shop => "INTERMISSION",
+            BattleNodeType.Event => "UNPLANNED SCENE",
+            _ => "BATTLE SCENE"
+        };
+    }
+
+    private static string ResolveScriptSubtitle(
+        BattleNodeData node)
+    {
+        if (node == null)
+            return "THE NEXT TAKE";
+
+        if (!string.IsNullOrWhiteSpace(
+                node.scriptSubtitle))
+        {
+            return node.scriptSubtitle.Trim();
+        }
+
+        return node.type switch
+        {
+            BattleNodeType.Elite => "HIGH-RISK LIVE TAKE",
+            BattleNodeType.Shop => "PROP & EQUIPMENT BREAK",
+            BattleNodeType.Event => "AN UNSCRIPTED TURN",
+            _ => "LIVE COMBAT TAKE"
+        };
+    }
+
+    private static void StretchRect(
+        RectTransform rect,
+        Vector2 padding)
+    {
+        if (rect == null)
+            return;
+
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin =
+            new Vector2(
+                padding.x,
+                padding.y);
+        rect.offsetMax =
+            new Vector2(
+                -padding.x,
+                -padding.y);
+    }
+
+    private static Sprite GetScriptPaperSprite()
+    {
+        if (scriptPaperSprite != null)
+            return scriptPaperSprite;
+
+        const int width = 96;
+        const int height = 132;
+
+        Texture2D texture =
+            new(
+                width,
+                height,
+                TextureFormat.RGBA32,
+                false,
+                true)
+            {
+                name =
+                    "RuntimeScriptPaper",
+                filterMode =
+                    FilterMode.Bilinear,
+                wrapMode =
+                    TextureWrapMode.Clamp,
+                hideFlags =
+                    HideFlags.HideAndDontSave
+            };
+
+        Color[] pixels =
+            new Color[
+                width *
+                height];
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                float edge =
+                    Mathf.Min(
+                        Mathf.Min(x, width - 1 - x),
+                        Mathf.Min(y, height - 1 - y));
+
+                float alpha =
+                    Mathf.Clamp01(
+                        edge /
+                        2.5f);
+
+                float grain =
+                    Mathf.PerlinNoise(
+                        x * 0.16f + 1.7f,
+                        y * 0.14f + 4.2f);
+
+                float value =
+                    Mathf.Lerp(
+                        0.91f,
+                        1.0f,
+                        grain);
+
+                pixels[
+                    y * width +
+                    x] =
+                    new Color(
+                        value,
+                        value * 0.985f,
+                        value * 0.94f,
+                        alpha);
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+
+        scriptPaperSprite =
+            Sprite.Create(
+                texture,
+                new Rect(
+                    0f,
+                    0f,
+                    width,
+                    height),
+                new Vector2(
+                    0.5f,
+                    0.5f),
+                100f,
+                0,
+                SpriteMeshType.FullRect);
+
+        scriptPaperSprite.name =
+            "RuntimeScriptPaperSprite";
+
+        scriptPaperSprite.hideFlags =
+            HideFlags.HideAndDontSave;
+
+        return scriptPaperSprite;
     }
 
     private static Sprite GetMapRatingStarSprite()
@@ -1577,343 +2339,222 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return mapRatingStarSprite;
 
         const int size = 24;
-        Vector2 center = new((size - 1) * 0.5f, (size - 1) * 0.5f);
-        Vector2[] polygon = new Vector2[10];
+
+        Vector2 center =
+            new(
+                (size - 1) * 0.5f,
+                (size - 1) * 0.5f);
+
+        Vector2[] polygon =
+            new Vector2[10];
+
         for (int i = 0; i < polygon.Length; i++)
         {
-            float radius = i % 2 == 0 ? 10.5f : 4.6f;
-            float angle = (-90f + i * 36f) * Mathf.Deg2Rad;
-            polygon[i] = center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+            float radius =
+                i % 2 == 0
+                    ? 10.5f
+                    : 4.6f;
+
+            float angle =
+                (-90f + i * 36f) *
+                Mathf.Deg2Rad;
+
+            polygon[i] =
+                center +
+                new Vector2(
+                    Mathf.Cos(angle),
+                    Mathf.Sin(angle)) *
+                radius;
         }
 
-        Texture2D texture = new(size, size, TextureFormat.RGBA32, false)
-        {
-            filterMode = FilterMode.Point,
-            wrapMode = TextureWrapMode.Clamp,
-            hideFlags = HideFlags.HideAndDontSave
-        };
+        Texture2D texture =
+            new(
+                size,
+                size,
+                TextureFormat.RGBA32,
+                false)
+            {
+                filterMode =
+                    FilterMode.Point,
+                wrapMode =
+                    TextureWrapMode.Clamp,
+                hideFlags =
+                    HideFlags.HideAndDontSave
+            };
 
         for (int y = 0; y < size; y++)
         {
             for (int x = 0; x < size; x++)
             {
-                bool inside = PointInPolygon(new Vector2(x + 0.5f, y + 0.5f), polygon);
-                texture.SetPixel(x, y, inside ? Color.white : Color.clear);
+                bool inside =
+                    PointInPolygon(
+                        new Vector2(
+                            x + 0.5f,
+                            y + 0.5f),
+                        polygon);
+
+                texture.SetPixel(
+                    x,
+                    y,
+                    inside
+                        ? Color.white
+                        : Color.clear);
             }
         }
 
         texture.Apply(false, true);
-        mapRatingStarSprite = Sprite.Create(
-            texture,
-            new Rect(0f, 0f, size, size),
-            new Vector2(0.5f, 0.5f),
-            size,
-            0,
-            SpriteMeshType.FullRect);
-        mapRatingStarSprite.name = "RuntimeMapRatingStar";
-        mapRatingStarSprite.hideFlags = HideFlags.HideAndDontSave;
+
+        mapRatingStarSprite =
+            Sprite.Create(
+                texture,
+                new Rect(
+                    0f,
+                    0f,
+                    size,
+                    size),
+                new Vector2(
+                    0.5f,
+                    0.5f),
+                size,
+                0,
+                SpriteMeshType.FullRect);
+
+        mapRatingStarSprite.name =
+            "RuntimeMapRatingStar";
+
+        mapRatingStarSprite.hideFlags =
+            HideFlags.HideAndDontSave;
+
         return mapRatingStarSprite;
     }
 
-    private static bool PointInPolygon(Vector2 point, IReadOnlyList<Vector2> polygon)
+    private static bool PointInPolygon(
+        Vector2 point,
+        IReadOnlyList<Vector2> polygon)
     {
         bool inside = false;
         int j = polygon.Count - 1;
+
         for (int i = 0; i < polygon.Count; i++)
         {
             Vector2 a = polygon[i];
             Vector2 b = polygon[j];
+
             bool crosses =
-                (a.y > point.y) != (b.y > point.y) &&
-                point.x < (b.x - a.x) * (point.y - a.y) / (b.y - a.y) + a.x;
+                (a.y > point.y) !=
+                (b.y > point.y) &&
+                point.x <
+                (b.x - a.x) *
+                (point.y - a.y) /
+                (b.y - a.y) +
+                a.x;
+
             if (crosses)
                 inside = !inside;
+
             j = i;
         }
 
         return inside;
     }
 
-    private Vector2 ResolveStartBaseMapPosition(IReadOnlyList<Vector2> positions)
-    {
-        if (positions == null || positions.Count == 0)
-            return new Vector2(-1f, 0f);
-
-        float minX = positions[0].x;
-        float sumY = 0f;
-        for (int i = 0; i < positions.Count; i++)
-        {
-            minX = Mathf.Min(minX, positions[i].x);
-            sumY += positions[i].y;
-        }
-
-        return new Vector2(minX - 1f, sumY / positions.Count);
-    }
-
-    private void DrawStartBaseMarker(Vector2 position, Vector2 mapCenter)
-    {
-        GameObject go = new("StageStartBase_4x4");
-        go.transform.SetParent(stageMapPanel, false);
-
-        Image image = go.AddComponent<Image>();
-        bool current = runManager != null && runManager.IsInStartArea;
-        image.color = current
-            ? new Color(mapCurrent.r * 0.30f, mapCurrent.g * 0.30f, mapCurrent.b * 0.30f, 1f)
-            : new Color(mapVisited.r * 0.30f, mapVisited.g * 0.30f, mapVisited.b * 0.30f, 0.92f);
-        image.raycastTarget = false;
-
-        Outline outline = go.AddComponent<Outline>();
-        outline.effectColor = current ? mapCurrent : mapVisited;
-        outline.effectDistance = new Vector2(2f, -2f);
-
-        RectTransform rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = new Vector2(
-            (position.x - mapCenter.x) * resolvedMapHorizontalSpacing,
-            (position.y - mapCenter.y) * resolvedMapVerticalSpacing - 20f);
-        rect.sizeDelta = new Vector2(92f, 62f);
-        rect.localRotation = Quaternion.Euler(
-            current ? 0.5f : 1.6f,
-            current ? -1.2f : -3.4f,
-            -0.3f);
-        Vector3 local = rect.localPosition;
-        local.z = current ? -8f : 8f;
-        rect.localPosition = local;
-
-        Font font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        if (font == null)
-            return;
-
-        GameObject label = new("Label");
-        label.transform.SetParent(rect, false);
-        Text text = label.AddComponent<Text>();
-        text.font = font;
-        text.text = current
-            ? "START\n4 x 4 BASE\nCURRENT"
-            : "START\n4 x 4 BASE\nLOCKED";
-        text.fontSize = 10;
-        text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.MiddleCenter;
-        text.color = Color.white;
-        text.raycastTarget = false;
-
-        RectTransform labelRect = label.GetComponent<RectTransform>();
-        labelRect.anchorMin = Vector2.zero;
-        labelRect.anchorMax = Vector2.one;
-        labelRect.offsetMin = new Vector2(4f, 4f);
-        labelRect.offsetMax = new Vector2(-4f, -4f);
-    }
-
+    // Kept as a no-op compatibility method because room generation still invokes it
+    // during graph binding. Script Selection no longer needs spatial graph layout.
     private void BuildResolvedLayout()
     {
-        if (graph == null || graph.nodes == null)
-            return;
-
         resolvedMapPositions.Clear();
-        SortedDictionary<int, List<BattleNodeData>> byDepth = new();
-
-        for (int i = 0; i < graph.nodes.Count; i++)
-        {
-            BattleNodeData node = graph.nodes[i];
-            if (node == null || string.IsNullOrWhiteSpace(node.id))
-                continue;
-
-            if (!byDepth.TryGetValue(node.depth, out List<BattleNodeData> list))
-            {
-                list = new List<BattleNodeData>();
-                byDepth.Add(node.depth, list);
-            }
-            list.Add(node);
-        }
-
-        foreach (KeyValuePair<int, List<BattleNodeData>> pair in byDepth)
-        {
-            List<BattleNodeData> list = pair.Value;
-            list.Sort((a, b) =>
-            {
-                if (a.useExplicitMapPosition && b.useExplicitMapPosition)
-                    return a.mapPosition.x.CompareTo(b.mapPosition.x);
-                if (a.useExplicitMapPosition != b.useExplicitMapPosition)
-                    return a.useExplicitMapPosition ? -1 : 1;
-                return string.CompareOrdinal(a.id, b.id);
-            });
-
-            float center = (list.Count - 1) * 0.5f;
-            for (int i = 0; i < list.Count; i++)
-            {
-                BattleNodeData node = list[i];
-                float x = node.depth;
-                float y = node.useExplicitMapPosition ? node.mapPosition.x : center - i;
-                resolvedMapPositions[node.id] = new Vector2(x, y);
-            }
-        }
-    }
-
-    private Vector2 ResolveNodeMapPosition(BattleNodeData node)
-    {
-        if (node == null)
-            return Vector2.zero;
-        if (resolvedMapPositions.TryGetValue(node.id, out Vector2 pos))
-            return pos;
-        return new Vector2(node.depth, node.useExplicitMapPosition ? node.mapPosition.x : 0f);
-    }
-
-    private static Vector2 CalculateMapCenter(List<Vector2> positions)
-    {
-        if (positions == null || positions.Count == 0)
-            return Vector2.zero;
-
-        float minX = positions[0].x;
-        float maxX = positions[0].x;
-        float minY = positions[0].y;
-        float maxY = positions[0].y;
-        for (int i = 1; i < positions.Count; i++)
-        {
-            minX = Mathf.Min(minX, positions[i].x);
-            maxX = Mathf.Max(maxX, positions[i].x);
-            minY = Mathf.Min(minY, positions[i].y);
-            maxY = Mathf.Max(maxY, positions[i].y);
-        }
-
-        return new Vector2((minX + maxX) * 0.5f, (minY + maxY) * 0.5f);
-    }
-
-    private void DrawMapLink(string fromId, string toId, Vector2 from, Vector2 to, Vector2 center)
-    {
-        Vector2 a = new(
-            (from.x - center.x) * resolvedMapHorizontalSpacing,
-            (from.y - center.y) * resolvedMapVerticalSpacing - 20f);
-        Vector2 b = new(
-            (to.x - center.x) * resolvedMapHorizontalSpacing,
-            (to.y - center.y) * resolvedMapVerticalSpacing - 20f);
-        Vector2 delta = b - a;
-        float length = delta.magnitude;
-        if (length < 1f)
-            return;
-
-        GameObject go = new("StageLink");
-        go.transform.SetParent(stageMapPanel, false);
-        Image image = go.AddComponent<Image>();
-        image.color = mapLink;
-        image.raycastTarget = false;
-
-        RectTransform rect = go.GetComponent<RectTransform>();
-        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = (a + b) * 0.5f;
-        rect.sizeDelta = new Vector2(length, 4f);
-        rect.localRotation = Quaternion.Euler(
-            0f,
-            0f,
-            Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-
-        BattleStageMapLinkVisual link = go.AddComponent<BattleStageMapLinkVisual>();
-        link.Configure(fromId, toId, image, rect, a, b, mapLink);
-
-        go.transform.SetAsFirstSibling();
-    }
-
-    private void ResolveStageMapSpacing(List<Vector2> positions)
-    {
-        resolvedMapHorizontalSpacing = mapHorizontalSpacing;
-        resolvedMapVerticalSpacing = mapVerticalSpacing;
-        if (positions == null || positions.Count < 2 || stageMapPanel == null)
-            return;
-
-        float minX = positions[0].x;
-        float maxX = positions[0].x;
-        float minY = positions[0].y;
-        float maxY = positions[0].y;
-        for (int i = 1; i < positions.Count; i++)
-        {
-            minX = Mathf.Min(minX, positions[i].x);
-            maxX = Mathf.Max(maxX, positions[i].x);
-            minY = Mathf.Min(minY, positions[i].y);
-            maxY = Mathf.Max(maxY, positions[i].y);
-        }
-
-        float horizontalRange = maxX - minX;
-        float verticalRange = maxY - minY;
-        float panelWidth = stageMapPanel.rect.width > 1f ? stageMapPanel.rect.width : selectionMapSize.x;
-        float panelHeight = stageMapPanel.rect.height > 1f ? stageMapPanel.rect.height : selectionMapSize.y;
-        float usableWidth = Mathf.Max(1f, panelWidth - 160f);
-        float usableHeight = Mathf.Max(1f, panelHeight - 170f);
-
-        // Route topology should occupy the TV, not collapse into its center.
-        // Keep conservative caps so large graphs still remain inside the safe area.
-        if (horizontalRange > 0.001f)
-        {
-            float adaptive = usableWidth * 0.58f / horizontalRange;
-            resolvedMapHorizontalSpacing = Mathf.Clamp(
-                adaptive,
-                Mathf.Max(120f, mapHorizontalSpacing),
-                280f);
-        }
-
-        if (verticalRange > 0.001f)
-        {
-            float adaptive = usableHeight * 0.62f / verticalRange;
-            resolvedMapVerticalSpacing = Mathf.Clamp(
-                adaptive,
-                Mathf.Max(96f, mapVerticalSpacing),
-                180f);
-        }
     }
 
     private void PlayStageMapReveal()
     {
         if (stageMapRevealRoutine != null)
             StopCoroutine(stageMapRevealRoutine);
-        stageMapRevealRoutine = StartCoroutine(AnimateStageMapReveal());
+
+        stageMapRevealRoutine =
+            StartCoroutine(
+                StageMapRevealRoutine());
     }
 
-    private IEnumerator AnimateStageMapReveal()
+    private IEnumerator StageMapRevealRoutine()
     {
-        if (stageMapCanvasGroup == null || stageMapPanel == null)
+        if (stageMapPanel == null ||
+            stageMapCanvasGroup == null)
+        {
+            stageMapRevealRoutine = null;
             yield break;
+        }
 
-        float duration = Mathf.Max(0.05f, mapRevealDuration);
+        float duration =
+            Mathf.Max(
+                0.05f,
+                mapRevealDuration);
+
         float elapsed = 0f;
-        Vector2 startPosition = stageMapPanelRestPosition + Vector2.right * mapRevealSlideDistance;
+
+        Vector2 startPosition =
+            stageMapPanelRestPosition +
+            Vector2.down *
+            Mathf.Min(
+                42f,
+                mapRevealSlideDistance);
+
         stageMapCanvasGroup.alpha = 0f;
-        stageMapPanel.anchoredPosition = startPosition;
-        stageMapPanel.localScale = Vector3.one * 0.96f;
-        stageMapPanel.localRotation = Quaternion.Euler(2.4f, -4.5f, 0.65f);
-        Vector3 revealLocal = stageMapPanel.localPosition;
-        revealLocal.z = 28f;
-        stageMapPanel.localPosition = revealLocal;
+        stageMapCanvasGroup.blocksRaycasts = false;
+
+        stageMapPanel.anchoredPosition =
+            startPosition;
+
+        stageMapPanel.localScale =
+            Vector3.one *
+            0.985f;
 
         while (elapsed < duration)
         {
-            elapsed += Time.unscaledDeltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-            float eased = 1f - Mathf.Pow(1f - t, 3f);
-            stageMapCanvasGroup.alpha = eased;
-            stageMapPanel.anchoredPosition = Vector2.LerpUnclamped(startPosition, stageMapPanelRestPosition, eased);
-            stageMapPanel.localScale = Vector3.LerpUnclamped(Vector3.one * 0.96f, Vector3.one, eased);
-            stageMapPanel.localRotation = Quaternion.Slerp(
-                Quaternion.Euler(2.4f, -4.5f, 0.65f),
-                Quaternion.identity,
-                eased);
-            Vector3 local = stageMapPanel.localPosition;
-            local.z = Mathf.Lerp(28f, 0f, eased);
-            stageMapPanel.localPosition = local;
+            elapsed +=
+                Time.unscaledDeltaTime;
+
+            float t =
+                Mathf.Clamp01(
+                    elapsed /
+                    duration);
+
+            float eased =
+                t * t *
+                (3f - 2f * t);
+
+            stageMapCanvasGroup.alpha =
+                eased;
+
+            stageMapPanel.anchoredPosition =
+                Vector2.LerpUnclamped(
+                    startPosition,
+                    stageMapPanelRestPosition,
+                    eased);
+
+            stageMapPanel.localScale =
+                Vector3.LerpUnclamped(
+                    Vector3.one * 0.985f,
+                    Vector3.one,
+                    eased);
+
             yield return null;
         }
 
         stageMapCanvasGroup.alpha = 1f;
-        stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
-        stageMapPanel.localScale = Vector3.one;
-        stageMapPanel.localRotation = Quaternion.identity;
-        Vector3 finalLocal = stageMapPanel.localPosition;
-        finalLocal.z = 0f;
-        stageMapPanel.localPosition = finalLocal;
+        stageMapCanvasGroup.blocksRaycasts = true;
+        stageMapPanel.anchoredPosition =
+            stageMapPanelRestPosition;
+        stageMapPanel.localScale =
+            Vector3.one;
+
         stageMapRevealRoutine = null;
     }
 
     private void UpdateStageMapCursorTracking()
     {
         if (battleCameraController == null)
-            battleCameraController = FindFirstObjectByType<BattleCameraController>();
+            battleCameraController =
+                FindFirstObjectByType<BattleCameraController>();
 
         if (!mapSelectionActive ||
             stageMapPanel == null ||
@@ -1922,32 +2563,50 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             !stageMapPanel.gameObject.activeInHierarchy)
         {
             ClearTrackedStageMapHover();
-            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            battleCameraController?.SetMapCursorTracking(
+                false,
+                Vector2.zero);
             return;
         }
 
-        if (inputRouter == null || !inputRouter.PointerPresent)
+        if (inputRouter == null ||
+            !inputRouter.PointerPresent)
         {
             ClearTrackedStageMapHover();
-            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            battleCameraController?.SetMapCursorTracking(
+                false,
+                Vector2.zero);
             return;
         }
 
-        Camera eventCamera = ResolveStageMapEventCamera();
-        Vector2 pointer = inputRouter.PointerPosition;
-        Button directHit = FindStageMapButtonUnderPointer(pointer, eventCamera);
+        Camera eventCamera =
+            ResolveStageMapEventCamera();
+
+        Vector2 pointer =
+            inputRouter.PointerPosition;
+
+        Button directHit =
+            FindStageMapButtonUnderPointer(
+                pointer,
+                eventCamera);
 
         if (directHit != null)
         {
-            SetTrackedStageMapButton(directHit, pointer);
+            SetTrackedStageMapButton(
+                directHit,
+                pointer);
         }
         else if (trackedStageMapButton != null)
         {
             bool canLatch =
                 trackedStageMapButton.interactable &&
                 trackedStageMapButton.gameObject.activeInHierarchy &&
-                Vector2.Distance(pointer, trackedStageMapPointerAnchor) <=
-                Mathf.Max(8f, mapHoverLatchPixels);
+                Vector2.Distance(
+                    pointer,
+                    trackedStageMapPointerAnchor) <=
+                Mathf.Max(
+                    8f,
+                    mapHoverLatchPixels);
 
             if (!canLatch)
                 ClearTrackedStageMapHover();
@@ -1955,47 +2614,80 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         if (trackedStageMapButton == null)
         {
-            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+            battleCameraController?.SetMapCursorTracking(
+                false,
+                Vector2.zero);
             return;
         }
 
-        RectTransform node = trackedStageMapButton.transform as RectTransform;
-        if (node == null)
-        {
-            ClearTrackedStageMapHover();
-            battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+        RectTransform card =
+            trackedStageMapButton.transform
+            as RectTransform;
+
+        if (card == null)
             return;
-        }
 
-        Vector2 localCenter = stageMapPanel.InverseTransformPoint(
-            node.TransformPoint(node.rect.center));
-        Rect panelRect = stageMapPanel.rect;
-        Vector2 normalized = new(
-            panelRect.width > 0.001f
-                ? Mathf.Clamp(localCenter.x / (panelRect.width * 0.5f), -1f, 1f)
-                : 0f,
-            panelRect.height > 0.001f
-                ? Mathf.Clamp(localCenter.y / (panelRect.height * 0.5f), -1f, 1f)
-                : 0f);
+        Vector2 localCenter =
+            stageMapPanel.InverseTransformPoint(
+                card.TransformPoint(
+                    card.rect.center));
 
-        battleCameraController?.SetMapCursorTracking(true, normalized);
+        Rect panelRect =
+            stageMapPanel.rect;
+
+        Vector2 normalized =
+            new(
+                panelRect.width > 0.001f
+                    ? Mathf.Clamp(
+                        localCenter.x /
+                        (panelRect.width * 0.5f),
+                        -1f,
+                        1f)
+                    : 0f,
+                panelRect.height > 0.001f
+                    ? Mathf.Clamp(
+                        localCenter.y /
+                        (panelRect.height * 0.5f),
+                        -1f,
+                        1f)
+                    : 0f);
+
+        battleCameraController?.SetMapCursorTracking(
+            true,
+            normalized *
+            0.72f);
     }
 
-    private Button FindStageMapButtonUnderPointer(Vector2 pointer, Camera eventCamera)
+    private Button FindStageMapButtonUnderPointer(
+        Vector2 pointer,
+        Camera eventCamera)
     {
         if (stageMapPanel == null)
             return null;
 
-        Button[] buttons = stageMapPanel.GetComponentsInChildren<Button>(false);
+        Button[] buttons =
+            stageMapPanel.GetComponentsInChildren<Button>(
+                false);
+
         for (int i = 0; i < buttons.Length; i++)
         {
             Button button = buttons[i];
-            if (button == null || !button.interactable)
-                continue;
 
-            RectTransform node = button.transform as RectTransform;
-            if (node != null &&
-                RectTransformUtility.RectangleContainsScreenPoint(node, pointer, eventCamera))
+            if (button == null ||
+                !button.interactable)
+            {
+                continue;
+            }
+
+            RectTransform rect =
+                button.transform
+                as RectTransform;
+
+            if (rect != null &&
+                RectTransformUtility.RectangleContainsScreenPoint(
+                    rect,
+                    pointer,
+                    eventCamera))
             {
                 return button;
             }
@@ -2004,65 +2696,113 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return null;
     }
 
-    private void SetTrackedStageMapButton(Button button, Vector2 pointer)
+    private void SetTrackedStageMapButton(
+        Button button,
+        Vector2 pointer)
     {
         if (trackedStageMapButton != button)
         {
-            SetTrackedStageMapVisual(trackedStageMapButton, false);
-            trackedStageMapButton = button;
-            SetTrackedStageMapVisual(trackedStageMapButton, true);
-            NotifyPresenterPrototypeMapHover(trackedStageMapButton);
+            SetTrackedStageMapVisual(
+                trackedStageMapButton,
+                false);
+
+            trackedStageMapButton =
+                button;
+
+            SetTrackedStageMapVisual(
+                trackedStageMapButton,
+                true);
+
+            NotifyPresenterPrototypeMapHover(
+                trackedStageMapButton);
         }
 
-        trackedStageMapPointerAnchor = pointer;
+        trackedStageMapPointerAnchor =
+            pointer;
     }
 
     private void ClearTrackedStageMapHover()
     {
-        SetTrackedStageMapVisual(trackedStageMapButton, false);
+        SetTrackedStageMapVisual(
+            trackedStageMapButton,
+            false);
+
         trackedStageMapButton = null;
-        trackedStageMapPointerAnchor = Vector2.zero;
+        trackedStageMapPointerAnchor =
+            Vector2.zero;
     }
 
-    private static void SetTrackedStageMapVisual(Button button, bool value)
+    private static void SetTrackedStageMapVisual(
+        Button button,
+        bool value)
     {
         if (button == null)
             return;
 
-        BattleStageMapNodePointerFeedback feedback =
-            button.GetComponent<BattleStageMapNodePointerFeedback>();
-        feedback?.SetTrackedHover(value);
+        BattleScriptCardVisual visual =
+            button.GetComponent<BattleScriptCardVisual>();
+
+        visual?.SetTrackedHover(value);
     }
 
-    private void NotifyPresenterPrototypeMapHover(Button button)
+    private void NotifyPresenterPrototypeMapHover(
+        Button button)
     {
-        if (button == null || graph == null)
+        if (button == null ||
+            graph == null)
+        {
             return;
+        }
 
-        const string prefix = "StageNode_";
-        string objectName = button.gameObject.name;
-        if (string.IsNullOrEmpty(objectName) || !objectName.StartsWith(prefix, StringComparison.Ordinal))
+        const string prefix =
+            "ScriptCard_";
+
+        string objectName =
+            button.gameObject.name;
+
+        if (string.IsNullOrEmpty(
+                objectName) ||
+            !objectName.StartsWith(
+                prefix,
+                StringComparison.Ordinal))
+        {
             return;
+        }
 
-        string nodeId = objectName.Substring(prefix.Length);
-        BattleNodeData node = graph.FindNode(nodeId);
+        string nodeId =
+            objectName.Substring(
+                prefix.Length);
+
+        BattleNodeData node =
+            graph.FindNode(
+                nodeId);
+
         if (node == null)
             return;
 
-        int stars = runManager != null
-            ? runManager.ResolveBattleRatingStars(node)
-            : node.GetBattleRatingStars();
+        int stars =
+            runManager != null
+                ? runManager.ResolveBattleRatingStars(
+                    node)
+                : node.GetBattleRatingStars();
 
-        BattleScreenPresenterPrototypeController.NotifyMapHover(node, stars);
+        BattleScreenPresenterPrototypeController.NotifyMapHover(
+            node,
+            stars);
     }
 
     private Camera ResolveStageMapEventCamera()
     {
-        if (stageMapCanvas == null && stageMapPanel != null)
-            stageMapCanvas = stageMapPanel.GetComponentInParent<Canvas>();
+        if (stageMapCanvas == null &&
+            stageMapPanel != null)
+        {
+            stageMapCanvas =
+                stageMapPanel.GetComponentInParent<Canvas>();
+        }
 
         if (stageMapCanvas == null ||
-            stageMapCanvas.renderMode == RenderMode.ScreenSpaceOverlay)
+            stageMapCanvas.renderMode ==
+            RenderMode.ScreenSpaceOverlay)
         {
             return null;
         }
@@ -2073,31 +2813,55 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return Camera.main;
     }
 
-    private void BeginStageNodeSelection(string nodeId, RectTransform selectedNode)
+    private void BeginStageNodeSelection(
+        string nodeId,
+        RectTransform selectedCard)
     {
-        if (stageMapSelectionLocked || runManager == null || !mapSelectionActive)
+        if (stageMapSelectionLocked ||
+            runManager == null ||
+            !mapSelectionActive)
+        {
             return;
+        }
 
-        BattleNodeData prototypeNode = graph != null ? graph.FindNode(nodeId) : null;
-        if (prototypeNode != null)
+        BattleNodeData node =
+            graph != null
+                ? graph.FindNode(
+                    nodeId)
+                : null;
+
+        if (node != null)
         {
             BattleScreenPresenterPrototypeController.NotifyMapConfirm(
-                prototypeNode,
-                runManager.ResolveBattleRatingStars(prototypeNode));
+                node,
+                runManager.ResolveBattleRatingStars(
+                    node));
         }
 
         stageMapSelectionLocked = true;
+
         ClearTrackedStageMapHover();
-        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+
+        battleCameraController?.SetMapCursorTracking(
+            false,
+            Vector2.zero);
 
         if (stageMapCanvasGroup != null)
             stageMapCanvasGroup.blocksRaycasts = false;
+
         if (stageMapConfirmRoutine != null)
             StopCoroutine(stageMapConfirmRoutine);
-        stageMapConfirmRoutine = StartCoroutine(AnimateStageNodeSelection(nodeId, selectedNode));
+
+        stageMapConfirmRoutine =
+            StartCoroutine(
+                AnimateStageNodeSelection(
+                    nodeId,
+                    selectedCard));
     }
 
-    private IEnumerator AnimateStageNodeSelection(string nodeId, RectTransform selectedNode)
+    private IEnumerator AnimateStageNodeSelection(
+        string nodeId,
+        RectTransform selectedCard)
     {
         if (stageMapRevealRoutine != null)
         {
@@ -2105,301 +2869,286 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapRevealRoutine = null;
         }
 
-        BattleNodeData selectedNodeData = graph != null ? graph.FindNode(nodeId) : null;
-        string routeFromId =
-            runManager == null || runManager.IsInStartArea || runManager.CurrentNode == null
-                ? "__START__"
-                : runManager.CurrentNode.id;
+        BattleNodeData selectedNode =
+            graph != null
+                ? graph.FindNode(
+                    nodeId)
+                : null;
 
-        BattleStageMapLinkVisual[] links = stageMapPanel != null
-            ? stageMapPanel.GetComponentsInChildren<BattleStageMapLinkVisual>(true)
-            : Array.Empty<BattleStageMapLinkVisual>();
+        BattleScriptCardVisual[] cards =
+            stageMapPanel != null
+                ? stageMapPanel.GetComponentsInChildren<BattleScriptCardVisual>(
+                    true)
+                : Array.Empty<BattleScriptCardVisual>();
 
-        BattleStageMapLinkVisual selectedLink = null;
-        List<BattleStageMapLinkVisual> nonSelected = new();
-        for (int i = 0; i < links.Length; i++)
+        for (int i = 0; i < cards.Length; i++)
         {
-            BattleStageMapLinkVisual link = links[i];
-            if (link == null)
+            BattleScriptCardVisual card =
+                cards[i];
+
+            if (card == null)
                 continue;
 
-            if (link.Matches(routeFromId, nodeId))
-                selectedLink = link;
-            else if (link.StartsAt(routeFromId))
-                nonSelected.Add(link);
+            bool selected =
+                selectedCard != null &&
+                card.transform ==
+                selectedCard;
+
+            card.SetSelected(
+                selected);
+
+            card.SetSuppressed(
+                !selected);
         }
 
-        float duration = Mathf.Max(0.15f, mapConfirmDuration);
+        float duration =
+            Mathf.Max(
+                0.18f,
+                mapConfirmDuration);
+
+        battleCameraController?.PlaySelectionConfirmShake(
+            mapConfirmCameraShake *
+            0.72f,
+            duration);
+
+        EnsureRouteStatus();
+
+        SetRouteStatus(
+            true,
+            selectedNode != null
+                ? $"SCRIPT LOCKED  /  TAKE {Mathf.Max(1, selectedNode.depth + 1):00}"
+                : "SCRIPT LOCKED");
+
         float elapsed = 0f;
-        float boardBaseScale = stageMapPanel != null ? stageMapPanel.localScale.x : 1f;
 
-        if (battleCameraController == null)
-            battleCameraController = FindFirstObjectByType<BattleCameraController>();
-        battleCameraController?.PlaySelectionConfirmShake(mapConfirmCameraShake, duration);
-
-        while (elapsed < duration && stageMapPanel != null)
+        while (elapsed < duration)
         {
-            elapsed += Time.unscaledDeltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-            float decay = 1f - t;
+            elapsed +=
+                Time.unscaledDeltaTime;
 
-            float boardPulse = Mathf.Lerp(boardBaseScale, 1f, t) +
-                (Mathf.Max(1f, mapConfirmZoom) - 1f) *
-                Mathf.Sin(Mathf.PI * Mathf.Min(1f, t * 1.7f)) * decay;
-            stageMapPanel.localScale = Vector3.one * boardPulse;
+            float t =
+                Mathf.Clamp01(
+                    elapsed /
+                    duration);
 
-            if (selectedNode != null)
+            if (stageMapCanvasGroup != null)
             {
-                float nodePulse = 1f + Mathf.Sin(Mathf.PI * t) * 0.12f;
-                selectedNode.localScale = Vector3.one * nodePulse;
+                stageMapCanvasGroup.alpha =
+                    Mathf.Lerp(
+                        1f,
+                        0.94f,
+                        t * 0.35f);
             }
 
             yield return null;
         }
 
-        if (selectedNode != null)
-            selectedNode.localScale = Vector3.one;
-        if (stageMapPanel != null)
-            stageMapPanel.localScale = Vector3.one;
-
-        // Shut down every route that is not the committed branch.
-        for (int i = 0; i < nonSelected.Count; i++)
-        {
-            if (nonSelected[i] != null)
-                nonSelected[i].SetSuppressed(true);
-
-            if (mapRouteShutdownStep > 0f)
-                yield return WaitUnscaledSeconds(mapRouteShutdownStep);
-        }
-
-        EnsureRouteStatus();
-        SetRouteStatus(
-            true,
-            selectedNodeData != null
-                ? $"ROUTE LOCKED  /  STAGE {Mathf.Max(1, selectedNodeData.depth + 1):00}"
-                : "ROUTE LOCKED");
-
-        if (selectedLink != null)
-        {
-            float traceElapsed = 0f;
-            float traceDuration = Mathf.Max(0.05f, mapRouteTraceDuration);
-            while (traceElapsed < traceDuration)
-            {
-                traceElapsed += Time.unscaledDeltaTime;
-                float t = Mathf.Clamp01(traceElapsed / traceDuration);
-                float eased = t * t * (3f - 2f * t);
-
-                selectedLink.SetTrace(eased, mapRouteSelected);
-
-                if (battleCameraController != null && stageMapPanel != null)
-                {
-                    Vector2 point = selectedLink.Evaluate(eased);
-                    Rect rect = stageMapPanel.rect;
-                    Vector2 normalized = new(
-                        rect.width > 0.001f
-                            ? Mathf.Clamp(point.x / (rect.width * 0.5f), -1f, 1f)
-                            : 0f,
-                        rect.height > 0.001f
-                            ? Mathf.Clamp(point.y / (rect.height * 0.5f), -1f, 1f)
-                            : 0f);
-
-                    battleCameraController.SetMapCursorTracking(true, normalized * 0.55f);
-                }
-
-                yield return null;
-            }
-
-            selectedLink.SetTrace(1f, mapRouteSelected);
-        }
-
         if (mapRouteLockHold > 0f)
-            yield return WaitUnscaledSeconds(mapRouteLockHold);
+            yield return WaitUnscaledSeconds(
+                Mathf.Min(
+                    0.34f,
+                    mapRouteLockHold));
 
-        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+        SetRouteStatus(
+            false,
+            string.Empty);
 
-        if (stageMapPanel != null)
-        {
-            stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
-            stageMapPanel.localScale = Vector3.one;
-        }
-
-        SetRouteStatus(false, string.Empty);
         stageMapConfirmRoutine = null;
 
-        // Existing RunManager/StageTransition remains the authoritative node-entry path.
-        runManager?.SelectNextNode(nodeId);
+        runManager?.SelectNextNode(
+            nodeId);
     }
 
-    private static IEnumerator WaitUnscaledSeconds(float duration)
+    private static IEnumerator WaitUnscaledSeconds(
+        float duration)
     {
         float elapsed = 0f;
+
         while (elapsed < duration)
         {
-            elapsed += Time.unscaledDeltaTime;
+            elapsed +=
+                Time.unscaledDeltaTime;
+
             yield return null;
         }
     }
 
     private void EnsureRouteStatus()
     {
-        if (stageMapPanel == null || routeStatusRoot != null)
+        if (stageMapPanel == null ||
+            routeStatusRoot != null)
+        {
             return;
+        }
 
-        GameObject root = new("RouteCommitStatus");
-        root.transform.SetParent(stageMapPanel, false);
-        routeStatusRoot = root.AddComponent<RectTransform>();
-        routeStatusRoot.anchorMin = routeStatusRoot.anchorMax = new Vector2(0.5f, 0f);
-        routeStatusRoot.pivot = new Vector2(0.5f, 0f);
-        routeStatusRoot.anchoredPosition = new Vector2(0f, 26f);
-        routeStatusRoot.sizeDelta = new Vector2(560f, 56f);
+        GameObject root =
+            new(
+                "ScriptCommitStatus",
+                typeof(RectTransform));
 
-        Image back = root.AddComponent<Image>();
-        back.color = new Color(0.02f, 0.025f, 0.035f, 0.96f);
+        root.transform.SetParent(
+            stageMapPanel,
+            false);
+
+        routeStatusRoot =
+            root.GetComponent<RectTransform>();
+
+        routeStatusRoot.anchorMin =
+            routeStatusRoot.anchorMax =
+                new Vector2(0.5f, 0f);
+
+        routeStatusRoot.pivot =
+            new Vector2(0.5f, 0f);
+
+        routeStatusRoot.anchoredPosition =
+            new Vector2(0f, 46f);
+
+        routeStatusRoot.sizeDelta =
+            new Vector2(480f, 42f);
+
+        Image back =
+            root.AddComponent<Image>();
+
+        back.sprite =
+            GetScriptPaperSprite();
+
+        back.color =
+            new Color(
+                0.07f,
+                0.06f,
+                0.05f,
+                0.96f);
+
         back.raycastTarget = false;
 
-        Outline outline = root.AddComponent<Outline>();
-        outline.effectColor = mapRouteSelected;
-        outline.effectDistance = new Vector2(4f, -4f);
-        outline.useGraphicAlpha = false;
+        GameObject textObject =
+            new(
+                "Text",
+                typeof(RectTransform));
 
-        GameObject textObject = new("Text", typeof(RectTransform));
-        textObject.transform.SetParent(root.transform, false);
-        RectTransform textRect = textObject.GetComponent<RectTransform>();
-        textRect.anchorMin = Vector2.zero;
-        textRect.anchorMax = Vector2.one;
-        textRect.offsetMin = Vector2.zero;
-        textRect.offsetMax = Vector2.zero;
+        textObject.transform.SetParent(
+            routeStatusRoot,
+            false);
 
-        routeStatusText = textObject.AddComponent<Text>();
-        routeStatusText.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        routeStatusText.fontSize = 18;
+        RectTransform textRect =
+            textObject.GetComponent<RectTransform>();
+
+        StretchRect(
+            textRect,
+            new Vector2(10f, 4f));
+
+        routeStatusText =
+            textObject.AddComponent<Text>();
+
+        routeStatusText.font =
+            Resources.GetBuiltinResource<Font>(
+                "LegacyRuntime.ttf");
+
+        routeStatusText.fontSize = 14;
         routeStatusText.fontStyle = FontStyle.Bold;
-        routeStatusText.alignment = TextAnchor.MiddleCenter;
-        routeStatusText.color = Color.white;
+        routeStatusText.alignment =
+            TextAnchor.MiddleCenter;
+        routeStatusText.color =
+            new Color(
+                0.95f,
+                0.90f,
+                0.78f,
+                1f);
         routeStatusText.raycastTarget = false;
 
-        routeStatusGroup = root.AddComponent<CanvasGroup>();
+        routeStatusGroup =
+            root.AddComponent<CanvasGroup>();
+
         routeStatusGroup.blocksRaycasts = false;
         routeStatusGroup.interactable = false;
-        routeStatusRoot.gameObject.SetActive(false);
+
+        routeStatusRoot.gameObject.SetActive(
+            false);
     }
 
-    private void SetRouteStatus(bool visible, string message)
+    private void SetRouteStatus(
+        bool visible,
+        string message)
     {
         EnsureRouteStatus();
+
         if (routeStatusRoot == null)
             return;
 
         if (routeStatusText != null)
-            routeStatusText.text = message ?? string.Empty;
+            routeStatusText.text =
+                message ??
+                string.Empty;
 
-        routeStatusRoot.gameObject.SetActive(visible);
+        routeStatusRoot.gameObject.SetActive(
+            visible);
+
         if (routeStatusGroup != null)
-            routeStatusGroup.alpha = visible ? 1f : 0f;
+            routeStatusGroup.alpha =
+                visible
+                    ? 1f
+                    : 0f;
+
         if (visible)
             routeStatusRoot.SetAsLastSibling();
     }
 
-    internal void ShowMapDenied(RectTransform nodeRect)
+    // Legacy relay compatibility. Script Selection only creates selectable cards,
+    // so this is normally never called.
+    internal void ShowMapDenied(
+        RectTransform cardRect)
     {
-        if (!mapSelectionActive || stageMapSelectionLocked || nodeRect == null)
+        if (!mapSelectionActive ||
+            stageMapSelectionLocked ||
+            cardRect == null)
+        {
             return;
+        }
 
-        if (mapDeniedRoutine != null)
-            StopCoroutine(mapDeniedRoutine);
-        mapDeniedRoutine = StartCoroutine(MapDeniedRoutine(nodeRect));
-        PlayMapDeniedSound();
+        SetRouteStatus(
+            true,
+            "SCRIPT UNAVAILABLE");
+
+        StartCoroutine(
+            HideDeniedMessage());
     }
 
-    private IEnumerator MapDeniedRoutine(RectTransform nodeRect)
+    private IEnumerator HideDeniedMessage()
     {
-        EnsureRouteStatus();
-        SetRouteStatus(true, "ROUTE UNAVAILABLE");
+        yield return WaitUnscaledSeconds(
+            0.28f);
 
-        Vector2 basePosition = nodeRect.anchoredPosition;
-        Vector3 baseScale = nodeRect.localScale;
-        float elapsed = 0f;
-        const float duration = 0.34f;
-
-        while (elapsed < duration && nodeRect != null)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-            float envelope = Mathf.Pow(1f - t, 2f);
-            float shake = Mathf.Sin(elapsed * 90f) * 7f * envelope;
-
-            nodeRect.anchoredPosition = basePosition + new Vector2(shake, 0f);
-            nodeRect.localScale = baseScale * (1f + 0.05f * envelope);
-            yield return null;
-        }
-
-        if (nodeRect != null)
-        {
-            nodeRect.anchoredPosition = basePosition;
-            nodeRect.localScale = baseScale;
-        }
-
-        yield return WaitUnscaledSeconds(0.30f);
-        SetRouteStatus(false, string.Empty);
-        mapDeniedRoutine = null;
-    }
-
-    private void PlayMapDeniedSound()
-    {
-        if (mapFeedbackAudio == null)
-        {
-            mapFeedbackAudio = GetComponent<AudioSource>();
-            if (mapFeedbackAudio == null)
-                mapFeedbackAudio = gameObject.AddComponent<AudioSource>();
-            mapFeedbackAudio.playOnAwake = false;
-            mapFeedbackAudio.loop = false;
-            mapFeedbackAudio.spatialBlend = 0f;
-            mapFeedbackAudio.volume = 0.25f;
-        }
-
-        if (mapDeniedFallbackClip == null)
-        {
-            const int sampleRate = 22050;
-            const float duration = 0.08f;
-            int sampleCount = Mathf.RoundToInt(sampleRate * duration);
-            float[] samples = new float[sampleCount];
-            float phase = 0f;
-            for (int i = 0; i < sampleCount; i++)
-            {
-                float t = i / (float)Mathf.Max(1, sampleCount - 1);
-                float hz = Mathf.Lerp(150f, 105f, t);
-                phase += Mathf.PI * 2f * hz / sampleRate;
-                float envelope = Mathf.Pow(1f - t, 2f);
-                samples[i] = Mathf.Sin(phase) * envelope * 0.28f;
-            }
-
-            mapDeniedFallbackClip = AudioClip.Create(
-                "MapRouteDenied",
-                sampleCount,
-                1,
-                sampleRate,
-                false);
-            mapDeniedFallbackClip.SetData(samples, 0);
-        }
-
-        mapFeedbackAudio.PlayOneShot(mapDeniedFallbackClip);
+        if (!stageMapSelectionLocked)
+            SetRouteStatus(
+                false,
+                string.Empty);
     }
 
     private void HideStageMapImmediate()
     {
         if (stageMapRevealRoutine != null)
             StopCoroutine(stageMapRevealRoutine);
+
         stageMapRevealRoutine = null;
 
         if (stageMapConfirmRoutine != null)
             StopCoroutine(stageMapConfirmRoutine);
+
         stageMapConfirmRoutine = null;
         stageMapSelectionLocked = false;
 
         if (mapDeniedRoutine != null)
             StopCoroutine(mapDeniedRoutine);
+
         mapDeniedRoutine = null;
-        SetRouteStatus(false, string.Empty);
+
+        SetRouteStatus(
+            false,
+            string.Empty);
+
+        routeStatusRoot = null;
+        routeStatusText = null;
+        routeStatusGroup = null;
 
         ClearTrackedStageMapHover();
 
@@ -2408,17 +3157,33 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             stageMapCanvasGroup.alpha = 0f;
             stageMapCanvasGroup.blocksRaycasts = true;
         }
+
         if (stageMapPanel != null)
         {
-            stageMapPanel.anchoredPosition = stageMapPanelRestPosition;
-            stageMapPanel.localScale = Vector3.one;
-            stageMapPanel.localRotation = Quaternion.identity;
-            Vector3 local = stageMapPanel.localPosition;
+            stageMapPanel.anchoredPosition =
+                stageMapPanelRestPosition;
+
+            stageMapPanel.localScale =
+                Vector3.one;
+
+            stageMapPanel.localRotation =
+                Quaternion.identity;
+
+            Vector3 local =
+                stageMapPanel.localPosition;
+
             local.z = 0f;
-            stageMapPanel.localPosition = local;
-            stageMapPanel.gameObject.SetActive(false);
+
+            stageMapPanel.localPosition =
+                local;
+
+            stageMapPanel.gameObject.SetActive(
+                false);
         }
-        battleCameraController?.SetMapCursorTracking(false, Vector2.zero);
+
+        battleCameraController?.SetMapCursorTracking(
+            false,
+            Vector2.zero);
     }
 
     // ---------------------------------------------------------------------
