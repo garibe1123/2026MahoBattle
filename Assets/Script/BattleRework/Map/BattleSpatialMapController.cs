@@ -5823,6 +5823,475 @@ internal sealed class BattleScriptPageTurnRig :
 }
 
 
+internal sealed class BattleScriptTurningPageMesh :
+    MaskableGraphic
+{
+    private const int HorizontalSegments = 14;
+    private const int VerticalSegments = 24;
+
+    private float turn01;
+    private Vector2 pointer;
+    private float hoverWeight;
+
+    private float cameraSide = 1f;
+    private float curveDepthPixels = 24f;
+    private float backDepthOffset;
+    private float maxPitchDegrees = 5.2f;
+    private float maxYawDegrees = 7.2f;
+    private float maxRollDegrees = 2f;
+    private float poseResponse = 12f;
+    private float sideBias;
+
+    private CanvasGroup contentGroup;
+
+    private Vector3 baseLocalPosition;
+    private Quaternion baseLocalRotation;
+
+    private float currentPitch;
+    private float currentYaw;
+    private float currentRoll;
+
+    public void Configure(
+        float cameraFacingSide,
+        float curveDepth,
+        float backDepth,
+        float pitchDegrees,
+        float yawDegrees,
+        float rollDegrees,
+        float response,
+        CanvasGroup coverContentGroup,
+        float deterministicSideBias)
+    {
+        cameraSide =
+            Mathf.Abs(
+                cameraFacingSide) > 0.001f
+                ? Mathf.Sign(
+                    cameraFacingSide)
+                : 1f;
+
+        curveDepthPixels =
+            Mathf.Max(
+                1f,
+                curveDepth);
+
+        backDepthOffset =
+            backDepth;
+
+        maxPitchDegrees =
+            Mathf.Max(
+                0f,
+                pitchDegrees);
+
+        maxYawDegrees =
+            Mathf.Max(
+                0f,
+                yawDegrees);
+
+        maxRollDegrees =
+            Mathf.Max(
+                0f,
+                rollDegrees);
+
+        poseResponse =
+            Mathf.Max(
+                2f,
+                response);
+
+        contentGroup =
+            coverContentGroup;
+
+        sideBias =
+            Mathf.Clamp(
+                deterministicSideBias,
+                -1f,
+                1f);
+
+        baseLocalPosition =
+            rectTransform.localPosition;
+
+        baseLocalRotation =
+            rectTransform.localRotation;
+
+        SetVerticesDirty();
+    }
+
+    public void SetState(
+        float normalizedTurn,
+        Vector2 normalizedPointer,
+        float interactionWeight)
+    {
+        turn01 =
+            Mathf.Clamp01(
+                normalizedTurn);
+
+        pointer =
+            new Vector2(
+                Mathf.Clamp(
+                    normalizedPointer.x,
+                    -1f,
+                    1f),
+                Mathf.Clamp(
+                    normalizedPointer.y,
+                    -1f,
+                    1f));
+
+        hoverWeight =
+            Mathf.Clamp01(
+                interactionWeight);
+
+        SetVerticesDirty();
+    }
+
+    private void Update()
+    {
+        float dt =
+            Mathf.Max(
+                0f,
+                Time.unscaledDeltaTime);
+
+        float t =
+            1f -
+            Mathf.Exp(
+                -poseResponse *
+                dt);
+
+        float targetPitch =
+            -pointer.y *
+            maxPitchDegrees *
+            hoverWeight;
+
+        float targetYaw =
+            pointer.x *
+            maxYawDegrees *
+            hoverWeight;
+
+        float targetRoll =
+            -pointer.x *
+            maxRollDegrees *
+            hoverWeight;
+
+        currentPitch =
+            Mathf.Lerp(
+                currentPitch,
+                targetPitch,
+                t);
+
+        currentYaw =
+            Mathf.Lerp(
+                currentYaw,
+                targetYaw,
+                t);
+
+        currentRoll =
+            Mathf.Lerp(
+                currentRoll,
+                targetRoll,
+                t);
+
+        rectTransform.localRotation =
+            baseLocalRotation *
+            Quaternion.Euler(
+                currentPitch,
+                currentYaw,
+                currentRoll);
+
+        float backSettle =
+            Mathf.SmoothStep(
+                0.72f,
+                1f,
+                turn01);
+
+        Vector3 local =
+            baseLocalPosition;
+
+        local.z +=
+            backDepthOffset *
+            backSettle;
+
+        rectTransform.localPosition =
+            local;
+
+        if (contentGroup != null)
+        {
+            float contentHide =
+                Mathf.SmoothStep(
+                    0.10f,
+                    0.34f,
+                    turn01);
+
+            contentGroup.alpha =
+                1f -
+                contentHide;
+        }
+
+        if (hoverWeight > 0.001f ||
+            turn01 > 0.001f)
+        {
+            SetVerticesDirty();
+        }
+    }
+
+    protected override void OnPopulateMesh(
+        VertexHelper vh)
+    {
+        vh.Clear();
+
+        Rect rect =
+            rectTransform.rect;
+
+        float width =
+            Mathf.Max(
+                1f,
+                rect.width);
+
+        float height =
+            Mathf.Max(
+                1f,
+                rect.height);
+
+        float segmentLength =
+            height /
+            VerticalSegments;
+
+        float[] yPositions =
+            new float[
+                VerticalSegments + 1];
+
+        float[] zPositions =
+            new float[
+                VerticalSegments + 1];
+
+        float[] rowAngles =
+            new float[
+                VerticalSegments + 1];
+
+        for (int x = 0;
+             x <= HorizontalSegments;
+             x++)
+        {
+            float u =
+                x /
+                (float)HorizontalSegments;
+
+            float xNorm =
+                u *
+                2f -
+                1f;
+
+            yPositions[0] =
+                rect.yMax;
+
+            zPositions[0] =
+                0f;
+
+            rowAngles[0] =
+                0f;
+
+            for (int y = 1;
+                 y <= VerticalSegments;
+                 y++)
+            {
+                float downMid =
+                    (y - 0.5f) /
+                    VerticalSegments;
+
+                float sideLead =
+                    pointer.x *
+                    xNorm *
+                    0.10f *
+                    hoverWeight;
+
+                sideLead +=
+                    sideBias *
+                    xNorm *
+                    0.025f;
+
+                float startTime =
+                    Mathf.Clamp(
+                        (1f - downMid) *
+                        0.62f -
+                        sideLead,
+                        0f,
+                        0.92f);
+
+                float localProgress =
+                    Mathf.Clamp01(
+                        (turn01 - startTime) /
+                        Mathf.Max(
+                            0.001f,
+                            1f - startTime));
+
+                float eased =
+                    localProgress *
+                    localProgress *
+                    (3f -
+                     2f *
+                     localProgress);
+
+                float angle =
+                    Mathf.PI *
+                    eased;
+
+                rowAngles[y] =
+                    angle;
+
+                yPositions[y] =
+                    yPositions[y - 1] -
+                    Mathf.Cos(
+                        angle) *
+                    segmentLength;
+
+                float depthScale =
+                    curveDepthPixels /
+                    Mathf.Max(
+                        1f,
+                        height *
+                        0.36f);
+
+                zPositions[y] =
+                    zPositions[y - 1] +
+                    cameraSide *
+                    Mathf.Sin(
+                        angle) *
+                    segmentLength *
+                    depthScale;
+            }
+
+            for (int y = 0;
+                 y <= VerticalSegments;
+                 y++)
+            {
+                float v =
+                    y /
+                    (float)VerticalSegments;
+
+                float baseX =
+                    Mathf.Lerp(
+                        rect.xMin,
+                        rect.xMax,
+                        u);
+
+                float angle =
+                    rowAngles[y];
+
+                float facing =
+                    Mathf.Abs(
+                        Mathf.Cos(
+                            angle));
+
+                float shade =
+                    Mathf.Lerp(
+                        0.76f,
+                        1f,
+                        facing);
+
+                float freeEdge =
+                    1f -
+                    v;
+
+                float idleWave =
+                    Mathf.Sin(
+                        Time.unscaledTime *
+                        0.85f +
+                        u *
+                        Mathf.PI *
+                        2.2f +
+                        sideBias *
+                        1.7f) *
+                    0.85f *
+                    (1f - turn01) *
+                    freeEdge;
+
+                float handBias =
+                    pointer.x *
+                    Mathf.SmoothStep(
+                        0.28f,
+                        1f,
+                        freeEdge) *
+                    Mathf.Sin(
+                        u *
+                        Mathf.PI) *
+                    1.15f *
+                    hoverWeight;
+
+                UIVertex vertex =
+                    UIVertex.simpleVert;
+
+                vertex.position =
+                    new Vector3(
+                        baseX +
+                        handBias,
+                        yPositions[y] +
+                        idleWave,
+                        zPositions[y]);
+
+                Color vertexColor =
+                    color;
+
+                vertexColor.r *=
+                    shade;
+
+                vertexColor.g *=
+                    shade;
+
+                vertexColor.b *=
+                    shade;
+
+                vertex.color =
+                    vertexColor;
+
+                vertex.uv0 =
+                    new Vector2(
+                        u,
+                        1f - v);
+
+                vh.AddVert(
+                    vertex);
+            }
+        }
+
+        int stride =
+            VerticalSegments + 1;
+
+        for (int x = 0;
+             x < HorizontalSegments;
+             x++)
+        {
+            for (int y = 0;
+                 y < VerticalSegments;
+                 y++)
+            {
+                int a =
+                    x *
+                    stride +
+                    y;
+
+                int b =
+                    (x + 1) *
+                    stride +
+                    y;
+
+                int c =
+                    a + 1;
+
+                int d =
+                    b + 1;
+
+                vh.AddTriangle(
+                    a,
+                    c,
+                    b);
+
+                vh.AddTriangle(
+                    b,
+                    c,
+                    d);
+            }
+        }
+    }
+}
+
+
 internal sealed class BattleScriptPaperWaveEffect :
     BaseMeshEffect
 {
