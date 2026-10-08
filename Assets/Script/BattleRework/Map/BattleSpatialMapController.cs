@@ -4947,6 +4947,355 @@ internal sealed class BattleScriptCardVisual :
 
 
 
+internal sealed class BattleScriptPageTurnRig :
+    MonoBehaviour
+{
+    private RectTransform visualRoot;
+    private RectTransform coverMask;
+    private RectTransform coverPage;
+    private RectTransform detailPage;
+    private RectTransform curlRoot;
+    private CanvasGroup curlGroup;
+    private RectTransform curlShadow;
+    private RectTransform turnedPageBack;
+    private CanvasGroup turnedPageBackGroup;
+
+    private RectTransform[] curlStrips =
+        Array.Empty<RectTransform>();
+
+    private Vector2 cardSize;
+    private float rollHeight;
+    private float turnedOffset;
+    private float turnedRoll;
+
+    private Vector2 coverMaskBasePosition;
+    private Vector2 coverPageBasePosition;
+    private Vector2 turnedPageBasePosition;
+    private Quaternion turnedPageBaseRotation;
+    private Vector3 turnedPageBaseScale;
+
+    public void Configure(
+        RectTransform root,
+        RectTransform mask,
+        RectTransform cover,
+        RectTransform detail,
+        RectTransform curl,
+        CanvasGroup curlCanvasGroup,
+        RectTransform shadow,
+        RectTransform turnedBack,
+        CanvasGroup turnedBackGroup,
+        Vector2 size,
+        float rollHeightPixels,
+        float turnedOffsetPixels,
+        float turnedRollDegrees)
+    {
+        visualRoot = root;
+        coverMask = mask;
+        coverPage = cover;
+        detailPage = detail;
+        curlRoot = curl;
+        curlGroup = curlCanvasGroup;
+        curlShadow = shadow;
+        turnedPageBack = turnedBack;
+        turnedPageBackGroup = turnedBackGroup;
+
+        cardSize = size;
+        rollHeight =
+            Mathf.Max(
+                12f,
+                rollHeightPixels);
+
+        turnedOffset =
+            Mathf.Max(
+                0f,
+                turnedOffsetPixels);
+
+        turnedRoll =
+            turnedRollDegrees;
+
+        if (coverMask != null)
+            coverMaskBasePosition =
+                coverMask.anchoredPosition;
+
+        if (coverPage != null)
+            coverPageBasePosition =
+                coverPage.anchoredPosition;
+
+        if (turnedPageBack != null)
+        {
+            turnedPageBasePosition =
+                turnedPageBack.anchoredPosition;
+
+            turnedPageBaseRotation =
+                turnedPageBack.localRotation;
+
+            turnedPageBaseScale =
+                turnedPageBack.localScale;
+        }
+
+        if (curlRoot != null)
+        {
+            List<RectTransform> strips =
+                new();
+
+            for (int i = 0;
+                 i < curlRoot.childCount;
+                 i++)
+            {
+                RectTransform child =
+                    curlRoot.GetChild(i)
+                    as RectTransform;
+
+                if (child == null ||
+                    !child.name.StartsWith(
+                        "CurlStrip_",
+                        StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                strips.Add(
+                    child);
+            }
+
+            curlStrips =
+                strips.ToArray();
+        }
+
+        SetProgress(
+            0f);
+    }
+
+    public void SetProgress(
+        float normalized)
+    {
+        float t =
+            Mathf.Clamp01(
+                normalized);
+
+        float open =
+            t * t *
+            (3f - 2f * t);
+
+        float topY =
+            cardSize.y *
+            0.5f;
+
+        float visibleHeight =
+            Mathf.Max(
+                0.75f,
+                cardSize.y *
+                (1f - open));
+
+        float creaseY =
+            topY -
+            visibleHeight;
+
+        if (coverMask != null)
+        {
+            coverMask.sizeDelta =
+                new Vector2(
+                    cardSize.x +
+                    2f,
+                    visibleHeight);
+
+            coverMask.anchoredPosition =
+                coverMaskBasePosition;
+        }
+
+        if (coverPage != null)
+        {
+            coverPage.anchoredPosition =
+                coverPageBasePosition;
+        }
+
+        float curlVisibility =
+            Mathf.Clamp01(
+                Mathf.Sin(
+                    t *
+                    Mathf.PI) *
+                1.28f);
+
+        if (curlGroup != null)
+            curlGroup.alpha =
+                curlVisibility;
+
+        if (curlRoot != null)
+            curlRoot.anchoredPosition =
+                Vector2.zero;
+
+        int stripCount =
+            curlStrips != null
+                ? curlStrips.Length
+                : 0;
+
+        for (int i = 0;
+             i < stripCount;
+             i++)
+        {
+            RectTransform strip =
+                curlStrips[i];
+
+            if (strip == null)
+                continue;
+
+            float s =
+                stripCount <= 1
+                    ? 0.5f
+                    : i /
+                      (float)(
+                          stripCount - 1);
+
+            float angle =
+                Mathf.Lerp(
+                    -1.20f,
+                    1.20f,
+                    s);
+
+            float arcY =
+                Mathf.Sin(
+                    angle) *
+                rollHeight *
+                0.42f;
+
+            float crown =
+                Mathf.Cos(
+                    angle);
+
+            float widthScale =
+                Mathf.Lerp(
+                    0.94f,
+                    1.015f,
+                    Mathf.Clamp01(
+                        crown));
+
+            float handLead =
+                Mathf.SmoothStep(
+                    0f,
+                    1f,
+                    t) *
+                Mathf.Sin(
+                    s *
+                    Mathf.PI) *
+                2.2f;
+
+            strip.anchoredPosition =
+                new Vector2(
+                    handLead,
+                    creaseY +
+                    arcY);
+
+            Vector2 size =
+                strip.sizeDelta;
+
+            size.x =
+                cardSize.x *
+                widthScale;
+
+            size.y =
+                Mathf.Max(
+                    2.5f,
+                    rollHeight /
+                    Mathf.Max(
+                        1,
+                        stripCount) *
+                    Mathf.Lerp(
+                        0.80f,
+                        1.28f,
+                        Mathf.Clamp01(
+                            crown)));
+
+            strip.sizeDelta =
+                size;
+
+            strip.localRotation =
+                Quaternion.Euler(
+                    0f,
+                    0f,
+                    -angle *
+                    Mathf.Rad2Deg *
+                    0.055f);
+
+            strip.localScale =
+                new Vector3(
+                    1f,
+                    Mathf.Lerp(
+                        0.82f,
+                        1f,
+                        Mathf.Clamp01(
+                            crown)),
+                    1f);
+        }
+
+        if (curlShadow != null)
+        {
+            curlShadow.anchoredPosition =
+                new Vector2(
+                    0f,
+                    creaseY -
+                    rollHeight *
+                    0.18f);
+
+            curlShadow.sizeDelta =
+                new Vector2(
+                    cardSize.x *
+                    Mathf.Lerp(
+                        0.90f,
+                        0.97f,
+                        curlVisibility),
+                    Mathf.Lerp(
+                        3f,
+                        10f,
+                        curlVisibility));
+        }
+
+        float settle =
+            Mathf.SmoothStep(
+                0.52f,
+                0.96f,
+                t);
+
+        if (turnedPageBackGroup != null)
+            turnedPageBackGroup.alpha =
+                settle;
+
+        if (turnedPageBack != null)
+        {
+            turnedPageBack.anchoredPosition =
+                turnedPageBasePosition +
+                new Vector2(
+                    2.5f *
+                    settle,
+                    turnedOffset *
+                    settle);
+
+            turnedPageBack.localRotation =
+                turnedPageBaseRotation *
+                Quaternion.Euler(
+                    0f,
+                    0f,
+                    -turnedRoll *
+                    settle);
+
+            turnedPageBack.localScale =
+                Vector3.Lerp(
+                    turnedPageBaseScale *
+                    0.985f,
+                    turnedPageBaseScale,
+                    settle);
+        }
+
+        if (detailPage != null)
+        {
+            // The detail page itself never moves. It is progressively revealed
+            // by clipping away the cover above it.
+            detailPage.localScale =
+                Vector3.one;
+        }
+    }
+}
+
+
 internal sealed class BattleScriptPaperWaveEffect :
     BaseMeshEffect
 {
@@ -4957,12 +5306,9 @@ internal sealed class BattleScriptPaperWaveEffect :
     private float amplitudePixels;
     private float shearPixels;
     private float amplitudeMultiplier = 1f;
-    private float pageCurl01;
-    private float pageCurlPixels;
-    private float pageCurlDepthPixels;
 
-    private const int HorizontalSegments = 14;
-    private const int VerticalSegments = 24;
+    private const int HorizontalSegments = 10;
+    private const int VerticalSegments = 14;
 
     public void Configure(
         RectTransform root,
@@ -5008,29 +5354,6 @@ internal sealed class BattleScriptPaperWaveEffect :
             graphic.SetVerticesDirty();
     }
 
-
-    public void SetPageCurl(
-        float normalized,
-        float curlPixels,
-        float curlDepthPixels)
-    {
-        pageCurl01 =
-            Mathf.Clamp01(
-                normalized);
-
-        pageCurlPixels =
-            Mathf.Max(
-                0f,
-                curlPixels);
-
-        pageCurlDepthPixels =
-            Mathf.Max(
-                0f,
-                curlDepthPixels);
-
-        if (graphic != null)
-            graphic.SetVerticesDirty();
-    }
 
     public override void ModifyMesh(
         VertexHelper vh)
@@ -5159,178 +5482,6 @@ internal sealed class BattleScriptPaperWaveEffect :
             rootLocal.x +=
                 shearPixels *
                 (v - 0.5f);
-
-            if (pageCurl01 > 0.0001f)
-            {
-                // True paper lift in the Y/Z plane.
-                // v=1 is pinned to the stack, v=0 is the free edge.
-                float progress =
-                    Mathf.Clamp01(
-                        pageCurl01);
-
-                float down01 =
-                    1f - v;
-
-                // Do not bend the entire sheet uniformly from frame one.
-                // Curvature grows from the free edge and travels toward the top.
-                float activeLength =
-                    Mathf.Lerp(
-                        0.24f,
-                        1f,
-                        progress);
-
-                float active =
-                    Mathf.Clamp01(
-                        down01 /
-                        Mathf.Max(
-                            0.001f,
-                            activeLength));
-
-                float bendProgress =
-                    Mathf.SmoothStep(
-                        0f,
-                        1f,
-                        progress);
-
-                float maxAngle =
-                    Mathf.Lerp(
-                        0.18f,
-                        Mathf.PI * 0.92f,
-                        bendProgress);
-
-                float theta =
-                    maxAngle *
-                    active;
-
-                float arcLength =
-                    height *
-                    activeLength;
-
-                float radius =
-                    arcLength /
-                    Mathf.Max(
-                        0.001f,
-                        maxAngle);
-
-                float topY =
-                    rootRect.yMax;
-
-                float flatRemainder =
-                    Mathf.Max(
-                        0f,
-                        down01 -
-                        activeLength) *
-                    height;
-
-                float arcDown =
-                    radius *
-                    Mathf.Sin(
-                        theta);
-
-                rootLocal.y =
-                    topY -
-                    flatRemainder -
-                    arcDown;
-
-                // Give the arc real depth. Resolve which local Z direction faces
-                // the camera so this works regardless of how the world-space
-                // Canvas is oriented.
-                float cameraSide = -1f;
-
-                Camera camera =
-                    Camera.main;
-
-                if (camera != null)
-                {
-                    float cameraLocalZ =
-                        waveRoot.InverseTransformPoint(
-                            camera.transform.position).z;
-
-                    if (Mathf.Abs(cameraLocalZ) > 0.0001f)
-                    {
-                        cameraSide =
-                            Mathf.Sign(
-                                cameraLocalZ);
-                    }
-                }
-
-                float arcDepth =
-                    radius *
-                    (1f -
-                     Mathf.Cos(
-                         theta));
-
-                float depthScale =
-                    pageCurlDepthPixels /
-                    Mathf.Max(
-                        1f,
-                        height * 0.25f);
-
-                rootLocal.z +=
-                    cameraSide *
-                    arcDepth *
-                    depthScale;
-
-                float turnBell =
-                    Mathf.Sin(
-                        progress *
-                        Mathf.PI);
-
-                // A hand does not pull the whole edge equally. Let the right side
-                // lead slightly, matching the reference where one corner is held.
-                float handBias =
-                    Mathf.SmoothStep(
-                        0.42f,
-                        1f,
-                        u) *
-                    pageCurlPixels *
-                    0.16f *
-                    turnBell *
-                    Mathf.Pow(
-                        down01,
-                        1.45f);
-
-                rootLocal.y +=
-                    handBias;
-
-                rootLocal.z +=
-                    cameraSide *
-                    handBias *
-                    0.46f;
-
-                // Very small lateral bow keeps the silhouette from reading as a
-                // perfectly rigid cylinder.
-                float lateralBow =
-                    (u - 0.5f) *
-                    Mathf.Sin(
-                        theta) *
-                    pageCurlPixels *
-                    0.085f;
-
-                rootLocal.x +=
-                    lateralBow;
-
-                float facing =
-                    Mathf.Abs(
-                        Mathf.Cos(
-                            theta));
-
-                float shade =
-                    Mathf.Lerp(
-                        0.72f,
-                        1f,
-                        facing);
-
-                Color shaded =
-                    vertex.color;
-
-                shaded.r *= shade;
-                shaded.g *= shade;
-                shaded.b *= shade;
-
-                vertex.color =
-                    shaded;
-            }
 
             Vector3 deformedWorld =
                 waveRoot.TransformPoint(
