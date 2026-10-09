@@ -2618,6 +2618,33 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ResolveScriptSubtitle(
                 node);
 
+        int stars =
+            runManager != null
+                ? runManager.ResolveBattleRatingStars(
+                    node)
+                : node.GetBattleRatingStars();
+
+        string roomLabel =
+            ResolveScriptRoomLabel(
+                node);
+
+        string threatLabel =
+            ResolveScriptThreatLabel(
+                stars,
+                node.type);
+
+        string castSummary =
+            ResolveScriptCastSummary(
+                node);
+
+        string setSummary =
+            ResolveScriptSetSummary(
+                node);
+
+        string ruleSummary =
+            ResolveScriptRuleSummary(
+                node);
+
         Text header =
             CreateScriptText(
                 detail,
@@ -2649,12 +2676,51 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         headerRect.anchoredPosition =
             new Vector2(
                 0f,
-                -20f);
+                -18f);
 
         headerRect.sizeDelta =
             new Vector2(
                 scriptCardSize.x - 34f,
                 20f);
+
+        Text takeLine =
+            CreateScriptText(
+                detail,
+                "TakeLine",
+                $"TAKE {Mathf.Max(1, node.depth + 1):00}  ·  " +
+                node.type.ToString().ToUpperInvariant(),
+                9,
+                FontStyle.Bold,
+                TextAnchor.MiddleLeft,
+                new Color(
+                    scriptInkColor.r,
+                    scriptInkColor.g,
+                    scriptInkColor.b,
+                    0.82f));
+
+        RectTransform takeLineRect =
+            takeLine.rectTransform;
+
+        takeLineRect.anchorMin =
+            takeLineRect.anchorMax =
+                new Vector2(
+                    0.5f,
+                    1f);
+
+        takeLineRect.pivot =
+            new Vector2(
+                0.5f,
+                1f);
+
+        takeLineRect.anchoredPosition =
+            new Vector2(
+                0f,
+                -39f);
+
+        takeLineRect.sizeDelta =
+            new Vector2(
+                scriptCardSize.x - 34f,
+                18f);
 
         RectTransform divider =
             CreateScriptStageImage(
@@ -2666,7 +2732,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     1.5f),
                 new Vector2(
                     0f,
-                    88f),
+                    91f),
                 new Color(
                     scriptInkColor.r,
                     scriptInkColor.g,
@@ -2675,28 +2741,19 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         divider.SetAsFirstSibling();
 
-        string roomLabel =
-            ResolveScriptRoomLabel(
-                node);
-
-        int stars =
-            runManager != null
-                ? runManager.ResolveBattleRatingStars(
-                    node)
-                : node.GetBattleRatingStars();
-
         string detailBody =
-            $"TAKE        {Mathf.Max(1, node.depth + 1):00}\n" +
-            $"TYPE        {node.type.ToString().ToUpperInvariant()}\n" +
-            $"LOCATION    {roomLabel}\n" +
-            $"RATING      {Mathf.Clamp(stars, 1, 5)} / 5";
+            $"LOCATION   {roomLabel}\n" +
+            $"THREAT     {threatLabel} / {Mathf.Clamp(stars, 1, 5)}★\n" +
+            $"CAST       {castSummary}\n" +
+            $"SET        {setSummary}\n" +
+            $"RULE       {ruleSummary}";
 
         Text body =
             CreateScriptText(
                 detail,
-                "DetailBody",
+                "DecisionBrief",
                 detailBody,
-                10,
+                9,
                 FontStyle.Normal,
                 TextAnchor.UpperLeft,
                 new Color(
@@ -2722,12 +2779,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         bodyRect.anchoredPosition =
             new Vector2(
                 0f,
-                -58f);
+                -62f);
 
         bodyRect.sizeDelta =
             new Vector2(
                 scriptCardSize.x - 38f,
-                88f);
+                102f);
 
         Text noteLabel =
             CreateScriptText(
@@ -2760,7 +2817,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         noteLabelRect.anchoredPosition =
             new Vector2(
                 0f,
-                -30f);
+                -29f);
 
         noteLabelRect.sizeDelta =
             new Vector2(
@@ -2798,12 +2855,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         noteRect.anchoredPosition =
             new Vector2(
                 0f,
-                -60f);
+                -57f);
 
         noteRect.sizeDelta =
             new Vector2(
                 scriptCardSize.x - 38f,
-                48f);
+                42f);
 
         bool rated =
             node.type == BattleNodeType.Combat ||
@@ -2854,6 +2911,141 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             new Vector2(
                 scriptCardSize.x - 26f,
                 18f);
+    }
+
+    private static string ResolveScriptThreatLabel(
+        int stars,
+        BattleNodeType type)
+    {
+        int clamped =
+            Mathf.Clamp(
+                stars,
+                1,
+                5);
+
+        if (type == BattleNodeType.Elite &&
+            clamped <= 2)
+        {
+            clamped = 3;
+        }
+
+        return clamped switch
+        {
+            1 => "LOW",
+            2 => "GUARDED",
+            3 => "HIGH",
+            4 => "SEVERE",
+            _ => "CRITICAL"
+        };
+    }
+
+    private static string ResolveScriptCastSummary(
+        BattleNodeData node)
+    {
+        if (node == null ||
+            node.room == null ||
+            node.room.monsterSpawns == null)
+        {
+            return "N/A";
+        }
+
+        int total = 0;
+
+        HashSet<MonsterDefinitionSO> kinds =
+            new();
+
+        for (int i = 0;
+             i < node.room.monsterSpawns.Count;
+             i++)
+        {
+            MonsterSpawnEntry entry =
+                node.room.monsterSpawns[i];
+
+            if (entry == null ||
+                entry.monster == null ||
+                entry.count <= 0)
+            {
+                continue;
+            }
+
+            total +=
+                entry.count;
+
+            kinds.Add(
+                entry.monster);
+        }
+
+        if (total <= 0)
+            return "NONE LISTED";
+
+        return
+            $"{total:00} ENEMIES · " +
+            $"{kinds.Count} " +
+            (kinds.Count == 1
+                ? "TYPE"
+                : "TYPES");
+    }
+
+    private static string ResolveScriptSetSummary(
+        BattleNodeData node)
+    {
+        if (node == null ||
+            node.room == null)
+        {
+            return "NO ROOM DATA";
+        }
+
+        RoomDefinitionSO room =
+            node.room;
+
+        string shape =
+            room.useLargeRoomPiece
+                ? room.largePieceShape
+                    .ToString()
+                    .ToUpperInvariant()
+                : "STANDARD";
+
+        if (room.useProceduralRoom)
+        {
+            Vector2Int min =
+                room.GetProceduralMinTileSize();
+
+            Vector2Int max =
+                room.GetProceduralMaxTileSize();
+
+            return
+                $"{min.x}×{min.y} → " +
+                $"{max.x}×{max.y} · " +
+                shape;
+        }
+
+        Vector2Int grid =
+            room.GetSafeGridSize();
+
+        return
+            $"{grid.x}×{grid.y} GRID · " +
+            shape;
+    }
+
+    private static string ResolveScriptRuleSummary(
+        BattleNodeData node)
+    {
+        if (node == null)
+            return "N/A";
+
+        return node.type switch
+        {
+            BattleNodeType.Combat =>
+                "ROULETTE ON ENTRY",
+            BattleNodeType.Elite =>
+                "ROULETTE ON ENTRY",
+            BattleNodeType.Shop =>
+                "NON-COMBAT ENTRY",
+            BattleNodeType.Event =>
+                "NON-COMBAT ENTRY",
+            _ =>
+                "STANDARD ENTRY"
+        };
     }
 
     private static string ResolveScriptRoomLabel(
