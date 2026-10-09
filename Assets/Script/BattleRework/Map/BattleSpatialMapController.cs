@@ -1806,9 +1806,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             paperStack[
                 paperStack.Length - 2];
 
-        CreateScriptPaperThicknessEdges(
-            visualRoot,
-            paperStack.Length);
+        RectTransform[] thicknessEdges =
+            CreateScriptPaperThicknessEdges(
+                visualRoot,
+                paperStack.Length);
 
         float detailRandomRoll =
             ScriptSigned01(
@@ -2044,6 +2045,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             detail,
             turningPageMesh,
             paperStack,
+            thicknessEdges,
             backA,
             backB,
             stageBase,
@@ -2227,7 +2229,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return rect;
     }
 
-    private void CreateScriptPaperThicknessEdges(
+    private RectTransform[] CreateScriptPaperThicknessEdges(
         Transform parent,
         int sheetCount)
     {
@@ -2236,6 +2238,20 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 sheetCount * 1.15f,
                 5f,
                 10f);
+
+        Color bottomColor =
+            new(
+                0.68f,
+                0.65f,
+                0.58f,
+                0.92f);
+
+        Color sideColor =
+            new(
+                0.62f,
+                0.60f,
+                0.54f,
+                0.88f);
 
         RectTransform bottomEdge =
             CreateScriptStageImage(
@@ -2249,13 +2265,28 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     4.2f,
                     -scriptCardSize.y * 0.5f -
                     thickness * 0.12f),
-                new Color(
-                    0.68f,
-                    0.65f,
-                    0.58f,
-                    0.92f));
+                bottomColor);
 
         bottomEdge.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
+
+        RectTransform leftEdge =
+            CreateScriptStageImage(
+                parent,
+                "PaperStackLeftEdge",
+                BattleHudSpriteCache.RoundedPanel,
+                new Vector2(
+                    thickness,
+                    scriptCardSize.y - 8f),
+                new Vector2(
+                    -scriptCardSize.x * 0.5f -
+                    thickness * 0.04f,
+                    -4.4f),
+                sideColor);
+
+        leftEdge.pivot =
             new Vector2(
                 0.5f,
                 0.5f);
@@ -2272,11 +2303,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     scriptCardSize.x * 0.5f +
                     thickness * 0.04f,
                     -4.4f),
-                new Color(
-                    0.62f,
-                    0.60f,
-                    0.54f,
-                    0.88f));
+                sideColor);
 
         rightEdge.pivot =
             new Vector2(
@@ -2284,7 +2311,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 0.5f);
 
         bottomEdge.SetAsFirstSibling();
+        leftEdge.SetAsFirstSibling();
         rightEdge.SetAsFirstSibling();
+
+        return new[]
+        {
+            bottomEdge,
+            leftEdge,
+            rightEdge
+        };
     }
 
     private RectTransform CreateScriptPage(
@@ -4384,6 +4419,21 @@ internal sealed class BattleScriptCardVisual :
     private RectTransform frontPage;
     private RectTransform detailPage;
     private RectTransform[] stackPages = Array.Empty<RectTransform>();
+    private RectTransform thicknessBottom;
+    private RectTransform thicknessLeft;
+    private RectTransform thicknessRight;
+    private Image thicknessBottomImage;
+    private Image thicknessLeftImage;
+    private Image thicknessRightImage;
+    private Vector2 baseThicknessBottomPosition;
+    private Vector2 baseThicknessLeftPosition;
+    private Vector2 baseThicknessRightPosition;
+    private Vector3 baseThicknessBottomScale = Vector3.one;
+    private Vector3 baseThicknessLeftScale = Vector3.one;
+    private Vector3 baseThicknessRightScale = Vector3.one;
+    private float baseThicknessBottomAlpha;
+    private float baseThicknessLeftAlpha;
+    private float baseThicknessRightAlpha;
     private RectTransform backPageA;
     private RectTransform backPageB;
     private RectTransform stageBase;
@@ -4398,6 +4448,8 @@ internal sealed class BattleScriptCardVisual :
     private Vector2 baseStagePosition;
     private Vector2 basePoolPosition;
     private Vector2 baseBeamPosition;
+    private Quaternion basePoolRotation = Quaternion.identity;
+    private Quaternion baseBeamRotation = Quaternion.identity;
 
     private float phase;
     private float idleFloatPixels;
@@ -4450,6 +4502,7 @@ internal sealed class BattleScriptCardVisual :
         RectTransform detail,
         BattleScriptTurningPageMesh turningMesh,
         RectTransform[] paperStack,
+        RectTransform[] paperThicknessEdges,
         RectTransform backA,
         RectTransform backB,
         RectTransform stageBaseRect,
@@ -4481,6 +4534,41 @@ internal sealed class BattleScriptCardVisual :
         stackPages =
             paperStack ??
             Array.Empty<RectTransform>();
+
+        RectTransform[] thickness =
+            paperThicknessEdges ??
+            Array.Empty<RectTransform>();
+
+        thicknessBottom =
+            thickness.Length > 0
+                ? thickness[0]
+                : null;
+
+        thicknessLeft =
+            thickness.Length > 1
+                ? thickness[1]
+                : null;
+
+        thicknessRight =
+            thickness.Length > 2
+                ? thickness[2]
+                : null;
+
+        thicknessBottomImage =
+            thicknessBottom != null
+                ? thicknessBottom.GetComponent<Image>()
+                : null;
+
+        thicknessLeftImage =
+            thicknessLeft != null
+                ? thicknessLeft.GetComponent<Image>()
+                : null;
+
+        thicknessRightImage =
+            thicknessRight != null
+                ? thicknessRight.GetComponent<Image>()
+                : null;
+
         backPageA = backA;
         backPageB = backB;
         stageBase = stageBaseRect;
@@ -4507,10 +4595,61 @@ internal sealed class BattleScriptCardVisual :
             baseStagePosition = stageBase.anchoredPosition;
 
         if (lightPool != null)
-            basePoolPosition = lightPool.anchoredPosition;
+        {
+            basePoolPosition =
+                lightPool.anchoredPosition;
+
+            basePoolRotation =
+                lightPool.localRotation;
+        }
 
         if (lightBeam != null)
-            baseBeamPosition = lightBeam.anchoredPosition;
+        {
+            baseBeamPosition =
+                lightBeam.anchoredPosition;
+
+            baseBeamRotation =
+                lightBeam.localRotation;
+        }
+
+        if (thicknessBottom != null)
+        {
+            baseThicknessBottomPosition =
+                thicknessBottom.anchoredPosition;
+
+            baseThicknessBottomScale =
+                thicknessBottom.localScale;
+
+            if (thicknessBottomImage != null)
+                baseThicknessBottomAlpha =
+                    thicknessBottomImage.color.a;
+        }
+
+        if (thicknessLeft != null)
+        {
+            baseThicknessLeftPosition =
+                thicknessLeft.anchoredPosition;
+
+            baseThicknessLeftScale =
+                thicknessLeft.localScale;
+
+            if (thicknessLeftImage != null)
+                baseThicknessLeftAlpha =
+                    thicknessLeftImage.color.a;
+        }
+
+        if (thicknessRight != null)
+        {
+            baseThicknessRightPosition =
+                thicknessRight.anchoredPosition;
+
+            baseThicknessRightScale =
+                thicknessRight.localScale;
+
+            if (thicknessRightImage != null)
+                baseThicknessRightAlpha =
+                    thicknessRightImage.color.a;
+        }
 
         phase = idlePhase;
         idleFloatPixels = Mathf.Max(0f, floatPixels);
@@ -4776,6 +4915,12 @@ internal sealed class BattleScriptCardVisual :
                 pointerT);
 
         UpdateUnderlyingPageTracking(
+            pointerCurrent,
+            hovered,
+            selected,
+            dt);
+
+        UpdatePaperThickness(
             pointerCurrent,
             hovered,
             selected,
@@ -5172,6 +5317,195 @@ internal sealed class BattleScriptCardVisual :
         }
     }
 
+    private void UpdatePaperThickness(
+        Vector2 pointer,
+        bool hovered,
+        bool isSelected,
+        float dt)
+    {
+        float interaction =
+            hovered
+                ? 1f
+                : confirming
+                    ? 0.18f
+                    : isSelected
+                        ? 0.32f
+                        : 0f;
+
+        float yaw =
+            Mathf.Clamp(
+                pointer.x,
+                -1f,
+                1f) *
+            interaction;
+
+        float yawAbs =
+            Mathf.Abs(
+                yaw);
+
+        float response =
+            1f -
+            Mathf.Exp(
+                -10.5f *
+                Mathf.Max(
+                    0f,
+                    dt));
+
+        float leftReveal =
+            Mathf.Clamp01(
+                -yaw);
+
+        float rightReveal =
+            Mathf.Clamp01(
+                yaw);
+
+        if (thicknessLeft != null)
+        {
+            Vector3 targetScale =
+                baseThicknessLeftScale;
+
+            targetScale.x *=
+                Mathf.Lerp(
+                    0.30f,
+                    1.28f,
+                    leftReveal);
+
+            thicknessLeft.localScale =
+                Vector3.Lerp(
+                    thicknessLeft.localScale,
+                    targetScale,
+                    response);
+
+            thicknessLeft.anchoredPosition =
+                Vector2.Lerp(
+                    thicknessLeft.anchoredPosition,
+                    baseThicknessLeftPosition +
+                    new Vector2(
+                        -leftReveal * 2.1f,
+                        pointer.y *
+                        0.45f *
+                        interaction),
+                    response);
+        }
+
+        if (thicknessRight != null)
+        {
+            Vector3 targetScale =
+                baseThicknessRightScale;
+
+            targetScale.x *=
+                Mathf.Lerp(
+                    0.30f,
+                    1.28f,
+                    rightReveal);
+
+            thicknessRight.localScale =
+                Vector3.Lerp(
+                    thicknessRight.localScale,
+                    targetScale,
+                    response);
+
+            thicknessRight.anchoredPosition =
+                Vector2.Lerp(
+                    thicknessRight.anchoredPosition,
+                    baseThicknessRightPosition +
+                    new Vector2(
+                        rightReveal * 2.1f,
+                        pointer.y *
+                        0.45f *
+                        interaction),
+                    response);
+        }
+
+        if (thicknessBottom != null)
+        {
+            Vector3 targetScale =
+                baseThicknessBottomScale;
+
+            targetScale.x *=
+                1f -
+                yawAbs *
+                0.025f;
+
+            targetScale.y *=
+                1f +
+                yawAbs *
+                0.14f;
+
+            thicknessBottom.localScale =
+                Vector3.Lerp(
+                    thicknessBottom.localScale,
+                    targetScale,
+                    response);
+
+            thicknessBottom.anchoredPosition =
+                Vector2.Lerp(
+                    thicknessBottom.anchoredPosition,
+                    baseThicknessBottomPosition +
+                    new Vector2(
+                        yaw * 2.4f,
+                        -yawAbs * 0.8f),
+                    response);
+        }
+
+        if (thicknessLeftImage != null)
+        {
+            Color color =
+                thicknessLeftImage.color;
+
+            color.a =
+                Mathf.Lerp(
+                    color.a,
+                    baseThicknessLeftAlpha *
+                    Mathf.Lerp(
+                        0.26f,
+                        1f,
+                        leftReveal),
+                    response);
+
+            thicknessLeftImage.color =
+                color;
+        }
+
+        if (thicknessRightImage != null)
+        {
+            Color color =
+                thicknessRightImage.color;
+
+            color.a =
+                Mathf.Lerp(
+                    color.a,
+                    baseThicknessRightAlpha *
+                    Mathf.Lerp(
+                        0.26f,
+                        1f,
+                        rightReveal),
+                    response);
+
+            thicknessRightImage.color =
+                color;
+        }
+
+        if (thicknessBottomImage != null)
+        {
+            Color color =
+                thicknessBottomImage.color;
+
+            color.a =
+                Mathf.Lerp(
+                    color.a,
+                    baseThicknessBottomAlpha *
+                    Mathf.Lerp(
+                        0.82f,
+                        1f,
+                        yawAbs),
+                    response);
+
+            thicknessBottomImage.color =
+                color;
+        }
+    }
+
     private void UpdateHoverPose(
         bool hovered,
         bool isSelected,
@@ -5463,13 +5797,35 @@ internal sealed class BattleScriptCardVisual :
             1.4f *
             driftWeight;
 
+        float cursorLightWeight =
+            hovered
+                ? 1f
+                : confirming
+                    ? 0f
+                    : isSelected
+                        ? 0.12f
+                        : 0f;
+
+        // Light lags slightly opposite the apparent paper yaw. This is small
+        // on purpose: the paper remains the focus, while the offset supplies
+        // enough parallax to make its thickness readable.
+        Vector2 cursorLightOffset =
+            new(
+                -pointerCurrent.x *
+                5.2f,
+                -pointerCurrent.y *
+                1.6f) *
+            cursorLightWeight;
+
         if (lightPool != null)
         {
             Vector2 target =
                 basePoolPosition +
                 new Vector2(
                     driftX * 0.32f,
-                    driftY * 0.28f);
+                    driftY * 0.28f) +
+                cursorLightOffset *
+                0.42f;
 
             lightPool.anchoredPosition =
                 Vector2.Lerp(
@@ -5489,6 +5845,18 @@ internal sealed class BattleScriptCardVisual :
                     Vector3.one *
                     targetScale,
                     t);
+
+            lightPool.localRotation =
+                Quaternion.Slerp(
+                    lightPool.localRotation,
+                    basePoolRotation *
+                    Quaternion.Euler(
+                        0f,
+                        0f,
+                        pointerCurrent.x *
+                        -0.55f *
+                        cursorLightWeight),
+                    t);
         }
 
         if (lightBeam != null)
@@ -5500,7 +5868,8 @@ internal sealed class BattleScriptCardVisual :
                     driftY +
                     (hovered
                         ? 3f
-                        : 0f));
+                        : 0f)) +
+                cursorLightOffset;
 
             lightBeam.anchoredPosition =
                 Vector2.Lerp(
@@ -5524,6 +5893,18 @@ internal sealed class BattleScriptCardVisual :
                             1.06f,
                             lightAmount),
                         1f),
+                    t);
+
+            lightBeam.localRotation =
+                Quaternion.Slerp(
+                    lightBeam.localRotation,
+                    baseBeamRotation *
+                    Quaternion.Euler(
+                        0f,
+                        0f,
+                        pointerCurrent.x *
+                        -1.65f *
+                        cursorLightWeight),
                     t);
         }
 
@@ -5606,6 +5987,51 @@ internal sealed class BattleScriptCardVisual :
 
     private void ApplyImmediate()
     {
+        if (lightPool != null)
+        {
+            lightPool.anchoredPosition =
+                basePoolPosition;
+
+            lightPool.localRotation =
+                basePoolRotation;
+        }
+
+        if (lightBeam != null)
+        {
+            lightBeam.anchoredPosition =
+                baseBeamPosition;
+
+            lightBeam.localRotation =
+                baseBeamRotation;
+        }
+
+        if (thicknessBottom != null)
+        {
+            thicknessBottom.anchoredPosition =
+                baseThicknessBottomPosition;
+
+            thicknessBottom.localScale =
+                baseThicknessBottomScale;
+        }
+
+        if (thicknessLeft != null)
+        {
+            thicknessLeft.anchoredPosition =
+                baseThicknessLeftPosition;
+
+            thicknessLeft.localScale =
+                baseThicknessLeftScale;
+        }
+
+        if (thicknessRight != null)
+        {
+            thicknessRight.anchoredPosition =
+                baseThicknessRightPosition;
+
+            thicknessRight.localScale =
+                baseThicknessRightScale;
+        }
+
         if (detailPage != null)
         {
             detailPage.anchoredPosition =
