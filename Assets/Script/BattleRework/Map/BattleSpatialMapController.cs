@@ -50,6 +50,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(0f)] private float mapRevealSlideDistance = 90f;
     [Tooltip("맵 노드 확정 후 다음 스테이지로 넘어가기 전에 재생하는 충격 연출 시간입니다.")]
     [SerializeField, Range(0.15f, 1f)] private float mapConfirmDuration = 0.44f;
+    [SerializeField, Range(0.08f, 0.28f)] private float scriptSelectedSettleDuration = 0.16f;
     [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
     [SerializeField, Range(0f, 0.75f)] private float mapConfirmCameraShake = 0.22f;
     [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.105f;
@@ -3841,12 +3842,59 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 0.18f,
                 mapConfirmDuration);
 
-        battleCameraController?.PlaySelectionConfirmShake(
-            mapConfirmCameraShake *
-            0.72f,
-            duration);
+        float selectedSettle =
+            Mathf.Min(
+                duration * 0.48f,
+                Mathf.Max(
+                    0.08f,
+                    scriptSelectedSettleDuration));
+
+        float confirmDuration =
+            Mathf.Max(
+                0.08f,
+                duration -
+                selectedSettle);
 
         EnsureRouteStatus();
+
+        SetRouteStatus(
+            true,
+            selectedNode != null
+                ? $"SCRIPT SELECTED  /  TAKE {Mathf.Max(1, selectedNode.depth + 1):00}"
+                : "SCRIPT SELECTED");
+
+        // Phase 1: Selected.
+        // Lock the open page in place first so the click reads as a deliberate
+        // decision instead of immediately collapsing into the transition.
+        float selectedElapsed = 0f;
+
+        while (selectedElapsed < selectedSettle)
+        {
+            selectedElapsed +=
+                Time.unscaledDeltaTime;
+
+            yield return null;
+        }
+
+        for (int i = 0; i < cards.Length; i++)
+        {
+            BattleScriptCardVisual card =
+                cards[i];
+
+            if (card == null)
+                continue;
+
+            bool isSelected =
+                selectedCard != null &&
+                card.transform ==
+                selectedCard;
+
+            card.SetConfirming(
+                isSelected);
+
+            card.SetConfirmSuppressed(
+                !isSelected);
+        }
 
         SetRouteStatus(
             true,
@@ -3854,9 +3902,16 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 ? $"SCRIPT LOCKED  /  TAKE {Mathf.Max(1, selectedNode.depth + 1):00}"
                 : "SCRIPT LOCKED");
 
+        // Phase 2: Confirm.
+        // Only now do the camera impact and stronger visual separation happen.
+        battleCameraController?.PlaySelectionConfirmShake(
+            mapConfirmCameraShake *
+            0.72f,
+            confirmDuration);
+
         float elapsed = 0f;
 
-        while (elapsed < duration)
+        while (elapsed < confirmDuration)
         {
             elapsed +=
                 Time.unscaledDeltaTime;
@@ -3864,7 +3919,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             float t =
                 Mathf.Clamp01(
                     elapsed /
-                    duration);
+                    confirmDuration);
 
             if (stageMapCanvasGroup != null)
             {
@@ -4371,7 +4426,9 @@ internal sealed class BattleScriptCardVisual :
     private bool pointerHover;
     private bool trackedHover;
     private bool selected;
+    private bool confirming;
     private bool suppressed;
+    private bool confirmSuppressed;
 
     private Vector2 baseFrontPosition;
     private Vector2 baseDetailPosition;
@@ -4627,16 +4684,46 @@ internal sealed class BattleScriptCardVisual :
     public void SetSelected(bool value)
     {
         selected = value;
+
         if (value)
         {
             pointerHover = false;
             trackedHover = false;
+            pointerTarget = Vector2.zero;
+        }
+        else
+        {
+            confirming = false;
+        }
+    }
+
+    public void SetConfirming(bool value)
+    {
+        confirming =
+            value &&
+            selected;
+
+        if (confirming)
+        {
+            pointerHover = false;
+            trackedHover = false;
+            pointerTarget = Vector2.zero;
         }
     }
 
     public void SetSuppressed(bool value)
     {
         suppressed = value;
+
+        if (!value)
+            confirmSuppressed = false;
+    }
+
+    public void SetConfirmSuppressed(bool value)
+    {
+        confirmSuppressed =
+            value &&
+            suppressed;
     }
 
     public void OnPointerEnter(PointerEventData eventData)
@@ -4715,21 +4802,29 @@ internal sealed class BattleScriptCardVisual :
             0.32f;
 
         float targetScale =
-            selected
-                ? hoverScale * 1.025f
-                : hovered
-                    ? hoverScale
-                    : suppressed
-                        ? 0.975f
-                        : 1f;
+            confirming
+                ? hoverScale * 1.075f
+                : selected
+                    ? hoverScale * 1.015f
+                    : hovered
+                        ? hoverScale
+                        : confirmSuppressed
+                            ? 0.955f
+                            : suppressed
+                                ? 0.975f
+                                : 1f;
 
         float targetY =
             idleY +
-            (selected
-                ? hoverLiftPixels * 1.12f
-                : hovered
-                    ? hoverLiftPixels
-                    : 0f);
+            (confirming
+                ? hoverLiftPixels * 1.52f
+                : selected
+                    ? hoverLiftPixels * 1.10f
+                    : hovered
+                        ? hoverLiftPixels
+                        : confirmSuppressed
+                            ? -hoverLiftPixels * 0.18f
+                            : 0f);
 
         // Never move a World-Space UI card toward/away from the camera.
         // Faux depth is produced only by scale + mesh shear.
@@ -4774,11 +4869,15 @@ internal sealed class BattleScriptCardVisual :
             dt);
 
         float targetAlpha =
-            selected || hovered
+            confirming ||
+            selected ||
+            hovered
                 ? 1f
-                : suppressed
-                    ? 0.26f
-                    : 0.91f;
+                : confirmSuppressed
+                    ? 0.12f
+                    : suppressed
+                        ? 0.34f
+                        : 0.91f;
 
         if (visualGroup != null)
         {
@@ -4790,14 +4889,18 @@ internal sealed class BattleScriptCardVisual :
         }
 
         float targetWave =
-            suppressed
-                ? paperWavePixels * 0.05f
-                : selected
-                    ? paperWavePixels * 0.16f
-                    : hovered
-                        ? paperWavePixels
-                        : paperWavePixels *
-                          idleWaveStrength;
+            confirmSuppressed
+                ? paperWavePixels * 0.01f
+                : suppressed
+                    ? paperWavePixels * 0.035f
+                    : confirming
+                        ? paperWavePixels * 0.015f
+                        : selected
+                            ? paperWavePixels * 0.045f
+                            : hovered
+                                ? paperWavePixels
+                                : paperWavePixels *
+                                  idleWaveStrength;
 
         float turnTarget =
             hovered || selected
@@ -4866,9 +4969,11 @@ internal sealed class BattleScriptCardVisual :
         float activeWeight =
             hovered
                 ? 1f
-                : isSelected
-                    ? 0.48f
-                    : 0f;
+                : confirming
+                    ? 0f
+                    : isSelected
+                        ? 0.10f
+                        : 0f;
 
         float response =
             1f -
@@ -5078,9 +5183,11 @@ internal sealed class BattleScriptCardVisual :
         float weight =
             hovered
                 ? 1f
-                : isSelected
-                    ? 0.58f
-                    : 0f;
+                : confirming
+                    ? 0.78f
+                    : isSelected
+                        ? 0.42f
+                        : 0f;
 
         Quaternion targetRotation =
             Quaternion.Euler(
@@ -5130,10 +5237,11 @@ internal sealed class BattleScriptCardVisual :
             (3f - 2f * t);
 
         float hoverWeight =
-            suppressed
+            suppressed ||
+            confirming
                 ? 0f
                 : selected
-                    ? 0.62f
+                    ? 0.10f
                     : pointerHover ||
                       trackedHover
                         ? 1f
@@ -5313,13 +5421,17 @@ internal sealed class BattleScriptCardVisual :
         float time)
     {
         float lightAmount =
-            isSelected
+            confirming
                 ? 1f
-                : hovered
-                    ? 0.88f
-                    : suppressed
-                        ? 0.16f
-                        : 0.46f;
+                : isSelected
+                    ? 0.96f
+                    : hovered
+                        ? 0.88f
+                        : confirmSuppressed
+                            ? 0.08f
+                            : suppressed
+                                ? 0.16f
+                                : 0.46f;
 
         float driftPhase =
             time *
@@ -5329,18 +5441,27 @@ internal sealed class BattleScriptCardVisual :
             phase +
             1.41f;
 
+        float driftWeight =
+            confirming
+                ? 0f
+                : isSelected
+                    ? 0.14f
+                    : 1f;
+
         float driftX =
             Mathf.Sin(
                 driftPhase *
                 0.73f) *
-            2.4f;
+            2.4f *
+            driftWeight;
 
         float driftY =
             Mathf.Sin(
                 driftPhase *
                 0.51f +
                 0.82f) *
-            1.4f;
+            1.4f *
+            driftWeight;
 
         if (lightPool != null)
         {
