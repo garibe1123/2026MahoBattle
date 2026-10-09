@@ -7,7 +7,7 @@ using UnityEngine.UI;
 ///
 /// - Field presenter / World-Space TV stay untouched.
 /// - Screen presenter enters once from the right, black -> white, then remains on screen.
-/// - Reward -> Map -> stage preparation does not replay the entrance.
+/// - Reward -> Script Selection -> stage preparation does not replay the entrance.
 /// - Entering Combat turns the presenter white -> black, then hides it.
 /// - Dialogue independently opens, types, idles, closes, and can be replaced by new commentary.
 /// - Screen presenter static sprite/material come from BattleShowPresentationManager.
@@ -20,7 +20,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     {
         None,
         Reward,
-        Map
+        ScriptSelection
     }
 
     private enum Mood
@@ -51,14 +51,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private enum PresenterLineKey
     {
         RewardIntro,
-        MapIntro,
+        ScriptIntro,
         RewardConfirm,
-        MapConfirmElite,
-        MapConfirmShop,
-        MapConfirmEvent,
-        MapConfirmHigh,
-        MapConfirmMid,
-        MapConfirmLow,
+        ScriptConfirmElite,
+        ScriptConfirmShop,
+        ScriptConfirmEvent,
+        ScriptConfirmHigh,
+        ScriptConfirmMid,
+        ScriptConfirmLow,
         Saw,
         OddWeapon,
         RareItem,
@@ -66,14 +66,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         SafeItem,
         GenericHover,
         GenericSelected,
-        MapElite,
-        MapShop,
-        MapEvent,
-        MapCombatHigh,
-        MapCombatMid,
-        MapCombatLow,
+        ScriptElite,
+        ScriptShop,
+        ScriptEvent,
+        ScriptCombatHigh,
+        ScriptCombatMid,
+        ScriptCombatLow,
         BoredReward,
-        BoredMap
+        BoredScript
     }
 
     private const int PresenterFramePixels = 128;
@@ -82,7 +82,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     [Header("Screen Overlay")]
     [SerializeField] private int overlaySortingOrder = 470;
-    [Tooltip("Reward/Map 선택 중 작은 Mini PACK(780)보다 위에 말풍선을 표시합니다.")]
+    [Tooltip("Reward/Script Selection 중 작은 Mini PACK(780)보다 위에 말풍선을 표시합니다.")]
     [SerializeField] private int dialogueMiniPackSortingOrder = 790;
     [SerializeField] private Vector2 referenceResolution = new(1920f, 1080f);
 
@@ -297,7 +297,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         UpdateDialogueState();
         UpdateBoredCommentary();
 
-        if (mode == Mode.Reward || mode == Mode.Map)
+        if (mode == Mode.Reward || mode == Mode.ScriptSelection)
             ApplyPrototypeCamera();
     }
 
@@ -337,12 +337,20 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             Mood.Excited);
     }
 
-    public static void NotifyMapHover(BattleNodeData node, int stars)
+    public static void NotifyScriptHover(BattleNodeData node, int stars)
     {
-        Resolve()?.ShowMap(node, stars);
+        Resolve()?.ShowScript(node, stars);
     }
 
-    public static void NotifyMapConfirm(BattleNodeData node, int stars)
+    // Legacy compatibility for older callers. Script Selection owns this flow now.
+    public static void NotifyMapHover(BattleNodeData node, int stars)
+    {
+        NotifyScriptHover(
+            node,
+            stars);
+    }
+
+    public static void NotifyScriptConfirm(BattleNodeData node, int stars)
     {
         BattleScreenPresenterPrototypeController owner = Resolve();
         if (owner == null || node == null)
@@ -362,7 +370,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             case BattleNodeType.Elite:
                 line =
                     owner.PickLine(
-                        PresenterLineKey.MapConfirmElite,
+                        PresenterLineKey.ScriptConfirmElite,
                         "오, 엘리트로 가네요. 좋아요, 이건 좀 집중해서 봐야겠네요!",
                         "결국 여기 들어갑니다. 편한 길은 아니고... 대신 볼 건 많겠네요.",
                         "엘리트 확정이네요. 자, 여기부터는 한 번 삐끗하면 꽤 아픕니다.",
@@ -375,7 +383,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             case BattleNodeType.Shop:
                 line =
                     owner.PickLine(
-                        PresenterLineKey.MapConfirmShop,
+                        PresenterLineKey.ScriptConfirmShop,
                         "오, 상점으로 가네요. 그럼 잠깐 장비부터 정리하고 가죠.",
                         "여기로 정했네요. 좋아요, 전투 전에 한 번 숨 돌릴 수 있겠어요.",
                         "상점 확정. 음... 돈 남아 있으면 여기서 좀 쓰겠네요.",
@@ -388,7 +396,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             case BattleNodeType.Event:
                 line =
                     owner.PickLine(
-                        PresenterLineKey.MapConfirmEvent,
+                        PresenterLineKey.ScriptConfirmEvent,
                         "오, 이벤트로 가네요. 이건 저도 뭐가 나올지 모르겠네요.",
                         "결국 이쪽이군요. 좋아요, 이런 건 직접 열어봐야 알죠.",
                         "이벤트 확정. 음... 좋은 게 나올지, 이상한 게 나올지 한번 보죠.",
@@ -403,7 +411,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 {
                     line =
                         owner.PickLine(
-                            PresenterLineKey.MapConfirmHigh,
+                            PresenterLineKey.ScriptConfirmHigh,
                             "오, 결국 이쪽으로 가네요. 좋아요, 이번 판은 좀 볼 만하겠는데요.",
                             "여기로 정했네요. 자, 이제 슬슬 긴장 좀 해야겠네요!",
                             "아, 이쪽이구나. 다음 판 그림 제대로 나오겠는데?",
@@ -417,7 +425,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 {
                     line =
                         owner.PickLine(
-                            PresenterLineKey.MapConfirmMid,
+                            PresenterLineKey.ScriptConfirmMid,
                             "이쪽으로 정했네요. 딱 무난하게 이어가기 좋은 선택이네요.",
                             "오, 여기군요. 너무 세지도 않고 너무 심심하지도 않고.",
                             "별 세 개 쪽으로 갑니다. 음... 깔끔하게 한 판 보기 좋겠네요.",
@@ -430,7 +438,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 {
                     line =
                         owner.PickLine(
-                            PresenterLineKey.MapConfirmLow,
+                            PresenterLineKey.ScriptConfirmLow,
                             "아, 이쪽으로 가네요. 이번 판은 좀 편하게 넘기겠는데요.",
                             "여기로 정했네요. 뭐, 굳이 매번 무리할 필요는 없죠.",
                             "오케이, 이쪽이면 잠깐 숨 돌릴 수 있겠네요.",
@@ -444,10 +452,18 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         }
 
         owner.QueueCopy(
-            "NEXT COURSE",
-            $"ROUTE LOCKED / STAGE {Mathf.Max(1, node.depth + 1):00}",
+            "SCRIPT LOCKED",
+            $"TAKE {Mathf.Max(1, node.depth + 1):00} / {node.type.ToString().ToUpperInvariant()}",
             line,
             mood);
+    }
+
+    // Legacy compatibility for older callers. Script Selection owns this flow now.
+    public static void NotifyMapConfirm(BattleNodeData node, int stars)
+    {
+        NotifyScriptConfirm(
+            node,
+            stars);
     }
 
     public static void NotifyPresenterMotion(
@@ -537,14 +553,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         if (state == BattleRunState.SelectingNode)
         {
-            mode = Mode.Map;
+            mode = Mode.ScriptSelection;
             EnsurePresenterSession();
 
             QueueCopy(
-                "ROUTE DESK",
-                "NEXT STAGE",
+                "SCRIPT DESK",
+                "NEXT TAKE",
                 PickLine(
-                    PresenterLineKey.MapIntro,
+                    PresenterLineKey.ScriptIntro,
                     "오, 다음 길 나왔네요. 이번엔 좀 재밌어 보이는데?",
                     "다음 무대가 이쪽들이구나. 음... 어디로 갈까요?",
                     "선택지 나왔네요. 이번엔 좀 고민되겠는데요?",
@@ -1315,7 +1331,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 "이게 막상 세 개 놓고 보면 어렵죠. 하나 버리는 게 더 어렵거든.",
                 "채팅 있었으면 벌써 서로 다른 거 고르라고 난리 났겠다.")
             : PickLine(
-                PresenterLineKey.BoredMap,
+                PresenterLineKey.BoredScript,
                 "음... 아직도 고민 중이네요. 뭐, 길이 좀 애매하긴 하죠.",
                 "어디 갔나... 잠깐 자리 비웠나?",
                 "길 하나 고르는 게 은근 오래 걸리네요.",
@@ -1788,7 +1804,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             selected ? Mood.Curious : Mood.Neutral);
     }
 
-    private void ShowMap(BattleNodeData node, int stars)
+    private void ShowScript(BattleNodeData node, int stars)
     {
         if (node == null)
             return;
@@ -1804,7 +1820,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "CAUTION",
                     $"{stage} / ELITE",
                     PickLine(
-                        PresenterLineKey.MapElite,
+                        PresenterLineKey.ScriptElite,
                         "오, 엘리트네요. 이쪽은 좀 재밌겠는데?",
                         "음... 여긴 확실히 위험하네요. 그래도 볼 건 많겠고.",
                         "이쪽은 좀 거칠겠네요. 대신 심심하진 않겠어요.",
@@ -1821,7 +1837,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "SHOPPING BREAK",
                     $"{stage} / SHOP",
                     PickLine(
-                        PresenterLineKey.MapShop,
+                        PresenterLineKey.ScriptShop,
                         "오, 상점이네요. 잠깐 쉬어가겠는데.",
                         "다음 무대 전에 장비 좀 보고 갈 수 있겠네요.",
                         "전투는 아니고 쇼핑이네요. 이것도 나쁘진 않죠.",
@@ -1838,7 +1854,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "SPECIAL SEGMENT",
                     $"{stage} / EVENT",
                     PickLine(
-                        PresenterLineKey.MapEvent,
+                        PresenterLineKey.ScriptEvent,
                         "오, 이벤트네요. 이건 뭐가 나오려나.",
                         "내용은 안 보이네요. 이런 건 열어봐야 알죠.",
                         "전투 말고 다른 게 나오나 보네요. 음... 뭐지?",
@@ -1857,7 +1873,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                         "COURSE CHECK",
                         $"{stage} / COMBAT",
                         PickLine(
-                            PresenterLineKey.MapCombatHigh,
+                            PresenterLineKey.ScriptCombatHigh,
                             "오, 이건 좀 재밌어 보이네요. 이쪽 가려나?",
                             "별 네 개 이상이네요. 음... 메인 무대 느낌은 나는데.",
                             "이쪽은 쉽게 끝나진 않겠네요.",
@@ -1876,7 +1892,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                         "COURSE CHECK",
                         $"{stage} / COMBAT",
                         PickLine(
-                            PresenterLineKey.MapCombatMid,
+                            PresenterLineKey.ScriptCombatMid,
                             "음, 딱 중간 정도네요. 무난하게 보기 좋겠는데.",
                             "별 세 개네요. 적당하네.",
                             "너무 무겁지도 않고, 너무 심심하지도 않고.",
@@ -1896,7 +1912,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     "COURSE CHECK",
                     $"{stage} / COMBAT",
                     PickLine(
-                        PresenterLineKey.MapCombatLow,
+                        PresenterLineKey.ScriptCombatLow,
                         "음... 이번 건 좀 쉬어가는 쪽이네요.",
                         "별이 낮네요. 뭐, 이런 구간도 하나쯤은 있어야죠.",
                         "이번엔 편하게 볼 수 있겠네요.",

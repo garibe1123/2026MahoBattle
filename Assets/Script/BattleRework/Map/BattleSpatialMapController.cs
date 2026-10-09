@@ -6,10 +6,11 @@ using NavMeshPlus.Components;
 using UnityEngine;
 using UnityEngine.AI;
 using UnityEngine.EventSystems;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 
 /// <summary>
-/// Single owner of battle-field spatial planning and Stage Map presentation.
+/// Single owner of battle-field spatial planning and Script Selection presentation.
 ///
 /// Spatial invariants:
 /// - 32px = 1 tile = 1 world unit.
@@ -18,8 +19,8 @@ using UnityEngine.UI;
 /// - only extensionCells become incoming MapBlock pieces.
 /// - large connected pieces are preferred; isolated 1x1 pieces are merged whenever possible.
 /// - every incoming piece starts fully outside the current camera viewport and slides in on a cardinal rail.
-/// - Stage Map is selection-only: no combat-time top-right mini map exists.
-/// - Stage Map depth flows from left to right; nodes on the same depth are vertical alternatives.
+/// - Script Selection is presentation-only; combat-time spatial generation remains independent.
+/// - BattleNodeData depth still defines run progression, but no route graph is drawn here.
 /// </summary>
 [DefaultExecutionOrder(-20000)]
 public sealed class BattleSpatialMapController : MonoBehaviour
@@ -41,33 +42,24 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(12f)] private float fallbackOffscreenEntryDistance = 36f;
     [SerializeField, Min(0.5f)] private float offscreenMargin = 2f;
 
-    [Header("Stage Map - Selection Only")]
-    [SerializeField] private Vector2 selectionMapSize = new(1560f, 760f);
-    [SerializeField, Min(60f)] private float mapHorizontalSpacing = 150f;
-    [SerializeField, Min(60f)] private float mapVerticalSpacing = 112f;
-    [SerializeField, Min(24f)] private float mapNodeSize = 44f;
-    [SerializeField, Min(0.05f)] private float mapRevealDuration = 0.28f;
-    [SerializeField, Min(0f)] private float mapRevealSlideDistance = 90f;
-    [Tooltip("맵 노드 확정 후 다음 스테이지로 넘어가기 전에 재생하는 충격 연출 시간입니다.")]
-    [SerializeField, Range(0.15f, 1f)] private float mapConfirmDuration = 0.44f;
+    [Header("Script Selection Flow")]
+    [FormerlySerializedAs("selectionMapSize")]
+    [SerializeField] private Vector2 scriptSelectionSize = new(1560f, 760f);
+    [FormerlySerializedAs("mapRevealDuration")]
+    [SerializeField, Min(0.05f)] private float scriptRevealDuration = 0.28f;
+    [FormerlySerializedAs("mapRevealSlideDistance")]
+    [SerializeField, Min(0f)] private float scriptRevealSlideDistance = 90f;
+    [FormerlySerializedAs("mapConfirmDuration")]
+    [SerializeField, Range(0.15f, 1f)] private float scriptConfirmDuration = 0.44f;
     [SerializeField, Range(0.08f, 0.28f)] private float scriptSelectedSettleDuration = 0.16f;
-    [Tooltip("선택 확정 순간 실제 월드 카메라가 흔들리는 거리입니다. UI 보드 위치에는 적용하지 않습니다.")]
-    [SerializeField, Range(0f, 0.75f)] private float mapConfirmCameraShake = 0.22f;
-    [SerializeField, Range(1f, 1.18f)] private float mapConfirmZoom = 1.105f;
-    [Header("Stage Map - Route Commit")]
-    [SerializeField, Range(0.05f, 0.35f)] private float mapRouteShutdownStep = 0.09f;
-    [SerializeField, Range(0.18f, 0.75f)] private float mapRouteTraceDuration = 0.42f;
-    [SerializeField, Range(0.10f, 0.50f)] private float mapRouteLockHold = 0.24f;
-    [SerializeField] private Color mapRouteSelected = new(0.18f, 0.94f, 0.96f, 1f);
-    [SerializeField] private Color mapRouteDenied = new(1f, 0.20f, 0.48f, 1f);
-    [Tooltip("Camera focus may move a World-Space node under the cursor. This screen-space hysteresis prevents hover enter/exit feedback loops.")]
-    [SerializeField, Range(8f, 160f)] private float mapHoverLatchPixels = 56f;
-    [SerializeField] private Color mapUnknown = new(0.18f, 0.21f, 0.27f, 0.96f);
-    [SerializeField] private Color mapVisited = new(0.48f, 0.54f, 0.62f, 1f);
-    [SerializeField] private Color mapCurrent = new(0.30f, 0.90f, 1f, 1f);
-    [SerializeField] private Color mapAvailable = new(0.74f, 0.82f, 0.90f, 1f);
-    [SerializeField] private Color mapElite = new(1f, 0.38f, 0.20f, 1f);
-    [SerializeField] private Color mapLink = new(0.30f, 0.35f, 0.43f, 0.96f);
+    [FormerlySerializedAs("mapConfirmCameraShake")]
+    [Tooltip("대본 확정 순간 실제 월드 카메라에 주는 짧은 충격입니다.")]
+    [SerializeField, Range(0f, 0.75f)] private float scriptConfirmCameraShake = 0.22f;
+    [FormerlySerializedAs("mapRouteLockHold")]
+    [SerializeField, Range(0.10f, 0.50f)] private float scriptConfirmHoldDuration = 0.24f;
+    [FormerlySerializedAs("mapHoverLatchPixels")]
+    [Tooltip("World-Space Script Card 경계에서 Hover가 깜빡이지 않도록 유지하는 화면 픽셀 히스테리시스입니다.")]
+    [SerializeField, Range(8f, 160f)] private float scriptHoverLatchPixels = 56f;
 
     [Header("Script Selection Cards")]
     [SerializeField] private Vector2 scriptCardSize = new(218f, 302f);
@@ -138,33 +130,26 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private BattleRunManager graphOwner;
     private NodeGraphSO graph;
 
-    private readonly Dictionary<string, Vector2> resolvedMapPositions = new();
     private readonly Dictionary<string, ProceduralRoomLayout> roomLayouts = new();
-    private readonly HashSet<string> visitedNodeIds = new();
     private readonly HashSet<Vector2Int> currentTargetLocalTiles = new();
 
     private Vector2Int currentBaseWorldTile;
-    private CanvasGroup stageMapCanvasGroup;
-    private Canvas stageMapCanvas;
-    private RectTransform stageMapPanel;
-    private Coroutine stageMapRevealRoutine;
-    private Coroutine stageMapConfirmRoutine;
-    private Vector2 stageMapPanelRestPosition;
-    private bool stageMapSelectionLocked;
-    private bool mapSelectionActive;
-    private Button trackedStageMapButton;
-    private Vector2 trackedStageMapPointerAnchor;
-    private RectTransform routeStatusRoot;
-    private Text routeStatusText;
-    private CanvasGroup routeStatusGroup;
-    private Coroutine mapDeniedRoutine;
-    private AudioSource mapFeedbackAudio;
-    private AudioClip mapDeniedFallbackClip;
-    private static Sprite mapRatingStarSprite;
+    private CanvasGroup scriptSelectionCanvasGroup;
+    private Canvas scriptSelectionCanvas;
+    private RectTransform scriptSelectionPanel;
+    private Coroutine scriptRevealRoutine;
+    private Coroutine scriptConfirmRoutine;
+    private Vector2 scriptPanelRestPosition;
+    private bool scriptSelectionLocked;
+    private bool scriptSelectionActive;
+    private Button trackedScriptButton;
+    private Vector2 trackedScriptPointerAnchor;
+    private RectTransform scriptStatusRoot;
+    private Text scriptStatusText;
+    private CanvasGroup scriptStatusGroup;
+    private static Sprite scriptRatingStarSprite;
     private static Sprite scriptPaperSprite;
     private static Sprite scriptSpotlightBeamSprite;
-    private float resolvedMapHorizontalSpacing;
-    private float resolvedMapVerticalSpacing;
     private float nextCharacterSizingCheck;
 
     public Vector3 CurrentBaseOriginWorld => baseTemplate != null
@@ -177,15 +162,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     {
         worldPosition = Vector3.zero;
 
-        if (!mapSelectionActive ||
-            trackedStageMapButton == null ||
-            !trackedStageMapButton.gameObject.activeInHierarchy)
+        if (!scriptSelectionActive ||
+            trackedScriptButton == null ||
+            !trackedScriptButton.gameObject.activeInHierarchy)
         {
             return false;
         }
 
         RectTransform rect =
-            trackedStageMapButton.transform
+            trackedScriptButton.transform
             as RectTransform;
 
         if (rect == null)
@@ -204,7 +189,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (FindFirstObjectByType<BattleSpatialMapController>() != null)
             return;
 
-        GameObject host = new("BattleStageMapRuntime");
+        GameObject host = new("BattleScriptSelectionRuntime");
         DontDestroyOnLoad(host);
         host.AddComponent<BattleSpatialMapController>();
     }
@@ -217,7 +202,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void OnDisable()
     {
         Unsubscribe();
-        HideStageMapImmediate();
+        HideScriptSelectionImmediate();
     }
 
     private IEnumerator BindWhenReady()
@@ -230,10 +215,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         Subscribe();
-        mapSelectionActive = runManager != null && runManager.WaitingForNodeSelection;
-        EnsureStageMapUI();
-        BuildResolvedLayout();
-        RefreshStageMap();
+        scriptSelectionActive = runManager != null && runManager.WaitingForNodeSelection;
+        EnsureScriptSelectionUI();
+        RefreshScriptSelection();
     }
 
     private void ResolveSystems()
@@ -270,15 +254,12 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         graphOwner = runManager;
         graph = nextGraph;
-
-        resolvedMapPositions.Clear();
         roomLayouts.Clear();
-        visitedNodeIds.Clear();
         currentTargetLocalTiles.Clear();
-        mapSelectionActive = runManager != null && runManager.WaitingForNodeSelection;
-        stageMapSelectionLocked = false;
-        trackedStageMapButton = null;
-        trackedStageMapPointerAnchor = Vector2.zero;
+        scriptSelectionActive = runManager != null && runManager.WaitingForNodeSelection;
+        scriptSelectionLocked = false;
+        trackedScriptButton = null;
+        trackedScriptPointerAnchor = Vector2.zero;
     }
 
     private void Subscribe()
@@ -310,15 +291,14 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void Update()
     {
         if (runManager == null || roomManager == null || graph == null || baseTemplate == null ||
-            hud == null || stageMapPanel == null)
+            hud == null || scriptSelectionPanel == null)
         {
             ResolveSystems();
             if (runManager != null)
             {
                 Subscribe();
-                EnsureStageMapUI();
-                BuildResolvedLayout();
-                RefreshStageMap();
+                EnsureScriptSelectionUI();
+                RefreshScriptSelection();
             }
         }
 
@@ -328,45 +308,41 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             ApplyReadableDefaultCharacterSizes();
         }
 
-        UpdateStageMapCursorTracking();
+        UpdateScriptCursorTracking();
     }
 
     private void HandleNodeEntered(BattleNodeData node)
     {
-        mapSelectionActive = false;
+        scriptSelectionActive = false;
         if (node == null)
             return;
-
-        visitedNodeIds.Add(node.id);
         if ((node.type == BattleNodeType.Combat || node.type == BattleNodeType.Elite) && node.room != null)
             PrepareProceduralRoomPresentation(node);
 
-        RefreshStageMap();
+        RefreshScriptSelection();
     }
 
     private void HandleStateChanged(BattleRunState state)
     {
-        mapSelectionActive =
+        scriptSelectionActive =
             runManager != null &&
             runManager.RunActive &&
             state == BattleRunState.SelectingNode;
-        RefreshStageMap();
+        RefreshScriptSelection();
     }
 
     private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
     {
-        mapSelectionActive = true;
-        BuildResolvedLayout();
-        RefreshStageMap();
+        scriptSelectionActive = true;
+        RefreshScriptSelection();
     }
 
     private void HandleRunEnded(RunEndReason _)
     {
-        mapSelectionActive = false;
-        visitedNodeIds.Clear();
+        scriptSelectionActive = false;
         roomLayouts.Clear();
         currentTargetLocalTiles.Clear();
-        RefreshStageMap();
+        RefreshScriptSelection();
     }
 
     // ---------------------------------------------------------------------
@@ -1331,54 +1307,54 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     // Script Selection - replaces the legacy route-map presentation
     // ---------------------------------------------------------------------
 
-    private void EnsureStageMapUI()
+    private void EnsureScriptSelectionUI()
     {
-        if (stageMapPanel != null)
+        if (scriptSelectionPanel != null)
             return;
 
         ResolveSystems();
         if (hud == null || hud.MapSelectionRoot == null)
             return;
 
-        stageMapPanel = hud.MapSelectionRoot;
-        stageMapCanvas = stageMapPanel.GetComponentInParent<Canvas>();
-        stageMapCanvasGroup = stageMapPanel.GetComponent<CanvasGroup>();
-        if (stageMapCanvasGroup == null)
-            stageMapCanvasGroup = stageMapPanel.gameObject.AddComponent<CanvasGroup>();
+        scriptSelectionPanel = hud.MapSelectionRoot;
+        scriptSelectionCanvas = scriptSelectionPanel.GetComponentInParent<Canvas>();
+        scriptSelectionCanvasGroup = scriptSelectionPanel.GetComponent<CanvasGroup>();
+        if (scriptSelectionCanvasGroup == null)
+            scriptSelectionCanvasGroup = scriptSelectionPanel.gameObject.AddComponent<CanvasGroup>();
 
-        stageMapCanvasGroup.alpha = 0f;
-        stageMapPanelRestPosition = stageMapPanel.anchoredPosition;
+        scriptSelectionCanvasGroup.alpha = 0f;
+        scriptSelectionPanelRestPosition = scriptSelectionPanel.anchoredPosition;
         resolvedMapHorizontalSpacing = mapHorizontalSpacing;
         resolvedMapVerticalSpacing = mapVerticalSpacing;
     }
 
-    private void RefreshStageMap()
+    private void RefreshScriptSelection()
     {
-        if (stageMapPanel == null)
-            EnsureStageMapUI();
-        if (stageMapPanel == null)
+        if (scriptSelectionPanel == null)
+            EnsureScriptSelectionUI();
+        if (scriptSelectionPanel == null)
             return;
 
-        if (!mapSelectionActive)
+        if (!scriptSelectionActive)
         {
-            HideStageMapImmediate();
+            HideScriptSelectionImmediate();
             return;
         }
 
         bool reveal =
-            !stageMapPanel.gameObject.activeSelf ||
-            stageMapCanvasGroup == null ||
-            stageMapCanvasGroup.alpha <= 0.001f;
+            !scriptSelectionPanel.gameObject.activeSelf ||
+            scriptSelectionCanvasGroup == null ||
+            scriptSelectionCanvasGroup.alpha <= 0.001f;
 
-        stageMapPanel.gameObject.SetActive(true);
-        stageMapSelectionLocked = false;
+        scriptSelectionPanel.gameObject.SetActive(true);
+        scriptSelectionLocked = false;
 
-        for (int i = stageMapPanel.childCount - 1; i >= 0; i--)
-            Destroy(stageMapPanel.GetChild(i).gameObject);
+        for (int i = scriptSelectionPanel.childCount - 1; i >= 0; i--)
+            Destroy(scriptSelectionPanel.GetChild(i).gameObject);
 
-        routeStatusRoot = null;
-        routeStatusText = null;
-        routeStatusGroup = null;
+        scriptStatusRoot = null;
+        scriptStatusText = null;
+        scriptStatusGroup = null;
 
         CreateScriptSelectionTitle();
 
@@ -1423,11 +1399,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         CreateScriptSelectionHint();
 
         if (reveal)
-            PlayStageMapReveal();
-        else if (stageMapCanvasGroup != null)
+            PlayScriptSelectionReveal();
+        else if (scriptSelectionCanvasGroup != null)
         {
-            stageMapCanvasGroup.alpha = 1f;
-            stageMapCanvasGroup.blocksRaycasts = true;
+            scriptSelectionCanvasGroup.alpha = 1f;
+            scriptSelectionCanvasGroup.blocksRaycasts = true;
         }
     }
 
@@ -1440,7 +1416,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         // The old selection headline is intentionally removed.
         // Keep only a quiet context line so the floating paper stack is the visual focus.
         GameObject subtitle = new("Subtitle", typeof(RectTransform));
-        subtitle.transform.SetParent(stageMapPanel, false);
+        subtitle.transform.SetParent(scriptSelectionPanel, false);
 
         RectTransform subtitleRect = subtitle.GetComponent<RectTransform>();
         subtitleRect.anchorMin = new Vector2(0f, 1f);
@@ -1469,7 +1445,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
 
         GameObject hint = new("ScriptControlHint", typeof(RectTransform));
-        hint.transform.SetParent(stageMapPanel, false);
+        hint.transform.SetParent(scriptSelectionPanel, false);
         RectTransform rect = hint.GetComponent<RectTransform>();
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
         rect.pivot = new Vector2(0.5f, 0f);
@@ -1491,13 +1467,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         int index,
         int count)
     {
-        if (node == null || stageMapPanel == null)
+        if (node == null || scriptSelectionPanel == null)
             return;
 
         float panelWidth =
-            stageMapPanel.rect.width > 1f
-                ? stageMapPanel.rect.width
-                : selectionMapSize.x;
+            scriptSelectionPanel.rect.width > 1f
+                ? scriptSelectionPanel.rect.width
+                : scriptSelectionSize.x;
 
         float availableWidth =
             Mathf.Max(
@@ -1530,7 +1506,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 typeof(RectTransform));
 
         rootObject.transform.SetParent(
-            stageMapPanel,
+            scriptSelectionPanel,
             false);
 
         RectTransform root =
@@ -1579,7 +1555,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         button.onClick.AddListener(
             () =>
-                BeginStageNodeSelection(
+                BeginScriptSelection(
                     id,
                     root));
 
@@ -2079,7 +2055,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return 1f;
 
         Camera camera =
-            ResolveStageMapEventCamera();
+            ResolveScriptSelectionEventCamera();
 
         if (camera == null)
             camera = Camera.main;
@@ -3157,7 +3133,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             starSize * 0.5f;
 
         Sprite starSprite =
-            GetMapRatingStarSprite();
+            GetScriptRatingStarSprite();
 
         int clamped =
             Mathf.Clamp(
@@ -3517,10 +3493,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return scriptPaperSprite;
     }
 
-    private static Sprite GetMapRatingStarSprite()
+    private static Sprite GetScriptRatingStarSprite()
     {
-        if (mapRatingStarSprite != null)
-            return mapRatingStarSprite;
+        if (scriptRatingStarSprite != null)
+            return scriptRatingStarSprite;
 
         const int size = 24;
 
@@ -3588,7 +3564,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         texture.Apply(false, true);
 
-        mapRatingStarSprite =
+        scriptRatingStarSprite =
             Sprite.Create(
                 texture,
                 new Rect(
@@ -3603,13 +3579,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 0,
                 SpriteMeshType.FullRect);
 
-        mapRatingStarSprite.name =
-            "RuntimeMapRatingStar";
+        scriptRatingStarSprite.name =
+            "RuntimeScriptRatingStar";
 
-        mapRatingStarSprite.hideFlags =
+        scriptRatingStarSprite.hideFlags =
             HideFlags.HideAndDontSave;
 
-        return mapRatingStarSprite;
+        return scriptRatingStarSprite;
     }
 
     private static bool PointInPolygon(
@@ -3642,53 +3618,46 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return inside;
     }
 
-    // Kept as a no-op compatibility method because room generation still invokes it
-    // during graph binding. Script Selection no longer needs spatial graph layout.
-    private void BuildResolvedLayout()
+    private void PlayScriptSelectionReveal()
     {
-        resolvedMapPositions.Clear();
-    }
+        if (scriptRevealRoutine != null)
+            StopCoroutine(scriptRevealRoutine);
 
-    private void PlayStageMapReveal()
-    {
-        if (stageMapRevealRoutine != null)
-            StopCoroutine(stageMapRevealRoutine);
-
-        stageMapRevealRoutine =
+        scriptRevealRoutine =
             StartCoroutine(
-                StageMapRevealRoutine());
+                ScriptSelectionRevealRoutine());
     }
 
-    private IEnumerator StageMapRevealRoutine()
+    private IEnumerator ScriptSelectionRevealRoutine()
     {
-        if (stageMapPanel == null ||
-            stageMapCanvasGroup == null)
+        if (scriptSelectionPanel == null ||
+            scriptSelectionCanvasGroup == null)
         {
-            stageMapRevealRoutine = null;
+            scriptRevealRoutine = null;
             yield break;
         }
 
         float duration =
             Mathf.Max(
                 0.05f,
-                mapRevealDuration);
+                scriptRevealDuration);
 
         float elapsed = 0f;
 
         Vector2 startPosition =
-            stageMapPanelRestPosition +
+            scriptSelectionPanelRestPosition +
             Vector2.down *
             Mathf.Min(
                 42f,
-                mapRevealSlideDistance);
+                scriptRevealSlideDistance);
 
-        stageMapCanvasGroup.alpha = 0f;
-        stageMapCanvasGroup.blocksRaycasts = false;
+        scriptSelectionCanvasGroup.alpha = 0f;
+        scriptSelectionCanvasGroup.blocksRaycasts = false;
 
-        stageMapPanel.anchoredPosition =
+        scriptSelectionPanel.anchoredPosition =
             startPosition;
 
-        stageMapPanel.localScale =
+        scriptSelectionPanel.localScale =
             Vector3.one *
             0.985f;
 
@@ -3706,16 +3675,16 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 t * t *
                 (3f - 2f * t);
 
-            stageMapCanvasGroup.alpha =
+            scriptSelectionCanvasGroup.alpha =
                 eased;
 
-            stageMapPanel.anchoredPosition =
+            scriptSelectionPanel.anchoredPosition =
                 Vector2.LerpUnclamped(
                     startPosition,
-                    stageMapPanelRestPosition,
+                    scriptSelectionPanelRestPosition,
                     eased);
 
-            stageMapPanel.localScale =
+            scriptSelectionPanel.localScale =
                 Vector3.LerpUnclamped(
                     Vector3.one * 0.985f,
                     Vector3.one,
@@ -3724,29 +3693,29 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             yield return null;
         }
 
-        stageMapCanvasGroup.alpha = 1f;
-        stageMapCanvasGroup.blocksRaycasts = true;
-        stageMapPanel.anchoredPosition =
-            stageMapPanelRestPosition;
-        stageMapPanel.localScale =
+        scriptSelectionCanvasGroup.alpha = 1f;
+        scriptSelectionCanvasGroup.blocksRaycasts = true;
+        scriptSelectionPanel.anchoredPosition =
+            scriptSelectionPanelRestPosition;
+        scriptSelectionPanel.localScale =
             Vector3.one;
 
-        stageMapRevealRoutine = null;
+        scriptRevealRoutine = null;
     }
 
-    private void UpdateStageMapCursorTracking()
+    private void UpdateScriptCursorTracking()
     {
         if (battleCameraController == null)
             battleCameraController =
                 FindFirstObjectByType<BattleCameraController>();
 
-        if (!mapSelectionActive ||
-            stageMapPanel == null ||
-            stageMapRevealRoutine != null ||
-            stageMapSelectionLocked ||
-            !stageMapPanel.gameObject.activeInHierarchy)
+        if (!scriptSelectionActive ||
+            scriptSelectionPanel == null ||
+            scriptRevealRoutine != null ||
+            scriptSelectionLocked ||
+            !scriptSelectionPanel.gameObject.activeInHierarchy)
         {
-            ClearTrackedStageMapHover();
+            ClearTrackedScriptHover();
             battleCameraController?.SetMapCursorTracking(
                 false,
                 Vector2.zero);
@@ -3756,7 +3725,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (inputRouter == null ||
             !inputRouter.PointerPresent)
         {
-            ClearTrackedStageMapHover();
+            ClearTrackedScriptHover();
             battleCameraController?.SetMapCursorTracking(
                 false,
                 Vector2.zero);
@@ -3764,39 +3733,39 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         Camera eventCamera =
-            ResolveStageMapEventCamera();
+            ResolveScriptSelectionEventCamera();
 
         Vector2 pointer =
             inputRouter.PointerPosition;
 
         Button directHit =
-            FindStageMapButtonUnderPointer(
+            FindScriptButtonUnderPointer(
                 pointer,
                 eventCamera);
 
         if (directHit != null)
         {
-            SetTrackedStageMapButton(
+            SetTrackedScriptButton(
                 directHit,
                 pointer);
         }
-        else if (trackedStageMapButton != null)
+        else if (trackedScriptButton != null)
         {
             bool canLatch =
-                trackedStageMapButton.interactable &&
-                trackedStageMapButton.gameObject.activeInHierarchy &&
+                trackedScriptButton.interactable &&
+                trackedScriptButton.gameObject.activeInHierarchy &&
                 Vector2.Distance(
                     pointer,
-                    trackedStageMapPointerAnchor) <=
+                    trackedScriptPointerAnchor) <=
                 Mathf.Max(
                     8f,
-                    mapHoverLatchPixels);
+                    scriptHoverLatchPixels);
 
             if (!canLatch)
-                ClearTrackedStageMapHover();
+                ClearTrackedScriptHover();
         }
 
-        if (trackedStageMapButton == null)
+        if (trackedScriptButton == null)
         {
             battleCameraController?.SetMapCursorTracking(
                 false,
@@ -3812,15 +3781,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             Vector2.zero);
     }
 
-    private Button FindStageMapButtonUnderPointer(
+    private Button FindScriptButtonUnderPointer(
         Vector2 pointer,
         Camera eventCamera)
     {
-        if (stageMapPanel == null)
+        if (scriptSelectionPanel == null)
             return null;
 
         Button[] buttons =
-            stageMapPanel.GetComponentsInChildren<Button>(
+            scriptSelectionPanel.GetComponentsInChildren<Button>(
                 false);
 
         for (int i = 0; i < buttons.Length; i++)
@@ -3850,28 +3819,28 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return null;
     }
 
-    private void SetTrackedStageMapButton(
+    private void SetTrackedScriptButton(
         Button button,
         Vector2 pointer)
     {
-        if (trackedStageMapButton != button)
+        if (trackedScriptButton != button)
         {
-            SetTrackedStageMapVisual(
-                trackedStageMapButton,
+            SetTrackedScriptVisual(
+                trackedScriptButton,
                 false);
 
-            trackedStageMapButton =
+            trackedScriptButton =
                 button;
 
-            SetTrackedStageMapVisual(
-                trackedStageMapButton,
+            SetTrackedScriptVisual(
+                trackedScriptButton,
                 true);
 
-            NotifyPresenterPrototypeMapHover(
-                trackedStageMapButton);
+            NotifyPresenterPrototypeScriptHover(
+                trackedScriptButton);
         }
 
-        trackedStageMapPointerAnchor =
+        trackedScriptPointerAnchor =
             pointer;
 
         BattleScriptCardVisual visual =
@@ -3881,21 +3850,21 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         visual?.SetPointerScreenPosition(
             pointer,
-            ResolveStageMapEventCamera());
+            ResolveScriptSelectionEventCamera());
     }
 
-    private void ClearTrackedStageMapHover()
+    private void ClearTrackedScriptHover()
     {
-        SetTrackedStageMapVisual(
-            trackedStageMapButton,
+        SetTrackedScriptVisual(
+            trackedScriptButton,
             false);
 
-        trackedStageMapButton = null;
-        trackedStageMapPointerAnchor =
+        trackedScriptButton = null;
+        trackedScriptPointerAnchor =
             Vector2.zero;
     }
 
-    private static void SetTrackedStageMapVisual(
+    private static void SetTrackedScriptVisual(
         Button button,
         bool value)
     {
@@ -3908,7 +3877,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         visual?.SetTrackedHover(value);
     }
 
-    private void NotifyPresenterPrototypeMapHover(
+    private void NotifyPresenterPrototypeScriptHover(
         Button button)
     {
         if (button == null ||
@@ -3949,40 +3918,40 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     node)
                 : node.GetBattleRatingStars();
 
-        BattleScreenPresenterPrototypeController.NotifyMapHover(
+        BattleScreenPresenterPrototypeController.NotifyScriptHover(
             node,
             stars);
     }
 
-    private Camera ResolveStageMapEventCamera()
+    private Camera ResolveScriptSelectionEventCamera()
     {
-        if (stageMapCanvas == null &&
-            stageMapPanel != null)
+        if (scriptSelectionCanvas == null &&
+            scriptSelectionPanel != null)
         {
-            stageMapCanvas =
-                stageMapPanel.GetComponentInParent<Canvas>();
+            scriptSelectionCanvas =
+                scriptSelectionPanel.GetComponentInParent<Canvas>();
         }
 
-        if (stageMapCanvas == null ||
-            stageMapCanvas.renderMode ==
+        if (scriptSelectionCanvas == null ||
+            scriptSelectionCanvas.renderMode ==
             RenderMode.ScreenSpaceOverlay)
         {
             return null;
         }
 
-        if (stageMapCanvas.worldCamera != null)
-            return stageMapCanvas.worldCamera;
+        if (scriptSelectionCanvas.worldCamera != null)
+            return scriptSelectionCanvas.worldCamera;
 
         return Camera.main;
     }
 
-    private void BeginStageNodeSelection(
+    private void BeginScriptSelection(
         string nodeId,
         RectTransform selectedCard)
     {
-        if (stageMapSelectionLocked ||
+        if (scriptSelectionLocked ||
             runManager == null ||
-            !mapSelectionActive)
+            !scriptSelectionActive)
         {
             return;
         }
@@ -3995,41 +3964,41 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         if (node != null)
         {
-            BattleScreenPresenterPrototypeController.NotifyMapConfirm(
+            BattleScreenPresenterPrototypeController.NotifyScriptConfirm(
                 node,
                 runManager.ResolveBattleRatingStars(
                     node));
         }
 
-        stageMapSelectionLocked = true;
+        scriptSelectionLocked = true;
 
-        ClearTrackedStageMapHover();
+        ClearTrackedScriptHover();
 
         battleCameraController?.SetMapCursorTracking(
             false,
             Vector2.zero);
 
-        if (stageMapCanvasGroup != null)
-            stageMapCanvasGroup.blocksRaycasts = false;
+        if (scriptSelectionCanvasGroup != null)
+            scriptSelectionCanvasGroup.blocksRaycasts = false;
 
-        if (stageMapConfirmRoutine != null)
-            StopCoroutine(stageMapConfirmRoutine);
+        if (scriptConfirmRoutine != null)
+            StopCoroutine(scriptConfirmRoutine);
 
-        stageMapConfirmRoutine =
+        scriptConfirmRoutine =
             StartCoroutine(
-                AnimateStageNodeSelection(
+                AnimateScriptSelection(
                     nodeId,
                     selectedCard));
     }
 
-    private IEnumerator AnimateStageNodeSelection(
+    private IEnumerator AnimateScriptSelection(
         string nodeId,
         RectTransform selectedCard)
     {
-        if (stageMapRevealRoutine != null)
+        if (scriptRevealRoutine != null)
         {
-            StopCoroutine(stageMapRevealRoutine);
-            stageMapRevealRoutine = null;
+            StopCoroutine(scriptRevealRoutine);
+            scriptRevealRoutine = null;
         }
 
         BattleNodeData selectedNode =
@@ -4039,8 +4008,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 : null;
 
         BattleScriptCardVisual[] cards =
-            stageMapPanel != null
-                ? stageMapPanel.GetComponentsInChildren<BattleScriptCardVisual>(
+            scriptSelectionPanel != null
+                ? scriptSelectionPanel.GetComponentsInChildren<BattleScriptCardVisual>(
                     true)
                 : Array.Empty<BattleScriptCardVisual>();
 
@@ -4067,7 +4036,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         float duration =
             Mathf.Max(
                 0.18f,
-                mapConfirmDuration);
+                scriptConfirmDuration);
 
         float selectedSettle =
             Mathf.Min(
@@ -4082,9 +4051,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 duration -
                 selectedSettle);
 
-        EnsureRouteStatus();
+        EnsureScriptStatus();
 
-        SetRouteStatus(
+        SetScriptStatus(
             true,
             selectedNode != null
                 ? $"SCRIPT SELECTED  /  TAKE {Mathf.Max(1, selectedNode.depth + 1):00}"
@@ -4123,7 +4092,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 !isSelected);
         }
 
-        SetRouteStatus(
+        SetScriptStatus(
             true,
             selectedNode != null
                 ? $"SCRIPT LOCKED  /  TAKE {Mathf.Max(1, selectedNode.depth + 1):00}"
@@ -4132,7 +4101,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         // Phase 2: Confirm.
         // Only now do the camera impact and stronger visual separation happen.
         battleCameraController?.PlaySelectionConfirmShake(
-            mapConfirmCameraShake *
+            scriptConfirmCameraShake *
             0.72f,
             confirmDuration);
 
@@ -4148,9 +4117,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     elapsed /
                     confirmDuration);
 
-            if (stageMapCanvasGroup != null)
+            if (scriptSelectionCanvasGroup != null)
             {
-                stageMapCanvasGroup.alpha =
+                scriptSelectionCanvasGroup.alpha =
                     Mathf.Lerp(
                         1f,
                         0.94f,
@@ -4160,17 +4129,17 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             yield return null;
         }
 
-        if (mapRouteLockHold > 0f)
+        if (scriptConfirmHoldDuration > 0f)
             yield return WaitUnscaledSeconds(
                 Mathf.Min(
                     0.34f,
-                    mapRouteLockHold));
+                    scriptConfirmHoldDuration));
 
-        SetRouteStatus(
+        SetScriptStatus(
             false,
             string.Empty);
 
-        stageMapConfirmRoutine = null;
+        scriptConfirmRoutine = null;
 
         runManager?.SelectNextNode(
             nodeId);
@@ -4190,10 +4159,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private void EnsureRouteStatus()
+    private void EnsureScriptStatus()
     {
-        if (stageMapPanel == null ||
-            routeStatusRoot != null)
+        if (scriptSelectionPanel == null ||
+            scriptStatusRoot != null)
         {
             return;
         }
@@ -4204,23 +4173,23 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 typeof(RectTransform));
 
         root.transform.SetParent(
-            stageMapPanel,
+            scriptSelectionPanel,
             false);
 
-        routeStatusRoot =
+        scriptStatusRoot =
             root.GetComponent<RectTransform>();
 
-        routeStatusRoot.anchorMin =
-            routeStatusRoot.anchorMax =
+        scriptStatusRoot.anchorMin =
+            scriptStatusRoot.anchorMax =
                 new Vector2(0.5f, 0f);
 
-        routeStatusRoot.pivot =
+        scriptStatusRoot.pivot =
             new Vector2(0.5f, 0f);
 
-        routeStatusRoot.anchoredPosition =
+        scriptStatusRoot.anchoredPosition =
             new Vector2(0f, 46f);
 
-        routeStatusRoot.sizeDelta =
+        scriptStatusRoot.sizeDelta =
             new Vector2(480f, 42f);
 
         Image back =
@@ -4244,7 +4213,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 typeof(RectTransform));
 
         textObject.transform.SetParent(
-            routeStatusRoot,
+            scriptStatusRoot,
             false);
 
         RectTransform textRect =
@@ -4254,154 +4223,118 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             textRect,
             new Vector2(10f, 4f));
 
-        routeStatusText =
+        scriptStatusText =
             textObject.AddComponent<Text>();
 
-        routeStatusText.font =
+        scriptStatusText.font =
             Resources.GetBuiltinResource<Font>(
                 "LegacyRuntime.ttf");
 
-        routeStatusText.fontSize = 14;
-        routeStatusText.fontStyle = FontStyle.Bold;
-        routeStatusText.alignment =
+        scriptStatusText.fontSize = 14;
+        scriptStatusText.fontStyle = FontStyle.Bold;
+        scriptStatusText.alignment =
             TextAnchor.MiddleCenter;
-        routeStatusText.color =
+        scriptStatusText.color =
             new Color(
                 0.95f,
                 0.90f,
                 0.78f,
                 1f);
-        routeStatusText.raycastTarget = false;
+        scriptStatusText.raycastTarget = false;
 
-        routeStatusGroup =
+        scriptStatusGroup =
             root.AddComponent<CanvasGroup>();
 
-        routeStatusGroup.blocksRaycasts = false;
-        routeStatusGroup.interactable = false;
+        scriptStatusGroup.blocksRaycasts = false;
+        scriptStatusGroup.interactable = false;
 
-        routeStatusRoot.gameObject.SetActive(
+        scriptStatusRoot.gameObject.SetActive(
             false);
     }
 
-    private void SetRouteStatus(
+    private void SetScriptStatus(
         bool visible,
         string message)
     {
         if (!visible &&
-            routeStatusRoot == null)
+            scriptStatusRoot == null)
         {
             return;
         }
 
         if (visible)
-            EnsureRouteStatus();
+            EnsureScriptStatus();
 
-        if (routeStatusRoot == null)
+        if (scriptStatusRoot == null)
             return;
 
-        if (routeStatusText != null)
-            routeStatusText.text =
+        if (scriptStatusText != null)
+            scriptStatusText.text =
                 message ??
                 string.Empty;
 
-        routeStatusRoot.gameObject.SetActive(
+        scriptStatusRoot.gameObject.SetActive(
             visible);
 
-        if (routeStatusGroup != null)
-            routeStatusGroup.alpha =
+        if (scriptStatusGroup != null)
+            scriptStatusGroup.alpha =
                 visible
                     ? 1f
                     : 0f;
 
         if (visible)
-            routeStatusRoot.SetAsLastSibling();
+            scriptStatusRoot.SetAsLastSibling();
     }
 
-    // Legacy relay compatibility. Script Selection only creates selectable cards,
-    // so this is normally never called.
-    internal void ShowMapDenied(
-        RectTransform cardRect)
+    private void HideScriptSelectionImmediate()
     {
-        if (!mapSelectionActive ||
-            stageMapSelectionLocked ||
-            cardRect == null)
-        {
-            return;
-        }
+        if (scriptRevealRoutine != null)
+            StopCoroutine(scriptRevealRoutine);
 
-        SetRouteStatus(
-            true,
-            "SCRIPT UNAVAILABLE");
+        scriptRevealRoutine = null;
 
-        StartCoroutine(
-            HideDeniedMessage());
-    }
+        if (scriptConfirmRoutine != null)
+            StopCoroutine(scriptConfirmRoutine);
 
-    private IEnumerator HideDeniedMessage()
-    {
-        yield return WaitUnscaledSeconds(
-            0.28f);
+        scriptConfirmRoutine = null;
+        scriptSelectionLocked = false;
 
-        if (!stageMapSelectionLocked)
-            SetRouteStatus(
-                false,
-                string.Empty);
-    }
-
-    private void HideStageMapImmediate()
-    {
-        if (stageMapRevealRoutine != null)
-            StopCoroutine(stageMapRevealRoutine);
-
-        stageMapRevealRoutine = null;
-
-        if (stageMapConfirmRoutine != null)
-            StopCoroutine(stageMapConfirmRoutine);
-
-        stageMapConfirmRoutine = null;
-        stageMapSelectionLocked = false;
-
-        if (mapDeniedRoutine != null)
-            StopCoroutine(mapDeniedRoutine);
-
-        mapDeniedRoutine = null;
-
-        SetRouteStatus(
+        SetScriptStatus(
             false,
             string.Empty);
 
-        routeStatusRoot = null;
-        routeStatusText = null;
-        routeStatusGroup = null;
+        scriptStatusRoot = null;
+        scriptStatusText = null;
+        scriptStatusGroup = null;
 
-        ClearTrackedStageMapHover();
+        ClearTrackedScriptHover();
 
-        if (stageMapCanvasGroup != null)
+        if (scriptSelectionCanvasGroup != null)
         {
-            stageMapCanvasGroup.alpha = 0f;
-            stageMapCanvasGroup.blocksRaycasts = true;
+            scriptSelectionCanvasGroup.alpha = 0f;
+            scriptSelectionCanvasGroup.blocksRaycasts = true;
         }
 
-        if (stageMapPanel != null)
+        if (scriptSelectionPanel != null)
         {
-            stageMapPanel.anchoredPosition =
-                stageMapPanelRestPosition;
+            scriptSelectionPanel.anchoredPosition =
+                scriptSelectionPanelRestPosition;
 
-            stageMapPanel.localScale =
+            scriptSelectionPanel.localScale =
                 Vector3.one;
 
-            stageMapPanel.localRotation =
+            scriptSelectionPanel.localRotation =
                 Quaternion.identity;
 
             Vector3 local =
-                stageMapPanel.localPosition;
+                scriptSelectionPanel.localPosition;
 
             local.z = 0f;
 
-            stageMapPanel.localPosition =
+            scriptSelectionPanel.localPosition =
                 local;
 
-            stageMapPanel.gameObject.SetActive(
+            scriptSelectionPanel.gameObject.SetActive(
                 false);
         }
 
@@ -7387,152 +7320,5 @@ internal sealed class BattleScriptPaperWaveEffect :
                     d);
             }
         }
-    }
-}
-
-
-internal sealed class BattleStageMapLinkVisual : MonoBehaviour
-{
-    private string fromId;
-    private string toId;
-    private Image image;
-    private RectTransform rect;
-    private Vector2 start;
-    private Vector2 end;
-    private Color baseColor;
-    private Vector2 baseSize;
-    private RectTransform pulseRect;
-    private Image pulseImage;
-
-    public void Configure(
-        string sourceId,
-        string destinationId,
-        Image linkImage,
-        RectTransform linkRect,
-        Vector2 startPoint,
-        Vector2 endPoint,
-        Color color)
-    {
-        fromId = sourceId;
-        toId = destinationId;
-        image = linkImage;
-        rect = linkRect;
-        start = startPoint;
-        end = endPoint;
-        baseColor = color;
-        baseSize = rect != null ? rect.sizeDelta : Vector2.zero;
-
-        if (rect != null)
-        {
-            GameObject pulse = new("RouteTracePulse", typeof(RectTransform));
-            pulse.transform.SetParent(rect, false);
-            pulseRect = pulse.GetComponent<RectTransform>();
-            pulseRect.anchorMin = pulseRect.anchorMax = new Vector2(0.5f, 0.5f);
-            pulseRect.pivot = new Vector2(0.5f, 0.5f);
-            pulseRect.sizeDelta = new Vector2(22f, 10f);
-            pulseRect.anchoredPosition = new Vector2(-baseSize.x * 0.5f, 0f);
-
-            pulseImage = pulse.AddComponent<Image>();
-            pulseImage.raycastTarget = false;
-            pulseImage.color = Color.white;
-            pulse.SetActive(false);
-        }
-    }
-
-    public bool Matches(string sourceId, string destinationId)
-    {
-        return string.Equals(fromId, sourceId, StringComparison.Ordinal) &&
-               string.Equals(toId, destinationId, StringComparison.Ordinal);
-    }
-
-    public bool StartsAt(string sourceId)
-    {
-        return string.Equals(fromId, sourceId, StringComparison.Ordinal);
-    }
-
-    public Vector2 Evaluate(float t)
-    {
-        return Vector2.Lerp(start, end, Mathf.Clamp01(t));
-    }
-
-    public void SetSuppressed(bool suppressed)
-    {
-        if (image != null)
-        {
-            Color color = baseColor;
-            color.a = suppressed ? 0.06f : baseColor.a;
-            image.color = color;
-        }
-
-        if (rect != null)
-        {
-            Vector2 size = baseSize;
-            size.y = suppressed ? 1f : Mathf.Max(1f, baseSize.y);
-            rect.sizeDelta = size;
-        }
-
-        if (pulseRect != null)
-            pulseRect.gameObject.SetActive(false);
-    }
-
-    public void SetTrace(float amount, Color selectedColor)
-    {
-        if (image != null)
-        {
-            Color color = Color.Lerp(baseColor, selectedColor, Mathf.Clamp01(amount));
-            color.a = Mathf.Lerp(baseColor.a, 1f, Mathf.Clamp01(amount));
-            image.color = color;
-        }
-
-        float t = Mathf.Clamp01(amount);
-        if (rect != null)
-        {
-            Vector2 size = baseSize;
-            size.y = Mathf.Lerp(Mathf.Max(1f, baseSize.y), 8f, t);
-            rect.sizeDelta = size;
-        }
-
-        if (pulseRect != null && pulseImage != null)
-        {
-            pulseRect.gameObject.SetActive(t < 0.999f);
-            pulseRect.anchoredPosition = new Vector2(
-                Mathf.Lerp(-baseSize.x * 0.5f, baseSize.x * 0.5f, t),
-                0f);
-            pulseRect.localScale = Vector3.one * (1f + 0.12f * Mathf.Sin(t * Mathf.PI));
-            pulseImage.color = selectedColor;
-        }
-    }
-}
-
-internal sealed class BattleStageMapDeniedPointerRelay : MonoBehaviour, IPointerClickHandler
-{
-    private BattleSpatialMapController owner;
-    private RectTransform rect;
-    private bool selectable;
-    private bool current;
-
-    public void Configure(
-        BattleSpatialMapController controller,
-        RectTransform nodeRect,
-        bool canSelect,
-        bool isCurrent)
-    {
-        owner = controller;
-        rect = nodeRect;
-        selectable = canSelect;
-        current = isCurrent;
-    }
-
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        if (eventData == null ||
-            eventData.button != PointerEventData.InputButton.Left ||
-            selectable ||
-            current)
-        {
-            return;
-        }
-
-        owner?.ShowMapDenied(rect);
     }
 }

@@ -3,18 +3,19 @@ using System.Collections;
 using System.Collections.Generic;
 using DG.Tweening;
 using UnityEngine;
+using UnityEngine.Serialization;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward / Map 공용 월드 쇼 세트.
+/// Reward / Script Selection 공용 월드 쇼 세트.
 ///
 /// 공통 화면 유닛:
 /// - Persistent 4x4의 왼쪽 끝과 10x2 Screen Carrier의 왼쪽 끝을 정확히 맞춥니다.
 /// - Screen Carrier가 위쪽 레일에서 내려와 4x4 상단에 도킹합니다.
 /// - TV의 아래 Edge를 10x2 Carrier의 두 타일 행 사이 중앙선에 맞추고, TV RectTransform 자체도 하단 중앙 Pivot을 사용합니다.
 /// - TV는 Floor/Carrier보다 항상 앞 Sorting Order에 배치합니다.
-/// - TV는 Screen Carrier의 자식이므로 Reward/Map 모두 같은 물리 유닛을 사용합니다.
-/// - Reward -> Map에서는 Screen Carrier/TV를 유지하고 내용만 Map으로 바꿉니다.
+/// - TV는 Screen Carrier의 자식이므로 Reward/Script Selection 모두 같은 물리 유닛을 사용합니다.
+/// - Reward -> Script Selection에서는 Screen Carrier/TV를 유지하고 내용만 Map으로 바꿉니다.
 ///
 /// Reward 전용 유닛:
 /// - Presenter 6x4가 Base 오른쪽에서 도킹합니다.
@@ -24,15 +25,15 @@ using UnityEngine.UI;
 ///
 /// 카메라:
 /// - Reward는 기존 Mounted TV가 있던 월드 위치의 상품 Showcase를 기준으로 잡고, Hover Item으로 Smooth Zoom합니다.
-/// - Reward 동안 TV/Display 자체는 숨기며, Map에서만 다시 표시합니다.
-/// - Map은 기존 Mounted TV 기준 Framing / Cursor Tracking을 그대로 사용합니다.
+/// - Reward 동안 TV/Display 자체는 숨기며, Script Selection에서만 다시 표시합니다.
+/// - Script Selection은 독립 World-Space Canvas 기준 Framing을 사용합니다.
 /// - Presenter 유닛은 카메라 기준 Bounds에는 개입하지 않습니다.
 /// </summary>
 [DefaultExecutionOrder(20000)]
 [DisallowMultipleComponent]
 public sealed class BattleShowWorldSetController : MonoBehaviour
 {
-    private enum ShowMode { None, Reward, Map }
+    private enum ShowMode { None, Reward, ScriptSelection }
 
     private sealed class RewardShowcaseItem
     {
@@ -72,11 +73,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     [SerializeField, Range(0f, 2f)] private float carrierImpactStrength = 1.05f;
     [SerializeField] private int carrierFloorSortingOrder = -18;
 
-    [Header("Map Camera Focus")]
-    [Tooltip("Map 선택에서는 Persistent Base/Carrier 전체가 아니라 TV 화면을 주 피사체로 잡습니다.")]
-    [SerializeField, Min(0f)] private float mapCameraPadding = 0.22f;
-    [Tooltip("16:9 기준 1120x560 TV가 화면 대부분을 채우되 가장자리가 잘리지 않는 최소 Orthographic Size입니다.")]
-    [SerializeField, Min(0.1f)] private float mapCameraMinSize = 2.85f;
+    [Header("Script Selection Camera Focus")]
+    [FormerlySerializedAs("mapCameraPadding")]
+    [Tooltip("Script Selection에서는 대본 카드 Canvas가 화면에 안정적으로 들어오도록 여백을 둡니다.")]
+    [SerializeField, Min(0f)] private float scriptSelectionCameraPadding = 0.22f;
+    [FormerlySerializedAs("mapCameraMinSize")]
+    [SerializeField, Min(0.1f)] private float scriptSelectionCameraMinSize = 2.85f;
 
     [Header("Presenter")]
     [SerializeField] private Sprite presenterFallbackSprite;
@@ -99,8 +101,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private BattleRewardFlow rewardFlow;
 
     private RectTransform rewardScreen;
-    private RectTransform mapScreen;
-    private RectTransform mapContent;
+    private RectTransform legacyMapSelectionScreen;
+    private RectTransform scriptSelectionContent;
     private RectTransform equipmentDock;
     private RectTransform rewardLoadoutStrip;
     private GameObject legacyMapCanvas;
@@ -159,7 +161,10 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     public bool IsShowActive => currentMode != ShowMode.None || stageTransitioning;
     public bool IsTransitioning => stageTransitioning;
     public bool IsRewardMode => currentMode == ShowMode.Reward && !stageTransitioning;
-    public bool IsMapMode => currentMode == ShowMode.Map && !stageTransitioning;
+    public bool IsScriptSelectionMode =>
+        currentMode == ShowMode.ScriptSelection &&
+        !stageTransitioning;
+    public bool IsMapMode => IsScriptSelectionMode;
     public bool HasCameraAnchor => dockCaptured && !externalGate && currentMode != ShowMode.None;
     public Vector3 CameraTargetWorld => cameraTargetWorld;
     public float ShowCameraSize => Mathf.Max(0.1f, cameraSizeWorld);
@@ -370,7 +375,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             ResolveSystems();
             ResolveUi();
 
-            if (runManager != null && hud != null && rewardScreen != null && mapScreen != null && mapContent != null)
+            if (runManager != null && hud != null && rewardScreen != null && legacyMapSelectionScreen != null && scriptSelectionContent != null)
             {
                 BuildStage();
                 ReparentScreens();
@@ -407,8 +412,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     private void ResolveUi()
     {
         if (rewardScreen == null) rewardScreen = FindRect("PrizeSelectionScreen");
-        if (mapScreen == null) mapScreen = FindRect("MapSelectionScreen");
-        if (mapContent == null) mapContent = FindRect("MapSelectionContent");
+        if (legacyMapSelectionScreen == null) legacyMapSelectionScreen = FindRect("MapSelectionScreen");
+        if (scriptSelectionContent == null) scriptSelectionContent = FindRect("MapSelectionContent");
         if (equipmentDock == null) equipmentDock = FindRect("EquipmentDock");
         if (rewardLoadoutStrip == null) rewardLoadoutStrip = FindRect("RewardLoadoutStrip");
         if (legacyPresenter == null) legacyPresenter = FindPresenterImage();
@@ -528,8 +533,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         ReparentToTv(rewardScreen);
         ReparentScriptSelection();
 
-        if (mapScreen != null)
-            mapScreen.gameObject.SetActive(false);
+        if (legacyMapSelectionScreen != null)
+            legacyMapSelectionScreen.gameObject.SetActive(false);
 
         if (legacyMapCanvas != null)
             legacyMapCanvas.SetActive(false);
@@ -539,66 +544,66 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void ReparentScriptSelection()
     {
-        if (mapContent == null ||
+        if (scriptSelectionContent == null ||
             scriptSelectionRect == null)
         {
             return;
         }
 
-        mapContent.SetParent(
+        scriptSelectionContent.SetParent(
             scriptSelectionRect,
             false);
 
-        mapContent.anchorMin =
+        scriptSelectionContent.anchorMin =
             Vector2.zero;
 
-        mapContent.anchorMax =
+        scriptSelectionContent.anchorMax =
             Vector2.one;
 
-        mapContent.pivot =
+        scriptSelectionContent.pivot =
             new Vector2(
                 0.5f,
                 0.5f);
 
-        mapContent.offsetMin =
+        scriptSelectionContent.offsetMin =
             new Vector2(
                 18f,
                 14f);
 
-        mapContent.offsetMax =
+        scriptSelectionContent.offsetMax =
             new Vector2(
                 -18f,
                 -14f);
 
-        mapContent.localScale =
+        scriptSelectionContent.localScale =
             Vector3.one;
 
-        mapContent.localRotation =
+        scriptSelectionContent.localRotation =
             Quaternion.identity;
 
         Mask[] masks =
-            mapContent.GetComponentsInParent<Mask>(
+            scriptSelectionContent.GetComponentsInParent<Mask>(
                 true);
 
         for (int i = 0; i < masks.Length; i++)
         {
             if (masks[i] != null &&
                 masks[i].transform !=
-                mapContent)
+                scriptSelectionContent)
             {
                 masks[i].enabled = false;
             }
         }
 
         RectMask2D[] rectMasks =
-            mapContent.GetComponentsInParent<RectMask2D>(
+            scriptSelectionContent.GetComponentsInParent<RectMask2D>(
                 true);
 
         for (int i = 0; i < rectMasks.Length; i++)
         {
             if (rectMasks[i] != null &&
                 rectMasks[i].transform !=
-                mapContent)
+                scriptSelectionContent)
             {
                 rectMasks[i].enabled = false;
             }
@@ -636,8 +641,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             (worldHeight * 0.5f);
 
         scriptSelectionObject.SetActive(
-            currentMode == ShowMode.Map ||
-            desiredMode == ShowMode.Map);
+            currentMode == ShowMode.ScriptSelection ||
+            desiredMode == ShowMode.ScriptSelection);
     }
 
     private void ReparentToTv(RectTransform rect)
@@ -723,7 +728,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (runManager.State == BattleRunState.Reward)
             return ShowMode.Reward;
         if (runManager.State == BattleRunState.SelectingNode)
-            return ShowMode.Map;
+            return ShowMode.ScriptSelection;
         return ShowMode.None;
     }
 
@@ -736,13 +741,13 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         {
             ShowMode next = desiredMode;
 
-            if (currentMode == ShowMode.Reward && next == ShowMode.Map)
+            if (currentMode == ShowMode.Reward && next == ShowMode.ScriptSelection)
             {
                 yield return RewardToMap();
                 continue;
             }
 
-            if (currentMode == ShowMode.Map && next == ShowMode.Reward)
+            if (currentMode == ShowMode.ScriptSelection && next == ShowMode.Reward)
             {
                 yield return MapToReward();
                 continue;
@@ -858,8 +863,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         DestroyPresenterCarrier();
         DestroyRewardShowcase();
-        currentMode = ShowMode.Map;
-        SetContent(ShowMode.Map);
+        currentMode = ShowMode.ScriptSelection;
+        SetContent(ShowMode.ScriptSelection);
         ComputeSharedCameraFrame();
         BattleDockHandleVisibilityController.RefreshNow();
         HideScreenCarrierTopHandle();
@@ -2332,8 +2337,8 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             currentMode == ShowMode.Reward ||
             desiredMode == ShowMode.Reward;
         bool mapFocus =
-            currentMode == ShowMode.Map ||
-            desiredMode == ShowMode.Map;
+            currentMode == ShowMode.ScriptSelection ||
+            desiredMode == ShowMode.ScriptSelection;
         bool tvDecisionFocus = rewardFocus || mapFocus;
 
         Bounds bounds;
@@ -2400,7 +2405,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
         float padding = rewardFocus
             ? Mathf.Max(0f, (presentation != null ? presentation.RewardCameraPadding : 0.38f))
-            : Mathf.Max(0f, mapCameraPadding);
+            : Mathf.Max(0f, scriptSelectionCameraPadding);
 
         float aspect = Camera.main != null && Camera.main.aspect > 0.01f
             ? Camera.main.aspect
@@ -2410,7 +2415,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         float sizeByWidth = (bounds.extents.x + padding) / Mathf.Max(0.1f, aspect);
         float minSize = rewardFocus
             ? (presentation != null ? presentation.RewardCameraMinSize : 2.55f)
-            : mapCameraMinSize;
+            : scriptSelectionCameraMinSize;
 
         cameraSizeWorld = Mathf.Max(
             Mathf.Max(0.1f, minSize),
@@ -2433,11 +2438,11 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (rewardScreen != null)
             rewardScreen.gameObject.SetActive(false);
 
-        if (mapScreen != null)
-            mapScreen.gameObject.SetActive(false);
+        if (legacyMapSelectionScreen != null)
+            legacyMapSelectionScreen.gameObject.SetActive(false);
 
-        if (mapContent != null)
-            mapContent.gameObject.SetActive(mode == ShowMode.Map);
+        if (scriptSelectionContent != null)
+            scriptSelectionContent.gameObject.SetActive(mode == ShowMode.ScriptSelection);
 
         if (tvObject != null)
             tvObject.SetActive(false);
@@ -2445,9 +2450,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         if (scriptSelectionObject != null)
         {
             scriptSelectionObject.SetActive(
-                mode == ShowMode.Map);
+                mode == ShowMode.ScriptSelection);
 
-            if (mode == ShowMode.Map)
+            if (mode == ShowMode.ScriptSelection)
             {
                 MountScriptSelectionToScreenCarrier();
                 ReparentScriptSelection();
@@ -2468,18 +2473,18 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         {
             tvGroup.interactable =
                 active &&
-                currentMode != ShowMode.Map;
+                currentMode != ShowMode.ScriptSelection;
 
             tvGroup.blocksRaycasts =
                 active &&
-                currentMode != ShowMode.Map;
+                currentMode != ShowMode.ScriptSelection;
         }
 
         if (scriptSelectionGroup != null)
         {
             bool scriptActive =
                 active &&
-                currentMode == ShowMode.Map;
+                currentMode == ShowMode.ScriptSelection;
 
             scriptSelectionGroup.interactable =
                 scriptActive;
@@ -2794,7 +2799,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             return;
 
         bool reward = currentMode == ShowMode.Reward || desiredMode == ShowMode.Reward;
-        bool map = currentMode == ShowMode.Map || desiredMode == ShowMode.Map;
+        bool map = currentMode == ShowMode.ScriptSelection || desiredMode == ShowMode.ScriptSelection;
         if (!reward && !map)
             return;
 
