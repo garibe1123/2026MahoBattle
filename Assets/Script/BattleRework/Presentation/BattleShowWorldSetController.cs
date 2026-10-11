@@ -164,7 +164,9 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
     public bool IsScriptSelectionMode =>
         currentMode == ShowMode.ScriptSelection &&
         !stageTransitioning;
-    public bool IsMapMode => IsScriptSelectionMode;
+    [Obsolete("Use IsScriptSelectionMode. Map presentation has been replaced by Script Selection.")]
+    public bool IsMapMode =>
+        IsScriptSelectionMode;
     public bool HasCameraAnchor => dockCaptured && !externalGate && currentMode != ShowMode.None;
     public Vector3 CameraTargetWorld => cameraTargetWorld;
     public float ShowCameraSize => Mathf.Max(0.1f, cameraSizeWorld);
@@ -743,13 +745,13 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
             if (currentMode == ShowMode.Reward && next == ShowMode.ScriptSelection)
             {
-                yield return RewardToMap();
+                yield return RewardToScriptSelection();
                 continue;
             }
 
             if (currentMode == ShowMode.ScriptSelection && next == ShowMode.Reward)
             {
-                yield return MapToReward();
+                yield return ScriptSelectionToReward();
                 continue;
             }
 
@@ -844,7 +846,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         HideScreenCarrierTopHandle();
     }
 
-    private IEnumerator RewardToMap()
+    private IEnumerator RewardToScriptSelection()
     {
         SetInteraction(false);
 
@@ -870,7 +872,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         HideScreenCarrierTopHandle();
     }
 
-    private IEnumerator MapToReward()
+    private IEnumerator ScriptSelectionToReward()
     {
         SetInteraction(false);
 
@@ -2336,10 +2338,12 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
         bool rewardFocus =
             currentMode == ShowMode.Reward ||
             desiredMode == ShowMode.Reward;
-        bool mapFocus =
+        bool scriptSelectionFocus =
             currentMode == ShowMode.ScriptSelection ||
             desiredMode == ShowMode.ScriptSelection;
-        bool tvDecisionFocus = rewardFocus || mapFocus;
+        bool tvDecisionFocus =
+            rewardFocus ||
+            scriptSelectionFocus;
 
         Bounds bounds;
         if (rewardFocus &&
@@ -2799,11 +2803,19 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
             return;
 
         bool reward = currentMode == ShowMode.Reward || desiredMode == ShowMode.Reward;
-        bool map = currentMode == ShowMode.ScriptSelection || desiredMode == ShowMode.ScriptSelection;
-        if (!reward && !map)
-            return;
+        bool scriptSelection =
+            currentMode == ShowMode.ScriptSelection ||
+            desiredMode == ShowMode.ScriptSelection;
 
-        bool shouldShow = reward && !map;
+        if (!reward &&
+            !scriptSelection)
+        {
+            return;
+        }
+
+        bool shouldShow =
+            reward &&
+            !scriptSelection;
         if (equipmentDock.gameObject.activeSelf != shouldShow)
             equipmentDock.gameObject.SetActive(shouldShow);
     }

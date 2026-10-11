@@ -10,16 +10,16 @@ using UnityEngine.UI;
 /// 플레이어에게는 "다음 맵 경로"가 아니라 "다음 공연 대본/장면"을 고르는 화면으로 보입니다.
 ///
 /// - Reward 쪽 장식이 공용 TV Frame에 남아도 Script Select에서는 정렬/톤을 다시 잡습니다.
-/// - 기존 MapSelectionContent를 TV Safe Area 전체로 확장해 재사용합니다.
+/// - Legacy object name인 MapSelectionContent를 Script Selection 전용 World-Space 영역으로 재사용합니다.
 /// - 선택 가능한 Script Node만 강하게 강조합니다.
 /// - Hover는 "대본 읽기", Click은 "대본 확정" 의미로 표현합니다.
-/// - 내부 맵 그래프 데이터 구조는 변경하지 않습니다.
+/// - NodeGraph는 런타임 진행 데이터로만 유지하고, 이 컴포넌트는 Script Selection 표현만 담당합니다.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32580)]
 public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 {
-    private enum MapPresentationState
+    private enum ScriptSelectionPresentationState
     {
         Hidden,
         Entering,
@@ -51,13 +51,13 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private RectTransform sharedFrame;
     private RectTransform screenInner;
     private RectTransform viewport;
-    private RectTransform mapContent;
+    private RectTransform scriptSelectionContent;
     private CanvasGroup viewportGroup;
-    private CanvasGroup mapGroup;
+    private CanvasGroup scriptSelectionGroup;
     private CanvasGroup tvGroup;
     private Canvas tvCanvas;
 
-    private MapPresentationState presentationState = MapPresentationState.Hidden;
+    private ScriptSelectionPresentationState scriptSelectionPresentationState = ScriptSelectionPresentationState.Hidden;
     private BattleRunManager subscribedRunManager;
     private Coroutine refreshRoutine;
     private bool rewardAccentsResolved;
@@ -84,8 +84,8 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         ResolveReferences();
         SubscribeRunEvents();
 
-        if (IsMapActive())
-            EnterMapPresentation();
+        if (IsScriptSelectionActive())
+            EnterScriptSelectionPresentation();
     }
 
     private void OnDisable()
@@ -95,13 +95,13 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         refreshRoutine = null;
 
         UnsubscribeRunEvents();
-        ExitMapPresentation();
+        ExitScriptSelectionPresentation();
     }
 
     private void OnDestroy()
     {
         UnsubscribeRunEvents();
-        RestoreMapOnlyState();
+        RestoreScriptSelectionOnlyState();
     }
 
     private void SubscribeRunEvents()
@@ -140,15 +140,15 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
     private void HandleRunStateChanged(BattleRunState state)
     {
         if (state == BattleRunState.SelectingNode)
-            EnterMapPresentation();
-        else if (presentationState != MapPresentationState.Hidden)
-            ExitMapPresentation();
+            EnterScriptSelectionPresentation();
+        else if (scriptSelectionPresentationState != ScriptSelectionPresentationState.Hidden)
+            ExitScriptSelectionPresentation();
     }
 
     private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
     {
-        if (presentationState == MapPresentationState.Active ||
-            presentationState == MapPresentationState.Entering)
+        if (scriptSelectionPresentationState == ScriptSelectionPresentationState.Active ||
+            scriptSelectionPresentationState == ScriptSelectionPresentationState.Entering)
         {
             QueueRefresh();
         }
@@ -156,32 +156,32 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private void HandleNodeEntered(BattleNodeData _)
     {
-        if (presentationState != MapPresentationState.Hidden)
-            ExitMapPresentation();
+        if (scriptSelectionPresentationState != ScriptSelectionPresentationState.Hidden)
+            ExitScriptSelectionPresentation();
     }
 
-    private void EnterMapPresentation()
+    private void EnterScriptSelectionPresentation()
     {
         if (!isActiveAndEnabled)
             return;
 
-        presentationState = MapPresentationState.Entering;
+        scriptSelectionPresentationState = ScriptSelectionPresentationState.Entering;
         ResolveUi();
         CaptureFrameState();
-        ApplyMapFrame();
+        ApplyScriptSelectionFrame();
         MaintainInteraction();
-        ApplyMapHierarchy();
-        presentationState = MapPresentationState.Active;
+        ApplyScriptSelectionHierarchy();
+        scriptSelectionPresentationState = ScriptSelectionPresentationState.Active;
     }
 
-    private void ExitMapPresentation()
+    private void ExitScriptSelectionPresentation()
     {
-        if (presentationState == MapPresentationState.Hidden)
+        if (scriptSelectionPresentationState == ScriptSelectionPresentationState.Hidden)
             return;
 
-        presentationState = MapPresentationState.Exiting;
-        RestoreMapOnlyState();
-        presentationState = MapPresentationState.Hidden;
+        scriptSelectionPresentationState = ScriptSelectionPresentationState.Exiting;
+        RestoreScriptSelectionOnlyState();
+        scriptSelectionPresentationState = ScriptSelectionPresentationState.Hidden;
     }
 
     private void QueueRefresh()
@@ -200,17 +200,17 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         yield return null;
         refreshRoutine = null;
 
-        if (!IsMapActive())
+        if (!IsScriptSelectionActive())
             yield break;
 
         ResolveUi();
-        ApplyMapFrame();
+        ApplyScriptSelectionFrame();
         MaintainInteraction();
-        ApplyMapHierarchy();
-        presentationState = MapPresentationState.Active;
+        ApplyScriptSelectionHierarchy();
+        scriptSelectionPresentationState = ScriptSelectionPresentationState.Active;
     }
 
-    private bool IsMapActive()
+    private bool IsScriptSelectionActive()
     {
         return runManager != null &&
                runManager.RunActive &&
@@ -236,14 +236,14 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (viewport == null && screenInner != null)
             viewport = screenInner.Find(ViewportName) as RectTransform;
 
-        if (mapContent == null)
-            mapContent = FindRect(MapContentName);
+        if (scriptSelectionContent == null)
+            scriptSelectionContent = FindRect(MapContentName);
 
         if (viewportGroup == null && viewport != null)
             viewportGroup = viewport.GetComponent<CanvasGroup>();
 
-        if (mapGroup == null && mapContent != null)
-            mapGroup = mapContent.GetComponent<CanvasGroup>();
+        if (scriptSelectionGroup == null && scriptSelectionContent != null)
+            scriptSelectionGroup = scriptSelectionContent.GetComponent<CanvasGroup>();
 
         if (tvCanvas == null && sharedFrame != null)
             tvCanvas = sharedFrame.GetComponentInParent<Canvas>();
@@ -286,22 +286,22 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         frameStateCaptured = true;
     }
 
-    private void ApplyMapFrame()
+    private void ApplyScriptSelectionFrame()
     {
         if (IsDetachedScriptSelection())
         {
-            if (mapContent != null)
+            if (scriptSelectionContent != null)
             {
-                mapContent.anchorMin = Vector2.zero;
-                mapContent.anchorMax = Vector2.one;
-                mapContent.offsetMin = new Vector2(18f, 14f);
-                mapContent.offsetMax = new Vector2(-18f, -14f);
-                mapContent.pivot = new Vector2(0.5f, 0.5f);
-                mapContent.localRotation = Quaternion.identity;
+                scriptSelectionContent.anchorMin = Vector2.zero;
+                scriptSelectionContent.anchorMax = Vector2.one;
+                scriptSelectionContent.offsetMin = new Vector2(18f, 14f);
+                scriptSelectionContent.offsetMax = new Vector2(-18f, -14f);
+                scriptSelectionContent.pivot = new Vector2(0.5f, 0.5f);
+                scriptSelectionContent.localRotation = Quaternion.identity;
             }
 
-            DisableMapClipping(mapContent);
-            DisableRewardAccentsDuringMap();
+            DisableScriptSelectionClipping(scriptSelectionContent);
+            DisableRewardAccentsDuringScriptSelection();
             return;
         }
 
@@ -335,19 +335,19 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             }
         }
 
-        if (mapContent != null)
+        if (scriptSelectionContent != null)
         {
-            mapContent.anchorMin = Vector2.zero;
-            mapContent.anchorMax = Vector2.one;
-            mapContent.offsetMin = Vector2.zero;
-            mapContent.offsetMax = Vector2.zero;
-            mapContent.pivot = new Vector2(0.5f, 0.5f);
-            mapContent.localRotation = Quaternion.identity;
+            scriptSelectionContent.anchorMin = Vector2.zero;
+            scriptSelectionContent.anchorMax = Vector2.one;
+            scriptSelectionContent.offsetMin = Vector2.zero;
+            scriptSelectionContent.offsetMax = Vector2.zero;
+            scriptSelectionContent.pivot = new Vector2(0.5f, 0.5f);
+            scriptSelectionContent.localRotation = Quaternion.identity;
         }
 
-        DisableMapClipping(viewport);
-        DisableMapClipping(mapContent);
-        DisableRewardAccentsDuringMap();
+        DisableScriptSelectionClipping(viewport);
+        DisableScriptSelectionClipping(scriptSelectionContent);
+        DisableRewardAccentsDuringScriptSelection();
     }
 
     private void MaintainInteraction()
@@ -358,11 +358,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             viewportGroup.blocksRaycasts = true;
         }
 
-        if (mapGroup != null)
+        if (scriptSelectionGroup != null)
         {
-            mapGroup.interactable = true;
-            if (mapGroup.alpha >= 0.75f)
-                mapGroup.blocksRaycasts = true;
+            scriptSelectionGroup.interactable = true;
+            if (scriptSelectionGroup.alpha >= 0.75f)
+                scriptSelectionGroup.blocksRaycasts = true;
         }
 
         if (tvGroup != null)
@@ -389,12 +389,12 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         EnsureEventSystem();
     }
 
-    private void ApplyMapHierarchy()
+    private void ApplyScriptSelectionHierarchy()
     {
-        if (mapContent == null)
+        if (scriptSelectionContent == null)
             return;
 
-        RectTransform[] all = mapContent.GetComponentsInChildren<RectTransform>(true);
+        RectTransform[] all = scriptSelectionContent.GetComponentsInChildren<RectTransform>(true);
         for (int i = 0; i < all.Length; i++)
         {
             RectTransform rect = all[i];
@@ -560,10 +560,10 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private void EnsureControlHint()
     {
-        if (mapContent == null || mapContent.Find(ControlHintName) != null)
+        if (scriptSelectionContent == null || scriptSelectionContent.Find(ControlHintName) != null)
             return;
 
-        RectTransform rect = CreateRect(mapContent, ControlHintName, new Vector2(390f, 28f));
+        RectTransform rect = CreateRect(scriptSelectionContent, ControlHintName, new Vector2(390f, 28f));
         rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);
         rect.pivot = new Vector2(1f, 0f);
         rect.anchoredPosition = new Vector2(-28f, 18f);
@@ -598,7 +598,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         return normalized.Trim().ToUpperInvariant();
     }
 
-    private void DisableMapClipping(RectTransform root)
+    private void DisableScriptSelectionClipping(RectTransform root)
     {
         if (root == null)
             return;
@@ -620,7 +620,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         }
     }
 
-    private void DisableRewardAccentsDuringMap()
+    private void DisableRewardAccentsDuringScriptSelection()
     {
         if (rewardAccentsResolved)
             return;
@@ -645,7 +645,7 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         }
     }
 
-    private void RestoreMapOnlyState()
+    private void RestoreScriptSelectionOnlyState()
     {
         if (frameStateCaptured && sharedFrame != null)
         {
@@ -697,11 +697,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
     private bool IsDetachedScriptSelection()
     {
-        if (mapContent == null)
+        if (scriptSelectionContent == null)
             return false;
 
         Canvas canvas =
-            mapContent.GetComponentInParent<Canvas>();
+            scriptSelectionContent.GetComponentInParent<Canvas>();
 
         return canvas != null &&
                canvas.name ==
