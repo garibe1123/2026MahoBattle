@@ -678,56 +678,57 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                     $"[BattleStageFlow] Piece exit wave {wave}: '{plan.block.name}' -> {exitDescription}, delay {delay:0.000}s.",
                     plan.block);
 
-                if (plan.fallbackFade)
-                {
-                    plan.block.transform.DOKill();
-                    float fadeDuration = Mathf.Clamp(plan.exitDuration * 0.35f, 0.10f, 0.24f);
-                    Sequence sequence = DOTween.Sequence().SetUpdate(true);
-                    if (delay > 0f)
-                        sequence.AppendInterval(delay);
+                plan.block.transform.DOKill();
+                Sequence sequence = DOTween.Sequence().SetUpdate(true);
+                if (delay > 0f)
+                    sequence.AppendInterval(delay);
 
-                    SpriteRenderer[] fadeRenderers = plan.block.GetComponentsInChildren<SpriteRenderer>(true);
-                    bool addedFade = false;
-                    for (int r = 0; r < fadeRenderers.Length; r++)
+                Vector3 startWorld = plan.block.transform.position;
+                if (plan.detourOffsets != null && plan.detourOffsets.Count > 0)
+                {
+                    float tileWorld = RoomBaseTemplate.TileWorldSize;
+                    Vector3 previousPosition = startWorld;
+                    float routeLength = 0f;
+                    for (int j = 0; j < plan.detourOffsets.Count; j++)
                     {
-                        SpriteRenderer fadeRenderer = fadeRenderers[r];
-                        if (fadeRenderer == null || !fadeRenderer.enabled)
-                            continue;
-
-                        Tween fadeTween = fadeRenderer
-                            .DOFade(0f, fadeDuration)
-                            .SetEase(Ease.InQuad);
-                        if (!addedFade)
-                        {
-                            sequence.Append(fadeTween);
-                            addedFade = true;
-                        }
-                        else
-                        {
-                            sequence.Join(fadeTween);
-                        }
+                        Vector2Int offset = plan.detourOffsets[j];
+                        Vector3 nextPosition = startWorld + new Vector3(
+                            offset.x * tileWorld, offset.y * tileWorld, 0f);
+                        routeLength += Vector3.Distance(previousPosition, nextPosition);
+                        previousPosition = nextPosition;
                     }
-
-                    if (!addedFade)
-                        sequence.AppendInterval(fadeDuration);
-                }
-                else if (plan.directPieceTween)
-                {
-                    plan.block.transform.DOKill();
-                    Vector3 destination = plan.block.transform.position +
-                                          (Vector3)(plan.direction.normalized * Mathf.Max(0.01f, plan.exitTravelDistance));
-                    Sequence sequence = DOTween.Sequence().SetUpdate(true);
-                    if (delay > 0f)
-                        sequence.AppendInterval(delay);
+                    Vector3 exitDestination = previousPosition +
+                        (Vector3)(plan.direction.normalized * plan.exitTravelDistance);
+                    routeLength += Vector3.Distance(previousPosition, exitDestination);
+                    float duration = Mathf.Max(0.05f, plan.exitDuration);
+                    previousPosition = startWorld;
+                    for (int j = 0; j < plan.detourOffsets.Count; j++)
+                    {
+                        Vector2Int offset = plan.detourOffsets[j];
+                        Vector3 nextPosition = startWorld + new Vector3(
+                            offset.x * tileWorld, offset.y * tileWorld, 0f);
+                        float portion = Vector3.Distance(previousPosition, nextPosition) /
+                                        Mathf.Max(0.001f, routeLength);
+                        sequence.Append(
+                            plan.block.transform.DOMove(
+                                nextPosition, Mathf.Max(0.001f, duration * portion))
+                                .SetEase(Ease.Linear));
+                        previousPosition = nextPosition;
+                    }
+                    float finalPortion = Vector3.Distance(previousPosition, exitDestination) /
+                                        Mathf.Max(0.001f, routeLength);
                     sequence.Append(
-                        plan.block.transform
-                            .DOMove(destination, Mathf.Max(0.01f, plan.exitDuration))
+                        plan.block.transform.DOMove(
+                            exitDestination, Mathf.Max(0.001f, duration * finalPortion))
                             .SetEase(Ease.InOutCubic));
                 }
                 else
                 {
-                    Tween exitTween = plan.block.PlayExit(plan.direction);
-                    exitTween?.SetUpdate(true);
+                    Vector3 destination = startWorld +
+                        (Vector3)(plan.direction.normalized * plan.exitTravelDistance);
+                    sequence.Append(
+                        plan.block.transform.DOMove(destination, Mathf.Max(0.01f, plan.exitDuration))
+                            .SetEase(Ease.InOutCubic));
                 }
 
                 waveDuration = Mathf.Max(waveDuration, delay + Mathf.Max(0.01f, plan.exitDuration));
