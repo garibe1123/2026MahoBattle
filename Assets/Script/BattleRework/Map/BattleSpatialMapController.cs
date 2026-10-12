@@ -17,7 +17,7 @@ using UnityEngine.UI;
 /// - the currently preserved 4x4 Base is INPUT, never an incoming Room product.
 /// - targetCells are generated around that Base, then extensionCells = targetCells - baseCells.
 /// - only extensionCells become incoming MapBlock pieces.
-/// - large connected pieces are preferred; isolated 1x1 pieces are merged whenever possible.
+/// - up to four disjoint side plates are created without BFS, merging or route changes.
 /// - every incoming piece starts fully outside the current camera viewport and slides in on a cardinal rail.
 /// - Script Selection is presentation-only; combat-time spatial generation remains independent.
 /// - BattleNodeData depth still defines run progression, but no route graph is drawn here.
@@ -30,14 +30,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [SerializeField, Min(0.03f)] private float roomEdgeThickness = 0.12f;
     [SerializeField, Range(0.1f, 1.5f)] private float roomImpactStrength = 0.95f;
 
-    [Header("Extension Piece Assembly")]
-    [Tooltip("Maximum rectangular span considered for one incoming piece. Large pieces are preferred.")]
-    [SerializeField, Range(3, 8)] private int maximumPieceTileSpan = 6;
-    [Tooltip("Pieces smaller than this are merged into an adjacent piece whenever possible.")]
-    [SerializeField, Range(2, 12)] private int minimumPieceCellCount = 4;
-    [Tooltip("Used by fallback connected growth when a large rectangle cannot be carved from the frontier.")]
-    [SerializeField, Range(4, 24)] private int preferredPieceCellCount = 12;
-    [SerializeField, Range(8, 64)] private int maximumPieceCount = 32;
+    [Header("Cardinal Side Rail Entry")]
     [Tooltip("Fallback rail distance when no orthographic camera is available.")]
     [SerializeField, Min(12f)] private float fallbackOffscreenEntryDistance = 36f;
     [SerializeField, Min(0.5f)] private float offscreenMargin = 2f;
