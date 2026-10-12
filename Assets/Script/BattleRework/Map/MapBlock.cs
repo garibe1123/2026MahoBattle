@@ -50,7 +50,6 @@ public class MapBlock : MonoBehaviour
     [Header("Entry Collision Safety")]
     [Tooltip("켜면 WheelSlide가 이미 존재하는 Tile/Persistent 4x4를 관통하지 않도록 Cardinal Rail을 다시 선택합니다.")]
     [SerializeField] private bool avoidExistingTilePenetration = true;
-    [SerializeField, Range(4, 16)] private int entryPathSamples = 8;
     [SerializeField, Range(0f, 0.25f)] private float entryPathClearance = 0.06f;
 
     [Header("Navigation Surface")]
