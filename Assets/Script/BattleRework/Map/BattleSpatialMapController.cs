@@ -824,6 +824,18 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
 
         MergeUndersizedPlans(result, minCells);
+
+        // Merging undersized plates changes contact faces. Re-evaluate the rail
+        // of the FINAL pieces against the already docked frontier, not against
+        // the unmerged geometry that no longer exists.
+        HashSet<Vector2Int> docked = new(baseCells);
+        for (int i = 0; i < result.Count; i++)
+        {
+            PiecePlan plan = result[i];
+            result[i] = new PiecePlan(
+                plan.cells, ResolveContactOutwardDirection(plan.cells, docked, i));
+            docked.UnionWith(plan.cells);
+        }
         return result;
     }
 
