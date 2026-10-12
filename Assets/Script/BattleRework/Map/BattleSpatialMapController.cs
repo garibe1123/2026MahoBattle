@@ -1323,7 +1323,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptSelectionCanvasGroup = scriptSelectionPanel.gameObject.AddComponent<CanvasGroup>();
 
         scriptSelectionCanvasGroup.alpha = 0f;
-        scriptSelectionPanelRestPosition = scriptSelectionPanel.anchoredPosition;
+        scriptPanelRestPosition = scriptSelectionPanel.anchoredPosition;
     }
 
     private void RefreshScriptSelection()
@@ -3643,7 +3643,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         float elapsed = 0f;
 
         Vector2 startPosition =
-            scriptSelectionPanelRestPosition +
+            scriptPanelRestPosition +
             Vector2.down *
             Mathf.Min(
                 42f,
@@ -3679,7 +3679,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             scriptSelectionPanel.anchoredPosition =
                 Vector2.LerpUnclamped(
                     startPosition,
-                    scriptSelectionPanelRestPosition,
+                    scriptPanelRestPosition,
                     eased);
 
             scriptSelectionPanel.localScale =
@@ -3694,7 +3694,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         scriptSelectionCanvasGroup.alpha = 1f;
         scriptSelectionCanvasGroup.blocksRaycasts = true;
         scriptSelectionPanel.anchoredPosition =
-            scriptSelectionPanelRestPosition;
+            scriptPanelRestPosition;
         scriptSelectionPanel.localScale =
             Vector3.one;
 
@@ -4316,7 +4316,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         if (scriptSelectionPanel != null)
         {
             scriptSelectionPanel.anchoredPosition =
-                scriptSelectionPanelRestPosition;
+                scriptPanelRestPosition;
 
             scriptSelectionPanel.localScale =
                 Vector3.one;
@@ -5933,7 +5933,7 @@ internal sealed class BattleScriptCardVisual :
         // on purpose: the paper remains the focus, while the offset supplies
         // enough parallax to make its thickness readable.
         Vector2 cursorLightOffset =
-            new(
+            new Vector2(
                 -pointerCurrent.x *
                 5.2f,
                 -pointerCurrent.y *
