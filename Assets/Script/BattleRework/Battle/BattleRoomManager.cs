@@ -11,14 +11,11 @@ using UnityEngine.AI;
 /// -> Reward -> Highlight Pad -> Exit Extension Blocks.
 ///
 /// 기본 4x4 Start Base는 RoomBaseTemplate이 영구 유지합니다.
-/// Procedural Room의 세부 Piece는 그대로 바닥 형태를 만들되, 실제 진입 이동은 최대 3개의
-/// Assembly Group으로 묶어서 수행합니다. 이미 붙은 타일을 다음 Piece가 뚫고 지나가지 않도록
-/// Group 단위로 순차 도킹합니다.
+/// Procedural Room은 Persistent 4x4 주위의 최대 네 개의 직선 Rail로 분할합니다.
+/// 네 Rail은 서로의 통로를 침범하지 않으며 독립적으로 병렬 도킹합니다.
 /// </summary>
 public class BattleRoomManager : MonoBehaviour
 {
-    private const int ProceduralAssemblyGroupCount = 3;
-
     [Header("Scene References")]
     [SerializeField] private Transform roomOrigin;
     [SerializeField] private Transform mapRoot;
@@ -29,11 +26,9 @@ public class BattleRoomManager : MonoBehaviour
     [SerializeField] private MonsterPool monsterPool;
 
     [Header("Extension Block Assembly")]
-    [Tooltip("Legacy/custom Block 배열 진입 시차입니다. Procedural Room은 아래 3-Group 조립을 사용합니다.")]
+    [Tooltip("Legacy/custom Block 배열 진입 시차입니다. Procedural Room은 네 방향의 독립 Rail을 사용합니다.")]
     [SerializeField] private float blockEntryStagger = 0.055f;
     [SerializeField] private float maxBlockEntryStagger = 0.32f;
-    [Tooltip("Procedural Room의 3개 Assembly Group이 화면 밖에서 시작하는 Rail 거리입니다.")]
-    [SerializeField, Min(12f)] private float proceduralAssemblyRailDistance = 36f;
 
     [Header("Docking Impact VFX - custom Sprite가 없으면 Procedural")]
     [SerializeField] private Transform impactVfxRoot;
@@ -374,7 +369,20 @@ public class BattleRoomManager : MonoBehaviour
             if (placement == null || placement.prefab == null)
                 continue;
 
-            MapBlock block = Instantiate(placement.prefab, parent);
+            // A runtime procedural plate was already constructed by the spatial
+            // planner. Adopt it rather than instantiating and then destroying
+            // a duplicate hierarchy of hundreds of tile GameObjects.
+            bool runtimePlate = placement.prefab.name.StartsWith(
+                "__RuntimeRoomPiecePrototype_", StringComparison.Ordinal);
+            MapBlock block = runtimePlate
+                ? placement.prefab
+                : Instantiate(placement.prefab, parent);
+            if (runtimePlate)
+            {
+                block.transform.SetParent(parent, true);
+                block.name = $"ProceduralSidePlate_{i + 1}";
+            }
+
             Vector3 destination = roomOrigin.position +
                 (Vector3)room.GetBlockLocalPosition(placement.gridPosition);
             destination.z = roomOrigin.position.z;
