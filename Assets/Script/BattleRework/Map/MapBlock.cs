@@ -435,12 +435,67 @@ public class MapBlock : MonoBehaviour
                 return candidates[i];
         }
 
-        Debug.LogWarning(
-            $"[MapBlock] '{name}' has no clear cardinal entry rail. " +
-            "To preserve the no-tunneling rule it will snap to its destination instead of crossing existing tiles.",
-            this);
-
+        // Attempt a collision-free multi-leg rail before falling back to a staged approach.
         return Vector2.zero;
+    }
+
+    private bool TryBuildDetourEntryRoute(
+        Vector3 destination,
+        Vector2 preferredDirection,
+        out List<Vector3> entryWaypoints,
+        out Vector2 finalTravelDirection)
+    {
+        entryWaypoints = null;
+        finalTravelDirection = Vector2.zero;
+
+        HashSet<Vector2Int> moving = new();
+        HashSet<Vector2Int> blockers = new();
+        for (int i = 0; i < entryMovingFloorBuffer.Count; i++)
+        {
+            Bounds bounds = entryMovingFloorBuffer[i];
+            if (bounds.size.x > UnitWorldSize * 1.5f ||
+                bounds.size.y > UnitWorldSize * 1.5f)
+                return false; // Legacy multi-tile decorations are not tile rails.
+            moving.Add(new Vector2Int(
+                Mathf.RoundToInt(bounds.center.x / UnitWorldSize),
+                Mathf.RoundToInt(bounds.center.y / UnitWorldSize)));
+        }
+
+        for (int i = 0; i < entryBlockerBuffer.Count; i++)
+        {
+            Bounds bounds = entryBlockerBuffer[i];
+            int minX = Mathf.CeilToInt((bounds.min.x + 0.05f) / UnitWorldSize);
+            int maxX = Mathf.FloorToInt((bounds.max.x - 0.05f) / UnitWorldSize);
+            int minY = Mathf.CeilToInt((bounds.min.y + 0.05f) / UnitWorldSize);
+            int maxY = Mathf.FloorToInt((bounds.max.y - 0.05f) / UnitWorldSize);
+            for (int y = minY; y <= maxY; y++)
+                for (int x = minX; x <= maxX; x++)
+                    blockers.Add(new Vector2Int(x, y));
+        }
+
+        Vector2 cardinal = Cardinalize(preferredDirection);
+        Vector2Int preferCell = new(Mathf.RoundToInt(cardinal.x), Mathf.RoundToInt(cardinal.y));
+        if (!BattleTileRailPlanner.TryFindExitRoute(
+                moving, blockers, preferCell,
+                out List<Vector2Int> outwardOffsets,
+                out Vector2Int outward))
+            return false;
+
+        entryWaypoints = new List<Vector3>(outwardOffsets.Count + 2);
+        // Begin outside the occupied stage, then follow the rigid tile rail in reverse.
+        for (int i = outwardOffsets.Count - 1; i >= 0; i--)
+        {
+            Vector2Int offset = outwardOffsets[i];
+            entryWaypoints.Add(destination + new Vector3(
+                offset.x * UnitWorldSize, offset.y * UnitWorldSize, 0f));
+        }
+        entryWaypoints.Add(destination);
+
+        Vector2Int nearDestination = outwardOffsets[0];
+        finalTravelDirection = -new Vector2(nearDestination.x, nearDestination.y).normalized;
+        entryWaypoints.Insert(0, entryWaypoints[0] + new Vector3(
+            outward.x * entryOffset, outward.y * entryOffset, 0f));
+        return true;
     }
 
     private bool IsEntryPathClear(
@@ -700,6 +755,8 @@ public class MapBlock : MonoBehaviour
 
         Vector3 start = destination;
         Vector2 sourceDirection;
+        List<Vector3> entryWaypoints = null;
+        Vector2 finalApproachDirection = Vector2.zero;
         Vector2 preferred = preferredDirection.sqrMagnitude > 0.001f
             ? preferredDirection.normalized
             : Vector2.right;
@@ -720,11 +777,28 @@ public class MapBlock : MonoBehaviour
                 sourceDirection = ResolveSafeWheelSlideSourceDirection(destination, preferred);
                 if (sourceDirection.sqrMagnitude <= 0.001f)
                 {
-                    transform.position = destination;
-                    RestorePresentationPose();
-                    return transform.DOMove(destination, 0f);
+                    if (TryBuildDetourEntryRoute(
+                            destination, preferred, out entryWaypoints,
+                            out finalApproachDirection))
+                    {
+                        start = entryWaypoints[0];
+                        sourceDirection = (start - destination).normalized;
+                    }
+                    else
+                    {
+                        // No rigid translation path exists: retain visible motion,
+                        // without the old instant snap, behind the stage floor.
+                        Debug.LogWarning(
+                            $"[MapBlock] '{name}' has no collision-free entry route. " +
+                            "Using a staged approach rather than snapping.", this);
+                        sourceDirection = preferred;
+                        start += (Vector3)(sourceDirection * entryOffset);
+                    }
                 }
-                start += (Vector3)(sourceDirection * entryOffset);
+                else
+                {
+                    start += (Vector3)(sourceDirection * entryOffset);
+                }
                 break;
         }
 
@@ -734,7 +808,9 @@ public class MapBlock : MonoBehaviour
             hasEntrySourceDirection = true;
         }
 
-        Vector2 travelDirection = ((Vector2)destination - (Vector2)start).normalized;
+        Vector2 travelDirection = entryWaypoints != null
+            ? finalApproachDirection
+            : ((Vector2)destination - (Vector2)start).normalized;
         if (travelDirection.sqrMagnitude <= 0.001f)
             travelDirection = -sourceDirection;
 
@@ -775,7 +851,31 @@ public class MapBlock : MonoBehaviour
         if (safeDelay > 0f)
             sequence.AppendInterval(safeDelay);
 
-        sequence.Append(transform.DOMove(destination, approachTime).SetEase(entryEase));
+        if (entryWaypoints != null)
+        {
+            float totalLength = 0f;
+            Vector3 previousPosition = start;
+            for (int i = 1; i < entryWaypoints.Count; i++)
+            {
+                totalLength += Vector3.Distance(previousPosition, entryWaypoints[i]);
+                previousPosition = entryWaypoints[i];
+            }
+            previousPosition = start;
+            for (int i = 1; i < entryWaypoints.Count; i++)
+            {
+                Vector3 nextPosition = entryWaypoints[i];
+                float portion = Vector3.Distance(previousPosition, nextPosition) /
+                                Mathf.Max(0.001f, totalLength);
+                sequence.Append(
+                    transform.DOMove(nextPosition, Mathf.Max(0.001f, approachTime * portion))
+                        .SetEase(i == entryWaypoints.Count - 1 ? entryEase : Ease.Linear));
+                previousPosition = nextPosition;
+            }
+        }
+        else
+        {
+            sequence.Append(transform.DOMove(destination, approachTime).SetEase(entryEase));
+        }
 
         Vector3 contactPoint = GetImpactContactPoint(destination, travelDirection);
         bool hasLegacyImpactListener = Impacted != null;
