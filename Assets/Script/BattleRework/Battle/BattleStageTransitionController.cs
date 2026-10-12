@@ -48,13 +48,13 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public MapBlock block;
         public Bounds bounds;
         public List<Bounds> floorBounds;
+        public HashSet<Vector2Int> occupiedCells;
         public int entryOrder;
         public CollapseExitSide side;
         public Vector2 direction;
         public float exitTravelDistance;
         public float exitDuration;
-        public bool backstageRetreat;
-        public List<Vector2Int> detourOffsets;
+        public bool foldRetreat;
         public bool hasPreferredExitDirection;
         public Vector2 preferredExitDirection;
         public int exitWave;
@@ -605,45 +605,24 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             for (int i = 0; i < exitOrder.Count; i++)
                 fallbackWave = Mathf.Max(fallbackWave, exitOrder[i].exitWave + 1);
 
-            // A tile plate with no straight escape may still move along an orthogonal detour.
-            // Only if no rigid route exists will it retreat under the stage in full motion.
+            // A fully enclosed legacy plate has no safe planar route. Do not
+            // tunnel through the persistent Base. Fold it into the stage instead
+            // of fading, teleporting or moving across occupied floor.
             for (int i = 0; i < exitUnits.Count; i++)
             {
                 CollapseExitPlan plan = exitUnits[i];
                 if (plan == null || resolved.Contains(plan))
                     continue;
 
-                HashSet<Vector2Int> remainingOccupied = new();
-                for (int j = 0; j < exitUnits.Count; j++)
-                {
-                    CollapseExitPlan other = exitUnits[j];
-                    if (other == null || resolved.Contains(other))
-                        continue;
-                    for (int c = 0; c < other.floorBounds.Count; c++)
-                        remainingOccupied.Add(WorldToTile(other.floorBounds[c].center));
-                }
-                AddBaseCells(remainingOccupied, baseBounds);
-
-                if (!TryPlanDetourExit(plan, remainingOccupied, baseBounds, null))
-                {
-                    plan.backstageRetreat = true;
-                    Vector2 delta = (Vector2)plan.bounds.center - (Vector2)baseBounds.center;
-                    plan.direction = Mathf.Abs(delta.x) >= Mathf.Abs(delta.y)
-                        ? (delta.x >= 0f ? Vector2.right : Vector2.left)
-                        : (delta.y >= 0f ? Vector2.up : Vector2.down);
-                    Debug.LogWarning(
-                        $"[BattleStageFlow] '{plan.block.name}' has no rigid grid escape. " +
-                        "Moving the piece behind the stage instead of fading or teleporting.",
-                        plan.block);
-                }
-
-                plan.exitTravelDistance = ResolveOffscreenTravelDistance(
-                    plan, plan.direction, plan.exitTravelDistance);
-                plan.exitDuration = Mathf.Max(plan.exitDuration,
-                    0.26f + (plan.exitTravelDistance + (plan.detourOffsets?.Count ?? 0)) / 60f);
+                plan.foldRetreat = true;
+                plan.direction = Vector2.zero;
+                plan.exitDuration = Mathf.Max(0.36f, plan.exitDuration);
                 plan.exitWave = fallbackWave++;
                 exitOrder.Add(plan);
-                resolved.Add(plan);
+                Debug.LogWarning(
+                    $"[BattleStageFlow] '{plan.block.name}' has no collision-free rail. " +
+                    "Retracting its plate in place, without crossing other tiles.",
+                    plan.block);
             }
         }
 
@@ -671,8 +650,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 DisableOutgoingWalkable(plan.block);
 
                 float delay = wavePieceStagger * waveIndex;
-                string exitDescription = plan.detourOffsets != null ? "grid detour" :
-                    plan.backstageRetreat ? "backstage retreat" : plan.side.ToString();
+                string exitDescription = plan.foldRetreat ? "fold retreat" : plan.side.ToString();
                 Debug.Log(
                     $"[BattleStageFlow] Piece exit wave {wave}: '{plan.block.name}' -> {exitDescription}, delay {delay:0.000}s.",
                     plan.block);
@@ -682,51 +660,24 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 if (delay > 0f)
                     sequence.AppendInterval(delay);
 
-                Vector3 startWorld = plan.block.transform.position;
-                if (plan.detourOffsets != null && plan.detourOffsets.Count > 0)
+                if (plan.foldRetreat)
                 {
-                    float tileWorld = RoomBaseTemplate.TileWorldSize;
-                    Vector3 previousPosition = startWorld;
-                    float routeLength = 0f;
-                    for (int j = 0; j < plan.detourOffsets.Count; j++)
-                    {
-                        Vector2Int offset = plan.detourOffsets[j];
-                        Vector3 nextPosition = startWorld + new Vector3(
-                            offset.x * tileWorld, offset.y * tileWorld, 0f);
-                        routeLength += Vector3.Distance(previousPosition, nextPosition);
-                        previousPosition = nextPosition;
-                    }
-                    Vector3 exitDestination = previousPosition +
-                        (Vector3)(plan.direction.normalized * plan.exitTravelDistance);
-                    routeLength += Vector3.Distance(previousPosition, exitDestination);
-                    float duration = Mathf.Max(0.05f, plan.exitDuration);
-                    previousPosition = startWorld;
-                    for (int j = 0; j < plan.detourOffsets.Count; j++)
-                    {
-                        Vector2Int offset = plan.detourOffsets[j];
-                        Vector3 nextPosition = startWorld + new Vector3(
-                            offset.x * tileWorld, offset.y * tileWorld, 0f);
-                        float portion = Vector3.Distance(previousPosition, nextPosition) /
-                                        Mathf.Max(0.001f, routeLength);
-                        sequence.Append(
-                            plan.block.transform.DOMove(
-                                nextPosition, Mathf.Max(0.001f, duration * portion))
-                                .SetEase(Ease.Linear));
-                        previousPosition = nextPosition;
-                    }
-                    float finalPortion = Vector3.Distance(previousPosition, exitDestination) /
-                                        Mathf.Max(0.001f, routeLength);
+                    // The renderer visibly retracts instead of clipping through
+                    // a solid tile or being removed instantaneously.
                     sequence.Append(
-                        plan.block.transform.DOMove(
-                            exitDestination, Mathf.Max(0.001f, duration * finalPortion))
-                            .SetEase(Ease.InOutCubic));
+                        plan.block.transform.DOScale(
+                            new Vector3(0.001f, 0.001f, 1f),
+                            Mathf.Max(0.36f, plan.exitDuration))
+                            .SetEase(Ease.InCubic));
                 }
                 else
                 {
+                    Vector3 startWorld = plan.block.transform.position;
                     Vector3 destination = startWorld +
                         (Vector3)(plan.direction.normalized * plan.exitTravelDistance);
                     sequence.Append(
-                        plan.block.transform.DOMove(destination, Mathf.Max(0.01f, plan.exitDuration))
+                        plan.block.transform.DOMove(
+                            destination, Mathf.Max(0.01f, plan.exitDuration))
                             .SetEase(Ease.InOutCubic));
                 }
 
@@ -1141,11 +1092,15 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         Vector2 preferredDirection)
     {
         Bounds aggregate = ResolveAggregateBounds(floorBounds, ResolveBlockBounds(block));
+        HashSet<Vector2Int> occupied = new();
+        for (int i = 0; i < floorBounds.Count; i++)
+            occupied.Add(WorldToTile(floorBounds[i].center));
         return new CollapseExitPlan
         {
             block = block,
             bounds = aggregate,
             floorBounds = floorBounds,
+            occupiedCells = occupied,
             entryOrder = entryOrder,
             exitTravelDistance = Mathf.Max(0.01f, travelDistance),
             exitDuration = Mathf.Max(0.01f, duration),
@@ -1250,24 +1205,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 sideUsage[(int)bestSide]++;
             }
 
-            if (wavePlans.Count == 0)
-            {
-                AddBaseCells(occupiedCells, baseBounds);
-                for (int i = remaining.Count - 1; i >= 0; i--)
-                {
-                    CollapseExitPlan plan = remaining[i];
-                    if (!TryPlanDetourExit(plan, occupiedCells, baseBounds, reservedPathCells))
-                        continue;
-
-                    plan.exitTravelDistance = ResolveOffscreenTravelDistance(
-                        plan, plan.direction, plan.exitTravelDistance);
-                    plan.exitDuration = Mathf.Max(plan.exitDuration,
-                        0.26f + (plan.exitTravelDistance + plan.detourOffsets.Count) / 60f);
-                    plan.exitWave = waveIndex;
-                    wavePlans.Add(plan);
-                    break; // Multi-leg tracks get their own isolated wave.
-                }
-            }
 
             if (wavePlans.Count == 0)
                 break;
@@ -1283,69 +1220,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         return result;
-    }
-
-    private static void AddBaseCells(HashSet<Vector2Int> occupied, Bounds baseBounds)
-    {
-        float tile = RoomBaseTemplate.TileWorldSize;
-        for (int x = Mathf.CeilToInt(baseBounds.min.x / tile);
-             x <= Mathf.FloorToInt(baseBounds.max.x / tile); x++)
-        {
-            for (int y = Mathf.CeilToInt(baseBounds.min.y / tile);
-                 y <= Mathf.FloorToInt(baseBounds.max.y / tile); y++)
-                occupied.Add(new Vector2Int(x, y));
-        }
-    }
-
-    private static bool TryPlanDetourExit(
-        CollapseExitPlan plan,
-        HashSet<Vector2Int> occupied,
-        Bounds baseBounds,
-        HashSet<Vector2Int> reserved)
-    {
-        if (plan == null || plan.floorBounds == null || plan.floorBounds.Count == 0)
-            return false;
-
-        List<Vector2Int> ownCells = new();
-        for (int i = 0; i < plan.floorBounds.Count; i++)
-        {
-            Vector2Int cell = WorldToTile(plan.floorBounds[i].center);
-            if (reserved != null && reserved.Contains(cell))
-                return false;
-            ownCells.Add(cell);
-        }
-
-        HashSet<Vector2Int> blocked = occupied != null
-            ? new HashSet<Vector2Int>(occupied)
-            : new HashSet<Vector2Int>();
-        AddBaseCells(blocked, baseBounds);
-        if (reserved != null)
-            blocked.UnionWith(reserved);
-        blocked.ExceptWith(ownCells);
-
-        Vector2 preference = plan.hasPreferredExitDirection
-            ? plan.preferredExitDirection
-            : (Vector2)plan.bounds.center - (Vector2)baseBounds.center;
-        Vector2Int preferredCell = Mathf.Abs(preference.x) >= Mathf.Abs(preference.y)
-            ? (preference.x >= 0f ? Vector2Int.right : Vector2Int.left)
-            : (preference.y >= 0f ? Vector2Int.up : Vector2Int.down);
-
-        if (!BattleTileRailPlanner.TryFindExitRoute(
-                ownCells, blocked, preferredCell,
-                out List<Vector2Int> route, out Vector2Int outward))
-            return false;
-
-        plan.detourOffsets = route;
-        plan.direction = new Vector2(outward.x, outward.y);
-        if (reserved != null)
-        {
-            for (int i = 0; i < ownCells.Count; i++)
-                reserved.Add(ownCells[i]);
-            for (int step = 0; step < route.Count; step++)
-                for (int i = 0; i < ownCells.Count; i++)
-                    reserved.Add(ownCells[i] + route[step]);
-        }
-        return true;
     }
 
     private static float ResolveOffscreenTravelDistance(
@@ -1412,7 +1286,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 if (IsCellInsidePersistentBase(targetCell, baseBounds))
                     return false;
 
-                if (occupiedCells.Contains(targetCell) && !PlanContainsCell(plan, targetCell))
+                if (occupiedCells.Contains(targetCell) && !plan.occupiedCells.Contains(targetCell))
                     return false;
 
                 if (reservedPathCells != null && reservedPathCells.Contains(targetCell))
@@ -1442,20 +1316,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             for (int step = 1; step <= steps; step++)
                 reservedPathCells.Add(sourceCell + stepDirection * step);
         }
-    }
-
-    private static bool PlanContainsCell(CollapseExitPlan plan, Vector2Int cell)
-    {
-        if (plan == null || plan.floorBounds == null)
-            return false;
-
-        for (int i = 0; i < plan.floorBounds.Count; i++)
-        {
-            if (WorldToTile(plan.floorBounds[i].center) == cell)
-                return true;
-        }
-
-        return false;
     }
 
     private static bool IsCellInsidePersistentBase(Vector2Int cell, Bounds baseBounds)
