@@ -316,7 +316,7 @@ public class BattleRoomManager : MonoBehaviour
             return 0f;
 
         if (room.useProceduralRoom)
-            return BuildThreeProceduralAssemblyGroups(room, placements);
+            return BuildProceduralSideAssemblies(room, placements);
 
         return BuildLegacyExtensionBlocks(room, placements);
     }
@@ -356,132 +356,54 @@ public class BattleRoomManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Procedural 세부 Piece들을 생성 순서 그대로 세 덩어리로 묶습니다.
-    /// Spatial planner가 4x4 Frontier부터 바깥쪽으로 Piece를 생성하므로,
-    /// 앞 Group부터 완전히 도킹시킨 뒤 다음 Group을 보내면 바깥 Piece가 이미 붙은 안쪽 Piece를
-    /// 뚫고 지나가는 문제가 사라집니다.
+    /// The procedural authoring plan is already partitioned into at most four
+    /// nonintersecting straight corridors around the persistent 4x4 Base.
+    /// Do not re-merge them into arbitrary three-part Assemblies: doing so
+    /// creates unmovable rings and costs a full rail search per child.
     /// </summary>
-    private float BuildThreeProceduralAssemblyGroups(RoomDefinitionSO room, List<MapBlockPlacement> placements)
+    private float BuildProceduralSideAssemblies(RoomDefinitionSO room, List<MapBlockPlacement> placements)
     {
-        int groupCount = Mathf.Min(ProceduralAssemblyGroupCount, placements.Count);
-        if (groupCount <= 0)
-            return 0f;
-
-        expectedAssemblyImpacts = groupCount;
-        float nextDelay = 0f;
+        Transform parent = mapRoot != null ? mapRoot : transform;
         float longest = 0f;
+        int planned = 0;
+        const float waveStagger = 0.055f;
 
-        for (int groupIndex = 0; groupIndex < groupCount; groupIndex++)
+        for (int i = 0; i < placements.Count; i++)
         {
-            int startIndex = Mathf.FloorToInt(groupIndex * placements.Count / (float)groupCount);
-            int endExclusive = Mathf.FloorToInt((groupIndex + 1) * placements.Count / (float)groupCount);
-            endExclusive = Mathf.Max(startIndex + 1, endExclusive);
+            MapBlockPlacement placement = placements[i];
+            if (placement == null || placement.prefab == null)
+                continue;
 
-            Transform parent = mapRoot != null ? mapRoot : transform;
-            GameObject groupObject = new($"ProceduralAssemblyGroup_{groupIndex + 1}_of_{groupCount}");
-            groupObject.transform.SetParent(parent, true);
-            groupObject.transform.position = roomOrigin.position;
+            MapBlock block = Instantiate(placement.prefab, parent);
+            Vector3 destination = roomOrigin.position +
+                (Vector3)room.GetBlockLocalPosition(placement.gridPosition);
+            destination.z = roomOrigin.position.z;
 
-            Vector2 preferredDirection = Vector2.zero;
-            int childCount = 0;
-            List<MapBlock> groupChildren = new();
-            List<MapBlockPlacement> groupPlacements = new();
-            List<Vector3> groupChildDestinations = new();
-
-            for (int i = startIndex; i < endExclusive && i < placements.Count; i++)
+            // Strictly honor the corridor direction. A rejected route MUST NOT
+            // fall back to crossing an occupied floor or snapping into place.
+            if (!block.HasCollisionFreeEntry(destination, placement.entryDirection))
             {
-                MapBlockPlacement placement = placements[i];
-                if (placement == null || placement.prefab == null)
-                    continue;
-
-                MapBlock child = Instantiate(placement.prefab, parent);
-                Vector3 childDestination = roomOrigin.position + (Vector3)room.GetBlockLocalPosition(placement.gridPosition);
-                childDestination.z = roomOrigin.position.z;
-                child.SnapTo(childDestination);
-                child.transform.SetParent(groupObject.transform, true);
-                child.name = $"AssemblySubPiece_{groupIndex + 1}_{childCount + 1}";
-                child.enabled = false;
-                groupChildren.Add(child);
-                groupPlacements.Add(placement);
-                groupChildDestinations.Add(childDestination);
-
-                preferredDirection += placement.entryDirection.sqrMagnitude > 0.001f
-                    ? placement.entryDirection.normalized
-                    : Vector2.zero;
-                childCount++;
-            }
-
-            if (childCount == 0)
-            {
-                Destroy(groupObject);
+                Debug.LogError(
+                    $"[BattleRoom] Rejected obstructed procedural rail for '{block.name}'. " +
+                    "No tile is allowed to pass through the persistent Base or another plate.",
+                    block);
+                Destroy(block.gameObject);
                 continue;
             }
 
-            MapBlock groupBlock = groupObject.AddComponent<MapBlock>();
-            groupBlock.ConfigureRuntimeDockingBlock(
-                groupObject.transform,
-                false,
-                1f,
-                Mathf.Max(0.05f, room.largePieceEntryDuration),
-                Mathf.Max(12f, proceduralAssemblyRailDistance));
-            groupBlock.Impacted += HandleMapBlockImpact;
-
-            if (preferredDirection.sqrMagnitude <= 0.001f)
+            float delay = block.GetEntryDelayParameterForStart(planned * waveStagger);
+            if (block.WillImpact)
             {
-                Vector2[] fallback = { Vector2.right, Vector2.up, Vector2.left };
-                preferredDirection = fallback[groupIndex % fallback.Length];
+                expectedAssemblyImpacts++;
+                block.Impacted += HandleMapBlockImpact;
             }
 
-            Vector3 destination = roomOrigin.position;
-            if (groupChildren.Count > 1 &&
-                !groupBlock.HasCollisionFreeEntry(destination, preferredDirection))
-            {
-                // A rigid, grouped plate can wrap around the 4x4 base and have no
-                // possible planar entrance. Split ONLY that obstructed assembly;
-                // each original piece retains its wheel/dock/impact presentation.
-                Debug.LogWarning(
-                    $"[BattleRoom] Assembly group {groupIndex + 1} cannot dock as one rigid plate. " +
-                    "Entering constituent pieces on individually validated rails instead.",
-                    groupBlock);
-
-                groupBlock.enabled = false;
-                float lastFinish = nextDelay;
-                for (int i = 0; i < groupChildren.Count; i++)
-                {
-                    MapBlock child = groupChildren[i];
-                    MapBlockPlacement placement = groupPlacements[i];
-                    if (child == null)
-                        continue;
-
-                    child.transform.SetParent(parent, true);
-                    child.enabled = true;
-                    if (child.WillImpact)
-                        child.Impacted += HandleMapBlockImpact;
-
-                    // ResolveEntryDelay scales walkable blocks, so normalize the
-                    // requested delay before using the public entry API.
-                    float requestedDelay = child.GetEntryDelayParameterForStart(lastFinish);
-                    child.PlayEnter(
-                        groupChildDestinations[i], placement.entryDirection, requestedDelay);
-                    activeBlocks.Add(child);
-                    lastFinish = child.GetEntryDuration(requestedDelay);
-                }
-
-                Destroy(groupObject);
-                longest = Mathf.Max(longest, lastFinish);
-                nextDelay = lastFinish;
-                continue;
-            }
-
-            groupBlock.PlayEnter(destination, preferredDirection, nextDelay);
-            activeBlocks.Add(groupBlock);
-
-            float finishAt = groupBlock.GetEntryDuration(nextDelay);
-            longest = Mathf.Max(longest, finishAt);
-            nextDelay = finishAt;
+            block.PlayEnter(destination, placement.entryDirection, delay);
+            activeBlocks.Add(block);
+            longest = Mathf.Max(longest, block.GetEntryDuration(delay));
+            planned++;
         }
 
-        expectedAssemblyImpacts = activeBlocks.Count;
         return longest;
     }
 
