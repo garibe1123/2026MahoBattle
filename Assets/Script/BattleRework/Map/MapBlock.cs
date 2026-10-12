@@ -79,6 +79,8 @@ public class MapBlock : MonoBehaviour
 
     private readonly List<Bounds> entryBlockerBuffer = new();
     private readonly List<Bounds> entryMovingFloorBuffer = new();
+    private readonly HashSet<Vector2Int> railBlockedCells = new();
+    private bool strictProceduralRail;
 
     private Quaternion presentationBaseRotation;
     private Vector3 presentationBaseScale = Vector3.one;
@@ -144,6 +146,7 @@ public class MapBlock : MonoBehaviour
     {
         presentationRoot = visualRoot != null ? visualRoot : transform;
         contributesWalkableNavMesh = walkable;
+        strictProceduralRail = walkable;
         if (!walkable)
             BattleDecorFloorHierarchyRegistrar.Ensure(presentationRoot);
         entryType = MapBlockEntryType.WheelSlide;
@@ -410,118 +413,91 @@ public class MapBlock : MonoBehaviour
             : (direction.y >= 0f ? Vector2.up : Vector2.down);
     }
 
-    private Vector2 ResolveSafeWheelSlideSourceDirection(Vector3 destination, Vector2 preferredDirection)
+    /// <summary>
+    /// One grid occupancy pass and a straight-ray check, O(tile count x rail length).
+    /// No BFS, turning path, tunneling or dynamic group reassembly.
+    /// </summary>
+    private bool IsStrictGridRailClear(Vector3 destination, Vector2 sourceDirection)
+    {
+        entryMovingFloorBuffer.Clear();
+        if (!AppendFloorBoundsAtRootPosition(this, destination, entryMovingFloorBuffer))
+            return false;
+
+        CollectFinalFloorBlockers(entryBlockerBuffer);
+        railBlockedCells.Clear();
+        for (int b = 0; b < entryBlockerBuffer.Count; b++)
+        {
+            Bounds bounds = entryBlockerBuffer[b];
+            float size = UnitWorldSize;
+            int startX = Mathf.CeilToInt((bounds.min.x + size * 0.5f - 0.001f) / size);
+            int endX = Mathf.FloorToInt((bounds.max.x - size * 0.5f + 0.001f) / size);
+            int startY = Mathf.CeilToInt((bounds.min.y + size * 0.5f - 0.001f) / size);
+            int endY = Mathf.FloorToInt((bounds.max.y - size * 0.5f + 0.001f) / size);
+            if (startX > endX || startY > endY)
+            {
+                railBlockedCells.Add(new Vector2Int(
+                    Mathf.RoundToInt(bounds.center.x / size),
+                    Mathf.RoundToInt(bounds.center.y / size)));
+                continue;
+            }
+            for (int y = startY; y <= endY; y++)
+                for (int x = startX; x <= endX; x++)
+                    railBlockedCells.Add(new Vector2Int(x, y));
+        }
+
+        Vector2 direction = Cardinalize(sourceDirection);
+        Vector2Int step = new(Mathf.RoundToInt(direction.x), Mathf.RoundToInt(direction.y));
+        int steps = Mathf.CeilToInt(Mathf.Max(0f, entryOffset) / UnitWorldSize) + 1;
+        for (int i = 0; i < entryMovingFloorBuffer.Count; i++)
+        {
+            Bounds cellBounds = entryMovingFloorBuffer[i];
+            if (cellBounds.size.x > UnitWorldSize * 1.25f ||
+                cellBounds.size.y > UnitWorldSize * 1.25f)
+                return false; // Do not assume a non-tile renderer is a single cell.
+
+            Vector2Int destinationCell = new(
+                Mathf.RoundToInt(cellBounds.center.x / UnitWorldSize),
+                Mathf.RoundToInt(cellBounds.center.y / UnitWorldSize));
+            for (int n = 0; n <= steps; n++)
+            {
+                if (railBlockedCells.Contains(destinationCell + step * n))
+                    return false;
+            }
+        }
+        return true;
+    }
+
+    private Vector2 ResolveSafeWheelSlideSourceDirection(
+        Vector3 destination, Vector2 preferredDirection)
     {
         Vector2 primary = Cardinalize(preferredDirection);
         if (!avoidExistingTilePenetration || entryOffset <= 0.01f)
             return primary;
 
+        if (strictProceduralRail)
+            return IsStrictGridRailClear(destination, primary) ? primary : Vector2.zero;
+
         entryMovingFloorBuffer.Clear();
         if (!AppendFloorBoundsAtRootPosition(this, destination, entryMovingFloorBuffer))
             return primary;
-
         CollectFinalFloorBlockers(entryBlockerBuffer);
-        if (entryBlockerBuffer.Count == 0)
-            return primary;
-
-        Vector2 perpendicularA = new(-primary.y, primary.x);
-        Vector2 perpendicularB = -perpendicularA;
-        Vector2 opposite = -primary;
-
-        Vector2[] candidates =
+        Vector2[] directions = { primary, new(-primary.y, primary.x),
+            new(primary.y, -primary.x), -primary };
+        for (int i = 0; i < directions.Length; i++)
         {
-            primary,
-            perpendicularA,
-            perpendicularB,
-            opposite
-        };
-
-        for (int i = 0; i < candidates.Length; i++)
-        {
-            if (IsEntryPathClear(destination, candidates[i], entryMovingFloorBuffer, entryBlockerBuffer))
-                return candidates[i];
+            if (IsEntryPathClear(destination, directions[i],
+                    entryMovingFloorBuffer, entryBlockerBuffer))
+                return directions[i];
         }
-
-        // Attempt a collision-free multi-leg rail before falling back to a staged approach.
         return Vector2.zero;
     }
 
-    private bool TryBuildDetourEntryRoute(
-        Vector3 destination,
-        Vector2 preferredDirection,
-        out List<Vector3> entryWaypoints,
-        out Vector2 finalTravelDirection)
-    {
-        entryWaypoints = null;
-        finalTravelDirection = Vector2.zero;
-
-        HashSet<Vector2Int> moving = new();
-        HashSet<Vector2Int> blockers = new();
-        for (int i = 0; i < entryMovingFloorBuffer.Count; i++)
-        {
-            Bounds bounds = entryMovingFloorBuffer[i];
-            if (bounds.size.x > UnitWorldSize * 1.5f ||
-                bounds.size.y > UnitWorldSize * 1.5f)
-                return false; // Legacy multi-tile decorations are not tile rails.
-            moving.Add(new Vector2Int(
-                Mathf.RoundToInt(bounds.center.x / UnitWorldSize),
-                Mathf.RoundToInt(bounds.center.y / UnitWorldSize)));
-        }
-
-        for (int i = 0; i < entryBlockerBuffer.Count; i++)
-        {
-            Bounds bounds = entryBlockerBuffer[i];
-            int minX = Mathf.CeilToInt((bounds.min.x + 0.05f) / UnitWorldSize);
-            int maxX = Mathf.FloorToInt((bounds.max.x - 0.05f) / UnitWorldSize);
-            int minY = Mathf.CeilToInt((bounds.min.y + 0.05f) / UnitWorldSize);
-            int maxY = Mathf.FloorToInt((bounds.max.y - 0.05f) / UnitWorldSize);
-            for (int y = minY; y <= maxY; y++)
-                for (int x = minX; x <= maxX; x++)
-                    blockers.Add(new Vector2Int(x, y));
-        }
-
-        Vector2 cardinal = Cardinalize(preferredDirection);
-        Vector2Int preferCell = new(Mathf.RoundToInt(cardinal.x), Mathf.RoundToInt(cardinal.y));
-        if (!BattleTileRailPlanner.TryFindExitRoute(
-                moving, blockers, preferCell,
-                out List<Vector2Int> outwardOffsets,
-                out Vector2Int outward))
-            return false;
-
-        entryWaypoints = new List<Vector3>(outwardOffsets.Count + 2);
-        // Begin outside the occupied stage, then follow the rigid tile rail in reverse.
-        for (int i = outwardOffsets.Count - 1; i >= 0; i--)
-        {
-            Vector2Int offset = outwardOffsets[i];
-            entryWaypoints.Add(destination + new Vector3(
-                offset.x * UnitWorldSize, offset.y * UnitWorldSize, 0f));
-        }
-        entryWaypoints.Add(destination);
-
-        Vector2Int nearDestination = outwardOffsets[0];
-        finalTravelDirection = -new Vector2(nearDestination.x, nearDestination.y).normalized;
-        entryWaypoints.Insert(0, entryWaypoints[0] + new Vector3(
-            outward.x * entryOffset, outward.y * entryOffset, 0f));
-        return true;
-    }
-
-    /// <summary>
-    /// Called only by the procedural assembly composer before committing a whole group.
-    /// If a rigid group cannot arrive without crossing another tile, the composer
-    /// subdivides that group into its constituent movable pieces.
-    /// </summary>
     public bool HasCollisionFreeEntry(Vector3 destination, Vector2 preferredDirection)
     {
-        if (entryType != MapBlockEntryType.WheelSlide ||
-            !avoidExistingTilePenetration || entryOffset <= 0.01f)
+        if (entryType != MapBlockEntryType.WheelSlide)
             return true;
-
-        Vector2 primary = Cardinalize(preferredDirection);
-        if (ResolveSafeWheelSlideSourceDirection(destination, primary).sqrMagnitude > 0.001f)
-            return true;
-
-        return TryBuildDetourEntryRoute(
-            destination, primary, out _, out _);
+        return ResolveSafeWheelSlideSourceDirection(
+            destination, preferredDirection).sqrMagnitude > 0.001f;
     }
 
     private bool IsEntryPathClear(
@@ -787,8 +763,6 @@ public class MapBlock : MonoBehaviour
 
         Vector3 start = destination;
         Vector2 sourceDirection;
-        List<Vector3> entryWaypoints = null;
-        Vector2 finalApproachDirection = Vector2.zero;
         Vector2 preferred = preferredDirection.sqrMagnitude > 0.001f
             ? preferredDirection.normalized
             : Vector2.right;
@@ -809,28 +783,13 @@ public class MapBlock : MonoBehaviour
                 sourceDirection = ResolveSafeWheelSlideSourceDirection(destination, preferred);
                 if (sourceDirection.sqrMagnitude <= 0.001f)
                 {
-                    if (TryBuildDetourEntryRoute(
-                            destination, preferred, out entryWaypoints,
-                            out finalApproachDirection))
-                    {
-                        start = entryWaypoints[0];
-                        sourceDirection = (start - destination).normalized;
-                    }
-                    else
-                    {
-                        // No rigid translation path exists: retain visible motion,
-                        // without the old instant snap, behind the stage floor.
-                        Debug.LogWarning(
-                            $"[MapBlock] '{name}' has no collision-free entry route. " +
-                            "Using a staged approach rather than snapping.", this);
-                        sourceDirection = preferred;
-                        start += (Vector3)(sourceDirection * entryOffset);
-                    }
+                    Debug.LogError(
+                        $"[MapBlock] Blocked rail for '{name}'. Entry rejected: " +
+                        "passing through existing tile floors is forbidden.", this);
+                    // Caller must discard/replan this tile, never force entry.
+                    return DOTween.Sequence().AppendInterval(0.01f);
                 }
-                else
-                {
-                    start += (Vector3)(sourceDirection * entryOffset);
-                }
+                start += (Vector3)(sourceDirection * entryOffset);
                 break;
         }
 
@@ -840,9 +799,7 @@ public class MapBlock : MonoBehaviour
             hasEntrySourceDirection = true;
         }
 
-        Vector2 travelDirection = entryWaypoints != null
-            ? finalApproachDirection
-            : ((Vector2)destination - (Vector2)start).normalized;
+        Vector2 travelDirection = ((Vector2)destination - (Vector2)start).normalized;
         if (travelDirection.sqrMagnitude <= 0.001f)
             travelDirection = -sourceDirection;
 
@@ -883,31 +840,7 @@ public class MapBlock : MonoBehaviour
         if (safeDelay > 0f)
             sequence.AppendInterval(safeDelay);
 
-        if (entryWaypoints != null)
-        {
-            float totalLength = 0f;
-            Vector3 previousPosition = start;
-            for (int i = 1; i < entryWaypoints.Count; i++)
-            {
-                totalLength += Vector3.Distance(previousPosition, entryWaypoints[i]);
-                previousPosition = entryWaypoints[i];
-            }
-            previousPosition = start;
-            for (int i = 1; i < entryWaypoints.Count; i++)
-            {
-                Vector3 nextPosition = entryWaypoints[i];
-                float portion = Vector3.Distance(previousPosition, nextPosition) /
-                                Mathf.Max(0.001f, totalLength);
-                sequence.Append(
-                    transform.DOMove(nextPosition, Mathf.Max(0.001f, approachTime * portion))
-                        .SetEase(i == entryWaypoints.Count - 1 ? entryEase : Ease.Linear));
-                previousPosition = nextPosition;
-            }
-        }
-        else
-        {
-            sequence.Append(transform.DOMove(destination, approachTime).SetEase(entryEase));
-        }
+        sequence.Append(transform.DOMove(destination, approachTime).SetEase(entryEase));
 
         Vector3 contactPoint = GetImpactContactPoint(destination, travelDirection);
         bool hasLegacyImpactListener = Impacted != null;
@@ -1025,141 +958,6 @@ public class MapBlock : MonoBehaviour
 /// crowded/freeform layouts may use a short orthogonal detour instead of teleport/fade.
 /// The persistent Base is supplied as blocked tiles by the caller.
 /// </summary>
-internal static class BattleTileRailPlanner
-{
-    private static readonly Vector2Int[] Directions =
-    {
-        Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down
-    };
-
-    public static bool TryFindExitRoute(
-        IReadOnlyCollection<Vector2Int> moving,
-        HashSet<Vector2Int> blockers,
-        Vector2Int preferred,
-        out List<Vector2Int> offsets,
-        out Vector2Int escapeDirection)
-    {
-        offsets = null;
-        escapeDirection = Vector2Int.zero;
-        if (moving == null || moving.Count == 0)
-            return false;
-
-        HashSet<Vector2Int> shape = new(moving);
-        HashSet<Vector2Int> occupied = blockers != null
-            ? new HashSet<Vector2Int>(blockers)
-            : new HashSet<Vector2Int>();
-        occupied.ExceptWith(shape);
-
-        int minX = int.MaxValue, minY = int.MaxValue;
-        int maxX = int.MinValue, maxY = int.MinValue;
-        foreach (Vector2Int c in occupied)
-        {
-            minX = Mathf.Min(minX, c.x);
-            minY = Mathf.Min(minY, c.y);
-            maxX = Mathf.Max(maxX, c.x);
-            maxY = Mathf.Max(maxY, c.y);
-        }
-
-        if (occupied.Count == 0)
-        {
-            escapeDirection = preferred == Vector2Int.zero ? Vector2Int.right : preferred;
-            offsets = new List<Vector2Int> { escapeDirection };
-            return true;
-        }
-
-        // Room sizes are small (typically 20-40 tiles). Search rigid translation
-        // offsets, not individual tile paths, so every tile moves as one connected plate.
-        int shapeMinX = int.MaxValue, shapeMinY = int.MaxValue;
-        int shapeMaxX = int.MinValue, shapeMaxY = int.MinValue;
-        foreach (Vector2Int c in shape)
-        {
-            shapeMinX = Mathf.Min(shapeMinX, c.x);
-            shapeMinY = Mathf.Min(shapeMinY, c.y);
-            shapeMaxX = Mathf.Max(shapeMaxX, c.x);
-            shapeMaxY = Mathf.Max(shapeMaxY, c.y);
-        }
-
-        int limit = Mathf.Clamp(
-            Mathf.Max(maxX - minX, maxY - minY) +
-            Mathf.Max(shapeMaxX - shapeMinX, shapeMaxY - shapeMinY) + 8,
-            12, 96);
-        Vector2Int[] directions = PreferredFirst(preferred);
-        Queue<Vector2Int> frontier = new();
-        Dictionary<Vector2Int, Vector2Int> previous = new();
-        Vector2Int origin = Vector2Int.zero;
-        frontier.Enqueue(origin);
-        previous.Add(origin, origin);
-        const int maxVisited = 18000;
-
-        while (frontier.Count > 0 && previous.Count < maxVisited)
-        {
-            Vector2Int offset = frontier.Dequeue();
-            bool outsideRight = shapeMinX + offset.x > maxX + 1;
-            bool outsideLeft = shapeMaxX + offset.x < minX - 1;
-            bool outsideUp = shapeMinY + offset.y > maxY + 1;
-            bool outsideDown = shapeMaxY + offset.y < minY - 1;
-
-            if (offset != origin && (outsideRight || outsideLeft || outsideUp || outsideDown))
-            {
-                escapeDirection = outsideRight ? Vector2Int.right :
-                                  outsideLeft ? Vector2Int.left :
-                                  outsideUp ? Vector2Int.up : Vector2Int.down;
-                List<Vector2Int> reversed = new();
-                while (offset != origin)
-                {
-                    reversed.Add(offset);
-                    offset = previous[offset];
-                }
-                reversed.Reverse();
-                offsets = reversed;
-                return true;
-            }
-
-            for (int d = 0; d < directions.Length; d++)
-            {
-                Vector2Int next = offset + directions[d];
-                if (Mathf.Abs(next.x) > limit || Mathf.Abs(next.y) > limit ||
-                    previous.ContainsKey(next))
-                    continue;
-
-                bool clear = true;
-                foreach (Vector2Int cell in shape)
-                {
-                    if (!occupied.Contains(cell + next))
-                        continue;
-                    clear = false;
-                    break;
-                }
-
-                if (!clear)
-                    continue;
-                previous.Add(next, offset);
-                frontier.Enqueue(next);
-            }
-        }
-        return false;
-    }
-
-    private static Vector2Int[] PreferredFirst(Vector2Int preferred)
-    {
-        Vector2Int[] result = new Vector2Int[Directions.Length];
-        int index = 0;
-        for (int i = 0; i < Directions.Length; i++)
-        {
-            if (Directions[i] != preferred)
-                continue;
-            result[index++] = Directions[i];
-            break;
-        }
-        for (int i = 0; i < Directions.Length; i++)
-        {
-            if (Directions[i] != preferred)
-                result[index++] = Directions[i];
-        }
-        return result;
-    }
-}
-
 /// <summary>
 /// Player 이동 허용 여부를 결정하는 실제 바닥 Marker입니다.
 /// Trigger Collider는 물리 충돌용이 아니라 '여기에 실제 Field가 존재하는가' 판정 전용입니다.
