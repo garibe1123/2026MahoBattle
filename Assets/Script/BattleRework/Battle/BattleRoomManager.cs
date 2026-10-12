@@ -384,6 +384,9 @@ public class BattleRoomManager : MonoBehaviour
 
             Vector2 preferredDirection = Vector2.zero;
             int childCount = 0;
+            List<MapBlock> groupChildren = new();
+            List<MapBlockPlacement> groupPlacements = new();
+            List<Vector3> groupChildDestinations = new();
 
             for (int i = startIndex; i < endExclusive && i < placements.Count; i++)
             {
@@ -398,6 +401,9 @@ public class BattleRoomManager : MonoBehaviour
                 child.transform.SetParent(groupObject.transform, true);
                 child.name = $"AssemblySubPiece_{groupIndex + 1}_{childCount + 1}";
                 child.enabled = false;
+                groupChildren.Add(child);
+                groupPlacements.Add(placement);
+                groupChildDestinations.Add(childDestination);
 
                 preferredDirection += placement.entryDirection.sqrMagnitude > 0.001f
                     ? placement.entryDirection.normalized
@@ -427,6 +433,46 @@ public class BattleRoomManager : MonoBehaviour
             }
 
             Vector3 destination = roomOrigin.position;
+            if (groupChildren.Count > 1 &&
+                !groupBlock.HasCollisionFreeEntry(destination, preferredDirection))
+            {
+                // A rigid, grouped plate can wrap around the 4x4 base and have no
+                // possible planar entrance. Split ONLY that obstructed assembly;
+                // each original piece retains its wheel/dock/impact presentation.
+                Debug.LogWarning(
+                    $"[BattleRoom] Assembly group {groupIndex + 1} cannot dock as one rigid plate. " +
+                    "Entering constituent pieces on individually validated rails instead.",
+                    groupBlock);
+
+                groupBlock.enabled = false;
+                float lastFinish = nextDelay;
+                for (int i = 0; i < groupChildren.Count; i++)
+                {
+                    MapBlock child = groupChildren[i];
+                    MapBlockPlacement placement = groupPlacements[i];
+                    if (child == null)
+                        continue;
+
+                    child.transform.SetParent(parent, true);
+                    child.enabled = true;
+                    if (child.WillImpact)
+                        child.Impacted += HandleMapBlockImpact;
+
+                    // ResolveEntryDelay scales walkable blocks, so normalize the
+                    // requested delay before using the public entry API.
+                    float requestedDelay = child.GetEntryDelayParameterForStart(lastFinish);
+                    child.PlayEnter(
+                        groupChildDestinations[i], placement.entryDirection, requestedDelay);
+                    activeBlocks.Add(child);
+                    lastFinish = child.GetEntryDuration(requestedDelay);
+                }
+
+                Destroy(groupObject);
+                longest = Mathf.Max(longest, lastFinish);
+                nextDelay = lastFinish;
+                continue;
+            }
+
             groupBlock.PlayEnter(destination, preferredDirection, nextDelay);
             activeBlocks.Add(groupBlock);
 
