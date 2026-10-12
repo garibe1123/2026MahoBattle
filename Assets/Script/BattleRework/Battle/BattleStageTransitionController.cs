@@ -657,6 +657,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         {
             int wave = exitOrder[cursor].exitWave;
             List<CollapseExitPlan> wavePlans = new();
+            List<Sequence> waveTweens = new();
             float waveDuration = 0f;
             int waveIndex = 0;
 
@@ -730,12 +731,40 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 }
 
                 waveDuration = Mathf.Max(waveDuration, delay + Mathf.Max(0.01f, plan.exitDuration));
+                waveTweens.Add(sequence);
                 wavePlans.Add(plan);
                 waveIndex++;
             }
 
-            if (waveDuration > 0f)
-                yield return new WaitForSecondsRealtime(waveDuration);
+            // Never deactivate the tile because a calculated timer elapsed while
+            // the last easing segment is still playing. The actual tween owns completion.
+            float waveDeadline = Time.realtimeSinceStartup + Mathf.Max(2f, waveDuration + 2f);
+            while (Time.realtimeSinceStartup < waveDeadline)
+            {
+                bool stillMoving = false;
+                for (int i = 0; i < waveTweens.Count; i++)
+                {
+                    Sequence tween = waveTweens[i];
+                    if (tween != null && tween.IsActive() && !tween.IsComplete())
+                    {
+                        stillMoving = true;
+                        break;
+                    }
+                }
+                if (!stillMoving)
+                    break;
+                yield return null;
+            }
+
+            for (int i = 0; i < waveTweens.Count; i++)
+            {
+                Sequence tween = waveTweens[i];
+                if (tween != null && tween.IsActive() && !tween.IsComplete())
+                {
+                    Debug.LogWarning("[BattleStageFlow] Tile exit tween timed out; finishing its rail before retirement.", this);
+                    tween.Complete(true);
+                }
+            }
 
             for (int i = 0; i < wavePlans.Count; i++)
             {
