@@ -130,7 +130,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private BattleRunManager graphOwner;
     private NodeGraphSO graph;
 
-    private readonly Dictionary<string, ProceduralRoomLayout> roomLayouts = new();
     private readonly HashSet<Vector2Int> currentTargetLocalTiles = new();
 
     private Vector2Int currentBaseWorldTile;
@@ -254,7 +253,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         graphOwner = runManager;
         graph = nextGraph;
-        roomLayouts.Clear();
         currentTargetLocalTiles.Clear();
         scriptSelectionActive = runManager != null && runManager.WaitingForNodeSelection;
         scriptSelectionLocked = false;
@@ -340,7 +338,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void HandleRunEnded(RunEndReason _)
     {
         scriptSelectionActive = false;
-        roomLayouts.Clear();
         currentTargetLocalTiles.Clear();
         RefreshScriptSelection();
     }
@@ -361,7 +358,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         currentBaseWorldTile = WorldToTile(baseOriginWorld);
         SetRoomOrigin(baseOriginWorld);
 
-        ProceduralRoomLayout layout = GetOrCreateLayout(node);
+        ProceduralRoomLayout layout = GenerateBaseSeededLayout(node);
         if (layout == null || layout.targetCells.Count <= RoomBaseTemplate.FixedBaseTiles * RoomBaseTemplate.FixedBaseTiles)
             return;
 
@@ -464,26 +461,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         }
     }
 
-    private ProceduralRoomLayout GetOrCreateLayout(BattleNodeData node)
-    {
-        if (node == null || node.room == null)
-            return null;
-
-        if (roomLayouts.TryGetValue(node.id, out ProceduralRoomLayout cached))
-            return cached;
-
-        ProceduralRoomLayout layout = GenerateBaseSeededLayout(node);
-        roomLayouts[node.id] = layout;
-        return layout;
-    }
-
     private ProceduralRoomLayout GenerateBaseSeededLayout(BattleNodeData node)
     {
         RoomDefinitionSO room = node.room;
         Vector2Int min = room.GetProceduralMinTileSize();
         Vector2Int max = room.GetProceduralMaxTileSize();
 
-        int seed = StableHash(node.id) ^ StableHash(room.roomId) ^ room.proceduralSeed;
+        // The stage is new each visit: keep the authored seed as a theme, not a fixed room anchor.
+        int seed = StableHash(node.id) ^ StableHash(room.roomId) ^ room.proceduralSeed ^
+                   UnityEngine.Random.Range(1, int.MaxValue);
         System.Random random = new(seed);
 
         Vector2Int size = room.useProceduralRoom
@@ -518,16 +504,44 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             positiveTarget = BuildRectangle(size);
         }
 
+        // A complete 4x4 pocket can serve as the landing point. The room translates
+        // around the persistent Base instead of always centering the Base in the room.
+        List<Vector2Int> validAnchors = new();
+        for (int y = 0; y <= size.y - RoomBaseTemplate.FixedBaseTiles; y++)
+        {
+            for (int x = 0; x <= size.x - RoomBaseTemplate.FixedBaseTiles; x++)
+            {
+                Vector2Int candidate = new(x, y);
+                bool complete = true;
+                for (int by = 0; by < RoomBaseTemplate.FixedBaseTiles && complete; by++)
+                {
+                    for (int bx = 0; bx < RoomBaseTemplate.FixedBaseTiles; bx++)
+                    {
+                        if (!positiveTarget.Contains(candidate + new Vector2Int(bx, by)))
+                        {
+                            complete = false;
+                            break;
+                        }
+                    }
+                }
+                if (complete)
+                    validAnchors.Add(candidate);
+            }
+        }
+
+        Vector2Int chosenBaseStart = validAnchors.Count > 0
+            ? validAnchors[random.Next(validAnchors.Count)]
+            : positiveBaseStart;
         HashSet<Vector2Int> targetLocal = new();
         foreach (Vector2Int cell in positiveTarget)
-            targetLocal.Add(cell - positiveBaseStart);
+            targetLocal.Add(cell - chosenBaseStart);
 
         HashSet<Vector2Int> baseCells = CreateBaseCells();
         if (!baseCells.IsSubsetOf(targetLocal))
         {
             targetLocal.Clear();
             foreach (Vector2Int cell in BuildRectangle(size))
-                targetLocal.Add(cell - positiveBaseStart);
+                targetLocal.Add(cell - chosenBaseStart);
         }
 
         return new ProceduralRoomLayout(size, targetLocal, shape);
@@ -4490,47 +4504,6 @@ internal static class SpatialRuntimeSpriteCache
         return sprite;
     }
 }
-
-#if UNITY_EDITOR
-[UnityEditor.InitializeOnLoad]
-internal static class BattleStageSelectTestDefaultsEditor
-{
-    static BattleStageSelectTestDefaultsEditor()
-    {
-        UnityEditor.EditorApplication.delayCall += Apply;
-    }
-
-    private static void Apply()
-    {
-        if (UnityEditor.EditorApplication.isPlayingOrWillChangePlaymode)
-            return;
-
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_A.asset", new Vector2Int(14, 15), new Vector2Int(18, 20));
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_B.asset", new Vector2Int(15, 16), new Vector2Int(21, 20));
-        ConfigureRoom("Assets/Resources/BattleTestDefaults/TEST_Room_ELITE.asset", new Vector2Int(17, 17), new Vector2Int(22, 22));
-
-        UnityEditor.AssetDatabase.SaveAssets();
-    }
-
-    private static void ConfigureRoom(string path, Vector2Int min, Vector2Int max)
-    {
-        RoomDefinitionSO room = UnityEditor.AssetDatabase.LoadAssetAtPath<RoomDefinitionSO>(path);
-        if (room == null)
-            return;
-
-        room.startBaseTileSize = new Vector2Int(4, 4);
-        room.useProceduralRoom = true;
-        room.useLargeRoomPiece = true;
-        room.largePieceShape = RoomLargePieceShape.Auto;
-        room.proceduralMinTileSize = min;
-        room.proceduralMaxTileSize = max;
-        room.proceduralMinChunkTileSize = Mathf.Max(RoomDefinitionSO.MinimumPassageTiles, 4);
-        room.repositionPlayerOnEnter = false;
-        UnityEditor.EditorUtility.SetDirty(room);
-    }
-}
-#endif
-
 
 internal sealed class BattleScriptCardVisual :
     MonoBehaviour,
