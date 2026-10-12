@@ -1,10 +1,11 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Reward/Map Show가 사용할 최소 staging shell만 생성합니다.
+/// Reward 및 Script Selection이 사용할 최소 staging shell만 생성합니다.
 ///
 /// 현재 ownership:
 /// - Combat HP/ST/PACK: BattleKineticLoadoutUI
@@ -12,11 +13,13 @@ using UnityEngine.UI;
 /// - Reward 카드/결정/포기: BattleRewardCardActionController
 /// - Reward business state: BattleRewardFlow
 /// - PACK/Grid/Detail: BattleUnifiedInventoryInspectController
-/// - Map 내용/노드: BattleSpatialMapController
+/// - Script Selection 카드/대본: BattleSpatialMapController
 /// - TV/Carrier/Presenter/Show Camera: BattleShowWorldSetController
 ///
 /// 이 클래스는 Reward 선택 상태, Reward Drag/Drop, Show Camera, Spotlight를 소유하지 않습니다.
-/// PrizeSelectionScreen / MapSelectionScreen은 WorldSet이 실제 World-Space TV로 옮겨 쓰는 staging shell입니다.
+/// PrizeSelectionScreen은 Reward TV staging shell입니다.
+/// Script Selection은 독립 World-Space Canvas로 분리되어 있으며,
+/// 기존 MapSelectionScreen / MapSelectionContent 오브젝트명은 씬/런타임 호환을 위해서만 유지합니다.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleHUD : MonoBehaviour
@@ -47,20 +50,26 @@ public sealed class BattleHUD : MonoBehaviour
     private GameObject showStagingRoot;
     private RectTransform rewardScreenRect;
     private RectTransform rewardCardRoot;
-    private RectTransform mapScreenRect;
-    private RectTransform mapSelectionRoot;
+    private RectTransform scriptSelectionStagingScreenRect;
+    private RectTransform scriptSelectionRoot;
     private Image presenterMetadataImage;
 
     private BattleRunManager subscribedRunManager;
 
-    /// <summary>BattleSpatialMapController가 Stage Map을 생성하는 공용 TV 내용 Root입니다.</summary>
-    public RectTransform MapSelectionRoot => mapSelectionRoot;
+    /// <summary>BattleSpatialMapController가 대본 카드를 생성하는 Script Selection Root입니다.</summary>
+    public RectTransform ScriptSelectionRoot => scriptSelectionRoot;
+
+    /// <summary>Script Selection 콘텐츠가 최초 생성되는 레거시 staging shell입니다.</summary>
+    public RectTransform ScriptSelectionStagingScreenRoot => scriptSelectionStagingScreenRect;
+
+    [Obsolete("Use ScriptSelectionRoot. Map route presentation has been replaced by Script Selection.")]
+    public RectTransform MapSelectionRoot => ScriptSelectionRoot;
 
     /// <summary>Show 계층을 직접 탐색하지 않아도 되는 명시적 Reward Screen 참조입니다.</summary>
     public RectTransform RewardScreenRoot => rewardScreenRect;
 
-    /// <summary>Show 계층을 직접 탐색하지 않아도 되는 명시적 Map Screen 참조입니다.</summary>
-    public RectTransform MapScreenRoot => mapScreenRect;
+    [Obsolete("Use ScriptSelectionStagingScreenRoot. This is only a legacy staging shell.")]
+    public RectTransform MapScreenRoot => ScriptSelectionStagingScreenRoot;
 
     private void Awake()
     {
@@ -207,10 +216,12 @@ public sealed class BattleHUD : MonoBehaviour
         ApplyPresenterMetadata();
 
         rewardScreenRect = BuildRewardScreenShell(showStagingRoot.transform);
-        mapScreenRect = BuildMapScreenShell(showStagingRoot.transform);
+        scriptSelectionStagingScreenRect =
+            BuildScriptSelectionStagingShell(
+                showStagingRoot.transform);
 
         rewardScreenRect.gameObject.SetActive(false);
-        mapScreenRect.gameObject.SetActive(false);
+        scriptSelectionStagingScreenRect.gameObject.SetActive(false);
     }
 
     private RectTransform BuildRewardScreenShell(Transform parent)
@@ -265,7 +276,7 @@ public sealed class BattleHUD : MonoBehaviour
         return screenRect;
     }
 
-    private RectTransform BuildMapScreenShell(Transform parent)
+    private RectTransform BuildScriptSelectionStagingShell(Transform parent)
     {
         GameObject screen = CreatePanel(parent, "MapSelectionScreen", showScreenSize, new Color(0.025f, 0.020f, 0.055f, 0.985f));
         RectTransform screenRect = screen.GetComponent<RectTransform>();
@@ -282,10 +293,15 @@ public sealed class BattleHUD : MonoBehaviour
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
 
-        GameObject mapRoot = new("MapSelectionContent");
-        mapRoot.transform.SetParent(inner.transform, false);
-        mapSelectionRoot = mapRoot.AddComponent<RectTransform>();
-        SetAnchors(mapSelectionRoot, new Vector2(0.025f, 0.055f), new Vector2(0.975f, 0.94f));
+        // Object names stay legacy-compatible because existing scene/runtime
+        // lookups may still reference them. Ownership is Script Selection only.
+        GameObject scriptRoot = new("MapSelectionContent");
+        scriptRoot.transform.SetParent(inner.transform, false);
+        scriptSelectionRoot = scriptRoot.AddComponent<RectTransform>();
+        SetAnchors(
+            scriptSelectionRoot,
+            new Vector2(0.025f, 0.055f),
+            new Vector2(0.975f, 0.94f));
 
         return screenRect;
     }

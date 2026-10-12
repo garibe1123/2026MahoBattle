@@ -1313,10 +1313,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
 
         ResolveSystems();
-        if (hud == null || hud.MapSelectionRoot == null)
+        if (hud == null || hud.ScriptSelectionRoot == null)
             return;
 
-        scriptSelectionPanel = hud.MapSelectionRoot;
+        scriptSelectionPanel = hud.ScriptSelectionRoot;
         scriptSelectionCanvas = scriptSelectionPanel.GetComponentInParent<Canvas>();
         scriptSelectionCanvasGroup = scriptSelectionPanel.GetComponent<CanvasGroup>();
         if (scriptSelectionCanvasGroup == null)
@@ -1324,8 +1324,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         scriptSelectionCanvasGroup.alpha = 0f;
         scriptSelectionPanelRestPosition = scriptSelectionPanel.anchoredPosition;
-        resolvedMapHorizontalSpacing = mapHorizontalSpacing;
-        resolvedMapVerticalSpacing = mapVerticalSpacing;
     }
 
     private void RefreshScriptSelection()

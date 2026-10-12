@@ -5,74 +5,35 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 /// <summary>
-/// Script Selection UI.
-/// 내부적으로는 기존 NodeGraph/SelectingNode를 그대로 사용하지만,
-/// 플레이어에게는 "다음 맵 경로"가 아니라 "다음 공연 대본/장면"을 고르는 화면으로 보입니다.
+/// Legacy-named compatibility component for the detached Script Selection canvas.
 ///
-/// - Reward 쪽 장식이 공용 TV Frame에 남아도 Script Select에서는 정렬/톤을 다시 잡습니다.
-/// - Legacy object name인 MapSelectionContent를 Script Selection 전용 World-Space 영역으로 재사용합니다.
-/// - 선택 가능한 Script Node만 강하게 강조합니다.
-/// - Hover는 "대본 읽기", Click은 "대본 확정" 의미로 표현합니다.
-/// - NodeGraph는 런타임 진행 데이터로만 유지하고, 이 컴포넌트는 Script Selection 표현만 담당합니다.
+/// The old Stage Map node/link renderer has been removed. BattleSpatialMapController
+/// owns the actual script cards, page interaction, hover tracking and confirmation.
+/// This component only keeps the detached Script Selection root unclipped and
+/// interactive while BattleRunManager is in SelectingNode.
+///
+/// The class/file name is intentionally preserved so existing scene references do
+/// not become Missing Script components.
 /// </summary>
 [DisallowMultipleComponent]
 [DefaultExecutionOrder(32580)]
 public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 {
-    private enum ScriptSelectionPresentationState
-    {
-        Hidden,
-        Entering,
-        Active,
-        Exiting
-    }
-    private const string SharedFrameName = "PrizeSelectionScreen";
-    private const string ScreenInnerName = "ScreenInner";
-    private const string ViewportName = "ShowContentViewport";
-    private const string MapContentName = "MapSelectionContent";
-    private const string MountedTvName = "BattleShowMountedTV";
-    private const string RewardAccentName = "RewardKineticAccentLayer";
-    private const string ControlHintName = "ScriptControlHint";
+    private const string LegacyScriptSelectionContentName =
+        "MapSelectionContent";
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleHUD hud;
 
-    [Header("Script Selection Theme")]
-    [SerializeField] private Color inkColor = new(0.028f, 0.030f, 0.040f, 0.995f);
-    [SerializeField] private Color panelColor = new(0.052f, 0.055f, 0.068f, 0.995f);
-    [SerializeField] private Color paperColor = new(0.93f, 0.90f, 0.80f, 1f);
-    [SerializeField] private Color mutedColor = new(0.36f, 0.39f, 0.46f, 0.76f);
-    [SerializeField] private Color availableColor = new(0.16f, 0.86f, 0.92f, 1f);
-    [SerializeField] private Color eliteColor = new(1f, 0.18f, 0.48f, 1f);
-    [SerializeField] private Color currentColor = new(0.66f, 0.90f, 0.96f, 1f);
-    [SerializeField, Min(56f)] private float selectableNodeSize = 76f;
-    [SerializeField, Min(64f)] private float eliteNodeSize = 86f;
-
-    private RectTransform sharedFrame;
-    private RectTransform screenInner;
-    private RectTransform viewport;
-    private RectTransform scriptSelectionContent;
-    private CanvasGroup viewportGroup;
-    private CanvasGroup scriptSelectionGroup;
-    private CanvasGroup tvGroup;
-    private Canvas tvCanvas;
-
-    private ScriptSelectionPresentationState scriptSelectionPresentationState = ScriptSelectionPresentationState.Hidden;
     private BattleRunManager subscribedRunManager;
+    private RectTransform scriptSelectionContent;
+    private CanvasGroup scriptSelectionGroup;
+    private Canvas scriptSelectionCanvas;
     private Coroutine refreshRoutine;
-    private bool rewardAccentsResolved;
 
-    private bool frameStateCaptured;
-    private Quaternion originalFrameRotation;
-    private Color originalFrameColor;
-    private Color originalFrameOutlineColor;
-    private Vector2 originalFrameOutlineDistance;
-    private Color originalInnerColor;
-    private Color originalInnerOutlineColor;
-    private Vector2 originalInnerOutlineDistance;
-
-    private readonly Dictionary<Behaviour, bool> clippingStates = new();
-    private readonly Dictionary<GameObject, bool> rewardAccentStates = new();
+    private readonly Dictionary<Behaviour, bool> clippingStates =
+        new();
 
     private void Awake()
     {
@@ -85,23 +46,40 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         SubscribeRunEvents();
 
         if (IsScriptSelectionActive())
-            EnterScriptSelectionPresentation();
+            QueueRefresh();
     }
 
     private void OnDisable()
     {
         if (refreshRoutine != null)
-            StopCoroutine(refreshRoutine);
-        refreshRoutine = null;
+        {
+            StopCoroutine(
+                refreshRoutine);
+
+            refreshRoutine = null;
+        }
 
         UnsubscribeRunEvents();
-        ExitScriptSelectionPresentation();
+        RestoreClipping();
     }
 
     private void OnDestroy()
     {
         UnsubscribeRunEvents();
-        RestoreScriptSelectionOnlyState();
+        RestoreClipping();
+    }
+
+    private void ResolveReferences()
+    {
+        if (runManager == null)
+            runManager =
+                FindFirstObjectByType<BattleRunManager>();
+
+        if (hud == null)
+            hud =
+                FindFirstObjectByType<BattleHUD>();
+
+        SubscribeRunEvents();
     }
 
     private void SubscribeRunEvents()
@@ -111,77 +89,77 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
 
         if (subscribedRunManager != null)
         {
-            subscribedRunManager.StateChanged -= HandleRunStateChanged;
-            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
-            subscribedRunManager.NodeEntered -= HandleNodeEntered;
+            subscribedRunManager.StateChanged -=
+                HandleRunStateChanged;
+
+            subscribedRunManager.NextNodeSelectionRequested -=
+                HandleNextNodeSelectionRequested;
+
+            subscribedRunManager.NodeEntered -=
+                HandleNodeEntered;
         }
 
-        subscribedRunManager = runManager;
+        subscribedRunManager =
+            runManager;
+
         if (subscribedRunManager != null)
         {
-            subscribedRunManager.StateChanged += HandleRunStateChanged;
-            subscribedRunManager.NextNodeSelectionRequested += HandleNextNodeSelectionRequested;
-            subscribedRunManager.NodeEntered += HandleNodeEntered;
+            subscribedRunManager.StateChanged +=
+                HandleRunStateChanged;
+
+            subscribedRunManager.NextNodeSelectionRequested +=
+                HandleNextNodeSelectionRequested;
+
+            subscribedRunManager.NodeEntered +=
+                HandleNodeEntered;
         }
     }
 
     private void UnsubscribeRunEvents()
     {
-        if (subscribedRunManager != null)
-        {
-            subscribedRunManager.StateChanged -= HandleRunStateChanged;
-            subscribedRunManager.NextNodeSelectionRequested -= HandleNextNodeSelectionRequested;
-            subscribedRunManager.NodeEntered -= HandleNodeEntered;
-        }
+        if (subscribedRunManager == null)
+            return;
+
+        subscribedRunManager.StateChanged -=
+            HandleRunStateChanged;
+
+        subscribedRunManager.NextNodeSelectionRequested -=
+            HandleNextNodeSelectionRequested;
+
+        subscribedRunManager.NodeEntered -=
+            HandleNodeEntered;
 
         subscribedRunManager = null;
     }
 
-    private void HandleRunStateChanged(BattleRunState state)
+    private void HandleRunStateChanged(
+        BattleRunState state)
     {
         if (state == BattleRunState.SelectingNode)
-            EnterScriptSelectionPresentation();
-        else if (scriptSelectionPresentationState != ScriptSelectionPresentationState.Hidden)
-            ExitScriptSelectionPresentation();
-    }
-
-    private void HandleNextNodeSelectionRequested(IReadOnlyList<BattleNodeData> _)
-    {
-        if (scriptSelectionPresentationState == ScriptSelectionPresentationState.Active ||
-            scriptSelectionPresentationState == ScriptSelectionPresentationState.Entering)
-        {
             QueueRefresh();
-        }
+        else
+            RestoreClipping();
     }
 
-    private void HandleNodeEntered(BattleNodeData _)
+    private void HandleNextNodeSelectionRequested(
+        IReadOnlyList<BattleNodeData> _)
     {
-        if (scriptSelectionPresentationState != ScriptSelectionPresentationState.Hidden)
-            ExitScriptSelectionPresentation();
+        QueueRefresh();
     }
 
-    private void EnterScriptSelectionPresentation()
+    private void HandleNodeEntered(
+        BattleNodeData _)
     {
-        if (!isActiveAndEnabled)
-            return;
-
-        scriptSelectionPresentationState = ScriptSelectionPresentationState.Entering;
-        ResolveUi();
-        CaptureFrameState();
-        ApplyScriptSelectionFrame();
-        MaintainInteraction();
-        ApplyScriptSelectionHierarchy();
-        scriptSelectionPresentationState = ScriptSelectionPresentationState.Active;
+        RestoreClipping();
     }
 
-    private void ExitScriptSelectionPresentation()
+    private bool IsScriptSelectionActive()
     {
-        if (scriptSelectionPresentationState == ScriptSelectionPresentationState.Hidden)
-            return;
-
-        scriptSelectionPresentationState = ScriptSelectionPresentationState.Exiting;
-        RestoreScriptSelectionOnlyState();
-        scriptSelectionPresentationState = ScriptSelectionPresentationState.Hidden;
+        return
+            runManager != null &&
+            runManager.RunActive &&
+            runManager.State ==
+            BattleRunState.SelectingNode;
     }
 
     private void QueueRefresh()
@@ -190,547 +168,242 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
             return;
 
         if (refreshRoutine != null)
-            StopCoroutine(refreshRoutine);
+            StopCoroutine(
+                refreshRoutine);
 
-        refreshRoutine = StartCoroutine(RefreshAfterLayout());
+        refreshRoutine =
+            StartCoroutine(
+                RefreshAfterLayout());
     }
 
     private IEnumerator RefreshAfterLayout()
     {
+        // WorldSet reparents the legacy staging content to the dedicated
+        // BattleScriptSelectionCanvas. Waiting one frame avoids fighting that move.
         yield return null;
+
         refreshRoutine = null;
 
         if (!IsScriptSelectionActive())
             yield break;
 
-        ResolveUi();
-        ApplyScriptSelectionFrame();
-        MaintainInteraction();
-        ApplyScriptSelectionHierarchy();
-        scriptSelectionPresentationState = ScriptSelectionPresentationState.Active;
+        ResolveScriptSelectionUi();
+        ApplyDetachedScriptSelectionPolicy();
     }
 
-    private bool IsScriptSelectionActive()
+    private void ResolveScriptSelectionUi()
     {
-        return runManager != null &&
-               runManager.RunActive &&
-               runManager.State == BattleRunState.SelectingNode;
-    }
+        if (hud == null)
+            hud =
+                FindFirstObjectByType<BattleHUD>();
 
-    private void ResolveReferences()
-    {
-        if (runManager == null)
-            runManager = FindFirstObjectByType<BattleRunManager>();
-
-        SubscribeRunEvents();
-    }
-
-    private void ResolveUi()
-    {
-        if (sharedFrame == null)
-            sharedFrame = FindRect(SharedFrameName);
-
-        if (screenInner == null && sharedFrame != null)
-            screenInner = sharedFrame.Find(ScreenInnerName) as RectTransform;
-
-        if (viewport == null && screenInner != null)
-            viewport = screenInner.Find(ViewportName) as RectTransform;
+        if (scriptSelectionContent == null &&
+            hud != null)
+        {
+            scriptSelectionContent =
+                hud.ScriptSelectionRoot;
+        }
 
         if (scriptSelectionContent == null)
-            scriptSelectionContent = FindRect(MapContentName);
-
-        if (viewportGroup == null && viewport != null)
-            viewportGroup = viewport.GetComponent<CanvasGroup>();
-
-        if (scriptSelectionGroup == null && scriptSelectionContent != null)
-            scriptSelectionGroup = scriptSelectionContent.GetComponent<CanvasGroup>();
-
-        if (tvCanvas == null && sharedFrame != null)
-            tvCanvas = sharedFrame.GetComponentInParent<Canvas>();
-
-        if (tvGroup == null)
         {
-            RectTransform mounted = FindRect(MountedTvName);
-            if (mounted != null)
-                tvGroup = mounted.GetComponent<CanvasGroup>();
+            scriptSelectionContent =
+                FindRect(
+                    LegacyScriptSelectionContentName);
         }
-    }
 
-    private void CaptureFrameState()
-    {
-        if (frameStateCaptured || sharedFrame == null)
+        if (scriptSelectionContent == null)
             return;
 
-        originalFrameRotation = sharedFrame.localRotation;
+        scriptSelectionGroup =
+            scriptSelectionContent.GetComponent<CanvasGroup>();
 
-        Image frameImage = sharedFrame.GetComponent<Image>();
-        Outline frameOutline = sharedFrame.GetComponent<Outline>();
-        Image innerImage = screenInner != null ? screenInner.GetComponent<Image>() : null;
-        Outline innerOutline = screenInner != null ? screenInner.GetComponent<Outline>() : null;
-
-        if (frameImage != null)
-            originalFrameColor = frameImage.color;
-        if (frameOutline != null)
+        if (scriptSelectionGroup == null)
         {
-            originalFrameOutlineColor = frameOutline.effectColor;
-            originalFrameOutlineDistance = frameOutline.effectDistance;
-        }
-        if (innerImage != null)
-            originalInnerColor = innerImage.color;
-        if (innerOutline != null)
-        {
-            originalInnerOutlineColor = innerOutline.effectColor;
-            originalInnerOutlineDistance = innerOutline.effectDistance;
+            scriptSelectionGroup =
+                scriptSelectionContent.gameObject
+                    .AddComponent<CanvasGroup>();
         }
 
-        frameStateCaptured = true;
+        scriptSelectionCanvas =
+            scriptSelectionContent
+                .GetComponentInParent<Canvas>();
     }
 
-    private void ApplyScriptSelectionFrame()
+    private void ApplyDetachedScriptSelectionPolicy()
     {
-        if (IsDetachedScriptSelection())
-        {
-            if (scriptSelectionContent != null)
-            {
-                scriptSelectionContent.anchorMin = Vector2.zero;
-                scriptSelectionContent.anchorMax = Vector2.one;
-                scriptSelectionContent.offsetMin = new Vector2(18f, 14f);
-                scriptSelectionContent.offsetMax = new Vector2(-18f, -14f);
-                scriptSelectionContent.pivot = new Vector2(0.5f, 0.5f);
-                scriptSelectionContent.localRotation = Quaternion.identity;
-            }
-
-            DisableScriptSelectionClipping(scriptSelectionContent);
-            DisableRewardAccentsDuringScriptSelection();
-            return;
-        }
-
-        if (sharedFrame == null)
+        if (scriptSelectionContent == null)
             return;
 
-        sharedFrame.localRotation = Quaternion.identity;
+        scriptSelectionContent.anchorMin =
+            Vector2.zero;
 
-        Image frameImage = sharedFrame.GetComponent<Image>();
-        if (frameImage != null)
-            frameImage.color = inkColor;
+        scriptSelectionContent.anchorMax =
+            Vector2.one;
 
-        Outline frameOutline = sharedFrame.GetComponent<Outline>();
-        if (frameOutline != null)
-        {
-            frameOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.34f);
-            frameOutline.effectDistance = new Vector2(2f, -2f);
-        }
+        scriptSelectionContent.offsetMin =
+            new Vector2(
+                18f,
+                14f);
 
-        if (screenInner != null)
-        {
-            Image innerImage = screenInner.GetComponent<Image>();
-            if (innerImage != null)
-                innerImage.color = panelColor;
+        scriptSelectionContent.offsetMax =
+            new Vector2(
+                -18f,
+                -14f);
 
-            Outline innerOutline = screenInner.GetComponent<Outline>();
-            if (innerOutline != null)
-            {
-                innerOutline.effectColor = new Color(currentColor.r, currentColor.g, currentColor.b, 0.16f);
-                innerOutline.effectDistance = new Vector2(1f, -1f);
-            }
-        }
+        scriptSelectionContent.pivot =
+            new Vector2(
+                0.5f,
+                0.5f);
 
-        if (scriptSelectionContent != null)
-        {
-            scriptSelectionContent.anchorMin = Vector2.zero;
-            scriptSelectionContent.anchorMax = Vector2.one;
-            scriptSelectionContent.offsetMin = Vector2.zero;
-            scriptSelectionContent.offsetMax = Vector2.zero;
-            scriptSelectionContent.pivot = new Vector2(0.5f, 0.5f);
-            scriptSelectionContent.localRotation = Quaternion.identity;
-        }
-
-        DisableScriptSelectionClipping(viewport);
-        DisableScriptSelectionClipping(scriptSelectionContent);
-        DisableRewardAccentsDuringScriptSelection();
-    }
-
-    private void MaintainInteraction()
-    {
-        if (viewportGroup != null)
-        {
-            viewportGroup.interactable = true;
-            viewportGroup.blocksRaycasts = true;
-        }
+        scriptSelectionContent.localRotation =
+            Quaternion.identity;
 
         if (scriptSelectionGroup != null)
         {
-            scriptSelectionGroup.interactable = true;
+            scriptSelectionGroup.interactable =
+                true;
+
             if (scriptSelectionGroup.alpha >= 0.75f)
-                scriptSelectionGroup.blocksRaycasts = true;
+            {
+                scriptSelectionGroup.blocksRaycasts =
+                    true;
+            }
         }
 
-        if (tvGroup != null)
+        DisableClipping(
+            scriptSelectionContent);
+
+        if (scriptSelectionCanvas != null)
         {
-            bool detachedScript =
-                IsDetachedScriptSelection();
+            if (scriptSelectionCanvas.renderMode !=
+                    RenderMode.ScreenSpaceOverlay &&
+                scriptSelectionCanvas.worldCamera == null)
+            {
+                scriptSelectionCanvas.worldCamera =
+                    Camera.main;
+            }
 
-            tvGroup.interactable =
-                !detachedScript;
-
-            tvGroup.blocksRaycasts =
-                !detachedScript;
-        }
-
-        if (tvCanvas != null)
-        {
-            if (tvCanvas.renderMode == RenderMode.WorldSpace && tvCanvas.worldCamera == null)
-                tvCanvas.worldCamera = Camera.main;
-
-            if (tvCanvas.GetComponent<GraphicRaycaster>() == null)
-                tvCanvas.gameObject.AddComponent<GraphicRaycaster>();
+            if (scriptSelectionCanvas
+                    .GetComponent<GraphicRaycaster>() ==
+                null)
+            {
+                scriptSelectionCanvas.gameObject
+                    .AddComponent<GraphicRaycaster>();
+            }
         }
 
         EnsureEventSystem();
     }
 
-    private void ApplyScriptSelectionHierarchy()
-    {
-        if (scriptSelectionContent == null)
-            return;
-
-        RectTransform[] all = scriptSelectionContent.GetComponentsInChildren<RectTransform>(true);
-        for (int i = 0; i < all.Length; i++)
-        {
-            RectTransform rect = all[i];
-            if (rect == null)
-                continue;
-
-            if (rect.name == "Title")
-            {
-                StyleTitle(rect);
-                continue;
-            }
-
-            if (rect.name == "Subtitle")
-            {
-                StyleSubtitle(rect);
-                continue;
-            }
-
-            if (rect.name == "StageLink")
-            {
-                StyleLink(rect);
-                continue;
-            }
-
-            if (rect.name.StartsWith("StageNode_", System.StringComparison.Ordinal))
-                StyleNode(rect);
-        }
-
-        EnsureControlHint();
-    }
-
-    private void StyleTitle(RectTransform rect)
-    {
-        Text text = rect.GetComponent<Text>();
-        if (text == null)
-            return;
-
-        text.text = "SCRIPT SELECT";
-        text.alignment = TextAnchor.MiddleLeft;
-        text.fontStyle = FontStyle.Bold;
-        text.fontSize = 24;
-        text.color = paperColor;
-
-        rect.anchorMin = new Vector2(0f, 1f);
-        rect.anchorMax = new Vector2(1f, 1f);
-        rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(42f, -16f);
-        rect.sizeDelta = new Vector2(-84f, 36f);
-        rect.localRotation = Quaternion.identity;
-    }
-
-    private void StyleSubtitle(RectTransform rect)
-    {
-        Text text = rect.GetComponent<Text>();
-        if (text == null)
-            return;
-
-        text.text = runManager != null && runManager.IsInStartArea
-            ? "CHOOSE THE OPENING SCRIPT"
-            : "CHOOSE THE NEXT SCRIPT";
-        text.alignment = TextAnchor.MiddleLeft;
-        text.fontStyle = FontStyle.Bold;
-        text.fontSize = 10;
-        text.color = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.95f);
-
-        rect.anchorMin = new Vector2(0f, 1f);
-        rect.anchorMax = new Vector2(1f, 1f);
-        rect.pivot = new Vector2(0f, 1f);
-        rect.anchoredPosition = new Vector2(42f, -48f);
-        rect.sizeDelta = new Vector2(-84f, 20f);
-        rect.localRotation = Quaternion.identity;
-    }
-
-    private void StyleLink(RectTransform rect)
-    {
-        Image image = rect.GetComponent<Image>();
-        if (image != null)
-            image.color = new Color(paperColor.r, paperColor.g, paperColor.b, 0.20f);
-
-        Vector2 size = rect.sizeDelta;
-        size.y = 3f;
-        rect.sizeDelta = size;
-    }
-
-    private void StyleNode(RectTransform rect)
-    {
-        Image image = rect.GetComponent<Image>();
-        Outline outline = rect.GetComponent<Outline>();
-        Button button = rect.GetComponent<Button>();
-        Text label = rect.Find("Label")?.GetComponent<Text>();
-        if (image == null || outline == null)
-            return;
-
-        bool selectable = button != null && button.interactable;
-        bool elite = label != null &&
-                     (label.text ?? string.Empty).IndexOf(
-                         "ELITE",
-                         System.StringComparison.OrdinalIgnoreCase) >= 0;
-        bool current = runManager != null &&
-                       runManager.CurrentNode != null &&
-                       rect.name == $"StageNode_{runManager.CurrentNode.id}";
-
-        BattleStageMapNodeVisualState visualState = current
-            ? BattleStageMapNodeVisualState.Current
-            : selectable
-                ? BattleStageMapNodeVisualState.Available
-                : BattleStageMapNodeVisualState.Locked;
-
-        Color stateAccent = current
-            ? currentColor
-            : selectable
-                ? elite ? eliteColor : availableColor
-                : mutedColor;
-
-        image.enabled = true;
-        // Locked nodes remain pointer-readable so invalid clicks can give explicit feedback.
-        // Current node is display-only.
-        image.raycastTarget = !current;
-
-        if (button != null)
-        {
-            button.transition = Selectable.Transition.None;
-            Navigation navigation = button.navigation;
-            navigation.mode = Navigation.Mode.None;
-            button.navigation = navigation;
-        }
-
-        float resolvedSize = selectable
-            ? elite
-                ? Mathf.Max(86f, eliteNodeSize)
-                : Mathf.Max(76f, selectableNodeSize)
-            : current
-                ? Mathf.Max(70f, selectableNodeSize * 0.92f)
-                : Mathf.Max(60f, selectableNodeSize * 0.82f);
-        rect.sizeDelta = Vector2.one * resolvedSize;
-
-        string nodeLabel = BuildNodeLabel(label != null ? label.text : string.Empty);
-        if (label != null)
-        {
-            label.text = nodeLabel;
-            label.fontStyle = visualState == BattleStageMapNodeVisualState.Locked
-                ? FontStyle.Normal
-                : FontStyle.Bold;
-            label.fontSize = visualState == BattleStageMapNodeVisualState.Locked ? 9 : 11;
-        }
-
-        BattleStageMapNodePointerFeedback feedback =
-            rect.GetComponent<BattleStageMapNodePointerFeedback>();
-        if (feedback == null)
-            feedback = rect.gameObject.AddComponent<BattleStageMapNodePointerFeedback>();
-
-        feedback.Configure(
-            image,
-            outline,
-            label,
-            visualState,
-            stateAccent,
-            inkColor,
-            paperColor,
-            mutedColor);
-        feedback.BindButton(button);
-    }
-
-    private void EnsureControlHint()
-    {
-        if (scriptSelectionContent == null || scriptSelectionContent.Find(ControlHintName) != null)
-            return;
-
-        RectTransform rect = CreateRect(scriptSelectionContent, ControlHintName, new Vector2(390f, 28f));
-        rect.anchorMin = rect.anchorMax = new Vector2(1f, 0f);
-        rect.pivot = new Vector2(1f, 0f);
-        rect.anchoredPosition = new Vector2(-28f, 18f);
-
-        Text text = rect.gameObject.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-        text.text = "HOVER = READ   //   CLICK = SELECT SCRIPT";
-        text.fontSize = 11;
-        text.fontStyle = FontStyle.Bold;
-        text.alignment = TextAnchor.MiddleRight;
-        text.color = availableColor;
-        text.raycastTarget = false;
-    }
-
-    private static string BuildNodeLabel(string source)
-    {
-        // Battle rating is rendered as five Image stars by BattleSpatialMapController.
-        // Keep the text label semantic-only so the node does not duplicate the same data.
-        return ExtractNodeType(source);
-    }
-
-    private static string ExtractNodeType(string source)
-    {
-        if (string.IsNullOrWhiteSpace(source))
-            return "SCENE";
-
-        string normalized = source.Replace("\r", string.Empty);
-        int newline = normalized.IndexOf('\n');
-        if (newline >= 0)
-            normalized = normalized.Substring(0, newline);
-
-        return normalized.Trim().ToUpperInvariant();
-    }
-
-    private void DisableScriptSelectionClipping(RectTransform root)
+    private void DisableClipping(
+        RectTransform root)
     {
         if (root == null)
             return;
 
-        RectMask2D rectMask = root.GetComponent<RectMask2D>();
-        if (rectMask != null)
+        RectMask2D[] rectMasks =
+            root.GetComponentsInParent<RectMask2D>(
+                true);
+
+        for (int i = 0;
+             i < rectMasks.Length;
+             i++)
         {
-            if (!clippingStates.ContainsKey(rectMask))
-                clippingStates.Add(rectMask, rectMask.enabled);
-            rectMask.enabled = false;
+            RememberAndDisable(
+                rectMasks[i]);
         }
 
-        Mask mask = root.GetComponent<Mask>();
-        if (mask != null)
+        Mask[] masks =
+            root.GetComponentsInParent<Mask>(
+                true);
+
+        for (int i = 0;
+             i < masks.Length;
+             i++)
         {
-            if (!clippingStates.ContainsKey(mask))
-                clippingStates.Add(mask, mask.enabled);
-            mask.enabled = false;
+            RememberAndDisable(
+                masks[i]);
+        }
+
+        RectMask2D[] childRectMasks =
+            root.GetComponentsInChildren<RectMask2D>(
+                true);
+
+        for (int i = 0;
+             i < childRectMasks.Length;
+             i++)
+        {
+            RememberAndDisable(
+                childRectMasks[i]);
+        }
+
+        Mask[] childMasks =
+            root.GetComponentsInChildren<Mask>(
+                true);
+
+        for (int i = 0;
+             i < childMasks.Length;
+             i++)
+        {
+            RememberAndDisable(
+                childMasks[i]);
         }
     }
 
-    private void DisableRewardAccentsDuringScriptSelection()
+    private void RememberAndDisable(
+        Behaviour behaviour)
     {
-        if (rewardAccentsResolved)
+        if (behaviour == null)
             return;
 
-        rewardAccentsResolved = true;
-        RectTransform[] all = FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < all.Length; i++)
+        if (!clippingStates.ContainsKey(
+                behaviour))
         {
-            RectTransform rect = all[i];
-            if (rect == null || rect.name != RewardAccentName)
-                continue;
-
-            GameObject go = rect.gameObject;
-            if (!rewardAccentStates.ContainsKey(go))
-                rewardAccentStates.Add(go, go.activeSelf);
-
-            if (go.activeSelf)
-                go.SetActive(false);
+            clippingStates.Add(
+                behaviour,
+                behaviour.enabled);
         }
+
+        behaviour.enabled =
+            false;
     }
 
-    private void RestoreScriptSelectionOnlyState()
+    private void RestoreClipping()
     {
-        if (frameStateCaptured && sharedFrame != null)
-        {
-            sharedFrame.localRotation = originalFrameRotation;
-
-            Image frameImage = sharedFrame.GetComponent<Image>();
-            if (frameImage != null)
-                frameImage.color = originalFrameColor;
-
-            Outline frameOutline = sharedFrame.GetComponent<Outline>();
-            if (frameOutline != null)
-            {
-                frameOutline.effectColor = originalFrameOutlineColor;
-                frameOutline.effectDistance = originalFrameOutlineDistance;
-            }
-
-            if (screenInner != null)
-            {
-                Image innerImage = screenInner.GetComponent<Image>();
-                if (innerImage != null)
-                    innerImage.color = originalInnerColor;
-
-                Outline innerOutline = screenInner.GetComponent<Outline>();
-                if (innerOutline != null)
-                {
-                    innerOutline.effectColor = originalInnerOutlineColor;
-                    innerOutline.effectDistance = originalInnerOutlineDistance;
-                }
-            }
-        }
-
-        frameStateCaptured = false;
-
-        foreach (KeyValuePair<Behaviour, bool> pair in clippingStates)
+        foreach (
+            KeyValuePair<Behaviour, bool> pair
+            in clippingStates)
         {
             if (pair.Key != null)
                 pair.Key.enabled = pair.Value;
         }
+
         clippingStates.Clear();
-
-        foreach (KeyValuePair<GameObject, bool> pair in rewardAccentStates)
-        {
-            if (pair.Key != null)
-                pair.Key.SetActive(pair.Value);
-        }
-        rewardAccentStates.Clear();
-        rewardAccentsResolved = false;
     }
 
-    private bool IsDetachedScriptSelection()
+    private static RectTransform FindRect(
+        string targetName)
     {
-        if (scriptSelectionContent == null)
-            return false;
+        RectTransform[] rects =
+            FindObjectsByType<RectTransform>(
+                FindObjectsInactive.Include,
+                FindObjectsSortMode.None);
 
-        Canvas canvas =
-            scriptSelectionContent.GetComponentInParent<Canvas>();
-
-        return canvas != null &&
-               canvas.name ==
-               "BattleScriptSelectionCanvas";
-    }
-
-    private static RectTransform FindRect(string objectName)
-    {
-        RectTransform[] all = FindObjectsByType<RectTransform>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
-
-        for (int i = 0; i < all.Length; i++)
+        for (int i = 0;
+             i < rects.Length;
+             i++)
         {
-            RectTransform rect = all[i];
-            if (rect != null && rect.name == objectName)
+            RectTransform rect =
+                rects[i];
+
+            if (rect != null &&
+                rect.name == targetName)
+            {
                 return rect;
+            }
         }
 
         return null;
-    }
-
-    private static RectTransform CreateRect(Transform parent, string name, Vector2 size)
-    {
-        GameObject go = new(name);
-        go.transform.SetParent(parent, false);
-        RectTransform rect = go.AddComponent<RectTransform>();
-        rect.sizeDelta = size;
-        return rect;
     }
 
     private static void EnsureEventSystem()
@@ -738,444 +411,11 @@ public sealed class BattleStageMapPurposefulUIController : MonoBehaviour
         if (EventSystem.current != null)
             return;
 
-        GameObject go = new("BattleStageMapEventSystem");
+        GameObject go =
+            new(
+                "BattleScriptSelectionEventSystem");
+
         go.AddComponent<EventSystem>();
         go.AddComponent<StandaloneInputModule>();
-    }
-}
-
-internal enum BattleStageMapNodeVisualState
-{
-    Locked,
-    Current,
-    Available
-}
-
-/// <summary>
-/// Map Node의 명시적 상태와 Hover/Selected 공간 연출을 한 곳에서 관리합니다.
-/// Transform은 localPosition Z + XYZ rotation + scale을 모두 Tween합니다.
-/// </summary>
-internal sealed class BattleStageMapNodePointerFeedback :
-    MonoBehaviour,
-    IPointerEnterHandler,
-    IPointerExitHandler
-{
-    private const float AnimationSharpness = 18f;
-
-    private RectTransform nodeRect;
-    private CanvasGroup nodeGroup;
-    private Image nodeImage;
-    private Image nodeIcon;
-    private Outline nodeOutline;
-    private Text label;
-    private BattleStageMapNodeVisualState baseState;
-    private Color stateAccent;
-    private Color inkColor;
-    private Color paperColor;
-    private Color mutedColor;
-    private Color baseIconColor = Color.white;
-    private string baseLabel = "SCENE";
-    private bool hovered;
-    private bool selected;
-    private bool trackedHover;
-    private Button boundButton;
-
-    public void Configure(
-        Image image,
-        Outline outline,
-        Text nodeLabel,
-        BattleStageMapNodeVisualState visualState,
-        Color accentColor,
-        Color normalInkColor,
-        Color textColor,
-        Color disabledColor)
-    {
-        nodeImage = image;
-        nodeRect = image != null ? image.rectTransform : null;
-        nodeGroup = nodeRect != null ? nodeRect.GetComponent<CanvasGroup>() : null;
-        if (nodeRect != null && nodeGroup == null)
-            nodeGroup = nodeRect.gameObject.AddComponent<CanvasGroup>();
-        nodeOutline = outline;
-        label = nodeLabel;
-        baseState = visualState;
-        stateAccent = accentColor;
-        inkColor = normalInkColor;
-        paperColor = textColor;
-        mutedColor = disabledColor;
-
-        ResolveIcon();
-
-        // The Button RectTransform is the stable hit target. Never spatially tween it:
-        // moving a World-Space raycast target under a stationary cursor creates
-        // Enter/Exit feedback loops when the map camera also pans.
-        if (nodeRect != null)
-        {
-            nodeRect.localScale = Vector3.one;
-            Vector3 stableLocal = nodeRect.localPosition;
-            stableLocal.z = 0f;
-            nodeRect.localPosition = stableLocal;
-            nodeRect.localRotation = Quaternion.identity;
-        }
-
-        if (label != null)
-            baseLabel = ExtractBaseLabel(label.text);
-
-        if (selected)
-            ApplySelected();
-        else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
-            ApplyHover();
-        else
-            ApplyBaseVisual();
-    }
-
-    private void Update()
-    {
-        if (nodeRect == null)
-            return;
-
-        ResolveIcon();
-
-        float t = 1f - Mathf.Exp(-AnimationSharpness * Time.unscaledDeltaTime);
-
-        // Spatial feedback lives on non-raycast visuals only.
-        // The root Button stays perfectly fixed so hover cannot invalidate itself.
-        if (nodeIcon != null)
-        {
-            float iconScale;
-            float iconZ;
-            Vector3 iconEuler;
-
-            if (selected)
-            {
-                iconScale = 1.20f;
-                iconZ = -14f;
-                iconEuler = Vector3.zero;
-            }
-            else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
-            {
-                iconScale = 1.12f;
-                iconZ = -8f;
-                iconEuler = new Vector3(0.2f, -0.8f, -1.2f);
-            }
-            else if (baseState == BattleStageMapNodeVisualState.Locked)
-            {
-                iconScale = 0.92f;
-                iconZ = 6f;
-                iconEuler = new Vector3(1.5f, -3.0f, 0.8f);
-            }
-            else
-            {
-                iconScale = 1f;
-                iconZ = 0f;
-                iconEuler = Vector3.zero;
-            }
-
-            RectTransform iconRect = nodeIcon.rectTransform;
-            iconRect.localScale = Vector3.Lerp(
-                iconRect.localScale,
-                Vector3.one * iconScale,
-                t);
-
-            Vector3 iconLocal = iconRect.localPosition;
-            iconLocal.z = Mathf.Lerp(iconLocal.z, iconZ, t);
-            iconRect.localPosition = iconLocal;
-
-            iconRect.localRotation = Quaternion.Slerp(
-                iconRect.localRotation,
-                Quaternion.Euler(iconEuler),
-                t);
-        }
-
-        if (label != null)
-        {
-            float labelScale = selected
-                ? 1.06f
-                : hovered && baseState == BattleStageMapNodeVisualState.Available
-                    ? 1.035f
-                    : baseState == BattleStageMapNodeVisualState.Locked
-                        ? 0.96f
-                        : 1f;
-
-            label.rectTransform.localScale = Vector3.Lerp(
-                label.rectTransform.localScale,
-                Vector3.one * labelScale,
-                t);
-        }
-
-        if (nodeGroup != null)
-        {
-            float targetAlpha = selected || hovered
-                ? 1f
-                : baseState == BattleStageMapNodeVisualState.Locked
-                    ? 0.42f
-                    : baseState == BattleStageMapNodeVisualState.Current
-                        ? 1f
-                        : 0.94f;
-            nodeGroup.alpha = Mathf.Lerp(nodeGroup.alpha, targetAlpha, t);
-        }
-    }
-
-    public void OnPointerEnter(PointerEventData eventData)
-    {
-        if (selected || baseState != BattleStageMapNodeVisualState.Available)
-            return;
-
-        hovered = true;
-        ApplyHover();
-    }
-
-    public void OnPointerExit(PointerEventData eventData)
-    {
-        if (selected || trackedHover)
-            return;
-
-        hovered = false;
-        ApplyBaseVisual();
-    }
-
-    public void SetTrackedHover(bool value)
-    {
-        trackedHover = value;
-
-        if (selected || baseState != BattleStageMapNodeVisualState.Available)
-            return;
-
-        hovered = value;
-        if (hovered)
-            ApplyHover();
-        else
-            ApplyBaseVisual();
-    }
-
-    public void BindButton(Button button)
-    {
-        if (boundButton == button)
-            return;
-
-        if (boundButton != null)
-            boundButton.onClick.RemoveListener(NotifySelected);
-
-        boundButton = button;
-        if (boundButton != null)
-        {
-            boundButton.transition = Selectable.Transition.None;
-            boundButton.onClick.RemoveListener(NotifySelected);
-            boundButton.onClick.AddListener(NotifySelected);
-        }
-    }
-
-    public void NotifySelected()
-    {
-        if (baseState != BattleStageMapNodeVisualState.Available)
-            return;
-
-        selected = true;
-        hovered = false;
-        ApplySelected();
-    }
-
-    private void OnDisable()
-    {
-        hovered = false;
-        selected = false;
-        trackedHover = false;
-    }
-
-    private void ApplyHover()
-    {
-        if (nodeImage != null)
-        {
-            nodeImage.enabled = true;
-            nodeImage.color = paperColor;
-        }
-
-        if (nodeOutline != null)
-        {
-            nodeOutline.effectColor = stateAccent;
-            nodeOutline.effectDistance = new Vector2(4f, -4f);
-        }
-
-        if (nodeIcon != null)
-        {
-            nodeIcon.enabled = true;
-            nodeIcon.color = inkColor;
-        }
-
-        if (label != null)
-        {
-            label.gameObject.SetActive(true);
-            label.text = baseLabel + "\nREAD / SELECT";
-            label.color = inkColor;
-            label.fontStyle = FontStyle.Bold;
-        }
-    }
-
-    private void ApplySelected()
-    {
-        if (nodeImage != null)
-        {
-            nodeImage.enabled = true;
-            nodeImage.color = new Color(stateAccent.r, stateAccent.g, stateAccent.b, 0.94f);
-        }
-
-        if (nodeOutline != null)
-        {
-            nodeOutline.effectColor = paperColor;
-            nodeOutline.effectDistance = new Vector2(4f, -4f);
-        }
-
-        if (nodeIcon != null)
-        {
-            nodeIcon.enabled = true;
-            nodeIcon.color = inkColor;
-        }
-
-        if (label != null)
-        {
-            label.gameObject.SetActive(true);
-            label.text = baseLabel + "\nSCRIPT LOCKED";
-            label.color = inkColor;
-            label.fontStyle = FontStyle.Bold;
-        }
-    }
-
-    private void ApplyBaseVisual()
-    {
-        if (nodeImage == null)
-            return;
-
-        nodeImage.enabled = true;
-
-        switch (baseState)
-        {
-            case BattleStageMapNodeVisualState.Current:
-                nodeImage.color = Color.Lerp(inkColor, stateAccent, 0.20f);
-                if (nodeOutline != null)
-                {
-                    nodeOutline.effectColor = stateAccent;
-                    nodeOutline.effectDistance = new Vector2(3f, -3f);
-                }
-                if (label != null)
-                {
-                    label.text = baseLabel + "\nON AIR";
-                    label.color = stateAccent;
-                    label.fontStyle = FontStyle.Bold;
-                }
-                if (nodeIcon != null)
-                    nodeIcon.color = stateAccent;
-                break;
-
-            case BattleStageMapNodeVisualState.Available:
-                nodeImage.color = inkColor;
-                if (nodeOutline != null)
-                {
-                    nodeOutline.effectColor = stateAccent;
-                    nodeOutline.effectDistance = new Vector2(2f, -2f);
-                }
-                if (label != null)
-                {
-                    label.text = baseLabel + "\nAVAILABLE SCRIPT";
-                    label.color = paperColor;
-                    label.fontStyle = FontStyle.Bold;
-                }
-                if (nodeIcon != null)
-                    nodeIcon.color = baseIconColor;
-                break;
-
-            default:
-                nodeImage.color = new Color(
-                    inkColor.r * 0.78f,
-                    inkColor.g * 0.78f,
-                    inkColor.b * 0.82f,
-                    0.92f);
-                if (nodeOutline != null)
-                {
-                    nodeOutline.effectColor = new Color(
-                        mutedColor.r,
-                        mutedColor.g,
-                        mutedColor.b,
-                        0.28f);
-                    nodeOutline.effectDistance = new Vector2(1f, -1f);
-                }
-                if (label != null)
-                {
-                    label.text = baseLabel + "\nLOCKED";
-                    label.color = mutedColor;
-                    label.fontStyle = FontStyle.Normal;
-                }
-                if (nodeIcon != null)
-                    nodeIcon.color = mutedColor;
-                break;
-        }
-    }
-
-    private void ResolveIcon()
-    {
-        Image resolved = FindNodeIcon(nodeRect, nodeImage);
-        if (resolved == null)
-            return;
-
-        if (resolved != nodeIcon)
-        {
-            nodeIcon = resolved;
-            baseIconColor = nodeIcon.color;
-
-            if (selected)
-                ApplySelected();
-            else if (hovered && baseState == BattleStageMapNodeVisualState.Available)
-                ApplyHover();
-            else
-                ApplyBaseVisual();
-        }
-    }
-
-    private static Image FindNodeIcon(RectTransform node, Image rootImage)
-    {
-        if (node == null)
-            return null;
-
-        Image[] images = node.GetComponentsInChildren<Image>(true);
-        for (int i = 0; i < images.Length; i++)
-        {
-            Image candidate = images[i];
-            if (candidate == null || candidate == rootImage)
-                continue;
-            if (candidate.name.IndexOf("Icon", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                return candidate;
-        }
-
-        return null;
-    }
-
-    private static string ExtractBaseLabel(string source)
-    {
-        if (string.IsNullOrWhiteSpace(source))
-            return "STAGE";
-
-        string normalized = source.Replace("\r", string.Empty).Trim();
-        string[] states =
-        {
-            "AVAILABLE",
-            "AVAILABLE SCRIPT",
-            "SELECT",
-            "READ / SELECT",
-            "SELECTED",
-            "SCRIPT LOCKED",
-            "CURRENT",
-            "ON AIR",
-            "LOCKED"
-        };
-
-        for (int i = 0; i < states.Length; i++)
-        {
-            string suffix = "\n" + states[i];
-            if (normalized.EndsWith(suffix, System.StringComparison.OrdinalIgnoreCase))
-            {
-                normalized = normalized.Substring(0, normalized.Length - suffix.Length).TrimEnd();
-                break;
-            }
-        }
-
-        return normalized.ToUpperInvariant();
     }
 }

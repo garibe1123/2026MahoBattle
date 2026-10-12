@@ -413,9 +413,23 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void ResolveUi()
     {
-        if (rewardScreen == null) rewardScreen = FindRect("PrizeSelectionScreen");
-        if (legacyMapSelectionScreen == null) legacyMapSelectionScreen = FindRect("MapSelectionScreen");
-        if (scriptSelectionContent == null) scriptSelectionContent = FindRect("MapSelectionContent");
+        if (rewardScreen == null)
+            rewardScreen =
+                hud != null && hud.RewardScreenRoot != null
+                    ? hud.RewardScreenRoot
+                    : FindRect("PrizeSelectionScreen");
+
+        if (legacyMapSelectionScreen == null)
+            legacyMapSelectionScreen =
+                hud != null && hud.ScriptSelectionStagingScreenRoot != null
+                    ? hud.ScriptSelectionStagingScreenRoot
+                    : FindRect("MapSelectionScreen");
+
+        if (scriptSelectionContent == null)
+            scriptSelectionContent =
+                hud != null && hud.ScriptSelectionRoot != null
+                    ? hud.ScriptSelectionRoot
+                    : FindRect("MapSelectionContent");
         if (equipmentDock == null) equipmentDock = FindRect("EquipmentDock");
         if (rewardLoadoutStrip == null) rewardLoadoutStrip = FindRect("RewardLoadoutStrip");
         if (legacyPresenter == null) legacyPresenter = FindPresenterImage();
@@ -2351,20 +2365,20 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
                 out Bounds rewardBounds))
         {
             // Reward는 TV 카드가 아니라 Persistent Base 위의 실제 상품 진열대를
-            // 주 피사체로 사용합니다. Map은 기존 TV Framing을 그대로 유지합니다.
+            // 주 피사체로 사용합니다. Script Selection은 독립 Canvas bounds를 사용합니다.
             bounds =
                 rewardBounds;
         }
         else if (tvDecisionFocus)
         {
             Vector3 focusCenter =
-                mapFocus &&
+                scriptSelectionFocus &&
                 scriptSelectionRect != null
                     ? scriptSelectionRect.position
                     : tvMountedWorld;
 
             Vector2 focusSize =
-                mapFocus
+                scriptSelectionFocus
                     ? scriptWorldSize
                     : tvWorldSize;
 
