@@ -581,6 +581,12 @@ public class MapBlock : MonoBehaviour
                 continue;
             if (other.gameObject.scene != gameObject.scene)
                 continue;
+            // Authoring prototypes live far away (10,000 world units) until the
+            // next frame. They are never docked geometry and must not obstruct
+            // the search or expand its escape bounds.
+            if (other.name.StartsWith("__RuntimeRoomPiecePrototype_", StringComparison.Ordinal) &&
+                !other.name.EndsWith("(Clone)", StringComparison.Ordinal))
+                continue;
 
             // Procedural Assembly 내부 구성요소를 자기 자신의 외부 장애물로 취급하지 않습니다.
             if (other.transform.IsChildOf(transform) || transform.IsChildOf(other.transform))
