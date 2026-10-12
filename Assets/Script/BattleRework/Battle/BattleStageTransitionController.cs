@@ -646,7 +646,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 if (plan == null || plan.block == null)
                     continue;
 
-                PushOutgoingRenderersBehindBase(plan.block);
+                // The new side rail never crosses the Base. Preserve the
+                // existing sorting order while the plate is visibly moving.
                 DisableOutgoingWalkable(plan.block);
 
                 float delay = wavePieceStagger * waveIndex;
@@ -1510,37 +1511,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             return bounds;
 
         return new Bounds(block.transform.position, MapBlock.BlockWorldSize);
-    }
-
-    private void PushOutgoingRenderersBehindBase(MapBlock block)
-    {
-        if (block == null)
-            return;
-
-        SpriteRenderer[] renderers = block.GetComponentsInChildren<SpriteRenderer>(true);
-        if (renderers.Length == 0)
-            return;
-
-        int highest = int.MinValue;
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            if (renderers[i] != null)
-                highest = Mathf.Max(highest, renderers[i].sortingOrder);
-        }
-
-        if (highest == int.MinValue)
-            return;
-
-        int targetHighest = persistentBaseFloorSorting - 2;
-        int shift = targetHighest - highest;
-        if (shift >= 0)
-            return;
-
-        for (int i = 0; i < renderers.Length; i++)
-        {
-            if (renderers[i] != null)
-                renderers[i].sortingOrder += shift;
-        }
     }
 
     private static void DisableOutgoingWalkable(MapBlock block)
