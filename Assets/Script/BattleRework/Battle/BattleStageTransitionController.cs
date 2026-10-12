@@ -51,10 +51,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public int entryOrder;
         public CollapseExitSide side;
         public Vector2 direction;
-        public float outwardDistance;
         public float exitTravelDistance;
         public float exitDuration;
-        public bool directPieceTween;
         public bool backstageRetreat;
         public List<Vector2Int> detourOffsets;
         public bool hasPreferredExitDirection;
@@ -642,7 +640,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 plan.exitTravelDistance = ResolveOffscreenTravelDistance(
                     plan, plan.direction, plan.exitTravelDistance);
                 plan.exitDuration = Mathf.Max(plan.exitDuration,
-                    0.28f + (plan.exitTravelDistance + (plan.detourOffsets?.Count ?? 0)) / 25f);
+                    0.26f + (plan.exitTravelDistance + (plan.detourOffsets?.Count ?? 0)) / 60f);
                 plan.exitWave = fallbackWave++;
                 exitOrder.Add(plan);
                 resolved.Add(plan);
@@ -1053,7 +1051,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                     rootIndex * 1000,
                     root.ExitTravelDistance,
                     root.ExitDuration,
-                    false,
                     root.HasEntrySourceDirection,
                     root.LastEntrySourceDirection));
                 continue;
@@ -1091,7 +1088,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                     rootIndex * 1000 + pieceIndex,
                     travelDistance,
                     duration,
-                    true,
                     hasPreferred,
                     preferred));
             }
@@ -1112,7 +1108,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         int entryOrder,
         float travelDistance,
         float duration,
-        bool directPieceTween,
         bool hasPreferredDirection,
         Vector2 preferredDirection)
     {
@@ -1125,7 +1120,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             entryOrder = entryOrder,
             exitTravelDistance = Mathf.Max(0.01f, travelDistance),
             exitDuration = Mathf.Max(0.01f, duration),
-            directPieceTween = directPieceTween,
             hasPreferredExitDirection = hasPreferredDirection,
             preferredExitDirection = preferredDirection,
             exitWave = 0
@@ -1220,8 +1214,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 plan.side = bestSide;
                 plan.direction = DirectionFor(bestSide);
                 plan.exitTravelDistance = bestTravelDistance;
-                plan.exitDuration = Mathf.Max(plan.exitDuration, 0.28f + bestTravelDistance / 25f);
-                plan.outwardDistance = ResolveOutwardDistance(plan.bounds, baseBounds, bestSide);
+                plan.exitDuration = Mathf.Max(plan.exitDuration, 0.26f + bestTravelDistance / 60f);
                 plan.exitWave = waveIndex;
                 ReserveDiscreteExitPath(plan, bestSide, reservedPathCells);
                 wavePlans.Add(plan);
@@ -1240,7 +1233,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                     plan.exitTravelDistance = ResolveOffscreenTravelDistance(
                         plan, plan.direction, plan.exitTravelDistance);
                     plan.exitDuration = Mathf.Max(plan.exitDuration,
-                        0.28f + (plan.exitTravelDistance + plan.detourOffsets.Count) / 25f);
+                        0.26f + (plan.exitTravelDistance + plan.detourOffsets.Count) / 60f);
                     plan.exitWave = waveIndex;
                     wavePlans.Add(plan);
                     break; // Multi-leg tracks get their own isolated wave.
@@ -1577,21 +1570,6 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             case CollapseExitSide.Right: return Vector2.right;
             case CollapseExitSide.Up: return Vector2.up;
             default: return Vector2.down;
-        }
-    }
-
-    private static float ResolveOutwardDistance(Bounds blockBounds, Bounds baseBounds, CollapseExitSide side)
-    {
-        switch (side)
-        {
-            case CollapseExitSide.Left:
-                return Mathf.Max(0f, baseBounds.min.x - blockBounds.center.x);
-            case CollapseExitSide.Right:
-                return Mathf.Max(0f, blockBounds.center.x - baseBounds.max.x);
-            case CollapseExitSide.Up:
-                return Mathf.Max(0f, blockBounds.center.y - baseBounds.max.y);
-            default:
-                return Mathf.Max(0f, baseBounds.min.y - blockBounds.center.y);
         }
     }
 
