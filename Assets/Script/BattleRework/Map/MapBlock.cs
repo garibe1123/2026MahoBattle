@@ -992,7 +992,29 @@ public class MapBlock : MonoBehaviour
         RestorePresentationPose();
 
         Vector2 dir = direction.sqrMagnitude > 0.001f ? direction.normalized : Vector2.right;
-        Vector3 destination = transform.position + (Vector3)(dir * entryOffset);
+        float travel = Mathf.Max(0.01f, entryOffset);
+        Camera camera = Camera.main;
+        if (camera != null && camera.orthographic)
+        {
+            Bounds visuals = TryGetPresentationBounds(out Bounds visibleBounds)
+                ? visibleBounds
+                : new Bounds(transform.position, BlockWorldSize);
+            float halfHeight = camera.orthographicSize;
+            float halfWidth = halfHeight * Mathf.Max(0.1f, camera.aspect);
+            float margin = 2f;
+            float required = dir.x > 0.5f
+                ? camera.transform.position.x + halfWidth + margin - visuals.min.x
+                : dir.x < -0.5f
+                    ? visuals.max.x - (camera.transform.position.x - halfWidth - margin)
+                    : dir.y > 0.5f
+                        ? camera.transform.position.y + halfHeight + margin - visuals.min.y
+                        : visuals.max.y - (camera.transform.position.y - halfHeight - margin);
+            travel = Mathf.Max(travel, required);
+        }
+
+        // ExitDuration remains unchanged so existing carrier hand-off timers still
+        // match. The final position is guaranteed outside the visible viewport.
+        Vector3 destination = transform.position + (Vector3)(dir * travel);
         return transform.DOMove(destination, exitDuration).SetEase(exitEase);
     }
 }
