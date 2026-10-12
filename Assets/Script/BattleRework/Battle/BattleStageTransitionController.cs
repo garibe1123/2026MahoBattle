@@ -55,7 +55,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public float exitTravelDistance;
         public float exitDuration;
         public bool directPieceTween;
-        public bool fallbackFade;
+        public bool backstageRetreat;
+        public List<Vector2Int> detourOffsets;
         public bool hasPreferredExitDirection;
         public Vector2 preferredExitDirection;
         public int exitWave;
@@ -606,25 +607,46 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             for (int i = 0; i < exitOrder.Count; i++)
                 fallbackWave = Mathf.Max(fallbackWave, exitOrder[i].exitWave + 1);
 
-            // Persistent 4x4에 의해 네 방향 Rail이 모두 막힌 자유형 Piece는 더 이상 Stage 전체를 중단하지 않습니다.
-            // 정상 Piece는 기존 Rail 퇴장을 유지하고, 정말 Rail이 없는 Piece만 Base 뒤에서 짧게 Fade 후 제거합니다.
-            // 이 fallback은 Base를 관통시키지 않으면서 Reward/Map 전환 deadlock을 방지합니다.
+            // A tile plate with no straight escape may still move along an orthogonal detour.
+            // Only if no rigid route exists will it retreat under the stage in full motion.
             for (int i = 0; i < exitUnits.Count; i++)
             {
                 CollapseExitPlan plan = exitUnits[i];
                 if (plan == null || resolved.Contains(plan))
                     continue;
 
-                plan.fallbackFade = true;
-                plan.direction = Vector2.zero;
+                HashSet<Vector2Int> remainingOccupied = new();
+                for (int j = 0; j < exitUnits.Count; j++)
+                {
+                    CollapseExitPlan other = exitUnits[j];
+                    if (other == null || resolved.Contains(other))
+                        continue;
+                    for (int c = 0; c < other.floorBounds.Count; c++)
+                        remainingOccupied.Add(WorldToTile(other.floorBounds[c].center));
+                }
+                AddBaseCells(remainingOccupied, baseBounds);
+
+                if (!TryPlanDetourExit(plan, remainingOccupied, baseBounds, null))
+                {
+                    plan.backstageRetreat = true;
+                    Vector2 delta = (Vector2)plan.bounds.center - (Vector2)baseBounds.center;
+                    plan.direction = Mathf.Abs(delta.x) >= Mathf.Abs(delta.y)
+                        ? (delta.x >= 0f ? Vector2.right : Vector2.left)
+                        : (delta.y >= 0f ? Vector2.up : Vector2.down);
+                    Debug.LogWarning(
+                        $"[BattleStageFlow] '{plan.block.name}' has no rigid grid escape. " +
+                        "Moving the piece behind the stage instead of fading or teleporting.",
+                        plan.block);
+                }
+
+                plan.exitTravelDistance = ResolveOffscreenTravelDistance(
+                    plan, plan.direction, plan.exitTravelDistance);
+                plan.exitDuration = Mathf.Max(plan.exitDuration,
+                    0.28f + (plan.exitTravelDistance + (plan.detourOffsets?.Count ?? 0)) / 25f);
                 plan.exitWave = fallbackWave++;
                 exitOrder.Add(plan);
+                resolved.Add(plan);
             }
-
-            Debug.LogWarning(
-                $"[BattleStageFlow] {exitUnits.Count - resolvedCount} visible PIECE(s) had no safe cardinal rail around the preserved 4x4. " +
-                "Those pieces will use the non-penetrating fade fallback instead of aborting the stage transition.",
-                this);
         }
 
         Debug.Log(
@@ -649,10 +671,9 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 PushOutgoingRenderersBehindBase(plan.block);
                 DisableOutgoingWalkable(plan.block);
 
-                float delay = (plan.directPieceTween || plan.fallbackFade)
-                    ? wavePieceStagger * waveIndex
-                    : 0f;
-                string exitDescription = plan.fallbackFade ? "fade fallback" : plan.side.ToString();
+                float delay = wavePieceStagger * waveIndex;
+                string exitDescription = plan.detourOffsets != null ? "grid detour" :
+                    plan.backstageRetreat ? "backstage retreat" : plan.side.ToString();
                 Debug.Log(
                     $"[BattleStageFlow] Piece exit wave {wave}: '{plan.block.name}' -> {exitDescription}, delay {delay:0.000}s.",
                     plan.block);
@@ -1209,6 +1230,90 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         }
 
         return result;
+    }
+
+    private static void AddBaseCells(HashSet<Vector2Int> occupied, Bounds baseBounds)
+    {
+        float tile = RoomBaseTemplate.TileWorldSize;
+        for (int x = Mathf.CeilToInt(baseBounds.min.x / tile);
+             x <= Mathf.FloorToInt(baseBounds.max.x / tile); x++)
+        {
+            for (int y = Mathf.CeilToInt(baseBounds.min.y / tile);
+                 y <= Mathf.FloorToInt(baseBounds.max.y / tile); y++)
+                occupied.Add(new Vector2Int(x, y));
+        }
+    }
+
+    private static bool TryPlanDetourExit(
+        CollapseExitPlan plan,
+        HashSet<Vector2Int> occupied,
+        Bounds baseBounds,
+        HashSet<Vector2Int> reserved)
+    {
+        if (plan == null || plan.floorBounds == null || plan.floorBounds.Count == 0)
+            return false;
+
+        List<Vector2Int> ownCells = new();
+        for (int i = 0; i < plan.floorBounds.Count; i++)
+        {
+            Vector2Int cell = WorldToTile(plan.floorBounds[i].center);
+            if (reserved != null && reserved.Contains(cell))
+                return false;
+            ownCells.Add(cell);
+        }
+
+        HashSet<Vector2Int> blocked = occupied != null
+            ? new HashSet<Vector2Int>(occupied)
+            : new HashSet<Vector2Int>();
+        AddBaseCells(blocked, baseBounds);
+        if (reserved != null)
+            blocked.UnionWith(reserved);
+        blocked.ExceptWith(ownCells);
+
+        Vector2 preference = plan.hasPreferredExitDirection
+            ? plan.preferredExitDirection
+            : (Vector2)plan.bounds.center - (Vector2)baseBounds.center;
+        Vector2Int preferredCell = Mathf.Abs(preference.x) >= Mathf.Abs(preference.y)
+            ? (preference.x >= 0f ? Vector2Int.right : Vector2Int.left)
+            : (preference.y >= 0f ? Vector2Int.up : Vector2Int.down);
+
+        if (!BattleTileRailPlanner.TryFindExitRoute(
+                ownCells, blocked, preferredCell,
+                out List<Vector2Int> route, out Vector2Int outward))
+            return false;
+
+        plan.detourOffsets = route;
+        plan.direction = new Vector2(outward.x, outward.y);
+        if (reserved != null)
+        {
+            for (int i = 0; i < ownCells.Count; i++)
+                reserved.Add(ownCells[i]);
+            for (int step = 0; step < route.Count; step++)
+                for (int i = 0; i < ownCells.Count; i++)
+                    reserved.Add(ownCells[i] + route[step]);
+        }
+        return true;
+    }
+
+    private static float ResolveOffscreenTravelDistance(
+        CollapseExitPlan plan, Vector2 direction, float fallback)
+    {
+        Camera camera = Camera.main;
+        if (plan == null || camera == null || !camera.orthographic)
+            return Mathf.Max(0.01f, fallback);
+
+        float margin = 2f * RoomBaseTemplate.TileWorldSize;
+        float halfHeight = camera.orthographicSize;
+        float halfWidth = halfHeight * Mathf.Max(0.1f, camera.aspect);
+        Bounds bounds = plan.bounds;
+        float required = direction.x > 0.5f
+            ? camera.transform.position.x + halfWidth + margin - bounds.min.x
+            : direction.x < -0.5f
+                ? bounds.max.x - (camera.transform.position.x - halfWidth - margin)
+                : direction.y > 0.5f
+                    ? camera.transform.position.y + halfHeight + margin - bounds.min.y
+                    : bounds.max.y - (camera.transform.position.y - halfHeight - margin);
+        return Mathf.Max(fallback, required);
     }
 
     private static HashSet<Vector2Int> BuildExitOccupiedCells(List<CollapseExitPlan> plans)
