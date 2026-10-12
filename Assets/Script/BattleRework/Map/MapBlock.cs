@@ -474,11 +474,13 @@ public class MapBlock : MonoBehaviour
         Vector3 destination, Vector2 preferredDirection)
     {
         Vector2 primary = Cardinalize(preferredDirection);
-        if (!avoidExistingTilePenetration || entryOffset <= 0.01f)
-            return primary;
-
+        // A runtime floor plate cannot opt out of safety through an old
+        // serialized toggle. Strict rail validation always takes precedence.
         if (strictProceduralRail)
             return IsStrictGridRailClear(destination, primary) ? primary : Vector2.zero;
+
+        if (!avoidExistingTilePenetration || entryOffset <= 0.01f)
+            return primary;
 
         entryMovingFloorBuffer.Clear();
         if (!AppendFloorBoundsAtRootPosition(this, destination, entryMovingFloorBuffer))
