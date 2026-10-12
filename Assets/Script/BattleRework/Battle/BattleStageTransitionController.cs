@@ -1189,11 +1189,19 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 float bestSideScore = float.PositiveInfinity;
                 CollapseExitSide bestSide = CollapseExitSide.Left;
                 bool foundSide = false;
+                float bestTravelDistance = plan.exitTravelDistance;
 
                 for (int sideIndex = 0; sideIndex < 4; sideIndex++)
                 {
                     CollapseExitSide side = (CollapseExitSide)sideIndex;
-                    if (!IsDiscreteExitPathSafe(plan, side, baseBounds, occupiedCells, reservedPathCells))
+                    float originalTravel = plan.exitTravelDistance;
+                    float candidateTravel = ResolveOffscreenTravelDistance(
+                        plan, DirectionFor(side), originalTravel);
+                    plan.exitTravelDistance = candidateTravel;
+                    bool safe = IsDiscreteExitPathSafe(
+                        plan, side, baseBounds, occupiedCells, reservedPathCells);
+                    plan.exitTravelDistance = originalTravel;
+                    if (!safe)
                         continue;
 
                     float score = ResolveSafeExitScore(plan, side, baseBounds, sideUsage, baseSpan);
@@ -1202,6 +1210,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
                     bestSideScore = score;
                     bestSide = side;
+                    bestTravelDistance = candidateTravel;
                     foundSide = true;
                 }
 
@@ -1210,11 +1219,32 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
                 plan.side = bestSide;
                 plan.direction = DirectionFor(bestSide);
+                plan.exitTravelDistance = bestTravelDistance;
+                plan.exitDuration = Mathf.Max(plan.exitDuration, 0.28f + bestTravelDistance / 25f);
                 plan.outwardDistance = ResolveOutwardDistance(plan.bounds, baseBounds, bestSide);
                 plan.exitWave = waveIndex;
                 ReserveDiscreteExitPath(plan, bestSide, reservedPathCells);
                 wavePlans.Add(plan);
                 sideUsage[(int)bestSide]++;
+            }
+
+            if (wavePlans.Count == 0)
+            {
+                AddBaseCells(occupiedCells, baseBounds);
+                for (int i = remaining.Count - 1; i >= 0; i--)
+                {
+                    CollapseExitPlan plan = remaining[i];
+                    if (!TryPlanDetourExit(plan, occupiedCells, baseBounds, reservedPathCells))
+                        continue;
+
+                    plan.exitTravelDistance = ResolveOffscreenTravelDistance(
+                        plan, plan.direction, plan.exitTravelDistance);
+                    plan.exitDuration = Mathf.Max(plan.exitDuration,
+                        0.28f + (plan.exitTravelDistance + plan.detourOffsets.Count) / 25f);
+                    plan.exitWave = waveIndex;
+                    wavePlans.Add(plan);
+                    break; // Multi-leg tracks get their own isolated wave.
+                }
             }
 
             if (wavePlans.Count == 0)
