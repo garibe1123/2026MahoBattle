@@ -498,6 +498,25 @@ public class MapBlock : MonoBehaviour
         return true;
     }
 
+    /// <summary>
+    /// Called only by the procedural assembly composer before committing a whole group.
+    /// If a rigid group cannot arrive without crossing another tile, the composer
+    /// subdivides that group into its constituent movable pieces.
+    /// </summary>
+    public bool HasCollisionFreeEntry(Vector3 destination, Vector2 preferredDirection)
+    {
+        if (entryType != MapBlockEntryType.WheelSlide ||
+            !avoidExistingTilePenetration || entryOffset <= 0.01f)
+            return true;
+
+        Vector2 primary = Cardinalize(preferredDirection);
+        if (ResolveSafeWheelSlideSourceDirection(destination, primary).sqrMagnitude > 0.001f)
+            return true;
+
+        return TryBuildDetourEntryRoute(
+            destination, primary, out _, out _);
+    }
+
     private bool IsEntryPathClear(
         Vector3 destination,
         Vector2 sourceDirection,
