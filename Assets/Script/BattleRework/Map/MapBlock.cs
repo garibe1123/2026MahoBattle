@@ -295,6 +295,13 @@ public class MapBlock : MonoBehaviour
             : Mathf.Max(0.01f, impactSettleDuration);
     }
 
+    public float GetEntryDelayParameterForStart(float startAt)
+    {
+        return contributesWalkableNavMesh
+            ? Mathf.Max(0f, startAt) / Mathf.Max(1f, walkableEntryDelayScale)
+            : Mathf.Max(0f, startAt);
+    }
+
     public float GetEntryDuration(float delay = 0f)
     {
         if (entryType == MapBlockEntryType.Static)
