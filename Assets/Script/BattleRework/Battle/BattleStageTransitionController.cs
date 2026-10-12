@@ -800,6 +800,17 @@ public sealed class BattleStageTransitionController : MonoBehaviour
                 continue;
 
             DisableOutgoingWalkable(owner);
+            // Once a room is cleared, its invisible boundary colliders must
+            // no longer block the player while the visible floor slides away.
+            Collider2D[] boundaries = owner.GetComponentsInChildren<Collider2D>(true);
+            for (int c = 0; c < boundaries.Length; c++)
+            {
+                Collider2D boundary = boundaries[c];
+                if (boundary != null &&
+                    boundary.name.StartsWith("RoomBoundaryCollider", System.StringComparison.Ordinal))
+                    boundary.enabled = false;
+            }
+
             SpriteRenderer[] floors = owner.GetComponentsInChildren<SpriteRenderer>(true);
             for (int r = 0; r < floors.Length; r++)
             {
