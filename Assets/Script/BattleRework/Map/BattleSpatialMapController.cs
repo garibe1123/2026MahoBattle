@@ -372,8 +372,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             return;
         }
 
-        int seed = StableHash(node.id) ^ StableHash(room.roomId) ^ room.proceduralSeed ^ 0x51A7;
-        List<PiecePlan> plans = BuildFrontierAssemblyPlan(extensionCells, baseCells, seed);
+        // Partition by four disjoint cardinal corridors. Every plate has a
+        // straight, unobstructed route from outside to its final cells.
+        List<PiecePlan> plans = BuildDirectionalAssemblyPlan(extensionCells);
         if (plans.Count == 0)
         {
             Debug.LogError($"[BattleSpatial] Room '{room.roomId}' could not build an extension plan from the 4x4 Base.");
@@ -744,338 +745,37 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     // Large extension-piece planning
     // ---------------------------------------------------------------------
 
-    private List<PiecePlan> BuildFrontierAssemblyPlan(
-        HashSet<Vector2Int> extensionCells,
-        HashSet<Vector2Int> baseCells,
-        int seed)
+    // No search, dynamic detours or piece merging during stage entry.
+    // These four shapes are disjoint in BOTH their final footprints and
+    // their approach corridors, regardless of the randomly selected Base anchor.
+    private static List<PiecePlan> BuildDirectionalAssemblyPlan(HashSet<Vector2Int> extension)
     {
-        List<PiecePlan> result = new();
-        if (extensionCells == null || extensionCells.Count == 0)
-            return result;
-
-        HashSet<Vector2Int> remaining = new(extensionCells);
-        HashSet<Vector2Int> occupied = new(baseCells);
-        System.Random random = new(seed);
-        int maxSpan = Mathf.Clamp(maximumPieceTileSpan, 3, 8);
-        int minCells = Mathf.Clamp(minimumPieceCellCount, 2, maxSpan * maxSpan);
-        int safety = 0;
-
-        while (remaining.Count > 0 && result.Count < maximumPieceCount && safety++ < 2048)
+        HashSet<Vector2Int> left = new();
+        HashSet<Vector2Int> right = new();
+        HashSet<Vector2Int> down = new();
+        HashSet<Vector2Int> up = new();
+        int baseSize = RoomBaseTemplate.FixedBaseTiles;
+        foreach (Vector2Int cell in extension)
         {
-            List<Vector2Int> frontier = CollectFrontierCells(remaining, occupied);
-            if (frontier.Count == 0)
-            {
-                Debug.LogError("[BattleSpatial] Extension target became disconnected from the occupied 4x4 frontier.");
-                break;
-            }
-
-            Vector2Int seedCell = ChooseFrontierSeed(frontier, remaining, random);
-            HashSet<Vector2Int> piece = FindLargestFrontierRectangle(seedCell, remaining, maxSpan, minCells, random);
-            if (piece.Count < minCells)
-            {
-                piece = GrowConnectedPiece(
-                    seedCell,
-                    remaining,
-                    Mathf.Max(minCells, preferredPieceCellCount),
-                    maxSpan,
-                    random);
-            }
-
-            if (piece.Count == 0)
-            {
-                remaining.Remove(seedCell);
-                continue;
-            }
-
-            Vector2 entryDirection = ResolveContactOutwardDirection(piece, occupied, result.Count);
-            result.Add(new PiecePlan(piece, entryDirection));
-
-            foreach (Vector2Int cell in piece)
-            {
-                remaining.Remove(cell);
-                occupied.Add(cell);
-            }
+            if (cell.x < 0)
+                left.Add(cell);
+            else if (cell.x >= baseSize)
+                right.Add(cell);
+            else if (cell.y < 0)
+                down.Add(cell);
+            else if (cell.y >= baseSize)
+                up.Add(cell);
+            else
+                throw new System.InvalidOperationException(
+                    "An extension cell must not overlap the persistent Base.");
         }
 
-        // If the piece cap was reached, continue with large connected chunks instead of creating single-cell fragments.
-        while (remaining.Count > 0 && safety++ < 8192)
-        {
-            List<Vector2Int> frontier = CollectFrontierCells(remaining, occupied);
-            if (frontier.Count == 0)
-                break;
-
-            Vector2Int seedCell = frontier[0];
-            HashSet<Vector2Int> piece = GrowConnectedPiece(
-                seedCell,
-                remaining,
-                Mathf.Max(preferredPieceCellCount, minCells),
-                maxSpan,
-                random);
-            if (piece.Count == 0)
-                piece.Add(seedCell);
-
-            Vector2 entryDirection = ResolveContactOutwardDirection(piece, occupied, result.Count);
-            result.Add(new PiecePlan(piece, entryDirection));
-            foreach (Vector2Int cell in piece)
-            {
-                remaining.Remove(cell);
-                occupied.Add(cell);
-            }
-        }
-
-        MergeUndersizedPlans(result, minCells);
-
-        // Merging undersized plates changes contact faces. Re-evaluate the rail
-        // of the FINAL pieces against the already docked frontier, not against
-        // the unmerged geometry that no longer exists.
-        HashSet<Vector2Int> docked = new(baseCells);
-        for (int i = 0; i < result.Count; i++)
-        {
-            PiecePlan plan = result[i];
-            result[i] = new PiecePlan(
-                plan.cells, ResolveContactOutwardDirection(plan.cells, docked, i));
-            docked.UnionWith(plan.cells);
-        }
+        List<PiecePlan> result = new(4);
+        if (left.Count > 0) result.Add(new PiecePlan(left, Vector2.left));
+        if (right.Count > 0) result.Add(new PiecePlan(right, Vector2.right));
+        if (down.Count > 0) result.Add(new PiecePlan(down, Vector2.down));
+        if (up.Count > 0) result.Add(new PiecePlan(up, Vector2.up));
         return result;
-    }
-
-    private static HashSet<Vector2Int> FindLargestFrontierRectangle(
-        Vector2Int seed,
-        HashSet<Vector2Int> remaining,
-        int maxSpan,
-        int minimumCells,
-        System.Random random)
-    {
-        HashSet<Vector2Int> best = new();
-        int bestScore = -1;
-
-        for (int width = 1; width <= maxSpan; width++)
-        {
-            for (int height = 1; height <= maxSpan; height++)
-            {
-                int area = width * height;
-                if (area < minimumCells)
-                    continue;
-
-                for (int ox = seed.x - width + 1; ox <= seed.x; ox++)
-                {
-                    for (int oy = seed.y - height + 1; oy <= seed.y; oy++)
-                    {
-                        if (seed.x < ox || seed.x >= ox + width || seed.y < oy || seed.y >= oy + height)
-                            continue;
-
-                        bool full = true;
-                        for (int y = 0; y < height && full; y++)
-                        {
-                            for (int x = 0; x < width; x++)
-                            {
-                                if (!remaining.Contains(new Vector2Int(ox + x, oy + y)))
-                                {
-                                    full = false;
-                                    break;
-                                }
-                            }
-                        }
-
-                        if (!full)
-                            continue;
-
-                        int compactBonus = Mathf.Min(width, height) >= 2 ? 12 : 0;
-                        int score = area * 10 + compactBonus + random.Next(0, 3);
-                        if (score <= bestScore)
-                            continue;
-
-                        bestScore = score;
-                        best.Clear();
-                        for (int y = 0; y < height; y++)
-                            for (int x = 0; x < width; x++)
-                                best.Add(new Vector2Int(ox + x, oy + y));
-                    }
-                }
-            }
-        }
-
-        return best;
-    }
-
-    private static List<Vector2Int> CollectFrontierCells(HashSet<Vector2Int> remaining, HashSet<Vector2Int> occupied)
-    {
-        List<Vector2Int> result = new();
-        foreach (Vector2Int cell in remaining)
-        {
-            for (int i = 0; i < Cardinal.Length; i++)
-            {
-                if (!occupied.Contains(cell + Cardinal[i]))
-                    continue;
-                result.Add(cell);
-                break;
-            }
-        }
-        return result;
-    }
-
-    private static Vector2Int ChooseFrontierSeed(List<Vector2Int> frontier, HashSet<Vector2Int> remaining, System.Random random)
-    {
-        if (frontier == null || frontier.Count == 0)
-            return Vector2Int.zero;
-
-        List<Vector2Int> expandable = new();
-        for (int i = 0; i < frontier.Count; i++)
-        {
-            Vector2Int cell = frontier[i];
-            int neighbors = 0;
-            for (int d = 0; d < Cardinal.Length; d++)
-                if (remaining.Contains(cell + Cardinal[d]))
-                    neighbors++;
-            if (neighbors >= 2)
-                expandable.Add(cell);
-        }
-
-        List<Vector2Int> source = expandable.Count > 0 ? expandable : frontier;
-        return source[random.Next(source.Count)];
-    }
-
-    private static HashSet<Vector2Int> GrowConnectedPiece(
-        Vector2Int start,
-        HashSet<Vector2Int> remaining,
-        int targetCount,
-        int maximumSpan,
-        System.Random random)
-    {
-        HashSet<Vector2Int> piece = new();
-        if (!remaining.Contains(start))
-            return piece;
-
-        List<Vector2Int> candidates = new() { start };
-        HashSet<Vector2Int> queued = new() { start };
-        int minX = start.x;
-        int maxX = start.x;
-        int minY = start.y;
-        int maxY = start.y;
-
-        while (candidates.Count > 0 && piece.Count < Mathf.Max(1, targetCount))
-        {
-            int candidateIndex = random.Next(candidates.Count);
-            Vector2Int current = candidates[candidateIndex];
-            candidates.RemoveAt(candidateIndex);
-
-            int nextMinX = Mathf.Min(minX, current.x);
-            int nextMaxX = Mathf.Max(maxX, current.x);
-            int nextMinY = Mathf.Min(minY, current.y);
-            int nextMaxY = Mathf.Max(maxY, current.y);
-            if (nextMaxX - nextMinX + 1 > maximumSpan || nextMaxY - nextMinY + 1 > maximumSpan)
-                continue;
-            if (!remaining.Contains(current))
-                continue;
-
-            piece.Add(current);
-            minX = nextMinX;
-            maxX = nextMaxX;
-            minY = nextMinY;
-            maxY = nextMaxY;
-
-            for (int d = 0; d < Cardinal.Length; d++)
-            {
-                Vector2Int next = current + Cardinal[d];
-                if (remaining.Contains(next) && queued.Add(next))
-                    candidates.Add(next);
-            }
-        }
-
-        return piece;
-    }
-
-    private static void MergeUndersizedPlans(List<PiecePlan> plans, int minimumCells)
-    {
-        if (plans == null || plans.Count <= 1)
-            return;
-
-        bool changed = true;
-        int safety = 0;
-        while (changed && safety++ < 512)
-        {
-            changed = false;
-            for (int i = 0; i < plans.Count; i++)
-            {
-                PiecePlan small = plans[i];
-                if (small == null || small.cells.Count >= minimumCells)
-                    continue;
-
-                int targetIndex = FindAdjacentPlan(plans, i);
-                if (targetIndex < 0)
-                    continue;
-
-                plans[targetIndex].cells.UnionWith(small.cells);
-                plans.RemoveAt(i);
-                changed = true;
-                break;
-            }
-        }
-    }
-
-    private static int FindAdjacentPlan(List<PiecePlan> plans, int sourceIndex)
-    {
-        PiecePlan source = plans[sourceIndex];
-        int best = -1;
-        int bestContacts = 0;
-
-        for (int i = 0; i < plans.Count; i++)
-        {
-            if (i == sourceIndex || plans[i] == null)
-                continue;
-
-            int contacts = 0;
-            foreach (Vector2Int cell in source.cells)
-            {
-                for (int d = 0; d < Cardinal.Length; d++)
-                    if (plans[i].cells.Contains(cell + Cardinal[d]))
-                        contacts++;
-            }
-
-            if (contacts > bestContacts)
-            {
-                bestContacts = contacts;
-                best = i;
-            }
-        }
-
-        return best;
-    }
-
-    private static Vector2 ResolveContactOutwardDirection(HashSet<Vector2Int> piece, HashSet<Vector2Int> occupied, int fallbackIndex)
-    {
-        Vector2 outward = Vector2.zero;
-        int contacts = 0;
-
-        foreach (Vector2Int cell in piece)
-        {
-            for (int i = 0; i < Cardinal.Length; i++)
-            {
-                Vector2Int towardOccupied = Cardinal[i];
-                if (!occupied.Contains(cell + towardOccupied))
-                    continue;
-                outward += -(Vector2)towardOccupied;
-                contacts++;
-            }
-        }
-
-        if (contacts > 0 && outward.sqrMagnitude > 0.001f)
-        {
-            if (Mathf.Abs(outward.x) >= Mathf.Abs(outward.y))
-                return outward.x >= 0f ? Vector2.right : Vector2.left;
-            return outward.y >= 0f ? Vector2.up : Vector2.down;
-        }
-
-        Vector2 delta = CalculateCenter(piece) - new Vector2(1.5f, 1.5f);
-        if (delta.sqrMagnitude > 0.001f)
-        {
-            if (Mathf.Abs(delta.x) >= Mathf.Abs(delta.y))
-                return delta.x >= 0f ? Vector2.right : Vector2.left;
-            return delta.y >= 0f ? Vector2.up : Vector2.down;
-        }
-
-        Vector2[] fallback = { Vector2.left, Vector2.right, Vector2.down, Vector2.up };
-        return fallback[Mathf.Abs(fallbackIndex) % fallback.Length];
     }
 
     private float CalculateOffscreenEntryOffset(
@@ -1215,16 +915,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             for (int x = 0; x < RoomBaseTemplate.FixedBaseTiles; x++)
                 cells.Add(new Vector2Int(x, y));
         return cells;
-    }
-
-    private static Vector2 CalculateCenter(HashSet<Vector2Int> cells)
-    {
-        Vector2 sum = Vector2.zero;
-        if (cells == null || cells.Count == 0)
-            return sum;
-        foreach (Vector2Int cell in cells)
-            sum += (Vector2)cell;
-        return sum / cells.Count;
     }
 
     private static Vector2Int WorldToTile(Vector3 world)
