@@ -60,6 +60,15 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         public int exitWave;
     }
 
+    private sealed class ProceduralSideExit
+    {
+        public GameObject carrier;
+        public CollapseExitSide side;
+        public Bounds bounds;
+        public bool hasBounds;
+        public int tileCount;
+    }
+
     private sealed class FloorVisualSnapshot
     {
         public Sprite sprite;
@@ -93,6 +102,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
     private BattleRunManager subscribedRunManager;
     private bool showStageGateHeld;
     private bool collapseOpenShowOnComplete = true;
+
+    private readonly List<GameObject> activeSideExitCarriers = new();
 
     private Coroutine bindRoutine;
     private Coroutine collapseRoutine;
@@ -163,6 +174,7 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         collapseRoutine = null;
         queuedNodeEntryRoutine = null;
         queuedNode = null;
+        CleanupSideExitCarriers();
         ReleaseShowStageGate();
         Unsubscribe();
     }
@@ -592,6 +604,17 @@ public sealed class BattleStageTransitionController : MonoBehaviour
         // Entry Transport/Assembly는 도킹 후 역할이 끝났습니다.
         // 4x4 보존 셀을 가린 뒤 실제 남은 1x1 / L / 자유형 MapBlock Piece로 분해해
         // Piece 자체의 Rail을 검사해야 작은 잔여 조각이 Assembly 부모 때문에 막히지 않습니다.
+        if (roomManager != null &&
+            roomManager.CurrentRoom != null &&
+            roomManager.CurrentRoom.useProceduralRoom)
+        {
+            // The preserved 4x4 can move after combat. Reclassify every
+            // visible floor tile around the NEW Base before leaving the stage.
+            // Four disjoint sides can slide out together without collision.
+            yield return RetireProceduralSideTiles(outgoingBlocks, baseBounds);
+        }
+        else
+        {
         List<CollapseExitPlan> exitUnits = ExpandRoomExitUnits(outgoingBlocks);
 
         // Tile Cell 기반으로 안전한 Wave를 만듭니다.
@@ -729,6 +752,8 @@ public sealed class BattleStageTransitionController : MonoBehaviour
             }
         }
 
+        }
+
         // Destroy 예약을 실제 Frame에 반영한 다음 RoomManager의 ownership만 정식 retire합니다.
         // 이 API는 타일을 다시 Destroy하지 않으므로 다음 EnterRoomRoutine의 ClearImmediate jump-cut도 막습니다.
         yield return null;
@@ -748,6 +773,199 @@ public sealed class BattleStageTransitionController : MonoBehaviour
 
         // 3) 전투 Field와 Decor의 실제 Exit 및 Room ownership 정리가 모두 끝난 뒤 Show 또는 Ended로 진행합니다.
         CompleteCollapseDestination();
+    }
+
+    /// <summary>
+    /// Procedural exit is built from the final visible tile positions, not the
+    /// original entry groups. Since the new Persistent Base may be elsewhere,
+    /// moving an old large plate as a rigid shape can surround the 4x4 and
+    /// become impossible to evacuate. Repartitioning prevents fold/suction.
+    ///
+    /// Partition invariant:
+    /// Left/Right use x outside the Base and may have any y.
+    /// Up/Down only use x within the Base and y outside.
+    /// Their outward axis-aligned swept volumes are disjoint.
+    /// </summary>
+    private IEnumerator RetireProceduralSideTiles(
+        List<MapBlock> outgoingBlocks, Bounds baseBounds)
+    {
+        ProceduralSideExit[] sides = new ProceduralSideExit[4];
+        HashSet<int> movedRendererIds = new();
+        const float epsilon = 0.001f;
+
+        for (int i = 0; i < outgoingBlocks.Count; i++)
+        {
+            MapBlock owner = outgoingBlocks[i];
+            if (owner == null)
+                continue;
+
+            DisableOutgoingWalkable(owner);
+            SpriteRenderer[] floors = owner.GetComponentsInChildren<SpriteRenderer>(true);
+            for (int r = 0; r < floors.Length; r++)
+            {
+                SpriteRenderer renderer = floors[r];
+                if (renderer == null || !renderer.enabled || renderer.sprite == null ||
+                    !IsFloorVisualName(renderer.name) ||
+                    !movedRendererIds.Add(renderer.GetInstanceID()))
+                    continue;
+
+                Vector3 center = renderer.bounds.center;
+                int sideIndex;
+                if (center.x < baseBounds.min.x - epsilon)
+                    sideIndex = (int)CollapseExitSide.Left;
+                else if (center.x > baseBounds.max.x + epsilon)
+                    sideIndex = (int)CollapseExitSide.Right;
+                else if (center.y < baseBounds.min.y - epsilon)
+                    sideIndex = (int)CollapseExitSide.Down;
+                else if (center.y > baseBounds.max.y + epsilon)
+                    sideIndex = (int)CollapseExitSide.Up;
+                else
+                {
+                    // The new 4x4 already preserves this floor visually.
+                    renderer.enabled = false;
+                    continue;
+                }
+
+                ProceduralSideExit exit = sides[sideIndex];
+                if (exit == null)
+                {
+                    exit = new ProceduralSideExit
+                    {
+                        side = (CollapseExitSide)sideIndex,
+                        carrier = new GameObject($"OutgoingProceduralSide_{(CollapseExitSide)sideIndex}")
+                    };
+                    Transform parent = owner.transform.parent;
+                    exit.carrier.transform.SetParent(parent, true);
+                    exit.carrier.transform.position = Vector3.zero;
+                    exit.carrier.transform.rotation = Quaternion.identity;
+                    activeSideExitCarriers.Add(exit.carrier);
+                    sides[sideIndex] = exit;
+                }
+
+                Bounds tileBounds = renderer.bounds;
+                if (!exit.hasBounds)
+                {
+                    exit.bounds = tileBounds;
+                    exit.hasBounds = true;
+                }
+                else
+                {
+                    exit.bounds.Encapsulate(tileBounds);
+                }
+
+                // Reparent, do not duplicate: preserve exact randomized sprite,
+                // color, sorting, world transform and tile size.
+                renderer.transform.SetParent(exit.carrier.transform, true);
+                exit.tileCount++;
+            }
+        }
+
+        List<Tween> exitTweens = new(4);
+        float longest = 0f;
+        int movingSides = 0;
+        for (int i = 0; i < sides.Length; i++)
+        {
+            ProceduralSideExit exit = sides[i];
+            if (exit == null || exit.tileCount == 0)
+                continue;
+
+            Vector2 direction = DirectionFor(exit.side);
+            float distance = ResolveVisualOffscreenTravelDistance(
+                exit.bounds, direction, 8f);
+            float duration = Mathf.Clamp(0.28f + distance / 48f, 0.44f, 0.95f);
+            float delay = movingSides * 0.035f;
+            movingSides++;
+
+            Tween tween = exit.carrier.transform.DOMove(
+                    exit.carrier.transform.position + (Vector3)(direction * distance),
+                    duration)
+                .SetDelay(delay)
+                .SetEase(Ease.InOutCubic)
+                .SetUpdate(true);
+            exitTweens.Add(tween);
+            longest = Mathf.Max(longest, duration + delay);
+            Debug.Log(
+                $"[BattleStageFlow] Procedural {exit.side} side exit: {exit.tileCount} tiles, " +
+                $"{distance:0.0}u over {duration:0.00}s; new Base is preserved.",
+                this);
+        }
+
+        // Wait on actual tweens; do not use a duration estimate to suddenly
+        // disable the floor while it is still on screen.
+        float deadline = Time.realtimeSinceStartup + longest + 2f;
+        while (Time.realtimeSinceStartup < deadline)
+        {
+            bool moving = false;
+            for (int i = 0; i < exitTweens.Count; i++)
+            {
+                Tween tween = exitTweens[i];
+                if (tween != null && tween.IsActive() && !tween.IsComplete())
+                {
+                    moving = true;
+                    break;
+                }
+            }
+            if (!moving)
+                break;
+            yield return null;
+        }
+
+        for (int i = 0; i < exitTweens.Count; i++)
+        {
+            Tween tween = exitTweens[i];
+            if (tween == null || !tween.IsActive())
+                continue;
+            if (!tween.IsComplete())
+            {
+                Debug.LogWarning(
+                    "[BattleStageFlow] Side rail timed out; finishing its offscreen movement.",
+                    this);
+                tween.Complete(true);
+            }
+            tween.Kill();
+        }
+
+        CleanupSideExitCarriers();
+        for (int i = 0; i < outgoingBlocks.Count; i++)
+        {
+            if (outgoingBlocks[i] == null)
+                continue;
+            outgoingBlocks[i].gameObject.SetActive(false);
+            Destroy(outgoingBlocks[i].gameObject);
+        }
+    }
+
+    private void CleanupSideExitCarriers()
+    {
+        for (int i = 0; i < activeSideExitCarriers.Count; i++)
+        {
+            GameObject carrier = activeSideExitCarriers[i];
+            if (carrier == null)
+                continue;
+            carrier.transform.DOKill();
+            Destroy(carrier);
+        }
+        activeSideExitCarriers.Clear();
+    }
+
+    private static float ResolveVisualOffscreenTravelDistance(
+        Bounds bounds, Vector2 direction, float fallback)
+    {
+        Camera camera = Camera.main;
+        if (camera == null || !camera.orthographic)
+            return Mathf.Max(fallback, 36f);
+
+        float margin = 2f * RoomBaseTemplate.TileWorldSize;
+        float halfHeight = camera.orthographicSize;
+        float halfWidth = halfHeight * Mathf.Max(0.1f, camera.aspect);
+        float required = direction.x > 0.5f
+            ? camera.transform.position.x + halfWidth + margin - bounds.min.x
+            : direction.x < -0.5f
+                ? bounds.max.x - (camera.transform.position.x - halfWidth - margin)
+                : direction.y > 0.5f
+                    ? camera.transform.position.y + halfHeight + margin - bounds.min.y
+                    : bounds.max.y - (camera.transform.position.y - halfHeight - margin);
+        return Mathf.Max(0.1f, fallback, required);
     }
 
     private bool HasCurrentRoomFieldToRetire()
