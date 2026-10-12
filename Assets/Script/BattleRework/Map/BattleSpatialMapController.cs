@@ -457,8 +457,17 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         for (int i = 0; i < prototypes.Count; i++)
         {
-            if (prototypes[i] != null)
-                Destroy(prototypes[i]);
+            GameObject prototype = prototypes[i];
+            if (prototype == null)
+                continue;
+
+            MapBlock adopted = prototype.GetComponent<MapBlock>();
+            // RoomManager may take ownership of a runtime-built plate to avoid
+            // duplicating hundreds of Tile_ children. Never destroy adopted plates.
+            if (adopted != null && adopted.HasEntryDestination)
+                continue;
+
+            Destroy(prototype);
         }
     }
 
