@@ -18,7 +18,8 @@ public enum MapBlockEntryType
 /// BattleWalkableField로 등록하여 Player가 '실제로 존재하는 바닥' 위에서만 이동하게 합니다.
 ///
 /// WheelSlide는 이미 도킹 예정/도킹 완료된 바닥과 Persistent 4x4를 관통하는 Rail을 사용하지 않습니다.
-/// 기본 방향이 막히면 다른 Cardinal Rail을 찾고, 네 방향 모두 막히면 관통 대신 제자리 Snap을 사용합니다.
+/// 생성된 Procedural Plate는 사전에 지정된 Cardinal Rail만 사용합니다.
+/// 통로가 막힌 경우 순간 배치나 장애물 관통을 하지 않고 진입을 거부합니다.
 ///
 /// Entry Rail 판정은 Scene 전체를 후보 방향마다 재검색하지 않습니다.
 /// 활성 MapBlock Registry와 실제 Floor Cell Bounds를 공유하여 자유형/Assembly의 빈 공간을
@@ -429,10 +430,13 @@ public class MapBlock : MonoBehaviour
         {
             Bounds bounds = entryBlockerBuffer[b];
             float size = UnitWorldSize;
-            int startX = Mathf.CeilToInt((bounds.min.x + size * 0.5f - 0.001f) / size);
-            int endX = Mathf.FloorToInt((bounds.max.x - size * 0.5f + 0.001f) / size);
-            int startY = Mathf.CeilToInt((bounds.min.y + size * 0.5f - 0.001f) / size);
-            int endY = Mathf.FloorToInt((bounds.max.y - size * 0.5f + 0.001f) / size);
+            // Include every whole tile grid cell whose square overlaps this
+            // existing renderer; a wide legacy renderer must not be reduced to
+            // its central cell.
+            int startX = Mathf.CeilToInt((bounds.min.x - size * 0.5f + 0.001f) / size);
+            int endX = Mathf.FloorToInt((bounds.max.x + size * 0.5f - 0.001f) / size);
+            int startY = Mathf.CeilToInt((bounds.min.y - size * 0.5f + 0.001f) / size);
+            int endY = Mathf.FloorToInt((bounds.max.y + size * 0.5f - 0.001f) / size);
             if (startX > endX || startY > endY)
             {
                 railBlockedCells.Add(new Vector2Int(
@@ -506,36 +510,24 @@ public class MapBlock : MonoBehaviour
         IReadOnlyList<Bounds> ownFinalFloorBounds,
         IReadOnlyList<Bounds> blockers)
     {
-        if (blockers == null || blockers.Count == 0)
-            return true;
-        if (ownFinalFloorBounds == null || ownFinalFloorBounds.Count == 0)
+        if (blockers == null || blockers.Count == 0 ||
+            ownFinalFloorBounds == null || ownFinalFloorBounds.Count == 0)
             return true;
 
-        Vector2 direction = Cardinalize(sourceDirection);
-        Vector3 startRoot = destination + (Vector3)(direction * entryOffset);
-        int samples = Mathf.Clamp(entryPathSamples, 4, 16);
-
-        // t=1은 최종 도킹 지점이므로 검사하지 않습니다.
-        // 인접한 바닥과 Edge가 맞닿는 정상 도킹까지 충돌로 오인하지 않기 위함입니다.
-        for (int i = 0; i < samples; i++)
+        Vector2 offset = Cardinalize(sourceDirection) * entryOffset;
+        // Cardinal motion makes the swept AABB exact: one intersection test
+        // catches obstacles even on a long high-speed approach.
+        for (int i = 0; i < ownFinalFloorBounds.Count; i++)
         {
-            float t = i / (float)samples;
-            Vector3 rootPosition = Vector3.Lerp(startRoot, destination, t);
-            Vector3 delta = rootPosition - destination;
-
-            for (int m = 0; m < ownFinalFloorBounds.Count; m++)
+            Bounds swept = ownFinalFloorBounds[i];
+            swept.center += (Vector3)(offset * 0.5f);
+            swept.size += new Vector3(Mathf.Abs(offset.x), Mathf.Abs(offset.y), 0f);
+            for (int j = 0; j < blockers.Count; j++)
             {
-                Bounds moving = ownFinalFloorBounds[m];
-                moving.center += delta;
-
-                for (int b = 0; b < blockers.Count; b++)
-                {
-                    if (Overlaps2D(moving, blockers[b], entryPathClearance))
-                        return false;
-                }
+                if (Overlaps2D(swept, blockers[j], entryPathClearance))
+                    return false;
             }
         }
-
         return true;
     }
 
