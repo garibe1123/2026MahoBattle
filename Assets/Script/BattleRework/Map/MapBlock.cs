@@ -865,6 +865,147 @@ public class MapBlock : MonoBehaviour
     }
 }
 
+
+/// <summary>
+/// Grid-space rail search shared by entry and exit. A straight rail is preferred;
+/// crowded/freeform layouts may use a short orthogonal detour instead of teleport/fade.
+/// The persistent Base is supplied as blocked tiles by the caller.
+/// </summary>
+internal static class BattleTileRailPlanner
+{
+    private static readonly Vector2Int[] Directions =
+    {
+        Vector2Int.right, Vector2Int.left, Vector2Int.up, Vector2Int.down
+    };
+
+    public static bool TryFindExitRoute(
+        IReadOnlyCollection<Vector2Int> moving,
+        HashSet<Vector2Int> blockers,
+        Vector2Int preferred,
+        out List<Vector2Int> offsets,
+        out Vector2Int escapeDirection)
+    {
+        offsets = null;
+        escapeDirection = Vector2Int.zero;
+        if (moving == null || moving.Count == 0)
+            return false;
+
+        HashSet<Vector2Int> shape = new(moving);
+        HashSet<Vector2Int> occupied = blockers != null
+            ? new HashSet<Vector2Int>(blockers)
+            : new HashSet<Vector2Int>();
+        occupied.ExceptWith(shape);
+
+        int minX = int.MaxValue, minY = int.MaxValue;
+        int maxX = int.MinValue, maxY = int.MinValue;
+        foreach (Vector2Int c in occupied)
+        {
+            minX = Mathf.Min(minX, c.x);
+            minY = Mathf.Min(minY, c.y);
+            maxX = Mathf.Max(maxX, c.x);
+            maxY = Mathf.Max(maxY, c.y);
+        }
+
+        if (occupied.Count == 0)
+        {
+            escapeDirection = preferred == Vector2Int.zero ? Vector2Int.right : preferred;
+            offsets = new List<Vector2Int> { escapeDirection };
+            return true;
+        }
+
+        // Room sizes are small (typically 20-40 tiles). Search rigid translation
+        // offsets, not individual tile paths, so every tile moves as one connected plate.
+        int shapeMinX = int.MaxValue, shapeMinY = int.MaxValue;
+        int shapeMaxX = int.MinValue, shapeMaxY = int.MinValue;
+        foreach (Vector2Int c in shape)
+        {
+            shapeMinX = Mathf.Min(shapeMinX, c.x);
+            shapeMinY = Mathf.Min(shapeMinY, c.y);
+            shapeMaxX = Mathf.Max(shapeMaxX, c.x);
+            shapeMaxY = Mathf.Max(shapeMaxY, c.y);
+        }
+
+        int limit = Mathf.Clamp(
+            Mathf.Max(maxX - minX, maxY - minY) +
+            Mathf.Max(shapeMaxX - shapeMinX, shapeMaxY - shapeMinY) + 8,
+            12, 96);
+        Vector2Int[] directions = PreferredFirst(preferred);
+        Queue<Vector2Int> frontier = new();
+        Dictionary<Vector2Int, Vector2Int> previous = new();
+        Vector2Int origin = Vector2Int.zero;
+        frontier.Enqueue(origin);
+        previous.Add(origin, origin);
+        const int maxVisited = 18000;
+
+        while (frontier.Count > 0 && previous.Count < maxVisited)
+        {
+            Vector2Int offset = frontier.Dequeue();
+            bool outsideRight = shapeMinX + offset.x > maxX + 1;
+            bool outsideLeft = shapeMaxX + offset.x < minX - 1;
+            bool outsideUp = shapeMinY + offset.y > maxY + 1;
+            bool outsideDown = shapeMaxY + offset.y < minY - 1;
+
+            if (offset != origin && (outsideRight || outsideLeft || outsideUp || outsideDown))
+            {
+                escapeDirection = outsideRight ? Vector2Int.right :
+                                  outsideLeft ? Vector2Int.left :
+                                  outsideUp ? Vector2Int.up : Vector2Int.down;
+                List<Vector2Int> reversed = new();
+                while (offset != origin)
+                {
+                    reversed.Add(offset);
+                    offset = previous[offset];
+                }
+                reversed.Reverse();
+                offsets = reversed;
+                return true;
+            }
+
+            for (int d = 0; d < directions.Length; d++)
+            {
+                Vector2Int next = offset + directions[d];
+                if (Mathf.Abs(next.x) > limit || Mathf.Abs(next.y) > limit ||
+                    previous.ContainsKey(next))
+                    continue;
+
+                bool clear = true;
+                foreach (Vector2Int cell in shape)
+                {
+                    if (!occupied.Contains(cell + next))
+                        continue;
+                    clear = false;
+                    break;
+                }
+
+                if (!clear)
+                    continue;
+                previous.Add(next, offset);
+                frontier.Enqueue(next);
+            }
+        }
+        return false;
+    }
+
+    private static Vector2Int[] PreferredFirst(Vector2Int preferred)
+    {
+        Vector2Int[] result = new Vector2Int[Directions.Length];
+        int index = 0;
+        for (int i = 0; i < Directions.Length; i++)
+        {
+            if (Directions[i] != preferred)
+                continue;
+            result[index++] = Directions[i];
+            break;
+        }
+        for (int i = 0; i < Directions.Length; i++)
+        {
+            if (Directions[i] != preferred)
+                result[index++] = Directions[i];
+        }
+        return result;
+    }
+}
+
 /// <summary>
 /// Player 이동 허용 여부를 결정하는 실제 바닥 Marker입니다.
 /// Trigger Collider는 물리 충돌용이 아니라 '여기에 실제 Field가 존재하는가' 판정 전용입니다.
