@@ -203,7 +203,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     {
         Resolve()?.ShowReaction(
             "HIGHLIGHT!",
-            "히히, 이런 장면 기다렸지! 한 번 더 보여줘!",
+            "와아~! 여러분, 방금 보셨나요? 이게 바로 하이라이트예요!",
             ScreenPresenterMotionState.Excited,
             ReactionPriority.High);
     }
@@ -281,9 +281,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             "ALL CLEAR!",
             PickLine(
                 "clear",
-                "어라, 벌써 끝? 조금 더 보고 싶었는데~",
-                "깔끔하네~ 좋아, 다음 코너로 넘어가 볼까?",
-                "전원 정리! 짜잔, 이번 무대는 끝이야~"),
+                "어머나~ 어느새 무대가 깨끗해졌어요! 박수 부탁드려요~!",
+                "멋진 마무리였어요~ 자아, 다음 코너도 기대해 주세요!",
+                "모두 정리됐어요~! 오늘 무대, 성황리에 막을 내립니다!"),
             ScreenPresenterMotionState.Excited,
             ReactionPriority.High);
     }
@@ -319,9 +319,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 "FINISH!",
                 PickLine(
                     "clear_multi",
-                    $"마지막에 {kills}명을 한 번에? 우와, 피날레 제대로네!",
-                    $"와아, {kills}명 동시 정리! 오늘 하이라이트는 이거야~",
-                    $"끝내주는 마무리네! {kills}명이 한꺼번에라니!"),
+                    $"마지막에 {kills}명 동시 처치라니~ 정말 화려한 피날레예요!",
+                    $"와아~ 마지막 {kills}명까지 한 번에! 박수 부탁드려요~!",
+                    $"마지막 순간까지 대단하셨어요! {kills}명을 한꺼번에!"),
                 ScreenPresenterMotionState.Surprised,
                 ReactionPriority.Extreme);
             return;
@@ -336,9 +336,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 "BOSS DOWN!",
                 PickLine(
                     "boss",
-                    "짜잔! 메인 타깃 격파! 제법인데~?",
-                    "보스 다운! 히히, 이걸 기다렸지!",
-                    "어라, 보스까지 끝났네? 멋진 피날레야~"),
+                    "어머나~ 메인 타깃 격파! 여러분, 큰 박수 부탁드려요!",
+                    "보스 다운~! 오늘의 스타, 정말 멋지시네요!",
+                    "자아~ 메인 무대의 대단원이네요! 화려한 피날레예요!"),
                 ScreenPresenterMotionState.Excited,
                 ReactionPriority.Extreme);
             return;
@@ -350,9 +350,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 $"{kills} KILL!",
                 PickLine(
                     "multi4",
-                    $"어? 잠깐, {kills}명 한 번에? 나도 눈 깜빡일 뻔했잖아!",
-                    $"{kills}명 동시 정리! 우와, 카메라가 못 따라갈 뻔했어~",
-                    $"이야, 한 번에 {kills}명? 너무 빠른 거 아냐?"),
+                    $"어머나, {kills}명을 한 번에요? 방금 장면 보셨나요~!",
+                    $"{kills}명 동시 정리! 와아~ 오늘의 명장면이에요!",
+                    $"이렇게나 멋진 순간이~ 한 번에 {kills}명이라니요!"),
                 ScreenPresenterMotionState.Surprised,
                 ReactionPriority.Extreme);
             return;
@@ -364,9 +364,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 "TRIPLE KILL!",
                 PickLine(
                     "triple",
-                    "셋을 한 번에? 히히, 제법이잖아!",
-                    "트리플! 아, 방금 거 다시 보고 싶다~",
-                    "세 명 동시 정리! 좋아, 이런 장면 더 줘!"),
+                    "트리플 처치예요~! 정말 훌륭한 활약이었어요!",
+                    "트리플~! 여러분, 방금 장면에 박수 부탁드려요!",
+                    "세 명을 동시에! 어머나, 아주 화려한 장면이었어요~"),
                 ScreenPresenterMotionState.Excited,
                 ReactionPriority.High);
             return;
@@ -378,9 +378,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 "DOUBLE KILL!",
                 PickLine(
                     "double",
-                    "어라, 둘을 한 번에? 꽤 하는데~",
-                    "더블 킬! 와, 깔끔하게 들어갔어!",
-                    "둘이나 한꺼번에? 히히, 잘했어!"),
+                    "어머~ 두 명을 동시에 정리하셨어요!",
+                    "더블 킬이에요~! 아주 멋지게 들어갔네요!",
+                    "와아, 두 명 동시 처치! 모두 주목해 주세요~"),
                 ScreenPresenterMotionState.Excited,
                 ReactionPriority.Medium);
             return;
@@ -393,9 +393,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 "ALL CLEAR!",
                 PickLine(
                     "clear",
-                    "어머, 벌써 끝났어? 조금 아쉬운데~",
-                    "마지막 한 명까지 정리! 자아, 여기서 끝~!",
-                    "이야, 깔끔한 마무리네! 다음 장면도 기대할게~"),
+                    "어머나~ 무대가 벌써 정리됐어요! 박수 부탁드려요!",
+                    "마지막 한 명까지 정리! 이번 무대도 성공이에요~!",
+                    "멋진 마무리였어요~ 다음 코너도 기대해 주세요!"),
                 ScreenPresenterMotionState.Excited,
                 ReactionPriority.High);
             return;
@@ -407,9 +407,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
                 "ELITE DOWN!",
                 PickLine(
                     "elite",
-                    "오호, 까다로운 녀석 하나 잡았네! 제법이야~",
-                    "엘리트 다운! 이제 좀 편해지려나?",
-                    "핵심 타깃 정리! 후후, 이건 하이라이트감이야!"),
+                    "엘리트까지 격파~! 여러분, 박수 부탁드려요!",
+                    "어머나, 엘리트 다운! 정말 든든하시네요~",
+                    "이 장면은 꼭 기억해 주세요! 멋진 하이라이트예요~"),
                 ScreenPresenterMotionState.Excited,
                 ReactionPriority.High);
         }
@@ -426,8 +426,8 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             ShowReaction(
                 "BIG SCORE!",
                 totalScore >= 0
-                    ? $"+{value:N0}! 누적 {totalScore:N0}점! 우와, 점수 쭉쭉 올라간다~"
-                    : $"+{value:N0}! 히히, 이거 꽤 큰 점수인데?",
+                    ? $"+{value:N0}점! 누적 {totalScore:N0}점이에요~ 정말 대단하죠?"
+                    : $"+{value:N0}점! 와아~ 오늘 최고의 점수 행진이에요!",
                 ScreenPresenterMotionState.Surprised,
                 ReactionPriority.Extreme);
             return;
@@ -438,8 +438,8 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
             ShowReaction(
                 "NICE SCORE!",
                 totalScore >= 0
-                    ? $"+{value:N0}! 지금 {totalScore:N0}점이야~ 더 올려볼래?"
-                    : $"+{value:N0}! 좋아, 점수 챙겼다!",
+                    ? $"+{value:N0}점 추가! 현재 {totalScore:N0}점이랍니다~"
+                    : $"+{value:N0}점 추가예요~! 멋진 활약이네요!",
                 ScreenPresenterMotionState.Excited,
                 ReactionPriority.High);
             return;
@@ -447,7 +447,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         ShowReaction(
             "SCORE!",
-            $"+{value:N0}! 또 점수야? 히히, 신난다~",
+            $"+{value:N0}점이에요~ 자아, 다음 점수도 기대해 주세요!",
             ScreenPresenterMotionState.Curious,
             ReactionPriority.Medium);
     }
