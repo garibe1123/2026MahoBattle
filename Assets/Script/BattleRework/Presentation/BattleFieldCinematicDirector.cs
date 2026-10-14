@@ -882,7 +882,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         return renderer != null &&
                renderer.name != BattleCharacterLightVisual.KeyRendererName &&
                renderer.name != BattleCharacterLightVisual.PoolRendererName &&
-               renderer.name != BattleCharacterLightVisual.GlowRendererName;
+               renderer.name != BattleCharacterLightVisual.GlowRendererName &&
+               renderer.name != BattleCharacterLightVisual.ContactShadowRendererName;
     }
 
     private void SetCharacterLightsImmediate(bool active)
