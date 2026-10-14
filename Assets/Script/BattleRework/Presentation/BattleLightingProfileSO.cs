@@ -122,6 +122,21 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Range(-1f, 1f)] public float presenterKeyLightVerticalOffsetRatio = 0.10f;
     [Range(0f, 0.35f)] public float presenterTopLightStrength = 0.035f;
 
+    [Header("Automatic Sprite Volume / Contact Shadow")]
+    [Tooltip("Add a gentle directional highlight without per-frame normal maps. Off restores the original sprite presentation.")]
+    public bool enableAutoSpriteVolume = true;
+    [Tooltip("Simple unlit contact shadow. No per-animation-frame ShadowCaster shapes.")]
+    public bool enableAutoContactShadow = true;
+    [Range(0f, 0.35f)] public float playerAutoVolumeStrength = 0.13f;
+    [Range(0f, 0.35f)] public float enemyAutoVolumeStrength = 0.11f;
+    [Range(0f, 0.45f)] public float contactShadowOpacity = 0.19f;
+    [Range(0f, 0.6f)] public float contactShadowMaxOffsetWorld = 0.22f;
+    [Tooltip("Color of the neutral stage fill when no nearby Point Light2D influences the character.")]
+    public Color spriteVolumeFillColor = new(1f, 0.94f, 0.82f, 1f);
+    [Tooltip("Direction from character to neutral fill light (in world XY).")]
+    public Vector2 spriteVolumeFillDirection = new(-0.55f, 0.85f);
+    [Range(0.1f, 2f)] public float localLightResponse = 0.85f;
+
     [Header("Shared Character Fade")]
     [Min(0.1f)] public float characterLightFadeSharpness = 6.8f;
 
