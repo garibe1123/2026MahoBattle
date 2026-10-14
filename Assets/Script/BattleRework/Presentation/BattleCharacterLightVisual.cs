@@ -405,7 +405,9 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             contactShadowRenderer = shadowObject.AddComponent<SpriteRenderer>();
 
         contactShadowRenderer.sprite = GetOrCreatePoolSprite();
-        Shader shader = Shader.Find("Sprites/Default");
+        Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
+        if (shader == null)
+            shader = Shader.Find("Sprites/Default");
         if (shader != null)
         {
             if (sharedContactShadowMaterial == null)
