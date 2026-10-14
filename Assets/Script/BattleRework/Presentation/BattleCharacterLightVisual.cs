@@ -305,7 +305,8 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         return renderer != null &&
                renderer.name != KeyRendererName &&
                renderer.name != PoolRendererName &&
-               renderer.name != GlowRendererName;
+               renderer.name != GlowRendererName &&
+               renderer.name != ContactShadowRendererName;
     }
 
     private void EnsureRig()
