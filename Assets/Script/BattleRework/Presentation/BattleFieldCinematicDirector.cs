@@ -52,6 +52,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     [SerializeField, Min(0f)] private float combatStartZoom = 5.25f;
 
     private readonly List<EnemyLightBinding> enemyLightBindings = new();
+    private readonly List<Light2D> cachedPointLights = new();
 
     private Light2D fieldGlobalLight;
     private Camera sceneCamera;
@@ -70,6 +71,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private bool showLightingRequested;
     private bool worldLightInitialized;
     private float nextEnemyLightScan;
+    private float nextLocalLightScan;
+    private float nextSurfaceLightUpdate;
     private int combatStartFocusRequest;
 
     public static BattleFieldCinematicDirector Instance => instance;
@@ -410,6 +413,12 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             RefreshEnemyLightVisuals(false);
         }
 
+        if (Time.unscaledTime >= nextSurfaceLightUpdate)
+        {
+            nextSurfaceLightUpdate = Time.unscaledTime + 0.10f;
+            UpdateAutomaticCharacterLighting();
+        }
+
         bool playerActive =
             player != null &&
             player.IsAlive &&
@@ -509,6 +518,13 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         // Player sprites can be offset children. Keep the stage beam/pool horizontally
         // centered on the gameplay Player transform instead of SpriteRenderer.bounds.center.x.
         visual.SetPlacementAnchor(player != null ? player.transform : visual.transform, true);
+
+        visual.ConfigureAutoSurface(
+            activeLightingProfile.enableAutoSpriteVolume,
+            activeLightingProfile.enableAutoContactShadow,
+            activeLightingProfile.playerAutoVolumeStrength,
+            activeLightingProfile.contactShadowOpacity,
+            activeLightingProfile.contactShadowMaxOffsetWorld);
 
         visual.ConfigureKeyLight(
             true,
@@ -647,6 +663,119 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             1f,
             1f,
             0f);
+
+        visual.ConfigureAutoSurface(
+            activeLightingProfile.enableAutoSpriteVolume,
+            activeLightingProfile.enableAutoContactShadow,
+            activeLightingProfile.enemyAutoVolumeStrength,
+            activeLightingProfile.contactShadowOpacity,
+            activeLightingProfile.contactShadowMaxOffsetWorld);
+    }
+
+    /// <summary>
+    /// One coarse Point Light2D query for all actors, at most once every 0.75s.
+    /// Each actor samples only the strongest nearby candidate every 0.10s.
+    /// No ShadowCaster, sprite pixel reads or allocations per animation frame.
+    /// </summary>
+    private void UpdateAutomaticCharacterLighting()
+    {
+        if (activeLightingProfile == null)
+            return;
+
+        bool combat = combatLightingRequested && !showLightingRequested;
+        if (combat && Time.unscaledTime >= nextLocalLightScan)
+        {
+            nextLocalLightScan = Time.unscaledTime + 0.75f;
+            cachedPointLights.Clear();
+            Light2D[] lights = FindObjectsByType<Light2D>(
+                FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            for (int i = 0; i < lights.Length; i++)
+            {
+                Light2D light = lights[i];
+                if (light == null || light.lightType != Light2D.LightType.Point ||
+                    !light.isActiveAndEnabled || light.gameObject.scene != gameObject.scene)
+                    continue;
+                cachedPointLights.Add(light);
+                if (cachedPointLights.Count >= 64)
+                    break;
+            }
+        }
+        else if (!combat)
+        {
+            cachedPointLights.Clear();
+            nextLocalLightScan = 0f;
+        }
+
+        if (playerLightVisual != null)
+            ApplyAutomaticLight(
+                playerLightVisual,
+                combat && player != null && player.IsAlive);
+        for (int i = 0; i < enemyLightBindings.Count; i++)
+        {
+            EnemyLightBinding binding = enemyLightBindings[i];
+            if (binding == null || binding.monster == null || binding.visual == null)
+                continue;
+            ApplyAutomaticLight(
+                binding.visual,
+                combat && binding.monster.IsAlive);
+        }
+    }
+
+    private void ApplyAutomaticLight(BattleCharacterLightVisual visual, bool active)
+    {
+        if (visual == null || activeLightingProfile == null)
+            return;
+
+        BattleLightingProfileSO profile = activeLightingProfile;
+        Vector2 direction = profile.spriteVolumeFillDirection;
+        if (direction.sqrMagnitude < 0.0001f)
+            direction = new Vector2(-0.55f, 0.85f);
+        direction.Normalize();
+
+        Color color = profile.spriteVolumeFillColor;
+        float strongestWeight = 0f;
+        Light2D strongest = null;
+        Vector2 characterPosition = visual.transform.position;
+
+        if (active)
+        {
+            for (int i = 0; i < cachedPointLights.Count; i++)
+            {
+                Light2D light = cachedPointLights[i];
+                if (light == null || !light.isActiveAndEnabled ||
+                    light.intensity <= 0.001f)
+                    continue;
+
+                Vector2 delta = (Vector2)light.transform.position - characterPosition;
+                float range = Mathf.Max(0.01f, light.pointLightOuterRadius);
+                float normalizedDistance = delta.magnitude / range;
+                if (normalizedDistance >= 1f)
+                    continue;
+
+                float weight = Mathf.Clamp01(
+                    (1f - normalizedDistance) * light.intensity *
+                    Mathf.Max(0.1f, profile.localLightResponse));
+                if (weight <= strongestWeight)
+                    continue;
+
+                strongestWeight = weight;
+                strongest = light;
+            }
+
+            if (strongest != null)
+            {
+                Vector2 delta = (Vector2)strongest.transform.position - characterPosition;
+                if (delta.sqrMagnitude > 0.001f)
+                    direction = (direction * 0.65f +
+                        delta.normalized * (1.9f * strongestWeight)).normalized;
+                color = Color.Lerp(color, strongest.color,
+                    Mathf.Clamp01(strongestWeight * 0.8f));
+            }
+        }
+
+        visual.SetAutoSurfaceLight(
+            active, direction, color,
+            Mathf.Lerp(0.85f, 1.25f, strongestWeight), strongestWeight);
     }
 
     private void ReconfigureCharacterLights()
