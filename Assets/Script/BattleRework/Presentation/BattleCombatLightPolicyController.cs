@@ -311,6 +311,7 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
                 renderer.name == BattleCharacterLightVisual.KeyRendererName ||
                 renderer.name == BattleCharacterLightVisual.PoolRendererName ||
                 renderer.name == BattleCharacterLightVisual.GlowRendererName ||
+                renderer.name == BattleCharacterLightVisual.ContactShadowRendererName ||
                 renderer.name == PlayerFloorSpotlightName)
             {
                 continue;
