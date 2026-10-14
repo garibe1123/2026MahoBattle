@@ -14,6 +14,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     public const string KeyRendererName = "CharacterKeySpotlight";
     public const string PoolRendererName = "CharacterLightPool";
     public const string GlowRendererName = "CharacterSpriteTopLight";
+    public const string ContactShadowRendererName = "CharacterContactShadow";
 
     private const string TopLightShaderName = "Sprites/BattleCharacterTopLight";
     private const string KeyLightShaderName = "Sprites/BattleSoftKeyLight";
@@ -30,11 +31,19 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private static Sprite sharedKeyLightSprite;
     private static Material sharedTopLightMaterial;
     private static Material sharedKeyLightMaterial;
+    private static Material sharedContactShadowMaterial;
+
+    private static readonly int VolumeStrengthId = Shader.PropertyToID("_VolumeStrength");
+    private static readonly int VolumeColorId = Shader.PropertyToID("_VolumeColor");
+    private static readonly int VolumeDirectionId = Shader.PropertyToID("_VolumeLightDir");
+    private static readonly int SpriteRectId = Shader.PropertyToID("_SpriteLocalRect");
 
     private SpriteRenderer targetRenderer;
     private SpriteRenderer keyRenderer;
     private SpriteRenderer poolRenderer;
     private SpriteRenderer glowRenderer;
+    private SpriteRenderer contactShadowRenderer;
+    private Transform contactShadowTransform;
     private Transform keyTransform;
     private Transform poolTransform;
     private Transform glowTransform;
@@ -64,6 +73,19 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private float targetStrength = 1f;
     private float currentVisibility;
     private bool floorPoolEnabled;
+
+    // Automatic, normal-map-free surface treatment. It does not touch the
+    // authored sprite material or the stage beam/aperture controller.
+    private bool autoVolumeEnabled;
+    private bool autoShadowEnabled;
+    private bool autoSurfaceActive;
+    private float autoVolumeMaxStrength;
+    private float autoShadowOpacity;
+    private float autoShadowMaxOffset;
+    private float autoSurfaceIntensity = 1f;
+    private float autoLocalLightWeight;
+    private Vector2 autoWorldLightDirection = new(-0.55f, 0.85f);
+    private Color autoWorldLightColor = new(1f, 0.94f, 0.82f, 1f);
 
     // Optional world anchor used for characters whose visual SpriteRenderer is offset from
     // the gameplay root. Player combat lighting uses this to keep the beam/pool centered
@@ -144,6 +166,40 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     {
         targetVisibility = active ? 1f : 0f;
         targetStrength = Mathf.Clamp01(strength);
+    }
+
+    /// <summary>
+    /// Opt-in automatically from the active BattleLightingProfileSO. No normal
+    /// maps or per-animation-frame shadow polygon are required.
+    /// </summary>
+    public void ConfigureAutoSurface(
+        bool volumeEnabled, bool shadowEnabled, float volumeStrength,
+        float shadowOpacity, float shadowMaxOffset)
+    {
+        autoVolumeEnabled = volumeEnabled;
+        autoShadowEnabled = shadowEnabled;
+        autoVolumeMaxStrength = Mathf.Clamp(volumeStrength, 0f, 0.35f);
+        autoShadowOpacity = Mathf.Clamp01(shadowOpacity);
+        autoShadowMaxOffset = Mathf.Max(0f, shadowMaxOffset);
+        if (autoShadowEnabled)
+            EnsureContactShadow();
+        ApplyVisualState();
+    }
+
+    /// <summary>
+    /// This updates the light direction at a modest fixed interval; animator
+    /// Sprite changes are handled automatically in SyncGlowRenderer().
+    /// </summary>
+    public void SetAutoSurfaceLight(
+        bool active, Vector2 worldDirection, Color lightColor,
+        float intensity, float localLightWeight)
+    {
+        autoSurfaceActive = active;
+        if (worldDirection.sqrMagnitude > 0.0001f)
+            autoWorldLightDirection = worldDirection.normalized;
+        autoWorldLightColor = lightColor;
+        autoSurfaceIntensity = Mathf.Clamp(intensity, 0f, 2f);
+        autoLocalLightWeight = Mathf.Clamp01(localLightWeight);
     }
 
     public void SetFloorPoolEnabled(bool enabled)
@@ -332,6 +388,39 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
             BattleSpotlightController.ApplyCurrentSettingsTo(this);
     }
 
+    private void EnsureContactShadow()
+    {
+        if (!autoShadowEnabled || contactShadowRenderer != null)
+            return;
+
+        Transform existing = transform.Find(ContactShadowRendererName);
+        GameObject shadowObject = existing != null
+            ? existing.gameObject
+            : new GameObject(ContactShadowRendererName);
+        shadowObject.transform.SetParent(transform, true);
+        contactShadowTransform = shadowObject.transform;
+        contactShadowRenderer = shadowObject.GetComponent<SpriteRenderer>();
+        if (contactShadowRenderer == null)
+            contactShadowRenderer = shadowObject.AddComponent<SpriteRenderer>();
+
+        contactShadowRenderer.sprite = GetOrCreatePoolSprite();
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader != null)
+        {
+            if (sharedContactShadowMaterial == null)
+            {
+                sharedContactShadowMaterial = new Material(shader)
+                {
+                    name = "BattleContactShadow_Unlit",
+                    hideFlags = HideFlags.HideAndDontSave
+                };
+            }
+            contactShadowRenderer.sharedMaterial = sharedContactShadowMaterial;
+        }
+
+        contactShadowRenderer.enabled = false;
+    }
+
     private void UpdatePlacement()
     {
         Bounds bounds = targetRenderer.bounds;
@@ -396,6 +485,28 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
             poolRenderer.sortingLayerID = targetRenderer.sortingLayerID;
             poolRenderer.sortingOrder = targetRenderer.sortingOrder - 1;
+        }
+
+        if (autoShadowEnabled && contactShadowRenderer == null)
+            EnsureContactShadow();
+        if (contactShadowRenderer != null && contactShadowTransform != null)
+        {
+            // Contact shadow has no animation shape to update. Only position
+            // and size follow the renderer bounds, even if the sprite flips.
+            Vector2 offset = -autoWorldLightDirection.normalized *
+                (autoShadowMaxOffset * autoLocalLightWeight);
+            contactShadowTransform.position = new Vector3(
+                placementX + offset.x,
+                bounds.min.y + Mathf.Max(0.01f, spriteHeight * 0.025f) +
+                offset.y * 0.20f,
+                targetRenderer.transform.position.z);
+            contactShadowTransform.rotation = Quaternion.identity;
+            ApplyWorldSizeToChild(
+                contactShadowTransform, contactShadowRenderer.sprite,
+                Mathf.Max(0.28f, spriteWidth * 0.78f),
+                Mathf.Max(0.09f, spriteWidth * 0.22f));
+            contactShadowRenderer.sortingLayerID = targetRenderer.sortingLayerID;
+            contactShadowRenderer.sortingOrder = targetRenderer.sortingOrder - 3;
         }
     }
 
@@ -501,17 +612,50 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
                 targetRenderer.enabled &&
                 targetRenderer.gameObject.activeInHierarchy;
 
-            glowRenderer.enabled =
-                canGlow &&
-                topLightStrength * visibility > 0.001f;
+            float volume = autoVolumeEnabled && autoSurfaceActive
+                ? autoVolumeMaxStrength * autoSurfaceIntensity
+                : 0f;
+            glowRenderer.enabled = canGlow &&
+                (topLightStrength * visibility > 0.001f || volume > 0.001f);
 
             if (glowRenderer.enabled)
             {
                 glowRenderer.GetPropertyBlock(glowProperties);
                 glowProperties.SetColor("_GlowColor", topLightColor);
                 glowProperties.SetFloat("_Strength", topLightStrength * visibility);
+                glowProperties.SetFloat(VolumeStrengthId, volume);
+                glowProperties.SetColor(VolumeColorId, autoWorldLightColor);
+
+                Vector3 local = targetRenderer.transform.InverseTransformDirection(
+                    new Vector3(autoWorldLightDirection.x, autoWorldLightDirection.y, 0f));
+                Vector2 dir = new(local.x, local.y);
+                if (dir.sqrMagnitude < 0.001f)
+                    dir = Vector2.up;
+                dir.Normalize();
+                glowProperties.SetVector(VolumeDirectionId,
+                    new Vector4(dir.x, dir.y, 0f, 0f));
+                Sprite targetSprite = targetRenderer.sprite;
+                if (targetSprite != null)
+                {
+                    Bounds spriteBounds = targetSprite.bounds;
+                    glowProperties.SetVector(SpriteRectId, new Vector4(
+                        spriteBounds.min.x, spriteBounds.min.y,
+                        1f / Mathf.Max(0.0001f, spriteBounds.size.x),
+                        1f / Mathf.Max(0.0001f, spriteBounds.size.y)));
+                }
                 glowRenderer.SetPropertyBlock(glowProperties);
             }
+        }
+
+        if (contactShadowRenderer != null)
+        {
+            bool visible = autoShadowEnabled && autoSurfaceActive &&
+                targetRenderer != null && targetRenderer.enabled &&
+                targetRenderer.gameObject.activeInHierarchy;
+            contactShadowRenderer.enabled = visible && autoShadowOpacity > 0.001f;
+            if (contactShadowRenderer.enabled)
+                contactShadowRenderer.color = new Color(
+                    0.045f, 0.055f, 0.075f, autoShadowOpacity);
         }
     }
 
