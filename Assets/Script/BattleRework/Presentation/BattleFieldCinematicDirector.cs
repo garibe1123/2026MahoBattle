@@ -115,6 +115,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         Unsubscribe();
         ReleaseCombatStartFocus();
         SetCharacterLightsImmediate(false);
+        if (ownsCameraFill && cameraFillLight != null)
+        {
+            cameraFillLight.intensity = 0f;
+            cameraFillLight.enabled = false;
+        }
 
         if (colorGrading != null)
             colorGrading.SetImmediateWeight(0f);
