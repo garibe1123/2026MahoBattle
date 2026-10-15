@@ -370,7 +370,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         for (int i = 0; i < existingLights.Length; i++)
         {
             Light2D existing = existingLights[i];
-            if (existing == null || existing.lightType == Light2D.LightType.Global)
+            if (existing == null || existing.lightType != Light2D.LightType.Point)
                 continue;
 
             // In Play Mode the tuning panel can preview the authored light.
