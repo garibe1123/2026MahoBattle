@@ -18,14 +18,23 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     public List<string> roomIds = new();
 
     [Header("World Light")]
-    [Tooltip("Near-neutral world light. The scene should feel bright and colorful, not color-filtered.")]
+    [Tooltip("Neutral show/selection light. Keeping this separate preserves existing TV styling.")]
     public Color worldLightColor = new(1.00f, 0.985f, 0.96f, 1f);
+    [Tooltip("Cool, subdued combat ambience lets warm local lights visibly illuminate the environment.")]
+    public Color worldLightCombatColor = new(0.87f, 0.91f, 1f, 1f);
     [Range(0f, 1.5f)] public float worldLightStartIntensity = 0.22f;
-    [Range(0f, 1.5f)] public float worldLightIdleIntensity = 0.68f;
-    [Range(0f, 1.5f)] public float worldLightCombatIntensity = 0.90f;
+    [Range(0f, 1.5f)] public float worldLightIdleIntensity = 0.54f;
+    [Range(0f, 1.5f)] public float worldLightCombatIntensity = 0.46f;
     [Range(0f, 1.5f)] public float worldLightShowIntensity = 0.38f;
     [Min(0.05f)] public float worldLightRiseDuration = 0.68f;
     [Min(0.05f)] public float worldLightFallDuration = 0.48f;
+
+    [Header("Camera-attached Combat Fill (2D Lit Sprites Only)")]
+    [Tooltip("Create a subtle Point Light2D that follows the camera only when no user-authored camera Point Light2D exists.")]
+    public bool autoCameraCombatFill = true;
+    public Color cameraCombatFillColor = new(1f, 0.83f, 0.65f, 1f);
+    [Range(0f, 1.5f)] public float cameraCombatFillIntensity = 0.20f;
+    [Min(0.5f)] public float cameraCombatFillRadius = 3.8f;
 
     [Header("Volume Blend")]
     [Range(0f, 1f)] public float idleVolumeWeight = 0.38f;
