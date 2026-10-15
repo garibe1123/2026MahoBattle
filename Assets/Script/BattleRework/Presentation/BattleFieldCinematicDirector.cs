@@ -258,19 +258,41 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             return;
 
         Light2D[] lights = FindObjectsByType<Light2D>(
-            FindObjectsInactive.Include,
-            FindObjectsSortMode.None);
+            FindObjectsInactive.Include, FindObjectsSortMode.None);
+        Light2D authoredWorldGlobal = null;
+        Light2D cameraGlobal = null;
 
         for (int i = 0; i < lights.Length; i++)
         {
             Light2D candidate = lights[i];
-            if (candidate == null || candidate.lightType != Light2D.LightType.Global)
-                continue;
-            if (candidate.gameObject.scene != gameObject.scene)
+            if (candidate == null ||
+                candidate.lightType != Light2D.LightType.Global ||
+                candidate.gameObject.scene != gameObject.scene)
                 continue;
 
-            fieldGlobalLight = candidate;
-            break;
+            if (candidate.name == "BattleWorldGlobalLight")
+            {
+                fieldGlobalLight = candidate;
+                break;
+            }
+
+            if (sceneCamera != null &&
+                candidate.transform.IsChildOf(sceneCamera.transform))
+                cameraGlobal ??= candidate;
+            else
+                authoredWorldGlobal ??= candidate;
+        }
+
+        if (fieldGlobalLight == null)
+            fieldGlobalLight = authoredWorldGlobal != null
+                ? authoredWorldGlobal : cameraGlobal;
+
+        if (cameraGlobal != null && fieldGlobalLight == cameraGlobal)
+        {
+            Debug.LogWarning(
+                "[BattleLighting] A camera-mounted Global Light2D is world ambience, " +
+                "not a local spotlight. The battle lighting profile controls its intensity. " +
+                "Use Point Light2D for a localized camera light.", cameraGlobal);
         }
 
         if (fieldGlobalLight == null)
