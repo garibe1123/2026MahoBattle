@@ -1,0 +1,9 @@
+{
+  "ambient": 0.68,
+  "warmth": 0.42,
+  "cameraIntensity": 0.4,
+  "cameraRadius": 9,
+  "playerIntensity": 0.86,
+  "playerRadius": 4.6,
+  "allMapFacesLit": true
+}
