@@ -57,6 +57,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private readonly List<EnemyLightBinding> enemyLightBindings = new();
     private readonly List<Light2D> cachedPointLights = new();
     private readonly List<MapBlock> litRoomBlocks = new();
+    private readonly HashSet<int> litRoomSortingLayers = new();
 
     private Light2D fieldGlobalLight;
     private Light2D cameraFillLight;
@@ -633,6 +634,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         if (roomManager == null)
             return;
+        litRoomSortingLayers.Clear();
         roomManager.CopyActiveRoomBlocks(litRoomBlocks);
         for (int i = 0; i < litRoomBlocks.Count; i++)
         {
@@ -646,6 +648,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                 SpriteRenderer surface = surfaces[j];
                 if (surface == null || surface.sprite == null)
                     continue;
+                litRoomSortingLayers.Add(surface.sortingLayerID);
                 // Do not touch animation-specific materials: just make the
                 // stage floor, side and roof ordinary 2D-lit sprites.
                 Material original = surface.sharedMaterial;
@@ -1354,24 +1357,31 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         cameraFillLight.enabled = authoredCameraEnabled;
     }
 
-    private static void EnsurePlayLightSortingLayers(Light2D light)
+    private void EnsurePlayLightSortingLayers(Light2D light)
     {
         if (light == null)
             return;
 
-        SortingLayer[] layers = SortingLayer.layers;
         UnityEditor.SerializedObject serialized = new(light);
         UnityEditor.SerializedProperty target =
             serialized.FindProperty("m_ApplyToSortingLayers");
         if (target == null)
             return;
 
-        bool same = target.arraySize == layers.Length;
+        // Preserve the light's original targets and add only this Room's
+        // active sprite layers. Do not blindly illuminate UI/TV sorting layers.
+        HashSet<int> merged = new(litRoomSortingLayers);
+        for (int i = 0; i < target.arraySize; i++)
+            merged.Add(target.GetArrayElementAtIndex(i).intValue);
+
+        List<int> layers = new(merged);
+        layers.Sort();
+        bool same = target.arraySize == layers.Count;
         if (same)
         {
-            for (int i = 0; i < layers.Length; i++)
+            for (int i = 0; i < layers.Count; i++)
             {
-                if (target.GetArrayElementAtIndex(i).intValue == layers[i].id)
+                if (target.GetArrayElementAtIndex(i).intValue == layers[i])
                     continue;
                 same = false;
                 break;
@@ -1388,9 +1398,9 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             originalLightSortingLayers.Add(light, original);
         }
 
-        target.arraySize = layers.Length;
-        for (int i = 0; i < layers.Length; i++)
-            target.GetArrayElementAtIndex(i).intValue = layers[i].id;
+        target.arraySize = layers.Count;
+        for (int i = 0; i < layers.Count; i++)
+            target.GetArrayElementAtIndex(i).intValue = layers[i];
         serialized.ApplyModifiedPropertiesWithoutUndo();
     }
 
