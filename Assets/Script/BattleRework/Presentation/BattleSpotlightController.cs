@@ -52,7 +52,8 @@ public sealed class BattleSpotlightController : MonoBehaviour
     [SerializeField] private Vector2 beamLocalOffset = Vector2.zero;
 
     [Header("Combat Focus")]
-    [SerializeField, Range(0f, 1f)] private float combatDimAlpha = 0.24f;
+    [Tooltip("Keep combat screen-space dim subtle; real URP local lights should carry the darkness contrast.")]
+    [SerializeField, Range(0f, 1f)] private float combatDimAlpha = 0.10f;
     [SerializeField, Min(0.1f)] private float combatFocusRadiusWorld = 1.78f;
     [SerializeField, Range(0.55f, 1f)] private float combatVerticalRatio = 0.72f;
     [SerializeField, Range(0.001f, 0.10f)] private float combatFeather = 0.040f;
