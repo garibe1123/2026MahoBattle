@@ -4,6 +4,5 @@
   "cameraIntensity": 0.4,
   "cameraRadius": 9,
   "playerIntensity": 0.86,
-  "playerRadius": 4.6,
-  "allMapFacesLit": true
+  "playerRadius": 4.6
 }
