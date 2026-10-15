@@ -379,6 +379,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             authoredCameraRadius = existing.pointLightOuterRadius;
             authoredCameraColor = existing.color;
             authoredCameraEnabled = existing.enabled;
+            authoredCameraCaptured = true;
 #endif
             return;
         }
@@ -1177,4 +1178,207 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     {
         battleCamera?.PushCameraImpulse(direction, strength, duration);
     }
+
+#if UNITY_EDITOR
+    // Editor Game-view only. JSON is intentionally saved instead of editing a
+    // .cs file: touching C# during Play would trigger a domain reload.
+    [System.Serializable]
+    private sealed class PlayLightingPreset
+    {
+        public float ambient = 0.68f;
+        public float warmth = 0.42f;
+        public float cameraIntensity = 0.40f;
+        public float cameraRadius = 9f;
+        public float playerIntensity = 0.86f;
+        public float playerRadius = 4.6f;
+    }
+
+    private const string PlayLightingPresetPath =
+        "Resources/BattleLightingPlayTune.json";
+    private PlayLightingPreset playLighting;
+    private bool playLightingOpen = true;
+    private bool playLightingDirty;
+    private float nextPlayLightingSave;
+    private Rect playLightingWindow = new(12f, 12f, 330f, 312f);
+    private float authoredCameraIntensity;
+    private float authoredCameraRadius;
+    private Color authoredCameraColor;
+    private bool authoredCameraEnabled;
+    private bool authoredCameraCaptured;
+
+    public bool TryGetPlayerPlayTuning(out float intensity, out float radius)
+    {
+        intensity = playLighting != null ? playLighting.playerIntensity : 0f;
+        radius = playLighting != null ? playLighting.playerRadius : 0f;
+        return Application.isPlaying && playLighting != null;
+    }
+
+    private void LoadPlayLightingPreset()
+    {
+        if (playLighting != null)
+            return;
+
+        playLighting = new PlayLightingPreset();
+        string fullPath = Path.Combine(Application.dataPath, PlayLightingPresetPath);
+        if (!File.Exists(fullPath))
+            return;
+
+        try
+        {
+            PlayLightingPreset saved = JsonUtility.FromJson<PlayLightingPreset>(
+                File.ReadAllText(fullPath));
+            if (saved != null)
+                playLighting = saved;
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning("[BattleLighting] Could not read Play lighting preset: " +
+                e.Message, this);
+        }
+    }
+
+    private void SavePlayLightingPresetIfDirty(bool force)
+    {
+        if (!playLightingDirty || playLighting == null ||
+            (!force && Time.realtimeSinceStartup < nextPlayLightingSave))
+            return;
+
+        try
+        {
+            string path = Path.Combine(Application.dataPath, PlayLightingPresetPath);
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            File.WriteAllText(path, JsonUtility.ToJson(playLighting, true) + "\n");
+            playLightingDirty = false;
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError("[BattleLighting] Could not save Play lighting preset: " +
+                e.Message, this);
+            nextPlayLightingSave = Time.realtimeSinceStartup + 2f;
+        }
+    }
+
+    private void MarkPlayLightingDirty()
+    {
+        playLightingDirty = true;
+        nextPlayLightingSave = Time.realtimeSinceStartup + 0.40f;
+    }
+
+    private float PlayLightingSlider(string title, float value, float min, float max)
+    {
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(title, GUILayout.Width(154f));
+        float next = GUILayout.HorizontalSlider(value, min, max);
+        GUILayout.Label(next.ToString("0.00"), GUILayout.Width(45f));
+        GUILayout.EndHorizontal();
+        if (Mathf.Abs(next - value) > 0.0001f)
+            MarkPlayLightingDirty();
+        return next;
+    }
+
+    private void OnGUI()
+    {
+        if (!Application.isPlaying || instance != this)
+            return;
+
+        if (Event.current.type == EventType.KeyDown &&
+            Event.current.keyCode == KeyCode.F8)
+        {
+            playLightingOpen = !playLightingOpen;
+            Event.current.Use();
+        }
+
+        if (!playLightingOpen)
+        {
+            if (GUI.Button(new Rect(12f, 12f, 165f, 27f),
+                    "PLAY LIGHT TUNER [F8]"))
+                playLightingOpen = true;
+            return;
+        }
+
+        LoadPlayLightingPreset();
+        playLightingWindow = GUI.Window(
+            74292, playLightingWindow, DrawPlayLightingWindow,
+            "PLAY LIGHT TUNER  [F8]");
+    }
+
+    private void DrawPlayLightingWindow(int id)
+    {
+        GUILayout.Space(5f);
+        GUILayout.Label("Combat preview only  |  Values saved to JSON");
+        playLighting.ambient = PlayLightingSlider(
+            "Ambient", playLighting.ambient, 0.15f, 1.4f);
+        playLighting.warmth = PlayLightingSlider(
+            "Ambient warmth", playLighting.warmth, 0f, 1f);
+        playLighting.cameraIntensity = PlayLightingSlider(
+            "Camera light power", playLighting.cameraIntensity, 0f, 1.5f);
+        playLighting.cameraRadius = PlayLightingSlider(
+            "Camera light radius", playLighting.cameraRadius, 1f, 24f);
+        playLighting.playerIntensity = PlayLightingSlider(
+            "Player light power", playLighting.playerIntensity, 0f, 2f);
+        playLighting.playerRadius = PlayLightingSlider(
+            "Player light radius", playLighting.playerRadius, 0.5f, 12f);
+
+        GUILayout.Space(5f);
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("Save now", GUILayout.Width(95f)))
+        {
+            MarkPlayLightingDirty();
+            SavePlayLightingPresetIfDirty(true);
+        }
+        if (GUILayout.Button("Reset", GUILayout.Width(80f)))
+        {
+            playLighting = new PlayLightingPreset();
+            MarkPlayLightingDirty();
+        }
+        GUILayout.Label(playLightingDirty ? "Saving..." : "Saved");
+        GUILayout.EndHorizontal();
+        GUILayout.Label("F8: Show/Hide  |  Drag title bar to move");
+        GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
+    }
+
+    private void RestoreAuthoredCameraLight()
+    {
+        if (ownsCameraFill || cameraFillLight == null ||
+            !authoredCameraCaptured)
+            return;
+
+        cameraFillLight.intensity = authoredCameraIntensity;
+        cameraFillLight.pointLightOuterRadius = authoredCameraRadius;
+        cameraFillLight.color = authoredCameraColor;
+        cameraFillLight.enabled = authoredCameraEnabled;
+    }
+
+    private static void EnsurePlayLightSortingLayers(Light2D light)
+    {
+        if (light == null)
+            return;
+
+        SortingLayer[] layers = SortingLayer.layers;
+        UnityEditor.SerializedObject serialized = new(light);
+        UnityEditor.SerializedProperty target =
+            serialized.FindProperty("m_ApplyToSortingLayers");
+        if (target == null)
+            return;
+
+        bool same = target.arraySize == layers.Length;
+        if (same)
+        {
+            for (int i = 0; i < layers.Length; i++)
+            {
+                if (target.GetArrayElementAtIndex(i).intValue == layers[i].id)
+                    continue;
+                same = false;
+                break;
+            }
+        }
+        if (same)
+            return;
+
+        target.arraySize = layers.Length;
+        for (int i = 0; i < layers.Length; i++)
+            target.GetArrayElementAtIndex(i).intValue = layers[i].id;
+        serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+#endif
 }
