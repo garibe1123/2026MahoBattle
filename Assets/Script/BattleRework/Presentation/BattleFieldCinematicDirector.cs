@@ -2,6 +2,9 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering.Universal;
+#if UNITY_EDITOR
+using System.IO;
+#endif
 
 /// <summary>
 /// Central battle lighting / show presentation director.
@@ -77,6 +80,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private float nextEnemyLightScan;
     private float nextLocalLightScan;
     private float nextSurfaceLightUpdate;
+    private float nextLitFaceScan;
+    private int remainingLitFaceScans;
     private int combatStartFocusRequest;
 
     public static BattleFieldCinematicDirector Instance => instance;
@@ -94,6 +99,9 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         instance = this;
         ResolveReferences();
         EnsureLightingProfile();
+#if UNITY_EDITOR
+        LoadPlayLightingPreset();
+#endif
         EnsureWorldLight();
         EnsureColorGrading();
         ConfigureCameraBackground();
@@ -115,11 +123,18 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         Unsubscribe();
         ReleaseCombatStartFocus();
         SetCharacterLightsImmediate(false);
+#if UNITY_EDITOR
+        SavePlayLightingPresetIfDirty(true);
+#endif
         if (ownsCameraFill && cameraFillLight != null)
         {
             cameraFillLight.intensity = 0f;
             cameraFillLight.enabled = false;
         }
+#if UNITY_EDITOR
+        else if (cameraFillLight != null)
+            RestoreAuthoredCameraLight();
+#endif
 
         if (colorGrading != null)
             colorGrading.SetImmediateWeight(0f);
@@ -355,8 +370,16 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             if (existing == null || existing.lightType == Light2D.LightType.Global)
                 continue;
 
-            // Never take over the user's authored camera lights or overwrite
-            // their intensity, radius, color, or enabled state.
+            // In Play Mode the tuning panel can preview the authored light.
+            // Original settings are restored when combat ends or Play stops.
+            cameraFillLight = existing;
+            ownsCameraFill = false;
+#if UNITY_EDITOR
+            authoredCameraIntensity = existing.intensity;
+            authoredCameraRadius = existing.pointLightOuterRadius;
+            authoredCameraColor = existing.color;
+            authoredCameraEnabled = existing.enabled;
+#endif
             return;
         }
 
@@ -381,20 +404,30 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             return;
 
         BattleLightingProfileSO profile = activeLightingProfile;
-        float target = profile.autoCameraCombatFill &&
-            combatLightingRequested && !showLightingRequested
-            ? Mathf.Max(0f, profile.cameraCombatFillIntensity)
-            : 0f;
-
+        bool combat = combatLightingRequested && !showLightingRequested;
+        if (!ownsCameraFill && !combat)
+        {
+#if UNITY_EDITOR
+            RestoreAuthoredCameraLight();
+#endif
+            return;
+        }
+        float target = profile.autoCameraCombatFill && combat
+            ? Mathf.Max(0f, profile.cameraCombatFillIntensity) : 0f;
+        float radius = profile.cameraCombatFillRadius;
+#if UNITY_EDITOR
+        if (playLighting != null && combat)
+        {
+            target = playLighting.cameraIntensity;
+            radius = playLighting.cameraRadius;
+        }
+#endif
         cameraFillLight.color = profile.cameraCombatFillColor;
-        cameraFillLight.pointLightInnerRadius =
-            Mathf.Max(0.1f, profile.cameraCombatFillRadius * 0.22f);
-        cameraFillLight.pointLightOuterRadius =
-            Mathf.Max(cameraFillLight.pointLightInnerRadius + 0.05f,
-                profile.cameraCombatFillRadius);
+        cameraFillLight.pointLightInnerRadius = Mathf.Max(0.1f, radius * 0.22f);
+        cameraFillLight.pointLightOuterRadius = Mathf.Max(
+            cameraFillLight.pointLightInnerRadius + 0.05f, radius);
         cameraFillLight.intensity = Mathf.MoveTowards(
-            cameraFillLight.intensity, target,
-            2.0f * Time.unscaledDeltaTime);
+            cameraFillLight.intensity, target, 3f * Time.unscaledDeltaTime);
         cameraFillLight.enabled = cameraFillLight.intensity > 0.001f;
     }
 
@@ -450,6 +483,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     {
         bool runActive = runManager != null && runManager.RunActive;
         combatLightingRequested = runActive && state == BattleRunState.Combat;
+        if (combatLightingRequested)
+            remainingLitFaceScans = 3;
         showLightingRequested =
             runActive &&
             (state == BattleRunState.RuleRoulette ||
@@ -477,6 +512,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         combatLightingRequested = true;
         showLightingRequested = false;
+        remainingLitFaceScans = 3;
 
         EnsureColorGrading();
         colorGrading.SetPresentationMode(true, false);
@@ -515,6 +551,16 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
         UpdateWorldLight();
         UpdateCameraFillLight();
+        if (combatLightingRequested && remainingLitFaceScans > 0 &&
+            Time.unscaledTime >= nextLitFaceScan)
+        {
+            nextLitFaceScan = Time.unscaledTime + 0.30f;
+            remainingLitFaceScans--;
+            EnsureStageSpritesReceiveLight();
+        }
+#if UNITY_EDITOR
+        SavePlayLightingPresetIfDirty(false);
+#endif
         EnsurePlayerLightVisual();
         EnsurePresenterLightVisual();
 
@@ -571,6 +617,56 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Tile roofs, walls and sides all use the same URP 2D Lit material.
+    /// Runs only on room entry (three bounded passes for staged entry),
+    /// never each frame; custom effects and Show-only carriers are untouched.
+    /// </summary>
+    private void EnsureStageSpritesReceiveLight()
+    {
+        Material lit = SpatialRuntimeSpriteCache.FloorLitMaterial;
+        if (lit == null)
+            return;
+
+        MapBlock[] blocks = FindObjectsByType<MapBlock>(
+            FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+        for (int i = 0; i < blocks.Length; i++)
+        {
+            MapBlock block = blocks[i];
+            if (block == null || !block.ContributesWalkableNavMesh)
+                continue;
+
+            SpriteRenderer[] surfaces = block.GetComponentsInChildren<SpriteRenderer>(true);
+            for (int j = 0; j < surfaces.Length; j++)
+            {
+                SpriteRenderer surface = surfaces[j];
+                if (surface == null || surface.sprite == null)
+                    continue;
+                // Do not touch animation-specific materials: just make the
+                // stage floor, side and roof ordinary 2D-lit sprites.
+                Material original = surface.sharedMaterial;
+                string shaderName = original != null && original.shader != null
+                    ? original.shader.name : "";
+                if (original == null || shaderName == "Sprites/Default" ||
+                    shaderName.Contains("Sprite-Unlit") ||
+                    shaderName.Contains("Sprite-Lit"))
+                    surface.sharedMaterial = lit;
+            }
+        }
+
+#if UNITY_EDITOR
+        // A Light2D can target only Default while field pieces use other
+        // sorting layers. Apply all stage sorting layers to the runtime
+        // lights during editor preview, without modifying scene YAML.
+        EnsurePlayLightSortingLayers(fieldGlobalLight);
+        EnsurePlayLightSortingLayers(cameraFillLight);
+        BattleCombatLightPolicyController policy =
+            FindFirstObjectByType<BattleCombatLightPolicyController>();
+        if (policy != null)
+            EnsurePlayLightSortingLayers(policy.RuntimePlayerLight);
+#endif
+    }
+
     private void UpdateWorldLight()
     {
         if (fieldGlobalLight == null || activeLightingProfile == null)
@@ -586,6 +682,16 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         Color targetColor = combatLightingRequested
             ? activeLightingProfile.worldLightCombatColor
             : activeLightingProfile.worldLightColor;
+#if UNITY_EDITOR
+        if (playLighting != null && combatLightingRequested && !showLightingRequested)
+        {
+            target = playLighting.ambient;
+            targetColor = Color.Lerp(
+                new Color(0.79f, 0.88f, 1f, 1f),
+                new Color(1f, 0.91f, 0.79f, 1f),
+                playLighting.warmth);
+        }
+#endif
         float blend = 1f - Mathf.Exp(-5f * Time.unscaledDeltaTime);
         fieldGlobalLight.color = Color.Lerp(fieldGlobalLight.color, targetColor, blend);
 
