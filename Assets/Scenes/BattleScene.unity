@@ -1267,12 +1267,12 @@ MonoBehaviour:
   stageFlow: {fileID: 0}
   player: {fileID: 0}
   bindingRefreshInterval: 0.2
-  usePlayerCombatPointLight: 0
+  usePlayerCombatPointLight: 1
   combatLightAnchor: {fileID: 0}
-  combatPointLightColor: {r: 1, g: 0.985, b: 0.94, a: 1}
-  combatPointLightIntensity: 0.48
-  combatPointLightInnerRadius: 0.8
-  combatPointLightOuterRadius: 2.4
+  combatPointLightColor: {r: 1, g: 0.84, b: 0.66, a: 1}
+  combatPointLightIntensity: 0.7
+  combatPointLightInnerRadius: 0.95
+  combatPointLightOuterRadius: 3.2
   combatPointLightFalloff: 0.8
   combatPointLightOffset: {x: 0, y: 0.05}
 --- !u!114 &529217572
