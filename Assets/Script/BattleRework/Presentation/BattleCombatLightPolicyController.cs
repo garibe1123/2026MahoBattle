@@ -26,13 +26,13 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
     [SerializeField, Min(0.10f)] private float bindingRefreshInterval = 0.75f;
 
     [Header("PLAYER COMBAT POINT LIGHT (OPTIONAL FILL)")]
-    [SerializeField] private bool usePlayerCombatPointLight = false;
+    [SerializeField] private bool usePlayerCombatPointLight = true;
     [Tooltip("있으면 이 Transform을 플레이어 발밑 조명의 기준점으로 사용합니다. 비어 있으면 CombatLightAnchor 이름을 찾고, 그것도 없으면 시작 시 Sprite 하단을 기준점으로 캐시합니다.")]
     [SerializeField] private Transform combatLightAnchor;
-    [SerializeField] private Color combatPointLightColor = new(1f, 0.985f, 0.94f, 1f);
-    [SerializeField, Range(0f, 2f)] private float combatPointLightIntensity = 0.48f;
-    [SerializeField, Min(0.05f)] private float combatPointLightInnerRadius = 0.80f;
-    [SerializeField, Min(0.10f)] private float combatPointLightOuterRadius = 2.40f;
+    [SerializeField] private Color combatPointLightColor = new(1f, 0.84f, 0.66f, 1f);
+    [SerializeField, Range(0f, 2f)] private float combatPointLightIntensity = 0.70f;
+    [SerializeField, Min(0.05f)] private float combatPointLightInnerRadius = 0.95f;
+    [SerializeField, Min(0.10f)] private float combatPointLightOuterRadius = 3.20f;
     [SerializeField, Range(0f, 1f)] private float combatPointLightFalloff = 0.80f;
     [SerializeField] private Vector2 combatPointLightOffset = new(0f, 0.05f);
 
@@ -230,6 +230,7 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
             return;
 
         combatPointLight.lightType = Light2D.LightType.Point;
+        combatPointLight.blendStyleIndex = 0;
         combatPointLight.color = combatPointLightColor;
         combatPointLight.intensity = Mathf.Max(0f, combatPointLightIntensity);
         combatPointLight.pointLightInnerRadius = Mathf.Max(0.05f, combatPointLightInnerRadius);
