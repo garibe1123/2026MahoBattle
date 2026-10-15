@@ -843,6 +843,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
         GameObject root = new($"__RuntimeRoomPiecePrototype_{node.id}_{pieceIndex}");
         root.transform.position = new Vector3(10000f, 10000f, 0f);
+        Material litFloorMaterial = SpatialRuntimeSpriteCache.FloorLitMaterial;
 
         foreach (Vector2Int cell in pieceCells)
         {
@@ -852,6 +853,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
             SpriteRenderer renderer = floor.AddComponent<SpriteRenderer>();
             renderer.sprite = SpatialRuntimeSpriteCache.FloorTile32;
+            if (litFloorMaterial != null)
+                renderer.sharedMaterial = litFloorMaterial;
             renderer.drawMode = SpriteDrawMode.Simple;
             renderer.color = roomFloorColor;
             renderer.sortingOrder = -20;
@@ -4142,6 +4145,32 @@ internal static class SpatialRuntimeSpriteCache
 {
     private static Sprite floorTile32;
     private static Sprite solid32;
+    private static Material floorLitMaterial;
+    private static bool triedFloorLitMaterial;
+
+    public static Material FloorLitMaterial
+    {
+        get
+        {
+            if (floorLitMaterial != null || triedFloorLitMaterial)
+                return floorLitMaterial;
+            triedFloorLitMaterial = true;
+            Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Lit-Default");
+            if (shader == null)
+            {
+                Debug.LogWarning("[BattleLighting] URP Sprite-Lit-Default shader not found. " +
+                    "The procedural room will use the Renderer2D default sprite material.");
+                return null;
+            }
+
+            floorLitMaterial = new Material(shader)
+            {
+                name = "BattleRuntimeTile_SpriteLit2D",
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            return floorLitMaterial;
+        }
+    }
 
     public static Sprite FloorTile32 => floorTile32 != null ? floorTile32 : floorTile32 = CreateFloorTile32();
     public static Sprite Solid32 => solid32 != null ? solid32 : solid32 = CreateSolid32();
