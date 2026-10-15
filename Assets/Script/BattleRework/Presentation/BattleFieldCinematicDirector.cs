@@ -125,6 +125,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         SetCharacterLightsImmediate(false);
 #if UNITY_EDITOR
         SavePlayLightingPresetIfDirty(true);
+        RestorePlayLightSortingLayers();
 #endif
         if (ownsCameraFill && cameraFillLight != null)
         {
@@ -1205,6 +1206,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private Color authoredCameraColor;
     private bool authoredCameraEnabled;
     private bool authoredCameraCaptured;
+    private readonly Dictionary<Light2D, int[]> originalLightSortingLayers = new();
 
     public bool TryGetPlayerPlayTuning(out float intensity, out float radius)
     {
@@ -1375,10 +1377,39 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         if (same)
             return;
 
+        if (!originalLightSortingLayers.ContainsKey(light))
+        {
+            int[] original = new int[target.arraySize];
+            for (int i = 0; i < original.Length; i++)
+                original[i] = target.GetArrayElementAtIndex(i).intValue;
+            originalLightSortingLayers.Add(light, original);
+        }
+
         target.arraySize = layers.Length;
         for (int i = 0; i < layers.Length; i++)
             target.GetArrayElementAtIndex(i).intValue = layers[i].id;
         serialized.ApplyModifiedPropertiesWithoutUndo();
+    }
+
+    private void RestorePlayLightSortingLayers()
+    {
+        foreach (KeyValuePair<Light2D, int[]> entry in originalLightSortingLayers)
+        {
+            if (entry.Key == null)
+                continue;
+
+            UnityEditor.SerializedObject serialized =
+                new UnityEditor.SerializedObject(entry.Key);
+            UnityEditor.SerializedProperty target =
+                serialized.FindProperty("m_ApplyToSortingLayers");
+            if (target == null)
+                continue;
+            target.arraySize = entry.Value.Length;
+            for (int i = 0; i < entry.Value.Length; i++)
+                target.GetArrayElementAtIndex(i).intValue = entry.Value[i];
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+        originalLightSortingLayers.Clear();
     }
 #endif
 }
