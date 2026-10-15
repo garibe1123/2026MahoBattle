@@ -465,6 +465,8 @@ public class RoomBaseTemplate : MonoBehaviour
 
         if (baseMaterial != null)
             renderer.sharedMaterial = baseMaterial;
+        else if (dummy && SpatialRuntimeSpriteCache.FloorLitMaterial != null)
+            renderer.sharedMaterial = SpatialRuntimeSpriteCache.FloorLitMaterial;
 
         if (tileSpriteToTemplate)
         {
