@@ -55,7 +55,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private readonly List<Light2D> cachedPointLights = new();
 
     private Light2D fieldGlobalLight;
+    private Light2D cameraFillLight;
     private Camera sceneCamera;
+    private bool cameraFillChecked;
+    private bool ownsCameraFill;
+    private bool warnedCamera3DLight;
     private BattleColorGradingController colorGrading;
     private BattleCharacterLightVisual playerLightVisual;
     private BattleCharacterLightVisual presenterLightVisual;
@@ -93,6 +97,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         EnsureWorldLight();
         EnsureColorGrading();
         ConfigureCameraBackground();
+        EnsureCameraFillLight();
     }
 
     private void OnEnable()
@@ -117,6 +122,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (ownsCameraFill && cameraFillLight != null)
+            Destroy(cameraFillLight.gameObject);
         if (runtimeDefaultProfile != null)
             Destroy(runtimeDefaultProfile);
 
@@ -133,6 +140,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             EnsureWorldLight();
             EnsureColorGrading();
             ConfigureCameraBackground();
+            EnsureCameraFillLight();
 
             if (battleCamera != null && runManager != null && roomManager != null && player != null)
                 break;
@@ -287,6 +295,82 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Local Light2D is required by URP's Renderer2D. A regular 3D Light on
+    /// Main Camera does not illuminate Sprite-Lit-Default materials.
+    /// Respect authored camera Light2D components; install a small optional
+    /// warm fill only if the camera has no authored local 2D light.
+    /// </summary>
+    private void EnsureCameraFillLight()
+    {
+        if (sceneCamera == null || activeLightingProfile == null)
+            return;
+
+        if (!warnedCamera3DLight && sceneCamera.GetComponentInChildren<Light>(true) != null)
+        {
+            warnedCamera3DLight = true;
+            Debug.LogWarning(
+                "[BattleLighting] Main Camera contains a 3D Light. A 2D Renderer " +
+                "does not illuminate sprites with this component. Use Light2D (Point) " +
+                "and Sprite-Lit-Default on receiving sprites instead.", sceneCamera);
+        }
+
+        if (cameraFillChecked)
+            return;
+        if (!activeLightingProfile.autoCameraCombatFill)
+            return;
+
+        cameraFillChecked = true;
+        Light2D[] existingLights = sceneCamera.GetComponentsInChildren<Light2D>(true);
+        for (int i = 0; i < existingLights.Length; i++)
+        {
+            Light2D existing = existingLights[i];
+            if (existing == null || existing.lightType == Light2D.LightType.Global)
+                continue;
+
+            // Never take over the user's authored camera lights or overwrite
+            // their intensity, radius, color, or enabled state.
+            return;
+        }
+
+        GameObject fillObject = new("BattleCameraWarmFill2D");
+        fillObject.transform.SetParent(sceneCamera.transform, false);
+        // The orthographic camera sits at world z=-10. Keep the actual 2D light
+        // on the floor/sprite z plane; follow only the camera's XY position.
+        fillObject.transform.localPosition = new Vector3(0f, 0f, 10f);
+        cameraFillLight = fillObject.AddComponent<Light2D>();
+        cameraFillLight.lightType = Light2D.LightType.Point;
+        cameraFillLight.blendStyleIndex = 0;
+        cameraFillLight.pointLightInnerAngle = 360f;
+        cameraFillLight.pointLightOuterAngle = 360f;
+        cameraFillLight.shadowsEnabled = false;
+        cameraFillLight.enabled = false;
+        ownsCameraFill = true;
+    }
+
+    private void UpdateCameraFillLight()
+    {
+        if (cameraFillLight == null || activeLightingProfile == null)
+            return;
+
+        BattleLightingProfileSO profile = activeLightingProfile;
+        float target = profile.autoCameraCombatFill &&
+            combatLightingRequested && !showLightingRequested
+            ? Mathf.Max(0f, profile.cameraCombatFillIntensity)
+            : 0f;
+
+        cameraFillLight.color = profile.cameraCombatFillColor;
+        cameraFillLight.pointLightInnerRadius =
+            Mathf.Max(0.1f, profile.cameraCombatFillRadius * 0.22f);
+        cameraFillLight.pointLightOuterRadius =
+            Mathf.Max(cameraFillLight.pointLightInnerRadius + 0.05f,
+                profile.cameraCombatFillRadius);
+        cameraFillLight.intensity = Mathf.MoveTowards(
+            cameraFillLight.intensity, target,
+            2.0f * Time.unscaledDeltaTime);
+        cameraFillLight.enabled = cameraFillLight.intensity > 0.001f;
+    }
+
     private void EnsureColorGrading()
     {
         EnsureLightingProfile();
@@ -403,6 +487,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         EnsureColorGrading();
 
         UpdateWorldLight();
+        UpdateCameraFillLight();
         EnsurePlayerLightVisual();
         EnsurePresenterLightVisual();
 
@@ -471,7 +556,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         else if (showLightingRequested)
             target = Mathf.Max(0f, activeLightingProfile.worldLightShowIntensity);
 
-        fieldGlobalLight.color = activeLightingProfile.worldLightColor;
+        Color targetColor = combatLightingRequested
+            ? activeLightingProfile.worldLightCombatColor
+            : activeLightingProfile.worldLightColor;
+        float blend = 1f - Mathf.Exp(-5f * Time.unscaledDeltaTime);
+        fieldGlobalLight.color = Color.Lerp(fieldGlobalLight.color, targetColor, blend);
 
         float current = fieldGlobalLight.intensity;
         float duration =
