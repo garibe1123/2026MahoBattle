@@ -16,6 +16,8 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
     private const string CombatPointLightName = "BattleCombatPlayerPointLight";
     private const string CombatLightAnchorName = "CombatLightAnchor";
 
+    public Light2D RuntimePlayerLight => combatPointLight;
+
     private static BattleCombatLightPolicyController instance;
 
     [SerializeField] private BattleRunManager runManager;
@@ -232,11 +234,24 @@ public sealed class BattleCombatLightPolicyController : MonoBehaviour
         combatPointLight.lightType = Light2D.LightType.Point;
         combatPointLight.blendStyleIndex = 0;
         combatPointLight.color = combatPointLightColor;
-        combatPointLight.intensity = Mathf.Max(0f, combatPointLightIntensity);
-        combatPointLight.pointLightInnerRadius = Mathf.Max(0.05f, combatPointLightInnerRadius);
+        float targetIntensity = combatPointLightIntensity;
+        float targetRadius = combatPointLightOuterRadius;
+#if UNITY_EDITOR
+        if (BattleFieldCinematicDirector.Instance != null &&
+            BattleFieldCinematicDirector.Instance.TryGetPlayerPlayTuning(
+                out float tunedIntensity, out float tunedRadius))
+        {
+            targetIntensity = tunedIntensity;
+            targetRadius = tunedRadius;
+        }
+#endif
+        combatPointLight.intensity = Mathf.Max(0f, targetIntensity);
+        combatPointLight.pointLightInnerRadius = Mathf.Min(
+            Mathf.Max(0.05f, combatPointLightInnerRadius),
+            Mathf.Max(0.10f, targetRadius) * 0.45f);
         combatPointLight.pointLightOuterRadius = Mathf.Max(
             combatPointLight.pointLightInnerRadius + 0.05f,
-            combatPointLightOuterRadius);
+            targetRadius);
         combatPointLight.falloffIntensity = Mathf.Clamp01(combatPointLightFalloff);
         combatPointLight.pointLightInnerAngle = 360f;
         combatPointLight.pointLightOuterAngle = 360f;
