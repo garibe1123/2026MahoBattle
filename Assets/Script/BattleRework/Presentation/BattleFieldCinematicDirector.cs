@@ -56,6 +56,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
     private readonly List<EnemyLightBinding> enemyLightBindings = new();
     private readonly List<Light2D> cachedPointLights = new();
+    private readonly List<MapBlock> litRoomBlocks = new();
 
     private Light2D fieldGlobalLight;
     private Light2D cameraFillLight;
@@ -630,12 +631,13 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         if (lit == null)
             return;
 
-        MapBlock[] blocks = FindObjectsByType<MapBlock>(
-            FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-        for (int i = 0; i < blocks.Length; i++)
+        if (roomManager == null)
+            return;
+        roomManager.CopyActiveRoomBlocks(litRoomBlocks);
+        for (int i = 0; i < litRoomBlocks.Count; i++)
         {
-            MapBlock block = blocks[i];
-            if (block == null || !block.ContributesWalkableNavMesh)
+            MapBlock block = litRoomBlocks[i];
+            if (block == null)
                 continue;
 
             SpriteRenderer[] surfaces = block.GetComponentsInChildren<SpriteRenderer>(true);
@@ -651,7 +653,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                     ? original.shader.name : "";
                 if (original == null || shaderName == "Sprites/Default" ||
                     shaderName.Contains("Sprite-Unlit") ||
-                    shaderName.Contains("Sprite-Lit"))
+                    shaderName.Contains("Sprite-Lit") ||
+                    shaderName.StartsWith("Unlit/"))
                     surface.sharedMaterial = lit;
             }
         }
