@@ -374,6 +374,27 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     public static BattleDebrisBurst Spawn(Vector3 position, Vector2 impactDirection,
         BattleDebrisMaterial materialType)
     {
+        return Spawn(position, impactDirection, materialType, 0, 0);
+    }
+
+    /// <summary>
+    /// Use a Vector2 world center and per-object inclusive piece-count limits.
+    /// The optional z depth is 0; use the Vector3 overload to preserve source depth.
+    /// </summary>
+    public static BattleDebrisBurst Spawn(Vector2 position, Vector2 impactDirection,
+        BattleDebrisMaterial materialType, int minimumPieces, int maximumPieces)
+    {
+        return Spawn(new Vector3(position.x, position.y, 0f),
+            impactDirection, materialType, minimumPieces, maximumPieces);
+    }
+
+    /// <summary>
+    /// Per-call overrides: values 1..6 are inclusive; 0 means the prefab
+    /// default. Pool instances keep no count overrides after the burst ends.
+    /// </summary>
+    public static BattleDebrisBurst Spawn(Vector3 position, Vector2 impactDirection,
+        BattleDebrisMaterial materialType, int minimumPieces, int maximumPieces)
+    {
         BattleDebrisBurst prefab = Resources.Load<BattleDebrisBurst>(ResourcePath);
         if (prefab == null)
         {
@@ -392,17 +413,24 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
         instance.spawnedFromPool = true;
         activePooledBursts++;
-        instance.Play(position, impactDirection, materialType);
+        instance.Play(position, impactDirection, materialType,
+            minimumPieces, maximumPieces);
         return instance.gameObject.activeInHierarchy ? instance : null;
     }
 
     public void Play(Vector3 position, Vector2 impactDirection)
     {
-        Play(position, impactDirection, defaultMaterial);
+        Play(position, impactDirection, defaultMaterial, 0, 0);
     }
 
     public void Play(Vector3 position, Vector2 impactDirection,
         BattleDebrisMaterial materialType)
+    {
+        Play(position, impactDirection, materialType, 0, 0);
+    }
+
+    public void Play(Vector3 position, Vector2 impactDirection,
+        BattleDebrisMaterial materialType, int minimumOverride, int maximumOverride)
     {
         StopActive();
         transform.position = position;
@@ -426,8 +454,17 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             return;
         }
 
-        int targetCount = UnityEngine.Random.Range(
-            ConfiguredMinimumPieces, ConfiguredMaximumPieces + 1);
+        // Clamp separately for each invocation: never modify the shared
+        // prefab's serialized limits or leak a previous pooled caller's values.
+        int chosenMin = Mathf.Clamp(
+            minimumOverride > 0 ? minimumOverride : ConfiguredMinimumPieces,
+            1, HardLimit);
+        int chosenMax = Mathf.Clamp(
+            maximumOverride > 0 ? maximumOverride : ConfiguredMaximumPieces,
+            1, HardLimit);
+        int low = Mathf.Min(chosenMin, chosenMax);
+        int high = Mathf.Max(chosenMin, chosenMax);
+        int targetCount = UnityEngine.Random.Range(low, high + 1);
         launchPositions.Clear();
         landingPositions.Clear();
         landingFootprints.Clear();
