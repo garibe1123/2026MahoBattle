@@ -97,6 +97,9 @@ public class BattleDebugUI : MonoBehaviour
 
         DrawBattleRatingTestSelector();
         DrawKillAllEnemyButton();
+#if UNITY_EDITOR
+        DrawDebrisArcTestButton();
+#endif
 
         if (!visible)
             return;
@@ -197,6 +200,47 @@ public class BattleDebugUI : MonoBehaviour
         GUILayout.EndScrollView();
         GUILayout.EndArea();
     }
+
+#if UNITY_EDITOR
+    // This button exists only in Unity's Game view during Play Mode and is
+    // not compiled into player builds (including development builds).
+    private void DrawDebrisArcTestButton()
+    {
+        if (!Application.isPlaying ||
+            SceneManager.GetActiveScene().name != "BattleScene")
+            return;
+
+        const float width = 220f;
+        const float height = 40f;
+        Rect rect = new(Screen.width - width - 12f,
+            Screen.height - height - 12f, width, height);
+
+        if (!GUI.Button(rect, "TEST DEBRIS ARC"))
+            return;
+
+        Camera camera = Camera.main;
+        if (camera == null)
+        {
+            Debug.LogWarning("[BattleDebris] Arc test needs a Main Camera.");
+            return;
+        }
+
+        // Raycast into the XY game field's Z=0 plane, rather than assuming
+        // any specific side-view camera offset or perspective type.
+        Ray ray = camera.ScreenPointToRay(
+            new Vector3(Screen.width * 0.5f, Screen.height * 0.5f, 0f));
+        Plane ground = new(Vector3.forward, Vector3.zero);
+        if (!ground.Raycast(ray, out float hit))
+        {
+            Debug.LogWarning("[BattleDebris] Camera does not face the XY field plane.");
+            return;
+        }
+
+        Vector3 point = ray.GetPoint(hit);
+        BattleDebrisBurst.SpawnEditorArcTest(
+            new Vector3(point.x, point.y, 0f));
+    }
+#endif
 
     private void DrawBattleRatingTestSelector()
     {
