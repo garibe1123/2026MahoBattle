@@ -131,6 +131,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [SerializeField, Range(0, 4)] private int maximumBounces = 2;
     [SerializeField, Range(0f, 0.8f)] private float bounceRetention = 0.38f;
     [SerializeField, Min(0f)] private float settleDuration = 0.35f;
+    [Tooltip("Play landing, +1 frame, landing, -1 frame, landing once after first ground contact.")]
+    [SerializeField, Range(0.05f, 1f)] private float landingFrameWobbleDuration = 0.35f;
     [SerializeField, Min(0f)] private float restDuration = 0.65f;
     [SerializeField, Min(0.05f)] private float blinkDuration = 0.55f;
     [SerializeField, Range(2f, 18f)] private float blinkFrequency = 9f;
@@ -156,6 +158,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public Sprite[] frames;
         public float fps;
         public int landingFrame;
+        public int displayedFrame;
         public int landingFrameFirst;
         public int landingFrameSecond;
         public int startingFrame;
@@ -181,6 +184,14 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private bool playing;
     private bool spawnedFromPool;
     private int activeCount;
+
+#if UNITY_EDITOR
+    // Test-only state never enters a player build.
+    private bool editorArcTest;
+    private Sprite[][] editorFallbackClips;
+    private readonly List<Texture2D> editorFallbackTextures = new();
+    private readonly List<Sprite> editorFallbackSprites = new();
+#endif
 
     private static int preparedSceneHandle = -1;
     private static bool poolReady;
@@ -372,6 +383,9 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
         instance.spawnedFromPool = true;
         activePooledBursts++;
+#if UNITY_EDITOR
+        instance.editorArcTest = false;
+#endif
         instance.Play(position, impactDirection, materialType,
             minimumPieces, maximumPieces);
         return instance.gameObject.activeInHierarchy ? instance : null;
@@ -405,6 +419,17 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         // which one gets used for a particular piece.
         Sprite[][] vertical = GetClips(sheets.vertical);
         Sprite[][] horizontal = GetClips(sheets.horizontal);
+#if UNITY_EDITOR
+        if (editorArcTest)
+        {
+            // When the artist has not assigned PNGs yet, test the actual
+            // physics using disposable, code-generated rotating pixel sprites.
+            if (vertical.Length == 0)
+                vertical = GetEditorFallbackClips();
+            if (horizontal.Length == 0)
+                horizontal = GetEditorFallbackClips();
+        }
+#endif
         if (vertical.Length == 0 && horizontal.Length == 0)
         {
             Debug.LogWarning("[BattleDebris] No valid 512x384 sheets for " +
@@ -704,6 +729,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.startingFrame = randomStartFrame
             ? UnityEngine.Random.Range(0, FramesPerPiece) : 0;
         shard.visual.sprite = frames[shard.startingFrame];
+        shard.displayedFrame = shard.startingFrame;
         shard.visual.flipX = allowFlip && UnityEngine.Random.value < 0.5f;
         shard.visual.flipY = false;
 
@@ -823,7 +849,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
                     shard.landingFrame = ChooseLandingFrame(
                         currentFrame, shard.landingFrameFirst,
                         shard.landingFrameSecond);
-                    shard.visual.sprite = shard.frames[shard.landingFrame];
+                    shard.displayedFrame = shard.landingFrame;
+                    shard.visual.sprite = shard.frames[shard.displayedFrame];
                 }
 
                 float speedOnImpact =
@@ -895,14 +922,28 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.shadow.color = new Color(0.04f, 0.05f, 0.08f,
             0.26f / (1f + height * shadowFadePerHeight));
 
-        // Before first contact use randomized per-piece frame rate and phase.
-        // At contact lock the direction-specific frame; bounce/settle retain it.
+        // A frame-based bounce of the image itself: contact, +1, contact,
+        // -1, contact, then hold. Physical hops can continue independently.
         if (!shard.hasHitGround)
         {
-            shard.visual.sprite = shard.frames[FlightFrameIndex(shard)];
+            shard.displayedFrame = FlightFrameIndex(shard);
         }
         else
-            shard.visual.sprite = shard.frames[shard.landingFrame];
+        {
+            int baseFrame = shard.landingFrame;
+            const int steps = 5;
+            float duration = Mathf.Max(0.001f, landingFrameWobbleDuration);
+            int step = Mathf.FloorToInt(shard.landedAge / (duration / steps));
+            int frameOffset = step switch
+            {
+                1 => 1,
+                3 => -1,
+                _ => 0
+            };
+            shard.displayedFrame = Mathf.Clamp(
+                baseFrame + frameOffset, 0, FramesPerPiece - 1);
+        }
+        shard.visual.sprite = shard.frames[shard.displayedFrame];
 
         bool blinking = shard.resting &&
             shard.restingAge >= settleDuration + restDuration;
@@ -970,8 +1011,134 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         ValidateMotion(large);
     }
 
+#if UNITY_EDITOR
+    /// <summary>
+    /// Use only from an editor Game-view test button. The shared pool and
+    /// parabola simulation are real; missing sheets receive temporary art.
+    /// </summary>
+    public static BattleDebrisBurst SpawnEditorArcTest(Vector3 position)
+    {
+        BattleDebrisBurst prefab = Resources.Load<BattleDebrisBurst>(ResourcePath);
+        if (prefab == null)
+        {
+            Debug.LogWarning("[BattleDebris] Test prefab missing: Resources/" + ResourcePath);
+            return null;
+        }
+
+        PreparePool();
+        if (activePooledBursts >= prefab.MaximumConcurrentBursts)
+        {
+            Debug.LogWarning("[BattleDebris] Shared pool at capacity; wait for shards to expire.");
+            return null;
+        }
+
+        BattleDebrisBurst instance =
+            PoolService.Spawn(prefab, position, Quaternion.identity);
+        if (instance == null)
+            return null;
+
+        instance.editorArcTest = true;
+        instance.spawnedFromPool = true;
+        activePooledBursts++;
+        instance.Play(position, Vector2.zero, prefab.defaultMaterial, 3, 6);
+        return instance.gameObject.activeInHierarchy ? instance : null;
+    }
+
+    private Sprite[][] GetEditorFallbackClips()
+    {
+        if (editorFallbackClips != null)
+            return editorFallbackClips;
+
+        // Each visible frame rotates the same off-center 64px test piece.
+        // The 8 frames represent two four-frame cycles; the red tip makes
+        // the direction observable even without the artist's sprite sheets.
+        Sprite[] frames = new Sprite[FramesPerPiece];
+        for (int f = 0; f < FramesPerPiece; f++)
+        {
+            Texture2D texture = new(CellPixels, CellPixels,
+                TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave
+            };
+            Color32[] colors = new Color32[CellPixels * CellPixels];
+            float degrees = (f % 4) * 90f * Mathf.Deg2Rad;
+            float cs = Mathf.Cos(degrees);
+            float sn = Mathf.Sin(degrees);
+            for (int y = 0; y < CellPixels; y++)
+            for (int x = 0; x < CellPixels; x++)
+            {
+                float px = x - 31.5f;
+                float py = y - 31.5f;
+                float a = px * cs + py * sn;
+                float b = -px * sn + py * cs;
+                if (Mathf.Abs(a) <= 22f && Mathf.Abs(b) <= 8f)
+                {
+                    bool tip = a > 14f;
+                    bool stripe = Mathf.Abs(b) < 2.5f;
+                    colors[y * CellPixels + x] = tip
+                        ? new Color32(236, 90, 74, 255)
+                        : stripe
+                            ? new Color32(245, 226, 155, 255)
+                            : new Color32(75, 172, 204, 255);
+                }
+            }
+            texture.SetPixels32(colors);
+            texture.Apply(false, true);
+            Sprite sprite = Sprite.Create(texture,
+                new Rect(0f, 0f, CellPixels, CellPixels),
+                new Vector2(0.5f, 0.5f), Mathf.Max(1f, pixelsPerUnit));
+            sprite.hideFlags = HideFlags.HideAndDontSave;
+            sprite.name = "Editor_Debris_Frame_" + f;
+            frames[f] = sprite;
+            editorFallbackTextures.Add(texture);
+            editorFallbackSprites.Add(sprite);
+        }
+
+        editorFallbackClips = new Sprite[RowsPerSheet][];
+        for (int i = 0; i < RowsPerSheet; i++)
+            editorFallbackClips[i] = frames;
+        return editorFallbackClips;
+    }
+
+    private void OnGUI()
+    {
+        if (!Application.isPlaying || !editorArcTest || !playing)
+            return;
+
+        Camera camera = Camera.main;
+        if (camera == null)
+            return;
+
+        for (int i = 0; i < activeCount; i++)
+        {
+            Shard shard = shards[i];
+            if (!shard.active || !shard.visual.enabled)
+                continue;
+
+            Vector3 screen = camera.WorldToScreenPoint(
+                shard.spriteTransform.position);
+            if (screen.z <= 0f)
+                continue;
+
+            Rect label = new(
+                screen.x - 22f, Screen.height - screen.y - 35f, 44f, 20f);
+            GUI.Box(label, "F " + shard.displayedFrame);
+        }
+    }
+#endif
+
     private void OnDestroy()
     {
+#if UNITY_EDITOR
+        foreach (Sprite sprite in editorFallbackSprites)
+            if (sprite != null) Destroy(sprite);
+        foreach (Texture2D texture in editorFallbackTextures)
+            if (texture != null) Destroy(texture);
+        editorFallbackSprites.Clear();
+        editorFallbackTextures.Clear();
+#endif
         foreach (Sprite[][] clips in clipsBySheet.Values)
         for (int i = 0; i < clips.Length; i++)
         {
