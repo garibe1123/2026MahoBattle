@@ -940,8 +940,10 @@ public sealed class BattleDebrisBurst : MonoBehaviour
                 3 => -1,
                 _ => 0
             };
-            shard.displayedFrame = Mathf.Clamp(
-                baseFrame + frameOffset, 0, FramesPerPiece - 1);
+            // Wrap 7 -> 0 and 0 -> 7: even end-of-cycle landing poses
+            // can visibly rock by one frame in both directions.
+            shard.displayedFrame =
+                (baseFrame + frameOffset + FramesPerPiece) % FramesPerPiece;
         }
         shard.visual.sprite = shard.frames[shard.displayedFrame];
 
