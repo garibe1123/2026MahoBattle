@@ -1,0 +1,83 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1 &5482321011100910000
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 5482321011100910001}
+  - component: {fileID: 5482321011100910002}
+  m_Layer: 0
+  m_Name: PF_BattleDebrisBurst
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &5482321011100910001
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5482321011100910000}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &5482321011100910002
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5482321011100910000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5adf57b19c634a6783a45c0e950d2457, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
+  commonSheet: {fileID: 0}
+  pixelsPerUnit: 64
+  debrisMaterial: {fileID: 0}
+  sortingLayerName: Default
+  sortingOrder: 25
+  down:
+    count: 3
+    sheetOverride: {fileID: 0}
+  up:
+    count: 3
+    sheetOverride: {fileID: 0}
+  left:
+    count: 3
+    sheetOverride: {fileID: 0}
+  right:
+    count: 3
+    sheetOverride: {fileID: 0}
+  maximumDebris: 24
+  launchRadius: 0.8
+  launchSpacing: 0.13
+  landingDistanceMin: 1.2
+  landingDistanceMax: 2.8
+  landingSpacing: 0.38
+  directionalSpread: 38
+  impactDirectionBias: 0.18
+  sizeMin: 0.3
+  sizeMax: 0.54
+  initialHeight: 0.1
+  riseVelocityMin: 2.7
+  riseVelocityMax: 4
+  gravity: 11
+  maximumBounces: 2
+  bounceRetention: 0.38
+  settleDuration: 0.35
+  restDuration: 0.65
+  blinkDuration: 0.55
+  blinkFrequency: 9
