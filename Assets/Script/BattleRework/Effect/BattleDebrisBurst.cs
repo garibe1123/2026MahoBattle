@@ -29,61 +29,12 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private enum LandingDirection { Down, Up, Left, Right }
 
     [Serializable]
-    private sealed class LandingFrameRule
-    {
-        [Range(0, 7)] public int up = 7;
-        [Range(0, 7)] public int down = 7;
-        [Range(0, 7)] public int left = 7;
-        [Range(0, 7)] public int right = 7;
-        public bool allowRandomFlipX = true;
-
-        public int GetFrame(LandingDirection direction)
-        {
-            switch (direction)
-            {
-                case LandingDirection.Up: return Mathf.Clamp(up, 0, 7);
-                case LandingDirection.Down: return Mathf.Clamp(down, 0, 7);
-                case LandingDirection.Left: return Mathf.Clamp(left, 0, 7);
-                default: return Mathf.Clamp(right, 0, 7);
-            }
-        }
-    }
-
-    [Serializable]
-    private sealed class AxisSheet
-    {
-        [Tooltip("Must be exactly 512x384px: 8 frames x 6 variants, each cell 64px.")]
-        public Texture2D texture;
-        [Tooltip("Rows top-to-bottom: Small A/B, Medium A/B, Large A/B. Set the frame shown when this piece first hits ground.")]
-        public LandingFrameRule smallA = new();
-        public LandingFrameRule smallB = new();
-        public LandingFrameRule mediumA = new();
-        public LandingFrameRule mediumB = new();
-        public LandingFrameRule largeA = new();
-        public LandingFrameRule largeB = new();
-
-        public LandingFrameRule RuleForRow(int row)
-        {
-            switch (row)
-            {
-                case 0: return smallA;
-                case 1: return smallB;
-                case 2: return mediumA;
-                case 3: return mediumB;
-                case 4: return largeA;
-                case 5: return largeB;
-                default: return null;
-            }
-        }
-    }
-
-    [Serializable]
     private sealed class MaterialSheets
     {
-        [Tooltip("Used if the landing direction is Up/Down.")]
-        public AxisSheet vertical = new();
-        [Tooltip("Used if the landing direction is Left/Right.")]
-        public AxisSheet horizontal = new();
+        [Tooltip("Up/down landings: 512x384px PNG, 6 rows x 8 frames.")]
+        public Texture2D vertical;
+        [Tooltip("Left/right landings: 512x384px PNG, 6 rows x 8 frames.")]
+        public Texture2D horizontal;
     }
 
     [Serializable]
@@ -96,6 +47,12 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         [Min(0f)] public float spinMax = 400f;
         [Range(0.05f, 2f)] public float scaleMin = 0.3f;
         [Range(0.05f, 2f)] public float scaleMax = 0.5f;
+        [Tooltip("0..7. Landing frame used for Up/Down with the Vertical sheet.")]
+        [Min(0)] public int landingFrameVertical = 7;
+        [Tooltip("0..7. Landing frame used for Left/Right with the Horizontal sheet.")]
+        [Min(0)] public int landingFrameHorizontal = 7;
+        [Tooltip("50% horizontal mirror chance for pieces of this size.")]
+        public bool randomFlipX = true;
 
         public SizeMotion(float weight, float fpsLow, float fpsHigh,
             float spinLow, float spinHigh, float scaleLow, float scaleHigh)
@@ -114,7 +71,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [SerializeField] private MaterialSheets metal = new();
     [SerializeField] private MaterialSheets stone = new();
 
-    [Header("Size Profiles (each size has A/B variants)")]
+    [Header("Size Profiles - FPS, Spin, Landing Frame and Flip (A/B shared)")]
     [SerializeField] private SizeMotion small = new(3f, 12f, 18f, 360f, 720f, 0.25f, 0.37f);
     [SerializeField] private SizeMotion medium = new(2f, 8f, 14f, 180f, 420f, 0.36f, 0.49f);
     [SerializeField] private SizeMotion large = new(1f, 5f, 10f, 60f, 220f, 0.48f, 0.62f);
@@ -435,7 +392,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         StopActive();
         transform.position = position;
         MaterialSheets sheets = GetMaterialSheets(materialType);
-        if (sheets == null || sheets.vertical == null || sheets.horizontal == null)
+        if (sheets == null)
         {
             Debug.LogWarning("[BattleDebris] Material sheet configuration is missing.", this);
             FinishBurst();
@@ -444,8 +401,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
         // Read both axes once per burst; only landing-point geometry chooses
         // which one gets used for a particular piece.
-        Sprite[][] vertical = GetClips(sheets.vertical.texture);
-        Sprite[][] horizontal = GetClips(sheets.horizontal.texture);
+        Sprite[][] vertical = GetClips(sheets.vertical);
+        Sprite[][] horizontal = GetClips(sheets.horizontal);
         if (vertical.Length == 0 && horizontal.Length == 0)
         {
             Debug.LogWarning("[BattleDebris] No valid 512x384 sheets for " +
@@ -490,7 +447,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
                 landing - (Vector2)position);
             bool verticalAxis = landingDirection == LandingDirection.Up ||
                 landingDirection == LandingDirection.Down;
-            AxisSheet axisSheet = verticalAxis ? sheets.vertical : sheets.horizontal;
             Sprite[][] clips = verticalAxis ? vertical : horizontal;
 
             int row = (int)size * 2 + UnityEngine.Random.Range(0, 2);
@@ -500,13 +456,15 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             if (clips.Length != RowsPerSheet || clips[row] == null)
                 continue;
 
-            LandingFrameRule rule = axisSheet.RuleForRow(row);
+            int contactFrame = verticalAxis
+                ? motion.landingFrameVertical
+                : motion.landingFrameHorizontal;
             Shard shard = Acquire(activeCount);
             BeginShard(shard, clips[row], start, landing, position.z, scale,
                 RandomBetween(motion.fpsMin, motion.fpsMax),
                 RandomBetween(motion.spinMin, motion.spinMax),
-                rule != null ? rule.GetFrame(landingDirection) : 7,
-                rule == null || rule.allowRandomFlipX);
+                Mathf.Clamp(contactFrame, 0, FramesPerPiece - 1),
+                motion.randomFlipX);
             launchPositions.Add(start);
             landingPositions.Add(landing);
             landingFootprints.Add(radius);
@@ -971,32 +929,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         StopActive();
     }
 
-    private static void EnsureSheetRows(AxisSheet axis)
-    {
-        if (axis == null) return;
-        if (axis.smallA == null) axis.smallA = new LandingFrameRule();
-        if (axis.smallB == null) axis.smallB = new LandingFrameRule();
-        if (axis.mediumA == null) axis.mediumA = new LandingFrameRule();
-        if (axis.mediumB == null) axis.mediumB = new LandingFrameRule();
-        if (axis.largeA == null) axis.largeA = new LandingFrameRule();
-        if (axis.largeB == null) axis.largeB = new LandingFrameRule();
-        for (int row = 0; row < RowsPerSheet; row++)
-        {
-            LandingFrameRule rule = axis.RuleForRow(row);
-            rule.up = Mathf.Clamp(rule.up, 0, 7);
-            rule.down = Mathf.Clamp(rule.down, 0, 7);
-            rule.left = Mathf.Clamp(rule.left, 0, 7);
-            rule.right = Mathf.Clamp(rule.right, 0, 7);
-        }
-    }
-
-    private static void EnsureMaterialRules(MaterialSheets sheets)
-    {
-        if (sheets == null) return;
-        EnsureSheetRows(sheets.vertical);
-        EnsureSheetRows(sheets.horizontal);
-    }
-
     private static void ValidateMotion(SizeMotion motion)
     {
         if (motion == null) return;
@@ -1006,6 +938,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         motion.spinMax = Mathf.Max(0f, motion.spinMax);
         motion.scaleMin = Mathf.Clamp(motion.scaleMin, 0.05f, 2f);
         motion.scaleMax = Mathf.Clamp(motion.scaleMax, 0.05f, 2f);
+        motion.landingFrameVertical = Mathf.Clamp(motion.landingFrameVertical, 0, FramesPerPiece - 1);
+        motion.landingFrameHorizontal = Mathf.Clamp(motion.landingFrameHorizontal, 0, FramesPerPiece - 1);
     }
 
     private void OnValidate()
@@ -1016,10 +950,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             maximumPieceSlots, maximumPieces, MaximumPoolSlots);
         prewarmPieceSlots = Mathf.Clamp(
             prewarmPieceSlots, 0, maximumPieceSlots);
-        EnsureMaterialRules(wood);
-        EnsureMaterialRules(styrofoam);
-        EnsureMaterialRules(metal);
-        EnsureMaterialRules(stone);
         ValidateMotion(small);
         ValidateMotion(medium);
         ValidateMotion(large);
