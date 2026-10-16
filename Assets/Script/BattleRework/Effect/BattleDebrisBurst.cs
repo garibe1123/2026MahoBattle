@@ -6,8 +6,9 @@ using UnityEngine.SceneManagement;
 /// <summary>
 /// Shared, visual-only 2.5D debris burst for breakable movie-set props.
 /// Drop a transparent sprite sheet into Common Sheet (64x64 cells), or override
-/// individual directional groups. One Update drives all pooled visual shards:
-/// no Rigidbody2D, Collider2D, per-frame sprite editing or Animator required.
+/// individual directional groups. Each 64px cell is a frame; optional horizontal
+/// frame groups animate at configurable FPS. One Update drives all pooled shards:
+/// no Rigidbody2D, Collider2D or Animator required.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleDebrisBurst : MonoBehaviour
@@ -29,6 +30,15 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [Tooltip("Transparent PNG with an integer number of 64x64 cells. No manual Sprite Editor slicing required.")]
     [SerializeField] private Texture2D commonSheet;
     [SerializeField, Min(1f)] private float pixelsPerUnit = 64f;
+
+    [Header("64px Piece Animation")]
+    [Tooltip("1: every 64x64 cell is one static piece. 2+: consecutive horizontal cells are frames of the SAME piece (each row can contain multiple groups).")]
+    [SerializeField, Range(1, 16)] private int framesPerPiece = 1;
+    [Tooltip("Frame rate of each piece's SpriteRenderer animation. Independent of Unity's display frame rate.")]
+    [SerializeField, Range(1f, 30f)] private float animationFps = 12f;
+    [SerializeField] private bool loopPieceAnimation = true;
+    [Tooltip("Off: hold the last displayed frame after the piece stops bouncing.")]
+    [SerializeField] private bool animateWhileResting;
     [SerializeField] private Material debrisMaterial;
     [SerializeField] private string sortingLayerName = "Default";
     [SerializeField] private int sortingOrder = 25;
@@ -62,6 +72,15 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [SerializeField, Range(0.1f, 1f)] private float sizeMin = 0.30f;
     [SerializeField, Range(0.1f, 1f)] private float sizeMax = 0.54f;
 
+    [Header("Top-down Fake 3D Projection")]
+    [Tooltip("World XY is ground-plane movement. Height is a separate virtual Z axis projected upward on screen. 0 hides the height offset; 0.65 is a subtle overhead view.")]
+    [SerializeField, Range(0f, 2f)] private float heightToScreenY = 0.65f;
+    [Tooltip("Subtle apparent enlargement when a piece moves toward the camera (set 0 for strictly orthographic pixel art).")]
+    [SerializeField, Range(0f, 0.25f)] private float perspectiveScalePerHeight = 0.05f;
+    [Tooltip("Contact shadow contracts as virtual height increases.")]
+    [SerializeField, Range(0f, 0.8f)] private float shadowShrinkPerHeight = 0.28f;
+    [SerializeField, Range(0f, 1f)] private float shadowFadePerHeight = 0.35f;
+
     [Header("Arc, Bounce, Settle")]
     [SerializeField, Min(0f)] private float initialHeight = 0.10f;
     [SerializeField, Min(0.1f)] private float riseVelocityMin = 2.7f;
@@ -89,6 +108,12 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public float vy;
         public float age;
         public float firstLandingTime;
+        public float arcElapsed;
+        public float arcDuration;
+        public float arcStartHeight;
+        public float arcRiseSpeed;
+        public Sprite[] frames;
+        public float animationOffset;
         public float rotation;
         public float angularSpeed;
         public float settleAge;
@@ -103,7 +128,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private readonly List<Vector2> landingPositions = new();
     private readonly List<float> landingFootprints = new();
     private readonly List<int> directions = new();
-    private readonly Dictionary<Texture2D, Sprite[]> slicesBySheet = new();
+    private readonly Dictionary<Texture2D, Sprite[][]> clipsBySheet = new();
     private readonly int[] lastPicked = { -1, -1, -1, -1 };
     private Sprite shadowSprite;
     private Texture2D shadowTexture;
@@ -242,14 +267,14 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         int minimum = ConfiguredMinimumPieces;
         int requestedCount = UnityEngine.Random.Range(minimum, maximum + 1);
 
-        Sprite[][] available = new Sprite[4][];
+        Sprite[][][] available = new Sprite[4][][];
         DirectionGroup[] groups = { down, up, left, right };
         directions.Clear();
         for (int d = 0; d < groups.Length; d++)
         {
             Texture2D sheet = groups[d].sheetOverride != null
                 ? groups[d].sheetOverride : commonSheet;
-            available[d] = GetSlices(sheet);
+            available[d] = GetClips(sheet);
             if (available[d].Length == 0)
                 continue;
             int requested = Mathf.Clamp(groups[d].count, 0, HardLimit);
@@ -290,7 +315,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             if (!TryPlace(d, impulse, radius, out Vector2 start, out Vector2 landing))
                 continue; // Never force overlapping placements when space is full.
 
-            Sprite[] options = available[d];
+            Sprite[][] options = available[d];
             int pick = UnityEngine.Random.Range(0, options.Length);
             if (options.Length > 1 && pick == lastPicked[d])
                 pick = (pick + UnityEngine.Random.Range(1, options.Length)) % options.Length;
@@ -382,45 +407,61 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         return true;
     }
 
-    private Sprite[] GetSlices(Texture2D sheet)
+    private Sprite[][] GetClips(Texture2D sheet)
     {
         if (sheet == null)
-            return Array.Empty<Sprite>();
-        if (slicesBySheet.TryGetValue(sheet, out Sprite[] cached))
+            return Array.Empty<Sprite[]>();
+        if (clipsBySheet.TryGetValue(sheet, out Sprite[][] cached))
             return cached;
 
-        if (sheet.width % CellPixels != 0 || sheet.height % CellPixels != 0)
+        int frames = Mathf.Clamp(framesPerPiece, 1, 16);
+        if (sheet.width % (CellPixels * frames) != 0 ||
+            sheet.height % CellPixels != 0)
         {
             Debug.LogWarning(
                 "[BattleDebris] " + sheet.name +
-                ": sheet dimensions must be multiples of 64px; no sprites generated.", this);
-            slicesBySheet[sheet] = Array.Empty<Sprite>();
-            return slicesBySheet[sheet];
+                ": width must be divisible by (64 * Frames Per Piece), " +
+                "height by 64. No animations generated.", this);
+            clipsBySheet[sheet] = Array.Empty<Sprite[]>();
+            return clipsBySheet[sheet];
         }
 
         int columns = sheet.width / CellPixels;
         int rows = sheet.height / CellPixels;
-        // Detect transparent cells only when Read/Write is enabled. Sprite.Create
-        // itself works with non-readable textures; unreadable blank cells remain.
         Color32[] pixels = sheet.isReadable ? sheet.GetPixels32() : null;
-        List<Sprite> output = new(columns * rows);
-        for (int y = rows - 1; y >= 0; y--)
-        for (int x = 0; x < columns; x++)
-        {
-            if (pixels != null && !HasVisiblePixel(
-                pixels, sheet.width, x * CellPixels, y * CellPixels))
-                continue;
+        List<Sprite[]> output = new(rows * columns / frames);
 
-            Sprite sprite = Sprite.Create(sheet,
-                new Rect(x * CellPixels, y * CellPixels, CellPixels, CellPixels),
-                new Vector2(0.5f, 0.5f), Mathf.Max(1f, pixelsPerUnit),
-                0, SpriteMeshType.FullRect);
-            sprite.name = sheet.name + "_piece_" + x + "_" + y;
-            sprite.hideFlags = HideFlags.HideAndDontSave;
-            output.Add(sprite);
+        // Frames run left-to-right WITHIN each group. Groups run left-to-right,
+        // rows run top-to-bottom. A group is ONE piece, never several shards.
+        for (int y = rows - 1; y >= 0; y--)
+        for (int x = 0; x < columns; x += frames)
+        {
+            bool visible = pixels == null;
+            if (pixels != null)
+                for (int f = 0; f < frames && !visible; f++)
+                    visible = HasVisiblePixel(
+                        pixels, sheet.width, (x + f) * CellPixels, y * CellPixels);
+            if (!visible)
+                continue; // Ignore fully transparent groups.
+
+            Sprite[] clip = new Sprite[frames];
+            for (int f = 0; f < frames; f++)
+            {
+                Sprite sprite = Sprite.Create(sheet,
+                    new Rect((x + f) * CellPixels, y * CellPixels,
+                        CellPixels, CellPixels),
+                    new Vector2(0.5f, 0.5f), Mathf.Max(1f, pixelsPerUnit),
+                    0, SpriteMeshType.FullRect);
+                sprite.name = sheet.name + "_piece_" + x + "_" + y +
+                    "_frame_" + f;
+                sprite.hideFlags = HideFlags.HideAndDontSave;
+                clip[f] = sprite;
+            }
+            output.Add(clip);
         }
-        slicesBySheet.Add(sheet, output.ToArray());
-        return slicesBySheet[sheet];
+
+        clipsBySheet.Add(sheet, output.ToArray());
+        return clipsBySheet[sheet];
     }
 
     private static bool HasVisiblePixel(Color32[] pixels, int width, int x, int y)
@@ -437,25 +478,46 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         if (index < shards.Count)
             return shards[index];
 
-        GameObject root = new("DebrisPiece_" + index);
-        root.transform.SetParent(transform, false);
-        GameObject body = new("Visual");
-        body.transform.SetParent(root.transform, false);
-        SpriteRenderer visual = body.AddComponent<SpriteRenderer>();
+        // The prefab includes six author-visible children, each with its own
+        // Visual SpriteRenderer and ContactShadow SpriteRenderer.
+        // A manually placed empty emitter still has a runtime fallback.
+        Transform pieceRoot = transform.Find("DebrisPiece_" + index);
+        if (pieceRoot == null)
+        {
+            GameObject created = new("DebrisPiece_" + index);
+            pieceRoot = created.transform;
+            pieceRoot.SetParent(transform, false);
+        }
+
+        Transform body = pieceRoot.Find("Visual");
+        if (body == null)
+        {
+            body = new GameObject("Visual").transform;
+            body.SetParent(pieceRoot, false);
+        }
+        SpriteRenderer visual = body.GetComponent<SpriteRenderer>();
+        if (visual == null)
+            visual = body.gameObject.AddComponent<SpriteRenderer>();
         if (debrisMaterial != null)
             visual.sharedMaterial = debrisMaterial;
 
-        GameObject ground = new("ContactShadow");
-        ground.transform.SetParent(root.transform, false);
-        SpriteRenderer shadow = ground.AddComponent<SpriteRenderer>();
+        Transform ground = pieceRoot.Find("ContactShadow");
+        if (ground == null)
+        {
+            ground = new GameObject("ContactShadow").transform;
+            ground.SetParent(pieceRoot, false);
+        }
+        SpriteRenderer shadow = ground.GetComponent<SpriteRenderer>();
+        if (shadow == null)
+            shadow = ground.gameObject.AddComponent<SpriteRenderer>();
         shadow.sprite = GetShadowSprite();
         shadow.color = new Color(0.04f, 0.05f, 0.08f, 0.26f);
 
         Shard shard = new()
         {
-            rootObject = root,
-            root = root.transform,
-            spriteTransform = body.transform,
+            rootObject = pieceRoot.gameObject,
+            root = pieceRoot,
+            spriteTransform = body,
             visual = visual,
             shadow = shadow
         };
@@ -493,13 +555,17 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         return shadowSprite;
     }
 
-    private void BeginShard(Shard shard, Sprite sprite, Vector2 start,
+    private void BeginShard(Shard shard, Sprite[] frames, Vector2 start,
         Vector2 landing, float z, float size)
     {
         shard.rootObject.SetActive(true);
         shard.visual.enabled = true;
         shard.shadow.enabled = true;
-        shard.visual.sprite = sprite;
+        shard.frames = frames;
+        shard.animationOffset = frames.Length > 1
+            ? UnityEngine.Random.Range(0f, frames.Length / Mathf.Max(1f, animationFps))
+            : 0f;
+        shard.visual.sprite = frames[0];
         shard.start = start;
         shard.landing = landing;
         shard.worldZ = z;
@@ -508,9 +574,14 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.vy = UnityEngine.Random.Range(
             Mathf.Min(riseVelocityMin, riseVelocityMax),
             Mathf.Max(riseVelocityMin, riseVelocityMax));
-        shard.firstLandingTime = (shard.vy +
-            Mathf.Sqrt(shard.vy * shard.vy + 2f * gravity * initialHeight)) /
-            Mathf.Max(0.1f, gravity);
+        float safeGravity = Mathf.Max(0.1f, gravity);
+        shard.arcStartHeight = Mathf.Max(0f, initialHeight);
+        shard.arcRiseSpeed = shard.vy;
+        shard.arcElapsed = 0f;
+        shard.arcDuration = (shard.arcRiseSpeed +
+            Mathf.Sqrt(shard.arcRiseSpeed * shard.arcRiseSpeed +
+                2f * safeGravity * shard.arcStartHeight)) / safeGravity;
+        shard.firstLandingTime = shard.arcDuration;
         shard.angularSpeed = UnityEngine.Random.Range(-560f, 560f);
         shard.rotation = UnityEngine.Random.Range(-45f, 45f);
         shard.age = shard.settleAge = shard.restingAge = 0f;
@@ -525,6 +596,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.shadow.sortingOrder = sortingOrder;
         shard.visual.color = Color.white;
         shard.spriteTransform.localScale = Vector3.one * shard.size;
+        shard.spriteTransform.localRotation = Quaternion.identity;
+        shard.spriteTransform.localPosition = Vector3.zero;
         shard.shadow.transform.localScale =
             new Vector3(shard.size * 0.85f, shard.size * 0.7f, 1f);
         shard.root.position = new Vector3(start.x, start.y, z);
@@ -560,16 +633,28 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.age += dt;
         if (!shard.resting)
         {
-            shard.vy -= gravity * dt;
-            shard.height += shard.vy * dt;
-            if (shard.height <= 0f)
+            // Analytic ballistic height (not a side-view Rigidbody):
+            // h(t) = initialHeight + upwardSpeed*t - 0.5*g*t*t.
+            // A separate ground-plane XY position travels to the landing point.
+            shard.arcElapsed = Mathf.Min(
+                shard.arcElapsed + dt, shard.arcDuration);
+            float elapsed = shard.arcElapsed;
+            float g = Mathf.Max(0.1f, gravity);
+            shard.height = Mathf.Max(0f, shard.arcStartHeight +
+                shard.arcRiseSpeed * elapsed - 0.5f * g * elapsed * elapsed);
+
+            if (elapsed >= shard.arcDuration)
             {
                 shard.height = 0f;
-                if (shard.bounceCount < maximumBounces &&
-                    Mathf.Abs(shard.vy) * bounceRetention > 0.35f)
+                float impactSpeed = Mathf.Abs(shard.arcRiseSpeed - g * shard.arcDuration);
+                float nextSpeed = impactSpeed * bounceRetention;
+                if (shard.bounceCount < maximumBounces && nextSpeed > 0.35f)
                 {
-                    shard.vy = -shard.vy * bounceRetention;
                     shard.bounceCount++;
+                    shard.arcStartHeight = 0f;
+                    shard.arcRiseSpeed = nextSpeed;
+                    shard.arcElapsed = 0f;
+                    shard.arcDuration = 2f * nextSpeed / g;
                     shard.angularSpeed *= 0.45f;
                 }
                 else
@@ -591,11 +676,27 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             }
         }
 
-        float movement = Mathf.SmoothStep(0f, 1f,
-            Mathf.Clamp01(shard.age / Mathf.Max(0.05f, shard.firstLandingTime)));
-        Vector2 ground = Vector2.LerpUnclamped(shard.start, shard.landing, movement);
+        // Top-down ground movement: steady XY flight, while height is *only*
+        // a virtual vertical axis. Bounce remains above the landing position.
+        float travel = Mathf.Clamp01(
+            shard.age / Mathf.Max(0.05f, shard.firstLandingTime));
+        Vector2 ground = Vector2.Lerp(shard.start, shard.landing, travel);
         shard.root.position = new Vector3(ground.x, ground.y, shard.worldZ);
-        shard.spriteTransform.localPosition = Vector3.up * shard.height;
+
+        // Bird-eye 2.5D projection. Leave ContactShadow on ground and lift only
+        // Visual toward screen-up; an optional slight scale cue adds depth.
+        float height = shard.height;
+        shard.spriteTransform.localPosition =
+            new Vector3(0f, height * heightToScreenY, 0f);
+        float apparentScale = 1f + height * perspectiveScalePerHeight;
+        shard.spriteTransform.localScale = Vector3.one * shard.size * apparentScale;
+        float shadowFactor = Mathf.Max(0.12f, 1f - height * shadowShrinkPerHeight);
+        shard.shadow.transform.localScale = new Vector3(
+            shard.size * 0.85f * shadowFactor,
+            shard.size * 0.7f * shadowFactor, 1f);
+        shard.shadow.color = new Color(
+            0.04f, 0.05f, 0.08f,
+            0.26f / (1f + height * shadowFadePerHeight));
 
         if (!shard.resting)
             shard.rotation += shard.angularSpeed * dt;
@@ -606,6 +707,18 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         }
         shard.spriteTransform.localRotation =
             Quaternion.Euler(0f, 0f, shard.rotation);
+
+        if (shard.frames != null && shard.frames.Length > 1 &&
+            (!shard.resting || animateWhileResting))
+        {
+            int frameIndex = Mathf.FloorToInt(
+                (shard.age + shard.animationOffset) *
+                Mathf.Max(1f, animationFps));
+            frameIndex = loopPieceAnimation
+                ? frameIndex % shard.frames.Length
+                : Mathf.Min(frameIndex, shard.frames.Length - 1);
+            shard.visual.sprite = shard.frames[frameIndex];
+        }
 
         bool blinking = shard.resting &&
             shard.restingAge >= settleDuration + restDuration;
@@ -645,6 +758,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
     private void OnValidate()
     {
+        framesPerPiece = Mathf.Clamp(framesPerPiece, 1, 16);
+        animationFps = Mathf.Clamp(animationFps, 1f, 30f);
         maximumPieces = Mathf.Clamp(maximumPieces, 1, HardLimit);
         minimumPieces = Mathf.Clamp(minimumPieces, 1, maximumPieces);
         maximumPieceSlots = Mathf.Clamp(
@@ -655,11 +770,12 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
     private void OnDestroy()
     {
-        foreach (Sprite[] sprites in slicesBySheet.Values)
-            for (int i = 0; i < sprites.Length; i++)
-                if (sprites[i] != null)
-                    Destroy(sprites[i]);
-        slicesBySheet.Clear();
+        foreach (Sprite[][] clips in clipsBySheet.Values)
+        for (int i = 0; i < clips.Length; i++)
+        for (int f = 0; f < clips[i].Length; f++)
+            if (clips[i][f] != null)
+                Destroy(clips[i][f]);
+        clipsBySheet.Clear();
         if (shadowSprite != null)
             Destroy(shadowSprite);
         if (shadowTexture != null)
