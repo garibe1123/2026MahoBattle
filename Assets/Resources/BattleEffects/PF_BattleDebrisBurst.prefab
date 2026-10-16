@@ -67,8 +67,6 @@ MonoBehaviour:
     selectionWeight: 3
     fpsMin: 12
     fpsMax: 18
-    spinMin: 360
-    spinMax: 720
     scaleMin: 0.25
     scaleMax: 0.37
     landingFrameVertical: 7
@@ -78,8 +76,6 @@ MonoBehaviour:
     selectionWeight: 2
     fpsMin: 8
     fpsMax: 14
-    spinMin: 180
-    spinMax: 420
     scaleMin: 0.36
     scaleMax: 0.49
     landingFrameVertical: 7
@@ -89,8 +85,6 @@ MonoBehaviour:
     selectionWeight: 1
     fpsMin: 5
     fpsMax: 10
-    spinMin: 60
-    spinMax: 220
     scaleMin: 0.48
     scaleMax: 0.62
     landingFrameVertical: 7
