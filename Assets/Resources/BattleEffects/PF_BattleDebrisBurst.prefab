@@ -54,66 +54,76 @@ MonoBehaviour:
   wood:
     vertical:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
     horizontal:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
@@ -121,66 +131,76 @@ MonoBehaviour:
   styrofoam:
     vertical:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
     horizontal:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
@@ -188,66 +208,76 @@ MonoBehaviour:
   metal:
     vertical:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
     horizontal:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
@@ -255,66 +285,76 @@ MonoBehaviour:
   stone:
     vertical:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
     horizontal:
       texture: {fileID: 0}
-      landingFrames:
-      - up: 7
+      smallA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      smallB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      mediumB:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeA:
+        up: 7
         down: 7
         left: 7
         right: 7
         allowRandomFlipX: 1
-      - up: 7
+      largeB:
+        up: 7
         down: 7
         left: 7
         right: 7
@@ -358,7 +398,6 @@ MonoBehaviour:
   landingDistanceMin: 1.2
   landingDistanceMax: 2.8
   landingSpacing: 0.38
-  directionalSpread: 38
   impactDirectionBias: 0.18
   curveMin: 0.06
   curveMax: 0.3
