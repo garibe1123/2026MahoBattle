@@ -55,19 +55,25 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         [Tooltip("Must be exactly 512x384px: 8 frames x 6 variants, each cell 64px.")]
         public Texture2D texture;
         [Tooltip("Rows top-to-bottom: Small A/B, Medium A/B, Large A/B. Set the frame shown when this piece first hits ground.")]
-        public LandingFrameRule[] landingFrames =
-        {
-            new LandingFrameRule(), new LandingFrameRule(),
-            new LandingFrameRule(), new LandingFrameRule(),
-            new LandingFrameRule(), new LandingFrameRule()
-        };
+        public LandingFrameRule smallA = new();
+        public LandingFrameRule smallB = new();
+        public LandingFrameRule mediumA = new();
+        public LandingFrameRule mediumB = new();
+        public LandingFrameRule largeA = new();
+        public LandingFrameRule largeB = new();
 
         public LandingFrameRule RuleForRow(int row)
         {
-            if (landingFrames != null && row >= 0 && row < landingFrames.Length
-                && landingFrames[row] != null)
-                return landingFrames[row];
-            return null;
+            switch (row)
+            {
+                case 0: return smallA;
+                case 1: return smallB;
+                case 2: return mediumA;
+                case 3: return mediumB;
+                case 4: return largeA;
+                case 5: return largeB;
+                default: return null;
+            }
         }
     }
 
@@ -139,7 +145,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [SerializeField, Min(0.1f)] private float landingDistanceMin = 1.20f;
     [SerializeField, Min(0.1f)] private float landingDistanceMax = 2.80f;
     [SerializeField, Min(0.05f)] private float landingSpacing = 0.38f;
-    [SerializeField, Range(0f, 85f)] private float directionalSpread = 38f;
     [SerializeField, Range(0f, 0.7f)] private float impactDirectionBias = 0.18f;
     [SerializeField, Range(0f, 1f)] private float curveMin = 0.06f;
     [SerializeField, Range(0f, 1.5f)] private float curveMax = 0.30f;
@@ -931,26 +936,20 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
     private static void EnsureSheetRows(AxisSheet axis)
     {
-        if (axis == null)
-            return;
-        if (axis.landingFrames == null ||
-            axis.landingFrames.Length != RowsPerSheet)
+        if (axis == null) return;
+        if (axis.smallA == null) axis.smallA = new LandingFrameRule();
+        if (axis.smallB == null) axis.smallB = new LandingFrameRule();
+        if (axis.mediumA == null) axis.mediumA = new LandingFrameRule();
+        if (axis.mediumB == null) axis.mediumB = new LandingFrameRule();
+        if (axis.largeA == null) axis.largeA = new LandingFrameRule();
+        if (axis.largeB == null) axis.largeB = new LandingFrameRule();
+        for (int row = 0; row < RowsPerSheet; row++)
         {
-            LandingFrameRule[] fixedRows = new LandingFrameRule[RowsPerSheet];
-            if (axis.landingFrames != null)
-                Array.Copy(axis.landingFrames, fixedRows,
-                    Mathf.Min(RowsPerSheet, axis.landingFrames.Length));
-            axis.landingFrames = fixedRows;
-        }
-        for (int i = 0; i < RowsPerSheet; i++)
-        {
-            if (axis.landingFrames[i] == null)
-                axis.landingFrames[i] = new LandingFrameRule();
-            LandingFrameRule row = axis.landingFrames[i];
-            row.up = Mathf.Clamp(row.up, 0, 7);
-            row.down = Mathf.Clamp(row.down, 0, 7);
-            row.left = Mathf.Clamp(row.left, 0, 7);
-            row.right = Mathf.Clamp(row.right, 0, 7);
+            LandingFrameRule rule = axis.RuleForRow(row);
+            rule.up = Mathf.Clamp(rule.up, 0, 7);
+            rule.down = Mathf.Clamp(rule.down, 0, 7);
+            rule.left = Mathf.Clamp(rule.left, 0, 7);
+            rule.right = Mathf.Clamp(rule.right, 0, 7);
         }
     }
 
