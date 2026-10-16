@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.Serialization;
 
 public enum BattleDebrisMaterial { Wood, Styrofoam, Metal, Stone }
 
@@ -45,10 +46,16 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         [Min(1f)] public float fpsMax = 16f;
         [Range(0.05f, 2f)] public float scaleMin = 0.3f;
         [Range(0.05f, 2f)] public float scaleMax = 0.5f;
-        [Tooltip("0..7. Landing frame used for Up/Down with the Vertical sheet.")]
-        [Min(0)] public int landingFrameVertical = 7;
-        [Tooltip("0..7. Landing frame used for Left/Right with the Horizontal sheet.")]
-        [Min(0)] public int landingFrameHorizontal = 7;
+        [Tooltip("0..7. Contact pose for rotation 1 of the Vertical sheet (Up/Down).")]
+        [Range(0, 7)] public int landingFrameVerticalFirst = 3;
+        [FormerlySerializedAs("landingFrameVertical")]
+        [Tooltip("0..7. Contact pose for rotation 2 of the Vertical sheet (Up/Down).")]
+        [Range(0, 7)] public int landingFrameVerticalSecond = 7;
+        [Tooltip("0..7. Contact pose for rotation 1 of the Horizontal sheet (Left/Right).")]
+        [Range(0, 7)] public int landingFrameHorizontalFirst = 3;
+        [FormerlySerializedAs("landingFrameHorizontal")]
+        [Tooltip("0..7. Contact pose for rotation 2 of the Horizontal sheet (Left/Right).")]
+        [Range(0, 7)] public int landingFrameHorizontalSecond = 7;
         [Tooltip("50% horizontal mirror chance for pieces of this size.")]
         public bool randomFlipX = true;
 
@@ -149,6 +156,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public Sprite[] frames;
         public float fps;
         public int landingFrame;
+        public int landingFrameFirst;
+        public int landingFrameSecond;
         public int startingFrame;
         public bool hasHitGround;
         public Vector2 flightLanding;
@@ -449,13 +458,16 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             if (clips.Length != RowsPerSheet || clips[row] == null)
                 continue;
 
-            int contactFrame = verticalAxis
-                ? motion.landingFrameVertical
-                : motion.landingFrameHorizontal;
+            int firstContactFrame = verticalAxis
+                ? motion.landingFrameVerticalFirst
+                : motion.landingFrameHorizontalFirst;
+            int secondContactFrame = verticalAxis
+                ? motion.landingFrameVerticalSecond
+                : motion.landingFrameHorizontalSecond;
             Shard shard = Acquire(activeCount);
             BeginShard(shard, clips[row], start, landing, position.z, scale,
                 RandomBetween(motion.fpsMin, motion.fpsMax),
-                Mathf.Clamp(contactFrame, 0, FramesPerPiece - 1),
+                firstContactFrame, secondContactFrame,
                 motion.randomFlipX);
             launchPositions.Add(start);
             landingPositions.Add(landing);
@@ -676,14 +688,19 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
     private void BeginShard(Shard shard, Sprite[] frames,
         Vector2 start, Vector2 landing, float z, float size,
-        float fps, int landingFrame, bool allowFlip)
+        float fps, int landingFrameFirst, int landingFrameSecond,
+        bool allowFlip)
     {
         shard.rootObject.SetActive(true);
         shard.visual.enabled = true;
         shard.shadow.enabled = true;
         shard.frames = frames;
         shard.fps = Mathf.Max(1f, fps);
-        shard.landingFrame = Mathf.Clamp(landingFrame, 0, FramesPerPiece - 1);
+        shard.landingFrameFirst = Mathf.Clamp(
+            landingFrameFirst, 0, FramesPerPiece - 1);
+        shard.landingFrameSecond = Mathf.Clamp(
+            landingFrameSecond, 0, FramesPerPiece - 1);
+        shard.landingFrame = shard.landingFrameFirst;
         shard.startingFrame = randomStartFrame
             ? UnityEngine.Random.Range(0, FramesPerPiece) : 0;
         shard.visual.sprite = frames[shard.startingFrame];
@@ -761,6 +778,29 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             FinishBurst();
     }
 
+    private int FlightFrameIndex(Shard shard)
+    {
+        int frame = Mathf.FloorToInt(shard.age * shard.fps) + shard.startingFrame;
+        return loopDuringFlight ? frame % FramesPerPiece :
+            Mathf.Min(frame, FramesPerPiece - 1);
+    }
+
+    private int ChooseLandingFrame(int currentFrame, int first, int second)
+    {
+        first = Mathf.Clamp(first, 0, FramesPerPiece - 1);
+        second = Mathf.Clamp(second, 0, FramesPerPiece - 1);
+        int deltaFirst = Mathf.Abs(currentFrame - first);
+        int deltaSecond = Mathf.Abs(currentFrame - second);
+        if (loopDuringFlight)
+        {
+            deltaFirst = Mathf.Min(deltaFirst, FramesPerPiece - deltaFirst);
+            deltaSecond = Mathf.Min(deltaSecond, FramesPerPiece - deltaSecond);
+        }
+        if (deltaFirst == deltaSecond)
+            return UnityEngine.Random.value < 0.5f ? first : second;
+        return deltaFirst < deltaSecond ? first : second;
+    }
+
     private void Tick(Shard shard, float dt)
     {
         shard.age += dt;
@@ -779,6 +819,10 @@ public sealed class BattleDebrisBurst : MonoBehaviour
                 {
                     shard.hasHitGround = true;
                     shard.landedAge = 0f;
+                    int currentFrame = FlightFrameIndex(shard);
+                    shard.landingFrame = ChooseLandingFrame(
+                        currentFrame, shard.landingFrameFirst,
+                        shard.landingFrameSecond);
                     shard.visual.sprite = shard.frames[shard.landingFrame];
                 }
 
@@ -855,11 +899,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         // At contact lock the direction-specific frame; bounce/settle retain it.
         if (!shard.hasHitGround)
         {
-            int f = Mathf.FloorToInt(shard.age * shard.fps) +
-                shard.startingFrame;
-            f = loopDuringFlight ? f % FramesPerPiece :
-                Mathf.Min(f, FramesPerPiece - 1);
-            shard.visual.sprite = shard.frames[f];
+            shard.visual.sprite = shard.frames[FlightFrameIndex(shard)];
         }
         else
             shard.visual.sprite = shard.frames[shard.landingFrame];
@@ -907,8 +947,14 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         motion.fpsMax = Mathf.Max(1f, motion.fpsMax);
         motion.scaleMin = Mathf.Clamp(motion.scaleMin, 0.05f, 2f);
         motion.scaleMax = Mathf.Clamp(motion.scaleMax, 0.05f, 2f);
-        motion.landingFrameVertical = Mathf.Clamp(motion.landingFrameVertical, 0, FramesPerPiece - 1);
-        motion.landingFrameHorizontal = Mathf.Clamp(motion.landingFrameHorizontal, 0, FramesPerPiece - 1);
+        motion.landingFrameVerticalFirst = Mathf.Clamp(
+            motion.landingFrameVerticalFirst, 0, FramesPerPiece - 1);
+        motion.landingFrameVerticalSecond = Mathf.Clamp(
+            motion.landingFrameVerticalSecond, 0, FramesPerPiece - 1);
+        motion.landingFrameHorizontalFirst = Mathf.Clamp(
+            motion.landingFrameHorizontalFirst, 0, FramesPerPiece - 1);
+        motion.landingFrameHorizontalSecond = Mathf.Clamp(
+            motion.landingFrameHorizontalSecond, 0, FramesPerPiece - 1);
     }
 
     private void OnValidate()
