@@ -69,8 +69,10 @@ MonoBehaviour:
     fpsMax: 18
     scaleMin: 0.25
     scaleMax: 0.37
-    landingFrameVertical: 7
-    landingFrameHorizontal: 7
+    landingFrameVerticalFirst: 3
+    landingFrameVerticalSecond: 7
+    landingFrameHorizontalFirst: 3
+    landingFrameHorizontalSecond: 7
     randomFlipX: 1
   medium:
     selectionWeight: 2
@@ -78,8 +80,10 @@ MonoBehaviour:
     fpsMax: 14
     scaleMin: 0.36
     scaleMax: 0.49
-    landingFrameVertical: 7
-    landingFrameHorizontal: 7
+    landingFrameVerticalFirst: 3
+    landingFrameVerticalSecond: 7
+    landingFrameHorizontalFirst: 3
+    landingFrameHorizontalSecond: 7
     randomFlipX: 1
   large:
     selectionWeight: 1
@@ -87,8 +91,10 @@ MonoBehaviour:
     fpsMax: 10
     scaleMin: 0.48
     scaleMax: 0.62
-    landingFrameVertical: 7
-    landingFrameHorizontal: 7
+    landingFrameVerticalFirst: 3
+    landingFrameVerticalSecond: 7
+    landingFrameHorizontalFirst: 3
+    landingFrameHorizontalSecond: 7
     randomFlipX: 1
   loopDuringFlight: 1
   randomStartFrame: 1
