@@ -61,7 +61,10 @@ MonoBehaviour:
   right:
     count: 3
     sheetOverride: {fileID: 0}
-  maximumDebris: 24
+  minimumPieces: 3
+  maximumPieces: 6
+  prewarmPieceSlots: 24
+  maximumPieceSlots: 48
   launchRadius: 0.8
   launchSpacing: 0.13
   landingDistanceMin: 1.2
