@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 /// <summary>
 /// Shared, visual-only 2.5D debris burst for breakable movie-set props.
@@ -12,7 +13,8 @@ using UnityEngine;
 public sealed class BattleDebrisBurst : MonoBehaviour
 {
     private const int CellPixels = 64;
-    private const int HardLimit = 48;
+    private const int HardLimit = 6;
+    private const int MaximumPoolSlots = 600;
     private const string ResourcePath = "BattleEffects/PF_BattleDebrisBurst";
 
     [Serializable]
@@ -37,8 +39,19 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [SerializeField] private DirectionGroup left = new();
     [SerializeField] private DirectionGroup right = new();
 
+    [Header("Pieces per Burst")]
+    [Tooltip("Inclusive lower bound for the number of shards requested by one explosion.")]
+    [SerializeField, Range(1, HardLimit)] private int minimumPieces = 3;
+    [Tooltip("Inclusive upper bound. Always limited to six shards per explosion.")]
+    [SerializeField, Range(1, HardLimit)] private int maximumPieces = 6;
+
+    [Header("Shared Pool (Piece Slots)")]
+    [Tooltip("Total shard slots to prepare before the first explosion in a BattleScene. Each pooled Burst owns up to Max Pieces slots.")]
+    [SerializeField, Range(0, MaximumPoolSlots)] private int prewarmPieceSlots = 24;
+    [Tooltip("Maximum simultaneous shard slots, including active bursts. Slots are reserved in groups of Max Pieces.")]
+    [SerializeField, Range(HardLimit, MaximumPoolSlots)] private int maximumPieceSlots = 48;
+
     [Header("Non-overlapping Scatter")]
-    [SerializeField, Range(1, HardLimit)] private int maximumDebris = 24;
     [SerializeField, Min(0.05f)] private float launchRadius = 0.80f;
     [SerializeField, Min(0.01f)] private float launchSpacing = 0.13f;
     [SerializeField, Min(0.1f)] private float landingDistanceMin = 1.20f;
@@ -98,6 +111,91 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private bool spawnedFromPool;
     private int activeCount;
 
+    private static int preparedSceneHandle = -1;
+    private static bool poolReady;
+    private static int activePooledBursts;
+    private static readonly List<GameObject> PrewarmInstances = new();
+
+    private int ConfiguredMaximumPieces => Mathf.Clamp(maximumPieces, 1, HardLimit);
+    private int ConfiguredMinimumPieces =>
+        Mathf.Clamp(minimumPieces, 1, ConfiguredMaximumPieces);
+    private int MaximumConcurrentBursts =>
+        Mathf.Max(1, Mathf.Clamp(maximumPieceSlots, HardLimit, MaximumPoolSlots) /
+            ConfiguredMaximumPieces);
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetPoolState()
+    {
+        preparedSceneHandle = -1;
+        poolReady = false;
+        activePooledBursts = 0;
+        PrewarmInstances.Clear();
+    }
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void PrewarmBattleScene()
+    {
+        // Move allocations to scene loading rather than the first explosion.
+        // Other scenes remain untouched; Spawn() also handles runtime scene loads.
+        if (SceneManager.GetActiveScene().name == "BattleScene")
+            PreparePool();
+    }
+
+    private void Awake()
+    {
+        // Each burst instance owns its six reusable child GameObjects.
+        // Prewarm in Awake so there are no new shard objects on impact.
+        for (int i = shards.Count; i < ConfiguredMaximumPieces; i++)
+        {
+            Shard shard = Acquire(i);
+            shard.rootObject.SetActive(false);
+        }
+    }
+
+    /// <summary>
+    /// Prepare the shared scene-local PoolService in units of individual
+    /// piece slots, grouped into reusable bursts. Safe to call repeatedly.
+    /// </summary>
+    public static void PreparePool()
+    {
+        BattleDebrisBurst prefab = Resources.Load<BattleDebrisBurst>(ResourcePath);
+        if (prefab == null)
+            return;
+
+        int sceneHandle = SceneManager.GetActiveScene().handle;
+        if (poolReady && preparedSceneHandle == sceneHandle)
+            return;
+
+        poolReady = true;
+        preparedSceneHandle = sceneHandle;
+        activePooledBursts = 0;
+        int maxConcurrent = prefab.MaximumConcurrentBursts;
+        int burstCount = Mathf.Clamp(
+            Mathf.CeilToInt(prefab.prewarmPieceSlots /
+                (float)prefab.ConfiguredMaximumPieces), 0, maxConcurrent);
+
+        PrewarmInstances.Clear();
+        for (int i = 0; i < burstCount; i++)
+        {
+            GameObject instance = PoolService.Spawn(
+                prefab.gameObject, Vector3.zero, Quaternion.identity);
+            if (instance != null)
+                PrewarmInstances.Add(instance);
+        }
+        for (int i = 0; i < PrewarmInstances.Count; i++)
+            PoolService.Release(PrewarmInstances[i]);
+        PrewarmInstances.Clear();
+    }
+
+    private void ReleaseSharedPoolBudget()
+    {
+        if (!spawnedFromPool)
+            return;
+
+        spawnedFromPool = false;
+        activePooledBursts = Mathf.Max(0, activePooledBursts - 1);
+    }
+
     /// <summary>
     /// One-line shared call from an obstacle, projectile impact, or scripted destruction.
     /// Configure the Resources prefab once and invoke this from the destruction event.
@@ -111,13 +209,19 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             return null;
         }
 
-        BattleDebrisBurst instance = PoolService.Spawn(prefab, position, Quaternion.identity);
+        PreparePool();
+        if (activePooledBursts >= prefab.MaximumConcurrentBursts)
+            return null; // The shared effect budget is full; never instantiate unbounded pieces.
+
+        BattleDebrisBurst instance = PoolService.Spawn(
+            prefab, position, Quaternion.identity);
         if (instance == null)
             return null;
 
         instance.spawnedFromPool = true;
+        activePooledBursts++;
         instance.Play(position, impactDirection);
-        return instance;
+        return instance.gameObject.activeInHierarchy ? instance : null;
     }
 
     /// <summary>Reusable for a scene-placed emitter too. Can be called repeatedly.</summary>
@@ -125,8 +229,9 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     {
         StopActive();
         transform.position = position;
-        if (maximumDebris <= 0)
-            return;
+        int maximum = ConfiguredMaximumPieces;
+        int minimum = ConfiguredMinimumPieces;
+        int requestedCount = UnityEngine.Random.Range(minimum, maximum + 1);
 
         Sprite[][] available = new Sprite[4][];
         DirectionGroup[] groups = { down, up, left, right };
@@ -139,7 +244,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             if (available[d].Length == 0)
                 continue;
             int requested = Mathf.Clamp(groups[d].count, 0, HardLimit);
-            for (int j = 0; j < requested && directions.Count < HardLimit; j++)
+            for (int j = 0; j < requested; j++)
                 directions.Add(d);
         }
 
@@ -160,7 +265,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         launchPositions.Clear();
         landingPositions.Clear();
         landingFootprints.Clear();
-        int targetCount = Mathf.Min(maximumDebris, directions.Count);
+        int targetCount = Mathf.Min(requestedCount, directions.Count);
         Vector2 impulse = impactDirection.sqrMagnitude > 0.0001f
             ? impactDirection.normalized : Vector2.zero;
         activeCount = 0;
@@ -506,7 +611,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         playing = false;
         if (spawnedFromPool)
         {
-            spawnedFromPool = false;
+            ReleaseSharedPoolBudget();
             PoolService.Release(gameObject);
         }
     }
@@ -524,7 +629,19 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
     private void OnDisable()
     {
+        // Also release the slot budget if another system disables the effect.
+        ReleaseSharedPoolBudget();
         StopActive();
+    }
+
+    private void OnValidate()
+    {
+        maximumPieces = Mathf.Clamp(maximumPieces, 1, HardLimit);
+        minimumPieces = Mathf.Clamp(minimumPieces, 1, maximumPieces);
+        maximumPieceSlots = Mathf.Clamp(
+            maximumPieceSlots, maximumPieces, MaximumPoolSlots);
+        prewarmPieceSlots = Mathf.Clamp(
+            prewarmPieceSlots, 0, maximumPieceSlots);
     }
 
     private void OnDestroy()
