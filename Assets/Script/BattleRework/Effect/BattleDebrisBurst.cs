@@ -43,8 +43,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         [Min(0f)] public float selectionWeight = 1f;
         [Min(1f)] public float fpsMin = 10f;
         [Min(1f)] public float fpsMax = 16f;
-        [Min(0f)] public float spinMin = 120f;
-        [Min(0f)] public float spinMax = 400f;
         [Range(0.05f, 2f)] public float scaleMin = 0.3f;
         [Range(0.05f, 2f)] public float scaleMax = 0.5f;
         [Tooltip("0..7. Landing frame used for Up/Down with the Vertical sheet.")]
@@ -55,11 +53,10 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public bool randomFlipX = true;
 
         public SizeMotion(float weight, float fpsLow, float fpsHigh,
-            float spinLow, float spinHigh, float scaleLow, float scaleHigh)
+            float scaleLow, float scaleHigh)
         {
             selectionWeight = weight;
             fpsMin = fpsLow; fpsMax = fpsHigh;
-            spinMin = spinLow; spinMax = spinHigh;
             scaleMin = scaleLow; scaleMax = scaleHigh;
         }
     }
@@ -71,10 +68,10 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [SerializeField] private MaterialSheets metal = new();
     [SerializeField] private MaterialSheets stone = new();
 
-    [Header("Size Profiles - FPS, Spin, Landing Frame and Flip (A/B shared)")]
-    [SerializeField] private SizeMotion small = new(3f, 12f, 18f, 360f, 720f, 0.25f, 0.37f);
-    [SerializeField] private SizeMotion medium = new(2f, 8f, 14f, 180f, 420f, 0.36f, 0.49f);
-    [SerializeField] private SizeMotion large = new(1f, 5f, 10f, 60f, 220f, 0.48f, 0.62f);
+    [Header("Size Profiles - Sprite FPS, Landing Frame and Flip (A/B shared)")]
+    [SerializeField] private SizeMotion small = new(3f, 12f, 18f, 0.25f, 0.37f);
+    [SerializeField] private SizeMotion medium = new(2f, 8f, 14f, 0.36f, 0.49f);
+    [SerializeField] private SizeMotion large = new(1f, 5f, 10f, 0.48f, 0.62f);
 
     [Header("Visual Animation")]
     [SerializeField] private bool loopDuringFlight = true;
@@ -159,10 +156,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public float curveOffset;
         public float wobblePhase;
         public float landedAge;
-        public float settleStartAngle;
-        public float rotation;
-        public float angularSpeed;
-        public float settleAge;
         public float restingAge;
         public int bounceCount;
         public bool resting;
@@ -462,7 +455,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             Shard shard = Acquire(activeCount);
             BeginShard(shard, clips[row], start, landing, position.z, scale,
                 RandomBetween(motion.fpsMin, motion.fpsMax),
-                RandomBetween(motion.spinMin, motion.spinMax),
                 Mathf.Clamp(contactFrame, 0, FramesPerPiece - 1),
                 motion.randomFlipX);
             launchPositions.Add(start);
@@ -684,7 +676,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
     private void BeginShard(Shard shard, Sprite[] frames,
         Vector2 start, Vector2 landing, float z, float size,
-        float fps, float spinMagnitude, int landingFrame, bool allowFlip)
+        float fps, int landingFrame, bool allowFlip)
     {
         shard.rootObject.SetActive(true);
         shard.visual.enabled = true;
@@ -725,10 +717,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             Mathf.Sqrt(riseSpeed * riseSpeed + 2f * g * shard.arcStartHeight)) / g;
         shard.firstLandingTime = shard.arcDuration;
 
-        shard.rotation = UnityEngine.Random.Range(-45f, 45f);
-        shard.angularSpeed = Mathf.Max(0f, spinMagnitude) *
-            (UnityEngine.Random.value < 0.5f ? -1f : 1f);
-        shard.settleStartAngle = 0f;
         shard.age = shard.restingAge = 0f;
         shard.bounceCount = 0;
         shard.resting = false;
@@ -804,14 +792,11 @@ public sealed class BattleDebrisBurst : MonoBehaviour
                     shard.arcRiseSpeed = rebound;
                     shard.arcElapsed = 0f;
                     shard.arcDuration = 2f * rebound / g;
-                    shard.angularSpeed *= 0.45f;
                 }
                 else
                 {
                     shard.resting = true;
                     shard.restingAge = 0f;
-                    shard.settleStartAngle = shard.rotation;
-                    shard.angularSpeed = 0f;
                 }
             }
         }
@@ -865,20 +850,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             shard.size * 0.7f * shadowFactor, 1f);
         shard.shadow.color = new Color(0.04f, 0.05f, 0.08f,
             0.26f / (1f + height * shadowFadePerHeight));
-
-        if (!shard.resting)
-            shard.rotation += shard.angularSpeed * dt;
-        else if (shard.restingAge < settleDuration)
-        {
-            float u = shard.restingAge / Mathf.Max(0.001f, settleDuration);
-            float ease = 1f - (1f - u) * (1f - u);
-            shard.rotation = Mathf.LerpAngle(shard.settleStartAngle, 0f, ease) +
-                Mathf.Sin(u * 19f) * 9f * (1f - u);
-        }
-        else
-            shard.rotation = 0f;
-        shard.spriteTransform.localRotation =
-            Quaternion.Euler(0f, 0f, shard.rotation);
 
         // Before first contact use randomized per-piece frame rate and phase.
         // At contact lock the direction-specific frame; bounce/settle retain it.
@@ -934,8 +905,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         if (motion == null) return;
         motion.fpsMin = Mathf.Max(1f, motion.fpsMin);
         motion.fpsMax = Mathf.Max(1f, motion.fpsMax);
-        motion.spinMin = Mathf.Max(0f, motion.spinMin);
-        motion.spinMax = Mathf.Max(0f, motion.spinMax);
         motion.scaleMin = Mathf.Clamp(motion.scaleMin, 0.05f, 2f);
         motion.scaleMax = Mathf.Clamp(motion.scaleMax, 0.05f, 2f);
         motion.landingFrameVertical = Mathf.Clamp(motion.landingFrameVertical, 0, FramesPerPiece - 1);
