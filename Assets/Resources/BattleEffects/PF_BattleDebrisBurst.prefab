@@ -50,27 +50,305 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5adf57b19c634a6783a45c0e950d2457, type: 3}
   m_Name:
   m_EditorClassIdentifier:
-  commonSheet: {fileID: 0}
-  pixelsPerUnit: 64
-  framesPerPiece: 1
-  animationFps: 12
-  loopPieceAnimation: 1
-  animateWhileResting: 0
+  defaultMaterial: 0
+  wood:
+    vertical:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+    horizontal:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+  styrofoam:
+    vertical:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+    horizontal:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+  metal:
+    vertical:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+    horizontal:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+  stone:
+    vertical:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+    horizontal:
+      texture: {fileID: 0}
+      landingFrames:
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+      - up: 7
+        down: 7
+        left: 7
+        right: 7
+        allowRandomFlipX: 1
+  small:
+    selectionWeight: 3
+    fpsMin: 12
+    fpsMax: 18
+    spinMin: 360
+    spinMax: 720
+    scaleMin: 0.25
+    scaleMax: 0.37
+  medium:
+    selectionWeight: 2
+    fpsMin: 8
+    fpsMax: 14
+    spinMin: 180
+    spinMax: 420
+    scaleMin: 0.36
+    scaleMax: 0.49
+  large:
+    selectionWeight: 1
+    fpsMin: 5
+    fpsMax: 10
+    spinMin: 60
+    spinMax: 220
+    scaleMin: 0.48
+    scaleMax: 0.62
+  loopDuringFlight: 1
+  randomStartFrame: 1
   debrisMaterial: {fileID: 0}
+  pixelsPerUnit: 64
   sortingLayerName: Default
   sortingOrder: 25
-  down:
-    count: 3
-    sheetOverride: {fileID: 0}
-  up:
-    count: 3
-    sheetOverride: {fileID: 0}
-  left:
-    count: 3
-    sheetOverride: {fileID: 0}
-  right:
-    count: 3
-    sheetOverride: {fileID: 0}
   minimumPieces: 3
   maximumPieces: 6
   prewarmPieceSlots: 24
@@ -82,8 +360,12 @@ MonoBehaviour:
   landingSpacing: 0.38
   directionalSpread: 38
   impactDirectionBias: 0.18
-  sizeMin: 0.3
-  sizeMax: 0.54
+  curveMin: 0.06
+  curveMax: 0.3
+  inFlightWobble: 0.035
+  landingSlideMin: 0.05
+  landingSlideMax: 0.18
+  landingSlideDuration: 0.18
   heightToScreenY: 0.65
   perspectiveScalePerHeight: 0.05
   shadowShrinkPerHeight: 0.28
