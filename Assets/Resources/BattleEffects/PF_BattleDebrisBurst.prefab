@@ -129,6 +129,7 @@ MonoBehaviour:
   maximumBounces: 2
   bounceRetention: 0.38
   settleDuration: 0.35
+  landingFrameWobbleDuration: 0.35
   restDuration: 0.65
   blinkDuration: 0.55
   blinkFrequency: 9
