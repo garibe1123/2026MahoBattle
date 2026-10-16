@@ -3,12 +3,14 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
+public enum BattleDebrisMaterial { Wood, Styrofoam, Metal, Stone }
+
 /// <summary>
 /// Shared, visual-only 2.5D debris burst for breakable movie-set props.
-/// Drop a transparent sprite sheet into Common Sheet (64x64 cells), or override
-/// individual directional groups. Each 64px cell is a frame; optional horizontal
-/// frame groups animate at configurable FPS. One Update drives all pooled shards:
-/// no Rigidbody2D, Collider2D or Animator required.
+/// Each material has two 512x384 sprite sheets (vertical/horizontal),
+/// six rows (Small A/B, Medium A/B, Large A/B) and eight 64px frames per row.
+/// Landing location chooses cardinal direction, axis, and contact frame.
+/// Uses pooled visual-only shards with top-down virtual-height ballistics.
 /// </summary>
 [DisallowMultipleComponent]
 public sealed class BattleDebrisBurst : MonoBehaviour
@@ -18,36 +20,106 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private const int MaximumPoolSlots = 600;
     private const string ResourcePath = "BattleEffects/PF_BattleDebrisBurst";
 
+    private const int FramesPerPiece = 8;
+    private const int RowsPerSheet = 6;
+    private const int SheetWidth = CellPixels * FramesPerPiece;
+    private const int SheetHeight = CellPixels * RowsPerSheet;
+
+    private enum PieceSize { Small, Medium, Large }
+    private enum LandingDirection { Down, Up, Left, Right }
+
     [Serializable]
-    private sealed class DirectionGroup
+    private sealed class LandingFrameRule
     {
-        [Min(0)] public int count = 3;
-        [Tooltip("Optional: a separate 64px-cell sheet for this direction. Empty = Common Sheet.")]
-        public Texture2D sheetOverride;
+        [Range(0, 7)] public int up = 7;
+        [Range(0, 7)] public int down = 7;
+        [Range(0, 7)] public int left = 7;
+        [Range(0, 7)] public int right = 7;
+        public bool allowRandomFlipX = true;
+
+        public int GetFrame(LandingDirection direction)
+        {
+            switch (direction)
+            {
+                case LandingDirection.Up: return Mathf.Clamp(up, 0, 7);
+                case LandingDirection.Down: return Mathf.Clamp(down, 0, 7);
+                case LandingDirection.Left: return Mathf.Clamp(left, 0, 7);
+                default: return Mathf.Clamp(right, 0, 7);
+            }
+        }
     }
 
-    [Header("64 x 64 Sprite Sheet")]
-    [Tooltip("Transparent PNG with an integer number of 64x64 cells. No manual Sprite Editor slicing required.")]
-    [SerializeField] private Texture2D commonSheet;
-    [SerializeField, Min(1f)] private float pixelsPerUnit = 64f;
+    [Serializable]
+    private sealed class AxisSheet
+    {
+        [Tooltip("Must be exactly 512x384px: 8 frames x 6 variants, each cell 64px.")]
+        public Texture2D texture;
+        [Tooltip("Rows top-to-bottom: Small A/B, Medium A/B, Large A/B. Set the frame shown when this piece first hits ground.")]
+        public LandingFrameRule[] landingFrames =
+        {
+            new LandingFrameRule(), new LandingFrameRule(),
+            new LandingFrameRule(), new LandingFrameRule(),
+            new LandingFrameRule(), new LandingFrameRule()
+        };
 
-    [Header("64px Piece Animation")]
-    [Tooltip("1: every 64x64 cell is one static piece. 2+: consecutive horizontal cells are frames of the SAME piece (each row can contain multiple groups).")]
-    [SerializeField, Range(1, 16)] private int framesPerPiece = 1;
-    [Tooltip("Frame rate of each piece's SpriteRenderer animation. Independent of Unity's display frame rate.")]
-    [SerializeField, Range(1f, 30f)] private float animationFps = 12f;
-    [SerializeField] private bool loopPieceAnimation = true;
-    [Tooltip("Off: hold the last displayed frame after the piece stops bouncing.")]
-    [SerializeField] private bool animateWhileResting;
+        public LandingFrameRule RuleForRow(int row)
+        {
+            if (landingFrames != null && row >= 0 && row < landingFrames.Length
+                && landingFrames[row] != null)
+                return landingFrames[row];
+            return null;
+        }
+    }
+
+    [Serializable]
+    private sealed class MaterialSheets
+    {
+        [Tooltip("Used if the landing direction is Up/Down.")]
+        public AxisSheet vertical = new();
+        [Tooltip("Used if the landing direction is Left/Right.")]
+        public AxisSheet horizontal = new();
+    }
+
+    [Serializable]
+    private sealed class SizeMotion
+    {
+        [Min(0f)] public float selectionWeight = 1f;
+        [Min(1f)] public float fpsMin = 10f;
+        [Min(1f)] public float fpsMax = 16f;
+        [Min(0f)] public float spinMin = 120f;
+        [Min(0f)] public float spinMax = 400f;
+        [Range(0.05f, 2f)] public float scaleMin = 0.3f;
+        [Range(0.05f, 2f)] public float scaleMax = 0.5f;
+
+        public SizeMotion(float weight, float fpsLow, float fpsHigh,
+            float spinLow, float spinHigh, float scaleLow, float scaleHigh)
+        {
+            selectionWeight = weight;
+            fpsMin = fpsLow; fpsMax = fpsHigh;
+            spinMin = spinLow; spinMax = spinHigh;
+            scaleMin = scaleLow; scaleMax = scaleHigh;
+        }
+    }
+
+    [Header("Material Sheets - 512 x 384px, 8 frames x 6 rows")]
+    [SerializeField] private BattleDebrisMaterial defaultMaterial = BattleDebrisMaterial.Wood;
+    [SerializeField] private MaterialSheets wood = new();
+    [SerializeField] private MaterialSheets styrofoam = new();
+    [SerializeField] private MaterialSheets metal = new();
+    [SerializeField] private MaterialSheets stone = new();
+
+    [Header("Size Profiles (each size has A/B variants)")]
+    [SerializeField] private SizeMotion small = new(3f, 12f, 18f, 360f, 720f, 0.25f, 0.37f);
+    [SerializeField] private SizeMotion medium = new(2f, 8f, 14f, 180f, 420f, 0.36f, 0.49f);
+    [SerializeField] private SizeMotion large = new(1f, 5f, 10f, 60f, 220f, 0.48f, 0.62f);
+
+    [Header("Visual Animation")]
+    [SerializeField] private bool loopDuringFlight = true;
+    [SerializeField] private bool randomStartFrame = true;
     [SerializeField] private Material debrisMaterial;
+    [SerializeField, Min(1f)] private float pixelsPerUnit = 64f;
     [SerializeField] private string sortingLayerName = "Default";
     [SerializeField] private int sortingOrder = 25;
-
-    [Header("Directional Groups (screen-space XY)")]
-    [SerializeField] private DirectionGroup down = new();
-    [SerializeField] private DirectionGroup up = new();
-    [SerializeField] private DirectionGroup left = new();
-    [SerializeField] private DirectionGroup right = new();
 
     [Header("Pieces per Burst")]
     [Tooltip("Inclusive lower bound for the number of shards requested by one explosion.")]
@@ -69,8 +141,12 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [SerializeField, Min(0.05f)] private float landingSpacing = 0.38f;
     [SerializeField, Range(0f, 85f)] private float directionalSpread = 38f;
     [SerializeField, Range(0f, 0.7f)] private float impactDirectionBias = 0.18f;
-    [SerializeField, Range(0.1f, 1f)] private float sizeMin = 0.30f;
-    [SerializeField, Range(0.1f, 1f)] private float sizeMax = 0.54f;
+    [SerializeField, Range(0f, 1f)] private float curveMin = 0.06f;
+    [SerializeField, Range(0f, 1.5f)] private float curveMax = 0.30f;
+    [SerializeField, Range(0f, 0.2f)] private float inFlightWobble = 0.035f;
+    [SerializeField, Range(0f, 0.5f)] private float landingSlideMin = 0.05f;
+    [SerializeField, Range(0f, 0.5f)] private float landingSlideMax = 0.18f;
+    [SerializeField, Min(0.01f)] private float landingSlideDuration = 0.18f;
 
     [Header("Top-down Fake 3D Projection")]
     [Tooltip("World XY is ground-plane movement. Height is a separate virtual Z axis projected upward on screen. 0 hides the height offset; 0.65 is a subtle overhead view.")]
@@ -105,7 +181,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public float worldZ;
         public float size;
         public float height;
-        public float vy;
         public float age;
         public float firstLandingTime;
         public float arcElapsed;
@@ -113,7 +188,15 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public float arcStartHeight;
         public float arcRiseSpeed;
         public Sprite[] frames;
-        public float animationOffset;
+        public float fps;
+        public int landingFrame;
+        public int startingFrame;
+        public bool hasHitGround;
+        public Vector2 flightLanding;
+        public Vector2 curvePerpendicular;
+        public float curveOffset;
+        public float wobblePhase;
+        public float landedAge;
         public float rotation;
         public float angularSpeed;
         public float settleAge;
@@ -127,9 +210,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private readonly List<Vector2> launchPositions = new();
     private readonly List<Vector2> landingPositions = new();
     private readonly List<float> landingFootprints = new();
-    private readonly List<int> directions = new();
     private readonly Dictionary<Texture2D, Sprite[][]> clipsBySheet = new();
-    private readonly int[] lastPicked = { -1, -1, -1, -1 };
     private Sprite shadowSprite;
     private Texture2D shadowTexture;
     private bool playing;
@@ -147,6 +228,51 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private int MaximumConcurrentBursts =>
         Mathf.Max(1, Mathf.Clamp(maximumPieceSlots, HardLimit, MaximumPoolSlots) /
             ConfiguredMaximumPieces);
+
+    private MaterialSheets GetMaterialSheets(BattleDebrisMaterial type)
+    {
+        switch (type)
+        {
+            case BattleDebrisMaterial.Styrofoam: return styrofoam;
+            case BattleDebrisMaterial.Metal: return metal;
+            case BattleDebrisMaterial.Stone: return stone;
+            default: return wood;
+        }
+    }
+
+    private SizeMotion GetSizeMotion(PieceSize size)
+    {
+        switch (size)
+        {
+            case PieceSize.Medium: return medium;
+            case PieceSize.Large: return large;
+            default: return small;
+        }
+    }
+
+    private PieceSize RandomSize()
+    {
+        float a = Mathf.Max(0f, small.selectionWeight);
+        float b = Mathf.Max(0f, medium.selectionWeight);
+        float c = Mathf.Max(0f, large.selectionWeight);
+        if (a + b + c <= 0f)
+            return PieceSize.Small;
+        float roll = UnityEngine.Random.value * (a + b + c);
+        if (roll < a) return PieceSize.Small;
+        return roll < a + b ? PieceSize.Medium : PieceSize.Large;
+    }
+
+    private static float RandomBetween(float a, float b)
+    {
+        return UnityEngine.Random.Range(Mathf.Min(a, b), Mathf.Max(a, b));
+    }
+
+    private static LandingDirection FindLandingDirection(Vector2 offset)
+    {
+        if (Mathf.Abs(offset.x) > Mathf.Abs(offset.y))
+            return offset.x >= 0f ? LandingDirection.Right : LandingDirection.Left;
+        return offset.y >= 0f ? LandingDirection.Up : LandingDirection.Down;
+    }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetPoolState()
@@ -230,99 +356,114 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         activePooledBursts = Mathf.Max(0, activePooledBursts - 1);
     }
 
-    /// <summary>
-    /// One-line shared call from an obstacle, projectile impact, or scripted destruction.
-    /// Configure the Resources prefab once and invoke this from the destruction event.
-    /// </summary>
+    /// <summary>Existing call sites use the prefab's default material.</summary>
     public static BattleDebrisBurst Spawn(Vector3 position, Vector2 impactDirection)
+    {
+        BattleDebrisBurst prefab = Resources.Load<BattleDebrisBurst>(ResourcePath);
+        return prefab == null ? null :
+            Spawn(position, impactDirection, prefab.defaultMaterial);
+    }
+
+    /// <summary>Choose Wood, Styrofoam, Metal or Stone for the broken prop.</summary>
+    public static BattleDebrisBurst Spawn(Vector3 position, Vector2 impactDirection,
+        BattleDebrisMaterial materialType)
     {
         BattleDebrisBurst prefab = Resources.Load<BattleDebrisBurst>(ResourcePath);
         if (prefab == null)
         {
-            Debug.LogWarning("[BattleDebris] Configure a prefab at Resources/" + ResourcePath);
+            Debug.LogWarning("[BattleDebris] Missing prefab at Resources/" + ResourcePath);
             return null;
         }
 
         PreparePool();
         if (activePooledBursts >= prefab.MaximumConcurrentBursts)
-            return null; // The shared effect budget is full; never instantiate unbounded pieces.
+            return null;
 
-        BattleDebrisBurst instance = PoolService.Spawn(
-            prefab, position, Quaternion.identity);
+        BattleDebrisBurst instance =
+            PoolService.Spawn(prefab, position, Quaternion.identity);
         if (instance == null)
             return null;
 
         instance.spawnedFromPool = true;
         activePooledBursts++;
-        instance.Play(position, impactDirection);
+        instance.Play(position, impactDirection, materialType);
         return instance.gameObject.activeInHierarchy ? instance : null;
     }
 
-    /// <summary>Reusable for a scene-placed emitter too. Can be called repeatedly.</summary>
     public void Play(Vector3 position, Vector2 impactDirection)
+    {
+        Play(position, impactDirection, defaultMaterial);
+    }
+
+    public void Play(Vector3 position, Vector2 impactDirection,
+        BattleDebrisMaterial materialType)
     {
         StopActive();
         transform.position = position;
-        int maximum = ConfiguredMaximumPieces;
-        int minimum = ConfiguredMinimumPieces;
-        int requestedCount = UnityEngine.Random.Range(minimum, maximum + 1);
-
-        Sprite[][][] available = new Sprite[4][][];
-        DirectionGroup[] groups = { down, up, left, right };
-        directions.Clear();
-        for (int d = 0; d < groups.Length; d++)
+        MaterialSheets sheets = GetMaterialSheets(materialType);
+        if (sheets == null || sheets.vertical == null || sheets.horizontal == null)
         {
-            Texture2D sheet = groups[d].sheetOverride != null
-                ? groups[d].sheetOverride : commonSheet;
-            available[d] = GetClips(sheet);
-            if (available[d].Length == 0)
-                continue;
-            int requested = Mathf.Clamp(groups[d].count, 0, HardLimit);
-            for (int j = 0; j < requested; j++)
-                directions.Add(d);
-        }
-
-        if (directions.Count == 0)
-        {
-            Debug.LogWarning("[BattleDebris] No valid 64x64 sprites. Assign a transparent Common Sheet.", this);
+            Debug.LogWarning("[BattleDebris] Material sheet configuration is missing.", this);
             FinishBurst();
             return;
         }
 
-        // Shuffle directional requests first, so groups are spatially interleaved.
-        for (int i = directions.Count - 1; i > 0; i--)
+        // Read both axes once per burst; only landing-point geometry chooses
+        // which one gets used for a particular piece.
+        Sprite[][] vertical = GetClips(sheets.vertical.texture);
+        Sprite[][] horizontal = GetClips(sheets.horizontal.texture);
+        if (vertical.Length == 0 && horizontal.Length == 0)
         {
-            int j = UnityEngine.Random.Range(0, i + 1);
-            (directions[i], directions[j]) = (directions[j], directions[i]);
+            Debug.LogWarning("[BattleDebris] No valid 512x384 sheets for " +
+                materialType + ". Assign vertical/horizontal textures.", this);
+            FinishBurst();
+            return;
         }
 
+        int targetCount = UnityEngine.Random.Range(
+            ConfiguredMinimumPieces, ConfiguredMaximumPieces + 1);
         launchPositions.Clear();
         landingPositions.Clear();
         landingFootprints.Clear();
-        int targetCount = Mathf.Min(requestedCount, directions.Count);
-        Vector2 impulse = impactDirection.sqrMagnitude > 0.0001f
-            ? impactDirection.normalized : Vector2.zero;
         activeCount = 0;
 
-        for (int i = 0; i < directions.Count && activeCount < targetCount; i++)
+        Vector2 impact = impactDirection.sqrMagnitude > 0.0001f ?
+            impactDirection.normalized : Vector2.zero;
+
+        // Failed placements don't consume an active slot; try other sizes and
+        // landing sectors before accepting fewer pieces.
+        int attempts = 0;
+        while (activeCount < targetCount && attempts++ < 96)
         {
-            int d = directions[i];
-            float size = UnityEngine.Random.Range(
-                Mathf.Min(sizeMin, sizeMax), Mathf.Max(sizeMin, sizeMax));
-            float pieceDiameter = CellPixels / Mathf.Max(1f, pixelsPerUnit) * size;
-            // Circumscribed circle protects a rotated square at final rest.
-            float radius = pieceDiameter * 0.707107f;
-            if (!TryPlace(d, impulse, radius, out Vector2 start, out Vector2 landing))
-                continue; // Never force overlapping placements when space is full.
+            PieceSize size = RandomSize();
+            SizeMotion motion = GetSizeMotion(size);
+            float scale = RandomBetween(motion.scaleMin, motion.scaleMax);
+            float radius = CellPixels / Mathf.Max(1f, pixelsPerUnit) *
+                scale * 0.7071068f;
+            if (!TryPlace(impact, radius, out Vector2 start, out Vector2 landing))
+                continue;
 
-            Sprite[][] options = available[d];
-            int pick = UnityEngine.Random.Range(0, options.Length);
-            if (options.Length > 1 && pick == lastPicked[d])
-                pick = (pick + UnityEngine.Random.Range(1, options.Length)) % options.Length;
-            lastPicked[d] = pick;
+            LandingDirection landingDirection = FindLandingDirection(
+                landing - (Vector2)position);
+            bool verticalAxis = landingDirection == LandingDirection.Up ||
+                landingDirection == LandingDirection.Down;
+            AxisSheet axisSheet = verticalAxis ? sheets.vertical : sheets.horizontal;
+            Sprite[][] clips = verticalAxis ? vertical : horizontal;
 
+            int row = (int)size * 2 + UnityEngine.Random.Range(0, 2);
+            // The other A/B variant can be used when one row is blank.
+            if (clips.Length != RowsPerSheet || clips[row] == null)
+                row = (int)size * 2 + (1 - row % 2);
+            if (clips.Length != RowsPerSheet || clips[row] == null)
+                continue;
+
+            LandingFrameRule rule = axisSheet.RuleForRow(row);
             Shard shard = Acquire(activeCount);
-            BeginShard(shard, options[pick], start, landing, position.z, size);
+            BeginShard(shard, clips[row], start, landing, position.z, scale,
+                RandomBetween(motion.fpsMin, motion.fpsMax),
+                RandomBetween(motion.spinMin, motion.spinMax),
+                rule != null ? rule.GetFrame(landingDirection) : 7,
+                rule == null || rule.allowRandomFlipX);
             launchPositions.Add(start);
             landingPositions.Add(landing);
             landingFootprints.Add(radius);
@@ -343,37 +484,33 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             Debug.Log("[BattleDebris] Enter Play Mode and use TEST - Burst.", this);
     }
 
-    private bool TryPlace(int direction, Vector2 impact, float footprintRadius,
+    private bool TryPlace(Vector2 impact, float footprintRadius,
         out Vector2 start, out Vector2 landing)
     {
-        Vector2 cardinal = direction switch
-        {
-            0 => Vector2.down,
-            1 => Vector2.up,
-            2 => Vector2.left,
-            _ => Vector2.right
-        };
-
-        Vector2 axis = impact.sqrMagnitude > 0.01f
-            ? Vector2.Lerp(cardinal, impact, impactDirectionBias).normalized
-            : cardinal;
-
         float radiusMin = Mathf.Max(0.1f, landingDistanceMin);
         float radiusMax = Mathf.Max(radiusMin, landingDistanceMax);
         for (int attempt = 0; attempt < 28; attempt++)
         {
-            float degrees = UnityEngine.Random.Range(-directionalSpread, directionalSpread);
-            Vector2 outgoing = Quaternion.Euler(0f, 0f, degrees) * axis;
-            float range = UnityEngine.Random.Range(radiusMin, radiusMax);
-            Vector2 candidateLanding = (Vector2)transform.position + outgoing * range;
+            float angle = UnityEngine.Random.Range(-Mathf.PI, Mathf.PI);
+            Vector2 outgoing = new(Mathf.Cos(angle), Mathf.Sin(angle));
+            if (impact.sqrMagnitude > 0.01f)
+                outgoing = (outgoing +
+                    impact * Mathf.Clamp01(impactDirectionBias)).normalized;
+
+            // Even spread in the annulus rather than clustering toward center.
+            float t = UnityEngine.Random.value;
+            float distance = Mathf.Sqrt(Mathf.Lerp(
+                radiusMin * radiusMin, radiusMax * radiusMax, t));
+            Vector2 candidateLanding =
+                (Vector2)transform.position + outgoing * distance;
             if (!IsSpacedFootprints(candidateLanding, footprintRadius,
                 landingPositions, landingFootprints, landingSpacing))
                 continue;
 
-            float angle = UnityEngine.Random.Range(-180f, 180f) * Mathf.Deg2Rad;
-            float radius = Mathf.Sqrt(UnityEngine.Random.value) * launchRadius;
+            float startAngle = UnityEngine.Random.Range(-Mathf.PI, Mathf.PI);
+            float startRadius = Mathf.Sqrt(UnityEngine.Random.value) * launchRadius;
             Vector2 candidateStart = (Vector2)transform.position +
-                new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius;
+                new Vector2(Mathf.Cos(startAngle), Mathf.Sin(startAngle)) * startRadius;
             if (!IsSpaced(candidateStart, launchPositions, launchSpacing))
                 continue;
 
@@ -414,54 +551,43 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         if (clipsBySheet.TryGetValue(sheet, out Sprite[][] cached))
             return cached;
 
-        int frames = Mathf.Clamp(framesPerPiece, 1, 16);
-        if (sheet.width % (CellPixels * frames) != 0 ||
-            sheet.height % CellPixels != 0)
+        if (sheet.width != SheetWidth || sheet.height != SheetHeight)
         {
-            Debug.LogWarning(
-                "[BattleDebris] " + sheet.name +
-                ": width must be divisible by (64 * Frames Per Piece), " +
-                "height by 64. No animations generated.", this);
+            Debug.LogWarning("[BattleDebris] " + sheet.name +
+                ": expected exactly 512x384px (8 columns x 6 rows of 64px).", this);
             clipsBySheet[sheet] = Array.Empty<Sprite[]>();
             return clipsBySheet[sheet];
         }
 
-        int columns = sheet.width / CellPixels;
-        int rows = sheet.height / CellPixels;
         Color32[] pixels = sheet.isReadable ? sheet.GetPixels32() : null;
-        List<Sprite[]> output = new(rows * columns / frames);
-
-        // Frames run left-to-right WITHIN each group. Groups run left-to-right,
-        // rows run top-to-bottom. A group is ONE piece, never several shards.
-        for (int y = rows - 1; y >= 0; y--)
-        for (int x = 0; x < columns; x += frames)
+        Sprite[][] output = new Sprite[RowsPerSheet][];
+        for (int row = 0; row < RowsPerSheet; row++)
         {
+            int y = (RowsPerSheet - 1 - row) * CellPixels;
             bool visible = pixels == null;
             if (pixels != null)
-                for (int f = 0; f < frames && !visible; f++)
+                for (int frame = 0; frame < FramesPerPiece && !visible; frame++)
                     visible = HasVisiblePixel(
-                        pixels, sheet.width, (x + f) * CellPixels, y * CellPixels);
+                        pixels, SheetWidth, frame * CellPixels, y);
             if (!visible)
-                continue; // Ignore fully transparent groups.
+                continue;
 
-            Sprite[] clip = new Sprite[frames];
-            for (int f = 0; f < frames; f++)
+            Sprite[] clip = new Sprite[FramesPerPiece];
+            for (int frame = 0; frame < FramesPerPiece; frame++)
             {
                 Sprite sprite = Sprite.Create(sheet,
-                    new Rect((x + f) * CellPixels, y * CellPixels,
-                        CellPixels, CellPixels),
+                    new Rect(frame * CellPixels, y, CellPixels, CellPixels),
                     new Vector2(0.5f, 0.5f), Mathf.Max(1f, pixelsPerUnit),
                     0, SpriteMeshType.FullRect);
-                sprite.name = sheet.name + "_piece_" + x + "_" + y +
-                    "_frame_" + f;
+                sprite.name = sheet.name + "_row_" + row + "_frame_" + frame;
                 sprite.hideFlags = HideFlags.HideAndDontSave;
-                clip[f] = sprite;
+                clip[frame] = sprite;
             }
-            output.Add(clip);
+            output[row] = clip;
         }
 
-        clipsBySheet.Add(sheet, output.ToArray());
-        return clipsBySheet[sheet];
+        clipsBySheet.Add(sheet, output);
+        return output;
     }
 
     private static bool HasVisiblePixel(Color32[] pixels, int width, int x, int y)
