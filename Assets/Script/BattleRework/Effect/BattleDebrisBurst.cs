@@ -197,6 +197,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public float curveOffset;
         public float wobblePhase;
         public float landedAge;
+        public float settleStartAngle;
         public float rotation;
         public float angularSpeed;
         public float settleAge;
@@ -681,36 +682,54 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         return shadowSprite;
     }
 
-    private void BeginShard(Shard shard, Sprite[] frames, Vector2 start,
-        Vector2 landing, float z, float size)
+    private void BeginShard(Shard shard, Sprite[] frames,
+        Vector2 start, Vector2 landing, float z, float size,
+        float fps, float spinMagnitude, int landingFrame, bool allowFlip)
     {
         shard.rootObject.SetActive(true);
         shard.visual.enabled = true;
         shard.shadow.enabled = true;
         shard.frames = frames;
-        shard.animationOffset = frames.Length > 1
-            ? UnityEngine.Random.Range(0f, frames.Length / Mathf.Max(1f, animationFps))
-            : 0f;
-        shard.visual.sprite = frames[0];
+        shard.fps = Mathf.Max(1f, fps);
+        shard.landingFrame = Mathf.Clamp(landingFrame, 0, FramesPerPiece - 1);
+        shard.startingFrame = randomStartFrame
+            ? UnityEngine.Random.Range(0, FramesPerPiece) : 0;
+        shard.visual.sprite = frames[shard.startingFrame];
+        shard.visual.flipX = allowFlip && UnityEngine.Random.value < 0.5f;
+        shard.visual.flipY = false;
+
         shard.start = start;
         shard.landing = landing;
         shard.worldZ = z;
         shard.size = size;
         shard.height = initialHeight;
-        shard.vy = UnityEngine.Random.Range(
-            Mathf.Min(riseVelocityMin, riseVelocityMax),
-            Mathf.Max(riseVelocityMin, riseVelocityMax));
-        float safeGravity = Mathf.Max(0.1f, gravity);
+        shard.hasHitGround = false;
+        shard.landedAge = 0f;
+
+        Vector2 travel = landing - start;
+        Vector2 travelDirection = travel.sqrMagnitude > 0.00001f ?
+            travel.normalized : Vector2.right;
+        float slide = RandomBetween(landingSlideMin, landingSlideMax);
+        shard.flightLanding = landing - travelDirection * slide;
+        shard.curvePerpendicular = new Vector2(-travelDirection.y, travelDirection.x);
+        shard.curveOffset = RandomBetween(curveMin, curveMax) *
+            (UnityEngine.Random.value < 0.5f ? -1f : 1f);
+        shard.wobblePhase = UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+
+        float riseSpeed = RandomBetween(riseVelocityMin, riseVelocityMax);
+        float g = Mathf.Max(0.1f, gravity);
         shard.arcStartHeight = Mathf.Max(0f, initialHeight);
-        shard.arcRiseSpeed = shard.vy;
+        shard.arcRiseSpeed = riseSpeed;
         shard.arcElapsed = 0f;
-        shard.arcDuration = (shard.arcRiseSpeed +
-            Mathf.Sqrt(shard.arcRiseSpeed * shard.arcRiseSpeed +
-                2f * safeGravity * shard.arcStartHeight)) / safeGravity;
+        shard.arcDuration = (riseSpeed +
+            Mathf.Sqrt(riseSpeed * riseSpeed + 2f * g * shard.arcStartHeight)) / g;
         shard.firstLandingTime = shard.arcDuration;
-        shard.angularSpeed = UnityEngine.Random.Range(-560f, 560f);
+
         shard.rotation = UnityEngine.Random.Range(-45f, 45f);
-        shard.age = shard.settleAge = shard.restingAge = 0f;
+        shard.angularSpeed = Mathf.Max(0f, spinMagnitude) *
+            (UnityEngine.Random.value < 0.5f ? -1f : 1f);
+        shard.settleStartAngle = 0f;
+        shard.age = shard.restingAge = 0f;
         shard.bounceCount = 0;
         shard.resting = false;
         shard.active = true;
@@ -759,34 +778,39 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.age += dt;
         if (!shard.resting)
         {
-            // Analytic ballistic height (not a side-view Rigidbody):
-            // h(t) = initialHeight + upwardSpeed*t - 0.5*g*t*t.
-            // A separate ground-plane XY position travels to the landing point.
-            shard.arcElapsed = Mathf.Min(
-                shard.arcElapsed + dt, shard.arcDuration);
-            float elapsed = shard.arcElapsed;
+            shard.arcElapsed = Mathf.Min(shard.arcElapsed + dt, shard.arcDuration);
             float g = Mathf.Max(0.1f, gravity);
+            float t = shard.arcElapsed;
             shard.height = Mathf.Max(0f, shard.arcStartHeight +
-                shard.arcRiseSpeed * elapsed - 0.5f * g * elapsed * elapsed);
+                shard.arcRiseSpeed * t - 0.5f * g * t * t);
 
-            if (elapsed >= shard.arcDuration)
+            if (shard.arcElapsed >= shard.arcDuration)
             {
                 shard.height = 0f;
-                float impactSpeed = Mathf.Abs(shard.arcRiseSpeed - g * shard.arcDuration);
-                float nextSpeed = impactSpeed * bounceRetention;
-                if (shard.bounceCount < maximumBounces && nextSpeed > 0.35f)
+                if (!shard.hasHitGround)
+                {
+                    shard.hasHitGround = true;
+                    shard.landedAge = 0f;
+                    shard.visual.sprite = shard.frames[shard.landingFrame];
+                }
+
+                float speedOnImpact =
+                    Mathf.Abs(shard.arcRiseSpeed - g * shard.arcDuration);
+                float rebound = speedOnImpact * bounceRetention;
+                if (shard.bounceCount < maximumBounces && rebound > 0.35f)
                 {
                     shard.bounceCount++;
                     shard.arcStartHeight = 0f;
-                    shard.arcRiseSpeed = nextSpeed;
+                    shard.arcRiseSpeed = rebound;
                     shard.arcElapsed = 0f;
-                    shard.arcDuration = 2f * nextSpeed / g;
+                    shard.arcDuration = 2f * rebound / g;
                     shard.angularSpeed *= 0.45f;
                 }
                 else
                 {
                     shard.resting = true;
                     shard.restingAge = 0f;
+                    shard.settleStartAngle = shard.rotation;
                     shard.angularSpeed = 0f;
                 }
             }
@@ -802,49 +826,72 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             }
         }
 
-        // Top-down ground movement: steady XY flight, while height is *only*
-        // a virtual vertical axis. Bounce remains above the landing position.
-        float travel = Mathf.Clamp01(
-            shard.age / Mathf.Max(0.05f, shard.firstLandingTime));
-        Vector2 ground = Vector2.Lerp(shard.start, shard.landing, travel);
+        if (shard.hasHitGround)
+            shard.landedAge += dt;
+
+        Vector2 ground;
+        if (!shard.hasHitGround)
+        {
+            float u = Mathf.Clamp01(
+                shard.age / Mathf.Max(0.05f, shard.firstLandingTime));
+            float arch = 4f * u * (1f - u);
+            float side = arch * shard.curveOffset +
+                Mathf.Sin(u * Mathf.PI * 4f + shard.wobblePhase) *
+                Mathf.Sin(u * Mathf.PI) * inFlightWobble;
+            ground = Vector2.Lerp(shard.start, shard.flightLanding, u) +
+                shard.curvePerpendicular * side;
+        }
+        else
+        {
+            // A short directional slide after the *first* landing, even when
+            // subsequent smaller hops are still taking place.
+            float u = Mathf.Clamp01(
+                shard.landedAge / Mathf.Max(0.01f, landingSlideDuration));
+            float eased = 1f - (1f - u) * (1f - u);
+            ground = Vector2.Lerp(shard.flightLanding, shard.landing, eased);
+        }
         shard.root.position = new Vector3(ground.x, ground.y, shard.worldZ);
 
-        // Bird-eye 2.5D projection. Leave ContactShadow on ground and lift only
-        // Visual toward screen-up; an optional slight scale cue adds depth.
+        // Bird-eye 2.5D: ground stays in XY and visual rises relative to shadow.
         float height = shard.height;
         shard.spriteTransform.localPosition =
             new Vector3(0f, height * heightToScreenY, 0f);
         float apparentScale = 1f + height * perspectiveScalePerHeight;
-        shard.spriteTransform.localScale = Vector3.one * shard.size * apparentScale;
+        shard.spriteTransform.localScale =
+            Vector3.one * shard.size * apparentScale;
         float shadowFactor = Mathf.Max(0.12f, 1f - height * shadowShrinkPerHeight);
         shard.shadow.transform.localScale = new Vector3(
             shard.size * 0.85f * shadowFactor,
             shard.size * 0.7f * shadowFactor, 1f);
-        shard.shadow.color = new Color(
-            0.04f, 0.05f, 0.08f,
+        shard.shadow.color = new Color(0.04f, 0.05f, 0.08f,
             0.26f / (1f + height * shadowFadePerHeight));
 
         if (!shard.resting)
             shard.rotation += shard.angularSpeed * dt;
         else if (shard.restingAge < settleDuration)
         {
-            float t = shard.restingAge / Mathf.Max(0.001f, settleDuration);
-            shard.rotation = Mathf.Sin(t * 19f) * 13f * (1f - t);
+            float u = shard.restingAge / Mathf.Max(0.001f, settleDuration);
+            float ease = 1f - (1f - u) * (1f - u);
+            shard.rotation = Mathf.LerpAngle(shard.settleStartAngle, 0f, ease) +
+                Mathf.Sin(u * 19f) * 9f * (1f - u);
         }
+        else
+            shard.rotation = 0f;
         shard.spriteTransform.localRotation =
             Quaternion.Euler(0f, 0f, shard.rotation);
 
-        if (shard.frames != null && shard.frames.Length > 1 &&
-            (!shard.resting || animateWhileResting))
+        // Before first contact use randomized per-piece frame rate and phase.
+        // At contact lock the direction-specific frame; bounce/settle retain it.
+        if (!shard.hasHitGround)
         {
-            int frameIndex = Mathf.FloorToInt(
-                (shard.age + shard.animationOffset) *
-                Mathf.Max(1f, animationFps));
-            frameIndex = loopPieceAnimation
-                ? frameIndex % shard.frames.Length
-                : Mathf.Min(frameIndex, shard.frames.Length - 1);
-            shard.visual.sprite = shard.frames[frameIndex];
+            int f = Mathf.FloorToInt(shard.age * shard.fps) +
+                shard.startingFrame;
+            f = loopDuringFlight ? f % FramesPerPiece :
+                Mathf.Min(f, FramesPerPiece - 1);
+            shard.visual.sprite = shard.frames[f];
         }
+        else
+            shard.visual.sprite = shard.frames[shard.landingFrame];
 
         bool blinking = shard.resting &&
             shard.restingAge >= settleDuration + restDuration;
@@ -882,25 +929,76 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         StopActive();
     }
 
+    private static void EnsureSheetRows(AxisSheet axis)
+    {
+        if (axis == null)
+            return;
+        if (axis.landingFrames == null ||
+            axis.landingFrames.Length != RowsPerSheet)
+        {
+            LandingFrameRule[] fixedRows = new LandingFrameRule[RowsPerSheet];
+            if (axis.landingFrames != null)
+                Array.Copy(axis.landingFrames, fixedRows,
+                    Mathf.Min(RowsPerSheet, axis.landingFrames.Length));
+            axis.landingFrames = fixedRows;
+        }
+        for (int i = 0; i < RowsPerSheet; i++)
+        {
+            if (axis.landingFrames[i] == null)
+                axis.landingFrames[i] = new LandingFrameRule();
+            LandingFrameRule row = axis.landingFrames[i];
+            row.up = Mathf.Clamp(row.up, 0, 7);
+            row.down = Mathf.Clamp(row.down, 0, 7);
+            row.left = Mathf.Clamp(row.left, 0, 7);
+            row.right = Mathf.Clamp(row.right, 0, 7);
+        }
+    }
+
+    private static void EnsureMaterialRules(MaterialSheets sheets)
+    {
+        if (sheets == null) return;
+        EnsureSheetRows(sheets.vertical);
+        EnsureSheetRows(sheets.horizontal);
+    }
+
+    private static void ValidateMotion(SizeMotion motion)
+    {
+        if (motion == null) return;
+        motion.fpsMin = Mathf.Max(1f, motion.fpsMin);
+        motion.fpsMax = Mathf.Max(1f, motion.fpsMax);
+        motion.spinMin = Mathf.Max(0f, motion.spinMin);
+        motion.spinMax = Mathf.Max(0f, motion.spinMax);
+        motion.scaleMin = Mathf.Clamp(motion.scaleMin, 0.05f, 2f);
+        motion.scaleMax = Mathf.Clamp(motion.scaleMax, 0.05f, 2f);
+    }
+
     private void OnValidate()
     {
-        framesPerPiece = Mathf.Clamp(framesPerPiece, 1, 16);
-        animationFps = Mathf.Clamp(animationFps, 1f, 30f);
         maximumPieces = Mathf.Clamp(maximumPieces, 1, HardLimit);
         minimumPieces = Mathf.Clamp(minimumPieces, 1, maximumPieces);
         maximumPieceSlots = Mathf.Clamp(
             maximumPieceSlots, maximumPieces, MaximumPoolSlots);
         prewarmPieceSlots = Mathf.Clamp(
             prewarmPieceSlots, 0, maximumPieceSlots);
+        EnsureMaterialRules(wood);
+        EnsureMaterialRules(styrofoam);
+        EnsureMaterialRules(metal);
+        EnsureMaterialRules(stone);
+        ValidateMotion(small);
+        ValidateMotion(medium);
+        ValidateMotion(large);
     }
 
     private void OnDestroy()
     {
         foreach (Sprite[][] clips in clipsBySheet.Values)
         for (int i = 0; i < clips.Length; i++)
-        for (int f = 0; f < clips[i].Length; f++)
-            if (clips[i][f] != null)
-                Destroy(clips[i][f]);
+        {
+            if (clips[i] == null) continue;
+            for (int f = 0; f < clips[i].Length; f++)
+                if (clips[i][f] != null)
+                    Destroy(clips[i][f]);
+        }
         clipsBySheet.Clear();
         if (shadowSprite != null)
             Destroy(shadowSprite);
