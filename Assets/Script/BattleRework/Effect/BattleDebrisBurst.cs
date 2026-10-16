@@ -88,6 +88,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     private readonly List<Shard> shards = new();
     private readonly List<Vector2> launchPositions = new();
     private readonly List<Vector2> landingPositions = new();
+    private readonly List<float> landingFootprints = new();
     private readonly List<int> directions = new();
     private readonly Dictionary<Texture2D, Sprite[]> slicesBySheet = new();
     private readonly int[] lastPicked = { -1, -1, -1, -1 };
@@ -158,6 +159,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
         launchPositions.Clear();
         landingPositions.Clear();
+        landingFootprints.Clear();
         int targetCount = Mathf.Min(maximumDebris, directions.Count);
         Vector2 impulse = impactDirection.sqrMagnitude > 0.0001f
             ? impactDirection.normalized : Vector2.zero;
@@ -166,7 +168,12 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         for (int i = 0; i < directions.Count && activeCount < targetCount; i++)
         {
             int d = directions[i];
-            if (!TryPlace(d, impulse, out Vector2 start, out Vector2 landing))
+            float size = UnityEngine.Random.Range(
+                Mathf.Min(sizeMin, sizeMax), Mathf.Max(sizeMin, sizeMax));
+            float pieceDiameter = CellPixels / Mathf.Max(1f, pixelsPerUnit) * size;
+            // Circumscribed circle protects a rotated square at final rest.
+            float radius = pieceDiameter * 0.707107f;
+            if (!TryPlace(d, impulse, radius, out Vector2 start, out Vector2 landing))
                 continue; // Never force overlapping placements when space is full.
 
             Sprite[] options = available[d];
@@ -176,9 +183,10 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             lastPicked[d] = pick;
 
             Shard shard = Acquire(activeCount);
-            BeginShard(shard, options[pick], start, landing, position.z);
+            BeginShard(shard, options[pick], start, landing, position.z, size);
             launchPositions.Add(start);
             landingPositions.Add(landing);
+            landingFootprints.Add(radius);
             activeCount++;
         }
 
@@ -196,7 +204,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             Debug.Log("[BattleDebris] Enter Play Mode and use TEST - Burst.", this);
     }
 
-    private bool TryPlace(int direction, Vector2 impact, out Vector2 start, out Vector2 landing)
+    private bool TryPlace(int direction, Vector2 impact, float footprintRadius,
+        out Vector2 start, out Vector2 landing)
     {
         Vector2 cardinal = direction switch
         {
@@ -218,7 +227,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             Vector2 outgoing = Quaternion.Euler(0f, 0f, degrees) * axis;
             float range = UnityEngine.Random.Range(radiusMin, radiusMax);
             Vector2 candidateLanding = (Vector2)transform.position + outgoing * range;
-            if (!IsSpaced(candidateLanding, landingPositions, landingSpacing))
+            if (!IsSpacedFootprints(candidateLanding, footprintRadius,
+                landingPositions, landingFootprints, landingSpacing))
                 continue;
 
             float angle = UnityEngine.Random.Range(-180f, 180f) * Mathf.Deg2Rad;
@@ -235,6 +245,18 @@ public sealed class BattleDebrisBurst : MonoBehaviour
 
         start = landing = default;
         return false;
+    }
+
+    private static bool IsSpacedFootprints(Vector2 candidate, float radius,
+        List<Vector2> positions, List<float> radii, float gap)
+    {
+        for (int i = 0; i < positions.Count; i++)
+        {
+            float required = radius + radii[i] + gap;
+            if ((candidate - positions[i]).sqrMagnitude < required * required)
+                return false;
+        }
+        return true;
     }
 
     private static bool IsSpaced(Vector2 candidate, List<Vector2> existing, float spacing)
@@ -358,7 +380,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     }
 
     private void BeginShard(Shard shard, Sprite sprite, Vector2 start,
-        Vector2 landing, float z)
+        Vector2 landing, float z, float size)
     {
         shard.rootObject.SetActive(true);
         shard.visual.enabled = true;
@@ -367,8 +389,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.start = start;
         shard.landing = landing;
         shard.worldZ = z;
-        shard.size = UnityEngine.Random.Range(
-            Mathf.Min(sizeMin, sizeMax), Mathf.Max(sizeMin, sizeMax));
+        shard.size = size;
         shard.height = initialHeight;
         shard.vy = UnityEngine.Random.Range(
             Mathf.Min(riseVelocityMin, riseVelocityMax),
