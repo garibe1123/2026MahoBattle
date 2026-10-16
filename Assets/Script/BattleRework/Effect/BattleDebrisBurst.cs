@@ -126,6 +126,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetPoolState()
     {
+        SceneManager.sceneLoaded -= OnSceneLoaded;
         preparedSceneHandle = -1;
         poolReady = false;
         activePooledBursts = 0;
@@ -133,11 +134,19 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void PrewarmBattleScene()
+    private static void RegisterScenePrewarm()
     {
-        // Move allocations to scene loading rather than the first explosion.
-        // Other scenes remain untouched; Spawn() also handles runtime scene loads.
+        // BattleScene may load later from a menu. Subscribe once so the pool
+        // prepares during the scene transition, not on the first explosion.
+        SceneManager.sceneLoaded -= OnSceneLoaded;
+        SceneManager.sceneLoaded += OnSceneLoaded;
         if (SceneManager.GetActiveScene().name == "BattleScene")
+            PreparePool();
+    }
+
+    private static void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name == "BattleScene")
             PreparePool();
     }
 
