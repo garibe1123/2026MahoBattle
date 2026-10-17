@@ -140,6 +140,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform staminaFillRect;
     private Text hpText;
     private Text staminaText;
+    private Text staminaWarningText;
+    private Image staminaFillImage;
+    private Image staminaBarImage;
+    private Color staminaBarRestColor;
+    private float staminaWarningUntil;
+    private PlayerController subscribedPlayer;
     private Vector2 hpTextRestPosition;
     private bool hpTextRestCaptured;
     private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
@@ -212,6 +218,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void OnDisable()
     {
+        ClearStaminaWarning();
         UnsubscribeInput();
         Unsubscribe();
         ForceRestoreTabTime();
@@ -276,6 +283,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Subscribe()
     {
+        if (subscribedPlayer != player)
+        {
+            if (subscribedPlayer != null)
+                subscribedPlayer.RollRejectedForStamina -= HandleRollRejectedForStamina;
+            ClearStaminaWarning();
+            subscribedPlayer = player;
+            if (subscribedPlayer != null)
+                subscribedPlayer.RollRejectedForStamina += HandleRollRejectedForStamina;
+        }
+
         if (subscribedEquipmentSystem != equipmentSystem)
         {
             if (subscribedEquipmentSystem != null)
@@ -317,6 +334,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Unsubscribe()
     {
+        if (subscribedPlayer != null)
+            subscribedPlayer.RollRejectedForStamina -= HandleRollRejectedForStamina;
+        subscribedPlayer = null;
+
         if (subscribedEquipmentSystem != null)
         {
             subscribedEquipmentSystem.InventoryChanged -= RefreshAll;
@@ -972,6 +993,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         staminaText = CreateText(vitals, "ST", 9, FontStyle.Bold, TextAnchor.MiddleLeft, vitalsTextColor);
         SetAnchors(staminaText.rectTransform, new Vector2(0f, 0.05f), new Vector2(0.18f, 0.43f));
         staminaFillRect = CreateProgressBar(vitals, "ST", new Vector2(0.18f, 0.10f), new Vector2(1f, 0.35f), staminaColor);
+        staminaFillImage = staminaFillRect.GetComponent<Image>();
+        staminaBarImage = staminaFillRect.parent.GetComponent<Image>();
+        staminaBarRestColor = staminaBarImage.color;
+        staminaWarningText = CreateText(vitals, "ST 부족", 12, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
+        staminaWarningText.font = BattleFeedbackFont.Resolve();
+        SetAnchors(staminaWarningText.rectTransform, new Vector2(0.18f, 0.02f), new Vector2(1f, 0.43f));
+        staminaWarningText.gameObject.SetActive(false);
     }
 
     private void BuildFullGridUi(Transform parent)
@@ -2242,6 +2270,45 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         if (staminaText != null)
             staminaText.text = $"ST {player.CurrentStamina:0}/{staminaMax:0}";
+
+        if (staminaWarningUntil > 0f &&
+            (Time.unscaledTime >= staminaWarningUntil || !CanShowStaminaWarning()))
+            ClearStaminaWarning();
+    }
+
+    private bool CanShowStaminaWarning()
+    {
+        return combatActive && player != null && player.IsAlive &&
+               inputRouter != null && inputRouter.CombatEnabled &&
+               !inputRouter.HasModal && !inputRouter.TabHeld && !switchHeld &&
+               !BattlePauseController.IsPaused;
+    }
+
+    private void HandleRollRejectedForStamina()
+    {
+        if (!CanShowStaminaWarning())
+            return;
+
+        // Refresh one notice instead of stacking animations on repeated input.
+        staminaWarningUntil = Time.unscaledTime + 0.65f;
+        if (staminaWarningText != null)
+            staminaWarningText.gameObject.SetActive(true);
+        if (staminaFillImage != null)
+            staminaFillImage.color = new Color(1f, 0.28f, 0.20f, 1f);
+        // The background remains visible even when ST is completely empty.
+        if (staminaBarImage != null)
+            staminaBarImage.color = new Color(0.60f, 0.10f, 0.08f, 1f);
+    }
+
+    private void ClearStaminaWarning()
+    {
+        staminaWarningUntil = 0f;
+        if (staminaWarningText != null)
+            staminaWarningText.gameObject.SetActive(false);
+        if (staminaFillImage != null)
+            staminaFillImage.color = staminaColor;
+        if (staminaBarImage != null)
+            staminaBarImage.color = staminaBarRestColor;
     }
 
     private void ApplyLowHpNumericFeedback(float hp01)

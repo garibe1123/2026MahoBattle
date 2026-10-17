@@ -113,6 +113,8 @@ public class BattleSceneEntry : MonoBehaviour
     private static BattleSceneResult lastResult;
     private static string activeReturnSceneName;
     private static bool sceneHookInstalled;
+    private static bool resultConfirmationPending;
+    private static bool returnInProgress;
 
     private BattleSceneManager runtimeManager;
     private BattleSceneRequest runtimeRequest;
@@ -161,6 +163,8 @@ public class BattleSceneEntry : MonoBehaviour
         pendingRequest = next;
         activeReturnSceneName = next.returnSceneName;
         lastResult = null;
+        resultConfirmationPending = false;
+        returnInProgress = false;
 
         EnsureSceneHook();
         SceneManager.LoadScene(next.battleSceneName, LoadSceneMode.Single);
@@ -222,14 +226,29 @@ public class BattleSceneEntry : MonoBehaviour
 
     public static bool ReturnToPreviousScene()
     {
-        if (string.IsNullOrWhiteSpace(activeReturnSceneName))
-        {
-            Debug.LogWarning("[BattleSceneEntry] No return scene was recorded.");
+        if (resultConfirmationPending || returnInProgress || !CanReturnToPreviousScene())
             return false;
-        }
 
-        SceneManager.LoadScene(activeReturnSceneName, LoadSceneMode.Single);
+        returnInProgress = true;
+        try
+        {
+            SceneManager.LoadScene(activeReturnSceneName, LoadSceneMode.Single);
+        }
+        catch (Exception)
+        {
+            returnInProgress = false;
+            throw;
+        }
         return true;
+    }
+
+    private static bool CanReturnToPreviousScene()
+    {
+        Scene current = SceneManager.GetActiveScene();
+        return !string.IsNullOrWhiteSpace(activeReturnSceneName) &&
+               activeReturnSceneName != current.name &&
+               activeReturnSceneName != current.path &&
+               Application.CanStreamedLevelBeLoaded(activeReturnSceneName);
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -239,6 +258,8 @@ public class BattleSceneEntry : MonoBehaviour
         lastResult = null;
         activeReturnSceneName = null;
         sceneHookInstalled = false;
+        resultConfirmationPending = false;
+        returnInProgress = false;
         EnsureSceneHook();
     }
 
@@ -403,18 +424,18 @@ public class BattleSceneEntry : MonoBehaviour
         };
 
         RecordResult(result);
-
-        if (runtimeRequest != null && runtimeRequest.autoReturnOnRunEnd &&
-            !string.IsNullOrWhiteSpace(result.returnSceneName))
+        resultConfirmationPending = true;
+        bool returnOnConfirm = runtimeRequest != null && runtimeRequest.autoReturnOnRunEnd &&
+                               CanReturnToPreviousScene();
+        BattleRunResultUI resultUI = GetComponent<BattleRunResultUI>();
+        if (resultUI == null)
+            resultUI = gameObject.AddComponent<BattleRunResultUI>();
+        resultUI.Show(result, returnOnConfirm, () =>
         {
-            StartCoroutine(ReturnNextFrame());
-        }
-    }
-
-    private IEnumerator ReturnNextFrame()
-    {
-        yield return null;
-        ReturnToPreviousScene();
+            resultConfirmationPending = false;
+            if (returnOnConfirm)
+                ReturnToPreviousScene();
+        });
     }
 
     private void OnDisable()

@@ -101,6 +101,7 @@ public class PlayerController : MonoBehaviour, IDamageable
     public event Action Died;
     public event Action<float, float> HpChanged;
     public event Action<float, float> StaminaChanged;
+    public event Action RollRejectedForStamina;
 
     private void Awake()
     {
@@ -318,14 +319,22 @@ public class PlayerController : MonoBehaviour, IDamageable
             }
         }
 
-        bool canRoll =
+        bool canAttemptRoll =
             rollInputEnabled &&
             currentState != PlayerState.Roll &&
-            currentStamina >= rollStaminaCost &&
-            rollLockTimer <= 0f;
+            rollLockTimer <= 0f &&
+            !BattlePauseController.IsPaused &&
+            inputRouter != null &&
+            !inputRouter.HasModal &&
+            !inputRouter.TabHeld;
 
-        if (inputRouter != null && inputRouter.RollPressedThisFrame && canRoll)
-            StartCoroutine(RollRoutine());
+        if (canAttemptRoll && inputRouter.RollPressedThisFrame)
+        {
+            if (currentStamina < rollStaminaCost)
+                RollRejectedForStamina?.Invoke();
+            else
+                StartCoroutine(RollRoutine());
+        }
 
         if (combatInputEnabled &&
             inputRouter != null &&

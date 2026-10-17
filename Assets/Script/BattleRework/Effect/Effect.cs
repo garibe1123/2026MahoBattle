@@ -113,12 +113,12 @@ public class Effect : MonoBehaviour
             anim.PlayOnce(
                 AnimPhase.Start,
                 so.visual.startSprites,
-                so.visual.fps,
+                so.visual.GetFps(AnimPhase.Start),
                 startAnimationCompleteCallback);
         }
         else if (so.visual != null && so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
         {
-            anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.fps);
+            anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.GetFps(AnimPhase.Idle));
         }
     }
 
@@ -128,7 +128,7 @@ public class Effect : MonoBehaviour
             return;
 
         if (so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
-            anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.fps);
+            anim.PlayLoop(AnimPhase.Idle, so.visual.idleSprites, so.visual.GetFps(AnimPhase.Idle));
     }
 
     private void Update()
@@ -463,7 +463,7 @@ public class Effect : MonoBehaviour
             anim.PlayOnce(
                 AnimPhase.End,
                 so.visual.endSprites,
-                so.visual.fps,
+                so.visual.GetFps(AnimPhase.End),
                 releaseToPoolCallback);
         }
         else

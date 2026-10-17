@@ -7,6 +7,22 @@ public class EffectVisualSO : ScriptableObject
     public Sprite[] idleSprites;  // 유지/발사 연출
     public Sprite[] endSprites;   // 소멸 연출
     public float fps = 12f;
+    [Header("Phase FPS (0 = use fps)")]
+    [Min(0f)] public float startFps;
+    [Min(0f)] public float idleFps;
+    [Min(0f)] public float endFps;
+
+    public float GetFps(AnimPhase phase)
+    {
+        float phaseFps = phase switch
+        {
+            AnimPhase.Start => startFps,
+            AnimPhase.Idle => idleFps,
+            AnimPhase.End => endFps,
+            _ => 0f
+        };
+        return phaseFps > 0f && !float.IsInfinity(phaseFps) ? phaseFps : fps;
+    }
 
     [Header("Material Control (Shader)")]
     public Material customMaterial; // 모든 이펙트가 돌려쓸 원본 머티리얼 1개
