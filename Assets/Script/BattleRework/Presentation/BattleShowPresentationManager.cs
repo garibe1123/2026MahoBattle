@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using DG.Tweening;
+using Unity.Profiling;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Serialization;
@@ -141,6 +142,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     [Tooltip("새로 생성된 굴러오는 필드 조각을 찾는 간격입니다. 값이 작을수록 생성 직후 빨리 SO가 적용됩니다.")]
     [SerializeField, Range(0.02f, 0.5f)] private float fieldTemplateScanInterval = 0.06f;
+
+#if UNITY_EDITOR
+    [Tooltip("Profiler 비교용: 켜면 개선 전 탐색 경로를 사용합니다. 동일 전투 조건에서 FloorScan의 CPU 시간과 GC Alloc을 비교하세요.")]
+    [SerializeField] private bool profileOriginalFloorScan;
+#endif
 
     [Header("사회자 Sprite Sheet")]
     [Tooltip("사회자 애니메이션의 잘라진 Sprite 프레임을 재생 순서대로 넣습니다. 비어 있으면 BattleHUD에 설정된 기본 사회자 Sprite를 그대로 사용합니다.")]
@@ -400,6 +406,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool warnedMissingTemplate;
     private Material runtimeSpeechBubbleStrokeMaterial;
     private float nextFieldTemplateScan;
+
+    private static readonly ProfilerMarker floorScanMarker = new("BattleShowPresentationManager.FloorScan");
+    private static readonly ProfilerMarker slidingFloorScanMarker = new("BattleShowPresentationManager.SlidingFloorScan");
+    private static readonly ProfilerMarker findMapBlocksMarker = new("BattleShowPresentationManager.FindMapBlocks");
+    private static readonly ProfilerMarker occupiedFloorCellsMarker = new("BattleShowPresentationManager.BuildOccupiedFloorCells");
 
     // Play Mode Inspector 튜닝 즉시 반영용 Revision.
     // Serialized Reward 값이 바뀔 때 OnValidate가 증가시키고,
@@ -725,6 +736,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             Time.unscaledTime >= nextFieldTemplateScan)
         {
             nextFieldTemplateScan = Time.unscaledTime + Mathf.Max(0.02f, fieldTemplateScanInterval);
+            using var scanScope = floorScanMarker.Auto();
 
             // RuleRoulette는 기존 Persistent 4x4 위에서 조건만 확정하는 Pre-Combat 단계입니다.
             // 이 시점에 Base를 다시 SO 랜덤 조립하면 플레이어 발밑 Sprite가 바뀌어 보이므로
@@ -1003,10 +1015,20 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     /// </summary>
     private void DecorateAllLiveSlidingBlocks(bool rebuild)
     {
-        MapBlock[] blocks = FindObjectsByType<MapBlock>(
-            FindObjectsInactive.Exclude,
-            FindObjectsSortMode.None);
-        List<MapBlock> liveBlocks = new();
+        using var scanScope = slidingFloorScanMarker.Auto();
+        MapBlock[] blocks;
+        using (findMapBlocksMarker.Auto())
+        {
+            blocks = FindObjectsByType<MapBlock>(
+                FindObjectsInactive.Exclude,
+                FindObjectsSortMode.None);
+        }
+
+        bool skipExistingTemplates = true;
+#if UNITY_EDITOR
+        skipExistingTemplates = !profileOriginalFloorScan;
+#endif
+        List<MapBlock> liveBlocks = skipExistingTemplates ? null : new List<MapBlock>();
 
         for (int i = 0; i < blocks.Length; i++)
         {
@@ -1027,8 +1049,23 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             if (!HasSupportedFloorTiles(block.transform))
                 continue;
 
+            if (skipExistingTemplates && !rebuild)
+            {
+                Transform visual = block.transform.Find("Visual");
+                Transform tileRoot = visual != null ? visual : block.transform;
+                if (tileRoot.Find("PresentationTemplate") != null)
+                {
+                    SubscribeDockImpact(block);
+                    continue;
+                }
+            }
+
+            liveBlocks ??= new List<MapBlock>();
             liveBlocks.Add(block);
         }
+
+        if (liveBlocks == null)
+            return;
 
         HashSet<Vector2Int> occupiedFloorCells = BuildOccupiedFloorCells(blocks);
 
@@ -1063,6 +1100,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private HashSet<Vector2Int> BuildOccupiedFloorCells(MapBlock[] blocks)
     {
+        using var occupiedScope = occupiedFloorCellsMarker.Auto();
         HashSet<Vector2Int> occupied = new();
         ResolveReferences();
         if (baseTemplate != null && baseTemplate.ActiveBase != null)
