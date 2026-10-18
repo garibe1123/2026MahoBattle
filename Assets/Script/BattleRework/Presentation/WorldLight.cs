@@ -19,6 +19,8 @@ public sealed class WorldLight : MonoBehaviour
     [Tooltip("Raise the object shadow start in world Y.")]
     [Min(0f)] public float receiverShadowStartYOffset = 0.15f;
     [Min(0.01f)] public float shadowWidth = 1f;
+    [Tooltip("Depth of the rounded volume inferred from each opaque silhouette cross-section.")]
+    [Min(0.01f)] public float shadowDepth = 1f;
     public Color shadowColor = new(0.045f, 0.055f, 0.075f, 1f);
     [Range(0f, 1f)] public float shadowOpacity = 0.19f;
     [Tooltip("Enable to keep these Inspector values instead of initializing from the room profile.")]

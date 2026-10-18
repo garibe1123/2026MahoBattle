@@ -5,30 +5,190 @@ using UnityEngine.Rendering;
 
 internal static class BattleSpriteAlphaGeometry
 {
+    internal sealed class Volume
+    {
+        public Texture2D texture;
+        public Vector4 rect;
+        public float radius;
+        public float maxRadius;
+    }
+
     private sealed class Entry
     {
         public Texture2D texture;
         public int mipLimit;
         public Vector2[] hull;
+        public Volume volume;
+        public Sprite sprite;
+        public Vector2 size;
+        public SpriteTileMode tileMode;
+        public float threshold;
     }
 
     private static readonly Dictionary<Sprite, Entry> Entries = new();
+    private static readonly Dictionary<SpriteRenderer, Entry> TiledEntries = new();
     private static int generation;
     private static bool unsupportedReported;
 
-    internal static bool TryGet(Sprite sprite, out Vector2[] hull)
+    internal static void ReleaseTiled(SpriteRenderer renderer)
+    {
+        if (ReferenceEquals(renderer, null) || !TiledEntries.TryGetValue(renderer, out Entry entry))
+            return;
+        TiledEntries.Remove(renderer);
+        if (entry.volume?.texture != null)
+            UnityEngine.Object.Destroy(entry.volume.texture);
+    }
+
+    internal static bool TryGet(SpriteRenderer renderer, out Vector2[] hull, out Volume volume)
+    {
+        if (renderer.drawMode != SpriteDrawMode.Tiled)
+            return TryGet(renderer.sprite, out hull, out volume);
+        Sprite sprite = renderer.sprite;
+        Texture2D splitAlpha = sprite.associatedAlphaSplitTexture;
+        Texture2D texture = splitAlpha != null ? splitAlpha : sprite.texture;
+        int mipLimit = texture.activeMipmapLimit;
+        if (!TiledEntries.TryGetValue(renderer, out Entry entry) || entry.sprite != sprite ||
+            entry.texture != texture || entry.mipLimit != mipLimit || entry.size != renderer.size ||
+            entry.tileMode != renderer.tileMode || entry.threshold != renderer.adaptiveModeThreshold)
+        {
+            if (entry?.volume?.texture != null)
+                UnityEngine.Object.Destroy(entry.volume.texture);
+            entry = new Entry
+            {
+                sprite = sprite, texture = texture, mipLimit = mipLimit, size = renderer.size,
+                tileMode = renderer.tileMode, threshold = renderer.adaptiveModeThreshold
+            };
+            TiledEntries[renderer] = entry;
+            RequestTiled(renderer, entry);
+        }
+        hull = entry.hull;
+        volume = entry.volume;
+        return hull != null && hull.Length > 0 && volume != null;
+    }
+
+    private static void RequestTiled(SpriteRenderer renderer, Entry entry)
+    {
+        if (!SystemInfo.supportsAsyncGPUReadback)
+        {
+            entry.hull = Array.Empty<Vector2>();
+            if (!unsupportedReported)
+                Debug.LogWarning("[BattleShadow] GPU readback unavailable; using sprite projection fallback.");
+            unsupportedReported = true;
+            return;
+        }
+        float resolution = entry.sprite.pixelsPerUnit / Mathf.Pow(2f, entry.mipLimit);
+        float pixelWidth = Mathf.Ceil(entry.size.x * resolution);
+        float pixelHeight = Mathf.Ceil(entry.size.y * resolution);
+        if (entry.size.x <= 0f || entry.size.y <= 0f || pixelWidth > SystemInfo.maxTextureSize ||
+            pixelHeight + 2f > SystemInfo.maxTextureSize || pixelWidth + 2f > SystemInfo.maxTextureSize ||
+            (pixelWidth + 2f) * (pixelHeight + 2f) > 4194304f)
+        {
+            entry.hull = Array.Empty<Vector2>();
+            Debug.LogWarning("[BattleShadow] Tiled alpha volume exceeds the readback budget; using sprite projection fallback.", renderer);
+            return;
+        }
+        int columns = Mathf.Max(1, (int)pixelWidth);
+        int rows = Mathf.Max(1, (int)pixelHeight);
+        Vector2 minimum = new(-entry.sprite.pivot.x / entry.sprite.rect.width * entry.size.x,
+            -entry.sprite.pivot.y / entry.sprite.rect.height * entry.size.y);
+        int requestGeneration = generation;
+        RenderTexture capture = null;
+        RenderTexture previousTarget = RenderTexture.active;
+        CommandBuffer commands = new() { name = "BattleTiledShadowAlpha" };
+        try
+        {
+            capture = RenderTexture.GetTemporary(columns, rows, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear);
+            commands.SetRenderTarget(capture);
+            commands.SetViewport(new Rect(0, 0, columns, rows));
+            commands.ClearRenderTarget(false, true, Color.clear);
+            commands.SetGlobalVector("_VolumeBakeRect", new Vector4(minimum.x, minimum.y, 1f / entry.size.x, 1f / entry.size.y));
+            // Capture Unity's tiled mesh so adaptive repeats, borders and partial tiles share the same coordinates.
+            commands.DrawRenderer(renderer, BattleSpriteShadow.SharedMaterial, 0, 4);
+            Graphics.ExecuteCommandBuffer(commands);
+            RenderTexture pendingCapture = capture;
+            AsyncGPUReadback.Request(capture, 0, 0, columns, 0, rows, 0, 1, TextureFormat.RGBA32, request =>
+            {
+                try
+                {
+                    if (requestGeneration != generation || renderer == null ||
+                        !TiledEntries.TryGetValue(renderer, out Entry current) || current != entry)
+                        return;
+                    if (request.hasError)
+                    {
+                        entry.hull = Array.Empty<Vector2>();
+                        Debug.LogWarning("[BattleShadow] Could not read tiled alpha; using sprite projection fallback.", renderer);
+                        return;
+                    }
+                    var pixels = request.GetData<Color32>();
+                    Color32[] samples = new Color32[columns * rows];
+                    List<Vector2> points = new(rows * 4);
+                    Vector2 pixelSize = new(entry.size.x / columns, entry.size.y / rows);
+                    for (int row = 0; row < rows; row++)
+                    {
+                        int first = columns;
+                        int last = -1;
+                        for (int column = 0; column < columns; column++)
+                        {
+                            int index = row * columns + column;
+                            samples[index] = pixels[index];
+                            if (pixels[index].a == 0)
+                                continue;
+                            first = Mathf.Min(first, column);
+                            last = column;
+                        }
+                        if (last < first)
+                            continue;
+                        points.Add(minimum + Vector2.Scale(new Vector2(first, row), pixelSize));
+                        points.Add(minimum + Vector2.Scale(new Vector2(last + 1, row), pixelSize));
+                        points.Add(minimum + Vector2.Scale(new Vector2(first, row + 1), pixelSize));
+                        points.Add(minimum + Vector2.Scale(new Vector2(last + 1, row + 1), pixelSize));
+                    }
+                    entry.hull = ConvexHull(points);
+                    if (entry.hull.Length > 0)
+                        entry.volume = CreateVolume(samples, columns, rows, minimum, entry.size, entry.sprite.name);
+                }
+                catch (Exception exception)
+                {
+                    entry.hull = Array.Empty<Vector2>();
+                    Debug.LogWarning("[BattleShadow] Could not build tiled volume: " + exception.Message, renderer);
+                }
+                finally
+                {
+                    RenderTexture.ReleaseTemporary(pendingCapture);
+                }
+            });
+            capture = null;
+        }
+        catch (Exception exception)
+        {
+            entry.hull = Array.Empty<Vector2>();
+            Debug.LogWarning("[BattleShadow] Could not capture tiled alpha: " + exception.Message, renderer);
+        }
+        finally
+        {
+            RenderTexture.active = previousTarget;
+            commands.Release();
+            if (capture != null)
+                RenderTexture.ReleaseTemporary(capture);
+        }
+    }
+
+    internal static bool TryGet(Sprite sprite, out Vector2[] hull, out Volume volume)
     {
         Texture2D splitAlpha = sprite.associatedAlphaSplitTexture;
         Texture2D texture = splitAlpha != null ? splitAlpha : sprite.texture;
         int mipLimit = texture.activeMipmapLimit;
         if (!Entries.TryGetValue(sprite, out Entry entry) || entry.texture != texture || entry.mipLimit != mipLimit)
         {
+            if (entry?.volume?.texture != null)
+                UnityEngine.Object.Destroy(entry.volume.texture);
             entry = new Entry { texture = texture, mipLimit = mipLimit };
             Entries[sprite] = entry;
             Request(sprite, entry, splitAlpha != null);
         }
         hull = entry.hull;
-        return hull != null && hull.Length > 0;
+        volume = entry.volume;
+        return hull != null && hull.Length > 0 && volume != null;
     }
 
     private static void Request(Sprite sprite, Entry entry, bool redAlpha)
@@ -37,7 +197,7 @@ internal static class BattleSpriteAlphaGeometry
         {
             entry.hull = Array.Empty<Vector2>();
             if (!unsupportedReported)
-                Debug.LogWarning("[BattleShadow] Alpha contact detection requires GPU readback support.");
+                Debug.LogWarning("[BattleShadow] GPU readback unavailable; using sprite projection fallback.");
             unsupportedReported = true;
             return;
         }
@@ -64,7 +224,8 @@ internal static class BattleSpriteAlphaGeometry
         {
             AsyncGPUReadback.Request(entry.texture, 0, x, width, y, height, 0, 1, TextureFormat.RGBA32, request =>
             {
-                if (requestGeneration != generation || sprite == null)
+                if (requestGeneration != generation || sprite == null ||
+                    !Entries.TryGetValue(sprite, out Entry current) || current != entry)
                     return;
                 if (request.hasError)
                 {
@@ -126,6 +287,36 @@ internal static class BattleSpriteAlphaGeometry
                     points.Add(Local(x + last + 1, y + row + 1));
                 }
                 entry.hull = ConvexHull(points);
+                if (entry.hull.Length == 0)
+                    return;
+
+                Bounds bounds = sprite.bounds;
+                float resolution = sprite.pixelsPerUnit / Mathf.Pow(2f, entry.mipLimit);
+                int columns = Mathf.Max(1, Mathf.CeilToInt(bounds.size.x * resolution));
+                int rows = Mathf.Max(1, Mathf.CeilToInt(bounds.size.y * resolution));
+                float pixelWidth = bounds.size.x / columns;
+                float pixelHeight = bounds.size.y / rows;
+                Color32[] samples = new Color32[columns * rows];
+                Vector2 localX = vertices[b] - vertices[a];
+                Vector2 localY = vertices[c] - vertices[a];
+                float localDeterminant = Cross(localX, localY);
+                for (int row = 0; row < rows; row++)
+                {
+                    for (int column = 0; column < columns; column++)
+                    {
+                        Vector2 delta = new Vector2(bounds.min.x + (column + 0.5f) * pixelWidth,
+                            bounds.min.y + (row + 0.5f) * pixelHeight) - vertices[a];
+                        Vector2 sample = uv[a] + uvX * (Cross(delta, localY) / localDeterminant) +
+                            uvY * (Cross(localX, delta) / localDeterminant);
+                        int px = Mathf.FloorToInt(sample.x * textureWidth) - x;
+                        int py = Mathf.FloorToInt(sample.y * textureHeight) - y;
+                        if (px < 0 || px >= width || py < 0 || py >= height || !InsideMesh(sample, uv, triangles))
+                            continue;
+                        Color32 pixel = pixels[py * width + px];
+                        samples[row * columns + column] = new Color32(0, 0, 0, redAlpha ? pixel.r : pixel.a);
+                    }
+                }
+                entry.volume = CreateVolume(samples, columns, rows, bounds.min, bounds.size, sprite.name);
             });
         }
         catch (Exception exception)
@@ -133,6 +324,52 @@ internal static class BattleSpriteAlphaGeometry
             entry.hull = Array.Empty<Vector2>();
             Debug.LogWarning("[BattleShadow] Could not request sprite alpha: " + exception.Message, sprite);
         }
+    }
+
+    private static Volume CreateVolume(Color32[] samples, int columns, int rows, Vector2 minimum, Vector2 size, string name)
+    {
+        float pixelWidth = size.x / columns;
+        float pixelHeight = size.y / rows;
+        float maxRadius = 0f;
+        Color32[] depthPixels = new Color32[(columns + 2) * (rows + 2)];
+        for (int row = 0; row < rows; row++)
+        {
+            int first = 0;
+            while (first < columns)
+            {
+                if (samples[row * columns + first].a == 0)
+                {
+                    first++;
+                    continue;
+                }
+                int end = first + 1;
+                while (end < columns && samples[row * columns + end].a != 0)
+                    end++;
+                maxRadius = Mathf.Max(maxRadius, (end - first) * pixelWidth * 0.5f);
+                for (int column = first; column < end; column++)
+                {
+                    // Revolve each separate opaque run into a circular cross-section.
+                    float depth = Mathf.Sqrt((column + 0.5f - first) * (end - column - 0.5f));
+                    int packed = Mathf.Clamp(Mathf.RoundToInt(depth * 2f / columns * 65535f), 0, 65535);
+                    depthPixels[(row + 1) * (columns + 2) + column + 1] = new Color32((byte)(packed >> 8),
+                        (byte)(packed & 255), samples[row * columns + column].a, 255);
+                }
+                first = end;
+            }
+        }
+        Texture2D volumeTexture = new(columns + 2, rows + 2, TextureFormat.RGBA32, false, true)
+        {
+            name = name + " ShadowVolume", filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave
+        };
+        volumeTexture.SetPixels32(depthPixels);
+        volumeTexture.Apply(false, true);
+        return new Volume
+        {
+            texture = volumeTexture, radius = size.x * 0.5f, maxRadius = maxRadius,
+            rect = new Vector4(minimum.x - pixelWidth, minimum.y - pixelHeight,
+                1f / ((columns + 2) * pixelWidth), 1f / ((rows + 2) * pixelHeight))
+        };
     }
 
     private static bool InsideMesh(Vector2 point, Vector2[] uv, ushort[] triangles)
@@ -183,7 +420,7 @@ internal static class BattleSpriteAlphaGeometry
     {
         Matrix4x4 matrix = renderer.transform.localToWorldMatrix * Matrix4x4.Scale(
             new Vector3(renderer.flipX ? -1f : 1f, renderer.flipY ? -1f : 1f, 1f));
-        bool sliced = renderer.drawMode != SpriteDrawMode.Simple;
+        bool sliced = renderer.drawMode == SpriteDrawMode.Sliced;
         Sprite sprite = renderer.sprite;
         Bounds original = sliced ? sprite.bounds : default;
         Vector4 border = sliced ? sprite.border / sprite.pixelsPerUnit : Vector4.zero;
@@ -233,7 +470,14 @@ internal static class BattleSpriteAlphaGeometry
     private static void Clear()
     {
         generation++;
+        foreach (Entry entry in Entries.Values)
+            if (entry.volume?.texture != null)
+                UnityEngine.Object.Destroy(entry.volume.texture);
+        foreach (Entry entry in TiledEntries.Values)
+            if (entry.volume?.texture != null)
+                UnityEngine.Object.Destroy(entry.volume.texture);
         Entries.Clear();
+        TiledEntries.Clear();
         unsupportedReported = false;
     }
 }

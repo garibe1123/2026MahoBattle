@@ -22,6 +22,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     [System.NonSerialized] public bool contactVisible = true;
 
     private static Material material;
+    private static Sprite projectionSprite;
     private SpriteRenderer shadowRenderer;
     private SpriteRenderer contactRenderer;
     private GameObject shadowObject;
@@ -39,6 +40,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private MaterialPropertyBlock receiverSourceProperties;
     private bool sourceSuppressed;
     private Bounds receiverProjectionBounds;
+    private Vector2[] previousHull;
+    private BattleSpriteAlphaGeometry.Volume previousVolume;
 
     internal SpriteRenderer Source => source;
     internal SpriteRenderer Projection => shadowRenderer;
@@ -54,6 +57,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private void OnEnable()
     {
         anchorCaptured = false;
+        previousHull = null;
+        previousVolume = null;
         ActiveTargets.Add(this);
 #if UNITY_EDITOR
         DebugTargets.Add(this);
@@ -138,6 +143,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     public struct DebugGeometry
     {
         public Bounds spriteBounds;
+        public Bounds shadowBounds;
+        public Bounds receiverBounds;
         public Vector3 spriteBottom;
         public Vector3 spriteBottomLeft;
         public Vector3 spriteBottomRight;
@@ -202,6 +209,25 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         geometry = debugGeometry;
         return isActiveAndEnabled && debugGeometryReady;
     }
+
+    private void OnDrawGizmosSelected()
+    {
+        WorldLight light = WorldLight.Instance;
+        if (!debugGeometryReady || light == null || !light.showShadowDebugRays)
+            return;
+        Color previousColor = Gizmos.color;
+        if (light.showFloorShadowDebugRays)
+        {
+            Gizmos.color = new Color(0f, 0.6f, 1f);
+            Gizmos.DrawWireCube(debugGeometry.shadowBounds.center, debugGeometry.shadowBounds.size);
+        }
+        if (light.showReceiverShadowDebugRays)
+        {
+            Gizmos.color = Color.magenta;
+            Gizmos.DrawWireCube(debugGeometry.receiverBounds.center, debugGeometry.receiverBounds.size);
+        }
+        Gizmos.color = previousColor;
+    }
 #endif
 
     public bool UseContactShadow => (explicitFieldObject || characterOwner != null) &&
@@ -228,6 +254,14 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         shadowObject = new GameObject("ProjectedSpriteShadow") { hideFlags = HideFlags.DontSave };
         SceneManager.MoveGameObjectToScene(shadowObject, gameObject.scene);
         shadowRenderer = shadowObject.AddComponent<SpriteRenderer>();
+        if (projectionSprite == null)
+        {
+            Texture2D white = Texture2D.whiteTexture;
+            projectionSprite = Sprite.Create(white, new Rect(0, 0, white.width, white.height),
+                Vector2.zero, white.width, 0, SpriteMeshType.FullRect);
+            projectionSprite.hideFlags = HideFlags.HideAndDontSave;
+        }
+        shadowRenderer.sprite = projectionSprite;
         shadowRenderer.shadowCastingMode = ShadowCastingMode.Off;
         shadowRenderer.receiveShadows = false;
         shadowRenderer.lightProbeUsage = LightProbeUsage.Off;
@@ -334,22 +368,43 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             receiverMaterial.renderQueue = source.sharedMaterial != null ? source.sharedMaterial.renderQueue : 3000;
 
         Bounds bounds = source.bounds;
+        float depthScale = source.transform.TransformVector(Vector3.right).magnitude * Mathf.Max(0.01f, light.shadowDepth);
+        if (source.drawMode == SpriteDrawMode.Sliced)
+            depthScale *= source.size.x / Mathf.Max(0.0001f, source.sprite.bounds.size.x);
+        float maximumDepth = (source.drawMode == SpriteDrawMode.Tiled ? source.size.x * 0.5f :
+            source.sprite.bounds.extents.x) * depthScale;
         Bounds candidate = bounds;
         candidate.Encapsulate(groundAnchor != null ? groundAnchor.position : source.transform.TransformPoint(localGroundAnchor));
         float reach = Mathf.Max(0f, light.shadowLength) * (Mathf.Max(objectHeight, bounds.size.y) + Mathf.Max(0f, virtualHeight));
-        candidate.Expand(2f * (reach + bounds.size.x * Mathf.Max(1f, light.shadowWidth) *
+        candidate.Expand(2f * (reach + (bounds.size.x + maximumDepth) * Mathf.Max(1f, light.shadowWidth) *
             Mathf.Max(1f, light.receiverShadowWidthScale) + Mathf.Max(0f, light.receiverShadowStartYOffset)));
         if (!light.IsVisible(candidate))
         {
             shadowRenderer.enabled = false;
             return;
         }
-        // Keep alpha-shader rendering active while readback is pending or unavailable.
         Bounds alphaBounds = bounds;
         Vector3 bottomLeft = new(bounds.min.x, bounds.min.y, bounds.center.z);
         Vector3 bottomRight = new(bounds.max.x, bounds.min.y, bounds.center.z);
-        bool hasAlphaGeometry = BattleSpriteAlphaGeometry.TryGet(source.sprite, out Vector2[] alphaHull);
-        if (hasAlphaGeometry)
+        bool hasAlphaGeometry = BattleSpriteAlphaGeometry.TryGet(source, out Vector2[] alphaHull,
+            out BattleSpriteAlphaGeometry.Volume volume);
+        if (!hasAlphaGeometry)
+        {
+            if (alphaHull == null && source.drawMode == SpriteDrawMode.Simple && previousVolume?.texture != null)
+            {
+                alphaHull = previousHull;
+                volume = previousVolume;
+            }
+            else
+                volume = null;
+        }
+        else
+        {
+            previousHull = source.drawMode == SpriteDrawMode.Simple ? alphaHull : null;
+            previousVolume = source.drawMode == SpriteDrawMode.Simple ? volume : null;
+        }
+        bool useVolume = volume != null;
+        if (useVolume)
             alphaBounds = BattleSpriteAlphaGeometry.WorldBounds(source, alphaHull, out bottomLeft, out bottomRight);
         Vector3 spriteBottom = (bottomLeft + bottomRight) * 0.5f;
         bool grounded = virtualHeight <= 0.0001f && Mathf.Abs(visualHeightOffset) <= 0.0001f;
@@ -372,7 +427,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 #endif
         float height = objectHeight > 0f ? objectHeight : alphaBounds.size.y;
         Vector2 direction = light.ShadowDirection;
-        Vector2 across = BattleShadowProjection.WidthAxis(direction, grounded);
+        Vector2 across = useVolume ? Vector2.right : BattleShadowProjection.WidthAxis(direction, grounded);
         Vector4 shape = new(Mathf.Max(0f, light.shadowLength), Mathf.Max(0.01f, light.shadowWidth),
             height / Mathf.Max(0.001f, alphaBounds.size.y), Mathf.Max(0f, virtualHeight));
         Vector4 origin = new(anchor.x, anchor.y, sourceAnchor.y, anchor.z);
@@ -381,8 +436,10 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         receiverShape.y *= Mathf.Max(0.01f, light.receiverShadowWidthScale);
         Vector4 receiverOrigin = origin;
         receiverOrigin.y += Mathf.Max(0f, light.receiverShadowStartYOffset);
-        Bounds projected = BattleShadowProjection.Bounds(bounds, origin, direction, across, shape, sourceAnchor.x);
-        receiverProjectionBounds = BattleShadowProjection.Bounds(bounds, receiverOrigin, direction, across, receiverShape, sourceAnchor.x);
+        float depth = useVolume ? (volume.maxRadius + volume.radius / volume.texture.width) * depthScale : 0f;
+        Bounds projected = BattleShadowProjection.Bounds(alphaBounds, origin, direction, across, shape, sourceAnchor.x, depth);
+        receiverProjectionBounds = BattleShadowProjection.Bounds(alphaBounds, receiverOrigin, direction, across,
+            receiverShape, sourceAnchor.x, depth);
         Bounds visibleProjection = projected;
         visibleProjection.Encapsulate(receiverProjectionBounds);
         if (!light.IsVisible(visibleProjection))
@@ -394,6 +451,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         debugGeometry = new DebugGeometry
         {
             spriteBounds = alphaBounds,
+            shadowBounds = projected,
+            receiverBounds = receiverProjectionBounds,
             spriteBottom = spriteBottom,
             spriteBottomLeft = bottomLeft,
             spriteBottomRight = bottomRight,
@@ -408,19 +467,41 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         };
         debugGeometryReady = true;
 #endif
-        shadowRenderer.sprite = source.sprite;
-        shadowRenderer.drawMode = source.drawMode;
+        shadowRenderer.sprite = useVolume ? projectionSprite : source.sprite;
+        shadowRenderer.drawMode = useVolume ? SpriteDrawMode.Simple : source.drawMode;
         shadowRenderer.size = source.size;
         shadowRenderer.tileMode = source.tileMode;
         shadowRenderer.adaptiveModeThreshold = source.adaptiveModeThreshold;
-        shadowRenderer.flipX = source.flipX;
-        shadowRenderer.flipY = source.flipY;
+        shadowRenderer.flipX = !useVolume && source.flipX;
+        shadowRenderer.flipY = !useVolume && source.flipY;
         shadowRenderer.sharedMaterial = SharedMaterial;
-        shadowRenderer.bounds = projected;
+        shadowRenderer.bounds = visibleProjection;
         shadowRenderer.sortingLayerID = light.ShadowSortingLayerId;
         shadowRenderer.sortingOrder = BattleWorldSorting.ShadowOrder;
         shadowObject.layer = source.gameObject.layer;
+        properties.SetMatrix("_WorldToSource", Matrix4x4.Scale(new Vector3(source.flipX ? -1f : 1f,
+            source.flipY ? -1f : 1f, 1f)) * source.transform.worldToLocalMatrix);
         properties.SetMatrix("_SourceToWorld", source.transform.localToWorldMatrix);
+        properties.SetFloat("_ShadowVolumeEnabled", useVolume ? 1f : 0f);
+        if (useVolume)
+        {
+            properties.SetTexture("_VolumeTex", volume.texture);
+            properties.SetVector("_VolumeRect", volume.rect);
+            properties.SetVector("_VolumeData", new Vector4(volume.radius * depthScale,
+                volume.maxRadius / Mathf.Max(0.0001f, volume.radius), volume.texture.width, volume.texture.height));
+        }
+        properties.SetVector("_VolumeWorldBounds", new Vector4(alphaBounds.min.x, alphaBounds.min.y,
+            alphaBounds.max.x, alphaBounds.max.y));
+        properties.SetFloat("_VolumePlaneZ", alphaBounds.center.z);
+        Bounds spriteBounds = source.sprite.bounds;
+        properties.SetVector("_VolumeSpriteBounds", new Vector4(spriteBounds.min.x, spriteBounds.min.y,
+            spriteBounds.size.x, spriteBounds.size.y));
+        properties.SetVector("_VolumeBorder", source.sprite.border / source.sprite.pixelsPerUnit);
+        properties.SetVector("_VolumeTarget", new Vector4(source.size.x, source.size.y,
+            source.drawMode == SpriteDrawMode.Sliced ? 1f : 0f, 0f));
+        properties.SetVector("_ShadowBounds", new Vector4(projected.min.x, projected.min.y, projected.size.x, projected.size.y));
+        properties.SetVector("_ReceiverShadowBounds", new Vector4(receiverProjectionBounds.min.x,
+            receiverProjectionBounds.min.y, receiverProjectionBounds.size.x, receiverProjectionBounds.size.y));
         properties.SetVector("_ShadowOrigin", origin);
         properties.SetFloat("_ShadowSourceX", sourceAnchor.x);
         properties.SetVector("_ShadowDirection", new Vector4(direction.x, direction.y, across.x, across.y));
@@ -453,6 +534,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private void OnDestroy()
     {
         ActiveTargets.Remove(this);
+        BattleSpriteAlphaGeometry.ReleaseTiled(source);
         if (sourceSuppressed && source != null)
             source.forceRenderingOff = false;
         if (shadowObject != null)
@@ -473,6 +555,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         if (material != null)
             Destroy(material);
         material = null;
+        if (projectionSprite != null)
+            Destroy(projectionSprite);
+        projectionSprite = null;
     }
 }
 
@@ -515,8 +600,6 @@ internal static class BattleShadowProjection
         Vector2 perpendicular = new(-direction.y, direction.x);
         if (!grounded)
             return perpendicular;
-
-        // Keep the base nearly horizontal, with a thin transverse component at lateral angles.
         float sideBlend = Mathf.Clamp01(1f - Mathf.Abs(direction.y) / 0.1f);
         return Vector2.right - perpendicular * (Mathf.Sign(direction.y) * 0.02f * sideBlend);
     }
@@ -533,12 +616,13 @@ internal static class BattleShadowProjection
     }
 
     internal static Bounds Bounds(Bounds source, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape,
-        float sourceAnchorX)
+        float sourceAnchorX, float depth)
     {
         Bounds result = new(Point(source.min, origin, direction, across, shape, sourceAnchorX), Vector3.zero);
         result.Encapsulate(Point(source.max, origin, direction, across, shape, sourceAnchorX));
         result.Encapsulate(Point(new Vector3(source.min.x, source.max.y, 0f), origin, direction, across, shape, sourceAnchorX));
         result.Encapsulate(Point(new Vector3(source.max.x, source.min.y, 0f), origin, direction, across, shape, sourceAnchorX));
+        result.Expand(new Vector3(0f, 2f * depth * shape.y, 0f));
         result.Expand(0.02f);
         return result;
     }
