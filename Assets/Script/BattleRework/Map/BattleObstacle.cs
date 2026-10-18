@@ -58,6 +58,9 @@ public class BattleObstacle : MonoBehaviour, IDamageable
 
     private void Awake()
     {
+        SpriteRenderer[] renderers = GetComponentsInChildren<SpriteRenderer>(true);
+        for (int i = 0; i < renderers.Length; i++)
+            WorldLight.Attach(renderers[i]);
         ResetObstacle();
     }
 

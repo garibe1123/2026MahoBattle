@@ -16,6 +16,7 @@ public static class BattleWorldSorting
     public const int BaseOrder = -12002;
     public const int HandleOrder = -12001;
     public const int FloorOrder = -12000;
+    public const int ShadowOrder = -11000;
 
     public const int ActorMinOrder = -10000;
     public const int ActorMaxOrder = 10000;

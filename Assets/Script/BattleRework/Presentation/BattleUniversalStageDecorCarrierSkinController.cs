@@ -1068,6 +1068,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             renderer.sortingLayerID = source.sortingLayerID;
             renderer.sortingOrder = floorSorting;
             ScaleRendererToSize(renderer, cell, cell);
+            BattleDecorFloorSource.Ensure(renderer);
         }
         return floorSorting;
     }
@@ -1133,7 +1134,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             renderer.flipX = part.FlipX ^ mirrorVisualHorizontally;
             renderer.sharedMaterial = floorReference.sharedMaterial;
             renderer.sortingLayerID = floorReference.sortingLayerID;
-            renderer.sortingOrder = floorSorting + part.SortingOffset;
+            renderer.sortingOrder = Mathf.Clamp(Mathf.Max(floorSorting, BattleWorldSorting.ActorMinOrder) +
+                part.SortingOffset, BattleWorldSorting.ActorMinOrder, BattleWorldSorting.ActorMaxOrder);
+            WorldLight.Attach(renderer);
             if (part.AddLight2D)
             {
                 try

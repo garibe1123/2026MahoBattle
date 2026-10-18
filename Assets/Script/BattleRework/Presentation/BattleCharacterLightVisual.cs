@@ -39,6 +39,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
     private static readonly int SpriteRectId = Shader.PropertyToID("_SpriteLocalRect");
 
     private SpriteRenderer targetRenderer;
+    private BattleSpriteShadow projectedShadow;
     private SpriteRenderer keyRenderer;
     private SpriteRenderer poolRenderer;
     private SpriteRenderer glowRenderer;
@@ -106,7 +107,10 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         float lightFadeSharpness)
     {
         if (spriteRenderer != null)
+        {
             targetRenderer = spriteRenderer;
+            projectedShadow = WorldLight.Attach(targetRenderer);
+        }
 
         poolColor = lightPoolColor;
         topLightColor = spriteTopLightColor;
@@ -226,6 +230,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (targetRenderer == null)
             targetRenderer = ResolveRenderer();
 
+        projectedShadow = WorldLight.Attach(targetRenderer);
         EnsureRig();
         BattleSpotlightController.ApplyCurrentSettingsTo(this);
         ApplyVisualState();
@@ -236,6 +241,24 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         EnsureRig();
         BattleSpotlightController.ApplyCurrentSettingsTo(this);
         ApplyVisualState();
+    }
+
+    private void Start()
+    {
+        CacheShadowTarget();
+    }
+
+    private void OnTransformChildrenChanged()
+    {
+        CacheShadowTarget();
+    }
+
+    private void CacheShadowTarget()
+    {
+        if (targetRenderer != null)
+            return;
+        targetRenderer = ResolveRenderer();
+        projectedShadow = WorldLight.Attach(targetRenderer);
     }
 
     private void Update()
@@ -252,8 +275,6 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (targetRenderer == null)
-            targetRenderer = ResolveRenderer();
         if (targetRenderer == null)
             return;
 
@@ -509,7 +530,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
                 Mathf.Max(0.28f, spriteWidth * 0.78f),
                 Mathf.Max(0.09f, spriteWidth * 0.22f));
             contactShadowRenderer.sortingLayerID = targetRenderer.sortingLayerID;
-            contactShadowRenderer.sortingOrder = targetRenderer.sortingOrder - 3;
+            contactShadowRenderer.sortingOrder = BattleWorldSorting.ShadowOrder;
         }
     }
 
@@ -653,6 +674,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (contactShadowRenderer != null)
         {
             bool visible = autoShadowEnabled && autoSurfaceActive &&
+                (projectedShadow == null ? WorldLight.Mode == BattleShadowMode.Contact : projectedShadow.UseContactShadow) &&
                 targetRenderer != null && targetRenderer.enabled &&
                 targetRenderer.gameObject.activeInHierarchy;
             contactShadowRenderer.enabled = visible && autoShadowOpacity > 0.001f;

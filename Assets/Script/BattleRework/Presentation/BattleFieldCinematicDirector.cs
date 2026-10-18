@@ -248,6 +248,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         if (profile == null)
             profile = runtimeDefaultProfile;
 
+        WorldLight.ApplyInitialProfile(profile);
+
         if (activeLightingProfile == profile)
         {
             EnsureColorGrading();
