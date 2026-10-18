@@ -1,8 +1,17 @@
 {
+<<<<<<< Updated upstream
     "ambient": 0.6800000071525574,
     "warmth": 0.41999998688697817,
     "cameraIntensity": 0.4000000059604645,
     "cameraRadius": 9.0,
     "playerIntensity": 0.8600000143051148,
     "playerRadius": 4.6
+=======
+    "ambient": 0.7074723243713379,
+    "warmth": 0.6068133115768433,
+    "cameraIntensity": 0.6307689547538757,
+    "cameraRadius": 7.736259937286377,
+    "playerIntensity": 0.530329704284668,
+    "playerRadius": 7.885715961456299
+>>>>>>> Stashed changes
 }

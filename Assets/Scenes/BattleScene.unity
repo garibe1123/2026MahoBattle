@@ -153,6 +153,7 @@ GameObject:
   - component: {fileID: 100047}
   - component: {fileID: 100044}
   - component: {fileID: 100042}
+  - component: {fileID: 100050}
   m_Layer: 0
   m_Name: BattleSystems
   m_TagString: Untagged
@@ -314,6 +315,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   shootingSystem: {fileID: 1592316895}
+  inputRouter: {fileID: 0}
   unlockedSlotCount: 3
   startingEquipment:
   - {fileID: 11400000, guid: cb4c54e595843df49b8c02a8c011d47a, type: 2}
@@ -386,6 +388,7 @@ MonoBehaviour:
   equipmentSystem: {fileID: 100011}
   fanMissionSystem: {fileID: 100009}
   playerController: {fileID: 1592316896}
+  battleRuleRoulette: {fileID: 0}
   useEmptyStartArea: 1
   startPlayerWaitingRoomOffset: {x: -0.9, y: -0.35}
   hpByDepth:
@@ -469,6 +472,10 @@ MonoBehaviour:
   gridSynergy: {fileID: 0}
   timeScaleController: {fileID: 0}
   inputRouter: {fileID: 0}
+  player: {fileID: 0}
+  miniPackUI: {fileID: 0}
+  dashboardController: {fileID: 0}
+  presentation: {fileID: 0}
   holdThreshold: 0.14
   tabStopDuration: 0.34
   tabResumeDuration: 0.44
@@ -488,7 +495,18 @@ MonoBehaviour:
   packFocusedOffset: {x: -170, y: -76}
   packInactiveCornerOffset: {x: -378, y: -146}
   itemTooltipSize: {x: 360, y: 220}
-  itemTooltipGap: 18
+  itemTooltipCenterBias: 0.72
+  itemTooltipTargetClearance: 76
+  itemTooltipScreenMargin: 28
+  itemTooltipPopupStartScale: 0.88
+  itemTooltipPopupOvershootScale: 1.075
+  itemTooltipPopupDuration: 0.15
+  itemTooltipPopupTravel: 24
+  itemTooltipCloseDuration: 0.085
+  itemTooltipCloseScale: 0.96
+  hpColor: {r: 0.95, g: 0.18, b: 0.3, a: 1}
+  staminaColor: {r: 0.18, g: 0.82, b: 0.95, a: 1}
+  vitalsTextColor: {r: 0.82, g: 0.85, b: 0.9, a: 1}
 --- !u!114 &100017
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -567,6 +585,7 @@ MonoBehaviour:
   runManager: {fileID: 0}
   equipmentSystem: {fileID: 0}
   rewardFlow: {fileID: 0}
+  inputRouter: {fileID: 0}
   inkColor: {r: 0.035, g: 0.03, b: 0.055, a: 0.995}
   paperColor: {r: 0.94, g: 0.9, b: 0.76, a: 1}
   accentYellow: {r: 1, g: 0.8, b: 0.1, a: 1}
@@ -574,8 +593,20 @@ MonoBehaviour:
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
   padAxisThreshold: 0.55
   padAxisReleaseThreshold: 0.22
+  dragGhostMouseOffset: {x: 28, y: -24}
+  dragGhostStartScale: 0.86
+  dragGhostTargetScale: 1.08
+  dragGhostFollowSharpness: 20
   handMouseOffset: {x: 72, y: -72}
   handPadOffset: {x: 92, y: 0}
+  rewardTransferDuration: 0.23
+  rewardTransferArcHeight: 90
+  rewardSelectClip: {fileID: 0}
+  rewardTransferClip: {fileID: 0}
+  rewardInstallClip: {fileID: 0}
+  deniedClip: {fileID: 0}
+  deniedMessageDuration: 0.9
+  deniedShakePixels: 7
 --- !u!114 &100023
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -589,15 +620,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   runManager: {fileID: 0}
-  inkColor: {r: 0.028, g: 0.03, b: 0.04, a: 0.995}
-  panelColor: {r: 0.052, g: 0.055, b: 0.068, a: 0.995}
-  paperColor: {r: 0.93, g: 0.9, b: 0.8, a: 1}
-  mutedColor: {r: 0.36, g: 0.39, b: 0.46, a: 0.76}
-  availableColor: {r: 0.16, g: 0.86, b: 0.92, a: 1}
-  eliteColor: {r: 1, g: 0.18, b: 0.48, a: 1}
-  currentColor: {r: 0.66, g: 0.9, b: 0.96, a: 1}
-  selectableNodeSize: 76
-  eliteNodeSize: 86
+  hud: {fileID: 0}
 --- !u!114 &100024
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -637,6 +660,8 @@ MonoBehaviour:
   equipmentSystem: {fileID: 0}
   gridSynergy: {fileID: 0}
   panelSize: {x: 430, y: 570}
+  rewardPreviewSideGap: 34
+  rewardPreviewScreenPadding: 24
   inkColor: {r: 0.025, g: 0.022, b: 0.04, a: 0.985}
   paperColor: {r: 0.95, g: 0.91, b: 0.78, a: 1}
   accentYellow: {r: 1, g: 0.8, b: 0.08, a: 1}
@@ -678,6 +703,9 @@ MonoBehaviour:
   selectedAccent: {r: 1, g: 0.8, b: 0.08, a: 1}
   hoverAccent: {r: 0.14, g: 0.92, b: 0.94, a: 1}
   pickedAccent: {r: 1, g: 0.18, b: 0.52, a: 1}
+  selectedFillAlpha: 0.18
+  selectionCancelSize: {x: 190, y: 38}
+  selectionCancelGap: 12
 --- !u!114 &100035
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -725,7 +753,17 @@ MonoBehaviour:
   muted: {r: 0.6, g: 0.61, b: 0.64, a: 1}
   selectAccent: {r: 1, g: 0.79, b: 0.08, a: 1}
   hoverCyan: {r: 0.12, g: 0.88, b: 0.92, a: 1}
-  hoverPink: {r: 1, g: 0.16, b: 0.5, a: 1}
+  worldInspectSize: {x: 470, y: 400}
+  worldInspectCenterBias: 0.72
+  worldInspectTargetClearance: 76
+  worldInspectScreenMargin: 28
+  worldInspectPopupStartScale: 0.88
+  worldInspectPopupOvershootScale: 1.075
+  worldInspectPopupDuration: 0.15
+  worldInspectPopupTravel: 24
+  worldInspectCloseDuration: 0.085
+  worldInspectCloseScale: 0.96
+  worldSkipSize: {x: 214, y: 40}
   lockedBack: {r: 0.006, g: 0.008, b: 0.012, a: 0.9}
 --- !u!114 &100042
 MonoBehaviour:
@@ -777,11 +815,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 13d9e43d7b9f3634bbed659500576507, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  panelColor: {r: 0.022, g: 0.028, b: 0.043, a: 0.94}
   accentColor: {r: 1, g: 0.18, b: 0.58, a: 1}
   goldColor: {r: 1, g: 0.8, b: 0.25, a: 1}
-  hpColor: {r: 0.95, g: 0.22, b: 0.34, a: 1}
-  staminaColor: {r: 0.24, g: 0.8, b: 0.93, a: 1}
   showScreenSize: {x: 1120, y: 560}
   presenterSprite: {fileID: 0}
   presenterColor: {r: 1, g: 1, b: 1, a: 1}
@@ -816,6 +851,29 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   normalFixedDeltaTime: 0.02
+--- !u!114 &100050
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 100000}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5f73043ae99e4f36ab3745535991b662, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  buttonSize: {x: 232, y: 72}
+  readyColor: {r: 1, g: 0.8, b: 0.08, a: 1}
+  disabledColor: {r: 0.22, g: 0.23, b: 0.26, a: 0.96}
+  inkColor: {r: 0.018, g: 0.02, b: 0.024, a: 1}
+  disabledTextColor: {r: 0.72, g: 0.73, b: 0.76, a: 1}
+  wobbleSpeed: 3.9
+  squashX: 0.04
+  squashY: 0.026
+  travelX: 3.5
+  travelY: 1.4
+  wobbleDegrees: 0.9
 --- !u!1 &24410127
 GameObject:
   m_ObjectHideFlags: 0
@@ -874,7 +932,6 @@ MonoBehaviour:
   monsterPool: {fileID: 125387717}
   blockEntryStagger: 0.055
   maxBlockEntryStagger: 0.32
-  proceduralAssemblyRailDistance: 36
   impactVfxRoot: {fileID: 1291908033}
   impactSprites: []
   dustSprites: []
@@ -1163,9 +1220,82 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 9f21b65ad1ad4c2f956aa4d696e934f7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  runManager: {fileID: 0}
+  stageFlow: {fileID: 0}
+  showWorldSet: {fileID: 0}
+  stageLighting: {fileID: 0}
+  spatialMap: {fileID: 0}
+  player: {fileID: 0}
   beamShapeDirection: 0
   beamRotationDegrees: 0
   beamLocalOffset: {x: 0, y: 0.2}
+  combatDimAlpha: 0.1
+  combatFocusRadiusWorld: 1.78
+  combatVerticalRatio: 0.72
+  combatFeather: 0.04
+  combatFocusFollowSharpness: 5.4
+  combatFocusMaxLagWorld: 0.42
+  combatFocusScaleResponse: 0.28
+  virtualLightHeight: 3.8
+  aimFollowSharpness: 16
+  sourceFollowSharpness: 2.9
+  sourceVelocityTrailSeconds: 0.22
+  sourceAccelerationTrail: 0.011
+  maxSourceLagDistance: 1.75
+  fullScaleResponseAngleDegrees: 26
+  maxBeamLengthBoost: 0.38
+  maxBeamWidthBoost: 0.22
+  maxBeamBottomWidthBoost: 0.34
+  motionOpacityLoss: 0.26
+  beamSourceLagVisualScale: 0.82
+  maxBeamSourceVisualOffset: 0.78
+  rewardNearDimAlpha: 0.62
+  rewardFarDimAlpha: 0.96
+  rewardDimRadius: 0.58
+  rewardItemRadiusWorld: 0.92
+  rewardItemFeather: 0.02
+  showPlayerRadiusWorld: 1.48
+  showPresenterRadiusWorld: 1.92
+  showCharacterVerticalRatio: 0.86
+  showCharacterLowerOffset: 0.02
+  showCharacterFeather: 0.018
+  screenRectFeather: 0.0035
+  screenRectPadding: 0.002
+  mapScriptFocusRadiusWorld: 1.32
+  mapScriptFocusFeather: 0.024
+  useShowIdle: 1
+  rewardIdleCyclesPerSecond: 0.12
+  mapIdleCyclesPerSecond: 0.09
+  rewardBeamWidthAmplitude: 0.006
+  rewardBeamLengthAmplitude: 0.008
+  mapBeamWidthAmplitude: 0.004
+  mapBeamLengthAmplitude: 0.006
+  rewardFocusRadiusPulse: 0.045
+  mapFocusRadiusPulse: 0.025
+  focusFeatherPulse: 0.12
+  visualRefreshInterval: 0.4
+  useRewardItemProjection: 1
+  rewardProjectionFullSpeed: 0.42
+  rewardProjectionWidthBoost: 0.16
+  rewardProjectionLengthBoost: 0.24
+  rewardProjectionBottomSpread: 0.28
+  rewardProjectionOpacityLoss: 0.12
+  useRewardSpotlightDrift: 1
+  rewardSpotlightDriftAmplitudeWorld: {x: 0.055, y: 0.03}
+  rewardSpotlightDriftCyclesPerSecond: 0.1
+  rewardSpotlightDriftPhaseOffset: 1.3
+  combatFadeSharpness: 8
+  showFadeSharpness: 6
+  spotlightOffDimAlpha: 0.34
+  spotlightOffDimHoldDuration: 0.1
+  spotlightOffDimFadeDuration: 0.34
+  modeTransitionDuration: 0.62
+  transitionStartScale: 0.96
+  transitionScaleOvershoot: 0.018
+  transitionStartAlpha: 0.72
+  focusTransitionOvershoot: 0.015
+  useStageLightFlicker: 1
+  stageFlickerStrength: 0.42
 --- !u!114 &529217568
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1290,33 +1420,9 @@ MonoBehaviour:
   battleCamera: {fileID: 0}
   showWorldSet: {fileID: 0}
   runManager: {fileID: 0}
-  player: {fileID: 0}
-  overlaySortingOrder: 450
-  dimColor: {r: 0, g: 0, b: 0, a: 1}
-  cameraLeadBeforeDim: 0.1
-  dimFadeInDuration: 0.2
-  focusLeadAfterDim: 0.08
-  focusFadeInDuration: 0.16
-  openingMapCameraLeadBeforeDim: 0.025
-  openingMapDimFadeInDuration: 0.3
-  openingMapFocusLeadAfterDim: 0.09
-  openingMapFocusFadeInDuration: 0.19
   exitFocusFadeDuration: 0.12
   exitDimFadeDuration: 0.18
   cameraReturnDelay: 0.05
-  nearDimAlpha: 0.62
-  farDimAlpha: 0.96
-  dimFalloffRadius: 0.58
-  openingMapNearDimAlpha: 0.48
-  openingMapFarDimAlpha: 0.92
-  openingMapDimFalloffRadius: 0.66
-  playerFocusRadiusWorld: 1.48
-  presenterFocusRadiusWorld: 1.92
-  characterVerticalRatio: 0.48
-  characterLowerOffset: 0.2
-  characterFeather: 0.018
-  rectFeather: 0.0035
-  screenRectPadding: 0.002
 --- !u!114 &529217573
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1329,18 +1435,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6c28ff8b859f49dfb44ef8207ce391a5, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  switchOutDuration: 0.1
-  staticHoldDuration: 0.025
-  switchInDuration: 0.15
-  staticPeakAlpha: 0.92
-  horizontalJitterPixels: 3.5
-  verticalSquash: 0.035
-  syncBarHeight: 14
-  syncBarPeakAlpha: 0.72
-  transitionNoise: 0.42
-  transitionScanline: 0.16
-  transitionRollingBand: 0.22
-  transitionTint: {r: 0.7, g: 0.78, b: 0.82, a: 1}
 --- !u!114 &529217574
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1375,9 +1469,10 @@ MonoBehaviour:
   presenterEntryDelay: 0.16
   carrierImpactStrength: 1.05
   carrierFloorSortingOrder: -18
-  rewardCameraPadding: 0.08
-  rewardCameraMinSize: 2.55
+  scriptSelectionCameraPadding: 0.22
+  scriptSelectionCameraMinSize: 2.85
   presenterFallbackSprite: {fileID: 0}
+  fieldSortingRefreshInterval: 0.5
   presenterWorldHeight: 3.6
   presenterPadYOffset: 0.2
   presenterRightPadding: 0.15
@@ -1397,10 +1492,252 @@ MonoBehaviour:
   defaultFloorTemplate: {fileID: 11400000, guid: 1578a2a39841b3846a886fb516f9edc0, type: 2}
   autoApplyTemplateToSlidingField: 1
   fieldTemplateScanInterval: 0.06
+  profileOriginalFloorScan: 0
   presenterFrames: []
   presenterFps: 8
   presenterLoop: 1
   autoPlayPresenterDuringReward: 1
+  screenPresenterMotions:
+    idle:
+      source: {fileID: 0}
+      fps: 8
+    talk:
+      source: {fileID: 0}
+      fps: 8
+    curious:
+      source: {fileID: 0}
+      fps: 8
+    excited:
+      source: {fileID: 0}
+      fps: 8
+    surprised:
+      source: {fileID: 0}
+      fps: 8
+    flustered:
+      source: {fileID: 0}
+      fps: 8
+    concerned:
+      source: {fileID: 0}
+      fps: 8
+    bored:
+      source: {fileID: 0}
+      fps: 8
+    denied:
+      source: {fileID: 0}
+      fps: 8
+    shutdown:
+      source: {fileID: 0}
+      fps: 8
+  combatPresenterMotions:
+    idle:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    talk:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    curious:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    excited:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    surprised:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    flustered:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    concerned:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    bored:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    denied:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+    shutdown:
+      source: {fileID: 0}
+      frameSize: {x: 192, y: 128}
+      fps: 10
+  screenPresenterMaterial: {fileID: 0}
+  speechBubbleStrokeMaterial: {fileID: 0}
+  useUnscaledSpeechBubbleHologram: 1
+  speechBubbleHologramScanlineDensity: 74
+  speechBubbleHologramScanlineSpeed: 1.8
+  speechBubbleHologramScanlineStrength: 0.24
+  speechBubbleHologramNoiseStrength: 0.15
+  speechBubbleHologramPulseStrength: 0.12
+  speechBubbleHologramCyanBoost: 0.12
+  rewardBasicBaseSprite: {fileID: 0}
+  rewardCommonBaseSprite: {fileID: 0}
+  rewardUncommonBaseSprite: {fileID: 0}
+  rewardRareBaseSprite: {fileID: 0}
+  rewardEpicBaseSprite: {fileID: 0}
+  rewardUniqueBaseSprite: {fileID: 0}
+  rewardBaseAnimationEnabled: 1
+  rewardBaseAnimationFrameSize: {x: 32, y: 32}
+  rewardBaseAnimationFps: 8
+  rewardBaseAnimationLoop: 1
+  rewardBoosterSpriteSheet: {fileID: 0}
+  rewardBoosterFrameSize: {x: 32, y: 32}
+  rewardBoosterFps: 12
+  rewardBoosterLoop: 1
+  rewardBoosterOffsetPixels: {x: 0, y: -16}
+  rewardItemPixelYOffset: -4
+  rewardItemFloatEnabled: 1
+  rewardItemFloatAmplitudePixels: 4
+  rewardItemFloatCyclesPerSecond: 0.6
+  rewardItemFloatPhaseStep: 0.72
+  rewardPreviewItemSprite: {fileID: 0}
+  rewardShowcaseSpacingWorld: 2.3
+  rewardShowcaseMinTileSpacingMultiplier: 2.3
+  rewardShowcasePositionOffsetWorld: {x: 0, y: -0.2}
+  rewardHoverBoundsPaddingWorld: 0.1
+  rewardHoverStickyScreenRadius: 120
+  rewardCameraPositionOffsetWorld: {x: 0, y: 0}
+  rewardCameraPadding: 0.38
+  rewardCameraMinSize: 2.55
+  rewardItemHoverCameraSize: 1.55
+  rewardItemHoverCameraPivotOffset: {x: 0.92, y: 0.1}
+  rewardItemHoverMinZoom: 1.45
+  rewardItemHoverFollowSharpness: 5.4
+  rewardItemHoverZoomSharpness: 7
+  rewardCursorPanDistance: {x: 1.55, y: 0.85}
+  rewardCursorTrackingSharpness: 5.6
+  rewardCursorZoomRatio: 0.88
+  rewardSpotlightColor: {r: 1, g: 0.96, b: 0.78, a: 1}
+  rewardSpotlightPoolAlpha: 0.34
+  rewardSpotlightBeamAlpha: 0.58
+  rewardSpotlightWidth: 1.8
+  rewardSpotlightBeamLength: 2.4
+  rewardSpotlightBeamVerticalOffset: 0.24
+  rewardSpotlightFadeSharpness: 10
+  selectionSpeechBubbleFrameStyle:
+    rotation: -1.5
+    outlineTopLeft: {x: -8, y: 9}
+    outlineTopRight: {x: 8, y: 9}
+    outlineBottomRight: {x: 8, y: -9}
+    outlineBottomLeft: {x: -8, y: -9}
+    fillTopLeft: {x: 2, y: -2}
+    fillTopRight: {x: -2, y: -2}
+    fillBottomRight: {x: -2, y: 2}
+    fillBottomLeft: {x: 2, y: 2}
+    outlineColor: {r: 0.012, g: 0.012, b: 0.018, a: 0.99}
+    fillColor: {r: 0.97, g: 0.97, b: 0.94, a: 1}
+    legacyOutlineLeft: 0
+    legacyOutlineBottom: 0
+    legacyOutlineRight: 0
+    legacyOutlineTop: 0
+    legacyStrokeTopLeft: 0
+    legacyStrokeBottomLeft: 0
+    legacyStrokeTopRight: 0
+    legacyStrokeBottomRight: 0
+    cornerPointsInitialized: 1
+  selectionSpeechBubbleTailStyle:
+    uiSize: {x: 176, y: 84}
+    overlap: 42
+    edgePadding: 34
+    pivotCount: 3
+    rootY: 0.5
+    pivot1: {x: 0.28, y: 0.5}
+    pivot2: {x: 0.52, y: 0.5}
+    pivot3: {x: 0.76, y: 0.5}
+    tip: {x: 0.985, y: 0.62}
+    rootHalfWidth: 0.46
+    pivot1HalfWidth: 0.36
+    pivot2HalfWidth: 0.27
+    pivot3HalfWidth: 0.14
+    strokeRoot: 15
+    strokePivot1: 15
+    strokePivot2: 15
+    strokePivot3: 15
+    strokeTip: 15
+    outlineColor: {r: 0.015, g: 0.015, b: 0.02, a: 1}
+    pivotCountInitialized: 1
+  selectionSpeechBubbleVariation:
+    enabled: 1
+    frameOutlineCornerJitter: 2.2
+    frameInnerCornerJitter: 1.2
+    frameStrokeBiasPixels: 2.5
+    frameRotationJitter: 0.3
+    tailPivotPositionJitter: 0.035
+    regenerateLightningPattern: 1
+    tailLightningPatternChance: 1
+    tailLightningAmplitude: 0.18
+    tailLightningXJitter: 0.065
+    tailWidthRatioJitter: 0.1
+    tailStrokeBaseMultiplier: 1.15
+    tailStrokeRatioJitter: 0.12
+    tailPivotCountVariation: 1
+    tailPivotCountChangeChance: 0.2
+  combatSpeechBubbleFrameStyle:
+    rotation: -2.5
+    outlineTopLeft: {x: -7, y: 8}
+    outlineTopRight: {x: 7, y: 8}
+    outlineBottomRight: {x: 7, y: -8}
+    outlineBottomLeft: {x: -7, y: -8}
+    fillTopLeft: {x: 2, y: -2}
+    fillTopRight: {x: -2, y: -2}
+    fillBottomRight: {x: -2, y: 2}
+    fillBottomLeft: {x: 2, y: 2}
+    outlineColor: {r: 0.012, g: 0.012, b: 0.018, a: 0.99}
+    fillColor: {r: 0.97, g: 0.97, b: 0.94, a: 1}
+    legacyOutlineLeft: 0
+    legacyOutlineBottom: 0
+    legacyOutlineRight: 0
+    legacyOutlineTop: 0
+    legacyStrokeTopLeft: 0
+    legacyStrokeBottomLeft: 0
+    legacyStrokeTopRight: 0
+    legacyStrokeBottomRight: 0
+    cornerPointsInitialized: 1
+  combatSpeechBubbleTailStyle:
+    uiSize: {x: 176, y: 84}
+    overlap: 42
+    edgePadding: 34
+    pivotCount: 3
+    rootY: 0.5
+    pivot1: {x: 0.28, y: 0.5}
+    pivot2: {x: 0.52, y: 0.5}
+    pivot3: {x: 0.76, y: 0.5}
+    tip: {x: 0.985, y: 0.62}
+    rootHalfWidth: 0.46
+    pivot1HalfWidth: 0.36
+    pivot2HalfWidth: 0.27
+    pivot3HalfWidth: 0.14
+    strokeRoot: 15
+    strokePivot1: 15
+    strokePivot2: 15
+    strokePivot3: 15
+    strokeTip: 15
+    outlineColor: {r: 0.015, g: 0.015, b: 0.02, a: 1}
+    pivotCountInitialized: 1
+  combatSpeechBubbleVariation:
+    enabled: 1
+    frameOutlineCornerJitter: 2.2
+    frameInnerCornerJitter: 1.2
+    frameStrokeBiasPixels: 2.5
+    frameRotationJitter: 0.3
+    tailPivotPositionJitter: 0.035
+    regenerateLightningPattern: 1
+    tailLightningPatternChance: 1
+    tailLightningAmplitude: 0.18
+    tailLightningXJitter: 0.065
+    tailWidthRatioJitter: 0.1
+    tailStrokeBaseMultiplier: 1.15
+    tailStrokeRatioJitter: 0.12
+    tailPivotCountVariation: 1
+    tailPivotCountChangeChance: 0.2
   spotlightFrames: []
   spotlightFps: 10
   spotlightLoop: 1
@@ -1428,6 +1765,8 @@ MonoBehaviour:
   fanMissionSystem: {fileID: 0}
   runProgress: {fileID: 0}
   kineticLoadout: {fileID: 0}
+  rouletteController: {fileID: 0}
+  inputRouter: {fileID: 0}
   layoutSharpness: 13
   rightSlideDistance: 260
   inactivePanelCornerOffset: {x: 210, y: -26}
@@ -1442,6 +1781,10 @@ MonoBehaviour:
   chatSize: {x: 440, y: 210}
   inkColor: {r: 0.025, g: 0.028, b: 0.045, a: 0.985}
   paperColor: {r: 0.94, g: 0.95, b: 0.97, a: 1}
+  mutedColor: {r: 0.48, g: 0.52, b: 0.6, a: 1}
+  activeColor: {r: 0.12, g: 0.86, b: 0.92, a: 1}
+  progressColor: {r: 1, g: 0.8, b: 0.1, a: 1}
+  dangerColor: {r: 1, g: 0.2, b: 0.38, a: 1}
 --- !u!114 &529217579
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -2130,6 +2473,7 @@ MonoBehaviour:
   currentWeaponIndex: 0
   extraPierce: 0
   runtimeDamageMultiplier: 1
+  battleRuleDamageMultiplier: 1
   runtimeFanMissionModifier: 0
 --- !u!114 &1592316896
 MonoBehaviour:
@@ -2160,6 +2504,10 @@ MonoBehaviour:
   startBaseFieldFallbackInterval: 0.2
   hitIFrameDuration: 0.5
   rollIFrameDuration: 0.15
+  battleCamera: {fileID: 0}
+  hitCameraImpulseStrength: 0.1
+  hitCameraDamageBonus: 0.08
+  hitCameraImpulseDuration: 0.14
   rollStaminaCost: 30
   maxConsecutiveRolls: 3
   rollChainCooldown: 0.8

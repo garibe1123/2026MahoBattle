@@ -51,7 +51,6 @@ MonoBehaviour:
   entryEase: 8
   walkableEntryDelayScale: 2.25
   avoidExistingTilePenetration: 1
-  entryPathSamples: 8
   entryPathClearance: 0.06
   contributesWalkableNavMesh: 1
   walkableNavModifier: {fileID: 0}
