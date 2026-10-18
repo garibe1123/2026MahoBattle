@@ -674,7 +674,7 @@ public sealed class BattleCharacterLightVisual : MonoBehaviour
         if (contactShadowRenderer != null)
         {
             bool visible = autoShadowEnabled && autoSurfaceActive &&
-                (projectedShadow == null ? WorldLight.Mode == BattleShadowMode.Contact : projectedShadow.UseContactShadow) &&
+                projectedShadow != null && projectedShadow.UseContactShadow &&
                 targetRenderer != null && targetRenderer.enabled &&
                 targetRenderer.gameObject.activeInHierarchy;
             contactShadowRenderer.enabled = visible && autoShadowOpacity > 0.001f;

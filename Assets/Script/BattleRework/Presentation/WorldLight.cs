@@ -119,8 +119,14 @@ public sealed class WorldLight : MonoBehaviour
         if (source == null)
             return null;
         BattleSpriteShadow shadow = source.GetComponent<BattleSpriteShadow>();
+        PlayerController player = source.GetComponentInParent<PlayerController>(true);
+        MonsterController monster = source.GetComponentInParent<MonsterController>(true);
+        Transform owner = player != null ? player.transform : monster != null ? monster.transform : null;
+        if (owner == null)
+            return shadow;
         if (shadow == null)
             shadow = source.gameObject.AddComponent<BattleSpriteShadow>();
+        shadow.SetCharacterOwner(owner);
         return shadow;
     }
 }

@@ -144,7 +144,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         public Transform spriteTransform;
         public SpriteRenderer visual;
         public SpriteRenderer shadow;
-        public BattleSpriteShadow projectedShadow;
         public Vector2 start;
         public Vector2 landing;
         public float worldZ;
@@ -669,6 +668,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             shadow = ground.gameObject.AddComponent<SpriteRenderer>();
         shadow.sprite = GetShadowSprite();
         shadow.color = new Color(0.04f, 0.05f, 0.08f, 0.26f);
+        shadow.enabled = false;
 
         Shard shard = new()
         {
@@ -676,11 +676,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             root = pieceRoot,
             spriteTransform = body,
             visual = visual,
-            shadow = shadow,
-            projectedShadow = WorldLight.Attach(visual)
+            shadow = shadow
         };
-        shard.projectedShadow.groundAnchor = pieceRoot;
-        shard.projectedShadow.BindContactShadow(shadow);
         shards.Add(shard);
         return shard;
     }
@@ -722,9 +719,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     {
         shard.rootObject.SetActive(true);
         shard.visual.enabled = true;
-        shard.shadow.enabled = true;
-        shard.projectedShadow.contactVisible = true;
-        shard.projectedShadow.SetVirtualHeight(initialHeight, 0f);
+        shard.shadow.enabled = false;
         shard.frames = frames;
         shard.fps = Mathf.Max(1f, fps);
         shard.landingFrameFirst = Mathf.Clamp(
@@ -918,8 +913,6 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         float height = shard.height;
         shard.spriteTransform.localPosition =
             new Vector3(0f, height * heightToScreenY, 0f);
-        shard.projectedShadow.SetVirtualHeight(height,
-            shard.spriteTransform.position.y - shard.root.position.y);
         float apparentScale = 1f + height * perspectiveScalePerHeight;
         shard.spriteTransform.localScale =
             Vector3.one * shard.size * apparentScale;
@@ -960,8 +953,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         float blinkAge = shard.restingAge - settleDuration - restDuration;
         shard.visual.enabled = !blinking ||
             Mathf.FloorToInt(blinkAge * blinkFrequency * 2f) % 2 == 0;
-        shard.shadow.enabled = !blinking && shard.projectedShadow.UseContactShadow;
-        shard.projectedShadow.contactVisible = !blinking;
+        shard.shadow.enabled = false;
     }
 
     private void FinishBurst()

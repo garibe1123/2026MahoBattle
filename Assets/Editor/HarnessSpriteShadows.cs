@@ -53,12 +53,15 @@ public static class HarnessSpriteShadows
         {
             if (!selected.scene.IsValid())
                 continue;
-            foreach (SpriteRenderer renderer in selected.GetComponentsInChildren<SpriteRenderer>(true))
+            SpriteRenderer renderer = selected.GetComponent<SpriteRenderer>();
+            if (renderer != null && renderer.GetComponent<BattleDecorFloorSource>() == null)
             {
-                if (renderer.GetComponent<BattleDecorFloorSource>() != null ||
-                    renderer.GetComponent<BattleSpriteShadow>() != null)
-                    continue;
-                Undo.AddComponent<BattleSpriteShadow>(renderer.gameObject);
+                BattleSpriteShadow shadow = renderer.GetComponent<BattleSpriteShadow>();
+                if (shadow == null)
+                    shadow = Undo.AddComponent<BattleSpriteShadow>(renderer.gameObject);
+                Undo.RecordObject(shadow, "Enable field sprite shadows");
+                shadow.explicitFieldObject = true;
+                EditorUtility.SetDirty(shadow);
             }
             EditorSceneManager.MarkSceneDirty(selected.scene);
         }

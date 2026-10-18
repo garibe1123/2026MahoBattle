@@ -1,9 +1,7 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
-#if UNITY_EDITOR
 using System.Collections.Generic;
-#endif
 
 [DefaultExecutionOrder(32700)]
 [DisallowMultipleComponent]
@@ -11,6 +9,10 @@ using System.Collections.Generic;
 public sealed class BattleSpriteShadow : MonoBehaviour
 {
     [SerializeField] private SpriteRenderer source;
+    [Tooltip("Opt this field sprite into shadow casting and receiving. Players and monsters are registered automatically.")]
+    public bool explicitFieldObject;
+    [Tooltip("Use the same owner for sprites belonging to one field object to prevent self-shadowing.")]
+    public Transform shadowOwner;
     [Tooltip("Zero uses the visible sprite height in world units.")]
     [Min(0f)] public float objectHeight;
     public Transform groundAnchor;
@@ -26,6 +28,109 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private MaterialPropertyBlock properties;
     private bool anchorCaptured;
     private float visualHeightOffset;
+    private static readonly HashSet<BattleSpriteShadow> ActiveTargets = new();
+    private Transform characterOwner;
+    private SortingGroup sortingGroup;
+    private SpriteRenderer receiverRenderer;
+    private Material receiverMaterial;
+    private MaterialPropertyBlock receiverProperties;
+    private SortingGroup receiverGroup;
+    private SpriteRenderer receiverSourceRenderer;
+    private MaterialPropertyBlock receiverSourceProperties;
+    private bool sourceSuppressed;
+
+    internal SpriteRenderer Source => source;
+    internal SpriteRenderer Projection => shadowRenderer;
+    internal bool SourceVisible => isActiveAndEnabled && (explicitFieldObject || characterOwner != null) &&
+        source != null && source.enabled && (!source.forceRenderingOff || sourceSuppressed) && source.gameObject.activeInHierarchy &&
+        source.sprite != null && source.color.a > 0.001f;
+    private Transform Owner => characterOwner != null ? characterOwner : shadowOwner != null ? shadowOwner :
+        groundAnchor != null ? groundAnchor : transform;
+
+    internal void SetCharacterOwner(Transform owner) => characterOwner = owner;
+
+    private void OnEnable()
+    {
+        anchorCaptured = false;
+        ActiveTargets.Add(this);
+#if UNITY_EDITOR
+        DebugTargets.Add(this);
+#endif
+    }
+
+    internal static void CopyActive(List<BattleSpriteShadow> destination)
+    {
+        destination.Clear();
+        foreach (BattleSpriteShadow target in ActiveTargets)
+            if (target != null && target.isActiveAndEnabled)
+                destination.Add(target);
+    }
+
+    internal bool CanCastOn(BattleSpriteShadow receiver, Camera camera)
+    {
+        if (this == receiver || Owner == receiver.Owner || shadowRenderer == null || !shadowRenderer.enabled ||
+            !BattleShadowProjection.OverlapsXY(shadowRenderer.bounds, receiver.source.bounds))
+            return false;
+        bool sameGroup = sortingGroup == receiver.sortingGroup;
+        int casterLayer = !sameGroup && sortingGroup != null && sortingGroup.isActiveAndEnabled
+            ? sortingGroup.sortingLayerID : source.sortingLayerID;
+        int receiverLayer = !sameGroup && receiver.sortingGroup != null && receiver.sortingGroup.isActiveAndEnabled
+            ? receiver.sortingGroup.sortingLayerID : receiver.source.sortingLayerID;
+        int layerDifference = SortingLayer.GetLayerValueFromID(casterLayer).CompareTo(
+            SortingLayer.GetLayerValueFromID(receiverLayer));
+        if (layerDifference != 0)
+            return layerDifference > 0;
+        int casterOrder = !sameGroup && sortingGroup != null && sortingGroup.isActiveAndEnabled
+            ? sortingGroup.sortingOrder : source.sortingOrder;
+        int receiverOrder = !sameGroup && receiver.sortingGroup != null && receiver.sortingGroup.isActiveAndEnabled
+            ? receiver.sortingGroup.sortingOrder : receiver.source.sortingOrder;
+        if (casterOrder != receiverOrder)
+            return casterOrder > receiverOrder;
+        if (camera == null || (sameGroup && sortingGroup != null && sortingGroup.isActiveAndEnabled))
+            return false;
+
+        TransparencySortMode mode = camera.transparencySortMode;
+        Vector3 axis = camera.transparencySortAxis;
+        if (mode == TransparencySortMode.Default)
+        {
+            mode = GraphicsSettings.transparencySortMode;
+            axis = GraphicsSettings.transparencySortAxis;
+        }
+        if (mode == TransparencySortMode.Default)
+            mode = camera.orthographic ? TransparencySortMode.Orthographic : TransparencySortMode.Perspective;
+        Vector3 cameraPosition = camera.transform.position;
+        Vector3 cameraForward = camera.transform.forward;
+        float casterDistance = BattleShadowProjection.SortDistance(SortPosition(!sameGroup), cameraPosition,
+            cameraForward, mode, axis);
+        float receiverDistance = BattleShadowProjection.SortDistance(receiver.SortPosition(!sameGroup), cameraPosition,
+            cameraForward, mode, axis);
+        return casterDistance < receiverDistance;
+    }
+
+    private Vector3 SortPosition(bool useGroup) => useGroup && sortingGroup != null && sortingGroup.isActiveAndEnabled
+        ? sortingGroup.transform.position
+        : source.spriteSortPoint == SpriteSortPoint.Pivot ? source.transform.position : source.bounds.center;
+
+    internal void SetReceiverMask(bool visible, Vector4 worldRect = default, Vector4 atlasRect = default)
+    {
+        receiverRenderer.enabled = visible && SourceVisible;
+        receiverSourceRenderer.enabled = receiverRenderer.enabled;
+        if (!receiverRenderer.enabled)
+        {
+            if (sourceSuppressed && source != null)
+                source.forceRenderingOff = false;
+            sourceSuppressed = false;
+            return;
+        }
+        source.GetPropertyBlock(receiverSourceProperties);
+        receiverSourceRenderer.SetPropertyBlock(receiverSourceProperties);
+        sourceSuppressed = true;
+        source.forceRenderingOff = true;
+        receiverProperties.SetVector("_ReceiverWorldRect", worldRect);
+        receiverProperties.SetVector("_ReceiverAtlasRect", atlasRect);
+        receiverProperties.SetColor("_ShadowColor", WorldLight.Instance.shadowColor);
+        receiverRenderer.SetPropertyBlock(receiverProperties);
+    }
 
 #if UNITY_EDITOR
     public struct DebugGeometry
@@ -44,8 +149,6 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private DebugGeometry debugGeometry;
     private bool debugGeometryReady;
 
-    private void OnEnable() => DebugTargets.Add(this);
-
     public static void CopyDebugTargets(List<BattleSpriteShadow> destination)
     {
         destination.Clear();
@@ -61,7 +164,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     }
 #endif
 
-    public bool UseContactShadow => WorldLight.Mode == BattleShadowMode.Contact;
+    public bool UseContactShadow => (explicitFieldObject || characterOwner != null) &&
+        WorldLight.Mode == BattleShadowMode.Contact;
 
     public void BindContactShadow(SpriteRenderer contact) => contactRenderer = contact;
 
@@ -90,6 +194,30 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         shadowRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
         shadowRenderer.sharedMaterial = SharedMaterial;
         shadowRenderer.enabled = false;
+        sortingGroup = GetComponentInParent<SortingGroup>(true);
+        GameObject receiverGroupObject = new("SpriteShadowComposite") { hideFlags = HideFlags.DontSave };
+        receiverGroupObject.transform.SetParent(source.transform, false);
+        receiverGroup = receiverGroupObject.AddComponent<SortingGroup>();
+        GameObject receiverSourceObject = new("SpriteShadowSource") { hideFlags = HideFlags.DontSave };
+        receiverSourceObject.transform.SetParent(receiverGroupObject.transform, false);
+        receiverSourceRenderer = receiverSourceObject.AddComponent<SpriteRenderer>();
+        receiverSourceRenderer.enabled = false;
+        receiverSourceProperties = new MaterialPropertyBlock();
+        GameObject receiverObject = new("SpriteShadowReceiver") { hideFlags = HideFlags.DontSave };
+        receiverObject.transform.SetParent(receiverGroupObject.transform, false);
+        receiverRenderer = receiverObject.AddComponent<SpriteRenderer>();
+        receiverRenderer.shadowCastingMode = ShadowCastingMode.Off;
+        receiverRenderer.receiveShadows = false;
+        receiverRenderer.lightProbeUsage = LightProbeUsage.Off;
+        receiverRenderer.reflectionProbeUsage = ReflectionProbeUsage.Off;
+        if (SharedMaterial != null)
+        {
+            receiverMaterial = new Material(SharedMaterial) { hideFlags = HideFlags.HideAndDontSave };
+            receiverMaterial.SetFloat("_ShadowReceiver", 1f);
+            receiverRenderer.sharedMaterial = receiverMaterial;
+        }
+        receiverProperties = new MaterialPropertyBlock();
+        receiverRenderer.enabled = false;
     }
 
     public static Material SharedMaterial
@@ -110,18 +238,60 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
     private void LateUpdate()
     {
+        SetReceiverMask(false);
 #if UNITY_EDITOR
         debugGeometryReady = false;
 #endif
         if (contactRenderer != null)
             contactRenderer.enabled = contactVisible && UseContactShadow;
         WorldLight light = WorldLight.Instance;
-        bool visible = source != null && source.enabled && !source.forceRenderingOff &&
-            source.gameObject.activeInHierarchy && source.sprite != null && source.color.a > 0.001f &&
+        bool visible = SourceVisible &&
             light != null && WorldLight.Mode == BattleShadowMode.Projected && SharedMaterial != null;
         shadowRenderer.enabled = visible;
         if (!visible)
             return;
+
+        Vector3 sortPosition = source.spriteSortPoint == SpriteSortPoint.Pivot ? source.transform.position : source.bounds.center;
+        receiverGroup.transform.position = sortPosition;
+        Vector3 visualOffset = -receiverGroup.transform.localPosition;
+        receiverSourceRenderer.transform.localPosition = visualOffset;
+        receiverRenderer.transform.localPosition = visualOffset;
+        receiverGroup.sortingLayerID = source.sortingLayerID;
+        receiverGroup.sortingOrder = source.sortingOrder;
+        receiverSourceRenderer.sprite = source.sprite;
+        receiverSourceRenderer.drawMode = source.drawMode;
+        receiverSourceRenderer.size = source.size;
+        receiverSourceRenderer.tileMode = source.tileMode;
+        receiverSourceRenderer.adaptiveModeThreshold = source.adaptiveModeThreshold;
+        receiverSourceRenderer.flipX = source.flipX;
+        receiverSourceRenderer.flipY = source.flipY;
+        receiverSourceRenderer.color = source.color;
+        receiverSourceRenderer.maskInteraction = source.maskInteraction;
+        receiverSourceRenderer.spriteSortPoint = source.spriteSortPoint;
+        receiverSourceRenderer.sortingLayerID = source.sortingLayerID;
+        receiverSourceRenderer.sortingOrder = 0;
+        receiverSourceRenderer.gameObject.layer = source.gameObject.layer;
+        receiverSourceRenderer.sharedMaterial = source.sharedMaterial;
+        receiverSourceRenderer.renderingLayerMask = source.renderingLayerMask;
+        receiverSourceRenderer.shadowCastingMode = source.shadowCastingMode;
+        receiverSourceRenderer.receiveShadows = source.receiveShadows;
+        receiverSourceRenderer.lightProbeUsage = source.lightProbeUsage;
+        receiverSourceRenderer.reflectionProbeUsage = source.reflectionProbeUsage;
+        receiverRenderer.sprite = source.sprite;
+        receiverRenderer.drawMode = source.drawMode;
+        receiverRenderer.size = source.size;
+        receiverRenderer.tileMode = source.tileMode;
+        receiverRenderer.adaptiveModeThreshold = source.adaptiveModeThreshold;
+        receiverRenderer.flipX = source.flipX;
+        receiverRenderer.flipY = source.flipY;
+        receiverRenderer.color = source.color;
+        receiverRenderer.maskInteraction = source.maskInteraction;
+        receiverRenderer.spriteSortPoint = source.spriteSortPoint;
+        receiverRenderer.sortingLayerID = source.sortingLayerID;
+        receiverRenderer.sortingOrder = 1;
+        receiverRenderer.gameObject.layer = source.gameObject.layer;
+        if (receiverMaterial != null)
+            receiverMaterial.renderQueue = source.sharedMaterial != null ? source.sharedMaterial.renderQueue : 3000;
 
         Bounds bounds = source.bounds;
         Bounds candidate = bounds;
@@ -211,6 +381,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
     private void OnDisable()
     {
+        ActiveTargets.Remove(this);
+        if (receiverRenderer != null)
+            SetReceiverMask(false);
 #if UNITY_EDITOR
         DebugTargets.Remove(this);
         debugGeometryReady = false;
@@ -219,15 +392,25 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             shadowRenderer.enabled = false;
     }
 
+    private void OnTransformParentChanged() => sortingGroup = GetComponentInParent<SortingGroup>(true);
+
     private void OnDestroy()
     {
+        ActiveTargets.Remove(this);
+        if (sourceSuppressed && source != null)
+            source.forceRenderingOff = false;
         if (shadowObject != null)
             Destroy(shadowObject);
+        if (receiverGroup != null)
+            Destroy(receiverGroup.gameObject);
+        if (receiverMaterial != null)
+            Destroy(receiverMaterial);
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ClearCache()
     {
+        ActiveTargets.Clear();
 #if UNITY_EDITOR
         DebugTargets.Clear();
 #endif
@@ -239,6 +422,14 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
 internal static class BattleShadowProjection
 {
+    internal static float SortDistance(Vector3 point, Vector3 cameraPosition, Vector3 cameraForward,
+        TransparencySortMode mode, Vector3 axis) => mode == TransparencySortMode.Perspective
+        ? (point - cameraPosition).sqrMagnitude
+        : Vector3.Dot(point - cameraPosition, mode == TransparencySortMode.CustomAxis ? axis : cameraForward);
+
+    internal static bool OverlapsXY(Bounds a, Bounds b) => a.min.x <= b.max.x && a.max.x >= b.min.x &&
+        a.min.y <= b.max.y && a.max.y >= b.min.y;
+
     internal static Vector2 WidthAxis(Vector2 direction, bool grounded)
     {
         Vector2 perpendicular = new(-direction.y, direction.x);
