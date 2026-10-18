@@ -1406,9 +1406,21 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         light.previewConnectSpriteBottom = GUILayout.Toggle(light.previewConnectSpriteBottom,
             "Test bottom connection (grounded only)");
         light.showShadowDebugRays = GUILayout.Toggle(light.showShadowDebugRays, "Show floor / receiver rays + mask");
+        light.showFloorShadowDebugRays = GUILayout.Toggle(light.showFloorShadowDebugRays, "Blue: show FLOOR rays");
+        light.showReceiverShadowDebugRays = GUILayout.Toggle(light.showReceiverShadowDebugRays, "Magenta: show RECEIVER rays");
+        light.showShadowBottomGuide = GUILayout.Toggle(light.showShadowBottomGuide, "Yellow: show sprite bottom guide");
         float angle = Mathf.Atan2(light.ShadowDirection.y, light.ShadowDirection.x) * Mathf.Rad2Deg;
         float nextAngle = PlayLightingSlider("Shadow direction", angle, -180f, 180f, false);
         float length = PlayLightingSlider("Shadow length", light.shadowLength, 0f, 5f, false);
+        light.receiverShadowLengthScale = PlayLightingSlider("Receiver length / floor", light.receiverShadowLengthScale, 0f, 1f, false);
+        light.receiverShadowWidthScale = PlayLightingSlider("Receiver width / floor", light.receiverShadowWidthScale, 0.05f, 3f, false);
+        light.receiverShadowStartYOffset = PlayLightingSlider("Receiver start Y (world)", light.receiverShadowStartYOffset, 0f, 2f, false);
+        if (GUILayout.Button("Match receiver to floor (1:1, Y=0)"))
+        {
+            light.receiverShadowLengthScale = 1f;
+            light.receiverShadowWidthScale = 1f;
+            light.receiverShadowStartYOffset = 0f;
+        }
         float width = PlayLightingSlider("Shadow spread", light.shadowWidth, 0.05f, 3f, false);
         float opacity = PlayLightingSlider("Shadow opacity", light.shadowOpacity, 0f, 1f, false);
         light.previewBottomInset = PlayLightingSlider("Bottom inset (world)", light.previewBottomInset, 0f, 0.5f, false);
@@ -1466,9 +1478,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         for (int i = 0; i < Mathf.Min(3, playShadowCasters.Count); i++)
             GUILayout.Label("From: " + playShadowCasters[i].name);
         GUILayout.Label("Blue: FLOOR (full projection)");
-        GUILayout.Label("Magenta: projection clipped to receiver bounds");
-        GUILayout.Label("Floor / receiver share origin + length.");
-        GUILayout.Label("Ray tips mark the full projection length.");
+        GUILayout.Label("Magenta: RECEIVER (actual object projection)");
+        GUILayout.Label("Receiver length / width: " + light.receiverShadowLengthScale.ToString("0%") +
+            " / " + light.receiverShadowWidthScale.ToString("0%") + " of floor");
+        GUILayout.Label("Receiver start Y: +" + light.receiverShadowStartYOffset.ToString("0.000"));
+        GUILayout.Label("Ray tips mark each actual projection length.");
         GUILayout.Label("Receiver outline / clips = bounds only.");
         GUILayout.Label("Self / back-sorted casters are excluded.");
         GUILayout.Label("Sorting layer / order, then camera sort distance.");
@@ -1482,7 +1496,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         }
         else
             GUILayout.Label("Mask needs Projected mode + visible target.");
-        GUILayout.Label("Yellow: alpha bottom");
+        GUILayout.Label("Yellow: source alpha bottom (guide only)");
         GUILayout.Label("Red: gap | Orange: captured anchor");
         GUILayout.Label("Bottom inset shifts the alpha contact.");
         GUILayout.Label("F8: Show/Hide | Drag title bar to move");
@@ -1498,11 +1512,20 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         Camera camera = light.DebugCamera;
         if (playShadowTarget.TryGetDebugGeometry(out BattleSpriteShadow.DebugGeometry geometry))
         {
-            DrawShadowDebugLine(camera, geometry.spriteBottomLeft, geometry.spriteBottomRight, Color.yellow);
-            DrawShadowDebugLine(camera, geometry.spriteBottom,
-                geometry.spriteBottom + Vector3.down * light.shadowDebugRayLength, Color.yellow);
+            if (light.showShadowBottomGuide)
+            {
+                DrawShadowDebugLine(camera, geometry.spriteBottomLeft, geometry.spriteBottomRight, Color.yellow);
+                DrawShadowDebugLine(camera, geometry.spriteBottom,
+                    geometry.spriteBottom + Vector3.down * light.shadowDebugRayLength, Color.yellow);
+            }
             DrawShadowDebugLine(camera, geometry.spriteBottom, geometry.shadowStart, Color.red);
-            DrawShadowDebugRay(camera, geometry.shadowStart, geometry.shadowEnd, new Color(0f, 0.6f, 1f));
+            if (light.showFloorShadowDebugRays)
+                DrawShadowDebugRay(camera, geometry.shadowStart, geometry.shadowEnd, new Color(0f, 0.6f, 1f), "FLOOR");
+            if (light.showReceiverShadowDebugRays)
+            {
+                DrawShadowDebugLine(camera, geometry.shadowStart, geometry.receiverShadowStart, Color.magenta);
+                DrawShadowDebugRay(camera, geometry.receiverShadowStart, geometry.receiverShadowEnd, Color.magenta, "RECEIVER");
+            }
             Vector3 marker = Vector3.right * 0.06f;
             DrawShadowDebugLine(camera, geometry.capturedAnchor - marker, geometry.capturedAnchor + marker,
                 new Color(1f, 0.5f, 0f));
@@ -1515,12 +1538,18 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             BattleSpriteShadow caster = playShadowCasters[i];
             if (caster == null || !caster.TryGetDebugGeometry(out BattleSpriteShadow.DebugGeometry incoming))
                 continue;
-            DrawShadowDebugRay(camera, incoming.shadowStart, incoming.shadowEnd, new Color(0f, 0.6f, 1f));
-            if (BattleShadowProjection.ClipSegmentXY(incoming.receiverShadowStart, incoming.receiverShadowEnd, bounds,
+            if (light.showFloorShadowDebugRays)
+                DrawShadowDebugRay(camera, incoming.shadowStart, incoming.shadowEnd, new Color(0f, 0.6f, 1f), "FLOOR");
+            if (light.showReceiverShadowDebugRays)
+            {
+                DrawShadowDebugLine(camera, incoming.shadowStart, incoming.receiverShadowStart, Color.magenta);
+                DrawShadowDebugRay(camera, incoming.receiverShadowStart, incoming.receiverShadowEnd, Color.magenta, "RECEIVER");
+            }
+            if (light.showReceiverShadowDebugRays && BattleShadowProjection.ClipSegmentXY(incoming.receiverShadowStart, incoming.receiverShadowEnd, bounds,
                 out Vector3 start, out Vector3 end))
                 DrawShadowDebugLine(camera, start, end, Color.magenta);
         }
-        if (playShadowCasters.Count > 0)
+        if (light.showReceiverShadowDebugRays && playShadowCasters.Count > 0)
         {
             Vector3 bottomLeft = new(bounds.min.x, bounds.min.y, bounds.center.z);
             Vector3 bottomRight = new(bounds.max.x, bounds.min.y, bounds.center.z);
@@ -1533,9 +1562,18 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         }
     }
 
-    private static void DrawShadowDebugRay(Camera camera, Vector3 from, Vector3 to, Color color)
+    private static void DrawShadowDebugRay(Camera camera, Vector3 from, Vector3 to, Color color, string label)
     {
         DrawShadowDebugLine(camera, from, to, color);
+        Vector3 screen = camera.WorldToScreenPoint(to);
+        if (screen.z > 0f)
+        {
+            Color previousColor = GUI.color;
+            GUI.color = color;
+            GUI.Label(new Rect(screen.x + 6f, Screen.height - screen.y -
+                (label == "FLOOR" ? 24f : 4f), 100f, 22f), label);
+            GUI.color = previousColor;
+        }
         Vector3 direction = to - from;
         if (direction.sqrMagnitude < 0.000001f)
             return;

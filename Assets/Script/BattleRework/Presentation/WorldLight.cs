@@ -12,6 +12,12 @@ public sealed class WorldLight : MonoBehaviour
     [Tooltip("Direction toward the light in world XY; shadows extend in the opposite direction.")]
     public Vector2 lightDirection = new(-0.55f, 0.85f);
     [Min(0f)] public float shadowLength = 1.4f;
+    [Tooltip("Object shadow length relative to the floor projection.")]
+    [Range(0f, 1f)] public float receiverShadowLengthScale = 0.35f;
+    [Tooltip("Object shadow width relative to the floor projection.")]
+    [Min(0.01f)] public float receiverShadowWidthScale = 1f;
+    [Tooltip("Raise the object shadow start in world Y.")]
+    [Min(0f)] public float receiverShadowStartYOffset = 0.15f;
     [Min(0.01f)] public float shadowWidth = 1f;
     public Color shadowColor = new(0.045f, 0.055f, 0.075f, 1f);
     [Range(0f, 1f)] public float shadowOpacity = 0.19f;
@@ -27,6 +33,9 @@ public sealed class WorldLight : MonoBehaviour
     public bool previewConnectSpriteBottom;
     [Range(0f, 0.5f)] public float previewBottomInset;
     public bool showShadowDebugRays = true;
+    public bool showFloorShadowDebugRays = true;
+    public bool showReceiverShadowDebugRays = true;
+    public bool showShadowBottomGuide = true;
     [Min(0.05f)] public float shadowDebugRayLength = 1f;
     public Camera DebugCamera => targetCamera;
     public BattleSpriteShadow ShadowDebugTarget { get; set; }

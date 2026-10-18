@@ -120,13 +120,14 @@ Shader "Battle/SpriteShadow"
             float4 _ShadowOrigin, _ShadowDirection, _ShadowShape, _ShadowColor;
             float _ShadowSourceX;
             float4 _BattleShadowReceiverRect;
+            float4 _ReceiverShadowShape, _ReceiverShadowOrigin;
             v2f vert(appdata_t input)
             {
                 v2f output;
                 float3 world = mul(_SourceToWorld, UnityFlipSprite(input.vertex, _Flip)).xyz;
-                float height = (world.y - _ShadowOrigin.z) * _ShadowShape.z + _ShadowShape.w;
-                float2 projected = _ShadowOrigin.xy + _ShadowDirection.zw * _ShadowShape.y * (world.x - _ShadowSourceX)
-                    + _ShadowDirection.xy * (height * _ShadowShape.x);
+                float height = (world.y - _ReceiverShadowOrigin.z) * _ReceiverShadowShape.z + _ReceiverShadowShape.w;
+                float2 projected = _ReceiverShadowOrigin.xy + _ShadowDirection.zw * _ReceiverShadowShape.y * (world.x - _ShadowSourceX)
+                    + _ShadowDirection.xy * (height * _ReceiverShadowShape.x);
                 float2 uv = (projected - _BattleShadowReceiverRect.xy) * _BattleShadowReceiverRect.zw;
                 output.vertex = float4(uv * 2 - 1, 0, 1);
                 #if UNITY_UV_STARTS_AT_TOP

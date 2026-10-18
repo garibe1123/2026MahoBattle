@@ -337,7 +337,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         Bounds candidate = bounds;
         candidate.Encapsulate(groundAnchor != null ? groundAnchor.position : source.transform.TransformPoint(localGroundAnchor));
         float reach = Mathf.Max(0f, light.shadowLength) * (Mathf.Max(objectHeight, bounds.size.y) + Mathf.Max(0f, virtualHeight));
-        candidate.Expand(2f * (reach + bounds.size.x * Mathf.Max(1f, light.shadowWidth)));
+        candidate.Expand(2f * (reach + bounds.size.x * Mathf.Max(1f, light.shadowWidth) *
+            Mathf.Max(1f, light.receiverShadowWidthScale) + Mathf.Max(0f, light.receiverShadowStartYOffset)));
         if (!light.IsVisible(candidate))
         {
             shadowRenderer.enabled = false;
@@ -375,9 +376,16 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         Vector4 shape = new(Mathf.Max(0f, light.shadowLength), Mathf.Max(0.01f, light.shadowWidth),
             height / Mathf.Max(0.001f, alphaBounds.size.y), Mathf.Max(0f, virtualHeight));
         Vector4 origin = new(anchor.x, anchor.y, sourceAnchor.y, anchor.z);
+        Vector4 receiverShape = shape;
+        receiverShape.x *= Mathf.Clamp01(light.receiverShadowLengthScale);
+        receiverShape.y *= Mathf.Max(0.01f, light.receiverShadowWidthScale);
+        Vector4 receiverOrigin = origin;
+        receiverOrigin.y += Mathf.Max(0f, light.receiverShadowStartYOffset);
         Bounds projected = BattleShadowProjection.Bounds(bounds, origin, direction, across, shape, sourceAnchor.x);
-        receiverProjectionBounds = projected;
-        if (!light.IsVisible(projected))
+        receiverProjectionBounds = BattleShadowProjection.Bounds(bounds, receiverOrigin, direction, across, receiverShape, sourceAnchor.x);
+        Bounds visibleProjection = projected;
+        visibleProjection.Encapsulate(receiverProjectionBounds);
+        if (!light.IsVisible(visibleProjection))
         {
             shadowRenderer.enabled = false;
             return;
@@ -393,9 +401,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             shadowStart = BattleShadowProjection.Point(spriteBottom, origin, direction, across, shape, sourceAnchor.x),
             shadowEnd = BattleShadowProjection.Point(new Vector3(alphaBounds.center.x, alphaBounds.max.y, alphaBounds.center.z),
                 origin, direction, across, shape, sourceAnchor.x),
-            receiverShadowStart = BattleShadowProjection.Point(spriteBottom, origin, direction, across, shape, sourceAnchor.x),
+            receiverShadowStart = BattleShadowProjection.Point(spriteBottom, receiverOrigin, direction, across, receiverShape, sourceAnchor.x),
             receiverShadowEnd = BattleShadowProjection.Point(new Vector3(alphaBounds.center.x, alphaBounds.max.y, alphaBounds.center.z),
-                origin, direction, across, shape, sourceAnchor.x),
+                receiverOrigin, direction, across, receiverShape, sourceAnchor.x),
             grounded = grounded
         };
         debugGeometryReady = true;
@@ -417,6 +425,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         properties.SetFloat("_ShadowSourceX", sourceAnchor.x);
         properties.SetVector("_ShadowDirection", new Vector4(direction.x, direction.y, across.x, across.y));
         properties.SetVector("_ShadowShape", shape);
+        properties.SetVector("_ReceiverShadowShape", receiverShape);
+        properties.SetVector("_ReceiverShadowOrigin", receiverOrigin);
         Color color = light.shadowColor;
         color.a *= Mathf.Clamp01(light.shadowOpacity) * source.color.a;
         properties.SetColor("_ShadowColor", color);
