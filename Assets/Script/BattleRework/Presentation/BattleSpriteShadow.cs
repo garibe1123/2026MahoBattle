@@ -243,7 +243,7 @@ internal static class BattleShadowProjection
         float sourceAnchorX)
     {
         float height = (point.y - origin.z) * shape.z + shape.w;
-        // A constant perpendicular width axis keeps triangles from folding at lateral angles.
+        // A height-independent width axis keeps the projection affine.
         Vector2 widthAxis = across * shape.y;
         Vector2 result = new Vector2(origin.x, origin.y) + widthAxis * (point.x - sourceAnchorX) +
             direction * (height * shape.x);
