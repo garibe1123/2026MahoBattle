@@ -300,10 +300,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         {
             if (material != null)
                 return material;
-            Material resource = Resources.Load<Material>("BattleSpriteShadow");
-            Shader shader = resource != null ? resource.shader : Resources.Load<Shader>("BattleSpriteShadow");
+            Shader shader = Resources.Load<Shader>("BattleSpriteShadow");
             if (shader != null)
-                material = resource != null ? new Material(resource) : new Material(shader);
+                material = new Material(shader);
             if (material != null)
                 material.hideFlags = HideFlags.HideAndDontSave;
             return material;
@@ -369,9 +368,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
         Bounds bounds = source.bounds;
         float depthScale = source.transform.TransformVector(Vector3.right).magnitude * Mathf.Max(0.01f, light.shadowDepth);
-        if (source.drawMode == SpriteDrawMode.Sliced)
-            depthScale *= source.size.x / Mathf.Max(0.0001f, source.sprite.bounds.size.x);
-        float maximumDepth = (source.drawMode == SpriteDrawMode.Tiled ? source.size.x * 0.5f :
+        float maximumDepth = (source.drawMode != SpriteDrawMode.Simple ? source.size.x * 0.5f :
             source.sprite.bounds.extents.x) * depthScale;
         Bounds candidate = bounds;
         candidate.Encapsulate(groundAnchor != null ? groundAnchor.position : source.transform.TransformPoint(localGroundAnchor));
@@ -507,8 +504,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         properties.SetVector("_VolumeSpriteBounds", new Vector4(spriteBounds.min.x, spriteBounds.min.y,
             spriteBounds.size.x, spriteBounds.size.y));
         properties.SetVector("_VolumeBorder", source.sprite.border / source.sprite.pixelsPerUnit);
-        properties.SetVector("_VolumeTarget", new Vector4(source.size.x, source.size.y,
-            source.drawMode == SpriteDrawMode.Sliced ? 1f : 0f, 0f));
+        properties.SetVector("_VolumeTarget", Vector4.zero);
         properties.SetVector("_ShadowBounds", new Vector4(projected.min.x, projected.min.y, projected.size.x, projected.size.y));
         properties.SetVector("_ReceiverShadowBounds", new Vector4(receiverProjectionBounds.min.x,
             receiverProjectionBounds.min.y, receiverProjectionBounds.size.x, receiverProjectionBounds.size.y));

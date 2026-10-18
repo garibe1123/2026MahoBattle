@@ -21,6 +21,7 @@ internal static class BattleSpriteAlphaGeometry
         public Volume volume;
         public Sprite sprite;
         public Vector2 size;
+        public SpriteDrawMode drawMode;
         public SpriteTileMode tileMode;
         public float threshold;
     }
@@ -41,7 +42,7 @@ internal static class BattleSpriteAlphaGeometry
 
     internal static bool TryGet(SpriteRenderer renderer, out Vector2[] hull, out Volume volume)
     {
-        if (renderer.drawMode != SpriteDrawMode.Tiled)
+        if (renderer.drawMode == SpriteDrawMode.Simple)
             return TryGet(renderer.sprite, out hull, out volume);
         Sprite sprite = renderer.sprite;
         Texture2D splitAlpha = sprite.associatedAlphaSplitTexture;
@@ -49,13 +50,14 @@ internal static class BattleSpriteAlphaGeometry
         int mipLimit = texture.activeMipmapLimit;
         if (!TiledEntries.TryGetValue(renderer, out Entry entry) || entry.sprite != sprite ||
             entry.texture != texture || entry.mipLimit != mipLimit || entry.size != renderer.size ||
+            entry.drawMode != renderer.drawMode ||
             entry.tileMode != renderer.tileMode || entry.threshold != renderer.adaptiveModeThreshold)
         {
             if (entry?.volume?.texture != null)
                 UnityEngine.Object.Destroy(entry.volume.texture);
             entry = new Entry
             {
-                sprite = sprite, texture = texture, mipLimit = mipLimit, size = renderer.size,
+                sprite = sprite, texture = texture, mipLimit = mipLimit, size = renderer.size, drawMode = renderer.drawMode,
                 tileMode = renderer.tileMode, threshold = renderer.adaptiveModeThreshold
             };
             TiledEntries[renderer] = entry;
@@ -102,7 +104,7 @@ internal static class BattleSpriteAlphaGeometry
             commands.SetViewport(new Rect(0, 0, columns, rows));
             commands.ClearRenderTarget(false, true, Color.clear);
             commands.SetGlobalVector("_VolumeBakeRect", new Vector4(minimum.x, minimum.y, 1f / entry.size.x, 1f / entry.size.y));
-            // Capture Unity's tiled mesh so adaptive repeats, borders and partial tiles share the same coordinates.
+            // Capture the deformed mesh so sliced borders and tiled repeats retain their actual opaque widths.
             commands.DrawRenderer(renderer, BattleSpriteShadow.SharedMaterial, 0, 4);
             Graphics.ExecuteCommandBuffer(commands);
             RenderTexture pendingCapture = capture;
@@ -420,11 +422,6 @@ internal static class BattleSpriteAlphaGeometry
     {
         Matrix4x4 matrix = renderer.transform.localToWorldMatrix * Matrix4x4.Scale(
             new Vector3(renderer.flipX ? -1f : 1f, renderer.flipY ? -1f : 1f, 1f));
-        bool sliced = renderer.drawMode == SpriteDrawMode.Sliced;
-        Sprite sprite = renderer.sprite;
-        Bounds original = sliced ? sprite.bounds : default;
-        Vector4 border = sliced ? sprite.border / sprite.pixelsPerUnit : Vector4.zero;
-        Vector2 targetSize = sliced ? renderer.size : Vector2.zero;
         Bounds bounds = new(WorldPoint(hull[0]), Vector3.zero);
         for (int i = 1; i < hull.Length; i++)
             bounds.Encapsulate(WorldPoint(hull[i]));
@@ -442,11 +439,6 @@ internal static class BattleSpriteAlphaGeometry
 
         Vector3 WorldPoint(Vector2 point)
         {
-            if (sliced)
-            {
-                point.x = SlicedCoordinate(point.x, original.min.x, original.size.x, targetSize.x, border.x, border.z);
-                point.y = SlicedCoordinate(point.y, original.min.y, original.size.y, targetSize.y, border.y, border.w);
-            }
             return matrix.MultiplyPoint3x4(point);
         }
     }

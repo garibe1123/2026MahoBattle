@@ -135,7 +135,7 @@ Shader "Battle/SpriteShadow"
         Pass
         {
             Name "ProjectedShadow"
-            Tags { "LightMode"="Universal2D" }
+            Tags { "LightMode"="SRPDefaultUnlit" }
             Blend SrcAlpha OneMinusSrcAlpha
             HLSLPROGRAM
             #pragma target 3.0
