@@ -161,7 +161,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 #endif
         float height = objectHeight > 0f ? objectHeight : alphaBounds.size.y;
         Vector2 direction = light.ShadowDirection;
-        Vector2 across = new(-direction.y, direction.x);
+        Vector2 across = BattleShadowProjection.WidthAxis(direction, grounded);
         Vector4 shape = new(Mathf.Max(0f, light.shadowLength), Mathf.Max(0.01f, light.shadowWidth),
             height / Mathf.Max(0.001f, alphaBounds.size.y), Mathf.Max(0f, virtualHeight));
         Vector4 origin = new(anchor.x, anchor.y, sourceAnchor.y, anchor.z);
@@ -239,6 +239,17 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
 internal static class BattleShadowProjection
 {
+    internal static Vector2 WidthAxis(Vector2 direction, bool grounded)
+    {
+        Vector2 perpendicular = new(-direction.y, direction.x);
+        if (!grounded)
+            return perpendicular;
+
+        // Keep the base nearly horizontal, with a thin transverse component at lateral angles.
+        float sideBlend = Mathf.Clamp01(1f - Mathf.Abs(direction.y) / 0.1f);
+        return Vector2.right - perpendicular * (Mathf.Sign(direction.y) * 0.02f * sideBlend);
+    }
+
     internal static Vector3 Point(Vector3 point, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape,
         float sourceAnchorX)
     {
