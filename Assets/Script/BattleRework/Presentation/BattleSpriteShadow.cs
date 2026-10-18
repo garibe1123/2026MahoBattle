@@ -32,6 +32,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     {
         public Bounds spriteBounds;
         public Vector3 spriteBottom;
+        public Vector3 spriteBottomLeft;
+        public Vector3 spriteBottomRight;
         public Vector3 capturedAnchor;
         public Vector3 shadowStart;
         public Vector3 shadowEnd;
@@ -122,30 +124,48 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             return;
 
         Bounds bounds = source.bounds;
+        Bounds candidate = bounds;
+        candidate.Encapsulate(groundAnchor != null ? groundAnchor.position : source.transform.TransformPoint(localGroundAnchor));
+        float reach = Mathf.Max(0f, light.shadowLength) * (Mathf.Max(objectHeight, bounds.size.y) + Mathf.Max(0f, virtualHeight));
+        candidate.Expand(2f * (reach + bounds.size.x * Mathf.Max(1f, light.shadowWidth)));
+        if (!light.IsVisible(candidate))
+        {
+            shadowRenderer.enabled = false;
+            return;
+        }
+        // Keep alpha-shader rendering active while readback is pending or unavailable.
+        Bounds alphaBounds = bounds;
+        Vector3 bottomLeft = new(bounds.min.x, bounds.min.y, bounds.center.z);
+        Vector3 bottomRight = new(bounds.max.x, bounds.min.y, bounds.center.z);
+        bool hasAlphaGeometry = BattleSpriteAlphaGeometry.TryGet(source.sprite, out Vector2[] alphaHull);
+        if (hasAlphaGeometry)
+            alphaBounds = BattleSpriteAlphaGeometry.WorldBounds(source, alphaHull, out bottomLeft, out bottomRight);
+        Vector3 spriteBottom = (bottomLeft + bottomRight) * 0.5f;
         bool grounded = virtualHeight <= 0.0001f && Mathf.Abs(visualHeightOffset) <= 0.0001f;
         if (captureSpriteBottom && groundAnchor == null && !anchorCaptured)
         {
-            localGroundAnchor = source.transform.InverseTransformPoint(
-                new Vector3(bounds.center.x, bounds.min.y, bounds.center.z));
-            anchorCaptured = true;
+            localGroundAnchor = source.transform.InverseTransformPoint(spriteBottom);
+            anchorCaptured = hasAlphaGeometry;
         }
         Vector3 anchor = groundAnchor != null ? groundAnchor.position : source.transform.TransformPoint(localGroundAnchor);
+        // Ground placement and virtual height are independent of the sprite's alpha-bottom height origin.
+        Vector3 sourceAnchor = captureSpriteBottom && groundAnchor == null
+            ? spriteBottom : new Vector3(anchor.x, spriteBottom.y, anchor.z);
 #if UNITY_EDITOR
         Vector3 capturedAnchor = anchor;
-        Vector3 spriteBottom = new(bounds.center.x, bounds.min.y, bounds.center.z);
         if (grounded && light.previewConnectSpriteBottom)
+        {
             anchor = spriteBottom + Vector3.up * light.previewBottomInset;
+            sourceAnchor = anchor;
+        }
 #endif
-        float height = objectHeight > 0f ? objectHeight : bounds.size.y;
+        float height = objectHeight > 0f ? objectHeight : alphaBounds.size.y;
         Vector2 direction = light.ShadowDirection;
         Vector2 across = new(-direction.y, direction.x);
-        if (grounded && across.x < 0f)
-            across = -across;
-        Vector2 grounding = new(grounded ? 1f : 0f, 1f / Mathf.Max(0.001f, bounds.size.y));
         Vector4 shape = new(Mathf.Max(0f, light.shadowLength), Mathf.Max(0.01f, light.shadowWidth),
-            height / Mathf.Max(0.001f, bounds.size.y), Mathf.Max(0f, virtualHeight));
-        Vector4 origin = new(anchor.x, anchor.y, anchor.y + visualHeightOffset, anchor.z);
-        Bounds projected = BattleShadowProjection.Bounds(bounds, origin, direction, across, shape, grounding);
+            height / Mathf.Max(0.001f, alphaBounds.size.y), Mathf.Max(0f, virtualHeight));
+        Vector4 origin = new(anchor.x, anchor.y, sourceAnchor.y, anchor.z);
+        Bounds projected = BattleShadowProjection.Bounds(bounds, origin, direction, across, shape, sourceAnchor.x);
         if (!light.IsVisible(projected))
         {
             shadowRenderer.enabled = false;
@@ -154,12 +174,14 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 #if UNITY_EDITOR
         debugGeometry = new DebugGeometry
         {
-            spriteBounds = bounds,
+            spriteBounds = alphaBounds,
             spriteBottom = spriteBottom,
+            spriteBottomLeft = bottomLeft,
+            spriteBottomRight = bottomRight,
             capturedAnchor = capturedAnchor,
-            shadowStart = BattleShadowProjection.Point(spriteBottom, origin, direction, across, shape, grounding),
-            shadowEnd = BattleShadowProjection.Point(new Vector3(bounds.center.x, bounds.max.y, bounds.center.z),
-                origin, direction, across, shape, grounding),
+            shadowStart = BattleShadowProjection.Point(spriteBottom, origin, direction, across, shape, sourceAnchor.x),
+            shadowEnd = BattleShadowProjection.Point(new Vector3(alphaBounds.center.x, alphaBounds.max.y, alphaBounds.center.z),
+                origin, direction, across, shape, sourceAnchor.x),
             grounded = grounded
         };
         debugGeometryReady = true;
@@ -178,9 +200,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         shadowObject.layer = source.gameObject.layer;
         properties.SetMatrix("_SourceToWorld", source.transform.localToWorldMatrix);
         properties.SetVector("_ShadowOrigin", origin);
+        properties.SetFloat("_ShadowSourceX", sourceAnchor.x);
         properties.SetVector("_ShadowDirection", new Vector4(direction.x, direction.y, across.x, across.y));
         properties.SetVector("_ShadowShape", shape);
-        properties.SetVector("_ShadowGrounding", new Vector4(grounding.x, grounding.y, 0f, 0f));
         Color color = light.shadowColor;
         color.a *= Mathf.Clamp01(light.shadowOpacity) * source.color.a;
         properties.SetColor("_ShadowColor", color);
@@ -218,23 +240,23 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 internal static class BattleShadowProjection
 {
     internal static Vector3 Point(Vector3 point, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape,
-        Vector2 grounding)
+        float sourceAnchorX)
     {
         float height = (point.y - origin.z) * shape.z + shape.w;
-        float widthBlend = 1f - grounding.x + grounding.x * (point.y - origin.z) * grounding.y;
-        Vector2 widthAxis = Vector2.LerpUnclamped(Vector2.right, across * shape.y, widthBlend);
-        Vector2 result = new Vector2(origin.x, origin.y) + widthAxis * (point.x - origin.x) +
+        // A constant perpendicular width axis keeps triangles from folding at lateral angles.
+        Vector2 widthAxis = across * shape.y;
+        Vector2 result = new Vector2(origin.x, origin.y) + widthAxis * (point.x - sourceAnchorX) +
             direction * (height * shape.x);
         return new Vector3(result.x, result.y, origin.w);
     }
 
     internal static Bounds Bounds(Bounds source, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape,
-        Vector2 grounding)
+        float sourceAnchorX)
     {
-        Bounds result = new(Point(source.min, origin, direction, across, shape, grounding), Vector3.zero);
-        result.Encapsulate(Point(source.max, origin, direction, across, shape, grounding));
-        result.Encapsulate(Point(new Vector3(source.min.x, source.max.y, 0f), origin, direction, across, shape, grounding));
-        result.Encapsulate(Point(new Vector3(source.max.x, source.min.y, 0f), origin, direction, across, shape, grounding));
+        Bounds result = new(Point(source.min, origin, direction, across, shape, sourceAnchorX), Vector3.zero);
+        result.Encapsulate(Point(source.max, origin, direction, across, shape, sourceAnchorX));
+        result.Encapsulate(Point(new Vector3(source.min.x, source.max.y, 0f), origin, direction, across, shape, sourceAnchorX));
+        result.Encapsulate(Point(new Vector3(source.max.x, source.min.y, 0f), origin, direction, across, shape, sourceAnchorX));
         result.Expand(0.02f);
         return result;
     }

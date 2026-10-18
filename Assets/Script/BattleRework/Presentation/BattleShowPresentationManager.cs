@@ -1237,7 +1237,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                     if (floorSprite == null)
                         continue;
 
-                    CreateTemplateSprite(
+                    SpriteRenderer floorRenderer = CreateTemplateSprite(
                         templateRoot,
                         $"BaseFloor_{x}_{y}",
                         new Vector3(x - centerOffset, y - centerOffset, 0f),
@@ -1245,6 +1245,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
                         template.FloorTint,
                         sortingLayerId,
                         floorSorting);
+                    BattleDecorFloorSource.Ensure(floorRenderer);
                 }
             }
         }

@@ -1423,9 +1423,9 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             if (GUILayout.Button("Recapture selected ground anchor"))
                 playShadowTarget.ResetGroundAnchorCapture();
         }
-        GUILayout.Label("Yellow: bottom/ray | Cyan: shadow ray");
+        GUILayout.Label("Yellow: alpha bottom | Cyan: shadow ray");
         GUILayout.Label("Red: gap | Orange: captured anchor");
-        GUILayout.Label("Bottom inset compensates sprite padding.");
+        GUILayout.Label("Bottom inset shifts the alpha contact.");
         GUILayout.Label("F8: Show/Hide | Drag title bar to move");
     }
 
@@ -1437,9 +1437,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             return;
 
         Camera camera = light.DebugCamera;
-        Bounds bounds = geometry.spriteBounds;
-        DrawShadowDebugLine(camera, new Vector3(bounds.min.x, bounds.min.y, bounds.center.z),
-            new Vector3(bounds.max.x, bounds.min.y, bounds.center.z), Color.yellow);
+        DrawShadowDebugLine(camera, geometry.spriteBottomLeft, geometry.spriteBottomRight, Color.yellow);
         DrawShadowDebugLine(camera, geometry.spriteBottom,
             geometry.spriteBottom + Vector3.down * light.shadowDebugRayLength, Color.yellow);
         DrawShadowDebugLine(camera, geometry.spriteBottom, geometry.shadowStart, Color.red);
