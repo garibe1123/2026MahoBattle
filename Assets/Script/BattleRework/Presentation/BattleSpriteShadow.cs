@@ -469,6 +469,16 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 #endif
         shadowRenderer.sprite = useVolume ? projectionSprite : source.sprite;
         shadowRenderer.drawMode = useVolume ? SpriteDrawMode.Simple : source.drawMode;
+        if (useVolume)
+        {
+            shadowObject.transform.position = projected.min;
+            shadowObject.transform.localScale = new Vector3(projected.size.x, projected.size.y, 1f);
+        }
+        else
+        {
+            shadowObject.transform.position = source.transform.position;
+            shadowObject.transform.localScale = Vector3.one;
+        }
         shadowRenderer.size = source.size;
         shadowRenderer.tileMode = source.tileMode;
         shadowRenderer.adaptiveModeThreshold = source.adaptiveModeThreshold;
