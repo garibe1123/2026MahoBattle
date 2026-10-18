@@ -27,10 +27,10 @@ Shader "Battle/SpriteShadow"
         float4 _ShadowBounds, _ReceiverShadowBounds, _ReceiverShadowShape, _ReceiverShadowOrigin;
         float _ShadowSourceX;
 
-        float Unslice(float point, float minimum, float size, float target, float lower, float upper)
+        float Unslice(float coordinate, float minimum, float size, float target, float lower, float upper)
         {
             float borderScale = min(1, target / max(0.0001, lower + upper));
-            float offset = point - minimum / max(0.0001, size) * target;
+            float offset = coordinate - minimum / max(0.0001, size) * target;
             if (offset <= lower * borderScale)
                 return minimum + offset / max(0.0001, borderScale);
             if (offset >= target - upper * borderScale)
