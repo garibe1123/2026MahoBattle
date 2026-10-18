@@ -1,6 +1,9 @@
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.SceneManagement;
+#if UNITY_EDITOR
+using System.Collections.Generic;
+#endif
 
 [DefaultExecutionOrder(32700)]
 [DisallowMultipleComponent]
@@ -23,6 +26,38 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private MaterialPropertyBlock properties;
     private bool anchorCaptured;
     private float visualHeightOffset;
+
+#if UNITY_EDITOR
+    public struct DebugGeometry
+    {
+        public Bounds spriteBounds;
+        public Vector3 spriteBottom;
+        public Vector3 capturedAnchor;
+        public Vector3 shadowStart;
+        public Vector3 shadowEnd;
+        public bool grounded;
+    }
+
+    private static readonly HashSet<BattleSpriteShadow> DebugTargets = new();
+    private DebugGeometry debugGeometry;
+    private bool debugGeometryReady;
+
+    private void OnEnable() => DebugTargets.Add(this);
+
+    public static void CopyDebugTargets(List<BattleSpriteShadow> destination)
+    {
+        destination.Clear();
+        foreach (BattleSpriteShadow target in DebugTargets)
+            if (target != null && target.isActiveAndEnabled && target.debugGeometryReady)
+                destination.Add(target);
+    }
+
+    public bool TryGetDebugGeometry(out DebugGeometry geometry)
+    {
+        geometry = debugGeometry;
+        return isActiveAndEnabled && debugGeometryReady;
+    }
+#endif
 
     public bool UseContactShadow => WorldLight.Mode == BattleShadowMode.Contact;
 
@@ -73,6 +108,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
     private void LateUpdate()
     {
+#if UNITY_EDITOR
+        debugGeometryReady = false;
+#endif
         if (contactRenderer != null)
             contactRenderer.enabled = contactVisible && UseContactShadow;
         WorldLight light = WorldLight.Instance;
@@ -92,6 +130,12 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             anchorCaptured = true;
         }
         Vector3 anchor = groundAnchor != null ? groundAnchor.position : source.transform.TransformPoint(localGroundAnchor);
+#if UNITY_EDITOR
+        Vector3 capturedAnchor = anchor;
+        Vector3 spriteBottom = new(bounds.center.x, bounds.min.y, bounds.center.z);
+        if (grounded && light.previewConnectSpriteBottom)
+            anchor = spriteBottom + Vector3.up * light.previewBottomInset;
+#endif
         float height = objectHeight > 0f ? objectHeight : bounds.size.y;
         Vector2 direction = light.ShadowDirection;
         Vector2 across = new(-direction.y, direction.x);
@@ -107,6 +151,19 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             shadowRenderer.enabled = false;
             return;
         }
+#if UNITY_EDITOR
+        debugGeometry = new DebugGeometry
+        {
+            spriteBounds = bounds,
+            spriteBottom = spriteBottom,
+            capturedAnchor = capturedAnchor,
+            shadowStart = BattleShadowProjection.Point(spriteBottom, origin, direction, across, shape, grounding),
+            shadowEnd = BattleShadowProjection.Point(new Vector3(bounds.center.x, bounds.max.y, bounds.center.z),
+                origin, direction, across, shape, grounding),
+            grounded = grounded
+        };
+        debugGeometryReady = true;
+#endif
         shadowRenderer.sprite = source.sprite;
         shadowRenderer.drawMode = source.drawMode;
         shadowRenderer.size = source.size;
@@ -132,6 +189,10 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
     private void OnDisable()
     {
+#if UNITY_EDITOR
+        DebugTargets.Remove(this);
+        debugGeometryReady = false;
+#endif
         if (shadowRenderer != null)
             shadowRenderer.enabled = false;
     }
@@ -145,6 +206,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ClearCache()
     {
+#if UNITY_EDITOR
+        DebugTargets.Clear();
+#endif
         if (material != null)
             Destroy(material);
         material = null;

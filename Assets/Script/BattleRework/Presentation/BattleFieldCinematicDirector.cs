@@ -1209,6 +1209,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private bool playLightingDirty;
     private float nextPlayLightingSave;
     private Rect playLightingWindow = new(12f, 12f, 330f, 312f);
+    private static readonly string[] PlayLightingTabs = { "Lighting", "Shadows" };
+    private static readonly string[] PlayShadowModes = { "None", "Contact", "Projected" };
+    private int playLightingTab;
+    private readonly List<BattleSpriteShadow> playShadowTargets = new();
+    private BattleSpriteShadow playShadowTarget;
     private float authoredCameraIntensity;
     private float authoredCameraRadius;
     private Color authoredCameraColor;
@@ -1274,14 +1279,14 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         nextPlayLightingSave = Time.realtimeSinceStartup + 0.40f;
     }
 
-    private float PlayLightingSlider(string title, float value, float min, float max)
+    private float PlayLightingSlider(string title, float value, float min, float max, bool save = true)
     {
         GUILayout.BeginHorizontal();
         GUILayout.Label(title, GUILayout.Width(154f));
         float next = GUILayout.HorizontalSlider(value, min, max);
         GUILayout.Label(next.ToString("0.00"), GUILayout.Width(45f));
         GUILayout.EndHorizontal();
-        if (Mathf.Abs(next - value) > 0.0001f)
+        if (save && Mathf.Abs(next - value) > 0.0001f)
             MarkPlayLightingDirty();
         return next;
     }
@@ -1307,6 +1312,23 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         }
 
         LoadPlayLightingPreset();
+        if (playLightingTab == 1)
+        {
+            BattleSpriteShadow.CopyDebugTargets(playShadowTargets);
+            if (playShadowTarget == null || !playShadowTargets.Contains(playShadowTarget))
+            {
+                playShadowTarget = playShadowTargets.Count > 0 ? playShadowTargets[0] : null;
+                for (int i = 0; player != null && i < playShadowTargets.Count; i++)
+                {
+                    if (!playShadowTargets[i].transform.IsChildOf(player.transform))
+                        continue;
+                    playShadowTarget = playShadowTargets[i];
+                    break;
+                }
+            }
+            DrawShadowDebugRays();
+        }
+        playLightingWindow.height = playLightingTab == 1 ? 480f : 342f;
         playLightingWindow = GUI.Window(
             74292, playLightingWindow, DrawPlayLightingWindow,
             "PLAY LIGHT TUNER  [F8]");
@@ -1315,6 +1337,13 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private void DrawPlayLightingWindow(int id)
     {
         GUILayout.Space(5f);
+        playLightingTab = GUILayout.Toolbar(playLightingTab, PlayLightingTabs);
+        if (playLightingTab == 1)
+        {
+            DrawPlayShadowWindow();
+            GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
+            return;
+        }
         GUILayout.Label("Combat preview only  |  Values saved to JSON");
         playLighting.ambient = PlayLightingSlider(
             "Ambient", playLighting.ambient, 0.15f, 1.4f);
@@ -1345,6 +1374,103 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         GUILayout.EndHorizontal();
         GUILayout.Label("F8: Show/Hide  |  Drag title bar to move");
         GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
+    }
+
+    private void DrawPlayShadowWindow()
+    {
+        WorldLight light = WorldLight.Instance;
+        if (light == null)
+        {
+            GUILayout.Label("WorldLight is not active.");
+            return;
+        }
+
+        GUILayout.Label("Live preview | Play-session values only");
+        light.shadowMode = (BattleShadowMode)GUILayout.Toolbar((int)light.shadowMode, PlayShadowModes);
+        light.previewConnectSpriteBottom = GUILayout.Toggle(light.previewConnectSpriteBottom,
+            "Test bottom connection (grounded only)");
+        light.showShadowDebugRays = GUILayout.Toggle(light.showShadowDebugRays, "Show bottom / shadow rays");
+        float angle = Mathf.Atan2(light.ShadowDirection.y, light.ShadowDirection.x) * Mathf.Rad2Deg;
+        float nextAngle = PlayLightingSlider("Shadow direction", angle, -180f, 180f, false);
+        float length = PlayLightingSlider("Shadow length", light.shadowLength, 0f, 5f, false);
+        float width = PlayLightingSlider("Shadow spread", light.shadowWidth, 0.05f, 3f, false);
+        float opacity = PlayLightingSlider("Shadow opacity", light.shadowOpacity, 0f, 1f, false);
+        light.previewBottomInset = PlayLightingSlider("Bottom inset (world)", light.previewBottomInset, 0f, 0.5f, false);
+        light.shadowDebugRayLength = PlayLightingSlider("Debug ray length", light.shadowDebugRayLength, 0.05f, 3f, false);
+        if (Mathf.Abs(nextAngle - angle) > 0.0001f || length != light.shadowLength ||
+            width != light.shadowWidth || opacity != light.shadowOpacity)
+        {
+            light.lightDirection = -new Vector2(Mathf.Cos(nextAngle * Mathf.Deg2Rad), Mathf.Sin(nextAngle * Mathf.Deg2Rad));
+            light.shadowLength = length;
+            light.shadowWidth = width;
+            light.shadowOpacity = opacity;
+            light.overrideProfileDefaults = true;
+        }
+
+        GUILayout.BeginHorizontal();
+        GUILayout.Label(playShadowTarget != null ? playShadowTarget.name : "No visible projected target");
+        if (GUILayout.Button("Next", GUILayout.Width(48f)) && playShadowTargets.Count > 0)
+        {
+            int next = (playShadowTargets.IndexOf(playShadowTarget) + 1) % playShadowTargets.Count;
+            playShadowTarget = playShadowTargets[next];
+        }
+        GUILayout.EndHorizontal();
+        if (playShadowTarget != null && playShadowTarget.TryGetDebugGeometry(out BattleSpriteShadow.DebugGeometry geometry))
+        {
+            float gap = Vector2.Distance(geometry.spriteBottom, geometry.shadowStart);
+            GUILayout.Label((geometry.grounded ? "Grounded" : "Airborne (connection unchanged)") +
+                " | Start offset: " + gap.ToString("0.000"));
+            if (GUILayout.Button("Recapture selected ground anchor"))
+                playShadowTarget.ResetGroundAnchorCapture();
+        }
+        GUILayout.Label("Yellow: bottom/ray | Cyan: shadow ray");
+        GUILayout.Label("Red: gap | Orange: captured anchor");
+        GUILayout.Label("Bottom inset compensates sprite padding.");
+        GUILayout.Label("F8: Show/Hide | Drag title bar to move");
+    }
+
+    private void DrawShadowDebugRays()
+    {
+        WorldLight light = WorldLight.Instance;
+        if (light == null || !light.showShadowDebugRays || light.DebugCamera == null || playShadowTarget == null ||
+            !playShadowTarget.TryGetDebugGeometry(out BattleSpriteShadow.DebugGeometry geometry))
+            return;
+
+        Camera camera = light.DebugCamera;
+        Bounds bounds = geometry.spriteBounds;
+        DrawShadowDebugLine(camera, new Vector3(bounds.min.x, bounds.min.y, bounds.center.z),
+            new Vector3(bounds.max.x, bounds.min.y, bounds.center.z), Color.yellow);
+        DrawShadowDebugLine(camera, geometry.spriteBottom,
+            geometry.spriteBottom + Vector3.down * light.shadowDebugRayLength, Color.yellow);
+        DrawShadowDebugLine(camera, geometry.spriteBottom, geometry.shadowStart, Color.red);
+        DrawShadowDebugLine(camera, geometry.shadowStart,
+            geometry.shadowStart + (Vector3)light.ShadowDirection * light.shadowDebugRayLength, Color.cyan);
+        DrawShadowDebugLine(camera, geometry.shadowStart, geometry.shadowEnd, new Color(0f, 0.6f, 1f));
+        Vector3 marker = Vector3.right * 0.06f;
+        DrawShadowDebugLine(camera, geometry.capturedAnchor - marker, geometry.capturedAnchor + marker,
+            new Color(1f, 0.5f, 0f));
+        DrawShadowDebugLine(camera, geometry.shadowStart - Vector3.up * 0.06f,
+            geometry.shadowStart + Vector3.up * 0.06f, Color.green);
+    }
+
+    private static void DrawShadowDebugLine(Camera camera, Vector3 from, Vector3 to, Color color)
+    {
+        Vector3 screenFrom = camera.WorldToScreenPoint(from);
+        Vector3 screenTo = camera.WorldToScreenPoint(to);
+        if (screenFrom.z <= 0f || screenTo.z <= 0f)
+            return;
+        Vector2 start = new(screenFrom.x, Screen.height - screenFrom.y);
+        Vector2 end = new(screenTo.x, Screen.height - screenTo.y);
+        Vector2 delta = end - start;
+        if (delta.sqrMagnitude < 0.01f)
+            return;
+        Matrix4x4 matrix = GUI.matrix;
+        Color previousColor = GUI.color;
+        GUI.color = color;
+        GUIUtility.RotateAroundPivot(Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg, start);
+        GUI.DrawTexture(new Rect(start.x, start.y - 1f, delta.magnitude, 2f), Texture2D.whiteTexture);
+        GUI.matrix = matrix;
+        GUI.color = previousColor;
     }
 
     private void RestoreAuthoredCameraLight()

@@ -1467,6 +1467,9 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             if (renderer == null || !renderer.gameObject.activeInHierarchy || !renderer.enabled || renderer.sprite == null)
                 continue;
 
+            if (renderer.name.StartsWith(CarrierTilePrefix, System.StringComparison.Ordinal))
+                continue;
+
             floorSourceBuffer.Add(new FloorSource
             {
                 renderer = renderer,

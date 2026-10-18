@@ -1,8 +1,8 @@
 {
-  "ambient": 0.68,
-  "warmth": 0.42,
-  "cameraIntensity": 0.4,
-  "cameraRadius": 9,
-  "playerIntensity": 0.86,
-  "playerRadius": 4.6
+    "ambient": 0.6800000071525574,
+    "warmth": 0.41999998688697817,
+    "cameraIntensity": 0.4000000059604645,
+    "cameraRadius": 9.0,
+    "playerIntensity": 0.8600000143051148,
+    "playerRadius": 4.6
 }

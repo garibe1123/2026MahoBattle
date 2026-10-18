@@ -22,6 +22,15 @@ public sealed class WorldLight : MonoBehaviour
     public string shadowSortingLayerName = "Default";
     [SerializeField] private Camera targetCamera;
 
+#if UNITY_EDITOR
+    [Header("Shadow Connection Preview")]
+    public bool previewConnectSpriteBottom;
+    [Range(0f, 0.5f)] public float previewBottomInset;
+    public bool showShadowDebugRays = true;
+    [Min(0.05f)] public float shadowDebugRayLength = 1f;
+    public Camera DebugCamera => targetCamera;
+#endif
+
     private bool initialized;
     private WorldLight previous;
     private BattleShadowFloorMask floorMask;
