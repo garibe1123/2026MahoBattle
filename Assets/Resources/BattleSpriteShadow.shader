@@ -28,14 +28,16 @@ Shader "Battle/SpriteShadow"
             struct Varyings { float4 positionCS : SV_POSITION; float2 uv : TEXCOORD0; float2 maskUV : TEXCOORD1; };
             sampler2D _BattleShadowFloorMask;
             float4x4 _SourceToWorld;
-            float4 _ShadowOrigin, _ShadowDirection, _ShadowShape, _ShadowColor;
+            float4 _ShadowOrigin, _ShadowDirection, _ShadowShape, _ShadowColor, _ShadowGrounding;
             float4 _BattleShadowMaskRect;
             Varyings vert(appdata_t input)
             {
                 Varyings output;
                 float3 world = mul(_SourceToWorld, UnityFlipSprite(input.vertex, _Flip)).xyz;
                 float height = (world.y - _ShadowOrigin.z) * _ShadowShape.z + _ShadowShape.w;
-                float2 projected = _ShadowOrigin.xy + _ShadowDirection.zw * ((world.x - _ShadowOrigin.x) * _ShadowShape.y)
+                float widthBlend = 1 - _ShadowGrounding.x + _ShadowGrounding.x * (world.y - _ShadowOrigin.z) * _ShadowGrounding.y;
+                float2 widthAxis = lerp(float2(1, 0), _ShadowDirection.zw * _ShadowShape.y, widthBlend);
+                float2 projected = _ShadowOrigin.xy + widthAxis * (world.x - _ShadowOrigin.x)
                     + _ShadowDirection.xy * (height * _ShadowShape.x);
                 output.positionCS = mul(UNITY_MATRIX_VP, float4(projected, _ShadowOrigin.w, 1));
                 output.uv = input.texcoord;

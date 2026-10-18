@@ -28,6 +28,12 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
     public void BindContactShadow(SpriteRenderer contact) => contactRenderer = contact;
 
+    [ContextMenu("Reset Ground Anchor Capture")]
+    public void ResetGroundAnchorCapture()
+    {
+        anchorCaptured = false;
+    }
+
     public void SetVirtualHeight(float height, float visualOffsetWorldY)
     {
         virtualHeight = Mathf.Max(0f, height);
@@ -78,21 +84,24 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             return;
 
         Bounds bounds = source.bounds;
-        if (!anchorCaptured && source.sprite != null)
+        bool grounded = virtualHeight <= 0.0001f && Mathf.Abs(visualHeightOffset) <= 0.0001f;
+        if (captureSpriteBottom && groundAnchor == null && !anchorCaptured)
         {
-            if (captureSpriteBottom)
-                localGroundAnchor = source.transform.InverseTransformPoint(
-                    new Vector3(bounds.center.x, bounds.min.y, bounds.center.z));
+            localGroundAnchor = source.transform.InverseTransformPoint(
+                new Vector3(bounds.center.x, bounds.min.y, bounds.center.z));
             anchorCaptured = true;
         }
         Vector3 anchor = groundAnchor != null ? groundAnchor.position : source.transform.TransformPoint(localGroundAnchor);
         float height = objectHeight > 0f ? objectHeight : bounds.size.y;
         Vector2 direction = light.ShadowDirection;
         Vector2 across = new(-direction.y, direction.x);
+        if (grounded && across.x < 0f)
+            across = -across;
+        Vector2 grounding = new(grounded ? 1f : 0f, 1f / Mathf.Max(0.001f, bounds.size.y));
         Vector4 shape = new(Mathf.Max(0f, light.shadowLength), Mathf.Max(0.01f, light.shadowWidth),
             height / Mathf.Max(0.001f, bounds.size.y), Mathf.Max(0f, virtualHeight));
         Vector4 origin = new(anchor.x, anchor.y, anchor.y + visualHeightOffset, anchor.z);
-        Bounds projected = BattleShadowProjection.Bounds(bounds, origin, direction, across, shape);
+        Bounds projected = BattleShadowProjection.Bounds(bounds, origin, direction, across, shape, grounding);
         if (!light.IsVisible(projected))
         {
             shadowRenderer.enabled = false;
@@ -114,6 +123,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         properties.SetVector("_ShadowOrigin", origin);
         properties.SetVector("_ShadowDirection", new Vector4(direction.x, direction.y, across.x, across.y));
         properties.SetVector("_ShadowShape", shape);
+        properties.SetVector("_ShadowGrounding", new Vector4(grounding.x, grounding.y, 0f, 0f));
         Color color = light.shadowColor;
         color.a *= Mathf.Clamp01(light.shadowOpacity) * source.color.a;
         properties.SetColor("_ShadowColor", color);
@@ -143,20 +153,24 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 
 internal static class BattleShadowProjection
 {
-    internal static Vector3 Point(Vector3 point, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape)
+    internal static Vector3 Point(Vector3 point, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape,
+        Vector2 grounding)
     {
         float height = (point.y - origin.z) * shape.z + shape.w;
-        Vector2 result = new Vector2(origin.x, origin.y) + across * ((point.x - origin.x) * shape.y) +
+        float widthBlend = 1f - grounding.x + grounding.x * (point.y - origin.z) * grounding.y;
+        Vector2 widthAxis = Vector2.LerpUnclamped(Vector2.right, across * shape.y, widthBlend);
+        Vector2 result = new Vector2(origin.x, origin.y) + widthAxis * (point.x - origin.x) +
             direction * (height * shape.x);
         return new Vector3(result.x, result.y, origin.w);
     }
 
-    internal static Bounds Bounds(Bounds source, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape)
+    internal static Bounds Bounds(Bounds source, Vector4 origin, Vector2 direction, Vector2 across, Vector4 shape,
+        Vector2 grounding)
     {
-        Bounds result = new(Point(source.min, origin, direction, across, shape), Vector3.zero);
-        result.Encapsulate(Point(source.max, origin, direction, across, shape));
-        result.Encapsulate(Point(new Vector3(source.min.x, source.max.y, 0f), origin, direction, across, shape));
-        result.Encapsulate(Point(new Vector3(source.max.x, source.min.y, 0f), origin, direction, across, shape));
+        Bounds result = new(Point(source.min, origin, direction, across, shape, grounding), Vector3.zero);
+        result.Encapsulate(Point(source.max, origin, direction, across, shape, grounding));
+        result.Encapsulate(Point(new Vector3(source.min.x, source.max.y, 0f), origin, direction, across, shape, grounding));
+        result.Encapsulate(Point(new Vector3(source.max.x, source.min.y, 0f), origin, direction, across, shape, grounding));
         result.Expand(0.02f);
         return result;
     }
