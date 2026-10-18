@@ -29,6 +29,39 @@ public sealed class WorldLight : MonoBehaviour
     public bool showShadowDebugRays = true;
     [Min(0.05f)] public float shadowDebugRayLength = 1f;
     public Camera DebugCamera => targetCamera;
+    public BattleSpriteShadow ShadowDebugTarget { get; set; }
+    public BattleSpriteShadow ShadowDebugMaskTarget { get; private set; }
+    public RenderTexture ShadowDebugMask => shadowDebugMask;
+    private RenderTexture shadowDebugMask;
+    private readonly System.Collections.Generic.List<BattleSpriteShadow> shadowDebugCasters = new();
+
+    internal void BeginShadowDebugPreview(Camera camera)
+    {
+        if (camera == targetCamera)
+            ShadowDebugMaskTarget = null;
+    }
+
+    internal void RenderShadowDebugPreview(Camera camera, UnityEngine.Rendering.CommandBuffer commands)
+    {
+        if (camera != targetCamera || !showShadowDebugRays || ShadowDebugTarget == null ||
+            !ShadowDebugTarget.CopyReceiverDebugCasters(camera, shadowDebugCasters))
+            return;
+        if (shadowDebugMask == null)
+        {
+            shadowDebugMask = new RenderTexture(160, 160, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.Linear)
+            {
+                name = "BattleShadowReceivedAlphaDebug", filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave
+            };
+            shadowDebugMask.Create();
+        }
+        commands.SetRenderTarget(shadowDebugMask);
+        commands.SetViewport(new Rect(0, 0, 160, 160));
+        commands.ClearRenderTarget(false, true, Color.black);
+        if (shadowDebugCasters.Count > 0)
+            commands.DrawRenderer(ShadowDebugTarget.DebugReceiverRenderer, BattleSpriteShadow.SharedMaterial, 0, 3);
+        ShadowDebugMaskTarget = ShadowDebugTarget;
+    }
 #endif
 
     private bool initialized;
@@ -93,6 +126,13 @@ public sealed class WorldLight : MonoBehaviour
 
     private void OnDestroy()
     {
+#if UNITY_EDITOR
+        if (shadowDebugMask != null)
+        {
+            shadowDebugMask.Release();
+            Destroy(shadowDebugMask);
+        }
+#endif
         if (floorMask != null)
             Destroy(floorMask);
     }

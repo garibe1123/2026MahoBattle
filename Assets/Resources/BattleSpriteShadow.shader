@@ -143,5 +143,40 @@ Shader "Battle/SpriteShadow"
             }
             ENDCG
         }
+        Pass
+        {
+            Name "ReceivedAlphaDebug"
+            Tags { "LightMode"="BattleReceivedAlphaDebug" }
+            Blend Off
+            CGPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma multi_compile _ ETC1_EXTERNAL_ALPHA
+            #include "UnitySprites.cginc"
+            sampler2D _BattleShadowReceiverMask;
+            float4 _ReceiverWorldRect, _ReceiverAtlasRect;
+            struct DebugVaryings { float4 position : SV_POSITION; float2 uv : TEXCOORD0; float2 maskUV : TEXCOORD1; half alpha : TEXCOORD2; };
+            DebugVaryings vert(appdata_t input)
+            {
+                DebugVaryings output;
+                float3 world = mul(unity_ObjectToWorld, UnityFlipSprite(input.vertex, _Flip)).xyz;
+                output.maskUV = (world.xy - _ReceiverWorldRect.xy) * _ReceiverWorldRect.zw;
+                output.position = float4(output.maskUV * 2 - 1, 0, 1);
+                #if UNITY_UV_STARTS_AT_TOP
+                    output.position.y = -output.position.y;
+                #endif
+                output.uv = input.texcoord;
+                output.alpha = input.color.a * _Color.a * _RendererColor.a;
+                return output;
+            }
+            half4 frag(DebugVaryings input) : SV_Target
+            {
+                float2 atlasUV = _ReceiverAtlasRect.xy + input.maskUV * _ReceiverAtlasRect.zw;
+                half alpha = SampleSpriteTexture(input.uv).a * input.alpha * tex2D(_BattleShadowReceiverMask, atlasUV).r;
+                half visibleAlpha = saturate(alpha * 4);
+                return half4(visibleAlpha, visibleAlpha, visibleAlpha, 1);
+            }
+            ENDCG
+        }
     }
 }

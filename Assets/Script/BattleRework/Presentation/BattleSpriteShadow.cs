@@ -38,9 +38,11 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private SpriteRenderer receiverSourceRenderer;
     private MaterialPropertyBlock receiverSourceProperties;
     private bool sourceSuppressed;
+    private Bounds receiverProjectionBounds;
 
     internal SpriteRenderer Source => source;
     internal SpriteRenderer Projection => shadowRenderer;
+    internal Bounds ReceiverProjectionBounds => receiverProjectionBounds;
     internal bool SourceVisible => isActiveAndEnabled && (explicitFieldObject || characterOwner != null) &&
         source != null && source.enabled && (!source.forceRenderingOff || sourceSuppressed) && source.gameObject.activeInHierarchy &&
         source.sprite != null && source.color.a > 0.001f;
@@ -69,7 +71,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     internal bool CanCastOn(BattleSpriteShadow receiver, Camera camera)
     {
         if (this == receiver || Owner == receiver.Owner || shadowRenderer == null || !shadowRenderer.enabled ||
-            !BattleShadowProjection.OverlapsXY(shadowRenderer.bounds, receiver.source.bounds))
+            !BattleShadowProjection.OverlapsXY(receiverProjectionBounds, receiver.source.bounds))
             return false;
         bool sameGroup = sortingGroup == receiver.sortingGroup;
         int casterLayer = !sameGroup && sortingGroup != null && sortingGroup.isActiveAndEnabled
@@ -142,18 +144,56 @@ public sealed class BattleSpriteShadow : MonoBehaviour
         public Vector3 capturedAnchor;
         public Vector3 shadowStart;
         public Vector3 shadowEnd;
+        public Vector3 receiverShadowStart;
+        public Vector3 receiverShadowEnd;
         public bool grounded;
     }
 
     private static readonly HashSet<BattleSpriteShadow> DebugTargets = new();
     private DebugGeometry debugGeometry;
     private bool debugGeometryReady;
+    private readonly List<BattleSpriteShadow> debugCasters = new();
+    private int debugReceiverFrame = -1;
+    private Camera debugReceiverCamera;
+    private bool debugReceiverVisible;
+    internal SpriteRenderer DebugReceiverRenderer => receiverRenderer;
+
+    internal void BeginReceiverDebug(Camera camera)
+    {
+        if (WorldLight.Instance == null || camera != WorldLight.Instance.DebugCamera)
+            return;
+        debugCasters.Clear();
+        debugReceiverFrame = Time.frameCount;
+        debugReceiverCamera = camera;
+        debugReceiverVisible = false;
+    }
+
+    internal void RecordReceiverDebug(Camera camera, BattleSpriteShadow caster = null)
+    {
+        if (camera != debugReceiverCamera || debugReceiverFrame != Time.frameCount)
+            return;
+        debugReceiverVisible = true;
+        if (caster != null)
+            debugCasters.Add(caster);
+    }
+
+    public bool CopyReceiverDebugCasters(Camera camera, List<BattleSpriteShadow> destination)
+    {
+        destination.Clear();
+        if (!debugReceiverVisible || camera != debugReceiverCamera || debugReceiverFrame < Time.frameCount - 1)
+            return false;
+        for (int i = 0; i < debugCasters.Count; i++)
+            if (debugCasters[i] != null)
+                destination.Add(debugCasters[i]);
+        return true;
+    }
 
     public static void CopyDebugTargets(List<BattleSpriteShadow> destination)
     {
         destination.Clear();
         foreach (BattleSpriteShadow target in DebugTargets)
-            if (target != null && target.isActiveAndEnabled && target.debugGeometryReady)
+            if (target != null && target.SourceVisible &&
+                (WorldLight.Instance == null || WorldLight.Instance.IsVisible(target.source.bounds)))
                 destination.Add(target);
     }
 
@@ -336,6 +376,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             height / Mathf.Max(0.001f, alphaBounds.size.y), Mathf.Max(0f, virtualHeight));
         Vector4 origin = new(anchor.x, anchor.y, sourceAnchor.y, anchor.z);
         Bounds projected = BattleShadowProjection.Bounds(bounds, origin, direction, across, shape, sourceAnchor.x);
+        receiverProjectionBounds = projected;
         if (!light.IsVisible(projected))
         {
             shadowRenderer.enabled = false;
@@ -351,6 +392,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             capturedAnchor = capturedAnchor,
             shadowStart = BattleShadowProjection.Point(spriteBottom, origin, direction, across, shape, sourceAnchor.x),
             shadowEnd = BattleShadowProjection.Point(new Vector3(alphaBounds.center.x, alphaBounds.max.y, alphaBounds.center.z),
+                origin, direction, across, shape, sourceAnchor.x),
+            receiverShadowStart = BattleShadowProjection.Point(spriteBottom, origin, direction, across, shape, sourceAnchor.x),
+            receiverShadowEnd = BattleShadowProjection.Point(new Vector3(alphaBounds.center.x, alphaBounds.max.y, alphaBounds.center.z),
                 origin, direction, across, shape, sourceAnchor.x),
             grounded = grounded
         };
@@ -387,6 +431,8 @@ public sealed class BattleSpriteShadow : MonoBehaviour
 #if UNITY_EDITOR
         DebugTargets.Remove(this);
         debugGeometryReady = false;
+        debugCasters.Clear();
+        debugReceiverVisible = false;
 #endif
         if (shadowRenderer != null)
             shadowRenderer.enabled = false;
@@ -427,6 +473,30 @@ internal static class BattleShadowProjection
         ? (point - cameraPosition).sqrMagnitude
         : Vector3.Dot(point - cameraPosition, mode == TransparencySortMode.CustomAxis ? axis : cameraForward);
 
+#if UNITY_EDITOR
+    internal static bool ClipSegmentXY(Vector3 start, Vector3 end, Bounds bounds, out Vector3 from, out Vector3 to)
+    {
+        Vector3 delta = end - start;
+        float enter = 0f;
+        float exit = 1f;
+        bool hit = ClipAxis(start.x, delta.x, bounds.min.x, bounds.max.x, ref enter, ref exit) &&
+            ClipAxis(start.y, delta.y, bounds.min.y, bounds.max.y, ref enter, ref exit);
+        from = start + delta * enter;
+        to = start + delta * exit;
+        return hit;
+    }
+
+    private static bool ClipAxis(float start, float delta, float min, float max, ref float enter, ref float exit)
+    {
+        if (Mathf.Abs(delta) < 0.000001f)
+            return start >= min && start <= max;
+        float a = (min - start) / delta;
+        float b = (max - start) / delta;
+        enter = Mathf.Max(enter, Mathf.Min(a, b));
+        exit = Mathf.Min(exit, Mathf.Max(a, b));
+        return enter <= exit;
+    }
+#endif
     internal static bool OverlapsXY(Bounds a, Bounds b) => a.min.x <= b.max.x && a.max.x >= b.min.x &&
         a.min.y <= b.max.y && a.max.y >= b.min.y;
 

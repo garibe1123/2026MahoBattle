@@ -71,6 +71,11 @@ public sealed class BattleShadowFloorMask : MonoBehaviour
             targets[i].SetReceiverMask(false);
         Shader.SetGlobalTexture("_BattleShadowFloorMask", Texture2D.blackTexture);
         Shader.SetGlobalTexture("_BattleShadowReceiverMask", Texture2D.blackTexture);
+#if UNITY_EDITOR
+        owner.BeginShadowDebugPreview(camera);
+        for (int i = 0; i < targets.Count; i++)
+            targets[i].BeginReceiverDebug(camera);
+#endif
         if (WorldLight.Mode != BattleShadowMode.Projected ||
             camera.cameraType == CameraType.Preview || BattleSpriteShadow.SharedMaterial == null)
             return;
@@ -143,7 +148,7 @@ public sealed class BattleShadowFloorMask : MonoBehaviour
             if (GeometryUtility.TestPlanesAABB(planes, source.bounds))
                 receivers.Add(targets[i]);
             SpriteRenderer projection = targets[i].Projection;
-            if (projection != null && projection.enabled && GeometryUtility.TestPlanesAABB(planes, projection.bounds))
+            if (projection != null && projection.enabled && GeometryUtility.TestPlanesAABB(planes, targets[i].ReceiverProjectionBounds))
                 casters.Add(targets[i]);
         }
         if (receivers.Count == 0)
@@ -184,6 +189,9 @@ public sealed class BattleShadowFloorMask : MonoBehaviour
             int y = i / columns * cellHeight;
             commands.SetViewport(new Rect(x, y, cellWidth, cellHeight));
             commands.SetGlobalVector("_BattleShadowReceiverRect", rect);
+#if UNITY_EDITOR
+            receiver.RecordReceiverDebug(camera);
+#endif
             bool hasCaster = false;
             for (int j = 0; j < casters.Count; j++)
             {
@@ -191,6 +199,9 @@ public sealed class BattleShadowFloorMask : MonoBehaviour
                 if (!caster.CanCastOn(receiver, camera))
                     continue;
                 commands.DrawRenderer(caster.Projection, BattleSpriteShadow.SharedMaterial, 0, 2);
+#if UNITY_EDITOR
+                receiver.RecordReceiverDebug(camera, caster);
+#endif
                 hasCaster = true;
             }
             float atlasY = SystemInfo.graphicsUVStartsAtTop ? (float)(height - y - cellHeight) / height : (float)y / height;
@@ -198,5 +209,8 @@ public sealed class BattleShadowFloorMask : MonoBehaviour
                 (float)cellWidth / width, (float)cellHeight / height));
         }
         commands.SetGlobalTexture("_BattleShadowReceiverMask", receiverMask);
+#if UNITY_EDITOR
+        owner.RenderShadowDebugPreview(camera, commands);
+#endif
     }
 }
