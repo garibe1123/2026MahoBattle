@@ -71,7 +71,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     [SerializeField, Tooltip("SpriteManager의 BattleShowPresentationManager를 연결하세요. 같은 오브젝트에서는 자동 연결됩니다. UI나 Root를 하나씩 지정할 필요가 없습니다.")]
     private BattleShowPresentationManager presentation;
     private BattleShowPresentationManager boundPresentation;
-    [SerializeField, Tooltip("SpriteManager 오브젝트의 Add Component에서 BattleUiMaterialController를 추가하세요. 켜면 플레이 중 활성화될 때 자동 적용합니다.")]
+    [SerializeField, Tooltip("SpriteManager 오브젝트의 Add Component에서 BattleUiMaterialController를 추가하세요. 켜면 플레이 시작 시 Start에서 한 번 자동 적용합니다.")]
     private bool applyOnEnable = true;
     [SerializeField, Tooltip("켜면 Inspector 값으로 프리뷰합니다. 끄면 원복합니다. 컴포넌트 메뉴의 Apply Materials / Start Preview / End Preview / Restore Materials로도 적용·프리뷰·원복할 수 있습니다. 비활성화·제거 시에도 원복하고 복제본을 정리합니다.")]
     private bool preview;
@@ -100,15 +100,13 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     {
         ConnectPresentation();
         preview = false;
-        if (Application.IsPlaying(gameObject) && applyOnEnable)
-            Apply();
     }
 
     private void Start()
     {
         ConnectPresentation();
-        if (applied)
-            ApplyMaterials();
+        if (Application.IsPlaying(gameObject) && applyOnEnable)
+            Apply();
     }
 
     private void ConnectPresentation()
@@ -289,23 +287,6 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         {
             states[states.Count - 1].automatic = true;
             states[states.Count - 1].group = group;
-        }
-    }
-
-    private void LateUpdate()
-    {
-        foreach (MaterialState state in states)
-        {
-            if (state.target == null || !state.target.isActiveAndEnabled ||
-                state.instance == null || state.source == null)
-                continue;
-            state.instance.CopyPropertiesFromMaterial(state.source);
-            if (state.properties != null)
-            {
-                foreach (ShaderProperty property in state.properties)
-                    property?.Apply(state.instance);
-            }
-            state.target.SetMaterialDirty();
         }
     }
 
