@@ -127,6 +127,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     private readonly Image[] missionRowBackgrounds = new Image[MaxMissionSlots];
     private readonly Outline[] missionRowOutlines = new Outline[MaxMissionSlots];
     private readonly Text[] missionRowTitles = new Text[MaxMissionSlots];
+    private readonly Text[] missionRowMarkers = new Text[MaxMissionSlots];
+    private BattleUiPanelDecoration missionDecoration;
+    private BattleUiPanelDecoration chatDecoration;
+    private RectTransform missionConnection;
     private readonly Text[] missionRowProgress = new Text[MaxMissionSlots];
     private readonly bool[] missionRowActive = new bool[MaxMissionSlots];
 
@@ -165,6 +169,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void Awake()
     {
+        inkColor = BattleUiPanelDecoration.Neutral(inkColor);
+        paperColor = BattleUiPanelDecoration.Neutral(paperColor);
+        mutedColor = BattleUiPanelDecoration.Neutral(mutedColor);
+        activeColor = BattleUiPanelDecoration.Mint;
+        progressColor = BattleUiPanelDecoration.Yellow;
         ResolveReferences();
         TryResolveUi();
     }
@@ -487,7 +496,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBar.anchorMin = metricBar.anchorMax = Vector2.one;
         metricBar.pivot = Vector2.one;
         metricBar.anchoredPosition = new Vector2(-24f, -20f);
-        metricBar.localRotation = Quaternion.Euler(0.5f, -2.2f, -0.35f);
+        metricBar.localRotation = Quaternion.identity;
 
         Canvas metricCanvas = metricBar.gameObject.AddComponent<Canvas>();
         metricCanvas.overrideSorting = true;
@@ -501,6 +510,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBack = metricBar.gameObject.AddComponent<Image>();
         metricBack.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0f);
         metricBack.raycastTarget = false;
+        BattleUiPanelDecoration.Round(metricBack);
 
         metricOutline = metricBar.gameObject.AddComponent<Outline>();
         metricOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0f);
@@ -542,6 +552,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Image back = missionPanel.gameObject.AddComponent<Image>();
         back.color = new Color(0.020f, 0.027f, 0.040f, 0.985f);
         back.raycastTarget = false;
+        BattleUiPanelDecoration.Round(back);
+        missionDecoration = BattleUiPanelDecoration.Attach(missionPanel, activeColor);
 
         Outline outline = missionPanel.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(activeColor.r, activeColor.g, activeColor.b, 0.52f);
@@ -587,6 +599,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         missionListRoot.offsetMin = Vector2.zero;
         missionListRoot.offsetMax = Vector2.zero;
 
+        missionConnection = CreateRect(missionListRoot, "MissionConnection", new Vector2(2f, 100f));
+        missionConnection.anchorMin = missionConnection.anchorMax = new Vector2(0.04f, 1f);
+        missionConnection.pivot = new Vector2(0.5f, 1f);
+        missionConnection.anchoredPosition = new Vector2(0f, -22f);
+        Image connectionImage = missionConnection.gameObject.AddComponent<Image>();
+        connectionImage.color = new Color(0.65f, 0.65f, 0.65f, 0.30f);
+        connectionImage.raycastTarget = false;
+
         for (int i = 0; i < MaxMissionSlots; i++)
             BuildMissionRow(i);
 
@@ -603,6 +623,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Image background = row.gameObject.AddComponent<Image>();
         background.color = new Color(0.055f, 0.060f, 0.074f, 0.98f);
         background.raycastTarget = false;
+        BattleUiPanelDecoration.Round(background);
 
         Outline outline = row.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.22f);
@@ -614,7 +635,10 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         group.interactable = false;
 
         Text title = CreateText(row, $"MISSION {index + 1}", 13, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Title");
-        SetAnchors(title.rectTransform, new Vector2(0.04f, 0.08f), new Vector2(0.72f, 0.92f));
+        SetAnchors(title.rectTransform, new Vector2(0.14f, 0.08f), new Vector2(0.70f, 0.92f));
+        Text marker = CreateText(row, $"○ {index + 1}", 11, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "StateMarker");
+        SetAnchors(marker.rectTransform, new Vector2(0.015f, 0.08f), new Vector2(0.14f, 0.92f));
+        missionRowMarkers[index] = marker;
 
         Text progress = CreateText(row, "-- / --", 12, FontStyle.Bold, TextAnchor.MiddleRight, progressColor, "Progress");
         SetAnchors(progress.rectTransform, new Vector2(0.70f, 0.08f), new Vector2(0.96f, 0.92f));
@@ -638,6 +662,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Image back = missionDetailRoot.gameObject.AddComponent<Image>();
         back.color = new Color(0.025f, 0.030f, 0.040f, 0.98f);
         back.raycastTarget = false;
+        BattleUiPanelDecoration.Round(back);
 
         Outline outline = missionDetailRoot.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(activeColor.r, activeColor.g, activeColor.b, 0.34f);
@@ -664,13 +689,13 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         SetAnchors(missionDetailType.rectTransform, new Vector2(0.06f, 0.69f), new Vector2(0.94f, 0.79f));
 
         missionDetailDescription = CreateText(missionDetailRoot, "GOAL // --", 13, FontStyle.Normal, TextAnchor.UpperLeft, paperColor, "Description");
-        SetAnchors(missionDetailDescription.rectTransform, new Vector2(0.06f, 0.47f), new Vector2(0.94f, 0.68f));
+        SetAnchors(missionDetailDescription.rectTransform, new Vector2(0.06f, 0.26f), new Vector2(0.94f, 0.47f));
 
         missionDetailProgress = CreateText(missionDetailRoot, "PROGRESS -- / --", 15, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor, "Progress");
-        SetAnchors(missionDetailProgress.rectTransform, new Vector2(0.06f, 0.35f), new Vector2(0.94f, 0.47f));
+        SetAnchors(missionDetailProgress.rectTransform, new Vector2(0.06f, 0.57f), new Vector2(0.94f, 0.69f));
 
         missionDetailTime = CreateText(missionDetailRoot, "TIME // NO LIMIT", 12, FontStyle.Bold, TextAnchor.MiddleLeft, mutedColor, "Time");
-        SetAnchors(missionDetailTime.rectTransform, new Vector2(0.06f, 0.26f), new Vector2(0.94f, 0.36f));
+        SetAnchors(missionDetailTime.rectTransform, new Vector2(0.06f, 0.47f), new Vector2(0.94f, 0.57f));
 
         missionDetailReward = CreateText(missionDetailRoot, "SUCCESS --", 12, FontStyle.Bold, TextAnchor.MiddleLeft, activeColor, "Reward");
         SetAnchors(missionDetailReward.rectTransform, new Vector2(0.06f, 0.13f), new Vector2(0.94f, 0.25f));
@@ -689,6 +714,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Image back = chatPanel.gameObject.AddComponent<Image>();
         back.color = new Color(0.010f, 0.014f, 0.021f, 0.66f);
         back.raycastTarget = false;
+        BattleUiPanelDecoration.Round(back);
+        chatDecoration = BattleUiPanelDecoration.Attach(chatPanel, BattleUiPanelDecoration.Purple);
 
         RectTransform liveRail = CreateRect(chatPanel, "LiveRail", new Vector2(4f, 0f));
         liveRail.anchorMin = new Vector2(0f, 0.07f);
@@ -1157,13 +1184,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             bool hovered = active && i == hoveredMissionIndex;
             bool selected = active && i == selectedMissionIndex;
 
+            SetText(missionRowMarkers[i], selected ? $"● {i + 1}" : $"○ {i + 1}");
             if (missionRowBackgrounds[i] != null)
             {
                 missionRowBackgrounds[i].color = hovered
-                    ? new Color(activeColor.r, activeColor.g, activeColor.b, 0.20f)
+                    ? new Color(0.22f, 0.22f, 0.22f, 0.98f)
                     : selected
-                        ? new Color(activeColor.r, activeColor.g, activeColor.b, 0.10f)
-                        : new Color(0.055f, 0.060f, 0.074f, 0.98f);
+                        ? new Color(0.15f, 0.15f, 0.15f, 0.98f)
+                        : new Color(0.06f, 0.06f, 0.06f, 0.98f);
             }
 
             if (missionRowOutlines[i] != null)
@@ -1379,9 +1407,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         float dashboardTargetAlpha = targetVisible ? 1f : 0f;
         Vector3 dashboardTargetScale = Vector3.one * (targetVisible ? 1f : 0.94f);
         Quaternion dashboardTargetRotation = Quaternion.Euler(
-            targetVisible ? 0f : 2.5f,
-            targetVisible ? 0f : -5f,
-            targetVisible ? 0f : -0.7f);
+            0f, 0f, 0f);
         float dashboardTargetZ = targetVisible ? 0f : 34f;
 
         if (dashboardGroup != null)
@@ -1450,9 +1476,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricBar.localRotation = Quaternion.Slerp(
             metricBar.localRotation,
             Quaternion.Euler(
-                visible ? tabOpen ? 0.1f : 0.4f : 2.6f,
-                visible ? tabOpen ? -0.4f : -1.4f : -5.0f,
-                visible ? tabOpen ? -0.05f : -0.25f : 0.6f),
+                0f, 0f, 0f),
             t);
 
         if (metricBack != null)
@@ -1523,9 +1547,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             t);
 
         Quaternion targetRotation = Quaternion.Euler(
-            missionSuppressed ? 3.4f : standby ? 2.4f : missionFocused ? 0.2f : 1.0f,
-            missionSuppressed ? -7.5f : standby ? -6f : missionFocused ? -1f : -3.2f,
-            missionSuppressed ? 0.9f : standby ? 0.6f : missionFocused ? -0.15f : 0.2f);
+            0f, 0f, 0f);
+        missionDecoration?.SetEmphasis(missionFocused);
         missionPanel.localRotation = Quaternion.Slerp(
             missionPanel.localRotation,
             targetRotation,
@@ -1553,7 +1576,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             Vector3.one * (
                 missionSuppressed
                     ? 0.82f
-                    : missionFocused ? 1.055f : 0.92f),
+                    : missionFocused ? 1f : 0.96f),
             t);
 
         bool detailVisible = !standby &&
@@ -1590,9 +1613,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             missionDetailRoot.localRotation = Quaternion.Slerp(
                 missionDetailRoot.localRotation,
                 Quaternion.Euler(
-                    detailVisible ? 0f : 2.2f,
-                    detailVisible ? 0f : -4f,
-                    detailVisible ? 0f : 0.5f),
+                    0f, 0f, 0f),
                 t);
             Vector3 detailLocal = missionDetailRoot.localPosition;
             detailLocal.z = Mathf.Lerp(
@@ -1609,6 +1630,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             return;
 
         float availableWidth = Mathf.Max(180f, missionListRoot.rect.width);
+        if (missionConnection != null)
+            missionConnection.sizeDelta = new Vector2(2f, Mathf.Max(0, activeMissionCount - 1) * 50f);
 
         for (int i = 0; i < MaxMissionSlots; i++)
         {
@@ -1632,14 +1655,11 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                 new Vector2(0f, -i * 50f),
                 t);
 
-            Vector3 targetScale = Vector3.one *
-                                  (hovered ? 1.035f : active ? 1f : 0.94f);
+            Vector3 targetScale = Vector3.one;
             row.localScale = Vector3.Lerp(row.localScale, targetScale, t);
 
             Quaternion targetRotation = Quaternion.Euler(
-                hovered ? 0f : selected ? 0.5f : 1.4f,
-                hovered ? 0f : selected ? -1.5f : -3.5f,
-                hovered ? 0f : selected ? -0.15f : -0.45f);
+                0f, 0f, 0f);
             row.localRotation = Quaternion.Slerp(
                 row.localRotation,
                 targetRotation,
@@ -1705,15 +1725,14 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             Vector3.one * (
                 chatSuppressed
                     ? 0.80f
-                    : chatFocused ? 1.06f : active ? 0.94f : 0.88f),
+                    : chatFocused ? 1f : active ? 0.96f : 0.92f),
             t);
         chatPanel.localRotation = Quaternion.Slerp(
             chatPanel.localRotation,
             Quaternion.Euler(
-                chatSuppressed ? 3.0f : chatFocused ? 0.1f : active ? 0.7f : 2.5f,
-                chatSuppressed ? -7f : chatFocused ? -0.4f : active ? -2.0f : -5.5f,
-                chatSuppressed ? 0.8f : chatFocused ? -0.05f : active ? -0.25f : 0.65f),
+                0f, 0f, 0f),
             t);
+        chatDecoration?.SetEmphasis(chatFocused);
 
         Vector3 local = chatPanel.localPosition;
         local.z = Mathf.Lerp(

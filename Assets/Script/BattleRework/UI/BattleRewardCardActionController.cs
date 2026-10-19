@@ -113,6 +113,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
     private CanvasGroup worldInspectGroup;
     private RectTransform worldInspectTargetPivot;
     private Image worldInspectFrameImage;
+    private BattleUiPanelDecoration worldInspectDecoration;
     private BattleSpeechBubbleFrameFillController worldInspectFrameController;
     private BattleSpeechBubbleTailTriangleController worldInspectTailController;
     private BattleSpeechBubbleFrameStyle worldInspectRuntimeFrameStyle;
@@ -176,6 +177,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         public Outline outline;
         public CanvasGroup group;
         public Button button;
+        public BattleUiPanelDecoration decoration;
         public readonly Dictionary<RectTransform, RectSnapshot> childLayout = new();
     }
 
@@ -199,6 +201,13 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         instance = this;
+        neutralCard = BattleUiPanelDecoration.Neutral(neutralCard);
+        selectedCard = new Color(0.20f, 0.20f, 0.20f, 0.995f);
+        ink = BattleUiPanelDecoration.Neutral(ink);
+        paper = BattleUiPanelDecoration.Neutral(paper);
+        muted = BattleUiPanelDecoration.Neutral(muted);
+        selectAccent = BattleUiPanelDecoration.Yellow;
+        hoverCyan = BattleUiPanelDecoration.Mint;
         ResolveReferences();
         ResolveUi(true);
     }
@@ -532,7 +541,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 icon = rect.Find("PrizeIcon")?.GetComponent<Image>(),
                 outline = outline,
                 group = group,
-                button = button
+                button = button,
+                decoration = BattleUiPanelDecoration.Attach(rect, hoverCyan)
             };
 
             RectTransform[] descendants = rect.GetComponentsInChildren<RectTransform>(true);
@@ -894,6 +904,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             true);
 
         frameObject.transform.SetAsFirstSibling();
+        worldInspectDecoration = BattleUiPanelDecoration.Attach(worldInspectRoot, hoverCyan);
 
         worldInspectGroup =
             worldInspectRoot.gameObject.AddComponent<CanvasGroup>();
@@ -1083,6 +1094,13 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 packPaper,
                 46f,
                 58f);
+
+        SetAnchors(worldInspectTitle.rectTransform, new Vector2(0.06f, 0.86f), new Vector2(0.94f, 0.97f));
+        SetAnchors(worldVisualViewport, new Vector2(0.06f, 0.53f), new Vector2(0.94f, 0.84f));
+        SetAnchors(worldInspectStats.rectTransform, new Vector2(0.06f, 0.44f), new Vector2(0.94f, 0.52f));
+        SetAnchors(worldInspectMeta.rectTransform, new Vector2(0.06f, 0.36f), new Vector2(0.94f, 0.43f));
+        SetAnchors(worldInspectDescription.rectTransform, new Vector2(0.06f, 0.18f), new Vector2(0.94f, 0.35f));
+        SetAnchors(worldInspectTags.rectTransform, new Vector2(0.06f, 0.09f), new Vector2(0.94f, 0.17f));
 
         worldInspectRoot.gameObject.SetActive(
             false);
@@ -1411,9 +1429,9 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         worldInspectRuntimeFrameStyle.fillColor =
             new Color(
-                0.028f,
-                0.030f,
-                0.036f,
+                0.03f,
+                0.03f,
+                0.03f,
                 0.985f);
 
         worldInspectRuntimeFrameStyle.outlineColor =
@@ -1478,6 +1496,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         worldInspectRuntimeFrameStyle.outlineColor =
             frameColor;
+        worldInspectDecoration?.SetEmphasis(selected, selected);
 
         worldInspectRuntimeTailStyle.outlineColor =
             frameColor;
@@ -1914,6 +1933,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             if (refreshStatic)
             {
                 RestoreChildLayout(card);
+                card.decoration?.SetEmphasis(selected || hovered, selected);
                 BattleEquipmentSO equipment = GetReward(card.index);
                 ConfigureBuiltInCardContent(card.rect, equipment, selected);
 
@@ -2043,7 +2063,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 SetAnchors(text.rectTransform, new Vector2(0.08f, 0.675f), new Vector2(0.92f, 0.72f));
             else if (itemName)
             {
-                SetAnchors(text.rectTransform, new Vector2(0.06f, 0.61f), new Vector2(0.94f, 0.675f));
+                SetAnchors(text.rectTransform, new Vector2(0.06f, 0.92f), new Vector2(0.94f, 0.98f));
                 text.fontSize = Mathf.Max(16, text.fontSize);
             }
             else if (itemType)
@@ -2061,21 +2081,21 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             inlineDetailRoot = CreateRect(selectedCardRect, "RewardSelectedInlineDetail", Vector2.zero);
 
             Text descriptionTitle = CreateText(inlineDetailRoot, "DESCRIPTION", 10, FontStyle.Bold, TextAnchor.MiddleLeft, muted);
-            SetAnchors(descriptionTitle.rectTransform, new Vector2(0f, 0.86f), new Vector2(1f, 1f));
+            SetAnchors(descriptionTitle.rectTransform, new Vector2(0f, 0.44f), new Vector2(1f, 0.56f));
 
             descriptionText = CreateText(inlineDetailRoot, string.Empty, 10, FontStyle.Normal, TextAnchor.UpperLeft, paper);
             descriptionText.horizontalOverflow = HorizontalWrapMode.Wrap;
             descriptionText.verticalOverflow = VerticalWrapMode.Truncate;
-            SetAnchors(descriptionText.rectTransform, new Vector2(0f, 0.58f), new Vector2(1f, 0.86f));
+            SetAnchors(descriptionText.rectTransform, new Vector2(0f, 0.15f), new Vector2(1f, 0.44f));
 
             Text effectsTitle = CreateText(inlineDetailRoot, "EFFECTS", 10, FontStyle.Bold, TextAnchor.MiddleLeft, muted);
-            SetAnchors(effectsTitle.rectTransform, new Vector2(0f, 0.48f), new Vector2(1f, 0.58f));
+            SetAnchors(effectsTitle.rectTransform, new Vector2(0f, 0.88f), new Vector2(1f, 1f));
 
             effectsText = CreateText(inlineDetailRoot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperLeft, paper);
             effectsText.horizontalOverflow = HorizontalWrapMode.Wrap;
             effectsText.verticalOverflow = VerticalWrapMode.Truncate;
             effectsText.lineSpacing = 1.08f;
-            SetAnchors(effectsText.rectTransform, new Vector2(0f, 0.15f), new Vector2(1f, 0.48f));
+            SetAnchors(effectsText.rectTransform, new Vector2(0f, 0.56f), new Vector2(1f, 0.88f));
 
             tagsText = CreateText(inlineDetailRoot, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleLeft, muted);
             tagsText.horizontalOverflow = HorizontalWrapMode.Wrap;
@@ -2136,7 +2156,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             outline.effectColor = selectAccent;
             outline.effectDistance = new Vector2(4f, -4f);
 
-            Text label = CreateText(decideRoot, "결정", 15, FontStyle.Bold, TextAnchor.MiddleCenter, paper);
+            Text label = CreateText(decideRoot, "선택됨 · 결정", 15, FontStyle.Bold, TextAnchor.MiddleCenter, paper);
             Stretch(label.rectTransform);
 
             decideButton = decideRoot.gameObject.AddComponent<Button>();

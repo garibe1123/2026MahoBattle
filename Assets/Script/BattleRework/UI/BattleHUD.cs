@@ -100,6 +100,8 @@ public sealed class BattleHUD : MonoBehaviour
         }
 
         instance = this;
+        accentColor = BattleUiPanelDecoration.Purple;
+        goldColor = BattleUiPanelDecoration.Yellow;
         EnsureCanvas();
     }
 
@@ -260,10 +262,13 @@ public sealed class BattleHUD : MonoBehaviour
         innerRect.anchorMin = innerRect.anchorMax = new Vector2(0.5f, 0.5f);
         innerRect.anchoredPosition = Vector2.zero;
 
-        Text title = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, Color.white);
+        inner.GetComponent<Image>().color = new Color(0.94f, 0.94f, 0.94f, 0.97f);
+        BattleUiPanelDecoration.Attach(screenRect, BattleUiPanelDecoration.Mint);
+        BattleUiPanelDecoration.Attach(innerRect, BattleUiPanelDecoration.Yellow, true);
+        Text title = CreateText(inner.transform, "CHOOSE YOUR PRIZE", 30, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.10f, 0.10f, 0.10f, 1f));
         SetAnchors(title.rectTransform, new Vector2(0.05f, 0.865f), new Vector2(0.72f, 0.96f));
 
-        Text subtitle = CreateText(inner.transform, "SELECT  •  CONFIRM", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.72f, 0.76f, 0.86f, 1f));
+        Text subtitle = CreateText(inner.transform, "SELECT  •  CONFIRM", 11, FontStyle.Bold, TextAnchor.MiddleLeft, new Color(0.30f, 0.30f, 0.30f, 1f));
         SetAnchors(subtitle.rectTransform, new Vector2(0.05f, 0.805f), new Vector2(0.72f, 0.86f));
 
         Text live = CreateText(inner.transform, "[ON LIVE]", 14, FontStyle.Bold, TextAnchor.MiddleRight, new Color(1f, 0.10f, 0.12f, 1f));
@@ -482,6 +487,7 @@ public sealed class BattleHUD : MonoBehaviour
         image.sprite = BattleHudSpriteCache.RoundedPanel;
         image.type = Image.Type.Sliced;
         image.color = color;
+        image.color = BattleUiPanelDecoration.Neutral(image.color);
         Outline outline = go.AddComponent<Outline>();
         outline.effectColor = new Color(1f, 1f, 1f, 0.10f);
         outline.effectDistance = new Vector2(2f, -2f);

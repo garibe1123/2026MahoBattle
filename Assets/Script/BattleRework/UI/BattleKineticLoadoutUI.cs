@@ -160,6 +160,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
+    private readonly BattleUiPanelDecoration[] slotDecorations = new BattleUiPanelDecoration[SlotCount];
     private readonly Outline[] slotOutlines = new Outline[SlotCount];
     private readonly Image[] slotIcons = new Image[SlotCount];
     private readonly GameObject[] slotEmptyStates = new GameObject[SlotCount];
@@ -198,6 +199,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Awake()
     {
+        inkColor = BattleUiPanelDecoration.Neutral(inkColor);
+        paperColor = BattleUiPanelDecoration.Neutral(paperColor);
+        lockedColor = BattleUiPanelDecoration.Neutral(lockedColor);
+        accentYellow = BattleUiPanelDecoration.Yellow;
+        accentCyan = BattleUiPanelDecoration.Mint;
+        accentPink = BattleUiPanelDecoration.Purple;
         ResolveReferences();
         EnsureUi();
     }
@@ -957,11 +964,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         compactRoot.anchorMin = compactRoot.anchorMax = new Vector2(1f, 0f);
         compactRoot.pivot = new Vector2(1f, 0f);
         compactRoot.anchoredPosition = new Vector2(-28f, 24f);
-        compactRoot.localRotation = Quaternion.Euler(0f, 0f, -2.5f);
+        compactRoot.localRotation = Quaternion.identity;
 
         Image back = compactRoot.gameObject.AddComponent<Image>();
         back.color = inkColor;
         back.raycastTarget = false;
+        BattleUiPanelDecoration.Round(back);
+        BattleUiPanelDecoration.Attach(compactRoot, accentCyan, false, false);
         Outline outline = compactRoot.gameObject.AddComponent<Outline>();
         outline.effectColor = accentCyan;
         outline.effectDistance = new Vector2(4f, -4f);
@@ -1046,6 +1055,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailBack.raycastTarget = false;
 
         BuildDetailBubbleVisual();
+        BattleUiPanelDecoration.Attach(detailRoot, accentCyan);
 
         detailVisualViewport =
             CreateRect(
@@ -1098,15 +1108,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 accentCyan);
 
         detailTitle = CreateText(detailRoot, "EMPTY", 24, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.505f), new Vector2(0.94f, 0.595f));
+        SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.86f), new Vector2(0.94f, 0.97f));
+        SetAnchors(detailVisualViewport, new Vector2(0.06f, 0.52f), new Vector2(0.94f, 0.84f));
 
         detailDescription = CreateText(detailRoot, "NO DESCRIPTION", 14, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
-        SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.295f), new Vector2(0.94f, 0.495f));
+        SetAnchors(detailDescription.rectTransform, new Vector2(0.06f, 0.20f), new Vector2(0.94f, 0.39f));
         detailDescription.horizontalOverflow = HorizontalWrapMode.Wrap;
         detailDescription.verticalOverflow = VerticalWrapMode.Truncate;
 
         detailTags = CreateText(detailRoot, "—", 12, FontStyle.Bold, TextAnchor.UpperLeft, accentCyan);
-        SetAnchors(detailTags.rectTransform, new Vector2(0.06f, 0.18f), new Vector2(0.94f, 0.275f));
+        SetAnchors(detailTags.rectTransform, new Vector2(0.06f, 0.40f), new Vector2(0.94f, 0.50f));
 
         synergySummary = CreateText(detailRoot, "GRID LINK 0", 11, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
         SetAnchors(synergySummary.rectTransform, new Vector2(0.06f, 0.045f), new Vector2(0.94f, 0.17f));
@@ -1300,7 +1311,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardGroup = boardRoot.gameObject.AddComponent<CanvasGroup>();
         boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
         boardRoot.anchoredPosition = Vector2.zero;
-        boardRoot.localRotation = Quaternion.Euler(3.5f, -6f, -1.2f);
+        boardRoot.localRotation = Quaternion.identity;
         Vector3 boardInitial = boardRoot.localPosition;
         boardInitial.z = 34f;
         boardRoot.localPosition = boardInitial;
@@ -1310,9 +1321,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         Image boardBackImage = boardBack.gameObject.AddComponent<Image>();
         boardBackImage.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
         boardBackImage.raycastTarget = true;
+        BattleUiPanelDecoration.Round(boardBackImage);
+        BattleUiPanelDecoration.Attach(boardBack, accentCyan);
         Outline boardOutline = boardBack.gameObject.AddComponent<Outline>();
         boardOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.42f);
         boardOutline.effectDistance = new Vector2(3f, -3f);
+
+        Text boardTitle = CreateText(boardRoot, "LOADOUT", 22, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+        boardTitle.rectTransform.anchorMin = boardTitle.rectTransform.anchorMax = new Vector2(0f, 1f);
+        boardTitle.rectTransform.pivot = Vector2.zero;
+        boardTitle.rectTransform.anchoredPosition = new Vector2(18f, 6f);
+        boardTitle.rectTransform.sizeDelta = new Vector2(300f, 30f);
 
         BattlePackFocusPointerRelay packFocusRelay =
             boardRoot.gameObject.AddComponent<BattlePackFocusPointerRelay>();
@@ -1334,12 +1353,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             RectTransform slot = CreateRect(boardRoot, $"GridSlot_{i}", new Vector2(cellSize, cellSize));
             slot.anchorMin = slot.anchorMax = new Vector2(0.5f, 0.5f);
             slot.anchoredPosition = new Vector2(left + x * (cellSize + spacing), top - y * (cellSize + spacing));
-            slot.localRotation = Quaternion.Euler(0f, 0f, ((i % 3) - 1) * 1.4f);
+            slot.localRotation = Quaternion.identity;
             slotRects[i] = slot;
 
             Image background = slot.gameObject.AddComponent<Image>();
             background.color = inkColor;
             background.raycastTarget = true;
+            BattleUiPanelDecoration.Round(background);
+            slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
             slotBackgrounds[i] = background;
 
             BattleLoadoutGridPointerTarget target = slot.gameObject.AddComponent<BattleLoadoutGridPointerTarget>();
@@ -1468,9 +1489,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 slotBackgrounds[i].color = !unlocked
                     ? lockedColor
                     : isSelected
-                        ? new Color(accentCyan.r * 0.18f, accentCyan.g * 0.18f, accentCyan.b * 0.18f, 0.99f)
+                        ? new Color(0.19f, 0.19f, 0.19f, 0.99f)
                         : isEquipped
-                            ? new Color(accentCyan.r * 0.10f, accentCyan.g * 0.10f, accentCyan.b * 0.10f, 0.99f)
+                            ? new Color(0.12f, 0.12f, 0.12f, 0.99f)
                             : new Color(inkColor.r, inkColor.g, inkColor.b, 0.98f);
             }
 
@@ -2453,9 +2474,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             fullRoot.localPosition = local;
 
             Quaternion targetRotation = Quaternion.Euler(
-                morphVisible ? 0.6f : 3.5f,
-                morphVisible ? -1.4f : -5.5f,
-                morphVisible ? -0.35f : -1.2f);
+                0f, 0f, 0f);
             fullRoot.localRotation = Quaternion.Slerp(fullRoot.localRotation, targetRotation, t);
         }
 
@@ -2478,9 +2497,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             compactRoot.localPosition = local;
 
             Quaternion targetRotation = Quaternion.Euler(
-                compactActive ? 0.4f : wantFull ? 0.2f : 2.2f,
-                compactActive ? -1.6f : wantFull ? -0.6f : -4.8f,
-                compactActive ? -1.4f : wantFull ? -0.2f : -2.4f);
+                0f, 0f, 0f);
             compactRoot.localRotation = Quaternion.Slerp(compactRoot.localRotation, targetRotation, t);
         }
 
@@ -2502,10 +2519,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     : packRestOffset;
 
             float packScale = packFocused
-                ? 1.075f
+                ? 1f
                 : packSuppressed
-                    ? 0.76f
-                    : Mathf.Lerp(0.88f, 0.92f, morph);
+                    ? 0.90f
+                    : 1f;
 
             boardRoot.anchoredPosition = Vector2.Lerp(
                 boardRoot.anchoredPosition,
@@ -2513,11 +2530,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 t);
             boardRoot.localRotation = Quaternion.Slerp(
                 boardRoot.localRotation,
-                packFocused
-                    ? Quaternion.Euler(0.1f, -0.4f, -0.08f)
-                    : packSuppressed
-                        ? Quaternion.Euler(3.4f, -7.0f, -1.2f)
-                        : Quaternion.Euler(1.1f, -2.6f, -0.55f),
+                Quaternion.identity,
                 t);
 
             Vector3 local = boardRoot.localPosition;
@@ -2621,8 +2634,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 bool selected = wantFull && i == selectedIndex;
                 bool hovered = wantFull && i == hoveredSlot;
                 bool equippedSlot = i == equipped;
-                Vector2Int grid = BattleEquipmentSystem.SlotIndexToGrid(i);
-                float side = grid.x - 1f;
+                slotDecorations[i]?.SetEmphasis(hovered || selected, selected);
 
                 float targetZ = !wantFull
                     ? 12f
@@ -2638,28 +2650,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 local.z = Mathf.Lerp(local.z, targetZ, t);
                 slot.localPosition = local;
 
-                Quaternion targetRotation = !wantFull
-                    ? Quaternion.Euler(3.2f, -side * 5.5f, side * 1.4f)
-                    : hovered
-                        ? Quaternion.Euler(-0.35f, side * 0.35f, -side * 0.12f)
-                        : selected
-                            ? Quaternion.identity
-                            : equippedSlot
-                                ? Quaternion.Euler(0.5f, -side * 1.2f, side * 0.25f)
-                                : Quaternion.Euler(
-                                    unlocked ? 1.4f : 2.8f,
-                                    -side * (unlocked ? 3.0f : 5.0f),
-                                    side * (unlocked ? 0.7f : 1.2f));
+                Quaternion targetRotation = Quaternion.identity;
 
                 slot.localRotation = Quaternion.Slerp(slot.localRotation, targetRotation, t);
 
-                float targetScale = !wantFull
-                    ? 0.97f
-                    : hovered
-                        ? 1.115f
-                        : selected
-                            ? 1.06f
-                            : equippedSlot ? 1.025f : unlocked ? 1f : 0.985f;
+                float targetScale = 1f;
 
                 slot.localScale = Vector3.Lerp(
                     slot.localScale,

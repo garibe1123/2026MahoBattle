@@ -28,8 +28,8 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
     [Header("CURSOR TILT")]
     [SerializeField] private bool enableSpatialUi = true;
-    [SerializeField, Range(0f, 24f)] private float maxTiltX = 14.0f;
-    [SerializeField, Range(0f, 24f)] private float maxTiltY = 16.0f;
+    [SerializeField, Range(0f, 24f)] private float maxTiltX = 0.8f;
+    [SerializeField, Range(0f, 24f)] private float maxTiltY = 1.2f;
     [SerializeField, Range(1f, 30f)] private float tiltSharpness = 12f;
     [SerializeField, Range(0f, 1f)] private float focusedTiltStrength = 1f;
     [SerializeField, Range(0f, 1f)] private float restTiltStrength = 0.80f;
@@ -48,14 +48,14 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float combatCursorTiltWeight = 0.10f;
 
     [Tooltip("화면 위/아래에 있는 HUD가 Screen Center 쪽을 바라보게 만드는 기본 X축 기울기입니다.")]
-    [SerializeField, Range(0f, 16f)] private float centerGatherTiltX = 6.0f;
+    [SerializeField, Range(0f, 16f)] private float centerGatherTiltX = 0.3f;
 
     [Tooltip("화면 좌/우에 있는 HUD가 Screen Center 쪽을 바라보게 만드는 기본 Y축 기울기입니다.")]
-    [SerializeField, Range(0f, 20f)] private float centerGatherTiltY = 10.0f;
+    [SerializeField, Range(0f, 20f)] private float centerGatherTiltY = 0.5f;
 
     [Header("DEPTH")]
     [Tooltip("Depth Score 1당 RectTransform Z 이동량입니다. 현재 Battle UI 관례대로 음수 Z가 앞으로 옵니다.")]
-    [SerializeField, Min(1f)] private float zStep = 18f;
+    [SerializeField, Min(1f)] private float zStep = 6f;
     [SerializeField, Range(1f, 30f)] private float depthSharpness = 13f;
     [SerializeField] private int spatialSortingBase = 3200;
     [SerializeField, Range(1, 32)] private int sortingStep = 12;
@@ -841,9 +841,9 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
             float targetZ =
                 -score *
-                Mathf.Max(
-                    1f,
-                    zStep);
+                Mathf.Clamp(
+                    zStep,
+                    1f, 6f);
 
             int sorting =
                 spatialSortingBase +
@@ -1211,9 +1211,9 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
         // 위/아래도 같은 원리로 X축을 사용해 중앙으로 살짝 모읍니다.
         return new Vector2(
             centerNormalized.y *
-            centerGatherTiltX,
+            Mathf.Clamp(centerGatherTiltX, 0f, 0.3f),
             -centerNormalized.x *
-            centerGatherTiltY);
+            Mathf.Clamp(centerGatherTiltY, 0f, 0.5f));
     }
 
     private Vector2 ResolveNormalizedPointer()
@@ -1300,10 +1300,10 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
         return new Vector2(
             -normalizedPointer.y *
-            maxTiltX *
+            Mathf.Clamp(maxTiltX, 0f, 0.8f) *
             safeStrength,
             normalizedPointer.x *
-            maxTiltY *
+            Mathf.Clamp(maxTiltY, 0f, 1.2f) *
             safeStrength);
     }
 

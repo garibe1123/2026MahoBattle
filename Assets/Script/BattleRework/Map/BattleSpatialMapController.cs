@@ -57,16 +57,16 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     [Header("Script Selection Cards")]
     [SerializeField] private Vector2 scriptCardSize = new(218f, 302f);
     [SerializeField, Range(24f, 120f)] private float scriptCardGap = 52f;
-    [SerializeField, Range(0f, 24f)] private float scriptIdleFloatPixels = 7f;
+    [SerializeField, Range(0f, 24f)] private float scriptIdleFloatPixels = 0f;
     [SerializeField, Range(0.03f, 0.40f)] private float scriptIdleCyclesPerSecond = 0.10f;
-    [SerializeField, Range(1f, 24f)] private float scriptHoverLiftPixels = 10f;
-    [SerializeField, Range(1f, 1.20f)] private float scriptHoverScale = 1.08f;
+    [SerializeField, Range(0f, 24f)] private float scriptHoverLiftPixels = 0f;
+    [SerializeField, Range(1f, 1.20f)] private float scriptHoverScale = 1f;
     [Tooltip("3D Y축 회전 대신 UI 메쉬를 사선으로 밀어 아이소 느낌을 냅니다. 카메라 방향 깊이는 전혀 바꾸지 않습니다.")]
-    [SerializeField, Range(0f, 24f)] private float scriptHoverShearPixels = 11f;
-    [SerializeField, Range(0f, 10f)] private float scriptPaperWavePixels = 4.2f;
-    [SerializeField, Range(0.05f, 1.2f)] private float scriptPaperWaveCyclesPerSecond = 0.38f;
+    [SerializeField, Range(0f, 24f)] private float scriptHoverShearPixels = 0f;
+    [SerializeField, Range(0f, 10f)] private float scriptPaperWavePixels = 1f;
+    [SerializeField, Range(0.05f, 1.2f)] private float scriptPaperWaveCyclesPerSecond = 0.10f;
     [SerializeField, Range(0f, 1f)] private float scriptIdleWaveStrength = 0.24f;
-    [SerializeField, Range(0f, 2f)] private float scriptHoverRollDegrees = 0.65f;
+    [SerializeField, Range(0f, 2f)] private float scriptHoverRollDegrees = 0f;
 
     [Header("Script Page Turn")]
     [SerializeField, Range(0.30f, 0.80f)] private float scriptPageTurnDuration = 0.46f;
@@ -188,6 +188,13 @@ public sealed class BattleSpatialMapController : MonoBehaviour
 
     private void OnEnable()
     {
+        // Apply at runtime too: existing scenes retain their serialized presentation values.
+        scriptPaperTint = BattleUiPanelDecoration.Neutral(scriptPaperTint);
+        scriptInkColor = BattleUiPanelDecoration.Neutral(scriptInkColor);
+        scriptStackRandomOffsetPixels = Mathf.Min(scriptStackRandomOffsetPixels, 1.5f);
+        scriptStackRandomRollDegrees = Mathf.Min(scriptStackRandomRollDegrees, 0.2f);
+        scriptDetailBaseRollDegrees = 0f;
+        scriptCoverBaseRollDegrees = 0f;
         StartCoroutine(BindWhenReady());
     }
 
@@ -1216,8 +1223,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         Vector2 basePosition =
             new(
                 offsetIndex * spacing,
-                -28f -
-                Mathf.Abs(offsetIndex) * 7f);
+                -28f);
 
         GameObject rootObject =
             new(
@@ -1289,15 +1295,15 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 "ScriptStageBase",
                 BattleHudSpriteCache.RoundedPanel,
                 new Vector2(
-                    scriptCardSize.x * 0.82f,
-                    48f),
+                    scriptCardSize.x + 16f,
+                    scriptCardSize.y + 14f),
                 new Vector2(
                     0f,
-                    -scriptCardSize.y * 0.46f),
+                    -4f),
                 new Color(
-                    0.055f,
-                    0.050f,
-                    0.045f,
+                    0.12f,
+                    0.12f,
+                    0.12f,
                     0.94f));
 
         RectTransform lightPool =
@@ -1402,8 +1408,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 visualRoot,
                 "PaperShadow",
                 new Color(0f, 0f, 0f, 0.28f),
-                new Vector2(11f, -13f),
-                -0.6f);
+                new Vector2(4f, -5f),
+                0f);
 
         float cameraSide =
             ResolveScriptCameraFacingSide(
@@ -1506,12 +1512,6 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                 visualRoot,
                 paperStack.Length);
 
-        float detailRandomRoll =
-            ScriptSigned01(
-                scriptSeed,
-                139) *
-            0.65f;
-
         RectTransform detail =
             CreateScriptPage(
                 visualRoot,
@@ -1521,10 +1521,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     Color.white,
                     0.035f),
                 new Vector2(
-                    1.8f +
-                    ScriptSigned01(scriptSeed, 149) * 2.4f,
-                    -1.6f +
-                    ScriptSigned01(scriptSeed, 151) * 1.8f),
+                    0f,
+                    0f),
                 0f);
 
         SetScriptPage3DTransform(
@@ -1536,8 +1534,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             new Vector3(
                 0f,
                 0f,
-                scriptDetailBaseRollDegrees +
-                detailRandomRoll));
+                scriptDetailBaseRollDegrees));
 
         CanvasGroup detailGroup =
             detail.gameObject.AddComponent<CanvasGroup>();
@@ -1733,6 +1730,9 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         BattleScriptCardVisual visual =
             rootObject.AddComponent<BattleScriptCardVisual>();
 
+        visual.ConfigureDecoration(
+            BattleUiPanelDecoration.Attach(front, accent, true),
+            BattleUiPanelDecoration.Attach(detail, accent, true));
         visual.Configure(
             hoverPoseRoot,
             visualRoot,
@@ -2059,10 +2059,10 @@ public sealed class BattleSpatialMapController : MonoBehaviour
             page.AddComponent<Image>();
 
         image.sprite =
-            GetScriptPaperSprite();
+            BattleHudSpriteCache.RoundedPanel;
 
         image.type =
-            Image.Type.Simple;
+            Image.Type.Sliced;
 
         image.color =
             color;
@@ -3118,7 +3118,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         return scriptSpotlightBeamSprite;
     }
 
-    private static Sprite GetScriptPaperSprite()
+    internal static Sprite GetScriptPaperSprite()
     {
         if (scriptPaperSprite != null)
             return scriptPaperSprite;
@@ -3163,6 +3163,11 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                         edge /
                         2.5f);
 
+                float radius = (x < width / 2) == (y >= height / 2) ? 10.5f : 6.3f;
+                float cornerX = Mathf.Max(radius - x, x - (width - 1f - radius), 0f);
+                float cornerY = Mathf.Max(radius - y, y - (height - 1f - radius), 0f);
+                alpha *= Mathf.Clamp01(radius + 0.5f - Mathf.Sqrt(cornerX * cornerX + cornerY * cornerY));
+
                 float grain =
                     Mathf.PerlinNoise(
                         x * 0.16f + 1.7f,
@@ -3179,8 +3184,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
                     x] =
                     new Color(
                         value,
-                        value * 0.985f,
-                        value * 0.94f,
+                        value,
+                        value,
                         alpha);
             }
         }
@@ -4273,6 +4278,14 @@ internal sealed class BattleScriptCardVisual :
     private Image stageBaseImage;
     private Image lightPoolImage;
     private Image lightBeamImage;
+    private BattleUiPanelDecoration coverDecoration;
+    private BattleUiPanelDecoration detailDecoration;
+
+    public void ConfigureDecoration(BattleUiPanelDecoration cover, BattleUiPanelDecoration detail)
+    {
+        coverDecoration = cover;
+        detailDecoration = detail;
+    }
 
     private Vector2 baseStagePosition;
     private Vector2 basePoolPosition;
@@ -4481,31 +4494,19 @@ internal sealed class BattleScriptCardVisual :
         }
 
         phase = idlePhase;
-        idleFloatPixels = Mathf.Max(0f, floatPixels);
+        idleFloatPixels = 0f;
         idleCyclesPerSecond = Mathf.Max(0.01f, floatCycles);
-        hoverLiftPixels = Mathf.Max(0f, hoverLift);
-        hoverScale = Mathf.Max(1f, selectedHoverScale);
-        hoverShearPixels = hoverShear;
-        hoverRollDegrees = hoverRoll;
-        paperWavePixels = Mathf.Max(0f, wavePixels);
-        paperWaveCyclesPerSecond = Mathf.Max(0.01f, waveCycles);
+        hoverLiftPixels = 0f;
+        hoverScale = 1f;
+        hoverShearPixels = 0f;
+        hoverRollDegrees = 0f;
+        paperWavePixels = Mathf.Clamp(wavePixels, 0f, 1f);
+        paperWaveCyclesPerSecond = Mathf.Clamp(waveCycles, 0.01f, 0.12f);
         idleWaveStrength = Mathf.Clamp01(idleWave);
         pageTurnDuration = Mathf.Max(0.38f, turnDuration);
         pageReturnDuration = Mathf.Max(0.28f, returnDuration);
-        hoverPoseEuler =
-            new Vector3(
-                0f,
-                0f,
-                Mathf.Clamp(
-                    poseEuler.z,
-                    -5f,
-                    5f));
-
-        hoverPoseDepth =
-            Mathf.Clamp(
-                poseDepth,
-                -0.35f,
-                0.35f);
+        hoverPoseEuler = Vector3.zero;
+        hoverPoseDepth = 0f;
         hoverPoseResponse = Mathf.Max(2f, poseResponse);
         accentColor = accent;
 
@@ -4744,7 +4745,7 @@ internal sealed class BattleScriptCardVisual :
                 pointerT);
 
         UpdateUnderlyingPageTracking(
-            pointerCurrent,
+            Vector2.zero,
             hovered,
             selected,
             dt);
@@ -4773,19 +4774,19 @@ internal sealed class BattleScriptCardVisual :
             Mathf.Sin(
                 idlePhase * 0.61f +
                 0.8f) *
-            0.32f;
+            0f;
 
         float targetScale =
             confirming
-                ? hoverScale * 1.075f
+                ? hoverScale
                 : selected
-                    ? hoverScale * 1.015f
+                    ? hoverScale
                     : hovered
                         ? hoverScale
                         : confirmSuppressed
-                            ? 0.955f
+                            ? 1f
                             : suppressed
-                                ? 0.975f
+                                ? 1f
                                 : 1f;
 
         float targetY =
@@ -4841,6 +4842,8 @@ internal sealed class BattleScriptCardVisual :
             hovered,
             selected,
             dt);
+        coverDecoration?.SetEmphasis(hovered || selected, selected);
+        detailDecoration?.SetEmphasis(hovered || selected, selected);
 
         float targetAlpha =
             confirming ||
@@ -5421,6 +5424,7 @@ internal sealed class BattleScriptCardVisual :
         List<BattleScriptPaperWaveEffect> effects =
             new();
 
+        AddPaperWaveEffects(frontPage, effects, false, 0.34f, 0f, 0.68f);
         AddPaperWaveEffects(
             detailPage,
             effects,
@@ -5523,7 +5527,8 @@ internal sealed class BattleScriptCardVisual :
             Graphic graphic =
                 graphics[i];
 
-            if (graphic == null)
+            if (graphic == null ||
+                (graphic.transform != pageRoot && !(graphic is BattleUiPanelDecoration)))
                 continue;
 
             BattleScriptPaperWaveEffect effect =
@@ -6033,13 +6038,13 @@ internal sealed class BattleScriptTurningPageMesh :
             backDepth;
 
         maxPitchDegrees =
-            Mathf.Max(0f, pitchDegrees);
+            Mathf.Clamp(pitchDegrees, 0f, 0.5f);
 
         maxYawDegrees =
-            Mathf.Max(0f, yawDegrees);
+            Mathf.Clamp(yawDegrees, 0f, 0.5f);
 
         maxRollDegrees =
-            Mathf.Max(0f, rollDegrees);
+            Mathf.Clamp(rollDegrees, 0f, 0.2f);
 
         poseResponse =
             Mathf.Max(2f, response);
@@ -6146,7 +6151,7 @@ internal sealed class BattleScriptTurningPageMesh :
                 };
 
             material.mainTexture =
-                Texture2D.whiteTexture;
+                BattleSpatialMapController.GetScriptPaperSprite().texture;
 
             material.color =
                 Color.white;
@@ -6767,6 +6772,10 @@ internal sealed class BattleScriptPaperWaveEffect :
         float shear,
         float wavePhase)
     {
+        if (graphic == null || graphic.canvasRenderer.cull ||
+            graphic.canvasRenderer.GetInheritedAlpha() <= 0.01f)
+            return;
+
         amplitudePixels =
             Mathf.Max(
                 0f,
