@@ -1,0 +1,104 @@
+diff --git a/Assets/Script/BattleRework/Presentation/BattleUniversalStageDecorCarrierSkinController.cs b/Assets/Script/BattleRework/Presentation/BattleUniversalStageDecorCarrierSkinController.cs
+index b4a61f3..91a1e99 100644
+--- a/Assets/Script/BattleRework/Presentation/BattleUniversalStageDecorCarrierSkinController.cs
++++ b/Assets/Script/BattleRework/Presentation/BattleUniversalStageDecorCarrierSkinController.cs
+@@ -1134,8 +1134,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
+             renderer.flipX = part.FlipX ^ mirrorVisualHorizontally;
+             renderer.sharedMaterial = floorReference.sharedMaterial;
+             renderer.sortingLayerID = floorReference.sortingLayerID;
+-            renderer.sortingOrder = Mathf.Clamp(Mathf.Max(floorSorting, BattleWorldSorting.ActorMinOrder) +
+-                part.SortingOffset, BattleWorldSorting.ActorMinOrder, BattleWorldSorting.ActorMaxOrder);
++            BattleWorldSortAnchor.Ensure(partObject).SetLocalSortOffset(part.SortingOffset);
+             WorldLight.Attach(renderer);
+             if (part.AddLight2D)
+             {
+diff --git a/Assets/Script/BattleRework/Presentation/BattleWorldSortAnchor.cs b/Assets/Script/BattleRework/Presentation/BattleWorldSortAnchor.cs
+index bb9c892..70f7deb 100644
+--- a/Assets/Script/BattleRework/Presentation/BattleWorldSortAnchor.cs
++++ b/Assets/Script/BattleRework/Presentation/BattleWorldSortAnchor.cs
+@@ -62,6 +62,11 @@ public sealed class BattleWorldSortAnchor : MonoBehaviour
+         ApplySorting(false);
+     }
+ 
++    private void OnTransformChildrenChanged()
++    {
++        ResolveTargets();
++    }
++
+     private void OnValidate()
+     {
+         ResolveTargets();
+@@ -94,6 +99,7 @@ public sealed class BattleWorldSortAnchor : MonoBehaviour
+ 
+     public void ApplySortingNow()
+     {
++        ResolveTargets();
+         ApplySorting(true);
+     }
+ 
+@@ -135,7 +141,6 @@ public sealed class BattleWorldSortAnchor : MonoBehaviour
+ 
+     private void ApplySorting(bool force)
+     {
+-        ResolveTargets();
+         CaptureSpriteBottomIfNeeded(false);
+ 
+         if (sortingGroup == null && referenceRenderer == null)
+diff --git a/Assets/Script/BattleRework/Presentation/BattleDecorReadabilityController.cs b/Assets/Script/BattleRework/Presentation/BattleDecorReadabilityController.cs
+index 06a7f65..5e9c0bc 100644
+--- a/Assets/Script/BattleRework/Presentation/BattleDecorReadabilityController.cs
++++ b/Assets/Script/BattleRework/Presentation/BattleDecorReadabilityController.cs
+@@ -221,6 +219,7 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
+         spriteTargets.Clear();
+         lightTargets.Clear();
+ 
++        Light2D[] lights = GetComponentsInChildren<Light2D>(true);
+         SpriteRenderer[] renderers = GetComponentsInChildren<SpriteRenderer>(true);
+         for (int i = 0; i < renderers.Length; i++)
+         {
+@@ -233,11 +232,10 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
+                 renderer = renderer,
+                 baseColor = renderer.color,
+                 kind = kind,
+-                hasConnectedLight = kind == VisualKind.Part && HasConnectedLight(renderer.transform)
++                hasConnectedLight = kind == VisualKind.Part && HasConnectedLight(renderer, lights)
+             });
+         }
+ 
+-        Light2D[] lights = GetComponentsInChildren<Light2D>(true);
+         for (int i = 0; i < lights.Length; i++)
+         {
+             Light2D light = lights[i];
+@@ -298,13 +296,29 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
+         return false;
+     }
+ 
+-    private static bool HasConnectedLight(Transform source)
++    private static bool HasConnectedLight(SpriteRenderer source, Light2D[] lights)
+     {
+         if (source == null)
+             return false;
+ 
+-        Light2D connected = source.GetComponentInChildren<Light2D>(true);
+-        return connected != null;
++        for (int i = 0; i < lights.Length; i++)
++        {
++            Light2D light = lights[i];
++            if (light == null)
++                continue;
++            if (light.transform.IsChildOf(source.transform))
++                return true;
++            if (!light.enabled || light.intensity <= 0f || !IsStandaloneDecorLight(light.transform) ||
++                light.transform.parent != source.transform.parent)
++                continue;
++
++            Vector2 position = light.transform.position;
++            Vector2 closest = source.bounds.ClosestPoint(light.transform.position);
++            float radius = Mathf.Max(0.01f, light.pointLightInnerRadius);
++            if ((position - closest).sqrMagnitude <= radius * radius)
++                return true;
++        }
++        return false;
+     }
+ 
+     private static bool IsStandaloneDecorLight(Transform lightTransform)

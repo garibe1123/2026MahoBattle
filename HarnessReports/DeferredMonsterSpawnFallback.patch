@@ -1,0 +1,85 @@
+diff --git a/Assets/Script/BattleRework/Battle/BattleRoomManager.cs b/Assets/Script/BattleRework/Battle/BattleRoomManager.cs
+index b1b7648..1bb09f4 100644
+--- a/Assets/Script/BattleRework/Battle/BattleRoomManager.cs
++++ b/Assets/Script/BattleRework/Battle/BattleRoomManager.cs
+@@ -677,6 +677,9 @@ public class BattleRoomManager : MonoBehaviour
+ 
+         int requestedCount = 0;
+         int spawnedCount = 0;
++        float fallbackSampleRadius = room.useProceduralRoom
++            ? ((Vector2)room.GetProceduralMaxTileSize()).magnitude * RoomDefinitionSO.ProceduralTileWorldSize
++            : 0f;
+ 
+         for (int i = 0; i < room.monsterSpawns.Count; i++)
+         {
+@@ -700,7 +703,8 @@ public class BattleRoomManager : MonoBehaviour
+                     currentContext,
+                     playerTarget,
+                     HandleMonsterDeathCompleted,
+-                    HandleMonsterDeathStarted);
++                    HandleMonsterDeathStarted,
++                    fallbackSampleRadius);
+ 
+                 if (monster == null)
+                 {
+diff --git a/Assets/Script/BattleRework/Monster/MonsterPool.cs b/Assets/Script/BattleRework/Monster/MonsterPool.cs
+index 4e99a77..b69abaa 100644
+--- a/Assets/Script/BattleRework/Monster/MonsterPool.cs
++++ b/Assets/Script/BattleRework/Monster/MonsterPool.cs
+@@ -144,7 +144,8 @@ public class MonsterPool : MonoBehaviour
+         BattleContext context,
+         Transform playerTarget,
+         Action<MonsterController> onDeath,
+-        Action<MonsterController> onDeathStarted = null)
++        Action<MonsterController> onDeathStarted = null,
++        float fallbackSampleRadius = 0f)
+     {
+         if (definition == null)
+         {
+@@ -169,6 +170,7 @@ public class MonsterPool : MonoBehaviour
+                 requestedPosition,
+                 playerTarget.position,
+                 definition.moveType,
++                fallbackSampleRadius,
+                 out Vector3 spawnPosition))
+         {
+             Debug.LogError(
+@@ -410,6 +412,7 @@ public class MonsterPool : MonoBehaviour
+         Vector3 requestedPosition,
+         Vector3 playerPosition,
+         MonsterMoveType moveType,
++        float fallbackSampleRadius,
+         out Vector3 resolved)
+     {
+         resolved = requestedPosition;
+@@ -430,9 +433,12 @@ public class MonsterPool : MonoBehaviour
+         }
+ 
+         int attempts = Mathf.Max(1, reachableSpawnRetryCount + 1);
+-        for (int i = 0; i < attempts; i++)
++        bool hasFallback = fallbackSampleRadius > navMeshSampleRadius;
++        int totalAttempts = attempts + (hasFallback ? 1 : 0);
++        for (int i = 0; i < totalAttempts; i++)
+         {
+-            Vector2 jitter = i == 0 || retryScatterRadius <= 0f
++            bool fallback = hasFallback && i == attempts;
++            Vector2 jitter = i == 0 || fallback || retryScatterRadius <= 0f
+                 ? Vector2.zero
+                 : UnityEngine.Random.insideUnitCircle * retryScatterRadius;
+ 
+@@ -440,7 +446,7 @@ public class MonsterPool : MonoBehaviour
+             if (!NavMesh.SamplePosition(
+                     candidate,
+                     out NavMeshHit spawnHit,
+-                    Mathf.Max(navMeshSampleRadius, 0.1f),
++                    Mathf.Max(fallback ? fallbackSampleRadius : navMeshSampleRadius, 0.1f),
+                     NavMesh.AllAreas))
+             {
+                 continue;
+@@ -632,4 +638,4 @@ internal static class MonsterSpawnRuntimeSpriteCache
+         sprite.hideFlags = HideFlags.HideAndDontSave;
+         return sprite;
+     }
+-}
+\ No newline at end of file
++}

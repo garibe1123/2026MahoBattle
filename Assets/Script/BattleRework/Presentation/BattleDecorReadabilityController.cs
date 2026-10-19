@@ -161,8 +161,6 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
     private void LateUpdate()
     {
         if (decorOwner == null)
-            decorOwner = GetComponent<BattleUniversalStageDecorCarrierSkinController>();
-        if (decorOwner == null)
             return;
 
         if (runManager == null && Time.unscaledTime >= nextRunManagerResolveAt)
