@@ -22,6 +22,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private const int AnalogOverlaySortingOrder = 430;
 
     private Camera targetCamera;
+    private UniversalAdditionalCameraData cameraData;
     private Volume volume;
     private VolumeProfile runtimeProfile;
 
@@ -47,6 +48,14 @@ public sealed class BattleColorGradingController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float defaultReactionDuration = 0.18f;
 
     private BattleLightingProfileSO lightingProfile;
+    private BattleLightingProfileSO previewProfile;
+    private bool previewEnabled;
+
+    public BattleLightingProfileSO SourceLightingProfile => lightingProfile;
+    public BattleLightingProfileSO PreviewProfile => previewProfile;
+    public Camera TargetCamera => targetCamera;
+    public int CameraVolumeMask => cameraData != null ? cameraData.volumeLayerMask.value : 0;
+    public bool PreviewEnabled => previewEnabled;
     private float currentWeight;
     private float targetWeight;
     private bool combatMode;
@@ -63,8 +72,11 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
     public void Configure(Camera camera, BattleLightingProfileSO profile)
     {
-        if (camera != null)
+        if (camera != null && targetCamera != camera)
+        {
             targetCamera = camera;
+            cameraData = null;
+        }
 
         EnsureVolume();
         EnsureAnalogOverlay();
@@ -124,9 +136,55 @@ public sealed class BattleColorGradingController : MonoBehaviour
         filmGrain.intensity.Override(profile.filmGrainIntensity);
         filmGrain.response.Override(profile.filmGrainResponse);
 
+        if (previewEnabled && previewProfile != null)
+        {
+            splitToning.shadows.Override(previewProfile.splitShadows);
+            splitToning.highlights.Override(previewProfile.splitHighlights);
+            splitToning.balance.Override(previewProfile.splitBalance);
+            bloom.threshold.Override(previewProfile.bloomThreshold);
+            bloom.scatter.Override(previewProfile.bloomScatter);
+            bloom.tint.Override(previewProfile.bloomTint);
+        }
+
         ApplyDynamicOverrides();
         ApplyAnalogMaterialParameters();
         RefreshTargetWeight();
+    }
+
+    public void SetPreviewEnabled(bool enabled)
+    {
+        if (!Application.isPlaying || lightingProfile == null)
+            return;
+
+        if (enabled && previewProfile == null)
+            ResetPreview();
+        previewEnabled = enabled;
+        RefreshPreview();
+    }
+
+    public void ResetPreview()
+    {
+        if (!Application.isPlaying || lightingProfile == null)
+            return;
+
+        if (previewProfile != null)
+            Destroy(previewProfile);
+        previewProfile = Instantiate(lightingProfile);
+        previewProfile.name = "BattleLightingProfile_ColorPreview";
+        previewProfile.hideFlags = HideFlags.HideAndDontSave;
+        previewProfile.splitShadows = new Color(0.40f, 0.46f, 0.60f, 1f);
+        previewProfile.splitHighlights = new Color(0.60f, 0.55f, 0.43f, 1f);
+        previewProfile.splitBalance = 0f;
+        previewProfile.bloomIntensity = 0.25f;
+        previewProfile.bloomThreshold = 0.95f;
+        previewProfile.bloomScatter = 0.52f;
+        RefreshPreview();
+    }
+
+    public void RefreshPreview()
+    {
+        if (Application.isPlaying && lightingProfile != null)
+            ApplyProfile(lightingProfile);
     }
 
     public void SetLastKillEmphasis(float amount)
@@ -196,7 +254,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
         bloom.intensity.Override(
             Mathf.Max(
                 0f,
-                lightingProfile.bloomIntensity +
+                (previewEnabled && previewProfile != null
+                    ? previewProfile.bloomIntensity : lightingProfile.bloomIntensity) +
                 reactionBloomKick * currentCameraReaction));
 
         vignette.intensity.Override(
@@ -258,6 +317,11 @@ public sealed class BattleColorGradingController : MonoBehaviour
         EnsureAnalogOverlay();
     }
 
+    private void Start()
+    {
+        EnableCameraPostProcessing();
+    }
+
     private void Update()
     {
         if (volume == null || lightingProfile == null)
@@ -273,7 +337,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
         volume.weight = currentWeight;
         UpdateCameraReactionEnvelope();
         UpdateAnalogOverlay();
-        EnableCameraPostProcessing();
+        if (cameraData != null)
+            cameraData.renderPostProcessing = true;
     }
 
     private void UpdateCameraReactionEnvelope()
@@ -309,6 +374,9 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (previewProfile != null)
+            Destroy(previewProfile);
+
         if (analogOverlayMaterial != null)
             Destroy(analogOverlayMaterial);
 
@@ -454,12 +522,12 @@ public sealed class BattleColorGradingController : MonoBehaviour
         if (targetCamera == null)
             return;
 
-        UniversalAdditionalCameraData data =
-            targetCamera.GetComponent<UniversalAdditionalCameraData>();
+        if (cameraData == null)
+            cameraData = targetCamera.GetComponent<UniversalAdditionalCameraData>();
 
-        if (data == null)
-            data = targetCamera.gameObject.AddComponent<UniversalAdditionalCameraData>();
+        if (cameraData == null)
+            cameraData = targetCamera.gameObject.AddComponent<UniversalAdditionalCameraData>();
 
-        data.renderPostProcessing = true;
+        cameraData.renderPostProcessing = true;
     }
 }
