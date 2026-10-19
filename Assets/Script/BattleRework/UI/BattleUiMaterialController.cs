@@ -53,10 +53,8 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     [Serializable]
     public sealed class UiMaterialGroup
     {
-        [Tooltip("선택 사항: 교체할 머티리얼입니다. 비우면 실제 UI에 연결된 기존 머티리얼을 복제해 Properties만 조절합니다.")]
+        [Tooltip("이 위치에 적용할 머티리얼 하나를 연결하세요. 비우면 기존 머티리얼을 유지합니다. 머티리얼 자체의 값을 설정하면 복제본에 반영됩니다.")]
         public Material material;
-        [Tooltip("Property Name에 셰이더 참조 이름을 입력하고 Type 및 해당 Value를 설정하세요. 그룹 전체에 적용됩니다.")]
-        public List<ShaderProperty> properties = new List<ShaderProperty>();
     }
 
     private sealed class MaterialState
@@ -283,10 +281,10 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             break;
         }
 
-        if (group == null || (group.material == null && (group.properties == null || group.properties.Count == 0)))
+        if (group == null || group.material == null)
             return;
         int previousCount = states.Count;
-        ApplyTarget(target, group.material != null ? group.material : target.material, group.properties, null);
+        ApplyTarget(target, group.material, null, null);
         if (states.Count > previousCount)
         {
             states[states.Count - 1].automatic = true;
