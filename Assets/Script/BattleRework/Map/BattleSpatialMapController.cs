@@ -6722,6 +6722,7 @@ internal sealed class BattleScriptTurningPageMesh :
 internal sealed class BattleScriptPaperWaveEffect :
     BaseMeshEffect
 {
+    private CanvasRenderer targetRenderer;
     private RectTransform waveRoot;
     private bool subdividePage;
     private float phase;
@@ -6744,6 +6745,7 @@ internal sealed class BattleScriptPaperWaveEffect :
         float cycleMultiplier)
     {
         waveRoot = root;
+        targetRenderer = graphic != null ? graphic.canvasRenderer : null;
         subdividePage = subdivide;
         phase =
             initialPhase;
@@ -6772,8 +6774,8 @@ internal sealed class BattleScriptPaperWaveEffect :
         float shear,
         float wavePhase)
     {
-        if (graphic == null || graphic.canvasRenderer.cull ||
-            graphic.canvasRenderer.GetInheritedAlpha() <= 0.01f)
+        if (graphic == null || targetRenderer == null || targetRenderer.cull ||
+            targetRenderer.GetInheritedAlpha() <= 0.01f)
             return;
 
         amplitudePixels =

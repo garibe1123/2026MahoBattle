@@ -1,28 +1,29 @@
 using UnityEngine;
 using UnityEngine.UI;
 
+[RequireComponent(typeof(CanvasRenderer))]
 public sealed class BattleUiPanelDecoration : MaskableGraphic
 {
     public static readonly Color Purple = new(0.62f, 0.43f, 0.89f, 1f);
     public static readonly Color Mint = new(0.36f, 0.88f, 0.73f, 1f);
     public static readonly Color Yellow = new(0.98f, 0.86f, 0.31f, 1f);
-    public static readonly Color Surface = new(0.075f, 0.125f, 0.14f, 0.94f);
-    public static readonly Color Paper = new(0.90f, 0.94f, 0.92f, 1f);
-    public static readonly Color Muted = new(0.62f, 0.70f, 0.70f, 1f);
+    public static readonly Color Surface = new(0.10f, 0.10f, 0.10f, 0.94f);
+    public static readonly Color Paper = new(0.94f, 0.94f, 0.94f, 1f);
+    public static readonly Color Muted = new(0.68f, 0.68f, 0.68f, 1f);
     public static readonly Color SelectedSurface = new(0.16f, 0.26f, 0.27f, 0.98f);
     public static readonly Color EquippedSurface = new(0.10f, 0.19f, 0.20f, 0.98f);
     public static readonly Color LockedSurface = new(0.045f, 0.075f, 0.085f, 0.96f);
     public static readonly Vector2 CompactPackSize = new(430f, 176f);
     public static readonly Vector2 ExpandedPackSize = new(632f, 696f);
     public static readonly Vector2 MiniPackSize = new(304f, 335f);
-    public const float MiniCellSize = 78f;
-    public const float MiniCellGap = 7f;
     public const float FullCellSize = 184f;
     public const float FullCellGap = 18f;
-    public const float MiniIconPixels = 36f;
+    public const float MiniCellSize = FullCellSize * 304f / 632f;
+    public const float MiniCellGap = FullCellGap * 304f / 632f;
+    public const float MiniIconPixels = FullIconPixels * 304f / 632f;
     public const float FullIconPixels = 88f;
     public const int MiniNameFontSize = 8;
-    public const int FullNameFontSize = 13;
+    public const int FullNameFontSize = 16;
     public static readonly Vector2 CursorTilt = new(5f, 7f);
     public static readonly Vector2 GatherTilt = new(1.5f, 2.5f);
     public static readonly Quaternion PanelPose = Quaternion.Euler(4.5f, -7f, -1.1f);
@@ -45,6 +46,13 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private float pulseUntil;
     private float nextRefresh;
     private float pulse;
+    private Text headerLabel;
+    private Image surfaceImage;
+    private CanvasRenderer surfaceRenderer;
+    private Material originalMaterial;
+    private Material appliedMaterial;
+    private bool materialApplied;
+    private float surfaceOpacity = 1f;
 
     public static Color Neutral(Color value)
     {
@@ -65,21 +73,30 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         bool softFill = false, bool animate = true)
     {
         Transform existing = parent.Find("PanelDecoration");
-        if (existing != null)
-            return existing.GetComponent<BattleUiPanelDecoration>();
-
-        GameObject child = new("PanelDecoration", typeof(RectTransform));
+        GameObject child = existing != null ? existing.gameObject :
+            new GameObject("PanelDecoration", typeof(RectTransform), typeof(CanvasRenderer));
+        if (child.GetComponent<CanvasRenderer>() == null)
+            child.AddComponent<CanvasRenderer>();
         child.transform.SetParent(parent, false);
         RectTransform rect = (RectTransform)child.transform;
         rect.anchorMin = Vector2.zero;
         rect.anchorMax = Vector2.one;
         rect.offsetMin = rect.offsetMax = Vector2.zero;
         rect.SetAsFirstSibling();
-        BattleUiPanelDecoration decoration = child.AddComponent<BattleUiPanelDecoration>();
+        BattleUiPanelDecoration decoration = child.GetComponent<BattleUiPanelDecoration>();
+        if (decoration == null)
+            decoration = child.AddComponent<BattleUiPanelDecoration>();
         decoration.accent = accent;
         decoration.softFill = softFill;
         decoration.animate = animate;
         decoration.raycastTarget = false;
+        if (decoration.surfaceImage == null && parent.TryGetComponent(out Image surface))
+        {
+            decoration.surfaceImage = surface;
+            decoration.surfaceRenderer = surface.canvasRenderer;
+            decoration.originalMaterial = surface.material;
+        }
+        decoration.ApplySurfaceStyle();
         foreach (Outline outline in parent.GetComponents<Outline>())
             outline.enabled = false;
         decoration.SetVerticesDirty();
@@ -90,9 +107,14 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     {
         BattleUiPanelDecoration decoration = Attach(parent, accent);
         decoration.hasHeader = true;
-        GameObject label = new("AppHeader", typeof(RectTransform));
-        label.transform.SetParent(parent, false);
-        Text text = label.AddComponent<Text>();
+        Text text = decoration.headerLabel;
+        if (text == null)
+        {
+            GameObject label = new("AppHeader", typeof(RectTransform));
+            label.transform.SetParent(parent, false);
+            text = label.AddComponent<Text>();
+            decoration.headerLabel = text;
+        }
         text.font = BattleFeedbackFont.Resolve();
         text.fontSize = 12;
         text.fontStyle = FontStyle.Bold;
@@ -100,12 +122,78 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         text.color = Paper;
         text.text = title;
         text.raycastTarget = false;
-        RectTransform rect = text.rectTransform;
+        decoration.LayoutHeader();
+        decoration.SetVerticesDirty();
+    }
+
+    private void LayoutHeader()
+    {
+        if (headerLabel == null)
+            return;
+        float scale = Mathf.Clamp(rectTransform.rect.width / ExpandedPackSize.x, 0.5f, 1f);
+        RectTransform rect = headerLabel.rectTransform;
         rect.anchorMin = new Vector2(0f, 1f);
         rect.anchorMax = Vector2.one;
-        rect.offsetMin = new Vector2(Padding + 18f, -HeaderHeight);
-        rect.offsetMax = new Vector2(-Padding - 36f, -6f);
-        decoration.SetVerticesDirty();
+        rect.offsetMin = new Vector2((Padding + 18f) * scale, -HeaderHeight * scale);
+        rect.offsetMax = new Vector2((-Padding - 36f) * scale, -4f * scale);
+        headerLabel.fontSize = Mathf.Max(8, Mathf.RoundToInt(12f * scale));
+    }
+
+    protected override void OnRectTransformDimensionsChange()
+    {
+        base.OnRectTransformDimensionsChange();
+        LayoutHeader();
+    }
+
+    public static Text EquippedBar(RectTransform parent)
+    {
+        GameObject bar = new("EquippedBar", typeof(RectTransform));
+        bar.transform.SetParent(parent, false);
+        RectTransform rect = (RectTransform)bar.transform;
+        rect.anchorMin = new Vector2(0.07f, 0.83f);
+        rect.anchorMax = new Vector2(0.93f, 0.96f);
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        Image fill = bar.AddComponent<Image>();
+        fill.sprite = BattleHudSpriteCache.RoundedPanel;
+        fill.type = Image.Type.Sliced;
+        fill.color = new Color(Mint.r, Mint.g, Mint.b, 0.16f);
+        fill.raycastTarget = false;
+        GameObject label = new("Label", typeof(RectTransform));
+        label.transform.SetParent(bar.transform, false);
+        Text text = label.AddComponent<Text>();
+        text.font = BattleFeedbackFont.Resolve();
+        text.fontSize = 10;
+        text.alignment = TextAnchor.MiddleCenter;
+        text.color = Paper;
+        text.text = "[equive]";
+        text.raycastTarget = false;
+        text.rectTransform.anchorMin = Vector2.zero;
+        text.rectTransform.anchorMax = Vector2.one;
+        text.rectTransform.offsetMin = text.rectTransform.offsetMax = Vector2.zero;
+        bar.SetActive(false);
+        return text;
+    }
+
+    private void ApplySurfaceStyle()
+    {
+        Material shared = BattleHUD.SharedUiMaterial;
+        if (surfaceImage != null && (!materialApplied || appliedMaterial != shared))
+        {
+            surfaceImage.material = shared != null ? shared : originalMaterial;
+            appliedMaterial = shared;
+            materialApplied = true;
+        }
+        float targetOpacity = BattleHUD.UiSurfaceOpacity;
+        float nextOpacity = Mathf.Abs(surfaceOpacity - targetOpacity) < 0.001f ? targetOpacity :
+            Mathf.Lerp(surfaceOpacity, targetOpacity, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
+        if (nextOpacity != surfaceOpacity)
+        {
+            surfaceOpacity = nextOpacity;
+            if (surfaceRenderer != null)
+                surfaceRenderer.SetAlpha(surfaceOpacity);
+            if (canvasRenderer != null)
+                canvasRenderer.SetAlpha(surfaceOpacity);
+        }
     }
 
     public static void Round(Image image)
@@ -128,8 +216,11 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
 
     private void Update()
     {
+        if (canvasRenderer == null || canvasRenderer.cull ||
+            (canvasRenderer.GetInheritedAlpha() <= 0.01f && surfaceOpacity > 0.01f))
+            return;
+        ApplySurfaceStyle();
         if ((Time.unscaledTime >= pulseUntil && pulse <= 0f) ||
-            canvasRenderer.cull || canvasRenderer.GetInheritedAlpha() <= 0.01f ||
             Time.unscaledTime < nextRefresh)
             return;
 
@@ -147,17 +238,23 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
 
         Fill(vh, Expand(face, 0f, new Vector2(3f + pulse, -4f - pulse)),
             new Color(0f, 0f, 0f, 0.12f), new Color(0f, 0f, 0f, 0.12f));
-        float frost = softFill ? 0.08f : 0.14f;
-        Fill(vh, face, new Color(0.76f, 0.88f, 0.87f, 0.025f),
-            new Color(0.76f, 0.88f, 0.87f, frost + pulse * 0.05f));
+        float frost = softFill ? 0.035f : 0.06f;
+        Fill(vh, face, new Color(1f, 1f, 1f, 0.01f),
+            new Color(1f, 1f, 1f, frost + pulse * 0.03f));
         if (hasHeader)
         {
-            Rect header = new(face.xMin + 5f, face.yMax - HeaderHeight, face.width - 10f, HeaderHeight - 5f);
-            Fill(vh, header, new Color(0.30f, 0.48f, 0.48f, 0.08f),
-                new Color(0.30f, 0.48f, 0.48f, 0.16f));
-            Disc(vh, new Vector2(face.xMin + Padding + 5f, face.yMax - 21f), 6f, accent);
+            float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
+            float height = HeaderHeight * scale;
+            Rect header = new(face.xMin + 5f * scale, face.yMax - height, face.width - 10f * scale, height - 4f * scale);
+            Fill(vh, header, new Color(0.25f, 0.25f, 0.25f, 0.64f),
+                new Color(0.32f, 0.32f, 0.32f, 0.72f));
+            Disc(vh, new Vector2(face.xMin + (Padding + 5f) * scale, face.yMax - height * 0.55f), 5f * scale, accent);
             for (int i = 0; i < 3; i++)
-                Disc(vh, new Vector2(face.xMax - Padding - i * 8f, face.yMax - 21f), 1.5f, Muted);
+            {
+                Rect control = new(face.xMax - (Padding + 5f + i * 12f) * scale,
+                    face.yMax - height * 0.65f, 7f * scale, 5f * scale);
+                Fill(vh, control, Muted, Muted);
+            }
         }
         if (emphasis)
         {
@@ -188,7 +285,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
 
     private static Vector2 Contour(Rect rect, int corner, int step)
     {
-        float radius = Mathf.Min(24f, Mathf.Min(rect.width, rect.height) * 0.22f);
+        float radius = Mathf.Min(corner == 1 ? 28f : corner == 3 ? 18f : 12f,
+            Mathf.Min(rect.width, rect.height) * 0.22f);
         Vector2 center = new(corner < 2 ? rect.xMax - radius : rect.xMin + radius,
             corner == 0 || corner == 3 ? rect.yMin + radius : rect.yMax - radius);
         float angle = (-90f + corner * 90f + step * 15f) * Mathf.Deg2Rad;

@@ -37,6 +37,24 @@ public sealed class BattleHUD : MonoBehaviour
     [SerializeField] private Color accentColor = new(1f, 0.18f, 0.58f, 1f);
     [SerializeField] private Color goldColor = new(1f, 0.80f, 0.25f, 1f);
 
+    [Header("Shared UI Surface")]
+    [Tooltip("패널 배경에 공유할 UI Material입니다. 블러 등 셰이더 설정은 이 재질에서 지정합니다.")]
+    [SerializeField] private Material uiMaterial;
+    [SerializeField, Range(0f, 1f)] private float combatUiOpacity = 0.72f;
+    [SerializeField, Range(0f, 1f)] private float interactionUiOpacity = 1f;
+    private bool inventoryInteractionActive;
+
+    internal static Material SharedUiMaterial => instance != null ? instance.uiMaterial : null;
+    internal static float UiSurfaceOpacity => instance == null ? 1f :
+        (instance.inventoryInteractionActive || instance.runManager == null || instance.runManager.State != BattleRunState.Combat
+            ? instance.interactionUiOpacity : instance.combatUiOpacity);
+
+    internal static void SetInventoryInteraction(bool active)
+    {
+        if (instance != null)
+            instance.inventoryInteractionActive = active;
+    }
+
     [Header("Show Content Shell")]
     [SerializeField] private Vector2 showScreenSize = new(1120f, 560f);
 

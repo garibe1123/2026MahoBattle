@@ -162,6 +162,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
     private readonly BattleUiPanelDecoration[] slotDecorations = new BattleUiPanelDecoration[SlotCount];
+    private readonly Text[] slotEquippedBars = new Text[SlotCount];
     private readonly Outline[] slotOutlines = new Outline[SlotCount];
     private readonly Image[] slotIcons = new Image[SlotCount];
     private readonly GameObject[] slotEmptyStates = new GameObject[SlotCount];
@@ -228,6 +229,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void OnDisable()
     {
+        BattleHUD.SetInventoryInteraction(false);
         ClearStaminaWarning();
         UnsubscribeInput();
         Unsubscribe();
@@ -976,7 +978,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         Outline outline = compactRoot.gameObject.AddComponent<Outline>();
         outline.effectColor = accentCyan;
         outline.effectDistance = new Vector2(4f, -4f);
-        BattleUiPanelDecoration.Header(compactRoot, "PACK / EQUIPMENT", accentCyan);
+        BattleUiPanelDecoration.Header(compactRoot, "INVENTORY / [equive]", accentCyan);
 
         compactGroup = compactRoot.gameObject.AddComponent<CanvasGroup>();
         compactGroup.blocksRaycasts = false;
@@ -1332,7 +1334,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.42f);
         boardOutline.effectDistance = new Vector2(3f, -3f);
 
-        BattleUiPanelDecoration.Header(boardBack, "PACK / EQUIPMENT", accentCyan);
+        BattleUiPanelDecoration.Header(boardBack, "INVENTORY", accentCyan);
 
         BattlePackFocusPointerRelay packFocusRelay =
             boardRoot.gameObject.AddComponent<BattlePackFocusPointerRelay>();
@@ -1371,9 +1373,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             outline.effectDistance = new Vector2(1f, -1f);
             slotOutlines[i] = outline;
             slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
+            slotEquippedBars[i] = BattleUiPanelDecoration.EquippedBar(slot);
 
             Image icon = CreateImage(slot, "Icon", Vector2.one * BattleUiPanelDecoration.FullIconPixels);
-            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.30f, 0.64f);
+            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.30f, 0.58f);
             icon.preserveAspect = true;
             icon.raycastTarget = false;
             slotIcons[i] = icon;
@@ -1452,11 +1455,11 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 false);
 
             Text name = CreateText(slot, "EMPTY", BattleUiPanelDecoration.FullNameFontSize, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-            SetAnchors(name.rectTransform, new Vector2(0.52f, 0.43f), new Vector2(0.94f, 0.80f));
+            SetAnchors(name.rectTransform, new Vector2(0.52f, 0.35f), new Vector2(0.94f, 0.62f));
             slotNames[i] = name;
 
             Text grade = CreateText(slot, string.Empty, 10, FontStyle.Bold, TextAnchor.UpperRight, new Color(0.62f, 0.67f, 0.76f, 1f));
-            SetAnchors(grade.rectTransform, new Vector2(0.64f, 0.80f), new Vector2(0.93f, 0.94f));
+            SetAnchors(grade.rectTransform, new Vector2(0.64f, 0.64f), new Vector2(0.93f, 0.79f));
             slotGrades[i] = grade;
 
             Text state = CreateText(slot, $"{x + 1}-{y + 1}", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
@@ -1537,24 +1540,19 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 slotNames[i].color = unlocked ? paperColor : new Color(0.48f, 0.51f, 0.58f, 1f);
             }
 
+            slotEquippedBars[i].transform.parent.gameObject.SetActive(unlocked && equipment != null && isEquipped);
+
             if (slotGrades[i] != null)
             {
-                slotGrades[i].text = unlocked && equipment != null ? $"GRADE {slot.grade}" : string.Empty;
+                slotGrades[i].text = unlocked && equipment != null ? $"G{slot.grade}" : string.Empty;
                 slotGrades[i].color = new Color(0.62f, 0.67f, 0.76f, 1f);
             }
 
             if (slotStates[i] != null)
             {
-                Vector2Int p = BattleEquipmentSystem.SlotIndexToGrid(i);
                 slotStates[i].text = !unlocked
-                    ? $"{p.x + 1}-{p.y + 1}  // LOCKED"
-                    : isEquipped && isSelected
-                        ? "EQUIPPED  /  SELECTED"
-                        : isSelected
-                            ? "SELECTED  // RELEASE TO EQUIP"
-                            : isEquipped
-                                ? "EQUIPPED"
-                                : $"{p.x + 1}-{p.y + 1}  // AVAILABLE";
+                    ? "LOCKED"
+                    : isSelected ? "SELECTED" : string.Empty;
 
                 slotStates[i].color = !unlocked
                     ? new Color(0.42f, 0.45f, 0.52f, 1f)
@@ -2435,6 +2433,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
 
         bool wantFull = combat && switchHeld && boardWasShown;
+        BattleHUD.SetInventoryInteraction(combat &&
+            (switchHeld || (detailGroup != null && detailGroup.alpha > 0.01f)));
 
         float morphStep = Time.unscaledDeltaTime /
                           Mathf.Max(0.18f, packMorphDuration);

@@ -616,7 +616,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         }
 
         if (fullTitle != null)
-            fullTitle.text = rewardEdit ? string.Empty : "LOADOUT // SHIFT";
+            fullTitle.text = string.Empty;
 
         if (fullSubtitle != null)
         {

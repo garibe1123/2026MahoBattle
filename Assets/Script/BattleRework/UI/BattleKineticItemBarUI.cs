@@ -41,6 +41,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     private readonly Text[] slotNames = new Text[SlotCount];
     private readonly Text[] emptyLabels = new Text[SlotCount];
     private readonly BattleUiPanelDecoration[] slotDecorations = new BattleUiPanelDecoration[SlotCount];
+    private readonly Text[] slotEquippedBars = new Text[SlotCount];
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
@@ -217,13 +218,13 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void BuildHeader()
     {
-        BattleUiPanelDecoration.Header(root, "PACK / EQUIPMENT", accentCyan);
-        capacityText = CreateText(root, "3 / 9", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
+        BattleUiPanelDecoration.Header(root, "INVENTORY", accentCyan);
+        capacityText = CreateText(root, "3 / 9", 8, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
         RectTransform capacity = capacityText.rectTransform;
         capacity.anchorMin = capacity.anchorMax = Vector2.one;
         capacity.pivot = Vector2.one;
-        capacity.sizeDelta = new Vector2(60f, 24f);
-        capacity.anchoredPosition = new Vector2(-44f, -9f);
+        capacity.sizeDelta = new Vector2(48f, 16f);
+        capacity.anchoredPosition = new Vector2(-34f, -3f);
         Text hint = CreateText(root, "TAB / LB  OPEN", 9, FontStyle.Bold, TextAnchor.MiddleCenter, BattleUiPanelDecoration.Muted);
         SetAnchors(hint.rectTransform, new Vector2(0.15f, 0f), new Vector2(0.85f, 0f));
         hint.rectTransform.sizeDelta = new Vector2(0f, 14f);
@@ -265,6 +266,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             cellOutline.effectDistance = new Vector2(1f, -1f);
             slotOutlines[i] = cellOutline;
             slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
+            slotEquippedBars[i] = BattleUiPanelDecoration.EquippedBar(slot);
 
             Image icon = CreateImage(slot, "Icon", new Vector2(64f, 64f));
             icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
@@ -351,7 +353,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             SetAnchors(grade.rectTransform, new Vector2(0.50f, 0.70f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
             slotNames[i] = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-            SetAnchors(slotNames[i].rectTransform, new Vector2(0.52f, 0.43f), new Vector2(0.94f, 0.80f));
+            SetAnchors(slotNames[i].rectTransform, new Vector2(0.52f, 0.35f), new Vector2(0.94f, 0.62f));
 
             Text state = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
             SetAnchors(state.rectTransform, new Vector2(0.35f, 0.03f), new Vector2(0.93f, 0.24f));
@@ -405,16 +407,17 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             slotRects[i].sizeDelta = Vector2.one * cell;
             slotRects[i].anchoredPosition = new Vector2((i % GridSize) * (cell + gap) + cell * 0.5f,
                 total - ((i / GridSize) * (cell + gap) + cell * 0.5f));
-            slotIcons[i].rectTransform.anchorMin = slotIcons[i].rectTransform.anchorMax = new Vector2(0.30f, 0.64f);
+            slotIcons[i].rectTransform.anchorMin = slotIcons[i].rectTransform.anchorMax = new Vector2(0.30f, 0.58f);
             slotIcons[i].rectTransform.sizeDelta = Vector2.one * Mathf.Lerp(BattleUiPanelDecoration.MiniIconPixels, BattleUiPanelDecoration.FullIconPixels, blend) * layoutScale;
             slotNames[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(BattleUiPanelDecoration.MiniNameFontSize, BattleUiPanelDecoration.FullNameFontSize, blend) * layoutScale);
-            slotGrades[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(9f, 10f, blend));
+            slotGrades[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(8f, 10f, blend));
             slotStates[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(8f, 10f, blend));
-            SetAnchors(slotGrades[i].rectTransform, new Vector2(0.64f, 0.80f), new Vector2(0.93f, 0.94f));
+            slotEquippedBars[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(8f, 10f, blend));
+            SetAnchors(slotGrades[i].rectTransform, new Vector2(0.64f, 0.64f), new Vector2(0.93f, 0.79f));
             SetAnchors(slotStates[i].rectTransform, new Vector2(0.08f, 0.07f), new Vector2(0.94f, 0.27f));
             RectTransform empty = (RectTransform)slotEmptyStates[i].transform;
             empty.anchorMin = empty.anchorMax = new Vector2(0.5f, 0.56f);
-            empty.sizeDelta = Vector2.Lerp(new Vector2(48f, 40f), new Vector2(112f, 92f), blend) * layoutScale;
+            empty.sizeDelta = Vector2.Lerp(new Vector2(54f, 44f), new Vector2(112f, 92f), blend) * layoutScale;
             emptyLabels[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(8f, 15f, blend));
             slotAccents[i].rectTransform.sizeDelta = new Vector2(4f, cell - 12f);
         }
@@ -436,6 +439,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             BattleEquipmentSO equipment = slot?.equipment;
             bool occupied = equipment != null;
             bool isEquipped = i == equipped;
+            slotEquippedBars[i].transform.parent.gameObject.SetActive(unlocked && occupied && isEquipped);
             bool linked = IsSlotLinked(i);
             slotNames[i].text = !unlocked ? "LOCKED" : occupied ? equipment.GetDisplayName().ToUpperInvariant() : string.Empty;
             slotDecorations[i]?.SetEmphasis(isEquipped || linked);
@@ -479,11 +483,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
             if (slotStates[i] != null)
             {
-                slotStates[i].text = !unlocked
-                    ? "LOCK"
-                    : isEquipped
-                        ? "EQP"
-                        : linked ? "LINK" : string.Empty;
+                slotStates[i].text = !unlocked ? "LOCKED" : linked ? "LINK" : string.Empty;
                 slotStates[i].color = isEquipped
                     ? accentCyan
                     : linked
