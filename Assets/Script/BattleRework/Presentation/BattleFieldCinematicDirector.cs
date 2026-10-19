@@ -1209,13 +1209,14 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private bool playLightingDirty;
     private float nextPlayLightingSave;
     private Rect playLightingWindow = new(12f, 12f, 330f, 312f);
-    private static readonly string[] PlayLightingTabs = { "Lighting", "Shadows" };
+    private static readonly string[] PlayLightingTabs = { "Lighting", "Shadows", "Color / Bloom" };
     private static readonly string[] PlayShadowModes = { "None", "Contact", "Projected" };
     private int playLightingTab;
     private readonly List<BattleSpriteShadow> playShadowTargets = new();
     private BattleSpriteShadow playShadowTarget;
     private readonly List<BattleSpriteShadow> playShadowCasters = new();
     private Vector2 playShadowScroll;
+    private Vector2 playColorScroll;
     private string playShadowOverlapHint;
     private float authoredCameraIntensity;
     private float authoredCameraRadius;
@@ -1339,8 +1340,8 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
                 playShadowTarget.CopyReceiverDebugCasters(shadowLight.DebugCamera, playShadowCasters);
             DrawShadowDebugRays();
         }
-        playLightingWindow.height = playLightingTab == 1 ? Mathf.Min(720f, Mathf.Max(180f, Screen.height - 24f)) : 342f;
-        if (playLightingTab == 1)
+        playLightingWindow.height = playLightingTab != 0 ? Mathf.Min(720f, Mathf.Max(180f, Screen.height - 24f)) : 342f;
+        if (playLightingTab != 0)
             playLightingWindow.y = Mathf.Clamp(playLightingWindow.y, 0f, Mathf.Max(0f, Screen.height - playLightingWindow.height));
         playLightingWindow = GUI.Window(
             74292, playLightingWindow, DrawPlayLightingWindow,
@@ -1351,6 +1352,15 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     {
         GUILayout.Space(5f);
         playLightingTab = GUILayout.Toolbar(playLightingTab, PlayLightingTabs);
+        if (playLightingTab == 2)
+        {
+            playColorScroll = GUILayout.BeginScrollView(playColorScroll,
+                GUILayout.Height(playLightingWindow.height - 70f));
+            DrawPlayColorWindow();
+            GUILayout.EndScrollView();
+            GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
+            return;
+        }
         if (playLightingTab == 1)
         {
             playShadowScroll = GUILayout.BeginScrollView(playShadowScroll,
@@ -1390,6 +1400,81 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         GUILayout.EndHorizontal();
         GUILayout.Label("F8: Show/Hide  |  Drag title bar to move");
         GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
+    }
+
+    private void DrawPlayColorWindow()
+    {
+        if (colorGrading == null || colorGrading.SourceLightingProfile == null)
+        {
+            GUILayout.Label("Color grading is not active.");
+            return;
+        }
+
+        GUILayout.Label("Live color test | Play-session values only");
+        GUILayout.Label("Profile: " + colorGrading.SourceLightingProfile.name);
+        Camera camera = colorGrading.TargetCamera;
+        GUILayout.Label("Camera: " + (camera != null ? camera.name : "None"));
+        GUILayout.Label($"Volume mask: 0x{colorGrading.CameraVolumeMask:X8}");
+        GUILayout.Label($"Volume layer: {colorGrading.RuntimeVolumeLayer} | Weight: {colorGrading.CurrentWeight:0.00}");
+        if (colorGrading.CameraVolumeMask == 0)
+            GUILayout.Label("WARNING: Camera Volume mask is empty.");
+        else if (colorGrading.RuntimeVolumeLayer >= 0 &&
+            (colorGrading.CameraVolumeMask & (1 << colorGrading.RuntimeVolumeLayer)) == 0)
+            GUILayout.Label("WARNING: Volume layer excluded by camera.");
+
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Button("Apply preview"))
+            colorGrading.SetPreviewEnabled(true);
+        if (GUILayout.Button("Original"))
+            colorGrading.SetPreviewEnabled(false);
+        if (GUILayout.Button("Reset preview"))
+            colorGrading.ResetPreview();
+        GUILayout.EndHorizontal();
+        GUILayout.Label(colorGrading.PreviewEnabled ? "Showing: PREVIEW" : "Showing: ORIGINAL");
+        if (GUILayout.Button("Log current settings"))
+        {
+            Debug.Log($"[ColorPreview] Profile={colorGrading.SourceLightingProfile.name}, " +
+                $"Camera={(camera != null ? camera.name : "None")}, " +
+                $"Mask=0x{colorGrading.CameraVolumeMask:X8}, Layer={colorGrading.RuntimeVolumeLayer}, " +
+                $"Weight={colorGrading.CurrentWeight:0.00}, Preview={colorGrading.PreviewEnabled}", this);
+        }
+
+        BattleLightingProfileSO preview = colorGrading.PreviewProfile;
+        if (preview == null)
+        {
+            GUILayout.Label("Press Apply preview to start the color test.");
+            return;
+        }
+
+        Color shadows = PlayColorSliders("Shadow", preview.splitShadows);
+        Color highlights = PlayColorSliders("Highlight", preview.splitHighlights);
+        float balance = PlayLightingSlider("Split balance", preview.splitBalance, -100f, 100f, false);
+        float intensity = PlayLightingSlider("Bloom intensity", preview.bloomIntensity, 0f, 5f, false);
+        float threshold = PlayLightingSlider("Bloom threshold", preview.bloomThreshold, 0f, 10f, false);
+        float scatter = PlayLightingSlider("Bloom scatter", preview.bloomScatter, 0f, 1f, false);
+        Color tint = PlayColorSliders("Bloom tint", preview.bloomTint);
+        if (shadows != preview.splitShadows || highlights != preview.splitHighlights ||
+            balance != preview.splitBalance || intensity != preview.bloomIntensity ||
+            threshold != preview.bloomThreshold || scatter != preview.bloomScatter || tint != preview.bloomTint)
+        {
+            preview.splitShadows = shadows;
+            preview.splitHighlights = highlights;
+            preview.splitBalance = balance;
+            preview.bloomIntensity = intensity;
+            preview.bloomThreshold = threshold;
+            preview.bloomScatter = scatter;
+            preview.bloomTint = tint;
+            colorGrading.RefreshPreview();
+        }
+        GUILayout.Label("Reset restores preview defaults. Original restores the source look.");
+    }
+
+    private Color PlayColorSliders(string title, Color value)
+    {
+        value.r = PlayLightingSlider(title + " R", value.r, 0f, 1f, false);
+        value.g = PlayLightingSlider(title + " G", value.g, 0f, 1f, false);
+        value.b = PlayLightingSlider(title + " B", value.b, 0f, 1f, false);
+        return value;
     }
 
     private void DrawPlayShadowWindow()

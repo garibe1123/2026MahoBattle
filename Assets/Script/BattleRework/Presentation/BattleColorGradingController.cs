@@ -55,6 +55,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     public BattleLightingProfileSO PreviewProfile => previewProfile;
     public Camera TargetCamera => targetCamera;
     public int CameraVolumeMask => cameraData != null ? cameraData.volumeLayerMask.value : 0;
+    public int RuntimeVolumeLayer => volume != null ? volume.gameObject.layer : -1;
     public bool PreviewEnabled => previewEnabled;
     private float currentWeight;
     private float targetWeight;
