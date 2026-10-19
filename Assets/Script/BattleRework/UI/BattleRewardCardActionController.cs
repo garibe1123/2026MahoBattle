@@ -208,6 +208,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         if (instance != null && instance != this)
             return;
 
+        BattleHUD.RewardCardsRebuilt += HandleRewardCardsRebuilt;
         ResolveReferences();
         ResolveUi(true);
         nextResolveTime = 0f;
@@ -220,6 +221,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
     private void OnDisable()
     {
+        BattleHUD.RewardCardsRebuilt -= HandleRewardCardsRebuilt;
         RestoreEquipmentDetailPanel();
         equipmentDetailPanel?.ClearRewardPreview();
         showWorldSet?.SetRewardShowcaseSelectedIndex(-1);
@@ -468,6 +470,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
     }
 
+    private void HandleRewardCardsRebuilt()
+    {
+        ResolveUi(true);
+    }
+
     private void RebuildCards()
     {
         cards.Clear();
@@ -484,7 +491,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         for (int childIndex = 0; childIndex < rewardCardRoot.childCount; childIndex++)
         {
             RectTransform rect = rewardCardRoot.GetChild(childIndex) as RectTransform;
-            if (rect == null)
+            if (rect == null || !rect.gameObject.activeSelf)
                 continue;
 
             RewardPrizeIndex marker = rect.GetComponent<RewardPrizeIndex>();
@@ -499,6 +506,10 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             CanvasGroup group = rect.GetComponent<CanvasGroup>();
             if (group == null)
                 group = rect.gameObject.AddComponent<CanvasGroup>();
+            group.alpha = 1f;
+            group.interactable = true;
+            group.blocksRaycasts = true;
+            outline.enabled = false;
             Button button = rect.GetComponent<Button>();
             if (button == null)
                 button = rect.gameObject.AddComponent<Button>();

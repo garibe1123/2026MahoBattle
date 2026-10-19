@@ -182,6 +182,18 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         HideDiscardConfirm();
     }
 
+    private void OnDestroy()
+    {
+        if (fallbackSelectClip != null)
+            Destroy(fallbackSelectClip);
+        if (fallbackTransferClip != null)
+            Destroy(fallbackTransferClip);
+        if (fallbackInstallClip != null)
+            Destroy(fallbackInstallClip);
+        if (fallbackDeniedClip != null)
+            Destroy(fallbackDeniedClip);
+    }
+
     private void Update()
     {
         ResolveReferences();

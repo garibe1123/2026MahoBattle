@@ -33,6 +33,8 @@ public sealed class PoolService : MonoBehaviour
     private readonly Dictionary<GameObject, int> generationByInstance = new();
     private readonly HashSet<GameObject> inactiveInstances = new();
     private readonly List<TimedRelease> timedReleases = new();
+    private readonly List<GameObject> destroyedInstances = new();
+    private float nextDestroyedInstanceScan;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics()
@@ -139,6 +141,7 @@ public sealed class PoolService : MonoBehaviour
             instance.name = prefab.name + " (Pooled)";
             prefabByInstance[instance] = prefab;
             generationByInstance[instance] = 0;
+            instance.AddComponent<PoolServiceMember>().Configure(this);
         }
         else
         {
@@ -205,6 +208,7 @@ public sealed class PoolService : MonoBehaviour
 
     private void Update()
     {
+        PruneDestroyedInstances();
         float now = Time.time;
         for (int i = timedReleases.Count - 1; i >= 0; i--)
         {
@@ -229,8 +233,48 @@ public sealed class PoolService : MonoBehaviour
         }
     }
 
+    private void PruneDestroyedInstances()
+    {
+        if (Time.unscaledTime < nextDestroyedInstanceScan)
+            return;
+        nextDestroyedInstanceScan = Time.unscaledTime + 1f;
+
+        foreach (GameObject instance in prefabByInstance.Keys)
+            if (instance == null)
+                destroyedInstances.Add(instance);
+
+        for (int i = 0; i < destroyedInstances.Count; i++)
+            UnregisterDestroyed(destroyedInstances[i]);
+        destroyedInstances.Clear();
+    }
+
+    internal void UnregisterDestroyed(GameObject instance)
+    {
+        if (!prefabByInstance.TryGetValue(instance, out GameObject prefab))
+            return;
+
+        prefabByInstance.Remove(instance);
+        generationByInstance.Remove(instance);
+        inactiveInstances.Remove(instance);
+        for (int i = timedReleases.Count - 1; i >= 0; i--)
+            if (ReferenceEquals(timedReleases[i].instance, instance))
+                timedReleases.RemoveAt(i);
+
+        if (!buckets.TryGetValue(prefab, out PoolBucket bucket))
+            return;
+
+        int count = bucket.inactive.Count;
+        for (int i = 0; i < count; i++)
+        {
+            GameObject queued = bucket.inactive.Dequeue();
+            if (!ReferenceEquals(queued, instance))
+                bucket.inactive.Enqueue(queued);
+        }
+    }
+
     private void OnDestroy()
     {
+        destroyedInstances.Clear();
         timedReleases.Clear();
         buckets.Clear();
         prefabByInstance.Clear();
@@ -239,5 +283,22 @@ public sealed class PoolService : MonoBehaviour
 
         if (service == this)
             service = null;
+    }
+}
+
+internal sealed class PoolServiceMember : MonoBehaviour
+{
+    private PoolService owner;
+
+    internal void Configure(PoolService service)
+    {
+        owner = service;
+    }
+
+    private void OnDestroy()
+    {
+        if (owner != null)
+            owner.UnregisterDestroyed(gameObject);
+        owner = null;
     }
 }

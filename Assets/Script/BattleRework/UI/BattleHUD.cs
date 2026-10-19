@@ -25,6 +25,13 @@ using UnityEngine.UI;
 public sealed class BattleHUD : MonoBehaviour
 {
     private static BattleHUD instance;
+    internal static event Action RewardCardsRebuilt;
+
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+    private static void ResetStatics()
+    {
+        RewardCardsRebuilt = null;
+    }
 
     [Header("Combat HUD")]
     [SerializeField] private Color accentColor = new(1f, 0.18f, 0.58f, 1f);
@@ -55,6 +62,19 @@ public sealed class BattleHUD : MonoBehaviour
     private Image presenterMetadataImage;
 
     private BattleRunManager subscribedRunManager;
+    private readonly List<RewardCardSlot> rewardCardSlots = new();
+
+    private sealed class RewardCardSlot
+    {
+        public RectTransform rect;
+        public Image background;
+        public Button button;
+        public Image icon;
+        public Text rarity;
+        public Text name;
+        public Text type;
+        public Text action;
+    }
 
     /// <summary>BattleSpatialMapController가 대본 카드를 생성하는 Script Selection Root입니다.</summary>
     public RectTransform ScriptSelectionRoot => scriptSelectionRoot;
@@ -88,6 +108,8 @@ public sealed class BattleHUD : MonoBehaviour
         ResolveRunManager();
         SubscribeRunEvents();
         RefreshShellState();
+        if (runManager != null && runManager.State == BattleRunState.Reward)
+            RebuildRewardCards();
     }
 
     private void OnDisable()
@@ -141,9 +163,6 @@ public sealed class BattleHUD : MonoBehaviour
     private void HandleRunStateChanged(BattleRunState _)
     {
         RefreshShellState();
-
-        if (runManager != null && runManager.State == BattleRunState.Reward)
-            RebuildRewardCards();
     }
 
     private void HandleRewardSelectionRequested(IReadOnlyList<BattleEquipmentSO> _)
@@ -311,14 +330,22 @@ public sealed class BattleHUD : MonoBehaviour
         if (rewardCardRoot == null || runManager == null)
             return;
 
-        for (int i = rewardCardRoot.childCount - 1; i >= 0; i--)
-            Destroy(rewardCardRoot.GetChild(i).gameObject);
+        EventSystem events = EventSystem.current;
+        if (events != null && events.currentSelectedGameObject != null &&
+            events.currentSelectedGameObject.transform.IsChildOf(rewardCardRoot))
+            events.SetSelectedGameObject(null);
+
+        for (int i = 0; i < rewardCardSlots.Count; i++)
+        {
+            RewardCardSlot slot = rewardCardSlots[i];
+            slot.rect.gameObject.SetActive(false);
+            slot.button.onClick.RemoveAllListeners();
+            slot.icon.sprite = null;
+            slot.rarity.text = slot.name.text = slot.type.text = slot.action.text = string.Empty;
+        }
 
         int count = runManager.CurrentRewardChoices.Count;
-        if (count <= 0)
-            return;
-
-        float width = Mathf.Min(275f, 835f / count);
+        float width = count > 0 ? Mathf.Min(275f, 835f / count) : 275f;
         const float height = 245f;
         const float spacing = 22f;
         float total = count * width + (count - 1) * spacing;
@@ -330,41 +357,71 @@ public sealed class BattleHUD : MonoBehaviour
             if (reward == null)
                 continue;
 
-            GameObject card = CreatePanel(
-                rewardCardRoot,
-                $"Prize_{i}",
-                new Vector2(width, height),
-                new Color(0.055f, 0.057f, 0.066f, 0.995f));
-            RectTransform cardRect = card.GetComponent<RectTransform>();
+            while (rewardCardSlots.Count <= i)
+                rewardCardSlots.Add(CreateRewardCardSlot(rewardCardSlots.Count));
+            RewardCardSlot slot = rewardCardSlots[i];
+            RectTransform cardRect = slot.rect;
             cardRect.anchorMin = cardRect.anchorMax = new Vector2(0.5f, 0.5f);
+            cardRect.pivot = new Vector2(0.5f, 0.5f);
+            cardRect.sizeDelta = new Vector2(width, height);
             cardRect.anchoredPosition = new Vector2(start + i * (width + spacing), 0f);
-
-            Image cardImage = card.GetComponent<Image>();
-            Button button = card.AddComponent<Button>();
-            button.targetGraphic = cardImage;
-
-            // Business 입력은 BattleRewardCardActionController가 Button listener를 교체합니다.
-            // 이 컴포넌트는 stable reward index marker로만 남깁니다.
-            RewardPrizeIndex marker = card.AddComponent<RewardPrizeIndex>();
-            marker.Configure(i);
-
-            Image icon = CreateImage(card.transform, "PrizeIcon", new Vector2(105f, 105f));
-            icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.67f);
-            icon.sprite = reward.icon;
-            icon.enabled = reward.icon != null;
-
-            Text rarity = CreateText(card.transform, reward.rarity.ToString().ToUpperInvariant(), 9, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor);
-            SetAnchors(rarity.rectTransform, new Vector2(0.08f, 0.39f), new Vector2(0.92f, 0.47f));
-
-            Text name = CreateText(card.transform, reward.GetDisplayName(), 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white);
-            SetAnchors(name.rectTransform, new Vector2(0.06f, 0.22f), new Vector2(0.94f, 0.39f));
-
-            Text type = CreateText(card.transform, reward.type.ToString().ToUpperInvariant(), 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f));
-            SetAnchors(type.rectTransform, new Vector2(0.08f, 0.14f), new Vector2(0.92f, 0.22f));
-
-            Text action = CreateText(card.transform, "CLICK TO SELECT", 8, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor);
-            SetAnchors(action.rectTransform, new Vector2(0.08f, 0.025f), new Vector2(0.92f, 0.12f));
+            cardRect.localScale = Vector3.one;
+            cardRect.localRotation = Quaternion.identity;
+            slot.background.color = new Color(0.055f, 0.057f, 0.066f, 0.995f);
+            slot.button.interactable = true;
+            slot.icon.rectTransform.anchorMin = slot.icon.rectTransform.anchorMax = new Vector2(0.5f, 0.67f);
+            slot.icon.rectTransform.anchoredPosition = Vector2.zero;
+            slot.icon.rectTransform.sizeDelta = new Vector2(105f, 105f);
+            slot.icon.rectTransform.localScale = Vector3.one;
+            slot.icon.rectTransform.localRotation = Quaternion.identity;
+            slot.icon.color = Color.white;
+            slot.icon.sprite = reward.icon;
+            slot.icon.enabled = reward.icon != null;
+            slot.rarity.fontSize = 9;
+            slot.name.fontSize = 14;
+            slot.type.fontSize = 8;
+            slot.action.fontSize = 8;
+            slot.rarity.text = reward.rarity.ToString().ToUpperInvariant();
+            slot.name.text = reward.GetDisplayName();
+            slot.type.text = reward.type.ToString().ToUpperInvariant();
+            slot.action.text = "CLICK TO SELECT";
+            ResetRewardCardText(slot.rarity, new Vector2(0.08f, 0.39f), new Vector2(0.92f, 0.47f), goldColor);
+            ResetRewardCardText(slot.name, new Vector2(0.06f, 0.22f), new Vector2(0.94f, 0.39f), Color.white);
+            ResetRewardCardText(slot.type, new Vector2(0.08f, 0.14f), new Vector2(0.92f, 0.22f), new Color(0.66f, 0.84f, 0.93f, 1f));
+            ResetRewardCardText(slot.action, new Vector2(0.08f, 0.025f), new Vector2(0.92f, 0.12f), accentColor);
+            cardRect.gameObject.SetActive(true);
         }
+        RewardCardsRebuilt?.Invoke();
+    }
+
+    private RewardCardSlot CreateRewardCardSlot(int index)
+    {
+        GameObject card = CreatePanel(rewardCardRoot, $"Prize_{index}", new Vector2(275f, 245f),
+            new Color(0.055f, 0.057f, 0.066f, 0.995f));
+        RewardCardSlot slot = new()
+        {
+            rect = card.GetComponent<RectTransform>(),
+            background = card.GetComponent<Image>(),
+            button = card.AddComponent<Button>(),
+            icon = CreateImage(card.transform, "PrizeIcon", new Vector2(105f, 105f)),
+            rarity = CreateText(card.transform, string.Empty, 9, FontStyle.Bold, TextAnchor.MiddleCenter, goldColor),
+            name = CreateText(card.transform, string.Empty, 14, FontStyle.Bold, TextAnchor.MiddleCenter, Color.white),
+            type = CreateText(card.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.MiddleCenter, new Color(0.66f, 0.84f, 0.93f, 1f)),
+            action = CreateText(card.transform, string.Empty, 8, FontStyle.Bold, TextAnchor.MiddleCenter, accentColor)
+        };
+        slot.button.targetGraphic = slot.background;
+        card.AddComponent<RewardPrizeIndex>().Configure(index);
+        card.SetActive(false);
+        return slot;
+    }
+
+    private static void ResetRewardCardText(Text text, Vector2 min, Vector2 max, Color color)
+    {
+        text.gameObject.SetActive(true);
+        SetAnchors(text.rectTransform, min, max);
+        text.rectTransform.localScale = Vector3.one;
+        text.rectTransform.localRotation = Quaternion.identity;
+        text.color = color;
     }
 
     // ---------------------------------------------------------------------

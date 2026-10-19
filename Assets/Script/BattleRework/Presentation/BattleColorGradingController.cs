@@ -382,7 +382,15 @@ public sealed class BattleColorGradingController : MonoBehaviour
             Destroy(analogOverlayMaterial);
 
         if (runtimeProfile != null)
+        {
+            if (volume != null && volume.sharedProfile == runtimeProfile)
+                volume.sharedProfile = null;
+            foreach (VolumeComponent component in runtimeProfile.components)
+                if (component != null)
+                    Destroy(component);
+            runtimeProfile.components.Clear();
             Destroy(runtimeProfile);
+        }
     }
 
     private void RefreshTargetWeight()

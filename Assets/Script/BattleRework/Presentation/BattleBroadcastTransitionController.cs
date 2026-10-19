@@ -175,7 +175,15 @@ public sealed class BattleBroadcastTransitionController : MonoBehaviour
         ResetDistortion();
 
         if (distortionProfile != null)
+        {
+            if (distortionVolume != null && distortionVolume.sharedProfile == distortionProfile)
+                distortionVolume.sharedProfile = null;
+            foreach (VolumeComponent component in distortionProfile.components)
+                if (component != null)
+                    Destroy(component);
+            distortionProfile.components.Clear();
             Destroy(distortionProfile);
+        }
 
         if (instance == this)
             instance = null;

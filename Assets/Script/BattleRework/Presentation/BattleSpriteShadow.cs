@@ -400,6 +400,7 @@ public sealed class BattleSpriteShadow : MonoBehaviour
             previousHull = source.drawMode == SpriteDrawMode.Simple ? alphaHull : null;
             previousVolume = source.drawMode == SpriteDrawMode.Simple ? volume : null;
         }
+        BattleSpriteAlphaGeometry.RetainPreviousVolume(source, previousVolume);
         bool useVolume = volume != null;
         if (useVolume)
             alphaBounds = BattleSpriteAlphaGeometry.WorldBounds(source, alphaHull, out bottomLeft, out bottomRight);
@@ -523,6 +524,9 @@ public sealed class BattleSpriteShadow : MonoBehaviour
     private void OnDisable()
     {
         ActiveTargets.Remove(this);
+        BattleSpriteAlphaGeometry.RetainPreviousVolume(source, null);
+        previousHull = null;
+        previousVolume = null;
         if (receiverRenderer != null)
             SetReceiverMask(false);
 #if UNITY_EDITOR

@@ -101,7 +101,15 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         if (overlayMaterial != null)
             Destroy(overlayMaterial);
         if (runtimeProfile != null)
+        {
+            if (showVolume != null && showVolume.sharedProfile == runtimeProfile)
+                showVolume.sharedProfile = null;
+            foreach (VolumeComponent component in runtimeProfile.components)
+                if (component != null)
+                    Destroy(component);
+            runtimeProfile.components.Clear();
             Destroy(runtimeProfile);
+        }
 
         if (instance == this)
             instance = null;

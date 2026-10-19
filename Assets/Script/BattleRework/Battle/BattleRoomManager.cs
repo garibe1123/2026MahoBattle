@@ -66,6 +66,7 @@ public class BattleRoomManager : MonoBehaviour
     private readonly List<MonsterController> activeMonsters = new();
     private readonly HashSet<MonsterController> deadMonstersAwaitingReturn = new();
     private readonly HashSet<MonsterController> completedDeathAnimations = new();
+    private MapImpactVfxInstance impactVfxPrefab;
 
     private RoomDefinitionSO currentRoom;
     private BattleContext currentContext;
@@ -204,6 +205,11 @@ public class BattleRoomManager : MonoBehaviour
 
         if (impactVfxRoot == null)
             impactVfxRoot = mapRoot != null ? mapRoot : transform;
+
+        GameObject template = new("DockImpactFX_Template");
+        template.SetActive(false);
+        template.transform.SetParent(transform, false);
+        impactVfxPrefab = template.AddComponent<MapImpactVfxInstance>();
     }
 
     private void OnDisable()
@@ -460,11 +466,14 @@ public class BattleRoomManager : MonoBehaviour
             ? impactVfxRoot
             : (mapRoot != null ? mapRoot : transform);
 
-        GameObject go = new(finalImpact ? "DockImpactFX_Final" : "DockImpactFX");
-        go.transform.SetParent(parent, true);
-        go.transform.position = position;
-
-        MapImpactVfxInstance instance = go.AddComponent<MapImpactVfxInstance>();
+        MapImpactVfxInstance instance = PoolService.Spawn(
+            impactVfxPrefab, position, Quaternion.identity, parent);
+        if (instance == null)
+            return;
+        instance.gameObject.name = finalImpact ? "DockImpactFX_Final" : "DockImpactFX";
+        instance.transform.SetParent(null, true);
+        instance.transform.localScale = Vector3.one;
+        instance.transform.SetParent(parent, true);
         instance.Play(
             impactSprites,
             dustSprites,
@@ -1159,6 +1168,8 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
     private Color dustColor;
 
     private readonly List<ParticleVisual> particles = new();
+    private int activeParticleCount;
+    private Material defaultMaterial;
 
     private sealed class ParticleVisual
     {
@@ -1182,6 +1193,17 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         Vector2 travelDirection,
         bool finalImpact)
     {
+        elapsed = 0f;
+        activeParticleCount = 0;
+        if (impactRenderer != null)
+            impactRenderer.enabled = false;
+        if (glowRenderer != null)
+            glowRenderer.enabled = false;
+        if (dustRenderer != null)
+            dustRenderer.enabled = false;
+        for (int i = 0; i < particles.Count; i++)
+            particles[i].renderer.enabled = false;
+
         impactFrames = realImpactFrames;
         dustFrames = realDustFrames;
         fps = Mathf.Max(1f, animationFps);
@@ -1217,12 +1239,8 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
 
     private void CreateImpactVisual(Material material, int sortingOrder, bool finalImpact)
     {
-        GameObject impactGo = new("ContactCore");
-        impactGo.transform.SetParent(transform, false);
-        impactRenderer = impactGo.AddComponent<SpriteRenderer>();
-        impactRenderer.sortingOrder = sortingOrder;
-        if (material != null)
-            impactRenderer.sharedMaterial = material;
+        PrepareRenderer(ref impactRenderer, "ContactCore", material, sortingOrder);
+        GameObject impactGo = impactRenderer.gameObject;
 
         if (!proceduralImpact)
         {
@@ -1238,16 +1256,12 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
             worldScale * (finalImpact ? 1.12f : 1f),
             1f);
 
-        GameObject glowGo = new("ContactGlow");
-        glowGo.transform.SetParent(transform, false);
-        glowRenderer = glowGo.AddComponent<SpriteRenderer>();
+        PrepareRenderer(ref glowRenderer, "ContactGlow", material, sortingOrder - 1);
+        GameObject glowGo = glowRenderer.gameObject;
         glowRenderer.sprite = MapImpactProceduralSpriteCache.ContactGlow;
         Color glowColor = impactColor;
         glowColor.a *= 0.44f;
         glowRenderer.color = glowColor;
-        glowRenderer.sortingOrder = sortingOrder - 1;
-        if (material != null)
-            glowRenderer.sharedMaterial = material;
         glowGo.transform.localScale = new Vector3(
             worldScale * 0.55f,
             worldScale * (finalImpact ? 1.20f : 1.06f),
@@ -1261,8 +1275,8 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         int count = finalImpact ? 7 : 4;
         for (int i = 0; i < count; i++)
         {
-            GameObject go = new($"Spark_{i}");
-            go.transform.SetParent(transform, false);
+            ParticleVisual particle = AcquireParticle("Spark", material, sortingOrder);
+            GameObject go = particle.renderer.gameObject;
 
             float alongFace = count <= 1
                 ? 0f
@@ -1270,29 +1284,22 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
             alongFace += UnityEngine.Random.Range(-0.10f, 0.10f);
             go.transform.localPosition = new Vector3(0f, alongFace * worldScale, 0f);
 
-            SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
+            SpriteRenderer renderer = particle.renderer;
             renderer.sprite = MapImpactProceduralSpriteCache.Spark;
             renderer.sortingOrder = sortingOrder;
             Color color = impactColor;
             color.a = UnityEngine.Random.Range(0.65f, 1f);
             renderer.color = color;
-            if (material != null)
-                renderer.sharedMaterial = material;
 
             float particleScale = UnityEngine.Random.Range(0.055f, 0.095f) * worldScale;
             go.transform.localScale = new Vector3(particleScale * 1.8f, particleScale, 1f);
 
-            particles.Add(new ParticleVisual
-            {
-                transform = go.transform,
-                renderer = renderer,
-                localVelocity = new Vector2(
-                    UnityEngine.Random.Range(-1.65f, -0.65f),
-                    UnityEngine.Random.Range(-1.45f, 1.45f)) * worldScale,
-                spin = UnityEngine.Random.Range(-240f, 240f),
-                baseAlpha = color.a,
-                drag = 7.5f
-            });
+            particle.localVelocity = new Vector2(
+                UnityEngine.Random.Range(-1.65f, -0.65f),
+                UnityEngine.Random.Range(-1.45f, 1.45f)) * worldScale;
+            particle.spin = UnityEngine.Random.Range(-240f, 240f);
+            particle.baseAlpha = color.a;
+            particle.drag = 7.5f;
         }
     }
 
@@ -1300,13 +1307,9 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
     {
         if (!proceduralDust)
         {
-            GameObject dustGo = new("DustAnimation");
-            dustGo.transform.SetParent(transform, false);
-            dustRenderer = dustGo.AddComponent<SpriteRenderer>();
+            PrepareRenderer(ref dustRenderer, "DustAnimation", material, sortingOrder);
+            GameObject dustGo = dustRenderer.gameObject;
             dustRenderer.sprite = dustFrames[0];
-            dustRenderer.sortingOrder = sortingOrder;
-            if (material != null)
-                dustRenderer.sharedMaterial = material;
             dustGo.transform.localScale = Vector3.one * worldScale;
             return;
         }
@@ -1314,8 +1317,8 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         int count = finalImpact ? 7 : 5;
         for (int i = 0; i < count; i++)
         {
-            GameObject go = new($"DustWisp_{i}");
-            go.transform.SetParent(transform, false);
+            ParticleVisual particle = AcquireParticle("DustWisp", material, sortingOrder);
+            GameObject go = particle.renderer.gameObject;
 
             float alongFace = count <= 1
                 ? 0f
@@ -1326,31 +1329,53 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
                 alongFace * worldScale,
                 0f);
 
-            SpriteRenderer renderer = go.AddComponent<SpriteRenderer>();
+            SpriteRenderer renderer = particle.renderer;
             renderer.sprite = MapImpactProceduralSpriteCache.DustWisp;
             renderer.sortingOrder = sortingOrder;
             Color color = dustColor;
             color.a *= UnityEngine.Random.Range(0.55f, 0.90f);
             renderer.color = color;
-            if (material != null)
-                renderer.sharedMaterial = material;
 
             float xScale = UnityEngine.Random.Range(0.16f, 0.28f) * worldScale;
             float yScale = UnityEngine.Random.Range(0.08f, 0.16f) * worldScale;
             go.transform.localScale = new Vector3(xScale, yScale, 1f);
 
-            particles.Add(new ParticleVisual
-            {
-                transform = go.transform,
-                renderer = renderer,
-                localVelocity = new Vector2(
-                    UnityEngine.Random.Range(-0.58f, -0.22f),
-                    UnityEngine.Random.Range(-0.26f, 0.26f)) * worldScale,
-                spin = UnityEngine.Random.Range(-22f, 22f),
-                baseAlpha = color.a,
-                drag = 4.2f
-            });
+            particle.localVelocity = new Vector2(
+                UnityEngine.Random.Range(-0.58f, -0.22f),
+                UnityEngine.Random.Range(-0.26f, 0.26f)) * worldScale;
+            particle.spin = UnityEngine.Random.Range(-22f, 22f);
+            particle.baseAlpha = color.a;
+            particle.drag = 4.2f;
         }
+    }
+
+    private void PrepareRenderer(ref SpriteRenderer renderer, string visualName, Material material, int sortingOrder)
+    {
+        if (renderer == null)
+        {
+            GameObject go = new(visualName);
+            go.transform.SetParent(transform, false);
+            renderer = go.AddComponent<SpriteRenderer>();
+            if (defaultMaterial == null)
+                defaultMaterial = renderer.sharedMaterial;
+        }
+        renderer.enabled = true;
+        renderer.color = Color.white;
+        renderer.sharedMaterial = material != null ? material : defaultMaterial;
+        renderer.sortingOrder = sortingOrder;
+        renderer.transform.localPosition = Vector3.zero;
+        renderer.transform.localRotation = Quaternion.identity;
+        renderer.transform.localScale = Vector3.one;
+    }
+
+    private ParticleVisual AcquireParticle(string visualName, Material material, int sortingOrder)
+    {
+        if (activeParticleCount == particles.Count)
+            particles.Add(new ParticleVisual());
+        ParticleVisual particle = particles[activeParticleCount++];
+        PrepareRenderer(ref particle.renderer, visualName, material, sortingOrder);
+        particle.transform = particle.renderer.transform;
+        return particle;
     }
 
     private void Update()
@@ -1369,7 +1394,7 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         UpdateParticles(t);
 
         if (elapsed >= duration)
-            Destroy(gameObject);
+            PoolService.Release(gameObject);
     }
 
     private void UpdateRealAnimation(SpriteRenderer renderer, Sprite[] frames)
@@ -1416,7 +1441,7 @@ internal sealed class MapImpactVfxInstance : MonoBehaviour
         float dt = Mathf.Min(0.033f, Time.unscaledDeltaTime);
         float fade = 1f - Mathf.SmoothStep(0.20f, 1f, t);
 
-        for (int i = 0; i < particles.Count; i++)
+        for (int i = 0; i < activeParticleCount; i++)
         {
             ParticleVisual particle = particles[i];
             if (particle == null || particle.transform == null || particle.renderer == null)

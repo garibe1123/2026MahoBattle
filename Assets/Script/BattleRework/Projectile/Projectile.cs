@@ -36,6 +36,8 @@ public class Projectile : MonoBehaviour
     private readonly HashSet<IDamageable> explosionDamagedTargets = new();
     private System.Action startVisualCompleteCallback;
     private System.Action returnToPoolCallback;
+    private readonly List<TrailRenderer> pooledTrails = new();
+    private readonly List<ParticleSystem> pooledParticles = new();
 
     [Header("BulletType")]
     [SerializeField] private LayerMask HitLayer;
@@ -48,6 +50,8 @@ public class Projectile : MonoBehaviour
         anim = GetComponent<ProjectileAnimator>();
         startVisualCompleteCallback = HandleStartVisualComplete;
         returnToPoolCallback = ReturnToProjectilePool;
+        GetComponentsInChildren(true, pooledTrails);
+        GetComponentsInChildren(true, pooledParticles);
     }
 
     public void Setup(
@@ -701,13 +705,15 @@ public class Projectile : MonoBehaviour
 
         anim?.Stop();
 
-        TrailRenderer[] trails = GetComponentsInChildren<TrailRenderer>(true);
-        for (int i = 0; i < trails.Length; i++)
-            trails[i]?.Clear();
+        GetComponentsInChildren(true, pooledTrails);
+        for (int i = 0; i < pooledTrails.Count; i++)
+            if (pooledTrails[i] != null)
+                pooledTrails[i].Clear();
 
-        ParticleSystem[] particles = GetComponentsInChildren<ParticleSystem>(true);
-        for (int i = 0; i < particles.Length; i++)
-            particles[i]?.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+        GetComponentsInChildren(true, pooledParticles);
+        for (int i = 0; i < pooledParticles.Count; i++)
+            if (pooledParticles[i] != null)
+                pooledParticles[i].Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
 
         if (visual != null)
         {

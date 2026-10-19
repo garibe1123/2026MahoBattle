@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.SceneManagement;
 
 internal static class BattleSpriteAlphaGeometry
 {
@@ -11,6 +12,8 @@ internal static class BattleSpriteAlphaGeometry
         public Vector4 rect;
         public float radius;
         public float maxRadius;
+        public int users;
+        public bool cached = true;
     }
 
     private sealed class Entry
@@ -24,15 +27,20 @@ internal static class BattleSpriteAlphaGeometry
         public SpriteDrawMode drawMode;
         public SpriteTileMode tileMode;
         public float threshold;
+        public int lastUsedFrame;
     }
 
     private static readonly Dictionary<Sprite, Entry> Entries = new();
     private static readonly Dictionary<SpriteRenderer, Entry> TiledEntries = new();
+    private static readonly Dictionary<SpriteRenderer, Volume> RetainedVolumes = new();
+    private static readonly List<Sprite> UnusedSprites = new();
+    private static int nextPruneFrame;
     private static int generation;
     private static bool unsupportedReported;
 
     internal static void ReleaseTiled(SpriteRenderer renderer)
     {
+        RetainPreviousVolume(renderer, null);
         if (ReferenceEquals(renderer, null) || !TiledEntries.TryGetValue(renderer, out Entry entry))
             return;
         TiledEntries.Remove(renderer);
@@ -42,6 +50,11 @@ internal static class BattleSpriteAlphaGeometry
 
     internal static bool TryGet(SpriteRenderer renderer, out Vector2[] hull, out Volume volume)
     {
+        if (Time.frameCount >= nextPruneFrame)
+        {
+            nextPruneFrame = Time.frameCount + 300;
+            PruneUnused(false);
+        }
         if (renderer.drawMode == SpriteDrawMode.Simple)
             return TryGet(renderer.sprite, out hull, out volume);
         Sprite sprite = renderer.sprite;
@@ -182,15 +195,67 @@ internal static class BattleSpriteAlphaGeometry
         int mipLimit = texture.activeMipmapLimit;
         if (!Entries.TryGetValue(sprite, out Entry entry) || entry.texture != texture || entry.mipLimit != mipLimit)
         {
-            if (entry?.volume?.texture != null)
-                UnityEngine.Object.Destroy(entry.volume.texture);
+            ReleaseCachedVolume(entry?.volume);
             entry = new Entry { texture = texture, mipLimit = mipLimit };
             Entries[sprite] = entry;
             Request(sprite, entry, splitAlpha != null);
         }
+        entry.lastUsedFrame = Time.frameCount;
         hull = entry.hull;
         volume = entry.volume;
         return hull != null && hull.Length > 0 && volume != null;
+    }
+
+    // The last ready volume remains available while the next sprite's readback is pending.
+    internal static void RetainPreviousVolume(SpriteRenderer renderer, Volume volume)
+    {
+        if (ReferenceEquals(renderer, null))
+            return;
+        RetainedVolumes.TryGetValue(renderer, out Volume previous);
+        if (ReferenceEquals(previous, volume))
+            return;
+        if (previous != null)
+        {
+            previous.users--;
+            if (!previous.cached && previous.users == 0 && previous.texture != null)
+                UnityEngine.Object.Destroy(previous.texture);
+        }
+        if (volume == null)
+            RetainedVolumes.Remove(renderer);
+        else
+        {
+            volume.users++;
+            RetainedVolumes[renderer] = volume;
+        }
+    }
+
+    private static void ReleaseCachedVolume(Volume volume)
+    {
+        if (volume == null)
+            return;
+        volume.cached = false;
+        if (volume.users == 0 && volume.texture != null)
+            UnityEngine.Object.Destroy(volume.texture);
+    }
+
+    private static void HandleSceneUnloaded(Scene _) => PruneUnused(true);
+
+    private static void PruneUnused(bool sceneUnloaded)
+    {
+        foreach (KeyValuePair<Sprite, Entry> pair in Entries)
+        {
+            Entry entry = pair.Value;
+            if ((entry.volume == null || entry.volume.users == 0) &&
+                (sceneUnloaded || pair.Key == null || Time.frameCount - entry.lastUsedFrame >= 300))
+                UnusedSprites.Add(pair.Key);
+        }
+        for (int i = 0; i < UnusedSprites.Count; i++)
+        {
+            Sprite sprite = UnusedSprites[i];
+            ReleaseCachedVolume(Entries[sprite].volume);
+            Entries.Remove(sprite);
+        }
+        UnusedSprites.Clear();
     }
 
     private static void Request(Sprite sprite, Entry entry, bool redAlpha)
@@ -462,6 +527,11 @@ internal static class BattleSpriteAlphaGeometry
     private static void Clear()
     {
         generation++;
+        SceneManager.sceneUnloaded -= HandleSceneUnloaded;
+        SceneManager.sceneUnloaded += HandleSceneUnloaded;
+        foreach (Volume volume in RetainedVolumes.Values)
+            if (!volume.cached && volume.texture != null)
+                UnityEngine.Object.Destroy(volume.texture);
         foreach (Entry entry in Entries.Values)
             if (entry.volume?.texture != null)
                 UnityEngine.Object.Destroy(entry.volume.texture);
@@ -470,6 +540,9 @@ internal static class BattleSpriteAlphaGeometry
                 UnityEngine.Object.Destroy(entry.volume.texture);
         Entries.Clear();
         TiledEntries.Clear();
+        RetainedVolumes.Clear();
+        UnusedSprites.Clear();
+        nextPruneFrame = 0;
         unsupportedReported = false;
     }
 }

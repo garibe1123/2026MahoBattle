@@ -366,6 +366,7 @@ public sealed class BattleShowWorldSetController : MonoBehaviour
 
     private void OnDestroy()
     {
+        DestroyRewardShowcase();
         if (instance == this)
             instance = null;
     }
