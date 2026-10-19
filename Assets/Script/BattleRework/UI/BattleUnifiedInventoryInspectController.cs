@@ -25,9 +25,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 {
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
     private const int DismissCanvasSortingOrder = 779;
-    private const float MiniCellSize = 78f;
-    private const float MiniCellGap = 7f;
-    private const float MiniGridTotal = MiniCellSize * 3f + MiniCellGap * 2f;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
@@ -39,12 +36,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     [SerializeField] private BattleTimeScaleController timeScaleController;
 
     [Header("Mini PACK")]
-    [SerializeField] private Vector2 miniPackSize = new(304f, 326f);
     [SerializeField] private Vector2 combatMiniPackPosition = new(22f, 22f);
     [SerializeField] private Vector2 rewardChoiceMiniPackPosition = new(34f, 28f);
-    [SerializeField] private Vector2 miniGridOffset = new(20f, 18f);
-    [SerializeField] private Vector2 miniHeaderSize = new(126f, 40f);
-    [SerializeField] private Vector2 miniIconSize = new(64f, 64f);
     [SerializeField, Range(0.45f, 0.90f)] private float rewardChoiceMiniPackScale = 0.68f;
     [SerializeField, Range(0.5f, 1f)] private float rewardChoiceMiniPackAlpha = 0.82f;
 
@@ -75,7 +68,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private RectTransform builtInDetailRoot;
 
     private RectTransform miniPackRoot;
-    private RectTransform miniPackCells;
     private CanvasGroup miniPackGroup;
 
     private RectTransform detailRoot;
@@ -105,6 +97,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private BattleKineticLoadoutUI subscribedCombatLoadout;
     private BattleRunManager subscribedRunManager;
     private float nextResolveTime;
+    private BattleKineticItemBarUI miniPackView;
+    private RectTransform packBackground;
     private bool rewardUiValidationPending;
     private float rewardUiValidationAt;
 
@@ -112,6 +106,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void Awake()
     {
+        selectedAccent = BattleUiPanelDecoration.Yellow;
+        hoverAccent = pickedAccent = BattleUiPanelDecoration.Mint;
         ResolveReferences();
         ResolveUi();
         EnsureDismissCanvas();
@@ -187,7 +183,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         bool combatTab = combatTabOpen;
         bool combat = combatActive;
 
-        ApplyMiniPackGeometry();
         ApplyMiniPackContext(rewardChoice, rewardPackVisible, combatTab, combat);
         ApplyFullInventoryLayout(rewardPackVisible);
         AttachContextControls(rewardEdit, combat);
@@ -324,6 +319,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     {
         if (kineticLoadout != null)
         {
+            miniPackView ??= kineticLoadout.MiniPackView;
+            packBackground ??= kineticLoadout.PackBackground;
+            if (miniPackView != null)
+            {
+                miniPackRoot = miniPackView.Root;
+                miniPackGroup = miniPackView.Group;
+            }
             fullRoot ??= kineticLoadout.FullRoot;
             fullGroup ??= kineticLoadout.FullGroup;
             boardRoot ??= kineticLoadout.GridBoard;
@@ -355,7 +357,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             if (miniPackRoot != null)
             {
                 miniPackGroup = miniPackRoot.GetComponent<CanvasGroup>();
-                miniPackCells = miniPackRoot.Find("BackpackCells") as RectTransform;
             }
         }
 
@@ -394,77 +395,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         }
     }
 
-    private void ApplyMiniPackGeometry()
-    {
-        if (miniPackRoot == null)
-            return;
-
-        miniPackRoot.anchorMin = miniPackRoot.anchorMax = Vector2.zero;
-        miniPackRoot.pivot = Vector2.zero;
-        miniPackRoot.sizeDelta = miniPackSize;
-
-        RectTransform header = miniPackRoot.Find("PackHeaderTag") as RectTransform;
-        if (header != null)
-        {
-            header.sizeDelta = miniHeaderSize;
-            header.anchoredPosition = new Vector2(10f, -5f);
-        }
-
-        Text[] headerTexts = miniPackRoot.GetComponentsInChildren<Text>(true);
-        for (int i = 0; i < headerTexts.Length; i++)
-        {
-            Text text = headerTexts[i];
-            if (text == null)
-                continue;
-            if (text.text == "PACK")
-                text.fontSize = 18;
-            else if (text.text != null && text.text.Contains("/ 9"))
-                text.fontSize = 12;
-            else if (text.text != null && (text.text.Contains("TAB") || text.text.Contains("LB")))
-                text.fontSize = 9;
-        }
-
-        miniPackCells ??= miniPackRoot.Find("BackpackCells") as RectTransform;
-        if (miniPackCells == null)
-            return;
-
-        miniPackCells.anchorMin = miniPackCells.anchorMax = Vector2.zero;
-        miniPackCells.pivot = Vector2.zero;
-        miniPackCells.sizeDelta = new Vector2(MiniGridTotal, MiniGridTotal);
-        miniPackCells.anchoredPosition = miniGridOffset;
-
-        for (int i = 0; i < SlotCount; i++)
-        {
-            RectTransform slot = miniPackCells.Find($"BackpackCell_{i}") as RectTransform;
-            if (slot == null)
-                continue;
-
-            int x = i % BattleEquipmentSystem.GridSize;
-            int y = i / BattleEquipmentSystem.GridSize;
-            slot.sizeDelta = new Vector2(MiniCellSize, MiniCellSize);
-            slot.anchorMin = slot.anchorMax = Vector2.zero;
-            slot.pivot = new Vector2(0.5f, 0.5f);
-            slot.anchoredPosition = new Vector2(
-                x * (MiniCellSize + MiniCellGap) + MiniCellSize * 0.5f,
-                MiniGridTotal - (y * (MiniCellSize + MiniCellGap) + MiniCellSize * 0.5f));
-
-            RectTransform icon = slot.Find("Icon") as RectTransform;
-            if (icon != null)
-            {
-                icon.sizeDelta = miniIconSize;
-                icon.anchorMin = icon.anchorMax = new Vector2(0.5f, 0.5f);
-                icon.anchoredPosition = Vector2.zero;
-            }
-
-            RectTransform accent = slot.Find("CellAccent") as RectTransform;
-            if (accent != null)
-            {
-                accent.sizeDelta = new Vector2(4f, MiniCellSize - 12f);
-                accent.anchoredPosition = new Vector2(4f, 0f);
-            }
-        }
-    }
-
     private void ApplyMiniPackContext(bool rewardChoice, bool rewardEdit, bool combatTab, bool combat)
     {
         if (miniPackRoot == null || miniPackGroup == null)
@@ -481,11 +411,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             return;
         }
 
+        miniPackView?.ApplyLayout(0f, BattleUiPanelDecoration.MiniPackSize);
+
         Vector2 targetPosition = combatMiniPackPosition;
         float targetScale = 0.92f;
         float targetAlpha = 0f;
         float targetZ = 24f;
-        Quaternion targetRotation = Quaternion.Euler(2.4f, -5f, 0.8f);
+        Quaternion targetRotation = BattleUiPanelDecoration.PanelPose;
         bool interactive = false;
 
         if (rewardEdit)
@@ -494,7 +426,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             targetScale = 0.90f;
             targetAlpha = 0f;
             targetZ = 30f;
-            targetRotation = Quaternion.Euler(3f, -6f, 1.0f);
         }
         else if (rewardChoice)
         {
@@ -502,7 +433,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             targetScale = rewardChoiceMiniPackScale;
             targetAlpha = rewardChoiceMiniPackAlpha;
             targetZ = 8f;
-            targetRotation = Quaternion.Euler(1.0f, -2.2f, -0.25f);
         }
         else if (combat)
         {
@@ -510,7 +440,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             targetScale = 1f;
             targetAlpha = 1f;
             targetZ = -4f;
-            targetRotation = Quaternion.Euler(0.35f, -1.2f, -0.15f);
             interactive = !combatTab && !BattlePauseController.IsPaused;
         }
 
@@ -547,115 +476,46 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void ApplyCombatMiniPackMorph(float progress)
     {
-        if (miniPackRoot == null || miniPackGroup == null || boardRoot == null)
+        if (miniPackRoot == null || miniPackGroup == null || packBackground == null || miniPackView == null)
             return;
 
         float eased = SmoothPackMorph(progress);
-        float targetScale = ResolveMiniPackToBoardScale();
-
-        Vector2 targetPosition = ResolveMiniPackMorphTarget(targetScale);
+        Transform parent = miniPackRoot.parent;
+        Vector3 xAxis = parent.InverseTransformVector(packBackground.TransformVector(Vector3.right));
+        Vector3 yAxis = parent.InverseTransformVector(packBackground.TransformVector(Vector3.up));
+        Vector2 targetSize = Vector2.Scale(packBackground.rect.size, new Vector2(xAxis.magnitude, yAxis.magnitude));
+        Quaternion targetRotation = Quaternion.Inverse(parent.rotation) * packBackground.rotation;
+        Vector3 center = parent.InverseTransformPoint(packBackground.TransformPoint(packBackground.rect.center));
+        Vector3 targetPivot = center - targetRotation * new Vector3(targetSize.x * 0.5f, targetSize.y * 0.5f, 0f);
+        Rect parentRect = ((RectTransform)parent).rect;
+        Vector2 targetPosition = (Vector2)targetPivot - parentRect.min;
+        miniPackView.ApplyLayout(eased, Vector2.Lerp(BattleUiPanelDecoration.MiniPackSize, targetSize, eased));
         miniPackRoot.anchoredPosition = Vector2.Lerp(
             combatMiniPackPosition,
             targetPosition,
             eased);
 
-        miniPackRoot.localScale = Vector3.one *
-                                  Mathf.Lerp(1f, targetScale, eased);
+        miniPackRoot.localScale = Vector3.one;
 
-        Quaternion startRotation = Quaternion.Euler(0.35f, -1.2f, -0.15f);
-        Quaternion targetRotation = boardRoot.localRotation;
         miniPackRoot.localRotation = Quaternion.Slerp(
-            startRotation,
+            BattleUiPanelDecoration.PanelPose,
             targetRotation,
             eased);
 
         Vector3 local = miniPackRoot.localPosition;
-        local.z = Mathf.Lerp(-4f, -14f, eased);
+        local.z = Mathf.Lerp(-4f, targetPivot.z, eased);
         miniPackRoot.localPosition = local;
 
-        float fade = 1f - SmoothPackRange(progress, 0.58f, 0.96f);
+        float fade = 1f - BattleUiPanelDecoration.PackReveal(progress);
         miniPackGroup.alpha = fade;
         miniPackGroup.blocksRaycasts = false;
         miniPackGroup.interactable = false;
-    }
-
-    private float ResolveMiniPackToBoardScale()
-    {
-        if (miniPackRoot == null || boardRoot == null)
-            return 1f;
-
-        Vector3[] boardCorners = new Vector3[4];
-        boardRoot.GetWorldCorners(boardCorners);
-
-        Vector2 boardBottomLeft = RectTransformUtility.WorldToScreenPoint(null, boardCorners[0]);
-        Vector2 boardTopRight = RectTransformUtility.WorldToScreenPoint(null, boardCorners[2]);
-
-        float boardWidth = Mathf.Abs(boardTopRight.x - boardBottomLeft.x);
-        float boardHeight = Mathf.Abs(boardTopRight.y - boardBottomLeft.y);
-
-        Canvas miniCanvas = miniPackRoot.GetComponentInParent<Canvas>();
-        float canvasScale = miniCanvas != null
-            ? Mathf.Max(0.0001f, miniCanvas.scaleFactor)
-            : 1f;
-
-        float miniWidth = Mathf.Max(1f, miniPackRoot.rect.width * canvasScale);
-        float miniHeight = Mathf.Max(1f, miniPackRoot.rect.height * canvasScale);
-
-        float scale = Mathf.Min(
-            boardWidth / miniWidth,
-            boardHeight / miniHeight);
-
-        return Mathf.Clamp(scale, 1.35f, 2.35f);
-    }
-
-    private Vector2 ResolveMiniPackMorphTarget(float targetScale)
-    {
-        if (miniPackRoot == null || boardRoot == null)
-            return combatMiniPackPosition;
-
-        RectTransform parent = miniPackRoot.parent as RectTransform;
-        if (parent == null)
-            return combatMiniPackPosition;
-
-        Vector3 boardCenterWorld = boardRoot.TransformPoint(boardRoot.rect.center);
-        Vector2 boardCenterScreen = RectTransformUtility.WorldToScreenPoint(
-            null,
-            boardCenterWorld);
-
-        if (!RectTransformUtility.ScreenPointToLocalPointInRectangle(
-                parent,
-                boardCenterScreen,
-                null,
-                out Vector2 boardCenterLocal))
-        {
-            return combatMiniPackPosition;
-        }
-
-        Vector2 scaledCenterOffset = miniPackRoot.rect.center * targetScale;
-        Vector2 targetPivotLocal = boardCenterLocal - scaledCenterOffset;
-
-        Vector2 anchor = miniPackRoot.anchorMin;
-        Rect parentRect = parent.rect;
-        Vector2 anchorLocal = new(
-            Mathf.Lerp(parentRect.xMin, parentRect.xMax, anchor.x),
-            Mathf.Lerp(parentRect.yMin, parentRect.yMax, anchor.y));
-
-        return targetPivotLocal - anchorLocal;
     }
 
     private static float SmoothPackMorph(float value)
     {
         value = Mathf.Clamp01(value);
         return value * value * (3f - 2f * value);
-    }
-
-    private static float SmoothPackRange(float value, float start, float end)
-    {
-        if (end <= start + 0.0001f)
-            return value >= end ? 1f : 0f;
-
-        float t = Mathf.Clamp01((value - start) / (end - start));
-        return t * t * (3f - 2f * t);
     }
 
     private void ApplyRewardForegroundSorting(bool rewardPackVisible)
@@ -716,7 +576,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                 boardRoot.anchorMin = boardRoot.anchorMax = boardAnchor;
                 boardRoot.pivot = new Vector2(0.5f, 0.5f);
                 boardRoot.anchoredPosition = Vector2.zero;
-                boardRoot.localRotation = Quaternion.identity;
+                boardRoot.localRotation = BattleUiPanelDecoration.PanelPose;
 
                 Vector3 boardLocal = boardRoot.localPosition;
                 boardLocal.z = 0f;
@@ -738,7 +598,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
             if (fullRoot != null)
             {
-                fullRoot.localScale = Vector3.one * fullGridScale;
+                fullRoot.localScale = Vector3.one * Mathf.Clamp(fullGridScale, 0.96f, 1f);
                 fullRoot.localRotation = Quaternion.identity;
 
                 Vector3 rootLocal = fullRoot.localPosition;

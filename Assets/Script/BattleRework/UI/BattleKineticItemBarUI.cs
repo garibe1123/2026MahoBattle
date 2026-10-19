@@ -35,6 +35,12 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     private CanvasGroup group;
     private RectTransform root;
     private Text capacityText;
+    private RectTransform gridRect;
+    private Vector2 presentedSize;
+    private float presentedBlend = -1f;
+    private readonly Text[] slotNames = new Text[SlotCount];
+    private readonly Text[] emptyLabels = new Text[SlotCount];
+    private readonly BattleUiPanelDecoration[] slotDecorations = new BattleUiPanelDecoration[SlotCount];
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
@@ -55,6 +61,10 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void Awake()
     {
+        inkColor = occupiedCellColor = emptyCellColor = BattleUiPanelDecoration.Surface;
+        paperColor = BattleUiPanelDecoration.Paper;
+        lockedColor = BattleUiPanelDecoration.LockedSurface;
+        accentCyan = accentPink = BattleUiPanelDecoration.Mint;
         ResolveReferences();
         EnsureUi();
     }
@@ -179,15 +189,16 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
 
         // 생성 시의 초기값일 뿐이며 이후 레이아웃은 Unified Inventory View가 소유합니다.
-        root = CreateRect(canvas.transform, "BackpackMiniGrid", new Vector2(304f, 326f));
+        root = CreateRect(canvas.transform, "BackpackMiniGrid", BattleUiPanelDecoration.MiniPackSize);
         root.anchorMin = root.anchorMax = Vector2.zero;
         root.pivot = Vector2.zero;
         root.anchoredPosition = new Vector2(22f, 22f);
-        root.localRotation = Quaternion.Euler(0f, 0f, -1.15f);
+        root.localRotation = BattleUiPanelDecoration.PanelPose;
 
         Image back = root.gameObject.AddComponent<Image>();
         back.color = inkColor;
         back.raycastTarget = false;
+        BattleUiPanelDecoration.Round(back);
 
         Outline outline = root.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.24f);
@@ -200,30 +211,33 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
         BuildHeader();
         BuildGrid();
+        ApplyLayout(0f, BattleUiPanelDecoration.MiniPackSize);
         Refresh();
     }
 
     private void BuildHeader()
     {
-        RectTransform header = CreateRect(root, "PackHeaderTag", new Vector2(270f, 40f));
-        header.anchorMin = header.anchorMax = new Vector2(0f, 1f);
-        header.pivot = new Vector2(0f, 1f);
-        header.anchoredPosition = new Vector2(14f, -6f);
-
-        capacityText = CreateText(header, "3 / 9", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
-        SetAnchors(capacityText.rectTransform, new Vector2(0.02f, 0f), new Vector2(0.38f, 1f));
-
-        Text hint = CreateText(header, "TAB / LB  OPEN", 9, FontStyle.Bold, TextAnchor.MiddleRight, new Color(0.58f, 0.63f, 0.72f, 1f));
-        SetAnchors(hint.rectTransform, new Vector2(0.40f, 0f), new Vector2(0.98f, 1f));
+        BattleUiPanelDecoration.Header(root, "PACK / EQUIPMENT", accentCyan);
+        capacityText = CreateText(root, "3 / 9", 11, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
+        RectTransform capacity = capacityText.rectTransform;
+        capacity.anchorMin = capacity.anchorMax = Vector2.one;
+        capacity.pivot = Vector2.one;
+        capacity.sizeDelta = new Vector2(60f, 24f);
+        capacity.anchoredPosition = new Vector2(-44f, -9f);
+        Text hint = CreateText(root, "TAB / LB  OPEN", 9, FontStyle.Bold, TextAnchor.MiddleCenter, BattleUiPanelDecoration.Muted);
+        SetAnchors(hint.rectTransform, new Vector2(0.15f, 0f), new Vector2(0.85f, 0f));
+        hint.rectTransform.sizeDelta = new Vector2(0f, 14f);
+        hint.rectTransform.anchoredPosition = new Vector2(0f, 7f);
     }
 
     private void BuildGrid()
     {
-        const float cell = 78f;
-        const float gap = 7f;
+        const float cell = BattleUiPanelDecoration.MiniCellSize;
+        const float gap = BattleUiPanelDecoration.MiniCellGap;
         const float total = cell * GridSize + gap * (GridSize - 1);
 
         RectTransform gridRoot = CreateRect(root, "BackpackCells", new Vector2(total, total));
+        gridRect = gridRoot;
         gridRoot.anchorMin = gridRoot.anchorMax = Vector2.zero;
         gridRoot.pivot = Vector2.zero;
         gridRoot.anchoredPosition = new Vector2(20f, 18f);
@@ -243,12 +257,14 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             Image cellImage = slot.gameObject.AddComponent<Image>();
             cellImage.color = emptyCellColor;
             cellImage.raycastTarget = false;
+            BattleUiPanelDecoration.Round(cellImage);
             slotBackgrounds[i] = cellImage;
 
             Outline cellOutline = slot.gameObject.AddComponent<Outline>();
             cellOutline.effectColor = new Color(0.54f, 0.58f, 0.66f, 0.22f);
             cellOutline.effectDistance = new Vector2(1f, -1f);
             slotOutlines[i] = cellOutline;
+            slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
 
             Image icon = CreateImage(slot, "Icon", new Vector2(64f, 64f));
             icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
@@ -322,6 +338,8 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
             Stretch(
                 emptyLabel.rectTransform);
+            emptyLabels[i] = emptyLabel;
+            emptyOutline.enabled = false;
 
             slotEmptyStates[i] =
                 emptyState.gameObject;
@@ -332,8 +350,10 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             Text grade = CreateText(slot, string.Empty, 9, FontStyle.Bold, TextAnchor.UpperRight, new Color(0.62f, 0.67f, 0.76f, 1f));
             SetAnchors(grade.rectTransform, new Vector2(0.50f, 0.70f), new Vector2(0.93f, 0.94f));
             slotGrades[i] = grade;
+            slotNames[i] = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+            SetAnchors(slotNames[i].rectTransform, new Vector2(0.52f, 0.43f), new Vector2(0.94f, 0.80f));
 
-            Text state = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.LowerRight, accentCyan);
+            Text state = CreateText(slot, string.Empty, 8, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
             SetAnchors(state.rectTransform, new Vector2(0.35f, 0.03f), new Vector2(0.93f, 0.24f));
             slotStates[i] = state;
 
@@ -367,6 +387,39 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         image.raycastTarget = false;
     }
 
+    public void ApplyLayout(float blend, Vector2 size)
+    {
+        if (gridRect == null || (presentedSize == size && Mathf.Approximately(presentedBlend, blend)))
+            return;
+        presentedSize = size;
+        presentedBlend = blend;
+        root.sizeDelta = size;
+        float layoutScale = size.x / Mathf.Lerp(BattleUiPanelDecoration.MiniPackSize.x, BattleUiPanelDecoration.ExpandedPackSize.x, blend);
+        float cell = Mathf.Lerp(BattleUiPanelDecoration.MiniCellSize, BattleUiPanelDecoration.FullCellSize, blend) * layoutScale;
+        float gap = Mathf.Lerp(BattleUiPanelDecoration.MiniCellGap, BattleUiPanelDecoration.FullCellGap, blend) * layoutScale;
+        float total = cell * GridSize + gap * (GridSize - 1);
+        gridRect.sizeDelta = Vector2.one * total;
+        gridRect.anchoredPosition = (size - Vector2.one * total) * 0.5f;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            slotRects[i].sizeDelta = Vector2.one * cell;
+            slotRects[i].anchoredPosition = new Vector2((i % GridSize) * (cell + gap) + cell * 0.5f,
+                total - ((i / GridSize) * (cell + gap) + cell * 0.5f));
+            slotIcons[i].rectTransform.anchorMin = slotIcons[i].rectTransform.anchorMax = new Vector2(0.30f, 0.64f);
+            slotIcons[i].rectTransform.sizeDelta = Vector2.one * Mathf.Lerp(BattleUiPanelDecoration.MiniIconPixels, BattleUiPanelDecoration.FullIconPixels, blend) * layoutScale;
+            slotNames[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(BattleUiPanelDecoration.MiniNameFontSize, BattleUiPanelDecoration.FullNameFontSize, blend) * layoutScale);
+            slotGrades[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(9f, 10f, blend));
+            slotStates[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(8f, 10f, blend));
+            SetAnchors(slotGrades[i].rectTransform, new Vector2(0.64f, 0.80f), new Vector2(0.93f, 0.94f));
+            SetAnchors(slotStates[i].rectTransform, new Vector2(0.08f, 0.07f), new Vector2(0.94f, 0.27f));
+            RectTransform empty = (RectTransform)slotEmptyStates[i].transform;
+            empty.anchorMin = empty.anchorMax = new Vector2(0.5f, 0.56f);
+            empty.sizeDelta = Vector2.Lerp(new Vector2(48f, 40f), new Vector2(112f, 92f), blend) * layoutScale;
+            emptyLabels[i].fontSize = Mathf.RoundToInt(Mathf.Lerp(8f, 15f, blend));
+            slotAccents[i].rectTransform.sizeDelta = new Vector2(4f, cell - 12f);
+        }
+    }
+
     private void Refresh()
     {
         if (equipmentSystem == null || canvas == null)
@@ -384,9 +437,11 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             bool occupied = equipment != null;
             bool isEquipped = i == equipped;
             bool linked = IsSlotLinked(i);
+            slotNames[i].text = !unlocked ? "LOCKED" : occupied ? equipment.GetDisplayName().ToUpperInvariant() : string.Empty;
+            slotDecorations[i]?.SetEmphasis(isEquipped || linked);
 
             if (slotBackgrounds[i] != null)
-                slotBackgrounds[i].color = !unlocked ? lockedColor : occupied ? occupiedCellColor : emptyCellColor;
+                slotBackgrounds[i].color = !unlocked ? lockedColor : isEquipped ? BattleUiPanelDecoration.EquippedSurface : occupied ? occupiedCellColor : emptyCellColor;
 
             if (slotOutlines[i] != null)
             {

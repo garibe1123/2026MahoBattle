@@ -141,6 +141,11 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
     private void Awake()
     {
+        maxTiltX = BattleUiPanelDecoration.CursorTilt.x;
+        maxTiltY = BattleUiPanelDecoration.CursorTilt.y;
+        centerGatherTiltX = BattleUiPanelDecoration.GatherTilt.x;
+        centerGatherTiltY = BattleUiPanelDecoration.GatherTilt.y;
+        zStep = BattleUiPanelDecoration.DepthStep;
         if (instance != null &&
             instance != this)
         {
@@ -843,7 +848,7 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
                 -score *
                 Mathf.Clamp(
                     zStep,
-                    1f, 6f);
+                    1f, BattleUiPanelDecoration.DepthStep);
 
             int sorting =
                 spatialSortingBase +
@@ -1211,9 +1216,9 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
         // 위/아래도 같은 원리로 X축을 사용해 중앙으로 살짝 모읍니다.
         return new Vector2(
             centerNormalized.y *
-            Mathf.Clamp(centerGatherTiltX, 0f, 0.3f),
+            Mathf.Clamp(centerGatherTiltX, 0f, BattleUiPanelDecoration.GatherTilt.x),
             -centerNormalized.x *
-            Mathf.Clamp(centerGatherTiltY, 0f, 0.5f));
+            Mathf.Clamp(centerGatherTiltY, 0f, BattleUiPanelDecoration.GatherTilt.y));
     }
 
     private Vector2 ResolveNormalizedPointer()
@@ -1300,10 +1305,10 @@ public sealed class BattleCombatUiSpatialCoordinator : MonoBehaviour
 
         return new Vector2(
             -normalizedPointer.y *
-            Mathf.Clamp(maxTiltX, 0f, 0.8f) *
+            Mathf.Clamp(maxTiltX, 0f, BattleUiPanelDecoration.CursorTilt.x) *
             safeStrength,
             normalizedPointer.x *
-            Mathf.Clamp(maxTiltY, 0f, 1.2f) *
+            Mathf.Clamp(maxTiltY, 0f, BattleUiPanelDecoration.CursorTilt.y) *
             safeStrength);
     }
 

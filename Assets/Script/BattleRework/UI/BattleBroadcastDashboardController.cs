@@ -169,9 +169,9 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void Awake()
     {
-        inkColor = BattleUiPanelDecoration.Neutral(inkColor);
-        paperColor = BattleUiPanelDecoration.Neutral(paperColor);
-        mutedColor = BattleUiPanelDecoration.Neutral(mutedColor);
+        inkColor = BattleUiPanelDecoration.Surface;
+        paperColor = BattleUiPanelDecoration.Paper;
+        mutedColor = BattleUiPanelDecoration.Muted;
         activeColor = BattleUiPanelDecoration.Mint;
         progressColor = BattleUiPanelDecoration.Yellow;
         ResolveReferences();
@@ -515,6 +515,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         metricOutline = metricBar.gameObject.AddComponent<Outline>();
         metricOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0f);
         metricOutline.effectDistance = new Vector2(2f, -2f);
+        metricOutline.enabled = false;
 
         metricLive = CreateText(metricBar, "LIVE", 11, FontStyle.Bold, TextAnchor.MiddleLeft, dangerColor, "Live");
         SetAnchors(metricLive.rectTransform, new Vector2(0.035f, 0.10f), new Vector2(0.17f, 0.90f));
@@ -558,6 +559,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Outline outline = missionPanel.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(activeColor.r, activeColor.g, activeColor.b, 0.52f);
         outline.effectDistance = new Vector2(3f, -3f);
+        outline.enabled = false;
 
         missionPanelGroup = missionPanel.gameObject.AddComponent<CanvasGroup>();
         missionPanelGroup.blocksRaycasts = false;
@@ -628,6 +630,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Outline outline = row.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(mutedColor.r, mutedColor.g, mutedColor.b, 0.22f);
         outline.effectDistance = new Vector2(1f, -1f);
+        outline.enabled = false;
 
         CanvasGroup group = row.gameObject.AddComponent<CanvasGroup>();
         group.alpha = 0f;
@@ -667,6 +670,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         Outline outline = missionDetailRoot.gameObject.AddComponent<Outline>();
         outline.effectColor = new Color(activeColor.r, activeColor.g, activeColor.b, 0.34f);
         outline.effectDistance = new Vector2(2f, -2f);
+        outline.enabled = false;
 
         missionDetailGroup = missionDetailRoot.gameObject.AddComponent<CanvasGroup>();
         missionDetailGroup.alpha = 0f;
@@ -715,7 +719,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         back.color = new Color(0.010f, 0.014f, 0.021f, 0.66f);
         back.raycastTarget = false;
         BattleUiPanelDecoration.Round(back);
-        chatDecoration = BattleUiPanelDecoration.Attach(chatPanel, BattleUiPanelDecoration.Purple);
+        chatDecoration = BattleUiPanelDecoration.Attach(chatPanel, activeColor);
 
         RectTransform liveRail = CreateRect(chatPanel, "LiveRail", new Vector2(4f, 0f));
         liveRail.anchorMin = new Vector2(0f, 0.07f);
@@ -1475,8 +1479,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             t);
         metricBar.localRotation = Quaternion.Slerp(
             metricBar.localRotation,
-            Quaternion.Euler(
-                0f, 0f, 0f),
+            BattleUiPanelDecoration.PanelPose,
             t);
 
         if (metricBack != null)
@@ -1546,8 +1549,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             targetPosition,
             t);
 
-        Quaternion targetRotation = Quaternion.Euler(
-            0f, 0f, 0f);
+        Quaternion targetRotation = BattleUiPanelDecoration.PanelPose;
         missionDecoration?.SetEmphasis(missionFocused);
         missionPanel.localRotation = Quaternion.Slerp(
             missionPanel.localRotation,
@@ -1729,8 +1731,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
             t);
         chatPanel.localRotation = Quaternion.Slerp(
             chatPanel.localRotation,
-            Quaternion.Euler(
-                0f, 0f, 0f),
+            BattleUiPanelDecoration.PanelPose,
             t);
         chatDecoration?.SetEmphasis(chatFocused);
 

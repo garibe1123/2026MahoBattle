@@ -201,11 +201,11 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         }
 
         instance = this;
-        neutralCard = BattleUiPanelDecoration.Neutral(neutralCard);
-        selectedCard = new Color(0.20f, 0.20f, 0.20f, 0.995f);
-        ink = BattleUiPanelDecoration.Neutral(ink);
-        paper = BattleUiPanelDecoration.Neutral(paper);
-        muted = BattleUiPanelDecoration.Neutral(muted);
+        neutralCard = BattleUiPanelDecoration.Surface;
+        selectedCard = BattleUiPanelDecoration.SelectedSurface;
+        ink = BattleUiPanelDecoration.Surface;
+        paper = BattleUiPanelDecoration.Paper;
+        muted = BattleUiPanelDecoration.Muted;
         selectAccent = BattleUiPanelDecoration.Yellow;
         hoverCyan = BattleUiPanelDecoration.Mint;
         ResolveReferences();
@@ -905,6 +905,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         frameObject.transform.SetAsFirstSibling();
         worldInspectDecoration = BattleUiPanelDecoration.Attach(worldInspectRoot, hoverCyan);
+        worldInspectDecoration.transform.SetSiblingIndex(1);
 
         worldInspectGroup =
             worldInspectRoot.gameObject.AddComponent<CanvasGroup>();
@@ -1427,18 +1428,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 variation,
                 seed ^ 0x71B3C9);
 
-        worldInspectRuntimeFrameStyle.fillColor =
-            new Color(
-                0.03f,
-                0.03f,
-                0.03f,
-                0.985f);
-
-        worldInspectRuntimeFrameStyle.outlineColor =
-            hoverCyan;
-
-        worldInspectRuntimeFrameStyle.rotation =
-            0f;
+        BattleUiPanelDecoration.Bubble(worldInspectRuntimeFrameStyle, worldInspectRuntimeTailStyle);
 
         Material strokeMaterial =
             BattleUiHologramMaterialProvider.Resolve(
@@ -1456,7 +1446,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             true);
 
         worldInspectRuntimeTailStyle.outlineColor =
-            hoverCyan;
+            Color.clear;
 
         worldInspectTailController.Configure(
             worldInspectRoot,
@@ -1489,17 +1479,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         worldInspectSelectionVisualSelected =
             selected;
 
-        Color frameColor =
-            selected
-                ? selectAccent
-                : hoverCyan;
-
-        worldInspectRuntimeFrameStyle.outlineColor =
-            frameColor;
+        BattleUiPanelDecoration.Bubble(worldInspectRuntimeFrameStyle, worldInspectRuntimeTailStyle);
         worldInspectDecoration?.SetEmphasis(selected, selected);
-
-        worldInspectRuntimeTailStyle.outlineColor =
-            frameColor;
 
         // Frame/꼬리는 같은 선택 색을 공유하고 Fill은 기존 어두운 배경을 유지합니다.
         Material strokeMaterial =
@@ -1943,19 +1924,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                     card.background.color = selected ? this.selectedCard : neutralCard;
 
                 if (card.outline != null)
-                {
-                    card.outline.enabled = selected || hovered;
-                    if (selected)
-                    {
-                        card.outline.effectColor = selectAccent;
-                        card.outline.effectDistance = new Vector2(5f, -5f);
-                    }
-                    else if (hovered)
-                    {
-                        card.outline.effectColor = hoverCyan;
-                        card.outline.effectDistance = new Vector2(4f, -4f);
-                    }
-                }
+                    card.outline.enabled = false;
 
                 if (card.icon != null)
                 {

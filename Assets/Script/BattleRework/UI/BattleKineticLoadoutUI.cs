@@ -150,6 +150,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private bool hpTextRestCaptured;
     private BattleCombatTabFocus tabFocus = BattleCombatTabFocus.None;
     private float packMorphProgress;
+    private RectTransform packBoardBack;
 
     private TabTimeState tabTimeState = TabTimeState.Running;
     private float tabTimeElapsed;
@@ -190,6 +191,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     public RectTransform FullRoot => fullRoot;
     public CanvasGroup FullGroup => fullGroup;
     public RectTransform GridBoard => boardRoot;
+    public RectTransform PackBackground => packBoardBack;
+    public BattleKineticItemBarUI MiniPackView => miniPackUI;
     public float PackMorphProgress => packMorphProgress;
     public RectTransform CompactRoot => compactRoot;
     public CanvasGroup CompactGroup => compactGroup;
@@ -199,12 +202,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void Awake()
     {
-        inkColor = BattleUiPanelDecoration.Neutral(inkColor);
-        paperColor = BattleUiPanelDecoration.Neutral(paperColor);
-        lockedColor = BattleUiPanelDecoration.Neutral(lockedColor);
+        inkColor = BattleUiPanelDecoration.Surface;
+        paperColor = BattleUiPanelDecoration.Paper;
+        lockedColor = BattleUiPanelDecoration.LockedSurface;
         accentYellow = BattleUiPanelDecoration.Yellow;
         accentCyan = BattleUiPanelDecoration.Mint;
-        accentPink = BattleUiPanelDecoration.Purple;
+        accentPink = BattleUiPanelDecoration.Mint;
         ResolveReferences();
         EnsureUi();
     }
@@ -960,40 +963,42 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void BuildCompactUi(Transform parent)
     {
-        compactRoot = CreateRect(parent, "CurrentLoadoutChip", new Vector2(430f, 156f));
+        compactRoot = CreateRect(parent, "CurrentLoadoutChip", BattleUiPanelDecoration.CompactPackSize);
         compactRoot.anchorMin = compactRoot.anchorMax = new Vector2(1f, 0f);
-        compactRoot.pivot = new Vector2(1f, 0f);
-        compactRoot.anchoredPosition = new Vector2(-28f, 24f);
-        compactRoot.localRotation = Quaternion.identity;
+        compactRoot.pivot = new Vector2(0.5f, 0.5f);
+        compactRoot.anchoredPosition = BattleUiPanelDecoration.CompactPackPosition;
+        compactRoot.localRotation = BattleUiPanelDecoration.PanelPose;
 
         Image back = compactRoot.gameObject.AddComponent<Image>();
         back.color = inkColor;
         back.raycastTarget = false;
         BattleUiPanelDecoration.Round(back);
-        BattleUiPanelDecoration.Attach(compactRoot, accentCyan, false, false);
         Outline outline = compactRoot.gameObject.AddComponent<Outline>();
         outline.effectColor = accentCyan;
         outline.effectDistance = new Vector2(4f, -4f);
+        BattleUiPanelDecoration.Header(compactRoot, "PACK / EQUIPMENT", accentCyan);
 
         compactGroup = compactRoot.gameObject.AddComponent<CanvasGroup>();
         compactGroup.blocksRaycasts = false;
         compactGroup.interactable = false;
 
-        compactIcon = CreateImage(compactRoot, "Icon", new Vector2(58f, 58f));
+        RectTransform content = CreateRect(compactRoot, "CompactContent", Vector2.zero);
+        Stretch(content);
+        compactIcon = CreateImage(content, "Icon", new Vector2(58f, 58f));
         compactIcon.rectTransform.anchorMin = compactIcon.rectTransform.anchorMax = new Vector2(0f, 1f);
         compactIcon.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-        compactIcon.rectTransform.anchoredPosition = new Vector2(76f, -48f);
+        compactIcon.rectTransform.anchoredPosition = new Vector2(76f, -70f);
         compactIcon.preserveAspect = true;
         compactIcon.raycastTarget = false;
 
-        compactName = CreateText(compactRoot, "NO WEAPON", 20, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        SetAnchors(compactName.rectTransform, new Vector2(0.30f, 0.67f), new Vector2(0.96f, 0.90f));
+        compactName = CreateText(content, "NO WEAPON", 20, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+        SetAnchors(compactName.rectTransform, new Vector2(0.30f, 0.50f), new Vector2(0.96f, 0.78f));
 
-        compactPrompt = CreateText(compactRoot, "TAB / LB  —  SWITCH", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
-        SetAnchors(compactPrompt.rectTransform, new Vector2(0.30f, 0.48f), new Vector2(0.96f, 0.62f));
+        compactPrompt = CreateText(content, "TAB / LB  —  SWITCH", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
+        SetAnchors(compactPrompt.rectTransform, new Vector2(0.30f, 0.34f), new Vector2(0.96f, 0.50f));
 
-        RectTransform vitals = CreateRect(compactRoot, "CompactVitals", Vector2.zero);
-        SetAnchors(vitals, new Vector2(0.08f, 0.08f), new Vector2(0.96f, 0.45f));
+        RectTransform vitals = CreateRect(content, "CompactVitals", Vector2.zero);
+        SetAnchors(vitals, new Vector2(0.08f, 0.06f), new Vector2(0.96f, 0.32f));
 
         hpText = CreateText(vitals, "HP", 9, FontStyle.Bold, TextAnchor.MiddleLeft, vitalsTextColor);
         SetAnchors(hpText.rectTransform, new Vector2(0f, 0.58f), new Vector2(0.18f, 0.96f));
@@ -1055,7 +1060,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailBack.raycastTarget = false;
 
         BuildDetailBubbleVisual();
-        BattleUiPanelDecoration.Attach(detailRoot, accentCyan);
+        BattleUiPanelDecoration.Attach(detailRoot, accentCyan).transform.SetSiblingIndex(1);
 
         detailVisualViewport =
             CreateRect(
@@ -1307,31 +1312,27 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         compareDeltaText.verticalOverflow = VerticalWrapMode.Truncate;
         SetAnchors(compareDeltaText.rectTransform, new Vector2(0.045f, 0.012f), new Vector2(0.955f, 0.118f));
 
-        boardRoot = CreateRect(fullRoot, "GridBoard", new Vector2(662f, 662f));
+        boardRoot = CreateRect(fullRoot, "GridBoard", BattleUiPanelDecoration.ExpandedPackSize + new Vector2(30f, 30f));
         boardGroup = boardRoot.gameObject.AddComponent<CanvasGroup>();
         boardRoot.anchorMin = boardRoot.anchorMax = new Vector2(0.31f, 0.53f);
         boardRoot.anchoredPosition = Vector2.zero;
-        boardRoot.localRotation = Quaternion.identity;
+        boardRoot.localRotation = BattleUiPanelDecoration.PanelPose;
         Vector3 boardInitial = boardRoot.localPosition;
         boardInitial.z = 34f;
         boardRoot.localPosition = boardInitial;
 
-        RectTransform boardBack = CreateRect(boardRoot, "BoardBack", new Vector2(632f, 632f));
+        RectTransform boardBack = CreateRect(boardRoot, "BoardBack", BattleUiPanelDecoration.ExpandedPackSize);
+        packBoardBack = boardBack;
         boardBack.anchorMin = boardBack.anchorMax = new Vector2(0.5f, 0.5f);
         Image boardBackImage = boardBack.gameObject.AddComponent<Image>();
         boardBackImage.color = new Color(inkColor.r, inkColor.g, inkColor.b, 0.96f);
         boardBackImage.raycastTarget = true;
         BattleUiPanelDecoration.Round(boardBackImage);
-        BattleUiPanelDecoration.Attach(boardBack, accentCyan);
         Outline boardOutline = boardBack.gameObject.AddComponent<Outline>();
         boardOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.42f);
         boardOutline.effectDistance = new Vector2(3f, -3f);
 
-        Text boardTitle = CreateText(boardRoot, "LOADOUT", 22, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        boardTitle.rectTransform.anchorMin = boardTitle.rectTransform.anchorMax = new Vector2(0f, 1f);
-        boardTitle.rectTransform.pivot = Vector2.zero;
-        boardTitle.rectTransform.anchoredPosition = new Vector2(18f, 6f);
-        boardTitle.rectTransform.sizeDelta = new Vector2(300f, 30f);
+        BattleUiPanelDecoration.Header(boardBack, "PACK / EQUIPMENT", accentCyan);
 
         BattlePackFocusPointerRelay packFocusRelay =
             boardRoot.gameObject.AddComponent<BattlePackFocusPointerRelay>();
@@ -1340,8 +1341,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         linkRoot = CreateRect(boardRoot, "SynergyLinks", new Vector2(632f, 632f));
         linkRoot.anchorMin = linkRoot.anchorMax = new Vector2(0.5f, 0.5f);
 
-        const float cellSize = 184f;
-        const float spacing = 18f;
+        const float cellSize = BattleUiPanelDecoration.FullCellSize;
+        const float spacing = BattleUiPanelDecoration.FullCellGap;
         float totalSize = GridSize * cellSize + (GridSize - 1) * spacing;
         float left = -totalSize * 0.5f + cellSize * 0.5f;
         float top = totalSize * 0.5f - cellSize * 0.5f;
@@ -1360,7 +1361,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             background.color = inkColor;
             background.raycastTarget = true;
             BattleUiPanelDecoration.Round(background);
-            slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
             slotBackgrounds[i] = background;
 
             BattleLoadoutGridPointerTarget target = slot.gameObject.AddComponent<BattleLoadoutGridPointerTarget>();
@@ -1370,8 +1370,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             outline.effectColor = new Color(0.44f, 0.48f, 0.56f, 0.28f);
             outline.effectDistance = new Vector2(1f, -1f);
             slotOutlines[i] = outline;
+            slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
 
-            Image icon = CreateImage(slot, "Icon", new Vector2(88f, 88f));
+            Image icon = CreateImage(slot, "Icon", Vector2.one * BattleUiPanelDecoration.FullIconPixels);
             icon.rectTransform.anchorMin = icon.rectTransform.anchorMax = new Vector2(0.30f, 0.64f);
             icon.preserveAspect = true;
             icon.raycastTarget = false;
@@ -1426,6 +1427,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 new Vector2(
                     2f,
                     -2f);
+            emptyOutline.enabled = false;
 
             Text emptyLabel =
                 CreateText(
@@ -1449,7 +1451,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             emptyState.gameObject.SetActive(
                 false);
 
-            Text name = CreateText(slot, "EMPTY", 13, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+            Text name = CreateText(slot, "EMPTY", BattleUiPanelDecoration.FullNameFontSize, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
             SetAnchors(name.rectTransform, new Vector2(0.52f, 0.43f), new Vector2(0.94f, 0.80f));
             slotNames[i] = name;
 
@@ -1489,9 +1491,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 slotBackgrounds[i].color = !unlocked
                     ? lockedColor
                     : isSelected
-                        ? new Color(0.19f, 0.19f, 0.19f, 0.99f)
+                        ? BattleUiPanelDecoration.SelectedSurface
                         : isEquipped
-                            ? new Color(0.12f, 0.12f, 0.12f, 0.99f)
+                            ? BattleUiPanelDecoration.EquippedSurface
                             : new Color(inkColor.r, inkColor.g, inkColor.b, 0.98f);
             }
 
@@ -2441,8 +2443,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             wantFull ? 1f : 0f,
             morphStep);
 
-        float morph = SmoothPackMorph(packMorphProgress);
-        float fullReveal = SmoothPackRange(packMorphProgress, 0.46f, 0.90f);
+        float fullReveal = BattleUiPanelDecoration.PackReveal(packMorphProgress);
         bool morphVisible = combat && packMorphProgress > 0.001f;
 
         bool packFocused = wantFull && tabFocus == BattleCombatTabFocus.Pack;
@@ -2455,11 +2456,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         UpdateTabHoldVisuals(t, wantFull);
 
         fullGroup.alpha = fullReveal;
-        compactGroup.alpha = Mathf.Lerp(
-            compactGroup.alpha,
-            combat && !wantFull ? 1f : 0f,
-            t);
-        fullGroup.blocksRaycasts = wantFull && packMorphProgress >= 0.72f;
+        compactGroup.alpha = Mathf.Lerp(compactGroup.alpha, combat && !wantFull ? 1f : 0f, t);
+        fullGroup.blocksRaycasts = wantFull && fullReveal >= 0.90f;
         fullGroup.interactable = fullGroup.blocksRaycasts;
 
         if (fullRoot != null)
@@ -2476,29 +2474,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             Quaternion targetRotation = Quaternion.Euler(
                 0f, 0f, 0f);
             fullRoot.localRotation = Quaternion.Slerp(fullRoot.localRotation, targetRotation, t);
-        }
-
-        if (compactRoot != null)
-        {
-            bool compactActive = combat && !wantFull;
-            Vector2 compactTarget = new(-28f, 24f);
-
-            compactRoot.anchoredPosition = Vector2.Lerp(
-                compactRoot.anchoredPosition,
-                compactTarget,
-                t);
-            compactRoot.localScale = Vector3.Lerp(
-                compactRoot.localScale,
-                Vector3.one * (compactActive ? 1f : wantFull ? 1.08f : 0.92f),
-                t);
-
-            Vector3 local = compactRoot.localPosition;
-            local.z = Mathf.Lerp(local.z, compactActive ? -8f : wantFull ? -18f : 28f, t);
-            compactRoot.localPosition = local;
-
-            Quaternion targetRotation = Quaternion.Euler(
-                0f, 0f, 0f);
-            compactRoot.localRotation = Quaternion.Slerp(compactRoot.localRotation, targetRotation, t);
         }
 
         if (boardRoot != null)
@@ -2521,7 +2496,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             float packScale = packFocused
                 ? 1f
                 : packSuppressed
-                    ? 0.90f
+                    ? 0.94f
                     : 1f;
 
             boardRoot.anchoredPosition = Vector2.Lerp(
@@ -2530,7 +2505,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 t);
             boardRoot.localRotation = Quaternion.Slerp(
                 boardRoot.localRotation,
-                Quaternion.identity,
+                BattleUiPanelDecoration.PanelPose,
                 t);
 
             Vector3 local = boardRoot.localPosition;
@@ -2549,11 +2524,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             {
                 float focusAlpha = packFocused
                     ? 1f
-                    : packSuppressed ? 0.38f : 0.72f;
-                boardGroup.alpha = fullReveal * focusAlpha;
+                    : packSuppressed ? 0.74f : 0.94f;
+                boardGroup.alpha = focusAlpha;
             }
         }
 
+        if (compactRoot != null)
+        {
+            compactRoot.anchoredPosition = BattleUiPanelDecoration.CompactPackPosition;
+            compactRoot.localRotation = BattleUiPanelDecoration.PanelPose;
+            compactRoot.localScale = Vector3.one;
+        }
         if (detailRoot != null)
         {
             int tooltipSlot = ResolveTooltipSlot();
@@ -2634,7 +2615,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 bool selected = wantFull && i == selectedIndex;
                 bool hovered = wantFull && i == hoveredSlot;
                 bool equippedSlot = i == equipped;
-                slotDecorations[i]?.SetEmphasis(hovered || selected, selected);
+                slotDecorations[i]?.SetEmphasis(hovered || selected || equippedSlot, selected);
 
                 float targetZ = !wantFull
                     ? 12f
@@ -2829,18 +2810,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 variation,
                 seed ^ 0x291D33);
 
-        runtimeDetailFrameStyle.fillColor =
-            new Color(
-                inkColor.r,
-                inkColor.g,
-                inkColor.b,
-                0.985f);
-
-        runtimeDetailFrameStyle.outlineColor =
-            paperColor;
-
-        runtimeDetailFrameStyle.rotation =
-            0f;
+        BattleUiPanelDecoration.Bubble(runtimeDetailFrameStyle, runtimeDetailTailStyle);
 
         Material strokeMaterial =
             BattleUiHologramMaterialProvider.Resolve(
@@ -3224,21 +3194,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         return t < 0.5f
             ? 4f * t * t * t
             : 1f - Mathf.Pow(-2f * t + 2f, 3f) * 0.5f;
-    }
-
-    private static float SmoothPackMorph(float value)
-    {
-        value = Mathf.Clamp01(value);
-        return value * value * (3f - 2f * value);
-    }
-
-    private static float SmoothPackRange(float value, float start, float end)
-    {
-        if (end <= start + 0.0001f)
-            return value >= end ? 1f : 0f;
-
-        float t = Mathf.Clamp01((value - start) / (end - start));
-        return t * t * (3f - 2f * t);
     }
 
     public void SetTabFocusState(BattleCombatTabFocus next)

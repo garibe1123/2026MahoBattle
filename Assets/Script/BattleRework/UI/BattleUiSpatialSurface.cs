@@ -177,7 +177,7 @@ public sealed class BattleUiSpatialSurface : MonoBehaviour
             Quaternion.Euler(
                 currentTilt.x,
                 currentTilt.y,
-                0f);
+                -currentTilt.y * 0.16f);
 
         spatialPoseApplied =
             true;

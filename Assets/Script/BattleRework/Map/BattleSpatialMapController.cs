@@ -189,8 +189,8 @@ public sealed class BattleSpatialMapController : MonoBehaviour
     private void OnEnable()
     {
         // Apply at runtime too: existing scenes retain their serialized presentation values.
-        scriptPaperTint = BattleUiPanelDecoration.Neutral(scriptPaperTint);
-        scriptInkColor = BattleUiPanelDecoration.Neutral(scriptInkColor);
+        scriptPaperTint = BattleUiPanelDecoration.Surface;
+        scriptInkColor = BattleUiPanelDecoration.Paper;
         scriptStackRandomOffsetPixels = Mathf.Min(scriptStackRandomOffsetPixels, 1.5f);
         scriptStackRandomRollDegrees = Mathf.Min(scriptStackRandomRollDegrees, 0.2f);
         scriptDetailBaseRollDegrees = 0f;
