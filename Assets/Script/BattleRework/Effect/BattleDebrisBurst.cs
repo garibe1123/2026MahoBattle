@@ -777,7 +777,10 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         shard.spriteTransform.localPosition = Vector3.zero;
         shard.shadow.transform.localScale =
             new Vector3(shard.size * 0.85f, shard.size * 0.7f, 1f);
+        shard.shadow.transform.localPosition = Vector3.zero;
+        shard.shadow.color = new Color(0.04f, 0.05f, 0.08f, 0.26f);
         shard.root.position = new Vector3(start.x, start.y, z);
+        shard.shadow.enabled = true;
     }
 
     private void Update()
@@ -887,6 +890,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             shard.landedAge += dt;
 
         Vector2 ground;
+        Vector2 shadowGround;
         if (!shard.hasHitGround)
         {
             float u = Mathf.Clamp01(
@@ -895,7 +899,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
             float side = arch * shard.curveOffset +
                 Mathf.Sin(u * Mathf.PI * 4f + shard.wobblePhase) *
                 Mathf.Sin(u * Mathf.PI) * inFlightWobble;
-            ground = Vector2.Lerp(shard.start, shard.flightLanding, u) +
+            shadowGround = Vector2.Lerp(shard.start, shard.flightLanding, u);
+            ground = shadowGround +
                 shard.curvePerpendicular * side;
         }
         else
@@ -906,8 +911,11 @@ public sealed class BattleDebrisBurst : MonoBehaviour
                 shard.landedAge / Mathf.Max(0.01f, landingSlideDuration));
             float eased = 1f - (1f - u) * (1f - u);
             ground = Vector2.Lerp(shard.flightLanding, shard.landing, eased);
+            shadowGround = ground;
         }
         shard.root.position = new Vector3(ground.x, ground.y, shard.worldZ);
+        shard.shadow.transform.position =
+            new Vector3(shadowGround.x, shadowGround.y, shard.worldZ);
 
         // Bird-eye 2.5D: ground stays in XY and visual rises relative to shadow.
         float height = shard.height;
@@ -953,7 +961,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         float blinkAge = shard.restingAge - settleDuration - restDuration;
         shard.visual.enabled = !blinking ||
             Mathf.FloorToInt(blinkAge * blinkFrequency * 2f) % 2 == 0;
-        shard.shadow.enabled = false;
+        shard.shadow.enabled = shard.visual.enabled;
     }
 
     private void FinishBurst()
