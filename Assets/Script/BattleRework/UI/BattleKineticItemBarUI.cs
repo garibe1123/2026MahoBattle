@@ -70,6 +70,12 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         EnsureUi();
     }
 
+    private void Start()
+    {
+        BattleShowPresentationManager.Instance?.RegisterUiMaterialRoot(
+            root, BattleUiMaterialController.UiChannel.CurrentItems);
+    }
+
     private void OnEnable()
     {
         ResolveReferences();
@@ -212,6 +218,8 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
         BuildHeader();
         BuildGrid();
+        BattleShowPresentationManager.Instance?.RegisterUiMaterialRoot(
+            root, BattleUiMaterialController.UiChannel.CurrentItems);
         ApplyLayout(0f, BattleUiPanelDecoration.MiniPackSize);
         Refresh();
     }

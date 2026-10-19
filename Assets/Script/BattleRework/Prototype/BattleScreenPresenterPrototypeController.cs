@@ -1124,6 +1124,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             appliedPresenterMaterial = material;
             presenterImage.material = material;
         }
+        presentation?.RegisterUiMaterialTarget(presenterImage, BattleUiMaterialController.UiChannel.Presenter);
     }
 
     private ScreenPresenterMotionClip ResolvePresenterMotionClip(

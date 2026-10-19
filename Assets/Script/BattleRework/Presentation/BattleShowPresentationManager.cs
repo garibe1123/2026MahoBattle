@@ -132,6 +132,29 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 {
     public static BattleShowPresentationManager Instance { get; private set; }
 
+    private readonly Dictionary<Graphic, BattleUiMaterialController.UiChannel> uiMaterialTargets = new();
+    public IReadOnlyDictionary<Graphic, BattleUiMaterialController.UiChannel> UiMaterialTargets => uiMaterialTargets;
+    public event Action<Graphic, BattleUiMaterialController.UiChannel> UiMaterialTargetAssigned;
+
+    public void RegisterUiMaterialTarget(Graphic target, BattleUiMaterialController.UiChannel channel)
+    {
+        if (target == null)
+            return;
+        if (channel == BattleUiMaterialController.UiChannel.PresenterDialogue &&
+            uiMaterialTargets.TryGetValue(target, out var registeredChannel))
+            channel = registeredChannel;
+        uiMaterialTargets[target] = channel;
+        UiMaterialTargetAssigned?.Invoke(target, channel);
+    }
+
+    public void RegisterUiMaterialRoot(Transform root, BattleUiMaterialController.UiChannel channel)
+    {
+        if (root == null)
+            return;
+        foreach (Graphic target in root.GetComponentsInChildren<Graphic>(true))
+            RegisterUiMaterialTarget(target, channel);
+    }
+
     [Header("기본 쇼 바닥 템플릿")]
     [Tooltip("기본 4x4 Base, 굴러오는 모든 전투 필드 조각, Reward Show 바닥에 공통으로 사용할 SO입니다. Project 창에서 Create > Battle > Show > Floor Template으로 만든 뒤, 바닥/위 판/3분할 하판/핸들 Sprite를 넣어 할당합니다.")]
     [SerializeField] private BattleShowFloorTemplateSO defaultFloorTemplate;

@@ -178,6 +178,12 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         TryResolveUi();
     }
 
+    private void Start()
+    {
+        BattleShowPresentationManager.Instance?.RegisterUiMaterialRoot(
+            chatPanel, BattleUiMaterialController.UiChannel.ChatWindow);
+    }
+
     private void OnEnable()
     {
         ResolveReferences();
@@ -781,6 +787,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         SyncChatRowsFromHistoryImmediate();
         RefreshChatState();
+        BattleShowPresentationManager.Instance?.RegisterUiMaterialRoot(
+            chatPanel, BattleUiMaterialController.UiChannel.ChatWindow);
     }
 
     private void BuildChatRow(int index)

@@ -1194,6 +1194,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         if (source == null)
         {
             portraitImage.material = null;
+            presentation?.RegisterUiMaterialTarget(portraitImage, BattleUiMaterialController.UiChannel.Presenter);
             return;
         }
 
@@ -1204,6 +1205,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         };
 
         portraitImage.material = runtimePortraitMaterial;
+        presentation?.RegisterUiMaterialTarget(portraitImage, BattleUiMaterialController.UiChannel.Presenter);
         ApplyGlitch(0f, 0f, 0f);
     }
 

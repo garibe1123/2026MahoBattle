@@ -7,6 +7,7 @@ using UnityEngine.UI;
 [DisallowMultipleComponent]
 public sealed class BattleUiMaterialController : MonoBehaviour
 {
+    public enum UiChannel { Presenter, PresenterDialogue, ItemWindow, CurrentItems, ChatWindow }
     public enum PropertyType { Float, Integer, Color, Vector, Texture }
 
     [Serializable]
@@ -52,9 +53,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     [Serializable]
     public sealed class UiMaterialGroup
     {
-        [Tooltip("해당 UI의 최상위 오브젝트 하나를 연결하세요. 자신과 비활성 자식을 포함한 모든 Graphic에 적용합니다.")]
-        public Transform root;
-        [Tooltip("이 UI 그룹에 적용할 머티리얼입니다. 원본 대신 각 Graphic의 복제본을 조절합니다.")]
+        [Tooltip("선택 사항: 교체할 머티리얼입니다. 비우면 실제 UI에 연결된 기존 머티리얼을 복제해 Properties만 조절합니다.")]
         public Material material;
         [Tooltip("Property Name에 셰이더 참조 이름을 입력하고 Type 및 해당 Value를 설정하세요. 그룹 전체에 적용됩니다.")]
         public List<ShaderProperty> properties = new List<ShaderProperty>();
@@ -65,8 +64,15 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         public Graphic target;
         public Material original;
         public Material instance;
+        public Material source;
+        public List<ShaderProperty> properties;
+        public bool automatic;
+        public UiMaterialGroup group;
     }
 
+    [SerializeField, Tooltip("SpriteManager의 BattleShowPresentationManager를 연결하세요. 같은 오브젝트에서는 자동 연결됩니다. UI나 Root를 하나씩 지정할 필요가 없습니다.")]
+    private BattleShowPresentationManager presentation;
+    private BattleShowPresentationManager boundPresentation;
     [SerializeField, Tooltip("SpriteManager 오브젝트의 Add Component에서 BattleUiMaterialController를 추가하세요. 켜면 플레이 중 활성화될 때 자동 적용합니다.")]
     private bool applyOnEnable = true;
     [SerializeField, Tooltip("켜면 Inspector 값으로 프리뷰합니다. 끄면 원복합니다. 컴포넌트 메뉴의 Apply Materials / Start Preview / End Preview / Restore Materials로도 적용·프리뷰·원복할 수 있습니다. 비활성화·제거 시에도 원복하고 복제본을 정리합니다.")]
@@ -84,7 +90,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     [SerializeField] private UiMaterialGroup chatWindow = new UiMaterialGroup();
 
     [Header("개별 UI 설정 (선택)")]
-    [SerializeField, Tooltip("개별 예외가 필요할 때만 설정하세요. 개별 설정이 그룹 설정보다 우선하고, 그룹끼리 겹치면 위쪽 그룹이 우선합니다.")]
+    [SerializeField, Tooltip("개별 예외가 필요할 때만 설정하세요. 기본 대상은 자동 연결되며, 개별 설정은 그룹 설정보다 우선합니다.")]
     private List<UiMaterialEntry> entries = new List<UiMaterialEntry>();
 
     private readonly List<MaterialState> states = new List<MaterialState>();
@@ -94,9 +100,32 @@ public sealed class BattleUiMaterialController : MonoBehaviour
 
     private void OnEnable()
     {
+        ConnectPresentation();
         preview = false;
         if (Application.IsPlaying(gameObject) && applyOnEnable)
             Apply();
+    }
+
+    private void Start()
+    {
+        ConnectPresentation();
+        if (applied)
+            ApplyMaterials();
+    }
+
+    private void ConnectPresentation()
+    {
+        if (presentation == null)
+            presentation = GetComponent<BattleShowPresentationManager>();
+        if (presentation == null)
+            presentation = BattleShowPresentationManager.Instance;
+        if (boundPresentation == presentation)
+            return;
+        if (boundPresentation != null)
+            boundPresentation.UiMaterialTargetAssigned -= ApplyRegisteredTarget;
+        boundPresentation = presentation;
+        if (boundPresentation != null)
+            boundPresentation.UiMaterialTargetAssigned += ApplyRegisteredTarget;
     }
 
     private void OnValidate()
@@ -124,6 +153,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         if (!isActiveAndEnabled)
             return;
 
+        ConnectPresentation();
         if (!Application.IsPlaying(gameObject))
             preview = true;
         ApplyMaterials();
@@ -135,6 +165,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         if (!isActiveAndEnabled)
             return;
 
+        ConnectPresentation();
         preview = true;
         ApplyMaterials();
     }
@@ -168,20 +199,116 @@ public sealed class BattleUiMaterialController : MonoBehaviour
                     ApplyTarget(entry.target, entry.material, entry.properties, targets);
             }
         }
-        ApplyGroup(presenter, targets);
-        ApplyGroup(presenterDialogue, targets);
-        ApplyGroup(itemWindow, targets);
-        ApplyGroup(currentItems, targets);
-        ApplyGroup(chatWindow, targets);
+        if (boundPresentation != null)
+        {
+            foreach (var target in boundPresentation.UiMaterialTargets)
+                ApplyRegisteredTarget(target.Key, target.Value);
+        }
     }
 
-    private void ApplyGroup(UiMaterialGroup group, HashSet<Graphic> targets)
+    private UiMaterialGroup GetGroup(UiChannel channel)
     {
-        if (group == null || group.root == null || group.material == null)
-            return;
+        switch (channel)
+        {
+            case UiChannel.Presenter: return presenter;
+            case UiChannel.PresenterDialogue: return presenterDialogue;
+            case UiChannel.ItemWindow: return itemWindow;
+            case UiChannel.CurrentItems: return currentItems;
+            case UiChannel.ChatWindow: return chatWindow;
+            default: return null;
+        }
+    }
 
-        foreach (Graphic target in group.root.GetComponentsInChildren<Graphic>(true))
-            ApplyTarget(target, group.material, group.properties, targets);
+    private void ApplyRegisteredTarget(Graphic target, UiChannel channel)
+    {
+        if (!applied || !isActiveAndEnabled || target == null)
+            return;
+        UiMaterialGroup group = GetGroup(channel);
+
+        for (int i = 0; i < states.Count; i++)
+        {
+            MaterialState state = states[i];
+            if (state.target != target)
+                continue;
+            if (!state.automatic)
+            {
+                if (target.material == state.instance)
+                    return;
+
+                Material source = state.source;
+                List<ShaderProperty> properties = state.properties;
+                if (entries != null)
+                {
+                    foreach (UiMaterialEntry entry in entries)
+                    {
+                        if (entry == null || entry.target != target || entry.material == null)
+                            continue;
+                        source = entry.material;
+                        properties = entry.properties;
+                        break;
+                    }
+                }
+
+                if (source == state.source && properties == state.properties &&
+                    (target.material == state.original ||
+                     (state.original == null && target.material == target.defaultMaterial)))
+                {
+                    target.material = state.instance;
+                    return;
+                }
+
+                DestroyInstance(state.instance);
+                states.RemoveAt(i);
+                ApplyTarget(target, source != null ? source : target.material, properties, null);
+                return;
+            }
+            if (state.group != group)
+            {
+                if (target.material == state.instance)
+                    target.material = state.original;
+                DestroyInstance(state.instance);
+                states.RemoveAt(i);
+                break;
+            }
+            if (target.material == state.instance)
+                return;
+            if (target.material == state.original ||
+                (state.original == null && target.material == target.defaultMaterial))
+            {
+                target.material = state.instance;
+                return;
+            }
+            DestroyInstance(state.instance);
+            states.RemoveAt(i);
+            break;
+        }
+
+        if (group == null || (group.material == null && (group.properties == null || group.properties.Count == 0)))
+            return;
+        int previousCount = states.Count;
+        ApplyTarget(target, group.material != null ? group.material : target.material, group.properties, null);
+        if (states.Count > previousCount)
+        {
+            states[states.Count - 1].automatic = true;
+            states[states.Count - 1].group = group;
+        }
+    }
+
+    private void LateUpdate()
+    {
+        foreach (MaterialState state in states)
+        {
+            if (state.target == null || !state.target.isActiveAndEnabled ||
+                state.instance == null || state.source == null)
+                continue;
+            state.instance.CopyPropertiesFromMaterial(state.source);
+            if (state.properties != null)
+            {
+                foreach (ShaderProperty property in state.properties)
+                    property?.Apply(state.instance);
+            }
+            state.target.SetMaterialDirty();
+        }
     }
 
     private void ApplyTarget(Graphic target, Material source, List<ShaderProperty> properties,
@@ -193,7 +320,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         if (UnityEditor.EditorUtility.IsPersistent(target) || !target.gameObject.scene.IsValid())
             return;
 #endif
-        if (!targets.Add(target))
+        if (targets != null && !targets.Add(target))
             return;
 
         Material original = target.material;
@@ -212,7 +339,11 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             name = source.name + " (UI Instance)",
             hideFlags = HideFlags.HideAndDontSave
         };
-        states.Add(new MaterialState { target = target, original = original, instance = instance });
+        states.Add(new MaterialState
+        {
+            target = target, original = original, instance = instance,
+            source = source, properties = properties
+        });
         if (properties != null)
         {
             foreach (ShaderProperty property in properties)
@@ -232,18 +363,26 @@ public sealed class BattleUiMaterialController : MonoBehaviour
                 state.target.SetMaterialDirty();
             }
 
-            if (state.instance == null)
-                continue;
-            if (Application.IsPlaying(gameObject))
-                Destroy(state.instance);
-            else
-                DestroyImmediate(state.instance);
+            DestroyInstance(state.instance);
         }
         states.Clear();
     }
 
+    private void DestroyInstance(Material instance)
+    {
+        if (instance == null)
+            return;
+        if (Application.IsPlaying(gameObject))
+            Destroy(instance);
+        else
+            DestroyImmediate(instance);
+    }
+
     private void OnDisable()
     {
+        if (boundPresentation != null)
+            boundPresentation.UiMaterialTargetAssigned -= ApplyRegisteredTarget;
+        boundPresentation = null;
         Restore();
     }
 

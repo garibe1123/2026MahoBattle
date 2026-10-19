@@ -310,6 +310,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
             outlineImage.material =
                 strokeMaterial;
+            BattleShowPresentationManager.Instance?.RegisterUiMaterialTarget(
+                outlineImage, BattleUiMaterialController.UiChannel.PresenterDialogue);
         }
 
         if (fillImage != null)

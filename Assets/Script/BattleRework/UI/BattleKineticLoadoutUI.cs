@@ -213,6 +213,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         EnsureUi();
     }
 
+    private void Start()
+    {
+        if (presentation == null)
+            presentation = BattleShowPresentationManager.Instance;
+        presentation?.RegisterUiMaterialRoot(fullRoot, BattleUiMaterialController.UiChannel.ItemWindow);
+        presentation?.RegisterUiMaterialRoot(compactRoot, BattleUiMaterialController.UiChannel.CurrentItems);
+    }
+
     private void OnEnable()
     {
         ResolveReferences();
@@ -776,6 +784,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         BuildCompactUi(canvas.transform);
         BuildFullGridUi(canvas.transform);
         RefreshAll();
+        presentation?.RegisterUiMaterialRoot(fullRoot, BattleUiMaterialController.UiChannel.ItemWindow);
+        presentation?.RegisterUiMaterialRoot(compactRoot, BattleUiMaterialController.UiChannel.CurrentItems);
     }
 
     private void BuildTabHoldSignal(Transform parent)
