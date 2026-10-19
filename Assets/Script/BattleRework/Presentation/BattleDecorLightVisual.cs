@@ -122,7 +122,7 @@ public sealed class BattleDecorLightVisual : MonoBehaviour
             return;
         glow.enabled = source.enabled && intensity > 0f;
         Color color = data.LightColor;
-        color.a *= Mathf.Clamp01(data.LightIntensity * readability) * flicker;
+        color.a *= 0.06f * Mathf.Clamp01(data.LightIntensity * readability) * flicker;
         glow.color = color;
     }
 
@@ -130,7 +130,7 @@ public sealed class BattleDecorLightVisual : MonoBehaviour
     {
         if (glowSprite != null)
             return;
-        const int size = 16;
+        const int size = 128;
         glowTexture = new Texture2D(size, size, TextureFormat.RGBA32, false)
         {
             name = "BattleDecorLightGlow",
@@ -144,13 +144,14 @@ public sealed class BattleDecorLightVisual : MonoBehaviour
         {
             float radius = new Vector2((x + 0.5f) / size * 2f - 1f,
                 (y + 0.5f) / size * 2f - 1f).magnitude;
-            float alpha = Mathf.Clamp01(1f - radius);
-            pixels[y * size + x] = new Color(1f, 1f, 1f, alpha * alpha);
+            float softEdge = 1f - Mathf.SmoothStep(0.12f, 1f, Mathf.Clamp01(radius));
+            float centerLift = Mathf.Lerp(0.72f, 1f, 1f - Mathf.Clamp01(radius));
+            pixels[y * size + x] = new Color(1f, 1f, 1f, softEdge * centerLift * 0.70f);
         }
         glowTexture.SetPixels(pixels);
         glowTexture.Apply(false, true);
         glowSprite = Sprite.Create(glowTexture, new Rect(0f, 0f, size, size),
-            new Vector2(0.5f, 0.5f), size);
+            new Vector2(0.5f, 0.5f), size, 0, SpriteMeshType.FullRect);
         glowSprite.hideFlags = HideFlags.HideAndDontSave;
         Shader shader = Resources.Load<Shader>("BattleSoftKeyLight");
         if (shader != null)
