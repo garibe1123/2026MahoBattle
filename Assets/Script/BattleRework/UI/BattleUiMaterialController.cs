@@ -49,6 +49,17 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         public List<ShaderProperty> properties = new List<ShaderProperty>();
     }
 
+    [Serializable]
+    public sealed class UiMaterialGroup
+    {
+        [Tooltip("해당 UI의 최상위 오브젝트 하나를 연결하세요. 자신과 비활성 자식을 포함한 모든 Graphic에 적용합니다.")]
+        public Transform root;
+        [Tooltip("이 UI 그룹에 적용할 머티리얼입니다. 원본 대신 각 Graphic의 복제본을 조절합니다.")]
+        public Material material;
+        [Tooltip("Property Name에 셰이더 참조 이름을 입력하고 Type 및 해당 Value를 설정하세요. 그룹 전체에 적용됩니다.")]
+        public List<ShaderProperty> properties = new List<ShaderProperty>();
+    }
+
     private sealed class MaterialState
     {
         public Graphic target;
@@ -60,7 +71,20 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     private bool applyOnEnable = true;
     [SerializeField, Tooltip("켜면 Inspector 값으로 프리뷰합니다. 끄면 원복합니다. 컴포넌트 메뉴의 Apply Materials / Start Preview / End Preview / Restore Materials로도 적용·프리뷰·원복할 수 있습니다. 비활성화·제거 시에도 원복하고 복제본을 정리합니다.")]
     private bool preview;
-    [SerializeField, Tooltip("UI마다 항목을 추가해 Target과 Material을 반드시 연결하고 Properties를 설정하세요. 같은 Graphic은 첫 번째 유효 항목만 적용됩니다.")]
+
+    [Header("사회자")]
+    [SerializeField] private UiMaterialGroup presenter = new UiMaterialGroup();
+    [Header("사회자 대화창")]
+    [SerializeField] private UiMaterialGroup presenterDialogue = new UiMaterialGroup();
+    [Header("아이템창")]
+    [SerializeField] private UiMaterialGroup itemWindow = new UiMaterialGroup();
+    [Header("현재 아이템 출력")]
+    [SerializeField] private UiMaterialGroup currentItems = new UiMaterialGroup();
+    [Header("채팅창")]
+    [SerializeField] private UiMaterialGroup chatWindow = new UiMaterialGroup();
+
+    [Header("개별 UI 설정 (선택)")]
+    [SerializeField, Tooltip("개별 예외가 필요할 때만 설정하세요. 개별 설정이 그룹 설정보다 우선하고, 그룹끼리 겹치면 위쪽 그룹이 우선합니다.")]
     private List<UiMaterialEntry> entries = new List<UiMaterialEntry>();
 
     private readonly List<MaterialState> states = new List<MaterialState>();
@@ -135,47 +159,67 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         ReleaseMaterials();
         applied = true;
         previewApplied = preview;
-        if (entries == null)
+        var targets = new HashSet<Graphic>();
+        if (entries != null)
+        {
+            foreach (UiMaterialEntry entry in entries)
+            {
+                if (entry != null)
+                    ApplyTarget(entry.target, entry.material, entry.properties, targets);
+            }
+        }
+        ApplyGroup(presenter, targets);
+        ApplyGroup(presenterDialogue, targets);
+        ApplyGroup(itemWindow, targets);
+        ApplyGroup(currentItems, targets);
+        ApplyGroup(chatWindow, targets);
+    }
+
+    private void ApplyGroup(UiMaterialGroup group, HashSet<Graphic> targets)
+    {
+        if (group == null || group.root == null || group.material == null)
             return;
 
-        var targets = new HashSet<Graphic>();
-        foreach (UiMaterialEntry entry in entries)
-        {
-            if (entry == null || entry.target == null || entry.material == null)
-                continue;
-#if UNITY_EDITOR
-            if (UnityEditor.EditorUtility.IsPersistent(entry.target) ||
-                !entry.target.gameObject.scene.IsValid())
-                continue;
-#endif
-            if (!targets.Add(entry.target))
-                continue;
+        foreach (Graphic target in group.root.GetComponentsInChildren<Graphic>(true))
+            ApplyTarget(target, group.material, group.properties, targets);
+    }
 
-            Material original = entry.target.material;
+    private void ApplyTarget(Graphic target, Material source, List<ShaderProperty> properties,
+        HashSet<Graphic> targets)
+    {
+        if (target == null || source == null)
+            return;
 #if UNITY_EDITOR
-            // Preserve an unassigned material as null during editor preview.
-            if (!Application.IsPlaying(gameObject))
-            {
-                var serializedTarget = new UnityEditor.SerializedObject(entry.target);
-                var materialProperty = serializedTarget.FindProperty("m_Material");
-                if (materialProperty != null)
-                    original = materialProperty.objectReferenceValue as Material;
-            }
+        if (UnityEditor.EditorUtility.IsPersistent(target) || !target.gameObject.scene.IsValid())
+            return;
 #endif
-            var instance = new Material(entry.material)
-            {
-                name = entry.material.name + " (UI Instance)",
-                hideFlags = HideFlags.HideAndDontSave
-            };
-            states.Add(new MaterialState { target = entry.target, original = original, instance = instance });
-            if (entry.properties != null)
-            {
-                foreach (ShaderProperty property in entry.properties)
-                    property?.Apply(instance);
-            }
-            entry.target.material = instance;
-            entry.target.SetMaterialDirty();
+        if (!targets.Add(target))
+            return;
+
+        Material original = target.material;
+#if UNITY_EDITOR
+        // Preserve an unassigned material as null during editor preview.
+        if (!Application.IsPlaying(gameObject))
+        {
+            var serializedTarget = new UnityEditor.SerializedObject(target);
+            var materialProperty = serializedTarget.FindProperty("m_Material");
+            if (materialProperty != null)
+                original = materialProperty.objectReferenceValue as Material;
         }
+#endif
+        var instance = new Material(source)
+        {
+            name = source.name + " (UI Instance)",
+            hideFlags = HideFlags.HideAndDontSave
+        };
+        states.Add(new MaterialState { target = target, original = original, instance = instance });
+        if (properties != null)
+        {
+            foreach (ShaderProperty property in properties)
+                property?.Apply(instance);
+        }
+        target.material = instance;
+        target.SetMaterialDirty();
     }
 
     private void ReleaseMaterials()
