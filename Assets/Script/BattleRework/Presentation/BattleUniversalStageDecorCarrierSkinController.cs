@@ -1093,6 +1093,10 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         IReadOnlyList<BattleDecorPart> parts = design.Parts;
         if (parts == null)
             return;
+        bool hasLight = false;
+        for (int i = 0; i < parts.Count; i++)
+            hasLight |= parts[i] != null && parts[i].AddLight2D;
+        Material partMaterial = hasLight ? SpatialRuntimeSpriteCache.FloorLitMaterial : null;
 
         for (int i = 0; i < parts.Count; i++)
         {
@@ -1132,7 +1136,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
             renderer.sprite = part.Sprite;
             renderer.color = part.Tint;
             renderer.flipX = part.FlipX ^ mirrorVisualHorizontally;
-            renderer.sharedMaterial = floorReference.sharedMaterial;
+            renderer.sharedMaterial = partMaterial != null ? partMaterial : floorReference.sharedMaterial;
             renderer.sortingLayerID = floorReference.sortingLayerID;
             renderer.sortingOrder = Mathf.Clamp(Mathf.Max(floorSorting, BattleWorldSorting.ActorMinOrder) +
                 part.SortingOffset, BattleWorldSorting.ActorMinOrder, BattleWorldSorting.ActorMaxOrder);
@@ -1196,6 +1200,7 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
     {
         if (light == null || part == null)
             return;
+        light.enabled = false;
         light.lightType = Light2D.LightType.Point;
         light.color = part.LightColor;
         light.intensity = part.LightIntensity;
@@ -1209,7 +1214,8 @@ public sealed class BattleUniversalStageDecorCarrierSkinController : MonoBehavio
         light.shadowsEnabled = part.LightShadowsEnabled;
         light.shadowIntensity = part.LightShadowIntensity;
         TryApplyTargetSortingLayer(light, targetSortingLayerId);
-        light.enabled = true;
+        light.enabled = part.AddLight2D;
+        light.gameObject.AddComponent<BattleDecorLightVisual>().Configure(light, part, targetSortingLayerId);
     }
 
     private static void TryApplyTargetSortingLayer(Light2D light, int targetSortingLayerId)

@@ -35,6 +35,7 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
     private struct LightTarget
     {
         public Light2D light;
+        public BattleDecorLightVisual visual;
         public float baseIntensity;
         public bool standalone;
     }
@@ -231,7 +232,7 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
                 renderer = renderer,
                 baseColor = renderer.color,
                 kind = kind,
-                hasConnectedLight = kind == VisualKind.Part && HasConnectedLight(renderer.transform)
+                hasConnectedLight = kind == VisualKind.Part && HasConnectedLight(renderer)
             });
         }
 
@@ -245,6 +246,7 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
             lightTargets.Add(new LightTarget
             {
                 light = light,
+                visual = light.GetComponent<BattleDecorLightVisual>(),
                 baseIntensity = light.intensity,
                 standalone = IsStandaloneDecorLight(light.transform)
             });
@@ -255,6 +257,8 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
     {
         kind = VisualKind.Part;
         if (source == null || !IsInsideDecorCluster(source))
+            return false;
+        if (source.name == BattleDecorLightVisual.GlowName)
             return false;
 
         if (source.name.StartsWith(CarrierTilePrefix, System.StringComparison.Ordinal))
@@ -296,13 +300,30 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
         return false;
     }
 
-    private static bool HasConnectedLight(Transform source)
+    private static bool HasConnectedLight(SpriteRenderer renderer)
     {
-        if (source == null)
+        if (renderer == null)
             return false;
-
+        Transform source = renderer.transform;
         Light2D connected = source.GetComponentInChildren<Light2D>(true);
-        return connected != null;
+        if (connected != null)
+            return true;
+        if (source.parent == null || source.parent.name != PartsRootName)
+            return false;
+        Light2D[] siblings = source.parent.GetComponentsInChildren<Light2D>(true);
+        Bounds bounds = renderer.bounds;
+        bounds.Expand(0.15f);
+        for (int i = 0; i < siblings.Length; i++)
+        {
+            Light2D light = siblings[i];
+            if (light.transform.parent != source.parent || !light.enabled)
+                continue;
+            Vector3 position = light.transform.position;
+            position.z = bounds.center.z;
+            if (bounds.Contains(position))
+                return true;
+        }
+        return false;
     }
 
     private static bool IsStandaloneDecorLight(Transform lightTransform)
@@ -347,7 +368,10 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
                 ? (target.standalone ? combatStandaloneLightIntensity : combatDecorLightIntensity)
                 : presentationDecorLightIntensity;
 
-            target.light.intensity = Mathf.Max(0f, target.baseIntensity * multiplier);
+            if (target.visual != null)
+                target.visual.SetReadability(multiplier);
+            else
+                target.light.intensity = Mathf.Max(0f, target.baseIntensity * multiplier);
         }
     }
 
@@ -376,7 +400,9 @@ public sealed class BattleDecorReadabilityController : MonoBehaviour
         for (int i = 0; i < lightTargets.Count; i++)
         {
             LightTarget target = lightTargets[i];
-            if (target.light != null)
+            if (target.visual != null)
+                target.visual.SetReadability(1f);
+            else if (target.light != null)
                 target.light.intensity = target.baseIntensity;
         }
     }
