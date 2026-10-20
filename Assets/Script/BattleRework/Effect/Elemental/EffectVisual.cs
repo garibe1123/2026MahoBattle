@@ -25,6 +25,7 @@ public sealed class EffectVisual : MonoBehaviour
     private bool airborne;
     private float flightElapsed, flightDuration, age;
     private float requestedDuration;
+    private float variationSeed, sizeMultiplier = 1f;
     private Vector3 velocity;
     private Vector3 rootScale;
     private Camera renderCamera;
@@ -104,6 +105,9 @@ public sealed class EffectVisual : MonoBehaviour
         PhaseStarted = phaseStarted;
         Finished = finished;
         requestedDuration = duration;
+        variationSeed = UnityEngine.Random.Range(0f, 1000f);
+        float sizeRange = Mathf.Clamp(data.sizeVariation, 0f, 0.5f);
+        sizeMultiplier = UnityEngine.Random.Range(1f - sizeRange, 1f + sizeRange);
         velocity = motion;
         Faction = faction;
         AddElement(data.element);
@@ -185,7 +189,11 @@ public sealed class EffectVisual : MonoBehaviour
         float delta = EffectNumbers.NonNegative(Time.deltaTime);
         age += delta;
         float flightStep = airborne ? Mathf.Min(delta, Mathf.Max(0f, flightDuration - flightElapsed)) : 0f;
-        transform.position += velocity * (airborne ? flightStep : delta);
+        float motionStep = airborne ? flightStep : delta;
+        float wanderAmount = definition.family == EffectFamily.Liquid && !airborne
+            ? 0f : EffectNumbers.NonNegative(definition.motionWander);
+        Vector3 wander = wanderAmount > 0f ? new Vector3(Variation(0f), Variation(19f), 0f) : Vector3.zero;
+        transform.position += (velocity + wander * wanderAmount) * motionStep;
         RecordPosition();
         if (airborne)
         {
@@ -209,6 +217,12 @@ public sealed class EffectVisual : MonoBehaviour
         times[historyHead] = age;
         historyHead = (historyHead + 1) % HistoryCapacity;
         historyCount = Mathf.Min(historyCount + 1, HistoryCapacity);
+    }
+
+    private float Variation(float channel)
+    {
+        float time = age * EffectNumbers.Positive(definition.variationFrequency, 1.5f);
+        return Mathf.PerlinNoise(variationSeed + channel, time) * 2f - 1f;
     }
 
     private Vector3 PositionAt(double time)
@@ -248,10 +262,15 @@ public sealed class EffectVisual : MonoBehaviour
         float riseTime = Mathf.Min(age, 4f);
         visualRoot.localPosition = airborne ? Vector3.up * (Mathf.Sin(progress * Mathf.PI) * definition.airborneHeight)
             : definition.family == EffectFamily.Gas ? Vector3.up * (riseTime * definition.gasRise) : Vector3.zero;
-        float size = EffectNumbers.NonNegative(definition.visualScale);
+        float size = EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier;
         float expansion = definition.family == EffectFamily.Gas ? Mathf.Max(0f, 1f + riseTime * definition.gasExpansion) : 1f;
         Vector2 shape = definition.family == EffectFamily.Liquid && !airborne ? definition.puddleScale : Vector2.one;
         visualRoot.localScale = new Vector3(shape.x, shape.y, 1f) * (size * expansion);
+        float deformation = Mathf.Clamp(definition.shapeVariation, 0f, 0.3f);
+        Vector3 variedScale = visualRoot.localScale;
+        variedScale.x *= 1f + Variation(37f) * deformation;
+        variedScale.y *= 1f + Variation(53f) * deformation;
+        visualRoot.localScale = variedScale;
         if (clip.Length > 0)
         {
             Sprite source = clip[0];
@@ -282,11 +301,11 @@ public sealed class EffectVisual : MonoBehaviour
             Transform piece = renderer.transform;
             Vector3 trail = i == 0 ? Vector3.zero : transform.InverseTransformVector(PositionAt(age - delay) - transform.position);
             Vector2 spread = i == 0 ? Vector2.zero : definition.tailOffset * i +
-                new Vector2(Mathf.Sin(age * 3f + i * 2.4f), Mathf.Cos(age * 2f + i)) * definition.edgeSpread * i;
+                new Vector2(Variation(71f + i * 13f), Variation(139f + i * 17f)) * definition.edgeSpread * i;
             piece.localPosition = trail / Mathf.Max(0.0001f, size * expansion) + (Vector3)spread;
             piece.localRotation = Quaternion.identity;
             float pieceScale = i == 0 ? 1f : Mathf.Lerp(0.8f, 0.45f, (float)i / MaxPieces);
-            piece.localScale = Vector3.one * pieceScale;
+            piece.localScale = Vector3.one * (pieceScale * (1f + Variation(211f + i * 23f) * deformation));
             float ppu = renderer.sprite.pixelsPerUnit;
             Vector3 position = piece.localPosition;
             piece.localPosition = new Vector3(Mathf.Round(position.x * ppu) / ppu, Mathf.Round(position.y * ppu) / ppu, position.z);
@@ -296,7 +315,8 @@ public sealed class EffectVisual : MonoBehaviour
         localLight.enabled = definition.useLight && visible && envelope > 0f;
         localLight.color = definition.lightColor;
         float flicker = definition.lightMode == EffectLightMode.Flicker
-            ? 1f - Mathf.Clamp01(definition.flickerAmount) * (0.5f + 0.5f * Mathf.Sin(age * definition.flickerFrequency * 6.283185f)) : 1f;
+            ? 1f - Mathf.Clamp01(definition.flickerAmount) * Mathf.PerlinNoise(variationSeed + 307f,
+                age * EffectNumbers.NonNegative(definition.flickerFrequency)) : 1f;
         localLight.intensity = EffectNumbers.NonNegative(definition.lightIntensity) * envelope * flicker;
         localLight.pointLightInnerRadius = 0f;
         localLight.pointLightOuterRadius = EffectNumbers.Positive(definition.lightRadius, 0.01f);
@@ -318,13 +338,15 @@ public sealed class EffectVisual : MonoBehaviour
     private bool WithinCamera()
     {
         if (renderCamera == null) return true;
-        float scale = EffectNumbers.NonNegative(definition.visualScale) *
+        float shapeMargin = 1f + Mathf.Clamp(definition.shapeVariation, 0f, 0.3f);
+        float scale = EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * shapeMargin * shapeMargin *
             (definition.family == EffectFamily.Gas ? Mathf.Max(1f, 1f + 4f * definition.gasExpansion) :
                 Mathf.Max(1f, Mathf.Max(Mathf.Abs(definition.puddleScale.x), Mathf.Abs(definition.puddleScale.y))));
         float radius = (frameRadius + definition.tailOffset.magnitude * MaxPieces +
             Mathf.Abs(definition.edgeSpread) * MaxPieces) * scale +
             Mathf.Abs(definition.gasRise) * 4f + Mathf.Abs(definition.airborneHeight) +
-            velocity.magnitude * EffectNumbers.NonNegative(definition.pieceDelay) * MaxPieces;
+            (velocity.magnitude + EffectNumbers.NonNegative(definition.motionWander) * 1.414214f) *
+            EffectNumbers.NonNegative(definition.pieceDelay) * MaxPieces;
         Vector3 root = transform.lossyScale;
         radius *= Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
         Vector3 viewport = renderCamera.WorldToViewportPoint(transform.position);
@@ -366,6 +388,8 @@ public sealed class EffectVisual : MonoBehaviour
         Faction = EffectFaction.Neutral;
         airborne = false;
         flightElapsed = flightDuration = age = requestedDuration = 0f;
+        variationSeed = 0f;
+        sizeMultiplier = 1f;
         velocity = Vector3.zero;
         frameRadius = 0f;
         historyHead = historyCount = 0;

@@ -291,6 +291,9 @@ public class BattleDebugUI : MonoBehaviour
         Plane ground = new(Vector3.forward, Vector3.zero);
         if (!ground.Raycast(ray, out float distance)) return;
         elementalEmitter.transform.position = ray.GetPoint(distance);
+        if (elementalSamples != null)
+            ElementalTestSamples.ConfigureEmitter(elementalEmitter, System.Array.IndexOf(elementalDefinitions, definition));
+        elementalEmitter.ClearVisuals();
         elementalEmitter.Trigger(definition, elementalMode, elementalTestDuration);
     }
 
@@ -582,7 +585,7 @@ public sealed class ElementalTestSamples : System.IDisposable
     {
         data.tint = data.emissionColor = data.lightColor = Colors[sample];
         data.family = sample == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
-        data.pieceCount = sample == 0 ? 5 : sample == 1 ? 3 : 1;
+        data.pieceCount = sample == 0 ? 5 : 1;
         data.gasRise = sample == 1 ? 0.3f : 0.2f;
         data.gasExpansion = sample == 1 ? 0.2f : 0.15f;
         data.tailOffset = sample == 1 ? new Vector2(0.015f, 0.035f)
@@ -591,11 +594,26 @@ public sealed class ElementalTestSamples : System.IDisposable
         data.pieceDelay = sample == 1 ? 0.12f : 0.07f;
         data.pieceAttenuation = sample == 1 ? 0.72f : 0.75f;
         data.puddleScale = new Vector2(1.1f, 0.95f);
+        data.motionWander = sample == 0 ? 0.55f : sample == 1 ? 0.4f : 0.25f;
+        data.variationFrequency = sample == 0 ? 2.2f : sample == 1 ? 0.8f : 1.2f;
+        data.sizeVariation = 0.18f;
+        data.shapeVariation = sample == 0 ? 0.16f : 0.1f;
         data.emissionStrength = sample == 1 ? 0f : 1f;
         data.useLight = sample == 0;
         data.lightMode = EffectLightMode.Flicker;
         data.lightIntensity = 0.8f;
         data.lightRadius = 1.5f;
+    }
+
+    public static void ConfigureEmitter(EffectEmitter emitter, int sample)
+    {
+        bool singleBlob = sample == 1 || sample == 2;
+        emitter.burstCount = singleBlob ? 1 : 8;
+        emitter.streamCount = 1;
+        emitter.maxActive = singleBlob ? 1 : 64;
+        emitter.direction = sample == 2 ? Vector2.down : Vector2.up;
+        emitter.speed = sample == 2 ? 1.5f : 0.35f;
+        emitter.spreadAngle = sample == 2 ? 25f : 35f;
     }
 
     public static Texture2D CreateTexture(int sample, int cell)

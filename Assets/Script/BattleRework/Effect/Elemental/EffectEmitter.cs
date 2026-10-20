@@ -23,6 +23,7 @@ public sealed class EffectEmitter : MonoBehaviour
     [Range(0f, 360f)] public float spreadAngle = 35f;
     public Vector2 direction = Vector2.right;
     [Min(0f)] public float speed = 1f;
+    [Range(0f, 1f)] public float speedVariation = 0.25f;
     [Min(0f)] public float spawnRadius = 0.12f;
     public float sprinklerDegreesPerSecond = 140f;
     public float emissionDuration = 1.5f;
@@ -87,12 +88,14 @@ public sealed class EffectEmitter : MonoBehaviour
         if (mode == EffectEmissionMode.Sprinkler) baseAngle += elapsed * sprinklerDegreesPerSecond;
         for (int i = 0; i < count && active.Count < Mathf.Clamp(maxActive, 1, 256); i++)
         {
-            float angle = baseAngle + (mode == EffectEmissionMode.Explosion ? i * 360f / count
+            float angle = baseAngle + (mode == EffectEmissionMode.Explosion ? (i + Random.value) * 360f / count
                 : Random.Range(-spreadAngle * 0.5f, spreadAngle * 0.5f));
             Vector3 heading3 = new(Mathf.Cos(angle * Mathf.Deg2Rad), Mathf.Sin(angle * Mathf.Deg2Rad), 0f);
-            Vector3 point = transform.position + heading3 * EffectNumbers.NonNegative(spawnRadius);
+            Vector3 point = transform.position + (Vector3)Random.insideUnitCircle * EffectNumbers.NonNegative(spawnRadius);
+            float launchSpeed = EffectNumbers.NonNegative(speed) * Random.Range(
+                1f - Mathf.Clamp01(speedVariation), 1f + Mathf.Clamp01(speedVariation));
             EffectVisual visual = EffectVisual.Spawn(definition, point, Quaternion.identity, visualDuration,
-                heading3 * EffectNumbers.NonNegative(speed), definition.family == EffectFamily.Liquid,
+                heading3 * launchSpeed, definition.family == EffectFamily.Liquid,
                 faction, runtimeElements, visualPrefab);
             if (visual != null && visual.IsPlaying)
                 active.Add(new ActiveVisual { visual = visual, execution = visual.ExecutionId });

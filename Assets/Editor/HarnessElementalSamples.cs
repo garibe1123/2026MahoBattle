@@ -81,7 +81,13 @@ public static class HarnessElementalSamples
         {
             string path = TestRoot + "/" + TestNames[i] + "TestVisual.asset";
             definitions[i] = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(path);
-            if (definitions[i] != null) continue;
+            if (definitions[i] != null)
+            {
+                Undo.RecordObject(definitions[i], "Update Elemental Test Visual");
+                ElementalTestSamples.Configure(definitions[i], i);
+                EditorUtility.SetDirty(definitions[i]);
+                continue;
+            }
             EffectDefinitionSO original = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(
                 Root + "/" + Names[TestElementIndices[i]] + "Visual.asset");
             EffectDefinitionSO definition = Object.Instantiate(original);
@@ -97,6 +103,17 @@ public static class HarnessElementalSamples
         GameObject existing = GameObject.Find(testName);
         if (existing != null)
         {
+            for (int i = 0; i < definitions.Length; i++)
+            {
+                Transform child = existing.transform.Find(TestNames[i] + " Test");
+                EffectEmitter emitter = child != null ? child.GetComponent<EffectEmitter>() : null;
+                if (emitter == null) continue;
+                Undo.RecordObject(emitter, "Update Elemental Test Emitter");
+                emitter.definition = definitions[i];
+                ElementalTestSamples.ConfigureEmitter(emitter, i);
+                EditorUtility.SetDirty(emitter);
+            }
+            UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty(existing.scene);
             Selection.activeGameObject = existing;
             return;
         }
@@ -118,9 +135,7 @@ public static class HarnessElementalSamples
             EffectEmitter emitter = host.AddComponent<EffectEmitter>();
             emitter.definition = definitions[i];
             emitter.mode = EffectEmissionMode.Faucet;
-            emitter.direction = i == 2 ? Vector2.down : Vector2.up;
-            emitter.speed = i == 2 ? 1.5f : 0.35f;
-            emitter.spreadAngle = i == 2 ? 25f : 15f;
+            ElementalTestSamples.ConfigureEmitter(emitter, i);
             emitter.emissionDuration = -1f;
             emitter.playOnStart = true;
         }

@@ -65,6 +65,11 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public float gasExpansion = 0.4f;
     public Vector2 tailOffset = new(-0.15f, 0.1f);
     [Min(0f)] public float visualScale = 1f;
+    [Header("Per-play motion and shape variation (0 = unchanged)")]
+    [Min(0f)] public float motionWander;
+    [Min(0.01f)] public float variationFrequency = 1.5f;
+    [Range(0f, 0.5f)] public float sizeVariation;
+    [Range(0f, 0.3f)] public float shapeVariation;
     [Header("Liquid flight; landing starts Intro")]
     [Min(0f)] public float airborneDuration = 0.25f;
     public float airborneHeight = 0.5f;
