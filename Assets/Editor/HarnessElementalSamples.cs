@@ -285,6 +285,16 @@ public sealed class EffectDefinitionSOEditor : Editor
     public override void OnInspectorGUI()
     {
         bool changed = DrawDefaultInspector();
+        EffectDefinitionSO data = (EffectDefinitionSO)target;
+        if (data.fireParticles)
+            using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))
+                if (GUILayout.Button(new GUIContent("불 설정을 권장값으로 복원",
+                    "불 전용 설정·팔레트·불씨·시각 효과를 복원합니다. 원소·시트·클립·수명·머티리얼은 보존하며 Undo로 되돌릴 수 있습니다.")))
+                {
+                    HarnessFireSettings.ResetDefinition(data);
+                    serializedObject.Update();
+                    changed = true;
+                }
         if (changed && preview != null) StartPreview();
         EditorGUILayout.Space();
         using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))

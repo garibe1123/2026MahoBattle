@@ -517,24 +517,27 @@ internal static class EffectFireField
 
     private static Color PaletteColor(Color color, EffectDefinitionSO definition)
     {
-        Color result = color;
+        EffectFirePaletteWeights weights = definition.firePaletteWeights;
+        Color result = definition.fireEmberColor * definition.tint;
         float closest = float.PositiveInfinity;
-        SelectColor(definition.fireHotColor * definition.tint, color, ref result, ref closest);
-        SelectColor(definition.fireGoldColor * definition.tint, color, ref result, ref closest);
-        SelectColor(definition.fireWarmColor * definition.tint, color, ref result, ref closest);
-        SelectColor(definition.fireEmberColor * definition.tint, color, ref result, ref closest);
-        SelectColor(definition.fireSmokeColor * definition.tint, color, ref result, ref closest);
-        SelectColor(definition.fireSootColor * definition.tint, color, ref result, ref closest);
+        SelectColor(definition.fireHotColor * definition.tint, color, weights?.hot ?? 1f, ref result, ref closest);
+        SelectColor(definition.fireGoldColor * definition.tint, color, weights?.gold ?? 1f, ref result, ref closest);
+        SelectColor(definition.fireWarmColor * definition.tint, color, weights?.warm ?? 1f, ref result, ref closest);
+        SelectColor(definition.fireEmberColor * definition.tint, color, weights?.ember ?? 1f, ref result, ref closest);
+        SelectColor(definition.fireSmokeColor * definition.tint, color, weights?.smoke ?? 1f, ref result, ref closest);
+        SelectColor(definition.fireSootColor * definition.tint, color, weights?.soot ?? 1f, ref result, ref closest);
         result.a = color.a;
         return result;
     }
 
-    private static void SelectColor(Color candidate, Color target, ref Color result, ref float closest)
+    private static void SelectColor(Color candidate, Color target, float weight, ref Color result, ref float closest)
     {
+        weight = Mathf.Clamp(EffectNumbers.NonNegative(weight), 0f, 4f);
+        if (weight <= 0f) return;
         float red = candidate.r - target.r;
         float green = candidate.g - target.g;
         float blue = candidate.b - target.b;
-        float distance = red * red + green * green + blue * blue;
+        float distance = (red * red + green * green + blue * blue + 0.01f) / weight;
         if (distance >= closest) return;
         closest = distance;
         result = candidate;

@@ -139,13 +139,15 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public Color fireSmokeColor = new(0.22f, 0.13f, 0.16f);
     [Tooltip("불꽃이 연기로 바뀔 때의 최종 색과 어두운 테두리 색입니다.")]
     public Color fireSootColor = new(0.065f, 0.055f, 0.075f);
+    [Tooltip("불 팔레트의 색별 선택 비중입니다. 0은 해당 색을 제외하며 클수록 선택 영역이 넓어집니다. 실제 화면 점유율은 원래 불꽃 색에도 좌우됩니다. 모두 0이면 Ember 색을 사용합니다.")]
+    public EffectFirePaletteWeights firePaletteWeights = new();
     [Header("Additional pooled details")]
     [Tooltip("별도 1픽셀 불씨가 생성될 때의 밝은 색입니다.")]
     public Color emberStartColor = new Color32(255, 242, 176, 255);
     [Tooltip("별도 1픽셀 불씨가 수명 끝에 도달할 때의 어두운 색입니다.")]
     public Color emberEndColor = new Color32(128, 48, 26, 255);
     [Tooltip("별도 불씨의 개수·수명·기류 및 수명 곡선 설정입니다.")]
-    public EffectDetailSettings embers = new();
+    public EffectDetailSettings embers = new() { spread = 1.6f };
     [Tooltip("Embers 수명 범위에 곱할 배율입니다. 클수록 불씨가 오래 남습니다.")]
     [Min(0.1f)] public float emberLifetimeScale = 2.5f;
     [Tooltip("불씨의 초기 속도와 좌우 기류 속도 배율입니다. 클수록 멀리 날아갑니다.")]
@@ -373,6 +375,23 @@ public sealed class EffectDefinitionSO : ScriptableObject
         ownedSprites = null;
         clips = null;
     }
+}
+
+[Serializable]
+public sealed class EffectFirePaletteWeights
+{
+    [Tooltip("가장 뜨거운 Hot 색의 선택 비중입니다. 낮추면 밝은 노란 영역이 줄어듭니다. 0이면 제외합니다.")]
+    [Range(0f, 4f)] public float hot = 0.2f;
+    [Tooltip("Gold 색의 선택 비중입니다. 낮추면 금빛 영역이 줄어듭니다. 0이면 제외합니다.")]
+    [Range(0f, 4f)] public float gold = 0.35f;
+    [Tooltip("Warm 색의 선택 비중입니다. 낮추면 따뜻한 주황 영역이 줄어듭니다. 0이면 제외합니다.")]
+    [Range(0f, 4f)] public float warm = 0.55f;
+    [Tooltip("Ember 색의 선택 비중입니다. 높이면 어두운 불빛 영역이 늘어납니다. 0이면 제외합니다.")]
+    [Range(0f, 4f)] public float ember = 1.4f;
+    [Tooltip("Smoke 색의 선택 비중입니다. 투명도는 Fire Smoke Opacity로 별도 조절합니다. 0이면 제외합니다.")]
+    [Range(0f, 4f)] public float smoke = 1f;
+    [Tooltip("Soot 색의 선택 비중입니다. 높이면 어두운 그을음 색이 더 잘 선택됩니다. 0이면 제외합니다.")]
+    [Range(0f, 4f)] public float soot = 1f;
 }
 
 [Serializable]
