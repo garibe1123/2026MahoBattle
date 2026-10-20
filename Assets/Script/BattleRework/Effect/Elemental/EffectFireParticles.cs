@@ -50,8 +50,13 @@ internal sealed class EffectFireParticles
             if (t >= 1f) { particle.active = false; particles[i] = particle; continue; }
             float wander = (Mathf.PerlinNoise(particle.seed, particle.age * 1.7f) - 0.5f) * 2f;
             float spread = EffectNumbers.NonNegative(definition.fireSpread) * scale;
-            particle.position += (particle.velocity + Vector3.right *
-                (wander * spread * Mathf.Lerp(0.25f, 1f, t))) * delta;
+            float smoke = Mathf.SmoothStep(0f, 1f, (t - 0.4f) / 0.45f);
+            Vector3 drift = particle.velocity * Mathf.Lerp(1f, 0.7f, smoke);
+            drift.x += wander * spread * (Mathf.Lerp(0.25f, 1f, t) +
+                EffectNumbers.NonNegative(definition.fireSmokeSpread) * smoke);
+            drift.y += (Mathf.PerlinNoise(particle.seed + 71f, particle.age * 1.3f) - 0.5f) *
+                spread * smoke;
+            particle.position += drift * delta;
             particles[i] = particle;
         }
         if (ending || definition.fireEmissionRate <= 0f) return;
@@ -116,10 +121,16 @@ internal sealed class EffectFireParticles
         color.r *= definition.tint.r;
         color.g *= definition.tint.g;
         color.b *= definition.tint.b;
-        float growth = 1f + EffectNumbers.NonNegative(definition.gasExpansion) * t;
+        float smoke = Mathf.SmoothStep(0f, 1f, (t - 0.4f) / 0.45f);
+        float growth = 1f + EffectNumbers.NonNegative(definition.gasExpansion) * t +
+            EffectNumbers.NonNegative(definition.fireSmokeExpansion) * smoke;
         float separation = Mathf.Lerp(1f, 0.55f, Mathf.SmoothStep(0f, 1f, (t - 0.65f) / 0.35f));
         sample.center = particle.position;
-        sample.radius = Vector2.one * (particle.radius * growth * separation);
+        sample.radius = new Vector2(Mathf.Lerp(1f, 1.25f, smoke), Mathf.Lerp(1f, 0.9f, smoke)) *
+            (particle.radius * growth * separation);
+        float angle = particle.seed + particle.age * 0.8f;
+        sample.fireShape = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) *
+            (Mathf.Clamp(definition.fireContourVariation, 0f, 0.4f) * Mathf.Lerp(0.35f, 1f, smoke));
         sample.weight = 1f;
         sample.fireColor = color;
         return color.a > 0.001f;
@@ -140,19 +151,23 @@ internal static class EffectFireField
     public static void Accumulate(float[] density, Color[] colors, int stride, Vector2 origin,
         float step, RectInt clip, EffectBlobSample sample)
     {
-        if (clip.width == 0 || clip.height == 0 || sample.radius.x <= 0f) return;
+        if (clip.width == 0 || clip.height == 0 || sample.radius.x <= 0f || sample.radius.y <= 0f) return;
         Vector2 center = ((Vector2)sample.center - origin) / step;
-        float radius = sample.radius.x / step;
-        int left = Mathf.Clamp(Mathf.FloorToInt(center.x - radius * 2f), clip.xMin, clip.xMax - 1);
-        int right = Mathf.Clamp(Mathf.CeilToInt(center.x + radius * 2f), clip.xMin, clip.xMax - 1);
-        int bottom = Mathf.Clamp(Mathf.FloorToInt(center.y - radius * 2f), clip.yMin, clip.yMax - 1);
-        int top = Mathf.Clamp(Mathf.CeilToInt(center.y + radius * 2f), clip.yMin, clip.yMax - 1);
+        Vector2 radius = sample.radius / step;
+        int left = Mathf.Clamp(Mathf.FloorToInt(center.x - radius.x * 2f), clip.xMin, clip.xMax - 1);
+        int right = Mathf.Clamp(Mathf.CeilToInt(center.x + radius.x * 2f), clip.xMin, clip.xMax - 1);
+        int bottom = Mathf.Clamp(Mathf.FloorToInt(center.y - radius.y * 2f), clip.yMin, clip.yMax - 1);
+        int top = Mathf.Clamp(Mathf.CeilToInt(center.y + radius.y * 2f), clip.yMin, clip.yMax - 1);
         for (int y = bottom; y <= top; y++)
             for (int x = left; x <= right; x++)
             {
-                float dx = (x + 0.5f - center.x) / radius;
-                float dy = (y + 0.5f - center.y) / radius;
+                float dx = (x + 0.5f - center.x) / radius.x;
+                float dy = (y + 0.5f - center.y) / radius.y;
                 float edge = Mathf.Max(0f, 1f - (dx * dx + dy * dy) * 0.25f);
+                float contour = sample.fireShape.x * dx + sample.fireShape.y * dy + 0.25f *
+                    (sample.fireShape.x * dx * (dx * dx - 3f * dy * dy) +
+                    sample.fireShape.y * dy * (3f * dx * dx - dy * dy));
+                edge *= Mathf.Clamp(1f + contour, 0.2f, 1.8f);
                 float contribution = edge * edge * edge;
                 int index = y * stride + x;
                 density[index] += contribution;
@@ -164,6 +179,8 @@ internal static class EffectFireField
         int resolution, RectInt clip, EffectDefinitionSO definition, float roughness = 0f)
     {
         float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f) * Mathf.Lerp(1f, 0.08f, roughness);
+        float edgeWidth = Mathf.Clamp(definition.fireEdgeWidth, 0.01f, 0.6f);
+        float edgeStrength = Mathf.Clamp01(definition.fireEdgeStrength);
         int stride = resolution + 2;
         for (int y = clip.yMin; y < clip.yMax; y++)
             for (int x = clip.xMin; x < clip.xMax; x++)
@@ -172,6 +189,10 @@ internal static class EffectFireField
                 float value = density[fieldIndex];
                 if (value <= 0.15f) continue;
                 Color color = colors[fieldIndex] / value;
+                float outline = 1f - Mathf.SmoothStep(0f, 1f, (value - 0.15f) / edgeWidth);
+                Color edgeColor = Color.Lerp(definition.fireSootColor, color, 0.2f);
+                edgeColor.a = color.a;
+                color = Color.Lerp(color, edgeColor, outline * edgeStrength);
                 color.a *= Mathf.SmoothStep(0f, 1f, (value - 0.15f) / softness);
                 pixels[y * resolution + x] = color;
             }

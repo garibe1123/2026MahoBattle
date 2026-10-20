@@ -10,6 +10,7 @@ internal struct EffectBlobSample
     public float impact;
     public float ripple;
     public Color fireColor;
+    public Vector2 fireShape;
     public SpriteRenderer source;
 }
 
