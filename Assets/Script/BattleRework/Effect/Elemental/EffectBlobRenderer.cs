@@ -171,8 +171,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         {
             RectInt fieldClip = new(clip.xMin, clip.yMin, clip.width + 2, clip.height + 2);
             if (definition.fireParticles)
-                EffectFireField.Accumulate(density, foam, fireColors, Resolution + 2,
-                    origin - Vector2.one * step, step, fieldClip, samples[i]);
+                EffectFireField.Accumulate(density, fireColors, Resolution + 2,
+                    origin - Vector2.one * step, step, fieldClip, samples[i], definition);
             else
                 EffectBlobField.Accumulate(density, foam, Resolution + 2, origin - Vector2.one * step, step,
                     fieldClip, samples[i]);
@@ -184,7 +184,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         }
         if (definition.fireParticles)
         {
-            EffectFireField.Colorize(density, foam, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
+            EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
             tint = Color.white;
         }
         else

@@ -1,0 +1,131 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c975b0b5849cdff45a825502748620c6, type: 3}
+  m_Name: WaterVisual
+  m_EditorClassIdentifier: 
+  element: {fileID: 11400000, guid: f8b0587538e4391419244c482fff3d92, type: 2}
+  family: 1
+  usage: 0
+  additionalElements: []
+  sourceSheet: {fileID: 21300000, guid: e4bd22ac633ae264184f11d26def5f0c, type: 3}
+  cellSize: {x: 32, y: 32}
+  layout: {x: 4, y: 4}
+  intro:
+    useSheet: 1
+    startIndex: 0
+    frameCount: 4
+    fps: 12
+    sprites: []
+  idle:
+    useSheet: 1
+    startIndex: 4
+    frameCount: 8
+    fps: 12
+    sprites: []
+  end:
+    useSheet: 1
+    startIndex: 12
+    frameCount: 4
+    fps: 12
+    sprites: []
+  duration: 2
+  idleEnd: 0
+  shortLife: 0
+  introStop: 0
+  customMaterial: {fileID: 2100000, guid: 2dd194abb7ac0eb44b4eafdb159ec311, type: 2}
+  tint: {r: 1, g: 1, b: 1, a: 0.32}
+  introBrightness: 1.15
+  idleBrightness: 1
+  endBrightness: 0.65
+  fadeOnEnd: 0
+  fireParticles: 0
+  fireParticleCapacity: 48
+  fireEmissionRate: 26
+  fireParticleLifetime: {x: 0.8, y: 1.3}
+  fireParticleRadius: {x: 0.12, y: 0.24}
+  fireShapeScale: {x: 1, y: 1.35}
+  fireSpread: 0.45
+  fireFadeStart: 0.5
+  fireSmokeSpread: 1.6
+  fireSmokeExpansion: 0.65
+  fireContourVariation: 0.22
+  fireTipSharpness: 0.7
+  fireTurbulence: 0.3
+  fireTearStrength: 1
+  fireEdgeWidth: 0.28
+  fireEdgeStrength: 0.85
+  fireHotColor: {r: 1, g: 0.9, b: 0.3, a: 1}
+  fireGoldColor: {r: 1, g: 0.64, b: 0.14, a: 1}
+  fireWarmColor: {r: 0.95, g: 0.27, b: 0.045, a: 1}
+  fireEmberColor: {r: 0.5, g: 0.17, b: 0.1, a: 1}
+  fireSmokeColor: {r: 0.22, g: 0.13, b: 0.16, a: 1}
+  fireSootColor: {r: 0.065, g: 0.055, b: 0.075, a: 1}
+  emissionColor: {r: 1, g: 1, b: 1, a: 0.32}
+  emissionStrength: 1
+  emissionColorProperty: _EmissionColor
+  emissionStrengthProperty: _Glow
+  lightResponseProperty: _LightResponse
+  lightResponse: 1
+  rimProperty: _RimStrength
+  rimStrength: 0
+  centerProperty: _CenterStrength
+  centerStrength: 0
+  pieceCount: 1
+  pieceDelay: 0.07
+  pieceAttenuation: 0.75
+  tailTint: {r: 1, g: 1, b: 1, a: 1}
+  spentTint: {r: 1, g: 1, b: 1, a: 1}
+  tailExpansion: 1
+  edgeSpread: 0.025
+  gasRise: 0.2
+  gasExpansion: 0.05
+  tailOffset: {x: 0, y: 0}
+  visualScale: 1.35
+  motionWander: 0.25
+  variationFrequency: 1.2
+  sizeVariation: 0.18
+  shapeVariation: 0.1
+  mergeNearby: 1
+  mergeRadius: 0.7
+  mergeSoftness: 0.12
+  mergeRefreshRate: 20
+  surfaceNoiseScale: 0.85
+  surfaceNoiseStrength: 0.55
+  surfaceNoiseSpeed: 0.08
+  surfaceBodyColor: {r: 0.18, g: 0.65, b: 0.85, a: 1}
+  surfaceHighlightColor: {r: 0.85, g: 0.98, b: 1, a: 1}
+  surfaceHighlightStrength: 1
+  surfaceRelief: 0.8
+  surfaceShadowColor: {r: 0.18, g: 0.21, b: 0.27, a: 1}
+  surfaceLightDirection: {x: -0.45, y: 0.65, z: 0.65}
+  surfaceSpecular: 1.8
+  surfaceShininess: 48
+  impactFoamDuration: 0.55
+  impactFoamStrength: 0.9
+  foamOpacity: 0.9
+  smokeTail: {fileID: 0}
+  smokeTailPieces: 2
+  airborneDuration: 0.25
+  airborneHeight: 0.5
+  puddleScale: {x: 1.1, y: 0.95}
+  useLight: 0
+  lightMode: 1
+  lightColor: {r: 1, g: 1, b: 1, a: 0.32}
+  lightIntensity: 0.8
+  lightRadius: 1.5
+  flickerAmount: 0.15
+  flickerFrequency: 12
+  sortingLayerId: 0
+  sortingOrder: 20
+  attachmentOffset: {x: 0, y: 0}
+  spawnOnImpact: 1
+  projectileVisualScale: 1

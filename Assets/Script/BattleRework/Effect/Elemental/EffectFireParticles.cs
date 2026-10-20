@@ -4,6 +4,7 @@ using UnityEngine;
 internal sealed class EffectFireParticles
 {
     private const int MaxParticles = 96;
+    private const int MaxSources = 3;
     private struct Particle
     {
         public Vector3 position;
@@ -13,8 +14,11 @@ internal sealed class EffectFireParticles
     }
 
     private readonly Particle[] particles = new Particle[MaxParticles];
+    private readonly Vector2[] sourceOffsets = new Vector2[MaxSources];
+    private readonly float[] sourceScales = new float[MaxSources];
     private EffectDefinitionSO definition;
     private int cursor;
+    private int sourceCount, nextSource;
     private float scale, timer, endProgress;
     private bool ending;
     public int Capacity { get; private set; }
@@ -25,8 +29,19 @@ internal sealed class EffectFireParticles
         definition = data;
         scale = size;
         Capacity = Mathf.Clamp(data.fireParticleCapacity, 8, MaxParticles);
-        int initial = Mathf.Clamp(data.pieceCount, 1, 5);
-        initial = UnityEngine.Random.Range(Mathf.Max(1, initial - 1), initial + 1);
+        int minSources = Mathf.Clamp(Mathf.Min(data.fireSourceCount.x, data.fireSourceCount.y), 2, MaxSources);
+        int maxSources = Mathf.Clamp(Mathf.Max(data.fireSourceCount.x, data.fireSourceCount.y), minSources, MaxSources);
+        sourceCount = UnityEngine.Random.Range(minSources, maxSources + 1);
+        float minScale = EffectNumbers.Positive(data.fireSourceScale.x, 0.7f);
+        float maxScale = EffectNumbers.Positive(data.fireSourceScale.y, 1.25f);
+        float sourceSpread = EffectNumbers.NonNegative(data.fireSourceSpread) * scale;
+        for (int i = 0; i < sourceCount; i++)
+        {
+            sourceScales[i] = UnityEngine.Random.Range(Mathf.Min(minScale, maxScale), Mathf.Max(minScale, maxScale));
+            sourceOffsets[i] = UnityEngine.Random.insideUnitCircle * sourceSpread;
+        }
+        int initial = Mathf.Clamp(data.pieceCount, sourceCount, 5);
+        initial = UnityEngine.Random.Range(Mathf.Max(sourceCount, initial - 1), initial + 1);
         for (int i = 0; i < initial; i++) Emit(origin, velocity);
         timer = Interval();
     }
@@ -79,19 +94,23 @@ internal sealed class EffectFireParticles
             int index = cursor;
             cursor = (cursor + 1) % Capacity;
             if (particles[index].active) continue;
+            int sourceIndex = nextSource;
+            nextSource = (nextSource + 1) % sourceCount;
+            float sourceScale = scale * sourceScales[sourceIndex];
+            Vector2 sourceOffset = sourceOffsets[sourceIndex];
             float minLife = EffectNumbers.Positive(definition.fireParticleLifetime.x, 0.8f);
             float maxLife = EffectNumbers.Positive(definition.fireParticleLifetime.y, 1.3f);
             float minRadius = EffectNumbers.Positive(definition.fireParticleRadius.x, 0.09f);
             float maxRadius = EffectNumbers.Positive(definition.fireParticleRadius.y, 0.19f);
-            float radius = UnityEngine.Random.Range(Mathf.Min(minRadius, maxRadius), Mathf.Max(minRadius, maxRadius)) * scale;
-            float spread = EffectNumbers.NonNegative(definition.fireSpread) * scale;
+            float radius = UnityEngine.Random.Range(Mathf.Min(minRadius, maxRadius), Mathf.Max(minRadius, maxRadius)) * sourceScale;
+            float spread = EffectNumbers.NonNegative(definition.fireSpread) * sourceScale;
             Vector2 jitter = UnityEngine.Random.insideUnitCircle * radius * 0.6f;
             particles[index] = new Particle
             {
                 active = true,
-                position = origin + new Vector3(jitter.x, jitter.y, 0f),
+                position = origin + new Vector3(sourceOffset.x + jitter.x, sourceOffset.y + jitter.y, 0f),
                 velocity = velocity * 0.2f + new Vector3(UnityEngine.Random.Range(-spread, spread),
-                    EffectNumbers.NonNegative(definition.gasRise) * scale * UnityEngine.Random.Range(0.65f, 1.4f), 0f),
+                    EffectNumbers.NonNegative(definition.gasRise) * sourceScale * UnityEngine.Random.Range(0.65f, 1.4f), 0f),
                 lifetime = UnityEngine.Random.Range(Mathf.Min(minLife, maxLife), Mathf.Max(minLife, maxLife)),
                 radius = radius,
                 seed = UnityEngine.Random.Range(0f, 1000f)
@@ -154,8 +173,11 @@ internal sealed class EffectFireParticles
     public void Reset()
     {
         Array.Clear(particles, 0, particles.Length);
+        Array.Clear(sourceOffsets, 0, sourceOffsets.Length);
+        Array.Clear(sourceScales, 0, sourceScales.Length);
         definition = null;
         Capacity = cursor = 0;
+        sourceCount = nextSource = 0;
         scale = timer = endProgress = 0f;
         ending = false;
     }
@@ -163,8 +185,8 @@ internal sealed class EffectFireParticles
 
 internal static class EffectFireField
 {
-    public static void Accumulate(float[] density, float[] erosion, Color[] colors, int stride, Vector2 origin,
-        float step, RectInt clip, EffectBlobSample sample)
+    public static void Accumulate(float[] density, Color[] colors, int stride, Vector2 origin,
+        float step, RectInt clip, EffectBlobSample sample, EffectDefinitionSO definition)
     {
         if (clip.width == 0 || clip.height == 0 || sample.radius.x <= 0f || sample.radius.y <= 0f) return;
         Vector2 center = ((Vector2)sample.center - origin) / step;
@@ -175,6 +197,10 @@ internal static class EffectFireField
         int top = Mathf.Clamp(Mathf.CeilToInt(center.y + radius.y * 2f), clip.yMin, clip.yMax - 1);
         float holeSize = sample.fireHoleRadius * sample.fireHoleRadius;
         float inverseHoleSoftness = 1f / Mathf.Max(0.001f, holeSize * 0.45f);
+        float edgeWidth = Mathf.Clamp(definition.fireEdgeWidth, 0.01f, 0.6f);
+        float edgeStrength = Mathf.Clamp01(definition.fireEdgeStrength);
+        Color edgeColor = Color.Lerp(definition.fireSootColor * definition.tint, sample.fireColor, 0.2f);
+        edgeColor.a = sample.fireColor.a;
         for (int y = bottom; y <= top; y++)
             for (int x = left; x <= right; x++)
             {
@@ -194,22 +220,32 @@ internal static class EffectFireField
                 edge *= Mathf.Clamp(1f + contour, 0.2f, 1.8f);
                 float contribution = edge * edge * edge;
                 if (contribution <= 0f) continue;
+                Color color = sample.fireColor;
+                if (sample.fireTear > 0f)
+                {
+                    float holeX = dx - sample.fireHole.x;
+                    float holeY = dy - sample.fireHole.y;
+                    float secondX = dx + sample.fireHole.x + 0.35f;
+                    float secondY = dy - sample.fireHole.y - 0.65f;
+                    float holeDistance = Mathf.Min(holeX * holeX + holeY * holeY,
+                        (secondX * secondX + secondY * secondY) * 1.4f);
+                    float cut = Mathf.Clamp01((holeSize - holeDistance) * inverseHoleSoftness);
+                    // Tear this particle before merging so overlapping flames keep their own coverage.
+                    contribution *= 1f - Mathf.Clamp01(cut * sample.fireTear);
+                    if (contribution <= 0f) continue;
+                    if (cut > 0f)
+                    {
+                        float outline = 1f - Mathf.SmoothStep(0f, 1f, (contribution - 0.15f) / edgeWidth);
+                        color = Color.Lerp(color, edgeColor, outline * edgeStrength);
+                    }
+                }
                 int index = y * stride + x;
                 density[index] += contribution;
-                colors[index] += sample.fireColor * contribution;
-                if (sample.fireTear <= 0f) continue;
-                float holeX = dx - sample.fireHole.x;
-                float holeY = dy - sample.fireHole.y;
-                float secondX = dx + sample.fireHole.x + 0.35f;
-                float secondY = dy - sample.fireHole.y - 0.65f;
-                float holeDistance = Mathf.Min(holeX * holeX + holeY * holeY,
-                    (secondX * secondX + secondY * secondY) * 1.4f);
-                float cut = Mathf.Clamp01((holeSize - holeDistance) * inverseHoleSoftness);
-                erosion[index] = Mathf.Max(erosion[index], cut * sample.fireTear);
+                colors[index] += color * contribution;
             }
     }
 
-    public static void Colorize(float[] density, float[] erosion, Color[] colors, Color32[] pixels,
+    public static void Colorize(float[] density, Color[] colors, Color32[] pixels,
         int resolution, RectInt clip, EffectDefinitionSO definition, float roughness = 0f)
     {
         float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f) * Mathf.Lerp(1f, 0.08f, roughness);
@@ -220,11 +256,9 @@ internal static class EffectFireField
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
                 int fieldIndex = (y + 1) * stride + x + 1;
-                float rawValue = density[fieldIndex];
-                if (rawValue <= 0.15f) continue;
-                float value = rawValue * (1f - Mathf.Clamp01(erosion[fieldIndex]));
+                float value = density[fieldIndex];
                 if (value <= 0.15f) continue;
-                Color color = colors[fieldIndex] / rawValue;
+                Color color = colors[fieldIndex] / value;
                 float outline = 1f - Mathf.SmoothStep(0f, 1f, (value - 0.15f) / edgeWidth);
                 Color edgeColor = Color.Lerp(definition.fireSootColor * definition.tint, color, 0.2f);
                 edgeColor.a = color.a;

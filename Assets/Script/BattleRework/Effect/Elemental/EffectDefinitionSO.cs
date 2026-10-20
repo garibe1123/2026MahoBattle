@@ -49,6 +49,10 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public bool fadeOnEnd;
     [Header("Procedural fire: pooled round particles share one surface")]
     public bool fireParticles;
+    [Tooltip("Minimum and maximum flame sources per effect, clamped to 2–3.")]
+    public Vector2Int fireSourceCount = new(2, 3);
+    public Vector2 fireSourceScale = new(0.7f, 1.25f);
+    [Min(0f)] public float fireSourceSpread = 0.35f;
     [Range(8, 96)] public int fireParticleCapacity = 48;
     [Min(0f)] public float fireEmissionRate = 26f;
     public Vector2 fireParticleLifetime = new(0.8f, 1.3f);
