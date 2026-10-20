@@ -38,6 +38,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     // The extra border keeps surface normals continuous between tiles.
     private readonly float[] density = new float[(Resolution + 2) * (Resolution + 2)];
     private readonly float[] foam = new float[(Resolution + 2) * (Resolution + 2)];
+    private readonly EffectBlobField.Column[] blobColumns = new EffectBlobField.Column[Resolution + 2];
     private readonly Color32[] pixels = new Color32[Resolution * Resolution];
     private Color[] fireColors;
     private readonly float[] noiseGrid = new float[(Resolution / 8 + 3) * (Resolution / 8 + 3)];
@@ -195,7 +196,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
                         fieldOrigin, step, fieldClip, samples[i], definition);
                 else
                     EffectBlobField.Accumulate(density, foam, Resolution + 2, fieldOrigin, step,
-                        fieldClip, samples[i]);
+                        fieldClip, samples[i], blobColumns);
                 Color color = samples[i].source.color;
                 opacity = Mathf.Max(opacity, color.a);
                 tint.r = Mathf.Max(tint.r, color.r);
@@ -281,9 +282,18 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
 internal static class EffectBlobField
 {
-    public static void Accumulate(float[] field, float[] foam, int resolution, Vector2 origin, float step, RectInt clip, EffectBlobSample sample)
+    internal struct Column
+    {
+        public float distanceSquared, firstSquared, secondSquared;
+    }
+
+    public static void Accumulate(float[] field, float[] foam, int resolution, Vector2 origin, float step, RectInt clip,
+        EffectBlobSample sample, Column[] columns)
     {
         if (clip.width == 0 || clip.height == 0) return;
+        bool dissolving = sample.dissolve > 0f;
+        bool hasImpact = sample.impact > 0f;
+        if (sample.weight == 0f && !hasImpact) return;
         Vector2 center = ((Vector2)sample.center - origin) / step;
         Vector2 radius = sample.radius / step;
         int left = Mathf.Clamp(Mathf.FloorToInt(center.x - radius.x * 2f), clip.xMin, clip.xMax - 1);
@@ -292,30 +302,40 @@ internal static class EffectBlobField
         int top = Mathf.Clamp(Mathf.CeilToInt(center.y + radius.y * 2f), clip.yMin, clip.yMax - 1);
         float dissolve = sample.dissolve * sample.dissolve * 1.4f;
         float rippleRadius = Mathf.Lerp(0.25f, 1.65f, sample.ripple);
+        for (int x = left; x <= right; x++)
+        {
+            float dx = (x + 0.5f - center.x) / radius.x;
+            columns[x].distanceSquared = dx * dx;
+            if (!dissolving) continue;
+            columns[x].firstSquared = (dx + 0.65f) * (dx + 0.65f);
+            columns[x].secondSquared = (dx - 0.6f) * (dx - 0.6f);
+        }
         for (int y = bottom; y <= top; y++)
         {
             float dy = (y + 0.5f - center.y) / radius.y;
             float dySquared = dy * dy;
-            float firstY = (dy - 0.35f) * (dy - 0.35f);
-            float secondY = (dy + 0.45f) * (dy + 0.45f);
+            float firstY = dissolving ? (dy - 0.35f) * (dy - 0.35f) : 0f;
+            float secondY = dissolving ? (dy + 0.45f) * (dy + 0.45f) : 0f;
             int row = y * resolution;
             for (int x = left; x <= right; x++)
             {
-                float dx = (x + 0.5f - center.x) / radius.x;
-                float distance = dx * dx + dySquared;
+                Column column = columns[x];
+                float distance = column.distanceSquared + dySquared;
                 if (distance >= 4f) continue;
+                // The dissolve SmoothStep is exactly zero inside this hole; keep impact foam active.
+                if (dissolving && distance <= dissolve && !hasImpact) continue;
                 float contribution = sample.weight / (1f + 3f * distance * distance);
-                if (sample.dissolve > 0f)
+                if (dissolving)
                 {
                     contribution *= Mathf.SmoothStep(0f, 1f,
                         (distance - dissolve) / 0.2f);
-                    float first = (dx + 0.65f) * (dx + 0.65f) + firstY;
-                    float second = (dx - 0.6f) * (dx - 0.6f) + secondY;
+                    float first = column.firstSquared + firstY;
+                    float second = column.secondSquared + secondY;
                     float fragments = Mathf.Clamp01((0.7f - Mathf.Min(first, second)) / 0.35f);
                     contribution *= Mathf.Lerp(1f, fragments, sample.dissolve);
                 }
                 field[row + x] += contribution;
-                if (sample.impact > 0f)
+                if (hasImpact)
                 {
                     float ring = Mathf.Clamp01(1f - Mathf.Abs(Mathf.Sqrt(distance) -
                         rippleRadius) / 0.2f);
