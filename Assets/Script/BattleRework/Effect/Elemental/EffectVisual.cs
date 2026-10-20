@@ -63,7 +63,7 @@ public sealed class EffectVisual : MonoBehaviour
         float? duration = null, Vector3 velocity = default, bool airborne = false,
         EffectFaction faction = EffectFaction.Neutral, IReadOnlyList<ElementDefinitionSO> extraElements = null,
         EffectVisual prefab = null, Action<EffectVisual, EffectPhase> phaseStarted = null,
-        Action<EffectVisual> finished = null)
+        Action<EffectVisual> finished = null, bool stationary = false)
     {
         if (data == null) return null;
         if ((data.mergeNearby || data.fireParticles) && !EffectBlobWorld.CanSpawn) return null;
@@ -79,7 +79,7 @@ public sealed class EffectVisual : MonoBehaviour
             prefab = template;
         }
         EffectVisual instance = PoolService.Spawn(prefab, position, rotation);
-        instance.Play(data, duration ?? data.duration, velocity, airborne, faction, extraElements, phaseStarted, finished);
+        instance.Play(data, duration ?? data.duration, velocity, airborne, faction, extraElements, phaseStarted, finished, stationary);
         return instance;
     }
 
@@ -126,7 +126,7 @@ public sealed class EffectVisual : MonoBehaviour
     public void Play(EffectDefinitionSO data, float duration, Vector3 motion = default,
         bool inFlight = false, EffectFaction faction = EffectFaction.Neutral,
         IReadOnlyList<ElementDefinitionSO> extraElements = null,
-        Action<EffectVisual, EffectPhase> phaseStarted = null, Action<EffectVisual> finished = null)
+        Action<EffectVisual, EffectPhase> phaseStarted = null, Action<EffectVisual> finished = null, bool stationary = false)
     {
         ResetForPool();
         if (data == null) { if (!preview) PoolService.Release(gameObject); return; }
@@ -135,7 +135,7 @@ public sealed class EffectVisual : MonoBehaviour
         PhaseStarted = phaseStarted;
         Finished = finished;
         requestedDuration = duration;
-        anchored = duration == -1f;
+        anchored = duration == -1f || stationary;
         anchorPosition = transform.position;
         variationSeed = UnityEngine.Random.Range(0f, 1000f);
         sizeMultiplier = EffectNumbers.SpawnScale(data);
