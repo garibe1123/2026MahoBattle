@@ -12,7 +12,7 @@ public sealed class ElementalAdditionalSamples : IDisposable
 
     public ElementalAdditionalSamples(EffectDefinitionSO fire)
     {
-        pixelsPerUnit = fire != null && fire.sourceSheet != null ? fire.sourceSheet.pixelsPerUnit : ElementalTestSamples.PixelsPerUnit;
+        pixelsPerUnit = fire != null && fire.sourceSheet != null ? fire.sourceSheet.pixelsPerUnit : 32f;
         Shader beamShader = Shader.Find("Universal Render Pipeline/2D/Sprite-Unlit-Default");
         Material beamMaterial = beamShader != null ? Own(new Material(beamShader) { name = "FieldBeamUnlit" }) : null;
         for (int i = 0; i < Definitions.Length; i++)

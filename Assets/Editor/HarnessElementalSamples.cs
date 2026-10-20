@@ -22,7 +22,7 @@ public static class HarnessElementalSamples
     [InitializeOnLoadMethod]
     private static void PrepareEditableSettingsOnLoad()
     {
-        EditorApplication.delayCall += CreateEditableSettings;
+        EditorApplication.delayCall += () => WriteCharacterAndFieldSettings(false);
     }
 
     [MenuItem("Tools/Harness/Create Editable Elemental Settings")]
@@ -250,15 +250,18 @@ public static class HarnessElementalSamples
     }
 
     [MenuItem("Tools/Harness/Create Character And Field Effect Settings")]
+    [MenuItem("Tools/Harness/Create Character And Field Effect Prefabs")]
     private static void CreateCharacterAndFieldSettings()
     {
         WriteCharacterAndFieldSettings(false);
+        CreateCharacterAndFieldPrefabs();
     }
 
     [MenuItem("Tools/Harness/Refresh Character And Field Effect Settings")]
     private static void RefreshCharacterAndFieldSettings()
     {
         WriteCharacterAndFieldSettings(true);
+        CreateCharacterAndFieldPrefabs();
     }
 
     private static void WriteCharacterAndFieldSettings(bool refresh)
@@ -314,6 +317,36 @@ public static class HarnessElementalSamples
             EditorUtility.SetDirty(data);
         }
         AssetDatabase.SaveAssets();
+    }
+
+    private static void CreateCharacterAndFieldPrefabs()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        string root = ElementalTestSamples.SettingsRoot;
+        EnsureFolder(root, "Prefabs");
+        for (int i = 0; i < 6; i++)
+        {
+            string name = ElementalAdditionalSamples.Names[i];
+            string path = root + "/Prefabs/" + name + ".prefab";
+            if (AssetDatabase.LoadMainAssetAtPath(path) != null) continue;
+            EffectDefinitionSO data = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(root + "/" + name + "Visual.asset");
+            if (data == null) continue;
+            GameObject host = new(name);
+            try
+            {
+                if (i < 3) host.AddComponent<CharacterStatusEffectVisual>().defaultDefinition = data;
+                else
+                {
+                    EffectEmitter emitter = host.AddComponent<EffectEmitter>();
+                    emitter.definition = data;
+                    emitter.mode = EffectEmissionMode.Stationary;
+                    emitter.playOnStart = true;
+                }
+                PrefabUtility.SaveAsPrefabAsset(host, path);
+            }
+            finally { Object.DestroyImmediate(host); }
+        }
+        Selection.activeObject = AssetDatabase.LoadAssetAtPath<GameObject>(root + "/Prefabs/PoisonCharacter.prefab");
     }
 
     private static void EnsureFolder(string parent, string child)
@@ -376,5 +409,29 @@ public sealed class EffectDefinitionSOEditor : Editor
             }
         }
         if (changed) EffectDefinitionPreviewWindow.NotifyChanged(data);
+    }
+}
+
+[CustomEditor(typeof(CharacterStatusEffectVisual))]
+public sealed class CharacterStatusEffectVisualEditor : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        DrawDefaultInspector();
+        EffectDefinitionSO data = ((CharacterStatusEffectVisual)target).defaultDefinition;
+        using (new EditorGUI.DisabledScope(data == null || EditorApplication.isPlayingOrWillChangePlaymode))
+            if (GUILayout.Button("Effect Preview")) EffectDefinitionPreviewWindow.ShowDefinition(data);
+    }
+}
+
+[CustomEditor(typeof(EffectEmitter))]
+public sealed class EffectEmitterEditor : Editor
+{
+    public override void OnInspectorGUI()
+    {
+        DrawDefaultInspector();
+        EffectDefinitionSO data = ((EffectEmitter)target).definition;
+        using (new EditorGUI.DisabledScope(data == null || EditorApplication.isPlayingOrWillChangePlaymode))
+            if (GUILayout.Button("Effect Preview")) EffectDefinitionPreviewWindow.ShowDefinition(data);
     }
 }
