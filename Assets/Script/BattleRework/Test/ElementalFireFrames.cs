@@ -3,87 +3,97 @@ using UnityEngine;
 
 internal static class ElementalFireFrames
 {
-    private const int Width = 12;
+    private const int Width = 16;
     private const int Height = 16;
-    private static readonly Color32 Soot = new(37, 30, 43, 190);
-    private static readonly Color32 Ember = new(109, 49, 40, 225);
-    private static readonly Color32 Flame = new(227, 76, 29, 255);
-    private static readonly Color32 Gold = new(255, 165, 42, 255);
-    private static readonly Color32 Core = new(255, 231, 102, 255);
-    // Each entry is one hand-drawn frame, from the upper trail to the bright lower tip.
+    private static readonly Color32 Soot = new(30, 25, 39, 210);
+    private static readonly Color32 Ember = new(106, 53, 47, 240);
+    private static readonly Color32 Red = new(166, 43, 44, 255);
+    private static readonly Color32 Flame = new(234, 79, 29, 255);
+    private static readonly Color32 Gold = new(255, 166, 44, 255);
+    private static readonly Color32 Core = new(255, 232, 101, 255);
+    // Authored blocks break into separate eddies above the bright lower leading edge.
     private static readonly string[] Frames = {
-        "............/............/............/............/" +
-        "............/............/............/............/" +
-        "............/............/............/............/" +
-        ".....oo...../....oyyo..../....ywwy..../.....yy.....",
-        "............/............/............/............/" +
-        "............/............/............/.....r....../" +
-        "....roo...../....oyyo..../...oywwyo.../....ywwy..../" +
-        "....ywwy..../.....ww...../.....yy...../............",
-        "............/............/.....s....../....srs...../" +
-        "....rrs...../...roor...../....oyor..../...ooyyo..../" +
-        "...oywyo..../....ywwyo.../....ywwwy.../....ywwy..../" +
-        ".....ww...../.....yy...../............/............",
-        ".....ss...../....srrs..../..s..rrs..../..srroor..../" +
-        "...rooor..../..rooyoor.../...royoor.../...ooyyo..../" +
-        "...oywwyo.../....ywwyo.../....ywwwy.../....ywwy..../" +
-        ".....ww...../.....yy...../............/............",
-        "....ss....../...srrs...../..srrrs..s../...roors.s../" +
-        "..srooor..../...royoor.../...ooyoor.../..rooyyo..../" +
-        "...oywwyo.../....ywwwy.../....ywwy..../.....ww...../" +
-        ".....yy...../............/............/............",
-        "......ss..../....ssrs..../...srrrs..../..sroors..../" +
-        "...rooor..../...royoor.../..rooyyo..../...oywyo..../" +
-        "...oywwyo.../...oywwwy.../....ywwy..../....ywwy..../" +
-        ".....yy...../............/............/............",
-        "...s..ss..../..srrsrs..../...rrrs...../...roors..../" +
-        "..srooor..../..rooyoor.../...oyyoor.../...oywwyo.../" +
-        "....ywwyo.../....ywwwy.../.....wwy..../.....ww...../" +
-        ".....yy...../............/............/............",
-        ".....ss...../...ssrrs..../...srors..../..srroor..../" +
-        "...rooor..../...royoor.../....oyoor.../...ooyyo..../" +
-        "...oywwyo.../...oywwy..../....ywwy..../....ywwy..../" +
-        ".....wy...../.....y....../............/............",
-        "...ss......./..srrs..s.../...rrrs.s.../..sroors..../" +
-        "...rooor..../..rooyoor.../..rooyyo..../...oywyo..../" +
-        "....ywwyo.../....ywwwy.../....ywwy..../.....ww...../" +
-        ".....yy...../............/............/............",
-        "......ss..../....ssrs..../...srrs...../..srorrs..../" +
-        "...rooor..../...royoor.../...ooyoor.../....oyyo..../" +
-        "...oywwyo.../...oywwwy.../....ywwy..../.....ww...../" +
-        ".....yy...../............/............/............",
-        "....ss....../...srrs..s../..srrrs..s../...roors..../" +
-        "..srooor..../...royoor.../..rooyyo..../...oywwyo.../" +
-        "...oywwy..../....ywwwy.../....ywwy..../....yww...../" +
-        ".....yy...../............/............/............",
-        ".....ss...../....srrs..../..s..rrs..../..srroor..../" +
-        "...rooor..../..rooyoor.../...oyyoor.../...oywyo..../" +
-        "....ywwyo.../....ywwwy.../.....wwy..../.....ww...../" +
-        ".....yy...../............/............/............",
-        "....ss....../...ssss..s../..ssrrs..s../...srrrs..../" +
-        "..ssrorr..../...rroorr.../....roor..../...rroor..../" +
-        "....royo..../....oyyo..../.....oyo..../.....oo...../" +
-        "......r...../............/............/............",
-        "...ss..s..../...sss.s..../..ssrs....../...srrss..../" +
-        "..srrrss..../...ssrrs..../....srrs..../....rrs...../" +
-        "...s..rr..../......ro..../.....rr...../.....r....../" +
-        "............/............/............/............",
-        "...s......../..ss..s...../......ss..../...s...s..../" +
-        "..ssr......./...rs..s..../......ss..../....s......./" +
-        "....sr....../.....s....../............/.....s....../" +
-        "............/............/............/............",
-        "............/...s......../.......s..../............/" +
-        "..s........./............/......s...../............/" +
-        "....s......./............/............/............/" +
-        "............/............/............/............"
+        "././././" +
+        "././././" +
+        "././.....rr/.....roo/" +
+        ".....oyyo/......ywwy/......yww/.......y",
+        "././././" +
+        ".....s/....srr/.....ree/....reoo/" +
+        ".....ooyo/....ooyyo/.....ywwyo/.....ywwwy/" +
+        "......www/......ywy/.......y/.",
+        "./...ss/...srrs/.....rrs/" +
+        "..srree/..reeooe/....eooyoo/...reoyyoo/" +
+        "...oooyyyo/....oywwwy/....ywwwwy/.....ywwwy/" +
+        "......www/......ywy/.......y/.",
+        "..ss....ss/.srrs..srrs/...rrssrrees/..sreereoors/" +
+        ".srreeooeers/..reeooyoorrs/...eooyyooor/...oooyyyo/" +
+        "....oywwyyo/...oywwwwwy/....ywwwwy/.....ywwwy/" +
+        "......www/......ywy/.......y/.",
+        "...ss..ss/..srrssrrs/.srrreerss/..srreeoorrs/" +
+        "...reeooeerrs/.sreeoyyoorr/..reooyyoooe/...oooywyyo/" +
+        "...oywwwwyo/....ywwwwwy/.....ywwwwy/.....ywwwy/" +
+        "......www/......ywy/.......y/.",
+        ".ss.....ss/.srrs..srrrs/..srressrreers/...reeeoorrs/" +
+        "..sreeooeerrs/...reeoyyoorr/.sreooyyyooor/...oooywwyo/" +
+        "....oywwwyo/...oywwwwwy/....ywwwwy/.....ywww/" +
+        ".....ywww/......wwy/.......y/.",
+        "..ss..ss/.srrssrrs/..srrreeers/.srreeooerrs/" +
+        "..reeooyoorrs/...rooyyooor/..reoooyyyoo/...ooywwyyo/" +
+        "....oywwwyo/....ywwwwwy/.....ywwwwy/......ywww/" +
+        "......www/.......wy/.......y/.",
+        "...ss.....ss/..srrs..srrs/.srreessrrrs/..srreeoorrs/" +
+        "...reeooeers/..reeooyyoorr/...eooyyyooor/..roooywwyyo/" +
+        "...oywwwwyo/....ywwwwwy/....ywwwwy/.....ywwwy/" +
+        "......www/......ywy/.......y/.",
+        ".ss....ss/..srrssrrrs/...rrreeers/.srreeoorrs/" +
+        "..reeooeerrs/...reeoyyoorr/..reoooyyoor/...oooywyyo/" +
+        "...oywwwwyo/...oywwwwwy/....ywwwwy/.....ywwwy/" +
+        "......www/.......wy/.......y/.",
+        "...ss..ss/..srrssrrs/.srreeerrrs/..srreeoorrs/" +
+        "...reeooeerrs/.sreeoyyooor/..reooyyoooe/...oooywwyo/" +
+        "....oywwwwyo/....ywwwwwy/.....ywwwwy/......ywww/" +
+        "......www/......ywy/.......y/.",
+        "..ss.....ss/.srrs..srrs/..srressrrrs/.srreeeoorrs/" +
+        "..reeooeerrs/...reeoyyoorr/.sreooyyyooor/...oooywyyo/" +
+        "...oywwwwyo/....ywwwwwy/.....ywwwwy/.....ywwwy/" +
+        "......www/.......wy/.......y/.",
+        "...ss..ss/..srrssrrs/.srrreerrs/..srreeoorrs/" +
+        ".srreeooeerrs/..reeooyyoorr/...eooyyooor/...oooywwyo/" +
+        "....oywwwyo/...oywwwwwy/....ywwwwy/.....ywww/" +
+        ".....ywww/......wwy/.......y/.",
+        "..ss....ss/.srrs..srrs/..srrssrrrs/...srrerrrs/" +
+        "..srreeorrs/.srrrooorrs/...rreeoorr/..srrooyoor/" +
+        "...rrooyoor/....rooyyo/.....oywyo/......oyyo/" +
+        "......roo/.......rr/.......s/.",
+        ".ss.....ss/.srrs..ss/..srrs.srrs/...ssrrrss/" +
+        "..srrs..rrs/.srrs....rs/...rr...rr/..srrssrrs/" +
+        "....rrerr/.....roorr/......roo/......rr/" +
+        ".......rs/.......s/./.",
+        "..s.....ss/.ssrr....s/..rrs..ss/...ss...rrs/" +
+        ".srs.....rs/..ss....ss/....r..rs/....ssrr/" +
+        "...rr..rs/....s..ss/......sr/......ss/" +
+        ".......s/././.",
+        "...s....s/..ss....ss/.........s/....s/" +
+        "..s....s/...s/........s/.....s/" +
+        "....ss/........s/.....s/./" +
+        ".......s/././."
     };
+    private static readonly string[][] Rows = SplitFrames();
+
+    private static string[][] SplitFrames()
+    {
+        var rows = new string[Frames.Length][];
+        for (int i = 0; i < rows.Length; i++) rows[i] = Frames[i].Split('/');
+        return rows;
+    }
 
     public static Color32 Pixel(int frame, int x, int y, int cell)
     {
         int column = Mathf.Min(Width - 1, x * Width / cell);
         int row = Height - 1 - Mathf.Min(Height - 1, y * Height / cell);
-        char ink = Frames[frame][row * (Width + 1) + column];
-        return ink == 's' ? Soot : ink == 'r' ? Ember : ink == 'o' ? Flame
+        string line = Rows[frame][row];
+        char ink = column < line.Length ? line[column] : '.';
+        return ink == 's' ? Soot : ink == 'r' ? Ember : ink == 'e' ? Red : ink == 'o' ? Flame
             : ink == 'y' ? Gold : ink == 'w' ? Core : default;
     }
 }

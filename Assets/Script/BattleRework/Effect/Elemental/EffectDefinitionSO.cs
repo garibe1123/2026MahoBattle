@@ -60,6 +60,9 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Range(1, 5)] public int pieceCount = 1;
     [Min(0f)] public float pieceDelay = 0.07f;
     [Range(0f, 1f)] public float pieceAttenuation = 0.75f;
+    public Color tailTint = Color.white;
+    public Color spentTint = Color.white;
+    [Min(0f)] public float tailExpansion = 1f;
     [Min(0f)] public float edgeSpread = 0.1f;
     public float gasRise = 0.4f;
     public float gasExpansion = 0.4f;
@@ -81,6 +84,14 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public Color surfaceBodyColor = Color.white;
     public Color surfaceHighlightColor = Color.white;
     [Range(0f, 1f)] public float surfaceHighlightStrength;
+    [Range(0f, 2f)] public float surfaceRelief;
+    public Color surfaceShadowColor = new(0.24f, 0.27f, 0.33f);
+    public Vector3 surfaceLightDirection = new(-0.45f, 0.65f, 0.65f);
+    [Range(0f, 2f)] public float surfaceSpecular;
+    [Range(4f, 128f)] public float surfaceShininess = 48f;
+    [Min(0.01f)] public float impactFoamDuration = 0.65f;
+    [Range(0f, 2f)] public float impactFoamStrength;
+    [Range(0f, 1f)] public float foamOpacity = 0.85f;
     [Header("Smoke layers at the end of the fire trail")]
     public EffectDefinitionSO smokeTail;
     [Range(1, 4)] public int smokeTailPieces = 2;

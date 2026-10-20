@@ -336,6 +336,10 @@ public sealed class EffectVisual : MonoBehaviour
             float pieceBrightness = smoke ? phase == EffectPhase.Intro ? style.introBrightness :
                 phase == EffectPhase.End ? style.endBrightness : style.idleBrightness : brightness;
             Color tint = style.tint;
+            float tail = count > 1 ? (float)i / (count - 1) : 0f;
+            tint *= Color.Lerp(Color.white, style.tailTint, tail);
+            if (!airborne && phase == EffectPhase.End)
+                tint *= Color.Lerp(Color.white, style.spentTint, progress);
             tint.r *= pieceBrightness * attenuation;
             tint.g *= pieceBrightness * attenuation;
             tint.b *= pieceBrightness * attenuation;
@@ -350,6 +354,7 @@ public sealed class EffectVisual : MonoBehaviour
             piece.localRotation = Quaternion.identity;
             float pieceScale = i == 0 ? 1f : Mathf.Lerp(0.8f, 0.45f, (float)i / MaxPieces);
             if (smoke) pieceScale = 0.8f + Mathf.Min(Mathf.Max(0f, age - delay), 4f) * EffectNumbers.NonNegative(style.gasExpansion);
+            else pieceScale *= Mathf.Lerp(1f, EffectNumbers.NonNegative(style.tailExpansion), tail);
             piece.localScale = Vector3.one * (pieceScale * (1f + Variation(211f + i * 23f) * deformation));
             float ppu = renderer.sprite.pixelsPerUnit;
             Vector3 position = piece.localPosition;
@@ -382,6 +387,11 @@ public sealed class EffectVisual : MonoBehaviour
             (Mathf.Clamp(definition.mergeRadius, 0.2f, 1f) * growth);
         sample.weight = !airborne && Phase == EffectPhase.End ? 1f - (float)playback.PhaseProgress : 1f;
         sample.dissolve = !airborne && Phase == EffectPhase.End ? (float)playback.PhaseProgress : 0f;
+        float contactAge = !airborne && flightDuration > 0f && flightElapsed >= flightDuration
+            ? Mathf.Max(0f, age - flightDuration) : float.PositiveInfinity;
+        sample.ripple = Mathf.Clamp01(contactAge / EffectNumbers.Positive(definition.impactFoamDuration, 0.65f));
+        sample.impact = definition.family == EffectFamily.Liquid
+            ? (1f - Mathf.SmoothStep(0f, 1f, sample.ripple)) * EffectNumbers.NonNegative(definition.impactFoamStrength) : 0f;
         sample.source = source;
         foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
         return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
@@ -407,7 +417,7 @@ public sealed class EffectVisual : MonoBehaviour
         float scale = EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * shapeMargin * shapeMargin *
             (definition.family == EffectFamily.Gas ? Mathf.Max(1f, 1f + 4f * definition.gasExpansion) :
                 Mathf.Max(1f, Mathf.Max(Mathf.Abs(definition.puddleScale.x), Mathf.Abs(definition.puddleScale.y))));
-        float radius = (frameRadius + definition.tailOffset.magnitude * MaxPieces +
+        float radius = (frameRadius * Mathf.Max(1f, EffectNumbers.NonNegative(definition.tailExpansion)) + definition.tailOffset.magnitude * MaxPieces +
             Mathf.Abs(definition.edgeSpread) * MaxPieces) * scale +
             Mathf.Abs(definition.gasRise) * 4f + Mathf.Abs(definition.airborneHeight) +
             (velocity.magnitude + EffectNumbers.NonNegative(definition.motionWander) * 1.414214f) *

@@ -133,8 +133,9 @@ public sealed class EffectBlobWorld : MonoBehaviour
             if (!entry.visual.CaptureBlob(entry.definition, out EffectBlobSample sample)) continue;
             if (!refresh) continue;
             Vector2 center = sample.center;
-            Vector2 low = Vector2.Max(center - sample.radius * 2f, view.min);
-            Vector2 high = Vector2.Min(center + sample.radius * 2f, view.max);
+            Vector2 extent = sample.radius * 2f + Vector2.one * step;
+            Vector2 low = Vector2.Max(center - extent, view.min);
+            Vector2 high = Vector2.Min(center + extent, view.max);
             if (low.x >= high.x || low.y >= high.y) continue;
             float cellSize = step * 8f;
             TileKey bin = new(entry.definition, Mathf.FloorToInt(center.x / cellSize), Mathf.FloorToInt(center.y / cellSize));
@@ -146,6 +147,8 @@ public sealed class EffectBlobWorld : MonoBehaviour
                 group.sample.center = Vector3.Lerp(group.sample.center, sample.center, amount);
                 group.sample.radius = Vector2.Max(group.sample.radius, sample.radius);
                 group.sample.dissolve = Mathf.Lerp(group.sample.dissolve, sample.dissolve, amount);
+                group.sample.ripple = Mathf.Lerp(group.sample.ripple, sample.ripple, amount);
+                group.sample.impact = Mathf.Max(group.sample.impact, sample.impact);
                 group.sample.weight = Mathf.Min(total, 8f);
                 group.weight = total;
                 groups[index] = group;
@@ -167,8 +170,9 @@ public sealed class EffectBlobWorld : MonoBehaviour
     {
         EffectBlobSample sample = group.sample;
         Vector2 center = sample.center;
-        Vector2 low = Vector2.Max(center - sample.radius * 2f, view.min);
-        Vector2 high = Vector2.Min(center + sample.radius * 2f, view.max);
+        Vector2 extent = sample.radius * 2f + Vector2.one * step;
+        Vector2 low = Vector2.Max(center - extent, view.min);
+        Vector2 high = Vector2.Min(center + extent, view.max);
         if (low.x >= high.x || low.y >= high.y) return;
         int left = Mathf.FloorToInt(low.x / tileSize);
         int right = Mathf.CeilToInt(high.x / tileSize) - 1;
