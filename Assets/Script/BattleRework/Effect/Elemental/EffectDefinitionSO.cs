@@ -75,6 +75,9 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Range(0.2f, 1f)] public float mergeRadius = 0.7f;
     [Range(0.02f, 0.5f)] public float mergeSoftness = 0.18f;
     [Range(5f, 30f)] public float mergeRefreshRate = 20f;
+    [Min(0.01f)] public float surfaceNoiseScale = 0.65f;
+    [Range(0f, 1f)] public float surfaceNoiseStrength = 0.15f;
+    [Min(0f)] public float surfaceNoiseSpeed = 0.08f;
     [Header("Smoke layers at the end of the fire trail")]
     public EffectDefinitionSO smokeTail;
     [Range(1, 4)] public int smokeTailPieces = 2;

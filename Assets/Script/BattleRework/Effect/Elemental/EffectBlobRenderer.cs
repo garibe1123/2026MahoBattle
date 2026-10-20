@@ -16,6 +16,10 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 {
     internal const int Resolution = 128;
     private const int MaxSamples = 1024;
+    private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+    private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
+    private static readonly int AlphaTexId = Shader.PropertyToID("_AlphaTex");
+    private static readonly int ExternalAlphaId = Shader.PropertyToID("_EnableExternalAlpha");
     private readonly EffectBlobSample[] samples = new EffectBlobSample[MaxSamples];
     private readonly float[] density = new float[Resolution * Resolution];
     private readonly Color32[] pixels = new Color32[Resolution * Resolution];
@@ -148,7 +152,10 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             tint.b = Mathf.Max(tint.b, color.b);
         }
         EffectBlobField.Colorize(density, pixels, noiseGrid, Resolution, origin, step, clip,
-            Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f), definition.family == EffectFamily.Gas, Time.time);
+            Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f), definition.family == EffectFamily.Gas, Time.time,
+            EffectNumbers.Positive(definition.surfaceNoiseScale, 0.65f),
+            Mathf.Clamp01(EffectNumbers.NonNegative(definition.surfaceNoiseStrength)),
+            EffectNumbers.NonNegative(definition.surfaceNoiseSpeed));
         texture.SetPixels32(pixels);
         texture.Apply(false, false);
         Vector3 parentScale = transform.parent != null ? transform.parent.lossyScale : Vector3.one;
@@ -159,6 +166,15 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         surface.sharedMaterial = source.sharedMaterial;
         properties ??= new MaterialPropertyBlock();
         source.GetPropertyBlock(properties);
+        // SpriteRenderer's source texture bindings must not replace the generated surface.
+        Material material = surface.sharedMaterial;
+        if (material != null)
+        {
+            if (material.HasProperty(MainTexId)) properties.SetTexture(MainTexId, texture);
+            if (material.HasProperty(BaseMapId)) properties.SetTexture(BaseMapId, texture);
+            if (material.HasProperty(AlphaTexId)) properties.SetTexture(AlphaTexId, Texture2D.whiteTexture);
+            if (material.HasProperty(ExternalAlphaId)) properties.SetFloat(ExternalAlphaId, 0f);
+        }
         surface.SetPropertyBlock(properties);
         tint.a = opacity;
         surface.color = tint;
@@ -217,14 +233,23 @@ internal static class EffectBlobField
     }
 
     public static void Colorize(float[] field, Color32[] pixels, float[] noiseGrid, int resolution, Vector2 origin,
-        float step, RectInt clip, float softness, bool smoke, float time)
+        float step, RectInt clip, float softness, bool smoke, float time,
+        float noiseScale, float noiseStrength, float noiseSpeed)
     {
         if (clip.width == 0 || clip.height == 0) return;
         int stride = resolution / 8 + 1;
         for (int y = clip.yMin / 8; y <= (clip.yMax - 1) / 8 + 1; y++)
             for (int x = clip.xMin / 8; x <= (clip.xMax - 1) / 8 + 1; x++)
-                noiseGrid[y * stride + x] = Mathf.PerlinNoise((origin.x + x * 8f * step) * 1.7f + time * 0.13f,
-                    (origin.y + y * 8f * step) * 1.7f - time * 0.19f);
+            {
+                float worldX = origin.x + x * 8f * step;
+                float worldY = origin.y + y * 8f * step;
+                float drift = time * noiseSpeed;
+                noiseGrid[y * stride + x] = smoke
+                    ? Mathf.PerlinNoise(worldX * noiseScale + drift, worldY * noiseScale - drift * 0.7f) * 0.75f +
+                        Mathf.PerlinNoise(worldX * noiseScale * 2.13f + 17.3f - drift * 0.4f,
+                            worldY * noiseScale * 2.13f + 43.1f + drift * 0.6f) * 0.25f
+                    : Mathf.PerlinNoise(worldX * 1.7f + time * 0.13f, worldY * 1.7f - time * 0.19f);
+            }
         for (int y = clip.yMin; y < clip.yMax; y++)
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
@@ -232,13 +257,14 @@ internal static class EffectBlobField
                 float value = field[index];
                 if (value <= 0.3f - softness * 0.5f) { pixels[index] = default; continue; }
                 int cell = y / 8 * stride + x / 8;
-                float horizontal = x % 8 / 8f;
+                float horizontal = Mathf.SmoothStep(0f, 1f, x % 8 / 8f);
+                float vertical = Mathf.SmoothStep(0f, 1f, y % 8 / 8f);
                 float noise = Mathf.Lerp(Mathf.Lerp(noiseGrid[cell], noiseGrid[cell + 1], horizontal),
-                    Mathf.Lerp(noiseGrid[cell + stride], noiseGrid[cell + stride + 1], horizontal), y % 8 / 8f);
+                    Mathf.Lerp(noiseGrid[cell + stride], noiseGrid[cell + stride + 1], horizontal), vertical);
                 float coverage = Mathf.SmoothStep(0f, 1f, (value - 0.3f) / softness + 0.5f);
-                float shade = smoke ? Mathf.Lerp(0.65f, 1f, noise) :
+                float shade = smoke ? Mathf.Lerp(1f - noiseStrength, 1f, noise) :
                     value < 0.45f || Mathf.Repeat(value * 0.6f + noise * 0.25f + time * 0.12f, 1f) > 0.9f ? 1f : 0.7f;
-                if (smoke) coverage *= Mathf.Lerp(0.6f, 1f, noise);
+                if (smoke) coverage *= Mathf.Lerp(1f - noiseStrength, 1f, noise);
                 byte color = (byte)Mathf.RoundToInt(shade * 255f);
                 pixels[index] = new Color32(color, color, color, (byte)Mathf.RoundToInt(coverage * 255f));
             }
