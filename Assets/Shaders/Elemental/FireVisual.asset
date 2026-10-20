@@ -37,15 +37,15 @@ MonoBehaviour:
     frameCount: 4
     fps: 12
     sprites: []
-  duration: -1
+  duration: 2
   idleEnd: 0
   shortLife: 0
   introStop: 0
   customMaterial: {fileID: 2100000, guid: 2dd194abb7ac0eb44b4eafdb159ec311, type: 2}
   tint: {r: 1, g: 1, b: 1, a: 1}
-  introBrightness: 1
+  introBrightness: 0.5
   idleBrightness: 1
-  endBrightness: 1
+  endBrightness: 0.5
   fadeOnEnd: 0
   visualCurves:
     enabled: 0
@@ -169,7 +169,7 @@ MonoBehaviour:
   fireTurbulence: 0.3
   fireTearStrength: 1
   fireEdgeWidth: 0.28
-  fireEdgeStrength: 0.85
+  fireEdgeStrength: 0.738
   fireHotColor: {r: 1, g: 0.9, b: 0.3, a: 1}
   fireGoldColor: {r: 1, g: 0.64, b: 0.14, a: 1}
   fireWarmColor: {r: 0.95, g: 0.27, b: 0.045, a: 1}
@@ -177,17 +177,17 @@ MonoBehaviour:
   fireSmokeColor: {r: 0.22, g: 0.13, b: 0.16, a: 1}
   fireSootColor: {r: 0.065, g: 0.055, b: 0.075, a: 1}
   firePaletteWeights:
-    hot: 0.2
-    gold: 0.35
-    warm: 0.55
+    hot: 0.27
+    gold: 0.38
+    warm: 0.8
     ember: 1.4
-    smoke: 1
-    soot: 1
+    smoke: 1.62
+    soot: 1.73
   emberStartColor: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
-  emberEndColor: {r: 0.5019608, g: 0.1882353, b: 0.101960786, a: 1}
+  emberEndColor: {r: 0.3726415, g: 0.14183167, b: 0.0773407, a: 1}
   embers:
     enabled: 1
-    capacity: 24
+    capacity: 19
     emissionRate: 12
     minimumInterval: 0.25
     updraftAcceleration: 1.6
@@ -527,18 +527,18 @@ MonoBehaviour:
   rimStrength: 0
   centerProperty: _CenterStrength
   centerStrength: 0
-  pieceCount: 5
+  pieceCount: 2
   pieceDelay: 0.07
   pieceAttenuation: 0.88
   tailTint: {r: 1, g: 1, b: 1, a: 1}
   spentTint: {r: 1, g: 1, b: 1, a: 1}
   tailExpansion: 1
-  edgeSpread: 0.1
-  gasRise: 1.6
+  edgeSpread: 1.55
+  gasRise: 1.23
   gasExpansion: 1.4
-  tailOffset: {x: -0.035, y: 0.22}
+  tailOffset: {x: -0.035, y: -0.58}
   visualScale: 1
-  motionWander: 0.2
+  motionWander: 0.25
   variationFrequency: 1.2
   sizeVariation: 0.2
   mixedPieceSizes: 1

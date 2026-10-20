@@ -30,6 +30,9 @@ public sealed class EffectClipDefinition
 public sealed class EffectDefinitionSO : ScriptableObject
 {
     public const float DefaultSizeVariation = 0.2f;
+    [Header("이펙트 크기")]
+    [Tooltip("본체와 생성 조각의 전체 기준 크기 배율입니다. 1은 원래 크기이며 생성 시 랜덤 크기 배율이 추가로 적용됩니다.")]
+    [Range(0f, 3f)] public float visualScale = 1f;
     [Tooltip("효과의 기본 원소 정의입니다.")]
     public ElementDefinitionSO element;
     [Tooltip("기체(Gas)·액체(Liquid) 계열입니다. 이동·표면 표현 경로를 구분합니다.")]
@@ -211,8 +214,6 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public float gasExpansion = 0.4f;
     [Tooltip("뒤쪽 조각마다 더할 가로·세로 위치 간격입니다.")]
     public Vector2 tailOffset = new(-0.15f, 0.1f);
-    [Tooltip("효과의 전체 기준 크기 배율입니다.")]
-    [Min(0f)] public float visualScale = 1f;
     [Header("Per-play motion and shape variation")]
     [Tooltip("본체 이동에 더할 불규칙한 흔들림 정도입니다.")]
     [Min(0f)] public float motionWander;

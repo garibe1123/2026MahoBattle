@@ -89,6 +89,37 @@ public static class HarnessElementalSamples
         if (changed) AssetDatabase.SaveAssets();
     }
 
+    [MenuItem("Tools/Harness/Create Elemental Size Variants")]
+    private static void CreateElementalSizeVariants()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        string root = ElementalTestSamples.SettingsRoot;
+        EffectDefinitionSO[] sources = new EffectDefinitionSO[TestNames.Length];
+        for (int i = 0; i < sources.Length; i++)
+        {
+            sources[i] = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(root + "/" + TestNames[i] + "Visual.asset");
+            if (sources[i] != null) continue;
+            EditorUtility.DisplayDialog("크기별 이펙트 생성", TestNames[i] + " 원본 SO가 없습니다. Create Editable Elemental Settings 메뉴를 먼저 실행해주세요.", "확인");
+            return;
+        }
+        string[] sizes = { "big", "middle", "small" };
+        float[] scales = { 1.5f, 1f, 0.5f };
+        for (int i = 0; i < sources.Length; i++)
+        {
+            for (int j = 0; j < sizes.Length; j++)
+            {
+                string name = TestNames[i] + "Visual_" + sizes[j];
+                string path = root + "/" + name + ".asset";
+                if (AssetDatabase.LoadMainAssetAtPath(path) != null) continue;
+                EffectDefinitionSO copy = Object.Instantiate(sources[i]);
+                copy.name = name;
+                copy.visualScale = sources[i].visualScale * scales[j];
+                AssetDatabase.CreateAsset(copy, path);
+            }
+        }
+        AssetDatabase.SaveAssets();
+    }
+
     [MenuItem("Tools/Harness/Create Elemental Samples")]
     private static void Create()
     {
