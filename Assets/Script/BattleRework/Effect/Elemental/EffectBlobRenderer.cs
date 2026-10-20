@@ -39,6 +39,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private readonly float[] density = new float[(Resolution + 2) * (Resolution + 2)];
     private readonly float[] foam = new float[(Resolution + 2) * (Resolution + 2)];
     private readonly EffectBlobField.Column[] blobColumns = new EffectBlobField.Column[Resolution + 2];
+    private readonly int[] rowLeft = new int[Resolution + 2];
+    private readonly int[] rowRight = new int[Resolution + 2];
     private readonly Color32[] pixels = new Color32[Resolution * Resolution];
     private Color[] fireColors;
     private readonly float[] noiseGrid = new float[(Resolution / 8 + 3) * (Resolution / 8 + 3)];
@@ -184,6 +186,11 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             Array.Clear(density, 0, density.Length);
             Array.Clear(foam, 0, foam.Length);
             Array.Clear(pixels, 0, pixels.Length);
+            for (int y = 0; y < rowLeft.Length; y++)
+            {
+                rowLeft[y] = Resolution + 2;
+                rowRight[y] = -1;
+            }
             bool fireParticles = definition.fireParticles;
             if (fireParticles)
             {
@@ -199,7 +206,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
                         fieldOrigin, step, fieldClip, samples[i], definition);
                 else
                     EffectBlobField.Accumulate(density, foam, Resolution + 2, fieldOrigin, step,
-                        fieldClip, samples[i], blobColumns);
+                        fieldClip, samples[i], blobColumns, rowLeft, rowRight);
                 Color color = samples[i].source.color;
                 opacity = Mathf.Max(opacity, color.a);
                 tint.r = Mathf.Max(tint.r, color.r);
@@ -213,9 +220,9 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             }
             else
                 EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
-                    definition, time, opacity, surfaceRoughness);
+                    definition, time, opacity, surfaceRoughness, rowLeft, rowRight);
             if (!fireParticles && surfaceRoughness > 0f)
-                EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness);
+                EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness, rowLeft, rowRight);
         }
         using (UploadMarker.Auto())
         {
@@ -302,7 +309,7 @@ internal static class EffectBlobField
     }
 
     public static void Accumulate(float[] field, float[] foam, int resolution, Vector2 origin, float step, RectInt clip,
-        EffectBlobSample sample, Column[] columns)
+        EffectBlobSample sample, Column[] columns, int[] rowLeft, int[] rowRight)
     {
         if (clip.width == 0 || clip.height == 0) return;
         bool dissolving = sample.dissolve > 0f;
@@ -338,9 +345,23 @@ internal static class EffectBlobField
             float firstY = dissolving ? (dy - 0.35f) * (dy - 0.35f) : 0f;
             float secondY = dissolving ? (dy + 0.45f) * (dy + 0.45f) : 0f;
             bool outsideFragments = firstY >= 0.7f && secondY >= 0.7f;
+            float extent = Mathf.Sqrt(Mathf.Max(0f, 4f - dySquared)) * radius.x;
+            // Pad the analytic bounds, then use the original predicates at both edges.
+            int rowStart = Mathf.Max(left, Mathf.FloorToInt(center.x - 0.5f - extent) - 1);
+            int rowEnd = Mathf.Min(right, Mathf.CeilToInt(center.x - 0.5f + extent) + 1);
+            while (rowStart <= rowEnd && !CanContribute(columns[rowStart], dySquared, dissolve,
+                dissolving, hasImpact, sample.dissolve, firstY, secondY)) rowStart++;
+            while (rowEnd >= rowStart && !CanContribute(columns[rowEnd], dySquared, dissolve,
+                dissolving, hasImpact, sample.dissolve, firstY, secondY)) rowEnd--;
+            if (rowStart > rowEnd) continue;
+            rowLeft[y] = Mathf.Min(rowLeft[y], rowStart);
+            rowRight[y] = Mathf.Max(rowRight[y], rowEnd);
             int row = y * resolution;
-            for (int x = left; x <= right; x++)
+            for (int x = rowStart; x <= rowEnd; x++)
             {
+                while (x <= rowEnd && !CanContribute(columns[x], dySquared, dissolve,
+                    dissolving, hasImpact, sample.dissolve, firstY, secondY)) x++;
+                if (x > rowEnd) break;
                 Column column = columns[x];
                 float distance = column.distanceSquared + dySquared;
                 if (distance >= 4f) continue;
@@ -375,11 +396,36 @@ internal static class EffectBlobField
         }
     }
 
+    private static bool CanContribute(Column column, float dySquared, float dissolve, bool dissolving,
+        bool hasImpact, float progress, float firstY, float secondY)
+    {
+        float distance = column.distanceSquared + dySquared;
+        if (distance >= 4f) return false;
+        if (hasImpact) return true;
+        if (dissolving && distance <= dissolve) return false;
+        return progress != 1f || column.firstSquared + firstY < 0.7f ||
+            column.secondSquared + secondY < 0.7f;
+    }
+
     public static void Colorize(float[] field, float[] foam, Color32[] pixels, float[] noiseGrid,
         int resolution, Vector2 origin, float step, RectInt clip, EffectDefinitionSO definition, float time, float opacity,
-        float roughness = 0f)
+        float roughness, int[] rowLeft, int[] rowRight)
     {
         if (clip.width == 0 || clip.height == 0) return;
+        int left = clip.xMax, right = clip.xMin;
+        int bottom = clip.yMax, top = clip.yMin;
+        for (int y = clip.yMin; y < clip.yMax; y++)
+        {
+            int start = Mathf.Max(clip.xMin, rowLeft[y + 1] - 1);
+            int end = Mathf.Min(clip.xMax, rowRight[y + 1]);
+            if (start >= end) continue;
+            left = Mathf.Min(left, start);
+            right = Mathf.Max(right, end);
+            bottom = Mathf.Min(bottom, y);
+            top = y + 1;
+        }
+        if (left >= right || bottom >= top) return;
+        clip = new RectInt(left, bottom, right - left, top - bottom);
         bool smoke = definition.family == EffectFamily.Gas;
         float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f) * Mathf.Lerp(1f, 0.08f, roughness);
         float noiseScale = EffectNumbers.Positive(definition.surfaceNoiseScale, 0.65f);
@@ -422,7 +468,9 @@ internal static class EffectBlobField
             int fieldRow = (y + 1) * fieldStride;
             int cellRow = (y / 8 + 1) * stride;
             float vertical = noiseBlend[y % 8];
-            for (int x = clip.xMin; x < clip.xMax; x++)
+            int start = Mathf.Max(clip.xMin, rowLeft[y + 1] - 1);
+            int end = Mathf.Min(clip.xMax, rowRight[y + 1]);
+            for (int x = start; x < end; x++)
             {
                 int index = row + x;
                 int fieldIndex = fieldRow + x + 1;
@@ -480,7 +528,8 @@ internal static class EffectBlobField
         }
     }
 
-    public static void Roughen(Color32[] pixels, int resolution, RectInt clip, float roughness)
+    public static void Roughen(Color32[] pixels, int resolution, RectInt clip, float roughness,
+        int[] rowLeft, int[] rowRight)
     {
         if (cachedRoughness != roughness)
         {
@@ -492,7 +541,9 @@ internal static class EffectBlobField
         for (int y = clip.yMin; y < clip.yMax; y++)
         {
             int row = y * resolution;
-            for (int x = clip.xMin; x < clip.xMax; x++)
+            int start = Mathf.Max(clip.xMin, rowLeft[y + 1] - 1);
+            int end = Mathf.Min(clip.xMax, rowRight[y + 1]);
+            for (int x = start; x < end; x++)
             {
                 int index = row + x;
                 Color32 pixel = pixels[index];
