@@ -12,6 +12,17 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
     [Min(0f)] public float margin = 12f;
     public Color backgroundColor = new(0f, 0f, 0f, 0.85f);
     public Color textColor = Color.white;
+    public bool drawStandalone = true;
+    [Min(1f)] public float targetFps = 60f;
+    [Min(1f)] public float warningBudgetRatio = 1.1f;
+    [Min(1f)] public float criticalBudgetRatio = 2f;
+    public Color normalStatusColor = Color.green;
+    public Color warningStatusColor = new(1f, 0.65f, 0.15f);
+    public Color criticalStatusColor = Color.red;
+
+    public string StatsText => content.text;
+    public string StatusText { get; private set; } = "측정 중...";
+    public Color StatusColor { get; private set; } = Color.white;
     private readonly StringBuilder text = new(768);
     private readonly GUIContent content = new();
     private readonly FrameTiming[] timings = new FrameTiming[1];
@@ -38,6 +49,8 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
         batches = ProfilerRecorder.StartNew(ProfilerCategory.Render, "Batches Count");
         captureTimings = FrameTimingManager.IsFeatureEnabled();
         content.text = "Performance: collecting...";
+        StatusText = "측정 중...";
+        StatusColor = Color.white;
         ResetInterval();
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         try
@@ -92,7 +105,31 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
     private void RefreshText()
     {
         EffectBlobWorld.DebugCounts counts = EffectBlobWorld.CaptureDebugCounts();
+        double frameMilliseconds = elapsed * 1000d / frames;
+        double budget = 1000d / EffectNumbers.Positive(targetFps, 60f);
+        double warning = budget * Mathf.Max(1f, EffectNumbers.Positive(warningBudgetRatio, 1.1f));
+        double critical = budget * Mathf.Max(1f, Mathf.Max(EffectNumbers.Positive(warningBudgetRatio, 1.1f),
+            EffectNumbers.Positive(criticalBudgetRatio, 2f)));
+        double peakMilliseconds = framePeak * 1000d;
+        if (frameMilliseconds >= critical)
+        {
+            StatusText = "심각: 평균 프레임 시간이 크게 초과합니다.";
+            StatusColor = criticalStatusColor;
+        }
+        else if (frameMilliseconds > warning || peakMilliseconds >= critical)
+        {
+            StatusText = frameMilliseconds > warning ? "주의: 목표 FPS를 유지하지 못합니다." : "주의: 순간적인 프레임 끊김이 있습니다.";
+            StatusColor = warningStatusColor;
+        }
+        else
+        {
+            StatusText = "원활: 목표 프레임 시간 이내입니다.";
+            StatusColor = normalStatusColor;
+        }
         text.Clear();
+        text.Append("목표 ").Append(EffectNumbers.Positive(targetFps, 60f).ToString("F0")).Append(" FPS | 예산 ");
+        text.Append(budget.ToString("F2")).Append(" ms | 평균 ").Append((frameMilliseconds / budget * 100d).ToString("F0")).AppendLine("%");
+        text.Append("주의 > ").Append(warning.ToString("F2")).Append(" ms | 심각 >= ").Append(critical.ToString("F2")).AppendLine(" ms");
         text.Append("FPS ").Append((frames / elapsed).ToString("F1"));
         text.Append(" | frame ").Append((elapsed * 1000d / frames).ToString("F2"));
         text.Append(" ms | peak ").Append((framePeak * 1000f).ToString("F2")).AppendLine(" ms");
@@ -164,7 +201,7 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
 
     private void OnGUI()
     {
-        if (!Application.isPlaying || Event.current.type != EventType.Repaint) return;
+        if (!drawStandalone || !Application.isPlaying || Event.current.type != EventType.Repaint) return;
         labelStyle ??= new GUIStyle(GUI.skin.label) { alignment = TextAnchor.UpperLeft, wordWrap = true };
         labelStyle.fontSize = fontSize;
         labelStyle.normal.textColor = textColor;

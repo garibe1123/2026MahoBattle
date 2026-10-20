@@ -32,6 +32,11 @@ public class BattleDebugUI : MonoBehaviour
     private Camera elementalCamera;
     private EffectBlobWorld elementalBlobWorld;
     private GUIStyle elementalSourceStyle;
+    private static readonly string[] elementalTestTabs = { "이펙트", "성능 / FPS" };
+    private int elementalTestTab;
+    private Vector2 elementalPerformanceScroll;
+    private EffectPerformanceOverlay elementalPerformance;
+    private GUIStyle elementalPerformanceStyle, elementalPerformanceStatusStyle;
 #endif
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -78,6 +83,10 @@ public class BattleDebugUI : MonoBehaviour
     {
         ResolveReferences();
 #if UNITY_EDITOR
+        elementalPerformance = FindFirstObjectByType<EffectPerformanceOverlay>();
+        if (elementalPerformance == null) elementalPerformance = gameObject.AddComponent<EffectPerformanceOverlay>();
+        elementalPerformance.drawStandalone = false;
+        elementalPerformance.enabled = true;
         elementalCamera = Camera.main;
         elementalBlobWorld = UnityEngine.Object.FindFirstObjectByType<EffectBlobWorld>();
         if (elementalBlobWorld == null)
@@ -259,6 +268,18 @@ public class BattleDebugUI : MonoBehaviour
         elementalSamples?.Dispose();
     }
 
+    private void DrawElementalPerformanceTab()
+    {
+        if (elementalPerformance == null) return;
+        elementalPerformanceStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 12, wordWrap = true };
+        elementalPerformanceStatusStyle ??= new GUIStyle(elementalPerformanceStyle) { fontStyle = FontStyle.Bold };
+        elementalPerformanceStatusStyle.normal.textColor = elementalPerformance.StatusColor;
+        elementalPerformanceScroll = GUILayout.BeginScrollView(elementalPerformanceScroll, GUILayout.Height(270f));
+        GUILayout.Label(elementalPerformance.StatusText, elementalPerformanceStatusStyle);
+        GUILayout.Label(elementalPerformance.StatsText, elementalPerformanceStyle);
+        GUILayout.EndScrollView();
+    }
+
     private void DrawElementalTestPanel()
     {
         if (!Application.isPlaying || SceneManager.GetActiveScene().name != "BattleScene") return;
@@ -269,6 +290,13 @@ public class BattleDebugUI : MonoBehaviour
         GUI.Label(new Rect(8f, height - 32f, width - 16f, 28f),
             "UI: BattleDebugUI.cs\nVFX: EffectBlobWorld.cs / EffectBlobRenderer.cs", elementalSourceStyle);
         GUILayout.Label("ELEMENTAL VISUAL TEST");
+        elementalTestTab = GUILayout.Toolbar(elementalTestTab, elementalTestTabs);
+        if (elementalTestTab == 1)
+        {
+            DrawElementalPerformanceTab();
+            GUILayout.EndArea();
+            return;
+        }
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
             GUILayout.Label("No effect definitions assigned.");
