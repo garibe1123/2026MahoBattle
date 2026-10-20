@@ -1,0 +1,210 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+
+[DisallowMultipleComponent]
+public sealed class EffectBlobWorld : MonoBehaviour
+{
+    [Range(0.00390625f, 1f)] public float worldUnitsPerPixel = 0.03125f;
+    [Range(5f, 30f)] public float refreshRate = 20f;
+    [Range(1, 256)] public int maxVisibleTiles = 64;
+    [Range(64, 8192)] public int maxActiveVisuals = 4096;
+
+    private struct Entry
+    {
+        public EffectVisual visual;
+        public EffectDefinitionSO definition;
+        public int execution;
+    }
+
+    private struct BlobGroup
+    {
+        public EffectBlobSample sample;
+        public EffectDefinitionSO definition;
+        public float weight;
+    }
+
+    private readonly struct TileKey : IEquatable<TileKey>
+    {
+        private readonly int definition, x, y;
+        public TileKey(EffectDefinitionSO data, int tileX, int tileY)
+        {
+            definition = data.GetInstanceID();
+            x = tileX;
+            y = tileY;
+        }
+        public bool Equals(TileKey other) => definition == other.definition && x == other.x && y == other.y;
+        public override bool Equals(object obj) => obj is TileKey other && Equals(other);
+        public override int GetHashCode() => unchecked((definition * 397 ^ x) * 397 ^ y);
+    }
+
+    private static EffectBlobWorld instance;
+    private readonly List<Entry> active = new();
+    private readonly Dictionary<EffectVisual, int> indices = new();
+    private readonly Dictionary<TileKey, EffectBlobRenderer> visibleTiles = new();
+    private readonly List<EffectBlobRenderer> tiles = new();
+    private readonly Dictionary<TileKey, int> bins = new();
+    private readonly List<BlobGroup> groups = new();
+    private Camera renderCamera;
+    private float nextRefresh;
+
+    private void Awake()
+    {
+        renderCamera = Camera.main;
+        if (instance == null) instance = this;
+        else if (instance != this) enabled = false;
+    }
+
+    private static EffectBlobWorld Ensure()
+    {
+        if (instance == null)
+        {
+            GameObject host = new("Elemental Blob World");
+            instance = host.AddComponent<EffectBlobWorld>();
+        }
+        return instance;
+    }
+
+    internal static bool CanSpawn => Ensure().active.Count < Mathf.Clamp(instance.maxActiveVisuals, 64, 8192);
+
+    internal static bool Register(EffectVisual visual, EffectDefinitionSO data, int execution)
+    {
+        EffectBlobWorld world = Ensure();
+        Entry entry = new() { visual = visual, definition = data, execution = execution };
+        if (world.indices.TryGetValue(visual, out int index)) { world.active[index] = entry; return true; }
+        if (world.active.Count >= Mathf.Clamp(world.maxActiveVisuals, 64, 8192)) return false;
+        world.indices.Add(visual, world.active.Count);
+        world.active.Add(entry);
+        return true;
+    }
+
+    internal static void Unregister(EffectVisual visual)
+    {
+        if (instance == null || !instance.indices.TryGetValue(visual, out int index)) return;
+        instance.RemoveAt(index);
+    }
+
+    private void RemoveAt(int index)
+    {
+        indices.Remove(active[index].visual);
+        int last = active.Count - 1;
+        if (index != last)
+        {
+            active[index] = active[last];
+            indices[active[index].visual] = index;
+        }
+        active.RemoveAt(last);
+    }
+
+    private bool TryGetView(out Rect view)
+    {
+        view = default;
+        if (renderCamera == null || !renderCamera.isActiveAndEnabled) return false;
+        Plane plane = new(Vector3.forward, new Vector3(0f, 0f, transform.position.z));
+        Vector2 low = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 high = new(float.NegativeInfinity, float.NegativeInfinity);
+        for (int i = 0; i < 4; i++)
+        {
+            Ray ray = renderCamera.ViewportPointToRay(new Vector3(i & 1, i >> 1, 0f));
+            if (!plane.Raycast(ray, out float distance)) return false;
+            Vector2 point = ray.GetPoint(distance);
+            low = Vector2.Min(low, point);
+            high = Vector2.Max(high, point);
+        }
+        view = Rect.MinMaxRect(low.x, low.y, high.x, high.y);
+        return view.width > 0f && view.height > 0f;
+    }
+
+    private void LateUpdate()
+    {
+        bool refresh = Time.time >= nextRefresh;
+        if (refresh) visibleTiles.Clear();
+        bins.Clear();
+        groups.Clear();
+        if (!TryGetView(out Rect view)) { nextRefresh = 0f; ClearTiles(0); return; }
+        float step = Mathf.Clamp(EffectNumbers.Positive(worldUnitsPerPixel, 0.03125f), 0.00390625f, 1f);
+        float tileSize = step * EffectBlobRenderer.Resolution;
+        int tileLimit = Mathf.Clamp(maxVisibleTiles, 1, 256);
+        for (int i = active.Count - 1; i >= 0; i--)
+        {
+            Entry entry = active[i];
+            if (entry.visual == null || entry.definition == null || !entry.visual.IsPlaying ||
+                entry.visual.ExecutionId != entry.execution) { RemoveAt(i); continue; }
+            if (!entry.visual.CaptureBlob(entry.definition, out EffectBlobSample sample)) continue;
+            if (!refresh) continue;
+            Vector2 center = sample.center;
+            Vector2 low = Vector2.Max(center - sample.radius * 2f, view.min);
+            Vector2 high = Vector2.Min(center + sample.radius * 2f, view.max);
+            if (low.x >= high.x || low.y >= high.y) continue;
+            float cellSize = step * 8f;
+            TileKey bin = new(entry.definition, Mathf.FloorToInt(center.x / cellSize), Mathf.FloorToInt(center.y / cellSize));
+            if (bins.TryGetValue(bin, out int index))
+            {
+                BlobGroup group = groups[index];
+                float total = group.weight + sample.weight;
+                float amount = total > 0f ? sample.weight / total : 0f;
+                group.sample.center = Vector3.Lerp(group.sample.center, sample.center, amount);
+                group.sample.radius = Vector2.Max(group.sample.radius, sample.radius);
+                group.sample.dissolve = Mathf.Lerp(group.sample.dissolve, sample.dissolve, amount);
+                group.sample.weight = Mathf.Min(total, 8f);
+                group.weight = total;
+                groups[index] = group;
+            }
+            else
+            {
+                bins.Add(bin, groups.Count);
+                groups.Add(new BlobGroup { sample = sample, definition = entry.definition, weight = sample.weight });
+            }
+        }
+        if (!refresh) return;
+        nextRefresh = Time.time + 1f / Mathf.Clamp(EffectNumbers.Positive(refreshRate, 20f), 5f, 30f);
+        for (int i = 0; i < groups.Count; i++) AddToTiles(groups[i], view, tileSize, step, tileLimit);
+        for (int i = 0; i < visibleTiles.Count; i++) tiles[i].End();
+        ClearTiles(visibleTiles.Count);
+    }
+
+    private void AddToTiles(BlobGroup group, Rect view, float tileSize, float step, int tileLimit)
+    {
+        EffectBlobSample sample = group.sample;
+        Vector2 center = sample.center;
+        Vector2 low = Vector2.Max(center - sample.radius * 2f, view.min);
+        Vector2 high = Vector2.Min(center + sample.radius * 2f, view.max);
+        if (low.x >= high.x || low.y >= high.y) return;
+        int left = Mathf.FloorToInt(low.x / tileSize);
+        int right = Mathf.CeilToInt(high.x / tileSize) - 1;
+        int bottom = Mathf.FloorToInt(low.y / tileSize);
+        int top = Mathf.CeilToInt(high.y / tileSize) - 1;
+        for (int y = bottom; y <= top; y++)
+            for (int x = left; x <= right; x++)
+            {
+                TileKey key = new(group.definition, x, y);
+                if (!visibleTiles.TryGetValue(key, out EffectBlobRenderer tile))
+                {
+                    int slot = visibleTiles.Count;
+                    if (slot >= tileLimit) continue;
+                    if (slot == tiles.Count)
+                    {
+                        GameObject host = new("Elemental Surface Tile");
+                        host.transform.SetParent(transform, false);
+                        tiles.Add(host.AddComponent<EffectBlobRenderer>());
+                    }
+                    tile = tiles[slot];
+                    Rect bounds = new(x * tileSize, y * tileSize, tileSize, tileSize);
+                    Rect clipped = Rect.MinMaxRect(Mathf.Max(bounds.xMin, view.xMin), Mathf.Max(bounds.yMin, view.yMin),
+                        Mathf.Min(bounds.xMax, view.xMax), Mathf.Min(bounds.yMax, view.yMax));
+                    tile.BeginTile(group.definition, bounds, clipped, step, refreshRate);
+                    visibleTiles.Add(key, tile);
+                }
+                tile.AddSample(sample);
+            }
+    }
+
+    private void ClearTiles(int start)
+    {
+        for (int i = start; i < tiles.Count; i++)
+            if (tiles[i] != null) tiles[i].Clear();
+    }
+
+    private void OnDisable() { nextRefresh = 0f; ClearTiles(0); }
+    private void OnDestroy() { if (instance == this) instance = null; }
+}

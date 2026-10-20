@@ -14,11 +14,12 @@ internal struct EffectBlobSample
 [RequireComponent(typeof(SpriteRenderer))]
 public sealed class EffectBlobRenderer : MonoBehaviour
 {
-    private const int Resolution = 128;
-    private const int MaxSamples = 256;
+    internal const int Resolution = 128;
+    private const int MaxSamples = 1024;
     private readonly EffectBlobSample[] samples = new EffectBlobSample[MaxSamples];
     private readonly float[] density = new float[Resolution * Resolution];
     private readonly Color32[] pixels = new Color32[Resolution * Resolution];
+    private readonly float[] noiseGrid = new float[(Resolution / 8 + 1) * (Resolution / 8 + 1)];
     private MaterialPropertyBlock properties;
     private SpriteRenderer surface;
     private Texture2D texture;
@@ -30,6 +31,10 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private int count;
     private float nextRefresh;
     private bool ready;
+    private bool fixedGrid;
+    private Rect tileBounds;
+    private float pixelStep;
+    private float tileRefreshRate;
 
     private void Awake()
     {
@@ -52,6 +57,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
     public void Begin(EffectDefinitionSO data)
     {
+        fixedGrid = false;
         if (definition != data) nextRefresh = 0f;
         definition = data;
         count = 0;
@@ -76,6 +82,26 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     public void Add(EffectVisual visual)
     {
         if (!ready || count >= MaxSamples || !visual.CaptureBlob(definition, out EffectBlobSample sample)) return;
+        AddSample(sample);
+    }
+
+    internal void BeginTile(EffectDefinitionSO data, Rect tile, Rect visible, float step, float refreshRate)
+    {
+        if (!fixedGrid || definition != data || tileBounds != tile || pixelStep != step) nextRefresh = 0f;
+        fixedGrid = ready = true;
+        definition = data;
+        tileBounds = tile;
+        pixelStep = step;
+        tileRefreshRate = EffectNumbers.Positive(refreshRate, 20f);
+        view = visible;
+        count = 0;
+        minimum = tile.min;
+        maximum = tile.max;
+    }
+
+    internal void AddSample(EffectBlobSample sample)
+    {
+        if (!ready || count >= MaxSamples) return;
         Vector2 center = sample.center;
         Vector2 extent = sample.radius * 2f;
         Vector2 low = Vector2.Max(center - extent, view.min);
@@ -90,15 +116,19 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     {
         if (!ready || count == 0) { Clear(); return; }
         if (Time.time < nextRefresh && surface.enabled) return;
-        nextRefresh = Time.time + 1f / Mathf.Clamp(definition.mergeRefreshRate, 5f, 30f);
+        float rate = EffectNumbers.Positive(definition.mergeRefreshRate, 20f);
+        if (fixedGrid) rate = Mathf.Min(rate, tileRefreshRate);
+        nextRefresh = Time.time + 1f / Mathf.Clamp(rate, 5f, 30f);
         SpriteRenderer source = samples[0].source;
         float ppu = source.sprite.pixelsPerUnit;
         float length = Mathf.Max(maximum.x - minimum.x, maximum.y - minimum.y);
         float step = Mathf.Ceil(Mathf.Max(1f, (length * ppu + 2f) / Resolution)) / ppu;
+        if (fixedGrid) step = pixelStep;
         float size = step * Resolution;
         Vector2 origin = (minimum + maximum - Vector2.one * size) * 0.5f;
         origin.x = Mathf.Floor(origin.x / step) * step;
         origin.y = Mathf.Floor(origin.y / step) * step;
+        if (fixedGrid) origin = tileBounds.min;
         RectInt clip = new RectInt(
             Mathf.Clamp(Mathf.FloorToInt((view.xMin - origin.x) / step), 0, Resolution),
             Mathf.Clamp(Mathf.FloorToInt((view.yMin - origin.y) / step), 0, Resolution), 0, 0);
@@ -117,7 +147,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             tint.g = Mathf.Max(tint.g, color.g);
             tint.b = Mathf.Max(tint.b, color.b);
         }
-        EffectBlobField.Colorize(density, pixels, Resolution, origin, step, clip,
+        EffectBlobField.Colorize(density, pixels, noiseGrid, Resolution, origin, step, clip,
             Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f), definition.family == EffectFamily.Gas, Time.time);
         texture.SetPixels32(pixels);
         texture.Apply(false, false);
@@ -186,17 +216,25 @@ internal static class EffectBlobField
         }
     }
 
-    public static void Colorize(float[] field, Color32[] pixels, int resolution, Vector2 origin,
+    public static void Colorize(float[] field, Color32[] pixels, float[] noiseGrid, int resolution, Vector2 origin,
         float step, RectInt clip, float softness, bool smoke, float time)
     {
+        if (clip.width == 0 || clip.height == 0) return;
+        int stride = resolution / 8 + 1;
+        for (int y = clip.yMin / 8; y <= (clip.yMax - 1) / 8 + 1; y++)
+            for (int x = clip.xMin / 8; x <= (clip.xMax - 1) / 8 + 1; x++)
+                noiseGrid[y * stride + x] = Mathf.PerlinNoise((origin.x + x * 8f * step) * 1.7f + time * 0.13f,
+                    (origin.y + y * 8f * step) * 1.7f - time * 0.19f);
         for (int y = clip.yMin; y < clip.yMax; y++)
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
                 int index = y * resolution + x;
                 float value = field[index];
                 if (value <= 0.3f - softness * 0.5f) { pixels[index] = default; continue; }
-                float noise = Mathf.PerlinNoise((origin.x + x * step) * 1.7f + time * 0.13f,
-                    (origin.y + y * step) * 1.7f - time * 0.19f);
+                int cell = y / 8 * stride + x / 8;
+                float horizontal = x % 8 / 8f;
+                float noise = Mathf.Lerp(Mathf.Lerp(noiseGrid[cell], noiseGrid[cell + 1], horizontal),
+                    Mathf.Lerp(noiseGrid[cell + stride], noiseGrid[cell + stride + 1], horizontal), y % 8 / 8f);
                 float coverage = Mathf.SmoothStep(0f, 1f, (value - 0.3f) / softness + 0.5f);
                 float shade = smoke ? Mathf.Lerp(0.65f, 1f, noise) :
                     value < 0.45f || Mathf.Repeat(value * 0.6f + noise * 0.25f + time * 0.12f, 1f) > 0.9f ? 1f : 0.7f;

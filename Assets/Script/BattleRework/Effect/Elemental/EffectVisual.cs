@@ -54,6 +54,7 @@ public sealed class EffectVisual : MonoBehaviour
         Action<EffectVisual> finished = null)
     {
         if (data == null) return null;
+        if (data.mergeNearby && !EffectBlobWorld.CanSpawn) return null;
         if (prefab == null)
         {
             if (template == null)
@@ -150,7 +151,11 @@ public sealed class EffectVisual : MonoBehaviour
         RecordPosition();
         int run = generation;
         if (!airborne) BeginPlayback();
-        if (run == generation && !released) Render();
+        if (run == generation && !released)
+        {
+            Render();
+            if (data.mergeNearby && !EffectBlobWorld.Register(this, data, run)) Complete(run);
+        }
     }
 
     private void AddElement(ElementDefinitionSO element)
@@ -440,6 +445,7 @@ public sealed class EffectVisual : MonoBehaviour
 
     public void ResetForPool()
     {
+        EffectBlobWorld.Unregister(this);
         unchecked { generation++; }
         released = true;
         playback.Reset();

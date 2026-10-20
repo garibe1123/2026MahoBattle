@@ -10,6 +10,7 @@ public sealed class EffectEmitter : MonoBehaviour
     {
         public EffectVisual visual;
         public int execution;
+        public EffectDefinitionSO definition;
     }
 
     public EffectDefinitionSO definition;
@@ -28,18 +29,10 @@ public sealed class EffectEmitter : MonoBehaviour
     public float sprinklerDegreesPerSecond = 140f;
     public float emissionDuration = 1.5f;
     public bool playOnStart;
-    [Range(1, 256)] public int maxActive = 64;
+    [Range(1, 4096)] public int maxActive = 64;
     private readonly List<ActiveVisual> active = new();
     private bool emitting;
     private float elapsed, timer, visualDuration;
-    private EffectBlobRenderer blobRenderer;
-
-    private void Awake()
-    {
-        GameObject host = new("Merged Elemental Surface");
-        host.transform.SetParent(transform, false);
-        blobRenderer = host.AddComponent<EffectBlobRenderer>();
-    }
 
     public EffectVisual Latest
     {
@@ -94,7 +87,10 @@ public sealed class EffectEmitter : MonoBehaviour
         Vector2 heading = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.right;
         float baseAngle = Mathf.Atan2(heading.y, heading.x) * Mathf.Rad2Deg;
         if (mode == EffectEmissionMode.Sprinkler) baseAngle += elapsed * sprinklerDegreesPerSecond;
-        for (int i = 0; i < count && active.Count < Mathf.Clamp(maxActive, 1, 256); i++)
+        int matchingCount = 0;
+        for (int i = 0; i < active.Count; i++)
+            if (active[i].definition == definition && Valid(active[i])) matchingCount++;
+        for (int i = 0; i < count && matchingCount < Mathf.Clamp(maxActive, 1, 4096); i++)
         {
             float angle = baseAngle + (mode == EffectEmissionMode.Explosion ? (i + Random.value) * 360f / count
                 : Random.Range(-spreadAngle * 0.5f, spreadAngle * 0.5f));
@@ -106,17 +102,11 @@ public sealed class EffectEmitter : MonoBehaviour
                 heading3 * launchSpeed, definition.family == EffectFamily.Liquid,
                 faction, runtimeElements, visualPrefab);
             if (visual != null && visual.IsPlaying)
-                active.Add(new ActiveVisual { visual = visual, execution = visual.ExecutionId });
+            {
+                active.Add(new ActiveVisual { visual = visual, execution = visual.ExecutionId, definition = definition });
+                matchingCount++;
+            }
         }
-    }
-
-    private void LateUpdate()
-    {
-        blobRenderer.Begin(definition);
-        if (definition != null && definition.mergeNearby)
-            for (int i = 0; i < active.Count; i++)
-                if (Valid(active[i])) blobRenderer.Add(active[i].visual);
-        blobRenderer.End();
     }
 
     private static bool Valid(ActiveVisual item) => item.visual != null &&
@@ -136,13 +126,11 @@ public sealed class EffectEmitter : MonoBehaviour
         for (int i = active.Count - 1; i >= 0; i--)
             if (Valid(active[i])) PoolService.Release(active[i].visual.gameObject);
         active.Clear();
-        if (blobRenderer != null) blobRenderer.Clear();
     }
 
     private void OnDisable()
     {
         StopEmission();
-        if (blobRenderer != null) blobRenderer.Clear();
     }
     private void OnDestroy() { ClearVisuals(); }
 }

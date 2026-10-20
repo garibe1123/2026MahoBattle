@@ -293,7 +293,6 @@ public class BattleDebugUI : MonoBehaviour
         elementalEmitter.transform.position = ray.GetPoint(distance);
         if (elementalSamples != null)
             ElementalTestSamples.ConfigureEmitter(elementalEmitter, System.Array.IndexOf(elementalDefinitions, definition));
-        elementalEmitter.ClearVisuals();
         elementalEmitter.Trigger(definition, elementalMode, elementalTestDuration);
     }
 
@@ -610,9 +609,10 @@ public sealed class ElementalTestSamples : System.IDisposable
 
     public static void ConfigureEmitter(EffectEmitter emitter, int sample)
     {
-        emitter.burstCount = 8;
-        emitter.streamCount = 1;
-        emitter.maxActive = 64;
+        emitter.burstCount = sample == 0 ? 8 : 32;
+        emitter.streamCount = sample == 0 ? 1 : 4;
+        emitter.interval = sample == 0 ? 0.12f : 0.08f;
+        emitter.maxActive = sample == 0 ? 64 : 2048;
         emitter.direction = sample == 2 ? Vector2.down : Vector2.up;
         emitter.speed = sample == 2 ? 1.5f : 0.35f;
         emitter.spreadAngle = sample == 2 ? 25f : 35f;
