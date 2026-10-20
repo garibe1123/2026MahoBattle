@@ -63,6 +63,9 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public Vector2 fireShapeScale = new(1f, 1.35f);
     [Min(0f)] public float fireSpread = 0.45f;
     [Range(0f, 0.9f)] public float fireFadeStart = 0.5f;
+    [Range(0.35f, 0.9f)] public float fireFlameDuration = 0.68f;
+    [Range(0f, 2f)] public float fireSurgeStrength = 0.9f;
+    [Min(0.01f)] public float fireSurgeFrequency = 1.2f;
     [Min(0f)] public float fireSmokeSpread = 1.6f;
     [Min(0f)] public float fireSmokeExpansion = 0.65f;
     [Range(0f, 1f)] public float fireSmokeOpacity = 0.14f;
@@ -83,6 +86,9 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public Color emberStartColor = new Color32(255, 242, 176, 255);
     public Color emberEndColor = new Color32(128, 48, 26, 255);
     public EffectDetailSettings embers = new();
+    [Min(0.1f)] public float emberLifetimeScale = 2.5f;
+    [Min(0.1f)] public float emberTravelScale = 1.8f;
+    [Range(0f, 0.9f)] public float emberFadeStart = 0.6f;
     public EffectDetailSettings waterDetails = new()
     {
         lifetime = new Vector2(0.3f, 0.65f), radius = new Vector2(0.025f, 0.05f),
