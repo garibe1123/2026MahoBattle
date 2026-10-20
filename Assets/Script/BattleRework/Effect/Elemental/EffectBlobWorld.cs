@@ -5,14 +5,17 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed class EffectBlobWorld : MonoBehaviour
 {
+    public const int MinPixelSize = 1, MaxPixelSize = 4, DefaultPixelSize = 2;
+    public const float MinQuality = 10f, MaxQuality = 30f, DefaultQuality = 23f;
+    public const float DefaultRoughness = 0.8f;
     [Range(0.00390625f, 1f)] public float worldUnitsPerPixel = 0.03125f;
     [Tooltip("Use the source sheet's Pixels Per Unit instead of World Units Per Pixel.")]
     public bool useSourcePixelsPerUnit = true;
     [Tooltip("1 preserves the source pixel size; larger values produce coarser pixels.")]
-    [Range(1, 8)] public int pixelSizeMultiplier = 1;
+    [Range(MinPixelSize, MaxPixelSize)] public int pixelSizeMultiplier = DefaultPixelSize;
     [Tooltip("0 preserves smooth edges and colors; 1 sharpens edges and reduces color steps. Lifetime fading is preserved.")]
-    [Range(0f, 1f)] public float surfaceRoughness = 0.7f;
-    [Range(5f, 30f)] public float refreshRate = 20f;
+    [Range(0f, 1f)] public float surfaceRoughness = DefaultRoughness;
+    [Range(MinQuality, MaxQuality)] public float refreshRate = DefaultQuality;
     [Range(1, 256)] public int maxVisibleTiles = 64;
     [Range(64, 8192)] public int maxActiveVisuals = 4096;
 
@@ -174,7 +177,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
             }
         }
         if (!refresh) return;
-        nextRefresh = Time.time + 1f / Mathf.Clamp(EffectNumbers.Positive(refreshRate, 20f), 5f, 30f);
+        nextRefresh = Time.time + 1f / Mathf.Clamp(EffectNumbers.Positive(refreshRate, DefaultQuality), MinQuality, MaxQuality);
         for (int i = 0; i < groups.Count; i++) AddToTiles(groups[i], view, tileLimit);
         for (int i = 0; i < visibleTiles.Count; i++) tiles[i].End();
         ClearTiles(visibleTiles.Count);
@@ -185,7 +188,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
         float step = Mathf.Clamp(EffectNumbers.Positive(worldUnitsPerPixel, 0.03125f), 0.00390625f, 1f);
         if (useSourcePixelsPerUnit && data.sourceSheet != null)
             step = 1f / EffectNumbers.Positive(data.sourceSheet.pixelsPerUnit, 32f);
-        return step * Mathf.Clamp(pixelSizeMultiplier, 1, 8);
+        return step * Mathf.Clamp(pixelSizeMultiplier, MinPixelSize, MaxPixelSize);
     }
 
     private void AddToTiles(BlobGroup group, Rect view, int tileLimit)

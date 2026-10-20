@@ -50,18 +50,22 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Header("Procedural fire: pooled round particles share one surface")]
     public bool fireParticles;
     [Range(8, 96)] public int fireParticleCapacity = 48;
-    [Min(0f)] public float fireEmissionRate = 32f;
+    [Min(0f)] public float fireEmissionRate = 26f;
     public Vector2 fireParticleLifetime = new(0.8f, 1.3f);
-    public Vector2 fireParticleRadius = new(0.09f, 0.19f);
+    public Vector2 fireParticleRadius = new(0.12f, 0.24f);
     [Min(0f)] public float fireSpread = 0.45f;
-    [Range(0f, 0.9f)] public float fireFadeStart = 0.25f;
+    [Range(0f, 0.9f)] public float fireFadeStart = 0.5f;
     [Min(0f)] public float fireSmokeSpread = 1.6f;
     [Min(0f)] public float fireSmokeExpansion = 0.65f;
     [Range(0f, 0.4f)] public float fireContourVariation = 0.22f;
+    [Range(0f, 0.9f)] public float fireTipSharpness = 0.7f;
     [Range(0.01f, 0.6f)] public float fireEdgeWidth = 0.28f;
     [Range(0f, 1f)] public float fireEdgeStrength = 0.85f;
     public Color fireHotColor = new(1f, 0.9f, 0.3f);
+    public Color fireGoldColor = new(1f, 0.64f, 0.14f);
     public Color fireWarmColor = new(0.95f, 0.27f, 0.045f);
+    public Color fireEmberColor = new(0.5f, 0.17f, 0.1f);
+    public Color fireSmokeColor = new(0.22f, 0.13f, 0.16f);
     public Color fireSootColor = new(0.065f, 0.055f, 0.075f);
     [ColorUsage(true, true)] public Color emissionColor = Color.white;
     [Min(0f)] public float emissionStrength = 1f;

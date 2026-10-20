@@ -11,6 +11,8 @@ internal struct EffectBlobSample
     public float ripple;
     public Color fireColor;
     public Vector2 fireShape;
+    public Vector2 fireDirection;
+    public float fireTaper;
     public SpriteRenderer source;
 }
 
@@ -135,7 +137,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         if (!ready || count == 0) { Clear(); return; }
         if (Time.time < nextRefresh && surface.enabled) return;
         float rate = EffectNumbers.Positive(definition.mergeRefreshRate, 20f);
-        if (fixedGrid) rate = Mathf.Min(rate, tileRefreshRate);
+        if (fixedGrid) rate = tileRefreshRate;
         nextRefresh = Time.time + 1f / Mathf.Clamp(rate, 5f, 30f);
         SpriteRenderer source = samples[0].source;
         float ppu = source.sprite.pixelsPerUnit;
@@ -185,7 +187,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         else
             EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
                 definition, Time.time, opacity, surfaceRoughness);
-        if (surfaceRoughness > 0f) EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness);
+        if (!definition.fireParticles && surfaceRoughness > 0f)
+            EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness);
         texture.SetPixels32(pixels);
         texture.Apply(false, false);
         Vector3 parentScale = transform.parent != null ? transform.parent.lossyScale : Vector3.one;

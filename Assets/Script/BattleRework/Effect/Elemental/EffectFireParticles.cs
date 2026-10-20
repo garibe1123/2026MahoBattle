@@ -131,6 +131,9 @@ internal sealed class EffectFireParticles
         float angle = particle.seed + particle.age * 0.8f;
         sample.fireShape = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) *
             (Mathf.Clamp(definition.fireContourVariation, 0f, 0.4f) * Mathf.Lerp(0.35f, 1f, smoke));
+        Vector2 direction = new(particle.velocity.x / sample.radius.x, particle.velocity.y / sample.radius.y);
+        sample.fireDirection = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.up;
+        sample.fireTaper = Mathf.Clamp(definition.fireTipSharpness, 0f, 0.9f) * Mathf.Lerp(1f, 0.3f, smoke);
         sample.weight = 1f;
         sample.fireColor = color;
         return color.a > 0.001f;
@@ -163,7 +166,14 @@ internal static class EffectFireField
             {
                 float dx = (x + 0.5f - center.x) / radius.x;
                 float dy = (y + 0.5f - center.y) / radius.y;
-                float edge = Mathf.Max(0f, 1f - (dx * dx + dy * dy) * 0.25f);
+                float along = dx * sample.fireDirection.x + dy * sample.fireDirection.y;
+                float across = dx * sample.fireDirection.y - dy * sample.fireDirection.x;
+                float width = Mathf.Lerp(1f - sample.fireTaper, 1f, Mathf.Clamp01((along + 1.6f) / 2.6f));
+                across /= width;
+                float roundDistance = across * across + along * along;
+                float pointedDistance = Mathf.Abs(across) + Mathf.Abs(along);
+                float distance = Mathf.Lerp(roundDistance, pointedDistance * pointedDistance, sample.fireTaper * 0.45f);
+                float edge = Mathf.Max(0f, 1f - distance * 0.25f);
                 float contour = sample.fireShape.x * dx + sample.fireShape.y * dy + 0.25f *
                     (sample.fireShape.x * dx * (dx * dx - 3f * dy * dy) +
                     sample.fireShape.y * dy * (3f * dx * dx - dy * dy));
@@ -190,11 +200,37 @@ internal static class EffectFireField
                 if (value <= 0.15f) continue;
                 Color color = colors[fieldIndex] / value;
                 float outline = 1f - Mathf.SmoothStep(0f, 1f, (value - 0.15f) / edgeWidth);
-                Color edgeColor = Color.Lerp(definition.fireSootColor, color, 0.2f);
+                Color edgeColor = Color.Lerp(definition.fireSootColor * definition.tint, color, 0.2f);
                 edgeColor.a = color.a;
                 color = Color.Lerp(color, edgeColor, outline * edgeStrength);
+                color = PaletteColor(color, definition);
                 color.a *= Mathf.SmoothStep(0f, 1f, (value - 0.15f) / softness);
                 pixels[y * resolution + x] = color;
             }
+    }
+
+    private static Color PaletteColor(Color color, EffectDefinitionSO definition)
+    {
+        Color result = color;
+        float closest = float.PositiveInfinity;
+        SelectColor(definition.fireHotColor * definition.tint, color, ref result, ref closest);
+        SelectColor(definition.fireGoldColor * definition.tint, color, ref result, ref closest);
+        SelectColor(definition.fireWarmColor * definition.tint, color, ref result, ref closest);
+        SelectColor(definition.fireEmberColor * definition.tint, color, ref result, ref closest);
+        SelectColor(definition.fireSmokeColor * definition.tint, color, ref result, ref closest);
+        SelectColor(definition.fireSootColor * definition.tint, color, ref result, ref closest);
+        result.a = color.a;
+        return result;
+    }
+
+    private static void SelectColor(Color candidate, Color target, ref Color result, ref float closest)
+    {
+        float red = candidate.r - target.r;
+        float green = candidate.g - target.g;
+        float blue = candidate.b - target.b;
+        float distance = red * red + green * green + blue * blue;
+        if (distance >= closest) return;
+        closest = distance;
+        result = candidate;
     }
 }

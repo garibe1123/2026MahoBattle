@@ -84,6 +84,9 @@ public class BattleDebugUI : MonoBehaviour
             GameObject worldHost = new("Elemental Blob World");
             elementalBlobWorld = worldHost.AddComponent<EffectBlobWorld>();
         }
+        elementalBlobWorld.pixelSizeMultiplier = EffectBlobWorld.DefaultPixelSize;
+        elementalBlobWorld.refreshRate = EffectBlobWorld.DefaultQuality;
+        elementalBlobWorld.surfaceRoughness = EffectBlobWorld.DefaultRoughness;
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
             elementalSamples = new ElementalTestSamples();
@@ -315,17 +318,19 @@ public class BattleDebugUI : MonoBehaviour
         GUILayout.BeginHorizontal();
         GUILayout.Label("Pixel size", GUILayout.Width(85f));
         elementalBlobWorld.pixelSizeMultiplier = Mathf.RoundToInt(GUILayout.HorizontalSlider(
-            elementalBlobWorld.pixelSizeMultiplier, 1f, 8f));
+            elementalBlobWorld.pixelSizeMultiplier, EffectBlobWorld.MinPixelSize, EffectBlobWorld.MaxPixelSize));
         GUILayout.Label($"x{elementalBlobWorld.pixelSizeMultiplier}", GUILayout.Width(34f));
         GUILayout.EndHorizontal();
         GUILayout.BeginHorizontal();
         GUILayout.Label("Quality (Hz)", GUILayout.Width(85f));
-        elementalBlobWorld.refreshRate = Mathf.Round(GUILayout.HorizontalSlider(elementalBlobWorld.refreshRate, 5f, 30f));
+        elementalBlobWorld.refreshRate = Mathf.Round(GUILayout.HorizontalSlider(elementalBlobWorld.refreshRate,
+            EffectBlobWorld.MinQuality, EffectBlobWorld.MaxQuality));
         GUILayout.Label(elementalBlobWorld.refreshRate.ToString("F0"), GUILayout.Width(34f));
         GUILayout.EndHorizontal();
         GUILayout.BeginHorizontal();
         GUILayout.Label("Roughness", GUILayout.Width(85f));
-        elementalBlobWorld.surfaceRoughness = GUILayout.HorizontalSlider(elementalBlobWorld.surfaceRoughness, 0f, 1f);
+        elementalBlobWorld.surfaceRoughness = Mathf.Round(GUILayout.HorizontalSlider(
+            elementalBlobWorld.surfaceRoughness, 0f, 1f) * 20f) / 20f;
         GUILayout.Label(elementalBlobWorld.surfaceRoughness.ToString("F2"), GUILayout.Width(34f));
         GUILayout.EndHorizontal();
     }
