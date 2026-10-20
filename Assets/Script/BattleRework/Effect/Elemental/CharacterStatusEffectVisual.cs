@@ -87,6 +87,11 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         float width = Sample(settings.particleSize, 0.01f);
         Sprite[] frames = definition.GetFrames(EffectPhase.Intro);
         float sourceWidth = frames.Length > 0 ? frames[0].bounds.size.x : 1f;
+        if (definition.fireParticles)
+            sourceWidth = 2f * (Mathf.Max(0f, definition.fireSourceSpread) +
+                Mathf.Max(definition.fireParticleRadius.x, definition.fireParticleRadius.y) *
+                Mathf.Max(definition.fireSourceScale.x, definition.fireSourceScale.y) *
+                Mathf.Max(0.01f, definition.fireShapeScale.x));
         float scale = ParticleScale(definition, frames, width, sourceWidth);
         width = sourceWidth * definition.visualScale * scale;
         EffectVisual visual = EffectVisual.Spawn(definition, position, Quaternion.identity,

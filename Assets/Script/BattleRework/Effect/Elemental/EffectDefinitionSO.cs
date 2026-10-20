@@ -431,6 +431,12 @@ public sealed class EffectBeamSettings
     [Range(0f, 0.8f)] public float pulseStrength = 0.2f;
     [Min(0f)] public float flowSpeed = 5f;
     [Min(0f)] public float wobble = 0.035f;
+    [Min(0f)] public float chargeDuration = 0.09f;
+    [Min(0f)] public float extensionDuration = 0.07f;
+    [Min(0f)] public float chargeRadius = 0.24f;
+    [Range(0, 32)] public int sparkCount = 16;
+    [Min(0.01f)] public float sparkLifetime = 0.18f;
+    [Min(0f)] public float sparkSpread = 0.25f;
     public bool useLight = true;
     [Min(0f)] public float lightIntensity = 0.8f;
     [Min(0.01f)] public float lightRadius = 2.5f;

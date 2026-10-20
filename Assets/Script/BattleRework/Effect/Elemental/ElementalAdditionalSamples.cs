@@ -42,10 +42,14 @@ public sealed class ElementalAdditionalSamples : IDisposable
                 data.embers.enabled = data.waterDetails.enabled = data.gasDetails.enabled = false;
                 if (i == 0)
                 {
+                    data.family = EffectFamily.Gas;
+                    data.pieceCount = 1;
+                    data.shapeVariation = 0f;
+                    data.motionWander = 0.06f;
                     Sprite[][] clips = CreatePoisonClips();
                     data.sourceSheet = clips[0][0];
                     data.intro.sprites = clips[0];
-                    data.intro.fps = 30f;
+                    data.intro.fps = 24f;
                     data.idle.sprites = clips[1];
                     data.end.sprites = clips[2];
                     data.end.fps = 30f;
@@ -70,7 +74,7 @@ public sealed class ElementalAdditionalSamples : IDisposable
                 if (i == 5)
                 {
                     data.beam.core = Color.white;
-                    data.beam.edge = new Color32(255, 69, 96, 255);
+                    data.beam.edge = new Color32(255, 24, 180, 255);
                     data.beam.width = 0.18f;
                     data.beam.zigzag = 0f;
                 }
@@ -124,7 +128,7 @@ public sealed class ElementalAdditionalSamples : IDisposable
 
     private Sprite[][] CreatePoisonClips()
     {
-        const int size = 8, count = 12;
+        const int size = 10, count = 14;
         Texture2D texture = Own(new Texture2D(size * count, size, TextureFormat.RGBA32, false)
         { name = "PoisonGrowAndPop", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp });
         Color32[] pixels = new Color32[size * size * count];
@@ -133,29 +137,32 @@ public sealed class ElementalAdditionalSamples : IDisposable
             for (int y = 0; y < size; y++)
                 for (int x = 0; x < size; x++)
                 {
-                    float distance = new Vector2(x - 3.5f, y - 3.5f).magnitude;
+                    Vector2 offset = new(x - 4.5f, y - 4f);
+                    float distance = offset.magnitude;
                     Color color = Color.clear;
                     if (frame <= 4)
                     {
-                        float radius = frame < 3 ? 1.25f + frame * 0.65f : frame == 3 ? 2.6f : 3.5f;
-                        if (distance <= radius) color = distance < radius - 0.9f ? core : edge;
-                        if (distance < radius && x == 3 && y == 4) color = new Color32(222, 255, 151, 255);
-                    }
-                    else if (frame <= 6)
-                    {
-                        if (distance >= 2.5f && distance <= 3.8f && (frame == 5 || (x + y) % 3 != 0)) color = core;
+                        float radius = frame < 3 ? 1.1f + frame * 0.65f : 2.7f;
+                        if (distance <= radius) color = distance < radius - 0.8f ? core : edge;
+                        if (distance < radius && x == 4 && y == 5) color = new Color32(222, 255, 151, 255);
+                        color.a *= 0.85f;
                     }
                     else
                     {
-                        for (int chip = 0; chip < 5; chip++)
+                        float t = (frame - 5f) / (count - 6f);
+                        float radius = 2.8f + t * 0.7f;
+                        // Only a broken lower crescent survives the opening of the bubble.
+                        if (frame <= 7 && offset.y < 0.5f - t * 3f &&
+                            distance > radius - 0.65f && distance < radius && x != 3)
+                            color = Color.Lerp(core, edge, 0.35f);
+                        for (int chip = 0; chip < 3; chip++)
                         {
-                            float angle = chip * Mathf.PI * 0.4f + 0.3f;
-                            float travel = 2.3f + (frame - 7) * 0.65f;
-                            int cx = Mathf.RoundToInt(3.5f + Mathf.Cos(angle) * travel);
-                            int cy = Mathf.RoundToInt(3.5f + Mathf.Sin(angle) * travel);
-                            if (x == cx && y == cy) color = core;
-                            else if (x == cx && y == cy - 1 && frame < 10) color = edge;
+                            float side = chip == 0 ? -1f : chip == 1 ? 1f : 0.2f;
+                            int cx = Mathf.RoundToInt(4.5f + side * (2f + t * (chip + 1)));
+                            int cy = Mathf.RoundToInt(5f + chip * 0.6f + t * (2f + chip));
+                            if (x == cx && y == cy && t < 0.8f) color = chip == 2 ? edge : core;
                         }
+                        color.a *= 0.65f * (1f - Mathf.SmoothStep(0f, 1f, t));
                     }
                     pixels[y * size * count + frame * size + x] = color;
                 }
@@ -168,8 +175,8 @@ public sealed class ElementalAdditionalSamples : IDisposable
                 pixelsPerUnit, 0, SpriteMeshType.FullRect));
             frames[i].name = "PoisonPop" + i;
         }
-        return new[] { new[] { frames[0], frames[1], frames[2] }, new[] { frames[3] },
-            new[] { frames[4], frames[5], frames[6], frames[7], frames[8], frames[9], frames[10], frames[11] } };
+        return new[] { new[] { frames[0], frames[1], frames[2] }, new[] { frames[3], frames[4] },
+            new[] { frames[5], frames[6], frames[7], frames[8], frames[9], frames[10], frames[11], frames[12], frames[13] } };
     }
 
     public void Dispose()
