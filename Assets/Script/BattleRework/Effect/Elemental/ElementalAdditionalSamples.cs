@@ -74,7 +74,7 @@ public sealed class ElementalAdditionalSamples : IDisposable
                 if (i == 5)
                 {
                     data.beam.core = Color.white;
-                    data.beam.edge = new Color32(255, 24, 180, 255);
+                    data.beam.edge = new Color32(255, 69, 96, 255);
                     data.beam.width = 0.18f;
                     data.beam.zigzag = 0f;
                 }

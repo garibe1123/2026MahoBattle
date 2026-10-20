@@ -49,7 +49,7 @@ public sealed class EffectVisual : MonoBehaviour
     private SpriteRenderer attachedRenderer;
     private SortingGroup attachedGroup;
     private BattleWorldSortAnchor attachedAnchor;
-    private int AttachedOrder => attachedAnchor != null
+    private int AttachedOrder => attachedAnchor != null && attachedAnchor.isActiveAndEnabled
         ? BattleWorldSorting.WorldYToOrder(attachedAnchor.CurrentAnchorWorldY, attachedAnchor.LocalSortOffset) + 1
         : (attachedGroup != null && attachedGroup.isActiveAndEnabled ? attachedGroup.sortingOrder : attachedRenderer.sortingOrder) + 1;
     private EffectRenderSort appliedSorting;
