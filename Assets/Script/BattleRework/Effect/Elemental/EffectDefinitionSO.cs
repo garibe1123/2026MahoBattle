@@ -59,6 +59,8 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Min(0f)] public float fireSmokeExpansion = 0.65f;
     [Range(0f, 0.4f)] public float fireContourVariation = 0.22f;
     [Range(0f, 0.9f)] public float fireTipSharpness = 0.7f;
+    [Range(0f, 0.6f)] public float fireTurbulence = 0.3f;
+    [Range(0f, 1f)] public float fireTearStrength = 1f;
     [Range(0.01f, 0.6f)] public float fireEdgeWidth = 0.28f;
     [Range(0f, 1f)] public float fireEdgeStrength = 0.85f;
     public Color fireHotColor = new(1f, 0.9f, 0.3f);

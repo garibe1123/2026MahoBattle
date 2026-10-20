@@ -26,6 +26,8 @@ public sealed class EffectVisual : MonoBehaviour
     private int historyHead, historyCount, generation, playbackRun;
     private bool released = true;
     private bool airborne;
+    private bool anchored;
+    private Vector3 anchorPosition;
     private float flightElapsed, flightDuration, age;
     private float requestedDuration;
     private float variationSeed, sizeMultiplier = 1f;
@@ -110,15 +112,17 @@ public sealed class EffectVisual : MonoBehaviour
         PhaseStarted = phaseStarted;
         Finished = finished;
         requestedDuration = duration;
+        anchored = duration == -1f;
+        anchorPosition = transform.position;
         variationSeed = UnityEngine.Random.Range(0f, 1000f);
         float sizeRange = Mathf.Clamp(data.sizeVariation, 0f, 0.5f);
         sizeMultiplier = UnityEngine.Random.Range(1f - sizeRange, 1f + sizeRange);
-        velocity = motion;
+        velocity = anchored ? Vector3.zero : motion;
         if (data.fireParticles)
         {
             fire ??= new EffectFireParticles();
             Vector3 scale = transform.lossyScale;
-            fire.Play(data, transform.position, motion,
+            fire.Play(data, transform.position, velocity,
                 Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y)) *
                 EffectNumbers.NonNegative(data.visualScale) * sizeMultiplier);
         }
@@ -156,7 +160,7 @@ public sealed class EffectVisual : MonoBehaviour
         hasRim = ResolveProperty(material, data.rimProperty, null, out rimId);
         hasCenter = ResolveProperty(material, data.centerProperty, null, out centerId);
         flightDuration = EffectNumbers.NonNegative(data.airborneDuration);
-        airborne = inFlight && data.family == EffectFamily.Liquid && flightDuration > 0f;
+        airborne = !anchored && inFlight && data.family == EffectFamily.Liquid && flightDuration > 0f;
         RecordPosition();
         int run = generation;
         if (!airborne) BeginPlayback();
@@ -234,12 +238,16 @@ public sealed class EffectVisual : MonoBehaviour
         float delta = EffectNumbers.NonNegative(Time.deltaTime);
         age += delta;
         float flightStep = airborne ? Mathf.Min(delta, Mathf.Max(0f, flightDuration - flightElapsed)) : 0f;
-        float motionStep = airborne ? flightStep : delta;
-        float wanderAmount = definition.family == EffectFamily.Liquid && !airborne
-            ? 0f : EffectNumbers.NonNegative(definition.motionWander);
-        Vector3 wander = wanderAmount > 0f ? new Vector3(Variation(0f), Variation(19f), 0f) : Vector3.zero;
-        transform.position += (velocity + wander * wanderAmount) * motionStep;
-        RecordPosition();
+        if (anchored) transform.position = anchorPosition;
+        else
+        {
+            float motionStep = airborne ? flightStep : delta;
+            float wanderAmount = definition.family == EffectFamily.Liquid && !airborne
+                ? 0f : EffectNumbers.NonNegative(definition.motionWander);
+            Vector3 wander = wanderAmount > 0f ? new Vector3(Variation(0f), Variation(19f), 0f) : Vector3.zero;
+            transform.position += (velocity + wander * wanderAmount) * motionStep;
+            RecordPosition();
+        }
         if (airborne)
         {
             flightElapsed += flightStep;
@@ -330,7 +338,7 @@ public sealed class EffectVisual : MonoBehaviour
         float progress = airborne ? flightElapsed / flightDuration : (float)playback.PhaseProgress;
         float envelope = airborne ? 1f : phase == EffectPhase.Intro ? progress : phase == EffectPhase.End ? 1f - progress : 1f;
         float brightness = phase == EffectPhase.Intro ? definition.introBrightness : phase == EffectPhase.End ? definition.endBrightness : definition.idleBrightness;
-        float riseTime = Mathf.Min(age, 4f);
+        float riseTime = anchored ? 0f : Mathf.Min(age, 4f);
         visualRoot.localPosition = airborne ? Vector3.up * (Mathf.Sin(progress * Mathf.PI) * definition.airborneHeight)
             : definition.family == EffectFamily.Gas ? Vector3.up * (riseTime * definition.gasRise) : Vector3.zero;
         float size = EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier;
@@ -384,11 +392,11 @@ public sealed class EffectVisual : MonoBehaviour
             Vector3 trail = i == 0 ? Vector3.zero : transform.InverseTransformVector(PositionAt(age - delay) - transform.position);
             Vector2 spread = i == 0 ? Vector2.zero : definition.tailOffset * i +
                 new Vector2(Variation(71f + i * 13f), Variation(139f + i * 17f)) * definition.edgeSpread * i;
-            if (smoke) spread.y += Mathf.Min(Mathf.Max(0f, age - delay), 4f) * style.gasRise;
+            if (smoke && !anchored) spread.y += Mathf.Min(Mathf.Max(0f, age - delay), 4f) * style.gasRise;
             piece.localPosition = trail / Mathf.Max(0.0001f, size * expansion) + (Vector3)spread;
             piece.localRotation = Quaternion.identity;
             float pieceScale = i == 0 ? 1f : Mathf.Lerp(0.8f, 0.45f, (float)i / MaxPieces);
-            if (smoke) pieceScale = 0.8f + Mathf.Min(Mathf.Max(0f, age - delay), 4f) * EffectNumbers.NonNegative(style.gasExpansion);
+            if (smoke) pieceScale = 0.8f + (anchored ? 0f : Mathf.Min(Mathf.Max(0f, age - delay), 4f)) * EffectNumbers.NonNegative(style.gasExpansion);
             else pieceScale *= Mathf.Lerp(1f, EffectNumbers.NonNegative(style.tailExpansion), tail);
             piece.localScale = Vector3.one * (pieceScale * (1f + Variation(211f + i * 23f) * deformation));
             float ppu = renderer.sprite.pixelsPerUnit;
@@ -516,6 +524,8 @@ public sealed class EffectVisual : MonoBehaviour
         elements.Clear();
         Faction = EffectFaction.Neutral;
         airborne = false;
+        anchored = false;
+        anchorPosition = Vector3.zero;
         flightElapsed = flightDuration = age = requestedDuration = 0f;
         variationSeed = 0f;
         sizeMultiplier = 1f;

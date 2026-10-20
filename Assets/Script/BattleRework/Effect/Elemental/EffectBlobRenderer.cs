@@ -13,6 +13,9 @@ internal struct EffectBlobSample
     public Vector2 fireShape;
     public Vector2 fireDirection;
     public float fireTaper;
+    public Vector2 fireHole;
+    public float fireHoleRadius;
+    public float fireTear;
     public SpriteRenderer source;
 }
 
@@ -168,7 +171,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         {
             RectInt fieldClip = new(clip.xMin, clip.yMin, clip.width + 2, clip.height + 2);
             if (definition.fireParticles)
-                EffectFireField.Accumulate(density, fireColors, Resolution + 2,
+                EffectFireField.Accumulate(density, foam, fireColors, Resolution + 2,
                     origin - Vector2.one * step, step, fieldClip, samples[i]);
             else
                 EffectBlobField.Accumulate(density, foam, Resolution + 2, origin - Vector2.one * step, step,
@@ -181,7 +184,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         }
         if (definition.fireParticles)
         {
-            EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
+            EffectFireField.Colorize(density, foam, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
             tint = Color.white;
         }
         else

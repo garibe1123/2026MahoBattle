@@ -124,6 +124,9 @@ internal sealed class EffectFireParticles
         float smoke = Mathf.SmoothStep(0f, 1f, (t - 0.4f) / 0.45f);
         float growth = 1f + EffectNumbers.NonNegative(definition.gasExpansion) * t +
             EffectNumbers.NonNegative(definition.fireSmokeExpansion) * smoke;
+        float cycle = particle.age * EffectNumbers.Positive(definition.variationFrequency, 1.5f) * 6f;
+        growth *= 1f + Mathf.Sin(particle.seed + cycle) *
+            Mathf.Clamp(definition.fireTurbulence, 0f, 0.6f) * Mathf.Lerp(0.35f, 1f, smoke);
         float separation = Mathf.Lerp(1f, 0.55f, Mathf.SmoothStep(0f, 1f, (t - 0.65f) / 0.35f));
         sample.center = particle.position;
         sample.radius = new Vector2(Mathf.Lerp(1f, 1.25f, smoke), Mathf.Lerp(1f, 0.9f, smoke)) *
@@ -134,6 +137,12 @@ internal sealed class EffectFireParticles
         Vector2 direction = new(particle.velocity.x / sample.radius.x, particle.velocity.y / sample.radius.y);
         sample.fireDirection = direction.sqrMagnitude > 0.0001f ? direction.normalized : Vector2.up;
         sample.fireTaper = Mathf.Clamp(definition.fireTipSharpness, 0f, 0.9f) * Mathf.Lerp(1f, 0.3f, smoke);
+        float tearing = Mathf.SmoothStep(0f, 1f, (t - 0.25f) / 0.5f);
+        sample.fireHole = new Vector2(Mathf.Sin(particle.seed + cycle * 0.8f) * 0.75f,
+            Mathf.Lerp(-0.4f, 1.3f, tearing) + Mathf.Cos(particle.seed * 1.7f + cycle) * 0.3f);
+        sample.fireHoleRadius = Mathf.Lerp(0.25f, 0.85f, tearing);
+        sample.fireTear = tearing * Mathf.Clamp01(definition.fireTearStrength) *
+            (0.85f + Mathf.Sin(particle.seed + cycle * 1.3f) * 0.4f);
         sample.weight = 1f;
         sample.fireColor = color;
         return color.a > 0.001f;
@@ -151,7 +160,7 @@ internal sealed class EffectFireParticles
 
 internal static class EffectFireField
 {
-    public static void Accumulate(float[] density, Color[] colors, int stride, Vector2 origin,
+    public static void Accumulate(float[] density, float[] erosion, Color[] colors, int stride, Vector2 origin,
         float step, RectInt clip, EffectBlobSample sample)
     {
         if (clip.width == 0 || clip.height == 0 || sample.radius.x <= 0f || sample.radius.y <= 0f) return;
@@ -161,6 +170,8 @@ internal static class EffectFireField
         int right = Mathf.Clamp(Mathf.CeilToInt(center.x + radius.x * 2f), clip.xMin, clip.xMax - 1);
         int bottom = Mathf.Clamp(Mathf.FloorToInt(center.y - radius.y * 2f), clip.yMin, clip.yMax - 1);
         int top = Mathf.Clamp(Mathf.CeilToInt(center.y + radius.y * 2f), clip.yMin, clip.yMax - 1);
+        float holeSize = sample.fireHoleRadius * sample.fireHoleRadius;
+        float inverseHoleSoftness = 1f / Mathf.Max(0.001f, holeSize * 0.45f);
         for (int y = bottom; y <= top; y++)
             for (int x = left; x <= right; x++)
             {
@@ -179,13 +190,23 @@ internal static class EffectFireField
                     sample.fireShape.y * dy * (3f * dx * dx - dy * dy));
                 edge *= Mathf.Clamp(1f + contour, 0.2f, 1.8f);
                 float contribution = edge * edge * edge;
+                if (contribution <= 0f) continue;
                 int index = y * stride + x;
                 density[index] += contribution;
                 colors[index] += sample.fireColor * contribution;
+                if (sample.fireTear <= 0f) continue;
+                float holeX = dx - sample.fireHole.x;
+                float holeY = dy - sample.fireHole.y;
+                float secondX = dx + sample.fireHole.x + 0.35f;
+                float secondY = dy - sample.fireHole.y - 0.65f;
+                float holeDistance = Mathf.Min(holeX * holeX + holeY * holeY,
+                    (secondX * secondX + secondY * secondY) * 1.4f);
+                float cut = Mathf.Clamp01((holeSize - holeDistance) * inverseHoleSoftness);
+                erosion[index] = Mathf.Max(erosion[index], cut * sample.fireTear);
             }
     }
 
-    public static void Colorize(float[] density, Color[] colors, Color32[] pixels,
+    public static void Colorize(float[] density, float[] erosion, Color[] colors, Color32[] pixels,
         int resolution, RectInt clip, EffectDefinitionSO definition, float roughness = 0f)
     {
         float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f) * Mathf.Lerp(1f, 0.08f, roughness);
@@ -196,9 +217,11 @@ internal static class EffectFireField
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
                 int fieldIndex = (y + 1) * stride + x + 1;
-                float value = density[fieldIndex];
+                float rawValue = density[fieldIndex];
+                if (rawValue <= 0.15f) continue;
+                float value = rawValue * (1f - Mathf.Clamp01(erosion[fieldIndex]));
                 if (value <= 0.15f) continue;
-                Color color = colors[fieldIndex] / value;
+                Color color = colors[fieldIndex] / rawValue;
                 float outline = 1f - Mathf.SmoothStep(0f, 1f, (value - 0.15f) / edgeWidth);
                 Color edgeColor = Color.Lerp(definition.fireSootColor * definition.tint, color, 0.2f);
                 edgeColor.a = color.a;

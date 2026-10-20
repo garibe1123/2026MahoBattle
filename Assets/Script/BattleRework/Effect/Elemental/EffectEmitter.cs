@@ -59,7 +59,7 @@ public sealed class EffectEmitter : MonoBehaviour
         elapsed = timer = 0f;
         if (definition == null) return;
         Emit();
-        emitting = mode != EffectEmissionMode.Explosion;
+        emitting = mode != EffectEmissionMode.Explosion && visualDuration != -1f;
     }
 
     private void Update()
