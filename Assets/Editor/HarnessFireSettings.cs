@@ -11,7 +11,9 @@ public static class HarnessFireSettings
         "tint", "visualScale", "gasRise", "gasExpansion", "visualCurves", "variationFrequency",
         "shapeVariation", "sizeVariation", "mergeSoftness", "pieceCount", "smokeTail",
         "motionWander", "lightColor", "lightMode", "lightIntensity", "lightRadius", "useLight",
-        "flickerAmount", "flickerFrequency", "emissionColor", "emissionStrength"
+        "flickerAmount", "flickerFrequency", "emissionColor", "emissionStrength",
+        "introBrightness", "idleBrightness", "endBrightness", "fadeOnEnd",
+        "tailTint", "spentTint", "tailExpansion", "tailOffset", "edgeSpread", "pieceDelay", "pieceAttenuation"
     };
 
     [MenuItem(Menu)]
@@ -47,6 +49,7 @@ public static class HarnessFireSettings
                 destination.ApplyModifiedPropertiesWithoutUndo();
             }
             EditorUtility.SetDirty(data);
+            EffectDefinitionPreviewWindow.NotifyChanged(data);
         }
         finally { UnityEngine.Object.DestroyImmediate(defaults); }
     }
