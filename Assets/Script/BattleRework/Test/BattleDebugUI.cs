@@ -21,6 +21,14 @@ public class BattleDebugUI : MonoBehaviour
 
     private Vector2 scroll;
     private Coroutine killAllRoutine;
+#if UNITY_EDITOR
+    [SerializeField] private EffectDefinitionSO[] elementalDefinitions;
+    [SerializeField] private float elementalTestDuration = 2f;
+    private string elementalDurationText = "2";
+    private EffectEmissionMode elementalMode;
+    private EffectEmitter elementalEmitter;
+    private Camera elementalCamera;
+#endif
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void InstallSceneHook()
@@ -65,14 +73,29 @@ public class BattleDebugUI : MonoBehaviour
     private void Awake()
     {
         ResolveReferences();
+#if UNITY_EDITOR
+        elementalCamera = Camera.main;
+        if (elementalDefinitions == null || elementalDefinitions.Length == 0)
+            elementalDefinitions = Resources.LoadAll<EffectDefinitionSO>("HarnessElemental");
+        elementalDurationText = elementalTestDuration.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        GameObject emitterHost = new("Elemental Debug Emitter");
+        emitterHost.transform.SetParent(transform, false);
+        elementalEmitter = emitterHost.AddComponent<EffectEmitter>();
+#endif
+    }
+
+    private void Start()
+    {
+        ResolveReferences();
+#if UNITY_EDITOR
+        if (elementalCamera == null) elementalCamera = Camera.main;
+#endif
     }
 
     private void Update()
     {
         if (!Application.isEditor && !Debug.isDebugBuild)
             return;
-
-        ResolveReferences();
 
         if (inputRouter != null && inputRouter.DebugTogglePressedThisFrame)
             visible = !visible;
@@ -98,6 +121,7 @@ public class BattleDebugUI : MonoBehaviour
         DrawBattleRatingTestSelector();
         DrawKillAllEnemyButton();
 #if UNITY_EDITOR
+        DrawElementalTestPanel();
         DrawDebrisArcTestButton();
 #endif
 
@@ -202,6 +226,63 @@ public class BattleDebugUI : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    private void DrawElementalTestPanel()
+    {
+        if (!Application.isPlaying || SceneManager.GetActiveScene().name != "BattleScene") return;
+        const float width = 300f;
+        const float height = 224f;
+        GUILayout.BeginArea(new Rect(Screen.width - width - 12f, Screen.height - height - 60f, width, height), GUI.skin.box);
+        GUILayout.Label("ELEMENTAL VISUAL TEST");
+        if (elementalDefinitions == null || elementalDefinitions.Length == 0)
+        {
+            GUILayout.Label("Tools/Harness/Create Elemental Samples\nRun before entering Play Mode.");
+            GUILayout.EndArea();
+            return;
+        }
+        GUILayout.BeginHorizontal();
+        if (GUILayout.Toggle(elementalMode == EffectEmissionMode.Explosion, "Explosion", GUI.skin.button)) elementalMode = EffectEmissionMode.Explosion;
+        if (GUILayout.Toggle(elementalMode == EffectEmissionMode.Faucet, "Faucet", GUI.skin.button)) elementalMode = EffectEmissionMode.Faucet;
+        if (GUILayout.Toggle(elementalMode == EffectEmissionMode.Sprinkler, "Sprinkler", GUI.skin.button)) elementalMode = EffectEmissionMode.Sprinkler;
+        GUILayout.EndHorizontal();
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Duration (-1 infinite)");
+        elementalDurationText = GUILayout.TextField(elementalDurationText, GUILayout.Width(75f));
+        if (float.TryParse(elementalDurationText, System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out float duration) &&
+            !float.IsNaN(duration) && !float.IsInfinity(duration)) elementalTestDuration = duration;
+        GUILayout.EndHorizontal();
+        for (int row = 0; row < 2; row++)
+        {
+            GUILayout.BeginHorizontal();
+            for (int column = 0; column < 3; column++)
+            {
+                int index = row * 3 + column;
+                if (index >= elementalDefinitions.Length) continue;
+                EffectDefinitionSO data = elementalDefinitions[index];
+                if (data == null) continue;
+                string label = data.element != null ? data.element.displayName : data.name;
+                if (GUILayout.Button(label)) SpawnElementalTest(data);
+            }
+            GUILayout.EndHorizontal();
+        }
+        if (GUILayout.Button("FORCE END")) elementalEmitter.StopEmission();
+        EffectVisual current = elementalEmitter.Latest;
+        string phase = current == null ? "None" : current.IsAirborne ? "Airborne" : current.Phase.ToString();
+        string remaining = current == null ? "0" : double.IsInfinity(current.Remaining) ? "Infinite" : current.Remaining.ToString("F2");
+        GUILayout.Label($"Phase: {phase} / Remaining: {remaining}\nActive: {elementalEmitter.ActiveCount}");
+        GUILayout.EndArea();
+    }
+
+    private void SpawnElementalTest(EffectDefinitionSO definition)
+    {
+        if (elementalCamera == null) return;
+        Ray ray = elementalCamera.ScreenPointToRay(new Vector3(Screen.width * 0.5f, Screen.height * 0.5f, 0f));
+        Plane ground = new(Vector3.forward, Vector3.zero);
+        if (!ground.Raycast(ray, out float distance)) return;
+        elementalEmitter.transform.position = ray.GetPoint(distance);
+        elementalEmitter.Trigger(definition, elementalMode, elementalTestDuration);
+    }
+
     // This button exists only in Unity's Game view during Play Mode and is
     // not compiled into player builds (including development builds).
     private void DrawDebrisArcTestButton()
