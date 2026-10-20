@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c975b0b5849cdff45a825502748620c6, type: 3}
   m_Name: FireVisual
   m_EditorClassIdentifier: 
-  visualScale: 0.32
+  visualScale: 0.18
   element: {fileID: 11400000, guid: 0509b2122f67ea34981d3a1b129640ac, type: 2}
   family: 0
   usage: 0

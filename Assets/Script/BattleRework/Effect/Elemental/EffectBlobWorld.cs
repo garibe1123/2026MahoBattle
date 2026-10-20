@@ -5,7 +5,7 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed class EffectBlobWorld : MonoBehaviour
 {
-    public const float MinPixelSize = 0.5f, MaxPixelSize = 4f, DefaultPixelSize = 2f;
+    public const float MinPixelSize = 0.5f, MaxPixelSize = 4f, DefaultPixelSize = 1.3f;
     public const float MinQuality = 10f, MaxQuality = 30f, DefaultQuality = 23f;
     public const float DefaultRoughness = 0.8f;
     [Range(0.00390625f, 1f)] public float worldUnitsPerPixel = 0.03125f;
