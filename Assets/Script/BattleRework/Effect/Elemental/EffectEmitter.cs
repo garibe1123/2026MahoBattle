@@ -110,5 +110,14 @@ public sealed class EffectEmitter : MonoBehaviour
             if (Valid(active[i])) active[i].visual.RequestStop();
     }
 
+    public void ClearVisuals()
+    {
+        emitting = false;
+        for (int i = active.Count - 1; i >= 0; i--)
+            if (Valid(active[i])) PoolService.Release(active[i].visual.gameObject);
+        active.Clear();
+    }
+
     private void OnDisable() { StopEmission(); }
+    private void OnDestroy() { ClearVisuals(); }
 }

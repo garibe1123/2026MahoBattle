@@ -6,10 +6,10 @@ public static class HarnessElementalSamples
 {
     private const string Root = "Assets/Resources/HarnessElemental";
     private const string TestRoot = "Assets/HarnessElementalTests";
-    private const int Cell = 32;
-    private const float PixelsPerUnit = 32f;
+    private const int Cell = ElementalTestSamples.Cell;
+    private const float PixelsPerUnit = ElementalTestSamples.PixelsPerUnit;
     private const float TestSpacing = 2.5f;
-    private static readonly string[] TestNames = { "Fire", "Smoke", "Water" };
+    private static readonly string[] TestNames = ElementalTestSamples.Names;
     private static readonly int[] TestElementIndices = { 0, 2, 3 };
     private static readonly string[] Names = { "Fire", "Frost", "Fog", "Water", "Poison", "Acid" };
     private static readonly Color[] Colors = {
@@ -147,48 +147,7 @@ public static class HarnessElementalSamples
             : TestRoot + "/" + TestNames[sample] + "Sheet.png";
         if (!File.Exists(path))
         {
-            Texture2D texture = new(Cell * 4, Cell * 4, TextureFormat.RGBA32, false);
-            Color32[] pixels = new Color32[texture.width * texture.height];
-            for (int frame = 0; frame < 16; frame++)
-            {
-                int phase = frame < 4 ? 0 : frame < 12 ? 1 : 2;
-                float progress = phase == 0 ? (frame + 1f) / 4f : phase == 1 ? (frame - 4f) / 8f : (frame - 11f) / 4f;
-                for (int y = 0; y < Cell; y++)
-                    for (int x = 0; x < Cell; x++)
-                    {
-                        float dx = (x + 0.5f - Cell * 0.5f) / (Cell * 0.5f);
-                        float dy = (y + 0.5f - Cell * 0.5f) / (Cell * 0.5f);
-                        if (sample == 0)
-                        {
-                            dx /= Mathf.Lerp(1f, 0.3f, (dy + 1f) * 0.5f);
-                            dy = (dy + 0.15f) / 1.2f;
-                        }
-                        else if (sample == 1)
-                        {
-                            dx += Mathf.Sin(dy * 8f + frame * 0.8f) * 0.14f;
-                            dy *= 0.85f;
-                        }
-                        else if (sample == 2)
-                        {
-                            dx /= Mathf.Lerp(1f, 0.45f, (dy + 1f) * 0.5f);
-                            dy /= 1.1f;
-                        }
-                        float angle = Mathf.Atan2(dy, dx);
-                        float radius = Mathf.Sqrt(dx * dx + dy * dy);
-                        float edge = phase == 0 ? Mathf.Lerp(0.15f, 0.62f, progress) : phase == 1 ? 0.64f : 0.68f + progress * 0.15f;
-                        edge += Mathf.Sin(angle * 5f + frame * 1.1f) * 0.07f + Mathf.Cos(angle * 3f - frame) * 0.04f;
-                        bool filled = radius <= edge;
-                        if (phase == 2)
-                            filled &= radius >= progress * 0.83f && Mathf.Sin(angle * 7f + frame) > -1f + progress * 1.4f;
-                        byte shade = (byte)(radius < edge * 0.55f ? 255 : radius < edge * 0.85f ? 220 : 170);
-                        int px = frame % 4 * Cell + x;
-                        int py = (3 - frame / 4) * Cell + y;
-                        byte alpha = sample == 1 ? (byte)190 : (byte)255;
-                        pixels[py * texture.width + px] = filled ? new Color32(shade, shade, shade, alpha) : new Color32(0, 0, 0, 0);
-                    }
-            }
-            texture.SetPixels32(pixels);
-            texture.Apply();
+            Texture2D texture = ElementalTestSamples.CreateTexture(sample, Cell);
             File.WriteAllBytes(path, texture.EncodeToPNG());
             Object.DestroyImmediate(texture);
             AssetDatabase.ImportAsset(path);

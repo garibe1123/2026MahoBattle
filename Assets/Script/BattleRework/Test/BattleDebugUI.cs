@@ -23,6 +23,7 @@ public class BattleDebugUI : MonoBehaviour
     private Coroutine killAllRoutine;
 #if UNITY_EDITOR
     [SerializeField] private EffectDefinitionSO[] elementalDefinitions;
+    private ElementalTestSamples elementalSamples;
     [SerializeField] private float elementalTestDuration = 2f;
     private string elementalDurationText = "2";
     private EffectEmissionMode elementalMode;
@@ -76,7 +77,10 @@ public class BattleDebugUI : MonoBehaviour
 #if UNITY_EDITOR
         elementalCamera = Camera.main;
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
-            elementalDefinitions = Resources.LoadAll<EffectDefinitionSO>("HarnessElemental");
+        {
+            elementalSamples = new ElementalTestSamples();
+            elementalDefinitions = elementalSamples.Definitions;
+        }
         elementalDurationText = elementalTestDuration.ToString(System.Globalization.CultureInfo.InvariantCulture);
         GameObject emitterHost = new("Elemental Debug Emitter");
         emitterHost.transform.SetParent(transform, false);
@@ -226,6 +230,13 @@ public class BattleDebugUI : MonoBehaviour
     }
 
 #if UNITY_EDITOR
+    private void OnDestroy()
+    {
+        if (elementalSamples == null) return;
+        if (elementalEmitter != null) elementalEmitter.ClearVisuals();
+        elementalSamples.Dispose();
+    }
+
     private void DrawElementalTestPanel()
     {
         if (!Application.isPlaying || SceneManager.GetActiveScene().name != "BattleScene") return;
@@ -235,7 +246,7 @@ public class BattleDebugUI : MonoBehaviour
         GUILayout.Label("ELEMENTAL VISUAL TEST");
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
-            GUILayout.Label("Tools/Harness/Create Elemental Samples\nRun before entering Play Mode.");
+            GUILayout.Label("No effect definitions assigned.");
             GUILayout.EndArea();
             return;
         }
@@ -519,3 +530,127 @@ public class BattleDebugUI : MonoBehaviour
         }
     }
 }
+
+#if UNITY_EDITOR
+
+public sealed class ElementalTestSamples : System.IDisposable
+{
+    public const int Cell = 32;
+    public const float PixelsPerUnit = 32f;
+    public static readonly string[] Names = { "Fire", "Smoke", "Water" };
+    private static readonly Color[] Colors = {
+        new(1f, 0.4f, 0.08f), new(0.55f, 0.55f, 0.6f, 0.8f), new(0.15f, 0.55f, 1f)
+    };
+    private readonly Texture2D[] textures = new Texture2D[3];
+    private readonly Sprite[] sheets = new Sprite[3];
+    private readonly ElementDefinitionSO[] elements = new ElementDefinitionSO[3];
+    private readonly Material material;
+    public EffectDefinitionSO[] Definitions { get; } = new EffectDefinitionSO[3];
+
+    public ElementalTestSamples()
+    {
+        Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Lit-Default");
+        if (shader != null) material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+        for (int i = 0; i < Definitions.Length; i++)
+        {
+            textures[i] = CreateTexture(i, Cell);
+            textures[i].hideFlags = HideFlags.HideAndDontSave;
+            sheets[i] = Sprite.Create(textures[i], new Rect(0, 0, textures[i].width, textures[i].height),
+                new Vector2(0.5f, 0.5f), PixelsPerUnit, 0, SpriteMeshType.FullRect);
+            sheets[i].hideFlags = HideFlags.HideAndDontSave;
+            elements[i] = ScriptableObject.CreateInstance<ElementDefinitionSO>();
+            elements[i].hideFlags = HideFlags.HideAndDontSave;
+            elements[i].name = i == 1 ? "Fog" : Names[i];
+            elements[i].displayName = Names[i].ToUpperInvariant();
+            elements[i].previewColor = Colors[i];
+            EffectDefinitionSO data = ScriptableObject.CreateInstance<EffectDefinitionSO>();
+            data.hideFlags = HideFlags.HideAndDontSave;
+            data.name = Names[i] + " Test Visual";
+            data.element = elements[i];
+            data.sourceSheet = sheets[i];
+            data.cellSize = new Vector2Int(Cell, Cell);
+            data.layout = new Vector2Int(4, 4);
+            data.customMaterial = material;
+            data.tint = data.emissionColor = data.lightColor = Colors[i];
+            data.family = i == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
+            data.pieceCount = i == 0 ? 5 : i == 1 ? 4 : 1;
+            data.gasRise = i == 1 ? 0.65f : 0.2f;
+            data.gasExpansion = i == 1 ? 0.6f : 0.15f;
+            data.tailOffset = new Vector2(-0.13f, 0.1f);
+            data.emissionStrength = i == 1 ? 0f : 1f;
+            data.useLight = i == 0;
+            data.lightMode = EffectLightMode.Flicker;
+            data.lightIntensity = 0.8f;
+            data.lightRadius = 1.5f;
+            Definitions[i] = data;
+        }
+    }
+
+    public static Texture2D CreateTexture(int sample, int cell)
+    {
+        Texture2D texture = new(cell * 4, cell * 4, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Point,
+            wrapMode = TextureWrapMode.Clamp
+        };
+        Color32[] pixels = new Color32[texture.width * texture.height];
+        for (int frame = 0; frame < 16; frame++)
+        {
+            int phase = frame < 4 ? 0 : frame < 12 ? 1 : 2;
+            float progress = phase == 0 ? (frame + 1f) / 4f : phase == 1 ? (frame - 4f) / 8f : (frame - 11f) / 4f;
+            for (int y = 0; y < cell; y++)
+                for (int x = 0; x < cell; x++)
+                {
+                    float dx = (x + 0.5f - cell * 0.5f) / (cell * 0.5f);
+                    float dy = (y + 0.5f - cell * 0.5f) / (cell * 0.5f);
+                    if (sample == 0)
+                    {
+                        dx /= Mathf.Lerp(1f, 0.3f, (dy + 1f) * 0.5f);
+                        dy = (dy + 0.15f) / 1.2f;
+                    }
+                    else if (sample == 1)
+                    {
+                        dx += Mathf.Sin(dy * 8f + frame * 0.8f) * 0.14f;
+                        dy *= 0.85f;
+                    }
+                    else if (sample == 2)
+                    {
+                        dx /= Mathf.Lerp(1f, 0.45f, (dy + 1f) * 0.5f);
+                        dy /= 1.1f;
+                    }
+                    float angle = Mathf.Atan2(dy, dx);
+                    float radius = Mathf.Sqrt(dx * dx + dy * dy);
+                    float edge = phase == 0 ? Mathf.Lerp(0.15f, 0.62f, progress) : phase == 1 ? 0.64f : 0.68f + progress * 0.15f;
+                    edge += Mathf.Sin(angle * 5f + frame * 1.1f) * 0.07f + Mathf.Cos(angle * 3f - frame) * 0.04f;
+                    bool filled = radius <= edge;
+                    if (phase == 2)
+                        filled &= radius >= progress * 0.83f && Mathf.Sin(angle * 7f + frame) > -1f + progress * 1.4f;
+                    byte shade = (byte)(radius < edge * 0.55f ? 255 : radius < edge * 0.85f ? 220 : 170);
+                    int px = frame % 4 * cell + x;
+                    int py = (3 - frame / 4) * cell + y;
+                    byte alpha = sample == 1 ? (byte)190 : (byte)255;
+                    pixels[py * texture.width + px] = filled ? new Color32(shade, shade, shade, alpha) : new Color32(0, 0, 0, 0);
+                }
+        }
+        texture.SetPixels32(pixels);
+        texture.Apply();
+        return texture;
+    }
+
+    public void Dispose()
+    {
+        for (int i = 0; i < Definitions.Length; i++)
+        {
+            UnityEngine.Object.Destroy(Definitions[i]);
+            UnityEngine.Object.Destroy(elements[i]);
+            UnityEngine.Object.Destroy(sheets[i]);
+            UnityEngine.Object.Destroy(textures[i]);
+            Definitions[i] = null;
+            elements[i] = null;
+            sheets[i] = null;
+            textures[i] = null;
+        }
+        if (material != null) UnityEngine.Object.Destroy(material);
+    }
+}
+#endif
