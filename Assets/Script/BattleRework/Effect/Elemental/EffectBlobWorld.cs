@@ -58,6 +58,47 @@ public sealed class EffectBlobWorld : MonoBehaviour
     private bool preview;
     private float nextRefresh;
 
+    internal struct DebugCounts
+    {
+        public int fire, liquid, gas, endingFire, endingLiquid, endingGas, tiles, samples;
+    }
+
+    internal static DebugCounts CaptureDebugCounts()
+    {
+        DebugCounts counts = default;
+        if (instance == null || !instance.isActiveAndEnabled) return counts;
+        for (int i = 0; i < instance.active.Count; i++)
+        {
+            Entry entry = instance.active[i];
+            if (entry.visual == null || entry.definition == null || !entry.visual.IsPlaying ||
+                entry.visual.ExecutionId != entry.execution) continue;
+            bool ending = !entry.visual.IsAirborne && entry.visual.Phase == EffectPhase.End;
+            if (entry.definition.fireParticles)
+            {
+                counts.fire++;
+                if (ending) counts.endingFire++;
+            }
+            else if (entry.definition.family == EffectFamily.Liquid)
+            {
+                counts.liquid++;
+                if (ending) counts.endingLiquid++;
+            }
+            else if (entry.definition.family == EffectFamily.Gas)
+            {
+                counts.gas++;
+                if (ending) counts.endingGas++;
+            }
+        }
+        foreach (EffectBlobRenderer tile in instance.tiles)
+        {
+            int samples = tile != null ? tile.VisibleSampleCount : 0;
+            if (samples == 0) continue;
+            counts.tiles++;
+            counts.samples += samples;
+        }
+        return counts;
+    }
+
     private void Awake()
     {
         renderCamera = Camera.main;

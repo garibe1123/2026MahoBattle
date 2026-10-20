@@ -27,8 +27,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 {
     internal const int Resolution = 128;
     private const int MaxSamples = 1024;
-    private static readonly ProfilerMarker CalculationMarker = new("EffectBlobRenderer.Calculate");
-    private static readonly ProfilerMarker UploadMarker = new("EffectBlobRenderer.Upload");
+    internal static readonly ProfilerMarker CalculationMarker = new("EffectBlobRenderer.Calculate");
+    internal static readonly ProfilerMarker UploadMarker = new("EffectBlobRenderer.Upload");
     private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
     private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
     private static readonly int AlphaTexId = Shader.PropertyToID("_AlphaTex");
@@ -50,7 +50,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private EffectDefinitionSO definition;
     private Rect view;
     private Vector2 minimum, maximum;
-    private int count;
+    private int count, sampleReferenceCount;
     private float nextRefresh;
     private bool ready;
     private bool fixedGrid;
@@ -58,6 +58,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private float pixelStep;
     private float tileRefreshRate;
     private float surfaceRoughness;
+
+    internal int VisibleSampleCount => surface != null && surface.enabled ? count : 0;
 
     private void Awake()
     {
@@ -145,6 +147,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         minimum = Vector2.Min(minimum, low);
         maximum = Vector2.Max(maximum, high);
         samples[count++] = sample;
+        if (count > sampleReferenceCount) sampleReferenceCount = count;
     }
 
     public void End()
@@ -250,7 +253,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     {
         if (surface != null) surface.enabled = false;
         nextRefresh = 0f;
-        Array.Clear(samples, 0, samples.Length);
+        if (sampleReferenceCount > 0) Array.Clear(samples, 0, sampleReferenceCount);
+        sampleReferenceCount = 0;
         count = 0;
     }
 
