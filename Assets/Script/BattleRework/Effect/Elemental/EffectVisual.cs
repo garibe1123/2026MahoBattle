@@ -635,6 +635,7 @@ public sealed class EffectVisual : MonoBehaviour
 
     public void ResetForPool()
     {
+        if (released && definition == null) return;
         if (preview) { if (previewWorld != null) previewWorld.UnregisterVisual(this); }
         else EffectBlobWorld.Unregister(this);
         unchecked { generation++; }

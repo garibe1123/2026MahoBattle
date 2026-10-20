@@ -327,10 +327,14 @@ internal static class EffectBlobField
             columns[x].secondSquared = (dx - 0.6f) * (dx - 0.6f);
             columns[x].outsideFragments = columns[x].firstSquared >= 0.7f && columns[x].secondSquared >= 0.7f;
         }
+        float minimumXDistance = columns[Mathf.Clamp(Mathf.FloorToInt(center.x), left, right)].distanceSquared;
+        float maximumXDistance = Mathf.Max(columns[left].distanceSquared, columns[right].distanceSquared);
         for (int y = bottom; y <= top; y++)
         {
             float dy = (y + 0.5f - center.y) / radius.y;
             float dySquared = dy * dy;
+            if (minimumXDistance + dySquared >= 4f ||
+                (dissolving && !hasImpact && maximumXDistance + dySquared <= dissolve)) continue;
             float firstY = dissolving ? (dy - 0.35f) * (dy - 0.35f) : 0f;
             float secondY = dissolving ? (dy + 0.45f) * (dy + 0.45f) : 0f;
             bool outsideFragments = firstY >= 0.7f && secondY >= 0.7f;
