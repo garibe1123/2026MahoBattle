@@ -12,6 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c975b0b5849cdff45a825502748620c6, type: 3}
   m_Name: FireVisual
   m_EditorClassIdentifier: 
+  visualScale: 0.32
   element: {fileID: 11400000, guid: 0509b2122f67ea34981d3a1b129640ac, type: 2}
   family: 0
   usage: 0
@@ -537,7 +538,6 @@ MonoBehaviour:
   gasRise: 1.23
   gasExpansion: 1.4
   tailOffset: {x: -0.035, y: -0.58}
-  visualScale: 1
   motionWander: 0.25
   variationFrequency: 1.2
   sizeVariation: 0.2

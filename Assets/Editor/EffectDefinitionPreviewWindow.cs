@@ -157,6 +157,7 @@ public sealed class EffectDefinitionPreviewWindow : EditorWindow
             GameObject root = new("Elemental Preview") { hideFlags = HideFlags.HideAndDontSave };
             preview.AddSingleGO(root);
             world = root.AddComponent<EffectBlobWorld>();
+            world.pixelSizeMultiplier = 1.3f;
             world.InitializePreview(camera);
             GameObject lightHost = new("Preview Light") { hideFlags = HideFlags.HideAndDontSave };
             lightHost.transform.SetParent(root.transform, false);
