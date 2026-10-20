@@ -29,6 +29,8 @@ public class BattleDebugUI : MonoBehaviour
     private EffectEmissionMode elementalMode;
     private EffectEmitter elementalEmitter;
     private Camera elementalCamera;
+    private EffectBlobWorld elementalBlobWorld;
+    private GUIStyle elementalSourceStyle;
 #endif
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -76,6 +78,12 @@ public class BattleDebugUI : MonoBehaviour
         ResolveReferences();
 #if UNITY_EDITOR
         elementalCamera = Camera.main;
+        elementalBlobWorld = UnityEngine.Object.FindFirstObjectByType<EffectBlobWorld>();
+        if (elementalBlobWorld == null)
+        {
+            GameObject worldHost = new("Elemental Blob World");
+            elementalBlobWorld = worldHost.AddComponent<EffectBlobWorld>();
+        }
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
             elementalSamples = new ElementalTestSamples();
@@ -241,8 +249,11 @@ public class BattleDebugUI : MonoBehaviour
     {
         if (!Application.isPlaying || SceneManager.GetActiveScene().name != "BattleScene") return;
         const float width = 300f;
-        const float height = 224f;
+        const float height = 360f;
         GUILayout.BeginArea(new Rect(Screen.width - width - 12f, Screen.height - height - 60f, width, height), GUI.skin.box);
+        elementalSourceStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 9, alignment = TextAnchor.LowerRight };
+        GUI.Label(new Rect(8f, height - 32f, width - 16f, 28f),
+            "UI: BattleDebugUI.cs\nVFX: EffectBlobWorld.cs / EffectBlobRenderer.cs", elementalSourceStyle);
         GUILayout.Label("ELEMENTAL VISUAL TEST");
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
@@ -262,6 +273,7 @@ public class BattleDebugUI : MonoBehaviour
             System.Globalization.CultureInfo.InvariantCulture, out float duration) &&
             !float.IsNaN(duration) && !float.IsInfinity(duration)) elementalTestDuration = duration;
         GUILayout.EndHorizontal();
+        DrawElementalRenderControls();
         for (int row = 0; row < 2; row++)
         {
             GUILayout.BeginHorizontal();
@@ -282,6 +294,40 @@ public class BattleDebugUI : MonoBehaviour
         string remaining = current == null ? "0" : double.IsInfinity(current.Remaining) ? "Infinite" : current.Remaining.ToString("F2");
         GUILayout.Label($"Phase: {phase} / Remaining: {remaining}\nActive: {elementalEmitter.ActiveCount}");
         GUILayout.EndArea();
+    }
+
+    private void DrawElementalRenderControls()
+    {
+        if (elementalBlobWorld == null) return;
+        elementalBlobWorld.useSourcePixelsPerUnit = GUILayout.Toggle(
+            elementalBlobWorld.useSourcePixelsPerUnit, "Use sprite PPU");
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Manual PPU", GUILayout.Width(85f));
+        bool wasEnabled = GUI.enabled;
+        GUI.enabled = wasEnabled && !elementalBlobWorld.useSourcePixelsPerUnit;
+        float ppu = Mathf.Round(1f / Mathf.Clamp(EffectNumbers.Positive(
+            elementalBlobWorld.worldUnitsPerPixel, 0.03125f), 0.00390625f, 1f));
+        float selectedPpu = Mathf.Round(GUILayout.HorizontalSlider(ppu, 1f, 256f));
+        if (selectedPpu != ppu) elementalBlobWorld.worldUnitsPerPixel = 1f / selectedPpu;
+        GUILayout.Label(selectedPpu.ToString("F0"), GUILayout.Width(34f));
+        GUI.enabled = wasEnabled;
+        GUILayout.EndHorizontal();
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Pixel size", GUILayout.Width(85f));
+        elementalBlobWorld.pixelSizeMultiplier = Mathf.RoundToInt(GUILayout.HorizontalSlider(
+            elementalBlobWorld.pixelSizeMultiplier, 1f, 8f));
+        GUILayout.Label($"x{elementalBlobWorld.pixelSizeMultiplier}", GUILayout.Width(34f));
+        GUILayout.EndHorizontal();
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Quality (Hz)", GUILayout.Width(85f));
+        elementalBlobWorld.refreshRate = Mathf.Round(GUILayout.HorizontalSlider(elementalBlobWorld.refreshRate, 5f, 30f));
+        GUILayout.Label(elementalBlobWorld.refreshRate.ToString("F0"), GUILayout.Width(34f));
+        GUILayout.EndHorizontal();
+        GUILayout.BeginHorizontal();
+        GUILayout.Label("Roughness", GUILayout.Width(85f));
+        elementalBlobWorld.surfaceRoughness = GUILayout.HorizontalSlider(elementalBlobWorld.surfaceRoughness, 0f, 1f);
+        GUILayout.Label(elementalBlobWorld.surfaceRoughness.ToString("F2"), GUILayout.Width(34f));
+        GUILayout.EndHorizontal();
     }
 
     private void SpawnElementalTest(EffectDefinitionSO definition)
