@@ -598,7 +598,6 @@ public sealed class ElementalTestSamples : System.IDisposable
         data.fadeOnEnd = sample == 1;
         if (sample == 0 && data.sourceSheet != null)
             data.cellSize = new Vector2Int((int)data.sourceSheet.rect.width / 4, (int)data.sourceSheet.rect.height / 4);
-        if (sample == 0) data.smokeTail = null;
         data.mergeNearby = sample == 1 || sample == 2;
         data.mergeSoftness = sample == 1 ? 0.3f : 0.12f;
         data.surfaceNoiseScale = sample == 1 ? 0.7f : sample == 2 ? 0.85f : 0.65f;
@@ -629,6 +628,17 @@ public sealed class ElementalTestSamples : System.IDisposable
         data.emissionStrength = sample == 1 ? 0f : 1f;
         data.useLight = sample == 0;
         data.lightMode = EffectLightMode.Flicker;
+        if (sample == 0)
+        {
+            data.smokeTail = null;
+            data.fireParticles = true;
+            data.pieceCount = 5;
+            data.tint = Color.white;
+            data.visualScale = 1f;
+            data.gasRise = 1.1f;
+            data.gasExpansion = 1.4f;
+            data.mergeSoftness = 0.16f;
+        }
         data.lightIntensity = 0.8f;
         data.lightRadius = 1.5f;
     }
@@ -646,7 +656,7 @@ public sealed class ElementalTestSamples : System.IDisposable
 
     public static Texture2D CreateTexture(int sample, int cell)
     {
-        if (sample == 0) return ElementalFireFrames.CreateTexture();
+        if (sample == 0) return ElementalFireFrames.CreateTexture(cell);
         Texture2D texture = new(cell * 4, cell * 4, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Point,

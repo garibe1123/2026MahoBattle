@@ -9,6 +9,7 @@ internal struct EffectBlobSample
     public float dissolve;
     public float impact;
     public float ripple;
+    public Color fireColor;
     public SpriteRenderer source;
 }
 
@@ -28,6 +29,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private readonly float[] density = new float[(Resolution + 2) * (Resolution + 2)];
     private readonly float[] foam = new float[(Resolution + 2) * (Resolution + 2)];
     private readonly Color32[] pixels = new Color32[Resolution * Resolution];
+    private Color[] fireColors;
     private readonly float[] noiseGrid = new float[(Resolution / 8 + 3) * (Resolution / 8 + 3)];
     private MaterialPropertyBlock properties;
     private SpriteRenderer surface;
@@ -149,18 +151,34 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         Array.Clear(pixels, 0, pixels.Length);
         float opacity = 0f;
         Color tint = Color.black;
+        if (definition.fireParticles)
+        {
+            fireColors ??= new Color[density.Length];
+            Array.Clear(fireColors, 0, fireColors.Length);
+        }
         for (int i = 0; i < count; i++)
         {
-            EffectBlobField.Accumulate(density, foam, Resolution + 2, origin - Vector2.one * step, step,
-                new RectInt(clip.xMin, clip.yMin, clip.width + 2, clip.height + 2), samples[i]);
+            RectInt fieldClip = new(clip.xMin, clip.yMin, clip.width + 2, clip.height + 2);
+            if (definition.fireParticles)
+                EffectFireField.Accumulate(density, fireColors, Resolution + 2,
+                    origin - Vector2.one * step, step, fieldClip, samples[i]);
+            else
+                EffectBlobField.Accumulate(density, foam, Resolution + 2, origin - Vector2.one * step, step,
+                    fieldClip, samples[i]);
             Color color = samples[i].source.color;
             opacity = Mathf.Max(opacity, color.a);
             tint.r = Mathf.Max(tint.r, color.r);
             tint.g = Mathf.Max(tint.g, color.g);
             tint.b = Mathf.Max(tint.b, color.b);
         }
-        EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
-            definition, Time.time, opacity);
+        if (definition.fireParticles)
+        {
+            EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition);
+            tint = Color.white;
+        }
+        else
+            EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
+                definition, Time.time, opacity);
         texture.SetPixels32(pixels);
         texture.Apply(false, false);
         Vector3 parentScale = transform.parent != null ? transform.parent.lossyScale : Vector3.one;

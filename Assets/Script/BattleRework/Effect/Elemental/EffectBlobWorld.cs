@@ -130,6 +130,15 @@ public sealed class EffectBlobWorld : MonoBehaviour
             Entry entry = active[i];
             if (entry.visual == null || entry.definition == null || !entry.visual.IsPlaying ||
                 entry.visual.ExecutionId != entry.execution) { RemoveAt(i); continue; }
+            if (entry.definition.fireParticles)
+            {
+                if (!refresh) continue;
+                for (int particle = 0; particle < entry.visual.FireSampleCount; particle++)
+                    if (entry.visual.CaptureFire(particle, out EffectBlobSample fireSample))
+                        AddToTiles(new BlobGroup { sample = fireSample, definition = entry.definition },
+                            view, tileSize, step, tileLimit);
+                continue;
+            }
             if (!entry.visual.CaptureBlob(entry.definition, out EffectBlobSample sample)) continue;
             if (!refresh) continue;
             Vector2 center = sample.center;

@@ -10,6 +10,7 @@ public sealed class EffectVisual : MonoBehaviour
     private const int HistoryCapacity = 128;
     private static EffectVisual template;
     private readonly EffectPlayback playback = new();
+    private EffectFireParticles fire;
     private readonly List<ElementDefinitionSO> elements = new();
     private readonly Vector3[] positions = new Vector3[HistoryCapacity];
     private readonly double[] times = new double[HistoryCapacity];
@@ -54,7 +55,7 @@ public sealed class EffectVisual : MonoBehaviour
         Action<EffectVisual> finished = null)
     {
         if (data == null) return null;
-        if (data.mergeNearby && !EffectBlobWorld.CanSpawn) return null;
+        if ((data.mergeNearby || data.fireParticles) && !EffectBlobWorld.CanSpawn) return null;
         if (prefab == null)
         {
             if (template == null)
@@ -113,6 +114,14 @@ public sealed class EffectVisual : MonoBehaviour
         float sizeRange = Mathf.Clamp(data.sizeVariation, 0f, 0.5f);
         sizeMultiplier = UnityEngine.Random.Range(1f - sizeRange, 1f + sizeRange);
         velocity = motion;
+        if (data.fireParticles)
+        {
+            fire ??= new EffectFireParticles();
+            Vector3 scale = transform.lossyScale;
+            fire.Play(data, transform.position, motion,
+                Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y)) *
+                EffectNumbers.NonNegative(data.visualScale) * sizeMultiplier);
+        }
         Faction = faction;
         AddElement(data.element);
         if (data.additionalElements != null)
@@ -154,7 +163,7 @@ public sealed class EffectVisual : MonoBehaviour
         if (run == generation && !released)
         {
             Render();
-            if (data.mergeNearby && !EffectBlobWorld.Register(this, data, run)) Complete(run);
+            if ((data.mergeNearby || data.fireParticles) && !EffectBlobWorld.Register(this, data, run)) Complete(run);
         }
     }
 
@@ -244,7 +253,12 @@ public sealed class EffectVisual : MonoBehaviour
             }
         }
         else playback.Tick(delta);
-        if (run == generation && !released) Render();
+        if (run == generation && !released)
+        {
+            if (definition.fireParticles)
+                fire.Tick(delta, transform.position, velocity, Phase, (float)playback.PhaseProgress);
+            Render();
+        }
     }
 
     private void RecordPosition()
@@ -281,6 +295,26 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void Render()
     {
+        if (definition.fireParticles)
+        {
+            foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
+            SpriteRenderer fireSource = renderers[0];
+            fireSource.sprite = frames[0].Length > 0 ? frames[0][0] :
+                frames[1].Length > 0 ? frames[1][0] : frames[2].Length > 0 ? frames[2][0] : null;
+            fireSource.color = Color.white;
+            ApplyProperties(fireSource, 0f);
+            float fireEnvelope = Phase == EffectPhase.Intro ? (float)playback.PhaseProgress :
+                Phase == EffectPhase.End ? 1f - (float)playback.PhaseProgress : 1f;
+            float fireFlicker = definition.lightMode == EffectLightMode.Flicker
+                ? 1f + (Mathf.PerlinNoise(variationSeed + 71f,
+                    age * EffectNumbers.NonNegative(definition.flickerFrequency)) * 2f - 1f) *
+                    Mathf.Clamp01(definition.flickerAmount) : 1f;
+            localLight.color = definition.lightColor;
+            localLight.pointLightOuterRadius = EffectNumbers.Positive(definition.lightRadius, 2f);
+            localLight.intensity = EffectNumbers.NonNegative(definition.lightIntensity) * fireEnvelope * fireFlicker;
+            localLight.enabled = definition.useLight && WithinCamera() && localLight.intensity > 0f;
+            return;
+        }
         if (!WithinCamera())
         {
             foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
@@ -400,9 +434,21 @@ public sealed class EffectVisual : MonoBehaviour
         return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
     }
 
+    internal int FireSampleCount => definition != null && definition.fireParticles && fire != null ? fire.Capacity : 0;
+
+    internal bool CaptureFire(int index, out EffectBlobSample sample)
+    {
+        sample = default;
+        if (!IsPlaying || definition == null || !definition.fireParticles || fire == null || renderers[0].sprite == null)
+            return false;
+        if (!fire.Capture(index, out sample)) return false;
+        sample.source = renderers[0];
+        return true;
+    }
+
     private void ApplyProperties(SpriteRenderer renderer, float attenuation)
     {
-        if (!renderer.isVisible && !definition.mergeNearby) return;
+        if (!renderer.isVisible && !definition.mergeNearby && !definition.fireParticles) return;
         properties.Clear();
         float emission = EffectNumbers.NonNegative(definition.emissionStrength) * attenuation;
         if (hasEmissionColor) properties.SetColor(emissionColorId, definition.emissionColor * (hasEmissionStrength ? 1f : emission));
@@ -462,6 +508,7 @@ public sealed class EffectVisual : MonoBehaviour
         unchecked { generation++; }
         released = true;
         playback.Reset();
+        fire?.Reset();
         PhaseStarted = null;
         Finished = null;
         definition = null;

@@ -47,6 +47,17 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public float idleBrightness = 1f;
     public float endBrightness = 0.65f;
     public bool fadeOnEnd;
+    [Header("Procedural fire: pooled round particles share one surface")]
+    public bool fireParticles;
+    [Range(8, 96)] public int fireParticleCapacity = 48;
+    [Min(0f)] public float fireEmissionRate = 32f;
+    public Vector2 fireParticleLifetime = new(0.8f, 1.3f);
+    public Vector2 fireParticleRadius = new(0.09f, 0.19f);
+    [Min(0f)] public float fireSpread = 0.45f;
+    [Range(0f, 0.9f)] public float fireFadeStart = 0.25f;
+    public Color fireHotColor = new(1f, 0.9f, 0.3f);
+    public Color fireWarmColor = new(0.95f, 0.27f, 0.045f);
+    public Color fireSootColor = new(0.065f, 0.055f, 0.075f);
     [ColorUsage(true, true)] public Color emissionColor = Color.white;
     [Min(0f)] public float emissionStrength = 1f;
     public string emissionColorProperty = "_EmissionColor";
