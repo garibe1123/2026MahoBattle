@@ -539,11 +539,13 @@ public sealed class ElementalTestSamples : System.IDisposable
 {
     public const int Cell = 32;
     public const float PixelsPerUnit = 32f;
-    private const float SampleOpacity = 0.6f;
+    private const float FireOpacity = 0.72f;
+    private const float SmokeOpacity = 0.45f;
+    private const float WaterOpacity = 0.32f;
     private const float RoundedEdgeWidth = 0.14f;
     public static readonly string[] Names = { "Fire", "Smoke", "Water" };
     private static readonly Color[] Colors = {
-        new(1f, 0.4f, 0.08f, SampleOpacity), new(0.55f, 0.55f, 0.6f, SampleOpacity), new(0.15f, 0.55f, 1f, SampleOpacity)
+        new(1f, 1f, 1f, FireOpacity), new(0.72f, 0.74f, 0.75f, SmokeOpacity), new(1f, 1f, 1f, WaterOpacity)
     };
     private readonly Texture2D[] textures = new Texture2D[3];
     private readonly Sprite[] sheets = new Sprite[3];
@@ -583,11 +585,19 @@ public sealed class ElementalTestSamples : System.IDisposable
     public static void Configure(EffectDefinitionSO data, int sample)
     {
         data.tint = data.emissionColor = data.lightColor = Colors[sample];
+        if (sample == 0)
+            data.emissionColor = data.lightColor = new Color(1f, 0.45f, 0.08f);
         data.family = sample == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
         data.pieceCount = sample == 0 ? 5 : 1;
         if (sample == 0) data.smokeTail = null;
         data.mergeNearby = sample == 1 || sample == 2;
         data.mergeSoftness = sample == 1 ? 0.3f : 0.12f;
+        data.surfaceNoiseScale = sample == 1 ? 1.1f : 0.65f;
+        data.surfaceNoiseStrength = sample == 1 ? 0.45f : 0.15f;
+        data.surfaceNoiseSpeed = 0.08f;
+        data.surfaceBodyColor = sample == 2 ? new Color(0.18f, 0.65f, 0.85f) : Color.white;
+        data.surfaceHighlightColor = new Color(0.85f, 0.98f, 1f);
+        data.surfaceHighlightStrength = sample == 2 ? 1f : 0f;
         data.gasRise = sample == 1 ? 0.3f : 0.2f;
         data.gasExpansion = sample == 1 ? 0.2f : 0.15f;
         data.tailOffset = sample == 1 ? new Vector2(0.015f, 0.035f)
@@ -644,8 +654,8 @@ public sealed class ElementalTestSamples : System.IDisposable
                     }
                     if (sample == 0)
                     {
-                        dx /= Mathf.Lerp(1f, 0.3f, (dy + 1f) * 0.5f);
-                        dy = (dy + 0.15f) / 1.2f;
+                        pixels[py * texture.width + px] = ElementalFireFrames.Pixel(frame, x, y, cell);
+                        continue;
                     }
                     float angle = Mathf.Atan2(dy, dx);
                     float radius = Mathf.Sqrt(dx * dx + dy * dy);

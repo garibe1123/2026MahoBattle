@@ -155,7 +155,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f), definition.family == EffectFamily.Gas, Time.time,
             EffectNumbers.Positive(definition.surfaceNoiseScale, 0.65f),
             Mathf.Clamp01(EffectNumbers.NonNegative(definition.surfaceNoiseStrength)),
-            EffectNumbers.NonNegative(definition.surfaceNoiseSpeed));
+            EffectNumbers.NonNegative(definition.surfaceNoiseSpeed), definition.surfaceBodyColor,
+            definition.surfaceHighlightColor, Mathf.Clamp01(definition.surfaceHighlightStrength));
         texture.SetPixels32(pixels);
         texture.Apply(false, false);
         Vector3 parentScale = transform.parent != null ? transform.parent.lossyScale : Vector3.one;
@@ -234,7 +235,8 @@ internal static class EffectBlobField
 
     public static void Colorize(float[] field, Color32[] pixels, float[] noiseGrid, int resolution, Vector2 origin,
         float step, RectInt clip, float softness, bool smoke, float time,
-        float noiseScale, float noiseStrength, float noiseSpeed)
+        float noiseScale, float noiseStrength, float noiseSpeed,
+        Color bodyColor, Color highlightColor, float highlightStrength)
     {
         if (clip.width == 0 || clip.height == 0) return;
         int stride = resolution / 8 + 1;
@@ -255,18 +257,29 @@ internal static class EffectBlobField
             {
                 int index = y * resolution + x;
                 float value = field[index];
-                if (value <= 0.3f - softness * 0.5f) { pixels[index] = default; continue; }
+                float cutoff = (0.3f - softness * 0.5f) / (smoke ? 1f + noiseStrength * 0.5f : 1f);
+                if (value <= cutoff) { pixels[index] = default; continue; }
                 int cell = y / 8 * stride + x / 8;
                 float horizontal = Mathf.SmoothStep(0f, 1f, x % 8 / 8f);
                 float vertical = Mathf.SmoothStep(0f, 1f, y % 8 / 8f);
                 float noise = Mathf.Lerp(Mathf.Lerp(noiseGrid[cell], noiseGrid[cell + 1], horizontal),
                     Mathf.Lerp(noiseGrid[cell + stride], noiseGrid[cell + stride + 1], horizontal), vertical);
+                if (smoke) value *= 1f + (noise - 0.5f) * noiseStrength;
                 float coverage = Mathf.SmoothStep(0f, 1f, (value - 0.3f) / softness + 0.5f);
-                float shade = smoke ? Mathf.Lerp(1f - noiseStrength, 1f, noise) :
+                float shade = smoke ? Mathf.Lerp(1f - noiseStrength, 1f,
+                    Mathf.Min(2f, Mathf.Floor((noise * 0.7f + Mathf.Clamp01(value) * 0.3f) * 3f)) * 0.5f) :
                     value < 0.45f || Mathf.Repeat(value * 0.6f + noise * 0.25f + time * 0.12f, 1f) > 0.9f ? 1f : 0.7f;
                 if (smoke) coverage *= Mathf.Lerp(1f - noiseStrength, 1f, noise);
-                byte color = (byte)Mathf.RoundToInt(shade * 255f);
-                pixels[index] = new Color32(color, color, color, (byte)Mathf.RoundToInt(coverage * 255f));
+                Color color = bodyColor * shade;
+                if (!smoke && highlightStrength > 0f)
+                {
+                    float shore = 1f - Mathf.SmoothStep(0.32f, 0.55f, value);
+                    float foam = Mathf.Max(shore, Mathf.SmoothStep(0.6f, 0.75f, noise) * 0.65f);
+                    color = Color.Lerp(bodyColor * Mathf.Lerp(0.75f, 1f, noise), highlightColor,
+                        foam * Mathf.SmoothStep(0.3f, 0.6f, noise) * highlightStrength);
+                }
+                color.a = Mathf.Clamp01(coverage);
+                pixels[index] = color;
             }
     }
 }

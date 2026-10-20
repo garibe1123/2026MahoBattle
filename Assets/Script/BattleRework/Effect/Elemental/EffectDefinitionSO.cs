@@ -78,6 +78,9 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Min(0.01f)] public float surfaceNoiseScale = 0.65f;
     [Range(0f, 1f)] public float surfaceNoiseStrength = 0.15f;
     [Min(0f)] public float surfaceNoiseSpeed = 0.08f;
+    public Color surfaceBodyColor = Color.white;
+    public Color surfaceHighlightColor = Color.white;
+    [Range(0f, 1f)] public float surfaceHighlightStrength;
     [Header("Smoke layers at the end of the fire trail")]
     public EffectDefinitionSO smokeTail;
     [Range(1, 4)] public int smokeTailPieces = 2;

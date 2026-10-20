@@ -80,10 +80,12 @@ public static class HarnessElementalSamples
         for (int i = 0; i < TestNames.Length; i++)
         {
             string path = TestRoot + "/" + TestNames[i] + "TestVisual.asset";
+            Sprite source = CreateSource(i, true);
             definitions[i] = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(path);
             if (definitions[i] != null)
             {
                 Undo.RecordObject(definitions[i], "Update Elemental Test Visual");
+                definitions[i].sourceSheet = source;
                 ElementalTestSamples.Configure(definitions[i], i);
                 EditorUtility.SetDirty(definitions[i]);
                 continue;
@@ -92,7 +94,7 @@ public static class HarnessElementalSamples
                 Root + "/" + Names[TestElementIndices[i]] + "Visual.asset");
             EffectDefinitionSO definition = Object.Instantiate(original);
             definition.name = TestNames[i] + " Test Visual";
-            definition.sourceSheet = CreateSource(i);
+            definition.sourceSheet = source;
             ElementalTestSamples.Configure(definition, i);
             definitions[i] = definition;
             AssetDatabase.CreateAsset(definition, path);
@@ -149,16 +151,20 @@ public static class HarnessElementalSamples
         if (!AssetDatabase.IsValidFolder(parent + "/" + child)) AssetDatabase.CreateFolder(parent, child);
     }
 
-    private static Sprite CreateSource(int sample = -1)
+    private static Sprite CreateSource(int sample = -1, bool refresh = false)
     {
         string path = sample < 0 ? Root + "/TemporaryEffectSheet.png"
             : TestRoot + "/" + TestNames[sample] + "Sheet.png";
-        if (!File.Exists(path))
+        bool exists = File.Exists(path);
+        if (!exists || refresh)
         {
             Texture2D texture = ElementalTestSamples.CreateTexture(sample, Cell);
             File.WriteAllBytes(path, texture.EncodeToPNG());
             Object.DestroyImmediate(texture);
             AssetDatabase.ImportAsset(path);
+        }
+        if (!exists)
+        {
             TextureImporter importer = (TextureImporter)AssetImporter.GetAtPath(path);
             importer.textureType = TextureImporterType.Sprite;
             importer.spriteImportMode = SpriteImportMode.Single;
