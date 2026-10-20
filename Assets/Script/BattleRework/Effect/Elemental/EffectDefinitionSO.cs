@@ -24,6 +24,7 @@ public sealed class EffectClipDefinition
 [CreateAssetMenu(menuName = "Game/Effect/Elemental Visual")]
 public sealed class EffectDefinitionSO : ScriptableObject
 {
+    public const float DefaultSizeVariation = 0.2f;
     public ElementDefinitionSO element;
     public EffectFamily family;
     public EffectUsage usage;
@@ -75,6 +76,20 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public Color fireEmberColor = new(0.5f, 0.17f, 0.1f);
     public Color fireSmokeColor = new(0.22f, 0.13f, 0.16f);
     public Color fireSootColor = new(0.065f, 0.055f, 0.075f);
+    [Header("Additional pooled details")]
+    public Color emberStartColor = new Color32(255, 242, 176, 255);
+    public Color emberEndColor = new Color32(128, 48, 26, 255);
+    public EffectDetailSettings embers = new();
+    public EffectDetailSettings waterDetails = new()
+    {
+        lifetime = new Vector2(0.3f, 0.65f), radius = new Vector2(0.025f, 0.05f),
+        spread = 1.2f, rise = 1.2f, expansion = 0f
+    };
+    public EffectDetailSettings gasDetails = new()
+    {
+        lifetime = new Vector2(0.8f, 1.6f), radius = new Vector2(0.12f, 0.2f),
+        spread = 0.4f, rise = 0.3f, expansion = 1f
+    };
     [ColorUsage(true, true)] public Color emissionColor = Color.white;
     [Min(0f)] public float emissionStrength = 1f;
     public string emissionColorProperty = "_EmissionColor";
@@ -85,7 +100,8 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public float rimStrength;
     public string centerProperty = "_CenterStrength";
     public float centerStrength;
-    [Header("Gas / trailing layers (1 = no fragments)")]
+    [Header("Gas / trailing layers")]
+    [Tooltip("Mixed Piece Sizes uses at least three layers.")]
     [Range(1, 5)] public int pieceCount = 1;
     [Min(0f)] public float pieceDelay = 0.07f;
     [Range(0f, 1f)] public float pieceAttenuation = 0.75f;
@@ -97,10 +113,13 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public float gasExpansion = 0.4f;
     public Vector2 tailOffset = new(-0.15f, 0.1f);
     [Min(0f)] public float visualScale = 1f;
-    [Header("Per-play motion and shape variation (0 = unchanged)")]
+    [Header("Per-play motion and shape variation")]
     [Min(0f)] public float motionWander;
     [Min(0.01f)] public float variationFrequency = 1.5f;
-    [Range(0f, 0.5f)] public float sizeVariation;
+    [Tooltip("Per-spawn size variation; 0 uses the default 20%.")]
+    [Range(0f, 0.5f)] public float sizeVariation = DefaultSizeVariation;
+    public bool mixedPieceSizes = true;
+    public Vector3 pieceSizeScales = new(1f, 0.7f, 0.45f);
     [Range(0f, 0.3f)] public float shapeVariation;
     [Header("Nearby blobs share one translucent surface")]
     public bool mergeNearby;
@@ -218,8 +237,30 @@ public sealed class EffectDefinitionSO : ScriptableObject
     }
 }
 
+[Serializable]
+public sealed class EffectDetailSettings
+{
+    public bool enabled = true;
+    [Range(1, 32)] public int capacity = 24;
+    [Min(0f)] public float emissionRate = 12f;
+    public Vector2 lifetime = new(0.4f, 0.9f);
+    public Vector2 radius = new(0.025f, 0.055f);
+    [Min(0f)] public float spread = 0.8f;
+    public float rise = 0.6f;
+    [Min(0f)] public float expansion = 0.4f;
+}
+
 internal static class EffectNumbers
 {
+    public static float SpawnScale(EffectDefinitionSO data)
+    {
+        float range = Mathf.Clamp(Positive(data.sizeVariation, EffectDefinitionSO.DefaultSizeVariation), 0f, 0.5f);
+        return UnityEngine.Random.Range(1f - range, 1f + range);
+    }
+
+    public static float PieceScale(EffectDefinitionSO data, int index) =>
+        Positive(index % 3 == 0 ? data.pieceSizeScales.x : index % 3 == 1 ? data.pieceSizeScales.y : data.pieceSizeScales.z, 1f);
+
     public static bool Finite(float value) => !float.IsNaN(value) && !float.IsInfinity(value);
     public static float Positive(float value, float fallback) => Finite(value) && value > 0f ? value : fallback;
     public static float NonNegative(float value) => Finite(value) ? Mathf.Max(0f, value) : 0f;

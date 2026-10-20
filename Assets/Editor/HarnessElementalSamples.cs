@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using UnityEngine.Rendering.Universal;
 using System.IO;
 using UnityEditor;
 using UnityEngine;
@@ -248,5 +250,180 @@ public static class HarnessElementalSamples
             importer.SaveAndReimport();
         }
         return AssetDatabase.LoadAssetAtPath<Sprite>(path);
+    }
+}
+
+[CustomEditor(typeof(EffectDefinitionSO))]
+public sealed class EffectDefinitionSOEditor : Editor
+{
+    private readonly List<EffectDefinitionSO> copies = new();
+    private PreviewRenderUtility preview;
+    private EffectVisual visual;
+    private EffectBlobWorld world;
+    private double lastTime;
+    private float elapsed;
+    private float viewSize = 3f;
+    private Random.State randomState;
+
+    private void OnEnable()
+    {
+        Selection.selectionChanged += ClosePreview;
+        AssemblyReloadEvents.beforeAssemblyReload += ClosePreview;
+        EditorApplication.playModeStateChanged += OnPlayModeChanged;
+        EditorApplication.quitting += ClosePreview;
+    }
+
+    private void OnDisable()
+    {
+        Selection.selectionChanged -= ClosePreview;
+        AssemblyReloadEvents.beforeAssemblyReload -= ClosePreview;
+        EditorApplication.playModeStateChanged -= OnPlayModeChanged;
+        EditorApplication.quitting -= ClosePreview;
+        ClosePreview();
+    }
+
+    public override void OnInspectorGUI()
+    {
+        bool changed = DrawDefaultInspector();
+        if (changed && preview != null) StartPreview();
+        EditorGUILayout.Space();
+        using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))
+        {
+            using (new EditorGUILayout.HorizontalScope())
+            {
+                if (GUILayout.Button("재생")) StartPreview();
+                using (new EditorGUI.DisabledScope(visual == null || !visual.IsPlaying))
+                    if (GUILayout.Button("정지 (End)")) visual.RequestStop();
+                if (GUILayout.Button("재시작")) StartPreview();
+                using (new EditorGUI.DisabledScope(preview == null))
+                    if (GUILayout.Button("닫기")) ClosePreview();
+            }
+            viewSize = EditorGUILayout.Slider("프리뷰 범위", viewSize, 0.5f, 12f);
+        }
+        Rect rect = GUILayoutUtility.GetRect(1f, 260f, GUILayout.ExpandWidth(true));
+        if (preview == null)
+        {
+            EditorGUI.DrawRect(rect, new Color(0.12f, 0.12f, 0.14f));
+            GUI.Label(rect, "재생하면 Intro → Idle → End를 표시합니다.", EditorStyles.centeredGreyMiniLabel);
+            return;
+        }
+        if (Event.current.type != EventType.Repaint) return;
+        preview.BeginPreview(rect, GUIStyle.none);
+        try
+        {
+            preview.camera.orthographicSize = viewSize;
+            preview.camera.aspect = rect.width / Mathf.Max(1f, rect.height);
+            preview.Render(true);
+        }
+        finally
+        {
+            Texture texture = preview.EndPreview();
+            GUI.DrawTexture(rect, texture, ScaleMode.StretchToFill, false);
+        }
+    }
+
+    private EffectDefinitionSO CopyDefinition(EffectDefinitionSO source, Dictionary<EffectDefinitionSO, EffectDefinitionSO> known)
+    {
+        if (source == null) return null;
+        if (known.TryGetValue(source, out EffectDefinitionSO existing)) return existing;
+        EffectDefinitionSO copy = Instantiate(source);
+        copy.hideFlags = HideFlags.HideAndDontSave;
+        copies.Add(copy);
+        known.Add(source, copy);
+        copy.smokeTail = CopyDefinition(source.smokeTail, known);
+        return copy;
+    }
+
+    private void StartPreview()
+    {
+        ClosePreview();
+        if (EditorApplication.isPlayingOrWillChangePlaymode || target == null) return;
+        Random.State previousRandom = Random.state;
+        try
+        {
+            EffectDefinitionSO data = CopyDefinition((EffectDefinitionSO)target, new Dictionary<EffectDefinitionSO, EffectDefinitionSO>());
+            preview = new PreviewRenderUtility();
+            Camera camera = preview.camera;
+            camera.orthographic = true;
+            camera.orthographicSize = viewSize;
+            camera.nearClipPlane = 0.01f;
+            camera.farClipPlane = 100f;
+            camera.transform.SetPositionAndRotation(new Vector3(0f, 1f, -10f), Quaternion.identity);
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0.12f, 0.12f, 0.14f);
+            GameObject root = new("Elemental Inspector Preview") { hideFlags = HideFlags.HideAndDontSave };
+            preview.AddSingleGO(root);
+            world = root.AddComponent<EffectBlobWorld>();
+            world.InitializePreview(camera);
+            GameObject lightHost = new("Preview Light") { hideFlags = HideFlags.HideAndDontSave };
+            lightHost.transform.SetParent(root.transform, false);
+            Light2D light = lightHost.AddComponent<Light2D>();
+            light.lightType = Light2D.LightType.Global;
+            light.intensity = 1f;
+            GameObject host = new("Preview Effect") { hideFlags = HideFlags.HideAndDontSave };
+            host.transform.SetParent(root.transform, false);
+            visual = host.AddComponent<EffectVisual>();
+            visual.InitializePreview(camera, world);
+            visual.Play(data, data.duration);
+            randomState = Random.state;
+            lastTime = EditorApplication.timeSinceStartup;
+            elapsed = 0f;
+            EditorApplication.update += UpdatePreview;
+        }
+        catch
+        {
+            ClosePreview();
+            throw;
+        }
+        finally { Random.state = previousRandom; }
+        Repaint();
+    }
+
+    private void UpdatePreview()
+    {
+        if (visual == null || !visual.IsPlaying || target == null)
+        {
+            ClosePreview();
+            Repaint();
+            return;
+        }
+        double now = EditorApplication.timeSinceStartup;
+        float delta = (float)System.Math.Min(0.1d, System.Math.Max(0d, now - lastTime));
+        lastTime = now;
+        elapsed += delta;
+        Random.State previousRandom = Random.state;
+        try
+        {
+            Random.state = randomState;
+            visual.Tick(delta);
+            world.Tick(elapsed);
+            randomState = Random.state;
+        }
+        catch
+        {
+            ClosePreview();
+            throw;
+        }
+        finally { Random.state = previousRandom; }
+        Repaint();
+    }
+
+    private void OnPlayModeChanged(PlayModeStateChange state) { ClosePreview(); }
+
+    private void ClosePreview()
+    {
+        EditorApplication.update -= UpdatePreview;
+        if (visual != null) visual.DisposePreview();
+        if (world != null) world.DisposePreview();
+        visual = null;
+        world = null;
+        if (preview != null)
+        {
+            preview.Cleanup();
+            preview = null;
+        }
+        foreach (EffectDefinitionSO copy in copies)
+            if (copy != null) DestroyImmediate(copy);
+        copies.Clear();
     }
 }

@@ -37,7 +37,8 @@ internal sealed class EffectFireParticles
         float sourceSpread = EffectNumbers.NonNegative(data.fireSourceSpread) * scale;
         for (int i = 0; i < sourceCount; i++)
         {
-            sourceScales[i] = UnityEngine.Random.Range(Mathf.Min(minScale, maxScale), Mathf.Max(minScale, maxScale));
+            sourceScales[i] = UnityEngine.Random.Range(Mathf.Min(minScale, maxScale), Mathf.Max(minScale, maxScale)) *
+                EffectNumbers.SpawnScale(data);
             sourceOffsets[i] = UnityEngine.Random.insideUnitCircle * sourceSpread;
         }
         int initial = Mathf.Clamp(data.pieceCount, sourceCount, 5);
@@ -102,7 +103,8 @@ internal sealed class EffectFireParticles
             float maxLife = EffectNumbers.Positive(definition.fireParticleLifetime.y, 1.3f);
             float minRadius = EffectNumbers.Positive(definition.fireParticleRadius.x, 0.09f);
             float maxRadius = EffectNumbers.Positive(definition.fireParticleRadius.y, 0.19f);
-            float radius = UnityEngine.Random.Range(Mathf.Min(minRadius, maxRadius), Mathf.Max(minRadius, maxRadius)) * sourceScale;
+            float radius = UnityEngine.Random.Range(Mathf.Min(minRadius, maxRadius), Mathf.Max(minRadius, maxRadius)) *
+                sourceScale * EffectNumbers.SpawnScale(definition);
             float spread = EffectNumbers.NonNegative(definition.fireSpread) * sourceScale;
             Vector2 jitter = UnityEngine.Random.insideUnitCircle * radius * 0.6f;
             particles[index] = new Particle
@@ -180,6 +182,124 @@ internal sealed class EffectFireParticles
         sourceCount = nextSource = 0;
         scale = timer = endProgress = 0f;
         ending = false;
+    }
+}
+
+internal sealed class EffectDetailParticles
+{
+    public const int MaxParticles = 32;
+    private const float WaterGravity = 4f;
+    private struct Particle
+    {
+        public Vector3 position, velocity;
+        public float age, lifetime, radius;
+        public bool active;
+    }
+
+    private readonly Particle[] particles = new Particle[MaxParticles];
+    private EffectDefinitionSO definition;
+    private EffectDetailSettings settings;
+    private float scale, timer, endFade = 1f;
+    private int capacity, cursor, emitted;
+    public float VisibilityRadius { get; private set; }
+
+    public void Play(EffectDefinitionSO data, EffectDetailSettings detailSettings, Vector3 origin, float size)
+    {
+        Reset();
+        definition = data;
+        settings = detailSettings;
+        scale = size;
+        endFade = 1f;
+        capacity = Mathf.Clamp(settings.capacity, 1, MaxParticles);
+        float life = Mathf.Max(EffectNumbers.Positive(settings.lifetime.x, 0.4f),
+            EffectNumbers.Positive(settings.lifetime.y, 0.9f));
+        VisibilityRadius = (EffectNumbers.NonNegative(settings.spread) + Mathf.Abs(settings.rise)) * life * scale +
+            Mathf.Max(EffectNumbers.Positive(settings.radius.x, 0.025f), EffectNumbers.Positive(settings.radius.y, 0.055f)) *
+            3f * (1f + EffectNumbers.NonNegative(settings.expansion)) * scale;
+        if (data.family == EffectFamily.Liquid && !data.fireParticles)
+            VisibilityRadius += 0.5f * WaterGravity * scale * life * life;
+        for (int i = 0; i < Mathf.Min(3, capacity); i++) Emit(origin);
+    }
+
+    public void Tick(float delta, Vector3 origin, EffectPhase phase, float progress)
+    {
+        if (definition == null) return;
+        endFade = phase == EffectPhase.End ? 1f - Mathf.Clamp01(progress) : 1f;
+        for (int i = 0; i < capacity; i++)
+        {
+            Particle particle = particles[i];
+            if (!particle.active) continue;
+            particle.age += delta;
+            if (particle.age >= particle.lifetime) particle.active = false;
+            else
+            {
+                if (definition.family == EffectFamily.Liquid && !definition.fireParticles)
+                    particle.velocity.y -= WaterGravity * scale * delta;
+                particle.position += particle.velocity * delta;
+            }
+            particles[i] = particle;
+        }
+        if (phase == EffectPhase.End || settings.emissionRate <= 0f) return;
+        timer -= delta;
+        float interval = 1f / Mathf.Clamp(EffectNumbers.Positive(settings.emissionRate, 12f), 1f, 120f);
+        for (int count = 0; timer <= 0f && count < capacity; count++)
+        {
+            Emit(origin);
+            timer += interval;
+        }
+        timer = Mathf.Max(0f, timer);
+    }
+
+    private void Emit(Vector3 origin)
+    {
+        for (int attempt = 0; attempt < capacity; attempt++)
+        {
+            int index = cursor;
+            cursor = (cursor + 1) % capacity;
+            if (particles[index].active) continue;
+            float minLife = EffectNumbers.Positive(settings.lifetime.x, 0.4f);
+            float maxLife = EffectNumbers.Positive(settings.lifetime.y, 0.9f);
+            float minRadius = EffectNumbers.Positive(settings.radius.x, 0.025f);
+            float maxRadius = EffectNumbers.Positive(settings.radius.y, 0.055f);
+            float radius = UnityEngine.Random.Range(Mathf.Min(minRadius, maxRadius), Mathf.Max(minRadius, maxRadius)) *
+                EffectNumbers.PieceScale(definition, emitted++ % 3) * EffectNumbers.SpawnScale(definition) * scale;
+            Vector2 direction = UnityEngine.Random.insideUnitCircle.normalized;
+            Vector2 drift = direction * (EffectNumbers.NonNegative(settings.spread) * scale);
+            drift.y += settings.rise * scale;
+            particles[index] = new Particle
+            {
+                active = true, position = origin + (Vector3)(direction * radius),
+                velocity = drift, radius = radius,
+                lifetime = UnityEngine.Random.Range(Mathf.Min(minLife, maxLife), Mathf.Max(minLife, maxLife))
+            };
+            return;
+        }
+    }
+
+    public bool Capture(int index, out Vector3 position, out Vector2 size, out Color color)
+    {
+        position = default;
+        size = default;
+        color = default;
+        if (definition == null || index < 0 || index >= capacity || !particles[index].active) return false;
+        Particle particle = particles[index];
+        float progress = Mathf.Clamp01(particle.age / particle.lifetime);
+        position = particle.position;
+        size = Vector2.one * (particle.radius * 2f * (1f + EffectNumbers.NonNegative(settings.expansion) * progress));
+        if (definition.family == EffectFamily.Liquid && !definition.fireParticles) size.y *= 1.3f;
+        color = definition.fireParticles ? Color.Lerp(definition.emberStartColor, definition.emberEndColor, progress) : definition.tint;
+        color.a *= (1f - Mathf.SmoothStep(0f, 1f, progress)) * endFade;
+        return color.a > 0.001f && size.x > 0.0001f;
+    }
+
+    public void Reset()
+    {
+        Array.Clear(particles, 0, particles.Length);
+        definition = null;
+        settings = null;
+        capacity = cursor = emitted = 0;
+        scale = timer = VisibilityRadius = 0f;
+        endFade = 1f;
     }
 }
 

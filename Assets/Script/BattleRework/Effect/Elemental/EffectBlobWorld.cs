@@ -55,11 +55,13 @@ public sealed class EffectBlobWorld : MonoBehaviour
     private readonly Dictionary<TileKey, int> bins = new();
     private readonly List<BlobGroup> groups = new();
     private Camera renderCamera;
+    private bool preview;
     private float nextRefresh;
 
     private void Awake()
     {
         renderCamera = Camera.main;
+        if (!Application.isPlaying) return;
         if (instance == null) instance = this;
         else if (instance != this) enabled = false;
     }
@@ -83,19 +85,27 @@ public sealed class EffectBlobWorld : MonoBehaviour
 
     internal static bool Register(EffectVisual visual, EffectDefinitionSO data, int execution)
     {
-        EffectBlobWorld world = Ensure();
+        return Ensure().RegisterVisual(visual, data, execution);
+    }
+
+    internal bool RegisterVisual(EffectVisual visual, EffectDefinitionSO data, int execution)
+    {
         Entry entry = new() { visual = visual, definition = data, execution = execution };
-        if (world.indices.TryGetValue(visual, out int index)) { world.active[index] = entry; return true; }
-        if (world.active.Count >= Mathf.Clamp(world.maxActiveVisuals, 64, 8192)) return false;
-        world.indices.Add(visual, world.active.Count);
-        world.active.Add(entry);
+        if (indices.TryGetValue(visual, out int index)) { active[index] = entry; return true; }
+        if (active.Count >= Mathf.Clamp(maxActiveVisuals, 64, 8192)) return false;
+        indices.Add(visual, active.Count);
+        active.Add(entry);
         return true;
     }
 
     internal static void Unregister(EffectVisual visual)
     {
-        if (instance == null || !instance.indices.TryGetValue(visual, out int index)) return;
-        instance.RemoveAt(index);
+        if (instance != null) instance.UnregisterVisual(visual);
+    }
+
+    internal void UnregisterVisual(EffectVisual visual)
+    {
+        if (indices.TryGetValue(visual, out int index)) RemoveAt(index);
     }
 
     private void RemoveAt(int index)
@@ -113,7 +123,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
     private bool TryGetView(out Rect view)
     {
         view = default;
-        if (renderCamera == null || !renderCamera.isActiveAndEnabled) return false;
+        if (renderCamera == null || (!preview && !renderCamera.isActiveAndEnabled)) return false;
         Plane plane = new(Vector3.forward, new Vector3(0f, 0f, transform.position.z));
         Vector2 low = new(float.PositiveInfinity, float.PositiveInfinity);
         Vector2 high = new(float.NegativeInfinity, float.NegativeInfinity);
@@ -131,7 +141,30 @@ public sealed class EffectBlobWorld : MonoBehaviour
 
     private void LateUpdate()
     {
-        bool refresh = Time.time >= nextRefresh;
+        if (!preview) Tick(Time.time);
+    }
+
+    public void InitializePreview(Camera camera)
+    {
+        preview = true;
+        renderCamera = camera;
+    }
+
+    public void DisposePreview()
+    {
+        ClearTiles(0);
+        foreach (EffectBlobRenderer tile in tiles)
+            if (tile != null) tile.ReleaseResources();
+        active.Clear();
+        indices.Clear();
+        visibleTiles.Clear();
+        bins.Clear();
+        groups.Clear();
+    }
+
+    public void Tick(float time)
+    {
+        bool refresh = time >= nextRefresh;
         if (refresh) visibleTiles.Clear();
         bins.Clear();
         groups.Clear();
@@ -151,6 +184,9 @@ public sealed class EffectBlobWorld : MonoBehaviour
                             view, tileLimit);
                 continue;
             }
+            for (int piece = 1; piece < entry.visual.BlobSampleCount; piece++)
+                if (entry.visual.CaptureBlob(entry.definition, piece, out EffectBlobSample fragment) && refresh)
+                    AddToTiles(new BlobGroup { sample = fragment, definition = entry.definition }, view, tileLimit);
             if (!entry.visual.CaptureBlob(entry.definition, out EffectBlobSample sample)) continue;
             if (!refresh) continue;
             float step = PixelStep(entry.definition);
@@ -182,9 +218,9 @@ public sealed class EffectBlobWorld : MonoBehaviour
             }
         }
         if (!refresh) return;
-        nextRefresh = Time.time + 1f / Mathf.Clamp(EffectNumbers.Positive(refreshRate, DefaultQuality), MinQuality, MaxQuality);
+        nextRefresh = time + 1f / Mathf.Clamp(EffectNumbers.Positive(refreshRate, DefaultQuality), MinQuality, MaxQuality);
         for (int i = 0; i < groups.Count; i++) AddToTiles(groups[i], view, tileLimit);
-        for (int i = 0; i < visibleTiles.Count; i++) tiles[i].End();
+        for (int i = 0; i < visibleTiles.Count; i++) tiles[i].End(time);
         ClearTiles(visibleTiles.Count);
     }
 
@@ -220,9 +256,11 @@ public sealed class EffectBlobWorld : MonoBehaviour
                     if (slot >= tileLimit) continue;
                     if (slot == tiles.Count)
                     {
-                        GameObject host = new("Elemental Surface Tile");
+                        GameObject host = new("Elemental Surface Tile") { hideFlags = gameObject.hideFlags };
                         host.transform.SetParent(transform, false);
-                        tiles.Add(host.AddComponent<EffectBlobRenderer>());
+                        EffectBlobRenderer created = host.AddComponent<EffectBlobRenderer>();
+                        created.InitializeResources();
+                        tiles.Add(created);
                     }
                     tile = tiles[slot];
                     Rect bounds = new(x * tileSize, y * tileSize, tileSize, tileSize);

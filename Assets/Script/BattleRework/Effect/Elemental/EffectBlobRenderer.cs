@@ -56,6 +56,12 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
     private void Awake()
     {
+        InitializeResources();
+    }
+
+    internal void InitializeResources()
+    {
+        if (surface != null) return;
         properties = new MaterialPropertyBlock();
         surface = GetComponent<SpriteRenderer>();
         surface.enabled = false;
@@ -100,8 +106,9 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
     public void Add(EffectVisual visual)
     {
-        if (!ready || count >= MaxSamples || !visual.CaptureBlob(definition, out EffectBlobSample sample)) return;
-        AddSample(sample);
+        if (!ready) return;
+        for (int i = 0; i < visual.BlobSampleCount; i++)
+            if (visual.CaptureBlob(definition, i, out EffectBlobSample sample)) AddSample(sample);
     }
 
     internal void BeginTile(EffectDefinitionSO data, Rect tile, Rect visible, float step, float refreshRate, float roughness)
@@ -137,11 +144,16 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
     public void End()
     {
+        End(Time.time);
+    }
+
+    public void End(float time)
+    {
         if (!ready || count == 0) { Clear(); return; }
-        if (Time.time < nextRefresh && surface.enabled) return;
+        if (time < nextRefresh && surface.enabled) return;
         float rate = EffectNumbers.Positive(definition.mergeRefreshRate, 20f);
         if (fixedGrid) rate = tileRefreshRate;
-        nextRefresh = Time.time + 1f / Mathf.Clamp(rate, 5f, 30f);
+        nextRefresh = time + 1f / Mathf.Clamp(rate, 5f, 30f);
         SpriteRenderer source = samples[0].source;
         float ppu = source.sprite.pixelsPerUnit;
         float length = Mathf.Max(maximum.x - minimum.x, maximum.y - minimum.y);
@@ -189,7 +201,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         }
         else
             EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
-                definition, Time.time, opacity, surfaceRoughness);
+                definition, time, opacity, surfaceRoughness);
         if (!definition.fireParticles && surfaceRoughness > 0f)
             EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness);
         texture.SetPixels32(pixels);
@@ -233,8 +245,25 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (sprite != null) Destroy(sprite);
-        if (texture != null) Destroy(texture);
+        ReleaseResources();
+    }
+
+    public void ReleaseResources()
+    {
+        Clear();
+        if (surface != null) surface.sprite = null;
+        if (Application.isPlaying)
+        {
+            if (sprite != null) Destroy(sprite);
+            if (texture != null) Destroy(texture);
+        }
+        else
+        {
+            if (sprite != null) DestroyImmediate(sprite);
+            if (texture != null) DestroyImmediate(texture);
+        }
+        sprite = null;
+        texture = null;
     }
 }
 

@@ -11,6 +11,13 @@ public sealed class EffectVisual : MonoBehaviour
     private static EffectVisual template;
     private readonly EffectPlayback playback = new();
     private EffectFireParticles fire;
+    private EffectDetailParticles details;
+    private SpriteRenderer[] detailRenderers;
+    private Texture2D detailTexture;
+    private Sprite detailSprite;
+    private EffectBlobWorld previewWorld;
+    private bool preview;
+    private readonly float[] pieceSizes = new float[MaxPieces];
     private readonly List<ElementDefinitionSO> elements = new();
     private readonly Vector3[] positions = new Vector3[HistoryCapacity];
     private readonly double[] times = new double[HistoryCapacity];
@@ -76,15 +83,29 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void Awake()
     {
+        InitializeVisuals(Camera.main);
+    }
+
+    public void InitializePreview(Camera camera, EffectBlobWorld world)
+    {
+        preview = true;
+        previewWorld = world;
+        InitializeVisuals(camera);
+        renderCamera = camera;
+    }
+
+    private void InitializeVisuals(Camera camera)
+    {
+        if (visualRoot != null) return;
         rootScale = transform.localScale;
-        renderCamera = Camera.main;
-        GameObject root = new("Elemental Visual");
+        renderCamera = camera;
+        GameObject root = new("Elemental Visual") { hideFlags = gameObject.hideFlags };
         visualRoot = root.transform;
         visualRoot.SetParent(transform, false);
         renderers = new SpriteRenderer[MaxPieces];
         for (int i = 0; i < MaxPieces; i++)
         {
-            GameObject piece = new("Layer " + i);
+            GameObject piece = new("Layer " + i) { hideFlags = gameObject.hideFlags };
             piece.transform.SetParent(visualRoot, false);
             renderers[i] = piece.AddComponent<SpriteRenderer>();
             renderers[i].enabled = false;
@@ -92,7 +113,7 @@ public sealed class EffectVisual : MonoBehaviour
         defaultMaterial = renderers[0].sharedMaterial;
         properties = new MaterialPropertyBlock();
         smokeProperties = new MaterialPropertyBlock();
-        GameObject lightObject = new("Elemental Light");
+        GameObject lightObject = new("Elemental Light") { hideFlags = gameObject.hideFlags };
         lightObject.transform.SetParent(visualRoot, false);
         localLight = lightObject.AddComponent<Light2D>();
         localLight.lightType = Light2D.LightType.Point;
@@ -106,7 +127,7 @@ public sealed class EffectVisual : MonoBehaviour
         Action<EffectVisual, EffectPhase> phaseStarted = null, Action<EffectVisual> finished = null)
     {
         ResetForPool();
-        if (data == null) { PoolService.Release(gameObject); return; }
+        if (data == null) { if (!preview) PoolService.Release(gameObject); return; }
         definition = data;
         released = false;
         PhaseStarted = phaseStarted;
@@ -115,9 +136,27 @@ public sealed class EffectVisual : MonoBehaviour
         anchored = duration == -1f;
         anchorPosition = transform.position;
         variationSeed = UnityEngine.Random.Range(0f, 1000f);
-        float sizeRange = Mathf.Clamp(data.sizeVariation, 0f, 0.5f);
-        sizeMultiplier = UnityEngine.Random.Range(1f - sizeRange, 1f + sizeRange);
+        sizeMultiplier = EffectNumbers.SpawnScale(data);
+        pieceSizes[0] = 1f;
+        for (int i = 1; i < MaxPieces; i++) pieceSizes[i] = EffectNumbers.SpawnScale(data) / sizeMultiplier;
         velocity = anchored ? Vector3.zero : motion;
+        EffectDetailSettings detailSettings = data.fireParticles ? data.embers :
+            data.family == EffectFamily.Liquid ? data.waterDetails : data.gasDetails;
+        if (detailSettings != null && detailSettings.enabled)
+        {
+            EnsureDetailRenderers();
+            details ??= new EffectDetailParticles();
+            Vector3 scale = transform.lossyScale;
+            details.Play(data, detailSettings, transform.position,
+                Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y)) *
+                EffectNumbers.NonNegative(data.visualScale) * sizeMultiplier);
+            foreach (SpriteRenderer renderer in detailRenderers)
+            {
+                renderer.sharedMaterial = defaultMaterial;
+                renderer.sortingLayerID = data.sortingLayerId;
+                renderer.sortingOrder = data.sortingOrder + 1;
+            }
+        }
         if (data.fireParticles)
         {
             fire ??= new EffectFireParticles();
@@ -146,7 +185,7 @@ public sealed class EffectVisual : MonoBehaviour
         Material smokeMaterial = data.smokeTail != null && data.smokeTail.customMaterial != null
             ? data.smokeTail.customMaterial : material;
         int smokeStart = smokeFrames == null ? MaxPieces : Mathf.Max(1,
-            Mathf.Clamp(data.pieceCount, 1, MaxPieces) - data.smokeTailPieces);
+            PieceCount(data) - data.smokeTailPieces);
         if (smokeFrames != null) ConfigureSmokeProperties(smokeMaterial, data.smokeTail);
         for (int i = 0; i < renderers.Length; i++)
         {
@@ -167,7 +206,12 @@ public sealed class EffectVisual : MonoBehaviour
         if (run == generation && !released)
         {
             Render();
-            if ((data.mergeNearby || data.fireParticles) && !EffectBlobWorld.Register(this, data, run)) Complete(run);
+            if (data.mergeNearby || data.fireParticles)
+            {
+                bool registered = preview ? previewWorld != null && previewWorld.RegisterVisual(this, data, run)
+                    : EffectBlobWorld.Register(this, data, run);
+                if (!registered) Complete(run);
+            }
         }
     }
 
@@ -233,9 +277,14 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void Update()
     {
+        if (!preview) Tick(Time.deltaTime);
+    }
+
+    public void Tick(float deltaTime)
+    {
         if (released || definition == null) return;
         int run = generation;
-        float delta = EffectNumbers.NonNegative(Time.deltaTime);
+        float delta = EffectNumbers.NonNegative(deltaTime);
         age += delta;
         float flightStep = airborne ? Mathf.Min(delta, Mathf.Max(0f, flightDuration - flightElapsed)) : 0f;
         if (anchored) transform.position = anchorPosition;
@@ -265,6 +314,7 @@ public sealed class EffectVisual : MonoBehaviour
         {
             if (definition.fireParticles)
                 fire.Tick(delta, transform.position, velocity, Phase, (float)playback.PhaseProgress);
+            details?.Tick(delta, transform.position, Phase, (float)playback.PhaseProgress);
             Render();
         }
     }
@@ -303,6 +353,7 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void Render()
     {
+        RenderDetails();
         if (definition.fireParticles)
         {
             foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
@@ -329,7 +380,7 @@ public sealed class EffectVisual : MonoBehaviour
             localLight.enabled = false;
             return;
         }
-        int count = Mathf.Clamp(definition.pieceCount, 1, MaxPieces);
+        int count = PieceCount(definition);
         int smokeStart = smokeFrames == null ? count : Mathf.Max(1, count - definition.smokeTailPieces);
         EffectPhase phase = airborne ? EffectPhase.Intro : playback.Phase;
         int phaseIndex = (int)phase - (int)EffectPhase.Intro;
@@ -396,9 +447,10 @@ public sealed class EffectVisual : MonoBehaviour
             piece.localPosition = trail / Mathf.Max(0.0001f, size * expansion) + (Vector3)spread;
             piece.localRotation = Quaternion.identity;
             float pieceScale = i == 0 ? 1f : Mathf.Lerp(0.8f, 0.45f, (float)i / MaxPieces);
+            if (definition.mixedPieceSizes) pieceScale = EffectNumbers.PieceScale(definition, i);
             if (smoke) pieceScale = 0.8f + (anchored ? 0f : Mathf.Min(Mathf.Max(0f, age - delay), 4f)) * EffectNumbers.NonNegative(style.gasExpansion);
             else pieceScale *= Mathf.Lerp(1f, EffectNumbers.NonNegative(style.tailExpansion), tail);
-            piece.localScale = Vector3.one * (pieceScale * (1f + Variation(211f + i * 23f) * deformation));
+            piece.localScale = Vector3.one * (pieceScale * pieceSizes[i] * (1f + Variation(211f + i * 23f) * deformation));
             float ppu = renderer.sprite.pixelsPerUnit;
             Vector3 position = piece.localPosition;
             piece.localPosition = new Vector3(Mathf.Round(position.x * ppu) / ppu, Mathf.Round(position.y * ppu) / ppu, position.z);
@@ -416,12 +468,20 @@ public sealed class EffectVisual : MonoBehaviour
         localLight.pointLightOuterRadius = EffectNumbers.Positive(definition.lightRadius, 0.01f);
     }
 
-    internal bool CaptureBlob(EffectDefinitionSO expected, out EffectBlobSample sample)
+    private static int PieceCount(EffectDefinitionSO data) => Mathf.Clamp(
+        data.mixedPieceSizes && !data.fireParticles ? Mathf.Max(3, data.pieceCount) : data.pieceCount, 1, MaxPieces);
+
+    internal int BlobSampleCount => definition != null ? PieceCount(definition) : 0;
+
+    internal bool CaptureBlob(EffectDefinitionSO expected, out EffectBlobSample sample) => CaptureBlob(expected, 0, out sample);
+
+    internal bool CaptureBlob(EffectDefinitionSO expected, int index, out EffectBlobSample sample)
     {
         sample = default;
-        if (released || definition != expected || !renderers[0].enabled || renderers[0].sprite == null)
+        if (released || definition != expected || index < 0 || index >= renderers.Length ||
+            !renderers[index].enabled || renderers[index].sprite == null)
             return false;
-        SpriteRenderer source = renderers[0];
+        SpriteRenderer source = renderers[index];
         Bounds bounds = source.bounds;
         float growth = !airborne && Phase == EffectPhase.Intro
             ? Mathf.Lerp(0.3f, 1f, (float)playback.PhaseProgress) : 1f;
@@ -438,7 +498,7 @@ public sealed class EffectVisual : MonoBehaviour
         sample.impact = definition.family == EffectFamily.Liquid
             ? (1f - Mathf.SmoothStep(0f, 1f, sample.ripple)) * EffectNumbers.NonNegative(definition.impactFoamStrength) : 0f;
         sample.source = source;
-        foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
+        source.enabled = false;
         return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
     }
 
@@ -484,6 +544,7 @@ public sealed class EffectVisual : MonoBehaviour
                 Mathf.Abs(definition.smokeTail.gasRise)) * 4f * Mathf.Max(1f, scale);
         Vector3 root = transform.lossyScale;
         radius *= Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
+        if (details != null) radius += details.VisibilityRadius;
         Vector3 viewport = renderCamera.WorldToViewportPoint(transform.position);
         if (viewport.z + radius < renderCamera.nearClipPlane || viewport.z - radius > renderCamera.farClipPlane) return false;
         float halfHeight = renderCamera.orthographic ? renderCamera.orthographicSize :
@@ -505,18 +566,22 @@ public sealed class EffectVisual : MonoBehaviour
             if (run == generation && released)
             {
                 ResetForPool();
-                PoolService.Release(gameObject);
+                if (!preview) PoolService.Release(gameObject);
             }
         }
     }
 
     public void ResetForPool()
     {
-        EffectBlobWorld.Unregister(this);
+        if (preview) { if (previewWorld != null) previewWorld.UnregisterVisual(this); }
+        else EffectBlobWorld.Unregister(this);
         unchecked { generation++; }
         released = true;
         playback.Reset();
         fire?.Reset();
+        details?.Reset();
+        if (detailRenderers != null)
+            foreach (SpriteRenderer renderer in detailRenderers) renderer.enabled = false;
         PhaseStarted = null;
         Finished = null;
         definition = null;
@@ -529,6 +594,7 @@ public sealed class EffectVisual : MonoBehaviour
         flightElapsed = flightDuration = age = requestedDuration = 0f;
         variationSeed = 0f;
         sizeMultiplier = 1f;
+        Array.Clear(pieceSizes, 0, pieceSizes.Length);
         velocity = Vector3.zero;
         frameRadius = 0f;
         historyHead = historyCount = 0;
@@ -568,5 +634,84 @@ public sealed class EffectVisual : MonoBehaviour
         ResetForPool();
         transform.localPosition = Vector3.zero;
         transform.localRotation = Quaternion.identity;
+    }
+
+    private void EnsureDetailRenderers()
+    {
+        if (detailRenderers != null) return;
+        const int resolution = 16;
+        detailTexture = new Texture2D(resolution, resolution, TextureFormat.RGBA32, false)
+        {
+            name = "Elemental Detail", hideFlags = HideFlags.HideAndDontSave,
+            filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp
+        };
+        Color32[] pixels = new Color32[resolution * resolution];
+        for (int y = 0; y < resolution; y++)
+            for (int x = 0; x < resolution; x++)
+            {
+                Vector2 point = new((x + 0.5f) / resolution * 2f - 1f, (y + 0.5f) / resolution * 2f - 1f);
+                pixels[y * resolution + x] = new Color(1f, 1f, 1f, Mathf.Clamp01((1f - point.sqrMagnitude) * 2f));
+            }
+        detailTexture.SetPixels32(pixels);
+        detailTexture.Apply(false, true);
+        detailSprite = Sprite.Create(detailTexture, new Rect(0, 0, resolution, resolution),
+            new Vector2(0.5f, 0.5f), resolution, 0, SpriteMeshType.FullRect);
+        detailSprite.hideFlags = HideFlags.HideAndDontSave;
+        detailRenderers = new SpriteRenderer[EffectDetailParticles.MaxParticles];
+        for (int i = 0; i < detailRenderers.Length; i++)
+        {
+            GameObject host = new("Detail " + i) { hideFlags = gameObject.hideFlags };
+            host.transform.SetParent(transform, false);
+            SpriteRenderer renderer = host.AddComponent<SpriteRenderer>();
+            renderer.sprite = detailSprite;
+            renderer.enabled = false;
+            detailRenderers[i] = renderer;
+        }
+    }
+
+    private void RenderDetails()
+    {
+        if (detailRenderers == null || details == null) return;
+        bool visible = WithinCamera();
+        Vector3 scale = transform.lossyScale;
+        for (int i = 0; i < detailRenderers.Length; i++)
+        {
+            SpriteRenderer renderer = detailRenderers[i];
+            bool active = details.Capture(i, out Vector3 position, out Vector2 size, out Color color);
+            renderer.enabled = visible && active;
+            if (!renderer.enabled) continue;
+            renderer.transform.position = position;
+            renderer.transform.localScale = new Vector3(size.x / Mathf.Max(0.0001f, Mathf.Abs(scale.x)),
+                size.y / Mathf.Max(0.0001f, Mathf.Abs(scale.y)), 1f);
+            renderer.color = color;
+        }
+    }
+
+    private void OnDestroy()
+    {
+        ReleaseDetailResources();
+    }
+
+    public void DisposePreview()
+    {
+        if (!preview) return;
+        ResetForPool();
+        ReleaseDetailResources();
+    }
+
+    private void ReleaseDetailResources()
+    {
+        if (Application.isPlaying)
+        {
+            if (detailSprite != null) Destroy(detailSprite);
+            if (detailTexture != null) Destroy(detailTexture);
+        }
+        else
+        {
+            if (detailSprite != null) DestroyImmediate(detailSprite);
+            if (detailTexture != null) DestroyImmediate(detailTexture);
+        }
+        detailSprite = null;
+        detailTexture = null;
     }
 }
