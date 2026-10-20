@@ -26,6 +26,7 @@ public sealed class EffectEmitter : MonoBehaviour
     [Min(0f)] public float spawnRadius = 0.12f;
     public float sprinklerDegreesPerSecond = 140f;
     public float emissionDuration = 1.5f;
+    public bool playOnStart;
     [Range(1, 256)] public int maxActive = 64;
     private readonly List<ActiveVisual> active = new();
     private bool emitting;
@@ -42,6 +43,8 @@ public sealed class EffectEmitter : MonoBehaviour
     }
 
     public int ActiveCount => active.Count;
+
+    private void Start() { if (playOnStart) Trigger(); }
 
     public void Trigger() { Trigger(definition, mode, definition != null ? definition.duration : 0f); }
 
