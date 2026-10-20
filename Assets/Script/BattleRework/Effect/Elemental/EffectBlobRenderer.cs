@@ -19,7 +19,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private readonly EffectBlobSample[] samples = new EffectBlobSample[MaxSamples];
     private readonly float[] density = new float[Resolution * Resolution];
     private readonly Color32[] pixels = new Color32[Resolution * Resolution];
-    private readonly MaterialPropertyBlock properties = new();
+    private MaterialPropertyBlock properties;
     private SpriteRenderer surface;
     private Texture2D texture;
     private Sprite sprite;
@@ -33,6 +33,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
     private void Awake()
     {
+        properties = new MaterialPropertyBlock();
         surface = GetComponent<SpriteRenderer>();
         surface.enabled = false;
         renderCamera = Camera.main;
@@ -126,6 +127,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             samples[0].center.z), Quaternion.identity);
         transform.localScale = new Vector3(size / parentScale.x, size / parentScale.y, 1f);
         surface.sharedMaterial = source.sharedMaterial;
+        properties ??= new MaterialPropertyBlock();
         source.GetPropertyBlock(properties);
         surface.SetPropertyBlock(properties);
         tint.a = opacity;

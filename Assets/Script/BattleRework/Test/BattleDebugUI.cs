@@ -579,7 +579,6 @@ public sealed class ElementalTestSamples : System.IDisposable
             Configure(data, i);
             Definitions[i] = data;
         }
-        Definitions[0].smokeTail = Definitions[1];
     }
 
     public static void Configure(EffectDefinitionSO data, int sample)
@@ -587,6 +586,7 @@ public sealed class ElementalTestSamples : System.IDisposable
         data.tint = data.emissionColor = data.lightColor = Colors[sample];
         data.family = sample == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
         data.pieceCount = sample == 0 ? 5 : 1;
+        if (sample == 0) data.smokeTail = null;
         data.mergeNearby = sample == 1 || sample == 2;
         data.mergeSoftness = sample == 1 ? 0.3f : 0.12f;
         data.gasRise = sample == 1 ? 0.3f : 0.2f;
