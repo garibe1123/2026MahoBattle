@@ -87,14 +87,7 @@ public static class HarnessElementalSamples
             EffectDefinitionSO definition = Object.Instantiate(original);
             definition.name = TestNames[i] + " Test Visual";
             definition.sourceSheet = CreateSource(i);
-            if (i == 1)
-            {
-                definition.tint = new Color(0.55f, 0.55f, 0.6f, 0.8f);
-                definition.emissionStrength = 0f;
-                definition.useLight = false;
-                definition.gasRise = 0.65f;
-                definition.gasExpansion = 0.6f;
-            }
+            ElementalTestSamples.Configure(definition, i);
             definitions[i] = definition;
             AssetDatabase.CreateAsset(definition, path);
         }

@@ -537,9 +537,11 @@ public sealed class ElementalTestSamples : System.IDisposable
 {
     public const int Cell = 32;
     public const float PixelsPerUnit = 32f;
+    private const float SampleOpacity = 0.6f;
+    private const float RoundedEdgeWidth = 0.14f;
     public static readonly string[] Names = { "Fire", "Smoke", "Water" };
     private static readonly Color[] Colors = {
-        new(1f, 0.4f, 0.08f), new(0.55f, 0.55f, 0.6f, 0.8f), new(0.15f, 0.55f, 1f)
+        new(1f, 0.4f, 0.08f, SampleOpacity), new(0.55f, 0.55f, 0.6f, SampleOpacity), new(0.15f, 0.55f, 1f, SampleOpacity)
     };
     private readonly Texture2D[] textures = new Texture2D[3];
     private readonly Sprite[] sheets = new Sprite[3];
@@ -571,19 +573,29 @@ public sealed class ElementalTestSamples : System.IDisposable
             data.cellSize = new Vector2Int(Cell, Cell);
             data.layout = new Vector2Int(4, 4);
             data.customMaterial = material;
-            data.tint = data.emissionColor = data.lightColor = Colors[i];
-            data.family = i == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
-            data.pieceCount = i == 0 ? 5 : i == 1 ? 4 : 1;
-            data.gasRise = i == 1 ? 0.65f : 0.2f;
-            data.gasExpansion = i == 1 ? 0.6f : 0.15f;
-            data.tailOffset = new Vector2(-0.13f, 0.1f);
-            data.emissionStrength = i == 1 ? 0f : 1f;
-            data.useLight = i == 0;
-            data.lightMode = EffectLightMode.Flicker;
-            data.lightIntensity = 0.8f;
-            data.lightRadius = 1.5f;
+            Configure(data, i);
             Definitions[i] = data;
         }
+    }
+
+    public static void Configure(EffectDefinitionSO data, int sample)
+    {
+        data.tint = data.emissionColor = data.lightColor = Colors[sample];
+        data.family = sample == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
+        data.pieceCount = sample == 0 ? 5 : sample == 1 ? 3 : 1;
+        data.gasRise = sample == 1 ? 0.3f : 0.2f;
+        data.gasExpansion = sample == 1 ? 0.2f : 0.15f;
+        data.tailOffset = sample == 1 ? new Vector2(0.015f, 0.035f)
+            : sample == 0 ? new Vector2(-0.13f, 0.1f) : Vector2.zero;
+        data.edgeSpread = sample == 0 ? 0.1f : 0.025f;
+        data.pieceDelay = sample == 1 ? 0.12f : 0.07f;
+        data.pieceAttenuation = sample == 1 ? 0.72f : 0.75f;
+        data.puddleScale = new Vector2(1.1f, 0.95f);
+        data.emissionStrength = sample == 1 ? 0f : 1f;
+        data.useLight = sample == 0;
+        data.lightMode = EffectLightMode.Flicker;
+        data.lightIntensity = 0.8f;
+        data.lightRadius = 1.5f;
     }
 
     public static Texture2D CreateTexture(int sample, int cell)
@@ -603,20 +615,17 @@ public sealed class ElementalTestSamples : System.IDisposable
                 {
                     float dx = (x + 0.5f - cell * 0.5f) / (cell * 0.5f);
                     float dy = (y + 0.5f - cell * 0.5f) / (cell * 0.5f);
+                    int px = frame % 4 * cell + x;
+                    int py = (3 - frame / 4) * cell + y;
+                    if (sample == 1 || sample == 2)
+                    {
+                        pixels[py * texture.width + px] = RoundedPixel(dx, dy, sample, phase, progress);
+                        continue;
+                    }
                     if (sample == 0)
                     {
                         dx /= Mathf.Lerp(1f, 0.3f, (dy + 1f) * 0.5f);
                         dy = (dy + 0.15f) / 1.2f;
-                    }
-                    else if (sample == 1)
-                    {
-                        dx += Mathf.Sin(dy * 8f + frame * 0.8f) * 0.14f;
-                        dy *= 0.85f;
-                    }
-                    else if (sample == 2)
-                    {
-                        dx /= Mathf.Lerp(1f, 0.45f, (dy + 1f) * 0.5f);
-                        dy /= 1.1f;
                     }
                     float angle = Mathf.Atan2(dy, dx);
                     float radius = Mathf.Sqrt(dx * dx + dy * dy);
@@ -626,15 +635,68 @@ public sealed class ElementalTestSamples : System.IDisposable
                     if (phase == 2)
                         filled &= radius >= progress * 0.83f && Mathf.Sin(angle * 7f + frame) > -1f + progress * 1.4f;
                     byte shade = (byte)(radius < edge * 0.55f ? 255 : radius < edge * 0.85f ? 220 : 170);
-                    int px = frame % 4 * cell + x;
-                    int py = (3 - frame / 4) * cell + y;
-                    byte alpha = sample == 1 ? (byte)190 : (byte)255;
-                    pixels[py * texture.width + px] = filled ? new Color32(shade, shade, shade, alpha) : new Color32(0, 0, 0, 0);
+                    pixels[py * texture.width + px] = filled ? new Color32(shade, shade, shade, 255) : new Color32(0, 0, 0, 0);
                 }
         }
         texture.SetPixels32(pixels);
         texture.Apply();
         return texture;
+    }
+
+    private static Color32 RoundedPixel(float x, float y, int sample, int phase, float progress)
+    {
+        float cycle = phase == 1 ? progress * Mathf.PI * 2f : 0f;
+        float radius = phase == 0 ? Mathf.SmoothStep(0.24f, 0.68f, progress) : 0.68f;
+        radius *= 1f + Mathf.Sin(cycle) * 0.025f;
+        float distance = CircleDistance(x, y, 0f, 0f, radius * 0.85f);
+        if (sample == 1)
+        {
+            float sway = Mathf.Sin(cycle) * 0.025f;
+            distance = SmoothUnion(distance, CircleDistance(x, y, -radius * 0.34f, radius * 0.12f + sway, radius * 0.64f));
+            distance = SmoothUnion(distance, CircleDistance(x, y, radius * 0.32f, radius * 0.08f - sway, radius * 0.65f));
+            distance = SmoothUnion(distance, CircleDistance(x, y, radius * 0.04f, radius * 0.38f, radius * 0.6f));
+        }
+        else
+        {
+            distance = SmoothUnion(distance, CircleDistance(x, y, -radius * 0.25f, radius * 0.08f, radius * 0.68f));
+            distance = SmoothUnion(distance, CircleDistance(x, y, radius * 0.27f, -radius * 0.06f, radius * 0.67f));
+        }
+        float coverage = CircleCoverage(distance);
+        float radial = Mathf.Sqrt(x * x + y * y);
+        if (phase == 2)
+        {
+            float hole = radius * progress * 0.85f;
+            coverage *= Mathf.SmoothStep(0f, 1f, (radial - hole + RoundedEdgeWidth * 0.5f) / RoundedEdgeWidth);
+            float fragments = 0f;
+            for (int i = 0; i < 4; i++)
+            {
+                float angle = i * Mathf.PI * 0.5f + 0.4f;
+                float offset = radius * (0.65f + progress * 0.35f);
+                float fragmentRadius = radius * 0.3f * (1f - progress);
+                fragments = Mathf.Max(fragments, CircleCoverage(CircleDistance(x, y,
+                    Mathf.Cos(angle) * offset, Mathf.Sin(angle) * offset, fragmentRadius)));
+            }
+            coverage = Mathf.Lerp(coverage, fragments, Mathf.SmoothStep(0f, 1f, progress)) * (1f - progress);
+        }
+        byte shade = (byte)Mathf.RoundToInt(Mathf.Lerp(250f, 215f, Mathf.SmoothStep(0f, 1f, radial / radius)));
+        byte alpha = (byte)Mathf.RoundToInt(Mathf.Clamp01(coverage) * 255f);
+        return alpha > 0 ? new Color32(shade, shade, shade, alpha) : new Color32(0, 0, 0, 0);
+    }
+
+    private static float CircleDistance(float x, float y, float centerX, float centerY, float radius)
+    {
+        float dx = x - centerX;
+        float dy = y - centerY;
+        return Mathf.Sqrt(dx * dx + dy * dy) - radius;
+    }
+
+    private static float CircleCoverage(float distance) =>
+        1f - Mathf.SmoothStep(0f, 1f, (distance + RoundedEdgeWidth * 0.5f) / RoundedEdgeWidth);
+
+    private static float SmoothUnion(float a, float b)
+    {
+        float blend = Mathf.Clamp01(0.5f + 0.5f * (b - a) / RoundedEdgeWidth);
+        return Mathf.Lerp(b, a, blend) - RoundedEdgeWidth * blend * (1f - blend);
     }
 
     public void Dispose()
