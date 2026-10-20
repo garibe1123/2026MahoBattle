@@ -70,6 +70,14 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Min(0.01f)] public float variationFrequency = 1.5f;
     [Range(0f, 0.5f)] public float sizeVariation;
     [Range(0f, 0.3f)] public float shapeVariation;
+    [Header("Nearby blobs share one translucent surface")]
+    public bool mergeNearby;
+    [Range(0.2f, 1f)] public float mergeRadius = 0.7f;
+    [Range(0.02f, 0.5f)] public float mergeSoftness = 0.18f;
+    [Range(5f, 30f)] public float mergeRefreshRate = 20f;
+    [Header("Smoke layers at the end of the fire trail")]
+    public EffectDefinitionSO smokeTail;
+    [Range(1, 4)] public int smokeTailPieces = 2;
     [Header("Liquid flight; landing starts Intro")]
     [Min(0f)] public float airborneDuration = 0.25f;
     public float airborneHeight = 0.5f;

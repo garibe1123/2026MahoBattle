@@ -579,6 +579,7 @@ public sealed class ElementalTestSamples : System.IDisposable
             Configure(data, i);
             Definitions[i] = data;
         }
+        Definitions[0].smokeTail = Definitions[1];
     }
 
     public static void Configure(EffectDefinitionSO data, int sample)
@@ -586,6 +587,8 @@ public sealed class ElementalTestSamples : System.IDisposable
         data.tint = data.emissionColor = data.lightColor = Colors[sample];
         data.family = sample == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
         data.pieceCount = sample == 0 ? 5 : 1;
+        data.mergeNearby = sample == 1 || sample == 2;
+        data.mergeSoftness = sample == 1 ? 0.3f : 0.12f;
         data.gasRise = sample == 1 ? 0.3f : 0.2f;
         data.gasExpansion = sample == 1 ? 0.2f : 0.15f;
         data.tailOffset = sample == 1 ? new Vector2(0.015f, 0.035f)
@@ -607,10 +610,9 @@ public sealed class ElementalTestSamples : System.IDisposable
 
     public static void ConfigureEmitter(EffectEmitter emitter, int sample)
     {
-        bool singleBlob = sample == 1 || sample == 2;
-        emitter.burstCount = singleBlob ? 1 : 8;
+        emitter.burstCount = 8;
         emitter.streamCount = 1;
-        emitter.maxActive = singleBlob ? 1 : 64;
+        emitter.maxActive = 64;
         emitter.direction = sample == 2 ? Vector2.down : Vector2.up;
         emitter.speed = sample == 2 ? 1.5f : 0.35f;
         emitter.spreadAngle = sample == 2 ? 25f : 35f;

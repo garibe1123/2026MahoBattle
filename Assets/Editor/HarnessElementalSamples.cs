@@ -97,6 +97,8 @@ public static class HarnessElementalSamples
             definitions[i] = definition;
             AssetDatabase.CreateAsset(definition, path);
         }
+        definitions[0].smokeTail = definitions[1];
+        EditorUtility.SetDirty(definitions[0]);
         AssetDatabase.SaveAssets();
 
         const string testName = "Harness Fire Smoke Water Tests";

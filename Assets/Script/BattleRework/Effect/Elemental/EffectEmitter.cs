@@ -32,6 +32,14 @@ public sealed class EffectEmitter : MonoBehaviour
     private readonly List<ActiveVisual> active = new();
     private bool emitting;
     private float elapsed, timer, visualDuration;
+    private EffectBlobRenderer blobRenderer;
+
+    private void Awake()
+    {
+        GameObject host = new("Merged Elemental Surface");
+        host.transform.SetParent(transform, false);
+        blobRenderer = host.AddComponent<EffectBlobRenderer>();
+    }
 
     public EffectVisual Latest
     {
@@ -102,6 +110,15 @@ public sealed class EffectEmitter : MonoBehaviour
         }
     }
 
+    private void LateUpdate()
+    {
+        blobRenderer.Begin(definition);
+        if (definition != null && definition.mergeNearby)
+            for (int i = 0; i < active.Count; i++)
+                if (Valid(active[i])) blobRenderer.Add(active[i].visual);
+        blobRenderer.End();
+    }
+
     private static bool Valid(ActiveVisual item) => item.visual != null &&
         item.visual.ExecutionId == item.execution && item.visual.IsPlaying;
 
@@ -119,8 +136,13 @@ public sealed class EffectEmitter : MonoBehaviour
         for (int i = active.Count - 1; i >= 0; i--)
             if (Valid(active[i])) PoolService.Release(active[i].visual.gameObject);
         active.Clear();
+        if (blobRenderer != null) blobRenderer.Clear();
     }
 
-    private void OnDisable() { StopEmission(); }
+    private void OnDisable()
+    {
+        StopEmission();
+        if (blobRenderer != null) blobRenderer.Clear();
+    }
     private void OnDestroy() { ClearVisuals(); }
 }

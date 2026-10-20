@@ -16,10 +16,12 @@ public sealed class EffectVisual : MonoBehaviour
     private SpriteRenderer[] renderers;
     private Material defaultMaterial;
     private MaterialPropertyBlock properties;
+    private MaterialPropertyBlock smokeProperties;
     private Transform visualRoot;
     private Light2D localLight;
     private EffectDefinitionSO definition;
     private Sprite[][] frames;
+    private Sprite[][] smokeFrames;
     private int historyHead, historyCount, generation, playbackRun;
     private bool released = true;
     private bool airborne;
@@ -85,6 +87,7 @@ public sealed class EffectVisual : MonoBehaviour
         }
         defaultMaterial = renderers[0].sharedMaterial;
         properties = new MaterialPropertyBlock();
+        smokeProperties = new MaterialPropertyBlock();
         GameObject lightObject = new("Elemental Light");
         lightObject.transform.SetParent(visualRoot, false);
         localLight = lightObject.AddComponent<Light2D>();
@@ -116,12 +119,24 @@ public sealed class EffectVisual : MonoBehaviour
         if (extraElements != null)
             for (int i = 0; i < extraElements.Count; i++) AddElement(extraElements[i]);
         frames = new[] { data.GetFrames(EffectPhase.Intro), data.GetFrames(EffectPhase.Idle), data.GetFrames(EffectPhase.End) };
+        if (data.smokeTail != null)
+        {
+            smokeFrames = new[] { data.smokeTail.GetFrames(EffectPhase.Intro),
+                data.smokeTail.GetFrames(EffectPhase.Idle), data.smokeTail.GetFrames(EffectPhase.End) };
+            foreach (Sprite[] clip in smokeFrames)
+                foreach (Sprite sprite in clip) frameRadius = Mathf.Max(frameRadius, sprite.bounds.extents.magnitude);
+        }
         foreach (Sprite[] clip in frames)
             foreach (Sprite sprite in clip) frameRadius = Mathf.Max(frameRadius, sprite.bounds.extents.magnitude);
         Material material = data.customMaterial != null ? data.customMaterial : defaultMaterial;
+        Material smokeMaterial = data.smokeTail != null && data.smokeTail.customMaterial != null
+            ? data.smokeTail.customMaterial : material;
+        int smokeStart = smokeFrames == null ? MaxPieces : Mathf.Max(1,
+            Mathf.Clamp(data.pieceCount, 1, MaxPieces) - data.smokeTailPieces);
+        if (smokeFrames != null) ConfigureSmokeProperties(smokeMaterial, data.smokeTail);
         for (int i = 0; i < renderers.Length; i++)
         {
-            renderers[i].sharedMaterial = material;
+            renderers[i].sharedMaterial = i >= smokeStart ? smokeMaterial : material;
             renderers[i].sortingLayerID = data.sortingLayerId;
             renderers[i].sortingOrder = data.sortingOrder - i;
         }
@@ -158,6 +173,22 @@ public sealed class EffectVisual : MonoBehaviour
             return true;
         }
         return false;
+    }
+
+    private void ConfigureSmokeProperties(Material material, EffectDefinitionSO style)
+    {
+        smokeProperties.Clear();
+        float emission = EffectNumbers.NonNegative(style.emissionStrength);
+        bool strength = ResolveProperty(material, style.emissionStrengthProperty, null, out int strengthId);
+        if (ResolveProperty(material, style.emissionColorProperty, "_GlowColor", out int colorId))
+            smokeProperties.SetColor(colorId, style.emissionColor * (strength ? 1f : emission));
+        if (strength) smokeProperties.SetFloat(strengthId, emission);
+        if (ResolveProperty(material, style.lightResponseProperty, null, out int lightId))
+            smokeProperties.SetFloat(lightId, Mathf.Clamp01(style.lightResponse));
+        if (ResolveProperty(material, style.rimProperty, null, out int rimPropertyId))
+            smokeProperties.SetFloat(rimPropertyId, style.rimStrength);
+        if (ResolveProperty(material, style.centerProperty, null, out int centerPropertyId))
+            smokeProperties.SetFloat(centerPropertyId, style.centerStrength);
     }
 
     private void BeginPlayback(bool startAtEnd = false)
@@ -252,6 +283,7 @@ public sealed class EffectVisual : MonoBehaviour
             return;
         }
         int count = Mathf.Clamp(definition.pieceCount, 1, MaxPieces);
+        int smokeStart = smokeFrames == null ? count : Mathf.Max(1, count - definition.smokeTailPieces);
         EffectPhase phase = airborne ? EffectPhase.Intro : playback.Phase;
         int phaseIndex = (int)phase - (int)EffectPhase.Intro;
         if (phaseIndex < 0 || phaseIndex >= frames.Length) return;
@@ -286,30 +318,39 @@ public sealed class EffectVisual : MonoBehaviour
         for (int i = 0; i < renderers.Length; i++)
         {
             SpriteRenderer renderer = renderers[i];
+            bool smoke = i >= smokeStart && i < count;
+            EffectDefinitionSO style = smoke ? definition.smokeTail : definition;
+            Sprite[] pieceClip = smoke ? smokeFrames[phaseIndex] : clip;
             float delay = EffectNumbers.NonNegative(definition.pieceDelay) * i;
-            renderer.enabled = i < count && age >= delay && clip.Length > 0;
+            renderer.enabled = i < count && age >= delay && pieceClip.Length > 0;
             if (!renderer.enabled) continue;
-            int frame = airborne ? 0 : playback.FrameIndex(clip.Length, delay);
-            renderer.sprite = clip[frame];
+            int frame = airborne ? 0 : playback.FrameIndex(pieceClip.Length, delay);
+            renderer.sprite = pieceClip[frame];
             float attenuation = Mathf.Pow(Mathf.Clamp01(definition.pieceAttenuation), i);
-            Color tint = definition.tint;
-            tint.r *= brightness * attenuation;
-            tint.g *= brightness * attenuation;
-            tint.b *= brightness * attenuation;
+            if (smoke) attenuation = Mathf.Pow(Mathf.Clamp01(style.pieceAttenuation), i - smokeStart);
+            float pieceBrightness = smoke ? phase == EffectPhase.Intro ? style.introBrightness :
+                phase == EffectPhase.End ? style.endBrightness : style.idleBrightness : brightness;
+            Color tint = style.tint;
+            tint.r *= pieceBrightness * attenuation;
+            tint.g *= pieceBrightness * attenuation;
+            tint.b *= pieceBrightness * attenuation;
             tint.a *= attenuation;
             renderer.color = tint;
             Transform piece = renderer.transform;
             Vector3 trail = i == 0 ? Vector3.zero : transform.InverseTransformVector(PositionAt(age - delay) - transform.position);
             Vector2 spread = i == 0 ? Vector2.zero : definition.tailOffset * i +
                 new Vector2(Variation(71f + i * 13f), Variation(139f + i * 17f)) * definition.edgeSpread * i;
+            if (smoke) spread.y += Mathf.Min(Mathf.Max(0f, age - delay), 4f) * style.gasRise;
             piece.localPosition = trail / Mathf.Max(0.0001f, size * expansion) + (Vector3)spread;
             piece.localRotation = Quaternion.identity;
             float pieceScale = i == 0 ? 1f : Mathf.Lerp(0.8f, 0.45f, (float)i / MaxPieces);
+            if (smoke) pieceScale = 0.8f + Mathf.Min(Mathf.Max(0f, age - delay), 4f) * EffectNumbers.NonNegative(style.gasExpansion);
             piece.localScale = Vector3.one * (pieceScale * (1f + Variation(211f + i * 23f) * deformation));
             float ppu = renderer.sprite.pixelsPerUnit;
             Vector3 position = piece.localPosition;
             piece.localPosition = new Vector3(Mathf.Round(position.x * ppu) / ppu, Mathf.Round(position.y * ppu) / ppu, position.z);
-            ApplyProperties(renderer, attenuation);
+            if (smoke) renderer.SetPropertyBlock(smokeProperties);
+            else ApplyProperties(renderer, attenuation);
             visible |= renderer.isVisible;
         }
         localLight.enabled = definition.useLight && visible && envelope > 0f;
@@ -322,9 +363,28 @@ public sealed class EffectVisual : MonoBehaviour
         localLight.pointLightOuterRadius = EffectNumbers.Positive(definition.lightRadius, 0.01f);
     }
 
+    internal bool CaptureBlob(EffectDefinitionSO expected, out EffectBlobSample sample)
+    {
+        sample = default;
+        if (released || definition != expected || !renderers[0].enabled || renderers[0].sprite == null)
+            return false;
+        SpriteRenderer source = renderers[0];
+        Bounds bounds = source.bounds;
+        float growth = !airborne && Phase == EffectPhase.Intro
+            ? Mathf.Lerp(0.3f, 1f, (float)playback.PhaseProgress) : 1f;
+        sample.center = bounds.center;
+        sample.radius = new Vector2(bounds.extents.x, bounds.extents.y) *
+            (Mathf.Clamp(definition.mergeRadius, 0.2f, 1f) * growth);
+        sample.weight = !airborne && Phase == EffectPhase.End ? 1f - (float)playback.PhaseProgress : 1f;
+        sample.dissolve = !airborne && Phase == EffectPhase.End ? (float)playback.PhaseProgress : 0f;
+        sample.source = source;
+        foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
+        return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
+    }
+
     private void ApplyProperties(SpriteRenderer renderer, float attenuation)
     {
-        if (!renderer.isVisible) return;
+        if (!renderer.isVisible && !definition.mergeNearby) return;
         properties.Clear();
         float emission = EffectNumbers.NonNegative(definition.emissionStrength) * attenuation;
         if (hasEmissionColor) properties.SetColor(emissionColorId, definition.emissionColor * (hasEmissionStrength ? 1f : emission));
@@ -347,6 +407,9 @@ public sealed class EffectVisual : MonoBehaviour
             Mathf.Abs(definition.gasRise) * 4f + Mathf.Abs(definition.airborneHeight) +
             (velocity.magnitude + EffectNumbers.NonNegative(definition.motionWander) * 1.414214f) *
             EffectNumbers.NonNegative(definition.pieceDelay) * MaxPieces;
+        if (definition.smokeTail != null)
+            radius += (frameRadius * EffectNumbers.NonNegative(definition.smokeTail.gasExpansion) +
+                Mathf.Abs(definition.smokeTail.gasRise)) * 4f * Mathf.Max(1f, scale);
         Vector3 root = transform.lossyScale;
         radius *= Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
         Vector3 viewport = renderCamera.WorldToViewportPoint(transform.position);
@@ -383,7 +446,7 @@ public sealed class EffectVisual : MonoBehaviour
         PhaseStarted = null;
         Finished = null;
         definition = null;
-        frames = null;
+        frames = smokeFrames = null;
         elements.Clear();
         Faction = EffectFaction.Neutral;
         airborne = false;
@@ -413,6 +476,7 @@ public sealed class EffectVisual : MonoBehaviour
         }
         properties.Clear();
         hasEmissionColor = hasEmissionStrength = hasResponse = hasRim = hasCenter = false;
+        smokeProperties.Clear();
         localLight.enabled = false;
         localLight.intensity = 0f;
         localLight.color = Color.white;
