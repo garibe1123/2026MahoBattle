@@ -61,6 +61,10 @@ internal sealed class EffectFireParticles
             for (int i = 0; i < Capacity; i++) particles[i].endAge = NormalizedAge(particles[i]);
         }
         endProgress = ending ? Mathf.Clamp01(progress) : 0f;
+        float spread = EffectNumbers.NonNegative(definition.fireSpread) * scale;
+        float smokeSpread = EffectNumbers.NonNegative(definition.fireSmokeSpread);
+        float surgeTime = flowTime * EffectNumbers.Positive(definition.fireSurgeFrequency, 1.2f);
+        float flameDuration = FlameDuration;
         for (int i = 0; i < Capacity; i++)
         {
             Particle particle = particles[i];
@@ -70,15 +74,14 @@ internal sealed class EffectFireParticles
             if (ending) t = Mathf.Max(t, Mathf.Lerp(particle.endAge, 1f, endProgress));
             if (t >= 1f) { particle.active = false; particles[i] = particle; continue; }
             float wander = (Mathf.PerlinNoise(particle.seed, particle.age * 1.7f) - 0.5f) * 2f;
-            float spread = EffectNumbers.NonNegative(definition.fireSpread) * scale;
-            float smoke = Smoke(t);
+            float smoke = Mathf.SmoothStep(0f, 1f, (t - flameDuration) / (1f - flameDuration));
             float flow = (Mathf.PerlinNoise(flowSeed + particle.source * 19f,
-                flowTime * EffectNumbers.Positive(definition.fireSurgeFrequency, 1.2f) - particle.age * 0.35f) - 0.5f) * 2f;
+                surgeTime - particle.age * 0.35f) - 0.5f) * 2f;
             Vector3 drift = particle.velocity * Mathf.Lerp(1f, 0.7f, smoke);
             drift.x += flow * (spread + particle.radius * particle.surge * 2f) * (1f - smoke);
             drift.y += particle.radius * particle.surge * (1f + flow) * (1f - smoke);
             drift.x += wander * spread * (Mathf.Lerp(0.25f, 1f, t) +
-                EffectNumbers.NonNegative(definition.fireSmokeSpread) * smoke);
+                smokeSpread * smoke);
             drift.y += (Mathf.PerlinNoise(particle.seed + 71f, particle.age * 1.3f) - 0.5f) *
                 spread * smoke;
             particle.position += drift * delta;
@@ -146,6 +149,30 @@ internal sealed class EffectFireParticles
     private float FlameDuration => Mathf.Clamp(EffectNumbers.Positive(definition.fireFlameDuration, 0.68f), 0.35f, 0.9f);
 
     private float Smoke(float age) => Mathf.SmoothStep(0f, 1f, (age - FlameDuration) / (1f - FlameDuration));
+
+    public float GetVisibilityRadius(Vector3 origin)
+    {
+        if (definition == null) return 0f;
+        // Bound the existing sample footprint without generating render samples.
+        float growth = (1f + EffectNumbers.NonNegative(definition.gasExpansion) +
+            EffectNumbers.NonNegative(definition.fireSmokeExpansion)) *
+            (1f + Mathf.Clamp(definition.fireTurbulence, 0f, 0.6f));
+        Vector2 shape = new(EffectNumbers.Positive(definition.fireShapeScale.x, 1f),
+            EffectNumbers.Positive(definition.fireShapeScale.y, 1.35f));
+        float radius = 0f;
+        for (int i = 0; i < Capacity; i++)
+        {
+            Particle particle = particles[i];
+            if (!particle.active) continue;
+            float t = NormalizedAge(particle);
+            if (ending) t = Mathf.Max(t, Mathf.Lerp(particle.endAge, 1f, endProgress));
+            Vector3 center = particle.position + (Vector3)(definition.visualCurves?.Offset(t) ?? Vector2.zero) * scale;
+            Vector2 extent = new Vector2(shape.x * 1.25f, shape.y * (1f + particle.surge * 0.65f)) *
+                (particle.radius * growth * 2f);
+            radius = Mathf.Max(radius, (center - origin).magnitude + extent.magnitude);
+        }
+        return radius;
+    }
 
     public bool Capture(int index, out EffectBlobSample sample)
     {
@@ -277,6 +304,16 @@ internal sealed class EffectDetailParticles
         if (definition == null) return;
         flowTime += delta;
         endFade = phase == EffectPhase.End ? 1f - Mathf.Clamp01(progress) : 1f;
+        bool fireParticles = definition.fireParticles;
+        bool liquid = definition.family == EffectFamily.Liquid && !fireParticles;
+        float gravityStep = WaterGravity * scale * delta;
+        float currentTime = flowTime * 0.45f;
+        float travel = fireParticles ? EffectNumbers.Positive(definition.emberTravelScale, 1.8f) : 1f;
+        float spread = EffectNumbers.NonNegative(settings.spread);
+        float updraft = EffectNumbers.NonNegative(settings.updraftAcceleration) * scale;
+        float drag = 1f + delta * 0.35f;
+        bool curved = settings.visualCurves != null && settings.visualCurves.enabled;
+        float expansion = 1f + EffectNumbers.NonNegative(settings.expansion);
         for (int i = 0; i < capacity; i++)
         {
             Particle particle = particles[i];
@@ -285,26 +322,25 @@ internal sealed class EffectDetailParticles
             if (particle.age >= particle.lifetime) particle.active = false;
             else
             {
-                if (definition.family == EffectFamily.Liquid && !definition.fireParticles)
-                    particle.velocity.y -= WaterGravity * scale * delta;
-                else if (definition.fireParticles)
+                if (liquid)
+                    particle.velocity.y -= gravityStep;
+                else if (fireParticles)
                 {
                     float cooling = Mathf.SmoothStep(0f, 1f, particle.age / particle.lifetime);
-                    float current = (Mathf.PerlinNoise(flowSeed + particle.position.y * 0.5f, flowTime * 0.45f) - 0.5f) * 2f;
+                    float current = (Mathf.PerlinNoise(flowSeed + particle.position.y * 0.5f, currentTime) - 0.5f) * 2f;
                     float eddy = (Mathf.PerlinNoise(particle.seed, particle.age * 1.4f) - 0.5f) * 2f;
-                    float travel = EffectNumbers.Positive(definition.emberTravelScale, 1.8f);
                     particle.velocity.x = Mathf.Lerp(particle.velocity.x,
-                        (current + eddy * 0.5f) * EffectNumbers.NonNegative(settings.spread) * scale * travel,
+                        (current + eddy * 0.5f) * spread * scale * travel,
                         1f - Mathf.Exp(-delta * (1.2f + cooling)));
-                    particle.velocity.y += EffectNumbers.NonNegative(settings.updraftAcceleration) * scale *
+                    particle.velocity.y += updraft *
                         (1f - cooling * 1.35f) * delta;
-                    particle.velocity.y /= 1f + delta * 0.35f;
+                    particle.velocity.y /= drag;
                 }
                 particle.position += particle.velocity * delta;
-                if (settings.visualCurves != null && settings.visualCurves.enabled)
+                if (curved)
                     VisibilityRadius = Mathf.Max(VisibilityRadius, (particle.position - origin).magnitude +
                         settings.visualCurves.Offset(particle.age / particle.lifetime).magnitude * scale +
-                        particle.radius * 2f * (1f + EffectNumbers.NonNegative(settings.expansion)));
+                        particle.radius * 2f * expansion);
             }
             particles[i] = particle;
         }
@@ -445,10 +481,12 @@ internal static class EffectFireField
         float smokeCoverage = Mathf.Lerp(1f, Mathf.Sqrt(Mathf.Clamp01(sample.fireColor.a)), sample.fireSmoke);
         float smokeEdgeFade = sample.fireSmoke * EffectNumbers.NonNegative(definition.fireSmokeEdgeFade) * 8f;
         for (int y = bottom; y <= top; y++)
+        {
+            float dy = (y + 0.5f - center.y) / radius.y;
+            int row = y * stride;
             for (int x = left; x <= right; x++)
             {
                 float dx = (x + 0.5f - center.x) / radius.x;
-                float dy = (y + 0.5f - center.y) / radius.y;
                 float along = dx * sample.fireDirection.x + dy * sample.fireDirection.y;
                 float across = dx * sample.fireDirection.y - dy * sample.fireDirection.x;
                 float width = Mathf.Lerp(1f - sample.fireTaper, 1f, Mathf.Clamp01((along + 1.6f) / 2.6f));
@@ -484,11 +522,12 @@ internal static class EffectFireField
                         color = Color.Lerp(color, edgeColor, outline * edgeStrength);
                     }
                 }
-                int index = y * stride + x;
+                int index = row + x;
                 float coverage = contribution * smokeCoverage;
                 density[index] += coverage;
                 colors[index] += color * coverage;
             }
+        }
     }
 
     public static void Colorize(float[] density, Color[] colors, Color32[] pixels,
@@ -497,42 +536,52 @@ internal static class EffectFireField
         float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f) * Mathf.Lerp(1f, 0.08f, roughness);
         float edgeWidth = Mathf.Clamp(definition.fireEdgeWidth, 0.01f, 0.6f);
         float edgeStrength = Mathf.Clamp01(definition.fireEdgeStrength);
+        Color hot = definition.fireHotColor * definition.tint;
+        Color gold = definition.fireGoldColor * definition.tint;
+        Color warm = definition.fireWarmColor * definition.tint;
+        Color ember = definition.fireEmberColor * definition.tint;
+        Color smoke = definition.fireSmokeColor * definition.tint;
+        Color soot = definition.fireSootColor * definition.tint;
+        EffectFirePaletteWeights weights = definition.firePaletteWeights;
+        float hotWeight = Mathf.Clamp(EffectNumbers.NonNegative(weights?.hot ?? 1f), 0f, 4f);
+        float goldWeight = Mathf.Clamp(EffectNumbers.NonNegative(weights?.gold ?? 1f), 0f, 4f);
+        float warmWeight = Mathf.Clamp(EffectNumbers.NonNegative(weights?.warm ?? 1f), 0f, 4f);
+        float emberWeight = Mathf.Clamp(EffectNumbers.NonNegative(weights?.ember ?? 1f), 0f, 4f);
+        float smokeWeight = Mathf.Clamp(EffectNumbers.NonNegative(weights?.smoke ?? 1f), 0f, 4f);
+        float sootWeight = Mathf.Clamp(EffectNumbers.NonNegative(weights?.soot ?? 1f), 0f, 4f);
         int stride = resolution + 2;
         for (int y = clip.yMin; y < clip.yMax; y++)
+        {
+            int fieldRow = (y + 1) * stride;
+            int pixelRow = y * resolution;
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
-                int fieldIndex = (y + 1) * stride + x + 1;
+                int fieldIndex = fieldRow + x + 1;
                 float value = density[fieldIndex];
                 if (value <= 0.15f) continue;
                 Color color = colors[fieldIndex] / value;
                 float outline = 1f - Mathf.SmoothStep(0f, 1f, (value - 0.15f) / edgeWidth);
-                Color edgeColor = Color.Lerp(definition.fireSootColor * definition.tint, color, 0.2f);
+                Color edgeColor = Color.Lerp(soot, color, 0.2f);
                 edgeColor.a = color.a;
                 color = Color.Lerp(color, edgeColor, outline * edgeStrength);
-                color = PaletteColor(color, definition);
+                Color result = ember;
+                float closest = float.PositiveInfinity;
+                SelectColor(hot, color, hotWeight, ref result, ref closest);
+                SelectColor(gold, color, goldWeight, ref result, ref closest);
+                SelectColor(warm, color, warmWeight, ref result, ref closest);
+                SelectColor(ember, color, emberWeight, ref result, ref closest);
+                SelectColor(smoke, color, smokeWeight, ref result, ref closest);
+                SelectColor(soot, color, sootWeight, ref result, ref closest);
+                result.a = color.a;
+                color = result;
                 color.a *= Mathf.SmoothStep(0f, 1f, (value - 0.15f) / softness);
-                pixels[y * resolution + x] = color;
+                pixels[pixelRow + x] = color;
             }
-    }
-
-    private static Color PaletteColor(Color color, EffectDefinitionSO definition)
-    {
-        EffectFirePaletteWeights weights = definition.firePaletteWeights;
-        Color result = definition.fireEmberColor * definition.tint;
-        float closest = float.PositiveInfinity;
-        SelectColor(definition.fireHotColor * definition.tint, color, weights?.hot ?? 1f, ref result, ref closest);
-        SelectColor(definition.fireGoldColor * definition.tint, color, weights?.gold ?? 1f, ref result, ref closest);
-        SelectColor(definition.fireWarmColor * definition.tint, color, weights?.warm ?? 1f, ref result, ref closest);
-        SelectColor(definition.fireEmberColor * definition.tint, color, weights?.ember ?? 1f, ref result, ref closest);
-        SelectColor(definition.fireSmokeColor * definition.tint, color, weights?.smoke ?? 1f, ref result, ref closest);
-        SelectColor(definition.fireSootColor * definition.tint, color, weights?.soot ?? 1f, ref result, ref closest);
-        result.a = color.a;
-        return result;
+        }
     }
 
     private static void SelectColor(Color candidate, Color target, float weight, ref Color result, ref float closest)
     {
-        weight = Mathf.Clamp(EffectNumbers.NonNegative(weight), 0f, 4f);
         if (weight <= 0f) return;
         float red = candidate.r - target.r;
         float green = candidate.g - target.g;

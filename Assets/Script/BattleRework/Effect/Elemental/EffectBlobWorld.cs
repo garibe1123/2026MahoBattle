@@ -184,11 +184,15 @@ public sealed class EffectBlobWorld : MonoBehaviour
                             view, tileLimit);
                 continue;
             }
+            if (!refresh)
+            {
+                entry.visual.HideBlobSources(entry.definition);
+                continue;
+            }
             for (int piece = 1; piece < entry.visual.BlobSampleCount; piece++)
-                if (entry.visual.CaptureBlob(entry.definition, piece, out EffectBlobSample fragment) && refresh)
+                if (entry.visual.CaptureBlob(entry.definition, piece, out EffectBlobSample fragment))
                     AddToTiles(new BlobGroup { sample = fragment, definition = entry.definition }, view, tileLimit);
             if (!entry.visual.CaptureBlob(entry.definition, out EffectBlobSample sample)) continue;
-            if (!refresh) continue;
             float step = PixelStep(entry.definition);
             Vector2 center = sample.center;
             Vector2 extent = sample.radius * 2f + Vector2.one * step;

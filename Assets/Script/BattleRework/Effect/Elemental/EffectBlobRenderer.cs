@@ -1,4 +1,5 @@
 using System;
+using Unity.Profiling;
 using UnityEngine;
 
 internal struct EffectBlobSample
@@ -26,6 +27,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 {
     internal const int Resolution = 128;
     private const int MaxSamples = 1024;
+    private static readonly ProfilerMarker CalculationMarker = new("EffectBlobRenderer.Calculate");
+    private static readonly ProfilerMarker UploadMarker = new("EffectBlobRenderer.Upload");
     private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
     private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
     private static readonly int AlphaTexId = Shader.PropertyToID("_AlphaTex");
@@ -170,43 +173,51 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             Mathf.Clamp(Mathf.FloorToInt((view.yMin - origin.y) / step), 0, Resolution), 0, 0);
         clip.xMax = Mathf.Clamp(Mathf.CeilToInt((view.xMax - origin.x) / step), clip.xMin, Resolution);
         clip.yMax = Mathf.Clamp(Mathf.CeilToInt((view.yMax - origin.y) / step), clip.yMin, Resolution);
-        Array.Clear(density, 0, density.Length);
-        Array.Clear(foam, 0, foam.Length);
-        Array.Clear(pixels, 0, pixels.Length);
         float opacity = 0f;
         Color tint = Color.black;
-        if (definition.fireParticles)
+        using (CalculationMarker.Auto())
         {
-            fireColors ??= new Color[density.Length];
-            Array.Clear(fireColors, 0, fireColors.Length);
-        }
-        for (int i = 0; i < count; i++)
-        {
+            Array.Clear(density, 0, density.Length);
+            Array.Clear(foam, 0, foam.Length);
+            Array.Clear(pixels, 0, pixels.Length);
+            bool fireParticles = definition.fireParticles;
+            if (fireParticles)
+            {
+                fireColors ??= new Color[density.Length];
+                Array.Clear(fireColors, 0, fireColors.Length);
+            }
             RectInt fieldClip = new(clip.xMin, clip.yMin, clip.width + 2, clip.height + 2);
-            if (definition.fireParticles)
-                EffectFireField.Accumulate(density, fireColors, Resolution + 2,
-                    origin - Vector2.one * step, step, fieldClip, samples[i], definition);
+            Vector2 fieldOrigin = origin - Vector2.one * step;
+            for (int i = 0; i < count; i++)
+            {
+                if (fireParticles)
+                    EffectFireField.Accumulate(density, fireColors, Resolution + 2,
+                        fieldOrigin, step, fieldClip, samples[i], definition);
+                else
+                    EffectBlobField.Accumulate(density, foam, Resolution + 2, fieldOrigin, step,
+                        fieldClip, samples[i]);
+                Color color = samples[i].source.color;
+                opacity = Mathf.Max(opacity, color.a);
+                tint.r = Mathf.Max(tint.r, color.r);
+                tint.g = Mathf.Max(tint.g, color.g);
+                tint.b = Mathf.Max(tint.b, color.b);
+            }
+            if (fireParticles)
+            {
+                EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
+                tint = Color.white;
+            }
             else
-                EffectBlobField.Accumulate(density, foam, Resolution + 2, origin - Vector2.one * step, step,
-                    fieldClip, samples[i]);
-            Color color = samples[i].source.color;
-            opacity = Mathf.Max(opacity, color.a);
-            tint.r = Mathf.Max(tint.r, color.r);
-            tint.g = Mathf.Max(tint.g, color.g);
-            tint.b = Mathf.Max(tint.b, color.b);
+                EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
+                    definition, time, opacity, surfaceRoughness);
+            if (!fireParticles && surfaceRoughness > 0f)
+                EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness);
         }
-        if (definition.fireParticles)
+        using (UploadMarker.Auto())
         {
-            EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
-            tint = Color.white;
+            texture.SetPixels32(pixels);
+            texture.Apply(false, false);
         }
-        else
-            EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
-                definition, time, opacity, surfaceRoughness);
-        if (!definition.fireParticles && surfaceRoughness > 0f)
-            EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness);
-        texture.SetPixels32(pixels);
-        texture.Apply(false, false);
         Vector3 parentScale = transform.parent != null ? transform.parent.lossyScale : Vector3.one;
         if (Mathf.Abs(parentScale.x) < 0.0001f || Mathf.Abs(parentScale.y) < 0.0001f) { Clear(); return; }
         transform.SetPositionAndRotation(new Vector3(origin.x + size * 0.5f, origin.y + size * 0.5f,
@@ -279,31 +290,37 @@ internal static class EffectBlobField
         int right = Mathf.Clamp(Mathf.CeilToInt(center.x + radius.x * 2f), clip.xMin, clip.xMax - 1);
         int bottom = Mathf.Clamp(Mathf.FloorToInt(center.y - radius.y * 2f), clip.yMin, clip.yMax - 1);
         int top = Mathf.Clamp(Mathf.CeilToInt(center.y + radius.y * 2f), clip.yMin, clip.yMax - 1);
+        float dissolve = sample.dissolve * sample.dissolve * 1.4f;
+        float rippleRadius = Mathf.Lerp(0.25f, 1.65f, sample.ripple);
         for (int y = bottom; y <= top; y++)
         {
             float dy = (y + 0.5f - center.y) / radius.y;
+            float dySquared = dy * dy;
+            float firstY = (dy - 0.35f) * (dy - 0.35f);
+            float secondY = (dy + 0.45f) * (dy + 0.45f);
+            int row = y * resolution;
             for (int x = left; x <= right; x++)
             {
                 float dx = (x + 0.5f - center.x) / radius.x;
-                float distance = dx * dx + dy * dy;
+                float distance = dx * dx + dySquared;
                 if (distance >= 4f) continue;
                 float contribution = sample.weight / (1f + 3f * distance * distance);
                 if (sample.dissolve > 0f)
                 {
                     contribution *= Mathf.SmoothStep(0f, 1f,
-                        (distance - sample.dissolve * sample.dissolve * 1.4f) / 0.2f);
-                    float first = (dx + 0.65f) * (dx + 0.65f) + (dy - 0.35f) * (dy - 0.35f);
-                    float second = (dx - 0.6f) * (dx - 0.6f) + (dy + 0.45f) * (dy + 0.45f);
+                        (distance - dissolve) / 0.2f);
+                    float first = (dx + 0.65f) * (dx + 0.65f) + firstY;
+                    float second = (dx - 0.6f) * (dx - 0.6f) + secondY;
                     float fragments = Mathf.Clamp01((0.7f - Mathf.Min(first, second)) / 0.35f);
                     contribution *= Mathf.Lerp(1f, fragments, sample.dissolve);
                 }
-                field[y * resolution + x] += contribution;
+                field[row + x] += contribution;
                 if (sample.impact > 0f)
                 {
                     float ring = Mathf.Clamp01(1f - Mathf.Abs(Mathf.Sqrt(distance) -
-                        Mathf.Lerp(0.25f, 1.65f, sample.ripple)) / 0.2f);
+                        rippleRadius) / 0.2f);
                     float froth = Mathf.Clamp01(1f - distance * 2f) * (1f - sample.ripple);
-                    int index = y * resolution + x;
+                    int index = row + x;
                     foam[index] = Mathf.Max(foam[index], (ring + froth) * sample.impact);
                 }
             }
@@ -331,29 +348,40 @@ internal static class EffectBlobField
         Vector3 halfLight = (light + Vector3.forward).normalized;
         int stride = resolution / 8 + 3;
         int fieldStride = resolution + 2;
+        float drift = time * noiseSpeed;
+        float cutoff = (0.3f - softness * 0.5f) / (smoke ? 1f + noiseStrength * 0.5f : 1f);
+        float slopeStep = 2f * step;
+        float noiseStep = 16f * step;
+        Color shadowColor = definition.surfaceShadowColor;
+        float foamOpacity = Mathf.Clamp01(definition.foamOpacity);
         for (int y = clip.yMin / 8; y <= (clip.yMax - 1) / 8 + 3; y++)
+        {
+            float worldY = origin.y + (y - 1) * 8f * step;
+            int row = y * stride;
             for (int x = clip.xMin / 8; x <= (clip.xMax - 1) / 8 + 3; x++)
             {
                 float worldX = origin.x + (x - 1) * 8f * step;
-                float worldY = origin.y + (y - 1) * 8f * step;
-                float drift = time * noiseSpeed;
-                noiseGrid[y * stride + x] = smoke || specularStrength > 0f
+                noiseGrid[row + x] = smoke || specularStrength > 0f
                     ? Mathf.PerlinNoise(worldX * noiseScale + drift, worldY * noiseScale - drift * 0.7f) * 0.75f +
                         Mathf.PerlinNoise(worldX * noiseScale * 2.13f + 17.3f - drift * 0.4f,
                             worldY * noiseScale * 2.13f + 43.1f + drift * 0.6f) * 0.25f
                     : Mathf.PerlinNoise(worldX * 1.7f + time * 0.13f, worldY * 1.7f - time * 0.19f);
             }
+        }
         for (int y = clip.yMin; y < clip.yMax; y++)
+        {
+            int row = y * resolution;
+            int fieldRow = (y + 1) * fieldStride;
+            int cellRow = (y / 8 + 1) * stride;
+            float vertical = Mathf.SmoothStep(0f, 1f, y % 8 / 8f);
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
-                int index = y * resolution + x;
-                int fieldIndex = (y + 1) * fieldStride + x + 1;
+                int index = row + x;
+                int fieldIndex = fieldRow + x + 1;
                 float value = field[fieldIndex];
-                float cutoff = (0.3f - softness * 0.5f) / (smoke ? 1f + noiseStrength * 0.5f : 1f);
                 if (value <= cutoff && foam[fieldIndex] <= 0.01f) { pixels[index] = default; continue; }
-                int cell = (y / 8 + 1) * stride + x / 8 + 1;
+                int cell = cellRow + x / 8 + 1;
                 float horizontal = Mathf.SmoothStep(0f, 1f, x % 8 / 8f);
-                float vertical = Mathf.SmoothStep(0f, 1f, y % 8 / 8f);
                 float noise = Mathf.Lerp(Mathf.Lerp(noiseGrid[cell], noiseGrid[cell + 1], horizontal),
                     Mathf.Lerp(noiseGrid[cell + stride], noiseGrid[cell + stride + 1], horizontal), vertical);
                 if (smoke) value *= 1f + (noise - 0.5f) * noiseStrength;
@@ -366,23 +394,23 @@ internal static class EffectBlobField
                 Vector3 normal = Vector3.forward;
                 if (relief > 0f)
                 {
-                    float slopeX = (Height(field[fieldIndex - 1]) - Height(field[fieldIndex + 1])) / (2f * step);
-                    float slopeY = (Height(field[fieldIndex - fieldStride]) - Height(field[fieldIndex + fieldStride])) / (2f * step);
+                    float slopeX = (Height(field[fieldIndex - 1]) - Height(field[fieldIndex + 1])) / slopeStep;
+                    float slopeY = (Height(field[fieldIndex - fieldStride]) - Height(field[fieldIndex + fieldStride])) / slopeStep;
                     float noiseX = Mathf.Lerp(
                         Mathf.Lerp(noiseGrid[cell + 1] - noiseGrid[cell - 1], noiseGrid[cell + 2] - noiseGrid[cell], horizontal),
                         Mathf.Lerp(noiseGrid[cell + stride + 1] - noiseGrid[cell + stride - 1],
-                            noiseGrid[cell + stride + 2] - noiseGrid[cell + stride], horizontal), vertical) / (16f * step);
+                            noiseGrid[cell + stride + 2] - noiseGrid[cell + stride], horizontal), vertical) / noiseStep;
                     float noiseY = Mathf.Lerp(
                         Mathf.Lerp(noiseGrid[cell + stride] - noiseGrid[cell - stride],
                             noiseGrid[cell + stride + 1] - noiseGrid[cell - stride + 1], horizontal),
                         Mathf.Lerp(noiseGrid[cell + stride * 2] - noiseGrid[cell],
-                            noiseGrid[cell + stride * 2 + 1] - noiseGrid[cell + 1], horizontal), vertical) / (16f * step);
+                            noiseGrid[cell + stride * 2 + 1] - noiseGrid[cell + 1], horizontal), vertical) / noiseStep;
                     normal = new Vector3((slopeX - noiseX * noiseStrength) * relief,
                         (slopeY - noiseY * noiseStrength) * relief, 1f).normalized;
                     if (smoke)
                     {
                         float lighting = Mathf.Clamp01(0.18f + Mathf.Max(0f, Vector3.Dot(normal, light)) * 0.82f);
-                        color = Color.Lerp(definition.surfaceShadowColor, bodyColor, lighting) *
+                        color = Color.Lerp(shadowColor, bodyColor, lighting) *
                             Mathf.Lerp(0.75f, 1f, Height(value));
                     }
                 }
@@ -398,18 +426,21 @@ internal static class EffectBlobField
                     color = Color.Lerp(color, highlightColor, foamCoverage);
                 }
                 color.a = Mathf.Clamp01(Mathf.Max(coverage * Mathf.Lerp(opacity, Mathf.Max(opacity, 0.65f), reflection),
-                    foamCoverage * Mathf.Clamp01(definition.foamOpacity)));
+                    foamCoverage * foamOpacity));
                 pixels[index] = color;
             }
+        }
     }
 
     public static void Roughen(Color32[] pixels, int resolution, RectInt clip, float roughness)
     {
         int levels = Mathf.RoundToInt(Mathf.Lerp(32f, 4f, roughness));
         for (int y = clip.yMin; y < clip.yMax; y++)
+        {
+            int row = y * resolution;
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
-                int index = y * resolution + x;
+                int index = row + x;
                 Color32 pixel = pixels[index];
                 if (pixel.a == 0) continue;
                 pixel.r = RoughenChannel(pixel.r, levels, roughness);
@@ -417,6 +448,7 @@ internal static class EffectBlobField
                 pixel.b = RoughenChannel(pixel.b, levels, roughness);
                 pixels[index] = pixel;
             }
+        }
     }
 
     private static byte RoughenChannel(byte value, int levels, float amount) =>

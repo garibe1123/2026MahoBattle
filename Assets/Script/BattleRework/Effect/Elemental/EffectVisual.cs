@@ -43,6 +43,7 @@ public sealed class EffectVisual : MonoBehaviour
     private Vector3 rootScale;
     private Camera renderCamera;
     private float frameRadius;
+    private bool withinCamera;
     private int emissionColorId, emissionStrengthId, responseId, rimId, centerId;
     private bool hasEmissionColor, hasEmissionStrength, hasResponse, hasRim, hasCenter;
 
@@ -368,7 +369,14 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void Render()
     {
-        RenderDetails();
+        withinCamera = WithinCamera();
+        RenderDetails(withinCamera);
+        if (!withinCamera)
+        {
+            foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
+            localLight.enabled = false;
+            return;
+        }
         if (definition.fireParticles)
         {
             foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
@@ -386,13 +394,7 @@ public sealed class EffectVisual : MonoBehaviour
             localLight.color = definition.lightColor;
             localLight.pointLightOuterRadius = EffectNumbers.Positive(definition.lightRadius, 2f);
             localLight.intensity = EffectNumbers.NonNegative(definition.lightIntensity) * fireEnvelope * fireFlicker;
-            localLight.enabled = definition.useLight && WithinCamera() && localLight.intensity > 0f;
-            return;
-        }
-        if (!WithinCamera())
-        {
-            foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
-            localLight.enabled = false;
+            localLight.enabled = definition.useLight && localLight.intensity > 0f;
             return;
         }
         int count = PieceCount(definition);
@@ -503,6 +505,16 @@ public sealed class EffectVisual : MonoBehaviour
 
     internal bool CaptureBlob(EffectDefinitionSO expected, out EffectBlobSample sample) => CaptureBlob(expected, 0, out sample);
 
+    internal void HideBlobSources(EffectDefinitionSO expected)
+    {
+        if (released || definition != expected) return;
+        int count = PieceCount(definition);
+        for (int i = 0; i < count; i++)
+            if (renderers[i].sprite != null) renderers[i].enabled = false;
+        if (details == null || !details.IsCloud || detailRenderers == null) return;
+        for (int i = 0; i < details.Capacity; i++) detailRenderers[i].enabled = false;
+    }
+
     internal bool CaptureBlob(EffectDefinitionSO expected, int index, out EffectBlobSample sample)
     {
         sample = default;
@@ -546,12 +558,12 @@ public sealed class EffectVisual : MonoBehaviour
         return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
     }
 
-    internal int FireSampleCount => definition != null && definition.fireParticles && fire != null ? fire.Capacity : 0;
+    internal int FireSampleCount => withinCamera && definition != null && definition.fireParticles && fire != null ? fire.Capacity : 0;
 
     internal bool CaptureFire(int index, out EffectBlobSample sample)
     {
         sample = default;
-        if (!IsPlaying || definition == null || !definition.fireParticles || fire == null || renderers[0].sprite == null)
+        if (!withinCamera || !IsPlaying || definition == null || !definition.fireParticles || fire == null || renderers[0].sprite == null)
             return false;
         if (!fire.Capture(index, out sample)) return false;
         sample.source = renderers[0];
@@ -591,6 +603,10 @@ public sealed class EffectVisual : MonoBehaviour
         radius += (definition.visualCurves?.Offset(VisualCurveProgress) ?? Vector2.zero).magnitude *
             EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
         if (details != null) radius += details.VisibilityRadius;
+        if (definition.fireParticles && fire != null)
+            radius = Mathf.Max(radius, fire.GetVisibilityRadius(transform.position));
+        if (definition.useLight)
+            radius += EffectNumbers.Positive(definition.lightRadius, definition.fireParticles ? 2f : 0.01f);
         Vector3 viewport = renderCamera.WorldToViewportPoint(transform.position);
         if (viewport.z + radius < renderCamera.nearClipPlane || viewport.z - radius > renderCamera.farClipPlane) return false;
         float halfHeight = renderCamera.orthographic ? renderCamera.orthographicSize :
@@ -643,6 +659,7 @@ public sealed class EffectVisual : MonoBehaviour
         Array.Clear(pieceSizes, 0, pieceSizes.Length);
         velocity = Vector3.zero;
         frameRadius = 0f;
+        withinCamera = false;
         historyHead = historyCount = 0;
         Array.Clear(positions, 0, positions.Length);
         Array.Clear(times, 0, times.Length);
@@ -718,16 +735,20 @@ public sealed class EffectVisual : MonoBehaviour
         }
     }
 
-    private void RenderDetails()
+    private void RenderDetails(bool visible)
     {
         if (detailRenderers == null || details == null) return;
-        bool visible = WithinCamera();
+        if (!visible)
+        {
+            foreach (SpriteRenderer renderer in detailRenderers) renderer.enabled = false;
+            return;
+        }
         Vector3 scale = transform.lossyScale;
         for (int i = 0; i < detailRenderers.Length; i++)
         {
             SpriteRenderer renderer = detailRenderers[i];
             bool active = details.Capture(i, out Vector3 position, out Vector2 size, out Color color);
-            renderer.enabled = visible && active;
+            renderer.enabled = active;
             if (!renderer.enabled) continue;
             renderer.transform.position = position;
             renderer.transform.rotation = Quaternion.identity;
