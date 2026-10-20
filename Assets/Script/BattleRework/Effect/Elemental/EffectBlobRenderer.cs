@@ -286,9 +286,19 @@ public sealed class EffectBlobRenderer : MonoBehaviour
 
 internal static class EffectBlobField
 {
+    private static readonly byte[] roughnessLookup = new byte[256];
+    private static float cachedRoughness = float.NaN;
+    private static readonly float[] noiseBlend = new float[8];
+
+    static EffectBlobField()
+    {
+        for (int i = 0; i < noiseBlend.Length; i++) noiseBlend[i] = Mathf.SmoothStep(0f, 1f, i / 8f);
+    }
+
     internal struct Column
     {
         public float distanceSquared, firstSquared, secondSquared;
+        public bool outsideFragments;
     }
 
     public static void Accumulate(float[] field, float[] foam, int resolution, Vector2 origin, float step, RectInt clip,
@@ -306,6 +316,8 @@ internal static class EffectBlobField
         int top = Mathf.Clamp(Mathf.CeilToInt(center.y + radius.y * 2f), clip.yMin, clip.yMax - 1);
         float dissolve = sample.dissolve * sample.dissolve * 1.4f;
         float rippleRadius = Mathf.Lerp(0.25f, 1.65f, sample.ripple);
+        float outsideFragmentWeight = dissolving ? Mathf.Lerp(1f, 0f, sample.dissolve) : 1f;
+        float frothWeight = 1f - sample.ripple;
         for (int x = left; x <= right; x++)
         {
             float dx = (x + 0.5f - center.x) / radius.x;
@@ -313,6 +325,7 @@ internal static class EffectBlobField
             if (!dissolving) continue;
             columns[x].firstSquared = (dx + 0.65f) * (dx + 0.65f);
             columns[x].secondSquared = (dx - 0.6f) * (dx - 0.6f);
+            columns[x].outsideFragments = columns[x].firstSquared >= 0.7f && columns[x].secondSquared >= 0.7f;
         }
         for (int y = bottom; y <= top; y++)
         {
@@ -320,6 +333,7 @@ internal static class EffectBlobField
             float dySquared = dy * dy;
             float firstY = dissolving ? (dy - 0.35f) * (dy - 0.35f) : 0f;
             float secondY = dissolving ? (dy + 0.45f) * (dy + 0.45f) : 0f;
+            bool outsideFragments = firstY >= 0.7f && secondY >= 0.7f;
             int row = y * resolution;
             for (int x = left; x <= right; x++)
             {
@@ -331,19 +345,25 @@ internal static class EffectBlobField
                 float contribution = sample.weight / (1f + 3f * distance * distance);
                 if (dissolving)
                 {
-                    contribution *= Mathf.SmoothStep(0f, 1f,
-                        (distance - dissolve) / 0.2f);
-                    float first = column.firstSquared + firstY;
-                    float second = column.secondSquared + secondY;
-                    float fragments = Mathf.Clamp01((0.7f - Mathf.Min(first, second)) / 0.35f);
-                    contribution *= Mathf.Lerp(1f, fragments, sample.dissolve);
+                    float dissolvedDistance = distance - dissolve;
+                    if (dissolvedDistance < 0.2f)
+                        contribution *= Mathf.SmoothStep(0f, 1f, dissolvedDistance / 0.2f);
+                    if (outsideFragments || column.outsideFragments)
+                        contribution *= outsideFragmentWeight;
+                    else
+                    {
+                        float first = column.firstSquared + firstY;
+                        float second = column.secondSquared + secondY;
+                        float fragments = Mathf.Clamp01((0.7f - Mathf.Min(first, second)) / 0.35f);
+                        contribution *= Mathf.Lerp(1f, fragments, sample.dissolve);
+                    }
                 }
                 field[row + x] += contribution;
                 if (hasImpact)
                 {
                     float ring = Mathf.Clamp01(1f - Mathf.Abs(Mathf.Sqrt(distance) -
                         rippleRadius) / 0.2f);
-                    float froth = Mathf.Clamp01(1f - distance * 2f) * (1f - sample.ripple);
+                    float froth = Mathf.Clamp01(1f - distance * 2f) * frothWeight;
                     int index = row + x;
                     foam[index] = Mathf.Max(foam[index], (ring + froth) * sample.impact);
                 }
@@ -397,7 +417,7 @@ internal static class EffectBlobField
             int row = y * resolution;
             int fieldRow = (y + 1) * fieldStride;
             int cellRow = (y / 8 + 1) * stride;
-            float vertical = Mathf.SmoothStep(0f, 1f, y % 8 / 8f);
+            float vertical = noiseBlend[y % 8];
             for (int x = clip.xMin; x < clip.xMax; x++)
             {
                 int index = row + x;
@@ -405,7 +425,7 @@ internal static class EffectBlobField
                 float value = field[fieldIndex];
                 if (value <= cutoff && foam[fieldIndex] <= 0.01f) { pixels[index] = default; continue; }
                 int cell = cellRow + x / 8 + 1;
-                float horizontal = Mathf.SmoothStep(0f, 1f, x % 8 / 8f);
+                float horizontal = noiseBlend[x % 8];
                 float noise = Mathf.Lerp(Mathf.Lerp(noiseGrid[cell], noiseGrid[cell + 1], horizontal),
                     Mathf.Lerp(noiseGrid[cell + stride], noiseGrid[cell + stride + 1], horizontal), vertical);
                 if (smoke) value *= 1f + (noise - 0.5f) * noiseStrength;
@@ -458,7 +478,13 @@ internal static class EffectBlobField
 
     public static void Roughen(Color32[] pixels, int resolution, RectInt clip, float roughness)
     {
-        int levels = Mathf.RoundToInt(Mathf.Lerp(32f, 4f, roughness));
+        if (cachedRoughness != roughness)
+        {
+            int levels = Mathf.RoundToInt(Mathf.Lerp(32f, 4f, roughness));
+            for (int i = 0; i < roughnessLookup.Length; i++)
+                roughnessLookup[i] = RoughenChannel((byte)i, levels, roughness);
+            cachedRoughness = roughness;
+        }
         for (int y = clip.yMin; y < clip.yMax; y++)
         {
             int row = y * resolution;
@@ -467,9 +493,9 @@ internal static class EffectBlobField
                 int index = row + x;
                 Color32 pixel = pixels[index];
                 if (pixel.a == 0) continue;
-                pixel.r = RoughenChannel(pixel.r, levels, roughness);
-                pixel.g = RoughenChannel(pixel.g, levels, roughness);
-                pixel.b = RoughenChannel(pixel.b, levels, roughness);
+                pixel.r = roughnessLookup[pixel.r];
+                pixel.g = roughnessLookup[pixel.g];
+                pixel.b = roughnessLookup[pixel.b];
                 pixels[index] = pixel;
             }
         }
