@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 
 [DisallowMultipleComponent]
@@ -44,6 +45,20 @@ public sealed class EffectVisual : MonoBehaviour
     private Camera renderCamera;
     private float frameRadius;
     private bool withinCamera;
+    private Vector3 sortingGroundPosition;
+    private SpriteRenderer attachedRenderer;
+    private SortingGroup attachedGroup;
+    private BattleWorldSortAnchor attachedAnchor;
+    private int AttachedOrder => attachedAnchor != null
+        ? BattleWorldSorting.WorldYToOrder(attachedAnchor.CurrentAnchorWorldY, attachedAnchor.LocalSortOffset) + 1
+        : (attachedGroup != null && attachedGroup.isActiveAndEnabled ? attachedGroup.sortingOrder : attachedRenderer.sortingOrder) + 1;
+    private EffectRenderSort appliedSorting;
+    private FieldBeamEffectVisual beamVisual;
+    internal EffectRenderSort RenderSorting => attachedGroup != null && attachedGroup.isActiveAndEnabled
+        ? new EffectRenderSort(attachedGroup.sortingLayerID, AttachedOrder, EffectSortMode.Attached)
+        : attachedRenderer != null
+        ? new EffectRenderSort(attachedRenderer.sortingLayerID, AttachedOrder, EffectSortMode.Attached)
+        : definition != null ? definition.ResolveSorting(sortingGroundPosition) : default;
     private int emissionColorId, emissionStrengthId, responseId, rimId, centerId;
     private bool hasEmissionColor, hasEmissionStrength, hasResponse, hasRim, hasCenter;
 
@@ -63,7 +78,7 @@ public sealed class EffectVisual : MonoBehaviour
         float? duration = null, Vector3 velocity = default, bool airborne = false,
         EffectFaction faction = EffectFaction.Neutral, IReadOnlyList<ElementDefinitionSO> extraElements = null,
         EffectVisual prefab = null, Action<EffectVisual, EffectPhase> phaseStarted = null,
-        Action<EffectVisual> finished = null, bool stationary = false)
+        Action<EffectVisual> finished = null, bool stationary = false, float spawnScale = 1f)
     {
         if (data == null) return null;
         if ((data.mergeNearby || data.fireParticles) && !EffectBlobWorld.CanSpawn) return null;
@@ -79,7 +94,7 @@ public sealed class EffectVisual : MonoBehaviour
             prefab = template;
         }
         EffectVisual instance = PoolService.Spawn(prefab, position, rotation);
-        instance.Play(data, duration ?? data.duration, velocity, airborne, faction, extraElements, phaseStarted, finished, stationary);
+        instance.Play(data, duration ?? data.duration, velocity, airborne, faction, extraElements, phaseStarted, finished, stationary, spawnScale);
         return instance;
     }
 
@@ -126,10 +141,11 @@ public sealed class EffectVisual : MonoBehaviour
     public void Play(EffectDefinitionSO data, float duration, Vector3 motion = default,
         bool inFlight = false, EffectFaction faction = EffectFaction.Neutral,
         IReadOnlyList<ElementDefinitionSO> extraElements = null,
-        Action<EffectVisual, EffectPhase> phaseStarted = null, Action<EffectVisual> finished = null, bool stationary = false)
+        Action<EffectVisual, EffectPhase> phaseStarted = null, Action<EffectVisual> finished = null, bool stationary = false, float spawnScale = 1f)
     {
         ResetForPool();
         if (data == null) { if (!preview) PoolService.Release(gameObject); return; }
+        transform.localScale = rootScale * EffectNumbers.NonNegative(spawnScale);
         definition = data;
         released = false;
         PhaseStarted = phaseStarted;
@@ -137,8 +153,9 @@ public sealed class EffectVisual : MonoBehaviour
         requestedDuration = duration;
         anchored = duration == -1f || stationary;
         anchorPosition = transform.position;
+        sortingGroundPosition = transform.position;
         variationSeed = UnityEngine.Random.Range(0f, 1000f);
-        sizeMultiplier = EffectNumbers.SpawnScale(data);
+        sizeMultiplier = data.beam != null && data.beam.kind != EffectBeamKind.None ? 1f : EffectNumbers.SpawnScale(data);
         pieceSizes[0] = 1f;
         for (int i = 1; i < MaxPieces; i++) pieceSizes[i] = EffectNumbers.SpawnScale(data) / sizeMultiplier;
         velocity = anchored ? Vector3.zero : motion;
@@ -188,8 +205,7 @@ public sealed class EffectVisual : MonoBehaviour
             {
                 renderer.sprite = details.IsCloud ? detailSprite : pixelDetailSprite;
                 renderer.sharedMaterial = defaultMaterial;
-                renderer.sortingLayerID = data.sortingLayerId;
-                renderer.sortingOrder = data.sortingOrder + 1;
+                RenderSorting.Apply(renderer, 1);
             }
         }
         Material material = data.customMaterial != null ? data.customMaterial : defaultMaterial;
@@ -201,8 +217,7 @@ public sealed class EffectVisual : MonoBehaviour
         for (int i = 0; i < renderers.Length; i++)
         {
             renderers[i].sharedMaterial = i >= smokeStart ? smokeMaterial : material;
-            renderers[i].sortingLayerID = data.sortingLayerId;
-            renderers[i].sortingOrder = data.sortingOrder - i;
+            RenderSorting.Apply(renderers[i], -i);
         }
         hasEmissionColor = ResolveProperty(material, data.emissionColorProperty, "_GlowColor", out emissionColorId);
         hasEmissionStrength = ResolveProperty(material, data.emissionStrengthProperty, null, out emissionStrengthId);
@@ -369,8 +384,19 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void Render()
     {
+        ApplySorting();
         withinCamera = WithinCamera();
         RenderDetails(withinCamera);
+        if (definition.beam != null && definition.beam.kind != EffectBeamKind.None)
+        {
+            foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
+            localLight.enabled = false;
+            if (!withinCamera) { beamVisual?.Clear(); return; }
+            beamVisual ??= new FieldBeamEffectVisual(transform, defaultMaterial);
+            beamVisual.Render(definition.beam, RenderSorting, age, withinCamera,
+                EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier);
+            return;
+        }
         if (!withinCamera)
         {
             foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
@@ -540,6 +566,7 @@ public sealed class EffectVisual : MonoBehaviour
         sample.impact = definition.family == EffectFamily.Liquid
             ? (1f - Mathf.SmoothStep(0f, 1f, sample.ripple)) * EffectNumbers.NonNegative(definition.impactFoamStrength) : 0f;
         sample.source = source;
+        sample.sorting = RenderSorting;
         source.enabled = false;
         return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
     }
@@ -554,6 +581,7 @@ public sealed class EffectVisual : MonoBehaviour
         sample.radius = size * (0.5f * Mathf.Clamp(definition.mergeRadius, 0.2f, 1f));
         sample.weight = Mathf.Clamp01(color.a / Mathf.Max(0.0001f, definition.tint.a));
         sample.source = detailRenderers[index];
+        sample.sorting = RenderSorting;
         detailRenderers[index].enabled = false;
         return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
     }
@@ -567,6 +595,7 @@ public sealed class EffectVisual : MonoBehaviour
             return false;
         if (!fire.Capture(index, out sample)) return false;
         sample.source = renderers[0];
+        sample.sorting = RenderSorting;
         return true;
     }
 
@@ -600,6 +629,9 @@ public sealed class EffectVisual : MonoBehaviour
                 Mathf.Abs(definition.smokeTail.gasRise)) * 4f * Mathf.Max(1f, scale);
         Vector3 root = transform.lossyScale;
         radius *= Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
+        if (definition.beam != null && definition.beam.kind != EffectBeamKind.None)
+            radius = Mathf.Max(radius, (definition.beam.length + definition.beam.width + definition.beam.zigzag) *
+                EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y)));
         radius += (definition.visualCurves?.Offset(VisualCurveProgress) ?? Vector2.zero).magnitude *
             EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
         if (details != null) radius += details.VisibilityRadius;
@@ -643,6 +675,12 @@ public sealed class EffectVisual : MonoBehaviour
         playback.Reset();
         fire?.Reset();
         details?.Reset();
+        beamVisual?.Clear();
+        attachedRenderer = null;
+        attachedGroup = null;
+        attachedAnchor = null;
+        appliedSorting = default;
+        sortingGroundPosition = Vector3.zero;
         if (detailRenderers != null)
             foreach (SpriteRenderer renderer in detailRenderers) renderer.enabled = false;
         PhaseStarted = null;
@@ -761,7 +799,32 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void OnDestroy()
     {
+        beamVisual?.Dispose();
         ReleaseDetailResources();
+    }
+
+    public void SetAttachedSorting(SpriteRenderer target, SortingGroup group = null, BattleWorldSortAnchor anchor = null)
+    {
+        attachedRenderer = target;
+        attachedGroup = group;
+        attachedAnchor = anchor;
+        ApplySorting();
+    }
+
+    private void ApplySorting()
+    {
+        if (definition == null || renderers == null) return;
+        EffectRenderSort sorting = RenderSorting;
+        if (appliedSorting.Equals(sorting)) return;
+        if (definition.mergeNearby || definition.fireParticles)
+        {
+            if (preview) { if (previewWorld != null) previewWorld.RequestRefresh(); }
+            else EffectBlobWorld.RequestSortingRefresh();
+        }
+        appliedSorting = sorting;
+        for (int i = 0; i < renderers.Length; i++) sorting.Apply(renderers[i], -i);
+        if (detailRenderers != null)
+            foreach (SpriteRenderer renderer in detailRenderers) sorting.Apply(renderer, 1);
     }
 
     public void DisposePreview()

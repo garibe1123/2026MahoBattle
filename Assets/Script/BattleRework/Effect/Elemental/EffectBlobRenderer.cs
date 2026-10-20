@@ -19,6 +19,7 @@ internal struct EffectBlobSample
     public float fireHoleRadius;
     public float fireTear;
     public SpriteRenderer source;
+    public EffectRenderSort sorting;
 }
 
 [DisallowMultipleComponent]
@@ -60,6 +61,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private float pixelStep;
     private float tileRefreshRate;
     private float surfaceRoughness;
+    private EffectRenderSort renderSorting;
 
     internal int VisibleSampleCount => surface != null && surface.enabled ? count : 0;
 
@@ -94,6 +96,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         surfaceRoughness = 0f;
         if (definition != data) nextRefresh = 0f;
         definition = data;
+        renderSorting = data != null ? data.ResolveSorting(transform.position) : default;
         count = 0;
         ready = data != null && data.mergeNearby && renderCamera != null && renderCamera.isActiveAndEnabled;
         if (!ready) { Clear(); return; }
@@ -120,13 +123,16 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             if (visual.CaptureBlob(definition, i, out EffectBlobSample sample)) AddSample(sample);
     }
 
-    internal void BeginTile(EffectDefinitionSO data, Rect tile, Rect visible, float step, float refreshRate, float roughness)
+    internal void BeginTile(EffectDefinitionSO data, Rect tile, Rect visible, float step, float refreshRate, float roughness,
+        EffectRenderSort sorting)
     {
         roughness = Mathf.Clamp01(EffectNumbers.NonNegative(roughness));
-        if (!fixedGrid || definition != data || tileBounds != tile || pixelStep != step || surfaceRoughness != roughness)
+        if (!fixedGrid || definition != data || tileBounds != tile || pixelStep != step || surfaceRoughness != roughness ||
+            !renderSorting.Equals(sorting))
             nextRefresh = 0f;
         fixedGrid = ready = true;
         definition = data;
+        renderSorting = sorting;
         tileBounds = tile;
         pixelStep = step;
         tileRefreshRate = EffectNumbers.Positive(refreshRate, 20f);
@@ -148,6 +154,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         if (low.x >= high.x || low.y >= high.y) return;
         minimum = Vector2.Min(minimum, low);
         maximum = Vector2.Max(maximum, high);
+        if (count == 0) renderSorting = sample.sorting;
+        if (!renderSorting.Equals(sample.sorting)) return;
         samples[count++] = sample;
         if (count > sampleReferenceCount) sampleReferenceCount = count;
     }
@@ -160,7 +168,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     public void End(float time)
     {
         if (!ready || count == 0) { Clear(); return; }
-        if (time < nextRefresh && surface.enabled) return;
+        if (!fixedGrid && time < nextRefresh && surface.enabled) return;
         float rate = EffectNumbers.Positive(definition.mergeRefreshRate, 20f);
         if (fixedGrid) rate = tileRefreshRate;
         nextRefresh = time + 1f / Mathf.Clamp(rate, 5f, 30f);
@@ -251,8 +259,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         surface.SetPropertyBlock(properties);
         tint.a = 1f;
         surface.color = tint;
-        surface.sortingLayerID = definition.sortingLayerId;
-        surface.sortingOrder = definition.sortingOrder;
+        renderSorting.Apply(surface);
         surface.enabled = true;
     }
 

@@ -9,6 +9,8 @@ public enum EffectIdleEnd { LoopBoundary, Immediate }
 public enum EffectShortLife { AccelerateIntroAndEnd, EndOnly }
 public enum EffectIntroStop { Immediate, AfterIntro }
 public enum EffectLightMode { Steady, Flicker }
+public enum EffectSortMode { Automatic, Definition, Ground, SpawnDepth, Attached }
+public enum EffectBeamKind { None, LightningStrike, ElectricBeam, Laser }
 
 [Serializable]
 public sealed class EffectClipDefinition
@@ -295,6 +297,20 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public int sortingLayerId;
     [Tooltip("같은 Sorting Layer 안의 그리기 순서입니다. 클수록 앞에 그립니다.")]
     public int sortingOrder = 20;
+    public EffectSortMode sortingMode;
+    public EffectCharacterSettings character = new();
+    public EffectBeamSettings beam = new();
+
+    public EffectSortMode ResolvedSorting => sortingMode != EffectSortMode.Automatic ? sortingMode :
+        fireParticles ? EffectSortMode.SpawnDepth : family == EffectFamily.Liquid ? EffectSortMode.Ground : EffectSortMode.Definition;
+
+    public EffectRenderSort ResolveSorting(Vector3 groundPosition)
+    {
+        EffectSortMode mode = ResolvedSorting;
+        int order = mode == EffectSortMode.Ground ? BattleWorldSorting.FloorOrder + 1 :
+            mode == EffectSortMode.SpawnDepth ? BattleWorldSorting.WorldYToOrder(groundPosition.y) : sortingOrder;
+        return new EffectRenderSort(sortingLayerId, order, mode);
+    }
     [Header("Future integration data only")]
     [Tooltip("투사체 부착 연동을 위한 위치 보정 데이터입니다.")]
     public Vector2 attachmentOffset;
@@ -375,6 +391,53 @@ public sealed class EffectDefinitionSO : ScriptableObject
                 }
         ownedSprites = null;
         clips = null;
+    }
+}
+
+[Serializable]
+public sealed class EffectCharacterSettings
+{
+    [Min(0f)] public float radiusInBodyWidths = 0.6f;
+    public Vector2 emissionInterval = new(0.2f, 0.4f);
+    public Vector2 particleLifetime = new(0.4f, 0.8f);
+    public Vector2 particleSize = new(0.12f, 0.2f);
+    public Color tint = new Color32(155, 221, 39, 255);
+    [Range(0f, 1f)] public float tintAmount = 0.2f;
+    public float duration = -1f;
+    public EffectDefinitionSO sparkle;
+    [Range(0f, 1f)] public float sparkleChance = 0.35f;
+    public Vector2 sparkleSize = new(0.2f, 0.4f);
+}
+
+[Serializable]
+public sealed class EffectBeamSettings
+{
+    public EffectBeamKind kind;
+    public Vector2 direction = Vector2.right;
+    [Min(0.01f)] public float length = 4f;
+    [Min(0.01f)] public float width = 0.12f;
+    [Range(0.05f, 1f)] public float coreWidth = 0.35f;
+    [Min(0f)] public float zigzag = 0.18f;
+    [Min(0.01f)] public float pixelSize = 0.03125f;
+    [Range(2, 32)] public int segments = 12;
+    [Min(1f)] public float refreshRate = 20f;
+    public Color core = new Color32(255, 247, 176, 255);
+    public Color edge = new Color32(255, 213, 42, 255);
+}
+
+public readonly struct EffectRenderSort : IEquatable<EffectRenderSort>
+{
+    public readonly int layer, order;
+    public readonly EffectSortMode mode;
+    public EffectRenderSort(int layer, int order, EffectSortMode mode)
+    { this.layer = layer; this.order = order; this.mode = mode; }
+    public bool Equals(EffectRenderSort other) => layer == other.layer && order == other.order && mode == other.mode;
+    public override bool Equals(object obj) => obj is EffectRenderSort other && Equals(other);
+    public override int GetHashCode() => unchecked((layer * 397 ^ order) * 397 ^ (int)mode);
+    public void Apply(SpriteRenderer renderer, int offset = 0)
+    {
+        renderer.sortingLayerID = layer;
+        renderer.sortingOrder = order + (mode == EffectSortMode.Attached || mode == EffectSortMode.Ground ? 0 : offset);
     }
 }
 

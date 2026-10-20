@@ -32,7 +32,15 @@ public class BattleDebugUI : MonoBehaviour
     private Camera elementalCamera;
     private EffectBlobWorld elementalBlobWorld;
     private GUIStyle elementalSourceStyle;
-    private static readonly string[] elementalTestTabs = { "이펙트", "성능 / FPS" };
+    private static readonly string[] elementalTestTabs = { "이펙트", "성능 / FPS", "캐릭터 / 필드" };
+    [SerializeField] private EffectDefinitionSO[] characterFieldDefinitions;
+    private ElementalAdditionalSamples additionalSamples;
+    private CharacterStatusEffectVisual characterEffect;
+    private int activeCharacterEffect = -1;
+    private PlayerController elementalPlayer;
+    private readonly EffectVisual[] fieldEffects = new EffectVisual[3];
+    private readonly int[] fieldExecutions = new int[3];
+    private static readonly string[] characterFieldLabels = { "독", "냉기", "화상", "낙뢰", "직선 전격", "레이저" };
     private int elementalTestTab;
     private Vector2 elementalPerformanceScroll;
     private EffectPerformanceOverlay elementalPerformance;
@@ -117,6 +125,18 @@ public class BattleDebugUI : MonoBehaviour
         GameObject emitterHost = new("Elemental Debug Emitter");
         emitterHost.transform.SetParent(transform, false);
         elementalEmitter = emitterHost.AddComponent<EffectEmitter>();
+        if (characterFieldDefinitions == null || characterFieldDefinitions.Length != 6)
+            characterFieldDefinitions = new EffectDefinitionSO[6];
+        for (int i = 0; i < characterFieldDefinitions.Length; i++)
+        {
+            if (characterFieldDefinitions[i] != null) continue;
+            characterFieldDefinitions[i] = UnityEditor.AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(
+                ElementalTestSamples.SettingsRoot + "/" + ElementalAdditionalSamples.Names[i] + "Visual.asset");
+            if (characterFieldDefinitions[i] != null) continue;
+            elementalSamples ??= new ElementalTestSamples();
+            additionalSamples ??= new ElementalAdditionalSamples(elementalSamples.Definitions[0]);
+            characterFieldDefinitions[i] = additionalSamples.Definitions[i];
+        }
 #endif
     }
 
@@ -125,6 +145,7 @@ public class BattleDebugUI : MonoBehaviour
         ResolveReferences();
 #if UNITY_EDITOR
         if (elementalCamera == null) elementalCamera = Camera.main;
+        ResolveElementalPlayer();
 #endif
     }
 
@@ -264,6 +285,8 @@ public class BattleDebugUI : MonoBehaviour
 #if UNITY_EDITOR
     private void OnDestroy()
     {
+        StopCharacterFieldTests();
+        additionalSamples?.Dispose();
         if (elementalEmitter != null) elementalEmitter.ClearVisuals();
         elementalSamples?.Dispose();
     }
@@ -294,6 +317,12 @@ public class BattleDebugUI : MonoBehaviour
         if (elementalTestTab == 1)
         {
             DrawElementalPerformanceTab();
+            GUILayout.EndArea();
+            return;
+        }
+        if (elementalTestTab == 2)
+        {
+            DrawCharacterFieldTests();
             GUILayout.EndArea();
             return;
         }
@@ -337,6 +366,77 @@ public class BattleDebugUI : MonoBehaviour
         GUILayout.Label($"Phase: {phase} / Remaining: {remaining}\nActive: {elementalEmitter.ActiveCount}");
         GUILayout.EndArea();
     }
+
+    private void ResolveElementalPlayer()
+    {
+        if (elementalPlayer == null) elementalPlayer = FindFirstObjectByType<PlayerController>();
+        if (elementalPlayer == null || characterEffect != null) return;
+        characterEffect = elementalPlayer.GetComponent<CharacterStatusEffectVisual>();
+        if (characterEffect == null) characterEffect = elementalPlayer.gameObject.AddComponent<CharacterStatusEffectVisual>();
+    }
+
+    private void DrawCharacterFieldTests()
+    {
+        GUILayout.Label("캐릭터 착색: 마지막 선택 하나 / 필드: 개별 재생");
+        for (int i = 0; i < 6; i++)
+        {
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button(characterFieldLabels[i] + " 재생"))
+            {
+                ResolveElementalPlayer();
+                if (i < 3)
+                {
+                    if (characterEffect != null)
+                    {
+                        characterEffect.Play(characterFieldDefinitions[i]);
+                        activeCharacterEffect = i;
+                    }
+                }
+                else
+                {
+                    StopFieldTest(i - 3);
+                    Vector3 position = elementalPlayer != null ? elementalPlayer.transform.position : elementalEmitter.transform.position;
+                    EffectVisual effect = EffectVisual.Spawn(characterFieldDefinitions[i], position, Quaternion.identity, stationary: true);
+                    fieldEffects[i - 3] = effect;
+                    fieldExecutions[i - 3] = effect != null ? effect.ExecutionId : 0;
+                }
+            }
+            if (GUILayout.Button("중지", GUILayout.Width(60f)))
+            {
+                if (i < 3)
+                {
+                    if (activeCharacterEffect == i)
+                    {
+                        if (characterEffect != null) characterEffect.Stop();
+                        activeCharacterEffect = -1;
+                    }
+                }
+                else StopFieldTest(i - 3);
+            }
+            GUILayout.EndHorizontal();
+        }
+        if (GUILayout.Button("전체 중지")) StopCharacterFieldTests();
+    }
+
+    private void StopFieldTest(int index)
+    {
+        EffectVisual effect = fieldEffects[index];
+        if (effect != null && effect.ExecutionId == fieldExecutions[index] && effect.IsPlaying)
+        {
+            effect.ResetForPool();
+            PoolService.Release(effect.gameObject);
+        }
+        fieldEffects[index] = null;
+    }
+
+    private void StopCharacterFieldTests()
+    {
+        if (characterEffect != null) characterEffect.Stop();
+        activeCharacterEffect = -1;
+        for (int i = 0; i < fieldEffects.Length; i++) StopFieldTest(i);
+    }
+
+    private void OnDisable() { StopCharacterFieldTests(); }
 
     private void DrawElementalRenderControls()
     {

@@ -249,6 +249,42 @@ public static class HarnessElementalSamples
         Selection.activeGameObject = root;
     }
 
+    [MenuItem("Tools/Harness/Create Character And Field Effect Settings")]
+    private static void CreateCharacterAndFieldSettings()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        CreateEditableSettings();
+        EffectDefinitionSO fire = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(
+            ElementalTestSamples.SettingsRoot + "/FireVisual.asset");
+        using ElementalAdditionalSamples samples = new(fire);
+        EffectDefinitionSO sparkle = null;
+        for (int i = samples.Definitions.Length - 1; i >= 0; i--)
+        {
+            string path = ElementalTestSamples.SettingsRoot + "/" + ElementalAdditionalSamples.Names[i] + "Visual.asset";
+            EffectDefinitionSO existing = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(path);
+            if (existing != null)
+            {
+                if (i == 6) sparkle = existing;
+                continue;
+            }
+            EffectDefinitionSO data = samples.Definitions[i];
+            if (i == 1) data.character.sparkle = sparkle;
+            data.hideFlags = HideFlags.None;
+            AssetDatabase.CreateAsset(data, path);
+            if (!data.intro.useSheet && data.intro.sprites.Length > 0)
+            {
+                Sprite sprite = data.intro.sprites[0];
+                Texture2D texture = sprite.texture;
+                sprite.hideFlags = texture.hideFlags = HideFlags.None;
+                AssetDatabase.AddObjectToAsset(texture, data);
+                AssetDatabase.AddObjectToAsset(sprite, data);
+            }
+            if (i == 6) sparkle = data;
+            EditorUtility.SetDirty(data);
+        }
+        AssetDatabase.SaveAssets();
+    }
+
     private static void EnsureFolder(string parent, string child)
     {
         if (!AssetDatabase.IsValidFolder(parent + "/" + child)) AssetDatabase.CreateFolder(parent, child);

@@ -23,12 +23,16 @@ public class PlayerAnimator : MonoBehaviour
     private Vector2 facing = Vector2.right;
     private SpriteClipPlayer clipPlayer;
     private float fps = 10f;
+    private Color bodyColor, statusTint;
+    private float statusTintAmount, blinkAlpha = 1f;
+    private Coroutine blinkRoutine;
 
     public Vector2 Facing => facing;
 
     private void Awake()
     {
         sr = GetComponent<SpriteRenderer>();
+        bodyColor = sr.color;
         clipPlayer = new SpriteClipPlayer(ApplySprite);
         EnsureFacingIndicator();
         ApplyFacingVisual();
@@ -79,9 +83,6 @@ public class PlayerAnimator : MonoBehaviour
     {
         if (sr != null && Mathf.Abs(facing.x) > 0.001f)
             sr.flipX = facing.x < 0f;
-
-        if (facingIndicatorRenderer == null)
-            EnsureFacingIndicator();
 
         if (facingIndicatorRenderer == null)
             return;
@@ -173,7 +174,39 @@ public class PlayerAnimator : MonoBehaviour
     public void StartBlink(float duration)
     {
         if (gameObject.activeInHierarchy)
-            StartCoroutine(BlinkRoutine(duration));
+        {
+            if (blinkRoutine != null) StopCoroutine(blinkRoutine);
+            blinkRoutine = StartCoroutine(BlinkRoutine(duration));
+        }
+    }
+
+    public void SetStatusTint(Color color, float amount)
+    {
+        statusTint = color;
+        statusTintAmount = Mathf.Clamp01(amount);
+        ApplyBodyColor();
+    }
+
+    public void ClearStatusTint()
+    {
+        statusTintAmount = 0f;
+        ApplyBodyColor();
+    }
+
+    private void ApplyBodyColor()
+    {
+        if (sr == null) return;
+        Color color = Color.Lerp(bodyColor, statusTint, statusTintAmount);
+        color.a = bodyColor.a * blinkAlpha;
+        sr.color = color;
+    }
+
+    private void OnDisable()
+    {
+        if (blinkRoutine != null) StopCoroutine(blinkRoutine);
+        blinkRoutine = null;
+        blinkAlpha = 1f;
+        ClearStatusTint();
     }
 
     private IEnumerator BlinkRoutine(float duration)
@@ -181,21 +214,22 @@ public class PlayerAnimator : MonoBehaviour
         if (sr == null)
             yield break;
 
-        Color original = sr.color;
         float elapsed = 0f;
 
         while (elapsed < duration)
         {
-            Color faded = original;
-            faded.a *= 0.4f;
-            sr.color = faded;
+            blinkAlpha = 0.4f;
+            ApplyBodyColor();
             yield return new WaitForSeconds(0.1f);
-            sr.color = original;
+            blinkAlpha = 1f;
+            ApplyBodyColor();
             yield return new WaitForSeconds(0.1f);
             elapsed += 0.2f;
         }
 
-        sr.color = original;
+        blinkAlpha = 1f;
+        ApplyBodyColor();
+        blinkRoutine = null;
     }
 }
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [DisallowMultipleComponent]
+[DefaultExecutionOrder(32000)]
 public sealed class EffectBlobWorld : MonoBehaviour
 {
     public const float MinPixelSize = 0.5f, MaxPixelSize = 4f, DefaultPixelSize = 1.3f;
@@ -36,15 +37,17 @@ public sealed class EffectBlobWorld : MonoBehaviour
     private readonly struct TileKey : IEquatable<TileKey>
     {
         private readonly int definition, x, y;
-        public TileKey(EffectDefinitionSO data, int tileX, int tileY)
+        private readonly EffectRenderSort sorting;
+        public TileKey(EffectDefinitionSO data, int tileX, int tileY, EffectRenderSort sorting)
         {
             definition = data.GetInstanceID();
             x = tileX;
             y = tileY;
+            this.sorting = sorting;
         }
-        public bool Equals(TileKey other) => definition == other.definition && x == other.x && y == other.y;
+        public bool Equals(TileKey other) => definition == other.definition && x == other.x && y == other.y && sorting.Equals(other.sorting);
         public override bool Equals(object obj) => obj is TileKey other && Equals(other);
-        public override int GetHashCode() => unchecked((definition * 397 ^ x) * 397 ^ y);
+        public override int GetHashCode() => unchecked(((definition * 397 ^ x) * 397 ^ y) * 397 ^ sorting.GetHashCode());
     }
 
     private static EffectBlobWorld instance;
@@ -146,7 +149,18 @@ public sealed class EffectBlobWorld : MonoBehaviour
 
     internal void UnregisterVisual(EffectVisual visual)
     {
-        if (indices.TryGetValue(visual, out int index)) RemoveAt(index);
+        if (indices.TryGetValue(visual, out int index))
+        {
+            RemoveAt(index);
+            RequestRefresh();
+        }
+    }
+
+    internal void RequestRefresh() { nextRefresh = 0f; }
+
+    internal static void RequestSortingRefresh()
+    {
+        if (instance != null) instance.RequestRefresh();
     }
 
     private void RemoveAt(int index)
@@ -241,7 +255,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
             Vector2 high = Vector2.Min(center + extent, view.max);
             if (low.x >= high.x || low.y >= high.y) continue;
             float cellSize = step * 8f;
-            TileKey bin = new(entry.definition, Mathf.FloorToInt(center.x / cellSize), Mathf.FloorToInt(center.y / cellSize));
+            TileKey bin = new(entry.definition, Mathf.FloorToInt(center.x / cellSize), Mathf.FloorToInt(center.y / cellSize), sample.sorting);
             if (bins.TryGetValue(bin, out int index))
             {
                 BlobGroup group = groups[index];
@@ -303,7 +317,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
         for (int y = bottom; y <= top; y++)
             for (int x = left; x <= right; x++)
             {
-                TileKey key = new(group.definition, x, y);
+                TileKey key = new(group.definition, x, y, sample.sorting);
                 if (!visibleTiles.TryGetValue(key, out EffectBlobRenderer tile))
                 {
                     int slot = visibleTiles.Count;
@@ -320,7 +334,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
                     Rect bounds = new(x * tileSize, y * tileSize, tileSize, tileSize);
                     Rect clipped = Rect.MinMaxRect(Mathf.Max(bounds.xMin, view.xMin), Mathf.Max(bounds.yMin, view.yMin),
                         Mathf.Min(bounds.xMax, view.xMax), Mathf.Min(bounds.yMax, view.yMax));
-                    tile.BeginTile(group.definition, bounds, clipped, step, refreshRate, surfaceRoughness);
+                    tile.BeginTile(group.definition, bounds, clipped, step, refreshRate, surfaceRoughness, sample.sorting);
                     visibleTiles.Add(key, tile);
                 }
                 tile.AddSample(sample);
