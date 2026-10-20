@@ -6,6 +6,12 @@ using UnityEngine;
 public sealed class EffectBlobWorld : MonoBehaviour
 {
     [Range(0.00390625f, 1f)] public float worldUnitsPerPixel = 0.03125f;
+    [Tooltip("Use the source sheet's Pixels Per Unit instead of World Units Per Pixel.")]
+    public bool useSourcePixelsPerUnit = true;
+    [Tooltip("1 preserves the source pixel size; larger values produce coarser pixels.")]
+    [Range(1, 8)] public int pixelSizeMultiplier = 1;
+    [Tooltip("0 preserves smooth edges and colors; 1 sharpens edges and reduces color steps. Lifetime fading is preserved.")]
+    [Range(0f, 1f)] public float surfaceRoughness = 0.7f;
     [Range(5f, 30f)] public float refreshRate = 20f;
     [Range(1, 256)] public int maxVisibleTiles = 64;
     [Range(64, 8192)] public int maxActiveVisuals = 4096;
@@ -122,8 +128,6 @@ public sealed class EffectBlobWorld : MonoBehaviour
         bins.Clear();
         groups.Clear();
         if (!TryGetView(out Rect view)) { nextRefresh = 0f; ClearTiles(0); return; }
-        float step = Mathf.Clamp(EffectNumbers.Positive(worldUnitsPerPixel, 0.03125f), 0.00390625f, 1f);
-        float tileSize = step * EffectBlobRenderer.Resolution;
         int tileLimit = Mathf.Clamp(maxVisibleTiles, 1, 256);
         for (int i = active.Count - 1; i >= 0; i--)
         {
@@ -136,11 +140,12 @@ public sealed class EffectBlobWorld : MonoBehaviour
                 for (int particle = 0; particle < entry.visual.FireSampleCount; particle++)
                     if (entry.visual.CaptureFire(particle, out EffectBlobSample fireSample))
                         AddToTiles(new BlobGroup { sample = fireSample, definition = entry.definition },
-                            view, tileSize, step, tileLimit);
+                            view, tileLimit);
                 continue;
             }
             if (!entry.visual.CaptureBlob(entry.definition, out EffectBlobSample sample)) continue;
             if (!refresh) continue;
+            float step = PixelStep(entry.definition);
             Vector2 center = sample.center;
             Vector2 extent = sample.radius * 2f + Vector2.one * step;
             Vector2 low = Vector2.Max(center - extent, view.min);
@@ -170,13 +175,23 @@ public sealed class EffectBlobWorld : MonoBehaviour
         }
         if (!refresh) return;
         nextRefresh = Time.time + 1f / Mathf.Clamp(EffectNumbers.Positive(refreshRate, 20f), 5f, 30f);
-        for (int i = 0; i < groups.Count; i++) AddToTiles(groups[i], view, tileSize, step, tileLimit);
+        for (int i = 0; i < groups.Count; i++) AddToTiles(groups[i], view, tileLimit);
         for (int i = 0; i < visibleTiles.Count; i++) tiles[i].End();
         ClearTiles(visibleTiles.Count);
     }
 
-    private void AddToTiles(BlobGroup group, Rect view, float tileSize, float step, int tileLimit)
+    private float PixelStep(EffectDefinitionSO data)
     {
+        float step = Mathf.Clamp(EffectNumbers.Positive(worldUnitsPerPixel, 0.03125f), 0.00390625f, 1f);
+        if (useSourcePixelsPerUnit && data.sourceSheet != null)
+            step = 1f / EffectNumbers.Positive(data.sourceSheet.pixelsPerUnit, 32f);
+        return step * Mathf.Clamp(pixelSizeMultiplier, 1, 8);
+    }
+
+    private void AddToTiles(BlobGroup group, Rect view, int tileLimit)
+    {
+        float step = PixelStep(group.definition);
+        float tileSize = step * EffectBlobRenderer.Resolution;
         EffectBlobSample sample = group.sample;
         Vector2 center = sample.center;
         Vector2 extent = sample.radius * 2f + Vector2.one * step;
@@ -205,7 +220,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
                     Rect bounds = new(x * tileSize, y * tileSize, tileSize, tileSize);
                     Rect clipped = Rect.MinMaxRect(Mathf.Max(bounds.xMin, view.xMin), Mathf.Max(bounds.yMin, view.yMin),
                         Mathf.Min(bounds.xMax, view.xMax), Mathf.Min(bounds.yMax, view.yMax));
-                    tile.BeginTile(group.definition, bounds, clipped, step, refreshRate);
+                    tile.BeginTile(group.definition, bounds, clipped, step, refreshRate, surfaceRoughness);
                     visibleTiles.Add(key, tile);
                 }
                 tile.AddSample(sample);

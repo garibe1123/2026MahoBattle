@@ -161,9 +161,9 @@ internal static class EffectFireField
     }
 
     public static void Colorize(float[] density, Color[] colors, Color32[] pixels,
-        int resolution, RectInt clip, EffectDefinitionSO definition)
+        int resolution, RectInt clip, EffectDefinitionSO definition, float roughness = 0f)
     {
-        float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f);
+        float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f) * Mathf.Lerp(1f, 0.08f, roughness);
         int stride = resolution + 2;
         for (int y = clip.yMin; y < clip.yMax; y++)
             for (int x = clip.xMin; x < clip.xMax; x++)

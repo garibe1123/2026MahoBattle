@@ -46,6 +46,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private Rect tileBounds;
     private float pixelStep;
     private float tileRefreshRate;
+    private float surfaceRoughness;
 
     private void Awake()
     {
@@ -69,6 +70,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     public void Begin(EffectDefinitionSO data)
     {
         fixedGrid = false;
+        surfaceRoughness = 0f;
         if (definition != data) nextRefresh = 0f;
         definition = data;
         count = 0;
@@ -96,14 +98,17 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         AddSample(sample);
     }
 
-    internal void BeginTile(EffectDefinitionSO data, Rect tile, Rect visible, float step, float refreshRate)
+    internal void BeginTile(EffectDefinitionSO data, Rect tile, Rect visible, float step, float refreshRate, float roughness)
     {
-        if (!fixedGrid || definition != data || tileBounds != tile || pixelStep != step) nextRefresh = 0f;
+        roughness = Mathf.Clamp01(EffectNumbers.NonNegative(roughness));
+        if (!fixedGrid || definition != data || tileBounds != tile || pixelStep != step || surfaceRoughness != roughness)
+            nextRefresh = 0f;
         fixedGrid = ready = true;
         definition = data;
         tileBounds = tile;
         pixelStep = step;
         tileRefreshRate = EffectNumbers.Positive(refreshRate, 20f);
+        surfaceRoughness = roughness;
         view = visible;
         count = 0;
         minimum = tile.min;
@@ -173,12 +178,13 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         }
         if (definition.fireParticles)
         {
-            EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition);
+            EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
             tint = Color.white;
         }
         else
             EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
-                definition, Time.time, opacity);
+                definition, Time.time, opacity, surfaceRoughness);
+        if (surfaceRoughness > 0f) EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness);
         texture.SetPixels32(pixels);
         texture.Apply(false, false);
         Vector3 parentScale = transform.parent != null ? transform.parent.lossyScale : Vector3.one;
@@ -268,11 +274,12 @@ internal static class EffectBlobField
     }
 
     public static void Colorize(float[] field, float[] foam, Color32[] pixels, float[] noiseGrid,
-        int resolution, Vector2 origin, float step, RectInt clip, EffectDefinitionSO definition, float time, float opacity)
+        int resolution, Vector2 origin, float step, RectInt clip, EffectDefinitionSO definition, float time, float opacity,
+        float roughness = 0f)
     {
         if (clip.width == 0 || clip.height == 0) return;
         bool smoke = definition.family == EffectFamily.Gas;
-        float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f);
+        float softness = Mathf.Clamp(definition.mergeSoftness, 0.02f, 0.5f) * Mathf.Lerp(1f, 0.08f, roughness);
         float noiseScale = EffectNumbers.Positive(definition.surfaceNoiseScale, 0.65f);
         float noiseStrength = Mathf.Clamp01(EffectNumbers.NonNegative(definition.surfaceNoiseStrength));
         float noiseSpeed = EffectNumbers.NonNegative(definition.surfaceNoiseSpeed);
@@ -358,6 +365,25 @@ internal static class EffectBlobField
                 pixels[index] = color;
             }
     }
+
+    public static void Roughen(Color32[] pixels, int resolution, RectInt clip, float roughness)
+    {
+        int levels = Mathf.RoundToInt(Mathf.Lerp(32f, 4f, roughness));
+        for (int y = clip.yMin; y < clip.yMax; y++)
+            for (int x = clip.xMin; x < clip.xMax; x++)
+            {
+                int index = y * resolution + x;
+                Color32 pixel = pixels[index];
+                if (pixel.a == 0) continue;
+                pixel.r = RoughenChannel(pixel.r, levels, roughness);
+                pixel.g = RoughenChannel(pixel.g, levels, roughness);
+                pixel.b = RoughenChannel(pixel.b, levels, roughness);
+                pixels[index] = pixel;
+            }
+    }
+
+    private static byte RoughenChannel(byte value, int levels, float amount) =>
+        (byte)Mathf.RoundToInt(Mathf.Lerp(value, Mathf.Round(value * levels / 255f) * 255f / levels, amount));
 
     private static float Height(float density) => density / (0.65f + density);
 }
