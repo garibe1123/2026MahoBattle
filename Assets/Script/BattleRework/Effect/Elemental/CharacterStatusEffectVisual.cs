@@ -87,9 +87,11 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         float width = Sample(settings.particleSize, 0.01f);
         Sprite[] frames = definition.GetFrames(EffectPhase.Intro);
         float sourceWidth = frames.Length > 0 ? frames[0].bounds.size.x : 1f;
+        float scale = ParticleScale(definition, frames, width, sourceWidth);
+        width = sourceWidth * definition.visualScale * scale;
         EffectVisual visual = EffectVisual.Spawn(definition, position, Quaternion.identity,
             duration: Sample(settings.particleLifetime, 0.01f),
-            spawnScale: width / Mathf.Max(0.001f, sourceWidth * definition.visualScale));
+            spawnScale: scale);
         if (visual == null || !visual.IsPlaying) return;
         visual.SetAttachedSorting(body, bodyGroup, sortAnchor);
         particles.Add(new Particle { visual = visual, execution = visual.ExecutionId });
@@ -99,12 +101,21 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
             float sparkWidth = sparkFrames.Length > 0 ? sparkFrames[0].bounds.size.x : 1f;
             EffectVisual sparkle = EffectVisual.Spawn(settings.sparkle, position + Vector3.right * width,
                 Quaternion.identity, duration: Sample(settings.particleLifetime, 0.01f),
-                spawnScale: width * Sample(settings.sparkleSize, 0.01f) /
-                    Mathf.Max(0.001f, sparkWidth * settings.sparkle.visualScale));
+                spawnScale: ParticleScale(settings.sparkle, sparkFrames,
+                    width * Sample(settings.sparkleSize, 0.01f), sparkWidth));
             if (sparkle == null || !sparkle.IsPlaying) return;
             sparkle.SetAttachedSorting(body, bodyGroup, sortAnchor);
             particles.Add(new Particle { visual = sparkle, execution = sparkle.ExecutionId });
         }
+    }
+
+    private static float ParticleScale(EffectDefinitionSO data, Sprite[] frames, float width, float sourceWidth)
+    {
+        float scale = width / Mathf.Max(0.001f, sourceWidth * data.visualScale);
+        if (data.fireParticles || data.character == null || !data.character.alignToWorldPixels || frames.Length == 0) return scale;
+        float pixelScale = EffectBlobWorld.DefaultDetailPixelSize(data) * frames[0].pixelsPerUnit /
+            Mathf.Max(0.001f, data.visualScale);
+        return pixelScale * Mathf.Max(1f, Mathf.Round(scale / pixelScale));
     }
 
     public void Stop()

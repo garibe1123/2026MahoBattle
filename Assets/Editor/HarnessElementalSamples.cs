@@ -252,6 +252,17 @@ public static class HarnessElementalSamples
     [MenuItem("Tools/Harness/Create Character And Field Effect Settings")]
     private static void CreateCharacterAndFieldSettings()
     {
+        WriteCharacterAndFieldSettings(false);
+    }
+
+    [MenuItem("Tools/Harness/Refresh Character And Field Effect Settings")]
+    private static void RefreshCharacterAndFieldSettings()
+    {
+        WriteCharacterAndFieldSettings(true);
+    }
+
+    private static void WriteCharacterAndFieldSettings(bool refresh)
+    {
         if (EditorApplication.isPlayingOrWillChangePlaymode) return;
         CreateEditableSettings();
         EffectDefinitionSO fire = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(
@@ -262,22 +273,42 @@ public static class HarnessElementalSamples
         {
             string path = ElementalTestSamples.SettingsRoot + "/" + ElementalAdditionalSamples.Names[i] + "Visual.asset";
             EffectDefinitionSO existing = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(path);
-            if (existing != null)
+            if (existing != null && !refresh)
             {
                 if (i == 6) sparkle = existing;
                 continue;
             }
             EffectDefinitionSO data = samples.Definitions[i];
             if (i == 1) data.character.sparkle = sparkle;
-            data.hideFlags = HideFlags.None;
-            AssetDatabase.CreateAsset(data, path);
-            if (!data.intro.useSheet && data.intro.sprites.Length > 0)
+            if (existing != null)
             {
-                Sprite sprite = data.intro.sprites[0];
-                Texture2D texture = sprite.texture;
-                sprite.hideFlags = texture.hideFlags = HideFlags.None;
-                AssetDatabase.AddObjectToAsset(texture, data);
-                AssetDatabase.AddObjectToAsset(sprite, data);
+                Undo.RecordObject(existing, "Refresh Character And Field Effect Settings");
+                EditorUtility.CopySerialized(data, existing);
+                data = existing;
+            }
+            else
+            {
+                data.hideFlags = HideFlags.None;
+                AssetDatabase.CreateAsset(data, path);
+            }
+            data.hideFlags = HideFlags.None;
+            if (data.customMaterial != null && !AssetDatabase.Contains(data.customMaterial))
+            {
+                data.customMaterial.hideFlags = HideFlags.None;
+                AssetDatabase.AddObjectToAsset(data.customMaterial, data);
+            }
+            EffectClipDefinition[] clips = { data.intro, data.idle, data.end };
+            foreach (EffectClipDefinition clip in clips)
+            {
+                if (clip.useSheet) continue;
+                foreach (Sprite sprite in clip.sprites)
+                {
+                    if (sprite == null || AssetDatabase.Contains(sprite)) continue;
+                    Texture2D texture = sprite.texture;
+                    sprite.hideFlags = texture.hideFlags = HideFlags.None;
+                    if (!AssetDatabase.Contains(texture)) AssetDatabase.AddObjectToAsset(texture, data);
+                    AssetDatabase.AddObjectToAsset(sprite, data);
+                }
             }
             if (i == 6) sparkle = data;
             EditorUtility.SetDirty(data);

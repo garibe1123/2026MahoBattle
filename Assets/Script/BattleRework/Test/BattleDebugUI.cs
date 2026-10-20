@@ -133,8 +133,17 @@ public class BattleDebugUI : MonoBehaviour
             characterFieldDefinitions[i] = UnityEditor.AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(
                 ElementalTestSamples.SettingsRoot + "/" + ElementalAdditionalSamples.Names[i] + "Visual.asset");
             if (characterFieldDefinitions[i] != null) continue;
-            elementalSamples ??= new ElementalTestSamples();
-            additionalSamples ??= new ElementalAdditionalSamples(elementalSamples.Definitions[0]);
+            if (additionalSamples == null)
+            {
+                EffectDefinitionSO fire = UnityEditor.AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(
+                    ElementalTestSamples.SettingsRoot + "/FireVisual.asset");
+                if (fire == null)
+                {
+                    elementalSamples ??= new ElementalTestSamples();
+                    fire = elementalSamples.Definitions[0];
+                }
+                additionalSamples = new ElementalAdditionalSamples(fire);
+            }
             characterFieldDefinitions[i] = additionalSamples.Definitions[i];
         }
 #endif

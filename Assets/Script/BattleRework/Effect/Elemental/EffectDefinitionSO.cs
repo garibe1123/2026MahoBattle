@@ -407,6 +407,7 @@ public sealed class EffectCharacterSettings
     public EffectDefinitionSO sparkle;
     [Range(0f, 1f)] public float sparkleChance = 0.35f;
     public Vector2 sparkleSize = new(0.2f, 0.4f);
+    public bool alignToWorldPixels = true;
 }
 
 [Serializable]
@@ -423,6 +424,16 @@ public sealed class EffectBeamSettings
     [Min(1f)] public float refreshRate = 20f;
     public Color core = new Color32(255, 247, 176, 255);
     public Color edge = new Color32(255, 213, 42, 255);
+    public bool useWorldPixels = true;
+    [Min(0f)] public float glowRadius = 0.18f;
+    [Range(0f, 1f)] public float glowOpacity = 0.3f;
+    [Min(0f)] public float pulseFrequency = 8f;
+    [Range(0f, 0.8f)] public float pulseStrength = 0.2f;
+    [Min(0f)] public float flowSpeed = 5f;
+    [Min(0f)] public float wobble = 0.035f;
+    public bool useLight = true;
+    [Min(0f)] public float lightIntensity = 0.8f;
+    [Min(0.01f)] public float lightRadius = 2.5f;
 }
 
 public readonly struct EffectRenderSort : IEquatable<EffectRenderSort>

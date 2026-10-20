@@ -155,7 +155,9 @@ public sealed class EffectVisual : MonoBehaviour
         anchorPosition = transform.position;
         sortingGroundPosition = transform.position;
         variationSeed = UnityEngine.Random.Range(0f, 1000f);
-        sizeMultiplier = data.beam != null && data.beam.kind != EffectBeamKind.None ? 1f : EffectNumbers.SpawnScale(data);
+        sizeMultiplier = (data.beam != null && data.beam.kind != EffectBeamKind.None) ||
+            (data.ResolvedSorting == EffectSortMode.Attached && !data.fireParticles && data.character != null && data.character.alignToWorldPixels)
+            ? 1f : EffectNumbers.SpawnScale(data);
         pieceSizes[0] = 1f;
         for (int i = 1; i < MaxPieces; i++) pieceSizes[i] = EffectNumbers.SpawnScale(data) / sizeMultiplier;
         velocity = anchored ? Vector3.zero : motion;
@@ -393,8 +395,18 @@ public sealed class EffectVisual : MonoBehaviour
             localLight.enabled = false;
             if (!withinCamera) { beamVisual?.Clear(); return; }
             beamVisual ??= new FieldBeamEffectVisual(transform, defaultMaterial);
-            beamVisual.Render(definition.beam, RenderSorting, age, withinCamera,
-                EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier);
+            float pixelStep = preview && previewWorld != null ? previewWorld.DetailPixelSize(definition) :
+                EffectBlobWorld.DefaultDetailPixelSize(definition);
+            float beamEnvelope = Mathf.Clamp01(age / 0.025f) *
+                (double.IsInfinity(Remaining) ? 1f : Mathf.Clamp01((float)Remaining / 0.075f));
+            beamVisual.Render(definition.beam, RenderSorting, age,
+                EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier, pixelStep, renderCamera, beamEnvelope,
+                definition.customMaterial != null ? definition.customMaterial : defaultMaterial);
+            localLight.transform.position = beamVisual.Center;
+            localLight.color = definition.beam.edge;
+            localLight.pointLightOuterRadius = EffectNumbers.Positive(definition.beam.lightRadius, 2.5f);
+            localLight.intensity = EffectNumbers.NonNegative(definition.beam.lightIntensity) * beamVisual.Intensity;
+            localLight.enabled = definition.beam.useLight && localLight.intensity > 0f;
             return;
         }
         if (!withinCamera)
@@ -509,6 +521,16 @@ public sealed class EffectVisual : MonoBehaviour
             float ppu = renderer.sprite.pixelsPerUnit;
             Vector3 position = piece.localPosition;
             piece.localPosition = new Vector3(Mathf.Round(position.x * ppu) / ppu, Mathf.Round(position.y * ppu) / ppu, position.z);
+            if (definition.ResolvedSorting == EffectSortMode.Attached && definition.character != null && definition.character.alignToWorldPixels)
+            {
+                float step = preview && previewWorld != null ? previewWorld.DetailPixelSize(definition) :
+                    EffectBlobWorld.DefaultDetailPixelSize(definition);
+                Vector3 worldPosition = piece.position;
+                float offsetX = renderer.sprite.rect.width % 2f * 0.5f;
+                float offsetY = renderer.sprite.rect.height % 2f * 0.5f;
+                piece.position = new Vector3((Mathf.Round(worldPosition.x / step - offsetX) + offsetX) * step,
+                    (Mathf.Round(worldPosition.y / step - offsetY) + offsetY) * step, worldPosition.z);
+            }
             if (smoke) renderer.SetPropertyBlock(smokeProperties);
             else ApplyProperties(renderer, attenuation);
             visible |= renderer.isVisible;
@@ -630,7 +652,8 @@ public sealed class EffectVisual : MonoBehaviour
         Vector3 root = transform.lossyScale;
         radius *= Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
         if (definition.beam != null && definition.beam.kind != EffectBeamKind.None)
-            radius = Mathf.Max(radius, (definition.beam.length + definition.beam.width + definition.beam.zigzag) *
+            radius = Mathf.Max(radius, (definition.beam.length + definition.beam.width + definition.beam.zigzag +
+                definition.beam.glowRadius + definition.beam.wobble) *
                 EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y)));
         radius += (definition.visualCurves?.Offset(VisualCurveProgress) ?? Vector2.zero).magnitude *
             EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
