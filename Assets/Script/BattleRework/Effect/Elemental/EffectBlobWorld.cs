@@ -5,14 +5,14 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public sealed class EffectBlobWorld : MonoBehaviour
 {
-    public const int MinPixelSize = 1, MaxPixelSize = 4, DefaultPixelSize = 2;
+    public const float MinPixelSize = 0.5f, MaxPixelSize = 4f, DefaultPixelSize = 2f;
     public const float MinQuality = 10f, MaxQuality = 30f, DefaultQuality = 23f;
     public const float DefaultRoughness = 0.8f;
     [Range(0.00390625f, 1f)] public float worldUnitsPerPixel = 0.03125f;
     [Tooltip("Use the source sheet's Pixels Per Unit instead of World Units Per Pixel.")]
     public bool useSourcePixelsPerUnit = true;
     [Tooltip("1 preserves the source pixel size; larger values produce coarser pixels.")]
-    [Range(MinPixelSize, MaxPixelSize)] public int pixelSizeMultiplier = DefaultPixelSize;
+    [Range(MinPixelSize, MaxPixelSize)] public float pixelSizeMultiplier = DefaultPixelSize;
     [Tooltip("0 preserves smooth edges and colors; 1 sharpens edges and reduces color steps. Lifetime fading is preserved.")]
     [Range(0f, 1f)] public float surfaceRoughness = DefaultRoughness;
     [Range(MinQuality, MaxQuality)] public float refreshRate = DefaultQuality;
@@ -63,6 +63,11 @@ public sealed class EffectBlobWorld : MonoBehaviour
         if (instance == null) instance = this;
         else if (instance != this) enabled = false;
     }
+
+    public static float SnapPixelSize(float value) => Mathf.Round(Mathf.Clamp(
+        EffectNumbers.Positive(value, DefaultPixelSize), MinPixelSize, MaxPixelSize) * 10f) / 10f;
+
+    private void OnValidate() { pixelSizeMultiplier = SnapPixelSize(pixelSizeMultiplier); }
 
     private static EffectBlobWorld Ensure()
     {
@@ -188,7 +193,7 @@ public sealed class EffectBlobWorld : MonoBehaviour
         float step = Mathf.Clamp(EffectNumbers.Positive(worldUnitsPerPixel, 0.03125f), 0.00390625f, 1f);
         if (useSourcePixelsPerUnit && data.sourceSheet != null)
             step = 1f / EffectNumbers.Positive(data.sourceSheet.pixelsPerUnit, 32f);
-        return step * Mathf.Clamp(pixelSizeMultiplier, MinPixelSize, MaxPixelSize);
+        return step * SnapPixelSize(pixelSizeMultiplier);
     }
 
     private void AddToTiles(BlobGroup group, Rect view, int tileLimit)

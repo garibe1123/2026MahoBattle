@@ -17,6 +17,76 @@ public static class HarnessElementalSamples
         new(0.15f, 0.55f, 1f), new(0.55f, 0.85f, 0.2f), new(0.85f, 1f, 0.12f)
     };
 
+    [InitializeOnLoadMethod]
+    private static void PrepareEditableSettingsOnLoad()
+    {
+        EditorApplication.delayCall += CreateEditableSettings;
+    }
+
+    [MenuItem("Tools/Harness/Create Editable Elemental Settings")]
+    private static void CreateEditableSettings()
+    {
+        if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+        EnsureFolder("Assets", "Shaders");
+        EnsureFolder("Assets/Shaders", "Elemental");
+        string root = ElementalTestSamples.SettingsRoot;
+        EnsureFolder(root, "Sources");
+        string sources = root + "/Sources";
+        Material material = AssetDatabase.LoadAssetAtPath<Material>(sources + "/ElementalLit.mat");
+        bool changed = false;
+        if (material == null)
+        {
+            Shader shader = Shader.Find("Universal Render Pipeline/2D/Sprite-Lit-Default");
+            if (shader != null)
+            {
+                material = new Material(shader);
+                AssetDatabase.CreateAsset(material, sources + "/ElementalLit.mat");
+                changed = true;
+            }
+        }
+        for (int i = 0; i < TestNames.Length; i++)
+        {
+            string path = root + "/" + TestNames[i] + "Visual.asset";
+            EffectDefinitionSO data = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(path);
+            if (data == null)
+            {
+                data = ScriptableObject.CreateInstance<EffectDefinitionSO>();
+                ElementalTestSamples.Configure(data, i);
+                AssetDatabase.CreateAsset(data, path);
+                changed = true;
+            }
+            bool dirty = false;
+            if (data.sourceSheet == null)
+            {
+                data.sourceSheet = CreateSource(i, false, sources);
+                dirty = true;
+            }
+            if (data.customMaterial == null && material != null)
+            {
+                data.customMaterial = material;
+                dirty = true;
+            }
+            if (data.element == null)
+            {
+                string elementPath = sources + "/" + TestNames[i] + "Element.asset";
+                ElementDefinitionSO element = AssetDatabase.LoadAssetAtPath<ElementDefinitionSO>(elementPath);
+                if (element == null)
+                {
+                    element = ScriptableObject.CreateInstance<ElementDefinitionSO>();
+                    element.displayName = TestNames[i].ToUpperInvariant();
+                    element.previewColor = data.tint;
+                    AssetDatabase.CreateAsset(element, elementPath);
+                }
+                data.element = element;
+                dirty = true;
+            }
+            if (!dirty) continue;
+            EditorUtility.SetDirty(data);
+            changed = true;
+        }
+        if (changed) AssetDatabase.SaveAssets();
+    }
+
     [MenuItem("Tools/Harness/Create Elemental Samples")]
     private static void Create()
     {
@@ -151,9 +221,10 @@ public static class HarnessElementalSamples
         if (!AssetDatabase.IsValidFolder(parent + "/" + child)) AssetDatabase.CreateFolder(parent, child);
     }
 
-    private static Sprite CreateSource(int sample = -1, bool refresh = false)
+    private static Sprite CreateSource(int sample = -1, bool refresh = false, string targetRoot = null)
     {
-        string path = sample < 0 ? Root + "/TemporaryEffectSheet.png"
+        string path = targetRoot != null ? targetRoot + "/" + TestNames[sample] + "Sheet.png"
+            : sample < 0 ? Root + "/TemporaryEffectSheet.png"
             : TestRoot + "/" + TestNames[sample] + "Sheet.png";
         bool exists = File.Exists(path);
         if (!exists || refresh)

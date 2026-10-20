@@ -131,6 +131,9 @@ internal sealed class EffectFireParticles
         sample.center = particle.position;
         sample.radius = new Vector2(Mathf.Lerp(1f, 1.25f, smoke), Mathf.Lerp(1f, 0.9f, smoke)) *
             (particle.radius * growth * separation);
+        sample.radius = Vector2.Scale(sample.radius, new Vector2(
+            EffectNumbers.Positive(definition.fireShapeScale.x, 1f),
+            EffectNumbers.Positive(definition.fireShapeScale.y, 1.35f)));
         float angle = particle.seed + particle.age * 0.8f;
         sample.fireShape = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) *
             (Mathf.Clamp(definition.fireContourVariation, 0f, 0.4f) * Mathf.Lerp(0.35f, 1f, smoke));

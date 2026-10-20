@@ -53,6 +53,8 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Min(0f)] public float fireEmissionRate = 26f;
     public Vector2 fireParticleLifetime = new(0.8f, 1.3f);
     public Vector2 fireParticleRadius = new(0.12f, 0.24f);
+    [Tooltip("Independent fire width and height multipliers; Visual Scale controls overall size.")]
+    public Vector2 fireShapeScale = new(1f, 1.35f);
     [Min(0f)] public float fireSpread = 0.45f;
     [Range(0f, 0.9f)] public float fireFadeStart = 0.5f;
     [Min(0f)] public float fireSmokeSpread = 1.6f;

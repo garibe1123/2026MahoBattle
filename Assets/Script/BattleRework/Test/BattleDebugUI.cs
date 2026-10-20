@@ -24,6 +24,7 @@ public class BattleDebugUI : MonoBehaviour
 #if UNITY_EDITOR
     [SerializeField] private EffectDefinitionSO[] elementalDefinitions;
     private ElementalTestSamples elementalSamples;
+    private bool useElementalTestEmitters;
     [SerializeField] private float elementalTestDuration = 2f;
     private string elementalDurationText = "2";
     private EffectEmissionMode elementalMode;
@@ -89,8 +90,19 @@ public class BattleDebugUI : MonoBehaviour
         elementalBlobWorld.surfaceRoughness = EffectBlobWorld.DefaultRoughness;
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
-            elementalSamples = new ElementalTestSamples();
-            elementalDefinitions = elementalSamples.Definitions;
+            useElementalTestEmitters = true;
+            elementalDefinitions = new EffectDefinitionSO[ElementalTestSamples.Names.Length];
+            for (int i = 0; i < elementalDefinitions.Length; i++)
+            {
+                EffectDefinitionSO saved = UnityEditor.AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(
+                    ElementalTestSamples.SettingsRoot + "/" + ElementalTestSamples.Names[i] + "Visual.asset");
+                if (saved != null && saved.sourceSheet != null) elementalDefinitions[i] = saved;
+                else
+                {
+                    elementalSamples ??= new ElementalTestSamples();
+                    elementalDefinitions[i] = elementalSamples.Definitions[i];
+                }
+            }
         }
         elementalDurationText = elementalTestDuration.ToString(System.Globalization.CultureInfo.InvariantCulture);
         GameObject emitterHost = new("Elemental Debug Emitter");
@@ -243,9 +255,8 @@ public class BattleDebugUI : MonoBehaviour
 #if UNITY_EDITOR
     private void OnDestroy()
     {
-        if (elementalSamples == null) return;
         if (elementalEmitter != null) elementalEmitter.ClearVisuals();
-        elementalSamples.Dispose();
+        elementalSamples?.Dispose();
     }
 
     private void DrawElementalTestPanel()
@@ -317,9 +328,9 @@ public class BattleDebugUI : MonoBehaviour
         GUILayout.EndHorizontal();
         GUILayout.BeginHorizontal();
         GUILayout.Label("Pixel size", GUILayout.Width(85f));
-        elementalBlobWorld.pixelSizeMultiplier = Mathf.RoundToInt(GUILayout.HorizontalSlider(
+        elementalBlobWorld.pixelSizeMultiplier = EffectBlobWorld.SnapPixelSize(GUILayout.HorizontalSlider(
             elementalBlobWorld.pixelSizeMultiplier, EffectBlobWorld.MinPixelSize, EffectBlobWorld.MaxPixelSize));
-        GUILayout.Label($"x{elementalBlobWorld.pixelSizeMultiplier}", GUILayout.Width(34f));
+        GUILayout.Label($"x{elementalBlobWorld.pixelSizeMultiplier:F1}", GUILayout.Width(34f));
         GUILayout.EndHorizontal();
         GUILayout.BeginHorizontal();
         GUILayout.Label("Quality (Hz)", GUILayout.Width(85f));
@@ -342,7 +353,7 @@ public class BattleDebugUI : MonoBehaviour
         Plane ground = new(Vector3.forward, Vector3.zero);
         if (!ground.Raycast(ray, out float distance)) return;
         elementalEmitter.transform.position = ray.GetPoint(distance);
-        if (elementalSamples != null)
+        if (useElementalTestEmitters)
             ElementalTestSamples.ConfigureEmitter(elementalEmitter, System.Array.IndexOf(elementalDefinitions, definition));
         elementalEmitter.Trigger(definition, elementalMode, elementalTestDuration);
     }
@@ -588,6 +599,7 @@ public class BattleDebugUI : MonoBehaviour
 
 public sealed class ElementalTestSamples : System.IDisposable
 {
+    public const string SettingsRoot = "Assets/Shaders/Elemental";
     public const int Cell = 32;
     public const float PixelsPerUnit = 32f;
     private const float FireOpacity = 0.9f;
@@ -686,7 +698,7 @@ public sealed class ElementalTestSamples : System.IDisposable
             data.pieceCount = 5;
             data.tint = Color.white;
             data.visualScale = 1f;
-            data.gasRise = 1.1f;
+            data.gasRise = 1.6f;
             data.gasExpansion = 1.4f;
             data.mergeSoftness = 0.16f;
         }
