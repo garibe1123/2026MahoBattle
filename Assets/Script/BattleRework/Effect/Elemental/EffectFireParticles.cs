@@ -8,6 +8,7 @@ internal sealed class EffectFireParticles
     private struct Particle
     {
         public Vector3 position;
+        public Vector3 origin;
         public Vector3 velocity;
         public float age, lifetime, radius, seed, endAge;
         public bool active;
@@ -86,7 +87,8 @@ internal sealed class EffectFireParticles
     }
 
     private float Interval() => UnityEngine.Random.Range(0.7f, 1.3f) /
-        Mathf.Clamp(EffectNumbers.Positive(definition.fireEmissionRate, 32f), 1f, 240f);
+        Mathf.Clamp(EffectNumbers.Positive(definition.fireEmissionRate, 32f), 1f, 240f) *
+        EffectNumbers.Positive(definition.fireEmissionIntervalScale, 1.6f);
 
     private void Emit(Vector3 origin, Vector3 velocity)
     {
@@ -110,6 +112,7 @@ internal sealed class EffectFireParticles
             particles[index] = new Particle
             {
                 active = true,
+                origin = origin + new Vector3(sourceOffset.x, sourceOffset.y, 0f),
                 position = origin + new Vector3(sourceOffset.x + jitter.x, sourceOffset.y + jitter.y, 0f),
                 velocity = velocity * 0.2f + new Vector3(UnityEngine.Random.Range(-spread, spread),
                     EffectNumbers.NonNegative(definition.gasRise) * sourceScale * UnityEngine.Random.Range(0.65f, 1.4f), 0f),
@@ -143,6 +146,11 @@ internal sealed class EffectFireParticles
         color.g *= definition.tint.g;
         color.b *= definition.tint.b;
         float smoke = Mathf.SmoothStep(0f, 1f, (t - 0.4f) / 0.45f);
+        float lateral = Mathf.Abs(particle.position.x - particle.origin.x) /
+            Mathf.Max(0.0001f, scale * EffectNumbers.NonNegative(definition.fireSpread) + particle.radius);
+        color.a *= Mathf.Lerp(1f, Mathf.Clamp01(definition.fireSmokeOpacity), smoke) *
+            Mathf.Exp(-lateral * lateral * smoke * EffectNumbers.NonNegative(definition.fireSmokeEdgeFade));
+        sample.fireSmoke = smoke;
         float growth = 1f + EffectNumbers.NonNegative(definition.gasExpansion) * t +
             EffectNumbers.NonNegative(definition.fireSmokeExpansion) * smoke;
         float cycle = particle.age * EffectNumbers.Positive(definition.variationFrequency, 1.5f) * 6f;
@@ -188,6 +196,7 @@ internal sealed class EffectFireParticles
 internal sealed class EffectDetailParticles
 {
     public const int MaxParticles = 32;
+    private const int MaxCloudPieces = 2, MaxWaterParticles = 8;
     private const float WaterGravity = 4f;
     private struct Particle
     {
@@ -200,17 +209,24 @@ internal sealed class EffectDetailParticles
     private EffectDefinitionSO definition;
     private EffectDetailSettings settings;
     private float scale, timer, endFade = 1f;
+    private float pixelStep, flowTime;
+    private Vector2 footprint;
     private int capacity, cursor, emitted;
+    public int Capacity => capacity;
+    public bool IsCloud => definition != null && !definition.fireParticles && definition.family == EffectFamily.Gas;
     public float VisibilityRadius { get; private set; }
 
-    public void Play(EffectDefinitionSO data, EffectDetailSettings detailSettings, Vector3 origin, float size)
+    public void Play(EffectDefinitionSO data, EffectDetailSettings detailSettings, Vector3 origin, float size,
+        Vector2 sourceExtent, float pixelSize)
     {
         Reset();
         definition = data;
         settings = detailSettings;
         scale = size;
+        footprint = sourceExtent;
+        pixelStep = EffectNumbers.Positive(pixelSize, 0.0625f);
         endFade = 1f;
-        capacity = Mathf.Clamp(settings.capacity, 1, MaxParticles);
+        capacity = Mathf.Clamp(settings.capacity, 1, IsCloud ? MaxCloudPieces : data.fireParticles ? MaxParticles : MaxWaterParticles);
         float life = Mathf.Max(EffectNumbers.Positive(settings.lifetime.x, 0.4f),
             EffectNumbers.Positive(settings.lifetime.y, 0.9f));
         VisibilityRadius = (EffectNumbers.NonNegative(settings.spread) + Mathf.Abs(settings.rise)) * life * scale +
@@ -218,12 +234,17 @@ internal sealed class EffectDetailParticles
             3f * (1f + EffectNumbers.NonNegative(settings.expansion)) * scale;
         if (data.family == EffectFamily.Liquid && !data.fireParticles)
             VisibilityRadius += 0.5f * WaterGravity * scale * life * life;
-        for (int i = 0; i < Mathf.Min(3, capacity); i++) Emit(origin);
+        if (data.fireParticles)
+            VisibilityRadius += 0.5f * EffectNumbers.NonNegative(settings.updraftAcceleration) * scale * life * life;
+        VisibilityRadius += footprint.magnitude * 2f + pixelStep;
+        if (data.fireParticles) Emit(origin);
+        timer = Interval();
     }
 
     public void Tick(float delta, Vector3 origin, EffectPhase phase, float progress)
     {
         if (definition == null) return;
+        flowTime += delta;
         endFade = phase == EffectPhase.End ? 1f - Mathf.Clamp01(progress) : 1f;
         for (int i = 0; i < capacity; i++)
         {
@@ -235,19 +256,33 @@ internal sealed class EffectDetailParticles
             {
                 if (definition.family == EffectFamily.Liquid && !definition.fireParticles)
                     particle.velocity.y -= WaterGravity * scale * delta;
+                else if (definition.fireParticles)
+                {
+                    float current = (Mathf.PerlinNoise(particle.position.y * 0.8f, flowTime * 0.6f) - 0.5f) * 2f;
+                    particle.velocity.x = Mathf.Lerp(particle.velocity.x,
+                        current * EffectNumbers.NonNegative(settings.spread) * scale * 0.35f, Mathf.Clamp01(delta * 3f));
+                    particle.velocity.y += EffectNumbers.NonNegative(settings.updraftAcceleration) * scale * delta;
+                }
                 particle.position += particle.velocity * delta;
             }
             particles[i] = particle;
         }
         if (phase == EffectPhase.End || settings.emissionRate <= 0f) return;
         timer -= delta;
-        float interval = 1f / Mathf.Clamp(EffectNumbers.Positive(settings.emissionRate, 12f), 1f, 120f);
         for (int count = 0; timer <= 0f && count < capacity; count++)
         {
             Emit(origin);
-            timer += interval;
+            timer += Interval();
         }
         timer = Mathf.Max(0f, timer);
+    }
+
+    private float Interval()
+    {
+        float interval = Mathf.Max(EffectNumbers.Positive(settings.minimumInterval, 0.25f),
+            1f / Mathf.Clamp(EffectNumbers.Positive(settings.emissionRate, 12f), 1f, 120f));
+        if (IsCloud) interval = Mathf.Max(interval, EffectNumbers.Positive(definition.cloudDetailInterval, 0.9f));
+        return interval;
     }
 
     private void Emit(Vector3 origin)
@@ -261,14 +296,33 @@ internal sealed class EffectDetailParticles
             float maxLife = EffectNumbers.Positive(settings.lifetime.y, 0.9f);
             float minRadius = EffectNumbers.Positive(settings.radius.x, 0.025f);
             float maxRadius = EffectNumbers.Positive(settings.radius.y, 0.055f);
-            float radius = UnityEngine.Random.Range(Mathf.Min(minRadius, maxRadius), Mathf.Max(minRadius, maxRadius)) *
-                EffectNumbers.PieceScale(definition, emitted++ % 3) * EffectNumbers.SpawnScale(definition) * scale;
-            Vector2 direction = UnityEngine.Random.insideUnitCircle.normalized;
-            Vector2 drift = direction * (EffectNumbers.NonNegative(settings.spread) * scale);
-            drift.y += settings.rise * scale;
+            float radius = pixelStep * 0.5f;
+            int piece = emitted++;
+            Vector2 direction;
+            Vector2 offset;
+            Vector2 drift;
+            if (definition.fireParticles)
+            {
+                offset = new Vector2(UnityEngine.Random.Range(-footprint.x, footprint.x) * 0.6f, 0f);
+                drift = Vector2.up * (settings.rise * scale);
+            }
+            else
+            {
+                float angle = IsCloud ? (piece % 2 == 0 ? 0.35f : Mathf.PI - 0.35f) : UnityEngine.Random.Range(0f, Mathf.PI * 2f);
+                direction = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+                offset = Vector2.Scale(direction, footprint) * (IsCloud ? 0.45f : 0.85f);
+                drift = direction * (EffectNumbers.NonNegative(settings.spread) * scale * (IsCloud ? 0.1f : 1f));
+                drift.y += settings.rise * scale;
+                if (IsCloud)
+                {
+                    float baseRadius = UnityEngine.Random.Range(Mathf.Min(minRadius, maxRadius), Mathf.Max(minRadius, maxRadius)) * scale;
+                    radius = Mathf.Max(baseRadius, Mathf.Max(footprint.x, footprint.y) * 0.75f) *
+                        EffectNumbers.PieceScale(definition, piece % 3) * EffectNumbers.SpawnScale(definition);
+                }
+            }
             particles[index] = new Particle
             {
-                active = true, position = origin + (Vector3)(direction * radius),
+                active = true, position = origin + (Vector3)offset,
                 velocity = drift, radius = radius,
                 lifetime = UnityEngine.Random.Range(Mathf.Min(minLife, maxLife), Mathf.Max(minLife, maxLife))
             };
@@ -285,10 +339,17 @@ internal sealed class EffectDetailParticles
         Particle particle = particles[index];
         float progress = Mathf.Clamp01(particle.age / particle.lifetime);
         position = particle.position;
-        size = Vector2.one * (particle.radius * 2f * (1f + EffectNumbers.NonNegative(settings.expansion) * progress));
-        if (definition.family == EffectFamily.Liquid && !definition.fireParticles) size.y *= 1.3f;
+        size = Vector2.one * pixelStep;
+        if (IsCloud)
+            size = Vector2.one * (particle.radius * 2f * (1f + EffectNumbers.NonNegative(settings.expansion) * progress));
+        else
+        {
+            position.x = (Mathf.Floor(position.x / pixelStep) + 0.5f) * pixelStep;
+            position.y = (Mathf.Floor(position.y / pixelStep) + 0.5f) * pixelStep;
+        }
         color = definition.fireParticles ? Color.Lerp(definition.emberStartColor, definition.emberEndColor, progress) : definition.tint;
         color.a *= (1f - Mathf.SmoothStep(0f, 1f, progress)) * endFade;
+        if (IsCloud) color.a *= Mathf.SmoothStep(0f, 1f, progress / 0.3f) * Mathf.Clamp01(definition.cloudDetailOpacity);
         return color.a > 0.001f && size.x > 0.0001f;
     }
 
@@ -299,6 +360,8 @@ internal sealed class EffectDetailParticles
         settings = null;
         capacity = cursor = emitted = 0;
         scale = timer = VisibilityRadius = 0f;
+        pixelStep = flowTime = 0f;
+        footprint = Vector2.zero;
         endFade = 1f;
     }
 }
@@ -321,6 +384,8 @@ internal static class EffectFireField
         float edgeStrength = Mathf.Clamp01(definition.fireEdgeStrength);
         Color edgeColor = Color.Lerp(definition.fireSootColor * definition.tint, sample.fireColor, 0.2f);
         edgeColor.a = sample.fireColor.a;
+        float smokeCoverage = Mathf.Lerp(1f, Mathf.Sqrt(Mathf.Clamp01(sample.fireColor.a)), sample.fireSmoke);
+        float smokeEdgeFade = sample.fireSmoke * EffectNumbers.NonNegative(definition.fireSmokeEdgeFade) * 8f;
         for (int y = bottom; y <= top; y++)
             for (int x = left; x <= right; x++)
             {
@@ -339,6 +404,8 @@ internal static class EffectFireField
                     sample.fireShape.y * dy * (3f * dx * dx - dy * dy));
                 edge *= Mathf.Clamp(1f + contour, 0.2f, 1.8f);
                 float contribution = edge * edge * edge;
+                float border = 1f - Mathf.Clamp01(edge);
+                contribution /= 1f + border * border * smokeEdgeFade;
                 if (contribution <= 0f) continue;
                 Color color = sample.fireColor;
                 if (sample.fireTear > 0f)
@@ -360,8 +427,9 @@ internal static class EffectFireField
                     }
                 }
                 int index = y * stride + x;
-                density[index] += contribution;
-                colors[index] += color * contribution;
+                float coverage = contribution * smokeCoverage;
+                density[index] += coverage;
+                colors[index] += color * coverage;
             }
     }
 

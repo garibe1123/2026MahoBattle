@@ -232,6 +232,15 @@ public sealed class EffectBlobWorld : MonoBehaviour
         return step * SnapPixelSize(pixelSizeMultiplier);
     }
 
+    internal float DetailPixelSize(EffectDefinitionSO data) => PixelStep(data);
+
+    internal static float DefaultDetailPixelSize(EffectDefinitionSO data)
+    {
+        if (instance != null) return instance.PixelStep(data);
+        float step = data.sourceSheet != null ? 1f / EffectNumbers.Positive(data.sourceSheet.pixelsPerUnit, 32f) : 0.03125f;
+        return step * DefaultPixelSize;
+    }
+
     private void AddToTiles(BlobGroup group, Rect view, int tileLimit)
     {
         float step = PixelStep(group.definition);

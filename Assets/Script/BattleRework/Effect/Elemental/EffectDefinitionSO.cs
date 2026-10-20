@@ -56,6 +56,7 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Min(0f)] public float fireSourceSpread = 0.35f;
     [Range(8, 96)] public int fireParticleCapacity = 48;
     [Min(0f)] public float fireEmissionRate = 26f;
+    [Min(1f)] public float fireEmissionIntervalScale = 1.6f;
     public Vector2 fireParticleLifetime = new(0.8f, 1.3f);
     public Vector2 fireParticleRadius = new(0.12f, 0.24f);
     [Tooltip("Independent fire width and height multipliers; Visual Scale controls overall size.")]
@@ -64,6 +65,8 @@ public sealed class EffectDefinitionSO : ScriptableObject
     [Range(0f, 0.9f)] public float fireFadeStart = 0.5f;
     [Min(0f)] public float fireSmokeSpread = 1.6f;
     [Min(0f)] public float fireSmokeExpansion = 0.65f;
+    [Range(0f, 1f)] public float fireSmokeOpacity = 0.14f;
+    [Min(0f)] public float fireSmokeEdgeFade = 3f;
     [Range(0f, 0.4f)] public float fireContourVariation = 0.22f;
     [Range(0f, 0.9f)] public float fireTipSharpness = 0.7f;
     [Range(0f, 0.6f)] public float fireTurbulence = 0.3f;
@@ -90,6 +93,8 @@ public sealed class EffectDefinitionSO : ScriptableObject
         lifetime = new Vector2(0.8f, 1.6f), radius = new Vector2(0.12f, 0.2f),
         spread = 0.4f, rise = 0.3f, expansion = 1f
     };
+    [Min(0.1f)] public float cloudDetailInterval = 0.9f;
+    [Range(0f, 1f)] public float cloudDetailOpacity = 0.18f;
     [ColorUsage(true, true)] public Color emissionColor = Color.white;
     [Min(0f)] public float emissionStrength = 1f;
     public string emissionColorProperty = "_EmissionColor";
@@ -241,9 +246,13 @@ public sealed class EffectDefinitionSO : ScriptableObject
 public sealed class EffectDetailSettings
 {
     public bool enabled = true;
+    [Tooltip("Runtime limits: 32 embers, 8 droplets, 2 cloud pieces.")]
     [Range(1, 32)] public int capacity = 24;
     [Min(0f)] public float emissionRate = 12f;
+    [Min(0.01f)] public float minimumInterval = 0.25f;
+    [Min(0f)] public float updraftAcceleration = 1.6f;
     public Vector2 lifetime = new(0.4f, 0.9f);
+    [Tooltip("Cloud radius range. Embers and droplets render as one surface pixel.")]
     public Vector2 radius = new(0.025f, 0.055f);
     [Min(0f)] public float spread = 0.8f;
     public float rise = 0.6f;

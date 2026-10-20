@@ -15,6 +15,7 @@ public sealed class EffectVisual : MonoBehaviour
     private SpriteRenderer[] detailRenderers;
     private Texture2D detailTexture;
     private Sprite detailSprite;
+    private Sprite pixelDetailSprite;
     private EffectBlobWorld previewWorld;
     private bool preview;
     private readonly float[] pieceSizes = new float[MaxPieces];
@@ -140,23 +141,6 @@ public sealed class EffectVisual : MonoBehaviour
         pieceSizes[0] = 1f;
         for (int i = 1; i < MaxPieces; i++) pieceSizes[i] = EffectNumbers.SpawnScale(data) / sizeMultiplier;
         velocity = anchored ? Vector3.zero : motion;
-        EffectDetailSettings detailSettings = data.fireParticles ? data.embers :
-            data.family == EffectFamily.Liquid ? data.waterDetails : data.gasDetails;
-        if (detailSettings != null && detailSettings.enabled)
-        {
-            EnsureDetailRenderers();
-            details ??= new EffectDetailParticles();
-            Vector3 scale = transform.lossyScale;
-            details.Play(data, detailSettings, transform.position,
-                Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y)) *
-                EffectNumbers.NonNegative(data.visualScale) * sizeMultiplier);
-            foreach (SpriteRenderer renderer in detailRenderers)
-            {
-                renderer.sharedMaterial = defaultMaterial;
-                renderer.sortingLayerID = data.sortingLayerId;
-                renderer.sortingOrder = data.sortingOrder + 1;
-            }
-        }
         if (data.fireParticles)
         {
             fire ??= new EffectFireParticles();
@@ -179,8 +163,34 @@ public sealed class EffectVisual : MonoBehaviour
             foreach (Sprite[] clip in smokeFrames)
                 foreach (Sprite sprite in clip) frameRadius = Mathf.Max(frameRadius, sprite.bounds.extents.magnitude);
         }
+        Vector2 frameExtent = Vector2.zero;
         foreach (Sprite[] clip in frames)
-            foreach (Sprite sprite in clip) frameRadius = Mathf.Max(frameRadius, sprite.bounds.extents.magnitude);
+            foreach (Sprite sprite in clip)
+            {
+                frameRadius = Mathf.Max(frameRadius, sprite.bounds.extents.magnitude);
+                frameExtent = Vector2.Max(frameExtent, new Vector2(sprite.bounds.extents.x, sprite.bounds.extents.y));
+            }
+        EffectDetailSettings detailSettings = data.fireParticles ? data.embers :
+            data.family == EffectFamily.Liquid ? data.waterDetails : data.gasDetails;
+        if (detailSettings != null && detailSettings.enabled)
+        {
+            EnsureDetailRenderers();
+            details ??= new EffectDetailParticles();
+            Vector3 scale = transform.lossyScale;
+            float size = Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y)) *
+                EffectNumbers.NonNegative(data.visualScale) * sizeMultiplier;
+            Vector2 shape = data.family == EffectFamily.Liquid && !inFlight ? data.puddleScale : Vector2.one;
+            Vector2 footprint = Vector2.Scale(frameExtent, new Vector2(Mathf.Abs(shape.x), Mathf.Abs(shape.y))) * size;
+            float pixelSize = preview && previewWorld != null ? previewWorld.DetailPixelSize(data) : EffectBlobWorld.DefaultDetailPixelSize(data);
+            details.Play(data, detailSettings, transform.position, size, footprint, pixelSize);
+            foreach (SpriteRenderer renderer in detailRenderers)
+            {
+                renderer.sprite = details.IsCloud ? detailSprite : pixelDetailSprite;
+                renderer.sharedMaterial = defaultMaterial;
+                renderer.sortingLayerID = data.sortingLayerId;
+                renderer.sortingOrder = data.sortingOrder + 1;
+            }
+        }
         Material material = data.customMaterial != null ? data.customMaterial : defaultMaterial;
         Material smokeMaterial = data.smokeTail != null && data.smokeTail.customMaterial != null
             ? data.smokeTail.customMaterial : material;
@@ -314,7 +324,8 @@ public sealed class EffectVisual : MonoBehaviour
         {
             if (definition.fireParticles)
                 fire.Tick(delta, transform.position, velocity, Phase, (float)playback.PhaseProgress);
-            details?.Tick(delta, transform.position, Phase, (float)playback.PhaseProgress);
+            details?.Tick(delta, definition.fireParticles ? transform.position : visualRoot.position,
+                Phase, (float)playback.PhaseProgress);
             Render();
         }
     }
@@ -443,6 +454,13 @@ public sealed class EffectVisual : MonoBehaviour
             Vector3 trail = i == 0 ? Vector3.zero : transform.InverseTransformVector(PositionAt(age - delay) - transform.position);
             Vector2 spread = i == 0 ? Vector2.zero : definition.tailOffset * i +
                 new Vector2(Variation(71f + i * 13f), Variation(139f + i * 17f)) * definition.edgeSpread * i;
+            if (i > 0 && definition.mixedPieceSizes && !smoke && !airborne)
+            {
+                Vector3 extent = renderer.sprite.bounds.extents;
+                float side = i % 2 == 0 ? 1f : -1f;
+                spread = new Vector2(side * extent.x * 0.55f, extent.y * 0.1f) * ((i + 1) / 2);
+                spread += new Vector2(Variation(71f), Variation(139f)) * definition.edgeSpread * 0.15f;
+            }
             if (smoke && !anchored) spread.y += Mathf.Min(Mathf.Max(0f, age - delay), 4f) * style.gasRise;
             piece.localPosition = trail / Mathf.Max(0.0001f, size * expansion) + (Vector3)spread;
             piece.localRotation = Quaternion.identity;
@@ -471,13 +489,16 @@ public sealed class EffectVisual : MonoBehaviour
     private static int PieceCount(EffectDefinitionSO data) => Mathf.Clamp(
         data.mixedPieceSizes && !data.fireParticles ? Mathf.Max(3, data.pieceCount) : data.pieceCount, 1, MaxPieces);
 
-    internal int BlobSampleCount => definition != null ? PieceCount(definition) : 0;
+    internal int BlobSampleCount => definition != null ? PieceCount(definition) +
+        (details != null && details.IsCloud ? details.Capacity : 0) : 0;
 
     internal bool CaptureBlob(EffectDefinitionSO expected, out EffectBlobSample sample) => CaptureBlob(expected, 0, out sample);
 
     internal bool CaptureBlob(EffectDefinitionSO expected, int index, out EffectBlobSample sample)
     {
         sample = default;
+        if (!released && definition == expected && index >= PieceCount(definition))
+            return CaptureCloud(index - PieceCount(definition), out sample);
         if (released || definition != expected || index < 0 || index >= renderers.Length ||
             !renderers[index].enabled || renderers[index].sprite == null)
             return false;
@@ -499,6 +520,20 @@ public sealed class EffectVisual : MonoBehaviour
             ? (1f - Mathf.SmoothStep(0f, 1f, sample.ripple)) * EffectNumbers.NonNegative(definition.impactFoamStrength) : 0f;
         sample.source = source;
         source.enabled = false;
+        return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
+    }
+
+    private bool CaptureCloud(int index, out EffectBlobSample sample)
+    {
+        sample = default;
+        if (details == null || !details.IsCloud || index < 0 || index >= details.Capacity ||
+            !detailRenderers[index].enabled || !details.Capture(index, out Vector3 position, out Vector2 size, out Color color))
+            return false;
+        sample.center = position;
+        sample.radius = size * (0.5f * Mathf.Clamp(definition.mergeRadius, 0.2f, 1f));
+        sample.weight = Mathf.Clamp01(color.a / Mathf.Max(0.0001f, definition.tint.a));
+        sample.source = detailRenderers[index];
+        detailRenderers[index].enabled = false;
         return sample.radius.x > 0.0001f && sample.radius.y > 0.0001f;
     }
 
@@ -657,6 +692,9 @@ public sealed class EffectVisual : MonoBehaviour
         detailSprite = Sprite.Create(detailTexture, new Rect(0, 0, resolution, resolution),
             new Vector2(0.5f, 0.5f), resolution, 0, SpriteMeshType.FullRect);
         detailSprite.hideFlags = HideFlags.HideAndDontSave;
+        pixelDetailSprite = Sprite.Create(Texture2D.whiteTexture, new Rect(0, 0, 1, 1),
+            new Vector2(0.5f, 0.5f), 1f, 0, SpriteMeshType.FullRect);
+        pixelDetailSprite.hideFlags = HideFlags.HideAndDontSave;
         detailRenderers = new SpriteRenderer[EffectDetailParticles.MaxParticles];
         for (int i = 0; i < detailRenderers.Length; i++)
         {
@@ -681,6 +719,7 @@ public sealed class EffectVisual : MonoBehaviour
             renderer.enabled = visible && active;
             if (!renderer.enabled) continue;
             renderer.transform.position = position;
+            renderer.transform.rotation = Quaternion.identity;
             renderer.transform.localScale = new Vector3(size.x / Mathf.Max(0.0001f, Mathf.Abs(scale.x)),
                 size.y / Mathf.Max(0.0001f, Mathf.Abs(scale.y)), 1f);
             renderer.color = color;
@@ -704,14 +743,17 @@ public sealed class EffectVisual : MonoBehaviour
         if (Application.isPlaying)
         {
             if (detailSprite != null) Destroy(detailSprite);
+            if (pixelDetailSprite != null) Destroy(pixelDetailSprite);
             if (detailTexture != null) Destroy(detailTexture);
         }
         else
         {
             if (detailSprite != null) DestroyImmediate(detailSprite);
+            if (pixelDetailSprite != null) DestroyImmediate(pixelDetailSprite);
             if (detailTexture != null) DestroyImmediate(detailTexture);
         }
         detailSprite = null;
+        pixelDetailSprite = null;
         detailTexture = null;
     }
 }
