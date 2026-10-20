@@ -504,6 +504,15 @@ internal static class EffectFireField
                 contribution /= 1f + border * border * smokeEdgeFade;
                 if (contribution <= 0f) continue;
                 Color color = sample.fireColor;
+                if (definition.ResolvedSorting == EffectSortMode.Attached && sample.fireSmoke < 0.5f)
+                {
+                    float heat = Mathf.Clamp01(1f - distance * 0.9f) * (1f - sample.fireSmoke * 2f);
+                    Color core = Color.Lerp(definition.fireGoldColor, definition.fireHotColor,
+                        Mathf.SmoothStep(0.3f, 0.85f, heat)) * definition.tint;
+                    float alpha = color.a;
+                    color = Color.Lerp(color, core, heat);
+                    color.a = alpha;
+                }
                 if (sample.fireTear > 0f)
                 {
                     float holeX = dx - sample.fireHole.x;

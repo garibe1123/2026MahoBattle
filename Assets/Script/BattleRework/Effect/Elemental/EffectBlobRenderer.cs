@@ -18,6 +18,8 @@ internal struct EffectBlobSample
     public Vector2 fireHole;
     public float fireHoleRadius;
     public float fireTear;
+    public float shapeSeed;
+    public float shapeAge;
     public SpriteRenderer source;
     public EffectRenderSort sorting;
 }
@@ -173,7 +175,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
         if (fixedGrid) rate = tileRefreshRate;
         nextRefresh = time + 1f / Mathf.Clamp(rate, 5f, 30f);
         SpriteRenderer source = samples[0].source;
-        float ppu = source.sprite.pixelsPerUnit;
+        float ppu = source.sprite != null ? source.sprite.pixelsPerUnit : 32f;
         float length = Mathf.Max(maximum.x - minimum.x, maximum.y - minimum.y);
         float step = Mathf.Ceil(Mathf.Max(1f, (length * ppu + 2f) / Resolution)) / ppu;
         if (fixedGrid) step = pixelStep;
@@ -200,7 +202,8 @@ public sealed class EffectBlobRenderer : MonoBehaviour
                 rowRight[y] = -1;
             }
             bool fireParticles = definition.fireParticles;
-            if (fireParticles)
+            bool characterShape = definition.HasCharacterShape;
+            if (fireParticles || characterShape)
             {
                 fireColors ??= new Color[density.Length];
                 Array.Clear(fireColors, 0, fireColors.Length);
@@ -209,7 +212,10 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             Vector2 fieldOrigin = origin - Vector2.one * step;
             for (int i = 0; i < count; i++)
             {
-                if (fireParticles)
+                if (characterShape)
+                    EffectCharacterField.Accumulate(density, fireColors, Resolution + 2,
+                        fieldOrigin, step, fieldClip, samples[i], definition.character);
+                else if (fireParticles)
                     EffectFireField.Accumulate(density, fireColors, Resolution + 2,
                         fieldOrigin, step, fieldClip, samples[i], definition);
                 else
@@ -221,7 +227,12 @@ public sealed class EffectBlobRenderer : MonoBehaviour
                 tint.g = Mathf.Max(tint.g, color.g);
                 tint.b = Mathf.Max(tint.b, color.b);
             }
-            if (fireParticles)
+            if (characterShape)
+            {
+                EffectCharacterField.Colorize(density, fireColors, pixels, Resolution, clip);
+                tint = Color.white;
+            }
+            else if (fireParticles)
             {
                 EffectFireField.Colorize(density, fireColors, pixels, Resolution, clip, definition, surfaceRoughness);
                 tint = Color.white;
@@ -229,7 +240,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
             else
                 EffectBlobField.Colorize(density, foam, pixels, noiseGrid, Resolution, origin, step, clip,
                     definition, time, opacity, surfaceRoughness, rowLeft, rowRight);
-            if (!fireParticles && surfaceRoughness > 0f)
+            if (!fireParticles && !characterShape && surfaceRoughness > 0f)
                 EffectBlobField.Roughen(pixels, Resolution, clip, surfaceRoughness, rowLeft, rowRight);
         }
         using (UploadMarker.Auto())

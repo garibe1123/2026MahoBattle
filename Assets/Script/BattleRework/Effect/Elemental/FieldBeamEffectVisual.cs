@@ -77,7 +77,7 @@ public sealed class FieldBeamEffectVisual : IDisposable
             high = Vector2.Min(high, view.max);
         }
         if (low.x >= high.x || low.y >= high.y) { surface.enabled = false; return; }
-        float step = data.useWorldPixels ? worldPixelStep : EffectNumbers.Positive(data.pixelSize, worldPixelStep);
+        float step = worldPixelStep;
         step = EffectNumbers.Positive(step, 0.03125f);
         // 화면과 교차하는 영역만 최대 256×256 픽셀로 계산합니다.
         step *= Mathf.Max(1f, Mathf.Ceil(Mathf.Max(high.x - low.x, high.y - low.y) / (step * 254f)));

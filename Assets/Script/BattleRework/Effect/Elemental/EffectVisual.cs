@@ -81,7 +81,7 @@ public sealed class EffectVisual : MonoBehaviour
         Action<EffectVisual> finished = null, bool stationary = false, float spawnScale = 1f)
     {
         if (data == null) return null;
-        if ((data.mergeNearby || data.fireParticles) && !EffectBlobWorld.CanSpawn) return null;
+        if ((data.mergeNearby || data.fireParticles || data.HasCharacterShape) && !EffectBlobWorld.CanSpawn) return null;
         if (prefab == null)
         {
             if (template == null)
@@ -156,7 +156,7 @@ public sealed class EffectVisual : MonoBehaviour
         sortingGroundPosition = transform.position;
         variationSeed = UnityEngine.Random.Range(0f, 1000f);
         sizeMultiplier = (data.beam != null && data.beam.kind != EffectBeamKind.None) ||
-            (data.ResolvedSorting == EffectSortMode.Attached && !data.fireParticles && data.character != null && data.character.alignToWorldPixels)
+            data.HasCharacterShape
             ? 1f : EffectNumbers.SpawnScale(data);
         pieceSizes[0] = 1f;
         for (int i = 1; i < MaxPieces; i++) pieceSizes[i] = EffectNumbers.SpawnScale(data) / sizeMultiplier;
@@ -234,7 +234,7 @@ public sealed class EffectVisual : MonoBehaviour
         if (run == generation && !released)
         {
             Render();
-            if (data.mergeNearby || data.fireParticles)
+            if (data.mergeNearby || data.fireParticles || data.HasCharacterShape)
             {
                 bool registered = preview ? previewWorld != null && previewWorld.RegisterVisual(this, data, run)
                     : EffectBlobWorld.Register(this, data, run);
@@ -415,6 +415,14 @@ public sealed class EffectVisual : MonoBehaviour
             localLight.enabled = false;
             return;
         }
+        if (definition.HasCharacterShape)
+        {
+            foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
+            renderers[0].color = Color.white;
+            ApplyProperties(renderers[0], 1f);
+            localLight.enabled = false;
+            return;
+        }
         if (definition.fireParticles)
         {
             foreach (SpriteRenderer renderer in renderers) renderer.enabled = false;
@@ -521,16 +529,6 @@ public sealed class EffectVisual : MonoBehaviour
             float ppu = renderer.sprite.pixelsPerUnit;
             Vector3 position = piece.localPosition;
             piece.localPosition = new Vector3(Mathf.Round(position.x * ppu) / ppu, Mathf.Round(position.y * ppu) / ppu, position.z);
-            if (definition.ResolvedSorting == EffectSortMode.Attached && definition.character != null && definition.character.alignToWorldPixels)
-            {
-                float step = preview && previewWorld != null ? previewWorld.DetailPixelSize(definition) :
-                    EffectBlobWorld.DefaultDetailPixelSize(definition);
-                Vector3 worldPosition = piece.position;
-                float offsetX = renderer.sprite.rect.width % 2f * 0.5f;
-                float offsetY = renderer.sprite.rect.height % 2f * 0.5f;
-                piece.position = new Vector3((Mathf.Round(worldPosition.x / step - offsetX) + offsetX) * step,
-                    (Mathf.Round(worldPosition.y / step - offsetY) + offsetY) * step, worldPosition.z);
-            }
             if (smoke) renderer.SetPropertyBlock(smokeProperties);
             else ApplyProperties(renderer, attenuation);
             visible |= renderer.isVisible;
@@ -548,7 +546,7 @@ public sealed class EffectVisual : MonoBehaviour
     private static int PieceCount(EffectDefinitionSO data) => Mathf.Clamp(
         data.mixedPieceSizes && !data.fireParticles ? Mathf.Max(3, data.pieceCount) : data.pieceCount, 1, MaxPieces);
 
-    internal int BlobSampleCount => definition != null ? PieceCount(definition) +
+    internal int BlobSampleCount => definition != null && definition.HasCharacterShape ? 1 : definition != null ? PieceCount(definition) +
         (details != null && details.IsCloud ? details.Capacity : 0) : 0;
 
     internal bool CaptureBlob(EffectDefinitionSO expected, out EffectBlobSample sample) => CaptureBlob(expected, 0, out sample);
@@ -566,6 +564,26 @@ public sealed class EffectVisual : MonoBehaviour
     internal bool CaptureBlob(EffectDefinitionSO expected, int index, out EffectBlobSample sample)
     {
         sample = default;
+        if (!released && definition == expected && definition.HasCharacterShape)
+        {
+            if (!withinCamera || index != 0) return false;
+            Vector3 scale = transform.lossyScale;
+            float size = EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier *
+                Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y));
+            sample.center = transform.position + Vector3.up * (age * definition.gasRise * size);
+            sample.radius = new Vector2(Mathf.Max(0.01f, definition.character.shapeAspect.x),
+                Mathf.Max(0.01f, definition.character.shapeAspect.y)) * (size * 0.5f);
+            sample.impact = Phase == EffectPhase.Intro ? (float)playback.PhaseProgress : 1f;
+            sample.dissolve = Phase == EffectPhase.End ? (float)playback.PhaseProgress : 0f;
+            sample.shapeSeed = variationSeed;
+            sample.shapeAge = age;
+            sample.fireColor = definition.tint;
+            sample.fireColor.a *= definition.visualCurves?.Opacity(VisualCurveProgress) ?? 1f;
+            sample.weight = 1f;
+            sample.source = renderers[0];
+            sample.sorting = RenderSorting;
+            return size > 0.0001f;
+        }
         if (!released && definition == expected && index >= PieceCount(definition))
             return CaptureCloud(index - PieceCount(definition), out sample);
         if (released || definition != expected || index < 0 || index >= renderers.Length ||
@@ -623,7 +641,7 @@ public sealed class EffectVisual : MonoBehaviour
 
     private void ApplyProperties(SpriteRenderer renderer, float attenuation)
     {
-        if (!renderer.isVisible && !definition.mergeNearby && !definition.fireParticles) return;
+        if (!renderer.isVisible && !definition.mergeNearby && !definition.fireParticles && !definition.HasCharacterShape) return;
         properties.Clear();
         float emission = EffectNumbers.NonNegative(definition.emissionStrength) * attenuation;
         if (hasEmissionColor) properties.SetColor(emissionColorId, definition.emissionColor * (hasEmissionStrength ? 1f : emission));
@@ -651,6 +669,10 @@ public sealed class EffectVisual : MonoBehaviour
                 Mathf.Abs(definition.smokeTail.gasRise)) * 4f * Mathf.Max(1f, scale);
         Vector3 root = transform.lossyScale;
         radius *= Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
+        if (definition.HasCharacterShape)
+            radius = Mathf.Max(radius, (Mathf.Max(definition.character.shapeAspect.x, definition.character.shapeAspect.y) +
+                Mathf.Abs(age * definition.gasRise)) * EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier *
+                Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y)));
         if (definition.beam != null && definition.beam.kind != EffectBeamKind.None)
             radius = Mathf.Max(radius, (definition.beam.length + definition.beam.width + definition.beam.zigzag +
                 definition.beam.glowRadius + definition.beam.wobble) *
@@ -839,7 +861,7 @@ public sealed class EffectVisual : MonoBehaviour
         if (definition == null || renderers == null) return;
         EffectRenderSort sorting = RenderSorting;
         if (appliedSorting.Equals(sorting)) return;
-        if (definition.mergeNearby || definition.fireParticles)
+        if (definition.mergeNearby || definition.fireParticles || definition.HasCharacterShape)
         {
             if (preview) { if (previewWorld != null) previewWorld.RequestRefresh(); }
             else EffectBlobWorld.RequestSortingRefresh();

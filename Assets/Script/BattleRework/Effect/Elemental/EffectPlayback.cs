@@ -25,9 +25,9 @@ public sealed class EffectPlayback
         int run = RunId;
         PhaseStarted = phaseStarted;
         Finished = finished;
-        introLength = definition.GetFrames(EffectPhase.Intro).Length / (double)definition.GetFps(EffectPhase.Intro);
-        idleLength = definition.GetFrames(EffectPhase.Idle).Length / (double)definition.GetFps(EffectPhase.Idle);
-        endLength = definition.GetFrames(EffectPhase.End).Length / (double)definition.GetFps(EffectPhase.End);
+        introLength = definition.GetFrameCount(EffectPhase.Intro) / (double)definition.GetFps(EffectPhase.Intro);
+        idleLength = definition.GetFrameCount(EffectPhase.Idle) / (double)definition.GetFps(EffectPhase.Idle);
+        endLength = definition.GetFrameCount(EffectPhase.End) / (double)definition.GetFps(EffectPhase.End);
         introStop = definition.introStop;
         if (startAtEnd)
         {

@@ -1,0 +1,876 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!213 &-665580705663401884
+Sprite:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: LightningStrikeSprite
+  m_Rect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 8
+    height: 8
+  m_Offset: {x: 0, y: 0}
+  m_Border: {x: 0, y: 0, z: 0, w: 0}
+  m_PixelsToUnits: 32
+  m_Pivot: {x: 0.5, y: 0.5}
+  m_Extrude: 0
+  m_IsPolygon: 0
+  m_AtlasName: 
+  m_PackingTag: 
+  m_RenderDataKey:
+    00000000000000000000000000000000: 0
+  m_AtlasTags: []
+  m_SpriteAtlas: {fileID: 0}
+  m_RD:
+    serializedVersion: 3
+    texture: {fileID: 2255577564229729238}
+    alphaTexture: {fileID: 0}
+    secondaryTextures: []
+    m_SubMeshes:
+    - serializedVersion: 2
+      firstByte: 0
+      indexCount: 6
+      topology: 0
+      baseVertex: 0
+      firstVertex: 0
+      vertexCount: 4
+      localAABB:
+        m_Center: {x: 0, y: 0, z: 0}
+        m_Extent: {x: 0, y: 0, z: 0}
+    m_IndexBuffer: 000001000200020001000300
+    m_VertexData:
+      serializedVersion: 3
+      m_VertexCount: 4
+      m_Channels:
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 3
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 1
+        offset: 0
+        format: 0
+        dimension: 2
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      m_DataSize: 80
+      _typelessdata: 000000be0000003e000000000000003e0000003e00000000000000be000000be000000000000003e000000be000000000000000000000000000000000000000000000000000000000000000000000000
+    m_Bindpose: []
+    textureRect:
+      serializedVersion: 2
+      x: 0
+      y: 0
+      width: 8
+      height: 8
+    textureRectOffset: {x: 0, y: 0}
+    atlasRectOffset: {x: -1, y: -1}
+    settingsRaw: 0
+    uvTransform: {x: 32, y: 4, z: 32, w: 4}
+    downscaleMultiplier: 1
+  m_AtlasRD:
+    serializedVersion: 3
+    texture: {fileID: 2255577564229729238}
+    alphaTexture: {fileID: 0}
+    secondaryTextures: []
+    m_SubMeshes:
+    - serializedVersion: 2
+      firstByte: 0
+      indexCount: 6
+      topology: 0
+      baseVertex: 0
+      firstVertex: 0
+      vertexCount: 4
+      localAABB:
+        m_Center: {x: 0, y: 0, z: 0}
+        m_Extent: {x: 0, y: 0, z: 0}
+    m_IndexBuffer: 000001000200020001000300
+    m_VertexData:
+      serializedVersion: 3
+      m_VertexCount: 4
+      m_Channels:
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 3
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 1
+        offset: 0
+        format: 0
+        dimension: 2
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      - stream: 0
+        offset: 0
+        format: 0
+        dimension: 0
+      m_DataSize: 80
+      _typelessdata: 000000be0000003e000000000000003e0000003e00000000000000be000000be000000000000003e000000be000000000000000000000000000000000000000000000000000000000000000000000000
+    m_Bindpose: []
+    textureRect:
+      serializedVersion: 2
+      x: 0
+      y: 0
+      width: 8
+      height: 8
+    textureRectOffset: {x: 0, y: 0}
+    atlasRectOffset: {x: -1, y: -1}
+    settingsRaw: 0
+    uvTransform: {x: 32, y: 4, z: 32, w: 4}
+    downscaleMultiplier: 1
+  m_PhysicsShape: []
+  m_Bones: []
+  m_ScriptableObjects: []
+  m_SpriteID: 
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c975b0b5849cdff45a825502748620c6, type: 3}
+  m_Name: LightningStrikeVisual
+  m_EditorClassIdentifier: 
+  visualScale: 1
+  element: {fileID: 0}
+  family: 0
+  usage: 0
+  additionalElements: []
+  sourceSheet: {fileID: 0}
+  cellSize: {x: 32, y: 32}
+  layout: {x: 4, y: 4}
+  intro:
+    useSheet: 0
+    startIndex: 0
+    frameCount: 1
+    fps: 100
+    sprites: []
+  idle:
+    useSheet: 0
+    startIndex: 0
+    frameCount: 1
+    fps: 100
+    sprites: []
+  end:
+    useSheet: 0
+    startIndex: 0
+    frameCount: 1
+    fps: 100
+    sprites: []
+  duration: 0.22
+  idleEnd: 1
+  shortLife: 0
+  introStop: 0
+  customMaterial: {fileID: -7807812633106620329, guid: 99b211661e873a548b61b2f60b3439ca, type: 2}
+  tint: {r: 1, g: 1, b: 1, a: 1}
+  introBrightness: 1
+  idleBrightness: 1
+  endBrightness: 1
+  fadeOnEnd: 1
+  visualCurves:
+    enabled: 0
+    colorProgress:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 1
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 1
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    opacity:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    offsetX:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    offsetY:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  fireParticles: 0
+  fireSourceCount: {x: 2, y: 3}
+  fireSourceScale: {x: 0.7, y: 1.25}
+  fireSourceSpread: 0.35
+  fireParticleCapacity: 48
+  fireEmissionRate: 26
+  fireEmissionIntervalScale: 1.6
+  fireParticleLifetime: {x: 0.8, y: 1.3}
+  fireParticleRadius: {x: 0.12, y: 0.24}
+  fireShapeScale: {x: 1, y: 1.35}
+  fireSpread: 0.45
+  fireFadeStart: 0.5
+  fireFlameDuration: 0.68
+  fireSurgeStrength: 0.9
+  fireSurgeFrequency: 1.2
+  fireSmokeSpread: 1.6
+  fireSmokeExpansion: 0.65
+  fireSmokeOpacity: 0.14
+  fireSmokeEdgeFade: 3
+  fireContourVariation: 0.22
+  fireTipSharpness: 0.7
+  fireTurbulence: 0.3
+  fireTearStrength: 1
+  fireEdgeWidth: 0.28
+  fireEdgeStrength: 0.85
+  fireHotColor: {r: 1, g: 0.9, b: 0.3, a: 1}
+  fireGoldColor: {r: 1, g: 0.64, b: 0.14, a: 1}
+  fireWarmColor: {r: 0.95, g: 0.27, b: 0.045, a: 1}
+  fireEmberColor: {r: 0.5, g: 0.17, b: 0.1, a: 1}
+  fireSmokeColor: {r: 0.22, g: 0.13, b: 0.16, a: 1}
+  fireSootColor: {r: 0.065, g: 0.055, b: 0.075, a: 1}
+  firePaletteWeights:
+    hot: 0.2
+    gold: 0.35
+    warm: 0.55
+    ember: 1.4
+    smoke: 1
+    soot: 1
+  emberStartColor: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+  emberEndColor: {r: 0.5019608, g: 0.1882353, b: 0.101960786, a: 1}
+  embers:
+    enabled: 0
+    capacity: 24
+    emissionRate: 12
+    minimumInterval: 0.25
+    updraftAcceleration: 1.6
+    lifetime: {x: 0.4, y: 0.9}
+    radius: {x: 0.025, y: 0.055}
+    spread: 1.6
+    rise: 0.6
+    expansion: 0.4
+    visualCurves:
+      enabled: 0
+      colorProgress:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 1
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 1
+          inSlope: 1
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      opacity:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 1
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 1
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      offsetX:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      offsetY:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+  emberLifetimeScale: 2.5
+  emberTravelScale: 1.8
+  emberFadeStart: 0.6
+  waterDetails:
+    enabled: 0
+    capacity: 24
+    emissionRate: 12
+    minimumInterval: 0.25
+    updraftAcceleration: 1.6
+    lifetime: {x: 0.3, y: 0.65}
+    radius: {x: 0.025, y: 0.05}
+    spread: 1.2
+    rise: 1.2
+    expansion: 0
+    visualCurves:
+      enabled: 0
+      colorProgress:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 1
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 1
+          inSlope: 1
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      opacity:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 1
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 1
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      offsetX:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      offsetY:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+  gasDetails:
+    enabled: 0
+    capacity: 24
+    emissionRate: 12
+    minimumInterval: 0.25
+    updraftAcceleration: 1.6
+    lifetime: {x: 0.8, y: 1.6}
+    radius: {x: 0.12, y: 0.2}
+    spread: 0.4
+    rise: 0.3
+    expansion: 1
+    visualCurves:
+      enabled: 0
+      colorProgress:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 1
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 1
+          inSlope: 1
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      opacity:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 1
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 1
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      offsetX:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+      offsetY:
+        serializedVersion: 2
+        m_Curve:
+        - serializedVersion: 3
+          time: 0
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        - serializedVersion: 3
+          time: 1
+          value: 0
+          inSlope: 0
+          outSlope: 0
+          tangentMode: 0
+          weightedMode: 0
+          inWeight: 0
+          outWeight: 0
+        m_PreInfinity: 2
+        m_PostInfinity: 2
+        m_RotationOrder: 4
+  cloudDetailInterval: 0.9
+  cloudDetailOpacity: 0.18
+  emissionColor: {r: 1, g: 1, b: 1, a: 1}
+  emissionStrength: 1
+  emissionColorProperty: _EmissionColor
+  emissionStrengthProperty: _Glow
+  lightResponseProperty: _LightResponse
+  lightResponse: 1
+  rimProperty: _RimStrength
+  rimStrength: 0
+  centerProperty: _CenterStrength
+  centerStrength: 0
+  pieceCount: 1
+  pieceDelay: 0.07
+  pieceAttenuation: 0.75
+  tailTint: {r: 1, g: 1, b: 1, a: 1}
+  spentTint: {r: 1, g: 1, b: 1, a: 1}
+  tailExpansion: 1
+  edgeSpread: 0.1
+  gasRise: 0
+  gasExpansion: 0
+  tailOffset: {x: 0, y: 0}
+  motionWander: 0
+  variationFrequency: 1.5
+  sizeVariation: 0
+  mixedPieceSizes: 0
+  pieceSizeScales: {x: 1, y: 0.7, z: 0.45}
+  shapeVariation: 0
+  mergeNearby: 0
+  mergeRadius: 0.7
+  mergeSoftness: 0.18
+  mergeRefreshRate: 20
+  surfaceNoiseScale: 0.65
+  surfaceNoiseStrength: 0.15
+  surfaceNoiseSpeed: 0.08
+  surfaceBodyColor: {r: 1, g: 1, b: 1, a: 1}
+  surfaceHighlightColor: {r: 1, g: 1, b: 1, a: 1}
+  surfaceHighlightStrength: 0
+  surfaceRelief: 0
+  surfaceShadowColor: {r: 0.24, g: 0.27, b: 0.33, a: 1}
+  surfaceLightDirection: {x: -0.45, y: 0.65, z: 0.65}
+  surfaceSpecular: 0
+  surfaceShininess: 48
+  impactFoamDuration: 0.65
+  impactFoamStrength: 0
+  foamOpacity: 0.85
+  smokeTail: {fileID: 0}
+  smokeTailPieces: 2
+  airborneDuration: 0.25
+  airborneHeight: 0.5
+  puddleScale: {x: 1.4, y: 0.7}
+  useLight: 0
+  lightMode: 0
+  lightColor: {r: 1, g: 1, b: 1, a: 1}
+  lightIntensity: 1
+  lightRadius: 2
+  flickerAmount: 0.15
+  flickerFrequency: 12
+  sortingLayerId: 0
+  sortingOrder: 20
+  sortingMode: 3
+  character:
+    radiusInBodyWidths: 0.6
+    emissionInterval: {x: 0.2, y: 0.4}
+    particleLifetime: {x: 0.4, y: 0.8}
+    particleSize: {x: 0.12, y: 0.2}
+    tint: {r: 0.60784316, g: 0.8666667, b: 0.15294118, a: 1}
+    tintAmount: 0.2
+    duration: -1
+    sparkle: {fileID: 0}
+    sparkleChance: 0.35
+    sparkleSize: {x: 0.2, y: 0.4}
+  beam:
+    kind: 1
+    direction: {x: 1, y: 0}
+    length: 4
+    width: 0.12
+    coreWidth: 0.35
+    zigzag: 0.18
+    segments: 12
+    refreshRate: 20
+    core: {r: 1, g: 0.96862745, b: 0.6901961, a: 1}
+    edge: {r: 1, g: 0.8352941, b: 0.16470589, a: 1}
+    glowRadius: 0.18
+    glowOpacity: 0.3
+    pulseFrequency: 8
+    pulseStrength: 0.2
+    flowSpeed: 5
+    wobble: 0.035
+    chargeDuration: 0.09
+    extensionDuration: 0.07
+    chargeRadius: 0.24
+    sparkCount: 16
+    sparkLifetime: 0.18
+    sparkSpread: 0.25
+    useLight: 1
+    lightIntensity: 0.8
+    lightRadius: 2.5
+  attachmentOffset: {x: 0, y: 0}
+  spawnOnImpact: 1
+  projectileVisualScale: 1
+--- !u!28 &2255577564229729238
+Texture2D:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: LightningStrikePixels
+  m_ImageContentsHash:
+    serializedVersion: 2
+    Hash: 00000000000000000000000000000000
+  m_IsAlphaChannelOptional: 0
+  serializedVersion: 3
+  m_Width: 8
+  m_Height: 8
+  m_CompleteImageSize: 256
+  m_MipsStripped: 0
+  m_TextureFormat: 4
+  m_MipCount: 1
+  m_IsReadable: 0
+  m_IsPreProcessed: 0
+  m_IgnoreMipmapLimit: 1
+  m_MipmapLimitGroupName: 
+  m_StreamingMipmaps: 0
+  m_StreamingMipmapsPriority: 0
+  m_VTOnly: 0
+  m_AlphaIsTransparency: 0
+  m_ImageCount: 1
+  m_TextureDimension: 2
+  m_TextureSettings:
+    serializedVersion: 2
+    m_FilterMode: 0
+    m_Aniso: 1
+    m_MipBias: 0
+    m_WrapU: 1
+    m_WrapV: 1
+    m_WrapW: 1
+  m_LightmapFormat: 0
+  m_ColorSpace: 1
+  m_PlatformBlob: 
+  image data: 256
+  _typelessdata: ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff
+  m_StreamData:
+    serializedVersion: 2
+    offset: 0
+    size: 0
+    path: 

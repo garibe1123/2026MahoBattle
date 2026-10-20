@@ -11,6 +11,7 @@ public enum EffectIntroStop { Immediate, AfterIntro }
 public enum EffectLightMode { Steady, Flicker }
 public enum EffectSortMode { Automatic, Definition, Ground, SpawnDepth, Attached }
 public enum EffectBeamKind { None, LightningStrike, ElectricBeam, Laser }
+public enum EffectCharacterShape { None, PoisonBubble, FrostShard, FrostSpark }
 
 [Serializable]
 public sealed class EffectClipDefinition
@@ -300,6 +301,7 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public EffectSortMode sortingMode;
     public EffectCharacterSettings character = new();
     public EffectBeamSettings beam = new();
+    public bool HasCharacterShape => character != null && character.shape != EffectCharacterShape.None;
 
     public EffectSortMode ResolvedSorting => sortingMode != EffectSortMode.Automatic ? sortingMode :
         fireParticles ? EffectSortMode.SpawnDepth : family == EffectFamily.Liquid ? EffectSortMode.Ground : EffectSortMode.Definition;
@@ -338,6 +340,13 @@ public sealed class EffectDefinitionSO : ScriptableObject
     {
         EffectClipDefinition clip = phase == EffectPhase.Intro ? intro : phase == EffectPhase.Idle ? idle : end;
         return clip != null ? clip.SafeFps : 12f;
+    }
+
+    public int GetFrameCount(EffectPhase phase)
+    {
+        EffectClipDefinition clip = phase == EffectPhase.Intro ? intro : phase == EffectPhase.Idle ? idle : end;
+        return HasCharacterShape || (beam != null && beam.kind != EffectBeamKind.None)
+            ? Mathf.Max(0, clip != null ? clip.frameCount : 0) : GetFrames(phase).Length;
     }
 
     private Sprite[] BuildFrames(EffectClipDefinition clip)
@@ -397,6 +406,11 @@ public sealed class EffectDefinitionSO : ScriptableObject
 [Serializable]
 public sealed class EffectCharacterSettings
 {
+    public EffectCharacterShape shape;
+    public Vector2 shapeAspect = Vector2.one;
+    public Color shapeCore = new Color32(155, 221, 39, 255);
+    public Color shapeEdge = new Color32(53, 93, 24, 255);
+    public Color shapeHighlight = new Color32(222, 255, 151, 255);
     [Min(0f)] public float radiusInBodyWidths = 0.6f;
     public Vector2 emissionInterval = new(0.2f, 0.4f);
     public Vector2 particleLifetime = new(0.4f, 0.8f);
@@ -407,7 +421,6 @@ public sealed class EffectCharacterSettings
     public EffectDefinitionSO sparkle;
     [Range(0f, 1f)] public float sparkleChance = 0.35f;
     public Vector2 sparkleSize = new(0.2f, 0.4f);
-    public bool alignToWorldPixels = true;
 }
 
 [Serializable]
@@ -419,12 +432,10 @@ public sealed class EffectBeamSettings
     [Min(0.01f)] public float width = 0.12f;
     [Range(0.05f, 1f)] public float coreWidth = 0.35f;
     [Min(0f)] public float zigzag = 0.18f;
-    [Min(0.01f)] public float pixelSize = 0.03125f;
     [Range(2, 32)] public int segments = 12;
     [Min(1f)] public float refreshRate = 20f;
     public Color core = new Color32(255, 247, 176, 255);
     public Color edge = new Color32(255, 213, 42, 255);
-    public bool useWorldPixels = true;
     [Min(0f)] public float glowRadius = 0.18f;
     [Range(0f, 1f)] public float glowOpacity = 0.3f;
     [Min(0f)] public float pulseFrequency = 8f;

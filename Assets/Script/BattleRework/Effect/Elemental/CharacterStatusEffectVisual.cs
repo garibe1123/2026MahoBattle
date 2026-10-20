@@ -121,13 +121,13 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         Vector3 position = body.bounds.center + new Vector3(offset.x, offset.y, 0f);
         float width = Sample(settings.particleSize, 0.01f);
         Sprite[] frames = definition.GetFrames(EffectPhase.Intro);
-        float sourceWidth = frames.Length > 0 ? frames[0].bounds.size.x : 1f;
+        float sourceWidth = !definition.HasCharacterShape && frames.Length > 0 ? frames[0].bounds.size.x : 1f;
         if (definition.fireParticles)
             sourceWidth = 2f * (Mathf.Max(0f, definition.fireSourceSpread) +
                 Mathf.Max(definition.fireParticleRadius.x, definition.fireParticleRadius.y) *
                 Mathf.Max(definition.fireSourceScale.x, definition.fireSourceScale.y) *
                 Mathf.Max(0.01f, definition.fireShapeScale.x));
-        float scale = ParticleScale(definition, frames, width, sourceWidth);
+        float scale = ParticleScale(definition, width, sourceWidth);
         width = sourceWidth * definition.visualScale * scale;
         EffectVisual visual = SpawnParticle(definition, position, Sample(settings.particleLifetime, 0.01f), scale);
         if (visual == null || !visual.IsPlaying) return;
@@ -136,9 +136,10 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         if (settings.sparkle != null && Random.value < Mathf.Clamp01(settings.sparkleChance))
         {
             Sprite[] sparkFrames = settings.sparkle.GetFrames(EffectPhase.Intro);
-            float sparkWidth = sparkFrames.Length > 0 ? sparkFrames[0].bounds.size.x : 1f;
-            EffectVisual sparkle = SpawnParticle(settings.sparkle, position + Vector3.right * width,
-                Sample(settings.particleLifetime, 0.01f), ParticleScale(settings.sparkle, sparkFrames,
+            float sparkWidth = !settings.sparkle.HasCharacterShape && sparkFrames.Length > 0 ? sparkFrames[0].bounds.size.x : 1f;
+            Vector2 sparkOffset = Random.insideUnitCircle * width * 0.7f;
+            EffectVisual sparkle = SpawnParticle(settings.sparkle, position + (Vector3)sparkOffset,
+                Sample(settings.particleLifetime, 0.01f), ParticleScale(settings.sparkle,
                     width * Sample(settings.sparkleSize, 0.01f), sparkWidth));
             if (sparkle == null || !sparkle.IsPlaying) return;
             sparkle.SetAttachedSorting(body, bodyGroup, sortAnchor);
@@ -165,14 +166,9 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         DestroyImmediate(visual.gameObject);
     }
 
-    private float ParticleScale(EffectDefinitionSO data, Sprite[] frames, float width, float sourceWidth)
+    private static float ParticleScale(EffectDefinitionSO data, float width, float sourceWidth)
     {
-        float scale = width / Mathf.Max(0.001f, sourceWidth * data.visualScale);
-        if (data.fireParticles || data.character == null || !data.character.alignToWorldPixels || frames.Length == 0) return scale;
-        float pixelSize = preview && previewWorld != null ? previewWorld.DetailPixelSize(data) : EffectBlobWorld.DefaultDetailPixelSize(data);
-        float pixelScale = pixelSize * frames[0].pixelsPerUnit /
-            Mathf.Max(0.001f, data.visualScale);
-        return pixelScale * Mathf.Max(1f, Mathf.Round(scale / pixelScale));
+        return width / Mathf.Max(0.001f, sourceWidth * data.visualScale);
     }
 
     public void Stop()
