@@ -28,7 +28,7 @@ public sealed class EffectBlobRenderer : MonoBehaviour
     private readonly float[] density = new float[(Resolution + 2) * (Resolution + 2)];
     private readonly float[] foam = new float[(Resolution + 2) * (Resolution + 2)];
     private readonly Color32[] pixels = new Color32[Resolution * Resolution];
-    private readonly float[] noiseGrid = new float[(Resolution / 8 + 1) * (Resolution / 8 + 1)];
+    private readonly float[] noiseGrid = new float[(Resolution / 8 + 3) * (Resolution / 8 + 3)];
     private MaterialPropertyBlock properties;
     private SpriteRenderer surface;
     private Texture2D texture;
@@ -231,7 +231,9 @@ internal static class EffectBlobField
                 {
                     contribution *= Mathf.SmoothStep(0f, 1f,
                         (distance - sample.dissolve * sample.dissolve * 1.4f) / 0.2f);
-                    float fragments = Mathf.Clamp01((Mathf.Sin(dx * 8f + dy * 7f) + 0.5f) * 2f);
+                    float first = (dx + 0.65f) * (dx + 0.65f) + (dy - 0.35f) * (dy - 0.35f);
+                    float second = (dx - 0.6f) * (dx - 0.6f) + (dy + 0.45f) * (dy + 0.45f);
+                    float fragments = Mathf.Clamp01((0.7f - Mathf.Min(first, second)) / 0.35f);
                     contribution *= Mathf.Lerp(1f, fragments, sample.dissolve);
                 }
                 field[y * resolution + x] += contribution;
@@ -265,13 +267,13 @@ internal static class EffectBlobField
         Vector3 light = definition.surfaceLightDirection.sqrMagnitude > 0.0001f
             ? definition.surfaceLightDirection.normalized : Vector3.forward;
         Vector3 halfLight = (light + Vector3.forward).normalized;
-        int stride = resolution / 8 + 1;
+        int stride = resolution / 8 + 3;
         int fieldStride = resolution + 2;
-        for (int y = clip.yMin / 8; y <= (clip.yMax - 1) / 8 + 1; y++)
-            for (int x = clip.xMin / 8; x <= (clip.xMax - 1) / 8 + 1; x++)
+        for (int y = clip.yMin / 8; y <= (clip.yMax - 1) / 8 + 3; y++)
+            for (int x = clip.xMin / 8; x <= (clip.xMax - 1) / 8 + 3; x++)
             {
-                float worldX = origin.x + x * 8f * step;
-                float worldY = origin.y + y * 8f * step;
+                float worldX = origin.x + (x - 1) * 8f * step;
+                float worldY = origin.y + (y - 1) * 8f * step;
                 float drift = time * noiseSpeed;
                 noiseGrid[y * stride + x] = smoke || specularStrength > 0f
                     ? Mathf.PerlinNoise(worldX * noiseScale + drift, worldY * noiseScale - drift * 0.7f) * 0.75f +
@@ -287,7 +289,7 @@ internal static class EffectBlobField
                 float value = field[fieldIndex];
                 float cutoff = (0.3f - softness * 0.5f) / (smoke ? 1f + noiseStrength * 0.5f : 1f);
                 if (value <= cutoff && foam[fieldIndex] <= 0.01f) { pixels[index] = default; continue; }
-                int cell = y / 8 * stride + x / 8;
+                int cell = (y / 8 + 1) * stride + x / 8 + 1;
                 float horizontal = Mathf.SmoothStep(0f, 1f, x % 8 / 8f);
                 float vertical = Mathf.SmoothStep(0f, 1f, y % 8 / 8f);
                 float noise = Mathf.Lerp(Mathf.Lerp(noiseGrid[cell], noiseGrid[cell + 1], horizontal),
@@ -304,12 +306,15 @@ internal static class EffectBlobField
                 {
                     float slopeX = (Height(field[fieldIndex - 1]) - Height(field[fieldIndex + 1])) / (2f * step);
                     float slopeY = (Height(field[fieldIndex - fieldStride]) - Height(field[fieldIndex + fieldStride])) / (2f * step);
-                    float u = x % 8 / 8f;
-                    float v = y % 8 / 8f;
-                    float noiseX = Mathf.Lerp(noiseGrid[cell + 1] - noiseGrid[cell],
-                        noiseGrid[cell + stride + 1] - noiseGrid[cell + stride], vertical) * 6f * u * (1f - u) / (8f * step);
-                    float noiseY = Mathf.Lerp(noiseGrid[cell + stride] - noiseGrid[cell],
-                        noiseGrid[cell + stride + 1] - noiseGrid[cell + 1], horizontal) * 6f * v * (1f - v) / (8f * step);
+                    float noiseX = Mathf.Lerp(
+                        Mathf.Lerp(noiseGrid[cell + 1] - noiseGrid[cell - 1], noiseGrid[cell + 2] - noiseGrid[cell], horizontal),
+                        Mathf.Lerp(noiseGrid[cell + stride + 1] - noiseGrid[cell + stride - 1],
+                            noiseGrid[cell + stride + 2] - noiseGrid[cell + stride], horizontal), vertical) / (16f * step);
+                    float noiseY = Mathf.Lerp(
+                        Mathf.Lerp(noiseGrid[cell + stride] - noiseGrid[cell - stride],
+                            noiseGrid[cell + stride + 1] - noiseGrid[cell - stride + 1], horizontal),
+                        Mathf.Lerp(noiseGrid[cell + stride * 2] - noiseGrid[cell],
+                            noiseGrid[cell + stride * 2 + 1] - noiseGrid[cell + 1], horizontal), vertical) / (16f * step);
                     normal = new Vector3((slopeX - noiseX * noiseStrength) * relief,
                         (slopeY - noiseY * noiseStrength) * relief, 1f).normalized;
                     if (smoke)

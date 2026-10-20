@@ -539,7 +539,7 @@ public sealed class ElementalTestSamples : System.IDisposable
 {
     public const int Cell = 32;
     public const float PixelsPerUnit = 32f;
-    private const float FireOpacity = 0.72f;
+    private const float FireOpacity = 0.9f;
     private const float SmokeOpacity = 0.45f;
     private const float WaterOpacity = 0.32f;
     private const float RoundedEdgeWidth = 0.14f;
@@ -574,7 +574,7 @@ public sealed class ElementalTestSamples : System.IDisposable
             data.name = Names[i] + " Test Visual";
             data.element = elements[i];
             data.sourceSheet = sheets[i];
-            data.cellSize = new Vector2Int(Cell, Cell);
+            data.cellSize = new Vector2Int(textures[i].width / 4, textures[i].height / 4);
             data.layout = new Vector2Int(4, 4);
             data.customMaterial = material;
             Configure(data, i);
@@ -588,38 +588,44 @@ public sealed class ElementalTestSamples : System.IDisposable
         if (sample == 0)
             data.emissionColor = data.lightColor = new Color(1f, 0.45f, 0.08f);
         data.family = sample == 2 ? EffectFamily.Liquid : EffectFamily.Gas;
-        data.pieceCount = sample == 0 ? 5 : 1;
-        data.tailTint = sample == 0 ? new Color(0.22f, 0.16f, 0.24f, 0.9f) : Color.white;
-        data.spentTint = sample == 0 ? new Color(0.3f, 0.22f, 0.3f) : Color.white;
-        data.tailExpansion = sample == 0 ? 2.2f : 1f;
+        data.pieceCount = 1;
+        data.tailTint = data.spentTint = Color.white;
+        data.tailExpansion = 1f;
+        data.visualScale = sample == 0 ? 0.5f : sample == 2 ? 1.35f : 1f;
+        data.introBrightness = sample == 2 ? 1.15f : 1f;
+        data.idleBrightness = 1f;
+        data.endBrightness = sample == 2 ? 0.65f : 1f;
+        data.fadeOnEnd = sample == 1;
+        if (sample == 0 && data.sourceSheet != null)
+            data.cellSize = new Vector2Int((int)data.sourceSheet.rect.width / 4, (int)data.sourceSheet.rect.height / 4);
         if (sample == 0) data.smokeTail = null;
         data.mergeNearby = sample == 1 || sample == 2;
         data.mergeSoftness = sample == 1 ? 0.3f : 0.12f;
-        data.surfaceNoiseScale = sample == 1 ? 1.1f : sample == 2 ? 0.85f : 0.65f;
-        data.surfaceNoiseStrength = sample == 1 ? 0.45f : sample == 2 ? 0.55f : 0.15f;
+        data.surfaceNoiseScale = sample == 1 ? 0.7f : sample == 2 ? 0.85f : 0.65f;
+        data.surfaceNoiseStrength = sample == 1 ? 0.12f : sample == 2 ? 0.55f : 0.15f;
         data.surfaceNoiseSpeed = 0.08f;
         data.surfaceBodyColor = sample == 2 ? new Color(0.18f, 0.65f, 0.85f) : Color.white;
         data.surfaceHighlightColor = new Color(0.85f, 0.98f, 1f);
         data.surfaceHighlightStrength = sample == 2 ? 1f : 0f;
-        data.surfaceRelief = sample == 1 ? 1.1f : sample == 2 ? 0.8f : 0f;
+        data.surfaceRelief = sample == 2 ? 0.8f : 0f;
         data.surfaceShadowColor = new Color(0.18f, 0.21f, 0.27f);
         data.surfaceSpecular = sample == 2 ? 1.8f : 0f;
         data.surfaceShininess = 48f;
-        data.impactFoamStrength = sample == 2 ? 1.5f : 0f;
-        data.impactFoamDuration = 0.75f;
+        data.impactFoamStrength = sample == 2 ? 0.9f : 0f;
+        data.impactFoamDuration = 0.55f;
         data.foamOpacity = 0.9f;
         data.gasRise = sample == 1 ? 0.3f : 0.2f;
-        data.gasExpansion = sample == 1 ? 0.2f : 0.15f;
+        data.gasExpansion = sample == 1 ? 0.2f : 0.05f;
         data.tailOffset = sample == 1 ? new Vector2(0.015f, 0.035f)
             : sample == 0 ? new Vector2(-0.035f, 0.22f) : Vector2.zero;
         data.edgeSpread = sample == 0 ? 0.1f : 0.025f;
         data.pieceDelay = sample == 1 ? 0.12f : 0.07f;
         data.pieceAttenuation = sample == 0 ? 0.88f : sample == 1 ? 0.72f : 0.75f;
         data.puddleScale = new Vector2(1.1f, 0.95f);
-        data.motionWander = sample == 0 ? 0.55f : sample == 1 ? 0.4f : 0.25f;
-        data.variationFrequency = sample == 0 ? 2.2f : sample == 1 ? 0.8f : 1.2f;
-        data.sizeVariation = 0.18f;
-        data.shapeVariation = sample == 0 ? 0.16f : 0.1f;
+        data.motionWander = sample == 1 ? 0.18f : sample == 0 ? 0.2f : 0.25f;
+        data.variationFrequency = sample == 0 ? 1.2f : sample == 1 ? 0.55f : 1.2f;
+        data.sizeVariation = sample == 0 ? 0.08f : 0.18f;
+        data.shapeVariation = sample == 0 ? 0.03f : 0.1f;
         data.emissionStrength = sample == 1 ? 0f : 1f;
         data.useLight = sample == 0;
         data.lightMode = EffectLightMode.Flicker;
@@ -629,9 +635,9 @@ public sealed class ElementalTestSamples : System.IDisposable
 
     public static void ConfigureEmitter(EffectEmitter emitter, int sample)
     {
-        emitter.burstCount = sample == 0 ? 8 : 32;
-        emitter.streamCount = sample == 0 ? 1 : 4;
-        emitter.interval = sample == 0 ? 0.12f : 0.08f;
+        emitter.burstCount = sample == 0 ? 1 : sample == 2 ? 8 : 32;
+        emitter.streamCount = sample == 0 ? 1 : sample == 2 ? 2 : 4;
+        emitter.interval = sample == 0 ? 0.22f : sample == 2 ? 0.12f : 0.08f;
         emitter.maxActive = sample == 0 ? 64 : 2048;
         emitter.direction = sample == 2 ? Vector2.down : Vector2.up;
         emitter.speed = sample == 2 ? 1.5f : 0.35f;
@@ -640,6 +646,7 @@ public sealed class ElementalTestSamples : System.IDisposable
 
     public static Texture2D CreateTexture(int sample, int cell)
     {
+        if (sample == 0) return ElementalFireFrames.CreateTexture();
         Texture2D texture = new(cell * 4, cell * 4, TextureFormat.RGBA32, false)
         {
             filterMode = FilterMode.Point,
@@ -660,11 +667,6 @@ public sealed class ElementalTestSamples : System.IDisposable
                     if (sample == 1 || sample == 2)
                     {
                         pixels[py * texture.width + px] = RoundedPixel(dx, dy, sample, phase, progress);
-                        continue;
-                    }
-                    if (sample == 0)
-                    {
-                        pixels[py * texture.width + px] = ElementalFireFrames.Pixel(frame, x, y, cell);
                         continue;
                     }
                     float angle = Mathf.Atan2(dy, dx);

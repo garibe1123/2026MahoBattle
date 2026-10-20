@@ -46,6 +46,7 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public float introBrightness = 1.15f;
     public float idleBrightness = 1f;
     public float endBrightness = 0.65f;
+    public bool fadeOnEnd;
     [ColorUsage(true, true)] public Color emissionColor = Color.white;
     [Min(0f)] public float emissionStrength = 1f;
     public string emissionColorProperty = "_EmissionColor";

@@ -344,6 +344,7 @@ public sealed class EffectVisual : MonoBehaviour
             tint.g *= pieceBrightness * attenuation;
             tint.b *= pieceBrightness * attenuation;
             tint.a *= attenuation;
+            if (style.fadeOnEnd && !airborne && phase == EffectPhase.End) tint.a *= 1f - progress;
             renderer.color = tint;
             Transform piece = renderer.transform;
             Vector3 trail = i == 0 ? Vector3.zero : transform.InverseTransformVector(PositionAt(age - delay) - transform.position);
@@ -386,7 +387,9 @@ public sealed class EffectVisual : MonoBehaviour
         sample.radius = new Vector2(bounds.extents.x, bounds.extents.y) *
             (Mathf.Clamp(definition.mergeRadius, 0.2f, 1f) * growth);
         sample.weight = !airborne && Phase == EffectPhase.End ? 1f - (float)playback.PhaseProgress : 1f;
-        sample.dissolve = !airborne && Phase == EffectPhase.End ? (float)playback.PhaseProgress : 0f;
+        sample.dissolve = !definition.fadeOnEnd && !airborne && Phase == EffectPhase.End ? (float)playback.PhaseProgress : 0f;
+        if (definition.fadeOnEnd && !airborne && Phase == EffectPhase.End)
+            sample.radius *= 1f + EffectNumbers.NonNegative(definition.gasExpansion) * (float)playback.PhaseProgress;
         float contactAge = !airborne && flightDuration > 0f && flightElapsed >= flightDuration
             ? Mathf.Max(0f, age - flightDuration) : float.PositiveInfinity;
         sample.ripple = Mathf.Clamp01(contactAge / EffectNumbers.Positive(definition.impactFoamDuration, 0.65f));
