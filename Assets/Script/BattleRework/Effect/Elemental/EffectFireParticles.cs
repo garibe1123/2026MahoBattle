@@ -155,13 +155,16 @@ internal sealed class EffectFireParticles
         if (!particle.active || particle.radius <= 0f) return false;
         float t = NormalizedAge(particle);
         if (ending) t = Mathf.Max(t, Mathf.Lerp(particle.endAge, 1f, endProgress));
-        float smoke = Smoke(t);
+        EffectVisualCurves curves = definition.visualCurves;
+        float colorAge = curves?.ColorProgress(t) ?? t;
+        float smoke = Smoke(colorAge);
         Color color = Color.Lerp(definition.fireHotColor, definition.fireWarmColor,
-            Mathf.SmoothStep(0f, 1f, t / FlameDuration));
+            Mathf.SmoothStep(0f, 1f, colorAge / FlameDuration));
         color = Color.Lerp(color, definition.fireSootColor, smoke);
         float fadeStart = Mathf.Max(FlameDuration, Mathf.Clamp(definition.fireFadeStart, 0f, 0.9f));
         color.a = (1f - Mathf.SmoothStep(0f, 1f, (t - fadeStart) / (1f - fadeStart))) *
             Mathf.Clamp01(definition.tint.a);
+        color.a *= curves?.Opacity(t) ?? 1f;
         color.r *= definition.tint.r;
         color.g *= definition.tint.g;
         color.b *= definition.tint.b;
@@ -176,7 +179,7 @@ internal sealed class EffectFireParticles
         growth *= 1f + Mathf.Sin(particle.seed + cycle) *
             Mathf.Clamp(definition.fireTurbulence, 0f, 0.6f) * Mathf.Lerp(0.35f, 1f, smoke);
         float separation = Mathf.Lerp(1f, 0.55f, Mathf.SmoothStep(0f, 1f, (t - 0.65f) / 0.35f));
-        sample.center = particle.position;
+        sample.center = particle.position + (Vector3)(curves?.Offset(t) ?? Vector2.zero) * scale;
         sample.radius = new Vector2(Mathf.Lerp(1f, 1.25f, smoke), Mathf.Lerp(1f, 0.9f, smoke)) *
             (particle.radius * growth * separation);
         sample.radius = Vector2.Scale(sample.radius, new Vector2(
@@ -298,6 +301,10 @@ internal sealed class EffectDetailParticles
                     particle.velocity.y /= 1f + delta * 0.35f;
                 }
                 particle.position += particle.velocity * delta;
+                if (settings.visualCurves != null && settings.visualCurves.enabled)
+                    VisibilityRadius = Mathf.Max(VisibilityRadius, (particle.position - origin).magnitude +
+                        settings.visualCurves.Offset(particle.age / particle.lifetime).magnitude * scale +
+                        particle.radius * 2f * (1f + EffectNumbers.NonNegative(settings.expansion)));
             }
             particles[i] = particle;
         }
@@ -380,7 +387,9 @@ internal sealed class EffectDetailParticles
         if (definition == null || index < 0 || index >= capacity || !particles[index].active) return false;
         Particle particle = particles[index];
         float progress = Mathf.Clamp01(particle.age / particle.lifetime);
-        position = particle.position;
+        EffectVisualCurves curves = settings.visualCurves;
+        float colorAge = curves?.ColorProgress(progress) ?? progress;
+        position = particle.position + (Vector3)(curves?.Offset(progress) ?? Vector2.zero) * scale;
         size = Vector2.one * pixelStep;
         if (IsCloud)
             size = Vector2.one * (particle.radius * 2f * (1f + EffectNumbers.NonNegative(settings.expansion) * progress));
@@ -389,12 +398,15 @@ internal sealed class EffectDetailParticles
             position.x = (Mathf.Floor(position.x / pixelStep) + 0.5f) * pixelStep;
             position.y = (Mathf.Floor(position.y / pixelStep) + 0.5f) * pixelStep;
         }
-        color = definition.fireParticles ? Color.Lerp(definition.emberStartColor, definition.emberEndColor, progress) : definition.tint;
+        color = definition.fireParticles ? Color.Lerp(definition.emberStartColor, definition.emberEndColor, colorAge) : definition.tint;
+        if (!definition.fireParticles && curves != null && curves.enabled)
+            color *= Color.Lerp(Color.white, definition.spentTint, colorAge);
         float fadeStart = Mathf.Clamp(definition.emberFadeStart, 0f, 0.9f);
         float fade = definition.fireParticles
             ? Mathf.Clamp01((progress - fadeStart) / (1f - fadeStart))
             : progress;
         color.a *= (1f - Mathf.SmoothStep(0f, 1f, fade)) * endFade;
+        color.a *= curves?.Opacity(progress) ?? 1f;
         if (IsCloud) color.a *= Mathf.SmoothStep(0f, 1f, progress / 0.3f) * Mathf.Clamp01(definition.cloudDetailOpacity);
         return color.a > 0.001f && size.x > 0.0001f;
     }

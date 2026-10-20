@@ -362,6 +362,10 @@ public sealed class EffectVisual : MonoBehaviour
         return positions[newer];
     }
 
+    private float VisualCurveProgress => requestedDuration == -1f
+        ? Mathf.Repeat(age / EffectNumbers.Positive(definition.duration, 2f), 1f)
+        : Mathf.Clamp01((float)(playback.Elapsed / Math.Max(0.0001d, playback.Elapsed + playback.Remaining)));
+
     private void Render()
     {
         RenderDetails();
@@ -404,6 +408,8 @@ public sealed class EffectVisual : MonoBehaviour
         visualRoot.localPosition = airborne ? Vector3.up * (Mathf.Sin(progress * Mathf.PI) * definition.airborneHeight)
             : definition.family == EffectFamily.Gas ? Vector3.up * (riseTime * definition.gasRise) : Vector3.zero;
         float size = EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier;
+        float curveProgress = VisualCurveProgress;
+        visualRoot.localPosition += (Vector3)(definition.visualCurves?.Offset(curveProgress) ?? Vector2.zero) * size;
         float expansion = definition.family == EffectFamily.Gas ? Mathf.Max(0f, 1f + riseTime * definition.gasExpansion) : 1f;
         Vector2 shape = definition.family == EffectFamily.Liquid && !airborne ? definition.puddleScale : Vector2.one;
         visualRoot.localScale = new Vector3(shape.x, shape.y, 1f) * (size * expansion);
@@ -442,12 +448,15 @@ public sealed class EffectVisual : MonoBehaviour
             Color tint = style.tint;
             float tail = count > 1 ? (float)i / (count - 1) : 0f;
             tint *= Color.Lerp(Color.white, style.tailTint, tail);
-            if (!airborne && phase == EffectPhase.End)
+            if (style.visualCurves != null && style.visualCurves.enabled)
+                tint *= Color.Lerp(Color.white, style.spentTint, style.visualCurves.ColorProgress(curveProgress));
+            else if (!airborne && phase == EffectPhase.End)
                 tint *= Color.Lerp(Color.white, style.spentTint, progress);
             tint.r *= pieceBrightness * attenuation;
             tint.g *= pieceBrightness * attenuation;
             tint.b *= pieceBrightness * attenuation;
             tint.a *= attenuation;
+            tint.a *= style.visualCurves?.Opacity(curveProgress) ?? 1f;
             if (style.fadeOnEnd && !airborne && phase == EffectPhase.End) tint.a *= 1f - progress;
             renderer.color = tint;
             Transform piece = renderer.transform;
@@ -579,6 +588,8 @@ public sealed class EffectVisual : MonoBehaviour
                 Mathf.Abs(definition.smokeTail.gasRise)) * 4f * Mathf.Max(1f, scale);
         Vector3 root = transform.lossyScale;
         radius *= Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
+        radius += (definition.visualCurves?.Offset(VisualCurveProgress) ?? Vector2.zero).magnitude *
+            EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier * Mathf.Max(Mathf.Abs(root.x), Mathf.Abs(root.y));
         if (details != null) radius += details.VisibilityRadius;
         Vector3 viewport = renderCamera.WorldToViewportPoint(transform.position);
         if (viewport.z + radius < renderCamera.nearClipPlane || viewport.z - radius > renderCamera.farClipPlane) return false;
