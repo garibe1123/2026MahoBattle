@@ -387,6 +387,10 @@ public static class HarnessElementalSamples
 [CustomEditor(typeof(EffectDefinitionSO))]
 public sealed class EffectDefinitionSOEditor : Editor
 {
+    private bool commonOpen = true;
+    private bool familyOpen;
+    private bool advancedOpen;
+
     private void OnEnable()
     {
         if (target is EffectDefinitionSO data && Selection.activeObject == target)
@@ -395,7 +399,9 @@ public sealed class EffectDefinitionSOEditor : Editor
 
     public override void OnInspectorGUI()
     {
-        bool changed = DrawDefaultInspector();
+        serializedObject.Update();
+        DrawSettings();
+        bool changed = serializedObject.ApplyModifiedProperties();
         EffectDefinitionSO data = (EffectDefinitionSO)target;
         using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))
         {
@@ -409,6 +415,216 @@ public sealed class EffectDefinitionSOEditor : Editor
             }
         }
         if (changed) EffectDefinitionPreviewWindow.NotifyChanged(data);
+    }
+
+    private SerializedProperty Property(string path) => serializedObject.FindProperty(path);
+    private bool Enabled(string path) => Property(path).boolValue;
+    private bool Assigned(string path) => Property(path).objectReferenceValue != null;
+    private int Mode(string path) => Property(path).enumValueIndex;
+
+    private void Fields(params string[] paths)
+    {
+        foreach (string path in paths) EditorGUILayout.PropertyField(Property(path), true);
+    }
+
+    private void Curves(string path)
+    {
+        Fields(path + ".enabled");
+        if (Enabled(path + ".enabled"))
+            Fields(path + ".colorProgress", path + ".opacity", path + ".offsetX", path + ".offsetY");
+    }
+
+    private void DrawSettings()
+    {
+        using (new EditorGUI.DisabledScope(true)) Fields("m_Script");
+        commonOpen = EditorGUILayout.Foldout(commonOpen, "공통 · 기본 조절", true);
+        if (commonOpen)
+        {
+            Fields("element", "family", "usage", "fireParticles", "character.shape", "beam.kind");
+            Fields("visualScale", "duration");
+            if (Mode("beam.kind") == (int)EffectBeamKind.None || DetailEnabled()) Fields("tint");
+        }
+
+        bool beam = Mode("beam.kind") != (int)EffectBeamKind.None;
+        bool shape = !beam && Mode("character.shape") != (int)EffectCharacterShape.None;
+        bool fire = Enabled("fireParticles");
+        bool sprites = !beam && !shape && !fire;
+        bool liquid = Mode("family") == (int)EffectFamily.Liquid;
+        familyOpen = EditorGUILayout.Foldout(familyOpen, "계열별 세부 설정", true);
+        if (familyOpen)
+        {
+            if (beam) DrawBeam();
+            else if (shape)
+            {
+                Fields("character.shapeAspect", "character.shapeCore", "character.shapeEdge");
+                if (Mode("character.shape") == (int)EffectCharacterShape.PoisonBubble)
+                    Fields("character.shapeHighlight");
+            }
+            else if (fire) DrawFire();
+            else
+            {
+                Fields("pieceCount", "mixedPieceSizes");
+                if (Enabled("mixedPieceSizes")) Fields("pieceSizeScales");
+                if (Enabled("mixedPieceSizes") || Property("pieceCount").intValue > 1)
+                {
+                    Fields("pieceDelay", "pieceAttenuation", "tailTint", "tailExpansion", "edgeSpread");
+                    if (!Enabled("mixedPieceSizes")) Fields("tailOffset");
+                    Fields("smokeTail");
+                    if (Assigned("smokeTail")) Fields("smokeTailPieces");
+                }
+                if (!liquid) Fields("gasRise", "gasExpansion");
+                else Fields("puddleScale");
+                Fields("mergeNearby");
+                if (Enabled("mergeNearby")) DrawSurface(liquid);
+            }
+            if (liquid)
+            {
+                Fields("airborneDuration");
+                if (sprites && Property("airborneDuration").floatValue > 0f) Fields("airborneHeight");
+            }
+            DrawDetails(fire, liquid);
+        }
+
+        advancedOpen = EditorGUILayout.Foldout(advancedOpen, "고급 설정", true);
+        if (!advancedOpen) return;
+        Fields("additionalElements", "idleEnd", "shortLife", "introStop");
+        DrawClips((beam || shape) && !DetailEnabled());
+        Fields("customMaterial");
+        if (!beam)
+        {
+            if (sprites) Fields("introBrightness", "idleBrightness", "endBrightness", "fadeOnEnd");
+            Curves("visualCurves");
+            if (sprites || DetailEnabled() || fire) Fields("spentTint");
+            Fields("emissionColor", "emissionStrength", "lightResponse", "rimStrength", "centerStrength",
+                "emissionColorProperty", "emissionStrengthProperty", "lightResponseProperty", "rimProperty", "centerProperty");
+        }
+        if (!beam && !shape)
+        {
+            Fields("sizeVariation");
+            if (sprites) Fields("shapeVariation");
+        }
+        Fields("motionWander");
+        if (sprites || fire || Property("motionWander").floatValue > 0f) Fields("variationFrequency");
+        if (!beam && !shape)
+        {
+            Fields("useLight");
+            if (Enabled("useLight"))
+            {
+                Fields("lightMode", "lightColor", "lightIntensity", "lightRadius");
+                if (Mode("lightMode") == (int)EffectLightMode.Flicker)
+                    Fields("flickerAmount", "flickerFrequency");
+            }
+        }
+        Fields("sortingMode");
+        int sort = Mode("sortingMode");
+        if (sort == (int)EffectSortMode.Automatic)
+            sort = fire ? (int)EffectSortMode.SpawnDepth : liquid ? (int)EffectSortMode.Ground : (int)EffectSortMode.Definition;
+        Fields("sortingLayerId");
+        if (sort == (int)EffectSortMode.Definition || sort == (int)EffectSortMode.Attached) Fields("sortingOrder");
+        EditorGUILayout.LabelField("캐릭터 부착", EditorStyles.boldLabel);
+        Fields("character.duration", "character.radiusInBodyWidths", "character.emissionInterval",
+            "character.particleLifetime", "character.particleSize", "character.tintAmount");
+        if (Property("character.tintAmount").floatValue > 0f) Fields("character.tint");
+        Fields("character.sparkle");
+        if (Assigned("character.sparkle"))
+        {
+            Fields("character.sparkleChance");
+            if (Property("character.sparkleChance").floatValue > 0f) Fields("character.sparkleSize");
+        }
+        EditorGUILayout.LabelField("향후 연동 데이터", EditorStyles.boldLabel);
+        Fields("attachmentOffset", "spawnOnImpact", "projectileVisualScale");
+    }
+
+    private bool DetailEnabled()
+    {
+        string path = Enabled("fireParticles") ? "embers" :
+            Mode("family") == (int)EffectFamily.Liquid ? "waterDetails" : "gasDetails";
+        return Enabled(path + ".enabled");
+    }
+
+    private void DrawClips(bool procedural)
+    {
+        EditorGUILayout.LabelField("단계별 애니메이션", EditorStyles.boldLabel);
+        Fields("sourceSheet");
+        if (!procedural && (Enabled("intro.useSheet") || Enabled("idle.useSheet") || Enabled("end.useSheet")))
+            Fields("cellSize", "layout");
+        foreach (string path in new[] { "intro", "idle", "end" })
+        {
+            EditorGUILayout.LabelField(Property(path).displayName, EditorStyles.miniBoldLabel);
+            if (!procedural) Fields(path + ".useSheet", path + ".startIndex");
+            Fields(path + ".frameCount", path + ".fps");
+            if (!procedural && !Enabled(path + ".useSheet")) Fields(path + ".sprites");
+        }
+    }
+
+    private void DrawFire()
+    {
+        Fields("pieceCount", "fireSourceCount", "fireSourceScale", "fireSourceSpread", "fireParticleCapacity",
+            "fireEmissionRate", "fireEmissionIntervalScale", "fireParticleLifetime", "fireParticleRadius",
+            "fireShapeScale", "fireSpread", "fireFadeStart", "fireFlameDuration", "fireSurgeStrength");
+        Fields("fireSurgeFrequency", "gasRise", "gasExpansion", "mergeSoftness", "fireSmokeOpacity",
+            "fireSmokeSpread", "fireSmokeExpansion", "fireSmokeEdgeFade");
+        Fields("fireContourVariation", "fireTipSharpness", "fireTurbulence", "fireTearStrength",
+            "fireEdgeStrength");
+        if (Property("fireEdgeStrength").floatValue > 0f) Fields("fireEdgeWidth");
+        Fields("fireHotColor", "fireGoldColor", "fireWarmColor", "fireEmberColor", "fireSmokeColor",
+            "fireSootColor", "firePaletteWeights");
+    }
+
+    private void DrawSurface(bool liquid)
+    {
+        Fields("mergeRadius", "mergeSoftness", "mergeRefreshRate", "surfaceNoiseStrength");
+        if (!liquid || Property("surfaceSpecular").floatValue > 0f)
+            Fields("surfaceNoiseScale", "surfaceNoiseSpeed");
+        Fields("surfaceBodyColor", "surfaceRelief");
+        if (liquid) Fields("surfaceHighlightStrength");
+        bool highlights = liquid && Property("surfaceHighlightStrength").floatValue > 0f;
+        if (highlights) Fields("surfaceHighlightColor", "surfaceSpecular");
+        if ((!liquid && Property("surfaceRelief").floatValue > 0f) ||
+            (highlights && Property("surfaceSpecular").floatValue > 0f))
+            Fields("surfaceLightDirection");
+        if (!liquid && Property("surfaceRelief").floatValue > 0f) Fields("surfaceShadowColor");
+        if (highlights && Property("surfaceSpecular").floatValue > 0f) Fields("surfaceShininess");
+        if (liquid)
+        {
+            Fields("impactFoamStrength");
+            if (highlights) Fields("foamOpacity");
+            if (Property("impactFoamStrength").floatValue > 0f) Fields("impactFoamDuration");
+        }
+    }
+
+    private void DrawDetails(bool fire, bool liquid)
+    {
+        string path = fire ? "embers" : liquid ? "waterDetails" : "gasDetails";
+        EditorGUILayout.LabelField(fire ? "불씨" : liquid ? "물방울" : "구름 입자", EditorStyles.boldLabel);
+        Fields(path + ".enabled");
+        if (!Enabled(path + ".enabled")) return;
+        Fields(path + ".capacity", path + ".emissionRate", path + ".minimumInterval",
+            path + ".lifetime", path + ".spread", path + ".rise");
+        if (fire)
+            Fields(path + ".updraftAcceleration", "emberStartColor", "emberEndColor", "emberLifetimeScale",
+                "emberTravelScale", "emberFadeStart");
+        else if (!liquid)
+            Fields(path + ".radius", path + ".expansion", "cloudDetailInterval", "cloudDetailOpacity");
+        Curves(path + ".visualCurves");
+    }
+
+    private void DrawBeam()
+    {
+        int kind = Mode("beam.kind");
+        if (kind != (int)EffectBeamKind.LightningStrike) Fields("beam.direction");
+        Fields("beam.length", "beam.width", "beam.coreWidth", "beam.core", "beam.edge");
+        if (kind != (int)EffectBeamKind.Laser) Fields("beam.zigzag", "beam.segments");
+        Fields("beam.refreshRate", "beam.glowRadius");
+        if (Property("beam.glowRadius").floatValue > 0f) Fields("beam.glowOpacity");
+        Fields("beam.pulseStrength");
+        if (Property("beam.pulseStrength").floatValue > 0f) Fields("beam.pulseFrequency");
+        Fields("beam.flowSpeed", "beam.wobble", "beam.chargeRadius");
+        if (kind == (int)EffectBeamKind.Laser) Fields("beam.chargeDuration", "beam.extensionDuration");
+        Fields("beam.sparkCount");
+        if (Property("beam.sparkCount").intValue > 0) Fields("beam.sparkLifetime", "beam.sparkSpread");
+        Fields("beam.useLight");
+        if (Enabled("beam.useLight")) Fields("beam.lightIntensity", "beam.lightRadius");
     }
 }
 
