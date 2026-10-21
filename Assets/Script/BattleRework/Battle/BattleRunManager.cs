@@ -250,6 +250,8 @@ public class BattleRunManager : MonoBehaviour
         if (runActive || roomManager.IsRoomActive)
             roomManager.AbortRoom();
 
+        ReturnAllActiveProjectiles();
+
         CaptureStartRoomOrigin();
         RestoreStartRoomOrigin();
         ResetPersistentStageForNewRun();
@@ -831,9 +833,25 @@ public class BattleRunManager : MonoBehaviour
         if (!preserveClearedRoomForStageRetirement)
             roomManager?.AbortRoom();
 
+        ReturnAllActiveProjectiles();
+
         progress?.EndRun();
         SetState(BattleRunState.Ended);
         RunEnded?.Invoke(reason);
+    }
+
+    private static void ReturnAllActiveProjectiles()
+    {
+        ProjectilePooler[] pools = FindObjectsByType<ProjectilePooler>(
+            FindObjectsInactive.Include,
+            FindObjectsSortMode.None);
+
+        for (int i = 0; i < pools.Length; i++)
+        {
+            ProjectilePooler pool = pools[i];
+            if (pool != null)
+                pool.ReturnAllActive();
+        }
     }
 
     private void SetState(BattleRunState next)

@@ -144,7 +144,8 @@ public class MonsterPool : MonoBehaviour
         BattleContext context,
         Transform playerTarget,
         Action<MonsterController> onDeath,
-        Action<MonsterController> onDeathStarted = null)
+        Action<MonsterController> onDeathStarted = null,
+        Action<MonsterController> onSpawnFailed = null)
     {
         if (definition == null)
         {
@@ -201,6 +202,7 @@ public class MonsterPool : MonoBehaviour
             playerTarget,
             onDeath,
             onDeathStarted,
+            onSpawnFailed,
             spawnPosition));
 
         if (batchRoutine == null)
@@ -339,6 +341,7 @@ public class MonsterPool : MonoBehaviour
             Debug.LogError(
                 $"[MonsterPool] '{request.definition.displayName}' appeared off NavMesh after telegraph. Returning it to pool.");
             Return(monster);
+            request.onSpawnFailed?.Invoke(monster);
         }
     }
 
@@ -569,6 +572,7 @@ public class MonsterPool : MonoBehaviour
         public readonly Transform playerTarget;
         public readonly Action<MonsterController> onDeath;
         public readonly Action<MonsterController> onDeathStarted;
+        public readonly Action<MonsterController> onSpawnFailed;
         public readonly Vector3 spawnPosition;
 
         public PendingSpawn(
@@ -578,6 +582,7 @@ public class MonsterPool : MonoBehaviour
             Transform playerTarget,
             Action<MonsterController> onDeath,
             Action<MonsterController> onDeathStarted,
+            Action<MonsterController> onSpawnFailed,
             Vector3 spawnPosition)
         {
             this.monster = monster;
@@ -586,6 +591,7 @@ public class MonsterPool : MonoBehaviour
             this.playerTarget = playerTarget;
             this.onDeath = onDeath;
             this.onDeathStarted = onDeathStarted;
+            this.onSpawnFailed = onSpawnFailed;
             this.spawnPosition = spawnPosition;
         }
     }

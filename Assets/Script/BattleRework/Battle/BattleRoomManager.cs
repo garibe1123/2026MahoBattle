@@ -72,6 +72,8 @@ public class BattleRoomManager : MonoBehaviour
     private BattleContext currentContext;
     private bool roomTransitioning;
     private bool combatCleared;
+    private int monsterSpawnVersion;
+    private bool monsterDefeatedInRoom;
     private bool exitOpened;
     private bool exitRoutineStarted;
     private Coroutine navMeshRebuildRoutine;
@@ -677,6 +679,7 @@ public class BattleRoomManager : MonoBehaviour
 
         int requestedCount = 0;
         int spawnedCount = 0;
+        int spawnVersion = monsterSpawnVersion;
 
         for (int i = 0; i < room.monsterSpawns.Count; i++)
         {
@@ -700,7 +703,8 @@ public class BattleRoomManager : MonoBehaviour
                     currentContext,
                     playerTarget,
                     HandleMonsterDeathCompleted,
-                    HandleMonsterDeathStarted);
+                    HandleMonsterDeathStarted,
+                    failedMonster => HandleMonsterSpawnFailed(failedMonster, spawnVersion));
 
                 if (monster == null)
                 {
@@ -723,12 +727,35 @@ public class BattleRoomManager : MonoBehaviour
         }
     }
 
+    private void HandleMonsterSpawnFailed(MonsterController monster, int spawnVersion)
+    {
+        if (spawnVersion != monsterSpawnVersion || currentRoom == null ||
+            monster == null || !activeMonsters.Remove(monster))
+        {
+            return;
+        }
+
+        if (activeMonsters.Count != 0)
+            return;
+
+        if (!monsterDefeatedInRoom)
+        {
+            Debug.LogError(
+                $"[BattleRoom] Room '{currentRoom.roomId}' could not spawn any monsters after telegraph. " +
+                "Combat will remain active for diagnostics. Check Room NavMesh / Monster prefab setup.");
+            return;
+        }
+
+        QueueCombatClearDecision();
+    }
+
     private void HandleMonsterDeathStarted(MonsterController monster)
     {
         if (monster == null || !activeMonsters.Remove(monster))
             return;
 
         deadMonstersAwaitingReturn.Add(monster);
+        monsterDefeatedInRoom = true;
         MonsterDefeated?.Invoke(monster);
 
         RegisterFinalDeathCandidate(monster);
@@ -815,6 +842,12 @@ public class BattleRoomManager : MonoBehaviour
 
         MonsterController target = finalKillTarget;
         combatClearDecisionPending = false;
+        if (target == null)
+        {
+            HandleCombatCleared();
+            yield break;
+        }
+
         BeginCombatClearPresentation(target);
     }
 
@@ -1132,6 +1165,8 @@ public class BattleRoomManager : MonoBehaviour
 
     private void ResetRoomFlags()
     {
+        monsterSpawnVersion++;
+        monsterDefeatedInRoom = false;
         roomTransitioning = false;
         combatCleared = false;
         exitOpened = false;
