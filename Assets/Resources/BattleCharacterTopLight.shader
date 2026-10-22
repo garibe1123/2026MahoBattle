@@ -75,8 +75,8 @@ Shader "Sprites/BattleCharacterTopLight"
             fixed4 frag(v2f i) : SV_Target
             {
                 fixed4 sprite = tex2D(_MainTex, i.uv) * i.color;
-                float top = smoothstep(0.08, 0.95, i.uv.y);
-                float topLight = lerp(0.18, 1.0, top);
+                float verticalGradient = smoothstep(0.08, 0.95, i.uv.y);
+                float topLight = lerp(0.18, 1.0, verticalGradient);
 
                 float sideCoord = (i.uv.x - 0.5) * 2.0;
                 float sideLight = saturate(

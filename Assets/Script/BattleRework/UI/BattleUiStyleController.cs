@@ -49,6 +49,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.comicStyleUi;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
+    internal static float PixelScale => active != null && active.presentation != null
+        ? active.presentation.UiPixelScale : 1f;
 
     public void Configure(BattleShowPresentationManager owner)
     {

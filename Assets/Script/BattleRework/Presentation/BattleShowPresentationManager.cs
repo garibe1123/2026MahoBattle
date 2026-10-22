@@ -134,6 +134,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     [Header("UI Style")]
     [SerializeField] private BattleUiStyle uiStyle = BattleUiStyle.VectorStyleUi;
+    [Tooltip("Pixel UI 패널·스프라이트의 화면 픽셀 크기 배율입니다. 최종 크기는 정수 픽셀로 반올림하며 글자 크기는 유지합니다.")]
+    [SerializeField, Range(0.5f, 4f)] private float uiPixelScale = 1f;
     [SerializeField] private bool screenGridEnabled;
     [SerializeField, Range(0f, 0.08f)] private float screenGridContrast = 0.08f;
     [SerializeField] private BattleUiStyleSettings pixelStyleUi = new();
@@ -143,6 +145,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private bool uiStyleRefreshRequested;
 
     public BattleUiStyle UiStyle => uiStyle;
+    public float UiPixelScale => Mathf.Clamp(uiPixelScale, 0.5f, 4f);
     public bool ScreenGridEnabled => screenGridEnabled;
     public float ScreenGridContrast => screenGridContrast;
     public BattleUiStyleSettings UiStyleSettings => uiStyle switch
@@ -161,6 +164,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public void SetScreenGridEnabled(bool value)
     {
         screenGridEnabled = value;
+        uiStyleController?.RefreshSettings();
+    }
+
+    public void SetUiPixelScale(float value)
+    {
+        uiPixelScale = Mathf.Clamp(value, 0.5f, 4f);
         uiStyleController?.RefreshSettings();
     }
 

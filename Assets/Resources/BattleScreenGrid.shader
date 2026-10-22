@@ -1,6 +1,10 @@
 Shader "UI/BattleScreenGrid"
 {
-    Properties { _Contrast ("Contrast", Range(0, 0.08)) = 0.08 }
+    Properties
+    {
+        [PerRendererData] _MainTex ("Texture", 2D) = "white" {}
+        _Contrast ("Contrast", Range(0, 0.08)) = 0.08
+    }
     SubShader
     {
         Tags { "Queue"="Transparent" "RenderType"="Transparent" "IgnoreProjector"="True" }

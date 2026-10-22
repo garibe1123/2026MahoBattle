@@ -206,6 +206,10 @@ public class BattleDebugUI : MonoBehaviour
             int selectedStyle = GUILayout.Toolbar((int)presentation.UiStyle, uiStyleNames);
             if (selectedStyle != (int)presentation.UiStyle)
                 presentation.SetUiStyle((BattleUiStyle)selectedStyle);
+            GUILayout.Label($"UI pixel scale: {presentation.UiPixelScale:0.00}x");
+            float pixelScale = GUILayout.HorizontalSlider(presentation.UiPixelScale, 0.5f, 4f);
+            if (Mathf.Abs(pixelScale - presentation.UiPixelScale) > 0.001f)
+                presentation.SetUiPixelScale(pixelScale);
             bool gridEnabled = GUILayout.Toggle(presentation.ScreenGridEnabled, "Screen grid (2 x 2)");
             if (gridEnabled != presentation.ScreenGridEnabled)
                 presentation.SetScreenGridEnabled(gridEnabled);
