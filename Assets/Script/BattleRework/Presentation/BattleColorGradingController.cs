@@ -72,6 +72,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private float currentCameraReaction;
 
     public float CurrentWeight => currentWeight;
+    internal float CurrentLensDistortion => lensDistortion != null ? lensDistortion.intensity.value : 0f;
+    internal float CurrentVolumeWeight => volume != null ? volume.weight : 0f;
     private float EffectiveVolumeWeight => Mathf.Max(currentWeight, Mathf.Clamp01(selectionBlend));
 
     public void Configure(Camera camera, BattleLightingProfileSO profile)

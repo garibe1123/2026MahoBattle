@@ -35,6 +35,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     [Header("Blend")]
     [SerializeField, Min(0.1f)] private float fadeSharpness = 7.5f;
+    [SerializeField] private bool debugCombatTabDistortion = true;
 
     private Volume showVolume;
     private VolumeProfile runtimeProfile;
@@ -50,6 +51,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private Material overlaySource;
     private RTHandle backgroundCapture;
     private Coroutine bindRoutine;
+    private bool combatTabWasHeld;
 
     private float currentBlend;
     private bool selectionWasOpen;
@@ -376,6 +378,28 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             (profile != null ? profile.crtSelectionBackgroundOpacity : 0.30f);
         if (overlayImage != null)
             overlayImage.enabled = overlayMaterial != null && backgroundCapture != null && currentBlend > 0.001f;
+
+        if (debugCombatTabDistortion && combatTabHeld && !combatTabWasHeld)
+        {
+            ScriptableRenderer renderer = cameraData != null ? cameraData.scriptableRenderer : null;
+            float appliedLens = useColorGrading ? colorGrading.CurrentLensDistortion :
+                (lensDistortion != null ? lensDistortion.intensity.value : 0f);
+            float appliedWeight = useColorGrading ? colorGrading.CurrentVolumeWeight :
+                (showVolume != null ? showVolume.weight : 0f);
+            Debug.Log($"[BattleTAB] BattleShowBroadcastNoiseController.ApplyBlend -> " +
+                $"BattleColorGradingController.SetSelectionBlend: frame={Time.frameCount}, " +
+                $"camera={(targetCamera != null ? targetCamera.name : "null")}, " +
+                $"cameraId={(targetCamera != null ? targetCamera.GetInstanceID() : 0)}, " +
+                $"state={(runManager != null ? runManager.State.ToString() : "null")}, " +
+                $"blend={currentBlend:F4}, lens={appliedLens:F4}, volumeWeight={appliedWeight:F4}, " +
+                $"setSelectionBlendCalled={colorGrading != null}, colorGradingBound={useColorGrading}, " +
+                $"postProcessing={(cameraData != null && cameraData.renderPostProcessing)}, " +
+                $"renderer={(renderer != null ? renderer.GetType().Name : "null")}, " +
+                $"volumeMask={(cameraData != null ? cameraData.volumeLayerMask.value : 0)}, " +
+                $"gradingLayer={(colorGrading != null ? colorGrading.RuntimeVolumeLayer : -1)}. " +
+                "LensDistortion is a runtime Volume value; Camera Transform/FOV does not change.", this);
+        }
+        combatTabWasHeld = combatTabHeld;
     }
 
     private void ApplyImmediate(float value)
