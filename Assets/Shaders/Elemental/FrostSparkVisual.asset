@@ -22,7 +22,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    a3c1c16a7c702034782a7097a5390fa1: -8839552892678688004
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -798,12 +798,18 @@ MonoBehaviour:
     emissionInterval: {x: 0.2, y: 0.4}
     particleLifetime: {x: 0.4, y: 0.8}
     particleSize: {x: 0.12, y: 0.2}
+    fullFollowFraction: 0.8
+    maxLagInBodyWidths: 0.25
+    fadeStart: 0.75
+    frostFallDuration: {x: 0.3, y: 0.5}
+    frostFallInBodyHeights: {x: 0.3, y: 0.6}
     tint: {r: 0.5137255, g: 0.8745098, b: 1, a: 1}
     tintAmount: 0.2
     duration: -1
     sparkle: {fileID: 0}
     sparkleChance: 0.35
     sparkleSize: {x: 0.2, y: 0.4}
+  characterSettingsVersion: 1
   beam:
     kind: 0
     direction: {x: 1, y: 0}

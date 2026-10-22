@@ -547,8 +547,9 @@ public sealed class EffectVisual : MonoBehaviour
         localLight.pointLightOuterRadius = EffectNumbers.Positive(definition.lightRadius, 0.01f);
     }
 
-    private static int PieceCount(EffectDefinitionSO data) => Mathf.Clamp(
-        data.mixedPieceSizes && !data.fireParticles ? Mathf.Max(3, data.pieceCount) : data.pieceCount, 1, MaxPieces);
+    private static int PieceCount(EffectDefinitionSO data) => Mathf.Clamp(Mathf.CeilToInt(Mathf.Clamp(
+        data.mixedPieceSizes && !data.fireParticles ? Mathf.Max(3, data.pieceCount) : data.pieceCount, 1, MaxPieces) *
+        data.FieldCountMultiplier), 0, MaxPieces);
 
     internal int BlobSampleCount => definition != null && definition.HasCharacterShape ? 1 : definition != null ? PieceCount(definition) +
         (details != null && details.IsCloud ? details.Capacity : 0) : 0;

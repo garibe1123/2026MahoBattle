@@ -443,7 +443,7 @@ public sealed class EffectDefinitionSOEditor : Editor
         if (commonOpen)
         {
             Fields("element", "family", "usage", "fireParticles", "character.shape", "beam.kind");
-            Fields("visualScale", "duration");
+            Fields("visualScale", "countValue", "duration");
             if (Mode("beam.kind") == (int)EffectBeamKind.None || DetailEnabled()) Fields("tint");
         }
 

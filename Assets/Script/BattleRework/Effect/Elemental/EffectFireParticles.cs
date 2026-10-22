@@ -49,6 +49,7 @@ internal sealed class EffectFireParticles
         }
         int initial = Mathf.Clamp(data.pieceCount, sourceCount, 5);
         initial = UnityEngine.Random.Range(Mathf.Max(sourceCount, initial - 1), initial + 1);
+        initial = Mathf.Clamp(Mathf.CeilToInt(initial * data.FieldCountMultiplier), 0, Capacity);
         for (int i = 0; i < initial; i++) Emit(origin, velocity);
         timer = Interval();
     }
@@ -91,7 +92,7 @@ internal sealed class EffectFireParticles
             particle.direction = drift;
             particles[i] = particle;
         }
-        if (attachedLifetime > 0f || ending || definition.fireEmissionRate <= 0f) return;
+        if (attachedLifetime > 0f || ending || definition.fireEmissionRate <= 0f || definition.FieldCountMultiplier <= 0f) return;
         timer -= delta;
         for (int emitted = 0; timer <= 0f && emitted < Capacity; emitted++)
         {
@@ -103,7 +104,7 @@ internal sealed class EffectFireParticles
 
     private float Interval() => UnityEngine.Random.Range(0.7f, 1.3f) /
         Mathf.Clamp(EffectNumbers.Positive(definition.fireEmissionRate, 32f), 1f, 240f) *
-        EffectNumbers.Positive(definition.fireEmissionIntervalScale, 1.6f);
+        EffectNumbers.Positive(definition.fireEmissionIntervalScale, 1.6f) / Mathf.Max(0.01f, definition.FieldCountMultiplier);
 
     private void Emit(Vector3 origin, Vector3 velocity)
     {
@@ -312,7 +313,7 @@ internal sealed class EffectDetailParticles
         if (data.fireParticles)
             VisibilityRadius += 0.5f * EffectNumbers.NonNegative(settings.updraftAcceleration) * scale * life * life;
         VisibilityRadius += footprint.magnitude * 2f + pixelStep;
-        if (data.fireParticles) Emit(origin);
+        if (data.fireParticles && data.FieldCountMultiplier > 0f) Emit(origin);
         timer = Interval();
     }
 
@@ -361,7 +362,7 @@ internal sealed class EffectDetailParticles
             }
             particles[i] = particle;
         }
-        if (phase == EffectPhase.End || settings.emissionRate <= 0f) return;
+        if (phase == EffectPhase.End || settings.emissionRate <= 0f || definition.FieldCountMultiplier <= 0f) return;
         timer -= delta;
         for (int count = 0; timer <= 0f && count < capacity; count++)
         {
@@ -376,7 +377,7 @@ internal sealed class EffectDetailParticles
         float interval = Mathf.Max(EffectNumbers.Positive(settings.minimumInterval, 0.25f),
             1f / Mathf.Clamp(EffectNumbers.Positive(settings.emissionRate, 12f), 1f, 120f));
         if (IsCloud) interval = Mathf.Max(interval, EffectNumbers.Positive(definition.cloudDetailInterval, 0.9f));
-        return interval;
+        return interval / Mathf.Max(0.01f, definition.FieldCountMultiplier);
     }
 
     private void Emit(Vector3 origin)

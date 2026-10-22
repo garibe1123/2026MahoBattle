@@ -159,9 +159,10 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
     private void Emit()
     {
         EffectCharacterSettings settings = definition.character;
-        nextEmission = elapsed + Sample(settings.emissionInterval, 0.01f);
+        float count = EffectNumbers.NonNegative(definition.countValue);
+        nextEmission = elapsed + Sample(settings.emissionInterval, 0.01f) / Mathf.Max(0.01f, count);
         // 기존 풀의 동일 인스턴스 재사용을 추적하므로 다른 호출자의 효과를 회수하지 않습니다.
-        if (particles.Count >= 32 || !body.enabled) return;
+        if (count <= 0f || particles.Count >= 32 || !body.enabled) return;
         float radius = body.bounds.size.x * Mathf.Max(0f, settings.radiusInBodyWidths);
         Vector2 offset = Random.insideUnitCircle * radius;
         Vector3 position = body.bounds.center + new Vector3(offset.x, offset.y, 0f);

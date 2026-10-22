@@ -38,7 +38,7 @@ MonoBehaviour:
     frameCount: 4
     fps: 48
     sprites: []
-  duration: 0.6
+  duration: 0.5
   idleEnd: 1
   shortLife: 0
   introStop: 0
@@ -148,18 +148,18 @@ MonoBehaviour:
       m_RotationOrder: 4
   fireParticles: 1
   fireSourceCount: {x: 1, y: 1}
-  fireSourceScale: {x: 0.9, y: 1.1}
-  fireSourceSpread: 0.04
-  fireParticleCapacity: 48
-  fireEmissionRate: 26
+  fireSourceScale: {x: 3, y: 5}
+  fireSourceSpread: 2
+  fireParticleCapacity: 17
+  fireEmissionRate: 26.88
   fireEmissionIntervalScale: 1.6
-  fireParticleLifetime: {x: 0.22, y: 0.45}
+  fireParticleLifetime: {x: 1, y: 1}
   fireParticleRadius: {x: 0.18, y: 0.26}
   fireShapeScale: {x: 0.75, y: 1.8}
-  fireSpread: 0.45
-  fireFadeStart: 0.5
-  fireFlameDuration: 0.82
-  fireSurgeStrength: 0.9
+  fireSpread: 1
+  fireFadeStart: 0.58
+  fireFlameDuration: 0.812
+  fireSurgeStrength: 0.88
   fireSurgeFrequency: 1.2
   fireSmokeSpread: 1.6
   fireSmokeExpansion: 0.65
@@ -578,16 +578,27 @@ MonoBehaviour:
   sortingOrder: 20
   sortingMode: 4
   character:
+    shape: 0
+    shapeAspect: {x: 1, y: 1}
+    shapeCore: {r: 0.60784316, g: 0.8666667, b: 0.15294118, a: 1}
+    shapeEdge: {r: 0.20784314, g: 0.3647059, b: 0.09411765, a: 1}
+    shapeHighlight: {r: 0.87058824, g: 1, b: 0.5921569, a: 1}
     radiusInBodyWidths: 0.6
-    emissionInterval: {x: 0.2, y: 0.4}
-    particleLifetime: {x: 0.4, y: 0.8}
+    emissionInterval: {x: 0.08, y: 0.12}
+    particleLifetime: {x: 1, y: 1.4}
     particleSize: {x: 0.22, y: 0.3}
+    fullFollowFraction: 0.8
+    maxLagInBodyWidths: 0.25
+    fadeStart: 0.75
+    frostFallDuration: {x: 0.3, y: 0.5}
+    frostFallInBodyHeights: {x: 0.3, y: 0.6}
     tint: {r: 1, g: 0.45882353, b: 0.21960784, a: 1}
     tintAmount: 0.2
     duration: -1
     sparkle: {fileID: 0}
     sparkleChance: 0.35
     sparkleSize: {x: 0.2, y: 0.4}
+  characterSettingsVersion: 1
   beam:
     kind: 0
     direction: {x: 1, y: 0}

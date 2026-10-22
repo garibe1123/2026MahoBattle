@@ -22,7 +22,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: -8966602296115948903
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -233,7 +233,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: -8167129961762126371
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -490,7 +490,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: -6936106927368807198
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -701,7 +701,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: -5046236287683698271
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -912,7 +912,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: -3673346740331011818
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -1123,7 +1123,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: -2210755503912067740
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -1324,7 +1324,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c975b0b5849cdff45a825502748620c6, type: 3}
   m_Name: PoisonCharacterVisual
   m_EditorClassIdentifier: 
-  visualScale: 1
+  visualScale: 0.12
   element: {fileID: 0}
   family: 0
   usage: 0
@@ -1891,7 +1891,7 @@ MonoBehaviour:
   sortingMode: 4
   character:
     shape: 1
-    shapeAspect: {x: 1, y: 1}
+    shapeAspect: {x: 1.5, y: 1.5}
     shapeCore: {r: 0.60784316, g: 0.8666667, b: 0.15294118, a: 1}
     shapeEdge: {r: 0.20784314, g: 0.3647059, b: 0.09411765, a: 1}
     shapeHighlight: {r: 0.87058824, g: 1, b: 0.5921569, a: 1}
@@ -1899,12 +1899,18 @@ MonoBehaviour:
     emissionInterval: {x: 0.2, y: 0.4}
     particleLifetime: {x: 0.4, y: 0.8}
     particleSize: {x: 0.12, y: 0.2}
+    fullFollowFraction: 0.839
+    maxLagInBodyWidths: 0.22
+    fadeStart: 0.695
+    frostFallDuration: {x: 0.3, y: 0.5}
+    frostFallInBodyHeights: {x: 0.3, y: 0.6}
     tint: {r: 0.60784316, g: 0.8666667, b: 0.15294118, a: 1}
-    tintAmount: 0.2
+    tintAmount: 0.116
     duration: -1
     sparkle: {fileID: 0}
     sparkleChance: 0.35
     sparkleSize: {x: 0.2, y: 0.4}
+  characterSettingsVersion: 1
   beam:
     kind: 0
     direction: {x: 1, y: 0}
@@ -1956,7 +1962,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 279356049095270156
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -2167,7 +2173,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 1044056414455852509
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -2378,7 +2384,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 1084790443756345867
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -2589,7 +2595,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 1350664128484019656
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -2800,7 +2806,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 3777738821718990130
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -3011,7 +3017,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 4736085670478412006
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -3222,7 +3228,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 4763010672367969309
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
@@ -3433,7 +3439,7 @@ Sprite:
   m_AtlasName: 
   m_PackingTag: 
   m_RenderDataKey:
-    00000000000000000000000000000000: 0
+    6ea4c8a21c212504b879430ebaae77c2: 6158026768073254811
   m_AtlasTags: []
   m_SpriteAtlas: {fileID: 0}
   m_RD:
