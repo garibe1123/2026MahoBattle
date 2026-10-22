@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
@@ -48,6 +49,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private Material overlayMaterial;
     private Material overlaySource;
     private RTHandle backgroundCapture;
+    private Coroutine bindRoutine;
 
     private float currentBlend;
     private bool selectionWasOpen;
@@ -71,10 +73,28 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         ApplyImmediate(0f);
     }
 
-    private void Start()
+    private void OnEnable()
     {
-        ResolveReferences();
-        EnsureVolume();
+        if (instance == this && bindRoutine == null)
+            bindRoutine = StartCoroutine(BindWhenReady());
+    }
+
+    private IEnumerator BindWhenReady()
+    {
+        // Presentation controllers and the camera can be created after this component's Awake.
+        do
+        {
+            yield return null;
+            ResolveReferences();
+            if (targetCamera != null && colorGrading != null && colorGrading.TargetCamera != targetCamera)
+                colorGrading.Configure(targetCamera, colorGrading.SourceLightingProfile);
+            EnsureVolume();
+            ApplyBlend();
+        }
+        while (runManager == null || kineticLoadout == null || presentation == null ||
+               targetCamera == null || colorGrading == null ||
+               colorGrading.TargetCamera != targetCamera || colorGrading.SourceLightingProfile == null);
+        bindRoutine = null;
     }
 
     private void Update()
@@ -115,6 +135,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     private void OnDisable()
     {
+        if (bindRoutine != null)
+            StopCoroutine(bindRoutine);
+        bindRoutine = null;
         ApplyImmediate(0f);
         ReleaseBackgroundCapture();
     }
@@ -151,6 +174,13 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
         if (presentation == null)
             presentation = BattleShowPresentationManager.Instance ?? FindFirstObjectByType<BattleShowPresentationManager>();
+        if (colorGrading != null && colorGrading.TargetCamera != null &&
+            targetCamera != colorGrading.TargetCamera)
+        {
+            targetCamera = colorGrading.TargetCamera;
+            cameraData = null;
+            ReleaseBackgroundCapture();
+        }
         if (targetCamera == null)
             targetCamera = Camera.main;
         if (targetCamera != null && cameraData == null)
@@ -318,7 +348,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
         bool combatTabHeld = IsCombatTabHeld();
         if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend, combatTabHeld);
-        bool useColorGrading = colorGrading != null && colorGrading.isActiveAndEnabled && profile != null;
+        bool useColorGrading = colorGrading != null && colorGrading.isActiveAndEnabled &&
+            colorGrading.TargetCamera == targetCamera && profile != null;
         if (chromaticAberration != null) chromaticAberration.active = !useColorGrading;
         if (lensDistortion != null) lensDistortion.active = !useColorGrading;
         if (showVolume != null)
