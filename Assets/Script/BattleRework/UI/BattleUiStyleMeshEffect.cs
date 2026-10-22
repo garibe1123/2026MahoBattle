@@ -195,7 +195,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (!pixel && !comic && !maho) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
-        if (hiddenFill || decoratedSurface) { vh.Clear(); return; }
+        if (hiddenFill) return;
+        if (decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
         if (panel && image != null && !statusFill)
         {

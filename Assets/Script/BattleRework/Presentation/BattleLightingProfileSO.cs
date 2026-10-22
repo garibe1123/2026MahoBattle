@@ -94,6 +94,15 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Range(0f, 0.15f)] public float rollingBandStrength = 0.018f;
     public Color analogOverlayTint = new(0.015f, 0.02f, 0.025f, 1f);
 
+    [Header("CRT Glass")]
+    [Range(0f, 0.15f)] public float crtCurvature = 0.035f;
+    [Range(0.01f, 0.25f)] public float crtEdgeWidth = 0.10f;
+    [Range(0f, 1f)] public float crtEdgeStrength = 0.86f;
+    [Range(0f, 1f)] public float crtColorStrength = 0.25f;
+    public Color crtShadowTint = new(0.40f, 0.46f, 0.60f, 1f);
+    [Range(0f, 0.1f)] public float crtCenterGlow = 0.025f;
+    [Range(0f, 1f)] public float crtSelectionOverlayWeight = 0.65f;
+
     [Header("Player Key Spotlight")]
     public Color playerPoolColor = new(1f, 0.95f, 0.88f, 1f);
     public Color playerKeyLightColor = new(1f, 0.975f, 0.92f, 1f);

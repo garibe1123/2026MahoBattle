@@ -94,6 +94,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
 
     private readonly List<MaterialState> states = new List<MaterialState>();
     private static readonly HashSet<Material> assignedMaterials = new HashSet<Material>();
+    private static readonly int UnscaledTimeId = Shader.PropertyToID("_BattleUiUnscaledTime");
     private readonly HashSet<(int, int, string, bool)> reportedFailures = new HashSet<(int, int, string, bool)>();
     private bool reportWriteFailed;
     private bool reportAnnounced;
@@ -103,6 +104,12 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     private bool refreshRequested;
 
     internal static bool IsAssignedMaterial(Material material) => material != null && assignedMaterials.Contains(material);
+
+    internal static void UpdateUnscaledTime(Material material)
+    {
+        if (material != null && material.HasProperty(UnscaledTimeId))
+            material.SetFloat(UnscaledTimeId, Time.unscaledTime);
+    }
 
     private void OnEnable()
     {
@@ -141,6 +148,8 @@ public sealed class BattleUiMaterialController : MonoBehaviour
 
     private void Update()
     {
+        foreach (MaterialState state in states)
+            UpdateUnscaledTime(state.instance);
         if (!refreshRequested)
             return;
 
@@ -293,10 +302,15 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             break;
         }
 
-        if (group == null || group.material == null)
+        Material assigned = group != null ? group.material : null;
+        if (assigned == null && boundPresentation != null)
+            assigned = boundPresentation.GetAssignedUiMaterial(target);
+        if (assigned == null && target.material != target.defaultMaterial)
+            assigned = target.material;
+        if (assigned == null)
             return;
         int previousCount = states.Count;
-        ApplyTarget(target, group.material, null, null);
+        ApplyTarget(target, assigned, null, null);
         if (states.Count > previousCount)
         {
             states[states.Count - 1].automatic = true;
@@ -351,6 +365,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             foreach (ShaderProperty property in properties)
                 property?.Apply(instance);
         }
+        UpdateUnscaledTime(instance);
         target.material = instance;
         target.SetMaterialDirty();
         target.SetVerticesDirty();
@@ -379,6 +394,10 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         {
             Graphic target = state.target;
             if (target == null || !target.isActiveAndEnabled || target.canvasRenderer.cull) continue;
+            UpdateUnscaledTime(state.instance);
+            CanvasRenderer renderer = target.canvasRenderer;
+            for (int i = 0; i < renderer.materialCount; i++)
+                UpdateUnscaledTime(renderer.GetMaterial(i));
             if (target.material != state.instance)
             {
                 ReportMaterialFailure(target, state.source, "할당한 런타임 머티리얼이 다른 머티리얼로 변경됐습니다.");

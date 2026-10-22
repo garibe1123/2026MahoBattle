@@ -17,6 +17,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField] private BattleShowPresentationManager presentation;
     [SerializeField] private Camera targetCamera;
     private UniversalAdditionalCameraData cameraData;
+    private BattleColorGradingController colorGrading;
 
     [Header("Shared Selection Lens")]
     [SerializeField, Range(0f, 1f)] private float chromaticAberrationIntensity = 0.12f;
@@ -115,6 +116,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     private void ResolveReferences()
     {
+        if (colorGrading == null)
+            colorGrading = FindFirstObjectByType<BattleColorGradingController>();
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (kineticLoadout == null)
@@ -276,13 +279,17 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     private void ApplyBlend()
     {
+        BattleUiMaterialController.UpdateUnscaledTime(overlayMaterial);
+        BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
         if (showVolume != null)
             showVolume.weight = Mathf.Clamp01(currentBlend);
         if (chromaticAberration != null) chromaticAberration.intensity.Override(chromaticAberrationIntensity);
         if (lensDistortion != null)
         {
-            lensDistortion.intensity.Override(lensDistortionIntensity);
-            lensDistortion.scale.Override(lensDistortionScale);
+            lensDistortion.intensity.Override(profile != null
+                ? Mathf.Clamp(profile.lensDistortionIntensity - profile.crtCurvature, -1f, 1f)
+                : lensDistortionIntensity);
+            lensDistortion.scale.Override(profile != null ? profile.lensDistortionScale : lensDistortionScale);
         }
         if (vignette != null)
         {

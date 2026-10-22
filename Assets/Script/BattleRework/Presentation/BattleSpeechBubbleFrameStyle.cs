@@ -199,8 +199,8 @@ public sealed class BattleSpeechBubbleFrameStyle
     public Color outlineColor =
         new(0.012f, 0.012f, 0.018f, 0.99f);
 
-    public Color fillColor =
-        new(0.97f, 0.97f, 0.94f, 1f);
+    public static readonly Color DefaultFillColor = new Color32(0xF7, 0xF7, 0xF0, 255);
+    public Color fillColor = DefaultFillColor;
 
     // ------------------------------------------------------------------
     // Legacy migration

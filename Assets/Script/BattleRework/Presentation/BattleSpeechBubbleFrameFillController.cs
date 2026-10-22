@@ -47,7 +47,7 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
                 : GetComponent<RectTransform>();
 
         style =
-            frameStyle;
+            frameStyle ?? BattleSpeechBubbleFrameStyle.CreateSelectionDefault();
 
         runtimeSize =
             fixedRuntimeSize;
@@ -290,7 +290,7 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
             fillImage.color =
                 style != null
                     ? style.fillColor
-                    : Color.white;
+                    : BattleSpeechBubbleFrameStyle.DefaultFillColor;
 
             // Fill은 Stroke용 Hologram Material에서 완전히 분리합니다.
             fillImage.material =

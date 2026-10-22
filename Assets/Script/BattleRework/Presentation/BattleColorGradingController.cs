@@ -19,7 +19,7 @@ using UnityEngine.UI;
 public sealed class BattleColorGradingController : MonoBehaviour
 {
     private const string AnalogOverlayShaderName = "UI/BattleAnalogTvOverlay";
-    private const int AnalogOverlaySortingOrder = 430;
+    private const int AnalogOverlaySortingOrder = 470;
 
     private Camera targetCamera;
     private UniversalAdditionalCameraData cameraData;
@@ -112,7 +112,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
         shadowsMidtonesHighlights.highlightsStart.Override(profile.highlightsStart);
         shadowsMidtonesHighlights.highlightsEnd.Override(profile.highlightsEnd);
 
-        splitToning.shadows.Override(profile.splitShadows);
+        splitToning.shadows.Override(Color.Lerp(profile.splitShadows, profile.crtShadowTint, profile.crtColorStrength));
         splitToning.highlights.Override(profile.splitHighlights);
         splitToning.balance.Override(profile.splitBalance);
 
@@ -274,6 +274,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
         lensDistortion.intensity.Override(
             Mathf.Clamp(
                 lightingProfile.lensDistortionIntensity -
+                lightingProfile.crtCurvature -
                 reactionLensDistortionKick * currentCameraReaction,
                 -1f,
                 1f));
@@ -464,6 +465,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
             analogOverlay = overlayObject.AddComponent<Image>();
             analogOverlay.raycastTarget = false;
             analogOverlay.color = Color.white;
+            analogOverlay.enabled = false;
         }
 
         if (analogOverlayMaterial == null)
@@ -504,6 +506,13 @@ public sealed class BattleColorGradingController : MonoBehaviour
                 lightingProfile.rollingBandStrength +
                 0.16f * lowHpEmphasis));
         analogOverlayMaterial.SetColor("_OverlayTint", lightingProfile.analogOverlayTint);
+        analogOverlayMaterial.SetFloat("_Curvature", lightingProfile.crtCurvature);
+        analogOverlayMaterial.SetFloat("_EdgeWidth", lightingProfile.crtEdgeWidth);
+        analogOverlayMaterial.SetFloat("_EdgeStrength", lightingProfile.crtEdgeStrength);
+        analogOverlayMaterial.SetFloat("_CenterGlow", lightingProfile.crtCenterGlow);
+        analogOverlayMaterial.SetColor("_GlassTint", lightingProfile.crtShadowTint);
+        analogOverlayMaterial.SetFloat("_GlassTintStrength", lightingProfile.crtColorStrength);
+        BattleUiMaterialController.UpdateUnscaledTime(analogOverlayMaterial);
     }
 
     private void UpdateAnalogOverlay()
@@ -514,7 +523,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
         if (analogOverlay == null)
             return;
 
-        if (selectionBackground || lightingProfile == null || analogOverlayMaterial == null)
+        if (lightingProfile == null || analogOverlayMaterial == null)
         {
             analogOverlay.enabled = false;
             return;
@@ -522,7 +531,9 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
         ApplyAnalogMaterialParameters();
 
-        float strength = Mathf.Clamp01(currentWeight * lightingProfile.analogOverlayStrength);
+        float weight = selectionBackground
+            ? Mathf.Max(currentWeight, lightingProfile.crtSelectionOverlayWeight) : currentWeight;
+        float strength = Mathf.Clamp01(weight * lightingProfile.analogOverlayStrength);
         analogOverlayMaterial.SetFloat("_Strength", strength);
         analogOverlay.enabled = strength > 0.001f;
     }
@@ -541,5 +552,12 @@ public sealed class BattleColorGradingController : MonoBehaviour
             cameraData = targetCamera.gameObject.AddComponent<UniversalAdditionalCameraData>();
 
         cameraData.renderPostProcessing = true;
+        if (volume != null)
+            for (int layer = 0; layer < 32; layer++)
+                if ((cameraData.volumeLayerMask.value & (1 << layer)) != 0)
+                {
+                    volume.gameObject.layer = layer;
+                    break;
+                }
     }
 }

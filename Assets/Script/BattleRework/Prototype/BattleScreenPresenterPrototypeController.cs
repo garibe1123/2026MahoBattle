@@ -714,7 +714,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         Color bubbleFill =
             frameStyle != null
                 ? frameStyle.fillColor
-                : new Color(0.97f, 0.97f, 0.94f, 1f);
+                : BattleSpeechBubbleFrameStyle.DefaultFillColor;
 
         Color bubbleInk =
             frameStyle != null
