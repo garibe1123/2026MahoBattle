@@ -18,10 +18,12 @@ public class Effect : MonoBehaviour
     private float mineDelayTimer;
 
     private static readonly List<Effect> activeMines = new();
+    private static readonly HashSet<Effect> battleEffects = new();
     private readonly HashSet<IDamageable> damagedTargets = new();
     private readonly List<Effect> mineSnapshot = new();
     private bool mineTriggered;
     private bool isEnding;
+    private bool returnedToPool;
 
     private Collider2D[] hitResults;
     private Transform lookTarget;
@@ -56,6 +58,9 @@ public class Effect : MonoBehaviour
         float runtimeDamageMultiplier = 1f,
         float runtimeFanMissionModifier = 0f)
     {
+        ResetRuntimeState();
+        returnedToPool = false;
+
         if (effectSO == null)
         {
             Debug.LogError($"[Effect] Setup failed on '{name}': EffectSO is null.");
@@ -124,7 +129,7 @@ public class Effect : MonoBehaviour
 
     private void HandleStartAnimationComplete()
     {
-        if (so == null || so.visual == null)
+        if (isEnding || so == null || so.visual == null)
             return;
 
         if (so.visual.idleSprites != null && so.visual.idleSprites.Length > 0)
@@ -375,6 +380,9 @@ public class Effect : MonoBehaviour
 
         ApplyDamageToHits(hits, DamageKind.Area);
 
+        if (isEnding)
+            return;
+
         if (so.chainReaction)
         {
             mineSnapshot.Clear();
@@ -401,6 +409,8 @@ public class Effect : MonoBehaviour
     private void HandleSpawnerLogic()
     {
         HandleTickDamage();
+        if (isEnding)
+            return;
 
         spawnTimer += Time.deltaTime;
         float interval = Mathf.Max(0.01f, so.spawnInterval);
@@ -429,7 +439,7 @@ public class Effect : MonoBehaviour
 
         damagedTargets.Clear();
 
-        for (int i = 0; i < hitCount; i++)
+        for (int i = 0; i < hitCount && !isEnding; i++)
         {
             Collider2D hit = hitResults[i];
             if (hit == null)
@@ -472,11 +482,40 @@ public class Effect : MonoBehaviour
         }
     }
 
+    internal void RegisterBattleEffect()
+    {
+        if (so != null && !returnedToPool && isActiveAndEnabled)
+            battleEffects.Add(this);
+    }
+
+    public static void ReturnAllBattleEffects()
+    {
+        List<Effect> snapshot = new(battleEffects);
+        for (int i = 0; i < snapshot.Count; i++)
+        {
+            if (snapshot[i] != null)
+                snapshot[i].ReleaseToPool();
+        }
+    }
+
     private void ReleaseToPool()
     {
+        if (returnedToPool)
+            return;
+
+        returnedToPool = true;
+        ResetRuntimeState();
+        PoolService.Release(gameObject);
+    }
+
+    private void ResetRuntimeState()
+    {
+        battleEffects.Remove(this);
         activeMines.Remove(this);
         damagedTargets.Clear();
         mineSnapshot.Clear();
+        if (hitResults != null)
+            System.Array.Clear(hitResults, 0, hitResults.Length);
         attachTarget = null;
         lookTarget = null;
         damageSource = null;
@@ -489,16 +528,16 @@ public class Effect : MonoBehaviour
             lr.enabled = false;
 
         anim?.ResetForPool();
-        PoolService.Release(gameObject);
     }
 
     private void OnDisable()
     {
-        activeMines.Remove(this);
+        ResetRuntimeState();
     }
 
     private void OnDestroy()
     {
+        battleEffects.Remove(this);
         activeMines.Remove(this);
     }
 

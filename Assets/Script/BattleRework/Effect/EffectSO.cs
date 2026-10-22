@@ -76,6 +76,7 @@ public class EffectSO : ScriptableObject
             damageSource,
             runtimeDamageMultiplier,
             runtimeFanMissionModifier);
+        instance.RegisterBattleEffect();
         return instance;
     }
 }

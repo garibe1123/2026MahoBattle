@@ -232,7 +232,7 @@ public class BattleRoomManager : MonoBehaviour
         return errors.Count == 0;
     }
 
-    public void EnterRoom(RoomDefinitionSO room, BattleContext context)
+    public void EnterRoom(RoomDefinitionSO room, BattleContext context, bool? usePersistentStartBase = null)
     {
         if (room == null)
         {
@@ -246,10 +246,10 @@ public class BattleRoomManager : MonoBehaviour
             return;
         }
 
-        StartCoroutine(EnterRoomRoutine(room, context));
+        StartCoroutine(EnterRoomRoutine(room, context, usePersistentStartBase ?? room.usePersistentStartBase));
     }
 
-    private IEnumerator EnterRoomRoutine(RoomDefinitionSO room, BattleContext context)
+    private IEnumerator EnterRoomRoutine(RoomDefinitionSO room, BattleContext context, bool usePersistentStartBase)
     {
         roomTransitioning = true;
 
@@ -263,7 +263,7 @@ public class BattleRoomManager : MonoBehaviour
 
         RepositionPlayerForRoom(room);
 
-        float longestEntry = BuildExtensionBlocks(room);
+        float longestEntry = BuildExtensionBlocks(room, usePersistentStartBase);
         BuildObstacles(room);
 
         if (longestEntry > 0f)
@@ -299,7 +299,7 @@ public class BattleRoomManager : MonoBehaviour
         }
     }
 
-    private float BuildExtensionBlocks(RoomDefinitionSO room)
+    private float BuildExtensionBlocks(RoomDefinitionSO room, bool usePersistentStartBase)
     {
         expectedAssemblyImpacts = 0;
         receivedAssemblyImpacts = 0;
@@ -311,7 +311,7 @@ public class BattleRoomManager : MonoBehaviour
         for (int i = 0; i < room.blocks.Count; i++)
         {
             MapBlockPlacement placement = room.blocks[i];
-            if (ShouldBuildPlacement(room, placement))
+            if (ShouldBuildPlacement(room, placement, usePersistentStartBase))
                 placements.Add(placement);
         }
 
@@ -423,12 +423,12 @@ public class BattleRoomManager : MonoBehaviour
         return longest;
     }
 
-    private static bool ShouldBuildPlacement(RoomDefinitionSO room, MapBlockPlacement placement)
+    private static bool ShouldBuildPlacement(RoomDefinitionSO room, MapBlockPlacement placement, bool usePersistentStartBase)
     {
         if (room == null || placement == null || placement.prefab == null)
             return false;
 
-        if (room.useRuntimeBase && room.usePersistentStartBase && room.IsStartBaseGridPosition(placement.gridPosition))
+        if (room.useRuntimeBase && usePersistentStartBase && room.IsStartBaseGridPosition(placement.gridPosition))
             return false;
 
         return true;

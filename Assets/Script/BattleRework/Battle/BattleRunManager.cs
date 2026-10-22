@@ -251,6 +251,7 @@ public class BattleRunManager : MonoBehaviour
             roomManager.AbortRoom();
 
         ReturnAllActiveProjectiles();
+        Effect.ReturnAllBattleEffects();
 
         CaptureStartRoomOrigin();
         RestoreStartRoomOrigin();
@@ -649,16 +650,7 @@ public class BattleRunManager : MonoBehaviour
                 SetState(BattleRunState.BuildingRoom);
                 AlignRoomOriginToPersistentBase();
 
-                bool savedPersistentFlag = node.room.usePersistentStartBase;
-                node.room.usePersistentStartBase = false;
-                try
-                {
-                    roomManager.EnterRoom(node.room, currentContext);
-                }
-                finally
-                {
-                    node.room.usePersistentStartBase = savedPersistentFlag;
-                }
+                roomManager.EnterRoom(node.room, currentContext, usePersistentStartBase: false);
                 break;
 
             case BattleNodeType.Shop:
@@ -834,6 +826,7 @@ public class BattleRunManager : MonoBehaviour
             roomManager?.AbortRoom();
 
         ReturnAllActiveProjectiles();
+        Effect.ReturnAllBattleEffects();
 
         progress?.EndRun();
         SetState(BattleRunState.Ended);

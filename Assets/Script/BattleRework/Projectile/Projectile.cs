@@ -34,6 +34,8 @@ public class Projectile : MonoBehaviour
     private RaycastHit2D[] sweptHitResults;
     private Collider2D[] explosionHitResults;
     private readonly HashSet<IDamageable> explosionDamagedTargets = new();
+    private readonly HashSet<IDamageable> directDamagedTargets = new();
+    private readonly HashSet<Collider2D> sweptColliders = new();
     private System.Action startVisualCompleteCallback;
     private System.Action returnToPoolCallback;
     private readonly List<TrailRenderer> pooledTrails = new();
@@ -90,6 +92,8 @@ public class Projectile : MonoBehaviour
         velocity = Vector2.zero;
         travelDistance = 0f;
         explosionDamagedTargets.Clear();
+        directDamagedTargets.Clear();
+        sweptColliders.Clear();
 
         if (col == null)
             col = GetComponent<CircleCollider2D>();
@@ -351,23 +355,30 @@ public class Projectile : MonoBehaviour
         if (distance <= 0f)
             return;
 
-        Collider2D sweptHit = FindFirstSweptCollision(normalizedDir, distance);
-        if (sweptHit != null)
+        sweptColliders.Clear();
+        while (distance > 0f && !dying && so != null)
         {
-            Vector2 fromHit = (Vector2)transform.position - (Vector2)sweptHit.bounds.center;
-            Vector2 normal = fromHit.sqrMagnitude > 0.0001f ? fromHit.normalized : -normalizedDir;
-            float radius = GetWorldColliderRadius();
-            Vector2 closest = sweptHit.ClosestPoint(transform.position);
-            transform.position = closest + normal * (radius * 0.5f);
-            HandleCollision(sweptHit);
-            return;
-        }
+            Collider2D sweptHit = FindFirstSweptCollision(normalizedDir, distance, out float hitDistance);
+            if (sweptHit == null)
+            {
+                transform.position += (Vector3)(normalizedDir * distance);
+                break;
+            }
 
-        transform.position += (Vector3)(normalizedDir * distance);
+            transform.position += (Vector3)(normalizedDir * hitDistance);
+            distance = Mathf.Max(0f, distance - hitDistance);
+            sweptColliders.Add(sweptHit);
+            int previousBounceCount = bounceCount;
+            HandleCollision(sweptHit);
+            if (bounceCount != previousBounceCount)
+                break;
+        }
+        sweptColliders.Clear();
     }
 
-    private Collider2D FindFirstSweptCollision(Vector2 dir, float distance)
+    private Collider2D FindFirstSweptCollision(Vector2 dir, float distance, out float hitDistance)
     {
+        hitDistance = 0f;
         int wallLayer = LayerMask.NameToLayer("Wall");
         int mask = HitLayer.value;
         if (wallLayer >= 0)
@@ -390,7 +401,7 @@ public class Projectile : MonoBehaviour
         {
             RaycastHit2D hit = sweptHitResults[i];
             Collider2D candidate = hit.collider;
-            if (candidate == null || candidate == col)
+            if (candidate == null || candidate == col || sweptColliders.Contains(candidate))
                 continue;
 
             if (damageSource != null &&
@@ -403,6 +414,14 @@ public class Projectile : MonoBehaviour
             if (obstacle != null && !obstacle.BlocksProjectiles)
                 continue;
 
+            bool wall = candidate.gameObject.layer == wallLayer;
+            if (obstacle == null && !wall &&
+                (!CombatDamage.TryFindDamageable(candidate.transform, out IDamageable damageable) ||
+                 !damageable.IsAlive || directDamagedTargets.Contains(damageable)))
+            {
+                continue;
+            }
+
             if (hit.distance < bestDistance)
             {
                 bestDistance = hit.distance;
@@ -410,6 +429,8 @@ public class Projectile : MonoBehaviour
             }
         }
 
+        if (best != null)
+            hitDistance = Mathf.Clamp(bestDistance, 0f, distance);
         return best;
     }
 
@@ -479,6 +500,12 @@ public class Projectile : MonoBehaviour
         if (dying || so == null || other == null)
             return;
 
+        if (damageSource != null &&
+            (other.transform == damageSource.transform || other.transform.IsChildOf(damageSource.transform)))
+        {
+            return;
+        }
+
         BattleObstacle obstacle = other.GetComponentInParent<BattleObstacle>();
         bool wallLayer = other.gameObject.layer == LayerMask.NameToLayer("Wall");
 
@@ -487,7 +514,9 @@ public class Projectile : MonoBehaviour
             if (obstacle != null && !obstacle.BlocksProjectiles)
                 return;
 
-            CombatDamage.TryApply(other, BuildDamageContext(DamageKind.Projectile));
+            TryApplyDirectDamage(other);
+            if (dying || so == null)
+                return;
 
             if (so.movement == MovementType.Bounce && bounceCount < so.maxBounceCount)
             {
@@ -507,12 +536,9 @@ public class Projectile : MonoBehaviour
         if (((1 << other.gameObject.layer) & HitLayer) == 0)
             return;
 
-        DamageContext hitContext = BuildDamageContext(DamageKind.Projectile);
-        bool applied = CombatDamage.TryApply(other, hitContext);
-        if (!applied)
-            return;
-
         bool enemyTarget = other.GetComponentInParent<MonsterController>() != null;
+        if (!TryApplyDirectDamage(other) || dying || so == null)
+            return;
 
         if (enemyTarget && currentPierce > 0)
         {
@@ -521,6 +547,17 @@ public class Projectile : MonoBehaviour
         }
 
         Impact();
+    }
+
+    private bool TryApplyDirectDamage(Collider2D other)
+    {
+        if (!CombatDamage.TryFindDamageable(other.transform, out IDamageable damageable) ||
+            !damageable.IsAlive || !directDamagedTargets.Add(damageable))
+        {
+            return false;
+        }
+
+        return CombatDamage.Apply(damageable, BuildDamageContext(DamageKind.Projectile));
     }
 
     public void AddExtraPierce(int amount)
@@ -538,6 +575,8 @@ public class Projectile : MonoBehaviour
             col.enabled = false;
 
         ResolveExplosionDamage();
+        if (so == null)
+            return;
         ResolveSplit();
         SpawnImpactEffects();
         ReturnAfterHitAnimation();
@@ -557,7 +596,7 @@ public class Projectile : MonoBehaviour
         explosionDamagedTargets.Clear();
         DamageContext context = BuildDamageContext(DamageKind.Area);
 
-        for (int i = 0; i < hitCount; i++)
+        for (int i = 0; i < hitCount && so != null; i++)
         {
             Collider2D hit = explosionHitResults[i];
             if (hit == null)
@@ -699,6 +738,8 @@ public class Projectile : MonoBehaviour
         damageMultiplier = 1f;
         fanMissionModifier = 0f;
         explosionDamagedTargets.Clear();
+        directDamagedTargets.Clear();
+        sweptColliders.Clear();
 
         if (col != null)
             col.enabled = false;
