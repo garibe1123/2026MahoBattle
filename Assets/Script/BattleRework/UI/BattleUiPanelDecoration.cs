@@ -241,6 +241,39 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (face.width < 8f || face.height < 8f)
             return;
 
+        if (BattleUiStyleController.IsMahoShojo)
+        {
+            BattleUiStyleSettings style = BattleUiStyleController.Settings;
+            BattleUiStyleMeshEffect.DrawMahoFrame(vh, face, style, softFill ? 0.94f : 1f);
+            float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
+            if (emphasis)
+            {
+                Color tint = style.innerLine;
+                tint.a *= 0.04f + pulse * 0.04f;
+                BattleUiStyleMeshEffect.RoundedFill(vh, BattleUiStyleMeshEffect.Inset(face, 2f),
+                    Mathf.Max(0f, style.mahoCornerRadius - 2f), tint);
+            }
+            if (hasHeader)
+            {
+                Rect header = new(face.xMin + 8f * scale, face.yMax - HeaderHeight * scale,
+                    face.width - 16f * scale, (HeaderHeight - 8f) * scale);
+                BattleUiStyleMeshEffect.RoundedFill(vh, header, style.mahoCornerRadius * 0.5f, style.status);
+                float radius = 5f * scale;
+                Vector2 badge = new(face.xMin + (Padding + 5f) * scale, header.center.y);
+                BattleUiStyleMeshEffect.RoundedFill(vh,
+                    new Rect(badge.x - radius, badge.y - radius, radius * 2f, radius * 2f), radius, style.energy);
+                for (int i = 0; i < 3; i++)
+                    BattleUiStyleMeshEffect.RoundedFill(vh,
+                        new Rect(face.xMax - (Padding + 5f + i * 9f) * scale, header.center.y - 2f * scale,
+                            4f * scale, 4f * scale), 2f * scale, style.highlight);
+            }
+            if (selected)
+                BattleUiStyleMeshEffect.RoundedFill(vh,
+                    new Rect(face.xMin + Padding * scale, face.yMin + 8f * scale,
+                        face.width - Padding * 2f * scale, 3f * scale), 1.5f * scale, style.innerLine);
+            return;
+        }
+
         if (BattleUiStyleController.IsPixel)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;

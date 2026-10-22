@@ -20,7 +20,7 @@ public class BattleDebugUI : MonoBehaviour
     private static bool sceneHookInstalled;
 
     private Vector2 scroll;
-    private static readonly string[] uiStyleNames = { "pixelStyleUi", "comicStyleUi", "VectorStyleUi" };
+    private static readonly string[] uiStyleNames = { "pixelStyleUi", "comicStyleUi", "VectorStyleUi", "MahoShojo" };
     private Coroutine killAllRoutine;
 #if UNITY_EDITOR
     [SerializeField] private EffectDefinitionSO[] elementalDefinitions;

@@ -141,6 +141,16 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     [SerializeField] private BattleUiStyleSettings pixelStyleUi = new();
     [SerializeField] private BattleUiStyleSettings comicStyleUi = new();
     [SerializeField] private BattleUiStyleSettings vectorStyleUi = new();
+    [SerializeField] private BattleUiStyleSettings mahoShojo = new()
+    {
+        background = new Color32(0xFA, 0xFA, 0xFA, 255),
+        innerLine = new Color32(0x24, 0x24, 0x24, 255),
+        outerFrame = new Color32(0xE3, 0xE3, 0xE3, 255),
+        status = new Color32(0xEB, 0xEB, 0xEB, 255),
+        danger = new Color32(0x44, 0x44, 0x44, 255),
+        energy = new Color32(0x77, 0x77, 0x77, 255),
+        highlight = new Color32(0xAA, 0xAA, 0xAA, 255)
+    };
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
 
@@ -152,6 +162,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         BattleUiStyle.pixelStyleUi => pixelStyleUi,
         BattleUiStyle.comicStyleUi => comicStyleUi,
+        BattleUiStyle.MahoShojo => mahoShojo,
         _ => vectorStyleUi
     };
 

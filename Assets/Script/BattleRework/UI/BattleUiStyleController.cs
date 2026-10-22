@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi }
+public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo }
 
 [Serializable]
 public sealed class BattleUiStyleSettings
@@ -28,6 +28,10 @@ public sealed class BattleUiStyleSettings
     public Color comicBackground = new Color32(0x12, 0x10, 0x16, 255);
     public Color comicPaper = new Color32(0xFA, 0xF5, 0xE9, 255);
     public Color comicAccent = new Color32(0xE6, 0x23, 0x32, 255);
+    [Min(0f)] public float mahoCornerRadius = 14f;
+    [Min(0f)] public float mahoBorderWidth = 1f;
+    public Vector2 mahoShadowOffset = new(3f, -4f);
+    public Color mahoShadow = new(0f, 0f, 0f, 0.08f);
 }
 
 [DisallowMultipleComponent]
@@ -39,6 +43,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
     private BattleShowPresentationManager presentation;
     private BattleScreenGridOverlay grid;
     private Material panelMaterial, textMaterial, spriteMaterial;
+    private Material mahoMaterial;
     private Font bitmapFont;
     private Texture2D bitmapTexture;
     private Material bitmapMaterial;
@@ -47,6 +52,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.pixelStyleUi;
     internal static bool IsComic => active != null && active.isActiveAndEnabled &&
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.comicStyleUi;
+    internal static bool IsMahoShojo => active != null && active.isActiveAndEnabled &&
+        active.presentation != null && active.presentation.UiStyle == BattleUiStyle.MahoShojo;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
     internal static float PixelScale => active != null && active.presentation != null
@@ -130,20 +137,22 @@ public sealed class BattleUiStyleController : MonoBehaviour
         if (presentation == null) return;
         BattleUiStyleSettings settings = presentation.UiStyleSettings;
         bool pixel = IsPixel;
-        if ((pixel || IsComic) && panelMaterial == null)
+        if ((pixel || IsComic || IsMahoShojo) && panelMaterial == null)
         {
             panelMaterial = CreateMaterial("BattlePixelPanel");
             textMaterial = CreateMaterial("BattlePixelText");
             spriteMaterial = CreateMaterial("BattlePixelText");
             bitmapFont = BattleUiPixelFont.Create(out bitmapTexture, out bitmapMaterial);
         }
+        if (IsMahoShojo && mahoMaterial == null)
+            mahoMaterial = CreateMaterial("BattleMahoUi");
         removed.Clear();
         foreach (var entry in targets)
         {
             Graphic target = entry.Key;
             if (target == null) { removed.Add(target); continue; }
             if (!target.isActiveAndEnabled || target.canvasRenderer.cull) continue;
-            entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont);
+            entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial);
         }
         foreach (Graphic target in removed) targets.Remove(target);
     }
@@ -168,6 +177,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
         if (panelMaterial != null) Destroy(panelMaterial);
         if (textMaterial != null) Destroy(textMaterial);
         if (spriteMaterial != null) Destroy(spriteMaterial);
+        if (mahoMaterial != null) Destroy(mahoMaterial);
         if (bitmapFont != null) Destroy(bitmapFont);
         if (bitmapTexture != null) Destroy(bitmapTexture);
         if (bitmapMaterial != null) Destroy(bitmapMaterial);

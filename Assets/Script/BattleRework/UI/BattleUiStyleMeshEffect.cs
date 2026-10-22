@@ -16,6 +16,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private FontStyle originalFontStyle;
     private bool fontStyleOverridden;
     private bool wasComic;
+    private bool wasMaho;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
     private Matrix4x4 lastTransform, lastCamera;
@@ -58,7 +59,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
-        Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap)
+        Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial)
     {
         if (materialOverridden && target.material != appliedMaterial)
             originalMaterial = CaptureMaterial();
@@ -84,6 +85,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             next = label != null ? pixelText : panel && !statusFill ? pixelPanel : pixelSprite;
         bool comic = BattleUiStyleController.IsComic;
         if (comic && next == null && panel) next = pixelPanel;
+        bool maho = BattleUiStyleController.IsMahoShojo;
+        if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
         if (next != null)
         {
             if (!materialOverridden) originalMaterial = CaptureMaterial();
@@ -111,9 +114,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             fontOverridden = true;
         }
         else RestoreFont();
-        if (wasPixel != pixel || wasComic != comic) target.SetVerticesDirty();
+        if (wasPixel != pixel || wasComic != comic || wasMaho != maho) target.SetVerticesDirty();
         wasPixel = pixel;
         wasComic = comic;
+        wasMaho = maho;
         if (projectPixels && target.canvas != null)
         {
             Canvas canvas = target.canvas;
@@ -180,7 +184,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (!IsActive() || target == null) return;
         bool pixel = BattleUiStyleController.IsPixel;
         bool comic = BattleUiStyleController.IsComic;
-        if (!pixel && !comic) return;
+        bool maho = BattleUiStyleController.IsMahoShojo;
+        if (!pixel && !comic && !maho) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         if (hiddenFill || decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
@@ -189,17 +194,21 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             vh.Clear();
             Color fill = settings.background;
             fill.a *= speechFrame ? 1f : image.color.a;
-            if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
+            if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
+            else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
-        else if (label != null || tailFill || statusFill)
+        else if (label != null || tailFill || statusFill || (maho && image != null))
         {
             UIVertex vertex = default;
             for (int i = 0; i < vh.currentVertCount; i++)
             {
                 vh.PopulateUIVertex(ref vertex, i);
                 Color source = vertex.color;
-                Color tint = comic ? (tailFill ? settings.comicPaper : label != null ? settings.comicPaper : settings.comicAccent) :
+                Color tint = maho ? (tailFill || (image != null && image.name == "TailShape") ? settings.background :
+                    label != null ? settings.innerLine : statusFill ? settings.energy :
+                    image.sprite == null ? settings.status : settings.danger) :
+                    comic ? (tailFill ? settings.comicPaper : label != null ? settings.comicPaper : settings.comicAccent) :
                     tailFill ? Surface(settings) : Palette(source, settings, statusFill);
                 tint.a *= source.a;
                 vertex.color = tint;
@@ -260,6 +269,43 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Slant(vh, new Rect(rect.x + 5f, rect.y - 5f, rect.width, rect.height), red);
         Slant(vh, rect, paper);
         Slant(vh, Inset(rect, 3f), ink);
+    }
+
+    internal static void DrawMahoFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha)
+    {
+        Color shadow = settings.mahoShadow, rim = settings.outerFrame, paper = settings.background;
+        shadow.a *= alpha * 0.5f;
+        rim.a *= alpha;
+        paper.a *= alpha;
+        Vector2 offset = settings.mahoShadowOffset;
+        RoundedFill(vh, new Rect(rect.position + offset * 2f, rect.size), settings.mahoCornerRadius, shadow);
+        shadow.a *= 2f;
+        RoundedFill(vh, new Rect(rect.position + offset, rect.size), settings.mahoCornerRadius, shadow);
+        RoundedFill(vh, rect, settings.mahoCornerRadius, rim);
+        RoundedFill(vh, Inset(rect, settings.mahoBorderWidth),
+            Mathf.Max(0f, settings.mahoCornerRadius - settings.mahoBorderWidth), paper);
+    }
+
+    internal static void RoundedFill(VertexHelper vh, Rect rect, float radius, Color tint)
+    {
+        if (rect.width <= 0f || rect.height <= 0f || tint.a <= 0f) return;
+        radius = Mathf.Clamp(radius, 0f, Mathf.Min(rect.width, rect.height) * 0.5f);
+        if (radius <= 0f) { Quad(vh, rect, tint); return; }
+        int first = vh.currentVertCount;
+        const int steps = 8, count = 4 * (steps + 1);
+        vh.AddVert(rect.center, tint, Vector2.zero);
+        for (int corner = 0; corner < 4; corner++)
+        {
+            Vector2 center = new(corner < 2 ? rect.xMax - radius : rect.xMin + radius,
+                corner == 0 || corner == 3 ? rect.yMin + radius : rect.yMax - radius);
+            for (int step = 0; step <= steps; step++)
+            {
+                float angle = (-90f + corner * 90f + step * 90f / steps) * Mathf.Deg2Rad;
+                vh.AddVert(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius, tint, Vector2.zero);
+            }
+        }
+        for (int i = 0; i < count; i++)
+            vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
     }
 
     internal static void Slant(VertexHelper vh, Rect rect, Color tint)
