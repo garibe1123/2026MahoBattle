@@ -317,6 +317,21 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             instance.currentBlend > 0.001f;
     }
 
+    internal static bool TryGetCameraDistortion(Camera camera, out Vector4 settings)
+    {
+        settings = Vector4.zero;
+        if (instance == null || instance.targetCamera != camera || !instance.IsCombatTabHeld())
+            return false;
+
+        BattleColorGradingController grading = instance.colorGrading;
+        BattleLightingProfileSO profile = grading != null ? grading.SourceLightingProfile : null;
+        float curvature = grading != null && profile != null
+            ? grading.CurrentTabCurvature : instance.tabLensDistortion * Mathf.Clamp01(instance.currentBlend);
+        settings = new Vector4(curvature, profile != null ? profile.crtEdgeWidth : 0.1f,
+            profile != null ? profile.crtEdgeStrength : 0.86f, Time.unscaledTime);
+        return curvature > 0.0001f;
+    }
+
     internal static RTHandle PrepareBackgroundCapture(Camera camera, RenderTextureDescriptor descriptor)
     {
         if (!WantsBackgroundCapture(camera)) return null;
@@ -361,9 +376,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         if (lensDistortion != null)
         {
             lensDistortion.intensity.Override(profile != null
-                ? Mathf.Clamp(profile.lensDistortionIntensity - (combatTabHeld
-                    ? profile.crtCurvature * profile.crtSelectionCurvatureMultiplier : 0f), -1f, 1f)
-                : Mathf.Clamp(lensDistortionIntensity - (combatTabHeld ? tabLensDistortion : 0f), -1f, 1f));
+                ? profile.lensDistortionIntensity : lensDistortionIntensity);
             lensDistortion.scale.Override(profile != null ? profile.lensDistortionScale : lensDistortionScale);
         }
         if (vignette != null)
@@ -392,12 +405,13 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
                 $"cameraId={(targetCamera != null ? targetCamera.GetInstanceID() : 0)}, " +
                 $"state={(runManager != null ? runManager.State.ToString() : "null")}, " +
                 $"blend={currentBlend:F4}, lens={appliedLens:F4}, volumeWeight={appliedWeight:F4}, " +
+                $"cameraWarp={(TryGetCameraDistortion(targetCamera, out Vector4 warp) ? warp.x : 0f):F4}, " +
                 $"setSelectionBlendCalled={colorGrading != null}, colorGradingBound={useColorGrading}, " +
                 $"postProcessing={(cameraData != null && cameraData.renderPostProcessing)}, " +
                 $"renderer={(renderer != null ? renderer.GetType().Name : "null")}, " +
                 $"volumeMask={(cameraData != null ? cameraData.volumeLayerMask.value : 0)}, " +
                 $"gradingLayer={(colorGrading != null ? colorGrading.RuntimeVolumeLayer : -1)}. " +
-                "LensDistortion is a runtime Volume value; Camera Transform/FOV does not change.", this);
+                "Camera warp runs in BattleTabBackgroundCaptureFeature before TAB capture; Transform/FOV stays unchanged.", this);
         }
         combatTabWasHeld = combatTabHeld;
     }

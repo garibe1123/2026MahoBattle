@@ -10,22 +10,52 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
 
     public override void Create()
     {
+        capturePass?.Dispose();
         capturePass = new CapturePass();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        capturePass?.Dispose();
+        capturePass = null;
     }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
     {
-        if (BattleShowBroadcastNoiseController.WantsBackgroundCapture(renderingData.cameraData.camera))
+        Camera camera = renderingData.cameraData.camera;
+        if (BattleShowBroadcastNoiseController.WantsBackgroundCapture(camera) ||
+            BattleShowBroadcastNoiseController.TryGetCameraDistortion(camera, out _))
             renderer.EnqueuePass(capturePass);
     }
 
     private sealed class CapturePass : ScriptableRenderPass
     {
+        private readonly Material distortionMaterial;
+        private RTHandle distortionTarget;
+
         public CapturePass()
         {
+            Shader shader = Resources.Load<Shader>("BattleTabCameraDistortion");
+            if (shader != null) distortionMaterial = CoreUtils.CreateEngineMaterial(shader);
             renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
             requiresIntermediateTexture = true;
             ConfigureInput(ScriptableRenderPassInput.Color);
+        }
+
+        public void Dispose()
+        {
+            distortionTarget?.Release();
+            distortionTarget = null;
+            CoreUtils.Destroy(distortionMaterial);
+        }
+
+        private bool ConfigureDistortion(Camera camera)
+        {
+            if (distortionMaterial == null ||
+                !BattleShowBroadcastNoiseController.TryGetCameraDistortion(camera, out Vector4 settings))
+                return false;
+            distortionMaterial.SetVector("_CrtSettings", settings);
+            return true;
         }
 
         public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
@@ -33,24 +63,50 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
             UniversalResourceData resources = frameData.Get<UniversalResourceData>();
             if (resources.isActiveTargetBackBuffer || !resources.activeColorTexture.IsValid()) return;
             UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
+            TextureHandle source = resources.activeColorTexture;
+            if (ConfigureDistortion(cameraData.camera))
+            {
+                TextureDesc descriptor = renderGraph.GetTextureDesc(source);
+                descriptor.name = "Battle Tab Camera Distortion";
+                descriptor.clearBuffer = false;
+                TextureHandle distorted = renderGraph.CreateTexture(descriptor);
+                renderGraph.AddBlitPass(new RenderGraphUtils.BlitMaterialParameters(
+                    source, distorted, distortionMaterial, 0), passName: "Battle Tab Camera Distortion");
+                resources.cameraColor = distorted;
+                source = distorted;
+            }
             RTHandle output = BattleShowBroadcastNoiseController.PrepareBackgroundCapture(
                 cameraData.camera, cameraData.cameraTargetDescriptor);
             if (output == null) return;
 
             // Capture before overlay canvases so the material never samples itself or the tab text.
-            renderGraph.AddBlitPass(resources.activeColorTexture, renderGraph.ImportTexture(output),
+            renderGraph.AddBlitPass(source, renderGraph.ImportTexture(output),
                 Vector2.one, Vector2.zero, passName: "Battle Tab Background Capture");
         }
 
 #pragma warning disable 618, 672
         public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
         {
+            bool distort = ConfigureDistortion(renderingData.cameraData.camera);
             RTHandle output = BattleShowBroadcastNoiseController.PrepareBackgroundCapture(
                 renderingData.cameraData.camera, renderingData.cameraData.cameraTargetDescriptor);
-            if (output == null) return;
+            if (output == null && !distort) return;
 
             CommandBuffer commands = CommandBufferPool.Get("Battle Tab Background Capture");
-            Blitter.BlitCameraTexture(commands, renderingData.cameraData.renderer.cameraColorTargetHandle, output, 0f, true);
+            RTHandle source = renderingData.cameraData.renderer.cameraColorTargetHandle;
+            if (distort)
+            {
+                RenderTextureDescriptor descriptor = renderingData.cameraData.cameraTargetDescriptor;
+                descriptor.depthBufferBits = 0;
+                descriptor.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+                descriptor.msaaSamples = 1;
+                descriptor.bindMS = false;
+                RenderingUtils.ReAllocateHandleIfNeeded(ref distortionTarget, descriptor,
+                    FilterMode.Bilinear, TextureWrapMode.Clamp, name: "BattleTabCameraDistortion");
+                Blitter.BlitCameraTexture(commands, source, distortionTarget, distortionMaterial, 0);
+                Blitter.BlitCameraTexture(commands, distortionTarget, source, 0f, true);
+            }
+            if (output != null) Blitter.BlitCameraTexture(commands, source, output, 0f, true);
             context.ExecuteCommandBuffer(commands);
             CommandBufferPool.Release(commands);
         }

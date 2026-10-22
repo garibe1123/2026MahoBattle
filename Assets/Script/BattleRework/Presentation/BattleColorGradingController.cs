@@ -74,6 +74,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
     public float CurrentWeight => currentWeight;
     internal float CurrentLensDistortion => lensDistortion != null ? lensDistortion.intensity.value : 0f;
     internal float CurrentVolumeWeight => volume != null ? volume.weight : 0f;
+    internal float CurrentTabCurvature => isActiveAndEnabled && lightingProfile != null
+        ? lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * combatTabBlend : 0f;
     private float EffectiveVolumeWeight => Mathf.Max(currentWeight, Mathf.Clamp01(selectionBlend));
 
     public void Configure(Camera camera, BattleLightingProfileSO profile)
@@ -281,7 +283,6 @@ public sealed class BattleColorGradingController : MonoBehaviour
         lensDistortion.intensity.Override(
             Mathf.Clamp(
                 lightingProfile.lensDistortionIntensity -
-                lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * combatTabBlend -
                 reactionLensDistortionKick * currentCameraReaction,
                 -1f,
                 1f));
