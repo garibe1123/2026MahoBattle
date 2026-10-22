@@ -190,7 +190,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             Color fill = settings.background;
             fill.a *= speechFrame ? 1f : image.color.a;
             if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
-            else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.rectTransform, target.canvas, settings));
+            else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
         else if (label != null || tailFill || statusFill)
         {
@@ -208,7 +208,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
         if (projectPixels && target.canvas != null)
             BattleUiPixelProjection.Project(vh, triangles, target.rectTransform, renderCamera, viewport,
-                Mathf.Max(1f, Mathf.Round(label != null ? settings.textPixelSize : settings.logicalPixelSize * BattleUiStyleController.PixelScale)));
+                Mathf.Max(1f, Mathf.Round(label != null ? settings.textPixelSize : settings.logicalPixelSize * BattleUiStyleController.PixelScale)) /
+                Mathf.Max(0.001f, target.canvas.scaleFactor));
     }
 
     internal static Color Surface(BattleUiStyleSettings settings)
@@ -231,12 +232,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         return settings.status;
     }
 
-    internal static float PixelStep(RectTransform rect, Canvas canvas, BattleUiStyleSettings settings)
+    internal static float PixelStep(Canvas canvas, BattleUiStyleSettings settings)
     {
-        Camera camera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
-        Vector2 origin = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Vector3.zero));
-        Vector2 right = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Vector3.right));
-        return Mathf.Max(1f, Mathf.Round(settings.logicalPixelSize * BattleUiStyleController.PixelScale)) / Mathf.Max(0.001f, Vector2.Distance(origin, right));
+        return Mathf.Max(1f, Mathf.Round(settings.logicalPixelSize * BattleUiStyleController.PixelScale)) /
+            Mathf.Max(0.001f, canvas != null ? canvas.scaleFactor : 1f);
     }
 
     internal static void DrawFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color fill, float pixel)

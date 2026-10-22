@@ -47,7 +47,7 @@ Shader "UI/BattlePixelPanel"
             {
                 half4 color = input.color;
                 if (input.edges.w > 0.5)
-                    BattlePixelCoverage(input.bary.xy, input.edges.xyz, BattlePixelOffset(input.vertex.xy, input.bary.z));
+                    BattlePixelCoverage(input.bary.xy, input.edges.xyz, BattlePixelOffset(input.local.xy, input.bary.z));
                 #ifdef UNITY_UI_CLIP_RECT
                 color.a *= UnityGet2DClipping(input.local.xy, _ClipRect);
                 #endif

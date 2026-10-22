@@ -48,7 +48,7 @@ Shader "UI/BattlePixelText"
             }
             half4 frag(Varyings input) : SV_Target
             {
-                float2 offset = BattlePixelOffset(input.vertex.xy, input.bary.z);
+                float2 offset = BattlePixelOffset(input.local.xy, input.bary.z);
                 float2 projectedUV = input.uv;
                 if (input.edges.w > 0.5)
                 {

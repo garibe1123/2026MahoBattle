@@ -244,7 +244,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (BattleUiStyleController.IsPixel)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
-            float pixel = BattleUiStyleMeshEffect.PixelStep(rectTransform, canvas, style);
+            float pixel = BattleUiStyleMeshEffect.PixelStep(canvas, style);
             Color fill = style.background;
             fill.a = softFill ? 0.90f : 1f;
             BattleUiStyleMeshEffect.DrawFrame(vh, face, style, fill, pixel);

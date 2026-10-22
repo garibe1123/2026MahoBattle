@@ -8,7 +8,7 @@ public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi }
 [Serializable]
 public sealed class BattleUiStyleSettings
 {
-    [Tooltip("화면 기준 정수 픽셀 크기입니다. 이동·회전 중에도 같은 격자를 사용합니다.")]
+    [Tooltip("기준 픽셀 크기입니다. UI의 회전·확대·변형을 따라 격자도 함께 변형됩니다.")]
     [Min(1f)] public float logicalPixelSize = 2f;
     [Min(1f)] public float textPixelSize = 1f;
     [Range(0.2f, 1f)] public float surfaceShade = 0.55f;

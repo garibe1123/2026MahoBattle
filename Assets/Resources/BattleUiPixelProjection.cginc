@@ -2,14 +2,15 @@
 #define BATTLE_UI_PIXEL_PROJECTION_INCLUDED
 float _PixelSize;
 
-float2 BattlePixelOffset(float2 screen, float pixel)
+float2 BattlePixelOffset(float2 local, float pixel)
 {
-    float size = max(1.0, pixel > 0.0 ? pixel : _PixelSize);
-    float2 origin = 0.0;
-    #if UNITY_UV_STARTS_AT_TOP
-    origin.y = _ScreenParams.y;
-    #endif
-    return (floor((screen - origin) / size) + 0.5) * size + origin - screen;
+    float size = pixel > 0.0 ? pixel : max(1.0, _PixelSize);
+    float2 offset = (floor(local / size) + 0.5) * size - local;
+    float2 dx = ddx(local), dy = ddy(local);
+    float determinant = dx.x * dy.y - dx.y * dy.x;
+    if (abs(determinant) < 0.00000001) return float2(0.0, 0.0);
+    return float2(offset.x * dy.y - offset.y * dy.x,
+        dx.x * offset.y - dx.y * offset.x) / determinant;
 }
 
 void BattlePixelCoverage(float2 barycentric, float3 edges, float2 offset)
