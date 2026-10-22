@@ -244,16 +244,20 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (BattleUiStyleController.IsPixel)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
-            float pixel = Mathf.Max(1f, style.logicalPixelSize);
+            float pixel = BattleUiStyleMeshEffect.PixelStep(rectTransform, canvas, style);
             Color fill = style.background;
             fill.a = softFill ? 0.90f : 1f;
-            BattleUiStyleMeshEffect.DrawFrame(vh, face, style, fill);
+            BattleUiStyleMeshEffect.DrawFrame(vh, face, style, fill, pixel);
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
                 Rect header = new(face.xMin + 4f * pixel, face.yMax - HeaderHeight * scale,
                     face.width - 8f * pixel, HeaderHeight * scale - 4f * pixel);
-                BattleUiStyleMeshEffect.StepFill(vh, header, pixel, style.status);
+                Color headerTint = style.status;
+                headerTint.a = 0.18f;
+                BattleUiStyleMeshEffect.Quad(vh, header, headerTint);
+                BattleUiStyleMeshEffect.Quad(vh,
+                    new Rect(header.xMin, header.yMin, pixel, header.height), style.status);
             }
             if (emphasis)
             {
@@ -265,6 +269,31 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             if (selected)
                 BattleUiStyleMeshEffect.Quad(vh,
                     new Rect(face.xMax - 7f * pixel, face.yMin + 4f * pixel, 3f * pixel, 3f * pixel), style.innerLine);
+            return;
+        }
+
+        if (BattleUiStyleController.IsComic)
+        {
+            BattleUiStyleSettings style = BattleUiStyleController.Settings;
+            BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f);
+            if (hasHeader)
+            {
+                float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
+                Rect header = new(face.xMin + 6f, face.yMax - HeaderHeight * scale,
+                    face.width - 12f, HeaderHeight * scale - 5f);
+                BattleUiStyleMeshEffect.Slant(vh, header, style.comicAccent);
+            }
+            if (emphasis)
+            {
+                Color tint = style.comicAccent;
+                tint.a = 0.12f + pulse * 0.12f;
+                BattleUiStyleMeshEffect.Slant(vh, BattleUiStyleMeshEffect.Inset(face, 4f), tint);
+                BattleUiStyleMeshEffect.Slant(vh,
+                    new Rect(face.xMin + 4f, face.center.y - 18f, 8f, 36f), style.comicAccent);
+            }
+            if (selected)
+                BattleUiStyleMeshEffect.Slant(vh,
+                    new Rect(face.xMax - 23f, face.yMin + 7f, 16f, 12f), style.comicPaper);
             return;
         }
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -7,13 +8,20 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private Graphic target;
     private Text label;
     private Image image;
-    private bool panel, speechFrame, hiddenFill, tailFill;
+    private bool panel, speechFrame, hiddenFill, tailFill, decoratedSurface;
     private Material originalMaterial, appliedMaterial;
     private Font originalFont, appliedFont, requestedFont;
     private string lastText;
     private bool materialOverridden, fontOverridden, wasPixel;
     private FontStyle originalFontStyle;
     private bool fontStyleOverridden;
+    private bool wasComic;
+    private bool projectPixels;
+    private readonly List<UIVertex> triangles = new();
+    private Matrix4x4 lastTransform, lastCamera;
+    private Rect lastViewport;
+    private Camera renderCamera;
+    private Rect viewport;
 
     internal void Bind(Graphic value)
     {
@@ -45,11 +53,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal void SetPanel()
     {
         panel = true;
+        decoratedSurface = true;
         target.SetVerticesDirty();
     }
 
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
-        Material pixelPanel, Material pixelText, Font bitmap)
+        Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap)
     {
         if (materialOverridden && target.material != appliedMaterial)
             originalMaterial = CaptureMaterial();
@@ -72,7 +81,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Material next = label != null ? settings.textMaterial : panel ? settings.panelMaterial : null;
         bool statusFill = image != null && image.type == Image.Type.Filled;
         if (pixel && next == null)
-            next = label != null || tailFill || statusFill ? pixelText : panel ? pixelPanel : null;
+            next = label != null ? pixelText : panel && !statusFill ? pixelPanel : pixelSprite;
+        bool comic = BattleUiStyleController.IsComic;
+        if (comic && next == null && panel) next = pixelPanel;
         if (next != null)
         {
             if (!materialOverridden) originalMaterial = CaptureMaterial();
@@ -81,6 +92,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             materialOverridden = true;
         }
         else RestoreMaterial();
+        projectPixels = pixel && next != null &&
+            ((pixelPanel != null && next.shader == pixelPanel.shader) ||
+             (pixelText != null && next.shader == pixelText.shader));
 
         if (label != null && (pixel || settings.font != null))
         {
@@ -97,8 +111,27 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             fontOverridden = true;
         }
         else RestoreFont();
-        if (wasPixel != pixel) target.SetVerticesDirty();
+        if (wasPixel != pixel || wasComic != comic) target.SetVerticesDirty();
         wasPixel = pixel;
+        wasComic = comic;
+        if (projectPixels && target.canvas != null)
+        {
+            Canvas canvas = target.canvas;
+            const AdditionalCanvasShaderChannels channels = AdditionalCanvasShaderChannels.TexCoord1 | AdditionalCanvasShaderChannels.TexCoord2;
+            if ((canvas.additionalShaderChannels & channels) != channels)
+                canvas.additionalShaderChannels |= channels;
+            renderCamera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
+            viewport = renderCamera != null ? renderCamera.pixelRect : canvas.pixelRect;
+            Matrix4x4 transformMatrix = target.rectTransform.localToWorldMatrix;
+            Matrix4x4 cameraMatrix = renderCamera != null ? renderCamera.projectionMatrix * renderCamera.worldToCameraMatrix : Matrix4x4.identity;
+            if (lastTransform != transformMatrix || lastCamera != cameraMatrix || lastViewport != viewport)
+            {
+                lastTransform = transformMatrix;
+                lastCamera = cameraMatrix;
+                lastViewport = viewport;
+                target.SetVerticesDirty();
+            }
+        }
     }
 
     private static bool Supports(Font font, string content)
@@ -144,48 +177,103 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     public override void ModifyMesh(VertexHelper vh)
     {
-        if (!IsActive() || !BattleUiStyleController.IsPixel || target == null) return;
+        if (!IsActive() || target == null) return;
+        bool pixel = BattleUiStyleController.IsPixel;
+        bool comic = BattleUiStyleController.IsComic;
+        if (!pixel && !comic) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
-        if (hiddenFill) { vh.Clear(); return; }
+        if (hiddenFill || decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
         if (panel && image != null && !statusFill)
         {
             vh.Clear();
             Color fill = settings.background;
             fill.a *= speechFrame ? 1f : image.color.a;
-            DrawFrame(vh, target.rectTransform.rect, settings, fill);
-            return;
+            if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
+            else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.rectTransform, target.canvas, settings));
         }
-        if (label == null && !tailFill && !statusFill) return;
-        UIVertex vertex = default;
-        for (int i = 0; i < vh.currentVertCount; i++)
+        else if (label != null || tailFill || statusFill)
         {
-            vh.PopulateUIVertex(ref vertex, i);
-            Color tint = tailFill ? settings.background : statusFill ? settings.status : settings.innerLine;
-            tint.a *= vertex.color.a / 255f;
-            vertex.color = tint;
-            if (tailFill)
+            UIVertex vertex = default;
+            for (int i = 0; i < vh.currentVertCount; i++)
             {
-                float pixel = Mathf.Max(1f, settings.logicalPixelSize);
-                Vector3 point = vertex.position;
-                point.x = Mathf.Round(point.x / pixel) * pixel;
-                point.y = Mathf.Round(point.y / pixel) * pixel;
-                vertex.position = point;
+                vh.PopulateUIVertex(ref vertex, i);
+                Color source = vertex.color;
+                Color tint = comic ? (tailFill ? settings.comicPaper : label != null ? settings.comicPaper : settings.comicAccent) :
+                    tailFill ? Surface(settings) : Palette(source, settings, statusFill);
+                tint.a *= source.a;
+                vertex.color = tint;
+                vh.SetUIVertex(vertex, i);
             }
-            vh.SetUIVertex(vertex, i);
         }
+        if (projectPixels && target.canvas != null)
+            BattleUiPixelProjection.Project(vh, triangles, target.rectTransform, renderCamera, viewport,
+                Mathf.Max(1f, Mathf.Round(label != null ? settings.textPixelSize : settings.logicalPixelSize)));
     }
 
-    internal static void DrawFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color fill)
+    internal static Color Surface(BattleUiStyleSettings settings)
     {
-        float pixel = Mathf.Max(1f, settings.logicalPixelSize);
-        Color outer = settings.outerFrame, inner = settings.innerLine;
+        Color tint = settings.background;
+        tint.r *= settings.surfaceShade;
+        tint.g *= settings.surfaceShade;
+        tint.b *= settings.surfaceShade;
+        return tint;
+    }
+
+    private static Color Palette(Color source, BattleUiStyleSettings settings, bool status)
+    {
+        float high = Mathf.Max(source.r, Mathf.Max(source.g, source.b));
+        float low = Mathf.Min(source.r, Mathf.Min(source.g, source.b));
+        if (high - low < 0.18f) return status ? settings.status : settings.innerLine;
+        if (source.r > source.g * 1.25f && source.r > source.b) return settings.danger;
+        if (source.b > source.r && source.b > source.g * 0.9f) return settings.energy;
+        if (source.r > source.b * 1.3f && source.g > source.b * 1.3f) return settings.highlight;
+        return settings.status;
+    }
+
+    internal static float PixelStep(RectTransform rect, Canvas canvas, BattleUiStyleSettings settings)
+    {
+        Camera camera = canvas != null && canvas.renderMode != RenderMode.ScreenSpaceOverlay ? canvas.worldCamera : null;
+        Vector2 origin = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Vector3.zero));
+        Vector2 right = RectTransformUtility.WorldToScreenPoint(camera, rect.TransformPoint(Vector3.right));
+        return Mathf.Max(1f, Mathf.Round(settings.logicalPixelSize)) / Mathf.Max(0.001f, Vector2.Distance(origin, right));
+    }
+
+    internal static void DrawFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color fill, float pixel)
+    {
+        Color outer = settings.outerFrame;
+        outer.r *= settings.frameShade;
+        outer.g *= settings.frameShade;
+        outer.b *= settings.frameShade;
         outer.a *= fill.a;
-        inner.a *= fill.a;
+        Color surface = Surface(settings);
+        surface.a = fill.a;
         StepFill(vh, rect, pixel, outer);
-        rect = Inset(rect, 2f * pixel);
-        StepFill(vh, rect, pixel, inner);
-        StepFill(vh, Inset(rect, pixel), pixel, fill);
+        StepFill(vh, Inset(rect, settings.framePixels * pixel), pixel, surface);
+    }
+
+    internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha)
+    {
+        Color red = settings.comicAccent, paper = settings.comicPaper, ink = settings.comicBackground;
+        red.a *= alpha;
+        paper.a *= alpha;
+        ink.a *= alpha;
+        Slant(vh, new Rect(rect.x + 5f, rect.y - 5f, rect.width, rect.height), red);
+        Slant(vh, rect, paper);
+        Slant(vh, Inset(rect, 3f), ink);
+    }
+
+    internal static void Slant(VertexHelper vh, Rect rect, Color tint)
+    {
+        if (rect.width <= 0f || rect.height <= 0f) return;
+        float cut = Mathf.Min(12f, rect.width * 0.08f);
+        int first = vh.currentVertCount;
+        vh.AddVert(new Vector3(rect.xMin, rect.yMin, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMin + cut, rect.yMax, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax, rect.yMax, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax - cut, rect.yMin, 0f), tint, Vector2.zero);
+        vh.AddTriangle(first, first + 1, first + 2);
+        vh.AddTriangle(first, first + 2, first + 3);
     }
 
     internal static Rect Inset(Rect rect, float amount) => new(rect.x + amount, rect.y + amount,
