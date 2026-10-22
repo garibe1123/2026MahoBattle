@@ -483,6 +483,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         BuildMetricBar();
         BuildMissionPanel();
         BuildChatPanel();
+        BattleUiStyleController.RegisterRoot(dashboardRoot);
+        BattleUiStyleController.RegisterRoot(metricBar);
 
         dashboardRoot.gameObject.SetActive(false);
     }
@@ -1936,6 +1938,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         text.alignment = alignment;
         text.color = color;
         text.raycastTarget = false;
+        BattleUiStyleController.RegisterGraphic(text);
         return text;
     }
 

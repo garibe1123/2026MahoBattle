@@ -1662,6 +1662,7 @@ public sealed class BattleSpatialMapController : MonoBehaviour
         CreateScriptClip(front);
         CreateScriptCardContent(front, node, accent);
         CreateScriptDetailContent(detail, node, accent);
+        BattleUiStyleController.RegisterRoot(visualRoot);
 
         turningPageMesh.Configure(
             scriptCardSize,

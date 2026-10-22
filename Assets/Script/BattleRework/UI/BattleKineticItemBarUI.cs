@@ -553,6 +553,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         text.alignment = alignment;
         text.color = color;
         text.raycastTarget = false;
+        BattleUiStyleController.RegisterGraphic(text);
         return text;
     }
 

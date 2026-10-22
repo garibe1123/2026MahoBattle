@@ -26,6 +26,7 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
     private Sprite outlineSprite;
     private Sprite fillSprite;
     private int appliedHash = int.MinValue;
+    private Transform registeredStyleRoot;
 
     public void Configure(
         Image image,
@@ -56,6 +57,12 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
 
         EnsureFillImage();
         Refresh(force: true);
+        if (registeredStyleRoot != transform.parent)
+        {
+            registeredStyleRoot = transform.parent;
+            BattleUiStyleController.RegisterRoot(registeredStyleRoot);
+        }
+        BattleUiStyleController.RegisterSpeechFrame(outlineImage, fillImage);
     }
 
     private void Awake()

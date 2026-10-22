@@ -2637,6 +2637,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         text.alignment = alignment;
         text.color = color;
         text.raycastTarget = false;
+        BattleUiStyleController.RegisterGraphic(text);
         return text;
     }
 

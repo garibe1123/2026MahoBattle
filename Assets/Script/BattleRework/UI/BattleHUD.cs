@@ -415,6 +415,7 @@ public sealed class BattleHUD : MonoBehaviour
             cardRect.gameObject.SetActive(true);
         }
         RewardCardsRebuilt?.Invoke();
+        BattleUiStyleController.RegisterRoot(rewardCardRoot);
     }
 
     private RewardCardSlot CreateRewardCardSlot(int index)
@@ -543,6 +544,7 @@ public sealed class BattleHUD : MonoBehaviour
         text.alignment = alignment;
         text.color = color;
         text.raycastTarget = false;
+        BattleUiStyleController.RegisterGraphic(text);
         return text;
     }
 

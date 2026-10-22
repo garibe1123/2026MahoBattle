@@ -132,6 +132,38 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 {
     public static BattleShowPresentationManager Instance { get; private set; }
 
+    [Header("UI Style")]
+    [SerializeField] private BattleUiStyle uiStyle = BattleUiStyle.VectorStyleUi;
+    [SerializeField] private bool screenGridEnabled;
+    [SerializeField, Range(0f, 0.08f)] private float screenGridContrast = 0.08f;
+    [SerializeField] private BattleUiStyleSettings pixelStyleUi = new();
+    [SerializeField] private BattleUiStyleSettings comicStyleUi = new();
+    [SerializeField] private BattleUiStyleSettings vectorStyleUi = new();
+    private BattleUiStyleController uiStyleController;
+    private bool uiStyleRefreshRequested;
+
+    public BattleUiStyle UiStyle => uiStyle;
+    public bool ScreenGridEnabled => screenGridEnabled;
+    public float ScreenGridContrast => screenGridContrast;
+    public BattleUiStyleSettings UiStyleSettings => uiStyle switch
+    {
+        BattleUiStyle.pixelStyleUi => pixelStyleUi,
+        BattleUiStyle.comicStyleUi => comicStyleUi,
+        _ => vectorStyleUi
+    };
+
+    public void SetUiStyle(BattleUiStyle value)
+    {
+        uiStyle = value;
+        uiStyleController?.RefreshSettings();
+    }
+
+    public void SetScreenGridEnabled(bool value)
+    {
+        screenGridEnabled = value;
+        uiStyleController?.RefreshSettings();
+    }
+
     private readonly Dictionary<Graphic, BattleUiMaterialController.UiChannel> uiMaterialTargets = new();
     public IReadOnlyDictionary<Graphic, BattleUiMaterialController.UiChannel> UiMaterialTargets => uiMaterialTargets;
     public event Action<Graphic, BattleUiMaterialController.UiChannel> UiMaterialTargetAssigned;
@@ -145,6 +177,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             channel = registeredChannel;
         uiMaterialTargets[target] = channel;
         UiMaterialTargetAssigned?.Invoke(target, channel);
+        BattleUiStyleController.RegisterGraphic(target);
     }
 
     public void RegisterUiMaterialRoot(Transform root, BattleUiMaterialController.UiChannel channel)
@@ -704,6 +737,10 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         }
 
         Instance = this;
+        uiStyleController = GetComponent<BattleUiStyleController>();
+        if (uiStyleController == null)
+            uiStyleController = gameObject.AddComponent<BattleUiStyleController>();
+        uiStyleController.Configure(this);
         ResolveReferences();
         EnsureCueCanvas();
     }
@@ -743,6 +780,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private void Update()
     {
+        if (uiStyleRefreshRequested)
+        {
+            uiStyleRefreshRequested = false;
+            uiStyleController?.RefreshSettings();
+        }
         if (hud == null || runManager == null || baseTemplate == null)
         {
             ResolveReferences();
@@ -2226,6 +2268,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 #if UNITY_EDITOR
     private void OnValidate()
     {
+        uiStyleRefreshRequested = true;
         // Inspector에서 Reward 관련 Serialized 값이 바뀌면
         // 현재 Play Mode Showcase가 다음 Update에서 즉시 다시 적용하도록 Revision을 올립니다.
         unchecked

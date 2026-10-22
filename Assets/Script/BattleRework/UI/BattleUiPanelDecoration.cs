@@ -100,6 +100,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         foreach (Outline outline in parent.GetComponents<Outline>())
             outline.enabled = false;
         decoration.SetVerticesDirty();
+        BattleUiStyleController.RegisterGraphic(decoration);
+        BattleUiStyleController.RegisterPanel(decoration.surfaceImage);
         return decoration;
     }
 
@@ -123,6 +125,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         text.text = title;
         text.raycastTarget = false;
         decoration.LayoutHeader();
+        BattleUiStyleController.RegisterGraphic(text);
         decoration.SetVerticesDirty();
     }
 
@@ -171,6 +174,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         text.rectTransform.anchorMax = Vector2.one;
         text.rectTransform.offsetMin = text.rectTransform.offsetMax = Vector2.zero;
         bar.SetActive(false);
+        BattleUiStyleController.RegisterRoot(bar.transform);
         return text;
     }
 
@@ -201,6 +205,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         image.sprite = BattleHudSpriteCache.RoundedPanel;
         image.type = Image.Type.Sliced;
         image.color = new Color(Surface.r, Surface.g, Surface.b, image.color.a > 0f ? Surface.a : 0f);
+        BattleUiStyleController.RegisterGraphic(image);
     }
 
     public void SetEmphasis(bool value, bool selected = false)
@@ -235,6 +240,33 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         Rect face = rectTransform.rect;
         if (face.width < 8f || face.height < 8f)
             return;
+
+        if (BattleUiStyleController.IsPixel)
+        {
+            BattleUiStyleSettings style = BattleUiStyleController.Settings;
+            float pixel = Mathf.Max(1f, style.logicalPixelSize);
+            Color fill = style.background;
+            fill.a = softFill ? 0.90f : 1f;
+            BattleUiStyleMeshEffect.DrawFrame(vh, face, style, fill);
+            if (hasHeader)
+            {
+                float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
+                Rect header = new(face.xMin + 4f * pixel, face.yMax - HeaderHeight * scale,
+                    face.width - 8f * pixel, HeaderHeight * scale - 4f * pixel);
+                BattleUiStyleMeshEffect.StepFill(vh, header, pixel, style.status);
+            }
+            if (emphasis)
+            {
+                Color tint = style.status;
+                tint.a = 0.13f + pulse * 0.08f;
+                BattleUiStyleMeshEffect.StepFill(vh,
+                    BattleUiStyleMeshEffect.Inset(face, 3f * pixel), pixel, tint);
+            }
+            if (selected)
+                BattleUiStyleMeshEffect.Quad(vh,
+                    new Rect(face.xMax - 7f * pixel, face.yMin + 4f * pixel, 3f * pixel, 3f * pixel), style.innerLine);
+            return;
+        }
 
         Fill(vh, Expand(face, 0f, new Vector2(3f + pulse, -4f - pulse)),
             new Color(0f, 0f, 0f, 0.12f), new Color(0f, 0f, 0f, 0.12f));

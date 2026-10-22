@@ -219,6 +219,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     {
         if (!applied || !isActiveAndEnabled || target == null)
             return;
+        BattleUiStyleController.PrepareMaterialTarget(target);
         UiMaterialGroup group = GetGroup(channel);
 
         for (int i = 0; i < states.Count; i++)
@@ -302,6 +303,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         if (targets != null && !targets.Add(target))
             return;
 
+        BattleUiStyleController.PrepareMaterialTarget(target);
         Material original = target.material;
 #if UNITY_EDITOR
         // Preserve an unassigned material as null during editor preview.

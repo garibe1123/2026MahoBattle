@@ -20,6 +20,7 @@ public class BattleDebugUI : MonoBehaviour
     private static bool sceneHookInstalled;
 
     private Vector2 scroll;
+    private static readonly string[] uiStyleNames = { "pixelStyleUi", "comicStyleUi", "VectorStyleUi" };
     private Coroutine killAllRoutine;
 #if UNITY_EDITOR
     [SerializeField] private EffectDefinitionSO[] elementalDefinitions;
@@ -198,6 +199,17 @@ public class BattleDebugUI : MonoBehaviour
         scroll = GUILayout.BeginScrollView(scroll);
 
         GUILayout.Label("BATTLE VERTICAL SLICE DEBUG");
+        BattleShowPresentationManager presentation = BattleShowPresentationManager.Instance;
+        if (presentation != null)
+        {
+            GUILayout.Label($"UI Style: {presentation.UiStyle}");
+            int selectedStyle = GUILayout.Toolbar((int)presentation.UiStyle, uiStyleNames);
+            if (selectedStyle != (int)presentation.UiStyle)
+                presentation.SetUiStyle((BattleUiStyle)selectedStyle);
+            bool gridEnabled = GUILayout.Toggle(presentation.ScreenGridEnabled, "Screen grid (2 x 2)");
+            if (gridEnabled != presentation.ScreenGridEnabled)
+                presentation.SetScreenGridEnabled(gridEnabled);
+        }
         GUILayout.Space(6f);
 
         if (runManager == null)

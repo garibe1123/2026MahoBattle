@@ -30,6 +30,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private Sprite outlineSprite;
     private Sprite fillSprite;
     private int appliedHash = int.MinValue;
+    private RectTransform registeredStyleRoot;
 
     public void Configure(
         RectTransform bubble,
@@ -47,6 +48,11 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         EnsureTail();
         RefreshSpriteIfNeeded(force: true);
         RefreshPlacement();
+        if (registeredStyleRoot != bubbleRect)
+        {
+            registeredStyleRoot = bubbleRect;
+            BattleUiStyleController.RegisterRoot(registeredStyleRoot);
+        }
     }
 
     public void SetTarget(RectTransform target)

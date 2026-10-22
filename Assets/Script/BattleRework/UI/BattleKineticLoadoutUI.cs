@@ -3257,6 +3257,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         text.alignment = alignment;
         text.color = color;
         text.raycastTarget = false;
+        BattleUiStyleController.RegisterGraphic(text);
         return text;
     }
 
