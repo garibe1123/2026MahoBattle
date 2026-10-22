@@ -95,6 +95,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     private readonly List<MaterialState> states = new List<MaterialState>();
     private static readonly HashSet<Material> assignedMaterials = new HashSet<Material>();
     private static readonly int UnscaledTimeId = Shader.PropertyToID("_BattleUiUnscaledTime");
+    private static readonly int AllInOneTimeId = Shader.PropertyToID("globalUnscaledTime");
     private readonly HashSet<(int, int, string, bool)> reportedFailures = new HashSet<(int, int, string, bool)>();
     private bool reportWriteFailed;
     private bool reportAnnounced;
@@ -107,8 +108,36 @@ public sealed class BattleUiMaterialController : MonoBehaviour
 
     internal static void UpdateUnscaledTime(Material material)
     {
-        if (material != null && material.HasProperty(UnscaledTimeId))
+        if (material == null) return;
+        if (material.HasProperty(UnscaledTimeId))
             material.SetFloat(UnscaledTimeId, Time.unscaledTime);
+        string shaderName = material.shader != null ? material.shader.name : null;
+        if (shaderName == "AllIn1SpriteShader/AllIn1SpriteShaderScaledTime" ||
+            shaderName == "AllIn1SpriteShader/AllIn1SpriteShaderUiMaskScaledTime")
+            material.SetFloat(AllInOneTimeId, Time.unscaledTime / 20f);
+    }
+
+    internal static void ConfigureUnscaledTime(Material material)
+    {
+        if (material == null || material.shader == null) return;
+        string shaderName = material.shader.name;
+        string variant = shaderName == "AllIn1SpriteShader/AllIn1SpriteShader"
+            ? "AllIn1SpriteShader/AllIn1SpriteShaderScaledTime"
+            : shaderName == "AllIn1SpriteShader/AllIn1SpriteShaderUiMask"
+                ? "AllIn1SpriteShader/AllIn1SpriteShaderUiMaskScaledTime" : null;
+        if (variant != null)
+        {
+            Shader shader = Shader.Find(variant);
+            if (shader != null)
+            {
+                string[] keywords = material.shaderKeywords;
+                int queue = material.renderQueue;
+                material.shader = shader;
+                material.shaderKeywords = keywords;
+                material.renderQueue = queue;
+            }
+        }
+        UpdateUnscaledTime(material);
     }
 
     private void OnEnable()
@@ -149,7 +178,11 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     private void Update()
     {
         foreach (MaterialState state in states)
+        {
             UpdateUnscaledTime(state.instance);
+            if (state.target != null && state.target.isActiveAndEnabled && state.target.canvasRenderer.materialCount > 0)
+                UpdateUnscaledTime(state.target.canvasRenderer.GetMaterial(0));
+        }
         if (!refreshRequested)
             return;
 
@@ -354,6 +387,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             name = source.name + " (UI Instance)",
             hideFlags = HideFlags.HideAndDontSave
         };
+        ConfigureUnscaledTime(instance);
         assignedMaterials.Add(instance);
         states.Add(new MaterialState
         {

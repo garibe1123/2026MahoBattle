@@ -48,6 +48,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private RTHandle backgroundCapture;
 
     private float currentBlend;
+    private bool selectionWasOpen;
+    private float returnStartedAt = -1f;
+    private float returnStartBlend;
     internal static bool IsBackgroundActive => instance != null && instance.isActiveAndEnabled &&
         (instance.currentBlend > 0.001f || instance.IsShowSelection());
 
@@ -76,12 +79,34 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     {
         EnsureOverlay();
 
-        float target = IsShowSelection() ? 1f : 0f;
-        float t = 1f - Mathf.Exp(-Mathf.Max(0.1f, fadeSharpness) * Time.unscaledDeltaTime);
-        currentBlend = Mathf.Lerp(currentBlend, target, t);
-
-        if (Mathf.Abs(currentBlend - target) < 0.001f)
-            currentBlend = target;
+        bool selectionOpen = IsShowSelection();
+        BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
+        if (!selectionOpen && selectionWasOpen)
+        {
+            returnStartedAt = Time.unscaledTime;
+            returnStartBlend = currentBlend;
+        }
+        if (selectionOpen)
+        {
+            returnStartedAt = -1f;
+            float t = 1f - Mathf.Exp(-Mathf.Max(0.1f, fadeSharpness) * Time.unscaledDeltaTime);
+            currentBlend = Mathf.Lerp(currentBlend, 1f, t);
+            if (Mathf.Abs(currentBlend - 1f) < 0.001f) currentBlend = 1f;
+        }
+        else if (returnStartedAt >= 0f)
+        {
+            float duration = profile != null ? profile.crtSelectionReturnDuration : 0.48f;
+            float t = Mathf.Clamp01((Time.unscaledTime - returnStartedAt) / Mathf.Max(0.05f, duration));
+            float x = t - 1f;
+            float rebound = profile != null ? profile.crtSelectionReturnRebound : 1.3f;
+            currentBlend = -returnStartBlend * x * x * ((rebound + 1f) * x + rebound);
+            if (t >= 1f)
+            {
+                currentBlend = 0f;
+                returnStartedAt = -1f;
+            }
+        }
+        selectionWasOpen = selectionOpen;
 
         ApplyBlend();
     }
@@ -236,6 +261,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
                     name = "BattleTabBackground_Runtime",
                     hideFlags = HideFlags.HideAndDontSave
                 };
+                BattleUiMaterialController.ConfigureUnscaledTime(overlayMaterial);
             }
         }
 
@@ -281,13 +307,15 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     {
         BattleUiMaterialController.UpdateUnscaledTime(overlayMaterial);
         BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
+        if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend);
         if (showVolume != null)
             showVolume.weight = Mathf.Clamp01(currentBlend);
-        if (chromaticAberration != null) chromaticAberration.intensity.Override(chromaticAberrationIntensity);
+        if (chromaticAberration != null) chromaticAberration.intensity.Override(profile != null
+            ? profile.crtSelectionChromaticAberration : chromaticAberrationIntensity);
         if (lensDistortion != null)
         {
             lensDistortion.intensity.Override(profile != null
-                ? Mathf.Clamp(profile.lensDistortionIntensity - profile.crtCurvature, -1f, 1f)
+                ? Mathf.Clamp(profile.lensDistortionIntensity - profile.crtCurvature * profile.crtSelectionCurvatureMultiplier, -1f, 1f)
                 : lensDistortionIntensity);
             lensDistortion.scale.Override(profile != null ? profile.lensDistortionScale : lensDistortionScale);
         }
@@ -299,13 +327,16 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         }
         if (cameraData != null && currentBlend > 0.001f)
             cameraData.renderPostProcessing = true;
-        if (overlayGroup != null) overlayGroup.alpha = Mathf.Clamp01(currentBlend);
+        if (overlayGroup != null) overlayGroup.alpha = Mathf.Clamp01(currentBlend) *
+            (profile != null ? profile.crtSelectionBackgroundOpacity : 0.30f);
         if (overlayImage != null)
             overlayImage.enabled = overlayMaterial != null && backgroundCapture != null && currentBlend > 0.001f;
     }
 
     private void ApplyImmediate(float value)
     {
+        selectionWasOpen = false;
+        returnStartedAt = -1f;
         currentBlend = Mathf.Clamp01(value);
         ApplyBlend();
     }

@@ -102,6 +102,14 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     public Color crtShadowTint = new(0.40f, 0.46f, 0.60f, 1f);
     [Range(0f, 0.1f)] public float crtCenterGlow = 0.025f;
     [Range(0f, 1f)] public float crtSelectionOverlayWeight = 0.65f;
+    [Min(1f)] public float crtSelectionCurvatureMultiplier = 4f;
+    [Range(0f, 1f)] public float crtSelectionChromaticAberration = 0.85f;
+    [Range(0f, 1f)] public float crtSelectionNoiseStrength = 0.30f;
+    [Range(1f, 120f)] public float crtSelectionNoiseRate = 60f;
+    [Range(1f, 4f)] public float crtSelectionNoisePixelSize = 1.25f;
+    [Range(0f, 1f)] public float crtSelectionBackgroundOpacity = 0.30f;
+    [Min(0.05f)] public float crtSelectionReturnDuration = 0.48f;
+    [Range(0f, 3f)] public float crtSelectionReturnRebound = 1.3f;
 
     [Header("Player Key Spotlight")]
     public Color playerPoolColor = new(1f, 0.95f, 0.88f, 1f);
