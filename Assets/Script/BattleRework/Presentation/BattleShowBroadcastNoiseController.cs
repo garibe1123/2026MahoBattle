@@ -3,29 +3,25 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
-/// <summary>
-/// Reward / Map-selection broadcast treatment.
-/// Adds a dedicated show-only Volume and analog surface overlay so selection screens read
-/// like a live TV feed without pushing Combat color grading into the show presentation.
-/// </summary>
 [DefaultExecutionOrder(25500)]
 [DisallowMultipleComponent]
 public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 {
-    private const string AnalogOverlayShaderName = "UI/BattleAnalogTvOverlay";
     private const int OverlaySortingOrder = 460;
 
     private static BattleShowBroadcastNoiseController instance;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
+    [SerializeField] private BattleKineticLoadoutUI kineticLoadout;
+    [SerializeField] private BattleShowPresentationManager presentation;
+    [SerializeField] private Camera targetCamera;
+    private UniversalAdditionalCameraData cameraData;
 
-    [Header("Show Broadcast Volume")]
-    [SerializeField, Range(0f, 1f)] private float filmGrainIntensity = 0.16f;
-    [SerializeField, Range(0f, 1f)] private float filmGrainResponse = 0.72f;
-    [SerializeField, Range(0f, 1f)] private float chromaticAberrationIntensity = 0.032f;
-    [SerializeField, Range(-1f, 1f)] private float lensDistortionIntensity = -0.020f;
-    [SerializeField, Range(0.01f, 5f)] private float lensDistortionScale = 1.008f;
+    [Header("Shared Selection Lens")]
+    [SerializeField, Range(0f, 1f)] private float chromaticAberrationIntensity = 0.12f;
+    [SerializeField, Range(-1f, 1f)] private float lensDistortionIntensity = -0.055f;
+    [SerializeField, Range(0.01f, 5f)] private float lensDistortionScale = 1.015f;
 
     [Header("Show Lens Vignette")]
     [Tooltip("CRT/lens-like falloff that darkens only the outer corners without crushing the TV content in the center.")]
@@ -33,18 +29,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField, Range(0.01f, 1f)] private float vignetteSmoothness = 0.48f;
     [SerializeField] private Color vignetteColor = Color.black;
 
-    [Header("Analog Surface")]
-    [SerializeField, Range(0f, 1f)] private float overlayStrength = 0.72f;
-    [SerializeField, Range(0f, 0.25f)] private float scanlineStrength = 0.050f;
-    [SerializeField, Range(1f, 12f)] private float scanlineSpacingPixels = 3f;
-    [SerializeField, Range(0f, 0.15f)] private float noiseStrength = 0.034f;
-    [SerializeField, Range(0f, 0.15f)] private float rollingBandStrength = 0.026f;
-    [SerializeField] private Color overlayTint = new(0.012f, 0.016f, 0.020f, 1f);
-
     [Header("Blend")]
     [SerializeField, Min(0.1f)] private float fadeSharpness = 7.5f;
-    [SerializeField, Range(0f, 0.15f)] private float signalFlicker = 0.035f;
-    [SerializeField, Min(0.1f)] private float signalFlickerSpeed = 6.2f;
 
     private Volume showVolume;
     private VolumeProfile runtimeProfile;
@@ -54,10 +40,14 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private Vignette vignette;
 
     private Canvas overlayCanvas;
+    private CanvasGroup overlayGroup;
     private Image overlayImage;
     private Material overlayMaterial;
+    private Material overlaySource;
 
     private float currentBlend;
+    internal static bool IsBackgroundActive => instance != null && instance.isActiveAndEnabled &&
+        (instance.currentBlend > 0.001f || instance.IsShowSelection());
 
     private void Awake()
     {
@@ -74,12 +64,15 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         ApplyImmediate(0f);
     }
 
-    private void Update()
+    private void Start()
     {
         ResolveReferences();
         EnsureVolume();
+    }
+
+    private void Update()
+    {
         EnsureOverlay();
-        EnsureCameraPostProcessing();
 
         float target = IsShowSelection() ? 1f : 0f;
         float t = 1f - Mathf.Exp(-Mathf.Max(0.1f, fadeSharpness) * Time.unscaledDeltaTime);
@@ -110,6 +103,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             runtimeProfile.components.Clear();
             Destroy(runtimeProfile);
         }
+        if (overlayCanvas != null) Destroy(overlayCanvas.gameObject);
+        if (showVolume != null) Destroy(showVolume.gameObject);
 
         if (instance == this)
             instance = null;
@@ -119,6 +114,18 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     {
         if (runManager == null)
             runManager = FindFirstObjectByType<BattleRunManager>();
+        if (kineticLoadout == null)
+            kineticLoadout = FindFirstObjectByType<BattleKineticLoadoutUI>();
+        if (presentation == null)
+            presentation = BattleShowPresentationManager.Instance ?? FindFirstObjectByType<BattleShowPresentationManager>();
+        if (targetCamera == null)
+            targetCamera = Camera.main;
+        if (targetCamera != null && cameraData == null)
+        {
+            cameraData = targetCamera.GetComponent<UniversalAdditionalCameraData>();
+            if (cameraData == null)
+                cameraData = targetCamera.gameObject.AddComponent<UniversalAdditionalCameraData>();
+        }
     }
 
     private bool IsShowSelection()
@@ -127,7 +134,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             return false;
 
         return runManager.State == BattleRunState.Reward ||
-               runManager.State == BattleRunState.SelectingNode;
+               runManager.State == BattleRunState.SelectingNode ||
+               (kineticLoadout != null && kineticLoadout.isActiveAndEnabled && kineticLoadout.IsSwitchBoardOpen);
     }
 
     private void EnsureVolume()
@@ -142,6 +150,13 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             showVolume.priority = 650f;
             showVolume.weight = currentBlend;
         }
+        if (cameraData != null)
+            for (int layer = 0; layer < 32; layer++)
+                if ((cameraData.volumeLayerMask.value & (1 << layer)) != 0)
+                {
+                    showVolume.gameObject.layer = layer;
+                    break;
+                }
 
         if (runtimeProfile != null)
             return;
@@ -152,8 +167,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         showVolume.sharedProfile = runtimeProfile;
 
         filmGrain = runtimeProfile.Add<FilmGrain>(true);
-        filmGrain.intensity.Override(filmGrainIntensity);
-        filmGrain.response.Override(filmGrainResponse);
+        filmGrain.intensity.Override(0f);
 
         chromaticAberration = runtimeProfile.Add<ChromaticAberration>(true);
         chromaticAberration.intensity.Override(chromaticAberrationIntensity);
@@ -181,11 +195,15 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             overlayCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
             overlayCanvas.overrideSorting = true;
             overlayCanvas.sortingOrder = OverlaySortingOrder;
+            overlayGroup = canvasObject.AddComponent<CanvasGroup>();
+            overlayGroup.alpha = 0f;
+            overlayGroup.blocksRaycasts = false;
+            overlayGroup.interactable = false;
 
             GameObject imageObject = new("BattleShowBroadcastNoise", typeof(RectTransform));
             imageObject.transform.SetParent(canvasObject.transform, false);
 
-            RectTransform rect = imageObject.GetComponent<RectTransform>();
+            RectTransform rect = (RectTransform)imageObject.transform;
             rect.anchorMin = Vector2.zero;
             rect.anchorMax = Vector2.one;
             rect.offsetMin = Vector2.zero;
@@ -194,19 +212,21 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             overlayImage = imageObject.AddComponent<Image>();
             overlayImage.raycastTarget = false;
             overlayImage.color = Color.white;
+            overlayImage.enabled = false;
         }
 
-        if (overlayMaterial == null)
+        Material source = presentation != null ? presentation.TabBackgroundMaterial : null;
+        if (source != overlaySource)
         {
-            Shader shader = Shader.Find(AnalogOverlayShaderName);
-            if (shader == null)
-                shader = Resources.Load<Shader>("BattleAnalogTvOverlay");
-
-            if (shader != null)
+            if (overlayImage != null) overlayImage.material = null;
+            if (overlayMaterial != null) Destroy(overlayMaterial);
+            overlaySource = source;
+            overlayMaterial = null;
+            if (source != null && source.HasProperty("_MainTex"))
             {
-                overlayMaterial = new Material(shader)
+                overlayMaterial = new Material(source)
                 {
-                    name = "BattleShowBroadcastNoise_Runtime",
+                    name = "BattleTabBackground_Runtime",
                     hideFlags = HideFlags.HideAndDontSave
                 };
             }
@@ -220,47 +240,28 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     {
         if (showVolume != null)
             showVolume.weight = Mathf.Clamp01(currentBlend);
-
-        if (overlayImage == null || overlayMaterial == null)
-            return;
-
-        float flicker = 1f + Mathf.Sin(Time.unscaledTime * signalFlickerSpeed) * signalFlicker;
-        float strength = Mathf.Clamp01(currentBlend * overlayStrength * flicker);
-
-        overlayMaterial.SetFloat("_Strength", strength);
-        overlayMaterial.SetFloat("_ScanlineStrength", scanlineStrength);
-        overlayMaterial.SetFloat("_ScanlineSpacing", scanlineSpacingPixels);
-        overlayMaterial.SetFloat("_NoiseStrength", noiseStrength);
-        overlayMaterial.SetFloat("_RollingBandStrength", rollingBandStrength);
-        overlayMaterial.SetColor("_OverlayTint", overlayTint);
-
-        overlayImage.enabled = strength > 0.001f;
+        if (chromaticAberration != null) chromaticAberration.intensity.Override(chromaticAberrationIntensity);
+        if (lensDistortion != null)
+        {
+            lensDistortion.intensity.Override(lensDistortionIntensity);
+            lensDistortion.scale.Override(lensDistortionScale);
+        }
+        if (vignette != null)
+        {
+            vignette.color.Override(vignetteColor);
+            vignette.intensity.Override(vignetteIntensity);
+            vignette.smoothness.Override(vignetteSmoothness);
+        }
+        if (cameraData != null && currentBlend > 0.001f)
+            cameraData.renderPostProcessing = true;
+        if (overlayGroup != null) overlayGroup.alpha = Mathf.Clamp01(currentBlend);
+        if (overlayImage != null)
+            overlayImage.enabled = overlayMaterial != null && currentBlend > 0.001f;
     }
 
     private void ApplyImmediate(float value)
     {
         currentBlend = Mathf.Clamp01(value);
-
-        if (showVolume != null)
-            showVolume.weight = currentBlend;
-
-        if (overlayMaterial != null)
-            overlayMaterial.SetFloat("_Strength", currentBlend * overlayStrength);
-
-        if (overlayImage != null)
-            overlayImage.enabled = currentBlend > 0.001f;
-    }
-
-    private static void EnsureCameraPostProcessing()
-    {
-        Camera camera = Camera.main;
-        if (camera == null)
-            return;
-
-        UniversalAdditionalCameraData data = camera.GetComponent<UniversalAdditionalCameraData>();
-        if (data == null)
-            data = camera.gameObject.AddComponent<UniversalAdditionalCameraData>();
-
-        data.renderPostProcessing = true;
+        ApplyBlend();
     }
 }

@@ -88,8 +88,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private RectTransform tabHoldBarRight;
     private Image tabHoldBarLeftImage;
     private Image tabHoldBarRightImage;
-    private Image tabSubtleNoiseImage;
-    private Material tabSubtleNoiseMaterial;
     private Text tabTimeFlowText;
     private RectTransform boardRoot;
     private CanvasGroup boardGroup;
@@ -248,9 +246,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         UnsubscribeInput();
         ForceRestoreTabTime();
-
-        if (tabSubtleNoiseMaterial != null)
-            Destroy(tabSubtleNoiseMaterial);
     }
 
     private void Update()
@@ -798,7 +793,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         tabHoldSignalGroup.blocksRaycasts = false;
         tabHoldSignalGroup.interactable = false;
 
-        BuildTabSubtleNoise(root);
         BuildTabScreenFrame(root);
 
         tabHoldGlyphRoot = CreateRect(
@@ -903,74 +897,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             paperColor.b,
             0.62f);
         v.raycastTarget = false;
-    }
-
-    private void BuildTabSubtleNoise(RectTransform root)
-    {
-        if (root == null)
-            return;
-
-        RectTransform noiseRect =
-            CreateRect(
-                root,
-                "TabSubtleNoise",
-                Vector2.zero);
-
-        Stretch(
-            noiseRect);
-
-        tabSubtleNoiseImage =
-            noiseRect.gameObject.AddComponent<Image>();
-
-        tabSubtleNoiseImage.color =
-            Color.white;
-
-        tabSubtleNoiseImage.raycastTarget =
-            false;
-
-        Shader shader =
-            Shader.Find(
-                "UI/BattleUiSubtleNoise");
-
-        if (shader == null)
-        {
-            tabSubtleNoiseImage.enabled =
-                false;
-
-            return;
-        }
-
-        tabSubtleNoiseMaterial =
-            new Material(
-                shader)
-            {
-                name =
-                    "BattleTabSubtleNoise_Runtime",
-                hideFlags =
-                    HideFlags.HideAndDontSave
-            };
-
-        tabSubtleNoiseMaterial.SetFloat(
-            "_NoiseStrength",
-            0.014f);
-
-        tabSubtleNoiseMaterial.SetFloat(
-            "_NoiseSpeed",
-            14f);
-
-        tabSubtleNoiseMaterial.SetColor(
-            "_NoiseTint",
-            new Color(
-                0.76f,
-                0.79f,
-                0.82f,
-                1f));
-
-        tabSubtleNoiseImage.material =
-            BattleUiHologramMaterialProvider.Resolve(
-                tabSubtleNoiseMaterial);
-
-        noiseRect.SetAsFirstSibling();
     }
 
     private void BuildCompactUi(Transform parent)

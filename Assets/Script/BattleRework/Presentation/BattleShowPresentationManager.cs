@@ -154,6 +154,11 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
 
+    [Header("Tab Background")]
+    [Tooltip("선택 화면과 전투 탭 배경에 공통 적용합니다. _MainTex와 UI 알파 블렌딩을 지원하는 Material을 지정합니다. 원본 대신 런타임 복사본을 사용합니다.")]
+    [SerializeField] private Material tabBackgroundMaterial;
+    public Material TabBackgroundMaterial => tabBackgroundMaterial;
+
     public BattleUiStyle UiStyle => uiStyle;
     public float UiPixelScale => Mathf.Clamp(uiPixelScale, 0.5f, 4f);
     public bool ScreenGridEnabled => screenGridEnabled;

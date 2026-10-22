@@ -508,10 +508,13 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
     private void UpdateAnalogOverlay()
     {
+        bool selectionBackground = BattleShowBroadcastNoiseController.IsBackgroundActive;
+        if (filmGrain != null && lightingProfile != null)
+            filmGrain.intensity.Override(selectionBackground ? 0f : lightingProfile.filmGrainIntensity);
         if (analogOverlay == null)
             return;
 
-        if (lightingProfile == null || analogOverlayMaterial == null)
+        if (selectionBackground || lightingProfile == null || analogOverlayMaterial == null)
         {
             analogOverlay.enabled = false;
             return;
