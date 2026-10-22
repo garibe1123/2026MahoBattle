@@ -41,9 +41,10 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     private Canvas overlayCanvas;
     private CanvasGroup overlayGroup;
-    private Image overlayImage;
+    private RawImage overlayImage;
     private Material overlayMaterial;
     private Material overlaySource;
+    private RTHandle backgroundCapture;
 
     private float currentBlend;
     internal static bool IsBackgroundActive => instance != null && instance.isActiveAndEnabled &&
@@ -87,10 +88,12 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private void OnDisable()
     {
         ApplyImmediate(0f);
+        ReleaseBackgroundCapture();
     }
 
     private void OnDestroy()
     {
+        ReleaseBackgroundCapture();
         if (overlayMaterial != null)
             Destroy(overlayMaterial);
         if (runtimeProfile != null)
@@ -209,7 +212,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
 
-            overlayImage = imageObject.AddComponent<Image>();
+            overlayImage = imageObject.AddComponent<RawImage>();
             overlayImage.raycastTarget = false;
             overlayImage.color = Color.white;
             overlayImage.enabled = false;
@@ -218,6 +221,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         Material source = presentation != null ? presentation.TabBackgroundMaterial : null;
         if (source != overlaySource)
         {
+            ReleaseBackgroundCapture();
             if (overlayImage != null) overlayImage.material = null;
             if (overlayMaterial != null) Destroy(overlayMaterial);
             overlaySource = source;
@@ -234,6 +238,40 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
         if (overlayImage != null)
             overlayImage.material = overlayMaterial;
+    }
+
+    internal static bool WantsBackgroundCapture(Camera camera)
+    {
+        return instance != null && instance.isActiveAndEnabled &&
+            instance.targetCamera == camera && instance.overlayMaterial != null &&
+            instance.currentBlend > 0.001f;
+    }
+
+    internal static RTHandle PrepareBackgroundCapture(Camera camera, RenderTextureDescriptor descriptor)
+    {
+        if (!WantsBackgroundCapture(camera)) return null;
+        descriptor.depthBufferBits = 0;
+        descriptor.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+        descriptor.msaaSamples = 1;
+        descriptor.bindMS = false;
+        descriptor.useMipMap = false;
+        descriptor.autoGenerateMips = false;
+        descriptor.memoryless = RenderTextureMemoryless.None;
+        RenderingUtils.ReAllocateHandleIfNeeded(ref instance.backgroundCapture, descriptor,
+            FilterMode.Bilinear, TextureWrapMode.Clamp, name: "BattleTabBackgroundCapture");
+        instance.overlayImage.texture = instance.backgroundCapture.rt;
+        return instance.backgroundCapture;
+    }
+
+    private void ReleaseBackgroundCapture()
+    {
+        if (overlayImage != null)
+        {
+            overlayImage.enabled = false;
+            overlayImage.texture = null;
+        }
+        backgroundCapture?.Release();
+        backgroundCapture = null;
     }
 
     private void ApplyBlend()
@@ -256,7 +294,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             cameraData.renderPostProcessing = true;
         if (overlayGroup != null) overlayGroup.alpha = Mathf.Clamp01(currentBlend);
         if (overlayImage != null)
-            overlayImage.enabled = overlayMaterial != null && currentBlend > 0.001f;
+            overlayImage.enabled = overlayMaterial != null && backgroundCapture != null && currentBlend > 0.001f;
     }
 
     private void ApplyImmediate(float value)
