@@ -49,6 +49,8 @@ public sealed class EffectVisual : MonoBehaviour
     private SpriteRenderer attachedRenderer;
     private SortingGroup attachedGroup;
     private BattleWorldSortAnchor attachedAnchor;
+    private bool attachedParticle;
+    private float attachmentDissolve;
     private int AttachedOrder => attachedAnchor != null && attachedAnchor.isActiveAndEnabled
         ? BattleWorldSorting.WorldYToOrder(attachedAnchor.CurrentAnchorWorldY, attachedAnchor.LocalSortOffset) + 1
         : (attachedGroup != null && attachedGroup.isActiveAndEnabled ? attachedGroup.sortingOrder : attachedRenderer.sortingOrder) + 1;
@@ -64,10 +66,10 @@ public sealed class EffectVisual : MonoBehaviour
 
     public EffectPhase Phase => playback.Phase;
     public bool IsAirborne => airborne;
-    public bool IsPlaying => !released && (airborne || playback.IsPlaying);
+    public bool IsPlaying => !released && (attachedParticle || airborne || playback.IsPlaying);
     public double Remaining => released ? 0d : airborne
         ? requestedDuration == -1f ? double.PositiveInfinity : EffectNumbers.NonNegative(requestedDuration) + Math.Max(0d, flightDuration - flightElapsed)
-        : playback.Remaining;
+        : attachedParticle ? Mathf.Max(0f, requestedDuration - age) : playback.Remaining;
     public int ExecutionId => generation;
     public EffectFaction Faction { get; private set; }
     public IReadOnlyList<ElementDefinitionSO> Elements => elements;
@@ -78,7 +80,7 @@ public sealed class EffectVisual : MonoBehaviour
         float? duration = null, Vector3 velocity = default, bool airborne = false,
         EffectFaction faction = EffectFaction.Neutral, IReadOnlyList<ElementDefinitionSO> extraElements = null,
         EffectVisual prefab = null, Action<EffectVisual, EffectPhase> phaseStarted = null,
-        Action<EffectVisual> finished = null, bool stationary = false, float spawnScale = 1f)
+        Action<EffectVisual> finished = null, bool stationary = false, float spawnScale = 1f, bool attachedParticle = false)
     {
         if (data == null) return null;
         if ((data.mergeNearby || data.fireParticles || data.HasCharacterShape) && !EffectBlobWorld.CanSpawn) return null;
@@ -94,7 +96,7 @@ public sealed class EffectVisual : MonoBehaviour
             prefab = template;
         }
         EffectVisual instance = PoolService.Spawn(prefab, position, rotation);
-        instance.Play(data, duration ?? data.duration, velocity, airborne, faction, extraElements, phaseStarted, finished, stationary, spawnScale);
+        instance.Play(data, duration ?? data.duration, velocity, airborne, faction, extraElements, phaseStarted, finished, stationary, spawnScale, attachedParticle);
         return instance;
     }
 
@@ -141,12 +143,13 @@ public sealed class EffectVisual : MonoBehaviour
     public void Play(EffectDefinitionSO data, float duration, Vector3 motion = default,
         bool inFlight = false, EffectFaction faction = EffectFaction.Neutral,
         IReadOnlyList<ElementDefinitionSO> extraElements = null,
-        Action<EffectVisual, EffectPhase> phaseStarted = null, Action<EffectVisual> finished = null, bool stationary = false, float spawnScale = 1f)
+        Action<EffectVisual, EffectPhase> phaseStarted = null, Action<EffectVisual> finished = null, bool stationary = false, float spawnScale = 1f, bool attachedParticle = false)
     {
         ResetForPool();
         if (data == null) { if (!preview) PoolService.Release(gameObject); return; }
         transform.localScale = rootScale * EffectNumbers.NonNegative(spawnScale);
         definition = data;
+        this.attachedParticle = attachedParticle;
         released = false;
         PhaseStarted = phaseStarted;
         Finished = finished;
@@ -167,7 +170,7 @@ public sealed class EffectVisual : MonoBehaviour
             Vector3 scale = transform.lossyScale;
             fire.Play(data, transform.position, velocity,
                 Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y)) *
-                EffectNumbers.NonNegative(data.visualScale) * sizeMultiplier);
+                EffectNumbers.NonNegative(data.visualScale) * sizeMultiplier, attachedParticle ? duration : 0f);
         }
         Faction = faction;
         AddElement(data.element);
@@ -287,7 +290,7 @@ public sealed class EffectVisual : MonoBehaviour
         playbackRun = unchecked(playback.RunId + 1);
         playback.Play(definition, requestedDuration,
             (id, phase) => { if (run == generation && id == playbackRun && !released) PhaseStarted?.Invoke(this, phase); },
-            id => { if (run == generation && id == playbackRun) Complete(run); }, startAtEnd);
+            id => { if (run == generation && id == playbackRun && !attachedParticle) Complete(run); }, startAtEnd);
     }
 
     public void RequestStop()
@@ -314,9 +317,10 @@ public sealed class EffectVisual : MonoBehaviour
         int run = generation;
         float delta = EffectNumbers.NonNegative(deltaTime);
         age += delta;
+        if (attachedParticle && age >= requestedDuration) { Complete(run); return; }
         float flightStep = airborne ? Mathf.Min(delta, Mathf.Max(0f, flightDuration - flightElapsed)) : 0f;
-        if (anchored) transform.position = anchorPosition;
-        else
+        if (anchored && !attachedParticle) transform.position = anchorPosition;
+        else if (!attachedParticle)
         {
             float motionStep = airborne ? flightStep : delta;
             float wanderAmount = definition.family == EffectFamily.Liquid && !airborne
@@ -570,11 +574,12 @@ public sealed class EffectVisual : MonoBehaviour
             Vector3 scale = transform.lossyScale;
             float size = EffectNumbers.NonNegative(definition.visualScale) * sizeMultiplier *
                 Mathf.Max(Mathf.Abs(scale.x), Mathf.Abs(scale.y));
-            sample.center = transform.position + Vector3.up * (age * definition.gasRise * size);
+            sample.center = transform.position + Vector3.up * (attachedParticle ? 0f : age * definition.gasRise * size);
             sample.radius = new Vector2(Mathf.Max(0.01f, definition.character.shapeAspect.x),
                 Mathf.Max(0.01f, definition.character.shapeAspect.y)) * (size * 0.5f);
             sample.impact = Phase == EffectPhase.Intro ? (float)playback.PhaseProgress : 1f;
-            sample.dissolve = Phase == EffectPhase.End ? (float)playback.PhaseProgress : 0f;
+            sample.dissolve = attachedParticle ? attachmentDissolve :
+                Phase == EffectPhase.End ? (float)playback.PhaseProgress : 0f;
             sample.shapeSeed = variationSeed;
             sample.shapeAge = age;
             sample.fireColor = definition.tint;
@@ -724,6 +729,8 @@ public sealed class EffectVisual : MonoBehaviour
         attachedRenderer = null;
         attachedGroup = null;
         attachedAnchor = null;
+        attachedParticle = false;
+        attachmentDissolve = 0f;
         appliedSorting = default;
         sortingGroundPosition = Vector3.zero;
         if (detailRenderers != null)
@@ -846,6 +853,18 @@ public sealed class EffectVisual : MonoBehaviour
     {
         beamVisual?.Dispose();
         ReleaseDetailResources();
+    }
+
+    internal void MoveAttached(Vector3 position, float dissolve)
+    {
+        if (released || !attachedParticle) return;
+        Vector3 delta = position - transform.position;
+        transform.position = position;
+        anchorPosition = position;
+        for (int i = 0; i < historyCount; i++) positions[i] += delta;
+        fire?.Translate(delta);
+        attachmentDissolve = Mathf.Clamp01(dissolve);
+        Render();
     }
 
     public void SetAttachedSorting(SpriteRenderer target, SortingGroup group = null, BattleWorldSortAnchor anchor = null)

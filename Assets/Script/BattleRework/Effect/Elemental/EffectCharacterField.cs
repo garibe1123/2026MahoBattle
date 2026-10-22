@@ -8,7 +8,8 @@ internal static class EffectCharacterField
         if (clip.width == 0 || clip.height == 0 || sample.radius.x <= 0f || sample.radius.y <= 0f) return;
         Vector2 radius = sample.radius / step;
         Vector2 center = ((Vector2)sample.center - origin) / step;
-        float sway = (Mathf.PerlinNoise(sample.shapeSeed, sample.shapeAge * 2f) - 0.5f) * 0.3f;
+        float sway = settings.shape == EffectCharacterShape.FrostShard ? 0f :
+            (Mathf.PerlinNoise(sample.shapeSeed, sample.shapeAge * 2f) - 0.5f) * 0.3f;
         center.x += sway * radius.x;
         int left = Mathf.Clamp(Mathf.FloorToInt(center.x - radius.x * 2f), clip.xMin, clip.xMax - 1);
         int right = Mathf.Clamp(Mathf.CeilToInt(center.x + radius.x * 2f), clip.xMin, clip.xMax - 1);

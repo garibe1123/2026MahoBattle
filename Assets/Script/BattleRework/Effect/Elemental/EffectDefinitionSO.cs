@@ -300,6 +300,7 @@ public sealed class EffectDefinitionSO : ScriptableObject
     public int sortingOrder = 20;
     public EffectSortMode sortingMode;
     public EffectCharacterSettings character = new();
+    [SerializeField, HideInInspector] private int characterSettingsVersion;
     public EffectBeamSettings beam = new();
     public bool HasCharacterShape => character != null && character.shape != EffectCharacterShape.None;
 
@@ -323,6 +324,22 @@ public sealed class EffectDefinitionSO : ScriptableObject
 
     [NonSerialized] private Sprite[][] clips;
     [NonSerialized] private List<Sprite> ownedSprites;
+
+    public bool UpgradeCharacterSettings()
+    {
+        if (characterSettingsVersion >= 1 || character == null || ResolvedSorting != EffectSortMode.Attached) return false;
+        if (fireParticles)
+        {
+            if (character.particleLifetime.Equals(new Vector2(0.4f, 0.8f)))
+                character.particleLifetime = EffectCharacterSettings.DefaultBurnLifetime;
+            if (character.emissionInterval.Equals(new Vector2(0.2f, 0.4f)))
+                character.emissionInterval = EffectCharacterSettings.DefaultBurnInterval;
+            if (fireParticleLifetime.Equals(new Vector2(0.22f, 0.45f)))
+                fireParticleLifetime = EffectCharacterSettings.DefaultBurnLifetime;
+        }
+        characterSettingsVersion = 1;
+        return true;
+    }
 
     public Sprite[] GetFrames(EffectPhase phase)
     {
@@ -406,6 +423,8 @@ public sealed class EffectDefinitionSO : ScriptableObject
 [Serializable]
 public sealed class EffectCharacterSettings
 {
+    public static readonly Vector2 DefaultBurnLifetime = new(1f, 1.4f);
+    public static readonly Vector2 DefaultBurnInterval = new(0.08f, 0.12f);
     public EffectCharacterShape shape;
     public Vector2 shapeAspect = Vector2.one;
     public Color shapeCore = new Color32(155, 221, 39, 255);
@@ -415,6 +434,12 @@ public sealed class EffectCharacterSettings
     public Vector2 emissionInterval = new(0.2f, 0.4f);
     public Vector2 particleLifetime = new(0.4f, 0.8f);
     public Vector2 particleSize = new(0.12f, 0.2f);
+    [Range(0f, 0.99f)] public float fullFollowFraction = 0.8f;
+    [Range(0f, 1f)] public float maxLagInBodyWidths = 0.25f;
+    [Range(0f, 0.99f)] public float fadeStart = 0.75f;
+    [Tooltip("마지막 구간에 낙하 시간을 확보하도록 냉기 파편의 총 수명을 늘립니다.")]
+    public Vector2 frostFallDuration = new(0.3f, 0.5f);
+    public Vector2 frostFallInBodyHeights = new(0.3f, 0.6f);
     public Color tint = new Color32(155, 221, 39, 255);
     [Range(0f, 1f)] public float tintAmount = 0.2f;
     public float duration = -1f;

@@ -278,6 +278,7 @@ public static class HarnessElementalSamples
             EffectDefinitionSO existing = AssetDatabase.LoadAssetAtPath<EffectDefinitionSO>(path);
             if (existing != null && !refresh)
             {
+                if (existing.UpgradeCharacterSettings()) EditorUtility.SetDirty(existing);
                 if (i == 6) sparkle = existing;
                 continue;
             }
@@ -393,6 +394,7 @@ public sealed class EffectDefinitionSOEditor : Editor
 
     private void OnEnable()
     {
+        if (target is EffectDefinitionSO settings && settings.UpgradeCharacterSettings()) EditorUtility.SetDirty(settings);
         if (target is EffectDefinitionSO data && Selection.activeObject == target)
             EffectDefinitionPreviewWindow.ShowDefinition(data);
     }
@@ -524,6 +526,9 @@ public sealed class EffectDefinitionSOEditor : Editor
         EditorGUILayout.LabelField("캐릭터 부착", EditorStyles.boldLabel);
         Fields("character.duration", "character.radiusInBodyWidths", "character.emissionInterval",
             "character.particleLifetime", "character.particleSize", "character.tintAmount");
+        Fields("character.fullFollowFraction", "character.maxLagInBodyWidths", "character.fadeStart");
+        if (Mode("character.shape") == (int)EffectCharacterShape.FrostShard)
+            Fields("character.frostFallDuration", "character.frostFallInBodyHeights");
         if (Property("character.tintAmount").floatValue > 0f) Fields("character.tint");
         Fields("character.sparkle");
         if (Assigned("character.sparkle"))

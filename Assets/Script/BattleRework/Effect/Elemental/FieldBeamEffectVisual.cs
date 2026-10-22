@@ -13,6 +13,7 @@ public sealed class FieldBeamEffectVisual : IDisposable
     private Sprite sprite;
     private Color32[] pixels;
     private float nextRefresh;
+    private bool wasCharging;
     private int textureWidth, textureHeight;
     public Vector3 Center { get; private set; }
     public float Intensity { get; private set; }
@@ -44,11 +45,13 @@ public sealed class FieldBeamEffectVisual : IDisposable
         float chargeTime = laser ? EffectNumbers.NonNegative(data.chargeDuration) : 0f;
         float charge = chargeTime > 0f ? Mathf.Clamp01(age / chargeTime) : 1f;
         bool charging = age < chargeTime;
+        bool chargingChanged = charging != wasCharging;
+        wasCharging = charging;
         float extension = laser && data.extensionDuration > 0f ?
             Mathf.Clamp01((age - chargeTime) / data.extensionDuration) : charging ? 0f : 1f;
         Intensity = envelope * pulse * (charging ? charge * 0.5f : 1f);
         if (size <= 0f || envelope <= 0f) { surface.enabled = false; return; }
-        if (age < nextRefresh && surface.enabled) return;
+        if (age < nextRefresh && surface.enabled && !chargingChanged && envelope >= 1f && extension >= 1f) return;
         nextRefresh = age + 1f / EffectNumbers.Positive(data.refreshRate, 20f);
         Vector3 parentScale = parent.lossyScale;
         float scale = size * Mathf.Max(Mathf.Abs(parentScale.x), Mathf.Abs(parentScale.y));
@@ -232,7 +235,7 @@ public sealed class FieldBeamEffectVisual : IDisposable
         return true;
     }
 
-    public void Clear() { if (surface != null) surface.enabled = false; nextRefresh = 0f; Intensity = 0f; resetSeed = true; }
+    public void Clear() { if (surface != null) surface.enabled = false; nextRefresh = 0f; Intensity = 0f; resetSeed = true; wasCharging = false; }
 
     private void ReleaseTexture()
     {

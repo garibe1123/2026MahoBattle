@@ -15,6 +15,7 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
     private Color originalColor;
     private float elapsed, nextEmission;
     private bool tinted;
+    private bool emitting;
     private bool preview;
     private Camera previewCamera;
     private EffectBlobWorld previewWorld;
@@ -24,6 +25,10 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
     {
         public EffectVisual visual;
         public int execution;
+        public EffectCharacterSettings settings;
+        public Vector3 offset, lastBodyPosition, lag, detachedPosition;
+        public float age, lifetime, fallDuration, fallDistance;
+        public bool frost, detached;
     }
 
     private void Awake()
@@ -56,9 +61,11 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
 
     public void Play(EffectDefinitionSO data)
     {
-        Stop();
+        Stop(true);
         if (!isActiveAndEnabled || body == null || data == null || data.character == null) return;
         definition = data;
+        data.UpgradeCharacterSettings();
+        emitting = true;
         elapsed = nextEmission = 0f;
         originalColor = body.color;
         tinted = true;
@@ -75,26 +82,65 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
     public void Tick(float deltaTime)
     {
         if (definition == null) return;
-        if (body == null || !body.gameObject.activeInHierarchy) { Stop(); return; }
-        if (preview)
-            for (int i = 0; i < particles.Count; i++)
-                if (particles[i].visual != null) particles[i].visual.Tick(deltaTime);
-        elapsed += deltaTime;
+        if (body == null || !body.gameObject.activeInHierarchy) { Stop(true); return; }
+        float delta = EffectNumbers.NonNegative(deltaTime);
+        elapsed += delta;
         EffectCharacterSettings settings = definition.character;
-        if (settings.duration != -1f && elapsed >= Mathf.Max(0f, settings.duration)) { Stop(); return; }
-        if (elapsed >= nextEmission) Emit();
-        if (playerAnimator != null) playerAnimator.SetStatusTint(settings.tint, settings.tintAmount);
-        else ApplyTint();
+        if (emitting && settings.duration != -1f && elapsed >= Mathf.Max(0f, settings.duration)) Stop();
         for (int i = particles.Count - 1; i >= 0; i--)
         {
             Particle particle = particles[i];
+            if (preview && particle.visual != null && particle.visual.ExecutionId == particle.execution)
+                particle.visual.Tick(delta);
             if (particle.visual == null || !particle.visual.IsPlaying || particle.visual.ExecutionId != particle.execution)
             {
-                if (preview && particle.visual != null) ReleasePreview(particle.visual);
+                if (preview && particle.visual != null && !particle.visual.IsPlaying) ReleasePreview(particle.visual);
                 particles.RemoveAt(i);
             }
-            else particle.visual.SetAttachedSorting(body, bodyGroup, sortAnchor);
+            else
+            {
+                Follow(ref particle, delta);
+                particle.visual.SetAttachedSorting(body, bodyGroup, sortAnchor);
+                particles[i] = particle;
+            }
         }
+        if (!emitting) { if (particles.Count == 0) definition = null; return; }
+        if (elapsed >= nextEmission) Emit();
+        if (playerAnimator != null) playerAnimator.SetStatusTint(settings.tint, settings.tintAmount);
+        else ApplyTint();
+    }
+
+    private void Follow(ref Particle particle, float delta)
+    {
+        float previousAge = particle.age;
+        particle.age += delta;
+        float fullFollow = Mathf.Clamp(particle.settings.fullFollowFraction, 0f, 0.99f);
+        float releaseAge = particle.lifetime * fullFollow;
+        Vector3 bodyPosition = body.transform.position;
+        Vector3 movement = bodyPosition - particle.lastBodyPosition;
+        Vector3 position = bodyPosition + particle.offset;
+        float dissolve = Mathf.InverseLerp(particle.settings.fadeStart, 1f, particle.age / particle.lifetime);
+        if (particle.frost && particle.age >= releaseAge)
+        {
+            if (!particle.detached)
+            {
+                float attachedStep = delta > 0f ? Mathf.Clamp01((releaseAge - previousAge) / delta) : 1f;
+                particle.detachedPosition = position - movement * (1f - attachedStep);
+                particle.detached = true;
+            }
+            float fall = Mathf.Clamp01((particle.age - releaseAge) / particle.fallDuration);
+            position = particle.detachedPosition + Vector3.down * (particle.fallDistance * fall * fall);
+            dissolve = fall;
+        }
+        else if (!particle.frost)
+        {
+            float release = Mathf.InverseLerp(fullFollow, 1f, particle.age / particle.lifetime);
+            particle.lag = Vector3.ClampMagnitude(particle.lag - movement * release,
+                body.bounds.size.x * Mathf.Max(0f, particle.settings.maxLagInBodyWidths));
+            position += particle.lag;
+        }
+        particle.lastBodyPosition = bodyPosition;
+        particle.visual.MoveAttached(position, dissolve);
     }
 
     private void ApplyTint()
@@ -131,8 +177,6 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         width = sourceWidth * definition.visualScale * scale;
         EffectVisual visual = SpawnParticle(definition, position, Sample(settings.particleLifetime, 0.01f), scale);
         if (visual == null || !visual.IsPlaying) return;
-        visual.SetAttachedSorting(body, bodyGroup, sortAnchor);
-        particles.Add(new Particle { visual = visual, execution = visual.ExecutionId });
         if (settings.sparkle != null && Random.value < Mathf.Clamp01(settings.sparkleChance))
         {
             Sprite[] sparkFrames = settings.sparkle.GetFrames(EffectPhase.Intro);
@@ -142,21 +186,34 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
                 Sample(settings.particleLifetime, 0.01f), ParticleScale(settings.sparkle,
                     width * Sample(settings.sparkleSize, 0.01f), sparkWidth));
             if (sparkle == null || !sparkle.IsPlaying) return;
-            sparkle.SetAttachedSorting(body, bodyGroup, sortAnchor);
-            particles.Add(new Particle { visual = sparkle, execution = sparkle.ExecutionId });
         }
     }
 
     private EffectVisual SpawnParticle(EffectDefinitionSO data, Vector3 position, float lifetime, float scale)
     {
-        if (!preview) return EffectVisual.Spawn(data, position, Quaternion.identity, duration: lifetime, spawnScale: scale);
-        GameObject host = new("Preview Status Particle") { hideFlags = HideFlags.HideAndDontSave };
-        host.transform.SetParent(transform, false);
-        host.transform.position = position;
-        EffectVisual visual = host.AddComponent<EffectVisual>();
-        visual.InitializePreview(previewCamera, previewWorld);
-        visual.Play(data, lifetime, spawnScale: scale);
-        if (!visual.IsPlaying) { ReleasePreview(visual); return null; }
+        EffectCharacterSettings settings = data.character;
+        bool frost = settings.shape == EffectCharacterShape.FrostShard;
+        float fallDuration = frost ? Sample(settings.frostFallDuration, 0.01f) : 0f;
+        if (frost) lifetime = Mathf.Max(lifetime, fallDuration / (1f - Mathf.Clamp(settings.fullFollowFraction, 0f, 0.99f)));
+        EffectVisual visual;
+        if (!preview)
+            visual = EffectVisual.Spawn(data, position, Quaternion.identity, duration: lifetime, spawnScale: scale, attachedParticle: true);
+        else
+        {
+            GameObject host = new("Preview Status Particle") { hideFlags = HideFlags.HideAndDontSave };
+            host.transform.SetParent(transform, false);
+            host.transform.position = position;
+            visual = host.AddComponent<EffectVisual>();
+            visual.InitializePreview(previewCamera, previewWorld);
+            visual.Play(data, lifetime, spawnScale: scale, attachedParticle: true);
+            if (!visual.IsPlaying) { ReleasePreview(visual); return null; }
+        }
+        if (visual == null || !visual.IsPlaying) return null;
+        visual.SetAttachedSorting(body, bodyGroup, sortAnchor);
+        particles.Add(new Particle { visual = visual, execution = visual.ExecutionId, settings = settings,
+            offset = position - body.transform.position, lastBodyPosition = body.transform.position,
+            lifetime = lifetime, frost = frost, fallDuration = fallDuration,
+            fallDistance = frost ? Sample(settings.frostFallInBodyHeights, 0f) * body.bounds.size.y : 0f });
         return visual;
     }
 
@@ -171,20 +228,26 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         return width / Mathf.Max(0.001f, sourceWidth * data.visualScale);
     }
 
-    public void Stop()
+    public void Stop() { Stop(false); }
+
+    public void Stop(bool immediate)
     {
-        foreach (Particle particle in particles)
-            if (particle.visual != null && (preview || particle.visual.ExecutionId == particle.execution))
-            {
-                if (preview) ReleasePreview(particle.visual);
-                else if (particle.visual.IsPlaying)
+        emitting = false;
+        if (immediate)
+        {
+            foreach (Particle particle in particles)
+                if (particle.visual != null && (preview || particle.visual.ExecutionId == particle.execution))
                 {
-                    particle.visual.ResetForPool();
-                    PoolService.Release(particle.visual.gameObject);
+                    if (preview) ReleasePreview(particle.visual);
+                    else if (particle.visual.IsPlaying)
+                    {
+                        particle.visual.ResetForPool();
+                        PoolService.Release(particle.visual.gameObject);
+                    }
                 }
-            }
-        particles.Clear();
-        definition = null;
+            particles.Clear();
+        }
+        if (particles.Count == 0) definition = null;
         if (tinted)
         {
             if (playerAnimator != null) playerAnimator.ClearStatusTint();
@@ -193,5 +256,5 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
         tinted = false;
     }
 
-    private void OnDisable() { Stop(); }
+    private void OnDisable() { Stop(true); }
 }

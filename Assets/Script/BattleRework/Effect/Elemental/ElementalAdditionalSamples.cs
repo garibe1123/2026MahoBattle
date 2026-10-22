@@ -67,7 +67,9 @@ public sealed class ElementalAdditionalSamples : IDisposable
                 data.fireSourceScale = new Vector2(0.9f, 1.1f);
                 data.fireParticleRadius = new Vector2(0.18f, 0.26f);
                 data.fireShapeScale = new Vector2(0.75f, 1.8f);
-                data.fireParticleLifetime = new Vector2(0.22f, 0.45f);
+                data.fireParticleLifetime = EffectCharacterSettings.DefaultBurnLifetime;
+                data.character.particleLifetime = EffectCharacterSettings.DefaultBurnLifetime;
+                data.character.emissionInterval = EffectCharacterSettings.DefaultBurnInterval;
                 data.fireFlameDuration = 0.82f;
                 data.fireSmokeOpacity = 0.06f;
                 data.gasRise = 1.1f;
@@ -89,6 +91,7 @@ public sealed class ElementalAdditionalSamples : IDisposable
                     data.beam.zigzag = 0f;
                 }
             }
+            data.UpgradeCharacterSettings();
             Definitions[i] = data;
         }
         Definitions[1].character.sparkle = Definitions[6];
