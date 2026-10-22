@@ -71,6 +71,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private float currentCameraReaction;
 
     public float CurrentWeight => currentWeight;
+    private float EffectiveVolumeWeight => Mathf.Max(currentWeight, Mathf.Clamp01(selectionBlend));
 
     public void Configure(Camera camera, BattleLightingProfileSO profile)
     {
@@ -267,15 +268,17 @@ public sealed class BattleColorGradingController : MonoBehaviour
                 0.10f * lowHpEmphasis));
 
         chromaticAberration.intensity.Override(
-            Mathf.Clamp01(
+            Mathf.Lerp(Mathf.Clamp01(
                 lightingProfile.chromaticAberrationIntensity +
                 0.08f * lowHpEmphasis +
-                reactionChromaticKick * currentCameraReaction));
+                reactionChromaticKick * currentCameraReaction),
+                lightingProfile.crtSelectionChromaticAberration,
+                Mathf.Clamp01(selectionBlend)));
 
         lensDistortion.intensity.Override(
             Mathf.Clamp(
                 lightingProfile.lensDistortionIntensity -
-                lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * Mathf.Min(0f, selectionBlend) -
+                lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * selectionBlend -
                 reactionLensDistortionKick * currentCameraReaction,
                 -1f,
                 1f));
@@ -289,6 +292,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
     internal void SetSelectionBlend(float value)
     {
         selectionBlend = value;
+        if (volume != null)
+            volume.weight = EffectiveVolumeWeight;
         ApplyDynamicOverrides();
         UpdateAnalogOverlay();
     }
@@ -321,7 +326,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
         targetWeight = currentWeight;
 
         if (volume != null)
-            volume.weight = currentWeight;
+            volume.weight = EffectiveVolumeWeight;
 
         UpdateAnalogOverlay();
     }
@@ -349,7 +354,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
         if (Mathf.Abs(currentWeight - targetWeight) < 0.001f)
             currentWeight = targetWeight;
 
-        volume.weight = currentWeight;
+        volume.weight = EffectiveVolumeWeight;
         UpdateCameraReactionEnvelope();
         UpdateAnalogOverlay();
         if (cameraData != null)

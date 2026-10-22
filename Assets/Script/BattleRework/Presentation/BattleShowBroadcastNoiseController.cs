@@ -308,6 +308,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         BattleUiMaterialController.UpdateUnscaledTime(overlayMaterial);
         BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
         if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend);
+        bool useColorGrading = colorGrading != null && colorGrading.isActiveAndEnabled && profile != null;
+        if (chromaticAberration != null) chromaticAberration.active = !useColorGrading;
+        if (lensDistortion != null) lensDistortion.active = !useColorGrading;
         if (showVolume != null)
             showVolume.weight = Mathf.Clamp01(currentBlend);
         if (chromaticAberration != null) chromaticAberration.intensity.Override(profile != null
