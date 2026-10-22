@@ -191,9 +191,12 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
 
     private readonly Dictionary<Graphic, BattleUiMaterialController.UiChannel> uiMaterialTargets = new();
     public IReadOnlyDictionary<Graphic, BattleUiMaterialController.UiChannel> UiMaterialTargets => uiMaterialTargets;
+    private readonly Dictionary<Graphic, string> uiMaterialTargetSources = new();
+    public IReadOnlyDictionary<Graphic, string> UiMaterialTargetSources => uiMaterialTargetSources;
     public event Action<Graphic, BattleUiMaterialController.UiChannel> UiMaterialTargetAssigned;
 
-    public void RegisterUiMaterialTarget(Graphic target, BattleUiMaterialController.UiChannel channel)
+    public void RegisterUiMaterialTarget(Graphic target, BattleUiMaterialController.UiChannel channel,
+        [System.Runtime.CompilerServices.CallerFilePath] string sourceScript = "")
     {
         if (target == null)
             return;
@@ -201,16 +204,38 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
             uiMaterialTargets.TryGetValue(target, out var registeredChannel))
             channel = registeredChannel;
         uiMaterialTargets[target] = channel;
+        sourceScript = sourceScript.Replace('\\', '/');
+        int assetsIndex = sourceScript.IndexOf("Assets/", StringComparison.Ordinal);
+        uiMaterialTargetSources[target] = assetsIndex >= 0 ? sourceScript.Substring(assetsIndex) : sourceScript;
         UiMaterialTargetAssigned?.Invoke(target, channel);
         BattleUiStyleController.RegisterGraphic(target);
+        if (HasAssignedUiMaterial(target) || BattleUiMaterialController.IsAssignedMaterial(target.material))
+            target.SetVerticesDirty();
     }
 
-    public void RegisterUiMaterialRoot(Transform root, BattleUiMaterialController.UiChannel channel)
+    public void RegisterUiMaterialRoot(Transform root, BattleUiMaterialController.UiChannel channel,
+        [System.Runtime.CompilerServices.CallerFilePath] string sourceScript = "")
     {
         if (root == null)
             return;
         foreach (Graphic target in root.GetComponentsInChildren<Graphic>(true))
-            RegisterUiMaterialTarget(target, channel);
+            RegisterUiMaterialTarget(target, channel, sourceScript);
+    }
+
+    internal bool HasAssignedUiMaterial(Graphic target)
+    {
+        return GetAssignedUiMaterial(target) != null;
+    }
+
+    internal Material GetAssignedUiMaterial(Graphic target)
+    {
+        if (uiMaterialTargets.TryGetValue(target, out var channel))
+        {
+            if (channel == BattleUiMaterialController.UiChannel.Presenter) return screenPresenterMaterial;
+            if (channel == BattleUiMaterialController.UiChannel.PresenterDialogue) return speechBubbleStrokeMaterial;
+        }
+        return speechBubbleStrokeMaterial != null && target.material == speechBubbleStrokeMaterial
+            ? speechBubbleStrokeMaterial : null;
     }
 
     [Header("기본 쇼 바닥 템플릿")]

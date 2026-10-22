@@ -87,6 +87,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (comic && next == null && panel) next = pixelPanel;
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
+        if (HasAssignedMaterial()) next = null;
         if (next != null)
         {
             if (!materialOverridden) originalMaterial = CaptureMaterial();
@@ -148,6 +149,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void ReleaseMaterialOverride() => RestoreMaterial();
 
+    private bool HasAssignedMaterial()
+    {
+        return BattleUiMaterialController.IsAssignedMaterial(target.material) ||
+            (BattleShowPresentationManager.Instance != null &&
+             BattleShowPresentationManager.Instance.HasAssignedUiMaterial(target));
+    }
+
     private Material CaptureMaterial() => target.material == target.defaultMaterial ? null : target.material;
 
     private void RestoreMaterial()
@@ -181,7 +189,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     public override void ModifyMesh(VertexHelper vh)
     {
-        if (!IsActive() || target == null) return;
+        if (!IsActive() || target == null || HasAssignedMaterial()) return;
         bool pixel = BattleUiStyleController.IsPixel;
         bool comic = BattleUiStyleController.IsComic;
         bool maho = BattleUiStyleController.IsMahoShojo;

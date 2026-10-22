@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -92,12 +93,21 @@ public sealed class BattleUiMaterialController : MonoBehaviour
     private List<UiMaterialEntry> entries = new List<UiMaterialEntry>();
 
     private readonly List<MaterialState> states = new List<MaterialState>();
+    private static readonly HashSet<Material> assignedMaterials = new HashSet<Material>();
+    private readonly HashSet<(int, int, string, bool)> reportedFailures = new HashSet<(int, int, string, bool)>();
+    private bool reportWriteFailed;
+    private bool reportAnnounced;
+    private string failureReportPath;
     private bool applied;
     private bool previewApplied;
     private bool refreshRequested;
 
+    internal static bool IsAssignedMaterial(Material material) => material != null && assignedMaterials.Contains(material);
+
     private void OnEnable()
     {
+        failureReportPath = Path.Combine(Application.persistentDataPath, "BattleUiMaterialFailures.txt");
+        Canvas.willRenderCanvases += CheckMaterialFailures;
         ConnectPresentation();
         preview = false;
     }
@@ -200,6 +210,9 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             foreach (var target in boundPresentation.UiMaterialTargets)
                 ApplyRegisteredTarget(target.Key, target.Value);
         }
+        else if (presenter?.material != null || presenterDialogue?.material != null ||
+                 itemWindow?.material != null || currentItems?.material != null || chatWindow?.material != null)
+            ReportMaterialFailure(null, null, "BattleShowPresentationManager 연결이 없어 그룹 머티리얼을 적용할 수 없습니다.");
     }
 
     private UiMaterialGroup GetGroup(UiChannel channel)
@@ -295,10 +308,17 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         HashSet<Graphic> targets)
     {
         if (target == null || source == null)
+        {
+            if (source != null)
+                ReportMaterialFailure(null, source, "개별 UI 설정의 Target이 비어 있습니다.");
             return;
+        }
 #if UNITY_EDITOR
         if (UnityEditor.EditorUtility.IsPersistent(target) || !target.gameObject.scene.IsValid())
+        {
+            ReportMaterialFailure(target, source, "씬 오브젝트가 아닌 대상에는 런타임 머티리얼을 적용하지 않습니다.");
             return;
+        }
 #endif
         if (targets != null && !targets.Add(target))
             return;
@@ -320,6 +340,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             name = source.name + " (UI Instance)",
             hideFlags = HideFlags.HideAndDontSave
         };
+        assignedMaterials.Add(instance);
         states.Add(new MaterialState
         {
             target = target, original = original, instance = instance,
@@ -332,6 +353,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         }
         target.material = instance;
         target.SetMaterialDirty();
+        target.SetVerticesDirty();
     }
 
     private void ReleaseMaterials()
@@ -342,6 +364,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
             {
                 state.target.material = state.original;
                 state.target.SetMaterialDirty();
+                state.target.SetVerticesDirty();
             }
 
             DestroyInstance(state.instance);
@@ -349,8 +372,140 @@ public sealed class BattleUiMaterialController : MonoBehaviour
         states.Clear();
     }
 
+    private void CheckMaterialFailures()
+    {
+        if (!applied || !isActiveAndEnabled) return;
+        foreach (MaterialState state in states)
+        {
+            Graphic target = state.target;
+            if (target == null || !target.isActiveAndEnabled || target.canvasRenderer.cull) continue;
+            if (target.material != state.instance)
+            {
+                ReportMaterialFailure(target, state.source, "할당한 런타임 머티리얼이 다른 머티리얼로 변경됐습니다.");
+                continue;
+            }
+            CheckMaterialInput(target, state.source);
+        }
+        if (boundPresentation == null) return;
+        foreach (var entry in boundPresentation.UiMaterialTargets)
+        {
+            Graphic target = entry.Key;
+            if (target == null || !target.isActiveAndEnabled || target.canvasRenderer.cull ||
+                IsAssignedMaterial(target.material)) continue;
+            Material source = boundPresentation.GetAssignedUiMaterial(target);
+            if (source == null) continue;
+            if (target.material == null || target.material.shader != source.shader)
+                ReportMaterialFailure(target, source, "Presentation에 지정한 머티리얼과 현재 셰이더가 다릅니다.", true);
+            else CheckMaterialInput(target, source, true);
+        }
+    }
+
+    private void CheckMaterialInput(Graphic target, Material source, bool configuredOnPresentation = false)
+    {
+        Material material = target.material;
+        Shader shader = material != null ? material.shader : null;
+        if (shader == null || !shader.isSupported || shader.name == "Hidden/InternalErrorShader")
+            ReportMaterialFailure(target, source, "셰이더가 없거나 현재 환경에서 지원되지 않습니다.", configuredOnPresentation);
+        else if (!material.HasProperty("_MainTex"))
+            ReportMaterialFailure(target, source, "셰이더에 UI 이미지 입력용 _MainTex 속성이 없습니다.", configuredOnPresentation);
+        else if ((target is Image image && image.sprite == null && image.overrideSprite == null) ||
+                 (target is RawImage rawImage && rawImage.texture == null))
+            ReportMaterialFailure(target, source,
+                "머티리얼 할당은 정상이나 이미지 입력이 없어 흰색 단색이 전달됩니다. 이미지 기반 효과라면 Sprite/Texture 입력을 확인하세요.", configuredOnPresentation);
+    }
+
+    [ContextMenu("Export Material Failure Report")]
+    private void ExportMaterialFailureReport()
+    {
+        if (!applied || !isActiveAndEnabled)
+        {
+            ReportMaterialFailure(null, null, "머티리얼 적용이 꺼져 있습니다. 컴포넌트 활성화 및 Apply Materials 설정을 확인하세요.");
+            return;
+        }
+        CheckMaterialFailures();
+        if (boundPresentation == null)
+        {
+            ReportMaterialFailure(null, null, "BattleShowPresentationManager가 연결되지 않았습니다.");
+            return;
+        }
+        foreach (UiChannel channel in new[] { UiChannel.Presenter, UiChannel.PresenterDialogue, UiChannel.ChatWindow })
+        {
+            UiMaterialGroup group = GetGroup(channel);
+            bool registered = false;
+            foreach (var entry in boundPresentation.UiMaterialTargets)
+            {
+                if (entry.Key == null || entry.Value != channel) continue;
+                registered = true;
+                if (group?.material == null && !IsAssignedMaterial(entry.Key.material) &&
+                    !boundPresentation.HasAssignedUiMaterial(entry.Key))
+                    ReportMaterialFailure(entry.Key, null, channel + " 그룹에 Material이 지정되지 않아 기존 외형을 유지합니다.");
+            }
+            if (!registered && group?.material != null)
+                ReportMaterialFailure(null, group.material, channel + " 그룹에 등록된 UI 대상이 없습니다. 아직 생성되지 않았거나 등록이 누락됐을 수 있습니다.");
+        }
+    }
+
+    private void ReportMaterialFailure(Graphic target, Material source, string reason, bool configuredOnPresentation = false)
+    {
+        if (reportWriteFailed) return;
+        var key = (target != null ? target.GetInstanceID() : GetInstanceID(),
+            source != null ? source.GetInstanceID() : 0, reason, configuredOnPresentation);
+        if (!reportedFailures.Add(key)) return;
+        string origin = "개별 UI 설정 또는 미등록 대상";
+        string channel = "개별 UI";
+        if (boundPresentation != null && target != null)
+        {
+            if (boundPresentation.UiMaterialTargetSources.TryGetValue(target, out string script)) origin = script;
+            if (boundPresentation.UiMaterialTargets.TryGetValue(target, out UiChannel value)) channel = value.ToString();
+        }
+        string configurationScript = configuredOnPresentation
+            ? "Assets/Script/BattleRework/Presentation/BattleShowPresentationManager.cs"
+            : "Assets/Script/BattleRework/UI/BattleUiMaterialController.cs";
+        Transform configurationOwner = configuredOnPresentation && boundPresentation != null ? boundPresentation.transform : transform;
+        string report = "[" + DateTime.UtcNow.ToString("O") + "] " + reason + Environment.NewLine +
+            "설정 SC: " + configurationScript + Environment.NewLine +
+            "설정 OBJ: " + ObjectPath(configurationOwner) + Environment.NewLine +
+            "등록 SC: " + origin + Environment.NewLine +
+            "대상 OBJ: " + (target != null ? ObjectPath(target.transform) + " (" + target.GetType().Name + ")" : "없음") + Environment.NewLine +
+            "채널: " + channel + Environment.NewLine +
+            "지정 Material: " + MaterialDescription(source) + Environment.NewLine +
+            "현재 Material: " + MaterialDescription(target != null ? target.material : null) + Environment.NewLine + Environment.NewLine;
+        try
+        {
+            if (string.IsNullOrEmpty(failureReportPath))
+                failureReportPath = Path.Combine(Application.persistentDataPath, "BattleUiMaterialFailures.txt");
+            Directory.CreateDirectory(Application.persistentDataPath);
+            File.AppendAllText(failureReportPath, report);
+            if (!reportAnnounced)
+            {
+                reportAnnounced = true;
+                Debug.LogWarning("UI 머티리얼 확인 보고서: " + failureReportPath, this);
+            }
+        }
+        catch (Exception exception) when (exception is IOException || exception is UnauthorizedAccessException)
+        {
+            reportWriteFailed = true;
+            Debug.LogWarning("UI 머티리얼 TXT 저장 실패: " + exception.Message, this);
+        }
+    }
+
+    private static string ObjectPath(Transform target)
+    {
+        string path = target.name;
+        for (Transform parent = target.parent; parent != null; parent = parent.parent)
+            path = parent.name + "/" + path;
+        return target.gameObject.scene.name + ":/" + path;
+    }
+
+    private static string MaterialDescription(Material material)
+    {
+        return material == null ? "없음" : material.name + " / Shader: " +
+            (material.shader != null ? material.shader.name : "없음");
+    }
+
     private void DestroyInstance(Material instance)
     {
+        assignedMaterials.Remove(instance);
         if (instance == null)
             return;
         if (Application.IsPlaying(gameObject))
@@ -361,6 +516,7 @@ public sealed class BattleUiMaterialController : MonoBehaviour
 
     private void OnDisable()
     {
+        Canvas.willRenderCanvases -= CheckMaterialFailures;
         if (boundPresentation != null)
             boundPresentation.UiMaterialTargetAssigned -= ApplyRegisteredTarget;
         boundPresentation = null;
