@@ -62,6 +62,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private bool combatMode;
     private bool showMode;
     private float selectionBlend;
+    private float combatTabBlend;
     private float lastKillEmphasis;
     private float lowHpEmphasis;
 
@@ -278,7 +279,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
         lensDistortion.intensity.Override(
             Mathf.Clamp(
                 lightingProfile.lensDistortionIntensity -
-                lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * selectionBlend -
+                lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * combatTabBlend -
                 reactionLensDistortionKick * currentCameraReaction,
                 -1f,
                 1f));
@@ -289,9 +290,10 @@ public sealed class BattleColorGradingController : MonoBehaviour
             lightingProfile.crtColorStrength * Mathf.Clamp01(selectionBlend)));
     }
 
-    internal void SetSelectionBlend(float value)
+    internal void SetSelectionBlend(float value, bool combatTabHeld)
     {
         selectionBlend = value;
+        combatTabBlend = isActiveAndEnabled && combatTabHeld ? Mathf.Clamp01(value) : 0f;
         if (volume != null)
             volume.weight = EffectiveVolumeWeight;
         ApplyDynamicOverrides();
@@ -311,6 +313,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
     {
         combatMode = combat;
         showMode = show;
+        if (!combatMode)
+            combatTabBlend = 0f;
 
         // Combat에서 발생한 과노출/CA/Lens kick이 Reward/Map/대기 단계로
         // 한두 프레임이라도 넘어가지 않게 상태 전환 시 명시적으로 원복합니다.
@@ -389,6 +393,12 @@ public sealed class BattleColorGradingController : MonoBehaviour
             return;
 
         currentCameraReaction = nextReaction;
+        ApplyDynamicOverrides();
+    }
+
+    private void OnDisable()
+    {
+        combatTabBlend = 0f;
         ApplyDynamicOverrides();
     }
 

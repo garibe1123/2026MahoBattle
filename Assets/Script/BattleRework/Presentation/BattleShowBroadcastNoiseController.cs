@@ -23,6 +23,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float chromaticAberrationIntensity = 0.12f;
     [SerializeField, Range(-1f, 1f)] private float lensDistortionIntensity = -0.055f;
     [SerializeField, Range(0.01f, 5f)] private float lensDistortionScale = 1.015f;
+    [Tooltip("Additional combat TAB curvature when no lighting profile is available.")]
+    [SerializeField, Range(0f, 1f)] private float tabLensDistortion = 0.14f;
 
     [Header("Show Lens Vignette")]
     [Tooltip("CRT/lens-like falloff that darkens only the outer corners without crushing the TV content in the center.")]
@@ -169,6 +171,13 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
                (kineticLoadout != null && kineticLoadout.isActiveAndEnabled && kineticLoadout.IsSwitchBoardOpen);
     }
 
+    private bool IsCombatTabHeld()
+    {
+        return isActiveAndEnabled && runManager != null && runManager.RunActive &&
+               runManager.State == BattleRunState.Combat && kineticLoadout != null &&
+               kineticLoadout.isActiveAndEnabled && kineticLoadout.IsSwitchBoardOpen;
+    }
+
     private void EnsureVolume()
     {
         if (showVolume == null)
@@ -307,7 +316,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     {
         BattleUiMaterialController.UpdateUnscaledTime(overlayMaterial);
         BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
-        if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend);
+        bool combatTabHeld = IsCombatTabHeld();
+        if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend, combatTabHeld);
         bool useColorGrading = colorGrading != null && colorGrading.isActiveAndEnabled && profile != null;
         if (chromaticAberration != null) chromaticAberration.active = !useColorGrading;
         if (lensDistortion != null) lensDistortion.active = !useColorGrading;
@@ -318,8 +328,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         if (lensDistortion != null)
         {
             lensDistortion.intensity.Override(profile != null
-                ? Mathf.Clamp(profile.lensDistortionIntensity - profile.crtCurvature * profile.crtSelectionCurvatureMultiplier, -1f, 1f)
-                : lensDistortionIntensity);
+                ? Mathf.Clamp(profile.lensDistortionIntensity - (combatTabHeld
+                    ? profile.crtCurvature * profile.crtSelectionCurvatureMultiplier : 0f), -1f, 1f)
+                : Mathf.Clamp(lensDistortionIntensity - (combatTabHeld ? tabLensDistortion : 0f), -1f, 1f));
             lensDistortion.scale.Override(profile != null ? profile.lensDistortionScale : lensDistortionScale);
         }
         if (vignette != null)
