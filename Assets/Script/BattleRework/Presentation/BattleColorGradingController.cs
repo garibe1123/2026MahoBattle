@@ -555,7 +555,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     {
         float selection = Mathf.Clamp01(selectionBlend);
         if (filmGrain != null && lightingProfile != null)
-            filmGrain.intensity.Override(lightingProfile.filmGrainIntensity * (1f - selection));
+            filmGrain.intensity.Override(lightingProfile.filmGrainIntensity);
         if (analogOverlay == null)
             return;
 

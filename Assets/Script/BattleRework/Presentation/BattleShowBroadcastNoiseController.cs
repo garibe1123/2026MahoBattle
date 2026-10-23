@@ -21,6 +21,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private BattleColorGradingController colorGrading;
 
     [Header("Shared Selection Lens")]
+    [SerializeField, Range(0f, 1f)] private float filmGrainIntensity = 0.055f;
+    [SerializeField, Range(0f, 1f)] private float filmGrainResponse = 0.78f;
     [SerializeField, Range(0f, 1f)] private float chromaticAberrationIntensity = 0.12f;
     [SerializeField, Range(-1f, 1f)] private float lensDistortionIntensity = -0.055f;
     [SerializeField, Range(0.01f, 5f)] private float lensDistortionScale = 1.015f;
@@ -240,7 +242,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         showVolume.sharedProfile = runtimeProfile;
 
         filmGrain = runtimeProfile.Add<FilmGrain>(true);
-        filmGrain.intensity.Override(0f);
+        filmGrain.intensity.Override(filmGrainIntensity);
+        filmGrain.response.Override(filmGrainResponse);
 
         chromaticAberration = runtimeProfile.Add<ChromaticAberration>(true);
         chromaticAberration.intensity.Override(chromaticAberrationIntensity);
@@ -309,6 +312,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
                 overlayMaterial.DisableKeyword("WAVEUV_ON");
                 overlayMaterial.DisableKeyword("ROUNDWAVEUV_ON");
                 overlayMaterial.DisableKeyword("DISTORT_ON");
+                overlayMaterial.DisableKeyword("GLITCH_ON");
                 overlayMaterial.DisableKeyword("OVERLAY_ON");
                 overlayMaterial.DisableKeyword("OVERLAYMULT_ON");
             }
@@ -378,6 +382,12 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend, combatTabHeld);
         bool useColorGrading = colorGrading != null && colorGrading.isActiveAndEnabled &&
             colorGrading.TargetCamera == targetCamera && profile != null;
+        if (filmGrain != null)
+        {
+            filmGrain.active = !useColorGrading;
+            filmGrain.intensity.Override(profile != null ? profile.filmGrainIntensity : filmGrainIntensity);
+            filmGrain.response.Override(profile != null ? profile.filmGrainResponse : filmGrainResponse);
+        }
         if (chromaticAberration != null) chromaticAberration.active = !useColorGrading;
         if (lensDistortion != null) lensDistortion.active = !useColorGrading;
         if (showVolume != null)
