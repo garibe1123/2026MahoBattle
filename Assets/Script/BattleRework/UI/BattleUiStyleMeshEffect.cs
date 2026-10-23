@@ -27,6 +27,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void Bind(Graphic value)
     {
+        BattleUiOpticsCanvas.Register(value);
         target = value;
         label = value as Text;
         image = value as Image;

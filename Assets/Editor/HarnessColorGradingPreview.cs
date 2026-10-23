@@ -7,6 +7,9 @@ public sealed class HarnessColorGradingPreview : Editor
     public override void OnInspectorGUI()
     {
         DrawDefaultInspector();
+        EditorGUILayout.HelpBox("UI Optics uses the live HUD/TAB settings in preview too. " +
+            "Both multipliers at zero restore the original UI rendering. " +
+            "At the default 0.2, optical offsets stay within 1.6 pixels.", MessageType.Info);
         BattleColorGradingController controller = (BattleColorGradingController)target;
         EditorGUILayout.Space();
         EditorGUILayout.LabelField("Harness Color Preview", EditorStyles.boldLabel);

@@ -20,6 +20,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
 {
     private const string AnalogOverlayShaderName = "UI/BattleAnalogTvOverlay";
     private const int AnalogOverlaySortingOrder = 470;
+    private const float MaxUiOpticsOffsetPixels = 8f;
+    private static BattleColorGradingController uiOpticsSource;
 
     private Camera targetCamera;
     private UniversalAdditionalCameraData cameraData;
@@ -46,6 +48,10 @@ public sealed class BattleColorGradingController : MonoBehaviour
     [SerializeField, Range(0f, 0.20f)] private float reactionChromaticKick = 0.05f;
     [SerializeField, Range(0f, 0.10f)] private float reactionLensDistortionKick = 0.018f;
     [SerializeField, Min(0.05f)] private float defaultReactionDuration = 0.18f;
+
+    [Header("UI OPTICS")]
+    [SerializeField, Range(0f, 1f)] private float uiChromaticMultiplier = 0.2f;
+    [SerializeField, Range(0f, 1f)] private float uiLensMultiplier = 0.2f;
 
     private BattleLightingProfileSO lightingProfile;
     private BattleLightingProfileSO previewProfile;
@@ -74,6 +80,33 @@ public sealed class BattleColorGradingController : MonoBehaviour
     internal VolumeProfile RuntimeProfile => runtimeProfile;
     internal Image RuntimeAnalogOverlay => analogOverlay;
     internal Material RuntimeAnalogMaterial => analogOverlayMaterial;
+
+    internal static bool TryGetUiOptics(out Vector4 settings, out Vector2 pixelLimits)
+    {
+        settings = Vector4.zero;
+        pixelLimits = Vector2.zero;
+        BattleColorGradingController source = uiOpticsSource;
+        if (source == null || !source.isActiveAndEnabled || source.lightingProfile == null ||
+            source.volume == null || !source.volume.isActiveAndEnabled || source.cameraData == null ||
+            !source.cameraData.renderPostProcessing ||
+            (source.CameraVolumeMask & (1 << source.RuntimeVolumeLayer)) == 0)
+            return false;
+
+        float chromatic = Mathf.Clamp01(source.uiChromaticMultiplier);
+        float lens = Mathf.Clamp01(source.uiLensMultiplier);
+        float weight = Mathf.Clamp01(source.volume.weight);
+        if (source.chromaticAberration.active && source.chromaticAberration.IsActive())
+            settings.x = source.chromaticAberration.intensity.value * weight * chromatic;
+        if (source.lensDistortion.active && source.lensDistortion.IsActive())
+        {
+            settings.y = source.lensDistortion.intensity.value * weight * lens;
+            settings.z = (source.lensDistortion.scale.value - 1f) * weight * lens;
+        }
+        if (BattleShowBroadcastNoiseController.TryGetCameraDistortion(source.targetCamera, out Vector4 tab))
+            settings.w = tab.x * lens;
+        pixelLimits = new Vector2(chromatic, lens) * MaxUiOpticsOffsetPixels;
+        return settings.sqrMagnitude > 0.00000001f;
+    }
 
     public void Configure(Camera camera, BattleLightingProfileSO profile)
     {
@@ -331,6 +364,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
     private void Awake()
     {
+        uiOpticsSource = this;
         EnsureVolume();
         EnsureAnalogOverlay();
     }
@@ -397,6 +431,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (uiOpticsSource == this)
+            uiOpticsSource = null;
         if (previewProfile != null)
             Destroy(previewProfile);
 
