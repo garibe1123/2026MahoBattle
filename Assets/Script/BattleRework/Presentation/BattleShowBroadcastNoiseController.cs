@@ -11,6 +11,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private const int OverlaySortingOrder = 460;
 
     private static BattleShowBroadcastNoiseController instance;
+    internal static event System.Action CaptureStopped;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
@@ -26,7 +27,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField, Range(0f, 1f)] private float chromaticAberrationIntensity = 0.12f;
     [SerializeField, Range(-1f, 1f)] private float lensDistortionIntensity = -0.055f;
     [SerializeField, Range(0.01f, 5f)] private float lensDistortionScale = 1.015f;
-    [Tooltip("Additional combat TAB curvature when no lighting profile is available.")]
+    [Tooltip("Combat TAB camera curvature.")]
     [SerializeField, Range(0f, 1f)] private float tabLensDistortion = 0.14f;
 
     [Header("Show Lens Vignette")]
@@ -38,18 +39,30 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [Header("Blend")]
     [SerializeField] private Color tabBackgroundTint = new(0.45f, 0.50f, 0.60f, 1f);
     [SerializeField, Min(0.1f)] private float fadeSharpness = 7.5f;
-    [SerializeField] private bool debugCombatTabDistortion = true;
 
     [Header("TAB Effect Tuning")]
-    [SerializeField] private bool useTabEffectTuning;
+    [SerializeField, HideInInspector] private bool useTabEffectTuning;
     [SerializeField, Range(0f, 0.15f)] private float tabCameraNoiseStrength = 0.018f;
     [SerializeField, Range(0f, 1f)] private float tabStaticOpacity = 0.075f;
     [SerializeField, Range(1f, 120f)] private float tabStaticRate = 60f;
     [SerializeField, Range(1f, 4f)] private float tabStaticPixelSize = 1.25f;
     [SerializeField, Range(0f, 0.25f)] private float tabScanlineStrength = 0.035f;
     [SerializeField, Range(0f, 1f)] private float tabBackgroundOpacity = 0.30f;
-    private BattleLightingProfileSO tabTuningProfile;
-    private BattleLightingProfileSO tabTuningSource;
+    [SerializeField] private Material tabBackgroundMaterial;
+    [SerializeField, Range(0f, 1f)] private float tabOverlayWeight = 0.65f;
+    [SerializeField, Range(0f, 1f)] private float tabOverlayStrength = 1f;
+    [SerializeField, Range(1f, 12f)] private float tabScanlineSpacing = 3f;
+    [SerializeField] private Color tabStaticTint = new(0.12f, 0.17f, 0.24f, 1f);
+    [SerializeField, Range(0.01f, 0.25f)] private float tabEdgeWidth = 0.10f;
+    [SerializeField, Range(0f, 1f)] private float tabEdgeStrength = 0.86f;
+    [SerializeField, Range(0f, 0.1f)] private float tabCenterGlow = 0.025f;
+    [SerializeField, Range(0f, 1f)] private float tabColorStrength = 0.25f;
+    [SerializeField] private Color tabShadowTint = new(0.40f, 0.46f, 0.60f, 1f);
+    [SerializeField, Min(0.05f)] private float tabReturnDuration = 0.48f;
+    [SerializeField, Range(0f, 3f)] private float tabReturnRebound = 1.3f;
+    [SerializeField, HideInInspector] private bool tabSettingsMigrated;
+    [SerializeField, HideInInspector] private bool tabMaterialMigrated;
+    [SerializeField, HideInInspector] private bool preserveLensReaction;
     private bool tabPreview;
     public bool TabPreview => tabPreview;
 
@@ -59,32 +72,46 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         if (!tabPreview) ApplyImmediate(0f);
     }
 
-    private BattleLightingProfileSO GetTabProfile()
+    public bool MigrateLegacyTabSettings(BattleLightingProfileSO source, BattleShowPresentationManager legacyPresentation)
     {
-        BattleLightingProfileSO source = colorGrading != null ? colorGrading.SourceLightingProfile : null;
-        if (!useTabEffectTuning || source == null) return source;
-        if (tabTuningProfile == null || tabTuningSource != source)
+        bool changed = false;
+        if (!tabMaterialMigrated && legacyPresentation != null)
         {
-            if (tabTuningProfile != null) Destroy(tabTuningProfile);
-            tabTuningSource = source;
-            tabTuningProfile = Instantiate(source);
-            tabTuningProfile.name = "BattleTAB_Tuning_Runtime";
-            tabTuningProfile.hideFlags = HideFlags.HideAndDontSave;
+            if (tabBackgroundMaterial == null)
+                tabBackgroundMaterial = legacyPresentation.LegacyTabBackgroundMaterial;
+            tabMaterialMigrated = true;
+            changed = true;
         }
-        tabTuningProfile.filmGrainIntensity = filmGrainIntensity;
-        tabTuningProfile.filmGrainResponse = filmGrainResponse;
-        tabTuningProfile.crtSelectionChromaticAberration = chromaticAberrationIntensity;
-        tabTuningProfile.lensDistortionIntensity = lensDistortionIntensity;
-        tabTuningProfile.lensDistortionScale = lensDistortionScale;
-        tabTuningProfile.crtCurvature = tabLensDistortion / Mathf.Max(1f, tabTuningProfile.crtSelectionCurvatureMultiplier);
-        tabTuningProfile.analogNoiseStrength = tabCameraNoiseStrength;
-        tabTuningProfile.crtSelectionNoiseStrength = tabStaticOpacity;
-        tabTuningProfile.crtSelectionNoiseOpacityScale = 1f;
-        tabTuningProfile.crtSelectionNoiseRate = tabStaticRate;
-        tabTuningProfile.crtSelectionNoisePixelSize = tabStaticPixelSize;
-        tabTuningProfile.scanlineStrength = tabScanlineStrength;
-        tabTuningProfile.crtSelectionBackgroundOpacity = tabBackgroundOpacity;
-        return tabTuningProfile;
+        if (tabSettingsMigrated || source == null) return changed;
+        if (!useTabEffectTuning)
+        {
+            filmGrainIntensity = source.filmGrainIntensity;
+            filmGrainResponse = source.filmGrainResponse;
+            chromaticAberrationIntensity = source.crtSelectionChromaticAberration;
+            lensDistortionIntensity = source.lensDistortionIntensity;
+            lensDistortionScale = source.lensDistortionScale;
+            tabLensDistortion = source.crtCurvature * source.crtSelectionCurvatureMultiplier;
+            tabCameraNoiseStrength = source.analogNoiseStrength;
+            tabStaticOpacity = source.crtSelectionNoiseStrength * source.crtSelectionNoiseOpacityScale;
+            tabStaticRate = source.crtSelectionNoiseRate;
+            tabStaticPixelSize = source.crtSelectionNoisePixelSize;
+            tabScanlineStrength = source.scanlineStrength;
+            tabBackgroundOpacity = source.crtSelectionBackgroundOpacity;
+        }
+        tabOverlayWeight = source.crtSelectionOverlayWeight;
+        tabOverlayStrength = source.analogOverlayStrength;
+        tabScanlineSpacing = source.scanlineSpacingPixels;
+        tabStaticTint = source.crtSelectionNoiseTint;
+        tabEdgeWidth = source.crtEdgeWidth;
+        tabEdgeStrength = source.crtEdgeStrength;
+        tabCenterGlow = source.crtCenterGlow;
+        tabColorStrength = source.crtColorStrength;
+        tabShadowTint = source.crtShadowTint;
+        tabReturnDuration = source.crtSelectionReturnDuration;
+        tabReturnRebound = source.crtSelectionReturnRebound;
+        preserveLensReaction = !useTabEffectTuning;
+        tabSettingsMigrated = true;
+        return true;
     }
 
     private Volume showVolume;
@@ -101,7 +128,6 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private Material overlaySource;
     private RTHandle backgroundCapture;
     private Coroutine bindRoutine;
-    private bool combatTabWasHeld;
 
     private float currentBlend;
     private bool selectionWasOpen;
@@ -127,6 +153,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     private void OnEnable()
     {
+        if (instance != this) return;
+        EnsureVolume();
+        EnsureOverlay();
         if (instance == this && bindRoutine == null)
             bindRoutine = StartCoroutine(BindWhenReady());
     }
@@ -156,7 +185,6 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             tabPreview = false;
 
         bool selectionOpen = IsShowSelection();
-        BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
         if (!selectionOpen && selectionWasOpen)
         {
             returnStartedAt = Time.unscaledTime;
@@ -171,10 +199,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         }
         else if (returnStartedAt >= 0f)
         {
-            float duration = profile != null ? profile.crtSelectionReturnDuration : 0.48f;
-            float t = Mathf.Clamp01((Time.unscaledTime - returnStartedAt) / Mathf.Max(0.05f, duration));
+            float t = Mathf.Clamp01((Time.unscaledTime - returnStartedAt) / Mathf.Max(0.05f, tabReturnDuration));
             float x = t - 1f;
-            float rebound = profile != null ? profile.crtSelectionReturnRebound : 1.3f;
+            float rebound = tabReturnRebound;
             currentBlend = -returnStartBlend * x * x * ((rebound + 1f) * x + rebound);
             if (t >= 1f)
             {
@@ -194,15 +221,12 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             StopCoroutine(bindRoutine);
         bindRoutine = null;
         ApplyImmediate(0f);
-        ReleaseBackgroundCapture();
+        ReleaseOverlayMaterial();
     }
 
     private void OnDestroy()
     {
-        if (tabTuningProfile != null) Destroy(tabTuningProfile);
-        ReleaseBackgroundCapture();
-        if (overlayMaterial != null)
-            Destroy(overlayMaterial);
+        ReleaseOverlayMaterial();
         if (runtimeProfile != null)
         {
             if (showVolume != null && showVolume.sharedProfile == runtimeProfile)
@@ -245,6 +269,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             if (cameraData == null)
                 cameraData = targetCamera.gameObject.AddComponent<UniversalAdditionalCameraData>();
         }
+        MigrateLegacyTabSettings(colorGrading != null ? colorGrading.SourceLightingProfile : null, presentation);
     }
 
     private bool IsShowSelection()
@@ -343,7 +368,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             overlayImage.enabled = false;
         }
 
-        Material source = presentation != null ? presentation.TabBackgroundMaterial : null;
+        Material source = isActiveAndEnabled && (currentBlend > 0.001f || IsShowSelection())
+            ? tabBackgroundMaterial : null;
         if (source != overlaySource)
         {
             ReleaseBackgroundCapture();
@@ -394,12 +420,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         if (instance == null || instance.targetCamera != camera || !instance.IsCombatTabHeld())
             return false;
 
-        BattleColorGradingController grading = instance.colorGrading;
-        BattleLightingProfileSO profile = instance.GetTabProfile();
-        float curvature = grading != null && profile != null
-            ? grading.CurrentTabCurvature : instance.tabLensDistortion * Mathf.Clamp01(instance.currentBlend);
-        settings = new Vector4(curvature, profile != null ? profile.crtEdgeWidth : 0.1f,
-            profile != null ? profile.crtEdgeStrength : 0.86f, Time.unscaledTime);
+        float curvature = instance.tabLensDistortion * Mathf.Clamp01(instance.currentBlend);
+        settings = new Vector4(curvature, instance.tabEdgeWidth,
+            instance.tabEdgeStrength, Time.unscaledTime);
         return curvature > 0.0001f;
     }
 
@@ -430,32 +453,90 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         backgroundCapture = null;
     }
 
+    private void ReleaseOverlayMaterial()
+    {
+        ReleaseBackgroundCapture();
+        if (overlayImage != null) overlayImage.material = null;
+        if (overlayMaterial != null) Destroy(overlayMaterial);
+        overlayMaterial = null;
+        overlaySource = null;
+        CaptureStopped?.Invoke();
+    }
+
+    private void ApplyGrading(float selection, bool combatTabHeld)
+    {
+        Volume volume = colorGrading.RuntimeVolume;
+        VolumeProfile profile = colorGrading.RuntimeProfile;
+        BattleLightingProfileSO source = colorGrading.SourceLightingProfile;
+        if (volume != null) volume.weight = Mathf.Max(colorGrading.CurrentWeight, selection);
+        if (profile.TryGet(out ChromaticAberration chromatic))
+            chromatic.intensity.Override(Mathf.Lerp(chromatic.intensity.value, chromaticAberrationIntensity, selection));
+        if (profile.TryGet(out FilmGrain grain))
+        {
+            grain.intensity.Override(Mathf.Lerp(grain.intensity.value, filmGrainIntensity, selection));
+            grain.response.Override(Mathf.Lerp(grain.response.value, filmGrainResponse, selection));
+        }
+        if (profile.TryGet(out LensDistortion lens))
+        {
+            float target = lensDistortionIntensity;
+            if (preserveLensReaction) target += lens.intensity.value - source.lensDistortionIntensity;
+            lens.intensity.Override(Mathf.Lerp(lens.intensity.value, target, selection));
+            lens.scale.Override(Mathf.Lerp(lens.scale.value, lensDistortionScale, selection));
+        }
+        if (profile.TryGet(out SplitToning toning))
+            toning.shadows.Override(Color.Lerp(toning.shadows.value, tabShadowTint, tabColorStrength * selection));
+
+        Image image = colorGrading.RuntimeAnalogOverlay;
+        Material material = colorGrading.RuntimeAnalogMaterial;
+        if (image == null || material == null) return;
+        material.SetFloat("_ScanlineStrength", Mathf.Lerp(source.scanlineStrength, tabScanlineStrength, selection));
+        material.SetFloat("_ScanlineSpacing", Mathf.Lerp(source.scanlineSpacingPixels, tabScanlineSpacing, selection));
+        material.SetFloat("_NoiseStrength", Mathf.Clamp01(material.GetFloat("_NoiseStrength") +
+            (tabCameraNoiseStrength - source.analogNoiseStrength) * selection));
+        material.SetFloat("_RollingBandStrength", material.GetFloat("_RollingBandStrength") *
+            (1f - (combatTabHeld ? selection : 0f)));
+        material.SetFloat("_Curvature", tabLensDistortion * selection);
+        material.SetFloat("_EdgeWidth", tabEdgeWidth);
+        material.SetFloat("_EdgeStrength", tabEdgeStrength * selection);
+        material.SetFloat("_CenterGlow", tabCenterGlow * selection);
+        material.SetColor("_GlassTint", tabShadowTint);
+        material.SetFloat("_GlassTintStrength", tabColorStrength * selection);
+        material.SetFloat("_SelectionNoiseStrength", tabStaticOpacity * selection);
+        material.SetColor("_SelectionNoiseTint", tabStaticTint);
+        material.SetFloat("_SelectionNoiseRate", tabStaticRate);
+        material.SetFloat("_SelectionNoisePixelSize", tabStaticPixelSize);
+        float strength = Mathf.Clamp01(Mathf.Max(colorGrading.CurrentWeight, tabOverlayWeight * selection) *
+            Mathf.Lerp(source.analogOverlayStrength, tabOverlayStrength, selection));
+        material.SetFloat("_Strength", strength);
+        image.enabled = strength > 0.001f;
+    }
+
     private void ApplyBlend()
     {
+        MigrateLegacyTabSettings(colorGrading != null ? colorGrading.SourceLightingProfile : null, presentation);
         BattleUiMaterialController.UpdateUnscaledTime(overlayMaterial);
-        BattleLightingProfileSO profile = GetTabProfile();
         bool combatTabHeld = IsCombatTabHeld();
-        if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend, combatTabHeld,
-            useTabEffectTuning ? profile : null);
+        float selection = Mathf.Clamp01(currentBlend);
+        if (colorGrading != null) colorGrading.RestoreRuntimePresentation();
         bool useColorGrading = colorGrading != null && colorGrading.isActiveAndEnabled &&
-            colorGrading.TargetCamera == targetCamera && profile != null;
+            colorGrading.TargetCamera == targetCamera && colorGrading.SourceLightingProfile != null &&
+            colorGrading.RuntimeProfile != null;
+        if (useColorGrading && selection > 0f) ApplyGrading(selection, combatTabHeld);
         if (filmGrain != null)
         {
             filmGrain.active = !useColorGrading;
-            filmGrain.intensity.Override(profile != null ? profile.filmGrainIntensity : filmGrainIntensity);
-            filmGrain.response.Override(profile != null ? profile.filmGrainResponse : filmGrainResponse);
+            filmGrain.intensity.Override(filmGrainIntensity);
+            filmGrain.response.Override(filmGrainResponse);
         }
         if (chromaticAberration != null) chromaticAberration.active = !useColorGrading;
         if (lensDistortion != null) lensDistortion.active = !useColorGrading;
         if (showVolume != null)
-            showVolume.weight = Mathf.Clamp01(currentBlend);
-        if (chromaticAberration != null) chromaticAberration.intensity.Override(profile != null
-            ? profile.crtSelectionChromaticAberration : chromaticAberrationIntensity);
+            showVolume.weight = selection;
+        if (chromaticAberration != null) chromaticAberration.intensity.Override(chromaticAberrationIntensity);
         if (lensDistortion != null)
         {
-            lensDistortion.intensity.Override(profile != null
-                ? profile.lensDistortionIntensity : lensDistortionIntensity);
-            lensDistortion.scale.Override(profile != null ? profile.lensDistortionScale : lensDistortionScale);
+            lensDistortion.intensity.Override(lensDistortionIntensity);
+            lensDistortion.scale.Override(lensDistortionScale);
         }
         if (vignette != null)
         {
@@ -465,33 +546,11 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         }
         if (cameraData != null && currentBlend > 0.001f)
             cameraData.renderPostProcessing = true;
-        if (overlayGroup != null) overlayGroup.alpha = Mathf.Clamp01(currentBlend) *
-            (profile != null ? profile.crtSelectionBackgroundOpacity : 0.30f);
+        if (overlayGroup != null) overlayGroup.alpha = selection * tabBackgroundOpacity;
         if (overlayImage != null)
             overlayImage.enabled = overlayMaterial != null && backgroundCapture != null && currentBlend > 0.001f;
 
-        if (debugCombatTabDistortion && combatTabHeld && !combatTabWasHeld)
-        {
-            ScriptableRenderer renderer = cameraData != null ? cameraData.scriptableRenderer : null;
-            float appliedLens = useColorGrading ? colorGrading.CurrentLensDistortion :
-                (lensDistortion != null ? lensDistortion.intensity.value : 0f);
-            float appliedWeight = useColorGrading ? colorGrading.CurrentVolumeWeight :
-                (showVolume != null ? showVolume.weight : 0f);
-            Debug.Log($"[BattleTAB] BattleShowBroadcastNoiseController.ApplyBlend -> " +
-                $"BattleColorGradingController.SetSelectionBlend: frame={Time.frameCount}, " +
-                $"camera={(targetCamera != null ? targetCamera.name : "null")}, " +
-                $"cameraId={(targetCamera != null ? targetCamera.GetInstanceID() : 0)}, " +
-                $"state={(runManager != null ? runManager.State.ToString() : "null")}, " +
-                $"blend={currentBlend:F4}, lens={appliedLens:F4}, volumeWeight={appliedWeight:F4}, " +
-                $"cameraWarp={(TryGetCameraDistortion(targetCamera, out Vector4 warp) ? warp.x : 0f):F4}, " +
-                $"setSelectionBlendCalled={colorGrading != null}, colorGradingBound={useColorGrading}, " +
-                $"postProcessing={(cameraData != null && cameraData.renderPostProcessing)}, " +
-                $"renderer={(renderer != null ? renderer.GetType().Name : "null")}, " +
-                $"volumeMask={(cameraData != null ? cameraData.volumeLayerMask.value : 0)}, " +
-                $"gradingLayer={(colorGrading != null ? colorGrading.RuntimeVolumeLayer : -1)}. " +
-                "Camera warp runs in BattleTabBackgroundCaptureFeature before TAB capture; Transform/FOV stays unchanged.", this);
-        }
-        combatTabWasHeld = combatTabHeld;
+        if (selection <= 0.001f) ReleaseOverlayMaterial();
     }
 
     private void ApplyImmediate(float value)

@@ -10,14 +10,22 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
 
     public override void Create()
     {
+        BattleShowBroadcastNoiseController.CaptureStopped -= ReleaseCaptureResources;
         capturePass?.Dispose();
         capturePass = new CapturePass();
+        BattleShowBroadcastNoiseController.CaptureStopped += ReleaseCaptureResources;
     }
 
     protected override void Dispose(bool disposing)
     {
+        BattleShowBroadcastNoiseController.CaptureStopped -= ReleaseCaptureResources;
         capturePass?.Dispose();
         capturePass = null;
+    }
+
+    private void ReleaseCaptureResources()
+    {
+        capturePass?.Dispose();
     }
 
     public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
@@ -26,17 +34,18 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
         if (BattleShowBroadcastNoiseController.WantsBackgroundCapture(camera) ||
             BattleShowBroadcastNoiseController.TryGetCameraDistortion(camera, out _))
             renderer.EnqueuePass(capturePass);
+        else
+            capturePass?.ReleaseForCamera(camera);
     }
 
     private sealed class CapturePass : ScriptableRenderPass
     {
-        private readonly Material distortionMaterial;
+        private Material distortionMaterial;
         private RTHandle distortionTarget;
+        private Camera distortionCamera;
 
         public CapturePass()
         {
-            Shader shader = Resources.Load<Shader>("BattleTabCameraDistortion");
-            if (shader != null) distortionMaterial = CoreUtils.CreateEngineMaterial(shader);
             renderPassEvent = RenderPassEvent.AfterRenderingPostProcessing;
             requiresIntermediateTexture = true;
             ConfigureInput(ScriptableRenderPassInput.Color);
@@ -47,13 +56,29 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
             distortionTarget?.Release();
             distortionTarget = null;
             CoreUtils.Destroy(distortionMaterial);
+            distortionMaterial = null;
+            distortionCamera = null;
+        }
+
+        public void ReleaseForCamera(Camera camera)
+        {
+            if (distortionCamera == camera) Dispose();
         }
 
         private bool ConfigureDistortion(Camera camera)
         {
-            if (distortionMaterial == null ||
-                !BattleShowBroadcastNoiseController.TryGetCameraDistortion(camera, out Vector4 settings))
+            if (!BattleShowBroadcastNoiseController.TryGetCameraDistortion(camera, out Vector4 settings))
+            {
+                ReleaseForCamera(camera);
                 return false;
+            }
+            if (distortionMaterial == null)
+            {
+                Shader shader = Resources.Load<Shader>("BattleTabCameraDistortion");
+                if (shader != null) distortionMaterial = CoreUtils.CreateEngineMaterial(shader);
+            }
+            if (distortionMaterial == null) return false;
+            distortionCamera = camera;
             distortionMaterial.SetVector("_CrtSettings", settings);
             return true;
         }

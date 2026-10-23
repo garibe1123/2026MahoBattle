@@ -154,10 +154,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
 
-    [Header("Tab Background")]
-    [Tooltip("선택 화면과 전투 탭 배경에 공통 적용합니다. Tools/Harness/Install Tab Background Capture 실행 후 카메라 화면을 _MainTex로 전달합니다. UI 알파 블렌딩을 지원하는 Material을 지정하며 원본 대신 런타임 복사본을 사용합니다.")]
-    [SerializeField] private Material tabBackgroundMaterial;
-    public Material TabBackgroundMaterial => tabBackgroundMaterial;
+    [SerializeField, HideInInspector] private Material tabBackgroundMaterial;
+    public Material LegacyTabBackgroundMaterial => tabBackgroundMaterial;
 
     public BattleUiStyle UiStyle => uiStyle;
     public float UiPixelScale => Mathf.Clamp(uiPixelScale, 0.5f, 4f);

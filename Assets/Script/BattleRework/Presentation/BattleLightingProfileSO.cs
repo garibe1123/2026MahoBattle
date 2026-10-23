@@ -95,23 +95,24 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     public Color analogOverlayTint = new(0.015f, 0.02f, 0.025f, 1f);
 
     [Header("CRT Glass")]
-    [Range(0f, 0.15f)] public float crtCurvature = 0.035f;
-    [Range(0.01f, 0.25f)] public float crtEdgeWidth = 0.10f;
-    [Range(0f, 1f)] public float crtEdgeStrength = 0.86f;
-    [Range(0f, 1f)] public float crtColorStrength = 0.25f;
-    public Color crtShadowTint = new(0.40f, 0.46f, 0.60f, 1f);
-    [Range(0f, 0.1f)] public float crtCenterGlow = 0.025f;
-    [Range(0f, 1f)] public float crtSelectionOverlayWeight = 0.65f;
-    [Min(1f)] public float crtSelectionCurvatureMultiplier = 4f;
-    [Range(0f, 1f)] public float crtSelectionChromaticAberration = 0.85f;
-    [Range(0f, 1f)] public float crtSelectionNoiseStrength = 0.30f;
-    [Range(0f, 1f)] public float crtSelectionNoiseOpacityScale = 0.25f;
-    public Color crtSelectionNoiseTint = new(0.12f, 0.17f, 0.24f, 1f);
-    [Range(1f, 120f)] public float crtSelectionNoiseRate = 60f;
-    [Range(1f, 4f)] public float crtSelectionNoisePixelSize = 1.25f;
-    [Range(0f, 1f)] public float crtSelectionBackgroundOpacity = 0.30f;
-    [Min(0.05f)] public float crtSelectionReturnDuration = 0.48f;
-    [Range(0f, 3f)] public float crtSelectionReturnRebound = 1.3f;
+    // Retained only for migration into BattleShowBroadcastNoiseController.
+    [HideInInspector] public float crtCurvature = 0.035f;
+    [HideInInspector] public float crtEdgeWidth = 0.10f;
+    [HideInInspector] public float crtEdgeStrength = 0.86f;
+    [HideInInspector] public float crtColorStrength = 0.25f;
+    [HideInInspector] public Color crtShadowTint = new(0.40f, 0.46f, 0.60f, 1f);
+    [HideInInspector] public float crtCenterGlow = 0.025f;
+    [HideInInspector] public float crtSelectionOverlayWeight = 0.65f;
+    [HideInInspector] public float crtSelectionCurvatureMultiplier = 4f;
+    [HideInInspector] public float crtSelectionChromaticAberration = 0.85f;
+    [HideInInspector] public float crtSelectionNoiseStrength = 0.30f;
+    [HideInInspector] public float crtSelectionNoiseOpacityScale = 0.25f;
+    [HideInInspector] public Color crtSelectionNoiseTint = new(0.12f, 0.17f, 0.24f, 1f);
+    [HideInInspector] public float crtSelectionNoiseRate = 60f;
+    [HideInInspector] public float crtSelectionNoisePixelSize = 1.25f;
+    [HideInInspector] public float crtSelectionBackgroundOpacity = 0.30f;
+    [HideInInspector] public float crtSelectionReturnDuration = 0.48f;
+    [HideInInspector] public float crtSelectionReturnRebound = 1.3f;
 
     [Header("Player Key Spotlight")]
     public Color playerPoolColor = new(1f, 0.95f, 0.88f, 1f);
