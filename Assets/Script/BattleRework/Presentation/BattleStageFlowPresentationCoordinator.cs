@@ -227,10 +227,8 @@ public sealed class BattleStageFlowPresentationCoordinator : MonoBehaviour
         SetEnabled(showFocus, preShowDim || showVisuals);
         SetEnabled(sharedTvContent, showVisuals);
 
-        // 예전 Reward/Map 전용 BroadcastNoise는 풀스크린 FilmGrain/CA/LensDistortion/Vignette와
-        // Analog Overlay를 동시에 사용해 Show에서만 큰 GPU 비용을 만들었습니다.
-        // 방송 ON/OFF 연출은 이제 BattleBroadcastTransitionController가 Scene 진입/종료에만 담당합니다.
-        SetEnabled(broadcastNoise, false);
+        // 전투 중 컨트롤러를 유지하고 실제 왜곡은 기존 TAB 유지 상태로 제한합니다.
+        SetEnabled(broadcastNoise, stageFlow.IsCombatPhase);
 
         // Player / Presenter의 실제 Character Spotlight는 Field Cinematic이 소유합니다.
         // RoomExiting / ShowEntering에서는 꺼 둔 채 먼저 암전하고,

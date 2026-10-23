@@ -24,6 +24,9 @@ public static class HarnessTabBackgroundCapture
                 Camera assigned = new SerializedObject(controller).FindProperty("targetCamera").objectReferenceValue as Camera;
                 if (assigned != null) camera = assigned;
             }
+            BattleColorGradingController grading = Object.FindFirstObjectByType<BattleColorGradingController>();
+            if (grading != null && grading.TargetCamera != null)
+                camera = grading.TargetCamera;
             if (camera != null && camera.TryGetComponent(out UniversalAdditionalCameraData cameraData))
             {
                 int cameraIndex = new SerializedObject(cameraData).FindProperty("m_RendererIndex").intValue;
@@ -41,7 +44,9 @@ public static class HarnessTabBackgroundCapture
                 existing.SetActive(true);
                 EditorUtility.SetDirty(existing);
                 rendererData.SetDirty();
+                EditorUtility.SetDirty(rendererData);
                 AssetDatabase.SaveAssetIfDirty(existing);
+                AssetDatabase.SaveAssetIfDirty(rendererData);
                 return;
             }
 
