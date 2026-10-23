@@ -29,7 +29,6 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
 
     private Canvas pauseCanvas;
     private GameObject pauseRoot;
-    private Image pausePanelImage, resumeButtonImage;
     private bool inputSubscribed;
 
     private void Awake()
@@ -47,8 +46,6 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
     {
         if (pauseRoot == null) return;
         BattleUiStyleController.RegisterRoot(pauseRoot.transform);
-        BattleUiStyleController.RegisterPanel(pausePanelImage, false);
-        BattleUiStyleController.RegisterPanel(resumeButtonImage, false);
     }
 
     private void OnEnable()
@@ -206,28 +203,17 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         dim.color = new Color(0.008f, 0.006f, 0.015f, 0.76f);
         dim.raycastTarget = true;
 
-        RectTransform wedge = CreateRect(pauseRoot.transform, "PauseYellowWedge", new Vector2(780f, 1320f));
-        wedge.anchorMin = wedge.anchorMax = new Vector2(0f, 0.5f);
-        wedge.anchoredPosition = new Vector2(-330f, 0f);
-        wedge.localRotation = Quaternion.Euler(0f, 0f, -15f);
-        SetImage(wedge, new Color(accentYellow.r, accentYellow.g, accentYellow.b, 0.92f), false);
-
         RectTransform panel = CreateRect(pauseRoot.transform, "PausePanel", new Vector2(560f, 250f));
         panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0.5f);
         panel.anchoredPosition = new Vector2(140f, 0f);
         panel.localRotation = Quaternion.Euler(0f, 0f, -3f);
         Image panelImage = panel.gameObject.AddComponent<Image>();
-        pausePanelImage = panelImage;
         panelImage.color = inkColor;
-        Outline panelOutline = panel.gameObject.AddComponent<Outline>();
-        panelOutline.effectColor = accentPink;
-        panelOutline.effectDistance = new Vector2(7f, -7f);
-
-        RectTransform slash = CreateRect(panel, "PausePinkSlash", new Vector2(22f, 286f));
-        slash.anchorMin = slash.anchorMax = new Vector2(0f, 0.5f);
-        slash.anchoredPosition = new Vector2(18f, 0f);
-        slash.localRotation = Quaternion.Euler(0f, 0f, 12f);
-        SetImage(slash, accentPink, false);
+        BattleUiPanelDecoration.Round(panelImage);
+        Color panelColor = panelImage.color;
+        panelColor.a = inkColor.a;
+        panelImage.color = panelColor;
+        BattleUiPanelDecoration.Attach(panel, BattleUiPanelDecoration.Mint);
 
         Text title = CreateText(panel, "PAUSE", 56, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
         SetAnchors(title.rectTransform, new Vector2(0.10f, 0.58f), new Vector2(0.92f, 0.94f));
@@ -241,14 +227,18 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         buttonRect.anchoredPosition = new Vector2(48f, 46f);
         buttonRect.localRotation = Quaternion.Euler(0f, 0f, 1.5f);
         Image buttonImage = buttonRect.gameObject.AddComponent<Image>();
-        resumeButtonImage = buttonImage;
         buttonImage.color = accentYellow;
+        BattleUiPanelDecoration.Round(buttonImage);
+        Color buttonColor = buttonImage.color;
+        buttonColor.a = accentYellow.a;
+        buttonImage.color = buttonColor;
+        BattleUiPanelDecoration.Attach(buttonRect, BattleUiPanelDecoration.Mint);
 
         Button resumeButton = buttonRect.gameObject.AddComponent<Button>();
         resumeButton.targetGraphic = buttonImage;
         resumeButton.onClick.AddListener(Resume);
 
-        Text resume = CreateText(buttonRect, "RESUME  /  ESC", 18, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        Text resume = CreateText(buttonRect, "RESUME  /  ESC", 18, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
         Stretch(resume.rectTransform);
 
         pauseRoot.SetActive(false);
