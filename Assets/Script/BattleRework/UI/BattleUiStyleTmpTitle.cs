@@ -64,7 +64,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         {
             checkedFont = font;
             checkedText = content;
-            supported = font.HasCharacters(content, out uint[] _, false, true);
+            supported = font.HasCharacters(content, out uint[] _, true, true);
         }
         if (!supported || !source.isActiveAndEnabled) { Hide(); return; }
         if (text.font != font || material == null)
