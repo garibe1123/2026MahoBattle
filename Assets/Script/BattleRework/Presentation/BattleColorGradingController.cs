@@ -535,7 +535,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
             "_RollingBandStrength",
             Mathf.Clamp01(
                 lightingProfile.rollingBandStrength +
-                0.16f * lowHpEmphasis));
+                0.16f * lowHpEmphasis) * (1f - combatTabBlend));
         analogOverlayMaterial.SetColor("_OverlayTint", lightingProfile.analogOverlayTint);
         float selection = Mathf.Clamp01(selectionBlend);
         analogOverlayMaterial.SetFloat("_Curvature", lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * selection);
@@ -544,7 +544,8 @@ public sealed class BattleColorGradingController : MonoBehaviour
         analogOverlayMaterial.SetFloat("_CenterGlow", lightingProfile.crtCenterGlow * selection);
         analogOverlayMaterial.SetColor("_GlassTint", lightingProfile.crtShadowTint);
         analogOverlayMaterial.SetFloat("_GlassTintStrength", lightingProfile.crtColorStrength * selection);
-        analogOverlayMaterial.SetFloat("_SelectionNoiseStrength", lightingProfile.crtSelectionNoiseStrength * selection);
+        analogOverlayMaterial.SetFloat("_SelectionNoiseStrength", lightingProfile.crtSelectionNoiseStrength * lightingProfile.crtSelectionNoiseOpacityScale * selection);
+        analogOverlayMaterial.SetColor("_SelectionNoiseTint", lightingProfile.crtSelectionNoiseTint);
         analogOverlayMaterial.SetFloat("_SelectionNoiseRate", lightingProfile.crtSelectionNoiseRate);
         analogOverlayMaterial.SetFloat("_SelectionNoisePixelSize", lightingProfile.crtSelectionNoisePixelSize);
         BattleUiMaterialController.UpdateUnscaledTime(analogOverlayMaterial);

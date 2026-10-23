@@ -17,6 +17,7 @@ Shader "UI/BattleAnalogTvOverlay"
         _GlassTint ("CRT Glass Tint", Color) = (0.40,0.46,0.60,1)
         _GlassTintStrength ("CRT Glass Tint Strength", Range(0,1)) = 0.25
         _SelectionNoiseStrength ("Selection Static Opacity", Range(0,1)) = 0
+        _SelectionNoiseTint ("Selection Static Tint", Color) = (0.12,0.17,0.24,1)
         _SelectionNoiseRate ("Selection Static Rate", Range(1,120)) = 60
         _SelectionNoisePixelSize ("Selection Static Pixel Size", Range(1,4)) = 1.25
     }
@@ -68,6 +69,7 @@ Shader "UI/BattleAnalogTvOverlay"
             fixed4 _GlassTint;
             float _GlassTintStrength;
             float _SelectionNoiseStrength, _SelectionNoiseRate, _SelectionNoisePixelSize;
+            fixed4 _SelectionNoiseTint;
 
             v2f vert(appdata_t v)
             {
@@ -96,7 +98,8 @@ Shader "UI/BattleAnalogTvOverlay"
                 float scanline = smoothstep(0.66, 0.98, linePhase) * _ScanlineStrength;
 
                 float frame = floor(_BattleUiUnscaledTime * 24.0);
-                float2 noiseCell = floor(uv * _ScreenParams.xy * 0.42 + frame);
+                float2 noiseCell = floor(uv * _ScreenParams.xy * 0.42);
+                noiseCell += frac(frame * float2(0.7548777, 0.5698403)) * 97.13;
                 float noise = abs(Hash21(noiseCell) - 0.5) * 2.0 * _NoiseStrength;
 
                 float rollingCenter = frac(_BattleUiUnscaledTime * 0.045);
@@ -104,10 +107,8 @@ Shader "UI/BattleAnalogTvOverlay"
                 rollingDistance = min(rollingDistance, 1.0 - rollingDistance);
                 float rollingBand = exp(-rollingDistance * rollingDistance * 1100.0) * _RollingBandStrength;
 
-                float edge = max(abs(glass.x), abs(glass.y));
-                float edgeGlass = smoothstep(1.0 - 2.0 * _EdgeWidth, 1.0, edge) * _EdgeStrength;
-                float outsideGlass = smoothstep(0.995, 1.005, edge);
-                edgeGlass = max(edgeGlass, outsideGlass * _EdgeStrength);
+                float edge = length(uv * 2.0 - 1.0);
+                float edgeGlass = smoothstep(1.0 - 2.0 * _EdgeWidth, 1.35, edge) * _EdgeStrength;
                 float tint = _GlassTintStrength * 0.08;
                 float2 glowUv = (uv - float2(0.5, 0.75)) * float2(1.5, 1.0);
                 float glow = exp(-dot(glowUv, glowUv) * 12.0) * _CenterGlow;
@@ -120,11 +121,9 @@ Shader "UI/BattleAnalogTvOverlay"
                 float2 staticCell = floor(uv * _ScreenParams.xy / max(1.0, _SelectionNoisePixelSize));
                 float2 staticSalt = frac(staticFrame * float2(0.7548777, 0.5698403)) * 97.13;
                 float snow = Hash21(staticCell + staticSalt);
-                float rowNoise = Hash21(float2(staticCell.y, staticSalt.x));
                 float staticAlpha = _SelectionNoiseStrength *
                     (0.25 + 0.75 * abs(snow * 2.0 - 1.0)) * (1.0 - edgeGlass);
-                float3 staticColor = lerp(float3(0.015, 0.02, 0.03), float3(0.85, 0.92, 1.0),
-                    step(0.5, snow * 0.9 + rowNoise * 0.1));
+                float3 staticColor = _SelectionNoiseTint.rgb * lerp(0.5, 1.5, snow);
                 float combinedCoverage = coverage * (1.0 - staticAlpha) + staticAlpha;
                 color = (color * coverage * (1.0 - staticAlpha) + staticColor * staticAlpha)
                     / max(combinedCoverage, 0.0001);

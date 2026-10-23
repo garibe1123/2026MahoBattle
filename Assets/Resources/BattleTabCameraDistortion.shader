@@ -26,7 +26,8 @@ Shader "Hidden/BattleTabCameraDistortion"
                 float2 uv = curved * 0.5 + 0.5;
                 float edge = max(abs(curved.x), abs(curved.y));
                 float border = 1.0 - smoothstep(1.0 - max(fwidth(edge), 0.001), 1.0, edge);
-                float falloff = 1.0 - smoothstep(1.0 - _CrtSettings.y, 1.0, edge) * _CrtSettings.z;
+                float radius = length(glass);
+                float falloff = 1.0 - smoothstep(1.0 - 2.0 * _CrtSettings.y, 1.35, radius) * _CrtSettings.z;
                 half4 color = SAMPLE_TEXTURE2D_X(_BlitTexture, sampler_LinearClamp,
                     clamp(uv, 0.0, 1.0) * _BlitScaleBias.xy + _BlitScaleBias.zw);
                 color.rgb *= border * falloff;

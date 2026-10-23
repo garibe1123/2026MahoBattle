@@ -105,6 +105,8 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Min(1f)] public float crtSelectionCurvatureMultiplier = 4f;
     [Range(0f, 1f)] public float crtSelectionChromaticAberration = 0.85f;
     [Range(0f, 1f)] public float crtSelectionNoiseStrength = 0.30f;
+    [Range(0f, 1f)] public float crtSelectionNoiseOpacityScale = 0.25f;
+    public Color crtSelectionNoiseTint = new(0.12f, 0.17f, 0.24f, 1f);
     [Range(1f, 120f)] public float crtSelectionNoiseRate = 60f;
     [Range(1f, 4f)] public float crtSelectionNoisePixelSize = 1.25f;
     [Range(0f, 1f)] public float crtSelectionBackgroundOpacity = 0.30f;

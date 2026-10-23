@@ -34,6 +34,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField] private Color vignetteColor = Color.black;
 
     [Header("Blend")]
+    [SerializeField] private Color tabBackgroundTint = new(0.45f, 0.50f, 0.60f, 1f);
     [SerializeField, Min(0.1f)] private float fadeSharpness = 7.5f;
     [SerializeField] private bool debugCombatTabDistortion = true;
 
@@ -283,7 +284,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
             overlayImage = imageObject.AddComponent<RawImage>();
             overlayImage.raycastTarget = false;
-            overlayImage.color = Color.white;
+            overlayImage.color = tabBackgroundTint;
             overlayImage.enabled = false;
         }
 
@@ -303,11 +304,21 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
                     hideFlags = HideFlags.HideAndDontSave
                 };
                 BattleUiMaterialController.ConfigureUnscaledTime(overlayMaterial);
+                // Disable scrolling surface effects only on the runtime TAB material.
+                overlayMaterial.DisableKeyword("TEXTURESCROLL_ON");
+                overlayMaterial.DisableKeyword("WAVEUV_ON");
+                overlayMaterial.DisableKeyword("ROUNDWAVEUV_ON");
+                overlayMaterial.DisableKeyword("DISTORT_ON");
+                overlayMaterial.DisableKeyword("OVERLAY_ON");
+                overlayMaterial.DisableKeyword("OVERLAYMULT_ON");
             }
         }
 
         if (overlayImage != null)
+        {
+            overlayImage.color = tabBackgroundTint;
             overlayImage.material = overlayMaterial;
+        }
     }
 
     internal static bool WantsBackgroundCapture(Camera camera)
