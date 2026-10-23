@@ -48,7 +48,9 @@ Shader "UI/BattleUiOptics"
                 float2 lens = radial * (-_UiOptics.y * dot(radial, radial) * 0.05 - _UiOptics.z * 0.5);
                 lens += radial * radial.yx * radial.yx * _UiOptics.w * 0.5;
                 lens = Limited(lens, _PixelLimits.y);
-                float2 split = Limited(radial * dot(radial, radial) * _UiOptics.x * 0.05, _PixelLimits.x);
+                // Keep subtle RGB fringes visible on UI near the screen center too.
+                float2 splitDirection = float2(1.0, radial.y * 0.25);
+                float2 split = Limited(splitDirection * _UiOptics.x * 0.05, _PixelLimits.x);
                 float limit = max(_PixelLimits.x, _PixelLimits.y);
                 half4 red = ReadUI(input.uv + Limited(lens + split, limit));
                 half4 green = ReadUI(input.uv + lens);
