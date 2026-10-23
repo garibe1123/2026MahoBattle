@@ -914,7 +914,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         Outline outline = compactRoot.gameObject.AddComponent<Outline>();
         outline.effectColor = accentCyan;
         outline.effectDistance = new Vector2(4f, -4f);
-        BattleUiPanelDecoration.Header(compactRoot, "INVENTORY / [equive]", accentCyan);
+        BattleUiPanelDecoration.Header(compactRoot, "INVENTORY / [equive]", accentCyan, true);
 
         compactGroup = compactRoot.gameObject.AddComponent<CanvasGroup>();
         compactGroup.blocksRaycasts = false;
@@ -1270,7 +1270,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardOutline.effectColor = new Color(paperColor.r, paperColor.g, paperColor.b, 0.42f);
         boardOutline.effectDistance = new Vector2(3f, -3f);
 
-        BattleUiPanelDecoration.Header(boardBack, "INVENTORY", accentCyan);
+        BattleUiPanelDecoration.Header(boardBack, "INVENTORY", accentCyan, true);
 
         BattlePackFocusPointerRelay packFocusRelay =
             boardRoot.gameObject.AddComponent<BattlePackFocusPointerRelay>();
@@ -1420,6 +1420,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         for (int i = 0; i < SlotCount; i++)
         {
             bool unlocked = equipmentSystem.IsSlotUnlocked(i);
+            slotDecorations[i]?.SetInventoryBackground(!unlocked);
             BattleEquipmentSlot slot = i < equipmentSystem.Slots.Count ? equipmentSystem.Slots[i] : null;
             BattleEquipmentSO equipment = slot?.equipment;
             bool isEquipped = i == equipped;
@@ -1427,13 +1428,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             if (slotBackgrounds[i] != null)
             {
-                slotBackgrounds[i].color = !unlocked
-                    ? lockedColor
-                    : isSelected
+                Color background = isSelected
                         ? BattleUiPanelDecoration.SelectedSurface
                         : isEquipped
                             ? BattleUiPanelDecoration.EquippedSurface
                             : new Color(inkColor.r, inkColor.g, inkColor.b, 0.98f);
+                if (!unlocked) background = new Color(lockedColor.r, lockedColor.g, lockedColor.b, background.a);
+                slotBackgrounds[i].color = background;
             }
 
             if (slotOutlines[i] != null)

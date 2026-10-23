@@ -8,6 +8,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private Graphic target;
     private Text label;
     private Image image;
+    private BattleUiPanelDecoration decoration;
     private bool panel, speechFrame, hiddenFill, tailFill, decoratedSurface;
     private Material originalMaterial, appliedMaterial;
     private Font originalFont, appliedFont, requestedFont;
@@ -29,6 +30,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         target = value;
         label = value as Text;
         image = value as Image;
+        decoration = value as BattleUiPanelDecoration;
         panel = value is BattleUiPanelDecoration ||
             (image != null && image.sprite == BattleHudSpriteCache.RoundedPanel);
         originalMaterial = CaptureMaterial();
@@ -36,6 +38,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         originalFontStyle = label != null ? label.fontStyle : FontStyle.Normal;
         if (image != null)
         {
+            Transform child = image.transform.Find("PanelDecoration");
+            if (child != null) decoration = child.GetComponent<BattleUiPanelDecoration>();
+            decoratedSurface = decoration != null;
+            panel |= decoratedSurface;
             speechFrame = image.TryGetComponent<BattleSpeechBubbleFrameFillController>(out _);
             hiddenFill = image.name == "BubbleFrameFill";
             tailFill = image.name == "TailFill";
@@ -51,16 +57,22 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         target.SetVerticesDirty();
     }
 
-    internal void SetPanel()
+    internal void SetPanel(bool decorated = true)
     {
         panel = true;
-        decoratedSurface = true;
+        decoratedSurface = decorated;
+        if (decorated && decoration == null && image != null)
+        {
+            Transform child = image.transform.Find("PanelDecoration");
+            if (child != null) decoration = child.GetComponent<BattleUiPanelDecoration>();
+        }
         target.SetVerticesDirty();
     }
 
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial)
     {
+        if (decoration != null) decoration.RefreshBackgroundOpacity();
         if (materialOverridden && target.material != appliedMaterial)
             originalMaterial = CaptureMaterial();
         if (label != null && fontOverridden && label.font != appliedFont)
@@ -188,6 +200,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     public override void ModifyMesh(VertexHelper vh)
+    {
+        if (!IsActive() || target == null) return;
+        ModifyStyledMesh(vh);
+        if (image != null && decoration != null)
+            decoration.ApplyBackgroundOpacity(vh, vh.currentVertCount, image.color.a);
+    }
+
+    private void ModifyStyledMesh(VertexHelper vh)
     {
         if (!IsActive() || target == null || HasAssignedMaterial()) return;
         bool pixel = BattleUiStyleController.IsPixel;

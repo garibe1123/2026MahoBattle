@@ -29,12 +29,26 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
 
     private Canvas pauseCanvas;
     private GameObject pauseRoot;
+    private Image pausePanelImage, resumeButtonImage;
     private bool inputSubscribed;
 
     private void Awake()
     {
         ResolveReferences();
         EnsurePauseUi();
+    }
+
+    private void Start()
+    {
+        RegisterPauseStyle();
+    }
+
+    private void RegisterPauseStyle()
+    {
+        if (pauseRoot == null) return;
+        BattleUiStyleController.RegisterRoot(pauseRoot.transform);
+        BattleUiStyleController.RegisterPanel(pausePanelImage, false);
+        BattleUiStyleController.RegisterPanel(resumeButtonImage, false);
     }
 
     private void OnEnable()
@@ -203,6 +217,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         panel.anchoredPosition = new Vector2(140f, 0f);
         panel.localRotation = Quaternion.Euler(0f, 0f, -3f);
         Image panelImage = panel.gameObject.AddComponent<Image>();
+        pausePanelImage = panelImage;
         panelImage.color = inkColor;
         Outline panelOutline = panel.gameObject.AddComponent<Outline>();
         panelOutline.effectColor = accentPink;
@@ -226,6 +241,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         buttonRect.anchoredPosition = new Vector2(48f, 46f);
         buttonRect.localRotation = Quaternion.Euler(0f, 0f, 1.5f);
         Image buttonImage = buttonRect.gameObject.AddComponent<Image>();
+        resumeButtonImage = buttonImage;
         buttonImage.color = accentYellow;
 
         Button resumeButton = buttonRect.gameObject.AddComponent<Button>();
@@ -236,6 +252,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         Stretch(resume.rectTransform);
 
         pauseRoot.SetActive(false);
+        RegisterPauseStyle();
     }
 
     private static void EnsureEventSystem()

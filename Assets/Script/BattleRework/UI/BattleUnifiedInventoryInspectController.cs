@@ -103,6 +103,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private float rewardUiValidationAt;
 
     public int ActiveInspectSlot => activeInspectSlot;
+    internal static bool DimInventoryBackgrounds { get; private set; }
 
     private void Awake()
     {
@@ -131,6 +132,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         UnsubscribeCombatLoadout();
         combatActive = false;
         combatTabOpen = false;
+        DimInventoryBackgrounds = false;
         inspectContextWasActive = false;
         selectionSuppressed = false;
         suppressedSourceSlot = -1;
@@ -182,6 +184,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         bool rewardPackVisible = IsRewardPackVisible();
         bool combatTab = combatTabOpen;
         bool combat = combatActive;
+        DimInventoryBackgrounds = combat && !combatTab;
 
         ApplyMiniPackContext(rewardChoice, rewardPackVisible, combatTab, combat);
         ApplyFullInventoryLayout(rewardPackVisible);

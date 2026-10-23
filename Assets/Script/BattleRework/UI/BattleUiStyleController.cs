@@ -8,6 +8,10 @@ public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo
 [Serializable]
 public sealed class BattleUiStyleSettings
 {
+    public const float DefaultCombatBackgroundAlpha = 0.5f;
+    public const float DefaultLockedSlotAlpha = 0.4f;
+    [Range(0f, 1f)] public float combatBackgroundAlpha = DefaultCombatBackgroundAlpha;
+    [Range(0f, 1f)] public float lockedSlotAlpha = DefaultLockedSlotAlpha;
     [Tooltip("기준 픽셀 크기입니다. UI의 회전·확대·변형을 따라 격자도 함께 변형됩니다.")]
     [Min(1f)] public float logicalPixelSize = 2f;
     [Min(1f)] public float textPixelSize = 1f;
@@ -110,10 +114,10 @@ public sealed class BattleUiStyleController : MonoBehaviour
         if (fill != null) active.targets[fill].SetSpeechFrame(true);
     }
 
-    public static void RegisterPanel(Image image)
+    public static void RegisterPanel(Image image, bool decoratedSurface = true)
     {
         RegisterGraphic(image);
-        if (active != null && image != null) active.targets[image].SetPanel();
+        if (active != null && image != null) active.targets[image].SetPanel(decoratedSurface);
     }
 
     internal static void PrepareMaterialTarget(Graphic target)

@@ -53,6 +53,54 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private Material appliedMaterial;
     private bool materialApplied;
     private float surfaceOpacity = 1f;
+    private bool inventoryBackground, lockedSlot;
+    private int backgroundVertexCount;
+    private float backgroundBaseAlpha;
+    private bool wasInventoryDimmed;
+    private float lastCombatAlpha = -1f, lastLockedAlpha = -1f;
+
+    public void SetInventoryBackground(bool locked = false)
+    {
+        if (inventoryBackground && lockedSlot == locked) return;
+        inventoryBackground = true;
+        lockedSlot = locked;
+        SetVerticesDirty();
+        if (surfaceImage != null) surfaceImage.SetVerticesDirty();
+    }
+
+    internal void RefreshBackgroundOpacity()
+    {
+        if (!inventoryBackground) return;
+        bool dimmed = BattleUnifiedInventoryInspectController.DimInventoryBackgrounds;
+        BattleUiStyleSettings settings = BattleUiStyleController.Settings;
+        float combatAlpha = settings != null ? settings.combatBackgroundAlpha : BattleUiStyleSettings.DefaultCombatBackgroundAlpha;
+        float lockedAlpha = settings != null ? settings.lockedSlotAlpha : BattleUiStyleSettings.DefaultLockedSlotAlpha;
+        if (wasInventoryDimmed == dimmed && lastCombatAlpha == combatAlpha && lastLockedAlpha == lockedAlpha) return;
+        wasInventoryDimmed = dimmed;
+        lastCombatAlpha = combatAlpha;
+        lastLockedAlpha = lockedAlpha;
+        SetVerticesDirty();
+        if (surfaceImage != null) surfaceImage.SetVerticesDirty();
+    }
+
+    internal void ApplyBackgroundOpacity(VertexHelper vh, int backgroundCount, float baseAlpha)
+    {
+        if (!inventoryBackground) return;
+        BattleUiStyleSettings settings = BattleUiStyleController.Settings;
+        float lockedAlpha = lockedSlot ? (settings != null ? settings.lockedSlotAlpha : BattleUiStyleSettings.DefaultLockedSlotAlpha) : 1f;
+        float backgroundScale = BattleUnifiedInventoryInspectController.DimInventoryBackgrounds && baseAlpha > 0f
+            ? (settings != null ? settings.combatBackgroundAlpha : BattleUiStyleSettings.DefaultCombatBackgroundAlpha) / baseAlpha : 1f;
+        if (lockedAlpha == 1f && backgroundScale == 1f) return;
+        UIVertex vertex = default;
+        for (int i = 0; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            Color tint = vertex.color;
+            tint.a *= lockedAlpha * (i < backgroundCount ? backgroundScale : 1f);
+            vertex.color = tint;
+            vh.SetUIVertex(vertex, i);
+        }
+    }
 
     public static Color Neutral(Color value)
     {
@@ -105,9 +153,10 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         return decoration;
     }
 
-    public static void Header(RectTransform parent, string title, Color accent)
+    public static void Header(RectTransform parent, string title, Color accent, bool inventoryBackground = false)
     {
         BattleUiPanelDecoration decoration = Attach(parent, accent);
+        if (inventoryBackground) decoration.SetInventoryBackground();
         decoration.hasHeader = true;
         Text text = decoration.headerLabel;
         if (text == null)
@@ -236,6 +285,14 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
 
     protected override void OnPopulateMesh(VertexHelper vh)
     {
+        backgroundVertexCount = 0;
+        backgroundBaseAlpha = surfaceImage != null ? surfaceImage.color.a : 1f;
+        PopulatePanelMesh(vh);
+        ApplyBackgroundOpacity(vh, backgroundVertexCount, backgroundBaseAlpha);
+    }
+
+    private void PopulatePanelMesh(VertexHelper vh)
+    {
         vh.Clear();
         Rect face = rectTransform.rect;
         if (face.width < 8f || face.height < 8f)
@@ -245,6 +302,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             BattleUiStyleMeshEffect.DrawMahoFrame(vh, face, style, softFill ? 0.94f : 1f);
+            backgroundVertexCount = vh.currentVertCount;
+            backgroundBaseAlpha = style.background.a * (softFill ? 0.94f : 1f);
             float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
             if (emphasis)
             {
@@ -281,6 +340,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             Color fill = style.background;
             fill.a = softFill ? 0.90f : 1f;
             BattleUiStyleMeshEffect.DrawFrame(vh, face, style, fill, pixel);
+            backgroundBaseAlpha = fill.a;
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
@@ -292,6 +352,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                 BattleUiStyleMeshEffect.Quad(vh,
                     new Rect(header.xMin, header.yMin, pixel, header.height), style.status);
             }
+            backgroundVertexCount = vh.currentVertCount;
             if (emphasis)
             {
                 Color tint = style.status;
@@ -309,6 +370,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f);
+            backgroundBaseAlpha = style.comicBackground.a * (softFill ? 0.94f : 1f);
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
@@ -316,6 +378,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                     face.width - 12f, HeaderHeight * scale - 5f);
                 BattleUiStyleMeshEffect.Slant(vh, header, style.comicAccent);
             }
+            backgroundVertexCount = vh.currentVertCount;
             if (emphasis)
             {
                 Color tint = style.comicAccent;
@@ -350,6 +413,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                 Fill(vh, control, Muted, Muted);
             }
         }
+        backgroundVertexCount = vh.currentVertCount;
         if (emphasis)
         {
             Color tint = accent;

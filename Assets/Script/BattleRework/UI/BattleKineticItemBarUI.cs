@@ -226,7 +226,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
     private void BuildHeader()
     {
-        BattleUiPanelDecoration.Header(root, "INVENTORY", accentCyan);
+        BattleUiPanelDecoration.Header(root, "INVENTORY", accentCyan, true);
         capacityText = CreateText(root, "3 / 9", 8, FontStyle.Bold, TextAnchor.MiddleRight, accentCyan);
         RectTransform capacity = capacityText.rectTransform;
         capacity.anchorMin = capacity.anchorMax = Vector2.one;
@@ -451,9 +451,14 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             bool linked = IsSlotLinked(i);
             slotNames[i].text = !unlocked ? "LOCKED" : occupied ? equipment.GetDisplayName().ToUpperInvariant() : string.Empty;
             slotDecorations[i]?.SetEmphasis(isEquipped || linked);
+            slotDecorations[i]?.SetInventoryBackground(!unlocked);
 
             if (slotBackgrounds[i] != null)
-                slotBackgrounds[i].color = !unlocked ? lockedColor : isEquipped ? BattleUiPanelDecoration.EquippedSurface : occupied ? occupiedCellColor : emptyCellColor;
+            {
+                Color background = isEquipped ? BattleUiPanelDecoration.EquippedSurface : occupied ? occupiedCellColor : emptyCellColor;
+                if (!unlocked) background = new Color(lockedColor.r, lockedColor.g, lockedColor.b, background.a);
+                slotBackgrounds[i].color = background;
+            }
 
             if (slotOutlines[i] != null)
             {
