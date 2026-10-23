@@ -7,6 +7,7 @@ using UnityEngine.UI;
 [DisallowMultipleComponent]
 public sealed class BattleUiOpticsCanvas : MonoBehaviour
 {
+    private const float CapturePlaneDistance = 10000f;
     private static int captureLayer = -1;
     private sealed class LayerState { internal int layer; }
     private readonly Dictionary<Transform, LayerState> layers = new();
@@ -127,7 +128,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             captureCamera.allowHDR = true;
             captureCamera.allowMSAA = false;
             captureCamera.nearClipPlane = 0.1f;
-            captureCamera.farClipPlane = 200f;
+            captureCamera.farClipPlane = CapturePlaneDistance * 2f;
             UniversalAdditionalCameraData data = cameraObject.GetComponent<UniversalAdditionalCameraData>();
             data.renderPostProcessing = false;
             data.renderShadows = false;
@@ -165,7 +166,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         material.SetTexture("_WhiteTex", white);
         captureCamera.orthographicSize = height * 0.5f;
         captureCamera.aspect = (float)width / height;
-        captureCamera.transform.position = new Vector3(width * 0.5f, height * 0.5f, -100f);
+        captureCamera.transform.position = new Vector3(width * 0.5f, height * 0.5f, -CapturePlaneDistance);
         return true;
     }
 
@@ -202,7 +203,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             SetSourceHidden(false);
             source.renderMode = RenderMode.ScreenSpaceCamera;
             source.worldCamera = captureCamera;
-            source.planeDistance = 100f;
+            source.planeDistance = CapturePlaneDistance;
             captureCamera.targetTexture = black;
             Canvas.ForceUpdateCanvases();
             // Two backgrounds recover coverage without changing any source shader or blend mode.
