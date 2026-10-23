@@ -39,8 +39,27 @@ public sealed class HarnessTabEffectPreview : Editor
 
     public override void OnInspectorGUI()
     {
-        DrawDefaultInspector();
         BattleShowBroadcastNoiseController controller = (BattleShowBroadcastNoiseController)target;
+        EditorGUILayout.LabelField("TAB 화면 노이즈 출처", EditorStyles.boldLabel);
+        EditorGUILayout.HelpBox(
+            "TAB 점무늬는 Assets/Resources/BattleAnalogTvOverlay.shader가 생성합니다. " +
+            "이 컴포넌트의 'TAB 화면 점무늬 노이즈 강도 / 갱신 속도 / 픽셀 크기 / 색상'으로 조절합니다. " +
+            "표시할 Image와 런타임 머티리얼은 BattleColorGradingController.Awake → EnsureAnalogOverlay에서 생성됩니다. " +
+            "재생 중 아래에 실제 생성된 참조가 표시되며, 위치 표시 버튼으로 Hierarchy에서 찾을 수 있습니다. " +
+            "카메라 필름 그레인은 Film Grain Intensity, 캡처 배경은 Tab Background Material로 조절합니다.",
+            MessageType.Info);
+        using (new EditorGUI.DisabledScope(true))
+        {
+            EditorGUILayout.ObjectField("화면 노이즈 Image", controller.TabScreenNoiseImage, typeof(UnityEngine.UI.Image), true);
+            EditorGUILayout.ObjectField("화면 노이즈 런타임 Material", controller.TabScreenNoiseMaterial, typeof(Material), false);
+            EditorGUILayout.ObjectField("캡처 배경 RawImage", controller.TabBackgroundImage, typeof(UnityEngine.UI.RawImage), true);
+            EditorGUILayout.ObjectField("캡처 배경 런타임 Material", controller.TabBackgroundRuntimeMaterial, typeof(Material), false);
+        }
+        using (new EditorGUI.DisabledScope(controller.TabScreenNoiseImage == null))
+            if (GUILayout.Button("TAB 화면 노이즈 오브젝트 위치 표시"))
+                EditorGUIUtility.PingObject(controller.TabScreenNoiseImage.gameObject);
+        EditorGUILayout.Space();
+        DrawDefaultInspector();
         if (!serializedObject.FindProperty("tabSettingsMigrated").boolValue)
         {
             EditorGUILayout.HelpBox("Import the existing lighting profile once to preserve its TAB values before tuning here. " +

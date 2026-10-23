@@ -22,6 +22,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private BattleColorGradingController colorGrading;
 
     [Header("Shared Selection Lens")]
+    [Tooltip("URP FilmGrain. TAB 화면 점무늬는 아래 TAB 화면 점무늬 노이즈 강도에서 조절합니다.")]
     [SerializeField, Range(0f, 1f)] private float filmGrainIntensity = 0.055f;
     [SerializeField, Range(0f, 1f)] private float filmGrainResponse = 0.78f;
     [SerializeField, Range(0f, 1f)] private float chromaticAberrationIntensity = 0.12f;
@@ -42,17 +43,27 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     [Header("TAB Effect Tuning")]
     [SerializeField, HideInInspector] private bool useTabEffectTuning;
+    [Tooltip("BattleAnalogTvOverlay.shader의 _NoiseStrength. 화면 표면에 깔리는 미세 노이즈입니다.")]
+    [InspectorName("화면 표면 미세 노이즈 강도")]
     [SerializeField, Range(0f, 0.15f)] private float tabCameraNoiseStrength = 0.018f;
+    [Header("TAB 화면 점무늬 노이즈 (BattleAnalogTvOverlay)")]
+    [Tooltip("TAB을 누를 때 추가되는 점무늬의 강도입니다. BattleAnalogTvOverlay.shader가 _SelectionNoiseStrength로 생성하며 텍스처를 사용하지 않습니다.")]
+    [InspectorName("TAB 화면 점무늬 노이즈 강도")]
     [SerializeField, Range(0f, 1f)] private float tabStaticOpacity = 0.075f;
+    [InspectorName("TAB 화면 점무늬 갱신 속도")]
     [SerializeField, Range(1f, 120f)] private float tabStaticRate = 60f;
+    [InspectorName("TAB 화면 점무늬 픽셀 크기")]
     [SerializeField, Range(1f, 4f)] private float tabStaticPixelSize = 1.25f;
     [SerializeField, Range(0f, 0.25f)] private float tabScanlineStrength = 0.035f;
+    [Header("TAB 화면 캡처 배경")]
     [SerializeField, Range(0f, 1f)] private float tabBackgroundOpacity = 0.30f;
+    [Tooltip("캡처된 전투 화면을 그리는 머티리얼 원본입니다. 런타임 복사본에만 설정을 적용합니다.")]
     [SerializeField] private Material tabBackgroundMaterial;
+    [Header("TAB 화면 필터")]
     [SerializeField, Range(0f, 1f)] private float tabOverlayWeight = 0.65f;
     [SerializeField, Range(0f, 1f)] private float tabOverlayStrength = 1f;
     [SerializeField, Range(1f, 12f)] private float tabScanlineSpacing = 3f;
-    [SerializeField] private Color tabStaticTint = new(0.12f, 0.17f, 0.24f, 1f);
+    [SerializeField, InspectorName("TAB 화면 점무늬 색상")] private Color tabStaticTint = new(0.12f, 0.17f, 0.24f, 1f);
     [SerializeField, Range(0.01f, 0.25f)] private float tabEdgeWidth = 0.10f;
     [SerializeField, Range(0f, 1f)] private float tabEdgeStrength = 0.86f;
     [SerializeField, Range(0f, 0.1f)] private float tabCenterGlow = 0.025f;
@@ -65,6 +76,10 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField, HideInInspector] private bool preserveLensReaction;
     private bool tabPreview;
     public bool TabPreview => tabPreview;
+    public Image TabScreenNoiseImage => colorGrading != null ? colorGrading.RuntimeAnalogOverlay : null;
+    public Material TabScreenNoiseMaterial => colorGrading != null ? colorGrading.RuntimeAnalogMaterial : null;
+    public RawImage TabBackgroundImage => overlayImage;
+    public Material TabBackgroundRuntimeMaterial => overlayMaterial;
 
     public void SetTabPreview(bool enabled)
     {
