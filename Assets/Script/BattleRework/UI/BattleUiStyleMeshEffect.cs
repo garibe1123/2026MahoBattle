@@ -74,7 +74,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
-        Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial)
+        Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont)
     {
         if (decoration != null) decoration.RefreshBackgroundOpacity();
         if (materialOverridden && target.material != appliedMaterial)
@@ -119,16 +119,17 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             ((pixelPanel != null && next.shader == pixelPanel.shader) ||
              (pixelText != null && next.shader == pixelText.shader));
 
-        if (label != null && (pixel || settings.font != null))
+        Font preferredFont = settings.font != null ? settings.font : themeFont;
+        if (label != null && (pixel || preferredFont != null))
         {
             if (!fontOverridden) originalFont = label.font;
-            if (!fontOverridden || lastText != label.text || requestedFont != settings.font || wasPixel != pixel)
+            if (!fontOverridden || lastText != label.text || requestedFont != preferredFont || wasPixel != pixel)
             {
-                Font preferred = settings.font != null ? settings.font : bitmap;
+                Font preferred = preferredFont != null ? preferredFont : bitmap;
                 appliedFont = Supports(preferred, label.text) ? preferred :
                     Supports(originalFont, label.text) ? originalFont : BattleFeedbackFont.Resolve();
                 lastText = label.text;
-                requestedFont = settings.font;
+                requestedFont = preferredFont;
             }
             if (label.font != appliedFont) label.font = appliedFont;
             fontOverridden = true;

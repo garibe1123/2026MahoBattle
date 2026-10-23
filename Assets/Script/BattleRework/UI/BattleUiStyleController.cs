@@ -159,6 +159,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
     {
         if (presentation == null) return;
         BattleUiStyleSettings settings = presentation.UiStyleSettings;
+        Font themeFont = BattleUiThemeFonts.Load(presentation.UiStyle);
         bool pixel = IsPixel;
         if ((pixel || IsComic || IsMahoShojo || IsStylish || IsBirthday) && panelMaterial == null)
         {
@@ -179,7 +180,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
                 entry.Value.HideTmpTitle();
                 continue;
             }
-            entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial);
+            entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial, themeFont);
         }
         foreach (Graphic target in removed) targets.Remove(target);
     }
