@@ -1,11 +1,12 @@
 using System.Collections;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 /// <summary>
 /// 엔진 테스트용 IMGUI입니다.
-/// 좌측 레거시 디버그 패널은 Debug Action Map의 F1로 켜고 끌 수 있으며,
-/// 우측 상단 KILL ALL ENEMY 퀵 액션과 맵 선택용 BATTLE RATING 테스트 선택기를 제공합니다.
+/// Debug 버튼으로 통합 테스트 패널을 열고 닫으며,
+/// 패널 안에서 KILL ALL ENEMY와 BATTLE RATING 테스트 선택기를 제공합니다.
 /// 테스트 선택기는 Play Mode에서만 보이며 NodeGraphSO 값을 수정하지 않습니다.
 /// 릴리스 빌드에서는 입력과 UI가 모두 비활성입니다.
 /// </summary>
@@ -16,6 +17,10 @@ public class BattleDebugUI : MonoBehaviour
     [SerializeField] private BattleEquipmentSystem equipmentSystem;
     [SerializeField] private BattleInputRouter inputRouter;
     [SerializeField] private bool visible = false;
+    [SerializeField] private Vector2 debugButtonSize = new(80f, 32f);
+    [SerializeField] private Vector2 debugMargin = new(12f, 12f);
+    [SerializeField] private float debugPanelWidth = 420f;
+    private RectTransform inputBoundary;
 
     private static bool sceneHookInstalled;
 
@@ -38,6 +43,9 @@ public class BattleDebugUI : MonoBehaviour
     private ElementalAdditionalSamples additionalSamples;
     private CharacterStatusEffectVisual characterEffect;
     private int activeCharacterEffect = -1;
+    private int characterExecution;
+    private bool testsInitialized;
+    private readonly System.Collections.Generic.Dictionary<BattleDebrisBurst, int> debrisTests = new();
     private PlayerController elementalPlayer;
     private readonly EffectVisual[] fieldEffects = new EffectVisual[3];
     private readonly int[] fieldExecutions = new int[3];
@@ -81,7 +89,10 @@ public class BattleDebugUI : MonoBehaviour
             FindObjectsInactive.Include,
             FindObjectsSortMode.None);
         if (existing.Length > 0)
+        {
+            foreach (BattleDebugUI existingUI in existing) existingUI.RequestClose();
             return;
+        }
 
         GameObject host = new("BattleEngineTestDebugUI");
         BattleDebugUI ui = host.AddComponent<BattleDebugUI>();
@@ -90,22 +101,46 @@ public class BattleDebugUI : MonoBehaviour
 
     private void Awake()
     {
+        visible = false;
+        if (!Application.isEditor && !Debug.isDebugBuild) return;
         ResolveReferences();
+        GameObject boundaryHost = new("Debug Input Boundary", typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
+        boundaryHost.transform.SetParent(transform, false);
+        Canvas canvas = boundaryHost.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = short.MaxValue;
+        GameObject blocker = new("Debug Pointer Blocker", typeof(RectTransform), typeof(Image));
+        blocker.transform.SetParent(boundaryHost.transform, false);
+        blocker.GetComponent<Image>().color = Color.clear;
+        inputBoundary = (RectTransform)blocker.transform;
+        RefreshInputBoundary();
+    }
+
+    private void OnEnable()
+    {
+        if (!Application.isEditor && !Debug.isDebugBuild) return;
+        if (inputBoundary != null) inputBoundary.parent.gameObject.SetActive(true);
+        if (inputRouter != null) inputRouter.RegisterDebugUI(this);
+    }
+
 #if UNITY_EDITOR
-        elementalPerformance = FindFirstObjectByType<EffectPerformanceOverlay>();
+    private void InitializeTests()
+    {
+        if (testsInitialized) return;
+        elementalPerformance = FindFirstObjectByType<EffectPerformanceOverlay>(FindObjectsInactive.Include);
         if (elementalPerformance == null) elementalPerformance = gameObject.AddComponent<EffectPerformanceOverlay>();
         elementalPerformance.drawStandalone = false;
-        elementalPerformance.enabled = true;
+        elementalPerformance.SetCollecting(false);
         elementalCamera = Camera.main;
         elementalBlobWorld = UnityEngine.Object.FindFirstObjectByType<EffectBlobWorld>();
         if (elementalBlobWorld == null)
         {
             GameObject worldHost = new("Elemental Blob World");
             elementalBlobWorld = worldHost.AddComponent<EffectBlobWorld>();
+            elementalBlobWorld.pixelSizeMultiplier = EffectBlobWorld.DefaultPixelSize;
+            elementalBlobWorld.refreshRate = EffectBlobWorld.DefaultQuality;
+            elementalBlobWorld.surfaceRoughness = EffectBlobWorld.DefaultRoughness;
         }
-        elementalBlobWorld.pixelSizeMultiplier = EffectBlobWorld.DefaultPixelSize;
-        elementalBlobWorld.refreshRate = EffectBlobWorld.DefaultQuality;
-        elementalBlobWorld.surfaceRoughness = EffectBlobWorld.DefaultRoughness;
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
             useElementalTestEmitters = true;
@@ -147,25 +182,87 @@ public class BattleDebugUI : MonoBehaviour
             }
             characterFieldDefinitions[i] = additionalSamples.Definitions[i];
         }
-#endif
+        testsInitialized = true;
     }
+#endif
 
     private void Start()
     {
+        if (!Application.isEditor && !Debug.isDebugBuild) return;
         ResolveReferences();
+    }
+
+    private Rect DebugButtonRect => new(Screen.width - debugMargin.x - debugButtonSize.x,
+        debugMargin.y, debugButtonSize.x, debugButtonSize.y);
+
+    public bool ContainsScreenPoint(Vector2 screenPoint)
+    {
+        if (!isActiveAndEnabled) return false;
+        return visible || DebugButtonRect.Contains(new Vector2(screenPoint.x, Screen.height - screenPoint.y));
+    }
+
+    private void RefreshInputBoundary()
+    {
+        if (inputBoundary == null) return;
+        if (visible)
+        {
+            inputBoundary.anchorMin = Vector2.zero;
+            inputBoundary.anchorMax = Vector2.one;
+            inputBoundary.offsetMin = inputBoundary.offsetMax = Vector2.zero;
+        }
+        else
+        {
+            inputBoundary.anchorMin = inputBoundary.anchorMax = Vector2.one;
+            inputBoundary.pivot = Vector2.one;
+            inputBoundary.anchoredPosition = -debugMargin;
+            inputBoundary.sizeDelta = debugButtonSize;
+        }
+    }
+
+    private void SetVisible(bool value)
+    {
+        if (value && visible) return;
+        if (value) ResolveReferences();
+        visible = value;
+        if (inputRouter != null) inputRouter.SetDebugActive(this, value);
+        RefreshInputBoundary();
+        if (value)
+        {
 #if UNITY_EDITOR
-        if (elementalCamera == null) elementalCamera = Camera.main;
-        ResolveElementalPlayer();
+            InitializeTests();
+            if (elementalCamera == null) elementalCamera = Camera.main;
+            elementalEmitter.enabled = true;
+#endif
+            return;
+        }
+
+        StopAllCoroutines();
+        killAllRoutine = null;
+#if UNITY_EDITOR
+        StopCharacterFieldTests();
+        foreach (var test in debrisTests)
+            if (test.Key != null && test.Key.ExecutionId == test.Value && test.Key.gameObject.activeInHierarchy)
+                PoolService.Release(test.Key.gameObject);
+        debrisTests.Clear();
+        if (BattleFieldCinematicDirector.Instance != null)
+            BattleFieldCinematicDirector.Instance.CloseDebugLightingControls();
+        if (elementalEmitter != null)
+        {
+            elementalEmitter.ClearVisuals();
+            elementalEmitter.enabled = false;
+        }
+        if (elementalPerformance != null) elementalPerformance.SetCollecting(false);
+        elementalTestTab = 0;
 #endif
     }
 
-    private void Update()
-    {
-        if (!Application.isEditor && !Debug.isDebugBuild)
-            return;
+    public void RequestClose() => SetVisible(false);
 
-        if (inputRouter != null && inputRouter.DebugTogglePressedThisFrame)
-            visible = !visible;
+    private void OnDisable()
+    {
+        RequestClose();
+        if (inputRouter != null) inputRouter.UnregisterDebugUI(this);
+        if (inputBoundary != null) inputBoundary.parent.gameObject.SetActive(false);
     }
 
     private void ResolveReferences()
@@ -185,20 +282,31 @@ public class BattleDebugUI : MonoBehaviour
         if (!Application.isEditor && !Debug.isDebugBuild)
             return;
 
+        GUI.depth = -1000;
+        if (GUI.Button(DebugButtonRect, "Debug"))
+        {
+            SetVisible(!visible);
+            return;
+        }
+
+        if (!visible)
+            return;
+
+        float top = debugMargin.y * 2f + debugButtonSize.y;
+        float width = Mathf.Min(debugPanelWidth, Screen.width - debugMargin.x * 2f);
+        GUILayout.BeginArea(new Rect(Screen.width - debugMargin.x - width, top, width,
+            Mathf.Max(1f, Screen.height - top - debugMargin.y)), GUI.skin.box);
+        scroll = GUILayout.BeginScrollView(scroll);
+
+        GUILayout.Label("BATTLE VERTICAL SLICE DEBUG");
         DrawBattleRatingTestSelector();
         DrawKillAllEnemyButton();
 #if UNITY_EDITOR
         DrawElementalTestPanel();
         DrawDebrisArcTestButton();
+        if (BattleFieldCinematicDirector.Instance != null)
+            BattleFieldCinematicDirector.Instance.DrawDebugLightingControls();
 #endif
-
-        if (!visible)
-            return;
-
-        GUILayout.BeginArea(new Rect(12f, 12f, 420f, Screen.height - 24f), GUI.skin.box);
-        scroll = GUILayout.BeginScrollView(scroll);
-
-        GUILayout.Label("BATTLE VERTICAL SLICE DEBUG");
         BattleShowPresentationManager presentation = BattleShowPresentationManager.Instance;
         if (presentation != null)
         {
@@ -301,7 +409,7 @@ public class BattleDebugUI : MonoBehaviour
         DrawEquipment();
 
         GUILayout.Space(10f);
-        GUILayout.Label("F1: Toggle Debug UI");
+        GUILayout.Label("Debug / F1 / Esc: Close");
 
         GUILayout.EndScrollView();
         GUILayout.EndArea();
@@ -310,7 +418,7 @@ public class BattleDebugUI : MonoBehaviour
 #if UNITY_EDITOR
     private void OnDestroy()
     {
-        StopCharacterFieldTests();
+        RequestClose();
         additionalSamples?.Dispose();
         if (elementalEmitter != null) elementalEmitter.ClearVisuals();
         elementalSamples?.Dispose();
@@ -331,30 +439,25 @@ public class BattleDebugUI : MonoBehaviour
     private void DrawElementalTestPanel()
     {
         if (!Application.isPlaying || SceneManager.GetActiveScene().name != "BattleScene") return;
-        const float width = 300f;
-        const float height = 360f;
-        GUILayout.BeginArea(new Rect(Screen.width - width - 12f, Screen.height - height - 60f, width, height), GUI.skin.box);
         elementalSourceStyle ??= new GUIStyle(GUI.skin.label) { fontSize = 9, alignment = TextAnchor.LowerRight };
-        GUI.Label(new Rect(8f, height - 32f, width - 16f, 28f),
+        GUILayout.Label(
             "UI: BattleDebugUI.cs\nVFX: EffectBlobWorld.cs / EffectBlobRenderer.cs", elementalSourceStyle);
         GUILayout.Label("ELEMENTAL VISUAL TEST");
         elementalTestTab = GUILayout.Toolbar(elementalTestTab, elementalTestTabs);
+        if (elementalPerformance != null) elementalPerformance.SetCollecting(elementalTestTab == 1);
         if (elementalTestTab == 1)
         {
             DrawElementalPerformanceTab();
-            GUILayout.EndArea();
             return;
         }
         if (elementalTestTab == 2)
         {
             DrawCharacterFieldTests();
-            GUILayout.EndArea();
             return;
         }
         if (elementalDefinitions == null || elementalDefinitions.Length == 0)
         {
             GUILayout.Label("No effect definitions assigned.");
-            GUILayout.EndArea();
             return;
         }
         GUILayout.BeginHorizontal();
@@ -389,7 +492,6 @@ public class BattleDebugUI : MonoBehaviour
         string phase = current == null ? "None" : current.IsAirborne ? "Airborne" : current.Phase.ToString();
         string remaining = current == null ? "0" : double.IsInfinity(current.Remaining) ? "Infinite" : current.Remaining.ToString("F2");
         GUILayout.Label($"Phase: {phase} / Remaining: {remaining}\nActive: {elementalEmitter.ActiveCount}");
-        GUILayout.EndArea();
     }
 
     private void ResolveElementalPlayer()
@@ -414,6 +516,7 @@ public class BattleDebugUI : MonoBehaviour
                     if (characterEffect != null)
                     {
                         characterEffect.Play(characterFieldDefinitions[i]);
+                        characterExecution = characterEffect.ExecutionId;
                         activeCharacterEffect = i;
                     }
                 }
@@ -432,8 +535,7 @@ public class BattleDebugUI : MonoBehaviour
                 {
                     if (activeCharacterEffect == i)
                     {
-                        if (characterEffect != null) characterEffect.Stop();
-                        activeCharacterEffect = -1;
+                        StopCharacterTest();
                     }
                 }
                 else StopFieldTest(i - 3);
@@ -456,12 +558,16 @@ public class BattleDebugUI : MonoBehaviour
 
     private void StopCharacterFieldTests()
     {
-        if (characterEffect != null) characterEffect.Stop();
-        activeCharacterEffect = -1;
+        StopCharacterTest();
         for (int i = 0; i < fieldEffects.Length; i++) StopFieldTest(i);
     }
 
-    private void OnDisable() { StopCharacterFieldTests(); }
+    private void StopCharacterTest()
+    {
+        if (activeCharacterEffect >= 0 && characterEffect != null && characterEffect.ExecutionId == characterExecution)
+            characterEffect.Stop(true);
+        activeCharacterEffect = -1;
+    }
 
     private void DrawElementalRenderControls()
     {
@@ -519,12 +625,7 @@ public class BattleDebugUI : MonoBehaviour
             SceneManager.GetActiveScene().name != "BattleScene")
             return;
 
-        const float width = 220f;
-        const float height = 40f;
-        Rect rect = new(Screen.width - width - 12f,
-            Screen.height - height - 12f, width, height);
-
-        if (!GUI.Button(rect, "TEST DEBRIS ARC"))
+        if (!GUILayout.Button("TEST DEBRIS ARC"))
             return;
 
         Camera camera = Camera.main;
@@ -546,8 +647,9 @@ public class BattleDebugUI : MonoBehaviour
         }
 
         Vector3 point = ray.GetPoint(hit);
-        BattleDebrisBurst.SpawnEditorArcTest(
+        BattleDebrisBurst burst = BattleDebrisBurst.SpawnEditorArcTest(
             new Vector3(point.x, point.y, 0f));
+        if (burst != null) debrisTests[burst] = burst.ExecutionId;
     }
 #endif
 
@@ -560,18 +662,6 @@ public class BattleDebugUI : MonoBehaviour
             return;
         }
 
-        const float width = 350f;
-        const float height = 86f;
-        const float rightMargin = 12f;
-        const float top = 72f;
-
-        Rect area = new(
-            Screen.width - width - rightMargin,
-            top,
-            width,
-            height);
-
-        GUILayout.BeginArea(area, GUI.skin.box);
         GUILayout.Label(
             runManager.DebugBattleRatingOverride <= 0
                 ? "BATTLE RATING TEST : AUTO"
@@ -584,7 +674,6 @@ public class BattleDebugUI : MonoBehaviour
             DrawBattleRatingOverrideButton($"★{stars}", stars);
 
         GUILayout.EndHorizontal();
-        GUILayout.EndArea();
     }
 
     private void DrawBattleRatingOverrideButton(string label, int stars)
@@ -617,27 +706,20 @@ public class BattleDebugUI : MonoBehaviour
         if (aliveCount <= 0)
             return;
 
-        const float width = 220f;
         const float height = 48f;
-        float top = runManager != null && runManager.State == BattleRunState.SelectingNode
-            ? 166f
-            : 12f;
-        Rect area = new(Screen.width - width - 12f, top, width, height);
 
         Color previousBackground = GUI.backgroundColor;
         bool previousEnabled = GUI.enabled;
         GUI.backgroundColor = new Color(0.88f, 0.18f, 0.18f, 1f);
 
-        GUILayout.BeginArea(area);
         string label = killAllRoutine != null
             ? $"KILLING ENEMIES... ({aliveCount})"
             : $"KILL ALL ENEMY ({aliveCount})";
 
         GUI.enabled = killAllRoutine == null;
-        if (GUILayout.Button(label, GUILayout.Width(width), GUILayout.Height(height)))
+        if (GUILayout.Button(label, GUILayout.Height(height)))
             killAllRoutine = StartCoroutine(KillAllEnemiesRoutine());
 
-        GUILayout.EndArea();
         GUI.enabled = previousEnabled;
         GUI.backgroundColor = previousBackground;
     }

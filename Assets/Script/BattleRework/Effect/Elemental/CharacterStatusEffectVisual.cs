@@ -20,6 +20,7 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
     private Camera previewCamera;
     private EffectBlobWorld previewWorld;
     public bool IsPlaying => definition != null;
+    public int ExecutionId { get; private set; }
     private readonly List<Particle> particles = new();
     private struct Particle
     {
@@ -61,6 +62,7 @@ public sealed class CharacterStatusEffectVisual : MonoBehaviour
 
     public void Play(EffectDefinitionSO data)
     {
+        ExecutionId++;
         Stop(true);
         if (!isActiveAndEnabled || body == null || data == null || data.character == null) return;
         definition = data;

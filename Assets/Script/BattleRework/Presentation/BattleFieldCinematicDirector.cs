@@ -101,9 +101,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         instance = this;
         ResolveReferences();
         EnsureLightingProfile();
-#if UNITY_EDITOR
-        LoadPlayLightingPreset();
-#endif
         EnsureWorldLight();
         EnsureColorGrading();
         ConfigureCameraBackground();
@@ -422,7 +419,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             ? Mathf.Max(0f, profile.cameraCombatFillIntensity) : 0f;
         float radius = profile.cameraCombatFillRadius;
 #if UNITY_EDITOR
-        if (playLighting != null && combat)
+        if (playLightingOpen && playLighting != null && combat)
         {
             target = playLighting.cameraIntensity;
             radius = playLighting.cameraRadius;
@@ -693,7 +690,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             ? activeLightingProfile.worldLightCombatColor
             : activeLightingProfile.worldLightColor;
 #if UNITY_EDITOR
-        if (playLighting != null && combatLightingRequested && !showLightingRequested)
+        if (playLightingOpen && playLighting != null && combatLightingRequested && !showLightingRequested)
         {
             target = playLighting.ambient;
             targetColor = Color.Lerp(
@@ -1205,10 +1202,11 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     private const string PlayLightingPresetPath =
         "Resources/BattleLightingPlayTune.json";
     private PlayLightingPreset playLighting;
-    private bool playLightingOpen = true;
+    private bool playLightingOpen;
+    private bool debugLightingActive;
     private bool playLightingDirty;
     private float nextPlayLightingSave;
-    private Rect playLightingWindow = new(12f, 12f, 330f, 312f);
+    private float playLightingDetailHeight;
     private static readonly string[] PlayLightingTabs = { "Lighting", "Shadows", "Color / Bloom" };
     private static readonly string[] PlayShadowModes = { "None", "Contact", "Projected" };
     private int playLightingTab;
@@ -1229,7 +1227,7 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
     {
         intensity = playLighting != null ? playLighting.playerIntensity : 0f;
         radius = playLighting != null ? playLighting.playerRadius : 0f;
-        return Application.isPlaying && playLighting != null;
+        return Application.isPlaying && playLightingOpen && playLighting != null;
     }
 
     private void LoadPlayLightingPreset()
@@ -1297,26 +1295,29 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
 
     private void OnGUI()
     {
+        if (debugLightingActive && Application.isPlaying && instance == this)
+            DrawShadowDebugRays();
+    }
+
+    public void CloseDebugLightingControls()
+    {
+        playLightingOpen = debugLightingActive = false;
+        if (WorldLight.Instance != null) WorldLight.Instance.ShadowDebugTarget = null;
+    }
+
+    public void DrawDebugLightingControls()
+    {
         if (!Application.isPlaying || instance != this)
             return;
 
-        if (Event.current.type == EventType.KeyDown &&
-            Event.current.keyCode == KeyCode.F8)
-        {
-            playLightingOpen = !playLightingOpen;
-            Event.current.Use();
-        }
+        playLightingOpen = GUILayout.Toggle(playLightingOpen, "PLAY LIGHT TUNER", GUI.skin.button);
+        debugLightingActive = playLightingOpen && playLightingTab == 1;
 
         WorldLight shadowLight = WorldLight.Instance;
         if (shadowLight != null)
             shadowLight.ShadowDebugTarget = null;
         if (!playLightingOpen)
-        {
-            if (GUI.Button(new Rect(12f, 12f, 165f, 27f),
-                    "PLAY LIGHT TUNER [F8]"))
-                playLightingOpen = true;
             return;
-        }
 
         LoadPlayLightingPreset();
         if (playLightingTab == 1)
@@ -1338,14 +1339,10 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
             playShadowCasters.Clear();
             if (playShadowTarget != null && shadowLight != null)
                 playShadowTarget.CopyReceiverDebugCasters(shadowLight.DebugCamera, playShadowCasters);
-            DrawShadowDebugRays();
         }
-        playLightingWindow.height = playLightingTab != 0 ? Mathf.Min(720f, Mathf.Max(180f, Screen.height - 24f)) : 342f;
-        if (playLightingTab != 0)
-            playLightingWindow.y = Mathf.Clamp(playLightingWindow.y, 0f, Mathf.Max(0f, Screen.height - playLightingWindow.height));
-        playLightingWindow = GUI.Window(
-            74292, playLightingWindow, DrawPlayLightingWindow,
-            "PLAY LIGHT TUNER  [F8]");
+        playLightingDetailHeight = Mathf.Min(720f, Mathf.Max(180f, Screen.height - 24f));
+        DrawPlayLightingWindow(0);
+        debugLightingActive = playLightingOpen && playLightingTab == 1;
     }
 
     private void DrawPlayLightingWindow(int id)
@@ -1355,19 +1352,17 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         if (playLightingTab == 2)
         {
             playColorScroll = GUILayout.BeginScrollView(playColorScroll,
-                GUILayout.Height(playLightingWindow.height - 70f));
+                GUILayout.Height(playLightingDetailHeight - 70f));
             DrawPlayColorWindow();
             GUILayout.EndScrollView();
-            GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
             return;
         }
         if (playLightingTab == 1)
         {
             playShadowScroll = GUILayout.BeginScrollView(playShadowScroll,
-                GUILayout.Height(playLightingWindow.height - 70f));
+                GUILayout.Height(playLightingDetailHeight - 70f));
             DrawPlayShadowWindow();
             GUILayout.EndScrollView();
-            GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
             return;
         }
         GUILayout.Label("Combat preview only  |  Values saved to JSON");
@@ -1398,8 +1393,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         }
         GUILayout.Label(playLightingDirty ? "Saving..." : "Saved");
         GUILayout.EndHorizontal();
-        GUILayout.Label("F8: Show/Hide  |  Drag title bar to move");
-        GUI.DragWindow(new Rect(0f, 0f, 330f, 23f));
     }
 
     private void DrawPlayColorWindow()
@@ -1584,7 +1577,6 @@ public sealed class BattleFieldCinematicDirector : MonoBehaviour
         GUILayout.Label("Yellow: source alpha bottom (guide only)");
         GUILayout.Label("Red: gap | Orange: captured anchor");
         GUILayout.Label("Bottom inset shifts the alpha contact.");
-        GUILayout.Label("F8: Show/Hide | Drag title bar to move");
     }
 
     private void DrawShadowDebugRays()

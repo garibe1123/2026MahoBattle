@@ -29,6 +29,7 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
     private ProfilerRecorder calculation, upload, mainThread, gcAlloc, batches;
     private GUIStyle labelStyle;
     private bool captureTimings;
+    private bool collecting;
     private double elapsed, calculationTotal, uploadTotal, mainThreadTotal;
     private double calculationPeak, uploadPeak, mainThreadPeak;
     private float framePeak;
@@ -40,8 +41,29 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
     private double processSeconds, processTimestamp;
 #endif
 
+    private void Awake()
+    {
+        drawStandalone = false;
+        enabled = false;
+    }
+
+    public void SetCollecting(bool value)
+    {
+#if !DEVELOPMENT_BUILD && !UNITY_EDITOR
+        value = false;
+#endif
+        if (collecting == value) return;
+        collecting = value;
+        enabled = value;
+    }
+
     private void OnEnable()
     {
+        if (!collecting)
+        {
+            enabled = false;
+            return;
+        }
         calculation = ProfilerRecorder.StartNew(EffectBlobRenderer.CalculationMarker);
         upload = ProfilerRecorder.StartNew(EffectBlobRenderer.UploadMarker);
         mainThread = ProfilerRecorder.StartNew(ProfilerCategory.Internal, "Main Thread");
@@ -69,6 +91,7 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
 
     private void Update()
     {
+        if (!collecting) return;
         if (captureTimings) FrameTimingManager.CaptureFrameTimings();
         float delta = Time.unscaledDeltaTime;
         if (delta <= 0f) return;
@@ -223,11 +246,12 @@ public sealed class EffectPerformanceOverlay : MonoBehaviour
 
     private void OnDisable()
     {
-        calculation.Dispose();
-        upload.Dispose();
-        mainThread.Dispose();
-        gcAlloc.Dispose();
-        batches.Dispose();
+        collecting = false;
+        if (calculation.Valid) calculation.Dispose();
+        if (upload.Valid) upload.Dispose();
+        if (mainThread.Valid) mainThread.Dispose();
+        if (gcAlloc.Valid) gcAlloc.Dispose();
+        if (batches.Valid) batches.Dispose();
 #if UNITY_EDITOR_WIN || UNITY_STANDALONE_WIN
         process?.Dispose();
         process = null;

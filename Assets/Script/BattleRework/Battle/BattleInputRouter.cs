@@ -55,6 +55,13 @@ public sealed class BattleInputRouter : MonoBehaviour
     private Vector2 navigate;
     private Vector2 lastAimDirection = Vector2.right;
     private bool runStateSubscribed;
+    private BattleDebugUI debugUI;
+    private bool debugActive;
+    private bool debugPointerHeld;
+    private int debugPointerFrame = -1;
+
+    private bool DebugPointerBlocked => debugPointerHeld || debugPointerFrame == Time.frameCount ||
+        (debugUI != null && debugUI.ContainsScreenPoint(PointerPosition));
 
     public static BattleInputRouter Instance { get; private set; }
 
@@ -64,19 +71,19 @@ public sealed class BattleInputRouter : MonoBehaviour
     public BattleInputDevice LastDevice { get; private set; } = BattleInputDevice.KeyboardMouse;
 
     public bool CombatEnabled => combatMap != null && combatMap.enabled;
-    public bool UiEnabled => uiMap != null && uiMap.enabled;
-    public bool HasModal => modals.Count > 0;
+    public bool UiEnabled => uiMap != null && uiMap.enabled && !DebugPointerBlocked;
+    public bool HasModal => modals.Count > 0 || debugActive;
 
-    public bool FireHeld => CombatEnabled && fireAction != null && fireAction.IsPressed();
-    public bool RollPressedThisFrame => CombatEnabled && rollAction != null && rollAction.WasPressedThisFrame();
-    public bool ReloadPressedThisFrame => CombatEnabled && reloadAction != null && reloadAction.WasPressedThisFrame();
-    public bool TabHeld => CombatEnabled && openTabAction != null && openTabAction.IsPressed();
+    public bool FireHeld => CombatEnabled && !DebugPointerBlocked && fireAction != null && fireAction.IsPressed();
+    public bool RollPressedThisFrame => CombatEnabled && !DebugPointerBlocked && rollAction != null && rollAction.WasPressedThisFrame();
+    public bool ReloadPressedThisFrame => CombatEnabled && !DebugPointerBlocked && reloadAction != null && reloadAction.WasPressedThisFrame();
+    public bool TabHeld => CombatEnabled && !DebugPointerBlocked && openTabAction != null && openTabAction.IsPressed();
     public bool SubmitPressedThisFrame => UiEnabled && submitAction != null && submitAction.WasPressedThisFrame();
     public bool CancelPressedThisFrame => UiEnabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame();
 
     public bool PointerPresent => Pointer.current != null;
     public Vector2 PointerPosition => Pointer.current != null ? Pointer.current.position.ReadValue() : Vector2.zero;
-    public Vector2 ScrollDelta => Mouse.current != null ? Mouse.current.scroll.ReadValue() : Vector2.zero;
+    public Vector2 ScrollDelta => !DebugPointerBlocked && Mouse.current != null ? Mouse.current.scroll.ReadValue() : Vector2.zero;
 
     /// <summary>
     /// Reward PACK처럼 UI ActionMap 안에서도 패드와 KBM 조작 규칙을 분리해야 하는 화면에서 사용합니다.
@@ -224,6 +231,28 @@ public sealed class BattleInputRouter : MonoBehaviour
 
     private void Update()
     {
+        if (Pointer.current != null)
+        {
+            bool pressed = Pointer.current.press.isPressed;
+            if (debugUI != null && debugUI.ContainsScreenPoint(PointerPosition) &&
+                (pressed || Pointer.current.press.wasPressedThisFrame))
+                debugPointerHeld = true;
+            if (debugPointerHeld && !pressed)
+            {
+                debugPointerHeld = false;
+                debugPointerFrame = Time.frameCount;
+            }
+        }
+
+        if (debugActive)
+        {
+            if (DebugTogglePressedThisFrame ||
+                (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) ||
+                (Gamepad.current != null && Gamepad.current.buttonEast.wasPressedThisFrame))
+                debugUI.RequestClose();
+            return;
+        }
+
         move = CombatEnabled && moveAction != null
             ? Vector2.ClampMagnitude(moveAction.ReadValue<Vector2>(), 1f)
             : Vector2.zero;
@@ -232,7 +261,7 @@ public sealed class BattleInputRouter : MonoBehaviour
             ? Vector2.ClampMagnitude(navigateAction.ReadValue<Vector2>(), 1f)
             : Vector2.zero;
 
-        if (CombatEnabled)
+        if (CombatEnabled && !DebugPointerBlocked)
         {
             if (fireAction != null && fireAction.WasPressedThisFrame())
                 FirePressed?.Invoke();
@@ -303,6 +332,34 @@ public sealed class BattleInputRouter : MonoBehaviour
             lastAimDirection = direction.normalized;
 
         return true;
+    }
+
+    public void RegisterDebugUI(BattleDebugUI owner)
+    {
+        if (debugUI != null && debugUI != owner) return;
+        debugUI = owner;
+        SetDebugActive(owner, false);
+    }
+
+    public void SetDebugActive(BattleDebugUI owner, bool active)
+    {
+        if (debugUI != owner) return;
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+        debugActive = active;
+#else
+        debugActive = false;
+#endif
+        debugPointerFrame = Time.frameCount;
+        debugPointerHeld = Pointer.current != null && Pointer.current.press.isPressed;
+        move = navigate = Vector2.zero;
+        ApplyMaps();
+    }
+
+    public void UnregisterDebugUI(BattleDebugUI owner)
+    {
+        if (debugUI != owner) return;
+        SetDebugActive(owner, false);
+        debugUI = null;
     }
 
     public void PushModal(IInputModal modal)
@@ -381,13 +438,17 @@ public sealed class BattleInputRouter : MonoBehaviour
 
         combatMap.Disable();
         uiMap.Disable();
+        debugMap?.Disable();
+#if DEVELOPMENT_BUILD || UNITY_EDITOR
+        if (debugActive) debugMap?.Enable();
+#endif
+
+        if (debugActive)
+            return;
 
         if (modals.Count > 0)
         {
             uiMap.Enable();
-#if DEVELOPMENT_BUILD || UNITY_EDITOR
-            debugMap?.Enable();
-#endif
             return;
         }
 
@@ -411,12 +472,6 @@ public sealed class BattleInputRouter : MonoBehaviour
             case BattleRunState.Ended:
                 break;
         }
-
-#if DEVELOPMENT_BUILD || UNITY_EDITOR
-        debugMap?.Enable();
-#else
-        debugMap?.Disable();
-#endif
     }
 
     private void DisableAllMaps()

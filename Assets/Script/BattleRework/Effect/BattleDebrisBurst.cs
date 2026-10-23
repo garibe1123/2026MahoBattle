@@ -391,6 +391,8 @@ public sealed class BattleDebrisBurst : MonoBehaviour
         return instance.gameObject.activeInHierarchy ? instance : null;
     }
 
+    public int ExecutionId { get; private set; }
+
     public void Play(Vector3 position, Vector2 impactDirection)
     {
         Play(position, impactDirection, defaultMaterial, 0, 0);
@@ -405,6 +407,7 @@ public sealed class BattleDebrisBurst : MonoBehaviour
     public void Play(Vector3 position, Vector2 impactDirection,
         BattleDebrisMaterial materialType, int minimumOverride, int maximumOverride)
     {
+        ExecutionId++;
         StopActive();
         transform.position = position;
         MaterialSheets sheets = GetMaterialSheets(materialType);
