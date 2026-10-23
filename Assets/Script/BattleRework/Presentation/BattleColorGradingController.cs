@@ -74,6 +74,33 @@ public sealed class BattleColorGradingController : MonoBehaviour
     private float cameraReactionStartedAt = -1f;
     private float cameraReactionEndsAt = -1f;
     private float currentCameraReaction;
+    private float playerHitPeak;
+    private float playerHitStartedAt = -1f;
+    private float playerHitDuration;
+    private float currentPlayerHit;
+    private float playerHpFraction = 1f;
+    private float playerLowHpStartedAt = -1f;
+    private float currentPlayerLowHpPulse;
+
+    internal Vector2 PlayerDamageOptics
+    {
+        get
+        {
+            if (lightingProfile == null)
+                return Vector2.zero;
+
+            Vector2 budget = BattleShowBroadcastNoiseController.GetPlayerDamageOpticsBudget(targetCamera, lightingProfile);
+            budget *= Mathf.Clamp(lightingProfile.playerDamageTabStrengthLimit, 0f, 0.35f);
+            budget.x = Mathf.Min(budget.x, 1f - Mathf.Clamp01(lightingProfile.chromaticAberrationIntensity +
+                0.08f * lowHpEmphasis + reactionChromaticKick * currentCameraReaction));
+            budget.y = Mathf.Min(budget.y, 1f + Mathf.Clamp(lightingProfile.lensDistortionIntensity -
+                reactionLensDistortionKick * currentCameraReaction, -1f, 1f));
+            return new Vector2(
+                Mathf.Min(budget.x, Mathf.Max(0f, lightingProfile.playerHitChromaticAddition) * currentPlayerHit +
+                    Mathf.Max(0f, lightingProfile.playerLowHpChromaticAddition) * currentPlayerLowHpPulse),
+                Mathf.Min(budget.y, Mathf.Max(0f, -lightingProfile.playerHitLensAddition) * currentPlayerHit));
+        }
+    }
 
     public float CurrentWeight => currentWeight;
     internal Volume RuntimeVolume => volume;
@@ -244,6 +271,21 @@ public sealed class BattleColorGradingController : MonoBehaviour
     /// Profile의 기본 룩은 유지하고 Exposure / Bloom / CA / Lens Distortion만
     /// transient envelope로 잠깐 가산한 뒤 자동 복귀합니다.
     /// </summary>
+    public void PushCameraReaction(float strength, float duration, float playerDamageFraction)
+    {
+        if (lightingProfile == null || !combatMode || showMode || playerDamageFraction <= 0f || strength <= 0f)
+            return;
+
+        bool heavyHit = playerDamageFraction >= Mathf.Clamp01(lightingProfile.playerHeavyHitHpFraction);
+        float peak = heavyHit ? Mathf.Max(1f, lightingProfile.playerHeavyHitOpticsMultiplier) : 1f;
+        playerHitPeak = Mathf.Max(currentPlayerHit, peak * Mathf.Clamp01(strength));
+        playerHitStartedAt = Time.unscaledTime;
+        playerHitDuration = Mathf.Max(0.01f, duration > 0f ? duration : (heavyHit
+            ? lightingProfile.playerHeavyHitOpticsDuration : lightingProfile.playerHitOpticsDuration));
+        currentPlayerHit = playerHitPeak;
+        ApplyDynamicOverrides();
+    }
+
     public void PushCameraReaction(float strength, float duration = -1f)
     {
         float normalizedStrength = Mathf.Clamp01(strength);
@@ -302,16 +344,17 @@ public sealed class BattleColorGradingController : MonoBehaviour
                 0.08f * lastKillEmphasis +
                 0.10f * lowHpEmphasis));
 
+        Vector2 playerDamage = PlayerDamageOptics;
         chromaticAberration.intensity.Override(
             Mathf.Clamp01(
                 lightingProfile.chromaticAberrationIntensity +
                 0.08f * lowHpEmphasis +
-                reactionChromaticKick * currentCameraReaction));
+                reactionChromaticKick * currentCameraReaction + playerDamage.x));
 
         lensDistortion.intensity.Override(
             Mathf.Clamp(
                 lightingProfile.lensDistortionIntensity -
-                reactionLensDistortionKick * currentCameraReaction,
+                reactionLensDistortionKick * currentCameraReaction - playerDamage.y,
                 -1f,
                 1f));
 
@@ -335,7 +378,20 @@ public sealed class BattleColorGradingController : MonoBehaviour
         cameraReactionStartedAt = -1f;
         cameraReactionEndsAt = -1f;
         currentCameraReaction = 0f;
+        playerHitPeak = 0f;
+        playerHitStartedAt = -1f;
+        playerHitDuration = 0f;
+        currentPlayerHit = 0f;
+        playerHpFraction = 1f;
+        playerLowHpStartedAt = -1f;
+        currentPlayerLowHpPulse = 0f;
         ApplyDynamicOverrides();
+    }
+
+    public void SetPlayerHealth(float hp, float maxHp)
+    {
+        playerHpFraction = Mathf.Clamp01(hp / Mathf.Max(1f, maxHp));
+        UpdatePlayerDamageEnvelope();
     }
 
     public void SetPresentationMode(bool combat, bool show)
@@ -387,10 +443,42 @@ public sealed class BattleColorGradingController : MonoBehaviour
             currentWeight = targetWeight;
 
         volume.weight = currentWeight;
+        UpdatePlayerDamageEnvelope();
         UpdateCameraReactionEnvelope();
         UpdateAnalogOverlay();
         if (cameraData != null)
             cameraData.renderPostProcessing = true;
+    }
+
+    private void UpdatePlayerDamageEnvelope()
+    {
+        if (lightingProfile == null)
+            return;
+
+        float hit = playerHitStartedAt >= 0f && playerHitDuration > 0f
+            ? Mathf.SmoothStep(playerHitPeak, 0f, (Time.unscaledTime - playerHitStartedAt) / playerHitDuration)
+            : 0f;
+        float pulse = 0f;
+        bool lowHp = combatMode && !showMode && playerHpFraction > 0f &&
+            playerHpFraction <= Mathf.Clamp01(lightingProfile.playerLowHpFraction);
+        if (lowHp)
+        {
+            if (playerLowHpStartedAt < 0f)
+                playerLowHpStartedAt = Time.unscaledTime;
+            float phase = (Time.unscaledTime - playerLowHpStartedAt) /
+                Mathf.Max(0.01f, lightingProfile.playerLowHpOpticsPeriod);
+            pulse = (1f - Mathf.Cos(phase * Mathf.PI * 2f)) * 0.5f;
+        }
+        else
+        {
+            playerLowHpStartedAt = -1f;
+        }
+
+        bool changed = currentPlayerHit != hit || currentPlayerLowHpPulse != pulse;
+        currentPlayerHit = hit;
+        currentPlayerLowHpPulse = pulse;
+        if (changed)
+            ApplyDynamicOverrides();
     }
 
     private void UpdateCameraReactionEnvelope()
@@ -426,6 +514,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
     private void OnDisable()
     {
+        ClearCameraReaction();
         RestoreRuntimePresentation();
     }
 

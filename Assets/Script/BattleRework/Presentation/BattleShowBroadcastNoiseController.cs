@@ -478,14 +478,28 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         CaptureStopped?.Invoke();
     }
 
+    internal static Vector2 GetPlayerDamageOpticsBudget(Camera camera, BattleLightingProfileSO source)
+    {
+        BattleShowBroadcastNoiseController controller = instance;
+        bool useController = controller != null && controller.isActiveAndEnabled && controller.targetCamera == camera &&
+            (controller.tabSettingsMigrated || controller.useTabEffectTuning);
+        float chromatic = useController ? controller.chromaticAberrationIntensity : source.crtSelectionChromaticAberration;
+        float lens = useController ? controller.lensDistortionIntensity : source.lensDistortionIntensity;
+        float curvature = useController ? controller.tabLensDistortion : source.crtCurvature * source.crtSelectionCurvatureMultiplier;
+        return new Vector2(Mathf.Max(0f, Mathf.Clamp01(chromatic) - source.chromaticAberrationIntensity),
+            Mathf.Max(Mathf.Abs(Mathf.Clamp(lens, -1f, 1f) - source.lensDistortionIntensity), Mathf.Clamp01(curvature)));
+    }
+
     private void ApplyGrading(float selection, bool combatTabHeld)
     {
         Volume volume = colorGrading.RuntimeVolume;
         VolumeProfile profile = colorGrading.RuntimeProfile;
         BattleLightingProfileSO source = colorGrading.SourceLightingProfile;
+        Vector2 playerDamage = colorGrading.PlayerDamageOptics;
         if (volume != null) volume.weight = Mathf.Max(colorGrading.CurrentWeight, selection);
         if (profile.TryGet(out ChromaticAberration chromatic))
-            chromatic.intensity.Override(Mathf.Lerp(chromatic.intensity.value, chromaticAberrationIntensity, selection));
+            chromatic.intensity.Override(Mathf.Clamp01(Mathf.Lerp(chromatic.intensity.value - playerDamage.x,
+                chromaticAberrationIntensity, selection) + playerDamage.x));
         if (profile.TryGet(out FilmGrain grain))
         {
             grain.intensity.Override(Mathf.Lerp(grain.intensity.value, filmGrainIntensity, selection));
@@ -494,8 +508,9 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
         if (profile.TryGet(out LensDistortion lens))
         {
             float target = lensDistortionIntensity;
-            if (preserveLensReaction) target += lens.intensity.value - source.lensDistortionIntensity;
-            lens.intensity.Override(Mathf.Lerp(lens.intensity.value, target, selection));
+            float current = lens.intensity.value + playerDamage.y;
+            if (preserveLensReaction) target += current - source.lensDistortionIntensity;
+            lens.intensity.Override(Mathf.Clamp(Mathf.Lerp(current, target, selection) - playerDamage.y, -1f, 1f));
             lens.scale.Override(Mathf.Lerp(lens.scale.value, lensDistortionScale, selection));
         }
         if (profile.TryGet(out SplitToning toning))

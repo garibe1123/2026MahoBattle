@@ -259,6 +259,24 @@ public class BattleCameraController : MonoBehaviour
         PushCameraImpulse(direction, strength, duration);
     }
 
+    public void PlayPlayerDamageReaction(float hpLossFraction)
+    {
+        if (IsCombatReactionAllowed() && hpLossFraction > 0f && colorGrading != null)
+            colorGrading.PushCameraReaction(1f, -1f, hpLossFraction);
+    }
+
+    public void SetPlayerHealth(float hp, float maxHp)
+    {
+        if (colorGrading != null)
+            colorGrading.SetPlayerHealth(hp, maxHp);
+    }
+
+    public void ClearPlayerDamageEffects()
+    {
+        if (colorGrading != null)
+            colorGrading.ClearCameraReaction();
+    }
+
     public Transform FollowTarget => followTarget;
 
     public int FocusTarget(

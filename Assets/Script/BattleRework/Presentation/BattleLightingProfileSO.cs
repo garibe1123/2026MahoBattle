@@ -86,6 +86,18 @@ public sealed class BattleLightingProfileSO : ScriptableObject
     [Range(0f, 1f)] public float filmGrainIntensity = 0.055f;
     [Range(0f, 1f)] public float filmGrainResponse = 0.78f;
 
+    [Header("Player Damage Optics")]
+    [Min(0.01f)] public float playerHitOpticsDuration = 0.18f;
+    [Range(0f, 1f)] public float playerHitChromaticAddition = 0.10f;
+    [Range(-1f, 0f)] public float playerHitLensAddition = -0.025f;
+    [Range(0f, 1f)] public float playerHeavyHitHpFraction = 0.20f;
+    [Min(0.01f)] public float playerHeavyHitOpticsDuration = 0.28f;
+    [Min(1f)] public float playerHeavyHitOpticsMultiplier = 1.5f;
+    [Range(0f, 1f)] public float playerLowHpFraction = 0.25f;
+    [Min(0.01f)] public float playerLowHpOpticsPeriod = 1.2f;
+    [Range(0f, 1f)] public float playerLowHpChromaticAddition = 0.03f;
+    [Range(0f, 0.35f)] public float playerDamageTabStrengthLimit = 0.35f;
+
     [Header("Analog TV - Screen Surface")]
     [Range(0f, 1f)] public float analogOverlayStrength = 1f;
     [Range(0f, 0.25f)] public float scanlineStrength = 0.035f;

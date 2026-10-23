@@ -147,12 +147,15 @@ public class PlayerController : MonoBehaviour, IDamageable
             runManager.StateChanged += HandleRunStateChanged;
 
         RefreshInputGate();
+        if (runManager != null && runManager.State == BattleRunState.Combat)
+            battleCamera?.SetPlayerHealth(currentHp, MaxHp);
     }
 
     private void OnDisable()
     {
         if (runManager != null)
             runManager.StateChanged -= HandleRunStateChanged;
+        battleCamera?.ClearPlayerDamageEffects();
     }
 
     private void Update()
@@ -420,7 +423,14 @@ public class PlayerController : MonoBehaviour, IDamageable
         }
     }
 
-    private void HandleRunStateChanged(BattleRunState nextState) => ApplyInputGate(nextState);
+    private void HandleRunStateChanged(BattleRunState nextState)
+    {
+        ApplyInputGate(nextState);
+        if (nextState == BattleRunState.Combat)
+            battleCamera?.SetPlayerHealth(currentHp, MaxHp);
+        else
+            battleCamera?.ClearPlayerDamageEffects();
+    }
 
     private void RefreshInputGate()
     {
@@ -516,13 +526,21 @@ public class PlayerController : MonoBehaviour, IDamageable
         if (applied <= 0f)
             return;
 
+        float previousHp = currentHp;
         currentHp = Mathf.Max(0f, currentHp - applied);
+        float hpLoss = previousHp - currentHp;
+        if (hpLoss <= 0f)
+            return;
+
         HpChanged?.Invoke(currentHp, maxHp);
 
         PlayHitCameraReaction(
             applied,
             hitPoint,
             hasHitPoint);
+
+        battleCamera?.SetPlayerHealth(currentHp, MaxHp);
+        battleCamera?.PlayPlayerDamageReaction(hpLoss / MaxHp);
 
         if (anim != null)
             anim.StartBlink(hitIFrameDuration);
@@ -607,12 +625,14 @@ public class PlayerController : MonoBehaviour, IDamageable
         rb.linearVelocity = Vector2.zero;
 
         StopAllCoroutines();
+        battleCamera?.ClearPlayerDamageEffects();
         Died?.Invoke();
     }
 
     public void ResetForRun()
     {
         StopAllCoroutines();
+        battleCamera?.ClearPlayerDamageEffects();
 
         currentState = PlayerState.Idle;
         currentHp = Mathf.Max(1f, maxHp);
@@ -645,6 +665,7 @@ public class PlayerController : MonoBehaviour, IDamageable
 
         float resolvedAmount = Mathf.Max(0f, amount) * battleRuleHealingMultiplier;
         currentHp = Mathf.Min(currentHp + resolvedAmount, maxHp);
+        battleCamera?.SetPlayerHealth(currentHp, MaxHp);
         HpChanged?.Invoke(currentHp, maxHp);
     }
 
