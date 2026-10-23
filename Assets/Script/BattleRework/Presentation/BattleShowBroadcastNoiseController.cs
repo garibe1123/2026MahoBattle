@@ -40,6 +40,53 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     [SerializeField, Min(0.1f)] private float fadeSharpness = 7.5f;
     [SerializeField] private bool debugCombatTabDistortion = true;
 
+    [Header("TAB Effect Tuning")]
+    [SerializeField] private bool useTabEffectTuning;
+    [SerializeField, Range(0f, 0.15f)] private float tabCameraNoiseStrength = 0.018f;
+    [SerializeField, Range(0f, 1f)] private float tabStaticOpacity = 0.075f;
+    [SerializeField, Range(1f, 120f)] private float tabStaticRate = 60f;
+    [SerializeField, Range(1f, 4f)] private float tabStaticPixelSize = 1.25f;
+    [SerializeField, Range(0f, 0.25f)] private float tabScanlineStrength = 0.035f;
+    [SerializeField, Range(0f, 1f)] private float tabBackgroundOpacity = 0.30f;
+    private BattleLightingProfileSO tabTuningProfile;
+    private BattleLightingProfileSO tabTuningSource;
+    private bool tabPreview;
+    public bool TabPreview => tabPreview;
+
+    public void SetTabPreview(bool enabled)
+    {
+        tabPreview = Application.isPlaying && isActiveAndEnabled && enabled;
+        if (!tabPreview) ApplyImmediate(0f);
+    }
+
+    private BattleLightingProfileSO GetTabProfile()
+    {
+        BattleLightingProfileSO source = colorGrading != null ? colorGrading.SourceLightingProfile : null;
+        if (!useTabEffectTuning || source == null) return source;
+        if (tabTuningProfile == null || tabTuningSource != source)
+        {
+            if (tabTuningProfile != null) Destroy(tabTuningProfile);
+            tabTuningSource = source;
+            tabTuningProfile = Instantiate(source);
+            tabTuningProfile.name = "BattleTAB_Tuning_Runtime";
+            tabTuningProfile.hideFlags = HideFlags.HideAndDontSave;
+        }
+        tabTuningProfile.filmGrainIntensity = filmGrainIntensity;
+        tabTuningProfile.filmGrainResponse = filmGrainResponse;
+        tabTuningProfile.crtSelectionChromaticAberration = chromaticAberrationIntensity;
+        tabTuningProfile.lensDistortionIntensity = lensDistortionIntensity;
+        tabTuningProfile.lensDistortionScale = lensDistortionScale;
+        tabTuningProfile.crtCurvature = tabLensDistortion / Mathf.Max(1f, tabTuningProfile.crtSelectionCurvatureMultiplier);
+        tabTuningProfile.analogNoiseStrength = tabCameraNoiseStrength;
+        tabTuningProfile.crtSelectionNoiseStrength = tabStaticOpacity;
+        tabTuningProfile.crtSelectionNoiseOpacityScale = 1f;
+        tabTuningProfile.crtSelectionNoiseRate = tabStaticRate;
+        tabTuningProfile.crtSelectionNoisePixelSize = tabStaticPixelSize;
+        tabTuningProfile.scanlineStrength = tabScanlineStrength;
+        tabTuningProfile.crtSelectionBackgroundOpacity = tabBackgroundOpacity;
+        return tabTuningProfile;
+    }
+
     private Volume showVolume;
     private VolumeProfile runtimeProfile;
     private FilmGrain filmGrain;
@@ -105,6 +152,8 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private void Update()
     {
         EnsureOverlay();
+        if (runManager == null || !runManager.RunActive || runManager.State != BattleRunState.Combat)
+            tabPreview = false;
 
         bool selectionOpen = IsShowSelection();
         BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
@@ -140,6 +189,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     private void OnDisable()
     {
+        tabPreview = false;
         if (bindRoutine != null)
             StopCoroutine(bindRoutine);
         bindRoutine = null;
@@ -149,6 +199,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
     private void OnDestroy()
     {
+        if (tabTuningProfile != null) Destroy(tabTuningProfile);
         ReleaseBackgroundCapture();
         if (overlayMaterial != null)
             Destroy(overlayMaterial);
@@ -203,6 +254,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
 
         return runManager.State == BattleRunState.Reward ||
                runManager.State == BattleRunState.SelectingNode ||
+               (tabPreview && runManager.State == BattleRunState.Combat) ||
                (kineticLoadout != null && kineticLoadout.isActiveAndEnabled && kineticLoadout.IsSwitchBoardOpen);
     }
 
@@ -210,7 +262,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     {
         return isActiveAndEnabled && runManager != null && runManager.RunActive &&
                runManager.State == BattleRunState.Combat && kineticLoadout != null &&
-               kineticLoadout.isActiveAndEnabled && kineticLoadout.IsSwitchBoardOpen;
+               kineticLoadout.isActiveAndEnabled && (kineticLoadout.IsSwitchBoardOpen || tabPreview);
     }
 
     private void EnsureVolume()
@@ -343,7 +395,7 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
             return false;
 
         BattleColorGradingController grading = instance.colorGrading;
-        BattleLightingProfileSO profile = grading != null ? grading.SourceLightingProfile : null;
+        BattleLightingProfileSO profile = instance.GetTabProfile();
         float curvature = grading != null && profile != null
             ? grading.CurrentTabCurvature : instance.tabLensDistortion * Mathf.Clamp01(instance.currentBlend);
         settings = new Vector4(curvature, profile != null ? profile.crtEdgeWidth : 0.1f,
@@ -381,9 +433,10 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
     private void ApplyBlend()
     {
         BattleUiMaterialController.UpdateUnscaledTime(overlayMaterial);
-        BattleLightingProfileSO profile = colorGrading != null ? colorGrading.SourceLightingProfile : null;
+        BattleLightingProfileSO profile = GetTabProfile();
         bool combatTabHeld = IsCombatTabHeld();
-        if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend, combatTabHeld);
+        if (colorGrading != null) colorGrading.SetSelectionBlend(currentBlend, combatTabHeld,
+            useTabEffectTuning ? profile : null);
         bool useColorGrading = colorGrading != null && colorGrading.isActiveAndEnabled &&
             colorGrading.TargetCamera == targetCamera && profile != null;
         if (filmGrain != null)

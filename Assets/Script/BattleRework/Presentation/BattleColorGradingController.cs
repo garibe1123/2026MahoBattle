@@ -48,6 +48,9 @@ public sealed class BattleColorGradingController : MonoBehaviour
     [SerializeField, Min(0.05f)] private float defaultReactionDuration = 0.18f;
 
     private BattleLightingProfileSO lightingProfile;
+    private BattleLightingProfileSO selectionProfileOverride;
+    private BattleLightingProfileSO SelectionProfile => selectionProfileOverride != null
+        ? selectionProfileOverride : lightingProfile;
     private BattleLightingProfileSO previewProfile;
     private bool previewEnabled;
 
@@ -75,7 +78,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
     internal float CurrentLensDistortion => lensDistortion != null ? lensDistortion.intensity.value : 0f;
     internal float CurrentVolumeWeight => volume != null ? volume.weight : 0f;
     internal float CurrentTabCurvature => isActiveAndEnabled && lightingProfile != null
-        ? lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * combatTabBlend : 0f;
+        ? SelectionProfile.crtCurvature * SelectionProfile.crtSelectionCurvatureMultiplier * combatTabBlend : 0f;
     private float EffectiveVolumeWeight => Mathf.Max(currentWeight, Mathf.Clamp01(selectionBlend));
 
     public void Configure(Camera camera, BattleLightingProfileSO profile)
@@ -277,7 +280,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
                 lightingProfile.chromaticAberrationIntensity +
                 0.08f * lowHpEmphasis +
                 reactionChromaticKick * currentCameraReaction),
-                lightingProfile.crtSelectionChromaticAberration,
+                SelectionProfile.crtSelectionChromaticAberration,
                 Mathf.Clamp01(selectionBlend)));
 
         lensDistortion.intensity.Override(
@@ -287,14 +290,25 @@ public sealed class BattleColorGradingController : MonoBehaviour
                 -1f,
                 1f));
 
+        if (selectionProfileOverride != null)
+        {
+            float selection = Mathf.Clamp01(selectionBlend);
+            lensDistortion.intensity.Override(Mathf.Lerp(lensDistortion.intensity.value,
+                selectionProfileOverride.lensDistortionIntensity, selection));
+            lensDistortion.scale.Override(Mathf.Lerp(lightingProfile.lensDistortionScale,
+                selectionProfileOverride.lensDistortionScale, selection));
+        }
+        else lensDistortion.scale.Override(lightingProfile.lensDistortionScale);
+
         splitToning.shadows.Override(Color.Lerp(
             previewEnabled && previewProfile != null ? previewProfile.splitShadows : lightingProfile.splitShadows,
             lightingProfile.crtShadowTint,
             lightingProfile.crtColorStrength * Mathf.Clamp01(selectionBlend)));
     }
 
-    internal void SetSelectionBlend(float value, bool combatTabHeld)
+    internal void SetSelectionBlend(float value, bool combatTabHeld, BattleLightingProfileSO overrides = null)
     {
+        selectionProfileOverride = value > 0f ? overrides : null;
         selectionBlend = value;
         combatTabBlend = isActiveAndEnabled && combatTabHeld ? Mathf.Clamp01(value) : 0f;
         if (volume != null)
@@ -401,6 +415,7 @@ public sealed class BattleColorGradingController : MonoBehaviour
 
     private void OnDisable()
     {
+        selectionProfileOverride = null;
         combatTabBlend = 0f;
         ApplyDynamicOverrides();
     }
@@ -524,12 +539,14 @@ public sealed class BattleColorGradingController : MonoBehaviour
         if (analogOverlayMaterial == null || lightingProfile == null)
             return;
 
-        analogOverlayMaterial.SetFloat("_ScanlineStrength", lightingProfile.scanlineStrength);
+        BattleLightingProfileSO profile = SelectionProfile;
+        float selection = Mathf.Clamp01(selectionBlend);
+        analogOverlayMaterial.SetFloat("_ScanlineStrength", Mathf.Lerp(lightingProfile.scanlineStrength, profile.scanlineStrength, selection));
         analogOverlayMaterial.SetFloat("_ScanlineSpacing", lightingProfile.scanlineSpacingPixels);
         analogOverlayMaterial.SetFloat(
             "_NoiseStrength",
             Mathf.Clamp01(
-                lightingProfile.analogNoiseStrength +
+                Mathf.Lerp(lightingProfile.analogNoiseStrength, profile.analogNoiseStrength, selection) +
                 0.22f * lowHpEmphasis));
         analogOverlayMaterial.SetFloat(
             "_RollingBandStrength",
@@ -537,17 +554,16 @@ public sealed class BattleColorGradingController : MonoBehaviour
                 lightingProfile.rollingBandStrength +
                 0.16f * lowHpEmphasis) * (1f - combatTabBlend));
         analogOverlayMaterial.SetColor("_OverlayTint", lightingProfile.analogOverlayTint);
-        float selection = Mathf.Clamp01(selectionBlend);
-        analogOverlayMaterial.SetFloat("_Curvature", lightingProfile.crtCurvature * lightingProfile.crtSelectionCurvatureMultiplier * selection);
+        analogOverlayMaterial.SetFloat("_Curvature", profile.crtCurvature * profile.crtSelectionCurvatureMultiplier * selection);
         analogOverlayMaterial.SetFloat("_EdgeWidth", lightingProfile.crtEdgeWidth);
         analogOverlayMaterial.SetFloat("_EdgeStrength", lightingProfile.crtEdgeStrength * selection);
         analogOverlayMaterial.SetFloat("_CenterGlow", lightingProfile.crtCenterGlow * selection);
         analogOverlayMaterial.SetColor("_GlassTint", lightingProfile.crtShadowTint);
         analogOverlayMaterial.SetFloat("_GlassTintStrength", lightingProfile.crtColorStrength * selection);
-        analogOverlayMaterial.SetFloat("_SelectionNoiseStrength", lightingProfile.crtSelectionNoiseStrength * lightingProfile.crtSelectionNoiseOpacityScale * selection);
-        analogOverlayMaterial.SetColor("_SelectionNoiseTint", lightingProfile.crtSelectionNoiseTint);
-        analogOverlayMaterial.SetFloat("_SelectionNoiseRate", lightingProfile.crtSelectionNoiseRate);
-        analogOverlayMaterial.SetFloat("_SelectionNoisePixelSize", lightingProfile.crtSelectionNoisePixelSize);
+        analogOverlayMaterial.SetFloat("_SelectionNoiseStrength", profile.crtSelectionNoiseStrength * profile.crtSelectionNoiseOpacityScale * selection);
+        analogOverlayMaterial.SetColor("_SelectionNoiseTint", profile.crtSelectionNoiseTint);
+        analogOverlayMaterial.SetFloat("_SelectionNoiseRate", profile.crtSelectionNoiseRate);
+        analogOverlayMaterial.SetFloat("_SelectionNoisePixelSize", profile.crtSelectionNoisePixelSize);
         BattleUiMaterialController.UpdateUnscaledTime(analogOverlayMaterial);
     }
 
@@ -555,7 +571,12 @@ public sealed class BattleColorGradingController : MonoBehaviour
     {
         float selection = Mathf.Clamp01(selectionBlend);
         if (filmGrain != null && lightingProfile != null)
-            filmGrain.intensity.Override(lightingProfile.filmGrainIntensity);
+        {
+            filmGrain.intensity.Override(Mathf.Lerp(lightingProfile.filmGrainIntensity,
+                SelectionProfile.filmGrainIntensity, selection));
+            filmGrain.response.Override(Mathf.Lerp(lightingProfile.filmGrainResponse,
+                SelectionProfile.filmGrainResponse, selection));
+        }
         if (analogOverlay == null)
             return;
 
