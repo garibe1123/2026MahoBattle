@@ -310,12 +310,24 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             backgroundBaseAlpha = style.background.a * opacity;
             if (hasHeader)
             {
-                Color tint = style.status;
-                tint.a *= opacity;
                 float height = Mathf.Min(HeaderHeight * scale, face.height - border);
-                BattleUiStyleMeshEffect.Quad(vh,
-                    new Rect(face.xMin + border, face.yMax - height,
-                        face.width - border * 2f, height - border), tint);
+                Rect header = new(face.xMin + border, face.yMax - height,
+                    face.width - border * 2f, height - border);
+                Color rim = style.status;
+                rim.a *= opacity;
+                Color paper = style.outerFrame;
+                paper.a *= opacity;
+                if (birthday)
+                {
+                    BattleUiStyleMeshEffect.RoundedFill(vh, header, 6f * scale, rim);
+                    BattleUiStyleMeshEffect.RoundedFill(vh, BattleUiStyleMeshEffect.Inset(header, 2f * scale),
+                        4f * scale, paper);
+                }
+                else
+                {
+                    BattleUiStyleMeshEffect.Slant(vh, header, rim);
+                    BattleUiStyleMeshEffect.Slant(vh, BattleUiStyleMeshEffect.Inset(header, 2f * scale), paper);
+                }
             }
             backgroundVertexCount = vh.currentVertCount;
             if (emphasis)
@@ -487,16 +499,21 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             if (inset + size > gutter - 2f * scale) continue;
             Vector2 center = new(right ? face.xMax - inset - size * 0.5f : face.xMin + inset + size * 0.5f,
                 face.yMax - inset - size * 0.5f);
-            int first = vh.currentVertCount;
-            vh.AddVert(center, tint, Vector2.zero);
-            for (int i = 0; i < 10; i++)
+            for (int layer = 0; layer < 2; layer++)
             {
-                float angle = (90f + i * 36f) * Mathf.Deg2Rad;
-                float radius = size * (i % 2 == 0 ? 0.5f : 0.22f);
-                vh.AddVert(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius, tint, Vector2.zero);
+                Color star = layer == 0 ? style.outerFrame : tint;
+                if (layer == 0) star.a *= opacity;
+                int first = vh.currentVertCount;
+                vh.AddVert(center, star, Vector2.zero);
+                for (int i = 0; i < 10; i++)
+                {
+                    float angle = (90f + i * 36f) * Mathf.Deg2Rad;
+                    float radius = size * (layer == 0 ? 1f : 0.72f) * (i % 2 == 0 ? 0.5f : 0.22f);
+                    vh.AddVert(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius, star, Vector2.zero);
+                }
+                for (int i = 0; i < 10; i++)
+                    vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % 10);
             }
-            for (int i = 0; i < 10; i++)
-                vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % 10);
             count++;
         }
     }

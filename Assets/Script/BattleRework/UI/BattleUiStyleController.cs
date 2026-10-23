@@ -43,6 +43,14 @@ public sealed class BattleUiStyleSettings
     [Range(0f, 0.25f)] public float birthdayStarSizeRatio = 0.12f;
     [Min(0f)] public float birthdayStarMaxSize = 24f;
     [Min(0f)] public float birthdayStarMinPanelSize = 120f;
+    public TMPro.TMP_FontAsset titleFont;
+    [Range(0f, 0.4f)] public float titleOutlineWidth = 0.16f;
+    public Vector2 titleShadowOffset = new(1f, -1f);
+    [Min(0f)] public float titlePadding = 2f;
+    [Range(1f, 1.8f)] public float titleSizeMultiplier = 1.4f;
+    [Min(4f)] public float stylishDotSpacing = 10f;
+    [Range(0f, 2f)] public float stylishDotRadius = 0.8f;
+    [Range(0f, 0.25f)] public float surfacePatternAlpha = 0.12f;
 }
 
 [DisallowMultipleComponent]
@@ -166,7 +174,11 @@ public sealed class BattleUiStyleController : MonoBehaviour
         {
             Graphic target = entry.Key;
             if (target == null) { removed.Add(target); continue; }
-            if (!target.isActiveAndEnabled || target.canvasRenderer.cull) continue;
+            if (!target.isActiveAndEnabled || target.canvasRenderer.cull)
+            {
+                entry.Value.HideTmpTitle();
+                continue;
+            }
             entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial);
         }
         foreach (Graphic target in removed) targets.Remove(target);

@@ -19,6 +19,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool wasComic;
     private bool wasMaho;
     private bool wasStylish, wasBirthday, title;
+    private BattleUiStyleTmpTitle tmpTitle;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
     private Matrix4x4 lastTransform, lastCamera;
@@ -140,6 +141,20 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasMaho = maho;
         wasStylish = stylish;
         wasBirthday = birthday;
+        if (isActiveAndEnabled && title && (stylish || birthday) && settings.textMaterial == null &&
+            (settings.font == null || settings.titleFont != null) && !HasAssignedMaterial())
+        {
+            TMPro.TMP_FontAsset font = settings.titleFont != null ? settings.titleFont :
+                BattleUiStyleTmpTitle.LoadFont(birthday);
+            if (font != null && (tmpTitle != null || label.canvas == null ||
+                label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
+            {
+                if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
+                tmpTitle.Apply(font, settings, birthday);
+            }
+            else HideTmpTitle();
+        }
+        else HideTmpTitle();
         if (projectPixels && target.canvas != null)
         {
             Canvas canvas = target.canvas;
@@ -195,10 +210,25 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void RestoreAppearance()
     {
+        HideTmpTitle();
         RestoreMaterial();
         RestoreFont();
         RestoreFontStyle();
         if (target != null) target.SetVerticesDirty();
+    }
+
+    internal void HideTmpTitle() => tmpTitle?.Hide();
+
+    protected override void OnDisable()
+    {
+        HideTmpTitle();
+        base.OnDisable();
+    }
+
+    protected override void OnDestroy()
+    {
+        tmpTitle?.Dispose();
+        base.OnDestroy();
     }
 
     private void RestoreFontStyle()
@@ -219,6 +249,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private void ModifyStyledMesh(VertexHelper vh)
     {
         if (!IsActive() || target == null || HasAssignedMaterial()) return;
+        if (tmpTitle != null && tmpTitle.Visible) { vh.Clear(); return; }
         bool pixel = BattleUiStyleController.IsPixel;
         bool comic = BattleUiStyleController.IsComic;
         bool maho = BattleUiStyleController.IsMahoShojo;
@@ -248,7 +279,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 vh.PopulateUIVertex(ref vertex, i);
                 Color source = vertex.color;
                 Color tint = stylish || birthday ? (tailFill ? settings.background :
-                    label != null ? settings.innerLine : Palette(source, settings, true)) :
+                    label != null ? (stylish && title && label.name == "AppHeader" ? settings.background : settings.innerLine) :
+                    Palette(source, settings, true)) :
                     maho ? (tailFill || (image != null && image.name == "TailShape") ? settings.background :
                     label != null ? settings.innerLine : statusFill ? settings.energy :
                     image.sprite == null ? settings.status : settings.danger) :
@@ -368,7 +400,62 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             rect = Border(vh, rect, settings.birthdayBorderWidth, mint);
         }
         else rect = Border(vh, rect, settings.stylishBorderWidth, rim);
-        Quad(vh, rect, fill);
+        if (birthday)
+        {
+            Color top = Color.Lerp(fill, settings.outerFrame, 0.65f);
+            top.a = fill.a;
+            int first = vh.currentVertCount;
+            vh.AddVert(new Vector3(rect.xMin, rect.yMin, 0f), fill, Vector2.zero);
+            vh.AddVert(new Vector3(rect.xMin, rect.yMax, 0f), top, Vector2.zero);
+            vh.AddVert(new Vector3(rect.xMax, rect.yMax, 0f), top, Vector2.zero);
+            vh.AddVert(new Vector3(rect.xMax, rect.yMin, 0f), fill, Vector2.zero);
+            vh.AddTriangle(first, first + 1, first + 2);
+            vh.AddTriangle(first, first + 2, first + 3);
+            float step = Mathf.Min(12f, rect.width / 8f);
+            float size = Mathf.Min(3f, Mathf.Min(rect.height * 0.05f, step));
+            for (int i = 0; i < 6 && size > 0f; i++)
+            {
+                Color confetti = i % 3 == 0 ? settings.status : i % 3 == 1 ? settings.energy : settings.highlight;
+                confetti.a *= alpha * Mathf.Clamp01(settings.surfacePatternAlpha * 3f);
+                Vector2 center = new(rect.xMax - step * (i + 1), rect.yMin + size * 2f);
+                RoundedFill(vh, new Rect(center.x - size * 0.5f, center.y - size * 0.5f, size, size),
+                    i % 2 == 0 ? 0f : size * 0.5f, confetti);
+            }
+        }
+        else
+        {
+            Quad(vh, rect, fill);
+            Color ink = settings.outerFrame;
+            ink.a *= alpha * settings.surfacePatternAlpha;
+            float step = Mathf.Max(4f, settings.stylishDotSpacing);
+            float radius = Mathf.Clamp(settings.stylishDotRadius, 0f, step * 0.2f);
+            for (int row = 0; row < 4; row++)
+                for (int column = 0; column < 10; column++)
+                {
+                    float x = rect.xMax - step * (column + 0.5f);
+                    float y = rect.yMin + step * (row + 0.5f);
+                    if (x - radius < rect.center.x || y + radius > rect.yMin + rect.height * 0.3f) continue;
+                    DrawDot(vh, new Vector2(x, y), radius, ink);
+                }
+            Color pink = settings.status;
+            pink.a *= alpha;
+            Slant(vh, new Rect(rect.xMax - rect.width * 0.22f, rect.yMin,
+                rect.width * 0.22f, Mathf.Min(8f, rect.height * 0.06f)), pink);
+        }
+    }
+
+    private static void DrawDot(VertexHelper vh, Vector2 center, float radius, Color tint)
+    {
+        if (radius <= 0f || tint.a <= 0f) return;
+        int first = vh.currentVertCount;
+        vh.AddVert(center, tint, Vector2.zero);
+        for (int i = 0; i < 6; i++)
+        {
+            float angle = i * Mathf.PI / 3f;
+            vh.AddVert(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius, tint, Vector2.zero);
+        }
+        for (int i = 0; i < 6; i++)
+            vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % 6);
     }
 
     private static Rect Border(VertexHelper vh, Rect rect, float width, Color tint)
