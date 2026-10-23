@@ -400,6 +400,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void ApplyMiniPackContext(bool rewardChoice, bool rewardEdit, bool combatTab, bool combat)
     {
+        miniPackView?.SetMinimizedCombat(combat && !combatTab);
         if (miniPackRoot == null || miniPackGroup == null)
             return;
 

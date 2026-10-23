@@ -38,6 +38,8 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
     private RectTransform gridRect;
     private Vector2 presentedSize;
     private float presentedBlend = -1f;
+    private Text[] inventoryTexts;
+    private bool minimizedCombat;
     private readonly Text[] slotNames = new Text[SlotCount];
     private readonly Text[] emptyLabels = new Text[SlotCount];
     private readonly BattleUiPanelDecoration[] slotDecorations = new BattleUiPanelDecoration[SlotCount];
@@ -218,6 +220,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
         BuildHeader();
         BuildGrid();
+        inventoryTexts = root.GetComponentsInChildren<Text>(true);
         BattleShowPresentationManager.Instance?.RegisterUiMaterialRoot(
             root, BattleUiMaterialController.UiChannel.CurrentItems);
         ApplyLayout(0f, BattleUiPanelDecoration.MiniPackSize);
@@ -431,6 +434,26 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         }
     }
 
+    public void SetMinimizedCombat(bool value)
+    {
+        if (minimizedCombat == value) return;
+        minimizedCombat = value;
+        RefreshTextVisibility();
+    }
+
+    private void RefreshTextVisibility()
+    {
+        if (inventoryTexts == null) return;
+        foreach (Text text in inventoryTexts)
+            text.enabled = !minimizedCombat;
+        for (int i = 0; i < SlotCount; i++)
+        {
+            bool locked = equipmentSystem != null && !equipmentSystem.IsSlotUnlocked(i);
+            slotNames[i].enabled = !minimizedCombat || locked;
+            slotStates[i].enabled = !minimizedCombat || locked;
+        }
+    }
+
     private void Refresh()
     {
         if (equipmentSystem == null || canvas == null)
@@ -515,6 +538,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             if (lockMarks[i] != null)
                 lockMarks[i].SetActive(!unlocked);
         }
+        RefreshTextVisibility();
     }
 
     private bool IsSlotLinked(int slotIndex)

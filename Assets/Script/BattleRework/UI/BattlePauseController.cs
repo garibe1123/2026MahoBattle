@@ -13,6 +13,9 @@ using UnityEngine.UI;
 public sealed class BattlePauseController : MonoBehaviour, IInputModal
 {
     private const int PauseCanvasOrder = 1600;
+    private static readonly Vector2 PanelSize = new(560f, 540f);
+    private static readonly Vector2 MenuButtonSize = new(400f, 64f);
+    private const float MenuButtonSpacing = 80f;
 
     public static bool IsPaused { get; private set; }
 
@@ -29,6 +32,13 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
 
     private Canvas pauseCanvas;
     private GameObject pauseRoot;
+    private GameObject menuRoot;
+    private GameObject settingsRoot;
+    private Button resumeButton;
+    private Button styleButton;
+    private Text styleLabel;
+    private Slider volumeSlider;
+    private BattleShowPresentationManager presentation;
     private bool inputSubscribed;
 
     private void Awake()
@@ -39,6 +49,8 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
 
     private void Start()
     {
+        ResolveReferences();
+        SubscribeInput();
         RegisterPauseStyle();
     }
 
@@ -63,9 +75,6 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
 
     private void Update()
     {
-        ResolveReferences();
-        SubscribeInput();
-
         if (IsPaused && !CanRemainPaused())
             Resume();
     }
@@ -98,6 +107,11 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
 
     public void RequestClose()
     {
+        if (settingsRoot != null && settingsRoot.activeSelf)
+        {
+            ShowMenu();
+            return;
+        }
         if (IsPaused)
             Resume();
     }
@@ -117,6 +131,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
 
         if (pauseRoot != null)
             pauseRoot.SetActive(true);
+        ShowMenu();
     }
 
     public void Resume()
@@ -128,6 +143,8 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         inputRouter?.PopModal(this);
         timeScaleController?.Release(BattleTimeScaleController.Owner.Pause);
 
+        if (settingsRoot != null) settingsRoot.SetActive(false);
+        if (menuRoot != null) menuRoot.SetActive(true);
         if (pauseRoot != null)
             pauseRoot.SetActive(false);
     }
@@ -203,46 +220,134 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         dim.color = new Color(0.008f, 0.006f, 0.015f, 0.76f);
         dim.raycastTarget = true;
 
-        RectTransform panel = CreateRect(pauseRoot.transform, "PausePanel", new Vector2(560f, 250f));
+        RectTransform panel = CreateRect(pauseRoot.transform, "PausePanel", PanelSize);
         panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0.5f);
-        panel.anchoredPosition = new Vector2(140f, 0f);
-        panel.localRotation = Quaternion.Euler(0f, 0f, -3f);
+        panel.anchoredPosition = Vector2.zero;
         Image panelImage = panel.gameObject.AddComponent<Image>();
         panelImage.color = inkColor;
         BattleUiPanelDecoration.Round(panelImage);
         Color panelColor = panelImage.color;
         panelColor.a = inkColor.a;
         panelImage.color = panelColor;
-        BattleUiPanelDecoration.Attach(panel, BattleUiPanelDecoration.Mint);
+        BattleUiPanelDecoration.Attach(panel, BattleUiPanelDecoration.Mint, false, false);
 
-        Text title = CreateText(panel, "PAUSE", 56, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
-        SetAnchors(title.rectTransform, new Vector2(0.10f, 0.58f), new Vector2(0.92f, 0.94f));
-        title.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -2f);
+        Text title = CreateText(panel, "PAUSE", 48, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
+        SetAnchors(title.rectTransform, new Vector2(0.10f, 0.80f), new Vector2(0.90f, 0.96f));
 
-        Text sub = CreateText(panel, "COMBAT FEED // HOLD", 11, FontStyle.Bold, TextAnchor.MiddleLeft, accentCyan);
-        SetAnchors(sub.rectTransform, new Vector2(0.11f, 0.46f), new Vector2(0.92f, 0.60f));
+        RectTransform menu = CreateRect(panel, "PauseMenu", Vector2.zero);
+        Stretch(menu);
+        menuRoot = menu.gameObject;
+        resumeButton = CreateMenuButton(menu, "ResumeButton", "계속하기 / ESC", 0, Resume);
+        CreateMenuButton(menu, "SettingsButton", "설정", 1, ShowSettings);
+        CreateMenuButton(menu, "AbandonButton", "전투 포기", 2, AbandonRun);
+        CreateMenuButton(menu, "QuitButton", "게임 종료", 3, QuitGame);
 
-        RectTransform buttonRect = CreateRect(panel, "ResumeButton", new Vector2(248f, 58f));
-        buttonRect.anchorMin = buttonRect.anchorMax = new Vector2(0.5f, 0f);
-        buttonRect.anchoredPosition = new Vector2(48f, 46f);
-        buttonRect.localRotation = Quaternion.Euler(0f, 0f, 1.5f);
+        RectTransform settings = CreateRect(panel, "PauseSettings", Vector2.zero);
+        Stretch(settings);
+        settingsRoot = settings.gameObject;
+        Text volumeLabel = CreateText(settings, "전체 음량", 20, FontStyle.Bold, TextAnchor.MiddleLeft, paperColor);
+        SetAnchors(volumeLabel.rectTransform, new Vector2(0.15f, 0.65f), new Vector2(0.85f, 0.74f));
+
+        RectTransform volumeRect = CreateRect(settings, "Volume", new Vector2(MenuButtonSize.x, 32f));
+        volumeRect.anchoredPosition = new Vector2(0f, 44f);
+        Image track = volumeRect.gameObject.AddComponent<Image>();
+        track.color = inkColor;
+        track.canvasRenderer.SetAlpha(0.25f);
+        volumeSlider = volumeRect.gameObject.AddComponent<Slider>();
+        RectTransform handle = CreateRect(volumeRect, "Handle", new Vector2(24f, 0f));
+        Image handleImage = handle.gameObject.AddComponent<Image>();
+        handleImage.color = accentCyan;
+        volumeSlider.handleRect = handle;
+        volumeSlider.targetGraphic = handleImage;
+        volumeSlider.direction = Slider.Direction.LeftToRight;
+        volumeSlider.minValue = 0f;
+        volumeSlider.maxValue = 1f;
+        volumeSlider.SetValueWithoutNotify(AudioListener.volume);
+        volumeSlider.onValueChanged.AddListener(value => AudioListener.volume = value);
+
+        styleButton = CreateMenuButton(settings, "StyleButton", string.Empty, 2, CycleStyle);
+        styleLabel = styleButton.GetComponentInChildren<Text>();
+        CreateMenuButton(settings, "BackButton", "뒤로 / ESC", 3, ShowMenu);
+        settingsRoot.SetActive(false);
+
+        pauseRoot.SetActive(false);
+        RegisterPauseStyle();
+    }
+
+    private Button CreateMenuButton(RectTransform parent, string name, string label, int row,
+        UnityEngine.Events.UnityAction action)
+    {
+        RectTransform buttonRect = CreateRect(parent, name, MenuButtonSize);
+        buttonRect.anchoredPosition = new Vector2(0f, 100f - row * MenuButtonSpacing);
         Image buttonImage = buttonRect.gameObject.AddComponent<Image>();
         buttonImage.color = accentYellow;
         BattleUiPanelDecoration.Round(buttonImage);
         Color buttonColor = buttonImage.color;
         buttonColor.a = accentYellow.a;
         buttonImage.color = buttonColor;
-        BattleUiPanelDecoration.Attach(buttonRect, BattleUiPanelDecoration.Mint);
+        BattleUiPanelDecoration.Attach(buttonRect, BattleUiPanelDecoration.Mint, false, false);
 
-        Button resumeButton = buttonRect.gameObject.AddComponent<Button>();
-        resumeButton.targetGraphic = buttonImage;
-        resumeButton.onClick.AddListener(Resume);
+        Button button = buttonRect.gameObject.AddComponent<Button>();
+        button.targetGraphic = buttonImage;
+        button.onClick.AddListener(action);
 
-        Text resume = CreateText(buttonRect, "RESUME  /  ESC", 18, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
-        Stretch(resume.rectTransform);
+        Text text = CreateText(buttonRect, label, 22, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
+        Stretch(text.rectTransform);
+        return button;
+    }
 
-        pauseRoot.SetActive(false);
-        RegisterPauseStyle();
+    private void ShowMenu()
+    {
+        settingsRoot.SetActive(false);
+        menuRoot.SetActive(true);
+        EventSystem.current?.SetSelectedGameObject(resumeButton.gameObject);
+    }
+
+    private void ShowSettings()
+    {
+        menuRoot.SetActive(false);
+        settingsRoot.SetActive(true);
+        volumeSlider.SetValueWithoutNotify(AudioListener.volume);
+        presentation = BattleShowPresentationManager.Instance;
+        styleButton.interactable = presentation != null;
+        UpdateStyleLabel();
+        EventSystem.current?.SetSelectedGameObject(volumeSlider.gameObject);
+    }
+
+    private void CycleStyle()
+    {
+        if (presentation == null) return;
+        BattleUiStyle next = presentation.UiStyle switch
+        {
+            BattleUiStyle.pixelStyleUi => BattleUiStyle.comicStyleUi,
+            BattleUiStyle.comicStyleUi => BattleUiStyle.VectorStyleUi,
+            BattleUiStyle.VectorStyleUi => BattleUiStyle.MahoShojo,
+            _ => BattleUiStyle.pixelStyleUi
+        };
+        presentation.SetUiStyle(next);
+        UpdateStyleLabel();
+    }
+
+    private void UpdateStyleLabel()
+    {
+        styleLabel.text = presentation != null ? $"UI 스타일: {presentation.UiStyle}" : "UI 스타일";
+    }
+
+    private void AbandonRun()
+    {
+        if (!IsPaused) return;
+        Resume();
+        runManager?.QuitRun();
+    }
+
+    private void QuitGame()
+    {
+        Resume();
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     private static void EnsureEventSystem()
@@ -280,7 +385,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
     {
         RectTransform rect = CreateRect(parent, "Text", Vector2.zero);
         Text text = rect.gameObject.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        text.font = BattleFeedbackFont.Resolve();
         text.text = value;
         text.fontSize = fontSize;
         text.fontStyle = style;
