@@ -312,9 +312,13 @@ public sealed class BattleShowBroadcastNoiseController : MonoBehaviour
                 overlayMaterial.DisableKeyword("WAVEUV_ON");
                 overlayMaterial.DisableKeyword("ROUNDWAVEUV_ON");
                 overlayMaterial.DisableKeyword("DISTORT_ON");
+                overlayMaterial.DisableKeyword("WARP_ON");
                 overlayMaterial.DisableKeyword("GLITCH_ON");
                 overlayMaterial.DisableKeyword("OVERLAY_ON");
                 overlayMaterial.DisableKeyword("OVERLAYMULT_ON");
+                if (overlayMaterial.HasProperty("_WarpStrength")) overlayMaterial.SetFloat("_WarpStrength", 0f);
+                if (overlayMaterial.HasProperty("_DistortAmount")) overlayMaterial.SetFloat("_DistortAmount", 0f);
+                if (overlayMaterial.HasProperty("_OverlayBlend")) overlayMaterial.SetFloat("_OverlayBlend", 0f);
             }
         }
 
