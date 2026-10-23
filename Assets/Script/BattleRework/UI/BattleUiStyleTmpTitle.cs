@@ -32,8 +32,10 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     {
         if (!fontsLoaded)
         {
-            stylishFont = Resources.Load<TMP_FontAsset>("BattleUiFonts/Stylish SDF");
-            birthdayFont = Resources.Load<TMP_FontAsset>("BattleUiFonts/Birthday SDF");
+            stylishFont = Resources.Load<TMP_FontAsset>("HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF");
+            if (stylishFont == null) stylishFont = Resources.Load<TMP_FontAsset>("BattleUiFonts/Stylish SDF");
+            birthdayFont = Resources.Load<TMP_FontAsset>("HarnessFonts/Jua/Jua-Regular SDF");
+            if (birthdayFont == null) birthdayFont = Resources.Load<TMP_FontAsset>("BattleUiFonts/Birthday SDF");
             fontsLoaded = true;
         }
         return birthday ? birthdayFont : stylishFont;

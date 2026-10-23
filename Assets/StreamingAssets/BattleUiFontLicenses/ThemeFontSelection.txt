@@ -1,0 +1,20 @@
+Official distribution evidence
+Supplied HarnessFonts/<family>/SOURCE.txt and OFL.txt record the original font
+files, distribution sources, copyright holders and SIL OFL 1.1 terms.
+Original TTF files remain unmodified; OFL files are copied verbatim into this
+StreamingAssets directory for inclusion in builds.
+Official Korean font metadata supplied by the task (not fetched here):
+https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexsanskr/METADATA.pb
+https://raw.githubusercontent.com/google/fonts/main/ofl/gowunbatang/METADATA.pb
+https://raw.githubusercontent.com/google/fonts/main/ofl/ibmplexsanskr/OFL.txt
+https://raw.githubusercontent.com/google/fonts/main/ofl/gowunbatang/OFL.txt
+No online rating or popularity ranking was verified or used.
+
+Design judgment (requires visual comparison in Unity)
+Pixel: retain Galmuri9 for Korean pixel lettering.
+Comic: retain Do Hyeon for bold, expressive lettering.
+Vector: replace Gothic A1 with IBM Plex Sans KR Regular for clean sans serif lettering.
+Magical girl: replace Gowun Dodum with Gowun Batang Regular for softer serif lettering.
+Stylish: retain Black Han Sans for strong display titles and matching body text.
+Birthday: retain Jua for rounded, playful titles and matching body text.
+Colors, decoration and layout are unchanged.

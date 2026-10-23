@@ -1,0 +1,5 @@
+font: Gowun Batang
+license: OFL
+file: GowunBatang-Regular.ttf (weight 400)
+source: https://github.com/google/fonts/tree/main/ofl/gowunbatang
+fetched: 2026-10-24 07:52 by sinhodeung harness

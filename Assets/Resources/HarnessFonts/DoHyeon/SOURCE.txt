@@ -1,0 +1,5 @@
+font: Do Hyeon
+license: OFL
+file: DoHyeon-Regular.ttf (weight 400)
+source: https://github.com/google/fonts/tree/main/ofl/dohyeon
+fetched: 2026-10-24 07:52 by sinhodeung harness

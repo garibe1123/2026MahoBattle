@@ -1,0 +1,5 @@
+font: Black Han Sans
+license: OFL
+file: BlackHanSans-Regular.ttf (weight 400)
+source: https://github.com/google/fonts/tree/main/ofl/blackhansans
+fetched: 2026-10-24 07:52 by sinhodeung harness
