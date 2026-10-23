@@ -298,6 +298,40 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (face.width < 8f || face.height < 8f)
             return;
 
+        if (BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday)
+        {
+            BattleUiStyleSettings style = BattleUiStyleController.Settings;
+            bool birthday = BattleUiStyleController.IsBirthday;
+            float opacity = softFill ? 0.94f : 1f;
+            float border = Mathf.Clamp(birthday ? style.birthdayBorderWidth * 3f : style.stylishBorderWidth,
+                0f, Mathf.Min(face.width, face.height) * 0.5f);
+            float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
+            BattleUiStyleMeshEffect.DrawAccentFrame(vh, face, style, birthday, opacity);
+            backgroundBaseAlpha = style.background.a * opacity;
+            if (hasHeader)
+            {
+                Color tint = style.status;
+                tint.a *= opacity;
+                float height = Mathf.Min(HeaderHeight * scale, face.height - border);
+                BattleUiStyleMeshEffect.Quad(vh,
+                    new Rect(face.xMin + border, face.yMax - height,
+                        face.width - border * 2f, height - border), tint);
+            }
+            backgroundVertexCount = vh.currentVertCount;
+            if (emphasis)
+            {
+                Color tint = style.innerLine;
+                tint.a *= 0.08f + pulse * 0.08f;
+                BattleUiStyleMeshEffect.Quad(vh, BattleUiStyleMeshEffect.Inset(face, border), tint);
+            }
+            if (selected)
+                BattleUiStyleMeshEffect.Quad(vh,
+                    new Rect(face.xMin + border, face.yMin + border,
+                        face.width - border * 2f, Mathf.Min(3f, face.height - border * 2f)), style.highlight);
+            if (birthday && hasHeader) DrawBirthdayStars(vh, face, style, border, scale, opacity);
+            return;
+        }
+
         if (BattleUiStyleController.IsMahoShojo)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
@@ -432,6 +466,38 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             vh.AddVert(badge + new Vector2(4f, 0f), mark, Vector2.zero);
             vh.AddVert(badge + new Vector2(-2f, 4f), mark, Vector2.zero);
             vh.AddTriangle(start, start + 1, start + 2);
+        }
+    }
+
+    private static void DrawBirthdayStars(VertexHelper vh, Rect face, BattleUiStyleSettings style,
+        float border, float scale, float opacity)
+    {
+        float shortSide = Mathf.Min(face.width, face.height);
+        if (shortSide < style.birthdayStarMinPanelSize) return;
+        float size = Mathf.Min(shortSide * style.birthdayStarSizeRatio, style.birthdayStarMaxSize);
+        float inset = border + 2f * scale;
+        if (size <= 0f || inset + size > Mathf.Min(HeaderHeight * scale, face.height - border)) return;
+        Color tint = style.highlight;
+        tint.a *= opacity;
+        int count = 0;
+        for (int corner = 0; corner < 2 && count < Mathf.Clamp(style.birthdayStarCount, 0, 2); corner++)
+        {
+            bool right = corner == 0;
+            float gutter = (Padding + (right ? 36f : 18f)) * scale;
+            if (inset + size > gutter - 2f * scale) continue;
+            Vector2 center = new(right ? face.xMax - inset - size * 0.5f : face.xMin + inset + size * 0.5f,
+                face.yMax - inset - size * 0.5f);
+            int first = vh.currentVertCount;
+            vh.AddVert(center, tint, Vector2.zero);
+            for (int i = 0; i < 10; i++)
+            {
+                float angle = (90f + i * 36f) * Mathf.Deg2Rad;
+                float radius = size * (i % 2 == 0 ? 0.5f : 0.22f);
+                vh.AddVert(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius, tint, Vector2.zero);
+            }
+            for (int i = 0; i < 10; i++)
+                vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % 10);
+            count++;
         }
     }
 

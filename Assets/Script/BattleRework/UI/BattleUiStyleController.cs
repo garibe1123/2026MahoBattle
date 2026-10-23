@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo }
+public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday }
 
 [Serializable]
 public sealed class BattleUiStyleSettings
@@ -36,6 +36,13 @@ public sealed class BattleUiStyleSettings
     [Min(0f)] public float mahoBorderWidth = 1f;
     public Vector2 mahoShadowOffset = new(3f, -4f);
     public Color mahoShadow = new(0f, 0f, 0f, 0.08f);
+    [Min(0f)] public float stylishBorderWidth = 4f;
+    [Range(0f, 0.5f)] public float stylishTitleShear = 0.18f;
+    [Min(0f)] public float birthdayBorderWidth = 2f;
+    [Range(0, 2)] public int birthdayStarCount = 2;
+    [Range(0f, 0.25f)] public float birthdayStarSizeRatio = 0.12f;
+    [Min(0f)] public float birthdayStarMaxSize = 24f;
+    [Min(0f)] public float birthdayStarMinPanelSize = 120f;
 }
 
 [DisallowMultipleComponent]
@@ -58,6 +65,10 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.comicStyleUi;
     internal static bool IsMahoShojo => active != null && active.isActiveAndEnabled &&
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.MahoShojo;
+    internal static bool IsStylish => active != null && active.isActiveAndEnabled &&
+        active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Stylish;
+    internal static bool IsBirthday => active != null && active.isActiveAndEnabled &&
+        active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Birthday;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
     internal static float PixelScale => active != null && active.presentation != null
@@ -141,7 +152,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
         if (presentation == null) return;
         BattleUiStyleSettings settings = presentation.UiStyleSettings;
         bool pixel = IsPixel;
-        if ((pixel || IsComic || IsMahoShojo) && panelMaterial == null)
+        if ((pixel || IsComic || IsMahoShojo || IsStylish || IsBirthday) && panelMaterial == null)
         {
             panelMaterial = CreateMaterial("BattlePixelPanel");
             textMaterial = CreateMaterial("BattlePixelText");

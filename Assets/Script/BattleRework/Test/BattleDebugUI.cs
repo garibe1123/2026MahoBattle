@@ -25,7 +25,7 @@ public class BattleDebugUI : MonoBehaviour
     private static bool sceneHookInstalled;
 
     private Vector2 scroll;
-    private static readonly string[] uiStyleNames = { "pixelStyleUi", "comicStyleUi", "VectorStyleUi", "MahoShojo" };
+    private static readonly string[] uiStyleNames = { "pixelStyleUi", "comicStyleUi", "VectorStyleUi", "MahoShojo", "Stylish", "Birthday" };
     private Coroutine killAllRoutine;
 #if UNITY_EDITOR
     [SerializeField] private EffectDefinitionSO[] elementalDefinitions;
@@ -311,7 +311,7 @@ public class BattleDebugUI : MonoBehaviour
         if (presentation != null)
         {
             GUILayout.Label($"UI Style: {presentation.UiStyle}");
-            int selectedStyle = GUILayout.Toolbar((int)presentation.UiStyle, uiStyleNames);
+            int selectedStyle = GUILayout.SelectionGrid((int)presentation.UiStyle, uiStyleNames, 3);
             if (selectedStyle != (int)presentation.UiStyle)
                 presentation.SetUiStyle((BattleUiStyle)selectedStyle);
             GUILayout.Label($"UI pixel scale: {presentation.UiPixelScale:0.00}x");

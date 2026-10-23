@@ -151,6 +151,26 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         energy = new Color32(0x77, 0x77, 0x77, 255),
         highlight = new Color32(0xAA, 0xAA, 0xAA, 255)
     };
+    [SerializeField] private BattleUiStyleSettings stylish = new()
+    {
+        background = new Color32(0xC8, 0xFF, 0x00, 255),
+        innerLine = new Color32(0x10, 0x10, 0x10, 255),
+        outerFrame = new Color32(0x10, 0x10, 0x10, 255),
+        status = new Color32(0xFF, 0x00, 0x99, 255),
+        danger = new Color32(0xFF, 0x00, 0x99, 255),
+        energy = new Color32(0xC8, 0xFF, 0x00, 255),
+        highlight = new Color32(0xFF, 0x00, 0x99, 255)
+    };
+    [SerializeField] private BattleUiStyleSettings birthday = new()
+    {
+        background = new Color32(0xC6, 0x96, 0xFF, 255),
+        innerLine = new Color32(0x10, 0x10, 0x10, 255),
+        outerFrame = Color.white,
+        status = new Color32(0xFF, 0x73, 0xC9, 255),
+        danger = new Color32(0xFF, 0x73, 0xC9, 255),
+        energy = new Color32(0x72, 0xEE, 0xDD, 255),
+        highlight = new Color32(0xFF, 0xF0, 0x64, 255)
+    };
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
 
@@ -166,6 +186,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         BattleUiStyle.pixelStyleUi => pixelStyleUi,
         BattleUiStyle.comicStyleUi => comicStyleUi,
         BattleUiStyle.MahoShojo => mahoShojo,
+        BattleUiStyle.Stylish => stylish,
+        BattleUiStyle.Birthday => birthday,
         _ => vectorStyleUi
     };
 

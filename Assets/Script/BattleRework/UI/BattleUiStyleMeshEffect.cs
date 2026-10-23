@@ -18,6 +18,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool fontStyleOverridden;
     private bool wasComic;
     private bool wasMaho;
+    private bool wasStylish, wasBirthday, title;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
     private Matrix4x4 lastTransform, lastCamera;
@@ -30,6 +31,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         BattleUiOpticsCanvas.Register(value);
         target = value;
         label = value as Text;
+        title = label != null && (value.name == "AppHeader" || value.name == "Title");
         image = value as Image;
         decoration = value as BattleUiPanelDecoration;
         panel = value is BattleUiPanelDecoration ||
@@ -100,6 +102,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (comic && next == null && panel) next = pixelPanel;
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
+        bool stylish = BattleUiStyleController.IsStylish;
+        bool birthday = BattleUiStyleController.IsBirthday;
+        if ((stylish || birthday) && next == null && panel && !statusFill) next = pixelPanel;
         if (HasAssignedMaterial()) next = null;
         if (next != null)
         {
@@ -128,10 +133,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             fontOverridden = true;
         }
         else RestoreFont();
-        if (wasPixel != pixel || wasComic != comic || wasMaho != maho) target.SetVerticesDirty();
+        if (wasPixel != pixel || wasComic != comic || wasMaho != maho ||
+            wasStylish != stylish || wasBirthday != birthday) target.SetVerticesDirty();
         wasPixel = pixel;
         wasComic = comic;
         wasMaho = maho;
+        wasStylish = stylish;
+        wasBirthday = birthday;
         if (projectPixels && target.canvas != null)
         {
             Canvas canvas = target.canvas;
@@ -214,7 +222,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         bool pixel = BattleUiStyleController.IsPixel;
         bool comic = BattleUiStyleController.IsComic;
         bool maho = BattleUiStyleController.IsMahoShojo;
-        if (!pixel && !comic && !maho) return;
+        bool stylish = BattleUiStyleController.IsStylish;
+        bool birthday = BattleUiStyleController.IsBirthday;
+        if (!pixel && !comic && !maho && !stylish && !birthday) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         if (hiddenFill) return;
         if (decoratedSurface) { vh.Clear(); return; }
@@ -224,7 +234,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             vh.Clear();
             Color fill = settings.background;
             fill.a *= speechFrame ? 1f : image.color.a;
-            if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
+            if (stylish || birthday)
+                DrawAccentFrame(vh, target.rectTransform.rect, settings, birthday, speechFrame ? 1f : image.color.a);
+            else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
             else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
@@ -235,7 +247,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             {
                 vh.PopulateUIVertex(ref vertex, i);
                 Color source = vertex.color;
-                Color tint = maho ? (tailFill || (image != null && image.name == "TailShape") ? settings.background :
+                Color tint = stylish || birthday ? (tailFill ? settings.background :
+                    label != null ? settings.innerLine : Palette(source, settings, true)) :
+                    maho ? (tailFill || (image != null && image.name == "TailShape") ? settings.background :
                     label != null ? settings.innerLine : statusFill ? settings.energy :
                     image.sprite == null ? settings.status : settings.danger) :
                     comic ? (tailFill ? settings.comicPaper : label != null ? settings.comicPaper : settings.comicAccent) :
@@ -245,10 +259,47 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 vh.SetUIVertex(vertex, i);
             }
         }
+        if (stylish && title) ShearTitle(vh, settings.stylishTitleShear);
         if (projectPixels && target.canvas != null)
             BattleUiPixelProjection.Project(vh, triangles, target.rectTransform, renderCamera, viewport,
                 Mathf.Max(1f, Mathf.Round(label != null ? settings.textPixelSize : settings.logicalPixelSize * BattleUiStyleController.PixelScale)) /
                 Mathf.Max(0.001f, target.canvas.scaleFactor));
+    }
+
+    private void ShearTitle(VertexHelper vh, float shear)
+    {
+        Rect bounds = target.rectTransform.rect;
+        if (vh.currentVertCount == 0 || bounds.width <= 0f || shear == 0f) return;
+        UIVertex vertex = default;
+        float minY = float.MaxValue, maxY = float.MinValue;
+        for (int i = 0; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            minY = Mathf.Min(minY, vertex.position.y);
+            maxY = Mathf.Max(maxY, vertex.position.y);
+        }
+        float midY = (minY + maxY) * 0.5f;
+        float minX = float.MaxValue, maxX = float.MinValue;
+        for (int i = 0; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            float x = vertex.position.x + shear * (vertex.position.y - midY);
+            minX = Mathf.Min(minX, x);
+            maxX = Mathf.Max(maxX, x);
+        }
+        float width = maxX - minX;
+        float scale = width > 0f ? Mathf.Min(1f, bounds.width / width) : 1f;
+        float center = (minX + maxX) * 0.5f;
+        float fittedCenter = Mathf.Clamp(center, bounds.xMin + width * scale * 0.5f,
+            bounds.xMax - width * scale * 0.5f);
+        for (int i = 0; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            Vector3 position = vertex.position;
+            position.x = (position.x + shear * (position.y - midY) - center) * scale + fittedCenter;
+            vertex.position = position;
+            vh.SetUIVertex(vertex, i);
+        }
     }
 
     internal static Color Surface(BattleUiStyleSettings settings)
@@ -299,6 +350,36 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Slant(vh, new Rect(rect.x + 5f, rect.y - 5f, rect.width, rect.height), red);
         Slant(vh, rect, paper);
         Slant(vh, Inset(rect, 3f), ink);
+    }
+
+    internal static void DrawAccentFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
+        bool birthday, float alpha)
+    {
+        Color rim = settings.outerFrame, fill = settings.background;
+        rim.a *= alpha;
+        fill.a *= alpha;
+        if (birthday)
+        {
+            Color pink = settings.status, mint = settings.energy;
+            pink.a *= alpha;
+            mint.a *= alpha;
+            rect = Border(vh, rect, settings.birthdayBorderWidth, rim);
+            rect = Border(vh, rect, settings.birthdayBorderWidth, pink);
+            rect = Border(vh, rect, settings.birthdayBorderWidth, mint);
+        }
+        else rect = Border(vh, rect, settings.stylishBorderWidth, rim);
+        Quad(vh, rect, fill);
+    }
+
+    private static Rect Border(VertexHelper vh, Rect rect, float width, Color tint)
+    {
+        width = Mathf.Clamp(width, 0f, Mathf.Min(rect.width, rect.height) * 0.5f);
+        Rect inner = Inset(rect, width);
+        Quad(vh, new Rect(rect.xMin, rect.yMin, rect.width, width), tint);
+        Quad(vh, new Rect(rect.xMin, rect.yMax - width, rect.width, width), tint);
+        Quad(vh, new Rect(rect.xMin, inner.yMin, width, inner.height), tint);
+        Quad(vh, new Rect(rect.xMax - width, inner.yMin, width, inner.height), tint);
+        return inner;
     }
 
     internal static void DrawMahoFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha)
