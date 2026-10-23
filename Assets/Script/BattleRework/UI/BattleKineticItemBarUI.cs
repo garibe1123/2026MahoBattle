@@ -448,9 +448,13 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             text.enabled = !minimizedCombat;
         for (int i = 0; i < SlotCount; i++)
         {
-            bool locked = equipmentSystem != null && !equipmentSystem.IsSlotUnlocked(i);
-            slotNames[i].enabled = !minimizedCombat || locked;
-            slotStates[i].enabled = !minimizedCombat || locked;
+            bool showText = !minimizedCombat || (equipmentSystem != null &&
+                i == equipmentSystem.EquippedSlotIndex && equipmentSystem.IsSlotUnlocked(i) &&
+                i < equipmentSystem.Slots.Count && equipmentSystem.Slots[i]?.equipment != null);
+            slotNames[i].enabled = showText;
+            slotGrades[i].enabled = showText;
+            slotStates[i].enabled = showText;
+            slotEquippedBars[i].enabled = showText;
         }
     }
 
