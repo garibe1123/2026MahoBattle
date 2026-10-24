@@ -20,6 +20,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool wasMaho;
     private bool wasStylish, wasBirthday, title;
     private BattleUiStyleTmpTitle tmpTitle;
+    private bool titleMotionCandidate;
+    internal bool HasOverflowTitle => TitleMotion(BattleUiStyleController.Settings)?.allowOverflow == true;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
     private Matrix4x4 lastTransform, lastCamera;
@@ -33,6 +35,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         target = value;
         label = value as Text;
         title = label != null && (value.name == "AppHeader" || value.name == "Title");
+        titleMotionCandidate = title && label.GetComponentInParent<ScrollRect>(true) == null;
         image = value as Image;
         decoration = value as BattleUiPanelDecoration;
         panel = value is BattleUiPanelDecoration ||
@@ -152,7 +155,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
-                tmpTitle.Apply(font, settings, birthday, decoratedTitle);
+                BattleUiTitleMotionSettings motion = TitleMotion(settings);
+                tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow);
             }
             else HideTmpTitle();
         }
@@ -220,6 +224,15 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal void HideTmpTitle() => tmpTitle?.Hide();
+    internal void RefreshTmpTitle() => tmpTitle?.Refresh();
+
+    private BattleUiTitleMotionSettings TitleMotion(BattleUiStyleSettings settings)
+    {
+        BattleUiTitleMotionSettings motion = settings?.stylishTitleMotion;
+        return titleMotionCandidate && BattleUiStyleController.IsStylish && motion != null && motion.enabled &&
+            target.name == motion.targetName && target.transform.parent != null && target.transform.parent.name == motion.targetParent
+            ? motion : null;
+    }
 
     protected override void OnDisable()
     {

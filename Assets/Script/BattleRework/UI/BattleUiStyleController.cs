@@ -6,6 +6,43 @@ using UnityEngine.UI;
 public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday }
 
 [Serializable]
+public sealed class BattleUiTitleCharacterTransform
+{
+    public Vector2 offset;
+    public Vector2 scale = Vector2.one;
+    public float rotation;
+    public float shear;
+}
+
+[Serializable]
+public sealed class BattleUiTitleMotionSettings
+{
+    public bool enabled = true;
+    public string targetParent = "MissionDetail";
+    public string targetName = "Title";
+    public bool allowOverflow = true;
+    [Min(0f)] public float overflowMargin = 0.15f;
+    public Vector2 scale = new(0.85f, 1f);
+    public bool transformCharacters = true;
+    [Tooltip("Repeating character transforms. Offsets use character height as the unit.")]
+    public BattleUiTitleCharacterTransform[] characters =
+    {
+        new() { offset = new Vector2(0f, 0.025f), scale = new Vector2(1.04f, 1.04f), rotation = -5f, shear = 0.03f },
+        new() { offset = new Vector2(0f, -0.025f), scale = new Vector2(0.96f, 0.96f), rotation = 5f, shear = -0.03f }
+    };
+    public bool curveLines;
+    public float curveHeight = 0.08f;
+    public bool bounce = true;
+    [Min(0f)] public float bounceAmplitude = 0.08f;
+    [Min(0f)] public float characterDelay = 0.04f;
+    [Min(0.01f)] public float bounceDuration = 0.35f;
+    public bool accentCharacters = true;
+    public Color cyan = new Color32(0x00, 0xE7, 0xDF, 255);
+    public Color magenta = new Color32(0xEF, 0x16, 0xEB, 255);
+    public Color yellow = new Color32(0xFF, 0xF0, 0x2B, 255);
+}
+
+[Serializable]
 public sealed class BattleUiStyleSettings
 {
     public const float DefaultCombatBackgroundAlpha = 0.5f;
@@ -49,6 +86,7 @@ public sealed class BattleUiStyleSettings
     public Vector2 titleShadowOffset = new(1f, -1f);
     [Min(0f)] public float titlePadding = 2f;
     [Range(1f, 1.8f)] public float titleSizeMultiplier = 1.4f;
+    public BattleUiTitleMotionSettings stylishTitleMotion = new();
     [Min(4f)] public float stylishDotSpacing = 10f;
     [Range(0f, 2f)] public float stylishDotRadius = 0.8f;
     [Range(0f, 0.25f)] public float surfacePatternAlpha = 0.12f;
@@ -154,7 +192,11 @@ public sealed class BattleUiStyleController : MonoBehaviour
         if (grid != null) grid.SetEffect(isActiveAndEnabled && presentation.ScreenGridEnabled,
             presentation.ScreenGridContrast);
         foreach (var entry in targets)
-            if (entry.Key != null) entry.Key.SetVerticesDirty();
+            if (entry.Key != null)
+            {
+                entry.Key.SetVerticesDirty();
+                entry.Value.RefreshTmpTitle();
+            }
         ApplyVisibleTargets();
     }
 
@@ -178,7 +220,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
         {
             Graphic target = entry.Key;
             if (target == null) { removed.Add(target); continue; }
-            if (!target.isActiveAndEnabled || target.canvasRenderer.cull)
+            if (!target.isActiveAndEnabled || (target.canvasRenderer.cull && !entry.Value.HasOverflowTitle))
             {
                 entry.Value.HideTmpTitle();
                 continue;
