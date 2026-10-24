@@ -142,16 +142,17 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasMaho = maho;
         wasStylish = stylish;
         wasBirthday = birthday;
-        if (isActiveAndEnabled && title && (stylish || birthday) && settings.textMaterial == null &&
-            (settings.font == null || settings.titleFont != null) && !HasAssignedMaterial())
+        bool decoratedTitle = title && (stylish || birthday);
+        if (isActiveAndEnabled && label != null && settings.textMaterial == null &&
+            (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
-            TMPro.TMP_FontAsset font = settings.titleFont != null ? settings.titleFont :
-                BattleUiStyleTmpTitle.LoadFont(birthday);
+            TMPro.TMP_FontAsset font = decoratedTitle && settings.titleFont != null ? settings.titleFont :
+                settings.fontAsset != null ? settings.fontAsset : BattleUiStyleController.ThemeTmpFont;
             if (font != null && (tmpTitle != null || label.canvas == null ||
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
-                tmpTitle.Apply(font, settings, birthday);
+                tmpTitle.Apply(font, settings, birthday, decoratedTitle);
             }
             else HideTmpTitle();
         }
@@ -341,6 +342,16 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         tint.r *= settings.surfaceShade;
         tint.g *= settings.surfaceShade;
         tint.b *= settings.surfaceShade;
+        return tint;
+    }
+
+    internal static Color TextColor(Color source, BattleUiStyleSettings settings)
+    {
+        Color tint = BattleUiStyleController.IsComic ? settings.comicPaper :
+            BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday
+                ? settings.innerLine : BattleUiStyleController.IsPixel ? Palette(source, settings, false) : source;
+        if (BattleUiStyleController.IsPixel || BattleUiStyleController.IsComic || BattleUiStyleController.IsMahoShojo ||
+            BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday) tint.a *= source.a;
         return tint;
     }
 

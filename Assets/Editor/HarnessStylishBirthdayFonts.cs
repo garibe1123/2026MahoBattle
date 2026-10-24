@@ -1,7 +1,9 @@
 ﻿using System;
 using System.IO;
+using TMPro;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.TextCore.LowLevel;
 
 public static class HarnessStylishBirthdayFonts
 {
@@ -23,6 +25,8 @@ public static class HarnessStylishBirthdayFonts
             ApplyFamily("Assets/Resources/HarnessFonts/BlackHanSans", "BlackHanSans-Regular", "blackhansans");
             ApplyFamily("Assets/Resources/HarnessFonts/Jua", "Jua-Regular", "jua");
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
+            CreatePixelTmpFont();
+            AssetDatabase.SaveAssets();
             Selection.activeObject = AssetDatabase.LoadAssetAtPath<Font>(
                 "Assets/Resources/HarnessFonts/IBMPlexSansKR/IBMPlexSansKR-Regular.ttf");
         }
@@ -42,5 +46,22 @@ public static class HarnessStylishBirthdayFonts
             throw new InvalidDataException("Missing SIL OFL 1.1 license: " + family);
         Directory.CreateDirectory(Licenses);
         File.Copy(licensePath, Licenses + "/" + family + "-OFL.txt", true);
+    }
+
+    private static void CreatePixelTmpFont()
+    {
+        const string path = "Assets/Resources/BattleUiFonts/galmuri/Galmuri9 SDF.asset";
+        if (AssetDatabase.LoadAssetAtPath<TMP_FontAsset>(path) != null) return;
+        Font source = AssetDatabase.LoadAssetAtPath<Font>("Assets/Resources/BattleUiFonts/galmuri/Galmuri9.ttf");
+        if (source == null) throw new InvalidDataException("Galmuri9 import failed.");
+        TMP_FontAsset asset = TMP_FontAsset.CreateFontAsset(source, 90, 9, GlyphRenderMode.SDFAA,
+            1024, 1024, AtlasPopulationMode.Dynamic, true);
+        if (asset == null) throw new InvalidDataException("Galmuri9 TMP creation failed.");
+        asset.name = "Galmuri9 SDF";
+        AssetDatabase.CreateAsset(asset, path);
+        AssetDatabase.AddObjectToAsset(asset.material, asset);
+        foreach (Texture2D atlas in asset.atlasTextures)
+            if (atlas != null) AssetDatabase.AddObjectToAsset(atlas, asset);
+        EditorUtility.SetDirty(asset);
     }
 }

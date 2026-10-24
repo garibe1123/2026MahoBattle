@@ -1,5 +1,8 @@
+using System.Collections;
 using System.Collections.Generic;
+using TMPro;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using UnityEngine.UI;
 
 /// <summary>
@@ -133,6 +136,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     [SerializeField, Min(0.03f)] private float dialogueCloseDuration = 0.10f;
     [SerializeField, Min(1f)] private float typeCharactersPerSecond = 36f;
     [SerializeField, Min(0.1f)] private float dialogueIdleDuration = 1.65f;
+    [SerializeField] private bool waitForDialogueInput = true;
     [Tooltip("Reward/Map 화면 사회자 Rect 안에서 말풍선 꼬리가 향할 기준점입니다.")]
     [SerializeField] private Vector2 dialogueTailPresenterAnchor = new(0.28f, 0.58f);
     [SerializeField] private Vector2 dialogueTailPivotOffset = new(0f, 0f);
@@ -195,10 +199,13 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private BattleSpeechBubbleTailTriangleController dialogueTailGraphic;
     private BattleSpeechBubbleFrameStyle runtimeDialogueFrameStyle;
     private BattleSpeechBubbleTailStyle runtimeDialogueTailStyle;
-    private Text nameText;
-    private Text contextText;
-    private Text dialogueText;
-    private Text liveText;
+    private TextMeshProUGUI nameText;
+    private TextMeshProUGUI contextText;
+    private TextMeshProUGUI dialogueText;
+    private TextMeshProUGUI liveText;
+    private readonly BattleKoreanTypewriter typewriter = new();
+    private TMP_FontAsset checkedDialogueFont, resolvedDialogueFont;
+    private string checkedDialogueContent;
 
     private DialoguePhase dialoguePhase = DialoguePhase.Hidden;
     private float dialoguePhaseTime;
@@ -272,10 +279,18 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             instance = null;
     }
 
+    private IEnumerator Start()
+    {
+        WaitForSecondsRealtime retry = new(0.25f);
+        while (true)
+        {
+            ResolveReferences();
+            yield return retry;
+        }
+    }
+
     private void Update()
     {
-        ResolveReferences();
-
         BattleRunState state = runManager != null
             ? runManager.State
             : (BattleRunState)(-1);
@@ -295,6 +310,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         UpdatePresenterSheetAnimation();
         UpdatePresenterMotion();
         UpdateDialogueState();
+        UpdateDialogueFonts();
+        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+            AdvanceDialogue();
         UpdateBoredCommentary();
 
         if (mode == Mode.Reward || mode == Mode.ScriptSelection)
@@ -746,13 +764,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                     : dialogueBubbleRotation);
 
         dialogueRenderCanvas = root.AddComponent<Canvas>();
+        root.AddComponent<GraphicRaycaster>();
         dialogueRenderCanvas.overrideSorting = true;
         dialogueRenderCanvas.sortingOrder = dialogueMiniPackSortingOrder;
 
         dialogueGroup = root.AddComponent<CanvasGroup>();
         dialogueGroup.alpha = 0f;
-        dialogueGroup.interactable = false;
-        dialogueGroup.blocksRaycasts = false;
+        dialogueGroup.interactable = true;
+        dialogueGroup.blocksRaycasts = true;
 
         BattleUiAvoidanceResolver.RegisterZone(
             dialogueRect,
@@ -842,8 +861,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         textRect.anchorMax = Vector2.one;
         textRect.offsetMin = new Vector2(30f, 18f);
         textRect.offsetMax = new Vector2(-34f, -38f);
-        dialogueText.horizontalOverflow = HorizontalWrapMode.Wrap;
-        dialogueText.verticalOverflow = VerticalWrapMode.Truncate;
+        dialogueText.textWrappingMode = TextWrappingModes.Normal;
+        dialogueText.overflowMode = TextOverflowModes.Truncate;
         dialogueText.lineSpacing = 1.04f;
 
         liveText = CreateText(
@@ -854,6 +873,14 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             FontStyle.Bold,
             TextAnchor.LowerRight,
             hotAccent);
+        liveText.raycastTarget = true;
+        Button advanceButton = dialogueRect.gameObject.AddComponent<Button>();
+        advanceButton.targetGraphic = liveText;
+        advanceButton.transition = Selectable.Transition.None;
+        Navigation navigation = advanceButton.navigation;
+        navigation.mode = Navigation.Mode.None;
+        advanceButton.navigation = navigation;
+        advanceButton.onClick.AddListener(AdvanceDialogue);
         Place(
             liveText.rectTransform,
             new Vector2(1f, 0f),
@@ -1301,6 +1328,9 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             return;
         }
 
+        if (waitForDialogueInput && (dialoguePhase == DialoguePhase.Opening ||
+            dialoguePhase == DialoguePhase.Typing || dialoguePhase == DialoguePhase.Idle)) return;
+
         if (dialoguePhase != DialoguePhase.Closing)
         {
             dialoguePhase = DialoguePhase.Closing;
@@ -1435,6 +1465,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         ApplyDialogueMetadata();
 
         dialogueText.text = string.Empty;
+        typewriter.Reset(activeComment);
         visibleCharacters = 0;
         typeProgress = 0f;
         dialoguePhaseTime = 0f;
@@ -1448,6 +1479,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         float dt = Time.unscaledDeltaTime;
 
+        dialogueGroup.blocksRaycasts = dialoguePhase == DialoguePhase.Typing || dialoguePhase == DialoguePhase.Idle;
         switch (dialoguePhase)
         {
             case DialoguePhase.Hidden:
@@ -1488,20 +1520,20 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 int targetCharacters = Mathf.Clamp(
                     Mathf.FloorToInt(typeProgress),
                     0,
-                    activeComment.Length);
+                    typewriter.StepCount);
 
                 if (targetCharacters != visibleCharacters)
                 {
                     visibleCharacters = targetCharacters;
-                    dialogueText.text =
-                        activeComment.Substring(0, visibleCharacters);
+                    dialogueText.text = typewriter.Render(visibleCharacters);
                 }
 
-                if (visibleCharacters >= activeComment.Length)
+                if (visibleCharacters >= typewriter.StepCount)
                 {
                     dialogueText.text = activeComment;
                     dialoguePhase = DialoguePhase.Idle;
                     dialoguePhaseTime = 0f;
+                    ShowDialogueInputHint();
                 }
                 break;
             }
@@ -1510,8 +1542,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 ApplyDialogueOpenValue(1f);
                 dialoguePhaseTime += dt;
 
-                if (hasPendingCopy ||
-                    dialoguePhaseTime >= Mathf.Max(0.1f, dialogueIdleDuration))
+                if (!waitForDialogueInput && (hasPendingCopy ||
+                    dialoguePhaseTime >= Mathf.Max(0.1f, dialogueIdleDuration)))
                 {
                     dialoguePhase = DialoguePhase.Closing;
                     dialoguePhaseTime = 0f;
@@ -1593,6 +1625,59 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
             : Mathf.Max(dialogueMiniPackSortingOrder, 781);
 
         dialogueRenderCanvas.sortingOrder = bubbleOrder;
+    }
+
+    private void AdvanceDialogue()
+    {
+        if (dialogueText == null || mode == Mode.None) return;
+        if (dialoguePhase == DialoguePhase.Typing)
+        {
+            dialogueText.text = activeComment;
+            visibleCharacters = typewriter.StepCount;
+            dialoguePhase = DialoguePhase.Idle;
+            dialoguePhaseTime = 0f;
+            ShowDialogueInputHint();
+        }
+        else if (dialoguePhase == DialoguePhase.Idle)
+        {
+            dialoguePhase = DialoguePhase.Closing;
+            dialoguePhaseTime = 0f;
+            nextBoredLineAt = Time.unscaledTime + Mathf.Max(5f, boredLineRepeatSeconds);
+        }
+    }
+
+    private void ShowDialogueInputHint()
+    {
+        if (waitForDialogueInput && liveText != null) liveText.text = "SPACE / CLICK";
+    }
+
+    private void UpdateDialogueFonts()
+    {
+        if (dialoguePhase == DialoguePhase.Hidden) return;
+        TMP_FontAsset font = presentation != null && presentation.UiStyleSettings.fontAsset != null
+            ? presentation.UiStyleSettings.fontAsset : presentation != null
+                ? BattleUiThemeFonts.LoadTmp(presentation.UiStyle) : null;
+        if (font == null) font = BattleUiThemeFonts.LoadTmp(BattleUiStyle.VectorStyleUi);
+        if (font == null) font = TMP_Settings.defaultFontAsset;
+        if (font == null) return;
+        if (nameText != null && nameText.font != font) nameText.font = font;
+        if (liveText != null && liveText.font != font) liveText.font = font;
+        if (dialogueText != null)
+        {
+            if (checkedDialogueFont != font || checkedDialogueContent != dialogueText.text)
+            {
+                checkedDialogueFont = font;
+                checkedDialogueContent = dialogueText.text;
+                resolvedDialogueFont = font;
+                if (!font.HasCharacters(checkedDialogueContent, out uint[] _, true, true))
+                {
+                    resolvedDialogueFont = BattleUiThemeFonts.LoadTmp(BattleUiStyle.VectorStyleUi);
+                    if (resolvedDialogueFont == null) resolvedDialogueFont = TMP_Settings.defaultFontAsset;
+                }
+            }
+            if (resolvedDialogueFont != null && dialogueText.font != resolvedDialogueFont)
+                dialogueText.font = resolvedDialogueFont;
+        }
     }
 
     private void ApplyDialogueMetadata()
@@ -1972,7 +2057,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         return Mathf.PingPong(phase * 2f, 2f) - 1f;
     }
 
-    private static Text CreateText(
+    private static TextMeshProUGUI CreateText(
         Transform parent,
         string objectName,
         string value,
@@ -1984,12 +2069,18 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         GameObject go = new(objectName, typeof(RectTransform));
         go.transform.SetParent(parent, false);
 
-        Text text = go.AddComponent<Text>();
-        text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        TextMeshProUGUI text = go.AddComponent<TextMeshProUGUI>();
+        text.font = BattleUiThemeFonts.LoadTmp(BattleUiStyle.VectorStyleUi) ?? TMP_Settings.defaultFontAsset;
+        text.richText = false;
         text.text = value;
         text.fontSize = size;
-        text.fontStyle = style;
-        text.alignment = alignment;
+        text.fontStyle = style == FontStyle.Bold ? FontStyles.Bold : FontStyles.Normal;
+        text.alignment = alignment switch
+        {
+            TextAnchor.MiddleLeft => TextAlignmentOptions.Left,
+            TextAnchor.LowerRight => TextAlignmentOptions.BottomRight,
+            _ => TextAlignmentOptions.Center
+        };
         text.color = color;
         text.raycastTarget = false;
         return text;

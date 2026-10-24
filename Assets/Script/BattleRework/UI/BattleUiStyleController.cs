@@ -24,6 +24,7 @@ public sealed class BattleUiStyleSettings
     public Color status = new Color32(0x41, 0x9A, 0x50, 255);
     [Tooltip("한글 픽셀 글꼴을 지정할 수 있습니다. 없는 글자는 기존 한글 글꼴로 표시합니다.")]
     public Font font;
+    public TMPro.TMP_FontAsset fontAsset;
     public Material panelMaterial;
     public Material textMaterial;
     public Color danger = new Color32(0xEE, 0x44, 0x55, 255);
@@ -79,6 +80,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Birthday;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
+    internal static TMPro.TMP_FontAsset ThemeTmpFont => active != null && active.isActiveAndEnabled && active.presentation != null
+        ? BattleUiThemeFonts.LoadTmp(active.presentation.UiStyle) : null;
     internal static float PixelScale => active != null && active.presentation != null
         ? active.presentation.UiPixelScale : 1f;
 

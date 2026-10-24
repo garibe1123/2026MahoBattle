@@ -18,6 +18,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private float outlineWidth = -1f;
     private Vector2 shadowOffset;
     private bool subMeshesPending;
+    private bool decoratedTitle = true;
 
     internal bool Visible => text != null && text.gameObject.activeSelf;
 
@@ -59,8 +60,9 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         BattleUiOpticsCanvas.Register(text);
     }
 
-    internal void Apply(TMP_FontAsset font, BattleUiStyleSettings style, bool birthday)
+    internal void Apply(TMP_FontAsset font, BattleUiStyleSettings style, bool birthday, bool decorate = true)
     {
+        decoratedTitle = decorate;
         string content = source.text ?? string.Empty;
         if (checkedFont != font || checkedText != content)
         {
@@ -80,12 +82,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         Color nextOutline = style.outerFrame;
         Color nextShadow = birthday ? style.energy : style.status;
-        if (outline != nextOutline || shadow != nextShadow || outlineWidth != style.titleOutlineWidth ||
+        float nextWidth = decorate ? style.titleOutlineWidth : 0f;
+        if (outline != nextOutline || shadow != nextShadow || outlineWidth != nextWidth ||
             shadowOffset != style.titleShadowOffset)
         {
             outline = nextOutline;
             shadow = nextShadow;
-            outlineWidth = style.titleOutlineWidth;
+            outlineWidth = nextWidth;
             shadowOffset = style.titleShadowOffset;
             material.SetColor("_OutlineColor", outline);
             material.SetFloat("_OutlineWidth", outlineWidth);
@@ -96,24 +99,39 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.SetMaterialDirty();
             text.SetVerticesDirty();
         }
-        float nextShear = birthday ? 0f : style.stylishTitleShear;
-        if (shear != nextShear || padding != style.titlePadding)
+        if (decorate) material.EnableKeyword("UNDERLAY_ON");
+        else material.DisableKeyword("UNDERLAY_ON");
+        float nextShear = decorate && !birthday ? style.stylishTitleShear : 0f;
+        float nextPadding = decorate ? Mathf.Max(0f, style.titlePadding) : 0f;
+        if (shear != nextShear || padding != nextPadding)
         {
             shear = nextShear;
-            padding = Mathf.Max(0f, style.titlePadding);
+            padding = nextPadding;
             text.margin = new Vector4(padding, padding, padding, padding);
             text.SetVerticesDirty();
         }
         text.text = content;
         text.richText = source.supportRichText;
-        text.fontSize = source.fontSize * style.titleSizeMultiplier;
-        text.fontStyle = FontStyles.Normal;
+        text.fontSize = source.fontSize * (decorate ? style.titleSizeMultiplier : 1f);
+        text.enableAutoSizing = !decorate && source.resizeTextForBestFit;
+        text.fontSizeMin = source.resizeTextMinSize;
+        text.fontSizeMax = source.resizeTextMaxSize;
+        text.lineSpacing = decorate ? 0f : (source.lineSpacing - 1f) * source.fontSize;
+        text.fontStyle = decorate ? FontStyles.Normal : source.fontStyle switch
+        {
+            FontStyle.Bold => FontStyles.Bold,
+            FontStyle.Italic => FontStyles.Italic,
+            FontStyle.BoldAndItalic => FontStyles.Bold | FontStyles.Italic,
+            _ => FontStyles.Normal
+        };
         text.alignment = Alignment(source.alignment);
         text.textWrappingMode = source.horizontalOverflow == HorizontalWrapMode.Wrap
             ? TextWrappingModes.Normal : TextWrappingModes.NoWrap;
         text.maskable = source.maskable;
-        Color face = birthday ? style.status : style.background;
-        face.a *= source.color.a;
+        text.overflowMode = decorate || source.verticalOverflow == VerticalWrapMode.Overflow
+            ? TextOverflowModes.Overflow : TextOverflowModes.Truncate;
+        Color face = decorate ? (birthday ? style.status : style.background) : BattleUiStyleMeshEffect.TextColor(source.color, style);
+        if (decorate) face.a *= source.color.a;
         text.color = face;
         text.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
         if (subMeshesPending && text.canvas != null &&
@@ -143,6 +161,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private void FitTitle(TMP_TextInfo info)
     {
         if (info.materialCount > 1) subMeshesPending = true;
+        if (!decoratedTitle) return;
         Rect rect = text.rectTransform.rect;
         float inset = Mathf.Min(padding, Mathf.Min(rect.width, rect.height) * 0.25f);
         rect = BattleUiStyleMeshEffect.Inset(rect, inset);
