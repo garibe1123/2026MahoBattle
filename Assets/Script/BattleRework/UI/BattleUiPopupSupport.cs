@@ -151,6 +151,11 @@ public sealed class BattleUiHologramBorder : MonoBehaviour
     private Image borderImage;
     private Color baseColor = Color.white;
 
+    private void Awake()
+    {
+        borderImage = GetComponent<Image>();
+    }
+
     public static BattleUiHologramBorder Attach(
         RectTransform parent,
         Color color)
@@ -258,10 +263,6 @@ public sealed class BattleUiHologramBorder : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (borderImage == null)
-            borderImage =
-                GetComponent<Image>();
-
         if (borderImage != null)
         {
             borderImage.material =
