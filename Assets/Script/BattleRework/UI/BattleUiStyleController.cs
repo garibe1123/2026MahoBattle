@@ -90,6 +90,21 @@ public sealed class BattleUiStyleSettings
     [Min(4f)] public float stylishDotSpacing = 10f;
     [Range(0f, 2f)] public float stylishDotRadius = 0.8f;
     [Range(0f, 0.25f)] public float surfacePatternAlpha = 0.12f;
+    [Header("Stylish Arcade")]
+    public Color stylishMagenta = new Color32(0xA5, 0x1C, 0x69, 255);
+    public Color stylishNeon = new Color32(0x25, 0xE5, 0xF4, 255);
+    public Color stylishCta = new Color32(0x20, 0xDE, 0xD5, 255);
+    [Range(6f, 10f)] public float stylishPanelAngle = 8f;
+    [Range(6f, 12f)] public float stylishGlowWidth = 8f;
+    [Range(4f, 8f)] public float stylishShadowOffset = 6f;
+    [Range(-12f, -8f)] public float stylishTitleAngle = -10f;
+    [Min(0.01f)] public float stylishHoverDuration = 0.12f;
+    [Min(0.01f)] public float stylishPressDuration = 0.08f;
+    [Min(0.01f)] public float stylishEnterDuration = 0.25f;
+    [Min(0.01f)] public float stylishCloseDuration = 0.12f;
+    [Range(1f, 1.1f)] public float stylishHoverScale = 1.04f;
+    [Range(0.9f, 1f)] public float stylishPressScale = 0.96f;
+    [Range(0.25f, 0.45f)] public float stylishConfirmDuration = 0.35f;
 }
 
 [DisallowMultipleComponent]
@@ -157,12 +172,22 @@ public sealed class BattleUiStyleController : MonoBehaviour
 
     public static void RegisterGraphic(Graphic target)
     {
-        if (active == null || target == null || active.targets.ContainsKey(target)) return;
+        if (active == null || target == null || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
+        if (active.targets.TryGetValue(target, out var registered))
+        {
+            registered.BindInteraction();
+            return;
+        }
         if (!(target is Text) && !(target is Image) && !(target is BattleUiPanelDecoration)) return;
         BattleUiStyleMeshEffect effect = target.GetComponent<BattleUiStyleMeshEffect>();
         if (effect == null) effect = target.gameObject.AddComponent<BattleUiStyleMeshEffect>();
         effect.Bind(target);
         active.targets.Add(target, effect);
+        if (target is Text)
+        {
+            Button owner = target.GetComponentInParent<Button>(true);
+            if (owner != null) RegisterRoot(owner.transform);
+        }
     }
 
     public static void RegisterSpeechFrame(Image outline, Image fill)
@@ -220,9 +245,10 @@ public sealed class BattleUiStyleController : MonoBehaviour
         {
             Graphic target = entry.Key;
             if (target == null) { removed.Add(target); continue; }
-            if (!target.isActiveAndEnabled || (target.canvasRenderer.cull && !entry.Value.HasOverflowTitle))
+            if (!target.isActiveAndEnabled || target.canvasRenderer.GetInheritedAlpha() <= 0.001f ||
+                (target.canvasRenderer.cull && !entry.Value.HasOverflowTitle))
             {
-                entry.Value.HideTmpTitle();
+                entry.Value.HideAppearance();
                 continue;
             }
             entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial, themeFont);

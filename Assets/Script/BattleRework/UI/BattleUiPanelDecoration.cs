@@ -58,6 +58,9 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private float backgroundBaseAlpha;
     private bool wasInventoryDimmed;
     private float lastCombatAlpha = -1f, lastLockedAlpha = -1f;
+    private BattleUiStyleInteraction styleInteraction;
+
+    internal void SetStyleInteraction(BattleUiStyleInteraction interaction) => styleInteraction = interaction;
 
     public void SetInventoryBackground(bool locked = false)
     {
@@ -261,9 +264,13 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     {
         if (emphasis == value && this.selected == selected)
             return;
+        bool confirmed = selected && !this.selected;
         emphasis = value;
         this.selected = selected;
-        pulseUntil = animate ? Time.unscaledTime + 0.18f : 0f;
+        float duration = BattleUiStyleController.IsStylish
+            ? BattleUiStyleController.Settings.stylishConfirmDuration : 0.18f;
+        pulseUntil = animate ? Time.unscaledTime + duration : 0f;
+        if (confirmed && animate) BattleUiStyleBurst.Play(rectTransform);
         nextRefresh = 0f;
         SetVerticesDirty();
     }
@@ -279,8 +286,16 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             return;
 
         nextRefresh = Time.unscaledTime + 0.033f;
-        pulse = Mathf.Clamp01((pulseUntil - Time.unscaledTime) / 0.18f);
+        float duration = BattleUiStyleController.IsStylish
+            ? BattleUiStyleController.Settings.stylishConfirmDuration : 0.18f;
+        pulse = Mathf.Clamp01((pulseUntil - Time.unscaledTime) / Mathf.Max(0.01f, duration));
         SetVerticesDirty();
+    }
+
+    protected override void OnDisable()
+    {
+        pulseUntil = nextRefresh = pulse = 0f;
+        base.OnDisable();
     }
 
     protected override void OnPopulateMesh(VertexHelper vh)
@@ -306,7 +321,9 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             float border = Mathf.Clamp(birthday ? style.birthdayBorderWidth * 3f : style.stylishBorderWidth,
                 0f, Mathf.Min(face.width, face.height) * 0.5f);
             float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
-            BattleUiStyleMeshEffect.DrawAccentFrame(vh, face, style, birthday, opacity);
+            BattleUiStyleMeshEffect.DrawAccentFrame(vh, face, style, birthday, opacity,
+                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
+                styleInteraction != null && styleInteraction.Primary);
             backgroundBaseAlpha = style.background.a * opacity;
             if (hasHeader)
             {
@@ -315,7 +332,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                     face.width - border * 2f, height - border);
                 Color rim = style.status;
                 rim.a *= opacity;
-                Color paper = style.outerFrame;
+                Color paper = birthday ? style.outerFrame : style.stylishMagenta;
                 paper.a *= opacity;
                 if (birthday)
                 {
@@ -325,8 +342,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                 }
                 else
                 {
-                    BattleUiStyleMeshEffect.Slant(vh, header, rim);
-                    BattleUiStyleMeshEffect.Slant(vh, BattleUiStyleMeshEffect.Inset(header, 2f * scale), paper);
+                    BattleUiStyleMeshEffect.AccentSlant(vh, header, style.stylishPanelAngle, rim);
+                    BattleUiStyleMeshEffect.AccentSlant(vh, BattleUiStyleMeshEffect.Inset(header, 2f * scale), style.stylishPanelAngle, paper);
                 }
             }
             backgroundVertexCount = vh.currentVertCount;

@@ -133,7 +133,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     public static BattleShowPresentationManager Instance { get; private set; }
 
     [Header("UI Style")]
-    [SerializeField] private BattleUiStyle uiStyle = BattleUiStyle.VectorStyleUi;
+    [SerializeField] private BattleUiStyle uiStyle = BattleUiStyle.Stylish;
+    [SerializeField, HideInInspector] private int stylishDesignVersion;
     [Tooltip("Pixel UI 패널·스프라이트의 화면 픽셀 크기 배율입니다. 최종 크기는 정수 픽셀로 반올림하며 글자 크기는 유지합니다.")]
     [SerializeField, Range(0.5f, 4f)] private float uiPixelScale = 1f;
     [SerializeField] private bool screenGridEnabled;
@@ -195,6 +196,19 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         uiStyle = value;
         uiStyleController?.RefreshSettings();
+    }
+
+    public void ApplyStylishArcadeDesign()
+    {
+        stylish.background = new Color32(0x60, 0x36, 0xD9, 255);
+        stylish.innerLine = new Color32(0xFF, 0xF7, 0xEF, 255);
+        stylish.outerFrame = new Color32(0x19, 0x10, 0x32, 255);
+        stylish.status = new Color32(0xF3, 0x3B, 0x98, 255);
+        stylish.danger = stylish.status;
+        stylish.energy = new Color32(0x20, 0xDE, 0xD5, 255);
+        stylish.highlight = new Color32(0xFF, 0xE3, 0x4A, 255);
+        stylishDesignVersion = 1;
+        SetUiStyle(BattleUiStyle.Stylish);
     }
 
     public void SetScreenGridEnabled(bool value)
@@ -807,6 +821,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         }
 
         Instance = this;
+        if (stylishDesignVersion < 1) ApplyStylishArcadeDesign();
         uiStyleController = GetComponent<BattleUiStyleController>();
         if (uiStyleController == null)
             uiStyleController = gameObject.AddComponent<BattleUiStyleController>();

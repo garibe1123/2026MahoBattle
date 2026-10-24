@@ -464,6 +464,7 @@ public sealed class BattleInputRouter : MonoBehaviour
                 break;
 
             case BattleRunState.Reward:
+            case BattleRunState.RuleRoulette:
             case BattleRunState.SelectingNode:
             case BattleRunState.NonCombat:
                 uiMap.Enable();

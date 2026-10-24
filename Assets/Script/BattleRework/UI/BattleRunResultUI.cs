@@ -54,7 +54,10 @@ public sealed class BattleRunResultUI : MonoBehaviour, IInputModal
 
         RectTransform panel = CreateRect(dim, "Result");
         panel.sizeDelta = new Vector2(640f, 540f);
-        panel.gameObject.AddComponent<Image>().color = new Color(0.035f, 0.04f, 0.065f, 1f);
+        Image panelImage = panel.gameObject.AddComponent<Image>();
+        panelImage.color = new Color(0.035f, 0.04f, 0.065f, 1f);
+        BattleUiPanelDecoration.Round(panelImage);
+        BattleUiPanelDecoration.Attach(panel, BattleUiPanelDecoration.Purple, false, false);
 
         string reason = result.endReason switch
         {
@@ -63,7 +66,8 @@ public sealed class BattleRunResultUI : MonoBehaviour, IInputModal
             RunEndReason.Quit => "중도 포기",
             _ => "전투 종료"
         };
-        CreateText(panel, reason, 38, new Vector2(0f, 198f), new Vector2(560f, 64f));
+        Text title = CreateText(panel, reason, 38, new Vector2(0f, 198f), new Vector2(560f, 64f));
+        title.name = "Title";
         Text metrics = CreateText(panel,
             $"인기  {result.popularity:N0}\n팬 포인트  {result.fanPoints:N0}\n시청자  {result.viewers:N0}\n좋아요  {result.likes:N0}",
             26, new Vector2(0f, 28f), new Vector2(480f, 216f));
@@ -88,6 +92,8 @@ public sealed class BattleRunResultUI : MonoBehaviour, IInputModal
         Text label = CreateText(buttonRect, returnOnConfirm ? "돌아가기" : "확인", 24, Vector2.zero, buttonRect.sizeDelta);
         label.color = Color.black;
 
+        BattleUiStyleController.RegisterRoot(root);
+        BattleUiStyleBurst.Play(panel);
         inputRouter?.PushModal(this);
         EventSystem.current.SetSelectedGameObject(confirmButton.gameObject);
     }

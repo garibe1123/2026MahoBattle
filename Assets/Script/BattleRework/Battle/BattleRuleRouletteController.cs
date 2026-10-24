@@ -211,6 +211,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private Vector2 controlTabRestPosition;
     private bool cancelRequested;
     private bool startBattleConfirmed;
+    private int finalReviewFrame;
     private bool combatHudMode;
     private bool finalReviewMode;
     private bool combatTabOpen;
@@ -413,6 +414,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         EnterFinalReviewMode();
         SetSpinButtonLabel("START BATTLE");
         SetSpinButtonInteractable(true);
+        finalReviewFrame = Time.frameCount;
+        UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(spinButton.gameObject);
 
         while (!startBattleConfirmed)
         {
@@ -707,7 +710,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             backdrop,
             "ControlTab",
             new Vector2(0.5f, 0.42f),
-            new Vector2(260f, 86f));
+            new Vector2(320f, 96f));
         controlTabRestPosition = controlTab.anchoredPosition;
 
         ratingText = CreateText(machineTab, "Rating", 28, FontStyle.Bold, TextAnchor.MiddleCenter);
@@ -763,6 +766,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         spinButtonImage.raycastTarget = true;
 
         spinButton = buttonRect.gameObject.AddComponent<Button>();
+        spinButton.targetGraphic = spinButtonImage;
         spinButton.interactable = false;
         spinButton.transition = Selectable.Transition.None;
         spinButton.onClick.AddListener(ConfirmStartBattle);
@@ -770,6 +774,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         spinButtonText = CreateText(buttonRect, "Label", 20, FontStyle.Bold, TextAnchor.MiddleCenter);
         Stretch(spinButtonText.rectTransform);
 
+        BattleUiStyleController.RegisterRoot(uiRoot.transform);
         uiRoot.SetActive(false);
     }
 
@@ -2630,7 +2635,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private void ConfirmStartBattle()
     {
-        if (cancelRequested || spinButton == null || !spinButton.interactable)
+        if (cancelRequested || startBattleConfirmed || !finalReviewMode ||
+            Time.frameCount <= finalReviewFrame || BattlePauseController.IsPaused ||
+            spinButton == null || !spinButton.IsInteractable())
             return;
 
         startBattleConfirmed = true;

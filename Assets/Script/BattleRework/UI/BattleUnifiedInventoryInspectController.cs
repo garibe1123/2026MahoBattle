@@ -267,6 +267,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         combatActive = ResolveCombatState();
         if (!combatActive)
             combatTabOpen = false;
+        if (!combatActive && _ != BattleRunState.Reward)
+        {
+            if (boardGroup != null) boardGroup.blocksRaycasts = boardGroup.interactable = false;
+            if (fullGroup != null) fullGroup.blocksRaycasts = fullGroup.interactable = false;
+            if (miniPackGroup != null) miniPackGroup.blocksRaycasts = miniPackGroup.interactable = false;
+        }
     }
 
     private bool IsRewardChoice()

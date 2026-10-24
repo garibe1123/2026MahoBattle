@@ -1603,7 +1603,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                     worldInspectPopupTime /
                     Mathf.Max(
                         0.01f,
-                        worldInspectCloseDuration));
+                        BattleUiStyleController.IsStylish ? BattleUiStyleController.Settings.stylishCloseDuration : worldInspectCloseDuration));
 
             float easedClose =
                 closeT *
@@ -1658,7 +1658,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 worldInspectPopupTime /
                 Mathf.Max(
                     0.01f,
-                    worldInspectPopupDuration));
+                    BattleUiStyleController.IsStylish ? BattleUiStyleController.Settings.stylishEnterDuration : worldInspectPopupDuration));
 
         const float overshootPoint =
             0.64f;

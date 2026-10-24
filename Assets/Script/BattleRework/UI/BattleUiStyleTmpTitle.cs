@@ -15,6 +15,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private TMP_FontAsset checkedFont;
     private bool supported;
     private float shear, padding;
+    private float titleAngle;
     private Color outline, shadow;
     private float outlineWidth = -1f;
     private Vector2 shadowOffset;
@@ -69,7 +70,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     }
 
     internal void Apply(TMP_FontAsset font, BattleUiStyleSettings style, bool birthday, bool decorate = true,
-        BattleUiTitleMotionSettings titleMotion = null, bool overflow = false)
+        BattleUiTitleMotionSettings titleMotion = null, bool overflow = false, float feedbackScale = 1f, float entrance = 1f)
     {
         decoratedTitle = decorate;
         string content = source.text ?? string.Empty;
@@ -122,6 +123,10 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         if (decorate) material.EnableKeyword("UNDERLAY_ON");
         else material.DisableKeyword("UNDERLAY_ON");
         float nextShear = decorate && !birthday ? style.stylishTitleShear : 0f;
+        float nextAngle = decorate && !birthday ? style.stylishTitleAngle : 0f;
+        if (titleAngle != nextAngle) { titleAngle = nextAngle; text.SetVerticesDirty(); }
+        Vector3 nextScale = Vector3.one * feedbackScale;
+        if (text.rectTransform.localScale != nextScale) text.rectTransform.localScale = nextScale;
         float nextPadding = decorate ? Mathf.Max(0f, style.titlePadding) : 0f;
         float margin = nextOverflow ? source.fontSize * style.titleSizeMultiplier * Mathf.Max(0f, motion.overflowMargin) : 0f;
         Vector2 expansion = Vector2.one * margin;
@@ -154,8 +159,9 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         text.maskable = source.maskable;
         text.overflowMode = decorate || source.verticalOverflow == VerticalWrapMode.Overflow
             ? TextOverflowModes.Overflow : TextOverflowModes.Truncate;
-        Color face = decorate ? (birthday ? style.status : style.background) : BattleUiStyleMeshEffect.TextColor(source.color, style);
+        Color face = decorate ? (birthday ? style.status : style.innerLine) : BattleUiStyleMeshEffect.TextColor(source.color, style);
         if (decorate) face.a *= source.color.a;
+        face.a *= entrance;
         text.color = face;
         text.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
         foreach (TMP_SubMeshUI subMesh in subMeshes)
@@ -232,6 +238,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
 
     private void FitToRect(TMP_TextInfo info, float titleShear)
     {
+        Quaternion rotation = Quaternion.Euler(0f, 0f, titleAngle);
         Rect rect = text.rectTransform.rect;
         float inset = Mathf.Min(padding, Mathf.Min(rect.width, rect.height) * 0.25f);
         rect = BattleUiStyleMeshEffect.Inset(rect, inset);
@@ -244,7 +251,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Vector3[] vertices = info.meshInfo[character.materialReferenceIndex].vertices;
             for (int j = 0; j < 4; j++)
             {
-                Vector3 vertex = vertices[character.vertexIndex + j];
+                Vector3 vertex = rotation * vertices[character.vertexIndex + j];
                 vertex.x += titleShear * vertex.y;
                 min = Vector2.Min(min, vertex);
                 max = Vector2.Max(max, vertex);
@@ -263,7 +270,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Vector3[] vertices = info.meshInfo[character.materialReferenceIndex].vertices;
             for (int j = 0; j < 4; j++)
             {
-                Vector3 vertex = vertices[character.vertexIndex + j];
+                Vector3 vertex = rotation * vertices[character.vertexIndex + j];
                 Vector2 position = new(vertex.x + titleShear * vertex.y, vertex.y);
                 position = (position - center) * scale + fitted;
                 vertices[character.vertexIndex + j] = new Vector3(position.x, position.y, vertex.z);

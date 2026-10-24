@@ -232,6 +232,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
         BattleUiPanelDecoration.Attach(panel, BattleUiPanelDecoration.Mint, false, false);
 
         Text title = CreateText(panel, "PAUSE", 48, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
+        title.name = "Title";
         SetAnchors(title.rectTransform, new Vector2(0.10f, 0.80f), new Vector2(0.90f, 0.96f));
 
         RectTransform menu = CreateRect(panel, "PauseMenu", Vector2.zero);

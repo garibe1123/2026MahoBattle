@@ -21,6 +21,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool wasStylish, wasBirthday, title;
     private BattleUiStyleTmpTitle tmpTitle;
     private bool titleMotionCandidate;
+    private BattleUiStyleInteraction interaction;
+    private bool stylishButton;
+    private float enteredAt = -1f;
+    private float entrance = 1f;
     internal bool HasOverflowTitle => TitleMotion(BattleUiStyleController.Settings)?.allowOverflow == true;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
@@ -54,6 +58,22 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             tailFill = image.name == "TailFill";
             panel |= speechFrame;
         }
+        BindInteraction();
+    }
+
+    internal void BindInteraction()
+    {
+        if (target == null) return;
+        interaction = BattleUiStyleInteraction.Bind(target);
+        if (image != null && interaction != null && image.transform == interaction.transform)
+        {
+            stylishButton = true;
+            Transform child = image.transform.Find("PanelDecoration");
+            if (child != null) decoration = child.GetComponent<BattleUiPanelDecoration>();
+            decoratedSurface = decoration != null;
+            panel |= decoratedSurface;
+        }
+        if (target is BattleUiPanelDecoration panelDecoration) panelDecoration.SetStyleInteraction(interaction);
     }
 
     internal void SetSpeechFrame(bool fill)
@@ -108,7 +128,17 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
         bool stylish = BattleUiStyleController.IsStylish;
         bool birthday = BattleUiStyleController.IsBirthday;
-        if ((stylish || birthday) && next == null && panel && !statusFill) next = pixelPanel;
+        float previousEntrance = entrance;
+        entrance = 1f;
+        if (stylish && (panel || stylishButton || label != null || decoration != null))
+        {
+            if (enteredAt < 0f) enteredAt = Time.unscaledTime;
+            entrance = Mathf.SmoothStep(0.02f, 1f,
+                Mathf.Clamp01((Time.unscaledTime - enteredAt) / Mathf.Max(0.01f, settings.stylishEnterDuration)));
+        }
+        else enteredAt = -1f;
+        if (entrance != previousEntrance || entrance < 1f) target.SetVerticesDirty();
+        if ((stylish || birthday) && next == null && (panel || (stylish && stylishButton)) && !statusFill) next = pixelPanel;
         if (HasAssignedMaterial()) next = null;
         if (next != null)
         {
@@ -156,7 +186,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
                 BattleUiTitleMotionSettings motion = TitleMotion(settings);
-                tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow);
+                tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow,
+                    stylish ? interaction?.Scale ?? 1f : 1f, entrance);
             }
             else HideTmpTitle();
         }
@@ -216,6 +247,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void RestoreAppearance()
     {
+        enteredAt = -1f;
+        entrance = 1f;
         HideTmpTitle();
         RestoreMaterial();
         RestoreFont();
@@ -224,6 +257,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal void HideTmpTitle() => tmpTitle?.Hide();
+    internal void HideAppearance()
+    {
+        enteredAt = -1f;
+        HideTmpTitle();
+    }
     internal void RefreshTmpTitle() => tmpTitle?.Refresh();
 
     private BattleUiTitleMotionSettings TitleMotion(BattleUiStyleSettings settings)
@@ -236,7 +274,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     protected override void OnDisable()
     {
-        HideTmpTitle();
+        HideAppearance();
         base.OnDisable();
     }
 
@@ -259,6 +297,24 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         ModifyStyledMesh(vh);
         if (image != null && decoration != null)
             decoration.ApplyBackgroundOpacity(vh, vh.currentVertCount, image.color.a);
+        if (BattleUiStyleController.IsStylish && !HasAssignedMaterial())
+        {
+            float scale = interaction != null ? interaction.Scale : 1f;
+            if (panel || stylishButton || target is BattleUiPanelDecoration) scale *= Mathf.Lerp(0.94f, 1f, entrance);
+            Vector3 center = interaction != null
+                ? target.rectTransform.InverseTransformPoint(interaction.transform.TransformPoint(((RectTransform)interaction.transform).rect.center))
+                : (Vector3)target.rectTransform.rect.center;
+            UIVertex vertex = default;
+            for (int i = 0; i < vh.currentVertCount; i++)
+            {
+                vh.PopulateUIVertex(ref vertex, i);
+                vertex.position = center + (vertex.position - center) * scale;
+                Color color = vertex.color;
+                color.a *= entrance;
+                vertex.color = color;
+                vh.SetUIVertex(vertex, i);
+            }
+        }
     }
 
     private void ModifyStyledMesh(VertexHelper vh)
@@ -276,13 +332,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (hiddenFill || speechFrame) return;
         if (decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
-        if (panel && image != null && !statusFill)
+        if ((panel || (stylish && stylishButton)) && image != null && !statusFill)
         {
             vh.Clear();
             Color fill = settings.background;
             fill.a *= speechFrame ? 1f : image.color.a;
             if (stylish || birthday)
-                DrawAccentFrame(vh, target.rectTransform.rect, settings, birthday, speechFrame ? 1f : image.color.a);
+                DrawAccentFrame(vh, target.rectTransform.rect, settings, birthday, speechFrame ? 1f : image.color.a,
+                    interaction != null && interaction.Highlighted, interaction != null && interaction.Primary);
             else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
             else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
@@ -295,7 +352,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 vh.PopulateUIVertex(ref vertex, i);
                 Color source = vertex.color;
                 Color tint = stylish || birthday ? (tailFill ? settings.background :
-                    label != null ? (stylish && title && label.name == "AppHeader" ? settings.background : settings.innerLine) :
+                    label != null ? settings.innerLine :
                     Palette(source, settings, true)) :
                     maho ? (tailFill || (image != null && image.name == "TailShape") ? settings.background :
                     label != null ? settings.innerLine : statusFill ? settings.energy :
@@ -411,8 +468,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal static void DrawAccentFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
-        bool birthday, float alpha)
+        bool birthday, float alpha, bool selected = false, bool primary = false)
     {
+        if (!birthday)
+        {
+            DrawStylishFrame(vh, rect, settings, alpha, selected, primary);
+            return;
+        }
         Color rim = settings.outerFrame, fill = settings.background;
         rim.a *= alpha;
         fill.a *= alpha;
@@ -468,6 +530,77 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             Slant(vh, new Rect(rect.xMax - rect.width * 0.22f, rect.yMin,
                 rect.width * 0.22f, Mathf.Min(8f, rect.height * 0.06f)), pink);
         }
+    }
+
+    private static void DrawStylishFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
+        float alpha, bool selected, bool primary)
+    {
+        float border = Mathf.Min(Mathf.Clamp(settings.stylishBorderWidth, 3f, 6f), Mathf.Min(rect.width, rect.height) * 0.12f);
+        float shadowOffset = Mathf.Clamp(settings.stylishShadowOffset, 4f, 8f);
+        Rect shadow = new(rect.x + shadowOffset, rect.y - shadowOffset, rect.width, rect.height);
+        Color ink = settings.outerFrame;
+        ink.a *= alpha;
+        AccentSlant(vh, shadow, settings.stylishPanelAngle, ink);
+        if (selected)
+        {
+            float glow = Mathf.Clamp(settings.stylishGlowWidth, 6f, 12f);
+            for (int i = 2; i > 0; i--)
+            {
+                Color light = settings.stylishNeon;
+                light.a *= alpha * (i == 2 ? 0.08f : 0.18f);
+                float spread = glow * i * 0.5f;
+                AccentSlant(vh, new Rect(rect.x - spread, rect.y - spread,
+                    rect.width + spread * 2f, rect.height + spread * 2f), settings.stylishPanelAngle, light);
+            }
+        }
+        AccentSlant(vh, rect, settings.stylishPanelAngle, ink);
+        Rect rim = Inset(rect, border);
+        Color neon = selected ? settings.stylishNeon : primary ? settings.highlight : settings.energy;
+        neon.a *= alpha;
+        AccentSlant(vh, rim, settings.stylishPanelAngle, neon);
+        Rect face = Inset(rim, Mathf.Max(1f, border * 0.4f));
+        Color fill = primary ? Color.Lerp(settings.stylishCta, settings.outerFrame, 0.35f) :
+            selected ? settings.stylishMagenta : settings.background;
+        fill.a *= alpha;
+        AccentSlant(vh, face, settings.stylishPanelAngle, fill);
+        if (!primary && face.width > 240f && face.height > 120f)
+        {
+            Color mint = settings.energy;
+            mint.a *= alpha * 0.18f;
+            RoundedFill(vh, new Rect(face.xMin, face.yMin, face.width * 0.34f, face.height * 0.25f),
+                Mathf.Min(face.width, face.height) * 0.1f, mint);
+            Color yellow = settings.highlight;
+            yellow.a *= alpha * 0.2f;
+            AccentSlant(vh, new Rect(face.xMin, face.yMin, face.width * 0.19f, face.height * 0.08f),
+                settings.stylishPanelAngle, yellow);
+        }
+        Color pink = settings.status;
+        pink.a *= alpha;
+        AccentSlant(vh, new Rect(face.xMax - face.width * 0.18f, face.yMin,
+            face.width * 0.18f, Mathf.Min(8f, face.height * 0.12f)), settings.stylishPanelAngle, pink);
+        float step = Mathf.Max(4f, settings.stylishDotSpacing);
+        Color dot = settings.innerLine;
+        dot.a *= alpha * settings.surfacePatternAlpha;
+        for (int row = 0; row < 3; row++)
+            for (int column = 0; column < 8; column++)
+            {
+                Vector2 point = new(face.xMax - step * (column + 1), face.yMin + step * (row + 1));
+                if (point.x < face.center.x || point.y > face.center.y) continue;
+                DrawDot(vh, point, settings.stylishDotRadius, dot);
+            }
+    }
+
+    internal static void AccentSlant(VertexHelper vh, Rect rect, float angle, Color tint)
+    {
+        if (rect.width <= 0f || rect.height <= 0f) return;
+        float cut = Mathf.Min(rect.width * 0.12f, rect.height * Mathf.Tan(angle * Mathf.Deg2Rad));
+        int first = vh.currentVertCount;
+        vh.AddVert(new Vector3(rect.xMin, rect.yMin, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMin + cut, rect.yMax, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax, rect.yMax, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax - cut, rect.yMin, 0f), tint, Vector2.zero);
+        vh.AddTriangle(first, first + 1, first + 2);
+        vh.AddTriangle(first, first + 2, first + 3);
     }
 
     private static void DrawDot(VertexHelper vh, Vector2 center, float radius, Color tint)

@@ -121,6 +121,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private RectTransform doneRoot;
     private Button doneButton;
+    private Text doneLabel;
 
     private RectTransform discardConfirmRoot;
     private Text discardConfirmText;
@@ -1082,6 +1083,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             doneRoot.gameObject.SetActive(show);
         if (doneButton != null)
             doneButton.interactable = canAdvance;
+        if (doneLabel != null && show)
+            doneLabel.text = rewardFlow != null && rewardFlow.HasHand ? "손의 아이템을 배치 / 폐기" : "DONE  /  START";
     }
 
     private void UpdateRewardHandVisual()
@@ -1449,6 +1452,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         outline.effectDistance = new Vector2(5f, -5f);
 
         Text label = CreateText(doneRoot, "DONE  /  START", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        doneLabel = label;
         Stretch(label.rectTransform);
         doneButton = doneRoot.gameObject.AddComponent<Button>();
         doneButton.targetGraphic = back;
@@ -1458,6 +1462,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             doneRoot.gameObject.AddComponent<BattleInventoryDoneDeniedRelay>();
         deniedRelay.Configure(this);
 
+        BattleUiStyleController.RegisterRoot(doneRoot);
         doneRoot.gameObject.SetActive(false);
     }
 

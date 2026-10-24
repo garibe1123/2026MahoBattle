@@ -2894,7 +2894,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     detailPopupTime /
                     Mathf.Max(
                         0.01f,
-                        itemTooltipCloseDuration));
+                        BattleUiStyleController.IsStylish ? BattleUiStyleController.Settings.stylishCloseDuration : itemTooltipCloseDuration));
 
             float easedClose =
                 closeT *
@@ -2961,7 +2961,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 detailPopupTime /
                 Mathf.Max(
                     0.01f,
-                    itemTooltipPopupDuration));
+                    BattleUiStyleController.IsStylish ? BattleUiStyleController.Settings.stylishEnterDuration : itemTooltipPopupDuration));
 
         const float overshootPoint =
             0.64f;
