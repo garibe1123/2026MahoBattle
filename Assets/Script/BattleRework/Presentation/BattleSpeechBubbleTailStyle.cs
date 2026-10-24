@@ -646,6 +646,30 @@ public static class BattleSpeechBubbleTailTextureBuilder
             contentHeight);
     }
 
+    public static float GetRootJoinHalfHeight(BattleSpeechBubbleTailStyle style)
+    {
+        Vector2 size = GetRenderSize(style.uiSize);
+        float contentHeight = size.y / VerticalDisplayScale;
+        float rootY = VerticalPadding + Mathf.Clamp01(style.rootY) * (ContentHeight - 1f);
+        float endX = Mathf.Clamp01(style.overlap / size.x) * (TextureWidth - 1f);
+        BuildRibbonPolygon(GetCenterPointsPixels(style), GetOuterHalfWidthsPixels(style), out Vector2[] polygon);
+        float extent = Mathf.Clamp(style.rootHalfWidth, 0.02f, 0.5f) * ContentHeight;
+        Vector2 previous = polygon[polygon.Length - 1];
+        for (int i = 0; i < polygon.Length; i++)
+        {
+            Vector2 current = polygon[i];
+            if (current.x <= endX)
+                extent = Mathf.Max(extent, Mathf.Abs(current.y - rootY));
+            if ((previous.x < endX) != (current.x < endX))
+            {
+                float y = Mathf.Lerp(previous.y, current.y, (endX - previous.x) / (current.x - previous.x));
+                extent = Mathf.Max(extent, Mathf.Abs(y - rootY));
+            }
+            previous = current;
+        }
+        return (extent + 1f) * contentHeight / ContentHeight;
+    }
+
     public static Texture2D BuildOutlineMaskTexture(
         BattleSpeechBubbleTailStyle sourceStyle,
         string textureName = "BattleSpeechTailOutlineMask")

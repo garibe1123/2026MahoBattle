@@ -9,6 +9,7 @@ using UnityEngine.UI;
 /// FILL은 기본 UI Material을 유지합니다.
 /// </summary>
 [DisallowMultipleComponent]
+[DefaultExecutionOrder(100)]
 public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 {
     [SerializeField] private RectTransform bubbleRect;
@@ -34,6 +35,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private RectTransform registeredStyleRoot;
     private BattleSpeechBubbleFrameFillController frameController;
     private readonly Vector3[] frameCorners = new Vector3[4];
+    private float rootJoinHalfHeight;
 
     public void Configure(
         RectTransform bubble,
@@ -89,18 +91,12 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     private void OnEnable()
     {
-        Canvas.willRenderCanvases += RefreshPlacement;
         if (style == null)
             style = new BattleSpeechBubbleTailStyle();
 
         EnsureTail();
         RefreshSpriteIfNeeded(force: true);
         RefreshPlacement();
-    }
-
-    private void OnDisable()
-    {
-        Canvas.willRenderCanvases -= RefreshPlacement;
     }
 
     private void LateUpdate()
@@ -283,6 +279,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         appliedHash =
             hash;
+
+        rootJoinHalfHeight = BattleSpeechBubbleTailTextureBuilder.GetRootJoinHalfHeight(activeStyle);
 
         ReleaseRuntimeSprites();
 
@@ -582,7 +580,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         float contentHeight = size.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale;
         padding = Mathf.Min(bubble.height * 0.49f, Mathf.Max(padding,
-            Mathf.Clamp(activeStyle.rootHalfWidth, 0.02f, 0.5f) * contentHeight));
+            rootJoinHalfHeight));
 
         float y =
             Mathf.Clamp(
@@ -599,7 +597,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         float rootX = right
             ? bubble.xMax - Mathf.Max(0f, activeStyle.overlap)
             : bubble.xMin + Mathf.Max(0f, activeStyle.overlap);
-        float halfWidth = Mathf.Clamp(activeStyle.rootHalfWidth, 0.02f, 0.5f) * contentHeight;
+        float halfWidth = rootJoinHalfHeight;
         if (frameController != null)
         {
             halfWidth += contentHeight / BattleSpeechBubbleTailTextureBuilder.ContentHeight;
