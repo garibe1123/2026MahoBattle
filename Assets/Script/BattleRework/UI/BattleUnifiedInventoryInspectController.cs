@@ -663,13 +663,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         if (control == null || board == null)
             return;
 
-        if (control.parent != board)
-            control.SetParent(board, false);
-
-        control.anchorMin = control.anchorMax = new Vector2(0.5f, 0f);
         control.pivot = new Vector2(0.5f, 1f);
-        control.anchoredPosition = offset;
-        control.localRotation = Quaternion.identity;
+        control.position = board.TransformPoint(new Vector3(board.rect.center.x + offset.x, board.rect.yMin + offset.y, 0f));
+        control.rotation = board.rotation;
         control.localScale = Vector3.one;
         control.SetAsLastSibling();
     }
@@ -679,13 +675,9 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         if (control == null || parent == null)
             return;
 
-        if (control.parent != parent)
-            control.SetParent(parent, false);
-
-        control.anchorMin = control.anchorMax = new Vector2(1f, 0f);
         control.pivot = new Vector2(0f, 0f);
-        control.anchoredPosition = localOffset;
-        control.localRotation = Quaternion.identity;
+        control.position = parent.TransformPoint(new Vector3(parent.rect.xMax + localOffset.x, parent.rect.yMin + localOffset.y, 0f));
+        control.rotation = parent.rotation;
         control.localScale = Vector3.one;
         control.SetAsLastSibling();
     }

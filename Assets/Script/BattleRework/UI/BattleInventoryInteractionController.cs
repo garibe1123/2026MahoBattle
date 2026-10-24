@@ -626,7 +626,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleTrashDrop(PointerEventData eventData)
     {
-        if (discardModalOpen || equipmentSystem == null || eventData == null)
+        if (BattlePauseController.IsPaused || discardModalOpen || equipmentSystem == null || eventData == null ||
+            (!IsCombat() && !IsRewardPackEditing))
             return;
 
         ActivateMouseMode();
@@ -642,7 +643,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleTrashClick(PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left || discardModalOpen || !IsRewardPackEditing || rewardFlow == null)
+        if (BattlePauseController.IsPaused || button != PointerEventData.InputButton.Left || discardModalOpen || !IsRewardPackEditing || rewardFlow == null)
             return;
 
         ActivateMouseMode();
@@ -651,6 +652,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         {
             if (rewardFlow.DiscardHand())
                 selectedRewardSlot = -1;
+            UpdateRewardDoneState();
+            UpdateRewardHandVisual();
             return;
         }
 
@@ -1416,6 +1419,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private void BuildTrash()
     {
         trashRoot = CreateRect(interactionRoot, "InventoryTrash", new Vector2(184f, 72f));
+        AddContextControlCanvas(trashRoot);
         Image back = trashRoot.gameObject.AddComponent<Image>();
         back.color = inkColor;
         back.raycastTarget = true;
@@ -1436,6 +1440,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private void BuildRewardDoneUi()
     {
         doneRoot = CreateRect(interactionRoot, "RewardPackDone", new Vector2(184f, 64f));
+        AddContextControlCanvas(doneRoot);
         Image back = doneRoot.gameObject.AddComponent<Image>();
         back.color = accentCyan;
         back.raycastTarget = true;
@@ -1454,6 +1459,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         deniedRelay.Configure(this);
 
         doneRoot.gameObject.SetActive(false);
+    }
+
+    private static void AddContextControlCanvas(RectTransform control)
+    {
+        // 공유 PACK의 숨김·클리핑 상태와 독립적으로 표시하고 입력을 받습니다.
+        Canvas canvas = control.gameObject.AddComponent<Canvas>();
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = BattleUiSortingContract.RewardPack + 1;
+        control.gameObject.AddComponent<GraphicRaycaster>();
     }
 
     private void BuildDiscardConfirm()
