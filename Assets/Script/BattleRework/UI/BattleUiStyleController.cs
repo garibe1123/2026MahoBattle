@@ -316,7 +316,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
         Release(bitmapMaterial);
     }
 
-    private static void Release(Object value)
+    private static void Release(UnityEngine.Object value)
     {
         if (value == null) return;
         if (Application.isPlaying) Destroy(value);
