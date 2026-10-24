@@ -596,6 +596,40 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 0f,
                 activeStyle.overlap);
 
+        float rootX = right
+            ? bubble.xMax - Mathf.Max(0f, activeStyle.overlap)
+            : bubble.xMin + Mathf.Max(0f, activeStyle.overlap);
+        float halfWidth = Mathf.Clamp(activeStyle.rootHalfWidth, 0.02f, 0.5f) * contentHeight;
+        if (frameController != null)
+        {
+            halfWidth += contentHeight / BattleSpeechBubbleTailTextureBuilder.ContentHeight;
+            bool fits = frameController.TryGetFillVerticalSpan(bubbleRect, rootX, out float minY, out float maxY)
+                && maxY - minY >= halfWidth * 2f;
+            if (!fits && frameController.TryGetFillVerticalSpan(bubbleRect, bubble.center.x,
+                    out float centerMinY, out float centerMaxY) && centerMaxY - centerMinY >= halfWidth * 2f)
+            {
+                float outsideX = rootX;
+                float insideX = bubble.center.x;
+                for (int i = 0; i < 8; i++)
+                {
+                    float candidateX = (outsideX + insideX) * 0.5f;
+                    if (frameController.TryGetFillVerticalSpan(bubbleRect, candidateX,
+                            out float candidateMinY, out float candidateMaxY) &&
+                        candidateMaxY - candidateMinY >= halfWidth * 2f)
+                        insideX = candidateX;
+                    else outsideX = candidateX;
+                }
+                rootX = insideX;
+                fits = frameController.TryGetFillVerticalSpan(bubbleRect, rootX, out minY, out maxY);
+            }
+            if (fits)
+            {
+                y = Mathf.Clamp(y, minY + halfWidth, maxY - halfWidth);
+                outside = right ? rootX - bubble.xMax + size.x * 0.5f
+                    : bubble.xMin - rootX + size.x * 0.5f;
+            }
+        }
+
         tailRect.anchoredPosition =
             new Vector2(
                 right

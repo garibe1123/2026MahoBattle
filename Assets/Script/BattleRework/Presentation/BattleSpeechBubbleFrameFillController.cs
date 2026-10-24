@@ -29,6 +29,40 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
     private Transform registeredStyleRoot;
 
     internal RectTransform FrameRect => targetRect;
+    private readonly Vector2[] fillCornerUvs = new Vector2[4];
+    private bool hasFillCorners;
+
+    internal bool TryGetFillVerticalSpan(RectTransform space, float x, out float minY, out float maxY)
+    {
+        minY = float.PositiveInfinity;
+        maxY = float.NegativeInfinity;
+        if (!hasFillCorners || targetRect == null || space == null) return false;
+        Rect rect = targetRect.rect;
+        Vector2 previous = space.InverseTransformPoint(targetRect.TransformPoint(
+            rect.min + Vector2.Scale(fillCornerUvs[3], rect.size)));
+        for (int i = 0; i < fillCornerUvs.Length; i++)
+        {
+            Vector2 current = space.InverseTransformPoint(targetRect.TransformPoint(
+                rect.min + Vector2.Scale(fillCornerUvs[i], rect.size)));
+            if (x >= Mathf.Min(previous.x, current.x) && x <= Mathf.Max(previous.x, current.x))
+            {
+                float dx = current.x - previous.x;
+                if (Mathf.Abs(dx) > 0.0001f)
+                {
+                    float y = Mathf.Lerp(previous.y, current.y, (x - previous.x) / dx);
+                    minY = Mathf.Min(minY, y);
+                    maxY = Mathf.Max(maxY, y);
+                }
+                else
+                {
+                    minY = Mathf.Min(minY, Mathf.Min(previous.y, current.y));
+                    maxY = Mathf.Max(maxY, Mathf.Max(previous.y, current.y));
+                }
+            }
+            previous = current;
+        }
+        return minY <= maxY;
+    }
 
     public void Configure(
         Image image,
@@ -215,6 +249,13 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
                 runtimeSize,
                 "BattleSpeechBubbleFrame_FillMask_Runtime",
                 out _);
+
+        Vector2[] fillCorners = style.GetFillCorners(runtimeSize);
+        for (int i = 0; i < fillCornerUvs.Length; i++)
+            fillCornerUvs[i] = new Vector2(
+                (fillCorners[i].x - localBounds.xMin) / localBounds.width,
+                (fillCorners[i].y - localBounds.yMin) / localBounds.height);
+        hasFillCorners = true;
 
         outlineSprite =
             CreateRuntimeSprite(
