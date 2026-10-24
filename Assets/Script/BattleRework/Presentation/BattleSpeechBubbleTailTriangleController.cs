@@ -22,6 +22,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private Material strokeMaterial;
 
     private RectTransform tailRect;
+    private RectTransform fillRect;
     private Image outlineImage;
     private Image fillImage;
 
@@ -31,6 +32,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private Sprite fillSprite;
     private int appliedHash = int.MinValue;
     private RectTransform registeredStyleRoot;
+    private BattleSpeechBubbleFrameFillController frameController;
+    private readonly Vector3[] frameCorners = new Vector3[4];
 
     public void Configure(
         RectTransform bubble,
@@ -40,6 +43,9 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         Material outlineMaterial = null)
     {
         bubbleRect = bubble;
+        frameController = bubble != null
+            ? bubble.GetComponentInChildren<BattleSpeechBubbleFrameFillController>(true)
+            : null;
         targetPivot = target;
         fillColor = color;
         style = tailStyle ?? new BattleSpeechBubbleTailStyle();
@@ -83,12 +89,18 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     private void OnEnable()
     {
+        Canvas.willRenderCanvases += RefreshPlacement;
         if (style == null)
             style = new BattleSpeechBubbleTailStyle();
 
         EnsureTail();
         RefreshSpriteIfNeeded(force: true);
         RefreshPlacement();
+    }
+
+    private void OnDisable()
+    {
+        Canvas.willRenderCanvases -= RefreshPlacement;
     }
 
     private void LateUpdate()
@@ -187,7 +199,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 false);
         }
 
-        RectTransform fillRect =
+        fillRect =
             fillObject.GetComponent<RectTransform>();
 
         fillRect.anchorMin =
@@ -220,10 +232,10 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         fillImage.raycastTarget =
             false;
 
+        fillObject.transform.SetParent(tailRect.parent, false);
         fillObject.transform.SetAsLastSibling();
 
-        // Bubble Frame 이후, 텍스트/배지 이전에 Tail 전체가 오도록 유지합니다.
-        tail.transform.SetAsLastSibling();
+        tail.transform.SetAsFirstSibling();
     }
 
     private void RefreshSpriteIfNeeded(bool force)
@@ -353,9 +365,13 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         outlineImage.enabled = true;
         fillImage.enabled = true;
 
+        Rect attachmentRect = GetAttachmentRect();
+        if (tailRect.GetSiblingIndex() != 0) tailRect.SetAsFirstSibling();
+
         if (exactTargetMode)
         {
-            PlaceExactTarget(activeStyle);
+            PlaceExactTarget(activeStyle, attachmentRect);
+            SyncFillPlacement();
             return;
         }
 
@@ -381,21 +397,21 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 localDelta3.x,
                 localDelta3.y);
 
-        Rect rect =
-            bubbleRect.rect;
+        Rect rect = attachmentRect;
 
         bool placeRight =
             localDelta.x >= 0f;
 
         PlaceHorizontal(
             placeRight,
-            localDelta.y,
+            localDelta.y + bubbleRect.rect.center.y,
             rect,
             activeStyle);
+        SyncFillPlacement();
     }
 
     private void PlaceExactTarget(
-        BattleSpeechBubbleTailStyle activeStyle)
+        BattleSpeechBubbleTailStyle activeStyle, Rect bubble)
     {
         Vector3 targetCenterWorld =
             targetPivot.TransformPoint(
@@ -404,9 +420,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         Vector2 targetLocal =
             bubbleRect.InverseTransformPoint(
                 targetCenterWorld);
-
-        Rect bubble =
-            bubbleRect.rect;
 
         if (bubble.Contains(targetLocal))
         {
@@ -502,6 +515,22 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             distance /
             tipX;
 
+        float contentHeight = renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale;
+        float rootOffset = (Mathf.Clamp01(activeStyle.rootY) - 0.5f) * contentHeight;
+        float tipOffset = (Mathf.Clamp01(activeStyle.tip.y) - Mathf.Clamp01(activeStyle.rootY)) * contentHeight;
+        float halfWidth = Mathf.Clamp(activeStyle.rootHalfWidth, 0.02f, 0.5f) * contentHeight;
+        // Keep the root cap inside the body for every rotation.
+        float insetX = Mathf.Min(halfWidth, bubble.width * 0.49f);
+        float insetY = Mathf.Min(halfWidth, bubble.height * 0.49f);
+        rootPoint = new Vector2(
+            Mathf.Clamp(rootPoint.x, bubble.xMin + insetX, bubble.xMax - insetX),
+            Mathf.Clamp(rootPoint.y, bubble.yMin + insetY, bubble.yMax - insetY));
+        distance = Vector2.Distance(rootPoint, targetLocal);
+        float finalAlong = Mathf.Sqrt(Mathf.Max(1f, distance * distance - tipOffset * tipOffset));
+        angle = (Mathf.Atan2(targetLocal.y - rootPoint.y, targetLocal.x - rootPoint.x) -
+            Mathf.Atan2(tipOffset, finalAlong)) * Mathf.Rad2Deg;
+        visualWidth = finalAlong / tipX;
+
         tailRect.anchorMin =
             tailRect.anchorMax =
                 bubbleRect.pivot;
@@ -512,7 +541,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 0.5f);
 
         tailRect.anchoredPosition =
-            rootPoint;
+            rootPoint - (Vector2)(Quaternion.Euler(0f, 0f, angle) * new Vector3(0f, rootOffset, 0f));
 
         tailRect.sizeDelta =
             new Vector2(
@@ -551,6 +580,10 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                     activeStyle.edgePadding),
                 bubble.height * 0.45f);
 
+        float contentHeight = size.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale;
+        padding = Mathf.Min(bubble.height * 0.49f, Mathf.Max(padding,
+            Mathf.Clamp(activeStyle.rootHalfWidth, 0.02f, 0.5f) * contentHeight));
+
         float y =
             Mathf.Clamp(
                 targetLocalY,
@@ -568,7 +601,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                 right
                     ? bubble.xMax + outside
                     : bubble.xMin - outside,
-                y);
+                y - (Mathf.Clamp01(activeStyle.rootY) - 0.5f) * contentHeight);
 
         tailRect.localRotation =
             Quaternion.identity;
@@ -577,6 +610,37 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             right
                 ? Vector3.one
                 : new Vector3(-1f, 1f, 1f);
+    }
+
+    private Rect GetAttachmentRect()
+    {
+        RectTransform frame = frameController != null ? frameController.FrameRect : null;
+        if (frame == null) return bubbleRect.rect;
+        frame.GetWorldCorners(frameCorners);
+        Vector2 min = bubbleRect.InverseTransformPoint(frameCorners[0]);
+        Vector2 max = min;
+        for (int i = 1; i < frameCorners.Length; i++)
+        {
+            Vector2 point = bubbleRect.InverseTransformPoint(frameCorners[i]);
+            min = Vector2.Min(min, point);
+            max = Vector2.Max(max, point);
+        }
+        return Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+    }
+
+    private void SyncFillPlacement()
+    {
+        fillRect.anchorMin = tailRect.anchorMin;
+        fillRect.anchorMax = tailRect.anchorMax;
+        fillRect.pivot = tailRect.pivot;
+        fillRect.sizeDelta = tailRect.sizeDelta;
+        fillRect.anchoredPosition3D = tailRect.anchoredPosition3D;
+        fillRect.localRotation = tailRect.localRotation;
+        fillRect.localScale = tailRect.localScale;
+        RectTransform frame = frameController != null ? frameController.FrameRect : null;
+        if (frame != null && frame.parent == fillRect.parent &&
+            fillRect.GetSiblingIndex() != frame.GetSiblingIndex() + 1)
+            fillRect.SetSiblingIndex(frame.GetSiblingIndex() + 1);
     }
 
     private static Sprite CreateRuntimeSprite(

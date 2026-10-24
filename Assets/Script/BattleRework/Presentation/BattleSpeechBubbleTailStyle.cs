@@ -1152,7 +1152,7 @@ public static class BattleSpeechBubbleTailTextureBuilder
                     i);
 
             Vector2 normal =
-                new(-tangent.y, tangent.x);
+                i == 0 ? Vector2.up : new Vector2(-tangent.y, tangent.x);
 
             upper[i] =
                 centers[i] +

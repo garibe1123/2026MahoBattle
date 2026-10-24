@@ -28,6 +28,8 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
     private int appliedHash = int.MinValue;
     private Transform registeredStyleRoot;
 
+    internal RectTransform FrameRect => targetRect;
+
     public void Configure(
         Image image,
         BattleSpeechBubbleFrameStyle frameStyle,
