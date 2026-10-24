@@ -5,7 +5,7 @@ using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
 [DisallowMultipleComponent]
-[DefaultExecutionOrder(200)]
+[DefaultExecutionOrder(62000)]
 public sealed class BattleUiOpticsCanvas : MonoBehaviour
 {
     private const float CapturePlaneDistance = 10000f;

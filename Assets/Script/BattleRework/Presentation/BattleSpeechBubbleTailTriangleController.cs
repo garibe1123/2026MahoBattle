@@ -9,7 +9,7 @@ using UnityEngine.UI;
 /// FILL은 기본 UI Material을 유지합니다.
 /// </summary>
 [DisallowMultipleComponent]
-[DefaultExecutionOrder(100)]
+[DefaultExecutionOrder(61000)]
 public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 {
     [SerializeField] private RectTransform bubbleRect;
