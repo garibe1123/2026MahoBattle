@@ -154,13 +154,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     };
     [SerializeField] private BattleUiStyleSettings stylish = new()
     {
-        background = new Color32(0xC8, 0xFF, 0x00, 255),
-        innerLine = new Color32(0x10, 0x10, 0x10, 255),
-        outerFrame = new Color32(0x10, 0x10, 0x10, 255),
-        status = new Color32(0xFF, 0x00, 0x99, 255),
-        danger = new Color32(0xFF, 0x00, 0x99, 255),
-        energy = new Color32(0xC8, 0xFF, 0x00, 255),
-        highlight = new Color32(0xFF, 0x00, 0x99, 255)
+        background = new Color32(0x60, 0x36, 0xD9, 255),
+        innerLine = new Color32(0xFF, 0xF7, 0xEF, 255),
+        outerFrame = new Color32(0x19, 0x10, 0x32, 255),
+        status = new Color32(0xF3, 0x3B, 0x98, 255),
+        danger = new Color32(0xF3, 0x3B, 0x98, 255),
+        energy = new Color32(0x20, 0xDE, 0xD5, 255),
+        highlight = new Color32(0xFF, 0xE3, 0x4A, 255)
     };
     [SerializeField] private BattleUiStyleSettings birthday = new()
     {

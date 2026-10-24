@@ -70,7 +70,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     }
 
     internal void Apply(TMP_FontAsset font, BattleUiStyleSettings style, bool birthday, bool decorate = true,
-        BattleUiTitleMotionSettings titleMotion = null, bool overflow = false, float feedbackScale = 1f, float entrance = 1f)
+        BattleUiTitleMotionSettings titleMotion = null, bool overflow = false, float feedbackScale = 1f, float entrance = 1f,
+        bool primary = false)
     {
         decoratedTitle = decorate;
         string content = source.text ?? string.Empty;
@@ -160,6 +161,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         text.overflowMode = decorate || source.verticalOverflow == VerticalWrapMode.Overflow
             ? TextOverflowModes.Overflow : TextOverflowModes.Truncate;
         Color face = decorate ? (birthday ? style.status : style.innerLine) : BattleUiStyleMeshEffect.TextColor(source.color, style);
+        if (primary) face = new Color(style.outerFrame.r, style.outerFrame.g, style.outerFrame.b, source.color.a);
         if (decorate) face.a *= source.color.a;
         face.a *= entrance;
         text.color = face;

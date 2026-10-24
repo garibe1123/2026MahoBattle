@@ -38,7 +38,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     }
 
     private Color accent;
-    private bool softFill;
+    private bool softFill, stylishCard, stylishSpotlight;
     private bool hasHeader;
     private bool emphasis;
     private bool selected;
@@ -139,6 +139,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             decoration = child.AddComponent<BattleUiPanelDecoration>();
         decoration.accent = accent;
         decoration.softFill = softFill;
+        decoration.stylishCard = BattleUiStyleMeshEffect.IsCard(parent);
+        decoration.stylishSpotlight = BattleUiStyleMeshEffect.IsSpotlight(parent);
         decoration.animate = animate;
         decoration.raycastTarget = false;
         if (decoration.surfaceImage == null && parent.TryGetComponent(out Image surface))
@@ -322,8 +324,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                 0f, Mathf.Min(face.width, face.height) * 0.5f);
             float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
             BattleUiStyleMeshEffect.DrawAccentFrame(vh, face, style, birthday, opacity,
-                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
-                styleInteraction != null && styleInteraction.Primary);
+                selected || emphasis || (!birthday && stylishSpotlight) || (styleInteraction != null && styleInteraction.Highlighted),
+                styleInteraction != null && styleInteraction.Primary, stylishCard);
             backgroundBaseAlpha = style.background.a * opacity;
             if (hasHeader)
             {

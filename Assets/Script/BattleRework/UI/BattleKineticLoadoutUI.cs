@@ -240,6 +240,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         UnsubscribeInput();
         Unsubscribe();
         ForceRestoreTabTime();
+        hoveredSlot = -1;
+        detailPopupAnimating = detailPopupClosing = false;
+        detailPopupContextHash = int.MinValue;
+        detailTailTarget = null;
+        detailTailController?.SetTarget(null);
+        if (detailGroup != null) detailGroup.alpha = 0f;
+        if (detailRoot != null) detailRoot.localScale = Vector3.one;
     }
 
     private void OnDestroy()
@@ -989,6 +996,9 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailGroup.blocksRaycasts = false;
         detailGroup.interactable = false;
         detailRoot.anchorMin = detailRoot.anchorMax = new Vector2(0.5f, 0.5f);
+        Canvas detailCanvas = detailRoot.gameObject.AddComponent<Canvas>();
+        detailCanvas.overrideSorting = true;
+        detailCanvas.sortingOrder = BattleUiSortingContract.RewardDetail;
         detailRoot.pivot = new Vector2(0f, 0.5f);
         detailRoot.anchoredPosition = Vector2.zero;
         detailRoot.localRotation = Quaternion.identity;

@@ -105,6 +105,9 @@ public sealed class BattleUiStyleSettings
     [Range(1f, 1.1f)] public float stylishHoverScale = 1.04f;
     [Range(0.9f, 1f)] public float stylishPressScale = 0.96f;
     [Range(0.25f, 0.45f)] public float stylishConfirmDuration = 0.35f;
+    [Min(0f)] public float stylishCardRadius = 24f;
+    [Range(0f, 0.5f)] public float stylishColorBandAlpha = 0.32f;
+    [Range(0.1f, 0.35f)] public float stylishColorBandHeight = 0.24f;
 }
 
 [DisallowMultipleComponent]
@@ -151,7 +154,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
     {
         // Existing UI may have been built before SpriteManager.Awake.
         foreach (Canvas canvas in FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
-            if (canvas.renderMode == RenderMode.ScreenSpaceOverlay && canvas.sortingOrder >= 500)
+            if (canvas.name.StartsWith("Battle", System.StringComparison.Ordinal) || canvas.sortingOrder >= 500)
                 RegisterRoot(canvas.transform);
         RefreshSettings();
     }
@@ -187,6 +190,11 @@ public sealed class BattleUiStyleController : MonoBehaviour
         {
             Button owner = target.GetComponentInParent<Button>(true);
             if (owner != null) RegisterRoot(owner.transform);
+            for (Transform parent = target.transform.parent; parent != null; parent = parent.parent)
+            {
+                if (parent.TryGetComponent(out Image surface)) RegisterGraphic(surface);
+                if (parent.TryGetComponent<Canvas>(out _)) break;
+            }
         }
     }
 

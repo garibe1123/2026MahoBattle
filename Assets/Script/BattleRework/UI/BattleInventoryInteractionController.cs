@@ -617,7 +617,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleSlotHover(int slotIndex, bool entered)
     {
-        if (!IsRewardPackEditing)
+        if ((!IsRewardPackEditing && !IsCombat()) || (entered && BattlePauseController.IsPaused))
             return;
 
         if (entered)

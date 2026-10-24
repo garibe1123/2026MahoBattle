@@ -22,7 +22,7 @@ using UnityEngine.UI;
 [DefaultExecutionOrder(30920)]
 public sealed class BattleEquipmentDetailPanelController : MonoBehaviour
 {
-    private const int CanvasSortingOrder = 1660;
+    private const int CanvasSortingOrder = BattleUiSortingContract.RewardDetail;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;

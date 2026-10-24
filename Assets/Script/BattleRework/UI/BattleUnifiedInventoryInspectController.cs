@@ -807,6 +807,10 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                 source = HasItem(hover) ? hover : -1;
             }
         }
+        else if (combatActive && !combatTabOpen && !BattlePauseController.IsPaused && inventoryInteraction != null)
+        {
+            source = inventoryInteraction.HoveredSlot;
+        }
         else if (combatTab && kineticLoadout != null)
         {
             source = kineticLoadout.SelectedIndex;
@@ -960,6 +964,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void ApplyRewardInspectTooltip(bool rewardEdit)
     {
+        if (BattlePauseController.IsPaused)
+        {
+            kineticLoadout?.HideRewardInspectTooltip();
+            detailController?.Hide();
+            return;
+        }
         if (!rewardEdit)
         {
             // Reward Choosing의 월드 상품 Hover Preview는
@@ -972,6 +982,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
             if (rewardChoicePreview)
                 return;
+
+            if (combatActive && !combatTabOpen && !BattlePauseController.IsPaused &&
+                activeInspectSlot >= 0 && HasItem(activeInspectSlot) && detailGroup != null)
+            {
+                detailGroup.alpha = 1f;
+                return;
+            }
 
             // Combat TAB tooltip은 BattleKineticLoadoutUI가 별도로 소유합니다.
             if (detailGroup != null)

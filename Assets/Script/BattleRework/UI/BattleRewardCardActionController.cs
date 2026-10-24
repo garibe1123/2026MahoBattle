@@ -237,6 +237,15 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         HideWorldShowcaseUi(true);
         HideChoiceOnlyUi();
         SetLockedVisible(false);
+        hoveredRewardIndex = worldInspectPopupContext = -1;
+        worldInspectPopupAnimating = worldInspectPopupClosing = false;
+        worldInspectTailController?.SetTarget(null);
+        if (worldInspectGroup != null) worldInspectGroup.alpha = 0f;
+        if (worldInspectRoot != null)
+        {
+            worldInspectRoot.localScale = Vector3.one;
+            worldInspectRoot.gameObject.SetActive(false);
+        }
     }
 
     private void OnDestroy()
@@ -351,6 +360,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
 
         UpdateWorldInspectPopupAnimation();
 
+        if (BattlePauseController.IsPaused)
+        {
+            HideWorldRewardInspect();
+            return;
+        }
+
         if (rewardFlow.Phase == BattleRewardPhase.Choosing)
         {
             if (showWorldSet != null)
@@ -374,6 +389,12 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
                 hasSelection != lastChoiceHadSelection;
 
             ApplyChoicePresentation(refreshStatic);
+
+            if (hoveredRewardIndex >= 0 && Input.mousePresent)
+                ShowWorldRewardInspect(hoveredRewardIndex, Input.mousePosition,
+                    Input.mousePosition.x < Screen.width * 0.5f, selectedIndex == hoveredRewardIndex);
+            else
+                HideWorldRewardInspect();
 
             lastChoiceSelectedIndex = selectedIndex;
             lastChoiceHoveredIndex = hoveredRewardIndex;
@@ -792,10 +813,8 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
         worldInspectCanvas.overrideSorting =
             true;
 
-        // BattleKineticLoadoutUI(780)와 같은 UI 언어를 쓰되,
-        // Reward Hover 정보가 그 위에서 읽히도록 한 단계만 올립니다.
         worldInspectCanvas.sortingOrder =
-            790;
+            BattleUiSortingContract.RewardDetail;
 
         CanvasScaler scaler =
             canvasObject.AddComponent<CanvasScaler>();
@@ -2349,11 +2368,7 @@ public sealed class BattleRewardCardActionController : MonoBehaviour
             return;
 
         int previous = hoveredRewardIndex;
-        if (rewardFlow != null && rewardFlow.SelectedChoiceIndex >= 0)
-        {
-            hoveredRewardIndex = -1;
-        }
-        else if (entered)
+        if (entered)
         {
             hoveredRewardIndex = rewardIndex;
         }
