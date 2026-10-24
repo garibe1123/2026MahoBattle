@@ -2494,6 +2494,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             if (tooltipVisible)
             {
+                detailRoot.gameObject.SetActive(true);
                 int contextHash =
                     tooltipSlot;
 

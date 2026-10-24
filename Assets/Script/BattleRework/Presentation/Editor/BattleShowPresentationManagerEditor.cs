@@ -209,6 +209,10 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     {
         serializedObject.Update();
 
+        using (new EditorGUI.DisabledScope(EditorApplication.isPlayingOrWillChangePlaymode))
+            if (GUILayout.Button("UI Preview (No Play Mode)"))
+                HarnessBattleUiPreviewWindow.ShowFor(Manager);
+
         // Reward는 작업 빈도가 높으므로 Inspector 최상단에 접이식 탭으로 둡니다.
         // 처음에는 모두 닫혀 있고 필요한 영역만 열어 튜닝합니다.
         DrawRewardTuningTabs();

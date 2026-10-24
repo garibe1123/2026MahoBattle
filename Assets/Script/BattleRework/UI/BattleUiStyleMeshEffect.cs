@@ -26,6 +26,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private float enteredAt = -1f;
     private float entrance = 1f;
     internal bool HasOverflowTitle => TitleMotion(BattleUiStyleController.Settings)?.allowOverflow == true;
+    internal bool HasReplacementText => tmpTitle != null && tmpTitle.Visible;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
     private Matrix4x4 lastTransform, lastCamera;
@@ -124,6 +125,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont)
     {
+        if (PreserveBackdrop())
+        {
+            RestoreMaterial();
+            projectPixels = false;
+            return;
+        }
         if (decoration != null) decoration.RefreshBackgroundOpacity();
         if (materialOverridden && target.material != appliedMaterial)
             originalMaterial = CaptureMaterial();
@@ -155,7 +162,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         bool birthday = BattleUiStyleController.IsBirthday;
         float previousEntrance = entrance;
         entrance = 1f;
-        if (stylish && (panel || stylishSurface || stylishButton || label != null || decoration != null))
+        if (Application.isPlaying && stylish && (panel || stylishSurface || stylishButton || label != null || decoration != null))
         {
             if (enteredAt < 0f) enteredAt = Time.unscaledTime;
             entrance = Mathf.SmoothStep(0.02f, 1f,
@@ -255,6 +262,17 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
              BattleShowPresentationManager.Instance.HasAssignedUiMaterial(target));
     }
 
+    private bool PreserveBackdrop()
+    {
+        if (image == null || target.canvas == null) return false;
+        string key = image.name;
+        if (key.Contains("Dim") || key.Contains("Overlay") || key.Contains("Fade") || key.Contains("Viewport")) return true;
+        Rect bounds = ((RectTransform)target.canvas.rootCanvas.transform).rect;
+        Rect rect = image.rectTransform.rect;
+        return bounds.width > 0f && bounds.height > 0f &&
+            rect.width >= bounds.width * 0.9f && rect.height >= bounds.height * 0.9f;
+    }
+
     private Material CaptureMaterial() => target.material == target.defaultMaterial ? null : target.material;
 
     private void RestoreMaterial()
@@ -345,7 +363,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private void ModifyStyledMesh(VertexHelper vh)
     {
-        if (!IsActive() || target == null || HasAssignedMaterial()) return;
+        if (!IsActive() || target == null || PreserveBackdrop() || HasAssignedMaterial()) return;
         if (tmpTitle != null && tmpTitle.Visible) { vh.Clear(); return; }
         bool pixel = BattleUiStyleController.IsPixel;
         bool comic = BattleUiStyleController.IsComic;

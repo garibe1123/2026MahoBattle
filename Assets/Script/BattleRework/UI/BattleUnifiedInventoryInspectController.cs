@@ -986,6 +986,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             if (combatActive && !combatTabOpen && !BattlePauseController.IsPaused &&
                 activeInspectSlot >= 0 && HasItem(activeInspectSlot) && detailGroup != null)
             {
+                if (detailGroup.alpha <= 0.001f)
+                    detailController?.ShowSlot(activeInspectSlot);
                 detailGroup.alpha = 1f;
                 return;
             }

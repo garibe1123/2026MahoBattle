@@ -95,7 +95,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         if (content.Length == 0) ResetMotion();
         if (text.font != font || material == null)
         {
-            if (material != null) UnityEngine.Object.Destroy(material);
+            if (material != null) Release(material);
             text.font = font;
             material = new Material(font.material) { hideFlags = HideFlags.HideAndDontSave };
             material.EnableKeyword("UNDERLAY_ON");
@@ -210,7 +210,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         if (material != null)
         {
             text.fontSharedMaterial = text.font != null ? text.font.material : null;
-            UnityEngine.Object.Destroy(material);
+            Release(material);
             material = null;
         }
         if (wasVisible && source != null) source.SetVerticesDirty();
@@ -428,10 +428,16 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         if (text != null)
         {
             text.OnPreRenderText -= FitTitle;
-            UnityEngine.Object.Destroy(text.gameObject);
+            Release(text.gameObject);
         }
-        if (material != null) UnityEngine.Object.Destroy(material);
+        if (material != null) Release(material);
         ResetMotion();
         subMeshes.Clear();
+    }
+
+    private static void Release(UnityEngine.Object value)
+    {
+        if (Application.isPlaying) UnityEngine.Object.Destroy(value);
+        else UnityEngine.Object.DestroyImmediate(value);
     }
 }

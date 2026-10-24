@@ -161,6 +161,9 @@ public sealed class BattleUiStyleController : MonoBehaviour
 
     private void OnEnable()
     {
+#if UNITY_EDITOR
+        if (!Application.isPlaying) return;
+#endif
         active = this;
         Canvas.preWillRenderCanvases += ApplyVisibleTargets;
         if (presentation != null) RefreshSettings();
@@ -254,7 +257,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
             Graphic target = entry.Key;
             if (target == null) { removed.Add(target); continue; }
             if (!target.isActiveAndEnabled || target.canvasRenderer.GetInheritedAlpha() <= 0.001f ||
-                (target.canvasRenderer.cull && !entry.Value.HasOverflowTitle))
+                (target.canvasRenderer.cull && !entry.Value.HasOverflowTitle && !entry.Value.HasReplacementText))
             {
                 entry.Value.HideAppearance();
                 continue;
@@ -270,6 +273,29 @@ public sealed class BattleUiStyleController : MonoBehaviour
         return shader != null ? new Material(shader) { hideFlags = HideFlags.HideAndDontSave } : null;
     }
 
+#if UNITY_EDITOR
+    public void ReleaseEditorPreview()
+    {
+        if (!Application.isPlaying) OnDestroy();
+    }
+
+    public void DrawEditorPreview(BattleShowPresentationManager owner, Transform root, System.Action render)
+    {
+        if (Application.isPlaying) return;
+        BattleUiStyleController previous = active;
+        try
+        {
+            active = this;
+            presentation = owner;
+            RegisterRoot(root);
+            RefreshSettings();
+            Canvas.ForceUpdateCanvases();
+            render();
+        }
+        finally { active = previous; }
+    }
+#endif
+
     private void OnDisable()
     {
         Canvas.preWillRenderCanvases -= ApplyVisibleTargets;
@@ -281,12 +307,19 @@ public sealed class BattleUiStyleController : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (panelMaterial != null) Destroy(panelMaterial);
-        if (textMaterial != null) Destroy(textMaterial);
-        if (spriteMaterial != null) Destroy(spriteMaterial);
-        if (mahoMaterial != null) Destroy(mahoMaterial);
-        if (bitmapFont != null) Destroy(bitmapFont);
-        if (bitmapTexture != null) Destroy(bitmapTexture);
-        if (bitmapMaterial != null) Destroy(bitmapMaterial);
+        Release(panelMaterial);
+        Release(textMaterial);
+        Release(spriteMaterial);
+        Release(mahoMaterial);
+        Release(bitmapFont);
+        Release(bitmapTexture);
+        Release(bitmapMaterial);
+    }
+
+    private static void Release(Object value)
+    {
+        if (value == null) return;
+        if (Application.isPlaying) Destroy(value);
+        else DestroyImmediate(value);
     }
 }
