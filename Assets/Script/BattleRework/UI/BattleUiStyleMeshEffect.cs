@@ -138,7 +138,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
-        Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont)
+        Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont,
+        Material paperMaterial, Material paperMaskMaterial)
     {
         if (PreserveBackdrop())
         {
@@ -187,9 +188,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         else enteredAt = -1f;
         if (entrance != previousEntrance || entrance < 1f) target.SetVerticesDirty();
         if ((stylish || birthday) && next == null && (panel || (stylish && (stylishButton || stylishSurface))) && !statusFill) next = pixelPanel;
-        if (paper && next == null && (panel || paperBadge || (image != null && image.sprite == null && (stylishSurface || stylishButton))) && !statusFill) next = pixelPanel;
+        if (paper && (panel || paperBadge || (image != null && image.sprite == null && (stylishSurface || stylishButton))) && !statusFill)
+            next = paperMaterial != null ? paperMaterial : pixelPanel;
         if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
-            next = target.defaultMaterial;
+            next = paperMaskMaterial != null ? paperMaskMaterial : target.defaultMaterial;
         if (HasAssignedMaterial()) next = null;
         if (next != null)
         {
@@ -233,7 +235,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         {
             TMPro.TMP_FontAsset font = decoratedTitle && settings.titleFont != null ? settings.titleFont :
                 settings.fontAsset != null ? settings.fontAsset : BattleUiStyleController.ThemeTmpFont;
-            if (font != null && (stylish || label.canvas == null ||
+            if (font != null && (stylish || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
@@ -869,7 +871,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         float min = Mathf.Clamp(settings.paperCornerMin, 0.02f, 0.05f);
         float max = Mathf.Clamp(settings.paperCornerMax, min, 0.05f);
         int first = vh.currentVertCount;
-        vh.AddVert(rect.center, tint, Vector2.zero);
+        vh.AddVert(rect.center, tint, new Vector2(0.5f, 0.5f));
         for (int i = 0; i < 8; i++)
         {
             float cut = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i));
@@ -894,9 +896,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     _ => new Vector2(-rect.width * 0.5f, rect.height * 0.5f - cut)
                 };
             }
+            Vector2 uv = new(point.x / rect.width + 0.5f, point.y / rect.height + 0.5f);
             point = rect.center + new Vector2(point.x * cosine - point.y * sine,
                 point.x * sine + point.y * cosine) * fit;
-            vh.AddVert(point, tint, Vector2.zero);
+            vh.AddVert(point, tint, uv);
         }
         for (int i = 0; i < 8; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % 8);
     }

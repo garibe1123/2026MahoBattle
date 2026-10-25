@@ -728,6 +728,10 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         SetRect(progressText.rectTransform, new Vector2(0.10f, 0.02f), new Vector2(0.90f, 0.25f));
 
         ruleSlotRow = resultListTab;
+        Canvas ruleCanvas = resultListTab.gameObject.AddComponent<Canvas>();
+        ruleCanvas.overrideSorting = true;
+        resultListTab.gameObject.AddComponent<GraphicRaycaster>();
+        resultListTab.gameObject.AddComponent<BattleUiOpticsCanvas>().UseNativeRendering();
         ruleHudGroup = resultListTab.gameObject.AddComponent<CanvasGroup>();
         ruleHudGroup.alpha = 1f;
         ruleHudGroup.blocksRaycasts = true;
@@ -872,6 +876,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 pointerFeedback = pointerFeedback
             });
             BattleUiStyleController.RegisterRoot(root);
+            BattleUiStyleController.RegisterPanel(frame, false);
         }
     }
 

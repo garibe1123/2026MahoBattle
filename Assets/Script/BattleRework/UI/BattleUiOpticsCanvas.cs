@@ -32,6 +32,27 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     internal bool CapturingProtection { get; private set; }
     internal bool IsCapturing { get; private set; }
     internal bool PreserveNativePresenters { get; private set; }
+    private bool renderNatively;
+
+    internal void UseNativeRendering()
+    {
+        renderNatively = true;
+        OnCanvasHierarchyChanged();
+        Restore();
+        ReleaseResources();
+    }
+
+    private void OnCanvasHierarchyChanged()
+    {
+        if (!renderNatively || source == null || ActiveCapture != null) return;
+        foreach (Canvas parent in source.GetComponentsInParent<Canvas>(true))
+        {
+            if (parent == source || (!parent.overrideSorting && !parent.isRootCanvas)) continue;
+            source.sortingLayerID = parent.sortingLayerID;
+            source.sortingOrder = Mathf.Min(32767, parent.sortingOrder + 1);
+            break;
+        }
+    }
 
     internal static void RefreshScreenTone()
     {
@@ -124,7 +145,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     private void LateUpdate()
     {
         bool optics = BattleColorGradingController.TryGetUiOptics(out Vector4 settings, out Vector2 limits) &&
-            source != null && source.sortingOrder >= 500;
+            source != null && source.sortingOrder >= 500 && !renderNatively && !BattleUiStyleController.IsPaper;
         PreserveNativePresenters = !optics;
         if (source == null || captureRoot == null || !source.isActiveAndEnabled ||
             !source.gameObject.activeInHierarchy ||

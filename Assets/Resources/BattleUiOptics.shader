@@ -67,10 +67,7 @@ Shader "UI/BattleUiOptics"
                 half4 green = ReadUI(input.uv + lens);
                 half4 blue = ReadUI(input.uv + Limited(lens - split, limit));
                 half4 color = half4(red.r, green.g, blue.b, max(red.a, max(green.a, blue.a)));
-                if (_TonePattern.z <= 0.0) return color;
-                float protection = max(ProtectedCoverage(input.uv + Limited(lens + split, limit)),
-                    max(ProtectedCoverage(input.uv + lens), ProtectedCoverage(input.uv + Limited(lens - split, limit))));
-                return BattleScreenTone(color, input.uv, _ScreenSize.xy, protection);
+                return color;
             }
             ENDHLSL
         }

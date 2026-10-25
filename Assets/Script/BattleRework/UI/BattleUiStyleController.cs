@@ -116,6 +116,11 @@ public sealed class BattleUiStyleSettings
     [Range(0f, 1f)] public float paperLabelAngle = 1f;
     [Range(0.02f, 0.05f)] public float paperCornerMin = 0.02f;
     [Range(0.02f, 0.05f)] public float paperCornerMax = 0.05f;
+    [Range(0f, 0.2f)] public float paperGrainStrength = 0.065f;
+    [Range(0f, 0.3f)] public float paperStainStrength = 0.08f;
+    [Range(0f, 0.4f)] public float paperCreaseStrength = 0.22f;
+    [Range(0f, 0.3f)] public float paperFoldSize = 0.18f;
+    [Min(0.1f)] public float paperFiberScale = 0.7f;
 }
 
 [DisallowMultipleComponent]
@@ -142,6 +147,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
     private BattleScreenGridOverlay grid;
     private Material panelMaterial, textMaterial, spriteMaterial;
     private Material mahoMaterial;
+    private Material paperMaterial, paperMaskMaterial;
     private Font bitmapFont;
     private Texture2D bitmapTexture;
     private Material bitmapMaterial;
@@ -279,6 +285,27 @@ public sealed class BattleUiStyleController : MonoBehaviour
         }
         if (IsMahoShojo && mahoMaterial == null)
             mahoMaterial = CreateMaterial("BattleMahoUi");
+        if (IsPaper)
+        {
+            if (paperMaterial == null) paperMaterial = CreateMaterial("BattlePaperPanel");
+            if (paperMaskMaterial == null)
+            {
+                paperMaskMaterial = CreateMaterial("BattlePaperPanel");
+                if (paperMaskMaterial != null) paperMaskMaterial.SetFloat("_UseSpriteMask", 1f);
+            }
+            Vector4 texture = new(settings.paperGrainStrength, settings.paperStainStrength,
+                settings.paperCreaseStrength, Mathf.Max(0.1f, settings.paperFiberScale));
+            if (paperMaterial != null)
+            {
+                paperMaterial.SetVector("_PaperTexture", texture);
+                paperMaterial.SetFloat("_FoldSize", settings.paperFoldSize);
+            }
+            if (paperMaskMaterial != null)
+            {
+                paperMaskMaterial.SetVector("_PaperTexture", texture);
+                paperMaskMaterial.SetFloat("_FoldSize", 0f);
+            }
+        }
         removed.Clear();
         foreach (var entry in targets)
         {
@@ -290,7 +317,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
                 entry.Value.HideAppearance();
                 continue;
             }
-            entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial, themeFont);
+            entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial, themeFont,
+                paperMaterial, paperMaskMaterial);
         }
         foreach (Graphic target in removed) targets.Remove(target);
     }
@@ -340,6 +368,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         Release(textMaterial);
         Release(spriteMaterial);
         Release(mahoMaterial);
+        Release(paperMaterial);
+        Release(paperMaskMaterial);
         Release(bitmapFont);
         Release(bitmapTexture);
         Release(bitmapMaterial);
