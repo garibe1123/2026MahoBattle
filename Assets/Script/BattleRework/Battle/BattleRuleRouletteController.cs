@@ -840,10 +840,12 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             frame.type = Image.Type.Simple;
             frame.color = new Color(0.028f, 0.030f, 0.036f, 0.98f);
             frame.raycastTarget = false;
+            frame.enabled = false;
 
             Outline outline = visualRoot.gameObject.AddComponent<Outline>();
             outline.effectColor = new Color(0.92f, 0.94f, 0.97f, 0.20f);
             outline.effectDistance = new Vector2(3f, -3f);
+            outline.enabled = false;
 
             BattleRuleSlotPointerFeedback pointerFeedback =
                 root.gameObject.AddComponent<BattleRuleSlotPointerFeedback>();
@@ -1829,15 +1831,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         combatRulePanelOutline = panel.gameObject.AddComponent<Outline>();
         combatRulePanelOutline.effectColor = new Color(0.94f, 0.95f, 0.97f, 0f);
         combatRulePanelOutline.effectDistance = new Vector2(2f, -2f);
+        combatRulePanelOutline.enabled = false;
 
-        combatRuleHologramBorder =
-            BattleUiHologramBorder.Attach(
-                panel,
-                new Color(
-                    0.78f,
-                    0.94f,
-                    1f,
-                    0.90f));
+        combatRuleHologramBorder = null;
 
         // 평상시 전투 HUD에서는 슬롯만 보이고 Frame은 숨깁니다.
         combatRuleHologramBorder?.SetAlpha(
@@ -2033,7 +2029,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             color.r = 0.028f;
             color.g = 0.030f;
             color.b = 0.036f;
-            color.a = 0.96f * combatRuleDrawerVisualAlpha;
+            color.a = 0f;
             combatRulePanelBack.color = color;
         }
 

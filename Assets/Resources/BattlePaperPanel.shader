@@ -4,8 +4,7 @@ Shader "UI/BattlePaperPanel"
     {
         [PerRendererData] _MainTex ("Sprite Mask", 2D) = "white" {}
         _UseSpriteMask ("Use Sprite Mask", Float) = 0
-        _PaperTexture ("Grain, Stain, Crease, Fiber Scale", Vector) = (0.065, 0.08, 0.22, 0.7)
-        _FoldSize ("Fold Size", Range(0, 0.3)) = 0.18
+        _PaperTexture ("Grain, Stain, Reserved, Fiber Scale", Vector) = (0.065, 0.08, 0.22, 0.7)
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
         _StencilOp ("Stencil Operation", Float) = 0
@@ -34,7 +33,7 @@ Shader "UI/BattlePaperPanel"
 
             sampler2D _MainTex;
             float4 _ClipRect, _TextureSampleAdd, _PaperTexture;
-            float _UseSpriteMask, _FoldSize;
+            float _UseSpriteMask;
             struct Attributes { float4 vertex : POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; };
             struct Varyings { float4 vertex : SV_POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; float2 local : TEXCOORD1; };
 
@@ -84,24 +83,9 @@ Shader "UI/BattlePaperPanel"
                 float fibers = Noise(p * float2(0.09, 2.4)) - 0.5;
                 float stain = smoothstep(0.48, 0.85, Noise(p * 0.025));
                 float face = smoothstep(0.45, 0.8, min(color.r, min(color.g, color.b)));
-                float2 uv = input.uv.xy;
-                if (seed.x > 0.5) uv = uv.yx;
-                if (seed.y > 0.5) uv.x = 1.0 - uv.x;
-                float crease = uv.x - lerp(0.08, 0.85, Hash(seed * 53.0 + 7.0))
-                    - (uv.y - 0.5) * (Hash(seed * 71.0) - 0.5) * 0.12;
-                float creaseWidth = max(fwidth(crease) * 0.8, 0.001);
-                float shade = exp(-abs(crease) / (creaseWidth * 3.0));
-                float light = exp(-abs(crease - creaseWidth * 4.0) / (creaseWidth * 2.0));
-                float creaseStrength = step(0.32, Hash(seed * 97.0 + 3.0)) * (1.0 - _UseSpriteMask);
-                float foldSize = _FoldSize * lerp(0.45, 1.0, seed.y) * step(0.68, Hash(seed * 41.0 + 11.0));
-                float foldLine = uv.x + uv.y - (2.0 - foldSize);
-                float foldWidth = max(fwidth(foldLine), 0.003);
-                float fold = smoothstep(-foldWidth, foldWidth, foldLine) * step(0.001, foldSize);
-                float foldShadow = exp(-abs(foldLine) / (foldWidth * 3.0)) * step(0.001, foldSize);
                 float grainShade = (grain * 0.65 + fibers * 0.35) * _PaperTexture.x;
-                color.rgb += face * (grainShade + (light * 0.35 - shade) * _PaperTexture.z * creaseStrength);
+                color.rgb += face * grainShade;
                 color.rgb -= face * stain * _PaperTexture.y * float3(0.38, 0.55, 0.8);
-                color.rgb += face * _PaperTexture.z * (fold * 0.3 - foldShadow * 0.75);
                 color.rgb = saturate(color.rgb);
                 return color;
             }

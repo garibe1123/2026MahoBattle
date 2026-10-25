@@ -856,11 +856,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         PaperFill(vh, rect, settings, rim, seed, badge);
         Color fill = highlighted ? Color.Lerp(settings.background, settings.highlight, 0.14f) : settings.background;
         fill.a *= alpha;
-        PaperFill(vh, Inset(rect, border), settings, fill, seed, badge);
+        PaperFill(vh, Inset(rect, border), settings, fill, seed, badge, true);
     }
 
     internal static void PaperFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
-        Color tint, uint seed, bool badge = false)
+        Color tint, uint seed, bool badge = false, bool foldedFace = false)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         float shortSide = Mathf.Min(rect.width, rect.height);
@@ -870,6 +870,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             rect.height / (rect.height * Mathf.Abs(cosine) + rect.width * Mathf.Abs(sine)));
         float min = Mathf.Clamp(settings.paperCornerMin, 0.02f, 0.05f);
         float max = Mathf.Clamp(settings.paperCornerMax, min, 0.05f);
+        bool folded = !badge && settings.paperFoldSize > 0f && PaperVariation(seed, 26) > 0.68f;
+        int foldCorner = (int)((seed >> 6) % 4u);
+        float foldCut = shortSide * Mathf.Clamp(settings.paperFoldSize, 0f, 0.3f) *
+            Mathf.Lerp(0.45f, 1f, PaperVariation(seed, 27));
+        Vector2 foldA = default, foldB = default;
         int first = vh.currentVertCount;
         int count = badge ? 7 + (int)((seed >> 3) % 3u) : 8;
         Vector2 textureSeed = new(PaperVariation(seed, 24), PaperVariation(seed, 25));
@@ -877,6 +882,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         for (int i = 0; i < count; i++)
         {
             float cut = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i));
+            if (folded && i / 2 == foldCorner) cut = Mathf.Max(cut, foldCut);
             float edge = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i + 12));
             Vector2 point;
             if (badge)
@@ -899,12 +905,48 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     _ => new Vector2(-rect.width * 0.5f + edge, rect.height * 0.5f - cut)
                 };
             }
+            if (folded && i / 2 == foldCorner)
+            {
+                if (i % 2 == 0) foldA = point;
+                else foldB = point;
+            }
             Vector2 uv = new(point.x / rect.width + 0.5f, point.y / rect.height + 0.5f);
             point = rect.center + new Vector2(point.x * cosine - point.y * sine,
                 point.x * sine + point.y * cosine) * fit;
             PaperVertex(vh, point, tint, uv, textureSeed);
         }
-        for (int i = 0; i < count; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
+        for (int i = 0; i < count; i++)
+            if (!folded || !foldedFace || i != foldCorner * 2)
+                vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
+        if (folded && foldedFace)
+        {
+            Vector2 corner = new(foldCorner == 0 || foldCorner == 3 ? -rect.width * 0.5f : rect.width * 0.5f,
+                foldCorner < 2 ? -rect.height * 0.5f : rect.height * 0.5f);
+            Vector2 edge = foldB - foldA;
+            Vector2 projection = foldA + edge * (Vector2.Dot(corner - foldA, edge) / Mathf.Max(edge.sqrMagnitude, 0.0001f));
+            Vector2 tip = projection * 2f - corner;
+            Color shade = Color.Lerp(tint, settings.innerLine, Mathf.Clamp01(settings.paperCreaseStrength) * 0.45f);
+            Color light = Color.Lerp(tint, Color.white, 0.55f);
+            shade.a = light.a = tint.a;
+            int bodyTip = vh.currentVertCount;
+            PaperFoldVertex(vh, tip, rect, cosine, sine, fit, tint, textureSeed);
+            vh.AddTriangle(first, first + 1 + foldCorner * 2, bodyTip);
+            vh.AddTriangle(first, bodyTip, first + 2 + foldCorner * 2);
+            int flap = vh.currentVertCount;
+            PaperFoldVertex(vh, foldA, rect, cosine, sine, fit, shade, textureSeed);
+            PaperFoldVertex(vh, foldB, rect, cosine, sine, fit, shade, textureSeed);
+            PaperFoldVertex(vh, tip, rect, cosine, sine, fit, light, textureSeed);
+            vh.AddTriangle(flap, flap + 1, flap + 2);
+        }
+    }
+
+    private static void PaperFoldVertex(VertexHelper vh, Vector2 point, Rect rect, float cosine, float sine,
+        float fit, Color tint, Vector2 seed)
+    {
+        Vector2 uv = new(point.x / rect.width + 0.5f, point.y / rect.height + 0.5f);
+        point = rect.center + new Vector2(point.x * cosine - point.y * sine,
+            point.x * sine + point.y * cosine) * fit;
+        PaperVertex(vh, point, tint, uv, seed);
     }
 
     private static void PaperVertex(VertexHelper vh, Vector2 point, Color tint, Vector2 uv, Vector2 seed)

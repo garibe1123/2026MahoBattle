@@ -298,12 +298,10 @@ public sealed class BattleUiStyleController : MonoBehaviour
             if (paperMaterial != null)
             {
                 paperMaterial.SetVector("_PaperTexture", texture);
-                paperMaterial.SetFloat("_FoldSize", settings.paperFoldSize);
             }
             if (paperMaskMaterial != null)
             {
                 paperMaskMaterial.SetVector("_PaperTexture", texture);
-                paperMaskMaterial.SetFloat("_FoldSize", 0f);
             }
         }
         removed.Clear();
