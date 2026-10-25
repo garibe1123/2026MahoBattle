@@ -61,7 +61,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
             return;
         }
         EditorGUILayout.LabelField("Theme", manager.UiStyle.ToString());
-        previewScreenTone = EditorGUILayout.Toggle("Screen Tone Preview", previewScreenTone);
+        previewScreenTone = EditorGUILayout.Toggle("Screen Tone Vignette Preview", previewScreenTone);
         Rect available = GUILayoutUtility.GetRect(1f, 10000f, 1f, 10000f);
         Rect view = new(available.x, available.y, available.width, available.width * 9f / 16f);
         if (view.height > available.height)
@@ -246,7 +246,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
     {
         if (toneMaterial == null)
         {
-            Shader shader = Resources.Load<Shader>("BattleUiOptics");
+            Shader shader = AssetDatabase.LoadAssetAtPath<Shader>("Assets/Editor/HarnessBattleUiScreenTonePreview.shader");
             if (shader == null) return;
             toneMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
         }
@@ -288,9 +288,8 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
             toneMaterial.SetTexture("_ProtectedBlack", toneTextures[2]);
             toneMaterial.SetTexture("_ProtectedWhite", toneTextures[3]);
             toneMaterial.SetVector("_ScreenSize", new Vector4(width, height, 1f / width, 1f / height));
+            toneMaterial.SetColor("_PreviewBackgroundColor", background);
             manager.ScreenToneSettings.Apply(toneMaterial, width / 1920f);
-            RenderTexture.active = toneTextures[4];
-            GL.Clear(false, true, background);
             Graphics.Blit(toneTextures[0], toneTextures[4], toneMaterial);
             RenderTexture.active = previousActive;
             GUI.DrawTexture(view, toneTextures[4], ScaleMode.StretchToFill, false);
