@@ -29,6 +29,8 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     internal Material HiddenSourceMaterial => sourceHidden ? hiddenMaterial : null;
     internal Material ProtectionHiddenMaterial => hiddenMaterial;
     internal bool CapturingProtection { get; private set; }
+    internal bool IsCapturing { get; private set; }
+    internal bool PreserveNativePresenters { get; private set; }
 
     internal static void RefreshScreenTone()
     {
@@ -107,6 +109,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     {
         bool optics = BattleColorGradingController.TryGetUiOptics(out Vector4 settings, out Vector2 limits) &&
             source != null && source.sortingOrder >= 500;
+        PreserveNativePresenters = !optics;
         BattleUiScreenToneSettings tone = BattleUiStyleController.ScreenTone;
         if (source == null || !source.isActiveAndEnabled ||
             !IsVisible() ||
@@ -144,6 +147,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         {
             if (modifier == null || !modifier.Visible) continue;
             if (!modifier.isActiveAndEnabled) return false;
+            if (modifier.NativePresenter && PreserveNativePresenters) continue;
             visible = true;
         }
         return visible;
@@ -261,7 +265,10 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         try
         {
             foreach (var entry in layers) entry.Key.gameObject.layer = captureLayer;
+            IsCapturing = true;
             SetSourceHidden(false);
+            foreach (BattleUiOpticsVisibility modifier in visibility)
+                if (modifier != null && modifier.NativePresenter && PreserveNativePresenters) modifier.Refresh();
             source.renderMode = RenderMode.ScreenSpaceCamera;
             source.worldCamera = captureCamera;
             source.planeDistance = CapturePlaneDistance;
@@ -291,6 +298,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         }
         finally
         {
+            IsCapturing = false;
             CapturingProtection = false;
             captureCamera.targetTexture = null;
             source.renderMode = RenderMode.ScreenSpaceOverlay;
@@ -311,6 +319,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 
     private void Restore()
     {
+        IsCapturing = false;
         CapturingProtection = false;
         SetSourceHidden(false);
         if (output != null) output.enabled = false;

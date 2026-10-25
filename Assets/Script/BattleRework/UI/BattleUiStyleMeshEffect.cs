@@ -372,7 +372,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (!pixel && !comic && !maho && !stylish && !birthday) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         // 접합 계산에 쓰는 프레임 마스크와 표시되는 외곽을 일치시킵니다.
-        if (hiddenFill || (speechFrame && !stylish)) return;
+        if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || (speechFrame && !stylish)) return;
         if (decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
         if ((panel || (stylish && (stylishButton || stylishSurface))) && image != null && !statusFill)

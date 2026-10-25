@@ -8,6 +8,7 @@ public sealed class BattleUiOpticsVisibility : MonoBehaviour, IMaterialModifier
     private BattleUiOpticsCanvas owner;
     private Material protectionMaterial;
     private bool hasMask;
+    internal bool NativePresenter { get; private set; }
 
     internal bool Visible => target != null && target.isActiveAndEnabled &&
         !target.canvasRenderer.cull && target.canvasRenderer.GetInheritedAlpha() > 0.001f;
@@ -21,7 +22,8 @@ public sealed class BattleUiOpticsVisibility : MonoBehaviour, IMaterialModifier
             string key = image.name;
             if (key.Contains("Icon") || key.Contains("Thumbnail") || key.Contains("Portrait")) return false;
             return image.sprite == null || image.sprite == BattleHudSpriteCache.RoundedPanel ||
-                key.Contains("Frame") || key.Contains("Shadow") || key.Contains("Background") || key.Contains("Panel");
+                key.Contains("Frame") || key.Contains("Shadow") || key.Contains("Background") || key.Contains("Panel") ||
+                key == "TailShape" || key == "TailFill";
         }
     }
 
@@ -34,11 +36,17 @@ public sealed class BattleUiOpticsVisibility : MonoBehaviour, IMaterialModifier
     internal void Bind(BattleUiOpticsCanvas value)
     {
         owner = value;
+        BattleShowPresentationManager presentation = BattleShowPresentationManager.Instance;
+        NativePresenter = target != null && presentation != null &&
+            presentation.UiMaterialTargets.TryGetValue(target, out var channel) &&
+            channel == BattleUiMaterialController.UiChannel.Presenter;
         Refresh();
     }
 
     public Material GetModifiedMaterial(Material baseMaterial)
     {
+        if (isActiveAndEnabled && owner != null && NativePresenter && owner.PreserveNativePresenters)
+            return owner.IsCapturing ? owner.ProtectionHiddenMaterial : baseMaterial;
         Material hidden = isActiveAndEnabled && owner != null ? owner.HiddenSourceMaterial : null;
         if (hidden != null) return hidden;
         if (!isActiveAndEnabled || owner == null || !owner.CapturingProtection || !ToneSurface) return baseMaterial;
