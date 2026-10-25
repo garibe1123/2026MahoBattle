@@ -40,6 +40,13 @@ internal static class BattleUiThemeFonts
                 if (font.fallbackFontAssetTable == null) font.fallbackFontAssetTable = new List<TMP_FontAsset>();
                 if (!font.fallbackFontAssetTable.Contains(fallback)) font.fallbackFontAssetTable.Add(fallback);
             }
+            TMP_FontAsset korean = LoadTmp(BattleUiStyle.Stylish);
+            if (font == null) font = korean;
+            else if (korean != null && korean != font)
+            {
+                if (font.fallbackFontAssetTable == null) font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+                if (!font.fallbackFontAssetTable.Contains(korean)) font.fallbackFontAssetTable.Add(korean);
+            }
         }
         if (style == BattleUiStyle.Paper && font != null)
         {
@@ -54,6 +61,16 @@ internal static class BattleUiThemeFonts
             font = BattleUiStyleTmpTitle.LoadFont(style == BattleUiStyle.Birthday);
         tmpFonts[style] = font;
         return font;
+    }
+
+    internal static TMP_FontAsset ResolveCmdTmp(TMP_FontAsset preferred, string content)
+    {
+        if (preferred != null && preferred.HasCharacters(content, out uint[] _, true, true)) return preferred;
+        TMP_FontAsset fallback = LoadTmp(BattleUiStyle.CMD);
+        if (fallback != null && fallback.HasCharacters(content, out uint[] _, true, true)) return fallback;
+        TMP_FontAsset korean = LoadTmp(BattleUiStyle.Stylish);
+        if (korean != null && korean.HasCharacters(content, out uint[] _, true, true)) return korean;
+        return preferred != null ? preferred : fallback != null ? fallback : TMP_Settings.defaultFontAsset;
     }
 
     internal static Font Load(BattleUiStyle style)

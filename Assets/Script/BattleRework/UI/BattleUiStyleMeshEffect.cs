@@ -13,6 +13,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private Color originalTmpColor, appliedTmpColor;
     private bool tmpOverridden;
     private TMPro.TMP_FontAsset originalCmdFont, appliedCmdFont;
+    private TMPro.TMP_FontAsset checkedCmdFont;
+    private string checkedCmdText;
+    private readonly List<TMPro.TMP_SubMeshUI> nativeSubMeshes = new();
+    private bool nativeSubMeshesPending;
     private Material originalCmdMaterial;
     private TMPro.TextAlignmentOptions originalCmdAlignment;
     private TMPro.FontStyles originalCmdFontStyle;
@@ -62,6 +66,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         paperSheet = IsPaperSheet(paperOwner);
         label = value as Text;
         nativeText = value as TMPro.TextMeshProUGUI;
+        if (nativeText != null)
+        {
+            nativeText.OnPreRenderText -= PrepareNativeSubMeshes;
+            nativeText.OnPreRenderText += PrepareNativeSubMeshes;
+        }
         title = (label != null || nativeText != null) && (value.name == "AppHeader" || value.name.EndsWith("Title", System.StringComparison.Ordinal) ||
             value.name.EndsWith("Header", System.StringComparison.Ordinal));
         titleMotionCandidate = title && label != null && label.GetComponentInParent<ScrollRect>(true) == null;
@@ -341,8 +350,30 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         return true;
     }
 
+    private void PrepareNativeSubMeshes(TMPro.TMP_TextInfo info)
+    {
+        if (!BattleUiStyleController.IsCmd || info.materialCount <= 1) return;
+        nativeText.GetComponentsInChildren(true, nativeSubMeshes);
+        foreach (TMPro.TMP_SubMeshUI subMesh in nativeSubMeshes)
+        {
+            subMesh.raycastTarget = false;
+            subMesh.maskable = nativeText.maskable;
+        }
+        nativeSubMeshesPending = true;
+    }
+
     private void ApplyNativeText(BattleUiStyleSettings settings)
     {
+        if (nativeSubMeshesPending)
+        {
+            foreach (TMPro.TMP_SubMeshUI subMesh in nativeSubMeshes)
+            {
+                if (subMesh == null) continue;
+                subMesh.gameObject.layer = nativeText.gameObject.layer;
+                BattleUiOpticsCanvas.Register(subMesh);
+            }
+            nativeSubMeshesPending = false;
+        }
         bool cmd = BattleUiStyleController.IsCmd;
         if (!cmd) RestoreCmdNative();
         if (!BattleUiStyleController.IsPaper && !cmd)
@@ -358,6 +389,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (!cmd) return;
         TMPro.TMP_FontAsset font = settings.fontAsset != null ? settings.fontAsset : BattleUiThemeFonts.LoadTmp(BattleUiStyle.CMD);
         if (font == null) return;
+        if (checkedCmdFont != font || checkedCmdText != nativeText.text || appliedCmdFont == null)
+        {
+            checkedCmdFont = font;
+            checkedCmdText = nativeText.text;
+            appliedCmdFont = BattleUiThemeFonts.ResolveCmdTmp(font, checkedCmdText);
+        }
+        font = appliedCmdFont;
         if (!cmdNativeOverridden)
         {
             originalCmdFont = nativeText.font;
@@ -483,6 +521,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     protected override void OnDestroy()
     {
+        if (nativeText != null) nativeText.OnPreRenderText -= PrepareNativeSubMeshes;
         cmdFrame?.Dispose();
         tmpTitle?.Dispose();
         base.OnDestroy();
@@ -615,12 +654,27 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private void ModifyCmdMesh(VertexHelper vh)
     {
         if (target is BattleUiPanelDecoration) return;
-        if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || decoratedSurface)
+        BattleUiStyleSettings settings = BattleUiStyleController.Settings;
+        bool tailOutline = image != null && image.name == "TailShape";
+        if (speechFrame || hiddenFill || tailFill || tailOutline)
+        {
+            Color tint = speechFrame || tailOutline ? settings.outerFrame : settings.background;
+            UIVertex vertex = default;
+            for (int i = 0; i < vh.currentVertCount; i++)
+            {
+                vh.PopulateUIVertex(ref vertex, i);
+                Color color = tint;
+                color.a *= vertex.color.a / 255f;
+                vertex.color = color;
+                vh.SetUIVertex(vertex, i);
+            }
+            return;
+        }
+        if (decoratedSurface)
         {
             vh.Clear();
             return;
         }
-        BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         if (image != null && image.type != Image.Type.Filled &&
             (panel || speechBadge || (image.sprite == null && (stylishSurface || stylishButton))))
         {

@@ -12,7 +12,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private readonly BattleUiStyleTitleText text;
     private Material material;
     private string checkedText;
-    private TMP_FontAsset checkedFont;
+    private TMP_FontAsset checkedFont, resolvedFont;
     private bool supported;
     private float shear, padding;
     private float titleAngle;
@@ -85,8 +85,10 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         {
             checkedFont = font;
             checkedText = content;
-            supported = font.HasCharacters(content, out uint[] _, true, true);
+            resolvedFont = cmd ? BattleUiThemeFonts.ResolveCmdTmp(font, content) : font;
+            supported = resolvedFont != null && resolvedFont.HasCharacters(content, out uint[] _, true, true);
         }
+        font = resolvedFont;
         if (!source.isActiveAndEnabled || (titleMotion != null &&
             (source.color.a <= 0f || source.canvasRenderer.GetInheritedAlpha() <= 0f))) { Hide(); return; }
         if (!supported) { Hide(titleMotion != null && motion == titleMotion); return; }

@@ -1669,8 +1669,16 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (font == null) font = BattleUiThemeFonts.LoadTmp(BattleUiStyle.VectorStyleUi);
         if (font == null) font = TMP_Settings.defaultFontAsset;
         if (font == null) return;
-        if (nameText != null && nameText.font != font) nameText.font = font;
-        if (liveText != null && liveText.font != font) liveText.font = font;
+        if (nameText != null && nameText.font != font)
+        {
+            nameText.font = font;
+            nameText.fontSharedMaterial = font.material;
+        }
+        if (liveText != null && liveText.font != font)
+        {
+            liveText.font = font;
+            liveText.fontSharedMaterial = font.material;
+        }
         if (dialogueText != null)
         {
             if (checkedDialogueFont != font || checkedDialogueContent != dialogueText.text)
@@ -1678,14 +1686,19 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
                 checkedDialogueFont = font;
                 checkedDialogueContent = dialogueText.text;
                 resolvedDialogueFont = font;
-                if (!font.HasCharacters(checkedDialogueContent, out uint[] _, true, true))
+                if (BattleUiStyleController.IsCmd)
+                    resolvedDialogueFont = BattleUiThemeFonts.ResolveCmdTmp(font, checkedDialogueContent);
+                else if (!font.HasCharacters(checkedDialogueContent, out uint[] _, true, true))
                 {
                     resolvedDialogueFont = BattleUiThemeFonts.LoadTmp(BattleUiStyle.VectorStyleUi);
                     if (resolvedDialogueFont == null) resolvedDialogueFont = TMP_Settings.defaultFontAsset;
                 }
             }
             if (resolvedDialogueFont != null && dialogueText.font != resolvedDialogueFont)
+            {
                 dialogueText.font = resolvedDialogueFont;
+                dialogueText.fontSharedMaterial = resolvedDialogueFont.material;
+            }
         }
     }
 
