@@ -76,7 +76,7 @@ internal sealed class BattleUiCmdFrame : IDisposable
             Color tint = selected ? settings.highlight : settings.outerFrame;
             tint.a *= owner.color.a;
             edge.color = tint;
-            edge.maskable = owner.maskable;
+            edge.maskable = owner is MaskableGraphic maskableOwner && maskableOwner.maskable;
             if (!edge.gameObject.activeSelf) edge.gameObject.SetActive(true);
         }
     }
