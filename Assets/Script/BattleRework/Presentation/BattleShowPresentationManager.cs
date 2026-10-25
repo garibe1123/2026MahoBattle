@@ -172,6 +172,21 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         energy = new Color32(0x72, 0xEE, 0xDD, 255),
         highlight = new Color32(0xFF, 0xF0, 0x64, 255)
     };
+    [SerializeField] private BattleUiStyleSettings paper = new()
+    {
+        background = new Color32(0xF7, 0xF4, 0xE8, 255),
+        innerLine = new Color32(0x08, 0x0D, 0x49, 255),
+        outerFrame = new Color32(0xF5, 0xC4, 0x00, 255),
+        status = new Color32(0x08, 0x0D, 0x49, 255),
+        danger = new Color32(0xC5, 0x3F, 0x42, 255),
+        energy = new Color32(0x36, 0x72, 0x94, 255),
+        highlight = new Color32(0xF5, 0xC4, 0x00, 255),
+        titleOutlineWidth = 0f,
+        titleShadowOffset = Vector2.zero,
+        titleSizeMultiplier = 1f,
+        stylishTitleShear = 0f,
+        stylishTitleAngle = 0f
+    };
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
     [SerializeField] private bool enableScreenTone = true;
@@ -200,6 +215,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         BattleUiStyle.MahoShojo => mahoShojo,
         BattleUiStyle.Stylish => stylish,
         BattleUiStyle.Birthday => birthday,
+        BattleUiStyle.Paper => paper,
         _ => vectorStyleUi
     };
 

@@ -18,7 +18,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool fontStyleOverridden;
     private bool wasComic;
     private bool wasMaho;
-    private bool wasStylish, wasBirthday, title;
+    private bool wasStylish, wasBirthday, wasPaper, title;
+    private uint paperSeed;
+    private bool paperBadge, paperBadgeInner, paperBadgeIcon;
     private BattleUiStyleTmpTitle tmpTitle;
     private bool titleMotionCandidate;
     private BattleUiStyleInteraction interaction;
@@ -37,11 +39,25 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal void Bind(Graphic value)
     {
         target = value;
+        paperSeed = PaperSeed(value.transform);
         label = value as Text;
         title = label != null && (value.name == "AppHeader" || value.name.EndsWith("Title", System.StringComparison.Ordinal) ||
             value.name.EndsWith("Header", System.StringComparison.Ordinal));
         titleMotionCandidate = title && label.GetComponentInParent<ScrollRect>(true) == null;
         image = value as Image;
+        if (image != null)
+        {
+            Transform badge = image.name == "Inner" ? image.transform.parent :
+                image.name == "Icon" ? image.transform.parent?.parent : image.transform;
+            if (badge != null && badge.name.StartsWith("Badge_", System.StringComparison.Ordinal) &&
+                badge.parent != null && badge.parent.name == "ItemAttributeBadges")
+            {
+                paperBadge = image.transform == badge;
+                paperBadgeInner = image.name == "Inner";
+                paperBadgeIcon = image.name == "Icon";
+                paperSeed = PaperSeed(badge);
+            }
+        }
         stylishCard = IsCard(value.transform);
         stylishSpotlight = IsSpotlight(value.transform);
         stylishSurface = image != null && IsSurface(image);
@@ -159,6 +175,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
         bool stylish = BattleUiStyleController.IsStylish;
         bool birthday = BattleUiStyleController.IsBirthday;
+        bool paper = BattleUiStyleController.IsPaper;
         float previousEntrance = entrance;
         entrance = 1f;
         if (Application.isPlaying && stylish && (panel || stylishSurface || stylishButton || label != null || decoration != null))
@@ -170,6 +187,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         else enteredAt = -1f;
         if (entrance != previousEntrance || entrance < 1f) target.SetVerticesDirty();
         if ((stylish || birthday) && next == null && (panel || (stylish && (stylishButton || stylishSurface))) && !statusFill) next = pixelPanel;
+        if (paper && next == null && (panel || paperBadge || (image != null && image.sprite == null && (stylishSurface || stylishButton))) && !statusFill) next = pixelPanel;
         if (HasAssignedMaterial()) next = null;
         if (next != null)
         {
@@ -200,13 +218,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
         else RestoreFont();
         if (wasPixel != pixel || wasComic != comic || wasMaho != maho ||
-            wasStylish != stylish || wasBirthday != birthday) target.SetVerticesDirty();
+            wasStylish != stylish || wasBirthday != birthday || wasPaper != paper) target.SetVerticesDirty();
         wasPixel = pixel;
         wasComic = comic;
         wasMaho = maho;
         wasStylish = stylish;
         wasBirthday = birthday;
-        bool decoratedTitle = title && (stylish || birthday);
+        wasPaper = paper;
+        bool decoratedTitle = title && (stylish || birthday || paper);
         if (isActiveAndEnabled && label != null && settings.textMaterial == null &&
             (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
@@ -256,6 +275,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool HasAssignedMaterial()
     {
         if (BattleUiStyleController.IsStylish && (panel || stylishSurface || stylishButton || label != null)) return false;
+        if (BattleUiStyleController.IsPaper && (panel || paperBadge || paperBadgeInner || paperBadgeIcon || label != null ||
+            (image != null && image.sprite == null && (stylishSurface || stylishButton)))) return false;
         return BattleUiMaterialController.IsAssignedMaterial(target.material) ||
             (BattleShowPresentationManager.Instance != null &&
              BattleShowPresentationManager.Instance.HasAssignedUiMaterial(target));
@@ -369,18 +390,25 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         bool maho = BattleUiStyleController.IsMahoShojo;
         bool stylish = BattleUiStyleController.IsStylish;
         bool birthday = BattleUiStyleController.IsBirthday;
-        if (!pixel && !comic && !maho && !stylish && !birthday) return;
+        bool paper = BattleUiStyleController.IsPaper;
+        if (!pixel && !comic && !maho && !stylish && !birthday && !paper) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
+        if (paper && paperBadgeInner) { vh.Clear(); return; }
         // 접합 계산에 쓰는 프레임 마스크와 표시되는 외곽을 일치시킵니다.
         if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || (speechFrame && !stylish)) return;
         if (decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
-        if ((panel || (stylish && (stylishButton || stylishSurface))) && image != null && !statusFill)
+        if ((panel || (paper && paperBadge) || ((stylish || paper) && (stylishButton || stylishSurface))) && image != null && !statusFill &&
+            (!paper || image.sprite == null || panel || paperBadge))
         {
             vh.Clear();
             Color fill = settings.background;
             fill.a *= speechFrame ? 1f : image.color.a;
-            if (stylish || birthday)
+            if (paper)
+                DrawPaperFrame(vh, target.rectTransform.rect, settings, image.color.a, paperSeed,
+                    paperBadge || (!stylishCard && Mathf.Max(target.rectTransform.rect.width, target.rectTransform.rect.height) <= 100f),
+                    interaction != null && interaction.Highlighted);
+            else if (stylish || birthday)
                 DrawAccentFrame(vh, target.rectTransform.rect, settings, birthday, speechFrame ? 1f : image.color.a,
                     (stylish && stylishSpotlight) || (interaction != null && interaction.Highlighted),
                     interaction != null && interaction.Primary, stylishCard);
@@ -388,14 +416,15 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
-        else if (label != null || tailFill || statusFill || (maho && image != null))
+        else if (label != null || tailFill || statusFill || (maho && image != null) || (paper && paperBadgeIcon))
         {
             UIVertex vertex = default;
             for (int i = 0; i < vh.currentVertCount; i++)
             {
                 vh.PopulateUIVertex(ref vertex, i);
                 Color source = vertex.color;
-                Color tint = stylish || birthday ? (tailFill ? settings.background :
+                Color tint = paper ? (label != null || paperBadgeIcon ? settings.innerLine : Palette(source, settings, true)) :
+                    stylish || birthday ? (tailFill ? settings.background :
                     label != null ? (stylish && interaction != null && interaction.Primary ? settings.outerFrame : settings.innerLine) :
                     Palette(source, settings, true)) :
                     maho ? (tailFill || (image != null && image.name == "TailShape") ? settings.background :
@@ -463,10 +492,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal static Color TextColor(Color source, BattleUiStyleSettings settings)
     {
         Color tint = BattleUiStyleController.IsComic ? settings.comicPaper :
-            BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday
+            BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper
                 ? settings.innerLine : BattleUiStyleController.IsPixel ? Palette(source, settings, false) : source;
         if (BattleUiStyleController.IsPixel || BattleUiStyleController.IsComic || BattleUiStyleController.IsMahoShojo ||
-            BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday) tint.a *= source.a;
+            BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper) tint.a *= source.a;
         return tint;
     }
 
@@ -763,6 +792,97 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Quad(vh, new Rect(rect.xMin, rect.yMin + cut + pixel, rect.width, rect.height - 2f * (cut + pixel)), tint);
         Quad(vh, new Rect(rect.xMin + pixel, rect.yMax - cut - pixel, rect.width - 2f * pixel, pixel), tint);
         Quad(vh, new Rect(rect.xMin + cut, rect.yMax - cut, rect.width - 2f * cut, cut), tint);
+    }
+
+    internal static uint PaperSeed(Transform value)
+    {
+        unchecked
+        {
+            uint seed = 2166136261u;
+            for (Transform node = value; node != null; node = node.parent)
+            {
+                foreach (char c in node.name) seed = (seed ^ c) * 16777619u;
+                seed = (seed ^ (uint)node.GetSiblingIndex()) * 16777619u;
+            }
+            return seed;
+        }
+    }
+
+    private static float PaperVariation(uint seed, int corner)
+    {
+        unchecked
+        {
+            uint value = seed + (uint)(corner + 1) * 2654435761u;
+            value = (value ^ (value >> 16)) * 2246822519u;
+            return (value & 65535u) / 65535f;
+        }
+    }
+
+    internal static float PaperAngle(uint seed, float maximum) =>
+        (PaperVariation(seed, 8) * 2f - 1f) * Mathf.Clamp(maximum, 0f, 2f);
+
+    internal static void DrawPaperFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
+        float alpha, uint seed, bool badge = false, bool highlighted = false)
+    {
+        float shortSide = Mathf.Min(rect.width, rect.height);
+        if (shortSide <= 0f) return;
+        float scale = Mathf.Min(1f, shortSide / 80f);
+        float border = Mathf.Clamp(settings.paperBorderWidth * scale, 0f, shortSide * 0.2f);
+        Rect shadowRect = rect;
+        shadowRect.position += settings.paperShadowOffset * scale;
+        Color shadow = settings.paperShadow;
+        shadow.a *= alpha;
+        PaperFill(vh, shadowRect, settings, shadow, seed, badge);
+        Color rim = settings.outerFrame;
+        rim.a *= alpha;
+        PaperFill(vh, rect, settings, rim, seed, badge);
+        Color fill = highlighted ? Color.Lerp(settings.background, settings.highlight, 0.14f) : settings.background;
+        fill.a *= alpha;
+        PaperFill(vh, Inset(rect, border), settings, fill, seed, badge);
+    }
+
+    internal static void PaperFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
+        Color tint, uint seed, bool badge = false)
+    {
+        if (rect.width <= 0f || rect.height <= 0f) return;
+        float shortSide = Mathf.Min(rect.width, rect.height);
+        float angle = PaperAngle(seed, settings.paperDecorationAngle) * Mathf.Deg2Rad;
+        float cosine = Mathf.Cos(angle), sine = Mathf.Sin(angle);
+        float fit = Mathf.Min(rect.width / (rect.width * Mathf.Abs(cosine) + rect.height * Mathf.Abs(sine)),
+            rect.height / (rect.height * Mathf.Abs(cosine) + rect.width * Mathf.Abs(sine)));
+        float min = Mathf.Clamp(settings.paperCornerMin, 0.02f, 0.05f);
+        float max = Mathf.Clamp(settings.paperCornerMax, min, 0.05f);
+        int first = vh.currentVertCount;
+        vh.AddVert(rect.center, tint, Vector2.zero);
+        for (int i = 0; i < 8; i++)
+        {
+            float cut = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i));
+            Vector2 point;
+            if (badge)
+            {
+                float phase = (i * 45f + 22.5f) * Mathf.Deg2Rad;
+                point = new Vector2(Mathf.Cos(phase) * (rect.width * 0.5f - cut),
+                    Mathf.Sin(phase) * (rect.height * 0.5f - cut));
+            }
+            else
+            {
+                point = i switch
+                {
+                    0 => new Vector2(-rect.width * 0.5f, -rect.height * 0.5f + cut),
+                    1 => new Vector2(-rect.width * 0.5f + cut, -rect.height * 0.5f),
+                    2 => new Vector2(rect.width * 0.5f - cut, -rect.height * 0.5f),
+                    3 => new Vector2(rect.width * 0.5f, -rect.height * 0.5f + cut),
+                    4 => new Vector2(rect.width * 0.5f, rect.height * 0.5f - cut),
+                    5 => new Vector2(rect.width * 0.5f - cut, rect.height * 0.5f),
+                    6 => new Vector2(-rect.width * 0.5f + cut, rect.height * 0.5f),
+                    _ => new Vector2(-rect.width * 0.5f, rect.height * 0.5f - cut)
+                };
+            }
+            point = rect.center + new Vector2(point.x * cosine - point.y * sine,
+                point.x * sine + point.y * cosine) * fit;
+            vh.AddVert(point, tint, Vector2.zero);
+        }
+        for (int i = 0; i < 8; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % 8);
     }
 
     internal static void Quad(VertexHelper vh, Rect rect, Color tint)

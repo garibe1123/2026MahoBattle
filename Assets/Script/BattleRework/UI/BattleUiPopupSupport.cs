@@ -1177,6 +1177,8 @@ public sealed class BattleEquipmentBadgeStrip : MonoBehaviour
             size,
             gap);
 
+        BattleUiStyleController.RegisterRoot(go.transform);
+
         return strip;
     }
 

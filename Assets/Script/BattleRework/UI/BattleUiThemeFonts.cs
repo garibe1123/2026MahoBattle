@@ -25,6 +25,7 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.MahoShojo => "HarnessFonts/GowunBatang/GowunBatang-Regular SDF",
             BattleUiStyle.Stylish => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular SDF",
+            BattleUiStyle.Paper => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             _ => null
         };
         font = path != null ? Resources.Load<TMP_FontAsset>(path) : null;
@@ -45,6 +46,7 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.MahoShojo => "HarnessFonts/GowunBatang/GowunBatang-Regular",
             BattleUiStyle.Stylish => "HarnessFonts/BlackHanSans/BlackHanSans-Regular",
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular",
+            BattleUiStyle.Paper => "HarnessFonts/BlackHanSans/BlackHanSans-Regular",
             _ => null
         };
         font = path != null ? Resources.Load<Font>(path) : null;

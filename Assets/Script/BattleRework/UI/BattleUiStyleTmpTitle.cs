@@ -16,6 +16,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private bool supported;
     private float shear, padding;
     private float titleAngle;
+    private readonly float paperAngle;
     private Color outline, shadow;
     private float outlineWidth = -1f;
     private Vector2 shadowOffset;
@@ -54,6 +55,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     internal BattleUiStyleTmpTitle(Text source)
     {
         this.source = source;
+        paperAngle = BattleUiStyleMeshEffect.PaperAngle(BattleUiStyleMeshEffect.PaperSeed(source.transform), 1f);
         GameObject child = new("StyleTitleTMP", typeof(RectTransform), typeof(LayoutElement));
         child.layer = source.gameObject.layer;
         child.transform.SetParent(source.transform, false);
@@ -104,7 +106,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         Color nextOutline = style.outerFrame;
         Color nextShadow = birthday ? style.energy : style.status;
-        float nextWidth = decorate ? style.titleOutlineWidth : 0f;
+        bool paper = BattleUiStyleController.IsPaper;
+        float nextWidth = decorate && !paper ? style.titleOutlineWidth : 0f;
         if (outline != nextOutline || shadow != nextShadow || outlineWidth != nextWidth ||
             shadowOffset != style.titleShadowOffset)
         {
@@ -121,10 +124,11 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.SetMaterialDirty();
             text.SetVerticesDirty();
         }
-        if (decorate) material.EnableKeyword("UNDERLAY_ON");
+        if (decorate && !paper) material.EnableKeyword("UNDERLAY_ON");
         else material.DisableKeyword("UNDERLAY_ON");
-        float nextShear = decorate && !birthday ? style.stylishTitleShear : 0f;
-        float nextAngle = decorate && !birthday ? style.stylishTitleAngle : 0f;
+        float nextShear = decorate && !birthday && !paper ? style.stylishTitleShear : 0f;
+        float nextAngle = decorate ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
+            !birthday ? style.stylishTitleAngle : 0f) : 0f;
         if (titleAngle != nextAngle) { titleAngle = nextAngle; text.SetVerticesDirty(); }
         Vector3 nextScale = Vector3.one * feedbackScale;
         if (text.rectTransform.localScale != nextScale) text.rectTransform.localScale = nextScale;

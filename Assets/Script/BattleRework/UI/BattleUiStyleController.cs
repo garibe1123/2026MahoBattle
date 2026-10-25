@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday }
+public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper }
 
 [Serializable]
 public sealed class BattleUiTitleCharacterTransform
@@ -108,6 +108,14 @@ public sealed class BattleUiStyleSettings
     [Min(0f)] public float stylishCardRadius = 24f;
     [Range(0f, 0.5f)] public float stylishColorBandAlpha = 0.32f;
     [Range(0.1f, 0.35f)] public float stylishColorBandHeight = 0.24f;
+    [Header("Paper")]
+    [Min(0f)] public float paperBorderWidth = 6f;
+    public Vector2 paperShadowOffset = new(3f, -5f);
+    public Color paperShadow = new(0f, 0f, 0f, 0.18f);
+    [Range(0f, 2f)] public float paperDecorationAngle = 2f;
+    [Range(0f, 1f)] public float paperLabelAngle = 1f;
+    [Range(0.02f, 0.05f)] public float paperCornerMin = 0.02f;
+    [Range(0.02f, 0.05f)] public float paperCornerMax = 0.05f;
 }
 
 [DisallowMultipleComponent]
@@ -148,6 +156,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Stylish;
     internal static bool IsBirthday => active != null && active.isActiveAndEnabled &&
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Birthday;
+    internal static bool IsPaper => active != null && active.isActiveAndEnabled &&
+        active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Paper;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
     internal static TMPro.TMP_FontAsset ThemeTmpFont => active != null && active.isActiveAndEnabled && active.presentation != null
@@ -260,7 +270,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
         BattleUiStyleSettings settings = presentation.UiStyleSettings;
         Font themeFont = BattleUiThemeFonts.Load(presentation.UiStyle);
         bool pixel = IsPixel;
-        if ((pixel || IsComic || IsMahoShojo || IsStylish || IsBirthday) && panelMaterial == null)
+        if ((pixel || IsComic || IsMahoShojo || IsStylish || IsBirthday || IsPaper) && panelMaterial == null)
         {
             panelMaterial = CreateMaterial("BattlePixelPanel");
             textMaterial = CreateMaterial("BattlePixelText");
