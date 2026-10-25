@@ -24,7 +24,7 @@ public sealed class BattleRuleDefinition
     public string id;
     public string displayName;
     [TextArea] public string description;
-    [Tooltip("룰 슬롯에 표시할 아이콘. 비어 있으면 짧은 룰 이름을 표시합니다.")]
+    [Tooltip("룰 슬롯에 표시할 아이콘. 비어 있으면 룰 그림 기호와 짧은 이름을 표시합니다.")]
     public Sprite icon;
     public BattleRulePolarity polarity;
     public string exclusiveGroup;
@@ -229,6 +229,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         public Image frame;
         public Outline outline;
         public Image icon;
+        public BattleRuleGlyph glyph;
         public Text fallbackLabel;
         public BattleRuleDefinition boundRule;
         public BattleRuleSlotPointerFeedback pointerFeedback;
@@ -862,10 +863,19 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             icon.raycastTarget = false;
             icon.enabled = false;
 
+            RectTransform glyphRect = CreateRect(visualRoot, "RuleGlyph");
+            SetRect(glyphRect, new Vector2(0.10f, 0.25f), new Vector2(0.90f, 0.98f));
+            BattleRuleGlyph glyph = glyphRect.gameObject.AddComponent<BattleRuleGlyph>();
+            glyph.raycastTarget = false;
+            glyph.enabled = false;
+
             Text fallbackLabel = CreateText(visualRoot, "FallbackLabel", 11, FontStyle.Bold, TextAnchor.MiddleCenter);
-            SetRect(fallbackLabel.rectTransform, new Vector2(0.08f, 0.08f), new Vector2(0.92f, 0.92f));
+            SetRect(fallbackLabel.rectTransform, new Vector2(0.02f, 0.01f), new Vector2(0.98f, 0.24f));
             fallbackLabel.text = "?";
             fallbackLabel.color = new Color(1f, 1f, 1f, 0.30f);
+            Outline captionOutline = fallbackLabel.gameObject.AddComponent<Outline>();
+            captionOutline.effectColor = new Color(0.025f, 0.03f, 0.06f, 0.95f);
+            captionOutline.effectDistance = new Vector2(1f, -1f);
 
             ruleSlotViews.Add(new RuleSlotView
             {
@@ -874,6 +884,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 frame = frame,
                 outline = outline,
                 icon = icon,
+                glyph = glyph,
                 fallbackLabel = fallbackLabel,
                 pointerFeedback = pointerFeedback
             });
@@ -922,6 +933,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             view.icon.color = previewOnly
                 ? new Color(1f, 1f, 1f, 0.48f)
                 : Color.white;
+        }
+
+        if (view.glyph != null)
+        {
+            view.glyph.enabled = rule.icon == null;
+            if (view.glyph.enabled)
+                view.glyph.Configure(rule, new Color(polarityColor.r, polarityColor.g, polarityColor.b,
+                    previewOnly ? 0.48f : 1f));
         }
 
         if (view.fallbackLabel != null)

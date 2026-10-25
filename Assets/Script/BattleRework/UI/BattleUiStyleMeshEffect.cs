@@ -846,104 +846,96 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (shortSide <= 0f) return;
         float scale = Mathf.Min(1f, shortSide / 80f);
         float border = Mathf.Clamp(settings.paperBorderWidth * scale, 0f, shortSide * 0.2f);
+        bool sheet = !badge && rect.width >= 240f && rect.height >= 180f;
+        bool punched = sheet && settings.paperPunchRadius > 0f;
+        if (!badge) border *= settings.paperSheetBorderScale;
         Rect shadowRect = rect;
         shadowRect.position += settings.paperShadowOffset * scale;
         Color shadow = settings.paperShadow;
         shadow.a *= alpha;
-        PaperFill(vh, shadowRect, settings, shadow, seed, badge);
-        Color rim = settings.outerFrame;
+        PaperFill(vh, shadowRect, settings, shadow, seed, badge, punched: punched);
+        if (sheet)
+        {
+            Rect backingRect = rect;
+            backingRect.position += new Vector2(4f, -4f) * scale;
+            Color backing = Color.Lerp(settings.background, settings.outerFrame, 0.22f);
+            backing.a *= alpha;
+            PaperFill(vh, backingRect, settings, backing, seed, sheetRect: rect, punched: punched);
+        }
+        Color rim = !badge ? Color.Lerp(settings.background, settings.outerFrame, highlighted ? 0.65f : 0.35f) : settings.outerFrame;
         rim.a *= alpha;
-        PaperFill(vh, rect, settings, rim, seed, badge);
+        PaperFill(vh, rect, settings, rim, seed, badge, punched: punched);
         Color fill = highlighted ? Color.Lerp(settings.background, settings.highlight, 0.14f) : settings.background;
         fill.a *= alpha;
-        PaperFill(vh, Inset(rect, border), settings, fill, seed, badge, true);
+        PaperFill(vh, Inset(rect, border), settings, fill, seed, badge, rect, punched);
     }
 
     internal static void PaperFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
-        Color tint, uint seed, bool badge = false, bool foldedFace = false)
+        Color tint, uint seed, bool badge = false, Rect sheetRect = default, bool punched = false)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         float shortSide = Mathf.Min(rect.width, rect.height);
+        if (sheetRect.width <= 0f) sheetRect = rect;
         float angle = PaperAngle(seed, settings.paperDecorationAngle) * Mathf.Deg2Rad;
         float cosine = Mathf.Cos(angle), sine = Mathf.Sin(angle);
-        float fit = Mathf.Min(rect.width / (rect.width * Mathf.Abs(cosine) + rect.height * Mathf.Abs(sine)),
-            rect.height / (rect.height * Mathf.Abs(cosine) + rect.width * Mathf.Abs(sine)));
+        float fit = Mathf.Min(sheetRect.width / (sheetRect.width * Mathf.Abs(cosine) + sheetRect.height * Mathf.Abs(sine)),
+            sheetRect.height / (sheetRect.height * Mathf.Abs(cosine) + sheetRect.width * Mathf.Abs(sine)));
         float min = Mathf.Clamp(settings.paperCornerMin, 0.02f, 0.05f);
         float max = Mathf.Clamp(settings.paperCornerMax, min, 0.05f);
-        bool folded = !badge && settings.paperFoldSize > 0f && PaperVariation(seed, 26) > 0.68f;
-        int foldCorner = (int)((seed >> 6) % 4u);
-        float foldCut = shortSide * Mathf.Clamp(settings.paperFoldSize, 0f, 0.3f) *
-            Mathf.Lerp(0.45f, 1f, PaperVariation(seed, 27));
-        Vector2 foldA = default, foldB = default;
         int first = vh.currentVertCount;
         int count = badge ? 7 + (int)((seed >> 3) % 3u) : 8;
-        Vector2 textureSeed = new(PaperVariation(seed, 24), PaperVariation(seed, 25));
-        PaperVertex(vh, rect.center, tint, new Vector2(0.5f, 0.5f), textureSeed);
+        Vector2 textureSeed = new(PaperVariation(seed, 24) * 0.99f + (punched ? 2f : 0f), PaperVariation(seed, 25));
+        PaperSheetVertex(vh, rect.center, sheetRect, cosine, sine, fit, tint, textureSeed);
         for (int i = 0; i < count; i++)
         {
-            float cut = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i));
-            if (folded && i / 2 == foldCorner) cut = Mathf.Max(cut, foldCut);
-            float edge = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i + 12));
-            Vector2 point;
-            if (badge)
+            Vector2 a = PaperCorner(rect, seed, i, count, badge, min, max);
+            Vector2 b = PaperCorner(rect, seed, (i + 1) % count, count, badge, min, max);
+            int steps = badge || i % 2 == 0 ? 1 : Mathf.Clamp(Mathf.CeilToInt(Vector2.Distance(a, b) / 70f), 2, 8);
+            Vector2 normal = new Vector2(-(b.y - a.y), b.x - a.x).normalized;
+            float wave = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i + 32)) * 0.5f;
+            for (int step = 0; step < steps; step++)
             {
-                float phase = (i * 360f / count + 22.5f + (PaperVariation(seed, i + 12) - 0.5f) * 8f) * Mathf.Deg2Rad;
-                point = new Vector2(Mathf.Cos(phase) * (rect.width * 0.5f - cut),
-                    Mathf.Sin(phase) * (rect.height * 0.5f - edge));
+                float t = (float)step / steps;
+                Vector2 point = Vector2.Lerp(a, b, t);
+                point += normal * wave * Mathf.Sin(t * Mathf.PI) *
+                    (0.6f + 0.4f * Mathf.Sin(t * Mathf.PI * 2f + PaperVariation(seed, i + 40) * Mathf.PI));
+                PaperSheetVertex(vh, point, sheetRect, cosine, sine, fit, tint, textureSeed);
             }
-            else
-            {
-                point = i switch
-                {
-                    0 => new Vector2(-rect.width * 0.5f + edge * 0.2f, -rect.height * 0.5f + cut),
-                    1 => new Vector2(-rect.width * 0.5f + cut, -rect.height * 0.5f + edge),
-                    2 => new Vector2(rect.width * 0.5f - cut, -rect.height * 0.5f + edge * 0.2f),
-                    3 => new Vector2(rect.width * 0.5f - edge, -rect.height * 0.5f + cut),
-                    4 => new Vector2(rect.width * 0.5f - edge * 0.2f, rect.height * 0.5f - cut),
-                    5 => new Vector2(rect.width * 0.5f - cut, rect.height * 0.5f - edge),
-                    6 => new Vector2(-rect.width * 0.5f + cut, rect.height * 0.5f - edge * 0.2f),
-                    _ => new Vector2(-rect.width * 0.5f + edge, rect.height * 0.5f - cut)
-                };
-            }
-            if (folded && i / 2 == foldCorner)
-            {
-                if (i % 2 == 0) foldA = point;
-                else foldB = point;
-            }
-            Vector2 uv = new(point.x / rect.width + 0.5f, point.y / rect.height + 0.5f);
-            point = rect.center + new Vector2(point.x * cosine - point.y * sine,
-                point.x * sine + point.y * cosine) * fit;
-            PaperVertex(vh, point, tint, uv, textureSeed);
         }
-        for (int i = 0; i < count; i++)
-            if (!folded || !foldedFace || i != foldCorner * 2)
-                vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
-        if (folded && foldedFace)
-        {
-            Vector2 corner = new(foldCorner == 0 || foldCorner == 3 ? -rect.width * 0.5f : rect.width * 0.5f,
-                foldCorner < 2 ? -rect.height * 0.5f : rect.height * 0.5f);
-            Vector2 edge = foldB - foldA;
-            Vector2 projection = foldA + edge * (Vector2.Dot(corner - foldA, edge) / Mathf.Max(edge.sqrMagnitude, 0.0001f));
-            Vector2 tip = projection * 2f - corner;
-            Color shade = Color.Lerp(tint, settings.innerLine, Mathf.Clamp01(settings.paperCreaseStrength) * 0.45f);
-            Color light = Color.Lerp(tint, Color.white, 0.55f);
-            shade.a = light.a = tint.a;
-            int bodyTip = vh.currentVertCount;
-            PaperFoldVertex(vh, tip, rect, cosine, sine, fit, tint, textureSeed);
-            vh.AddTriangle(first, first + 1 + foldCorner * 2, bodyTip);
-            vh.AddTriangle(first, bodyTip, first + 2 + foldCorner * 2);
-            int flap = vh.currentVertCount;
-            PaperFoldVertex(vh, foldA, rect, cosine, sine, fit, shade, textureSeed);
-            PaperFoldVertex(vh, foldB, rect, cosine, sine, fit, shade, textureSeed);
-            PaperFoldVertex(vh, tip, rect, cosine, sine, fit, light, textureSeed);
-            vh.AddTriangle(flap, flap + 1, flap + 2);
-        }
+        int edgeCount = vh.currentVertCount - first - 1;
+        for (int i = 0; i < edgeCount; i++)
+            vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % edgeCount);
     }
 
-    private static void PaperFoldVertex(VertexHelper vh, Vector2 point, Rect rect, float cosine, float sine,
+    private static Vector2 PaperCorner(Rect rect, uint seed, int i, int count, bool badge, float min, float max)
+    {
+        float shortSide = Mathf.Min(rect.width, rect.height);
+        float cut = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i));
+        float edge = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i + 12));
+        if (badge)
+        {
+            float phase = (i * 360f / count + 22.5f + (PaperVariation(seed, i + 12) - 0.5f) * 8f) * Mathf.Deg2Rad;
+            return rect.center + new Vector2(Mathf.Cos(phase) * (rect.width * 0.5f - cut),
+                Mathf.Sin(phase) * (rect.height * 0.5f - edge));
+        }
+        return i switch
+        {
+            0 => new Vector2(rect.xMin + edge * 0.15f, rect.yMin + cut),
+            1 => new Vector2(rect.xMin + cut, rect.yMin + edge * 0.15f),
+            2 => new Vector2(rect.xMax - cut, rect.yMin + edge * 0.15f),
+            3 => new Vector2(rect.xMax - edge * 0.15f, rect.yMin + cut),
+            4 => new Vector2(rect.xMax - edge * 0.15f, rect.yMax - cut),
+            5 => new Vector2(rect.xMax - cut, rect.yMax - edge * 0.15f),
+            6 => new Vector2(rect.xMin + cut, rect.yMax - edge * 0.15f),
+            _ => new Vector2(rect.xMin + edge * 0.15f, rect.yMax - cut)
+        };
+    }
+
+    private static void PaperSheetVertex(VertexHelper vh, Vector2 point, Rect rect, float cosine, float sine,
         float fit, Color tint, Vector2 seed)
     {
-        Vector2 uv = new(point.x / rect.width + 0.5f, point.y / rect.height + 0.5f);
+        Vector2 uv = new(point.x - rect.xMin, rect.yMax - point.y);
+        point -= rect.center;
         point = rect.center + new Vector2(point.x * cosine - point.y * sine,
             point.x * sine + point.y * cosine) * fit;
         PaperVertex(vh, point, tint, uv, seed);

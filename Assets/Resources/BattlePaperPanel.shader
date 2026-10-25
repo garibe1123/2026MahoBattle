@@ -5,6 +5,7 @@ Shader "UI/BattlePaperPanel"
         [PerRendererData] _MainTex ("Sprite Mask", 2D) = "white" {}
         _UseSpriteMask ("Use Sprite Mask", Float) = 0
         _PaperTexture ("Grain, Stain, Reserved, Fiber Scale", Vector) = (0.065, 0.08, 0.22, 0.7)
+        _PaperPunch ("Hole Radius, Spacing, Top Inset, Reserved", Vector) = (3.5, 32, 12, 0)
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
         _StencilOp ("Stencil Operation", Float) = 0
@@ -32,7 +33,7 @@ Shader "UI/BattlePaperPanel"
             #include "UnityUI.cginc"
 
             sampler2D _MainTex;
-            float4 _ClipRect, _TextureSampleAdd, _PaperTexture;
+            float4 _ClipRect, _TextureSampleAdd, _PaperTexture, _PaperPunch;
             float _UseSpriteMask;
             struct Attributes { float4 vertex : POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; };
             struct Varyings { float4 vertex : SV_POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; float2 local : TEXCOORD1; };
@@ -70,10 +71,7 @@ Shader "UI/BattlePaperPanel"
                 #ifdef UNITY_UI_CLIP_RECT
                 color.a *= UnityGet2DClipping(input.local, _ClipRect);
                 #endif
-                #ifdef UNITY_UI_ALPHACLIP
-                clip(color.a - 0.001);
-                #endif
-                float2 seed = input.uv.zw;
+                float2 seed = frac(input.uv.zw);
                 float2 offset = seed * float2(937.0, 617.0);
                 float angle = seed.x * 6.2831853;
                 float2 direction = float2(cos(angle), sin(angle));
@@ -86,6 +84,18 @@ Shader "UI/BattlePaperPanel"
                 float grainShade = (grain * 0.65 + fibers * 0.35) * _PaperTexture.x;
                 color.rgb += face * grainShade;
                 color.rgb -= face * stain * _PaperTexture.y * float3(0.38, 0.55, 0.8);
+                if (_UseSpriteMask < 0.5 && input.uv.z >= 2.0 && _PaperPunch.x > 0.0)
+                {
+                    float spacing = max(12.0, _PaperPunch.y);
+                    float x = (frac(input.uv.x / spacing) - 0.5) * spacing;
+                    float distanceToHole = length(float2(x, input.uv.y - _PaperPunch.z)) - _PaperPunch.x;
+                    float aa = max(0.25, fwidth(distanceToHole));
+                    color.a *= smoothstep(-aa, aa, distanceToHole);
+                    color.rgb *= 1.0 - (1.0 - smoothstep(0.0, 1.5, distanceToHole)) * 0.16;
+                }
+                #ifdef UNITY_UI_ALPHACLIP
+                clip(color.a - 0.001);
+                #endif
                 color.rgb = saturate(color.rgb);
                 return color;
             }

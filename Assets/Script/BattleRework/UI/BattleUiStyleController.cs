@@ -121,6 +121,10 @@ public sealed class BattleUiStyleSettings
     [Range(0f, 0.4f)] public float paperCreaseStrength = 0.22f;
     [Range(0f, 0.3f)] public float paperFoldSize = 0.18f;
     [Min(0.1f)] public float paperFiberScale = 0.7f;
+    [Range(0f, 1f)] public float paperSheetBorderScale = 0.22f;
+    [Min(0f)] public float paperPunchRadius = 3.5f;
+    [Min(12f)] public float paperPunchSpacing = 32f;
+    [Min(0f)] public float paperPunchInset = 12f;
 }
 
 [DisallowMultipleComponent]
@@ -210,6 +214,9 @@ public sealed class BattleUiStyleController : MonoBehaviour
     {
         if (active == null || target == null || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
         BattleUiOpticsCanvas.Register(target);
+        // Unframed rule captions need their own contrast against the world.
+        if (target is Text && target.name == "FallbackLabel" && target.transform.parent != null &&
+            target.transform.parent.name == "VisualRoot") return;
         if (active.screenToneReferenceCanvas == null && target.canvas != null &&
             target.canvas.rootCanvas.sortingOrder >= 500)
             active.screenToneReferenceCanvas = target.canvas.rootCanvas;
@@ -298,6 +305,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
             if (paperMaterial != null)
             {
                 paperMaterial.SetVector("_PaperTexture", texture);
+                paperMaterial.SetVector("_PaperPunch", new Vector4(settings.paperPunchRadius,
+                    Mathf.Max(12f, settings.paperPunchSpacing), settings.paperPunchInset, 0f));
             }
             if (paperMaskMaterial != null)
             {

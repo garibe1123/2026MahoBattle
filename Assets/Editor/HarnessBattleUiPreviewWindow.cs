@@ -125,6 +125,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         switch (screen)
         {
             case Screen.Hud:
+                RuleIcons(content, new Vector2(-650f, 240f));
                 Panel(content, "BackpackMiniGrid", new Vector2(-650f, -260f), new Vector2(460f, 430f));
                 Slots(content, new Vector2(-800f, -130f), 112f);
                 RectTransform hud = Panel(content, "CurrentItem", new Vector2(570f, -340f), new Vector2(650f, 230f));
@@ -151,7 +152,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
             case Screen.Roulette:
                 RectTransform roulette = Panel(content, "RulePanel", new Vector2(0f, 70f), new Vector2(1400f, 460f));
                 Label(roulette, "RuleTitle", "RULE ROULETTE", new Vector2(0f, 100f), new Vector2(1150f, 100f), 58);
-                Label(roulette, "Rules", "POWER UP  /  SPEED UP  /  BONUS REWARD", new Vector2(0f, -60f), new Vector2(1150f, 100f), 32);
+                RuleIcons(roulette, new Vector2(-440f, -35f));
                 Button(content, "StartBattleButton", "START BATTLE", new Vector2(430f, -340f), true);
                 break;
             case Screen.Pause:
@@ -177,6 +178,25 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         RectTransform detail = Panel(content, "DetailPanel", position, new Vector2(650f, 610f));
         Label(detail, "ItemTitle", "BASIC PISTOL", new Vector2(0f, 200f), new Vector2(560f, 90f), 42);
         Label(detail, "Description", "RARE / MANUAL\n\nItem description / equipment details\n\nDMG x1.20   MOVE x1.05\nRANGE x1.10", new Vector2(0f, -30f), new Vector2(540f, 300f), 26);
+    }
+
+    private void RuleIcons(Transform parent, Vector2 start)
+    {
+        string[] ids = { "power_play", "second_wind", "bounty_night", "light_feet", "armored_cast" };
+        string[] captions = { "DAMAGE +25%", "HEAL 15%", "POINT x1.75", "SPEED +18%", "ENEMY HP +25%" };
+        for (int i = 0; i < ids.Length; i++)
+        {
+            Vector2 position = start + new Vector2(i * 220f, 0f);
+            RectTransform visual = Rect(parent, "VisualRoot", position, new Vector2(180f, 150f));
+            BattleRuleGlyph glyph = Rect(visual, "RuleGlyph_" + i, Vector2.zero, new Vector2(100f, 100f))
+                .gameObject.AddComponent<BattleRuleGlyph>();
+            glyph.Configure(new BattleRuleDefinition { id = ids[i] },
+                i == 4 ? new Color(1f, 0.2f, 0.34f) : new Color(0.18f, 0.95f, 0.62f));
+            Text caption = Label(visual, "FallbackLabel", captions[i], new Vector2(0f, -72f), new Vector2(210f, 38f), 20);
+            Outline outline = caption.gameObject.AddComponent<Outline>();
+            outline.effectColor = new Color(0.025f, 0.03f, 0.06f, 0.95f);
+            outline.effectDistance = new Vector2(1f, -1f);
+        }
     }
 
     private void Slots(Transform parent, Vector2 start, float size)
@@ -207,7 +227,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         return rect;
     }
 
-    private void Label(Transform parent, string name, string value, Vector2 position, Vector2 size, int pixels)
+    private Text Label(Transform parent, string name, string value, Vector2 position, Vector2 size, int pixels)
     {
         Text text = Rect(parent, name, position, size).gameObject.AddComponent<Text>();
         text.font = font;
@@ -216,6 +236,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         text.alignment = TextAnchor.MiddleCenter;
         text.color = Color.white;
         text.raycastTarget = false;
+        return text;
     }
 
     private static RectTransform Rect(Transform parent, string name, Vector2 position, Vector2 size)
