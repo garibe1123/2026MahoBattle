@@ -174,6 +174,17 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     };
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
+    [SerializeField] private bool enableScreenTone = true;
+    [SerializeField] private BattleUiScreenToneSettings screenTone = new();
+    public bool EnableScreenTone => enableScreenTone;
+    public BattleUiScreenToneSettings ScreenToneSettings => screenTone;
+
+    public void SetScreenToneEnabled(bool value)
+    {
+        if (enableScreenTone == value) return;
+        enableScreenTone = value;
+        BattleUiOpticsCanvas.RefreshScreenTone();
+    }
 
     [SerializeField, HideInInspector] private Material tabBackgroundMaterial;
     public Material LegacyTabBackgroundMaterial => tabBackgroundMaterial;

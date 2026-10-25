@@ -34,6 +34,8 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     // 아래의 접이식 Reward 탭에서만 정리해서 보여줍니다.
     private static readonly string[] DefaultInspectorExcludedProperties =
     {
+        "enableScreenTone",
+        "screenTone",
         SelectionFrameProperty,
         SelectionTailProperty,
         CombatFrameProperty,
@@ -96,6 +98,7 @@ public sealed class BattleShowPresentationManagerEditor : Editor
     private bool rewardCameraTabOpen;
     private bool rewardSpotlightTabOpen;
     private bool rewardPreviewTabOpen;
+    private bool screenToneTabOpen = true;
 
     private Vector2 rewardBoosterDragStartMouse;
     private Vector2 rewardBoosterDragStartOffset;
@@ -216,6 +219,15 @@ public sealed class BattleShowPresentationManagerEditor : Editor
         // Reward는 작업 빈도가 높으므로 Inspector 최상단에 접이식 탭으로 둡니다.
         // 처음에는 모두 닫혀 있고 필요한 영역만 열어 튜닝합니다.
         DrawRewardTuningTabs();
+
+        screenToneTabOpen = EditorGUILayout.BeginFoldoutHeaderGroup(screenToneTabOpen, "ScreenToneController");
+        if (screenToneTabOpen)
+        {
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("enableScreenTone"));
+            EditorGUILayout.PropertyField(serializedObject.FindProperty("screenTone"), true);
+            EditorGUILayout.HelpBox("DotSize: 최대 반지름, DotSpacing: 중심 간격 (Canvas 픽셀). PatternScale은 두 길이에 적용됩니다. PatternRotation은 도, DotDensity·ToneStrength·VignetteStrength는 0~1입니다.", MessageType.None);
+        }
+        EditorGUILayout.EndFoldoutHeaderGroup();
 
         EditorGUILayout.Space(12f);
         DrawDivider();

@@ -21,7 +21,7 @@ public sealed class BattleUiScreenToneSettings
     [Tooltip("Positive transition width in normalized radius units.")]
     [Min(0.001f)] public float VignetteSoftness = 0.6f;
 
-    internal void Apply(Material material, float canvasScale)
+    public void Apply(Material material, float canvasScale)
     {
         float rotation = PatternRotation * Mathf.Deg2Rad;
         material.SetVector("_ToneDots", new Vector4(Mathf.Max(0f, DotSize),

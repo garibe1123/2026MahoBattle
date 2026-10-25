@@ -114,26 +114,18 @@ public sealed class BattleUiStyleSettings
 public sealed class BattleUiStyleController : MonoBehaviour
 {
     private static BattleUiStyleController active;
-    [Header("Screen Tone (Canvas pixels)")]
-    [SerializeField] private bool enableScreenTone = true;
-    [SerializeField] private BattleUiScreenToneSettings screenTone = new();
     private Canvas screenToneReferenceCanvas;
 
     public bool EnableScreenTone
     {
-        get => enableScreenTone;
-        set
-        {
-            if (enableScreenTone == value) return;
-            enableScreenTone = value;
-            BattleUiOpticsCanvas.RefreshScreenTone();
-        }
+        get => presentation != null && presentation.EnableScreenTone;
+        set { if (presentation != null) presentation.SetScreenToneEnabled(value); }
     }
 
-    public BattleUiScreenToneSettings ScreenToneSettings => screenTone;
+    public BattleUiScreenToneSettings ScreenToneSettings => presentation != null ? presentation.ScreenToneSettings : null;
     internal static BattleUiScreenToneSettings ScreenTone => active != null && active.isActiveAndEnabled &&
-        active.enableScreenTone && active.screenTone != null && active.screenTone.ToneStrength > 0f
-        ? active.screenTone : null;
+        active.EnableScreenTone && active.ScreenToneSettings != null && active.ScreenToneSettings.ToneStrength > 0f
+        ? active.ScreenToneSettings : null;
     internal static float ScreenToneCanvasScale => active != null && active.screenToneReferenceCanvas != null
         ? active.screenToneReferenceCanvas.scaleFactor : 1f;
     private readonly Dictionary<Graphic, BattleUiStyleMeshEffect> targets = new();

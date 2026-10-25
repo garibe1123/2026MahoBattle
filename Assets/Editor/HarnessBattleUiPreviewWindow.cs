@@ -13,6 +13,10 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
     private BattleUiStyleController styles;
     private Screen builtScreen;
     private Font font;
+    private bool previewScreenTone = true;
+    private Material toneMaterial;
+    private readonly RenderTexture[] toneTextures = new RenderTexture[5];
+    private Graphic[] previewGraphics;
 
     [MenuItem("Tools/Harness/Battle UI Preview")]
     private static void Open()
@@ -57,6 +61,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
             return;
         }
         EditorGUILayout.LabelField("Theme", manager.UiStyle.ToString());
+        previewScreenTone = EditorGUILayout.Toggle("Screen Tone Preview", previewScreenTone);
         Rect available = GUILayoutUtility.GetRect(1f, 10000f, 1f, 10000f);
         Rect view = new(available.x, available.y, available.width, available.width * 9f / 16f);
         if (view.height > available.height)
@@ -67,6 +72,12 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         if (view.width < 1f || view.height < 1f || Event.current.type != EventType.Repaint) return;
         EnsurePreview();
         if (content == null || builtScreen != screen) BuildScreen();
+        if (previewScreenTone && manager.EnableScreenTone && manager.ScreenToneSettings != null &&
+            manager.ScreenToneSettings.ToneStrength > 0f)
+        {
+            DrawScreenTonePreview(view);
+            return;
+        }
         preview.BeginPreview(view, GUIStyle.none);
         Texture texture = null;
         try
@@ -218,6 +229,10 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
 
     private void ClosePreview()
     {
+        if (toneMaterial != null) DestroyImmediate(toneMaterial);
+        toneMaterial = null;
+        ReleaseToneTextures();
+        previewGraphics = null;
         if (styles != null) styles.ReleaseEditorPreview();
         if (root != null) DestroyImmediate(root);
         root = null;
@@ -225,5 +240,77 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         styles = null;
         preview?.Cleanup();
         preview = null;
+    }
+
+    private void DrawScreenTonePreview(Rect view)
+    {
+        if (toneMaterial == null)
+        {
+            Shader shader = Resources.Load<Shader>("BattleUiOptics");
+            if (shader == null) return;
+            toneMaterial = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
+        }
+        int width = Mathf.Max(1, Mathf.RoundToInt(view.width * EditorGUIUtility.pixelsPerPoint));
+        int height = Mathf.Max(1, Mathf.RoundToInt(view.height * EditorGUIUtility.pixelsPerPoint));
+        if (toneTextures[0] == null || toneTextures[0].width != width || toneTextures[0].height != height)
+        {
+            ReleaseToneTextures();
+            for (int i = 0; i < toneTextures.Length; i++)
+            {
+                toneTextures[i] = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBHalf)
+                    { hideFlags = HideFlags.HideAndDontSave };
+                toneTextures[i].Create();
+            }
+        }
+        if (previewGraphics == null) previewGraphics = root.GetComponentsInChildren<Graphic>(true);
+        bool[] culled = new bool[previewGraphics.Length];
+        Color background = preview.camera.backgroundColor;
+        RenderTexture previousActive = RenderTexture.active;
+        for (int i = 0; i < culled.Length; i++) culled[i] = previewGraphics[i].canvasRenderer.cull;
+        try
+        {
+            styles.DrawEditorPreview(manager, root.transform, () =>
+            {
+                for (int pass = 0; pass < 4; pass++)
+                {
+                    for (int i = 0; i < previewGraphics.Length; i++)
+                        previewGraphics[i].canvasRenderer.cull = culled[i] ||
+                            (pass >= 2 && BattleUiOpticsVisibility.IsToneSurface(previewGraphics[i]));
+                    preview.camera.backgroundColor = pass % 2 == 0 ? Color.black : Color.white;
+                    preview.BeginPreview(view, GUIStyle.none);
+                    Texture texture;
+                    try { preview.Render(true); }
+                    finally { texture = preview.EndPreview(); }
+                    Graphics.Blit(texture, toneTextures[pass]);
+                }
+            });
+            toneMaterial.SetTexture("_WhiteTex", toneTextures[1]);
+            toneMaterial.SetTexture("_ProtectedBlack", toneTextures[2]);
+            toneMaterial.SetTexture("_ProtectedWhite", toneTextures[3]);
+            toneMaterial.SetVector("_ScreenSize", new Vector4(width, height, 1f / width, 1f / height));
+            manager.ScreenToneSettings.Apply(toneMaterial, width / 1920f);
+            RenderTexture.active = toneTextures[4];
+            GL.Clear(false, true, background);
+            Graphics.Blit(toneTextures[0], toneTextures[4], toneMaterial);
+            RenderTexture.active = previousActive;
+            GUI.DrawTexture(view, toneTextures[4], ScaleMode.StretchToFill, false);
+        }
+        finally
+        {
+            RenderTexture.active = previousActive;
+            preview.camera.backgroundColor = background;
+            for (int i = 0; i < culled.Length; i++) previewGraphics[i].canvasRenderer.cull = culled[i];
+        }
+    }
+
+    private void ReleaseToneTextures()
+    {
+        for (int i = 0; i < toneTextures.Length; i++)
+        {
+            if (toneTextures[i] == null) continue;
+            toneTextures[i].Release();
+            DestroyImmediate(toneTextures[i]);
+            toneTextures[i] = null;
+        }
     }
 }

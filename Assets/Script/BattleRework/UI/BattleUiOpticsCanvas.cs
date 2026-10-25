@@ -15,7 +15,8 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     private readonly Dictionary<Transform, LayerState> layers = new();
     private readonly List<Transform> removed = new();
     private readonly UniversalRenderPipeline.SingleCameraRequest request = new();
-    private Canvas source, output;
+    private Canvas source, captureRoot, output;
+    internal static BattleUiOpticsCanvas ActiveCapture { get; private set; }
     private readonly List<BattleUiOpticsVisibility> visibility = new();
     private readonly HashSet<Graphic> missingVisibility = new();
     private Material hiddenMaterial;
@@ -46,10 +47,14 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     internal static void Register(Graphic graphic)
     {
         if (!Application.isPlaying || graphic == null || graphic.canvas == null) return;
-        Canvas canvas = graphic.canvas.rootCanvas;
-        if (canvas.renderMode != RenderMode.ScreenSpaceOverlay ||
-            canvas.name == "BattleCombatCornerVignetteCanvas" ||
-            (canvas.sortingOrder < 500 && !canvas.name.StartsWith("Battle", System.StringComparison.Ordinal))) return;
+        if (ActiveCapture != null) return;
+        Canvas root = graphic.canvas.rootCanvas;
+        if (root.renderMode != RenderMode.ScreenSpaceOverlay ||
+            root.name == "BattleCombatCornerVignetteCanvas" ||
+            (root.sortingOrder < 500 && !root.name.StartsWith("Battle", System.StringComparison.Ordinal))) return;
+        Canvas canvas = root;
+        foreach (Canvas parent in graphic.GetComponentsInParent<Canvas>(true))
+            if (parent.overrideSorting || parent == root) { canvas = parent; break; }
         if (!canvas.TryGetComponent(out BattleUiOpticsCanvas effect))
             effect = canvas.gameObject.AddComponent<BattleUiOpticsCanvas>();
         effect.RegisterGraphic(graphic);
@@ -57,7 +62,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         {
             if (!effect.layers.ContainsKey(node))
                 effect.layers.Add(node, new LayerState { layer = node.gameObject.layer });
-            if (node == canvas.transform) break;
+            if (node == root.transform) break;
         }
     }
 
@@ -65,10 +70,12 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     {
         instances.Add(this);
         source = GetComponent<Canvas>();
+        captureRoot = source.rootCanvas;
+        Canvas.preWillRenderCanvases += ReconcileCanvases;
         foreach (Transform node in GetComponentsInChildren<Transform>(true))
             layers[node] = new LayerState { layer = node.gameObject.layer };
         foreach (Graphic graphic in GetComponentsInChildren<Graphic>(true))
-            RegisterGraphic(graphic);
+            Register(graphic);
         if (captureLayer < 0)
         {
             uint used = 1;
@@ -90,10 +97,10 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         modifier.Bind(this);
     }
 
-    internal void RemoveVisibility(BattleUiOpticsVisibility modifier, Graphic graphic)
+    internal void RemoveVisibility(BattleUiOpticsVisibility modifier, Graphic graphic, bool transferred = false)
     {
         visibility.Remove(modifier);
-        if (graphic != null) missingVisibility.Add(graphic);
+        if (!transferred && graphic != null) missingVisibility.Add(graphic);
         Restore();
     }
 
@@ -105,15 +112,26 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             if (modifier != null) modifier.Refresh();
     }
 
+    private void ReconcileCanvases()
+    {
+        if (ActiveCapture != null || !isActiveAndEnabled) return;
+        for (int i = visibility.Count - 1; i >= 0; i--)
+        {
+            BattleUiOpticsVisibility modifier = visibility[i];
+            if (modifier != null && modifier.SortingCanvas != source) modifier.RegisterCanvas();
+        }
+    }
+
     private void LateUpdate()
     {
         bool optics = BattleColorGradingController.TryGetUiOptics(out Vector4 settings, out Vector2 limits) &&
             source != null && source.sortingOrder >= 500;
         PreserveNativePresenters = !optics;
         BattleUiScreenToneSettings tone = BattleUiStyleController.ScreenTone;
-        if (source == null || !source.isActiveAndEnabled ||
+        if (source == null || captureRoot == null || !source.isActiveAndEnabled ||
+            !source.gameObject.activeInHierarchy ||
             !IsVisible() ||
-            source.renderMode != RenderMode.ScreenSpaceOverlay ||
+            captureRoot.renderMode != RenderMode.ScreenSpaceOverlay ||
             !(RenderPipelineManager.currentPipeline is UniversalRenderPipeline) ||
             (!optics && tone == null))
         {
@@ -247,9 +265,9 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 
     private void Capture(bool screenTone)
     {
-        Camera originalCamera = source.worldCamera;
-        float originalDistance = source.planeDistance;
-        RectTransform rect = (RectTransform)source.transform;
+        Camera originalCamera = captureRoot.worldCamera;
+        float originalDistance = captureRoot.planeDistance;
+        RectTransform rect = (RectTransform)captureRoot.transform;
         Vector3 position = rect.localPosition, scale = rect.localScale;
         Quaternion rotation = rect.localRotation;
         Vector2 size = rect.sizeDelta;
@@ -265,13 +283,15 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         try
         {
             foreach (var entry in layers) entry.Key.gameObject.layer = captureLayer;
+            ActiveCapture = this;
             IsCapturing = true;
             SetSourceHidden(false);
+            RefreshCaptureMaterials();
             foreach (BattleUiOpticsVisibility modifier in visibility)
                 if (modifier != null && modifier.NativePresenter && PreserveNativePresenters) modifier.Refresh();
-            source.renderMode = RenderMode.ScreenSpaceCamera;
-            source.worldCamera = captureCamera;
-            source.planeDistance = CapturePlaneDistance;
+            captureRoot.renderMode = RenderMode.ScreenSpaceCamera;
+            captureRoot.worldCamera = captureCamera;
+            captureRoot.planeDistance = CapturePlaneDistance;
             captureCamera.targetTexture = black;
             Canvas.ForceUpdateCanvases();
             // Two backgrounds recover coverage without changing any source shader or blend mode.
@@ -301,9 +321,9 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             IsCapturing = false;
             CapturingProtection = false;
             captureCamera.targetTexture = null;
-            source.renderMode = RenderMode.ScreenSpaceOverlay;
-            source.worldCamera = originalCamera;
-            source.planeDistance = originalDistance;
+            captureRoot.renderMode = RenderMode.ScreenSpaceOverlay;
+            captureRoot.worldCamera = originalCamera;
+            captureRoot.planeDistance = originalDistance;
             rect.localPosition = position;
             rect.localRotation = rotation;
             rect.localScale = scale;
@@ -311,6 +331,8 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             foreach (var entry in layers)
                 if (entry.Key != null) entry.Key.gameObject.layer = entry.Value.layer;
             SetSourceHidden(captured);
+            ActiveCapture = null;
+            RefreshCaptureMaterials();
             foreach (BattleUiOpticsVisibility modifier in visibility)
                 if (modifier != null) modifier.Refresh();
             Canvas.ForceUpdateCanvases();
@@ -323,6 +345,13 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         CapturingProtection = false;
         SetSourceHidden(false);
         if (output != null) output.enabled = false;
+    }
+
+    private static void RefreshCaptureMaterials()
+    {
+        foreach (BattleUiOpticsCanvas effect in instances)
+            foreach (BattleUiOpticsVisibility modifier in effect.visibility)
+                if (modifier != null) modifier.Refresh();
     }
 
     private void ReleaseTextures()
@@ -362,6 +391,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 
     private void OnDestroy()
     {
+        Canvas.preWillRenderCanvases -= ReconcileCanvases;
         instances.Remove(this);
         Restore();
         ReleaseResources();
