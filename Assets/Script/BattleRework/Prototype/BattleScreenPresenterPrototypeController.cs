@@ -1669,6 +1669,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (font == null) font = BattleUiThemeFonts.LoadTmp(BattleUiStyle.VectorStyleUi);
         if (font == null) font = TMP_Settings.defaultFontAsset;
         if (font == null) return;
+        if (BattleUiStyleController.IsCmd) font = BattleUiThemeFonts.ResolveCmdTmp(font, string.Empty);
         if (nameText != null && nameText.font != font)
         {
             nameText.font = font;
@@ -2092,7 +2093,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         go.transform.SetParent(parent, false);
 
         TextMeshProUGUI text = go.AddComponent<TextMeshProUGUI>();
-        text.font = BattleUiThemeFonts.LoadTmp(BattleUiStyle.VectorStyleUi) ?? TMP_Settings.defaultFontAsset;
+        text.font = BattleUiThemeFonts.LoadTmp(BattleUiStyleController.IsCmd ? BattleUiStyle.CMD : BattleUiStyle.VectorStyleUi)
+            ?? TMP_Settings.defaultFontAsset;
         text.richText = false;
         text.text = value;
         text.fontSize = size;

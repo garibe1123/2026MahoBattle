@@ -41,7 +41,7 @@ internal sealed class BattleUiCmdFrame : IDisposable
 
     internal void Apply(Graphic owner, BattleUiStyleSettings settings, bool selected)
     {
-        TMP_FontAsset font = settings.fontAsset != null ? settings.fontAsset : BattleUiThemeFonts.LoadTmp(BattleUiStyle.CMD);
+        TMP_FontAsset font = BattleUiThemeFonts.ResolveCmdTmp(settings.fontAsset, "+-|");
         Rect rect = owner.rectTransform.rect;
         float size = Mathf.Max(8f, Mathf.Min(settings.cmdFrameFontSize, rect.height / 3f));
         if (font == null || rect.width < size * 3f || rect.height < size * 3f) { Hide(); return; }

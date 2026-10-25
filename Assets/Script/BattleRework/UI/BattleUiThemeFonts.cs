@@ -1,15 +1,26 @@
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.TextCore.LowLevel;
 
 internal static class BattleUiThemeFonts
 {
     private static readonly Dictionary<BattleUiStyle, Font> fonts = new();
     private static readonly Dictionary<BattleUiStyle, TMP_FontAsset> tmpFonts = new();
+    private static readonly Dictionary<Font, TMP_FontAsset> cmdFonts = new();
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void Reset()
     {
+        foreach (TMP_FontAsset font in cmdFonts.Values)
+        {
+            if (font == null) continue;
+            foreach (Texture2D atlas in font.atlasTextures)
+                if (atlas != null) BattleUiCmdFrame.Release(atlas);
+            if (font.material != null) BattleUiCmdFrame.Release(font.material);
+            BattleUiCmdFrame.Release(font);
+        }
+        cmdFonts.Clear();
         fonts.Clear();
         tmpFonts.Clear();
     }
@@ -17,6 +28,16 @@ internal static class BattleUiThemeFonts
     internal static TMP_FontAsset LoadTmp(BattleUiStyle style)
     {
         if (tmpFonts.TryGetValue(style, out TMP_FontAsset font)) return font;
+        if (style == BattleUiStyle.CMD)
+        {
+            font = CreateCmdTmp(Load(BattleUiStyle.CMD));
+            TMP_FontAsset korean = CreateCmdTmp(Load(BattleUiStyle.VectorStyleUi));
+            if (font == null) font = korean;
+            if (font != null && korean != null && font != korean)
+                font.fallbackFontAssetTable.Add(korean);
+            tmpFonts[style] = font;
+            return font;
+        }
         string path = style switch
         {
             BattleUiStyle.pixelStyleUi => "BattleUiFonts/galmuri/Galmuri9 SDF",
@@ -26,28 +47,9 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.Stylish => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular SDF",
             BattleUiStyle.Paper => "HarnessFonts/NanumPenScript/NanumPenScript-Regular SDF",
-            BattleUiStyle.CMD => "BattleUiFonts/galmuri/Galmuri9 SDF",
             _ => null
         };
         font = path != null ? Resources.Load<TMP_FontAsset>(path) : null;
-        if (style == BattleUiStyle.CMD)
-        {
-            TMP_FontAsset fallback = LoadTmp(BattleUiStyle.VectorStyleUi);
-            if (fallback == null) fallback = TMP_Settings.defaultFontAsset;
-            if (font == null) font = fallback;
-            else if (fallback != null && fallback != font)
-            {
-                if (font.fallbackFontAssetTable == null) font.fallbackFontAssetTable = new List<TMP_FontAsset>();
-                if (!font.fallbackFontAssetTable.Contains(fallback)) font.fallbackFontAssetTable.Add(fallback);
-            }
-            TMP_FontAsset korean = LoadTmp(BattleUiStyle.Stylish);
-            if (font == null) font = korean;
-            else if (korean != null && korean != font)
-            {
-                if (font.fallbackFontAssetTable == null) font.fallbackFontAssetTable = new List<TMP_FontAsset>();
-                if (!font.fallbackFontAssetTable.Contains(korean)) font.fallbackFontAssetTable.Add(korean);
-            }
-        }
         if (style == BattleUiStyle.Paper && font != null)
         {
             TMP_FontAsset fallback = Resources.Load<TMP_FontAsset>("HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF");
@@ -65,12 +67,37 @@ internal static class BattleUiThemeFonts
 
     internal static TMP_FontAsset ResolveCmdTmp(TMP_FontAsset preferred, string content)
     {
-        if (preferred != null && preferred.HasCharacters(content, out uint[] _, true, true)) return preferred;
+        // Rebuild CMD atlases from source fonts; serialized SDF tables contain merge conflicts.
+        if (preferred != null && preferred.sourceFontFile != null)
+            preferred = CreateCmdTmp(preferred.sourceFontFile);
+        if (SupportsCmdTmp(preferred, content)) return preferred;
         TMP_FontAsset fallback = LoadTmp(BattleUiStyle.CMD);
-        if (fallback != null && fallback.HasCharacters(content, out uint[] _, true, true)) return fallback;
-        TMP_FontAsset korean = LoadTmp(BattleUiStyle.Stylish);
-        if (korean != null && korean.HasCharacters(content, out uint[] _, true, true)) return korean;
+        if (SupportsCmdTmp(fallback, content)) return fallback;
         return preferred != null ? preferred : fallback != null ? fallback : TMP_Settings.defaultFontAsset;
+    }
+
+    internal static bool SupportsCmdTmp(TMP_FontAsset font, string content)
+    {
+        if (font == null) return false;
+        if (string.IsNullOrEmpty(content)) return true;
+        foreach (char character in content)
+            if (!char.IsControl(character) && !font.HasCharacter(character, true, true)) return false;
+        return true;
+    }
+
+    private static TMP_FontAsset CreateCmdTmp(Font source)
+    {
+        if (source == null) return null;
+        if (cmdFonts.TryGetValue(source, out TMP_FontAsset font)) return font;
+        font = TMP_FontAsset.CreateFontAsset(source, 90, 9, GlyphRenderMode.SDFAA,
+            1024, 1024, AtlasPopulationMode.Dynamic, true);
+        if (font == null) return null;
+        font.name = source.name + " CMD Runtime SDF";
+        font.hideFlags = HideFlags.HideAndDontSave;
+        font.material.hideFlags = HideFlags.HideAndDontSave;
+        font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+        cmdFonts[source] = font;
+        return font;
     }
 
     internal static Font Load(BattleUiStyle style)

@@ -13,7 +13,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private Material material;
     private string checkedText;
     private TMP_FontAsset checkedFont, resolvedFont;
-    private bool supported;
+    private bool supported, checkedCmd;
     private float shear, padding;
     private float titleAngle;
     private readonly float paperAngle;
@@ -81,12 +81,14 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         string content = source.text ?? string.Empty;
         if (cmd && content.Length > 0)
             content = cmdOption ? (cmdSelected ? "[ " + content + " ]" : "[ ] " + content) : decorate ? "> " + content : content;
-        if (checkedFont != font || checkedText != content)
+        if (checkedFont != font || checkedText != content || checkedCmd != cmd)
         {
             checkedFont = font;
             checkedText = content;
+            checkedCmd = cmd;
             resolvedFont = cmd ? BattleUiThemeFonts.ResolveCmdTmp(font, content) : font;
-            supported = resolvedFont != null && resolvedFont.HasCharacters(content, out uint[] _, true, true);
+            supported = cmd ? BattleUiThemeFonts.SupportsCmdTmp(resolvedFont, content) :
+                resolvedFont != null && resolvedFont.HasCharacters(content, out uint[] _, true, true);
         }
         font = resolvedFont;
         if (!source.isActiveAndEnabled || (titleMotion != null &&
