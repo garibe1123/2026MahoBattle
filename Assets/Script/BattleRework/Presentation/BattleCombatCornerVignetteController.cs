@@ -364,6 +364,9 @@ public sealed class BattleCombatCornerVignetteController : MonoBehaviour
         if (overlayImage == null || overlayMaterial == null)
             return;
 
+        BattleUiScreenToneSettings tone = BattleUiStyleController.ScreenTone;
+        if (tone != null) tone.Apply(overlayMaterial, BattleUiStyleController.ScreenToneCanvasScale);
+        else overlayMaterial.SetVector("_TonePattern", Vector4.zero);
         overlayMaterial.SetColor("_VignetteColor", vignetteColor);
         // Low HP / Damage 반응도 Combat gate를 반드시 통과하게 합니다.
         // 전투가 끝나 Show로 넘어갈 때 상태성 암부가 화면에 잔류하지 않도록

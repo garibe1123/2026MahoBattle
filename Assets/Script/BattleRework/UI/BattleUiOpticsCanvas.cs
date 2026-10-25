@@ -10,27 +10,44 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 {
     private const float CapturePlaneDistance = 10000f;
     private static int captureLayer = -1;
+    private static readonly HashSet<BattleUiOpticsCanvas> instances = new();
     private sealed class LayerState { internal int layer; }
     private readonly Dictionary<Transform, LayerState> layers = new();
     private readonly List<Transform> removed = new();
     private readonly UniversalRenderPipeline.SingleCameraRequest request = new();
     private Canvas source, output;
     private readonly List<BattleUiOpticsVisibility> visibility = new();
+    private readonly HashSet<Graphic> missingVisibility = new();
     private Material hiddenMaterial;
     private bool sourceHidden;
-    private CanvasGroup[] sourceGroups;
     private Camera captureCamera;
     private Material material;
     private RenderTexture black, white;
+    private RenderTexture protectedBlack, protectedWhite;
     private RawImage image;
 
     internal Material HiddenSourceMaterial => sourceHidden ? hiddenMaterial : null;
+    internal Material ProtectionHiddenMaterial => hiddenMaterial;
+    internal bool CapturingProtection { get; private set; }
+
+    internal static void RefreshScreenTone()
+    {
+        foreach (BattleUiOpticsCanvas effect in instances)
+        {
+            if (effect == null) continue;
+            effect.Restore();
+            if (BattleUiStyleController.ScreenTone == null &&
+                !BattleColorGradingController.TryGetUiOptics(out _, out _)) effect.ReleaseResources();
+        }
+    }
 
     internal static void Register(Graphic graphic)
     {
         if (!Application.isPlaying || graphic == null || graphic.canvas == null) return;
         Canvas canvas = graphic.canvas.rootCanvas;
-        if (canvas.renderMode != RenderMode.ScreenSpaceOverlay || canvas.sortingOrder < 500) return;
+        if (canvas.renderMode != RenderMode.ScreenSpaceOverlay ||
+            canvas.name == "BattleCombatCornerVignetteCanvas" ||
+            (canvas.sortingOrder < 500 && !canvas.name.StartsWith("Battle", System.StringComparison.Ordinal))) return;
         if (!canvas.TryGetComponent(out BattleUiOpticsCanvas effect))
             effect = canvas.gameObject.AddComponent<BattleUiOpticsCanvas>();
         effect.RegisterGraphic(graphic);
@@ -44,8 +61,8 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 
     private void Awake()
     {
+        instances.Add(this);
         source = GetComponent<Canvas>();
-        sourceGroups = GetComponentsInParent<CanvasGroup>(true);
         foreach (Transform node in GetComponentsInChildren<Transform>(true))
             layers[node] = new LayerState { layer = node.gameObject.layer };
         foreach (Graphic graphic in GetComponentsInChildren<Graphic>(true))
@@ -60,15 +77,22 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             for (int layer = 31; layer > 0; layer--)
                 if ((used & (1u << layer)) == 0) { captureLayer = layer; break; }
         }
-        CreateResources();
     }
 
     private void RegisterGraphic(Graphic graphic)
     {
+        missingVisibility.Remove(graphic);
         if (!graphic.TryGetComponent(out BattleUiOpticsVisibility modifier))
             modifier = graphic.gameObject.AddComponent<BattleUiOpticsVisibility>();
         if (!visibility.Contains(modifier)) visibility.Add(modifier);
         modifier.Bind(this);
+    }
+
+    internal void RemoveVisibility(BattleUiOpticsVisibility modifier, Graphic graphic)
+    {
+        visibility.Remove(modifier);
+        if (graphic != null) missingVisibility.Add(graphic);
+        Restore();
     }
 
     private void SetSourceHidden(bool hidden)
@@ -81,32 +105,48 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 
     private void LateUpdate()
     {
+        bool optics = BattleColorGradingController.TryGetUiOptics(out Vector4 settings, out Vector2 limits) &&
+            source != null && source.sortingOrder >= 500;
+        BattleUiScreenToneSettings tone = BattleUiStyleController.ScreenTone;
         if (source == null || !source.isActiveAndEnabled ||
             !IsVisible() ||
             source.renderMode != RenderMode.ScreenSpaceOverlay ||
             !(RenderPipelineManager.currentPipeline is UniversalRenderPipeline) ||
-            !BattleColorGradingController.TryGetUiOptics(out Vector4 settings, out Vector2 limits))
+            (!optics && tone == null))
         {
             Restore();
+            ReleaseResources();
             return;
         }
+        CreateResources();
         if (!EnsureResources()) { Restore(); return; }
 
-        material.SetVector("_UiOptics", settings);
-        material.SetVector("_PixelLimits", new Vector4(limits.x, limits.y, 0f, 0f));
+        material.SetVector("_UiOptics", optics ? settings : Vector4.zero);
+        material.SetVector("_PixelLimits", optics ? new Vector4(limits.x, limits.y, 0f, 0f) : Vector4.zero);
         material.SetVector("_ScreenSize", new Vector4(black.width, black.height, 1f / black.width, 1f / black.height));
+        if (tone != null) tone.Apply(material, BattleUiStyleController.ScreenToneCanvasScale);
+        else material.SetVector("_TonePattern", Vector4.zero);
+        EnsureProtectionTextures(tone != null);
         output.sortingLayerID = source.sortingLayerID;
         output.sortingOrder = source.sortingOrder;
         output.targetDisplay = source.targetDisplay;
-        Capture();
+        Capture(tone != null);
         output.enabled = true;
     }
 
     private bool IsVisible()
     {
-        foreach (CanvasGroup group in sourceGroups)
-            if (group != null && group.isActiveAndEnabled && group.alpha <= 0f) return false;
-        return true;
+        missingVisibility.RemoveWhere(graphic => graphic == null);
+        foreach (Graphic graphic in missingVisibility)
+            if (graphic.isActiveAndEnabled) return false;
+        bool visible = false;
+        foreach (BattleUiOpticsVisibility modifier in visibility)
+        {
+            if (modifier == null || !modifier.Visible) continue;
+            if (!modifier.isActiveAndEnabled) return false;
+            visible = true;
+        }
+        return visible;
     }
 
     private void CreateResources()
@@ -119,9 +159,9 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             if (shader == null || hiddenShader == null) return;
             material = new Material(shader) { hideFlags = HideFlags.HideAndDontSave };
             hiddenMaterial = new Material(hiddenShader) { hideFlags = HideFlags.HideAndDontSave };
-            GameObject cameraObject = new("BattleUiOpticsCamera", typeof(Camera), typeof(UniversalAdditionalCameraData));
+            GameObject cameraObject = new("BattleUiOpticsCamera");
             cameraObject.hideFlags = HideFlags.HideAndDontSave;
-            captureCamera = cameraObject.GetComponent<Camera>();
+            captureCamera = cameraObject.AddComponent<Camera>();
             captureCamera.enabled = false;
             captureCamera.orthographic = true;
             captureCamera.clearFlags = CameraClearFlags.SolidColor;
@@ -130,21 +170,21 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             captureCamera.allowMSAA = false;
             captureCamera.nearClipPlane = 0.1f;
             captureCamera.farClipPlane = CapturePlaneDistance * 2f;
-            UniversalAdditionalCameraData data = cameraObject.GetComponent<UniversalAdditionalCameraData>();
+            UniversalAdditionalCameraData data = cameraObject.AddComponent<UniversalAdditionalCameraData>();
             data.renderPostProcessing = false;
             data.renderShadows = false;
             data.volumeLayerMask = 0;
             data.requiresColorOption = CameraOverrideOption.Off;
             data.requiresDepthOption = CameraOverrideOption.Off;
             data.antialiasing = AntialiasingMode.None;
-            GameObject outputObject = new("BattleUiOpticsOutput", typeof(RectTransform), typeof(Canvas));
+            GameObject outputObject = new("BattleUiOpticsOutput", typeof(RectTransform));
             outputObject.hideFlags = HideFlags.HideAndDontSave;
-            output = outputObject.GetComponent<Canvas>();
+            output = outputObject.AddComponent<Canvas>();
             output.renderMode = RenderMode.ScreenSpaceOverlay;
             output.enabled = false;
-            GameObject imageObject = new("Optics", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
+            GameObject imageObject = new("Optics", typeof(RectTransform), typeof(CanvasRenderer));
             imageObject.transform.SetParent(output.transform, false);
-            image = imageObject.GetComponent<RawImage>();
+            image = imageObject.AddComponent<RawImage>();
             image.raycastTarget = false;
             image.material = material;
             RectTransform rect = image.rectTransform;
@@ -182,7 +222,26 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         return texture;
     }
 
-    private void Capture()
+    private void EnsureProtectionTextures(bool enabled)
+    {
+        if (!enabled)
+        {
+            ReleaseTexture(ref protectedBlack);
+            ReleaseTexture(ref protectedWhite);
+            foreach (BattleUiOpticsVisibility modifier in visibility)
+                if (modifier != null) modifier.ReleaseProtection();
+            return;
+        }
+        if (protectedBlack == null)
+        {
+            protectedBlack = CreateTexture(black.width, black.height, "BattleUiToneProtectedBlack");
+            protectedWhite = CreateTexture(black.width, black.height, "BattleUiToneProtectedWhite");
+            material.SetTexture("_ProtectedBlack", protectedBlack);
+            material.SetTexture("_ProtectedWhite", protectedWhite);
+        }
+    }
+
+    private void Capture(bool screenTone)
     {
         Camera originalCamera = source.worldCamera;
         float originalDistance = source.planeDistance;
@@ -198,6 +257,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             entry.Value.layer = entry.Key.gameObject.layer;
         }
         foreach (Transform node in removed) layers.Remove(node);
+        bool captured = false;
         try
         {
             foreach (var entry in layers) entry.Key.gameObject.layer = captureLayer;
@@ -214,9 +274,24 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             captureCamera.backgroundColor = Color.white;
             request.destination = white;
             RenderPipeline.SubmitRenderRequest(captureCamera, request);
+            if (screenTone)
+            {
+                CapturingProtection = true;
+                foreach (BattleUiOpticsVisibility modifier in visibility)
+                    if (modifier != null) modifier.Refresh();
+                Canvas.ForceUpdateCanvases();
+                captureCamera.backgroundColor = Color.black;
+                request.destination = protectedBlack;
+                RenderPipeline.SubmitRenderRequest(captureCamera, request);
+                captureCamera.backgroundColor = Color.white;
+                request.destination = protectedWhite;
+                RenderPipeline.SubmitRenderRequest(captureCamera, request);
+            }
+            captured = true;
         }
         finally
         {
+            CapturingProtection = false;
             captureCamera.targetTexture = null;
             source.renderMode = RenderMode.ScreenSpaceOverlay;
             source.worldCamera = originalCamera;
@@ -227,13 +302,16 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             rect.sizeDelta = size;
             foreach (var entry in layers)
                 if (entry.Key != null) entry.Key.gameObject.layer = entry.Value.layer;
-            SetSourceHidden(true);
+            SetSourceHidden(captured);
+            foreach (BattleUiOpticsVisibility modifier in visibility)
+                if (modifier != null) modifier.Refresh();
             Canvas.ForceUpdateCanvases();
         }
     }
 
     private void Restore()
     {
+        CapturingProtection = false;
         SetSourceHidden(false);
         if (output != null) output.enabled = false;
     }
@@ -241,20 +319,43 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     private void ReleaseTextures()
     {
         if (captureCamera != null) captureCamera.targetTexture = null;
-        if (black != null) { black.Release(); Destroy(black); black = null; }
-        if (white != null) { white.Release(); Destroy(white); white = null; }
+        ReleaseTexture(ref black);
+        ReleaseTexture(ref white);
+        ReleaseTexture(ref protectedBlack);
+        ReleaseTexture(ref protectedWhite);
     }
 
-    private void OnDisable() => Restore();
-
-    private void OnDestroy()
+    private static void ReleaseTexture(ref RenderTexture texture)
     {
-        Restore();
+        if (texture != null) { texture.Release(); Destroy(texture); texture = null; }
+    }
+
+    private void ReleaseResources()
+    {
         ReleaseTextures();
         if (material != null) Destroy(material);
         if (hiddenMaterial != null) Destroy(hiddenMaterial);
         if (captureCamera != null) Destroy(captureCamera.gameObject);
         if (output != null) Destroy(output.gameObject);
+        material = hiddenMaterial = null;
+        captureCamera = null;
+        output = null;
+        image = null;
+        foreach (BattleUiOpticsVisibility modifier in visibility)
+            if (modifier != null) modifier.ReleaseProtection();
+    }
+
+    private void OnDisable()
+    {
+        Restore();
+        ReleaseResources();
+    }
+
+    private void OnDestroy()
+    {
+        instances.Remove(this);
+        Restore();
+        ReleaseResources();
         foreach (BattleUiOpticsVisibility modifier in visibility)
             if (modifier != null) modifier.Release(this);
     }

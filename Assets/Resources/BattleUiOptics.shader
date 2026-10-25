@@ -4,6 +4,8 @@ Shader "UI/BattleUiOptics"
     {
         [PerRendererData] _MainTex ("UI on black", 2D) = "black" {}
         _WhiteTex ("UI on white", 2D) = "white" {}
+        _ProtectedBlack ("Protected UI on black", 2D) = "black" {}
+        _ProtectedWhite ("Protected UI on white", 2D) = "white" {}
     }
     SubShader
     {
@@ -17,8 +19,11 @@ Shader "UI/BattleUiOptics"
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.0
             #include "UnityCG.cginc"
+            #include "BattleUiScreenTone.cginc"
             sampler2D _MainTex, _WhiteTex;
+            sampler2D _ProtectedBlack, _ProtectedWhite;
             float4 _UiOptics, _PixelLimits, _ScreenSize;
             struct Input { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct Varyings { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
@@ -42,6 +47,12 @@ Shader "UI/BattleUiOptics"
                 half3 coverage = saturate(1.0 - (white - black));
                 return half4(black, max(coverage.r, max(coverage.g, coverage.b)));
             }
+            float ProtectedCoverage(float2 uv)
+            {
+                if (any(uv < 0.0) || any(uv > 1.0)) return 0;
+                float3 coverage = saturate(1.0 - (tex2D(_ProtectedWhite, uv).rgb - tex2D(_ProtectedBlack, uv).rgb));
+                return max(coverage.r, max(coverage.g, coverage.b));
+            }
             half4 frag(Varyings input) : SV_Target
             {
                 float2 radial = input.uv * 2.0 - 1.0;
@@ -55,7 +66,11 @@ Shader "UI/BattleUiOptics"
                 half4 red = ReadUI(input.uv + Limited(lens + split, limit));
                 half4 green = ReadUI(input.uv + lens);
                 half4 blue = ReadUI(input.uv + Limited(lens - split, limit));
-                return half4(red.r, green.g, blue.b, max(red.a, max(green.a, blue.a)));
+                half4 color = half4(red.r, green.g, blue.b, max(red.a, max(green.a, blue.a)));
+                if (_TonePattern.z <= 0.0) return color;
+                float protection = max(ProtectedCoverage(input.uv + Limited(lens + split, limit)),
+                    max(ProtectedCoverage(input.uv + lens), ProtectedCoverage(input.uv + Limited(lens - split, limit))));
+                return BattleScreenTone(color, input.uv, _ScreenSize.xy, protection);
             }
             ENDHLSL
         }

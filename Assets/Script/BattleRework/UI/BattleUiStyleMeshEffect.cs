@@ -36,7 +36,6 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void Bind(Graphic value)
     {
-        BattleUiOpticsCanvas.Register(value);
         target = value;
         label = value as Text;
         title = label != null && (value.name == "AppHeader" || value.name.EndsWith("Title", System.StringComparison.Ordinal) ||

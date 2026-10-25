@@ -114,6 +114,28 @@ public sealed class BattleUiStyleSettings
 public sealed class BattleUiStyleController : MonoBehaviour
 {
     private static BattleUiStyleController active;
+    [Header("Screen Tone (Canvas pixels)")]
+    [SerializeField] private bool enableScreenTone = true;
+    [SerializeField] private BattleUiScreenToneSettings screenTone = new();
+    private Canvas screenToneReferenceCanvas;
+
+    public bool EnableScreenTone
+    {
+        get => enableScreenTone;
+        set
+        {
+            if (enableScreenTone == value) return;
+            enableScreenTone = value;
+            BattleUiOpticsCanvas.RefreshScreenTone();
+        }
+    }
+
+    public BattleUiScreenToneSettings ScreenToneSettings => screenTone;
+    internal static BattleUiScreenToneSettings ScreenTone => active != null && active.isActiveAndEnabled &&
+        active.enableScreenTone && active.screenTone != null && active.screenTone.ToneStrength > 0f
+        ? active.screenTone : null;
+    internal static float ScreenToneCanvasScale => active != null && active.screenToneReferenceCanvas != null
+        ? active.screenToneReferenceCanvas.scaleFactor : 1f;
     private readonly Dictionary<Graphic, BattleUiStyleMeshEffect> targets = new();
     private readonly List<Graphic> removed = new();
     private BattleShowPresentationManager presentation;
@@ -179,6 +201,10 @@ public sealed class BattleUiStyleController : MonoBehaviour
     public static void RegisterGraphic(Graphic target)
     {
         if (active == null || target == null || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
+        BattleUiOpticsCanvas.Register(target);
+        if (active.screenToneReferenceCanvas == null && target.canvas != null &&
+            target.canvas.rootCanvas.sortingOrder >= 500)
+            active.screenToneReferenceCanvas = target.canvas.rootCanvas;
         if (active.targets.TryGetValue(target, out var registered))
         {
             registered.BindInteraction();
@@ -303,6 +329,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
             if (entry.Value != null) entry.Value.RestoreAppearance();
         if (grid != null) grid.SetEffect(false, 0f);
         if (active == this) active = null;
+        BattleUiOpticsCanvas.RefreshScreenTone();
     }
 
     private void OnDestroy()

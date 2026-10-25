@@ -33,7 +33,9 @@ Shader "UI/BattleCombatCornerVignette"
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
+            #pragma target 3.0
             #include "UnityCG.cginc"
+            #include "BattleUiScreenTone.cginc"
 
             struct appdata_t
             {
@@ -45,6 +47,7 @@ Shader "UI/BattleCombatCornerVignette"
             {
                 float4 vertex : SV_POSITION;
                 float2 uv : TEXCOORD0;
+                float4 screenPosition : TEXCOORD1;
             };
 
             fixed4 _VignetteColor;
@@ -60,6 +63,7 @@ Shader "UI/BattleCombatCornerVignette"
                 v2f o;
                 o.vertex = UnityObjectToClipPos(v.vertex);
                 o.uv = v.texcoord;
+                o.screenPosition = ComputeScreenPos(o.vertex);
                 return o;
             }
 
@@ -87,7 +91,11 @@ Shader "UI/BattleCombatCornerVignette"
                     _Strength *
                     (edge * _EdgeDarkness + corner * _CornerDarkness));
 
-                return fixed4(_VignetteColor.rgb, alpha * _VignetteColor.a);
+                float sourceAlpha = alpha * _VignetteColor.a;
+                float2 screenUv = i.screenPosition.xy / i.screenPosition.w;
+                float4 toned = BattleScreenTone(float4(_VignetteColor.rgb * sourceAlpha, sourceAlpha),
+                    screenUv, _ScreenParams.xy, 0.0);
+                return float4(toned.rgb / max(toned.a, 0.00001), toned.a);
             }
             ENDCG
         }
