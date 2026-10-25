@@ -2,6 +2,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
+internal enum BattlePaperRole { Default, Inventory, ItemDetail }
+
 [DisallowMultipleComponent]
 public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 {
@@ -21,6 +23,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool wasStylish, wasBirthday, wasPaper, title;
     private uint paperSeed;
     private bool paperBadge, paperBadgeInner, paperBadgeIcon;
+    private BattlePaperRole paperRole;
+    private bool paperSheet;
     private BattleUiStyleTmpTitle tmpTitle;
     private bool titleMotionCandidate;
     private BattleUiStyleInteraction interaction;
@@ -40,6 +44,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     {
         target = value;
         paperSeed = PaperSeed(value.transform);
+        Transform paperOwner = value is BattleUiPanelDecoration ? value.transform.parent : value.transform;
+        paperRole = PaperRole(paperOwner);
+        paperSheet = IsPaperSheet(paperOwner);
         label = value as Text;
         title = label != null && (value.name == "AppHeader" || value.name.EndsWith("Title", System.StringComparison.Ordinal) ||
             value.name.EndsWith("Header", System.StringComparison.Ordinal));
@@ -235,7 +242,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         {
             TMPro.TMP_FontAsset font = decoratedTitle && settings.titleFont != null ? settings.titleFont :
                 settings.fontAsset != null ? settings.fontAsset : BattleUiStyleController.ThemeTmpFont;
-            if (font != null && (stylish || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
+            if (font != null && (stylish || paper || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
@@ -246,6 +253,18 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             else HideTmpTitle();
         }
         else HideTmpTitle();
+        if (paper && paperMaterial != null && next == paperMaterial && target.canvas != null)
+        {
+            Canvas canvas = target.canvas;
+            if ((canvas.additionalShaderChannels & AdditionalCanvasShaderChannels.TexCoord1) == 0)
+                canvas.additionalShaderChannels |= AdditionalCanvasShaderChannels.TexCoord1;
+            Matrix4x4 transformMatrix = PaperCanvasTransform(target);
+            if (lastTransform != transformMatrix)
+            {
+                lastTransform = transformMatrix;
+                target.SetVerticesDirty();
+            }
+        }
         if (projectPixels && target.canvas != null)
         {
             Canvas canvas = target.canvas;
@@ -405,7 +424,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             for (int i = 0; i < vh.currentVertCount; i++)
             {
                 vh.PopulateUIVertex(ref vertex, i);
-                Color tint = speechFrame ? settings.outerFrame : settings.background;
+                Color tint = speechFrame ? settings.outerFrame : PaperColor(settings, paperRole);
                 tint.a *= vertex.color.a / 255f;
                 vertex.color = tint;
                 vh.SetUIVertex(vertex, i);
@@ -424,8 +443,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             fill.a *= speechFrame ? 1f : image.color.a;
             if (paper)
                 DrawPaperFrame(vh, target.rectTransform.rect, settings, image.color.a, paperSeed,
-                    paperBadge || (!stylishCard && Mathf.Max(target.rectTransform.rect.width, target.rectTransform.rect.height) <= 100f),
-                    interaction != null && interaction.Highlighted);
+                    paperBadge, interaction != null && interaction.Highlighted, target, paperRole, paperSheet);
             else if (stylish || birthday)
                 DrawAccentFrame(vh, target.rectTransform.rect, settings, birthday, speechFrame ? 1f : image.color.a,
                     (stylish && stylishSpotlight) || (interaction != null && interaction.Highlighted),
@@ -839,39 +857,104 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal static float PaperAngle(uint seed, float maximum) =>
         (PaperVariation(seed, 8) * 2f - 1f) * Mathf.Clamp(maximum, 0f, 2f);
 
+    internal static BattlePaperRole PaperRole(Transform value)
+    {
+        for (Transform node = value; node != null; node = node.parent)
+        {
+            string key = node.name;
+            if (key.Contains("Detail") || key.Contains("Inspect") || key == "CurrentItem")
+                return BattlePaperRole.ItemDetail;
+            if (key == "BackpackMiniGrid" || key == "CurrentLoadoutChip" || key == "GridBoard" || key == "BoardBack")
+                return BattlePaperRole.Inventory;
+        }
+        return BattlePaperRole.Default;
+    }
+
+    internal static bool IsPaperSheet(Transform value)
+    {
+        if (value == null || value.GetComponent<Button>() != null) return false;
+        string key = value.name;
+        if (key.Contains("Slot") || key.Contains("Cell")) return false;
+        return key == "BackpackMiniGrid" || key == "CurrentLoadoutChip" || key == "BoardBack" || key == "CurrentItem" ||
+            key.EndsWith("Panel", System.StringComparison.Ordinal) || key.EndsWith("Board", System.StringComparison.Ordinal) ||
+            key.Contains("Card");
+    }
+
+    private static Matrix4x4 PaperCanvasTransform(Graphic surface) => surface != null && surface.canvas != null
+        ? surface.canvas.rootCanvas.transform.worldToLocalMatrix * surface.rectTransform.localToWorldMatrix
+        : Matrix4x4.identity;
+
+    internal static Color PaperColor(BattleUiStyleSettings settings, BattlePaperRole role) => role switch
+    {
+        BattlePaperRole.Inventory => settings.paperInventoryColor,
+        BattlePaperRole.ItemDetail => settings.paperDetailColor,
+        _ => settings.background
+    };
+
     internal static void DrawPaperFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
-        float alpha, uint seed, bool badge = false, bool highlighted = false)
+        float alpha, uint seed, bool badge = false, bool highlighted = false, Graphic surface = null,
+        BattlePaperRole role = BattlePaperRole.Default, bool sheet = false)
     {
         float shortSide = Mathf.Min(rect.width, rect.height);
         if (shortSide <= 0f) return;
         float scale = Mathf.Min(1f, shortSide / 80f);
         float border = Mathf.Clamp(settings.paperBorderWidth * scale, 0f, shortSide * 0.2f);
-        bool sheet = !badge && rect.width >= 240f && rect.height >= 180f;
-        bool punched = sheet && settings.paperPunchRadius > 0f;
+        int first = vh.currentVertCount;
+        sheet &= !badge;
+        Color paper = PaperColor(settings, role);
         if (!badge) border *= settings.paperSheetBorderScale;
         Rect shadowRect = rect;
         shadowRect.position += settings.paperShadowOffset * scale;
         Color shadow = settings.paperShadow;
         shadow.a *= alpha;
-        PaperFill(vh, shadowRect, settings, shadow, seed, badge, punched: punched);
+        PaperFill(vh, shadowRect, settings, shadow, seed, badge, rect);
         if (sheet)
         {
             Rect backingRect = rect;
             backingRect.position += new Vector2(4f, -4f) * scale;
-            Color backing = Color.Lerp(settings.background, settings.outerFrame, 0.22f);
+            Color backing = Color.Lerp(paper, settings.outerFrame, 0.12f);
             backing.a *= alpha;
-            PaperFill(vh, backingRect, settings, backing, seed, sheetRect: rect, punched: punched);
+            PaperFill(vh, backingRect, settings, backing, seed, sheetRect: rect);
         }
-        Color rim = !badge ? Color.Lerp(settings.background, settings.outerFrame, highlighted ? 0.65f : 0.35f) : settings.outerFrame;
+        Color rim = !badge ? Color.Lerp(paper, settings.outerFrame, highlighted ? 0.65f : 0.35f) : settings.outerFrame;
         rim.a *= alpha;
-        PaperFill(vh, rect, settings, rim, seed, badge, punched: punched);
-        Color fill = highlighted ? Color.Lerp(settings.background, settings.highlight, 0.14f) : settings.background;
+        PaperFill(vh, rect, settings, rim, seed, badge);
+        Color fill = highlighted ? Color.Lerp(paper, settings.highlight, 0.14f) : paper;
         fill.a *= alpha;
-        PaperFill(vh, Inset(rect, border), settings, fill, seed, badge, rect, punched);
+        PaperFill(vh, Inset(rect, border), settings, fill, seed, badge, rect);
+        ApplyPaperCoordinates(vh, first, rect, settings, seed, surface, role, sheet);
+    }
+
+    internal static void ApplyPaperCoordinates(VertexHelper vh, int first, Rect rect, BattleUiStyleSettings settings,
+        uint seed, Graphic surface, BattlePaperRole role, bool punched)
+    {
+        float angle = PaperAngle(seed, settings.paperDecorationAngle) * Mathf.Deg2Rad;
+        float cosine = Mathf.Cos(angle), sine = Mathf.Sin(angle);
+        float fit = Mathf.Min(rect.width / (rect.width * Mathf.Abs(cosine) + rect.height * Mathf.Abs(sine)),
+            rect.height / (rect.height * Mathf.Abs(cosine) + rect.width * Mathf.Abs(sine)));
+        Matrix4x4 canvas = PaperCanvasTransform(surface);
+        Vector3 across = canvas.MultiplyVector(new Vector3(cosine, sine, 0f));
+        across.z = 0f;
+        float width = rect.width * fit * across.magnitude;
+        across.Normalize();
+        Vector3 down = new(across.y, -across.x, 0f);
+        if (Vector3.Dot(down, canvas.MultiplyVector(new Vector3(sine, -cosine, 0f))) < 0f) down = -down;
+        Vector2 topLeft = rect.center + new Vector2(-rect.width * cosine - rect.height * sine,
+            -rect.width * sine + rect.height * cosine) * (0.5f * fit);
+        Vector3 origin = canvas.MultiplyPoint3x4(topLeft);
+        UIVertex vertex = default;
+        for (int i = first; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            Vector3 offset = canvas.MultiplyPoint3x4(vertex.position) - origin;
+            vertex.uv0 = new Vector4(Vector3.Dot(offset, across), Vector3.Dot(offset, down), vertex.uv0.z, vertex.uv0.w);
+            vertex.uv1 = new Vector4(width, punched ? 1f : 0f, (float)role, 0f);
+            vh.SetUIVertex(vertex, i);
+        }
     }
 
     internal static void PaperFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
-        Color tint, uint seed, bool badge = false, Rect sheetRect = default, bool punched = false)
+        Color tint, uint seed, bool badge = false, Rect sheetRect = default)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         float shortSide = Mathf.Min(rect.width, rect.height);
@@ -884,7 +967,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         float max = Mathf.Clamp(settings.paperCornerMax, min, 0.05f);
         int first = vh.currentVertCount;
         int count = badge ? 7 + (int)((seed >> 3) % 3u) : 8;
-        Vector2 textureSeed = new(PaperVariation(seed, 24) * 0.99f + (punched ? 2f : 0f), PaperVariation(seed, 25));
+        Vector2 textureSeed = new(PaperVariation(seed, 24) * 0.99f, PaperVariation(seed, 25));
         PaperSheetVertex(vh, rect.center, sheetRect, cosine, sine, fit, tint, textureSeed);
         for (int i = 0; i < count; i++)
         {

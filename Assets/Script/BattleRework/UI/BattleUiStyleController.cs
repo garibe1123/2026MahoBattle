@@ -110,21 +110,28 @@ public sealed class BattleUiStyleSettings
     [Range(0.1f, 0.35f)] public float stylishColorBandHeight = 0.24f;
     [Header("Paper")]
     [Min(0f)] public float paperBorderWidth = 6f;
-    public Vector2 paperShadowOffset = new(3f, -5f);
-    public Color paperShadow = new(0f, 0f, 0f, 0.18f);
+    public Vector2 paperShadowOffset = new(2f, -3f);
+    public Color paperShadow = new(0f, 0f, 0f, 0.1f);
     [Range(0f, 2f)] public float paperDecorationAngle = 2f;
     [Range(0f, 1f)] public float paperLabelAngle = 1f;
     [Range(0.02f, 0.05f)] public float paperCornerMin = 0.02f;
     [Range(0.02f, 0.05f)] public float paperCornerMax = 0.05f;
-    [Range(0f, 0.2f)] public float paperGrainStrength = 0.065f;
-    [Range(0f, 0.3f)] public float paperStainStrength = 0.08f;
+    [Range(0f, 0.2f)] public float paperGrainStrength = 0.035f;
+    [Range(0f, 0.3f)] public float paperStainStrength = 0.025f;
     [Range(0f, 0.4f)] public float paperCreaseStrength = 0.22f;
     [Range(0f, 0.3f)] public float paperFoldSize = 0.18f;
     [Min(0.1f)] public float paperFiberScale = 0.7f;
     [Range(0f, 1f)] public float paperSheetBorderScale = 0.22f;
-    [Min(0f)] public float paperPunchRadius = 3.5f;
-    [Min(12f)] public float paperPunchSpacing = 32f;
-    [Min(0f)] public float paperPunchInset = 12f;
+    [Min(0f)] public float paperPunchRadius = 2.5f;
+    [Min(12f)] public float paperPunchSpacing = 28f;
+    [Min(0f)] public float paperPunchInset = 9f;
+    [Min(0f)] public float paperPunchEdgeInset = 14f;
+    public Color paperInventoryColor = new Color32(0xE5, 0xEB, 0xD9, 255);
+    public Color paperDetailColor = new Color32(0xE8, 0xE2, 0xEF, 255);
+    [Min(1f)] public float paperPatternSpacing = 16f;
+    [Range(0.04f, 0.07f)] public float paperPatternAlpha = 0.055f;
+    [Min(0f)] public float paperLineWidth = 0.6f;
+    [Min(0f)] public float paperDotRadius = 0.8f;
 }
 
 [DisallowMultipleComponent]
@@ -306,7 +313,9 @@ public sealed class BattleUiStyleController : MonoBehaviour
             {
                 paperMaterial.SetVector("_PaperTexture", texture);
                 paperMaterial.SetVector("_PaperPunch", new Vector4(settings.paperPunchRadius,
-                    Mathf.Max(12f, settings.paperPunchSpacing), settings.paperPunchInset, 0f));
+                    Mathf.Max(12f, settings.paperPunchSpacing), settings.paperPunchInset, settings.paperPunchEdgeInset));
+                paperMaterial.SetVector("_PaperPattern", new Vector4(Mathf.Max(1f, settings.paperPatternSpacing),
+                    Mathf.Clamp(settings.paperPatternAlpha, 0.04f, 0.07f), settings.paperLineWidth, settings.paperDotRadius));
             }
             if (paperMaskMaterial != null)
             {

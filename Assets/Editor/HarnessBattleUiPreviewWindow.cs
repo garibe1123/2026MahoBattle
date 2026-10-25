@@ -6,6 +6,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
 {
     private enum Screen { Hud, Inventory, Reward, Roulette, Pause, Result, Settings }
     private BattleShowPresentationManager manager;
+    private bool builtPaper;
     private Screen screen;
     private PreviewRenderUtility preview;
     private GameObject root;
@@ -71,7 +72,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         if (view.width < 1f || view.height < 1f || Event.current.type != EventType.Repaint) return;
         EnsurePreview();
-        if (content == null || builtScreen != screen) BuildScreen();
+        if (content == null || builtScreen != screen || builtPaper != (manager.UiStyle == BattleUiStyle.Paper)) BuildScreen();
         if (previewScreenTone && manager.EnableScreenTone && manager.ScreenToneSettings != null &&
             manager.ScreenToneSettings.ToneStrength > 0f)
         {
@@ -119,6 +120,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
             EnsurePreview();
         }
         builtScreen = screen;
+        builtPaper = manager.UiStyle == BattleUiStyle.Paper;
         content = Rect(root.transform, "Sample", Vector2.zero, new Vector2(1920f, 1080f));
         Label(content, "ScreenTitle", screen == Screen.Result ? "STAGE 2 CLEAR" : "MAHO BATTLE / " + screen.ToString().ToUpperInvariant(),
             new Vector2(-350f, 430f), new Vector2(1000f, 100f), 52);
@@ -129,7 +131,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
                 Panel(content, "BackpackMiniGrid", new Vector2(-650f, -260f), new Vector2(460f, 430f));
                 Slots(content, new Vector2(-800f, -130f), 112f);
                 RectTransform hud = Panel(content, "CurrentItem", new Vector2(570f, -340f), new Vector2(650f, 230f));
-                Label(hud, "ItemTitle", "BASIC PISTOL", new Vector2(0f, 50f), new Vector2(550f, 60f), 32);
+                Label(hud, "ItemTitle", manager.UiStyle == BattleUiStyle.Paper ? "기본 권총" : "BASIC PISTOL", new Vector2(0f, 50f), new Vector2(550f, 60f), 32);
                 Label(hud, "Status", "HP  100 / 100     ST  80 / 100", new Vector2(0f, -25f), new Vector2(550f, 60f), 24);
                 break;
             case Screen.Inventory:
@@ -176,8 +178,9 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
     private void Detail(Vector2 position)
     {
         RectTransform detail = Panel(content, "DetailPanel", position, new Vector2(650f, 610f));
-        Label(detail, "ItemTitle", "BASIC PISTOL", new Vector2(0f, 200f), new Vector2(560f, 90f), 42);
-        Label(detail, "Description", "RARE / MANUAL\n\nItem description / equipment details\n\nDMG x1.20   MOVE x1.05\nRANGE x1.10", new Vector2(0f, -30f), new Vector2(540f, 300f), 26);
+        bool paper = manager.UiStyle == BattleUiStyle.Paper;
+        Label(detail, "ItemTitle", paper ? "기본 권총" : "BASIC PISTOL", new Vector2(0f, 200f), new Vector2(560f, 90f), 42);
+        Label(detail, "Description", paper ? "희귀 / 수동\n\n손에 익은 장비와 아이템 설명\n\n공격 x1.20   이동 x1.05\n사거리 x1.10" : "RARE / MANUAL\n\nItem description / equipment details\n\nDMG x1.20   MOVE x1.05\nRANGE x1.10", new Vector2(0f, -30f), new Vector2(540f, 300f), 26);
     }
 
     private void RuleIcons(Transform parent, Vector2 start)

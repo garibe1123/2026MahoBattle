@@ -4,8 +4,9 @@ Shader "UI/BattlePaperPanel"
     {
         [PerRendererData] _MainTex ("Sprite Mask", 2D) = "white" {}
         _UseSpriteMask ("Use Sprite Mask", Float) = 0
-        _PaperTexture ("Grain, Stain, Reserved, Fiber Scale", Vector) = (0.065, 0.08, 0.22, 0.7)
-        _PaperPunch ("Hole Radius, Spacing, Top Inset, Reserved", Vector) = (3.5, 32, 12, 0)
+        _PaperTexture ("Grain, Stain, Reserved, Fiber Scale", Vector) = (0.035, 0.025, 0.22, 0.7)
+        _PaperPunch ("Hole Radius, Spacing, Top Inset, Edge Inset", Vector) = (2.5, 28, 9, 14)
+        _PaperPattern ("Spacing, Opacity, Line Width, Dot Radius", Vector) = (16, 0.055, 0.6, 0.8)
         _StencilComp ("Stencil Comparison", Float) = 8
         _Stencil ("Stencil ID", Float) = 0
         _StencilOp ("Stencil Operation", Float) = 0
@@ -33,10 +34,10 @@ Shader "UI/BattlePaperPanel"
             #include "UnityUI.cginc"
 
             sampler2D _MainTex;
-            float4 _ClipRect, _TextureSampleAdd, _PaperTexture, _PaperPunch;
+            float4 _ClipRect, _TextureSampleAdd, _PaperTexture, _PaperPunch, _PaperPattern;
             float _UseSpriteMask;
-            struct Attributes { float4 vertex : POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; };
-            struct Varyings { float4 vertex : SV_POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; float2 local : TEXCOORD1; };
+            struct Attributes { float4 vertex : POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; float4 surface : TEXCOORD1; };
+            struct Varyings { float4 vertex : SV_POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; float2 local : TEXCOORD1; float4 surface : TEXCOORD2; };
 
             float Hash(float2 p)
             {
@@ -59,6 +60,7 @@ Shader "UI/BattlePaperPanel"
                 output.vertex = UnityObjectToClipPos(input.vertex);
                 output.color = input.color;
                 output.uv = input.uv;
+                output.surface = input.surface;
                 output.local = input.vertex.xy;
                 return output;
             }
@@ -75,23 +77,42 @@ Shader "UI/BattlePaperPanel"
                 float2 offset = seed * float2(937.0, 617.0);
                 float angle = seed.x * 6.2831853;
                 float2 direction = float2(cos(angle), sin(angle));
-                float2 p = float2(dot(input.local, direction), dot(input.local, float2(-direction.y, direction.x)));
+                float2 position = _UseSpriteMask > 0.5 ? input.local : input.uv.xy;
+                float2 p = float2(dot(position, direction), dot(position, float2(-direction.y, direction.x)));
                 p = p / max(0.1, _PaperTexture.w) + offset;
                 float grain = Noise(p * float2(1.7, 0.6)) - 0.5;
                 float fibers = Noise(p * float2(0.09, 2.4)) - 0.5;
-                float stain = smoothstep(0.48, 0.85, Noise(p * 0.025));
+                float stain = Noise(p * 0.009 + offset * 0.13) - 0.5;
                 float face = smoothstep(0.45, 0.8, min(color.r, min(color.g, color.b)));
-                float grainShade = (grain * 0.65 + fibers * 0.35) * _PaperTexture.x;
+                float grainShade = (grain * 0.35 + fibers * 0.65) * _PaperTexture.x;
                 color.rgb += face * grainShade;
                 color.rgb -= face * stain * _PaperTexture.y * float3(0.38, 0.55, 0.8);
-                if (_UseSpriteMask < 0.5 && input.uv.z >= 2.0 && _PaperPunch.x > 0.0)
+                if (_UseSpriteMask < 0.5 && input.surface.z > 0.5)
+                {
+                    float spacing = max(1.0, _PaperPattern.x);
+                    float2 cell = (frac(input.uv.xy / spacing + 0.5) - 0.5) * spacing;
+                    float distanceToPattern = input.surface.z < 1.5
+                        ? abs(cell.y) - max(0.0, _PaperPattern.z) * 0.5
+                        : length(cell) - max(0.0, _PaperPattern.w);
+                    float aa = max(0.25, fwidth(distanceToPattern));
+                    float pattern = 1.0 - smoothstep(-aa, aa, distanceToPattern);
+                    color.rgb *= 1.0 - face * pattern * clamp(_PaperPattern.y, 0.04, 0.07);
+                }
+                if (_UseSpriteMask < 0.5 && input.surface.y > 0.5 && _PaperPunch.x > 0.0)
                 {
                     float spacing = max(12.0, _PaperPunch.y);
-                    float x = (frac(input.uv.x / spacing) - 0.5) * spacing;
-                    float distanceToHole = length(float2(x, input.uv.y - _PaperPunch.z)) - _PaperPunch.x;
-                    float aa = max(0.25, fwidth(distanceToHole));
-                    color.a *= smoothstep(-aa, aa, distanceToHole);
-                    color.rgb *= 1.0 - (1.0 - smoothstep(0.0, 1.5, distanceToHole)) * 0.16;
+                    float edge = max(_PaperPunch.x, _PaperPunch.w);
+                    float count = floor((input.surface.x - edge * 2.0) / spacing) + 1.0;
+                    if (count > 0.0)
+                    {
+                        float start = (input.surface.x - (count - 1.0) * spacing) * 0.5;
+                        float index = clamp(floor((input.uv.x - start) / spacing + 0.5), 0.0, count - 1.0);
+                        float x = input.uv.x - (start + index * spacing);
+                        float distanceToHole = length(float2(x, input.uv.y - _PaperPunch.z)) - _PaperPunch.x;
+                        float aa = max(0.25, fwidth(distanceToHole));
+                        color.a *= smoothstep(-aa, aa, distanceToHole);
+                        color.rgb *= 1.0 - (1.0 - smoothstep(0.0, 0.6, distanceToHole)) * 0.025;
+                    }
                 }
                 #ifdef UNITY_UI_ALPHACLIP
                 clip(color.a - 0.001);

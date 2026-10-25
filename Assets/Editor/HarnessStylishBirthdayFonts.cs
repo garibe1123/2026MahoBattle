@@ -9,9 +9,44 @@ public static class HarnessStylishBirthdayFonts
 {
     private const string Menu = "Tools/Harness/Apply Local Theme Fonts";
     private const string Licenses = "Assets/StreamingAssets/BattleUiFontLicenses";
+    private const string PaperMenu = "Tools/Harness/Apply Paper Theme Defaults";
 
     [MenuItem(Menu, true)]
     private static bool CanApply() => !EditorApplication.isPlayingOrWillChangePlaymode;
+
+    [MenuItem(PaperMenu, true)]
+    private static bool CanApplyPaper() => CanApply();
+
+    [MenuItem(PaperMenu)]
+    private static void ApplyPaperDefaults()
+    {
+        BattleUiStyleSettings defaults = new();
+        foreach (BattleShowPresentationManager manager in UnityEngine.Object.FindObjectsByType<BattleShowPresentationManager>(
+            FindObjectsInactive.Include, FindObjectsSortMode.None))
+        {
+            if (EditorUtility.IsPersistent(manager) || !manager.gameObject.scene.IsValid()) continue;
+            SerializedObject serialized = new(manager);
+            serialized.Update();
+            SerializedProperty paper = serialized.FindProperty("paper");
+            paper.FindPropertyRelative("background").colorValue = new Color32(0xF5, 0xEE, 0xDC, 255);
+            paper.FindPropertyRelative("paperShadowOffset").vector2Value = defaults.paperShadowOffset;
+            paper.FindPropertyRelative("paperShadow").colorValue = defaults.paperShadow;
+            paper.FindPropertyRelative("paperPunchRadius").floatValue = defaults.paperPunchRadius;
+            paper.FindPropertyRelative("paperPunchSpacing").floatValue = defaults.paperPunchSpacing;
+            paper.FindPropertyRelative("paperPunchInset").floatValue = defaults.paperPunchInset;
+            paper.FindPropertyRelative("paperPunchEdgeInset").floatValue = defaults.paperPunchEdgeInset;
+            paper.FindPropertyRelative("paperGrainStrength").floatValue = defaults.paperGrainStrength;
+            paper.FindPropertyRelative("paperStainStrength").floatValue = defaults.paperStainStrength;
+            paper.FindPropertyRelative("paperInventoryColor").colorValue = defaults.paperInventoryColor;
+            paper.FindPropertyRelative("paperDetailColor").colorValue = defaults.paperDetailColor;
+            paper.FindPropertyRelative("paperPatternSpacing").floatValue = defaults.paperPatternSpacing;
+            paper.FindPropertyRelative("paperPatternAlpha").floatValue = defaults.paperPatternAlpha;
+            paper.FindPropertyRelative("paperLineWidth").floatValue = defaults.paperLineWidth;
+            paper.FindPropertyRelative("paperDotRadius").floatValue = defaults.paperDotRadius;
+            serialized.ApplyModifiedProperties();
+            manager.SetUiStyle(manager.UiStyle);
+        }
+    }
 
     [MenuItem(Menu)]
     private static void Apply()
@@ -24,6 +59,7 @@ public static class HarnessStylishBirthdayFonts
             ApplyFamily("Assets/Resources/HarnessFonts/GowunBatang", "GowunBatang-Regular", "gowunbatang");
             ApplyFamily("Assets/Resources/HarnessFonts/BlackHanSans", "BlackHanSans-Regular", "blackhansans");
             ApplyFamily("Assets/Resources/HarnessFonts/Jua", "Jua-Regular", "jua");
+            ApplyFamily("Assets/Resources/HarnessFonts/NanumPenScript", "NanumPenScript-Regular", "nanumpenscript");
             AssetDatabase.Refresh(ImportAssetOptions.ForceSynchronousImport);
             CreatePixelTmpFont();
             AssetDatabase.SaveAssets();

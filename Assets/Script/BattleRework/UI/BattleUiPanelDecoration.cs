@@ -60,6 +60,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private float lastCombatAlpha = -1f, lastLockedAlpha = -1f;
     private BattleUiStyleInteraction styleInteraction;
     private uint paperSeed;
+    private BattlePaperRole paperRole;
+    private bool paperSheet;
 
     internal void SetStyleInteraction(BattleUiStyleInteraction interaction) => styleInteraction = interaction;
 
@@ -143,6 +145,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         decoration.stylishCard = BattleUiStyleMeshEffect.IsCard(parent);
         decoration.stylishSpotlight = BattleUiStyleMeshEffect.IsSpotlight(parent);
         decoration.paperSeed = BattleUiStyleMeshEffect.PaperSeed(parent);
+        decoration.paperRole = BattleUiStyleMeshEffect.PaperRole(parent);
+        decoration.paperSheet = BattleUiStyleMeshEffect.IsPaperSheet(parent);
         decoration.animate = animate;
         decoration.raycastTarget = false;
         if (decoration.surfaceImage == null && parent.TryGetComponent(out Image surface))
@@ -322,18 +326,20 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             float opacity = softFill ? 0.94f : 1f;
             BattleUiStyleMeshEffect.DrawPaperFrame(vh, face, style, opacity, paperSeed, false,
-                emphasis || (styleInteraction != null && styleInteraction.Highlighted));
-            backgroundBaseAlpha = style.background.a * opacity;
+                emphasis || (styleInteraction != null && styleInteraction.Highlighted), this, paperRole, paperSheet);
+            backgroundBaseAlpha = BattleUiStyleMeshEffect.PaperColor(style, paperRole).a * opacity;
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
                 Rect header = new(face.xMin + 6f * scale, face.yMax - HeaderHeight * scale,
                     face.width - 12f * scale, (HeaderHeight - 5f) * scale);
-                BattleUiStyleMeshEffect.DrawPaperFrame(vh, header, style, opacity, paperSeed + 1u);
+                BattleUiStyleMeshEffect.DrawPaperFrame(vh, header, style, opacity, paperSeed + 1u,
+                    surface: this, role: paperRole);
                 float size = 18f * scale;
                 Rect badge = new(face.xMin + Padding * scale, header.center.y - size * 0.5f, size, size);
-                BattleUiStyleMeshEffect.DrawPaperFrame(vh, badge, style, opacity, paperSeed + 2u, true);
+                BattleUiStyleMeshEffect.DrawPaperFrame(vh, badge, style, opacity, paperSeed + 2u, true, surface: this);
             }
+            BattleUiStyleMeshEffect.ApplyPaperCoordinates(vh, 0, face, style, paperSeed, this, paperRole, paperSheet);
             backgroundVertexCount = vh.currentVertCount;
             if (selected)
             {

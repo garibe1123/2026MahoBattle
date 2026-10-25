@@ -174,7 +174,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     };
     [SerializeField] private BattleUiStyleSettings paper = new()
     {
-        background = new Color32(0xF7, 0xF4, 0xE8, 255),
+        background = new Color32(0xF5, 0xEE, 0xDC, 255),
         innerLine = new Color32(0x08, 0x0D, 0x49, 255),
         outerFrame = new Color32(0xF5, 0xC4, 0x00, 255),
         status = new Color32(0x08, 0x0D, 0x49, 255),

@@ -25,10 +25,19 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.MahoShojo => "HarnessFonts/GowunBatang/GowunBatang-Regular SDF",
             BattleUiStyle.Stylish => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular SDF",
-            BattleUiStyle.Paper => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
+            BattleUiStyle.Paper => "HarnessFonts/NanumPenScript/NanumPenScript-Regular SDF",
             _ => null
         };
         font = path != null ? Resources.Load<TMP_FontAsset>(path) : null;
+        if (style == BattleUiStyle.Paper && font != null)
+        {
+            TMP_FontAsset fallback = Resources.Load<TMP_FontAsset>("HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF");
+            if (fallback != null && fallback != font)
+            {
+                if (font.fallbackFontAssetTable == null) font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+                if (!font.fallbackFontAssetTable.Contains(fallback)) font.fallbackFontAssetTable.Add(fallback);
+            }
+        }
         if (font == null && (style == BattleUiStyle.Stylish || style == BattleUiStyle.Birthday))
             font = BattleUiStyleTmpTitle.LoadFont(style == BattleUiStyle.Birthday);
         tmpFonts[style] = font;

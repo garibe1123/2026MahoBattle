@@ -1,0 +1,5 @@
+font: Nanum Pen Script
+license: OFL
+file: NanumPenScript-Regular.ttf (weight 400)
+source: https://github.com/google/fonts/tree/main/ofl/nanumpenscript
+fetched: 2026-10-26 03:32 by sinhodeung harness
