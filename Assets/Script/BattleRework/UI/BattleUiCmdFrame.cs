@@ -5,9 +5,10 @@ using UnityEngine.UI;
 
 internal sealed class BattleUiCmdFrame : IDisposable
 {
+    private const float FrameInset = 1f;
     private readonly TextMeshProUGUI[] edges = new TextMeshProUGUI[4];
     private Rect lastRect;
-    private float lastSize, lastStep;
+    private float lastSize;
     private TMP_FontAsset lastFont;
 
     internal BattleUiCmdFrame(Graphic owner)
@@ -44,30 +45,37 @@ internal sealed class BattleUiCmdFrame : IDisposable
         Rect rect = owner.rectTransform.rect;
         float size = Mathf.Max(8f, Mathf.Min(settings.cmdFrameFontSize, rect.height / 3f));
         if (font == null || rect.width < size * 3f || rect.height < size * 3f) { Hide(); return; }
-        float scale = size / Mathf.Max(1f, font.faceInfo.pointSize) * font.faceInfo.scale;
-        float step = font.characterLookupTable.TryGetValue('-', out TMP_Character dash)
-            ? dash.glyph.metrics.horizontalAdvance * scale : size * 0.6f;
-        step = Mathf.Max(1f, step);
-        if (lastRect != rect || lastSize != size || lastStep != step || lastFont != font)
+        if (lastRect != rect || lastSize != size || lastFont != font)
         {
             lastRect = rect;
             lastSize = size;
-            lastStep = step;
             lastFont = font;
-            float corner = font.characterLookupTable.TryGetValue('+', out TMP_Character plus)
-                ? plus.glyph.metrics.horizontalAdvance * scale : step;
-            int columns = Mathf.Clamp(Mathf.FloorToInt((rect.width - corner * 2f) / step), 1, 256);
+            TextMeshProUGUI measure = edges[0];
+            if (measure.font != font) { measure.font = font; measure.fontSharedMaterial = font.material; }
+            measure.fontSize = size;
+            float width = rect.width - FrameInset * 2f;
+            int columns = 0, upper = 256;
+            while (columns < upper)
+            {
+                int candidate = (columns + upper + 1) / 2;
+                if (measure.GetPreferredValues("+" + new string('-', candidate) + "+").x <= width)
+                    columns = candidate;
+                else upper = candidate - 1;
+            }
             string horizontal = "+" + new string('-', columns) + "+";
             edges[0].text = edges[1].text = horizontal;
-            float line = Mathf.Max(size, font.faceInfo.lineHeight * scale);
-            int rows = Mathf.Clamp(Mathf.FloorToInt((rect.height - size * 2f) / line), 0, 128);
+            edges[0].rectTransform.offsetMin = edges[1].rectTransform.offsetMin = new Vector2(FrameInset, FrameInset);
+            edges[0].rectTransform.offsetMax = edges[1].rectTransform.offsetMax = new Vector2(-FrameInset, -FrameInset);
+            Vector2 pipe = measure.GetPreferredValues("|");
+            float line = Mathf.Max(size, pipe.y);
+            int rows = Mathf.Clamp(Mathf.FloorToInt((rect.height - line * 2f - FrameInset * 2f) / line), 0, 128);
             string vertical = string.Empty;
             for (int row = 0; row < rows; row++) vertical += row == 0 ? "|" : "\n|";
             edges[2].text = edges[3].text = vertical;
-            edges[2].rectTransform.offsetMin = new Vector2(0f, size);
-            edges[2].rectTransform.offsetMax = new Vector2(0f, -size);
-            edges[3].rectTransform.offsetMin = new Vector2(rect.width - step, size);
-            edges[3].rectTransform.offsetMax = new Vector2(0f, -size);
+            edges[2].rectTransform.offsetMin = new Vector2(FrameInset, line + FrameInset);
+            edges[2].rectTransform.offsetMax = new Vector2(-FrameInset, -line - FrameInset);
+            edges[3].rectTransform.offsetMin = new Vector2(FrameInset + measure.GetPreferredValues(horizontal).x - pipe.x, line + FrameInset);
+            edges[3].rectTransform.offsetMax = new Vector2(-FrameInset, -line - FrameInset);
         }
         foreach (TextMeshProUGUI edge in edges)
         {

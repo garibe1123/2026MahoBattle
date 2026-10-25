@@ -242,7 +242,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         uiStyleController?.RefreshSettings();
     }
 
-    public void ApplyStylishArcadeDesign()
+    public void ApplyStylishArcadeDesign(bool selectStyle = true)
     {
         stylish.background = new Color32(0x60, 0x36, 0xD9, 255);
         stylish.innerLine = new Color32(0xFF, 0xF7, 0xEF, 255);
@@ -252,7 +252,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         stylish.energy = new Color32(0x20, 0xDE, 0xD5, 255);
         stylish.highlight = new Color32(0xFF, 0xE3, 0x4A, 255);
         stylishDesignVersion = 1;
-        SetUiStyle(BattleUiStyle.Stylish);
+        if (selectStyle) SetUiStyle(BattleUiStyle.Stylish);
     }
 
     public void SetScreenGridEnabled(bool value)
@@ -865,7 +865,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         }
 
         Instance = this;
-        if (stylishDesignVersion < 1) ApplyStylishArcadeDesign();
+        if (stylishDesignVersion < 1) ApplyStylishArcadeDesign(false);
         uiStyleController = GetComponent<BattleUiStyleController>();
         if (uiStyleController == null)
             uiStyleController = gameObject.AddComponent<BattleUiStyleController>();
