@@ -232,7 +232,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
             registered.BindInteraction();
             return;
         }
-        if (!(target is Text) && !(target is Image) && !(target is BattleUiPanelDecoration)) return;
+        if (!(target is Text) && !(target is TMPro.TextMeshProUGUI) && !(target is Image) && !(target is BattleUiPanelDecoration)) return;
         BattleUiStyleMeshEffect effect = target.GetComponent<BattleUiStyleMeshEffect>();
         if (effect == null) effect = target.gameObject.AddComponent<BattleUiStyleMeshEffect>();
         effect.Bind(target);
@@ -254,8 +254,17 @@ public sealed class BattleUiStyleController : MonoBehaviour
         if (active == null) return;
         RegisterGraphic(outline);
         RegisterGraphic(fill);
-        if (outline != null) active.targets[outline].SetSpeechFrame(false);
-        if (fill != null) active.targets[fill].SetSpeechFrame(true);
+        if (outline != null) active.targets[outline].SetSpeechFrame(false, outline.rectTransform);
+        if (fill != null) active.targets[fill].SetSpeechFrame(true, outline != null ? outline.rectTransform : null);
+    }
+
+    public static void RegisterSpeechTail(Image outline, Image fill, RectTransform frame)
+    {
+        if (active == null) return;
+        RegisterGraphic(outline);
+        RegisterGraphic(fill);
+        if (outline != null) active.targets[outline].SetSpeechSurface(frame);
+        if (fill != null) active.targets[fill].SetSpeechSurface(frame);
     }
 
     public static void RegisterPanel(Image image, bool decoratedSurface = true)
@@ -320,6 +329,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
             if (paperMaskMaterial != null)
             {
                 paperMaskMaterial.SetVector("_PaperTexture", texture);
+                paperMaskMaterial.SetVector("_PaperPunch", new Vector4(settings.paperPunchRadius,
+                    Mathf.Max(12f, settings.paperPunchSpacing), settings.paperPunchInset, settings.paperPunchEdgeInset));
             }
         }
         removed.Clear();

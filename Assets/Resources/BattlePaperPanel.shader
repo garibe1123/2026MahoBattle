@@ -77,7 +77,7 @@ Shader "UI/BattlePaperPanel"
                 float2 offset = seed * float2(937.0, 617.0);
                 float angle = seed.x * 6.2831853;
                 float2 direction = float2(cos(angle), sin(angle));
-                float2 position = _UseSpriteMask > 0.5 ? input.local : input.uv.xy;
+                float2 position = _UseSpriteMask > 0.5 ? input.surface.xy : input.uv.xy;
                 float2 p = float2(dot(position, direction), dot(position, float2(-direction.y, direction.x)));
                 p = p / max(0.1, _PaperTexture.w) + offset;
                 float grain = Noise(p * float2(1.7, 0.6)) - 0.5;
@@ -98,17 +98,19 @@ Shader "UI/BattlePaperPanel"
                     float pattern = 1.0 - smoothstep(-aa, aa, distanceToPattern);
                     color.rgb *= 1.0 - face * pattern * clamp(_PaperPattern.y, 0.04, 0.07);
                 }
-                if (_UseSpriteMask < 0.5 && input.surface.y > 0.5 && _PaperPunch.x > 0.0)
+                float punched = _UseSpriteMask > 0.5 ? input.surface.w : input.surface.y;
+                float sheetWidth = _UseSpriteMask > 0.5 ? input.surface.z : input.surface.x;
+                if (punched > 0.5 && _PaperPunch.x > 0.0)
                 {
                     float spacing = max(12.0, _PaperPunch.y);
                     float edge = max(_PaperPunch.x, _PaperPunch.w);
-                    float count = floor((input.surface.x - edge * 2.0) / spacing) + 1.0;
+                    float count = floor((sheetWidth - edge * 2.0) / spacing) + 1.0;
                     if (count > 0.0)
                     {
-                        float start = (input.surface.x - (count - 1.0) * spacing) * 0.5;
-                        float index = clamp(floor((input.uv.x - start) / spacing + 0.5), 0.0, count - 1.0);
-                        float x = input.uv.x - (start + index * spacing);
-                        float distanceToHole = length(float2(x, input.uv.y - _PaperPunch.z)) - _PaperPunch.x;
+                        float start = (sheetWidth - (count - 1.0) * spacing) * 0.5;
+                        float index = clamp(floor((position.x - start) / spacing + 0.5), 0.0, count - 1.0);
+                        float x = position.x - (start + index * spacing);
+                        float distanceToHole = length(float2(x, position.y - _PaperPunch.z)) - _PaperPunch.x;
                         float aa = max(0.25, fwidth(distanceToHole));
                         color.a *= smoothstep(-aa, aa, distanceToHole);
                         color.rgb *= 1.0 - (1.0 - smoothstep(0.0, 0.6, distanceToHole)) * 0.025;

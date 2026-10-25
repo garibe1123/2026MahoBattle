@@ -61,6 +61,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             registeredStyleRoot = bubbleRect;
             BattleUiStyleController.RegisterRoot(registeredStyleRoot);
         }
+        BattleUiStyleController.RegisterSpeechTail(outlineImage, fillImage,
+            frameController != null ? frameController.FrameRect : null);
     }
 
     public void SetTarget(RectTransform target)

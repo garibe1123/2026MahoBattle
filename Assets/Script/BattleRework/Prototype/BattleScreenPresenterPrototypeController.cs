@@ -895,6 +895,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
         dialogueRect.localScale =
             Vector3.one * dialogueBubbleStartScale;
+        BattleUiStyleController.RegisterRoot(dialogueRect);
     }
 
     // ---------------------------------------------------------------------

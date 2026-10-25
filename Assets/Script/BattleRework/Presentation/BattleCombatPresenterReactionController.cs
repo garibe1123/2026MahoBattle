@@ -1039,6 +1039,8 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         lineText.horizontalOverflow = HorizontalWrapMode.Wrap;
         lineText.verticalOverflow = VerticalWrapMode.Truncate;
 
+        BattleUiStyleController.RegisterRoot(bubbleRect);
+
         SetPortraitMotion(ScreenPresenterMotionState.Idle);
         HideImmediate();
     }

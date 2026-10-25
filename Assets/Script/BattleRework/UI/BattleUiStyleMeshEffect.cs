@@ -9,6 +9,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 {
     private Graphic target;
     private Text label;
+    private TMPro.TextMeshProUGUI nativeText;
+    private Color originalTmpColor, appliedTmpColor;
+    private bool tmpOverridden;
+    private RectTransform speechSurface;
+    private bool speechBadge;
     private Image image;
     private BattleUiPanelDecoration decoration;
     private bool panel, speechFrame, hiddenFill, tailFill, decoratedSurface;
@@ -48,10 +53,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         paperRole = PaperRole(paperOwner);
         paperSheet = IsPaperSheet(paperOwner);
         label = value as Text;
+        nativeText = value as TMPro.TextMeshProUGUI;
         title = label != null && (value.name == "AppHeader" || value.name.EndsWith("Title", System.StringComparison.Ordinal) ||
             value.name.EndsWith("Header", System.StringComparison.Ordinal));
         titleMotionCandidate = title && label.GetComponentInParent<ScrollRect>(true) == null;
         image = value as Image;
+        speechBadge = image != null && (image.name == "PresenterNameBadge" || image.name == "ReactionTagBadge");
         if (image != null)
         {
             Transform badge = image.name == "Inner" ? image.transform.parent :
@@ -124,11 +131,17 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (target is BattleUiPanelDecoration panelDecoration) panelDecoration.SetStyleInteraction(interaction);
     }
 
-    internal void SetSpeechFrame(bool fill)
+    internal void SetSpeechFrame(bool fill, RectTransform surface)
     {
         speechFrame = !fill;
         hiddenFill = fill;
         panel = !fill;
+        SetSpeechSurface(surface);
+    }
+
+    internal void SetSpeechSurface(RectTransform surface)
+    {
+        speechSurface = surface;
         target.SetVerticesDirty();
     }
 
@@ -148,6 +161,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont,
         Material paperMaterial, Material paperMaskMaterial)
     {
+        if (nativeText != null)
+        {
+            ApplyNativeText(settings);
+            return;
+        }
         if (PreserveBackdrop())
         {
             RestoreMaterial();
@@ -195,7 +213,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         else enteredAt = -1f;
         if (entrance != previousEntrance || entrance < 1f) target.SetVerticesDirty();
         if ((stylish || birthday) && next == null && (panel || (stylish && (stylishButton || stylishSurface))) && !statusFill) next = pixelPanel;
-        if (paper && (panel || paperBadge || (image != null && image.sprite == null && (stylishSurface || stylishButton))) && !statusFill)
+        if (paper && (panel || paperBadge || speechBadge || (image != null && image.sprite == null && (stylishSurface || stylishButton))) && !statusFill)
             next = paperMaterial != null ? paperMaterial : pixelPanel;
         if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
             next = paperMaskMaterial != null ? paperMaskMaterial : target.defaultMaterial;
@@ -253,7 +271,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             else HideTmpTitle();
         }
         else HideTmpTitle();
-        if (paper && paperMaterial != null && next == paperMaterial && target.canvas != null)
+        if (paper && next != null && (next == paperMaterial || next == paperMaskMaterial) && target.canvas != null)
         {
             Canvas canvas = target.canvas;
             if ((canvas.additionalShaderChannels & AdditionalCanvasShaderChannels.TexCoord1) == 0)
@@ -293,13 +311,34 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         return true;
     }
 
+    private void ApplyNativeText(BattleUiStyleSettings settings)
+    {
+        if (!BattleUiStyleController.IsPaper)
+        {
+            RestoreNativeText();
+            return;
+        }
+        if (!tmpOverridden || nativeText.color != appliedTmpColor) originalTmpColor = nativeText.color;
+        appliedTmpColor = settings.innerLine;
+        appliedTmpColor.a *= originalTmpColor.a;
+        if (nativeText.color != appliedTmpColor) nativeText.color = appliedTmpColor;
+        tmpOverridden = true;
+    }
+
+    private void RestoreNativeText()
+    {
+        if (!tmpOverridden || nativeText == null) return;
+        if (nativeText.color == appliedTmpColor) nativeText.color = originalTmpColor;
+        tmpOverridden = false;
+    }
+
     internal void ReleaseMaterialOverride() => RestoreMaterial();
 
     private bool HasAssignedMaterial()
     {
         if (BattleUiStyleController.IsStylish && (panel || stylishSurface || stylishButton || label != null)) return false;
         if (BattleUiStyleController.IsPaper && (panel || speechFrame || hiddenFill || tailFill ||
-            (image != null && image.name == "TailShape") || paperBadge || paperBadgeInner || paperBadgeIcon || label != null ||
+            (image != null && image.name == "TailShape") || paperBadge || paperBadgeInner || paperBadgeIcon || speechBadge || label != null ||
             (image != null && image.sprite == null && (stylishSurface || stylishButton)))) return false;
         return BattleUiMaterialController.IsAssignedMaterial(target.material) ||
             (BattleShowPresentationManager.Instance != null &&
@@ -335,6 +374,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void RestoreAppearance()
     {
+        RestoreNativeText();
         enteredAt = -1f;
         entrance = 1f;
         HideTmpTitle();
@@ -362,6 +402,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     protected override void OnDisable()
     {
+        RestoreNativeText();
         HideAppearance();
         base.OnDisable();
     }
@@ -407,7 +448,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private void ModifyStyledMesh(VertexHelper vh)
     {
-        if (!IsActive() || target == null || PreserveBackdrop() || HasAssignedMaterial()) return;
+        if (!IsActive() || target == null || nativeText != null || PreserveBackdrop() || HasAssignedMaterial()) return;
         if (tmpTitle != null && tmpTitle.Visible) { vh.Clear(); return; }
         bool pixel = BattleUiStyleController.IsPixel;
         bool comic = BattleUiStyleController.IsComic;
@@ -420,6 +461,16 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (paper && paperBadgeInner) { vh.Clear(); return; }
         if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
         {
+            RectTransform surface = speechSurface != null ? speechSurface : target.rectTransform;
+            Matrix4x4 canvas = surface == target.rectTransform ? PaperCanvasTransform(target) :
+                (target.canvas != null ? target.canvas.rootCanvas.transform.worldToLocalMatrix : Matrix4x4.identity) * surface.localToWorldMatrix;
+            Vector3 across = canvas.MultiplyVector(Vector3.right);
+            float width = surface.rect.width * across.magnitude;
+            across.Normalize();
+            Vector3 down = new(across.y, -across.x, 0f);
+            Vector3 origin = canvas.MultiplyPoint3x4(new Vector3(surface.rect.xMin, surface.rect.yMax, 0f));
+            Matrix4x4 vertices = PaperCanvasTransform(target);
+            uint seed = PaperSeed(surface);
             UIVertex vertex = default;
             for (int i = 0; i < vh.currentVertCount; i++)
             {
@@ -428,6 +479,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     ? settings.outerFrame : settings.background;
                 tint.a *= vertex.color.a / 255f;
                 vertex.color = tint;
+                Vector3 offset = vertices.MultiplyPoint3x4(vertex.position) - origin;
+                vertex.uv0 = new Vector4(vertex.uv0.x, vertex.uv0.y, PaperVariation(seed, 24) * 0.99f, PaperVariation(seed, 25));
+                vertex.uv1 = new Vector4(Vector3.Dot(offset, across), Vector3.Dot(offset, down), width,
+                    speechFrame || hiddenFill ? 1f : 0f);
                 vh.SetUIVertex(vertex, i);
             }
             return;
@@ -436,7 +491,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || (speechFrame && !stylish)) return;
         if (decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
-        if ((panel || (paper && paperBadge) || ((stylish || paper) && (stylishButton || stylishSurface))) && image != null && !statusFill &&
+        if ((panel || (paper && (paperBadge || speechBadge)) || ((stylish || paper) && (stylishButton || stylishSurface))) && image != null && !statusFill &&
             (!paper || image.sprite == null || panel || paperBadge))
         {
             vh.Clear();
