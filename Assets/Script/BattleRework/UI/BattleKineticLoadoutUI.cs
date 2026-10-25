@@ -235,6 +235,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void OnDisable()
     {
+        BattleUiOpticsCanvas.ResetTabFocus();
         BattleHUD.SetInventoryInteraction(false);
         ClearStaminaWarning();
         UnsubscribeInput();
@@ -251,6 +252,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void OnDestroy()
     {
+        BattleUiOpticsCanvas.ResetTabFocus();
         UnsubscribeInput();
         ForceRestoreTabTime();
     }
@@ -785,6 +787,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         BuildCompactUi(canvas.transform);
         BuildFullGridUi(canvas.transform);
+        BattleUiOpticsCanvas.RegisterTabPanel(fullRoot, BattleCombatTabFocus.Pack);
         RefreshAll();
         presentation?.RegisterUiMaterialRoot(fullRoot, BattleUiMaterialController.UiChannel.ItemWindow);
         presentation?.RegisterUiMaterialRoot(compactRoot, BattleUiMaterialController.UiChannel.CurrentItems);

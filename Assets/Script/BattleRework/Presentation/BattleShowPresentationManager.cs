@@ -261,8 +261,8 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
     {
         if (target == null)
             return;
-        if (channel == BattleUiMaterialController.UiChannel.PresenterDialogue &&
-            uiMaterialTargets.TryGetValue(target, out var registeredChannel))
+        bool registered = uiMaterialTargets.TryGetValue(target, out var registeredChannel);
+        if (registered && registeredChannel == BattleUiMaterialController.UiChannel.PresenterDialogue)
             channel = registeredChannel;
         uiMaterialTargets[target] = channel;
         sourceScript = sourceScript.Replace('\\', '/');

@@ -6,6 +6,7 @@ Shader "UI/BattleUiOptics"
         _WhiteTex ("UI on white", 2D) = "white" {}
         _ProtectedBlack ("Protected UI on black", 2D) = "black" {}
         _ProtectedWhite ("Protected UI on white", 2D) = "white" {}
+        _BlurRadius ("TAB blur radius in pixels", Float) = 0
     }
     SubShader
     {
@@ -25,6 +26,7 @@ Shader "UI/BattleUiOptics"
             sampler2D _MainTex, _WhiteTex;
             sampler2D _ProtectedBlack, _ProtectedWhite;
             float4 _UiOptics, _PixelLimits, _ScreenSize;
+            float _BlurRadius;
             struct Input { float4 vertex : POSITION; float2 uv : TEXCOORD0; };
             struct Varyings { float4 vertex : SV_POSITION; float2 uv : TEXCOORD0; };
             Varyings vert(Input input)
@@ -53,6 +55,21 @@ Shader "UI/BattleUiOptics"
                 float3 coverage = saturate(1.0 - (tex2D(_ProtectedWhite, uv).rgb - tex2D(_ProtectedBlack, uv).rgb));
                 return max(coverage.r, max(coverage.g, coverage.b));
             }
+            half4 ReadBlurredUI(float2 uv)
+            {
+                if (_BlurRadius <= 0.001) return ReadUI(uv);
+                float2 stepUV = _ScreenSize.zw * _BlurRadius * 0.5;
+                half4 color = ReadUI(uv) * 0.25;
+                color += ReadUI(uv + float2(stepUV.x, 0)) * 0.125;
+                color += ReadUI(uv - float2(stepUV.x, 0)) * 0.125;
+                color += ReadUI(uv + float2(0, stepUV.y)) * 0.125;
+                color += ReadUI(uv - float2(0, stepUV.y)) * 0.125;
+                color += ReadUI(uv + stepUV * 2) * 0.0625;
+                color += ReadUI(uv - stepUV * 2) * 0.0625;
+                color += ReadUI(uv + float2(stepUV.x, -stepUV.y) * 2) * 0.0625;
+                color += ReadUI(uv + float2(-stepUV.x, stepUV.y) * 2) * 0.0625;
+                return color;
+            }
             half4 frag(Varyings input) : SV_Target
             {
                 float2 radial = input.uv * 2.0 - 1.0;
@@ -63,9 +80,10 @@ Shader "UI/BattleUiOptics"
                 float2 splitDirection = float2(1.0, radial.y * 0.25);
                 float2 split = Limited(splitDirection * _UiOptics.x * 0.05, _PixelLimits.x);
                 float limit = max(_PixelLimits.x, _PixelLimits.y);
-                half4 red = ReadUI(input.uv + Limited(lens + split, limit));
-                half4 green = ReadUI(input.uv + lens);
-                half4 blue = ReadUI(input.uv + Limited(lens - split, limit));
+                if (_UiOptics.x == 0) return ReadBlurredUI(input.uv + lens);
+                half4 red = ReadBlurredUI(input.uv + Limited(lens + split, limit));
+                half4 green = ReadBlurredUI(input.uv + lens);
+                half4 blue = ReadBlurredUI(input.uv + Limited(lens - split, limit));
                 half4 color = half4(red.r, green.g, blue.b, max(red.a, max(green.a, blue.a)));
                 return color;
             }

@@ -68,6 +68,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
     [SerializeField, Min(100f)] private float rightSlideDistance = 260f;
     [SerializeField] private Vector2 inactivePanelCornerOffset = new(210f, -26f);
     [SerializeField, Range(0f, 48f)] private float focusLatchPadding = 18f;
+    [SerializeField, Min(0f)] private float tabFocusBlurRadius = 4f;
+    [SerializeField, Min(0.001f)] private float tabFocusBlurDuration = 0.15f;
 
     [Header("Broadcast Metrics")]
     [SerializeField] private Vector2 compactMetricSize = new(300f, 42f);
@@ -205,6 +207,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
         Unsubscribe();
         state = DashboardState.Hidden;
+        focus = BattleCombatTabFocus.None;
+        BattleUiOpticsCanvas.ResetTabFocus();
 
         if (dashboardRoot != null)
             dashboardRoot.gameObject.SetActive(false);
@@ -403,6 +407,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
                        kineticLoadout != null &&
                        kineticLoadout.IsSwitchBoardOpen;
         AnimateMetricBar(t, combatActive, tabOpen);
+        BattleUiOpticsCanvas.SetTabFocus(tabOpen ? focus : BattleCombatTabFocus.None,
+            tabFocusBlurRadius, tabFocusBlurDuration);
 
         if (state == DashboardState.Hidden || dashboardRoot == null)
             return;
@@ -483,6 +489,8 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
         BuildMetricBar();
         BuildMissionPanel();
         BuildChatPanel();
+        BattleUiOpticsCanvas.RegisterTabPanel(missionPanel, BattleCombatTabFocus.Mission);
+        BattleUiOpticsCanvas.RegisterTabPanel(chatPanel, BattleCombatTabFocus.Chat);
         BattleUiStyleController.RegisterRoot(dashboardRoot);
         BattleUiStyleController.RegisterRoot(metricBar);
 
@@ -1058,6 +1066,7 @@ public sealed class BattleBroadcastDashboardController : MonoBehaviour
 
     private void ApplyFocusState()
     {
+        BattleUiOpticsCanvas.SetTabFocus(focus, tabFocusBlurRadius, tabFocusBlurDuration);
         if (rouletteController == null)
             rouletteController = FindFirstObjectByType<BattleRuleRouletteController>(FindObjectsInactive.Include);
 

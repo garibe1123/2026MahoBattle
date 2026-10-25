@@ -780,6 +780,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         Stretch(spinButtonText.rectTransform);
 
         BattleUiStyleController.RegisterRoot(uiRoot.transform);
+        BattleUiOpticsCanvas.RegisterTabPanel(combatRulePanel, BattleCombatTabFocus.Rules);
+        BattleUiOpticsCanvas.RegisterTabPanel(resultListTab, BattleCombatTabFocus.Rules);
+        BattleUiOpticsCanvas.RegisterTabPanel(winningRuleTab, BattleCombatTabFocus.Rules);
         uiRoot.SetActive(false);
     }
 

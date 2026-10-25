@@ -424,7 +424,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             for (int i = 0; i < vh.currentVertCount; i++)
             {
                 vh.PopulateUIVertex(ref vertex, i);
-                Color tint = speechFrame ? settings.outerFrame : PaperColor(settings, paperRole);
+                Color tint = speechFrame || (image != null && image.name == "TailShape")
+                    ? settings.outerFrame : settings.background;
                 tint.a *= vertex.color.a / 255f;
                 vertex.color = tint;
                 vh.SetUIVertex(vertex, i);

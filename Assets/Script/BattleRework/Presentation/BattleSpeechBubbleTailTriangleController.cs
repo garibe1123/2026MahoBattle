@@ -324,6 +324,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
                     ? activeStyle.outlineColor
                     : Color.black;
 
+            BattleUiStyleController.PrepareMaterialTarget(outlineImage);
             outlineImage.material =
                 strokeMaterial;
             BattleShowPresentationManager.Instance?.RegisterUiMaterialTarget(
@@ -335,6 +336,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             fillImage.color =
                 fillColor;
 
+            BattleUiStyleController.PrepareMaterialTarget(fillImage);
             fillImage.material =
                 null;
         }

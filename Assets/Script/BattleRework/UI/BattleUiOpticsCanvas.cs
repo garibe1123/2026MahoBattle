@@ -34,6 +34,48 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     internal bool PreserveNativePresenters { get; private set; }
     private bool renderNatively;
     private int nativeSortingOrder;
+    private BattleCombatTabFocus tabPanel;
+    private float tabBlur;
+    private readonly Vector3[] screenCorners = new Vector3[4];
+    private static BattleCombatTabFocus tabFocus;
+    private static float tabBlurRadius = 4f, tabBlurDuration = 0.15f;
+
+    internal static void SetTabFocus(BattleCombatTabFocus focus, float radius, float duration)
+    {
+        tabFocus = focus;
+        tabBlurRadius = Mathf.Max(0f, radius);
+        tabBlurDuration = Mathf.Max(0.001f, duration);
+    }
+
+    internal static void ResetTabFocus()
+    {
+        tabFocus = BattleCombatTabFocus.None;
+        foreach (BattleUiOpticsCanvas effect in instances)
+        {
+            if (effect == null || effect.tabPanel == BattleCombatTabFocus.None) continue;
+            effect.tabBlur = 0f;
+            effect.Restore();
+        }
+    }
+
+    internal static void RegisterTabPanel(RectTransform panel, BattleCombatTabFocus focus)
+    {
+        if (panel == null) return;
+        if (!panel.TryGetComponent(out Canvas canvas))
+        {
+            Canvas parent = panel.GetComponentInParent<Canvas>();
+            if (parent == null) return;
+            canvas = panel.gameObject.AddComponent<Canvas>();
+            canvas.overrideSorting = true;
+            canvas.sortingLayerID = parent.sortingLayerID;
+            canvas.sortingOrder = parent.sortingOrder;
+            panel.gameObject.AddComponent<GraphicRaycaster>();
+        }
+        if (!canvas.TryGetComponent(out BattleUiOpticsCanvas effect))
+            effect = canvas.gameObject.AddComponent<BattleUiOpticsCanvas>();
+        effect.tabPanel = focus;
+        foreach (Graphic graphic in panel.GetComponentsInChildren<Graphic>(true)) Register(graphic);
+    }
 
     internal void UseNativeRendering()
     {
@@ -62,7 +104,8 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         {
             if (effect == null) continue;
             effect.Restore();
-            if (!BattleColorGradingController.TryGetUiOptics(out _, out _)) effect.ReleaseResources();
+            if (!BattleColorGradingController.TryGetUiOptics(out _, out _) &&
+                effect.tabPanel == BattleCombatTabFocus.None) effect.ReleaseResources();
         }
     }
 
@@ -146,18 +189,28 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 
     private void LateUpdate()
     {
+        float targetBlur = tabPanel != BattleCombatTabFocus.None &&
+            tabFocus != BattleCombatTabFocus.None && tabFocus != tabPanel ? 1f : 0f;
+        tabBlur = Mathf.MoveTowards(tabBlur, targetBlur, Time.unscaledDeltaTime / tabBlurDuration);
+        bool blur = tabBlur > 0f && tabBlurRadius > 0f;
         bool optics = BattleColorGradingController.TryGetUiOptics(out Vector4 settings, out Vector2 limits) &&
             source != null && source.sortingOrder >= 500 && !renderNatively && !BattleUiStyleController.IsPaper;
-        PreserveNativePresenters = !optics;
+        PreserveNativePresenters = !optics && !blur;
         if (source == null || captureRoot == null || !source.isActiveAndEnabled ||
             !source.gameObject.activeInHierarchy ||
             !IsVisible() ||
             captureRoot.renderMode != RenderMode.ScreenSpaceOverlay ||
-            !(RenderPipelineManager.currentPipeline is UniversalRenderPipeline) ||
-            !optics)
+            !(RenderPipelineManager.currentPipeline is UniversalRenderPipeline))
         {
+            tabBlur = 0f;
             Restore();
             ReleaseResources();
+            return;
+        }
+        if (!optics && !blur)
+        {
+            Restore();
+            if (tabPanel == BattleCombatTabFocus.None) ReleaseResources();
             return;
         }
         CreateResources();
@@ -167,12 +220,36 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         material.SetVector("_PixelLimits", optics ? new Vector4(limits.x, limits.y, 0f, 0f) : Vector4.zero);
         material.SetVector("_ScreenSize", new Vector4(black.width, black.height, 1f / black.width, 1f / black.height));
         material.SetVector("_TonePattern", Vector4.zero);
+        material.SetFloat("_BlurRadius", tabBlur * tabBlurRadius * Screen.height / 1080f);
         EnsureProtectionTextures(false);
         output.sortingLayerID = source.sortingLayerID;
         output.sortingOrder = source.sortingOrder;
         output.targetDisplay = source.targetDisplay;
+        if (tabPanel != BattleCombatTabFocus.None && !UpdateTabOutputBounds(optics ? limits : Vector2.zero))
+        {
+            Restore();
+            return;
+        }
         Capture(false);
         output.enabled = true;
+    }
+
+    private bool UpdateTabOutputBounds(Vector2 limits)
+    {
+        Vector2 min = new(Screen.width, Screen.height), max = Vector2.zero;
+        foreach (BattleUiOpticsVisibility modifier in visibility)
+            if (modifier != null) modifier.EncapsulateScreenBounds(screenCorners, ref min, ref max);
+        float padding = 16f + Mathf.Max(limits.x, limits.y) + tabBlurRadius * Screen.height / 1080f;
+        min = Vector2.Max(Vector2.zero, min - Vector2.one * padding);
+        max = Vector2.Min(new Vector2(Screen.width, Screen.height), max + Vector2.one * padding);
+        Vector2 size = Vector2.Max(Vector2.zero, max - min);
+        RectTransform rect = image.rectTransform;
+        rect.anchorMin = rect.anchorMax = rect.pivot = Vector2.zero;
+        rect.anchoredPosition = min;
+        rect.sizeDelta = size;
+        image.uvRect = new Rect(min.x / Screen.width, min.y / Screen.height,
+            size.x / Screen.width, size.y / Screen.height);
+        return size.x > 0f && size.y > 0f;
     }
 
     private bool IsVisible()
@@ -405,6 +482,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
 
     private void OnDisable()
     {
+        tabBlur = 0f;
         Restore();
         ReleaseResources();
     }

@@ -313,6 +313,7 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
                     ? style.outlineColor
                     : Color.black;
 
+            BattleUiStyleController.PrepareMaterialTarget(outlineImage);
             outlineImage.material =
                 strokeMaterial;
             BattleShowPresentationManager.Instance?.RegisterUiMaterialTarget(
@@ -336,6 +337,7 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
                     : BattleSpeechBubbleFrameStyle.DefaultFillColor;
 
             // Fill은 Stroke용 Hologram Material에서 완전히 분리합니다.
+            BattleUiStyleController.PrepareMaterialTarget(fillImage);
             fillImage.material =
                 null;
         }

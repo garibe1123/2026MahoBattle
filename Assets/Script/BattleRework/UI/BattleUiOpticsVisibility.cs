@@ -26,6 +26,18 @@ public sealed class BattleUiOpticsVisibility : MonoBehaviour, IMaterialModifier
 
     internal bool ToneSurface => IsToneSurface(target);
 
+    internal void EncapsulateScreenBounds(Vector3[] corners, ref Vector2 min, ref Vector2 max)
+    {
+        if (!Visible || (NativePresenter && owner != null && owner.PreserveNativePresenters)) return;
+        target.rectTransform.GetWorldCorners(corners);
+        for (int i = 0; i < corners.Length; i++)
+        {
+            Vector2 point = RectTransformUtility.WorldToScreenPoint(null, corners[i]);
+            min = Vector2.Min(min, point);
+            max = Vector2.Max(max, point);
+        }
+    }
+
     public static bool IsToneSurface(Graphic target)
     {
         if (target is BattleUiPanelDecoration) return true;
