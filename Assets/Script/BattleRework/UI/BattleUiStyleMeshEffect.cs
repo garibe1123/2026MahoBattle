@@ -188,6 +188,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (entrance != previousEntrance || entrance < 1f) target.SetVerticesDirty();
         if ((stylish || birthday) && next == null && (panel || (stylish && (stylishButton || stylishSurface))) && !statusFill) next = pixelPanel;
         if (paper && next == null && (panel || paperBadge || (image != null && image.sprite == null && (stylishSurface || stylishButton))) && !statusFill) next = pixelPanel;
+        if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
+            next = target.defaultMaterial;
         if (HasAssignedMaterial()) next = null;
         if (next != null)
         {
@@ -275,7 +277,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool HasAssignedMaterial()
     {
         if (BattleUiStyleController.IsStylish && (panel || stylishSurface || stylishButton || label != null)) return false;
-        if (BattleUiStyleController.IsPaper && (panel || paperBadge || paperBadgeInner || paperBadgeIcon || label != null ||
+        if (BattleUiStyleController.IsPaper && (panel || speechFrame || hiddenFill || tailFill ||
+            (image != null && image.name == "TailShape") || paperBadge || paperBadgeInner || paperBadgeIcon || label != null ||
             (image != null && image.sprite == null && (stylishSurface || stylishButton)))) return false;
         return BattleUiMaterialController.IsAssignedMaterial(target.material) ||
             (BattleShowPresentationManager.Instance != null &&
@@ -394,6 +397,19 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (!pixel && !comic && !maho && !stylish && !birthday && !paper) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         if (paper && paperBadgeInner) { vh.Clear(); return; }
+        if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
+        {
+            UIVertex vertex = default;
+            for (int i = 0; i < vh.currentVertCount; i++)
+            {
+                vh.PopulateUIVertex(ref vertex, i);
+                Color tint = speechFrame ? settings.outerFrame : settings.background;
+                tint.a *= vertex.color.a / 255f;
+                vertex.color = tint;
+                vh.SetUIVertex(vertex, i);
+            }
+            return;
+        }
         // 접합 계산에 쓰는 프레임 마스크와 표시되는 외곽을 일치시킵니다.
         if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || (speechFrame && !stylish)) return;
         if (decoratedSurface) { vh.Clear(); return; }

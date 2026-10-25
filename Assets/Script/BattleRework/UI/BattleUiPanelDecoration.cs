@@ -320,7 +320,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (BattleUiStyleController.IsPaper)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
-            float opacity = (softFill ? 0.94f : 1f) * (surfaceImage != null ? surfaceImage.color.a : 1f);
+            float opacity = softFill ? 0.94f : 1f;
             BattleUiStyleMeshEffect.DrawPaperFrame(vh, face, style, opacity, paperSeed, false,
                 emphasis || (styleInteraction != null && styleInteraction.Highlighted));
             backgroundBaseAlpha = style.background.a * opacity;

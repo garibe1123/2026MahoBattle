@@ -271,11 +271,8 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         {
             styles.DrawEditorPreview(manager, root.transform, () =>
             {
-                for (int pass = 0; pass < 4; pass++)
+                for (int pass = 0; pass < 2; pass++)
                 {
-                    for (int i = 0; i < previewGraphics.Length; i++)
-                        previewGraphics[i].canvasRenderer.cull = culled[i] ||
-                            (pass >= 2 && BattleUiOpticsVisibility.IsToneSurface(previewGraphics[i]));
                     preview.camera.backgroundColor = pass % 2 == 0 ? Color.black : Color.white;
                     preview.BeginPreview(view, GUIStyle.none);
                     Texture texture;
@@ -285,8 +282,6 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
                 }
             });
             toneMaterial.SetTexture("_WhiteTex", toneTextures[1]);
-            toneMaterial.SetTexture("_ProtectedBlack", toneTextures[2]);
-            toneMaterial.SetTexture("_ProtectedWhite", toneTextures[3]);
             toneMaterial.SetVector("_ScreenSize", new Vector4(width, height, 1f / width, 1f / height));
             toneMaterial.SetColor("_PreviewBackgroundColor", background);
             manager.ScreenToneSettings.Apply(toneMaterial, width / 1920f);

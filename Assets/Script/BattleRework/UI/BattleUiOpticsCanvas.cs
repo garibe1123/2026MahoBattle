@@ -39,8 +39,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         {
             if (effect == null) continue;
             effect.Restore();
-            if (BattleUiStyleController.ScreenTone == null &&
-                !BattleColorGradingController.TryGetUiOptics(out _, out _)) effect.ReleaseResources();
+            if (!BattleColorGradingController.TryGetUiOptics(out _, out _)) effect.ReleaseResources();
         }
     }
 
@@ -127,13 +126,12 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         bool optics = BattleColorGradingController.TryGetUiOptics(out Vector4 settings, out Vector2 limits) &&
             source != null && source.sortingOrder >= 500;
         PreserveNativePresenters = !optics;
-        BattleUiScreenToneSettings tone = BattleUiStyleController.ScreenTone;
         if (source == null || captureRoot == null || !source.isActiveAndEnabled ||
             !source.gameObject.activeInHierarchy ||
             !IsVisible() ||
             captureRoot.renderMode != RenderMode.ScreenSpaceOverlay ||
             !(RenderPipelineManager.currentPipeline is UniversalRenderPipeline) ||
-            (!optics && tone == null))
+            !optics)
         {
             Restore();
             ReleaseResources();
@@ -145,13 +143,12 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         material.SetVector("_UiOptics", optics ? settings : Vector4.zero);
         material.SetVector("_PixelLimits", optics ? new Vector4(limits.x, limits.y, 0f, 0f) : Vector4.zero);
         material.SetVector("_ScreenSize", new Vector4(black.width, black.height, 1f / black.width, 1f / black.height));
-        if (tone != null) tone.Apply(material, BattleUiStyleController.ScreenToneCanvasScale);
-        else material.SetVector("_TonePattern", Vector4.zero);
-        EnsureProtectionTextures(tone != null);
+        material.SetVector("_TonePattern", Vector4.zero);
+        EnsureProtectionTextures(false);
         output.sortingLayerID = source.sortingLayerID;
         output.sortingOrder = source.sortingOrder;
         output.targetDisplay = source.targetDisplay;
-        Capture(tone != null);
+        Capture(false);
         output.enabled = true;
     }
 

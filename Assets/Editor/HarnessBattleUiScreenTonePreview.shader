@@ -22,7 +22,7 @@ Shader "Hidden/Harness/BattleUiScreenTonePreview"
             #include "UnityCG.cginc"
             #include "Assets/Resources/BattleUiScreenTone.cginc"
 
-            sampler2D _MainTex, _WhiteTex, _ProtectedBlack, _ProtectedWhite;
+            sampler2D _MainTex, _WhiteTex;
             float4 _ScreenSize, _PreviewBackgroundColor;
 
             float Coverage(float3 black, float3 white)
@@ -36,15 +36,13 @@ Shader "Hidden/Harness/BattleUiScreenTonePreview"
                 float2 uv = input.uv;
                 float3 black = tex2D(_MainTex, uv).rgb;
                 float alpha = Coverage(black, tex2D(_WhiteTex, uv).rgb);
-                float3 color = black + _PreviewBackgroundColor.rgb * (1.0 - alpha);
-                float protection = Coverage(tex2D(_ProtectedBlack, uv).rgb,
-                    tex2D(_ProtectedWhite, uv).rgb);
                 float2 centered = (uv - 0.5) * _ScreenSize.xy * 2.0 /
                     max(1.0, min(_ScreenSize.x, _ScreenSize.y));
                 float edge = smoothstep(_ToneVignette.y, _ToneVignette.y + _ToneVignette.z, length(centered));
                 float dots = BattleScreenToneDots(uv, _ScreenSize.xy, edge * _ToneVignette.x);
-                float strength = dots * _TonePattern.z * saturate(_ToneColor.a) * (1.0 - protection);
-                return float4(lerp(color, _ToneColor.rgb, strength), 1.0);
+                float strength = dots * _TonePattern.z * saturate(_ToneColor.a);
+                float3 background = lerp(_PreviewBackgroundColor.rgb, _ToneColor.rgb, strength);
+                return float4(black + background * (1.0 - alpha), 1.0);
             }
             ENDHLSL
         }

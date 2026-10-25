@@ -871,6 +871,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 fallbackLabel = fallbackLabel,
                 pointerFeedback = pointerFeedback
             });
+            BattleUiStyleController.RegisterRoot(root);
         }
     }
 
