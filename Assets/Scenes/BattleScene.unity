@@ -1308,23 +1308,42 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   runManager: {fileID: 0}
+  kineticLoadout: {fileID: 0}
+  presentation: {fileID: 0}
+  targetCamera: {fileID: 0}
   filmGrainIntensity: 0.16
   filmGrainResponse: 0.72
   chromaticAberrationIntensity: 0.032
   lensDistortionIntensity: -0.02
   lensDistortionScale: 1.008
+  tabLensDistortion: 0.14
   vignetteIntensity: 0.13
   vignetteSmoothness: 0.48
   vignetteColor: {r: 0, g: 0, b: 0, a: 1}
-  overlayStrength: 0.72
-  scanlineStrength: 0.05
-  scanlineSpacingPixels: 3
-  noiseStrength: 0.034
-  rollingBandStrength: 0.026
-  overlayTint: {r: 0.012, g: 0.016, b: 0.02, a: 1}
+  tabBackgroundTint: {r: 0.45, g: 0.5, b: 0.6, a: 1}
   fadeSharpness: 7.5
-  signalFlicker: 0.035
-  signalFlickerSpeed: 6.2
+  useTabEffectTuning: 0
+  tabCameraNoiseStrength: 0.018
+  tabStaticOpacity: 0.075
+  tabStaticRate: 60
+  tabStaticPixelSize: 1.25
+  tabScanlineStrength: 0.035
+  tabBackgroundOpacity: 0.3
+  tabBackgroundMaterial: {fileID: 0}
+  tabOverlayWeight: 0.65
+  tabOverlayStrength: 1
+  tabScanlineSpacing: 3
+  tabStaticTint: {r: 0.12, g: 0.17, b: 0.24, a: 1}
+  tabEdgeWidth: 0.1
+  tabEdgeStrength: 0.86
+  tabCenterGlow: 0.025
+  tabColorStrength: 0.25
+  tabShadowTint: {r: 0.4, g: 0.46, b: 0.6, a: 1}
+  tabReturnDuration: 0.48
+  tabReturnRebound: 1.3
+  tabSettingsMigrated: 0
+  tabMaterialMigrated: 0
+  preserveLensReaction: 0
 --- !u!114 &529217569
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1488,6 +1507,103 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 1d06c1c873cdfdd4ca037bdcd0ad21de, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  uiStyle: 2
+  uiPixelScale: 1
+  screenGridEnabled: 0
+  screenGridContrast: 0.08
+  pixelStyleUi:
+    logicalPixelSize: 2
+    textPixelSize: 1
+    surfaceShade: 0.55
+    frameShade: 0.6
+    framePixels: 1
+    background: {r: 0.1764706, g: 0.10980392, b: 0.1254902, a: 1}
+    innerLine: {r: 0.9529412, g: 0.92156863, b: 0.8666667, a: 1}
+    outerFrame: {r: 0.6431373, g: 0.61960787, b: 0.59607846, a: 1}
+    status: {r: 0.25490198, g: 0.6039216, b: 0.3137255, a: 1}
+    font: {fileID: 0}
+    panelMaterial: {fileID: 0}
+    textMaterial: {fileID: 0}
+    danger: {r: 0.93333334, g: 0.26666668, b: 0.33333334, a: 1}
+    energy: {r: 0.2509804, g: 0.65882355, b: 0.9372549, a: 1}
+    highlight: {r: 0.9607843, g: 0.78431374, b: 0.34117648, a: 1}
+    comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
+    comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
+    comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    mahoCornerRadius: 14
+    mahoBorderWidth: 1
+    mahoShadowOffset: {x: 3, y: -4}
+    mahoShadow: {r: 0, g: 0, b: 0, a: 0.08}
+  comicStyleUi:
+    logicalPixelSize: 2
+    textPixelSize: 1
+    surfaceShade: 0.55
+    frameShade: 0.6
+    framePixels: 1
+    background: {r: 0.1764706, g: 0.10980392, b: 0.1254902, a: 1}
+    innerLine: {r: 0.9529412, g: 0.92156863, b: 0.8666667, a: 1}
+    outerFrame: {r: 0.6431373, g: 0.61960787, b: 0.59607846, a: 1}
+    status: {r: 0.25490198, g: 0.6039216, b: 0.3137255, a: 1}
+    font: {fileID: 0}
+    panelMaterial: {fileID: 0}
+    textMaterial: {fileID: 0}
+    danger: {r: 0.93333334, g: 0.26666668, b: 0.33333334, a: 1}
+    energy: {r: 0.2509804, g: 0.65882355, b: 0.9372549, a: 1}
+    highlight: {r: 0.9607843, g: 0.78431374, b: 0.34117648, a: 1}
+    comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
+    comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
+    comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    mahoCornerRadius: 14
+    mahoBorderWidth: 1
+    mahoShadowOffset: {x: 3, y: -4}
+    mahoShadow: {r: 0, g: 0, b: 0, a: 0.08}
+  vectorStyleUi:
+    logicalPixelSize: 2
+    textPixelSize: 1
+    surfaceShade: 0.55
+    frameShade: 0.6
+    framePixels: 1
+    background: {r: 0.1764706, g: 0.10980392, b: 0.1254902, a: 1}
+    innerLine: {r: 0.9529412, g: 0.92156863, b: 0.8666667, a: 1}
+    outerFrame: {r: 0.6431373, g: 0.61960787, b: 0.59607846, a: 1}
+    status: {r: 0.25490198, g: 0.6039216, b: 0.3137255, a: 1}
+    font: {fileID: 0}
+    panelMaterial: {fileID: 0}
+    textMaterial: {fileID: 0}
+    danger: {r: 0.93333334, g: 0.26666668, b: 0.33333334, a: 1}
+    energy: {r: 0.2509804, g: 0.65882355, b: 0.9372549, a: 1}
+    highlight: {r: 0.9607843, g: 0.78431374, b: 0.34117648, a: 1}
+    comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
+    comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
+    comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    mahoCornerRadius: 14
+    mahoBorderWidth: 1
+    mahoShadowOffset: {x: 3, y: -4}
+    mahoShadow: {r: 0, g: 0, b: 0, a: 0.08}
+  mahoShojo:
+    logicalPixelSize: 2
+    textPixelSize: 1
+    surfaceShade: 0.55
+    frameShade: 0.6
+    framePixels: 1
+    background: {r: 0.98039216, g: 0.98039216, b: 0.98039216, a: 1}
+    innerLine: {r: 0.14117648, g: 0.14117648, b: 0.14117648, a: 1}
+    outerFrame: {r: 0.8901961, g: 0.8901961, b: 0.8901961, a: 1}
+    status: {r: 0.92156863, g: 0.92156863, b: 0.92156863, a: 1}
+    font: {fileID: 0}
+    panelMaterial: {fileID: 0}
+    textMaterial: {fileID: 0}
+    danger: {r: 0.26666668, g: 0.26666668, b: 0.26666668, a: 1}
+    energy: {r: 0.46666667, g: 0.46666667, b: 0.46666667, a: 1}
+    highlight: {r: 0.6666667, g: 0.6666667, b: 0.6666667, a: 1}
+    comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
+    comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
+    comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    mahoCornerRadius: 14
+    mahoBorderWidth: 1
+    mahoShadowOffset: {x: 3, y: -4}
+    mahoShadow: {r: 0, g: 0, b: 0, a: 0.08}
+  tabBackgroundMaterial: {fileID: 0}
   defaultFloorTemplate: {fileID: 11400000, guid: 1578a2a39841b3846a886fb516f9edc0, type: 2}
   autoApplyTemplateToSlidingField: 1
   fieldTemplateScanInterval: 0.06

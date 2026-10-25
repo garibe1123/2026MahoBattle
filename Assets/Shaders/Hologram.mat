@@ -19,6 +19,7 @@ Material:
   - GLOW_ON
   - HOLOGRAM_ON
   - OVERLAY_ON
+  - SHADOW_ON
   m_InvalidKeywords:
   - _BLURHD_ON
   m_LightmapFlags: 4
@@ -27,7 +28,7 @@ Material:
   m_CustomRenderQueue: -1
   stringTagMap: {}
   disabledShaderPasses: []
-  m_LockedProperties: 
+  m_LockedProperties: _FlickerFreq
   m_SavedProperties:
     serializedVersion: 3
     m_TexEnvs:
