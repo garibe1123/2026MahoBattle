@@ -1843,22 +1843,27 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     public int ResolveOccupiedSlotUnderPointer(Vector2 screenPoint)
     {
-        ResolveReferences();
+        return ResolveSlotUnderPointer(screenPoint, true);
+    }
 
-        if (equipmentSystem == null)
+    private int ResolveSlotUnderPointer(Vector2 screenPoint, bool occupiedOnly)
+    {
+        if (equipmentSystem == null || canvas == null)
             return -1;
 
+        Camera eventCamera = canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : canvas.worldCamera;
         for (int i = 0; i < slotRects.Length; i++)
         {
             if (slotRects[i] == null ||
+                !slotRects[i].gameObject.activeInHierarchy ||
                 !equipmentSystem.IsSlotUnlocked(i) ||
-                i >= equipmentSystem.Slots.Count ||
-                equipmentSystem.Slots[i]?.equipment == null)
+                (occupiedOnly && (i >= equipmentSystem.Slots.Count ||
+                 equipmentSystem.Slots[i]?.equipment == null)))
             {
                 continue;
             }
 
-            if (GetScreenRect(slotRects[i]).Contains(screenPoint))
+            if (RectTransformUtility.RectangleContainsScreenPoint(slotRects[i], screenPoint, eventCamera))
                 return i;
         }
 
@@ -2209,6 +2214,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         bool active = IsSwitchBoardOpen && fullGroup.alpha > 0.05f;
         fullGroup.blocksRaycasts = active;
         fullGroup.interactable = active;
+
+        if (active && !BattlePauseController.IsPaused && inputRouter != null &&
+            !inputRouter.HasModal && inputRouter.PointerPresent)
+        {
+            int slotIndex = ResolveSlotUnderPointer(inputRouter.PointerPosition, false);
+            if (hoveredSlot != slotIndex)
+            {
+                if (hoveredSlot >= 0) HandleSlotHover(hoveredSlot, false);
+                if (slotIndex >= 0) HandleSlotHover(slotIndex, true);
+            }
+        }
 
         // Reward PACK 편집도 같은 detailRoot를 재사용합니다.
         // Combat TAB이 아닌 상태에서 매 프레임 Hide하면 Reward Hover Popup 애니메이션이

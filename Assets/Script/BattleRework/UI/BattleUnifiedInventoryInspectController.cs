@@ -781,6 +781,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             int mouse = inventoryInteraction.SelectedRewardSlot;
             int hover = inventoryInteraction.HoveredSlot;
 
+            if (!inventoryInteraction.PadModeActive &&
+                inventoryInteraction.DraggingSlot < 0 &&
+                !BattlePauseController.IsPaused && Input.mousePresent && kineticLoadout != null)
+            {
+                hover = kineticLoadout.ResolveOccupiedSlotUnderPointer(Input.mousePosition);
+            }
+
             if (inventoryInteraction.PadModeActive)
             {
                 source = HasItem(pad) ? pad : -1;
