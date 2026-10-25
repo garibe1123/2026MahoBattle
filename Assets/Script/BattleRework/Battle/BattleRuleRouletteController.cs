@@ -281,7 +281,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         // Final Review에서는 PointerEnter 이벤트만 믿지 않습니다.
         // START BATTLE / 다른 Overlay Rect가 슬롯 Hitbox 일부와 겹쳐도
         // 실제 마우스가 Rule Slot 위에 있으면 항상 상세를 띄웁니다.
-        if (finalReviewMode)
+        if (finalReviewMode || (combatHudMode && combatTabOpen))
             UpdateFinalReviewRuleHover();
 
         if (!combatHudMode || resultListTab == null || combatRulePanel == null)
@@ -1584,7 +1584,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
     private void UpdateFinalReviewRuleHover()
     {
-        if (!finalReviewMode ||
+        if ((!finalReviewMode && !(combatHudMode && combatTabOpen)) ||
             !PointerPresent ||
             ruleSlotViews.Count == 0)
         {
@@ -1654,6 +1654,8 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (hoveredView != null &&
             hoveredView.pointerFeedback != null)
         {
+            if (combatHudMode && !combatRulePanelFocused)
+                HandleCombatRulePanelPointerEnter();
             HandleRuleSlotPointerEnter(
                 hoveredView.boundRule,
                 hoveredView.pointerFeedback);

@@ -33,11 +33,13 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
     internal bool IsCapturing { get; private set; }
     internal bool PreserveNativePresenters { get; private set; }
     private bool renderNatively;
+    private int nativeSortingOrder;
 
     internal void UseNativeRendering()
     {
         renderNatively = true;
         OnCanvasHierarchyChanged();
+        nativeSortingOrder = source != null ? source.sortingOrder : 0;
         Restore();
         ReleaseResources();
     }
@@ -49,7 +51,7 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
         {
             if (parent == source || (!parent.overrideSorting && !parent.isRootCanvas)) continue;
             source.sortingLayerID = parent.sortingLayerID;
-            source.sortingOrder = Mathf.Min(32767, parent.sortingOrder + 1);
+            source.sortingOrder = Mathf.Clamp(Mathf.Max(nativeSortingOrder, parent.sortingOrder + 1), -32768, 32767);
             break;
         }
     }

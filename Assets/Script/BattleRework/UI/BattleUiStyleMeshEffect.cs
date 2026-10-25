@@ -871,37 +871,49 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         float min = Mathf.Clamp(settings.paperCornerMin, 0.02f, 0.05f);
         float max = Mathf.Clamp(settings.paperCornerMax, min, 0.05f);
         int first = vh.currentVertCount;
-        vh.AddVert(rect.center, tint, new Vector2(0.5f, 0.5f));
-        for (int i = 0; i < 8; i++)
+        int count = badge ? 7 + (int)((seed >> 3) % 3u) : 8;
+        Vector2 textureSeed = new(PaperVariation(seed, 24), PaperVariation(seed, 25));
+        PaperVertex(vh, rect.center, tint, new Vector2(0.5f, 0.5f), textureSeed);
+        for (int i = 0; i < count; i++)
         {
             float cut = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i));
+            float edge = shortSide * Mathf.Lerp(min, max, PaperVariation(seed, i + 12));
             Vector2 point;
             if (badge)
             {
-                float phase = (i * 45f + 22.5f) * Mathf.Deg2Rad;
+                float phase = (i * 360f / count + 22.5f + (PaperVariation(seed, i + 12) - 0.5f) * 8f) * Mathf.Deg2Rad;
                 point = new Vector2(Mathf.Cos(phase) * (rect.width * 0.5f - cut),
-                    Mathf.Sin(phase) * (rect.height * 0.5f - cut));
+                    Mathf.Sin(phase) * (rect.height * 0.5f - edge));
             }
             else
             {
                 point = i switch
                 {
-                    0 => new Vector2(-rect.width * 0.5f, -rect.height * 0.5f + cut),
-                    1 => new Vector2(-rect.width * 0.5f + cut, -rect.height * 0.5f),
-                    2 => new Vector2(rect.width * 0.5f - cut, -rect.height * 0.5f),
-                    3 => new Vector2(rect.width * 0.5f, -rect.height * 0.5f + cut),
-                    4 => new Vector2(rect.width * 0.5f, rect.height * 0.5f - cut),
-                    5 => new Vector2(rect.width * 0.5f - cut, rect.height * 0.5f),
-                    6 => new Vector2(-rect.width * 0.5f + cut, rect.height * 0.5f),
-                    _ => new Vector2(-rect.width * 0.5f, rect.height * 0.5f - cut)
+                    0 => new Vector2(-rect.width * 0.5f + edge * 0.2f, -rect.height * 0.5f + cut),
+                    1 => new Vector2(-rect.width * 0.5f + cut, -rect.height * 0.5f + edge),
+                    2 => new Vector2(rect.width * 0.5f - cut, -rect.height * 0.5f + edge * 0.2f),
+                    3 => new Vector2(rect.width * 0.5f - edge, -rect.height * 0.5f + cut),
+                    4 => new Vector2(rect.width * 0.5f - edge * 0.2f, rect.height * 0.5f - cut),
+                    5 => new Vector2(rect.width * 0.5f - cut, rect.height * 0.5f - edge),
+                    6 => new Vector2(-rect.width * 0.5f + cut, rect.height * 0.5f - edge * 0.2f),
+                    _ => new Vector2(-rect.width * 0.5f + edge, rect.height * 0.5f - cut)
                 };
             }
             Vector2 uv = new(point.x / rect.width + 0.5f, point.y / rect.height + 0.5f);
             point = rect.center + new Vector2(point.x * cosine - point.y * sine,
                 point.x * sine + point.y * cosine) * fit;
-            vh.AddVert(point, tint, uv);
+            PaperVertex(vh, point, tint, uv, textureSeed);
         }
-        for (int i = 0; i < 8; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % 8);
+        for (int i = 0; i < count; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
+    }
+
+    private static void PaperVertex(VertexHelper vh, Vector2 point, Color tint, Vector2 uv, Vector2 seed)
+    {
+        UIVertex vertex = UIVertex.simpleVert;
+        vertex.position = point;
+        vertex.color = tint;
+        vertex.uv0 = new Vector4(uv.x, uv.y, seed.x, seed.y);
+        vh.AddVert(vertex);
     }
 
     internal static void Quad(VertexHelper vh, Rect rect, Color tint)

@@ -35,8 +35,8 @@ Shader "UI/BattlePaperPanel"
             sampler2D _MainTex;
             float4 _ClipRect, _TextureSampleAdd, _PaperTexture;
             float _UseSpriteMask, _FoldSize;
-            struct Attributes { float4 vertex : POSITION; float4 color : COLOR; float2 uv : TEXCOORD0; };
-            struct Varyings { float4 vertex : SV_POSITION; float4 color : COLOR; float2 uv : TEXCOORD0; float2 local : TEXCOORD1; };
+            struct Attributes { float4 vertex : POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; };
+            struct Varyings { float4 vertex : SV_POSITION; float4 color : COLOR; float4 uv : TEXCOORD0; float2 local : TEXCOORD1; };
 
             float Hash(float2 p)
             {
@@ -67,29 +67,39 @@ Shader "UI/BattlePaperPanel"
             {
                 float4 color = input.color;
                 if (_UseSpriteMask > 0.5)
-                    color.a *= saturate((tex2D(_MainTex, input.uv) + _TextureSampleAdd).a);
+                    color.a *= saturate((tex2D(_MainTex, input.uv.xy) + _TextureSampleAdd).a);
                 #ifdef UNITY_UI_CLIP_RECT
                 color.a *= UnityGet2DClipping(input.local, _ClipRect);
                 #endif
                 #ifdef UNITY_UI_ALPHACLIP
                 clip(color.a - 0.001);
                 #endif
-                float2 p = input.local / max(0.1, _PaperTexture.w);
+                float2 seed = input.uv.zw;
+                float2 offset = seed * float2(937.0, 617.0);
+                float angle = seed.x * 6.2831853;
+                float2 direction = float2(cos(angle), sin(angle));
+                float2 p = float2(dot(input.local, direction), dot(input.local, float2(-direction.y, direction.x)));
+                p = p / max(0.1, _PaperTexture.w) + offset;
                 float grain = Noise(p * float2(1.7, 0.6)) - 0.5;
                 float fibers = Noise(p * float2(0.09, 2.4)) - 0.5;
-                float stain = smoothstep(0.48, 0.85, Noise(input.local * 0.025));
+                float stain = smoothstep(0.48, 0.85, Noise(p * 0.025));
                 float face = smoothstep(0.45, 0.8, min(color.r, min(color.g, color.b)));
-                float2 uv = input.uv;
-                float crease = uv.x - 0.13 - sin(uv.y * 5.0) * 0.018;
-                float creaseWidth = max(fwidth(crease), 0.004);
+                float2 uv = input.uv.xy;
+                if (seed.x > 0.5) uv = uv.yx;
+                if (seed.y > 0.5) uv.x = 1.0 - uv.x;
+                float crease = uv.x - lerp(0.08, 0.85, Hash(seed * 53.0 + 7.0))
+                    - (uv.y - 0.5) * (Hash(seed * 71.0) - 0.5) * 0.12;
+                float creaseWidth = max(fwidth(crease) * 0.8, 0.001);
                 float shade = exp(-abs(crease) / (creaseWidth * 3.0));
                 float light = exp(-abs(crease - creaseWidth * 4.0) / (creaseWidth * 2.0));
-                float foldLine = uv.x + uv.y - (2.0 - _FoldSize);
+                float creaseStrength = step(0.32, Hash(seed * 97.0 + 3.0)) * (1.0 - _UseSpriteMask);
+                float foldSize = _FoldSize * lerp(0.45, 1.0, seed.y) * step(0.68, Hash(seed * 41.0 + 11.0));
+                float foldLine = uv.x + uv.y - (2.0 - foldSize);
                 float foldWidth = max(fwidth(foldLine), 0.003);
-                float fold = smoothstep(-foldWidth, foldWidth, foldLine) * step(0.001, _FoldSize);
-                float foldShadow = exp(-abs(foldLine) / (foldWidth * 3.0)) * step(0.001, _FoldSize);
+                float fold = smoothstep(-foldWidth, foldWidth, foldLine) * step(0.001, foldSize);
+                float foldShadow = exp(-abs(foldLine) / (foldWidth * 3.0)) * step(0.001, foldSize);
                 float grainShade = (grain * 0.65 + fibers * 0.35) * _PaperTexture.x;
-                color.rgb += face * (grainShade + (light * 0.35 - shade) * _PaperTexture.z);
+                color.rgb += face * (grainShade + (light * 0.35 - shade) * _PaperTexture.z * creaseStrength);
                 color.rgb -= face * stain * _PaperTexture.y * float3(0.38, 0.55, 0.8);
                 color.rgb += face * _PaperTexture.z * (fold * 0.3 - foldShadow * 0.75);
                 color.rgb = saturate(color.rgb);
