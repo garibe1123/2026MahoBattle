@@ -326,6 +326,7 @@ public sealed class BattlePauseController : MonoBehaviour, IInputModal
             BattleUiStyle.MahoShojo => BattleUiStyle.Stylish,
             BattleUiStyle.Stylish => BattleUiStyle.Birthday,
             BattleUiStyle.Birthday => BattleUiStyle.Paper,
+            BattleUiStyle.Paper => BattleUiStyle.CMD,
             _ => BattleUiStyle.pixelStyleUi
         };
         presentation.SetUiStyle(next);

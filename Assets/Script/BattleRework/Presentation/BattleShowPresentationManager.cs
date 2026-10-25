@@ -187,6 +187,21 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         stylishTitleShear = 0f,
         stylishTitleAngle = 0f
     };
+    [SerializeField] private BattleUiStyleSettings cmd = new()
+    {
+        background = new Color32(0x08, 0x11, 0x0B, 255),
+        innerLine = new Color32(0x65, 0xD9, 0x85, 255),
+        outerFrame = new Color32(0x35, 0xF8, 0x79, 255),
+        status = new Color32(0x35, 0xF8, 0x79, 255),
+        danger = new Color32(0x9B, 0xE3, 0x4A, 255),
+        energy = new Color32(0x35, 0xF8, 0x79, 255),
+        highlight = new Color32(0x9B, 0xE3, 0x4A, 255),
+        titleOutlineWidth = 0f,
+        titleShadowOffset = Vector2.zero,
+        titleSizeMultiplier = 1f,
+        stylishTitleShear = 0f,
+        stylishTitleAngle = 0f
+    };
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
     [SerializeField] private bool enableScreenTone = true;
@@ -216,11 +231,13 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         BattleUiStyle.Stylish => stylish,
         BattleUiStyle.Birthday => birthday,
         BattleUiStyle.Paper => paper,
+        BattleUiStyle.CMD => cmd,
         _ => vectorStyleUi
     };
 
     public void SetUiStyle(BattleUiStyle value)
     {
+        if (uiStyle != value) BattleUiCmdCursor.HideAll();
         uiStyle = value;
         uiStyleController?.RefreshSettings();
     }

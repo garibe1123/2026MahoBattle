@@ -61,7 +61,14 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
             EditorGUILayout.LabelField("편집 모드에서 Presentation Manager를 연결하세요.");
             return;
         }
-        EditorGUILayout.LabelField("Theme", manager.UiStyle.ToString());
+        EditorGUI.BeginChangeCheck();
+        BattleUiStyle theme = (BattleUiStyle)EditorGUILayout.EnumPopup("Theme", manager.UiStyle);
+        if (EditorGUI.EndChangeCheck())
+        {
+            Undo.RecordObject(manager, "Change battle UI theme");
+            manager.SetUiStyle(theme);
+            EditorUtility.SetDirty(manager);
+        }
         previewScreenTone = EditorGUILayout.Toggle("Screen Tone Vignette Preview", previewScreenTone);
         Rect available = GUILayoutUtility.GetRect(1f, 10000f, 1f, 10000f);
         Rect view = new(available.x, available.y, available.width, available.width * 9f / 16f);

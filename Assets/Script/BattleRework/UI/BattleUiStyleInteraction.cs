@@ -60,6 +60,11 @@ public sealed class BattleUiStyleInteraction : MonoBehaviour, IPointerEnterHandl
 
     private void Update()
     {
+        if (BattleUiStyleController.IsCmd && button != null && button.IsInteractable())
+        {
+            if (scale != 1f) { scale = 1f; Dirty(); }
+            return;
+        }
         if (!BattleUiStyleController.IsStylish || button == null || !button.IsInteractable())
         {
             if (scale != 1f || hovered || selected || pressed) ResetState();

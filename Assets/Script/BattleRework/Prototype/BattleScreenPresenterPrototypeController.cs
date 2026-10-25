@@ -204,6 +204,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
     private TextMeshProUGUI dialogueText;
     private TextMeshProUGUI liveText;
     private readonly BattleKoreanTypewriter typewriter = new();
+    private readonly BattleUiCmdCursor cmdCursor = new();
     private TMP_FontAsset checkedDialogueFont, resolvedDialogueFont;
     private string checkedDialogueContent;
 
@@ -264,8 +265,11 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
+    private void OnDisable() => cmdCursor.Hide();
+
     private void OnDestroy()
     {
+        cmdCursor.Dispose();
         BattleUiAvoidanceResolver.UnregisterZone(
             dialogueRect);
 
@@ -314,6 +318,8 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
             AdvanceDialogue();
         UpdateBoredCommentary();
+        cmdCursor.Tick(dialogueText, dialoguePhase == DialoguePhase.Typing || dialoguePhase == DialoguePhase.Idle,
+            dialoguePhase == DialoguePhase.Typing);
 
         if (mode == Mode.Reward || mode == Mode.ScriptSelection)
             ApplyPrototypeCamera();
@@ -1456,6 +1462,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
         activeHeader = pendingHeader;
         activeKeyword = pendingKeyword;
         activeComment = pendingComment;
+        cmdCursor.Hide();
         activeMood = pendingMood;
         hasPendingCopy = false;
 
@@ -1654,6 +1661,7 @@ public sealed class BattleScreenPresenterPrototypeController : MonoBehaviour
 
     private void UpdateDialogueFonts()
     {
+        if (nameText != null) nameText.text = BattleUiStyleController.IsCmd ? "> SHOW HOST" : "SHOW HOST";
         if (dialoguePhase == DialoguePhase.Hidden) return;
         TMP_FontAsset font = presentation != null && presentation.UiStyleSettings.fontAsset != null
             ? presentation.UiStyleSettings.fontAsset : presentation != null

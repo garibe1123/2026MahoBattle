@@ -64,6 +64,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private bool paperSheet;
 
     internal void SetStyleInteraction(BattleUiStyleInteraction interaction) => styleInteraction = interaction;
+    internal bool CmdSelected => selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted);
 
     public void SetInventoryBackground(bool locked = false)
     {
@@ -320,6 +321,16 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         Rect face = rectTransform.rect;
         if (face.width < 8f || face.height < 8f)
             return;
+
+        if (BattleUiStyleController.IsCmd)
+        {
+            Color fill = BattleUiStyleController.Settings.background;
+            fill.a *= softFill ? 0.94f : 1f;
+            BattleUiStyleMeshEffect.Quad(vh, face, fill);
+            backgroundBaseAlpha = fill.a;
+            backgroundVertexCount = vh.currentVertCount;
+            return;
+        }
 
         if (BattleUiStyleController.IsPaper)
         {

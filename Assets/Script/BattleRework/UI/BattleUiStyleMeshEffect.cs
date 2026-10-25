@@ -12,6 +12,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private TMPro.TextMeshProUGUI nativeText;
     private Color originalTmpColor, appliedTmpColor;
     private bool tmpOverridden;
+    private TMPro.TMP_FontAsset originalCmdFont, appliedCmdFont;
+    private Material originalCmdMaterial;
+    private TMPro.TextAlignmentOptions originalCmdAlignment;
+    private TMPro.FontStyles originalCmdFontStyle;
+    private bool cmdNativeOverridden, wasCmd;
+    private BattleUiCmdFrame cmdFrame;
+    private BattleUiPanelDecoration cmdSelection;
     private RectTransform speechSurface;
     private bool speechBadge;
     private Image image;
@@ -38,6 +45,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private float entrance = 1f;
     internal bool HasOverflowTitle => TitleMotion(BattleUiStyleController.Settings)?.allowOverflow == true;
     internal bool HasReplacementText => tmpTitle != null && tmpTitle.Visible;
+    internal TMPro.TextMeshProUGUI CmdText => tmpTitle != null && tmpTitle.Visible ? tmpTitle.Text : null;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
     private Matrix4x4 lastTransform, lastCamera;
@@ -54,9 +62,16 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         paperSheet = IsPaperSheet(paperOwner);
         label = value as Text;
         nativeText = value as TMPro.TextMeshProUGUI;
-        title = label != null && (value.name == "AppHeader" || value.name.EndsWith("Title", System.StringComparison.Ordinal) ||
+        title = (label != null || nativeText != null) && (value.name == "AppHeader" || value.name.EndsWith("Title", System.StringComparison.Ordinal) ||
             value.name.EndsWith("Header", System.StringComparison.Ordinal));
-        titleMotionCandidate = title && label.GetComponentInParent<ScrollRect>(true) == null;
+        titleMotionCandidate = title && label != null && label.GetComponentInParent<ScrollRect>(true) == null;
+        if (label != null)
+            for (Transform node = label.transform.parent; node != null; node = node.parent)
+            {
+                Transform child = node.Find("PanelDecoration");
+                if (child != null && IsCard(node)) { cmdSelection = child.GetComponent<BattleUiPanelDecoration>(); break; }
+                if (node.TryGetComponent<Canvas>(out _)) break;
+            }
         image = value as Image;
         speechBadge = image != null && (image.name == "PresenterNameBadge" || image.name == "ReactionTagBadge");
         if (image != null)
@@ -161,9 +176,18 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont,
         Material paperMaterial, Material paperMaskMaterial)
     {
+        bool cmd = BattleUiStyleController.IsCmd;
+        if (cmd && !PreserveBackdrop() && (decoration == target || (image != null && !decoratedSurface &&
+            (panel || speechBadge || (image.sprite == null && (stylishSurface || stylishButton))))))
+        {
+            if (cmdFrame == null) cmdFrame = new BattleUiCmdFrame(target);
+            cmdFrame.Apply(target, settings, decoration != null ? decoration.CmdSelected : interaction != null && interaction.Highlighted);
+        }
+        else cmdFrame?.Hide();
         if (nativeText != null)
         {
             ApplyNativeText(settings);
+            wasCmd = cmd;
             return;
         }
         if (PreserveBackdrop())
@@ -217,6 +241,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             next = paperMaterial != null ? paperMaterial : pixelPanel;
         if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
             next = paperMaskMaterial != null ? paperMaskMaterial : target.defaultMaterial;
+        if (cmd && (label != null || panel || speechBadge || hiddenFill || tailFill ||
+            (image != null && (image.name == "TailShape" || (image.sprite == null && (stylishSurface || stylishButton))))))
+            next = target.defaultMaterial;
         if (HasAssignedMaterial()) next = null;
         if (next != null)
         {
@@ -247,26 +274,29 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
         else RestoreFont();
         if (wasPixel != pixel || wasComic != comic || wasMaho != maho ||
-            wasStylish != stylish || wasBirthday != birthday || wasPaper != paper) target.SetVerticesDirty();
+            wasStylish != stylish || wasBirthday != birthday || wasPaper != paper || wasCmd != cmd) target.SetVerticesDirty();
         wasPixel = pixel;
         wasComic = comic;
         wasMaho = maho;
         wasStylish = stylish;
         wasBirthday = birthday;
         wasPaper = paper;
-        bool decoratedTitle = title && (stylish || birthday || paper);
+        wasCmd = cmd;
+        bool decoratedTitle = title && (stylish || birthday || paper || cmd);
         if (isActiveAndEnabled && label != null && settings.textMaterial == null &&
             (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
             TMPro.TMP_FontAsset font = decoratedTitle && settings.titleFont != null ? settings.titleFont :
                 settings.fontAsset != null ? settings.fontAsset : BattleUiStyleController.ThemeTmpFont;
-            if (font != null && (stylish || paper || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
+            if (font != null && (cmd || stylish || paper || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
                 BattleUiTitleMotionSettings motion = TitleMotion(settings);
                 tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow,
-                    stylish ? interaction?.Scale ?? 1f : 1f, entrance, stylish && interaction != null && interaction.Primary);
+                    stylish ? interaction?.Scale ?? 1f : 1f, entrance, stylish && interaction != null && interaction.Primary,
+                    interaction != null || (cmdSelection != null && title),
+                    (interaction != null && interaction.Highlighted) || (cmdSelection != null && cmdSelection.CmdSelected));
             }
             else HideTmpTitle();
         }
@@ -313,7 +343,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private void ApplyNativeText(BattleUiStyleSettings settings)
     {
-        if (!BattleUiStyleController.IsPaper)
+        bool cmd = BattleUiStyleController.IsCmd;
+        if (!cmd) RestoreCmdNative();
+        if (!BattleUiStyleController.IsPaper && !cmd)
         {
             RestoreNativeText();
             return;
@@ -323,10 +355,40 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         appliedTmpColor.a *= originalTmpColor.a;
         if (nativeText.color != appliedTmpColor) nativeText.color = appliedTmpColor;
         tmpOverridden = true;
+        if (!cmd) return;
+        TMPro.TMP_FontAsset font = settings.fontAsset != null ? settings.fontAsset : BattleUiThemeFonts.LoadTmp(BattleUiStyle.CMD);
+        if (font == null) return;
+        if (!cmdNativeOverridden)
+        {
+            originalCmdFont = nativeText.font;
+            originalCmdMaterial = nativeText.fontSharedMaterial;
+            originalCmdAlignment = nativeText.alignment;
+            originalCmdFontStyle = nativeText.fontStyle;
+        }
+        if (nativeText.font != font) nativeText.font = font;
+        if (nativeText.fontSharedMaterial != font.material) nativeText.fontSharedMaterial = font.material;
+        appliedCmdFont = font;
+        nativeText.fontStyle = TMPro.FontStyles.Normal;
+        if (title || nativeText.name == "PresenterName") nativeText.alignment = TMPro.TextAlignmentOptions.Left;
+        cmdNativeOverridden = true;
+    }
+
+    private void RestoreCmdNative()
+    {
+        if (!cmdNativeOverridden || nativeText == null) return;
+        if (nativeText.font == appliedCmdFont)
+        {
+            nativeText.font = originalCmdFont;
+            nativeText.fontSharedMaterial = originalCmdMaterial;
+        }
+        nativeText.alignment = originalCmdAlignment;
+        nativeText.fontStyle = originalCmdFontStyle;
+        cmdNativeOverridden = false;
     }
 
     private void RestoreNativeText()
     {
+        RestoreCmdNative();
         if (!tmpOverridden || nativeText == null) return;
         if (nativeText.color == appliedTmpColor) nativeText.color = originalTmpColor;
         tmpOverridden = false;
@@ -336,6 +398,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private bool HasAssignedMaterial()
     {
+        if (BattleUiStyleController.IsCmd && (label != null || panel || speechBadge || hiddenFill || tailFill ||
+            (image != null && (image.name == "TailShape" || (image.sprite == null && (stylishSurface || stylishButton)))))) return false;
         if (BattleUiStyleController.IsStylish && (panel || stylishSurface || stylishButton || label != null)) return false;
         if (BattleUiStyleController.IsPaper && (panel || speechFrame || hiddenFill || tailFill ||
             (image != null && image.name == "TailShape") || paperBadge || paperBadgeInner || paperBadgeIcon || speechBadge || label != null ||
@@ -374,6 +438,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void RestoreAppearance()
     {
+        cmdFrame?.Hide();
         RestoreNativeText();
         enteredAt = -1f;
         entrance = 1f;
@@ -389,6 +454,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     {
         enteredAt = -1f;
         HideTmpTitle();
+        cmdFrame?.Hide();
+        if (wasCmd)
+        {
+            RestoreNativeText();
+            RestoreMaterial();
+            RestoreFont();
+            RestoreFontStyle();
+        }
     }
     internal void RefreshTmpTitle() => tmpTitle?.Refresh();
 
@@ -402,6 +475,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     protected override void OnDisable()
     {
+        cmdFrame?.Hide();
         RestoreNativeText();
         HideAppearance();
         base.OnDisable();
@@ -409,6 +483,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     protected override void OnDestroy()
     {
+        cmdFrame?.Dispose();
         tmpTitle?.Dispose();
         base.OnDestroy();
     }
@@ -450,6 +525,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     {
         if (!IsActive() || target == null || nativeText != null || PreserveBackdrop() || HasAssignedMaterial()) return;
         if (tmpTitle != null && tmpTitle.Visible) { vh.Clear(); return; }
+        if (BattleUiStyleController.IsCmd) { ModifyCmdMesh(vh); return; }
         bool pixel = BattleUiStyleController.IsPixel;
         bool comic = BattleUiStyleController.IsComic;
         bool maho = BattleUiStyleController.IsMahoShojo;
@@ -536,6 +612,37 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 Mathf.Max(0.001f, target.canvas.scaleFactor));
     }
 
+    private void ModifyCmdMesh(VertexHelper vh)
+    {
+        if (target is BattleUiPanelDecoration) return;
+        if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || decoratedSurface)
+        {
+            vh.Clear();
+            return;
+        }
+        BattleUiStyleSettings settings = BattleUiStyleController.Settings;
+        if (image != null && image.type != Image.Type.Filled &&
+            (panel || speechBadge || (image.sprite == null && (stylishSurface || stylishButton))))
+        {
+            vh.Clear();
+            Color fill = settings.background;
+            fill.a *= image.color.a;
+            Quad(vh, target.rectTransform.rect, fill);
+        }
+        else if (label != null || (image != null && image.type == Image.Type.Filled))
+        {
+            UIVertex vertex = default;
+            for (int i = 0; i < vh.currentVertCount; i++)
+            {
+                vh.PopulateUIVertex(ref vertex, i);
+                Color tint = label != null ? settings.innerLine : settings.status;
+                tint.a *= vertex.color.a / 255f;
+                vertex.color = tint;
+                vh.SetUIVertex(vertex, i);
+            }
+        }
+    }
+
     private void ShearTitle(VertexHelper vh, float shear)
     {
         Rect bounds = target.rectTransform.rect;
@@ -584,10 +691,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal static Color TextColor(Color source, BattleUiStyleSettings settings)
     {
         Color tint = BattleUiStyleController.IsComic ? settings.comicPaper :
-            BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper
+            BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper || BattleUiStyleController.IsCmd
                 ? settings.innerLine : BattleUiStyleController.IsPixel ? Palette(source, settings, false) : source;
         if (BattleUiStyleController.IsPixel || BattleUiStyleController.IsComic || BattleUiStyleController.IsMahoShojo ||
-            BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper) tint.a *= source.a;
+            BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper || BattleUiStyleController.IsCmd) tint.a *= source.a;
         return tint;
     }
 

@@ -31,6 +31,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private readonly List<TMP_SubMeshUI> subMeshes = new();
 
     internal bool Visible => text != null && text.gameObject.activeSelf;
+    internal TextMeshProUGUI Text => text;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetFonts()
@@ -73,10 +74,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
 
     internal void Apply(TMP_FontAsset font, BattleUiStyleSettings style, bool birthday, bool decorate = true,
         BattleUiTitleMotionSettings titleMotion = null, bool overflow = false, float feedbackScale = 1f, float entrance = 1f,
-        bool primary = false)
+        bool primary = false, bool cmdOption = false, bool cmdSelected = false)
     {
         decoratedTitle = decorate;
+        bool cmd = BattleUiStyleController.IsCmd;
         string content = source.text ?? string.Empty;
+        if (cmd && content.Length > 0)
+            content = cmdOption ? (cmdSelected ? "[ " + content + " ]" : "[ ] " + content) : decorate ? "> " + content : content;
         if (checkedFont != font || checkedText != content)
         {
             checkedFont = font;
@@ -107,7 +111,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         Color nextOutline = style.outerFrame;
         Color nextShadow = birthday ? style.energy : style.status;
         bool paper = BattleUiStyleController.IsPaper;
-        float nextWidth = decorate && !paper ? style.titleOutlineWidth : 0f;
+        float nextWidth = decorate && !paper && !cmd ? style.titleOutlineWidth : 0f;
         if (outline != nextOutline || shadow != nextShadow || outlineWidth != nextWidth ||
             shadowOffset != style.titleShadowOffset)
         {
@@ -124,10 +128,10 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.SetMaterialDirty();
             text.SetVerticesDirty();
         }
-        if (decorate && !paper) material.EnableKeyword("UNDERLAY_ON");
+        if (decorate && !paper && !cmd) material.EnableKeyword("UNDERLAY_ON");
         else material.DisableKeyword("UNDERLAY_ON");
-        float nextShear = decorate && !birthday && !paper ? style.stylishTitleShear : 0f;
-        float nextAngle = decorate ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
+        float nextShear = decorate && !birthday && !paper && !cmd ? style.stylishTitleShear : 0f;
+        float nextAngle = decorate && !cmd ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
             !birthday ? style.stylishTitleAngle : 0f) : 0f;
         if (titleAngle != nextAngle) { titleAngle = nextAngle; text.SetVerticesDirty(); }
         Vector3 nextScale = Vector3.one * feedbackScale;
@@ -151,20 +155,25 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         text.fontSizeMin = source.resizeTextMinSize;
         text.fontSizeMax = source.resizeTextMaxSize;
         text.lineSpacing = decorate ? 0f : (source.lineSpacing - 1f) * source.fontSize;
-        text.fontStyle = decorate ? FontStyles.Normal : source.fontStyle switch
+        text.fontStyle = decorate || cmd ? FontStyles.Normal : source.fontStyle switch
         {
             FontStyle.Bold => FontStyles.Bold,
             FontStyle.Italic => FontStyles.Italic,
             FontStyle.BoldAndItalic => FontStyles.Bold | FontStyles.Italic,
             _ => FontStyles.Normal
         };
-        text.alignment = Alignment(source.alignment);
+        text.alignment = Alignment(cmd && (decorate || cmdOption) ? (TextAnchor)((int)source.alignment / 3 * 3) : source.alignment);
         text.textWrappingMode = source.horizontalOverflow == HorizontalWrapMode.Wrap
             ? TextWrappingModes.Normal : TextWrappingModes.NoWrap;
         text.maskable = source.maskable;
         text.overflowMode = decorate || source.verticalOverflow == VerticalWrapMode.Overflow
             ? TextOverflowModes.Overflow : TextOverflowModes.Truncate;
         Color face = decorate ? (birthday ? style.status : style.innerLine) : BattleUiStyleMeshEffect.TextColor(source.color, style);
+        if (cmd)
+        {
+            face = cmdSelected ? style.highlight : decorate ? style.outerFrame : style.innerLine;
+            if (!decorate) face.a *= source.color.a;
+        }
         if (primary) face = new Color(style.outerFrame.r, style.outerFrame.g, style.outerFrame.b, source.color.a);
         if (decorate) face.a *= source.color.a;
         face.a *= entrance;

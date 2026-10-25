@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
-public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper }
+public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper, CMD }
 
 [Serializable]
 public sealed class BattleUiTitleCharacterTransform
@@ -132,6 +132,9 @@ public sealed class BattleUiStyleSettings
     [Range(0.04f, 0.07f)] public float paperPatternAlpha = 0.055f;
     [Min(0f)] public float paperLineWidth = 0.6f;
     [Min(0f)] public float paperDotRadius = 0.8f;
+    [Header("CMD")]
+    [Min(8f)] public float cmdFrameFontSize = 14f;
+    [Min(0.05f)] public float cmdCursorBlinkSeconds = 0.5f;
 }
 
 [DisallowMultipleComponent]
@@ -175,6 +178,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Birthday;
     internal static bool IsPaper => active != null && active.isActiveAndEnabled &&
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Paper;
+    internal static bool IsCmd => active != null && active.isActiveAndEnabled &&
+        active.presentation != null && active.presentation.UiStyle == BattleUiStyle.CMD;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
     internal static TMPro.TMP_FontAsset ThemeTmpFont => active != null && active.isActiveAndEnabled && active.presentation != null
@@ -219,7 +224,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
 
     public static void RegisterGraphic(Graphic target)
     {
-        if (active == null || target == null || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
+        if (active == null || target == null || target.name.StartsWith("Cmd", StringComparison.Ordinal) ||
+            target.name == "StyleTitleTMP" || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
         BattleUiOpticsCanvas.Register(target);
         // Unframed rule captions need their own contrast against the world.
         if (target is Text && target.name == "FallbackLabel" && target.transform.parent != null &&
@@ -278,6 +284,9 @@ public sealed class BattleUiStyleController : MonoBehaviour
         if (active != null && target != null && active.targets.TryGetValue(target, out var effect))
             effect.ReleaseMaterialOverride();
     }
+
+    internal static TMPro.TextMeshProUGUI CmdText(Graphic target) => active != null && target != null &&
+        active.targets.TryGetValue(target, out var effect) ? effect.CmdText : null;
 
     public void RefreshSettings()
     {

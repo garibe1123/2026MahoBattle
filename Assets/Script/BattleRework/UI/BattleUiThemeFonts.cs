@@ -26,9 +26,21 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.Stylish => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular SDF",
             BattleUiStyle.Paper => "HarnessFonts/NanumPenScript/NanumPenScript-Regular SDF",
+            BattleUiStyle.CMD => "BattleUiFonts/galmuri/Galmuri9 SDF",
             _ => null
         };
         font = path != null ? Resources.Load<TMP_FontAsset>(path) : null;
+        if (style == BattleUiStyle.CMD)
+        {
+            TMP_FontAsset fallback = LoadTmp(BattleUiStyle.VectorStyleUi);
+            if (fallback == null) fallback = TMP_Settings.defaultFontAsset;
+            if (font == null) font = fallback;
+            else if (fallback != null && fallback != font)
+            {
+                if (font.fallbackFontAssetTable == null) font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+                if (!font.fallbackFontAssetTable.Contains(fallback)) font.fallbackFontAssetTable.Add(fallback);
+            }
+        }
         if (style == BattleUiStyle.Paper && font != null)
         {
             TMP_FontAsset fallback = Resources.Load<TMP_FontAsset>("HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF");
@@ -56,9 +68,11 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.Stylish => "HarnessFonts/BlackHanSans/BlackHanSans-Regular",
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular",
             BattleUiStyle.Paper => "HarnessFonts/BlackHanSans/BlackHanSans-Regular",
+            BattleUiStyle.CMD => "BattleUiFonts/galmuri/Galmuri9",
             _ => null
         };
         font = path != null ? Resources.Load<Font>(path) : null;
+        if (font == null && style == BattleUiStyle.CMD) font = Load(BattleUiStyle.VectorStyleUi);
         if (font == null)
         {
             string legacyPath = style switch

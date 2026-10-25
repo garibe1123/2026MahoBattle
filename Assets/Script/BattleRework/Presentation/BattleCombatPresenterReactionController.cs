@@ -109,6 +109,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
     private RectTransform tagBadgeRect;
     private Text tagText;
     private Text lineText;
+    private readonly BattleUiCmdCursor cmdCursor = new();
 
     private PopupPhase popupPhase = PopupPhase.Hidden;
     private float phaseTime;
@@ -161,8 +162,11 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         DontDestroyOnLoad(gameObject);
     }
 
+    private void OnDisable() => cmdCursor.Hide();
+
     private void OnDestroy()
     {
+        cmdCursor.Dispose();
         UnsubscribeRoom();
         ReleaseRuntimeFrames();
         ReleaseRuntimePortraitMaterial();
@@ -187,6 +191,9 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
         }
 
         UpdatePopup();
+        cmdCursor.Tick(BattleUiStyleController.CmdText(lineText),
+            popupPhase == PopupPhase.Typing || popupPhase == PopupPhase.Holding,
+            popupPhase == PopupPhase.Typing);
         UpdatePortraitAnimation();
     }
 
@@ -482,6 +489,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
         activePriority = priority;
         activeLine = line ?? string.Empty;
+        cmdCursor.Hide();
         typeProgress = 0f;
         visibleCharacters = 0;
 
@@ -839,6 +847,7 @@ public sealed class BattleCombatPresenterReactionController : MonoBehaviour
 
     private void HideImmediate()
     {
+        cmdCursor.Hide();
         if (popupGroup != null)
             popupGroup.alpha = 0f;
 
