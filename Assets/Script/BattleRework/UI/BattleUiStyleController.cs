@@ -47,6 +47,10 @@ public sealed class BattleUiStyleSettings
 {
     public const float DefaultCombatBackgroundAlpha = 0.5f;
     public const float DefaultLockedSlotAlpha = 0.4f;
+    [Header("Inventory Lock Mark")]
+    [Range(0.1f, 0.9f)] public float lockMarkSizeRatio = 0.55f;
+    [Range(0.02f, 0.2f)] public float lockMarkStrokeRatio = 0.075f;
+    [Range(0f, 1f)] public float lockMarkAlpha = 0.75f;
     [Range(0f, 1f)] public float combatBackgroundAlpha = DefaultCombatBackgroundAlpha;
     [Range(0f, 1f)] public float lockedSlotAlpha = DefaultLockedSlotAlpha;
     [Tooltip("기준 픽셀 크기입니다. UI의 회전·확대·변형을 따라 격자도 함께 변형됩니다.")]

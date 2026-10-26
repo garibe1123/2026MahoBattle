@@ -384,20 +384,11 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             Stretch(lockRect);
             lockMarks[i] = lockMark;
 
-            CreateLockSlash(lockMark.transform, 45f);
-            CreateLockSlash(lockMark.transform, -45f);
+            Image mark = lockMark.AddComponent<Image>();
+            mark.color = Color.white;
+            mark.raycastTarget = false;
+            BattleUiStyleController.RegisterGraphic(mark);
         }
-    }
-
-    private void CreateLockSlash(Transform parent, float angle)
-    {
-        RectTransform slash = CreateRect(parent, "LockSlash", new Vector2(50f, 5f));
-        slash.anchorMin = slash.anchorMax = new Vector2(0.5f, 0.5f);
-        slash.anchoredPosition = Vector2.zero;
-        slash.localRotation = Quaternion.Euler(0f, 0f, angle);
-        Image image = slash.gameObject.AddComponent<Image>();
-        image.color = new Color(0.48f, 0.45f, 0.52f, 0.58f);
-        image.raycastTarget = false;
     }
 
     public void ApplyLayout(float blend, Vector2 size)
@@ -476,7 +467,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             bool isEquipped = i == equipped;
             slotEquippedBars[i].transform.parent.gameObject.SetActive(unlocked && occupied && isEquipped);
             bool linked = IsSlotLinked(i);
-            slotNames[i].text = !unlocked ? "LOCKED" : occupied ? equipment.GetDisplayName().ToUpperInvariant() : string.Empty;
+            slotNames[i].text = unlocked && occupied ? equipment.GetDisplayName().ToUpperInvariant() : string.Empty;
             slotDecorations[i]?.SetEmphasis(isEquipped || linked);
             slotDecorations[i]?.SetInventoryBackground(!unlocked);
 
@@ -523,7 +514,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
 
             if (slotStates[i] != null)
             {
-                slotStates[i].text = !unlocked ? "LOCKED" : linked ? "LINK" : string.Empty;
+                slotStates[i].text = unlocked && linked ? "LINK" : string.Empty;
                 slotStates[i].color = isEquipped
                     ? accentCyan
                     : linked

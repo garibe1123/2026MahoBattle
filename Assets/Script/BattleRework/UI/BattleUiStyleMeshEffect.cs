@@ -8,6 +8,7 @@ internal enum BattlePaperRole { Default, Inventory, ItemDetail }
 public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 {
     private Graphic target;
+    private bool lockMark;
     private Text label;
     private TMPro.TextMeshProUGUI nativeText;
     private Color originalTmpColor, appliedTmpColor;
@@ -60,6 +61,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal void Bind(Graphic value)
     {
         target = value;
+        lockMark = value is Image && value.name.StartsWith("LockMark_", System.StringComparison.Ordinal);
         paperSeed = PaperSeed(value.transform);
         Transform paperOwner = value is BattleUiPanelDecoration ? value.transform.parent : value.transform;
         paperRole = PaperRole(paperOwner);
@@ -254,6 +256,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             (image != null && (image.name == "TailShape" || (image.sprite == null && (stylishSurface || stylishButton))))))
             next = target.defaultMaterial;
         if (HasAssignedMaterial()) next = null;
+        if (lockMark) next = target.defaultMaterial;
         if (next != null)
         {
             if (!materialOverridden) originalMaterial = CaptureMaterial();
@@ -537,6 +540,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     public override void ModifyMesh(VertexHelper vh)
     {
         if (!IsActive() || target == null) return;
+        if (lockMark)
+        {
+            DrawLockMark(vh);
+            return;
+        }
         ModifyStyledMesh(vh);
         if (image != null && decoration != null)
             decoration.ApplyBackgroundOpacity(vh, vh.currentVertCount, image.color.a);
@@ -1248,6 +1256,100 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         vertex.color = tint;
         vertex.uv0 = new Vector4(uv.x, uv.y, seed.x, seed.y);
         vh.AddVert(vertex);
+    }
+
+    private void DrawLockMark(VertexHelper vh)
+    {
+        const int PixelSteps = 9, CmdRows = 7, CmdColumns = 5, PaperSegments = 8;
+        const float ComicWeight = 2f, StylishWeight = 0.55f, BirthdayWeight = 1.8f;
+        const float PaperWave = 0.018f, PaperWidthVariation = 0.16f;
+        vh.Clear();
+        BattleUiStyleSettings settings = BattleUiStyleController.Settings;
+        if (settings == null) return;
+        Rect rect = target.rectTransform.rect;
+        float size = Mathf.Min(rect.width, rect.height) * settings.lockMarkSizeRatio;
+        if (size <= 0f) return;
+        Color tint = BattleUiStyleController.IsComic ? settings.comicPaper : settings.innerLine;
+        tint.a *= settings.lockMarkAlpha * target.color.a;
+        Vector2 center = rect.center;
+        if (BattleUiStyleController.IsPixel || BattleUiStyleController.IsCmd)
+        {
+            bool cmd = BattleUiStyleController.IsCmd;
+            int steps = cmd ? CmdRows : PixelSteps;
+            float step = size / steps;
+            for (int i = 0; i < steps; i++)
+            {
+                int column = cmd ? Mathf.RoundToInt(i * (CmdColumns - 1f) / (CmdRows - 1f)) : i;
+                float glyphWidth = cmd ? CmdColumns * step : size;
+                float x = center.x - glyphWidth * 0.5f + column * step;
+                float y = center.y - size * 0.5f + i * step;
+                Quad(vh, new Rect(x, y, step, step), tint);
+                if (i != steps / 2)
+                    Quad(vh, new Rect(center.x + glyphWidth * 0.5f - (column + 1) * step, y, step, step), tint);
+            }
+            return;
+        }
+        bool paper = BattleUiStyleController.IsPaper;
+        bool round = paper || BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsBirthday;
+        float weight = BattleUiStyleController.IsComic ? ComicWeight :
+            BattleUiStyleController.IsStylish ? StylishWeight :
+            BattleUiStyleController.IsBirthday ? BirthdayWeight : 1f;
+        float width = size * settings.lockMarkStrokeRatio * weight;
+        float half = Mathf.Max(0f, (size - width) * 0.5f);
+        for (int stroke = 0; stroke < 2; stroke++)
+        {
+            Vector2 start = new(-half, stroke == 0 ? -half : half);
+            Vector2 end = -start;
+            if (paper)
+            {
+                start = Vector2.Scale(start, stroke == 0 ? new Vector2(0.92f, 1f) : new Vector2(1f, 0.85f));
+                end = Vector2.Scale(end, stroke == 0 ? new Vector2(1f, 0.89f) : new Vector2(0.86f, 0.96f));
+            }
+            int segments = paper ? PaperSegments : 1;
+            Vector2 previous = center + start;
+            Vector2 normal = new Vector2(-(end - start).y, (end - start).x).normalized;
+            for (int segment = 1; segment <= segments; segment++)
+            {
+                float t = (float)segment / segments;
+                Vector2 point = center + Vector2.Lerp(start, end, t);
+                if (paper) point += normal * (Mathf.Sin(t * Mathf.PI * 2f + stroke) * size * PaperWave);
+                float thickness = width * (paper ? 1f + PaperWidthVariation * Mathf.Sin(t * Mathf.PI * 2f + stroke) : 1f);
+                LockStroke(vh, previous, point, thickness, tint);
+                if (round)
+                {
+                    LockCap(vh, previous, thickness * 0.5f, tint);
+                    LockCap(vh, point, thickness * 0.5f, tint);
+                }
+                previous = point;
+            }
+        }
+    }
+
+    private static void LockStroke(VertexHelper vh, Vector2 start, Vector2 end, float width, Color tint)
+    {
+        Vector2 direction = (end - start).normalized;
+        Vector2 normal = new Vector2(-direction.y, direction.x) * (width * 0.5f);
+        int first = vh.currentVertCount;
+        vh.AddVert(start - normal, tint, Vector2.zero);
+        vh.AddVert(start + normal, tint, Vector2.zero);
+        vh.AddVert(end + normal, tint, Vector2.zero);
+        vh.AddVert(end - normal, tint, Vector2.zero);
+        vh.AddTriangle(first, first + 1, first + 2);
+        vh.AddTriangle(first, first + 2, first + 3);
+    }
+
+    private static void LockCap(VertexHelper vh, Vector2 center, float radius, Color tint)
+    {
+        const int Sides = 12;
+        int first = vh.currentVertCount;
+        vh.AddVert(center, tint, Vector2.zero);
+        for (int i = 0; i < Sides; i++)
+        {
+            float angle = i * Mathf.PI * 2f / Sides;
+            vh.AddVert(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius, tint, Vector2.zero);
+        }
+        for (int i = 0; i < Sides; i++)
+            vh.AddTriangle(first, first + 1 + (i + 1) % Sides, first + 1 + i);
     }
 
     internal static void Quad(VertexHelper vh, Rect rect, Color tint)
