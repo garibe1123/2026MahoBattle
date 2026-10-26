@@ -2414,13 +2414,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private static void EnsureEventSystem()
     {
-        if (FindFirstObjectByType<EventSystem>() != null)
-            return;
-
-        GameObject go = new("BattleLoadoutEventSystem");
-        DontDestroyOnLoad(go);
-        go.AddComponent<EventSystem>();
-        go.AddComponent<StandaloneInputModule>();
+        BattleInputSystemUiBootstrap.EnsureEventSystem();
     }
 
     private void UpdateUiAnimation(bool combat)

@@ -14,6 +14,7 @@ public sealed class BattleUiStyleInteraction : MonoBehaviour, IPointerEnterHandl
     private float scale = 1f, from = 1f, destination = 1f, started, duration;
     internal float Scale => BattleUiStyleController.IsStylish ? scale : 1f;
     internal bool Highlighted => button != null && button.IsInteractable() && (hovered || selected);
+    internal bool Ready => button != null && button.IsInteractable();
     internal bool Primary => name.Contains("StartBattle") || name.Contains("Confirm") ||
         name.Contains("Done") || name.Contains("Resume");
 
@@ -57,6 +58,8 @@ public sealed class BattleUiStyleInteraction : MonoBehaviour, IPointerEnterHandl
             else graphics[i].SetVerticesDirty();
         }
     }
+
+    internal void RefreshState() => Dirty();
 
     private void Update()
     {

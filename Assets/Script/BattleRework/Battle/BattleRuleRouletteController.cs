@@ -664,6 +664,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         scaler.matchWidthOrHeight = 0.5f;
 
         uiRoot.AddComponent<GraphicRaycaster>();
+        BattleInputSystemUiBootstrap.EnsureEventSystem();
 
         RectTransform backdrop = CreateRect(uiRoot.transform, "Backdrop");
         Stretch(backdrop);
@@ -671,7 +672,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
 
         backdropImage = backdrop.gameObject.AddComponent<Image>();
         backdropImage.color = new Color(0f, 0f, 0f, Mathf.Clamp(rouletteBackdropAlpha, 0f, 0.40f));
-        backdropImage.raycastTarget = true;
+        backdropImage.raycastTarget = false;
 
         combatRulePanel = CreateCombatRulePanel(backdrop);
         combatRulePanel.gameObject.SetActive(false);
@@ -713,6 +714,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             new Vector2(0.5f, 0.42f),
             new Vector2(320f, 96f));
         controlTabRestPosition = controlTab.anchoredPosition;
+        Canvas controlCanvas = controlTab.gameObject.AddComponent<Canvas>();
+        controlCanvas.overrideSorting = true;
+        controlCanvas.sortingOrder = canvas.sortingOrder + 1;
+        controlTab.gameObject.AddComponent<GraphicRaycaster>();
+        controlTab.gameObject.AddComponent<BattleUiOpticsCanvas>().UseNativeRendering();
 
         ratingText = CreateText(machineTab, "Rating", 28, FontStyle.Bold, TextAnchor.MiddleCenter);
         SetRect(ratingText.rectTransform, new Vector2(0.05f, 0.48f), new Vector2(0.95f, 0.96f));
@@ -1186,7 +1192,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         if (backdropImage != null)
         {
             backdropImage.color = new Color(0f, 0f, 0f, Mathf.Clamp(rouletteBackdropAlpha, 0f, 0.40f));
-            backdropImage.raycastTarget = true;
+            backdropImage.raycastTarget = false;
         }
 
         if (machineTab != null)
@@ -2663,6 +2669,7 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
             if (spinButtonImage != null) spinButtonImage.color = tint;
             if (spinButtonText != null) spinButtonText.color = tint;
         }
+        spinButton.GetComponent<BattleUiStyleInteraction>()?.RefreshState();
     }
 
     private void ConfirmStartBattle()

@@ -69,8 +69,9 @@ public sealed class BattleUiOpticsCanvas : MonoBehaviour
             canvas.overrideSorting = true;
             canvas.sortingLayerID = parent.sortingLayerID;
             canvas.sortingOrder = parent.sortingOrder;
-            panel.gameObject.AddComponent<GraphicRaycaster>();
         }
+        if (!canvas.TryGetComponent<GraphicRaycaster>(out _))
+            canvas.gameObject.AddComponent<GraphicRaycaster>();
         if (!canvas.TryGetComponent(out BattleUiOpticsCanvas effect))
             effect = canvas.gameObject.AddComponent<BattleUiOpticsCanvas>();
         effect.tabPanel = focus;

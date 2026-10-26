@@ -298,15 +298,16 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
 
     private void ApplySurfaceStyle()
     {
-        Material shared = BattleHUD.SharedUiMaterial;
+        bool comicStart = BattleUiStyleController.IsComic && styleInteraction != null && styleInteraction.name == "StartBattleButton";
+        Material shared = comicStart ? null : BattleHUD.SharedUiMaterial;
         if (surfaceImage != null && (!materialApplied || appliedMaterial != shared))
         {
-            surfaceImage.material = shared != null ? shared : originalMaterial;
+            surfaceImage.material = comicStart ? surfaceImage.defaultMaterial : shared != null ? shared : originalMaterial;
             appliedMaterial = shared;
             materialApplied = true;
         }
-        float targetOpacity = BattleHUD.UiSurfaceOpacity;
-        float nextOpacity = Mathf.Abs(surfaceOpacity - targetOpacity) < 0.001f ? targetOpacity :
+        float targetOpacity = comicStart ? 1f : BattleHUD.UiSurfaceOpacity;
+        float nextOpacity = comicStart || Mathf.Abs(surfaceOpacity - targetOpacity) < 0.001f ? targetOpacity :
             Mathf.Lerp(surfaceOpacity, targetOpacity, 1f - Mathf.Exp(-12f * Time.unscaledDeltaTime));
         if (nextOpacity != surfaceOpacity)
         {
@@ -547,10 +548,13 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             Vector2 direction = BattleUiStyleMeshEffect.ComicDirection(this);
             float perspectiveScale = comicInventoryRoot != null ? 0f : 1f;
-            BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f,
+            BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style,
+                styleInteraction != null && styleInteraction.name == "StartBattleButton"
+                    ? (styleInteraction.Ready ? 1f : 0.42f) : softFill ? 0.94f : 1f,
                 selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
                 styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false, direction: direction,
-                perspectiveScale: perspectiveScale, tiledFrame: comicInventoryRoot != null);
+                perspectiveScale: perspectiveScale, tiledFrame: comicInventoryRoot != null,
+                opaquePalette: styleInteraction != null && styleInteraction.name == "StartBattleButton");
             backgroundBaseAlpha = style.comicInk.a * (softFill ? 0.94f : 1f);
             if (hasHeader)
             {
