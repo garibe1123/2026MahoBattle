@@ -700,9 +700,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     interaction != null && interaction.Primary, stylishCard);
             else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
             else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings,
-                interaction != null && interaction.name == "StartBattleButton" ? 1f : fill.a,
+                interaction != null && interaction.name == "StartBattleButton" ? image.color.a : fill.a,
                 interaction != null && interaction.Highlighted, interaction != null && interaction.Primary,
-                seed: paperSeed, direction: ComicDirection(target));
+                seed: paperSeed, direction: ComicDirection(target),
+                opaquePalette: interaction != null && interaction.name == "StartBattleButton");
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
         else if (label != null || tailFill || statusFill || (maho && image != null) || (paper && paperBadgeIcon))
@@ -867,11 +868,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha,
         bool selected = false, bool primary = false, bool speech = false, uint seed = 0, bool rotate = true,
-        Vector2 direction = default, float perspectiveScale = 1f, bool tiledFrame = false)
+        Vector2 direction = default, float perspectiveScale = 1f, bool tiledFrame = false, bool opaquePalette = false)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
         Color red = settings.comicRed, paper = settings.comicWhite, ink = settings.comicInk;
+        if (opaquePalette) red.a = paper.a = ink.a = 1f;
         red.a *= alpha;
         paper.a *= alpha;
         ink.a *= alpha;
@@ -907,6 +909,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (selected)
         {
             Color green = settings.comicSelection;
+            if (opaquePalette) green.a = 1f;
             green.a *= alpha;
             float size = Mathf.Min(outer * 2.2f, Mathf.Min(rect.width, rect.height) * 0.18f);
             Vector2 point = ComicInsetPoint(rect, settings, seed, direction, speech, 1, outer + inner, perspectiveScale);

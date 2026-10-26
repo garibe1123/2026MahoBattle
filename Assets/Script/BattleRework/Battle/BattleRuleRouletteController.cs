@@ -2659,8 +2659,9 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         }
         if (BattleUiStyleController.IsComic)
         {
-            if (spinButtonImage != null) spinButtonImage.color = Color.white;
-            if (spinButtonText != null) spinButtonText.color = Color.white;
+            Color tint = new Color(1f, 1f, 1f, interactable ? 1f : 0.42f);
+            if (spinButtonImage != null) spinButtonImage.color = tint;
+            if (spinButtonText != null) spinButtonText.color = tint;
         }
     }
 
