@@ -1263,8 +1263,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private void DrawLockMark(VertexHelper vh)
     {
-        const int PixelSteps = 9, CmdRows = 7, CmdColumns = 5;
-        const float LengthVariation = 0.18f;
+        const int PixelSteps = 9, CmdSteps = 7;
         vh.Clear();
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         if (settings == null) return;
@@ -1275,22 +1274,18 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         tint.a *= settings.lockMarkAlpha * target.color.a;
         Vector2 center = rect.center;
         float variation = settings.lockMarkVariation;
-        float individuality = PaperVariation(lockSeed, 0) * 2f - 1f;
         if (BattleUiStyleController.IsPixel || BattleUiStyleController.IsCmd)
         {
             bool cmd = BattleUiStyleController.IsCmd;
-            int steps = cmd ? CmdRows : PixelSteps + (variation > 0f ? ((int)(PaperVariation(lockSeed, 1) * 3f) - 1) * 2 : 0);
+            int steps = cmd ? CmdSteps : PixelSteps + (variation > 0f ? ((int)(PaperVariation(lockSeed, 1) * 3f) - 1) * 2 : 0);
             float step = size / steps;
             for (int i = 0; i < steps; i++)
             {
-                int column = cmd ? Mathf.RoundToInt(i * (CmdColumns - 1f) / (CmdRows - 1f)) : i;
-                float glyphWidth = cmd ? CmdColumns * step * (1f + individuality * variation * LengthVariation) : size;
-                float columnWidth = glyphWidth / (cmd ? CmdColumns : steps);
-                float x = center.x - glyphWidth * 0.5f + column * columnWidth;
+                float x = center.x - size * 0.5f + i * step;
                 float y = center.y - size * 0.5f + i * step;
-                Quad(vh, new Rect(x, y, columnWidth, step), tint);
+                Quad(vh, new Rect(x, y, step, step), tint);
                 if (i != steps / 2)
-                    Quad(vh, new Rect(center.x + glyphWidth * 0.5f - (column + 1) * columnWidth, y, columnWidth, step), tint);
+                    Quad(vh, new Rect(center.x + size * 0.5f - (i + 1) * step, y, step, step), tint);
             }
             return;
         }
