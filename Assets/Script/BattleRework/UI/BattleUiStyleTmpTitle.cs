@@ -8,8 +8,20 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
 {
     private static TMP_FontAsset stylishFont, birthdayFont;
     private static bool fontsLoaded;
-    private readonly Text source;
+    private readonly MaskableGraphic source;
+    private readonly Text label;
+    private readonly TextMeshProUGUI native;
+    private Color sourceColor;
+    private float SourceSize => label != null ? label.fontSize : native.fontSize;
     private readonly BattleUiStyleTitleText text;
+    private BattleUiTitleBacking backing;
+    private readonly float bodySize;
+    private BattleUiStyleSettings posterSettings;
+    private bool poster, cartoon;
+    private float backingExtent;
+    private float fittedTitleScale = 1f;
+    private float BackingMargin(float extent) => extent * 2.5f +
+        (cartoon ? 0f : Mathf.Clamp(posterSettings.inkGlowWidth, 8f, 14f));
     private Material material;
     private string checkedText;
     private TMP_FontAsset checkedFont, resolvedFont;
@@ -53,9 +65,22 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         return birthday ? birthdayFont : stylishFont;
     }
 
-    internal BattleUiStyleTmpTitle(Text source)
+    internal BattleUiStyleTmpTitle(MaskableGraphic source)
     {
         this.source = source;
+        label = source as Text;
+        native = source as TextMeshProUGUI;
+        bodySize = SourceSize * 0.5f;
+        if (source.transform.parent != null)
+            foreach (Transform sibling in source.transform.parent)
+            {
+                if (sibling == source.transform || sibling.name.EndsWith("Title", StringComparison.Ordinal) ||
+                    sibling.name.EndsWith("Header", StringComparison.Ordinal)) continue;
+                if (sibling.TryGetComponent(out Text body) && body.fontSize > 0)
+                { bodySize = body.fontSize; break; }
+                if (sibling.TryGetComponent(out TextMeshProUGUI tmpBody) && tmpBody.fontSize > 0f)
+                { bodySize = tmpBody.fontSize; break; }
+            }
         paperAngle = BattleUiStyleMeshEffect.PaperAngle(BattleUiStyleMeshEffect.PaperSeed(source.transform), 1f);
         GameObject child = new("StyleTitleTMP", typeof(RectTransform), typeof(LayoutElement));
         child.layer = source.gameObject.layer;
@@ -74,11 +99,27 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
 
     internal void Apply(TMP_FontAsset font, BattleUiStyleSettings style, bool birthday, bool decorate = true,
         BattleUiTitleMotionSettings titleMotion = null, bool overflow = false, float feedbackScale = 1f, float entrance = 1f,
-        bool primary = false, bool cmdOption = false, bool cmdSelected = false)
+        bool primary = false, bool cmdOption = false, bool cmdSelected = false, Color? sourceTint = null, bool topOverflow = true)
     {
+        sourceColor = sourceTint ?? source.color;
         decoratedTitle = decorate;
+        cartoon = BattleUiStyleController.IsComic;
+        bool nextPoster = decorate && (cartoon || BattleUiStyleController.IsStylish);
+        if (poster != nextPoster) { poster = nextPoster; ResetMotion(); text.SetVerticesDirty(); }
+        posterSettings = style;
+        if (poster && backing == null)
+        {
+            GameObject plate = new("StyleTitleBacking", typeof(RectTransform), typeof(LayoutElement));
+            plate.layer = source.gameObject.layer;
+            plate.transform.SetParent(source.transform, false);
+            plate.transform.SetSiblingIndex(text.transform.GetSiblingIndex());
+            plate.GetComponent<LayoutElement>().ignoreLayout = true;
+            backing = plate.AddComponent<BattleUiTitleBacking>();
+            backing.raycastTarget = false;
+            BattleUiOpticsCanvas.Register(backing);
+        }
         bool cmd = BattleUiStyleController.IsCmd;
-        string content = source.text ?? string.Empty;
+        string content = (label != null ? label.text : native.text) ?? string.Empty;
         if (cmd && content.Length > 0)
             content = cmdOption ? (cmdSelected ? "[ " + content + " ]" : "[ ] " + content) : decorate ? "> " + content : content;
         if (checkedFont != font || checkedText != content || checkedCmd != cmd)
@@ -92,9 +133,9 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         font = resolvedFont;
         if (!source.isActiveAndEnabled || (titleMotion != null &&
-            (source.color.a <= 0f || source.canvasRenderer.GetInheritedAlpha() <= 0f))) { Hide(); return; }
+            (sourceColor.a <= 0f || source.canvasRenderer.GetInheritedAlpha() <= 0f))) { Hide(); return; }
         if (!supported) { Hide(titleMotion != null && motion == titleMotion); return; }
-        bool nextOverflow = titleMotion != null && overflow;
+        bool nextOverflow = !poster && titleMotion != null && overflow;
         if (motion != titleMotion || allowOverflow != nextOverflow)
         {
             motion = titleMotion;
@@ -112,10 +153,11 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.fontSharedMaterial = material;
             outlineWidth = -1f;
         }
-        Color nextOutline = style.outerFrame;
-        Color nextShadow = birthday ? style.energy : style.status;
+        Color nextOutline = poster ? (cartoon ? style.comicWhite : style.inkBackground) : style.outerFrame;
+        Color nextShadow = poster ? (cartoon ? style.comicInk : style.inkCyan) : birthday ? style.energy : style.status;
         bool paper = BattleUiStyleController.IsPaper;
-        float nextWidth = decorate && !paper && !cmd ? style.titleOutlineWidth : 0f;
+        float nextWidth = poster ? Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) :
+            decorate && !paper && !cmd ? style.titleOutlineWidth : 0f;
         if (outline != nextOutline || shadow != nextShadow || outlineWidth != nextWidth ||
             shadowOffset != style.titleShadowOffset)
         {
@@ -134,17 +176,32 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         if (decorate && !paper && !cmd) material.EnableKeyword("UNDERLAY_ON");
         else material.DisableKeyword("UNDERLAY_ON");
-        float nextShear = decorate && !birthday && !paper && !cmd ? style.stylishTitleShear : 0f;
-        float nextAngle = decorate && !cmd ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
+        float nextShear = poster ? 0f : decorate && !birthday && !paper && !cmd ? style.stylishTitleShear : 0f;
+        float nextAngle = poster ? 0f : decorate && !cmd ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
             !birthday ? style.stylishTitleAngle : 0f) : 0f;
         if (titleAngle != nextAngle) { titleAngle = nextAngle; text.SetVerticesDirty(); }
         Vector3 nextScale = Vector3.one * feedbackScale;
         if (text.rectTransform.localScale != nextScale) text.rectTransform.localScale = nextScale;
         float nextPadding = decorate ? Mathf.Max(0f, style.titlePadding) : 0f;
-        float margin = nextOverflow ? source.fontSize * style.titleSizeMultiplier * Mathf.Max(0f, motion.overflowMargin) : 0f;
+        float margin = nextOverflow ? SourceSize * style.titleSizeMultiplier * Mathf.Max(0f, motion.overflowMargin) : 0f;
         Vector2 expansion = Vector2.one * margin;
         if (text.rectTransform.offsetMin != -expansion) text.rectTransform.offsetMin = -expansion;
-        if (text.rectTransform.offsetMax != expansion) text.rectTransform.offsetMax = expansion;
+        Vector2 topExpansion = expansion;
+        if (poster && topOverflow && source.transform.parent is RectTransform parentRect)
+            topExpansion.y = Mathf.Max(0f, Mathf.Min(parentRect.rect.height * Mathf.Clamp(style.posterTitleTopOverflow, 0f, 0.15f),
+                source.rectTransform.InverseTransformPoint(parentRect.TransformPoint(new Vector3(0f,
+                    parentRect.rect.yMax + parentRect.rect.height * Mathf.Clamp(style.posterTitleTopOverflow, 0f, 0.15f), 0f))).y - source.rectTransform.rect.yMax));
+        if (text.rectTransform.offsetMax != topExpansion) text.rectTransform.offsetMax = topExpansion;
+        if (poster)
+        {
+            RectTransform plateRect = backing.rectTransform;
+            plateRect.anchorMin = text.rectTransform.anchorMin;
+            plateRect.anchorMax = text.rectTransform.anchorMax;
+            plateRect.offsetMin = text.rectTransform.offsetMin;
+            plateRect.offsetMax = text.rectTransform.offsetMax;
+            plateRect.localScale = text.rectTransform.localScale;
+            backing.maskable = source.maskable;
+        }
         if (shear != nextShear || padding != nextPadding)
         {
             shear = nextShear;
@@ -153,35 +210,41 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.SetVerticesDirty();
         }
         text.text = content;
-        text.richText = source.supportRichText;
-        text.fontSize = source.fontSize * (decorate ? style.titleSizeMultiplier : 1f);
-        text.enableAutoSizing = !decorate && source.resizeTextForBestFit;
-        text.fontSizeMin = source.resizeTextMinSize;
-        text.fontSizeMax = source.resizeTextMaxSize;
-        text.lineSpacing = decorate ? 0f : (source.lineSpacing - 1f) * source.fontSize;
-        text.fontStyle = decorate || cmd ? FontStyles.Normal : source.fontStyle switch
+        text.richText = label != null ? label.supportRichText : native.richText;
+        text.fontSize = poster ? bodySize * Mathf.Clamp(style.posterTitleBodyRatio, 1.8f, 2.4f) :
+            SourceSize * (decorate ? style.titleSizeMultiplier : 1f);
+        backingExtent = poster ? text.fontSize * Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) : 0f;
+        text.enableAutoSizing = !decorate && (label != null ? label.resizeTextForBestFit : native.enableAutoSizing);
+        text.fontSizeMin = label != null ? label.resizeTextMinSize : native.fontSizeMin;
+        text.fontSizeMax = label != null ? label.resizeTextMaxSize : native.fontSizeMax;
+        text.lineSpacing = decorate ? 0f : label != null ? (label.lineSpacing - 1f) * SourceSize : native.lineSpacing;
+        text.fontStyle = decorate || cmd ? FontStyles.Normal : label == null ? native.fontStyle : label.fontStyle switch
         {
             FontStyle.Bold => FontStyles.Bold,
             FontStyle.Italic => FontStyles.Italic,
             FontStyle.BoldAndItalic => FontStyles.Bold | FontStyles.Italic,
             _ => FontStyles.Normal
         };
-        text.alignment = Alignment(cmd && (decorate || cmdOption) ? (TextAnchor)((int)source.alignment / 3 * 3) : source.alignment);
-        text.textWrappingMode = source.horizontalOverflow == HorizontalWrapMode.Wrap
-            ? TextWrappingModes.Normal : TextWrappingModes.NoWrap;
+        text.alignment = label != null ? Alignment(cmd && (decorate || cmdOption)
+            ? (TextAnchor)((int)label.alignment / 3 * 3) : label.alignment) : native.alignment;
+        text.textWrappingMode = label != null ? (label.horizontalOverflow == HorizontalWrapMode.Wrap
+            ? TextWrappingModes.Normal : TextWrappingModes.NoWrap) : native.textWrappingMode;
         text.maskable = source.maskable;
-        text.overflowMode = decorate || source.verticalOverflow == VerticalWrapMode.Overflow
-            ? TextOverflowModes.Overflow : TextOverflowModes.Truncate;
-        Color face = decorate ? (birthday ? style.status : style.innerLine) : BattleUiStyleMeshEffect.TextColor(source.color, style);
+        text.overflowMode = decorate ? TextOverflowModes.Overflow : label != null
+            ? (label.verticalOverflow == VerticalWrapMode.Overflow ? TextOverflowModes.Overflow : TextOverflowModes.Truncate) : native.overflowMode;
+        Color face = decorate ? (birthday ? style.status : style.innerLine) : BattleUiStyleMeshEffect.TextColor(sourceColor, style);
+        if (poster) face = cartoon ? style.comicInk : style.inkLime;
         if (cmd)
         {
             face = cmdSelected ? style.highlight : decorate ? style.outerFrame : style.innerLine;
-            if (!decorate) face.a *= source.color.a;
+            if (!decorate) face.a *= sourceColor.a;
         }
-        if (primary) face = new Color(style.outerFrame.r, style.outerFrame.g, style.outerFrame.b, source.color.a);
-        if (decorate) face.a *= source.color.a;
+        if (primary) face = BattleUiStyleController.IsStylish ? style.inkBackground :
+            new Color(style.outerFrame.r, style.outerFrame.g, style.outerFrame.b, sourceColor.a);
+        if (decorate) face.a *= sourceColor.a;
         face.a *= entrance;
         text.color = face;
+        if (backing != null) backing.gameObject.SetActive(poster && content.Length > 0 && sourceColor.a > 0f);
         text.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
         foreach (TMP_SubMeshUI subMesh in subMeshes)
             if (subMesh != null) subMesh.maskable = source.maskable;
@@ -217,6 +280,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     {
         if (text == null) return;
         bool wasVisible = Visible;
+        if (backing != null) backing.gameObject.SetActive(false);
         if (wasVisible) text.gameObject.SetActive(false);
         ResetMotion(preserveAnimation);
         if (!preserveAnimation)
@@ -253,6 +317,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             if (allowOverflow) return;
         }
         FitToRect(info, motion == null ? shear : 0f);
+        FinishPoster(info);
     }
 
     private void FitToRect(TMP_TextInfo info, float titleShear)
@@ -261,6 +326,11 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         Rect rect = text.rectTransform.rect;
         float inset = Mathf.Min(padding, Mathf.Min(rect.width, rect.height) * 0.25f);
         rect = BattleUiStyleMeshEffect.Inset(rect, inset);
+        if (poster)
+        {
+            float extent = BackingMargin(backingExtent);
+            rect = BattleUiStyleMeshEffect.Inset(rect, extent);
+        }
         if (rect.width <= 0f || rect.height <= 0f) return;
         Vector2 min = new(float.MaxValue, float.MaxValue), max = new(float.MinValue, float.MinValue);
         for (int i = 0; i < info.characterCount; i++)
@@ -280,6 +350,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         Vector2 size = max - min, center = (min + max) * 0.5f;
         float scale = Mathf.Min(1f, Mathf.Min(rect.width / Mathf.Max(0.001f, size.x),
             rect.height / Mathf.Max(0.001f, size.y)));
+        if (poster) fittedTitleScale = scale;
         Vector2 fitted = new(Mathf.Clamp(center.x, rect.xMin + size.x * scale * 0.5f, rect.xMax - size.x * scale * 0.5f),
             Mathf.Clamp(center.y, rect.yMin + size.y * scale * 0.5f, rect.yMax - size.y * scale * 0.5f));
         for (int i = 0; i < info.characterCount; i++)
@@ -348,6 +419,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         animatedFrame = Time.frameCount;
         TransformCharacters(text.textInfo);
         if (!allowOverflow) FitToRect(text.textInfo, 0f);
+        FinishPoster(text.textInfo);
         text.UpdateVertexData(TMP_VertexDataUpdateFlags.Vertices | TMP_VertexDataUpdateFlags.Colors32);
     }
 
@@ -394,6 +466,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             float angle = (transform != null ? transform.rotation : 0f) * Mathf.Deg2Rad;
             float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
             Vector2 glyphScale = transform != null ? transform.scale : Vector2.one;
+            if (poster && cartoon)
+            {
+                glyphScale.x = Mathf.Clamp(glyphScale.x, 0.85f, 1.25f);
+                glyphScale.y = Mathf.Clamp(glyphScale.y, 0.85f, 1.25f);
+                angle = Mathf.Clamp(transform != null ? transform.rotation : 0f, -10f, 10f) * Mathf.Deg2Rad;
+                sin = Mathf.Sin(angle); cos = Mathf.Cos(angle);
+            }
             float glyphShear = shear + (transform != null ? transform.shear : 0f);
             Color accent = i % 3 == 0 ? motion.cyan : i % 3 == 1 ? motion.magenta : motion.yellow;
             for (int j = 0; j < 4; j++)
@@ -410,7 +489,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
                 float restY = position.y - bounceOffset * motion.scale.y;
                 boundsMin = Vector3.Min(boundsMin, new Vector3(position.x, restY - bounceExtent, original.z));
                 boundsMax = Vector3.Max(boundsMax, new Vector3(position.x, restY + bounceExtent, original.z));
-                if (motion.accentCharacters)
+                if (motion.accentCharacters && (!poster || !cartoon))
                 {
                     Color32 color = accent;
                     color.a = (byte)(originalColors[meshIndex][index].a * accent.a);
@@ -425,6 +504,30 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Rect rect = text.rectTransform.rect;
             text.SetMotionBounds(new Bounds(rect.center, rect.size));
         }
+    }
+
+    private void FinishPoster(TMP_TextInfo info)
+    {
+        if (!poster) return;
+        backing.SetGeometry(info, posterSettings, backingExtent * fittedTitleScale, !cartoon, new Color(1f, 1f, 1f, text.color.a));
+        backing.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
+        Vector3 min = new(float.MaxValue, float.MaxValue, 0f), max = new(float.MinValue, float.MinValue, 0f);
+        for (int i = 0; i < info.characterCount; i++)
+        {
+            TMP_CharacterInfo character = info.characterInfo[i];
+            if (!character.isVisible) continue;
+            Vector3[] v = info.meshInfo[character.materialReferenceIndex].vertices;
+            for (int j = 0; j < 4; j++)
+            {
+                min = Vector3.Min(min, v[character.vertexIndex + j]);
+                max = Vector3.Max(max, v[character.vertexIndex + j]);
+            }
+        }
+        if (min.x == float.MaxValue) { text.ClearMotionBounds(); return; }
+        float extent = BackingMargin(backingExtent * fittedTitleScale);
+        Bounds bounds = new((min + max) * 0.5f, max - min);
+        bounds.Expand(extent * 2f);
+        text.SetMotionBounds(bounds);
     }
 
     private static TextAlignmentOptions Alignment(TextAnchor alignment) => alignment switch
@@ -448,6 +551,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Release(text.gameObject);
         }
         if (material != null) Release(material);
+        if (backing != null) Release(backing.gameObject);
         ResetMotion();
         subMeshes.Clear();
     }

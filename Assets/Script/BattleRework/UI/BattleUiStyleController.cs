@@ -76,6 +76,45 @@ public sealed class BattleUiStyleSettings
     public Color comicBackground = new Color32(0x12, 0x10, 0x16, 255);
     public Color comicPaper = new Color32(0xFA, 0xF5, 0xE9, 255);
     public Color comicAccent = new Color32(0xE6, 0x23, 0x32, 255);
+    [Header("Cartoon Poster")]
+    public Color comicInk = new Color32(0x08, 0x08, 0x08, 255);
+    public Color comicWhite = Color.white;
+    public Color comicRed = new Color32(0xD6, 0x00, 0x00, 255);
+    public Color comicSelection = new Color32(0x80, 0xFF, 0x00, 255);
+    [Range(8f, 12f)] public float comicOuterWidth = 10f;
+    [Range(4f, 6f)] public float comicInnerWidth = 5f;
+    [Range(-4f, 4f)] public float comicPanelAngle = -2f;
+    [Range(0f, 0.2f)] public float comicSpikeRatio = 0.12f;
+    public TMPro.TMP_FontAsset comicTitleFont;
+    public BattleUiTitleMotionSettings comicTitleMotion = new()
+    {
+        scale = Vector2.one, allowOverflow = false, bounce = false, accentCharacters = false,
+        characters = new BattleUiTitleCharacterTransform[]
+        {
+            new() { scale = new Vector2(1.25f, 1.25f), rotation = -10f },
+            new() { scale = new Vector2(0.85f, 0.85f), rotation = 7f },
+            new() { scale = new Vector2(1.1f, 1.1f), rotation = -4f },
+            new() { scale = Vector2.one, rotation = 10f }
+        }
+    };
+    [Header("Stylish Ink Neon")]
+    public Color inkBackground = new Color32(0x10, 0x10, 0x18, 255);
+    public Color inkLime = new Color32(0xB8, 0xFF, 0x00, 255);
+    public Color inkMagenta = new Color32(0xFF, 0x39, 0xC8, 255);
+    public Color inkCyan = new Color32(0x22, 0xE8, 0xFF, 255);
+    [Range(-4f, 4f)] public float inkPanelAngle = 3f;
+    [Range(3f, 5f)] public float inkOutlineWidth = 4f;
+    [Range(8f, 14f)] public float inkGlowWidth = 10f;
+    [Range(0f, 0.12f)] public float inkLobeRatio = 0.055f;
+    public TMPro.TMP_FontAsset inkTitleFont;
+    public BattleUiTitleMotionSettings inkTitleMotion = new()
+    {
+        scale = Vector2.one, allowOverflow = false, accentCharacters = false
+    };
+    [Header("Cartoon / Stylish Titles")]
+    [Range(1.8f, 2.4f)] public float posterTitleBodyRatio = 2.1f;
+    [Range(0.06f, 0.1f)] public float posterTitleStrokeRatio = 0.08f;
+    [Range(0f, 0.15f)] public float posterTitleTopOverflow = 0.15f;
     [Min(0f)] public float mahoCornerRadius = 14f;
     [Min(0f)] public float mahoBorderWidth = 1f;
     public Vector2 mahoShadowOffset = new(3f, -4f);
@@ -232,7 +271,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
     public static void RegisterGraphic(Graphic target)
     {
         if (active == null || target == null || target.name.StartsWith("Cmd", StringComparison.Ordinal) ||
-            target.name == "StyleTitleTMP" || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
+            target.name == "StyleTitleTMP" || target is BattleUiTitleBacking || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
         BattleUiOpticsCanvas.Register(target);
         // Unframed rule captions need their own contrast against the world.
         if (target is Text && target.name == "FallbackLabel" && target.transform.parent != null &&

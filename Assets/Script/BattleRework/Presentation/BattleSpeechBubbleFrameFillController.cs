@@ -32,6 +32,15 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
     private readonly Vector2[] fillCornerUvs = new Vector2[4];
     private bool hasFillCorners;
 
+    internal bool TryGetFillCorners(Vector2[] corners)
+    {
+        if (!hasFillCorners || targetRect == null || corners == null || corners.Length < 4) return false;
+        Rect rect = targetRect.rect;
+        for (int i = 0; i < 4; i++)
+            corners[i] = rect.min + Vector2.Scale(fillCornerUvs[i], rect.size);
+        return true;
+    }
+
     internal bool TryGetFillVerticalSpan(RectTransform space, float x, out float minY, out float maxY)
     {
         minY = float.PositiveInfinity;

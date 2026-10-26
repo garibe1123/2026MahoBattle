@@ -7,6 +7,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
     private enum Screen { Hud, Inventory, Reward, Roulette, Pause, Result, Settings }
     private BattleShowPresentationManager manager;
     private bool builtPaper;
+    private bool builtPoster;
     private Screen screen;
     private PreviewRenderUtility preview;
     private GameObject root;
@@ -79,7 +80,8 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         if (view.width < 1f || view.height < 1f || Event.current.type != EventType.Repaint) return;
         EnsurePreview();
-        if (content == null || builtScreen != screen || builtPaper != (manager.UiStyle == BattleUiStyle.Paper)) BuildScreen();
+        bool poster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish;
+        if (content == null || builtScreen != screen || builtPaper != (manager.UiStyle == BattleUiStyle.Paper) || builtPoster != poster) BuildScreen();
         if (previewScreenTone && manager.EnableScreenTone && manager.ScreenToneSettings != null &&
             manager.ScreenToneSettings.ToneStrength > 0f)
         {
@@ -128,6 +130,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         builtScreen = screen;
         builtPaper = manager.UiStyle == BattleUiStyle.Paper;
+        builtPoster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish;
         content = Rect(root.transform, "Sample", Vector2.zero, new Vector2(1920f, 1080f));
         Label(content, "ScreenTitle", screen == Screen.Result ? "STAGE 2 CLEAR" : "MAHO BATTLE / " + screen.ToString().ToUpperInvariant(),
             new Vector2(-350f, 430f), new Vector2(1000f, 100f), 52);
@@ -252,6 +255,17 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
 
     private Text Label(Transform parent, string name, string value, Vector2 position, Vector2 size, int pixels)
     {
+        if (builtPoster)
+            value = name switch
+            {
+                "ScreenTitle" => "마법 전투 / " + screen.ToString().ToUpperInvariant(),
+                "ItemTitle" => "마법 장비 / 01",
+                "RuleTitle" => "배틀 룰 / ROULETTE",
+                "MenuTitle" => screen == Screen.Pause ? "일시 정지" : "환경 설정",
+                "ResultTitle" => "승리! / VICTORY!",
+                "Description" => "희귀 / 수동\n\n장비 설명과 효과\n\n공격력 x1.20   이동 x1.05",
+                _ => value
+            };
         Text text = Rect(parent, name, position, size).gameObject.AddComponent<Text>();
         text.font = font;
         text.text = value;

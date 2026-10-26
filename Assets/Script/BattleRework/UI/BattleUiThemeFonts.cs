@@ -8,6 +8,7 @@ internal static class BattleUiThemeFonts
     private static readonly Dictionary<BattleUiStyle, Font> fonts = new();
     private static readonly Dictionary<BattleUiStyle, TMP_FontAsset> tmpFonts = new();
     private static readonly Dictionary<Font, TMP_FontAsset> cmdFonts = new();
+    private static readonly Dictionary<string, TMP_FontAsset> posterFonts = new();
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void Reset()
@@ -21,6 +22,15 @@ internal static class BattleUiThemeFonts
             BattleUiCmdFrame.Release(font);
         }
         cmdFonts.Clear();
+        foreach (TMP_FontAsset font in posterFonts.Values)
+        {
+            if (font == null) continue;
+            foreach (Texture2D atlas in font.atlasTextures)
+                if (atlas != null) BattleUiCmdFrame.Release(atlas);
+            if (font.material != null) BattleUiCmdFrame.Release(font.material);
+            BattleUiCmdFrame.Release(font);
+        }
+        posterFonts.Clear();
         fonts.Clear();
         tmpFonts.Clear();
     }
@@ -49,7 +59,9 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.Paper => "HarnessFonts/NanumPenScript/NanumPenScript-Regular SDF",
             _ => null
         };
-        font = path != null ? Resources.Load<TMP_FontAsset>(path) : null;
+        bool poster = style == BattleUiStyle.comicStyleUi || style == BattleUiStyle.Stylish;
+        font = poster ? LoadPosterTmp(path) : path != null ? Resources.Load<TMP_FontAsset>(path) : null;
+        if (poster) AddPosterFallbacks(font);
         if (style == BattleUiStyle.Paper && font != null)
         {
             TMP_FontAsset fallback = Resources.Load<TMP_FontAsset>("HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF");
@@ -63,6 +75,43 @@ internal static class BattleUiThemeFonts
             font = BattleUiStyleTmpTitle.LoadFont(style == BattleUiStyle.Birthday);
         tmpFonts[style] = font;
         return font;
+    }
+
+    internal static TMP_FontAsset LoadTitle(BattleUiStyle style)
+    {
+        TMP_FontAsset font = LoadPosterTmp(style == BattleUiStyle.comicStyleUi
+            ? "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF"
+            : "HarnessFonts/Jua/Jua-Regular SDF");
+        AddPosterFallbacks(font);
+        return font != null ? font : LoadTmp(style);
+    }
+
+    private static TMP_FontAsset LoadPosterTmp(string path)
+    {
+        if (path == null) return null;
+        if (posterFonts.TryGetValue(path, out TMP_FontAsset font)) return font;
+        TMP_FontAsset source = Resources.Load<TMP_FontAsset>(path);
+        if (source == null || source.sourceFontFile == null) return null;
+        font = TMP_FontAsset.CreateFontAsset(source.sourceFontFile, 90, 12, GlyphRenderMode.SDFAA,
+            1024, 1024, AtlasPopulationMode.Dynamic, true);
+        if (font == null) return null;
+        font.name = source.name + " Poster Runtime";
+        font.hideFlags = HideFlags.HideAndDontSave;
+        font.material.hideFlags = HideFlags.HideAndDontSave;
+        font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+        posterFonts[path] = font;
+        return font;
+    }
+
+    private static void AddPosterFallbacks(TMP_FontAsset font)
+    {
+        if (font == null) return;
+        TMP_FontAsset korean = LoadPosterTmp("HarnessFonts/IBMPlexSansKR/IBMPlexSansKR-Regular SDF");
+        if (korean != null && korean != font && !font.fallbackFontAssetTable.Contains(korean))
+            font.fallbackFontAssetTable.Add(korean);
+        TMP_FontAsset fallback = TMP_Settings.defaultFontAsset;
+        if (fallback != null && fallback != font && !font.fallbackFontAssetTable.Contains(fallback))
+            font.fallbackFontAssetTable.Add(fallback);
     }
 
     internal static TMP_FontAsset ResolveCmdTmp(TMP_FontAsset preferred, string content)

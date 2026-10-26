@@ -26,6 +26,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private BattleUiCmdFrame cmdFrame;
     private BattleUiPanelDecoration cmdSelection;
     private RectTransform speechSurface;
+    private BattleSpeechBubbleFrameFillController speechGeometry;
+    private Vector2[] speechCorners;
     private bool speechBadge;
     private Image image;
     private BattleUiPanelDecoration decoration;
@@ -116,7 +118,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             if (child != null) decoration = child.GetComponent<BattleUiPanelDecoration>();
             decoratedSurface = decoration != null;
             panel |= decoratedSurface;
-            speechFrame = image.TryGetComponent<BattleSpeechBubbleFrameFillController>(out _);
+            speechFrame = image.TryGetComponent(out speechGeometry);
+            if (speechFrame) speechCorners = new Vector2[4];
             hiddenFill = image.name == "BubbleFrameFill";
             tailFill = image.name == "TailFill";
             panel |= speechFrame;
@@ -234,7 +237,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (pixel && next == null)
             next = label != null ? pixelText : panel && !statusFill ? pixelPanel : pixelSprite;
         bool comic = BattleUiStyleController.IsComic;
-        if (comic && next == null && panel) next = pixelPanel;
+        if (comic && next == null && (panel || speechBadge || stylishButton || stylishSurface)) next = pixelPanel;
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
         bool stylish = BattleUiStyleController.IsStylish;
@@ -297,13 +300,18 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasBirthday = birthday;
         wasPaper = paper;
         wasCmd = cmd;
-        bool decoratedTitle = title && (stylish || birthday || paper || cmd);
+        bool decoratedTitle = (title || ((comic || stylish) && interaction != null && interaction.Primary)) &&
+            (comic || stylish || birthday || paper || cmd);
         if (isActiveAndEnabled && label != null && settings.textMaterial == null &&
             (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
-            TMPro.TMP_FontAsset font = decoratedTitle && settings.titleFont != null ? settings.titleFont :
+            TMPro.TMP_FontAsset posterFont = decoratedTitle && (comic || stylish)
+                ? (comic ? settings.comicTitleFont : settings.inkTitleFont) : null;
+            if (decoratedTitle && (comic || stylish) && posterFont == null)
+                posterFont = BattleUiThemeFonts.LoadTitle(comic ? BattleUiStyle.comicStyleUi : BattleUiStyle.Stylish);
+            TMPro.TMP_FontAsset font = posterFont != null ? posterFont : decoratedTitle && settings.titleFont != null ? settings.titleFont :
                 settings.fontAsset != null ? settings.fontAsset : BattleUiStyleController.ThemeTmpFont;
-            if (font != null && (cmd || stylish || paper || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
+            if (font != null && (comic || cmd || stylish || paper || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
@@ -311,7 +319,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow,
                     stylish ? interaction?.Scale ?? 1f : 1f, entrance, stylish && interaction != null && interaction.Primary,
                     interaction != null || (cmdSelection != null && title),
-                    (interaction != null && interaction.Highlighted) || (cmdSelection != null && cmdSelection.CmdSelected));
+                    (interaction != null && interaction.Highlighted) || (cmdSelection != null && cmdSelection.CmdSelected), topOverflow: title);
             }
             else HideTmpTitle();
         }
@@ -370,6 +378,28 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private void ApplyNativeText(BattleUiStyleSettings settings)
     {
+        if ((BattleUiStyleController.IsComic || BattleUiStyleController.IsStylish) && settings.textMaterial == null)
+        {
+            RestoreCmdNative();
+            if (!tmpOverridden || nativeText.color != appliedTmpColor) originalTmpColor = nativeText.color;
+            bool comic = BattleUiStyleController.IsComic;
+            bool decoratedTitle = title || (interaction != null && interaction.Primary);
+            TMPro.TMP_FontAsset posterFont = decoratedTitle ? (comic ? settings.comicTitleFont : settings.inkTitleFont) : settings.fontAsset;
+            if (posterFont == null) posterFont = decoratedTitle
+                ? BattleUiThemeFonts.LoadTitle(comic ? BattleUiStyle.comicStyleUi : BattleUiStyle.Stylish)
+                : BattleUiStyleController.ThemeTmpFont;
+            if (posterFont == null) { HideTmpTitle(); RestoreNativeText(); return; }
+            if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(nativeText);
+            tmpTitle.Apply(posterFont, settings, false, decoratedTitle, TitleMotion(settings),
+                feedbackScale: !comic ? interaction?.Scale ?? 1f : 1f,
+                primary: !comic && interaction != null && interaction.Primary, sourceTint: originalTmpColor, topOverflow: title);
+            if (!tmpTitle.Visible) { RestoreNativeText(); return; }
+            appliedTmpColor = new Color(originalTmpColor.r, originalTmpColor.g, originalTmpColor.b, 0f);
+            if (nativeText.color != appliedTmpColor) nativeText.color = appliedTmpColor;
+            tmpOverridden = true;
+            return;
+        }
+        HideTmpTitle();
         if (nativeSubMeshesPending)
         {
             foreach (TMPro.TMP_SubMeshUI subMesh in nativeSubMeshes)
@@ -442,6 +472,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private bool HasAssignedMaterial()
     {
+        if (BattleUiStyleController.IsComic && (panel || speechBadge || hiddenFill || tailFill || label != null ||
+            (image != null && (image.name == "TailShape" || stylishSurface || stylishButton)))) return false;
         if (BattleUiStyleController.IsCmd && (label != null || panel || speechBadge || hiddenFill || tailFill ||
             (image != null && (image.name == "TailShape" || (image.sprite == null && (stylishSurface || stylishButton)))))) return false;
         if (BattleUiStyleController.IsStylish && (panel || stylishSurface || stylishButton || label != null)) return false;
@@ -511,10 +543,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private BattleUiTitleMotionSettings TitleMotion(BattleUiStyleSettings settings)
     {
+        if (title && BattleUiStyleController.IsComic)
+            return settings?.comicTitleMotion?.enabled == true ? settings.comicTitleMotion : null;
         BattleUiTitleMotionSettings motion = settings?.stylishTitleMotion;
-        return titleMotionCandidate && BattleUiStyleController.IsStylish && motion != null && motion.enabled &&
+        if (!BattleUiStyleController.IsStylish) return null;
+        return titleMotionCandidate && motion != null && motion.enabled &&
             target.name == motion.targetName && target.transform.parent != null && target.transform.parent.name == motion.targetParent
-            ? motion : null;
+            ? motion : title && settings?.inkTitleMotion?.enabled == true ? settings.inkTitleMotion : null;
     }
 
     protected override void OnDisable()
@@ -584,6 +619,31 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         bool paper = BattleUiStyleController.IsPaper;
         if (!pixel && !comic && !maho && !stylish && !birthday && !paper) return;
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
+        if (comic && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
+        {
+            if (hiddenFill) { vh.Clear(); return; }
+            if (speechFrame)
+            {
+                vh.Clear();
+                if (speechGeometry != null && speechGeometry.TryGetFillCorners(speechCorners))
+                    DrawComicSpeech(vh, speechCorners, settings, image.color.a);
+                else DrawComicFrame(vh, target.rectTransform.rect, settings, image.color.a, speech: true);
+            }
+            else
+            {
+                UIVertex vertex = default;
+                Color tint = tailFill ? settings.comicWhite : settings.comicInk;
+                for (int i = 0; i < vh.currentVertCount; i++)
+                {
+                    vh.PopulateUIVertex(ref vertex, i);
+                    Color color = tint;
+                    color.a *= vertex.color.a / 255f;
+                    vertex.color = color;
+                    vh.SetUIVertex(vertex, i);
+                }
+            }
+            return;
+        }
         if (paper && paperBadgeInner) { vh.Clear(); return; }
         if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
         {
@@ -617,7 +677,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || (speechFrame && !stylish)) return;
         if (decoratedSurface) { vh.Clear(); return; }
         bool statusFill = image != null && image.type == Image.Type.Filled;
-        if ((panel || (paper && (paperBadge || speechBadge)) || ((stylish || paper) && (stylishButton || stylishSurface))) && image != null && !statusFill &&
+        if ((panel || (comic && speechBadge) || (paper && (paperBadge || speechBadge)) || ((comic || stylish || paper) && (stylishButton || stylishSurface))) && image != null && !statusFill &&
             (!paper || image.sprite == null || panel || paperBadge))
         {
             vh.Clear();
@@ -628,10 +688,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     paperBadge, interaction != null && interaction.Highlighted, target, paperRole, paperSheet);
             else if (stylish || birthday)
                 DrawAccentFrame(vh, target.rectTransform.rect, settings, birthday, speechFrame ? 1f : image.color.a,
-                    (stylish && stylishSpotlight) || (interaction != null && interaction.Highlighted),
+                    interaction != null && interaction.Highlighted,
                     interaction != null && interaction.Primary, stylishCard);
             else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
-            else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a);
+            else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a,
+                interaction != null && interaction.Highlighted, interaction != null && interaction.Primary);
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
         else if (label != null || tailFill || statusFill || (maho && image != null) || (paper && paperBadgeIcon))
@@ -648,7 +709,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     maho ? (tailFill || (image != null && image.name == "TailShape") ? settings.background :
                     label != null ? settings.innerLine : statusFill ? settings.energy :
                     image.sprite == null ? settings.status : settings.danger) :
-                    comic ? (tailFill ? settings.comicPaper : label != null ? settings.comicPaper : settings.comicAccent) :
+                    comic ? (label != null ? settings.comicWhite : settings.comicRed) :
                     tailFill ? Surface(settings) : Palette(source, settings, statusFill);
                 tint.a *= source.a;
                 vertex.color = tint;
@@ -755,7 +816,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal static Color TextColor(Color source, BattleUiStyleSettings settings)
     {
-        Color tint = BattleUiStyleController.IsComic ? settings.comicPaper :
+        Color tint = BattleUiStyleController.IsComic ? settings.comicWhite :
             BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper || BattleUiStyleController.IsCmd
                 ? settings.innerLine : BattleUiStyleController.IsPixel ? Palette(source, settings, false) : source;
         if (BattleUiStyleController.IsPixel || BattleUiStyleController.IsComic || BattleUiStyleController.IsMahoShojo ||
@@ -793,15 +854,87 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         StepFill(vh, Inset(rect, settings.framePixels * pixel), pixel, surface);
     }
 
-    internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha)
+    internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha,
+        bool selected = false, bool primary = false, bool speech = false)
     {
-        Color red = settings.comicAccent, paper = settings.comicPaper, ink = settings.comicBackground;
+        Color red = settings.comicRed, paper = settings.comicWhite, ink = settings.comicInk;
         red.a *= alpha;
         paper.a *= alpha;
         ink.a *= alpha;
-        Slant(vh, new Rect(rect.x + 5f, rect.y - 5f, rect.width, rect.height), red);
-        Slant(vh, rect, paper);
-        Slant(vh, Inset(rect, 3f), ink);
+        float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
+        float inner = Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
+        ComicFill(vh, rect, settings, ink, speech);
+        ComicFill(vh, Inset(rect, outer), settings, paper, speech);
+        Rect face = Inset(rect, outer + inner);
+        ComicFill(vh, face, settings, primary ? red : ink, speech);
+        if (selected)
+        {
+            Color green = settings.comicSelection;
+            green.a *= alpha;
+            ComicFill(vh, new Rect(face.xMin, face.yMin, Mathf.Min(face.width * 0.12f, outer * 2f), face.height),
+                settings, green, false);
+        }
+    }
+
+    internal static void ComicFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool spike)
+    {
+        if (rect.width <= 0f || rect.height <= 0f) return;
+        int first = vh.currentVertCount;
+        float cut = Mathf.Min(rect.width * 0.08f, rect.height * 0.2f);
+        float angle = Mathf.Clamp(settings.comicPanelAngle, -4f, 4f) * Mathf.Deg2Rad;
+        float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
+        const int count = 7;
+        vh.AddVert(rect.center, tint, Vector2.zero);
+        for (int i = 0; i < count; i++)
+        {
+            Vector2 point = i switch
+            {
+                0 => new Vector2(rect.xMin + cut, rect.yMin),
+                1 => new Vector2(rect.xMin, rect.yMax - cut),
+                2 => new Vector2(rect.xMin + cut * 0.5f, rect.yMax),
+                3 => new Vector2(rect.xMax, rect.yMax - cut * 0.3f),
+                4 => new Vector2(rect.xMax - cut * 0.7f, rect.yMin + cut),
+                5 => new Vector2(rect.xMin + rect.width * 0.7f, rect.yMin + cut * 0.15f),
+                _ => new Vector2(rect.xMin + rect.width * 0.6f,
+                    rect.yMin - (spike ? rect.height * settings.comicSpikeRatio : 0f))
+            };
+            Vector2 local = point - rect.center;
+            // Keep the frame inside its input rectangle; only the speech connector extends below it.
+            float fit = Mathf.Min(rect.width / Mathf.Max(0.001f, rect.width * cos + rect.height * Mathf.Abs(sin)),
+                rect.height / Mathf.Max(0.001f, rect.height * cos + rect.width * Mathf.Abs(sin)));
+            point = rect.center + new Vector2(local.x * cos - local.y * sin, local.x * sin + local.y * cos) * fit;
+            vh.AddVert(point, tint, Vector2.zero);
+        }
+        for (int i = 0; i < count; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
+    }
+
+    private static void DrawComicSpeech(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
+    {
+        Vector2 center = (corners[0] + corners[1] + corners[2] + corners[3]) * 0.25f;
+        float outer = Mathf.Clamp(settings.comicOuterWidth, 8f, 12f);
+        float inner = Mathf.Clamp(settings.comicInnerWidth, 4f, 6f);
+        for (int layer = 0; layer < 3; layer++)
+        {
+            Color tint = layer == 1 ? settings.comicWhite : settings.comicInk;
+            tint.a *= alpha;
+            float spread = layer == 0 ? outer + inner : layer == 1 ? inner : 0f;
+            int first = vh.currentVertCount;
+            for (int i = 0; i < 4; i++)
+            {
+                Vector2 point = corners[i];
+                Vector2 previous = (corners[(i + 3) % 4] - point).normalized;
+                Vector2 next = (corners[(i + 1) % 4] - point).normalized;
+                Vector2 previousNormal = new(-previous.y, previous.x);
+                Vector2 nextNormal = new(-next.y, next.x);
+                if (Vector2.Dot(previousNormal, point - center) < 0f) previousNormal = -previousNormal;
+                if (Vector2.Dot(nextNormal, point - center) < 0f) nextNormal = -nextNormal;
+                Vector2 bisector = (previousNormal + nextNormal).normalized;
+                float miter = spread / Mathf.Max(0.25f, Vector2.Dot(bisector, previousNormal));
+                vh.AddVert(point + bisector * miter, tint, Vector2.zero);
+            }
+            vh.AddTriangle(first, first + 1, first + 2);
+            vh.AddTriangle(first, first + 2, first + 3);
+        }
     }
 
     internal static void DrawAccentFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
@@ -872,18 +1005,18 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private static void DrawStylishFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
         float alpha, bool selected, bool primary, bool card)
     {
-        float border = Mathf.Min(Mathf.Clamp(settings.stylishBorderWidth, 3f, 6f), Mathf.Min(rect.width, rect.height) * 0.12f);
+        float border = Mathf.Min(Mathf.Clamp(settings.inkOutlineWidth, 3f, 5f), Mathf.Min(rect.width, rect.height) * 0.12f);
         float shadowOffset = Mathf.Clamp(settings.stylishShadowOffset, 4f, 8f);
         Rect shadow = new(rect.x + shadowOffset, rect.y - shadowOffset, rect.width, rect.height);
-        Color ink = settings.outerFrame;
+        Color ink = settings.inkBackground;
         ink.a *= alpha;
         StylishFill(vh, shadow, settings, ink, card || primary);
         if (selected)
         {
-            float glow = Mathf.Clamp(settings.stylishGlowWidth, 6f, 12f);
+            float glow = Mathf.Clamp(settings.inkGlowWidth, 8f, 14f);
             for (int i = 2; i > 0; i--)
             {
-                Color light = settings.stylishNeon;
+                Color light = settings.inkCyan;
                 light.a *= alpha * (i == 2 ? 0.08f : 0.18f);
                 float spread = glow * i * 0.5f;
                 StylishFill(vh, new Rect(rect.x - spread, rect.y - spread,
@@ -892,33 +1025,32 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
         StylishFill(vh, rect, settings, ink, card || primary);
         Rect rim = Inset(rect, border);
-        Color neon = selected ? settings.stylishNeon : primary ? settings.highlight : settings.energy;
+        Color neon = selected ? settings.inkCyan : primary ? settings.inkLime : settings.inkMagenta;
         neon.a *= alpha;
         StylishFill(vh, rim, settings, neon, card || primary);
         Rect face = Inset(rim, Mathf.Max(1f, border * 0.4f));
-        Color fill = primary ? settings.stylishCta :
-            selected ? settings.stylishMagenta : settings.background;
+        Color fill = primary ? settings.inkLime : settings.inkBackground;
         fill.a *= alpha;
         StylishFill(vh, face, settings, fill, card || primary);
         if (!primary && face.width > 240f && face.height > 120f)
         {
-            Color mint = settings.energy;
+            Color mint = settings.inkCyan;
             mint.a *= alpha * settings.stylishColorBandAlpha;
             DrawColorWave(vh, Inset(face, border * 2f), settings.stylishColorBandHeight, mint);
-            Color yellow = settings.highlight;
+            Color yellow = settings.inkLime;
             yellow.a *= alpha * 0.8f;
             Rect ribbon = new(face.xMax - face.width * 0.24f, face.yMax - border * 4f,
                 face.width * 0.18f, border * 1.5f);
-            AccentSlant(vh, ribbon, settings.stylishPanelAngle, yellow);
-            Color pinkBand = settings.status;
+            AccentSlant(vh, ribbon, Mathf.Clamp(settings.inkPanelAngle, -4f, 4f), yellow);
+            Color pinkBand = settings.inkMagenta;
             pinkBand.a *= alpha * settings.stylishColorBandAlpha;
             AccentSlant(vh, new Rect(face.xMax - face.width * 0.2f, face.yMin + border,
-                face.width * 0.16f, face.height * 0.42f), settings.stylishPanelAngle, pinkBand);
+                face.width * 0.16f, face.height * 0.42f), Mathf.Clamp(settings.inkPanelAngle, -4f, 4f), pinkBand);
         }
-        Color pink = settings.status;
+        Color pink = settings.inkMagenta;
         pink.a *= alpha;
         AccentSlant(vh, new Rect(face.xMax - face.width * 0.18f, face.yMin,
-            face.width * 0.18f, Mathf.Min(8f, face.height * 0.12f)), settings.stylishPanelAngle, pink);
+            face.width * 0.18f, Mathf.Min(8f, face.height * 0.12f)), Mathf.Clamp(settings.inkPanelAngle, -4f, 4f), pink);
         float step = Mathf.Max(4f, settings.stylishDotSpacing);
         Color dot = settings.innerLine;
         dot.a *= alpha * settings.surfacePatternAlpha;
@@ -933,8 +1065,25 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private static void StylishFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool rounded)
     {
-        if (rounded) RoundedFill(vh, rect, settings.stylishCardRadius, tint);
-        else AccentSlant(vh, rect, settings.stylishPanelAngle, tint);
+        if (rect.width <= 0f || rect.height <= 0f) return;
+        const int segments = 32;
+        int first = vh.currentVertCount;
+        float angle = Mathf.Clamp(settings.inkPanelAngle, -4f, 4f) * Mathf.Deg2Rad;
+        float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
+        vh.AddVert(rect.center, tint, Vector2.zero);
+        for (int i = 0; i < segments; i++)
+        {
+            float t = i * Mathf.PI * 2f / segments;
+            float x = Mathf.Cos(t), y = Mathf.Sin(t);
+            float radius = 1f - settings.inkLobeRatio * (0.5f + 0.5f * Mathf.Sin(t * 7f + 0.8f));
+            Vector2 point = new(Mathf.Sign(x) * Mathf.Pow(Mathf.Abs(x), rounded ? 0.4f : 0.22f) * rect.width * 0.5f,
+                Mathf.Sign(y) * Mathf.Pow(Mathf.Abs(y), rounded ? 0.4f : 0.22f) * rect.height * 0.5f);
+            float fit = Mathf.Min(rect.width / Mathf.Max(0.001f, rect.width * cos + rect.height * Mathf.Abs(sin)),
+                rect.height / Mathf.Max(0.001f, rect.height * cos + rect.width * Mathf.Abs(sin)));
+            point = rect.center + new Vector2(point.x * cos - point.y * sin, point.x * sin + point.y * cos) * (radius * fit);
+            vh.AddVert(point, tint, Vector2.zero);
+        }
+        for (int i = 0; i < segments; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % segments);
     }
 
     private static void DrawColorWave(VertexHelper vh, Rect rect, float height, Color tint)
@@ -1270,7 +1419,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Rect rect = target.rectTransform.rect;
         float size = Mathf.Min(rect.width, rect.height) * settings.lockMarkSizeRatio;
         if (size <= 0f) return;
-        Color tint = BattleUiStyleController.IsComic ? settings.comicPaper : settings.innerLine;
+        Color tint = BattleUiStyleController.IsComic ? settings.comicWhite :
+            BattleUiStyleController.IsStylish ? settings.inkCyan : settings.innerLine;
         tint.a *= settings.lockMarkAlpha * target.color.a;
         Vector2 center = rect.center;
         float variation = settings.lockMarkVariation;

@@ -368,21 +368,21 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             bool birthday = BattleUiStyleController.IsBirthday;
             float opacity = softFill ? 0.94f : 1f;
-            float border = Mathf.Clamp(birthday ? style.birthdayBorderWidth * 3f : style.stylishBorderWidth,
+            float border = Mathf.Clamp(birthday ? style.birthdayBorderWidth * 3f : style.inkOutlineWidth,
                 0f, Mathf.Min(face.width, face.height) * 0.5f);
             float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
             BattleUiStyleMeshEffect.DrawAccentFrame(vh, face, style, birthday, opacity,
-                selected || emphasis || (!birthday && stylishSpotlight) || (styleInteraction != null && styleInteraction.Highlighted),
+                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
                 styleInteraction != null && styleInteraction.Primary, stylishCard);
-            backgroundBaseAlpha = style.background.a * opacity;
+            backgroundBaseAlpha = (birthday ? style.background.a : style.inkBackground.a) * opacity;
             if (hasHeader)
             {
                 float height = Mathf.Min(HeaderHeight * scale, face.height - border);
                 Rect header = new(face.xMin + border, face.yMax - height,
                     face.width - border * 2f, height - border);
-                Color rim = style.status;
+                Color rim = birthday ? style.status : style.inkLime;
                 rim.a *= opacity;
-                Color paper = birthday ? style.outerFrame : style.stylishMagenta;
+                Color paper = birthday ? style.outerFrame : style.inkMagenta;
                 paper.a *= opacity;
                 if (birthday)
                 {
@@ -392,8 +392,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                 }
                 else
                 {
-                    BattleUiStyleMeshEffect.AccentSlant(vh, header, style.stylishPanelAngle, rim);
-                    BattleUiStyleMeshEffect.AccentSlant(vh, BattleUiStyleMeshEffect.Inset(header, 2f * scale), style.stylishPanelAngle, paper);
+                    BattleUiStyleMeshEffect.AccentSlant(vh, header, Mathf.Clamp(style.inkPanelAngle, -4f, 4f), rim);
+                    BattleUiStyleMeshEffect.AccentSlant(vh, BattleUiStyleMeshEffect.Inset(header, 2f * scale), Mathf.Clamp(style.inkPanelAngle, -4f, 4f), paper);
                 }
             }
             backgroundVertexCount = vh.currentVertCount;
@@ -482,27 +482,29 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (BattleUiStyleController.IsComic)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
-            BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f);
-            backgroundBaseAlpha = style.comicBackground.a * (softFill ? 0.94f : 1f);
+            BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f,
+                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
+                styleInteraction != null && styleInteraction.Primary);
+            backgroundBaseAlpha = style.comicInk.a * (softFill ? 0.94f : 1f);
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
                 Rect header = new(face.xMin + 6f, face.yMax - HeaderHeight * scale,
                     face.width - 12f, HeaderHeight * scale - 5f);
-                BattleUiStyleMeshEffect.Slant(vh, header, style.comicAccent);
+                BattleUiStyleMeshEffect.ComicFill(vh, header, style, style.comicRed, false);
             }
             backgroundVertexCount = vh.currentVertCount;
             if (emphasis)
             {
-                Color tint = style.comicAccent;
+                Color tint = style.comicRed;
                 tint.a = 0.12f + pulse * 0.12f;
                 BattleUiStyleMeshEffect.Slant(vh, BattleUiStyleMeshEffect.Inset(face, 4f), tint);
                 BattleUiStyleMeshEffect.Slant(vh,
-                    new Rect(face.xMin + 4f, face.center.y - 18f, 8f, 36f), style.comicAccent);
+                    new Rect(face.xMin + 4f, face.center.y - 18f, 8f, 36f), style.comicSelection);
             }
             if (selected)
                 BattleUiStyleMeshEffect.Slant(vh,
-                    new Rect(face.xMax - 23f, face.yMin + 7f, 16f, 12f), style.comicPaper);
+                    new Rect(face.xMax - 23f, face.yMin + 7f, 16f, 12f), style.comicWhite);
             return;
         }
 
