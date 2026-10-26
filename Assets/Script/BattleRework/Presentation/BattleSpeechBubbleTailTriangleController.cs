@@ -51,6 +51,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             ? bubble.GetComponentInChildren<BattleSpeechBubbleFrameFillController>(true)
             : null;
         targetPivot = target;
+        if (frameController != null) frameController.ComicTail = this;
         fillColor = color;
         style = tailStyle ?? new BattleSpeechBubbleTailStyle();
         if (BattleUiStyleController.IsComic)
@@ -355,6 +356,14 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     private void RefreshPlacement()
     {
+        if (BattleUiStyleController.IsComic && frameController != null &&
+            frameController.TryGetFillCorners(comicFrameCorners) && targetPivot != null)
+        {
+            if (outlineImage != null) outlineImage.enabled = false;
+            if (fillImage != null) fillImage.enabled = false;
+            frameController.RefreshComicOutline();
+            return;
+        }
         if (tailRect == null ||
             outlineImage == null ||
             fillImage == null ||
@@ -577,6 +586,15 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         tailRect.localScale =
             Vector3.one;
+    }
+
+    internal bool TryGetComicTip(RectTransform space, out Vector2 tip, out float attachment)
+    {
+        tip = Vector2.zero;
+        attachment = comicTopAttachment;
+        if (!isActiveAndEnabled || targetPivot == null || space == null) return false;
+        tip = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
+        return true;
     }
 
     private void PlaceComicTopTarget(BattleSpeechBubbleTailStyle activeStyle, Rect bubble, Vector2 target)

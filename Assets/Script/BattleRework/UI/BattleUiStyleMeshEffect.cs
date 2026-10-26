@@ -30,6 +30,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private BattleSpeechBubbleFrameFillController speechGeometry;
     private Vector2[] speechCorners;
     private Vector2[] speechTailCorners;
+    private readonly Vector2[] comicSpeechContour = new Vector2[7];
+    private readonly int[] comicSpeechIndices = new int[7];
     private bool speechBadge;
     private Image image;
     private BattleUiPanelDecoration decoration;
@@ -1056,8 +1058,29 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
     }
 
-    private static void DrawComicSpeech(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
+    private void DrawComicSpeech(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
     {
+        if (speechGeometry.ComicTail != null && speechGeometry.ComicTail.TryGetComicTip(
+            target.rectTransform, out Vector2 tip, out float attachment))
+        {
+            int edge = 0;
+            for (int i = 1; i < 4; i++)
+                if (corners[i].y + corners[(i + 1) % 4].y > corners[edge].y + corners[(edge + 1) % 4].y)
+                    edge = i;
+            Vector2 start = corners[edge], end = corners[(edge + 1) % 4];
+            float along = start.x < end.x ? attachment : 1f - attachment;
+            float half = 0.08f;
+            float top = Mathf.Max(start.y, end.y);
+            tip.y = Mathf.Max(tip.y, top + Mathf.Abs(end.x - start.x) * 0.15f);
+            // Keep the join on the actual frame edge, including its random rotation.
+            comicSpeechContour[0] = start;
+            comicSpeechContour[1] = Vector2.Lerp(start, end, Mathf.Clamp01(along - half));
+            comicSpeechContour[2] = tip;
+            comicSpeechContour[3] = Vector2.Lerp(start, end, Mathf.Clamp01(along + half));
+            for (int i = 1; i < 4; i++) comicSpeechContour[i + 3] = corners[(edge + i) % 4];
+            DrawComicSpeechPolygon(vh, comicSpeechContour, settings, alpha);
+            return;
+        }
         DrawComicSpeechPolygon(vh, corners, settings, alpha);
     }
 
@@ -1079,11 +1102,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         else DrawComicSpeechPolygon(vh, speechTailCorners, settings, alpha);
     }
 
-    private static void DrawComicSpeechPolygon(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
+    private void DrawComicSpeechPolygon(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
     {
-        Vector2 center = Vector2.zero;
-        for (int i = 0; i < corners.Length; i++) center += corners[i];
-        center /= corners.Length;
+        float area = 0f;
+        for (int i = 0; i < corners.Length; i++)
+            area += Cross(corners[i], corners[(i + 1) % corners.Length]);
+        float winding = area >= 0f ? 1f : -1f;
         float outer = Mathf.Clamp(settings.comicOuterWidth, 8f, 12f);
         float inner = Mathf.Clamp(settings.comicInnerWidth, 4f, 6f);
         for (int layer = 0; layer < 3; layer++)
@@ -1099,16 +1123,51 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 Vector2 next = (corners[(i + 1) % corners.Length] - point).normalized;
                 Vector2 previousNormal = new(-previous.y, previous.x);
                 Vector2 nextNormal = new(-next.y, next.x);
-                if (Vector2.Dot(previousNormal, point - center) < 0f) previousNormal = -previousNormal;
-                if (Vector2.Dot(nextNormal, point - center) < 0f) nextNormal = -nextNormal;
+                previousNormal *= winding;
+                nextNormal *= -winding;
                 Vector2 bisector = (previousNormal + nextNormal).normalized;
                 float miter = spread / Mathf.Max(0.25f, Vector2.Dot(bisector, previousNormal));
                 vh.AddVert(point + bisector * miter, tint, Vector2.zero);
             }
-            for (int i = 1; i + 1 < corners.Length; i++)
-                vh.AddTriangle(first, first + i, first + i + 1);
+            int remaining = corners.Length;
+            for (int i = 0; i < remaining; i++) comicSpeechIndices[i] = i;
+            UIVertex vertex = default;
+            int attempts = remaining * remaining;
+            while (remaining > 2 && attempts-- > 0)
+            {
+                bool clipped = false;
+                for (int i = 0; i < remaining; i++)
+                {
+                    int a = comicSpeechIndices[(i + remaining - 1) % remaining];
+                    int b = comicSpeechIndices[i];
+                    int c = comicSpeechIndices[(i + 1) % remaining];
+                    vh.PopulateUIVertex(ref vertex, first + a); Vector2 pa = vertex.position;
+                    vh.PopulateUIVertex(ref vertex, first + b); Vector2 pb = vertex.position;
+                    vh.PopulateUIVertex(ref vertex, first + c); Vector2 pc = vertex.position;
+                    if (Cross(pb - pa, pc - pb) * winding <= 0.0001f) continue;
+                    bool contains = false;
+                    for (int j = 0; j < remaining; j++)
+                    {
+                        int index = comicSpeechIndices[j];
+                        if (index == a || index == b || index == c) continue;
+                        vh.PopulateUIVertex(ref vertex, first + index); Vector2 p = vertex.position;
+                        if (Cross(pb - pa, p - pa) * winding >= 0f &&
+                            Cross(pc - pb, p - pb) * winding >= 0f &&
+                            Cross(pa - pc, p - pc) * winding >= 0f) { contains = true; break; }
+                    }
+                    if (contains) continue;
+                    vh.AddTriangle(first + a, first + b, first + c);
+                    for (int j = i; j < remaining - 1; j++) comicSpeechIndices[j] = comicSpeechIndices[j + 1];
+                    remaining--;
+                    clipped = true;
+                    break;
+                }
+                if (!clipped) break;
+            }
         }
     }
+
+    private static float Cross(Vector2 a, Vector2 b) => a.x * b.y - a.y * b.x;
 
     internal static void DrawAccentFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
         bool birthday, float alpha, bool selected = false, bool primary = false, bool card = false)

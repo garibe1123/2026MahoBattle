@@ -29,6 +29,11 @@ public sealed class BattleSpeechBubbleFrameFillController : MonoBehaviour
     private Transform registeredStyleRoot;
 
     internal RectTransform FrameRect => targetRect;
+    internal BattleSpeechBubbleTailTriangleController ComicTail { get; set; }
+    internal void RefreshComicOutline()
+    {
+        if (outlineImage != null) outlineImage.SetVerticesDirty();
+    }
     private readonly Vector2[] fillCornerUvs = new Vector2[4];
     private bool hasFillCorners;
 
