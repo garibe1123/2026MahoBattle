@@ -64,6 +64,15 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private uint paperSeed;
     private BattlePaperRole paperRole;
     private bool paperSheet;
+    private RectTransform comicInventoryRoot;
+    private float comicInventoryHeight = 0.5f;
+
+    public void SetComicInventorySlot(RectTransform root, float relativeHeight)
+    {
+        comicInventoryRoot = root;
+        comicInventoryHeight = Mathf.Clamp01(relativeHeight);
+        SetVerticesDirty();
+    }
 
     internal void SetStyleInteraction(BattleUiStyleInteraction interaction) => styleInteraction = interaction;
     internal bool CmdSelected => selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted);
@@ -491,16 +500,28 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             Vector2 direction = BattleUiStyleMeshEffect.ComicDirection(this);
+            float perspectiveScale = 1f;
+            if (comicInventoryRoot != null)
+            {
+                Vector3 center = rectTransform.TransformPoint(rectTransform.rect.center);
+                Vector3 origin = comicInventoryRoot.TransformPoint(comicInventoryRoot.rect.center);
+                direction = ((Vector2)rectTransform.InverseTransformVector(center - origin)).normalized;
+                perspectiveScale = comicInventoryHeight <= 0.5f
+                    ? Mathf.Lerp(style.comicInventoryBottomPerspective, style.comicInventoryMiddlePerspective, comicInventoryHeight * 2f)
+                    : Mathf.Lerp(style.comicInventoryMiddlePerspective, style.comicInventoryTopPerspective, (comicInventoryHeight - 0.5f) * 2f);
+                if (direction.sqrMagnitude < 0.001f) perspectiveScale = 0f;
+            }
             BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f,
                 selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
-                styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false, direction: direction);
+                styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false, direction: direction,
+                perspectiveScale: perspectiveScale);
             backgroundBaseAlpha = style.comicInk.a * (softFill ? 0.94f : 1f);
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
                 Color tint = style.comicRed;
                 tint.a *= softFill ? 0.94f : 1f;
-                BattleUiStyleMeshEffect.DrawComicHeader(vh, face, style, HeaderHeight * scale, tint, paperSeed, direction);
+                BattleUiStyleMeshEffect.DrawComicHeader(vh, face, style, HeaderHeight * scale, tint, paperSeed, direction, perspectiveScale);
             }
             backgroundVertexCount = vh.currentVertCount;
             if (emphasis)
@@ -511,6 +532,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             if (selected)
                 BattleUiStyleMeshEffect.Slant(vh,
                     new Rect(face.xMax - 23f, face.yMin + 7f, 16f, 12f), style.comicWhite);
+            if (comicInventoryRoot != null)
+                BattleUiStyleMeshEffect.FitComicDecoration(vh, backgroundVertexCount, face, style, paperSeed, direction, perspectiveScale);
             BattleUiStyleMeshEffect.RotateComicFrame(vh, 0, face, style, paperSeed);
             return;
         }

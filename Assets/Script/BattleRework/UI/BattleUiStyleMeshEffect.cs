@@ -863,7 +863,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha,
         bool selected = false, bool primary = false, bool speech = false, uint seed = 0, bool rotate = true,
-        Vector2 direction = default)
+        Vector2 direction = default, float perspectiveScale = 1f)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
@@ -873,17 +873,17 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         ink.a *= alpha;
         float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
         float inner = Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
-        ComicFill(vh, rect, settings, ink, speech, seed, direction);
-        ComicFill(vh, rect, settings, paper, speech, seed, direction, outer);
-        ComicFill(vh, rect, settings, primary || selected ? red : ink, speech, seed, direction, outer + inner);
+        ComicFill(vh, rect, settings, ink, speech, seed, direction, perspectiveScale: perspectiveScale);
+        ComicFill(vh, rect, settings, paper, speech, seed, direction, outer, perspectiveScale);
+        ComicFill(vh, rect, settings, primary || selected ? red : ink, speech, seed, direction, outer + inner, perspectiveScale);
         if (selected)
         {
             Color green = settings.comicSelection;
             green.a *= alpha;
             float size = Mathf.Min(outer * 2.2f, Mathf.Min(rect.width, rect.height) * 0.18f);
-            Vector2 point = ComicInsetPoint(rect, settings, seed, direction, speech, 1, outer + inner);
-            Vector2 previous = ComicInsetPoint(rect, settings, seed, direction, speech, 0, outer + inner);
-            Vector2 next = ComicInsetPoint(rect, settings, seed, direction, speech, 2, outer + inner);
+            Vector2 point = ComicInsetPoint(rect, settings, seed, direction, speech, 1, outer + inner, perspectiveScale);
+            Vector2 previous = ComicInsetPoint(rect, settings, seed, direction, speech, 0, outer + inner, perspectiveScale);
+            Vector2 next = ComicInsetPoint(rect, settings, seed, direction, speech, 2, outer + inner, perspectiveScale);
             int corner = vh.currentVertCount;
             vh.AddVert(point, green, Vector2.zero);
             vh.AddVert(point + (next - point).normalized * size, green, Vector2.zero);
@@ -894,14 +894,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal static void ComicFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool spike,
-        uint seed = 0, Vector2 direction = default, float inset = 0f)
+        uint seed = 0, Vector2 direction = default, float inset = 0f, float perspectiveScale = 1f)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
         int count = spike ? 7 : 4;
         vh.AddVert(rect.center, tint, Vector2.zero);
         for (int i = 0; i < count; i++)
-            vh.AddVert(ComicInsetPoint(rect, settings, seed, direction, spike, i, inset), tint, Vector2.zero);
+            vh.AddVert(ComicInsetPoint(rect, settings, seed, direction, spike, i, inset, perspectiveScale), tint, Vector2.zero);
         for (int i = 0; i < count; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
     }
 
@@ -913,12 +913,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         return surface.rectTransform.InverseTransformVector(center - origin).normalized;
     }
 
-    private static Vector2 ComicPoint(Rect rect, BattleUiStyleSettings settings, uint seed, Vector2 direction, int index)
+    private static Vector2 ComicPoint(Rect rect, BattleUiStyleSettings settings, uint seed, Vector2 direction, int index, float perspectiveScale)
     {
         if (direction.sqrMagnitude < 0.001f)
             direction = new Vector2(PaperVariation(seed, 2) < 0.5f ? -1f : 1f, PaperVariation(seed, 3) - 0.5f);
         float taper = Mathf.Min(Mathf.Clamp(settings.comicPerspectiveMax, 0f, 24f),
             Mathf.Min(rect.width, rect.height) * Mathf.Clamp(settings.comicPerspectiveRatio, 0f, 0.2f));
+        taper = Mathf.Min(taper * Mathf.Max(0f, perspectiveScale), Mathf.Min(rect.width, rect.height) * 0.24f);
         if (Mathf.Abs(direction.y) > Mathf.Abs(direction.x))
         {
             float horizontal = Mathf.Clamp(direction.x, -0.75f, 0.75f);
@@ -951,13 +952,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     private static Vector2 ComicInsetPoint(Rect rect, BattleUiStyleSettings settings, uint seed, Vector2 direction,
-        bool spike, int index, float inset)
+        bool spike, int index, float inset, float perspectiveScale = 1f)
     {
-        Vector2 point = ComicPoint(rect, settings, seed, direction, index);
+        Vector2 point = ComicPoint(rect, settings, seed, direction, index, perspectiveScale);
         if (inset <= 0f) return point;
         int count = spike ? 7 : 4;
-        Vector2 previous = (point - ComicPoint(rect, settings, seed, direction, (index + count - 1) % count)).normalized;
-        Vector2 next = (ComicPoint(rect, settings, seed, direction, (index + 1) % count) - point).normalized;
+        Vector2 previous = (point - ComicPoint(rect, settings, seed, direction, (index + count - 1) % count, perspectiveScale)).normalized;
+        Vector2 next = (ComicPoint(rect, settings, seed, direction, (index + 1) % count, perspectiveScale) - point).normalized;
         Vector2 previousNormal = new(previous.y, -previous.x);
         Vector2 nextNormal = new(next.y, -next.x);
         Vector2 bisector = (previousNormal + nextNormal).normalized;
@@ -965,16 +966,16 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal static void DrawComicHeader(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
-        float height, Color tint, uint seed, Vector2 direction)
+        float height, Color tint, uint seed, Vector2 direction, float perspectiveScale = 1f)
     {
         float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
         float inset = outer + Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
         float bottom = rect.yMax - height;
         int first = vh.currentVertCount;
-        Vector2 previous = ComicInsetPoint(rect, settings, seed, direction, false, 3, inset);
+        Vector2 previous = ComicInsetPoint(rect, settings, seed, direction, false, 3, inset, perspectiveScale);
         for (int i = 0; i < 4; i++)
         {
-            Vector2 point = ComicInsetPoint(rect, settings, seed, direction, false, i, inset);
+            Vector2 point = ComicInsetPoint(rect, settings, seed, direction, false, i, inset, perspectiveScale);
             bool previousInside = previous.y >= bottom, inside = point.y >= bottom;
             if (previousInside != inside)
                 vh.AddVert(Vector2.Lerp(previous, point, (bottom - previous.y) / (point.y - previous.y)), tint, Vector2.zero);
@@ -982,6 +983,27 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             previous = point;
         }
         for (int i = first + 1; i + 1 < vh.currentVertCount; i++) vh.AddTriangle(first, i, i + 1);
+    }
+
+    internal static void FitComicDecoration(VertexHelper vh, int first, Rect rect,
+        BattleUiStyleSettings settings, uint seed, Vector2 direction, float perspectiveScale)
+    {
+        float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
+        float inset = outer + Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
+        Vector2 a = ComicInsetPoint(rect, settings, seed, direction, false, 0, inset, perspectiveScale);
+        Vector2 b = ComicInsetPoint(rect, settings, seed, direction, false, 1, inset, perspectiveScale);
+        Vector2 c = ComicInsetPoint(rect, settings, seed, direction, false, 2, inset, perspectiveScale);
+        Vector2 d = ComicInsetPoint(rect, settings, seed, direction, false, 3, inset, perspectiveScale);
+        UIVertex vertex = default;
+        for (int i = first; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            float x = Mathf.InverseLerp(rect.xMin, rect.xMax, vertex.position.x);
+            float y = Mathf.InverseLerp(rect.yMin, rect.yMax, vertex.position.y);
+            Vector2 point = Vector2.Lerp(Vector2.Lerp(a, d, x), Vector2.Lerp(b, c, x), y);
+            vertex.position = new Vector3(point.x, point.y, vertex.position.z);
+            vh.SetUIVertex(vertex, i);
+        }
     }
 
     internal static void RotateComicFrame(VertexHelper vh, int first, Rect rect, BattleUiStyleSettings settings, uint seed)
