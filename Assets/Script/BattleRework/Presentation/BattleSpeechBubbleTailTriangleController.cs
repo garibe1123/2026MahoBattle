@@ -15,6 +15,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     [SerializeField] private RectTransform bubbleRect;
     [SerializeField] private RectTransform targetPivot;
     [SerializeField] private bool exactTargetMode;
+    [SerializeField, Range(0.15f, 0.85f)] private float comicTopAttachment = 0.3f;
 
     private BattleSpeechBubbleTailStyle style;
     private Color fillColor =
@@ -382,6 +383,10 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         {
             PlaceExactTarget(activeStyle, attachmentRect);
             SyncFillPlacement();
+            RectTransform frame = frameController != null ? frameController.FrameRect : null;
+            if (BattleUiStyleController.IsComic && frame != null && frame.parent == fillRect.parent &&
+                fillRect.GetSiblingIndex() != frame.GetSiblingIndex() + 1)
+                fillRect.SetSiblingIndex(frame.GetSiblingIndex() + 1);
             return;
         }
 
@@ -430,6 +435,12 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         Vector2 targetLocal =
             bubbleRect.InverseTransformPoint(
                 targetCenterWorld);
+
+        if (BattleUiStyleController.IsComic)
+        {
+            PlaceComicTopTarget(activeStyle, bubble, targetLocal);
+            return;
+        }
 
         if (bubble.Contains(targetLocal))
         {
@@ -566,6 +577,23 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         tailRect.localScale =
             Vector3.one;
+    }
+
+    private void PlaceComicTopTarget(BattleSpeechBubbleTailStyle activeStyle, Rect bubble, Vector2 target)
+    {
+        Vector2 renderSize = BattleSpeechBubbleTailTextureBuilder.GetRenderSize(activeStyle.uiSize);
+        float contentHeight = renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale;
+        float halfWidth = contentHeight * activeStyle.rootHalfWidth;
+        float inset = Mathf.Min(halfWidth, bubble.height * 0.35f);
+        Vector2 root = new(Mathf.Lerp(bubble.xMin, bubble.xMax, comicTopAttachment), bubble.yMax - inset);
+        target.y = Mathf.Max(target.y, bubble.yMax + contentHeight * 0.5f);
+        Vector2 delta = target - root;
+        tailRect.anchorMin = tailRect.anchorMax = bubbleRect.pivot;
+        tailRect.pivot = new Vector2(0f, 0.5f);
+        tailRect.anchoredPosition = root;
+        tailRect.sizeDelta = new Vector2(delta.magnitude / activeStyle.tip.x, renderSize.y);
+        tailRect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+        tailRect.localScale = Vector3.one;
     }
 
     private void PlaceHorizontal(

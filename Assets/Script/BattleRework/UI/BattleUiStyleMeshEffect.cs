@@ -313,7 +313,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasCmd = cmd;
         bool decoratedTitle = (title || ((comic || stylish) && interaction != null && interaction.Primary)) &&
             (comic || stylish || birthday || paper || cmd);
-        if (isActiveAndEnabled && label != null && settings.textMaterial == null &&
+        bool comicStartLabel = comic && label != null && interaction != null && interaction.name == "StartBattleButton";
+        if (isActiveAndEnabled && label != null && !comicStartLabel && settings.textMaterial == null &&
             (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
             TMPro.TMP_FontAsset posterFont = decoratedTitle && (comic || stylish)
@@ -645,7 +646,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             else
             {
                 vh.Clear();
-                if (!tailFill) DrawComicSpeechTail(vh, target.rectTransform.rect, settings, image.color.a);
+                DrawComicSpeechTail(vh, target.rectTransform.rect, settings, image.color.a, tailFill);
             }
             return;
         }
@@ -696,7 +697,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     interaction != null && interaction.Highlighted,
                     interaction != null && interaction.Primary, stylishCard);
             else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
-            else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a,
+            else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings,
+                interaction != null && interaction.name == "StartBattleButton" ? 1f : fill.a,
                 interaction != null && interaction.Highlighted, interaction != null && interaction.Primary,
                 seed: paperSeed, direction: ComicDirection(target));
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
@@ -1059,14 +1061,22 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         DrawComicSpeechPolygon(vh, corners, settings, alpha);
     }
 
-    private void DrawComicSpeechTail(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha)
+    private void DrawComicSpeechTail(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha, bool fillOnly)
     {
         float halfHeight = rect.height / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.46f;
         if (speechTailCorners == null) speechTailCorners = new Vector2[3];
         speechTailCorners[0] = new Vector2(rect.xMin, rect.center.y - halfHeight);
         speechTailCorners[1] = new Vector2(rect.xMin, rect.center.y + halfHeight);
         speechTailCorners[2] = new Vector2(Mathf.Lerp(rect.xMin, rect.xMax, 0.985f), rect.center.y);
-        DrawComicSpeechPolygon(vh, speechTailCorners, settings, alpha);
+        if (fillOnly)
+        {
+            Color ink = settings.comicInk;
+            ink.a *= alpha;
+            for (int i = 0; i < speechTailCorners.Length; i++)
+                vh.AddVert(speechTailCorners[i], ink, Vector2.zero);
+            vh.AddTriangle(0, 1, 2);
+        }
+        else DrawComicSpeechPolygon(vh, speechTailCorners, settings, alpha);
     }
 
     private static void DrawComicSpeechPolygon(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)

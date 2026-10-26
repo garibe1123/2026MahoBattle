@@ -2657,6 +2657,11 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
                 ? Color.white
                 : new Color(1f, 1f, 1f, 0.48f);
         }
+        if (BattleUiStyleController.IsComic)
+        {
+            if (spinButtonImage != null) spinButtonImage.color = Color.white;
+            if (spinButtonText != null) spinButtonText.color = Color.white;
+        }
     }
 
     private void ConfirmStartBattle()
