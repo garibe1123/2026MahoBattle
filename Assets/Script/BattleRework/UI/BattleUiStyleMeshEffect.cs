@@ -1080,7 +1080,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             Vector2 rootB = Vector2.Lerp(start, end, Mathf.Clamp01(along + half));
             if (Vector2.Dot(normal, rootA - root) < 0f) normal = -normal;
             float width = Vector2.Distance(rootA, rootB) * 0.5f;
-            float bend = Mathf.Min(width * 0.2f, direction.magnitude * 0.08f);
+            bool hostTail = speechGeometry.ComicTail.IsComicHostTail;
+            float bend = hostTail ? width * 0.65f : Mathf.Min(width * 0.2f, direction.magnitude * 0.08f);
             comicSpeechContour[0] = start;
             comicSpeechContour[1] = rootA;
             for (int i = 0; i < 3; i++)
@@ -1088,7 +1089,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 float alongTail = i == 0 ? 0.3f : i == 1 ? 0.5f : 0.7f;
                 float offset = i == 0 ? bend : i == 1 ? -bend : 0f;
                 Vector2 pivotCenter = root + direction * alongTail + normal * offset;
-                float radius = width * (1f - alongTail);
+                float radius = width * (hostTail ? (i == 0 ? 0.7f : i == 1 ? 0.5f : 0.3f) : 1f - alongTail);
                 comicSpeechContour[2 + i] = pivotCenter + normal * radius;
                 comicSpeechContour[8 - i] = pivotCenter - normal * radius;
             }

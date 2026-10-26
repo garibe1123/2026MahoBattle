@@ -40,6 +40,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private readonly Vector2[] comicFrameCorners = new Vector2[4];
     private float rootJoinHalfHeight;
     internal BattleSpeechBubbleTailStyle ComicStyle => style;
+    internal bool IsComicHostTail => !exactTargetMode;
 
     public void Configure(
         RectTransform bubble,
@@ -602,6 +603,9 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         {
             Rect frame = GetAttachmentRect();
             float length = Mathf.Min(comicHostTailLength, frame.height * 0.22f);
+            float localHeight = Mathf.Min(renderSize.y /
+                BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f, length * 0.9f);
+            size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up * localHeight)).magnitude;
             Vector2 hostTip = new(frame.xMax + length,
                 Mathf.Lerp(frame.yMin, frame.yMax, comicSideAttachment));
             tip = space.InverseTransformPoint(bubbleRect.TransformPoint(hostTip));
