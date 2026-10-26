@@ -253,6 +253,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
         gridRoot.anchorMin = gridRoot.anchorMax = Vector2.zero;
         gridRoot.pivot = Vector2.zero;
         gridRoot.anchoredPosition = new Vector2(20f, 18f);
+        BattleUiPanelDecoration.Attach(root, accentCyan).SetComicInventorySlot(gridRoot, gridRoot.rect, false);
 
         for (int i = 0; i < SlotCount; i++)
         {
@@ -277,6 +278,7 @@ public sealed class BattleKineticItemBarUI : MonoBehaviour
             cellOutline.effectDistance = new Vector2(1f, -1f);
             slotOutlines[i] = cellOutline;
             slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
+            slotDecorations[i].SetComicInventorySlot(gridRoot, gridRoot.rect, false);
             slotEquippedBars[i] = BattleUiPanelDecoration.EquippedBar(slot);
 
             Image icon = CreateImage(slot, "Icon", new Vector2(64f, 64f));

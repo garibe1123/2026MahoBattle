@@ -92,6 +92,7 @@ public sealed class BattleUiStyleSettings
     [Range(0f, 2f)] public float comicInventoryTopPerspective = 0.6f;
     [Range(0f, 2f)] public float comicInventoryMiddlePerspective = 1f;
     [Range(0f, 2f)] public float comicInventoryBottomPerspective = 1.6f;
+    [Range(0f, 0.24f)] public float comicInventoryExpandedInset = 0.18f;
     [Range(0f, 0.2f)] public float comicSpikeRatio = 0.12f;
     public TMPro.TMP_FontAsset comicTitleFont;
     public BattleUiTitleMotionSettings comicTitleMotion = new()

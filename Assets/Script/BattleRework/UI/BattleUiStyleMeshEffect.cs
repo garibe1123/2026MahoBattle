@@ -985,25 +985,29 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         for (int i = first + 1; i + 1 < vh.currentVertCount; i++) vh.AddTriangle(first, i, i + 1);
     }
 
-    internal static void FitComicDecoration(VertexHelper vh, int first, Rect rect,
-        BattleUiStyleSettings settings, uint seed, Vector2 direction, float perspectiveScale)
+    internal static Vector2 ComicInventoryCorner(Rect rect, BattleUiStyleSettings settings, Vector2 direction, int index, bool expanded)
     {
-        float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
-        float inset = outer + Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
-        Vector2 a = ComicInsetPoint(rect, settings, seed, direction, false, 0, inset, perspectiveScale);
-        Vector2 b = ComicInsetPoint(rect, settings, seed, direction, false, 1, inset, perspectiveScale);
-        Vector2 c = ComicInsetPoint(rect, settings, seed, direction, false, 2, inset, perspectiveScale);
-        Vector2 d = ComicInsetPoint(rect, settings, seed, direction, false, 3, inset, perspectiveScale);
-        UIVertex vertex = default;
-        for (int i = first; i < vh.currentVertCount; i++)
+        bool top = index == 1 || index == 2;
+        bool left = index == 0 || index == 1;
+        Vector2 point = new(left ? rect.xMin : rect.xMax, top ? rect.yMax : rect.yMin);
+        if (expanded)
         {
-            vh.PopulateUIVertex(ref vertex, i);
-            float x = Mathf.InverseLerp(rect.xMin, rect.xMax, vertex.position.x);
-            float y = Mathf.InverseLerp(rect.yMin, rect.yMax, vertex.position.y);
-            Vector2 point = Vector2.Lerp(Vector2.Lerp(a, d, x), Vector2.Lerp(b, c, x), y);
-            vertex.position = new Vector3(point.x, point.y, vertex.position.z);
-            vh.SetUIVertex(vertex, i);
+            if (!top) point.x += (left ? 1f : -1f) * rect.width * Mathf.Clamp(settings.comicInventoryExpandedInset, 0f, 0.24f);
+            return point;
         }
+        float scale = top ? settings.comicInventoryTopPerspective : settings.comicInventoryBottomPerspective;
+        float taper = Mathf.Min(rect.width, rect.height) * Mathf.Clamp(settings.comicPerspectiveRatio * scale, 0f, 0.24f);
+        if (Mathf.Abs(direction.x) >= Mathf.Abs(direction.y))
+        {
+            bool inner = left ? direction.x > 0f : direction.x < 0f;
+            if (inner) point.y += (top ? -1f : 1f) * taper * (1f + (top ? -direction.y : direction.y) * 0.5f);
+        }
+        else
+        {
+            bool inner = top ? direction.y < 0f : direction.y > 0f;
+            if (inner) point.x += (left ? 1f : -1f) * taper * (1f + (left ? direction.x : -direction.x) * 0.5f);
+        }
+        return point;
     }
 
     internal static void RotateComicFrame(VertexHelper vh, int first, Rect rect, BattleUiStyleSettings settings, uint seed)

@@ -1296,6 +1296,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         const float cellSize = BattleUiPanelDecoration.FullCellSize;
         const float spacing = BattleUiPanelDecoration.FullCellGap;
         float totalSize = GridSize * cellSize + (GridSize - 1) * spacing;
+        BattleUiPanelDecoration.Attach(boardBack, accentCyan).SetComicInventorySlot(
+            boardRoot, new Rect(-totalSize * 0.5f, -totalSize * 0.5f, totalSize, totalSize), true);
         float left = -totalSize * 0.5f + cellSize * 0.5f;
         float top = totalSize * 0.5f - cellSize * 0.5f;
 
@@ -1323,7 +1325,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             outline.effectDistance = new Vector2(1f, -1f);
             slotOutlines[i] = outline;
             slotDecorations[i] = BattleUiPanelDecoration.Attach(slot, accentCyan, false, false);
-            slotDecorations[i].SetComicInventorySlot(boardRoot, GridSize > 1 ? 1f - (float)y / (GridSize - 1) : 0.5f);
+            slotDecorations[i].SetComicInventorySlot(boardRoot, new Rect(-totalSize * 0.5f, -totalSize * 0.5f, totalSize, totalSize), true);
             slotEquippedBars[i] = BattleUiPanelDecoration.EquippedBar(slot);
 
             Image icon = CreateImage(slot, "Icon", Vector2.one * BattleUiPanelDecoration.FullIconPixels);

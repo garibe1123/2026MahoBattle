@@ -65,13 +65,54 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private BattlePaperRole paperRole;
     private bool paperSheet;
     private RectTransform comicInventoryRoot;
-    private float comicInventoryHeight = 0.5f;
+    private Rect comicInventoryBounds;
+    private bool comicInventoryExpanded;
 
-    public void SetComicInventorySlot(RectTransform root, float relativeHeight)
+    public void SetComicInventorySlot(RectTransform root, Rect bounds, bool expanded)
     {
         comicInventoryRoot = root;
-        comicInventoryHeight = Mathf.Clamp01(relativeHeight);
+        comicInventoryBounds = bounds;
+        comicInventoryExpanded = expanded;
         SetVerticesDirty();
+    }
+
+    private void FitComicInventory(VertexHelper vh, BattleUiStyleSettings style)
+    {
+        Canvas rootCanvas = canvas != null ? canvas.rootCanvas : null;
+        Camera camera = rootCanvas != null && rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+            ? rootCanvas.worldCamera : null;
+        Vector2 screenCenter = camera != null ? camera.pixelRect.center : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+        Vector2 direction = Vector2.zero;
+        if (RectTransformUtility.ScreenPointToLocalPointInRectangle(comicInventoryRoot, screenCenter, camera, out Vector2 origin))
+            direction = (comicInventoryBounds.center - origin).normalized;
+        Rect bounds = comicInventoryBounds;
+        Vector2 a = BattleUiStyleMeshEffect.ComicInventoryCorner(bounds, style, direction, 0, comicInventoryExpanded);
+        Vector2 b = BattleUiStyleMeshEffect.ComicInventoryCorner(bounds, style, direction, 1, comicInventoryExpanded);
+        Vector2 c = BattleUiStyleMeshEffect.ComicInventoryCorner(bounds, style, direction, 2, comicInventoryExpanded);
+        Vector2 d = BattleUiStyleMeshEffect.ComicInventoryCorner(bounds, style, direction, 3, comicInventoryExpanded);
+        UIVertex vertex = default;
+        for (int i = 0; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            Vector3 point = comicInventoryRoot.InverseTransformPoint(rectTransform.TransformPoint(vertex.position));
+            float x = (point.x - bounds.xMin) / bounds.width;
+            float y = (point.y - bounds.yMin) / bounds.height;
+            Vector2 mapped = Vector2.LerpUnclamped(Vector2.LerpUnclamped(a, d, x), Vector2.LerpUnclamped(b, c, x), y);
+            if (!comicInventoryExpanded)
+            {
+                float height = Mathf.Clamp01(y);
+                float scale = height <= 0.5f
+                    ? Mathf.Lerp(style.comicInventoryBottomPerspective, style.comicInventoryMiddlePerspective, height * 2f)
+                    : Mathf.Lerp(style.comicInventoryMiddlePerspective, style.comicInventoryTopPerspective, (height - 0.5f) * 2f);
+                float linearScale = Mathf.Lerp(style.comicInventoryBottomPerspective, style.comicInventoryTopPerspective, height);
+                float weight = Mathf.Clamp(scale / Mathf.Max(0.001f, linearScale), 0f, 1f);
+                mapped = Vector2.Lerp((Vector2)point, mapped, weight);
+            }
+            point.x = mapped.x;
+            point.y = mapped.y;
+            vertex.position = rectTransform.InverseTransformPoint(comicInventoryRoot.TransformPoint(point));
+            vh.SetUIVertex(vertex, i);
+        }
     }
 
     internal void SetStyleInteraction(BattleUiStyleInteraction interaction) => styleInteraction = interaction;
@@ -114,7 +155,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         {
             vh.PopulateUIVertex(ref vertex, i);
             Color tint = vertex.color;
-            tint.a *= lockedAlpha * (i < backgroundCount ? backgroundScale : 1f);
+            if (!(BattleUiStyleController.IsComic && i < backgroundCount))
+                tint.a *= lockedAlpha * (i < backgroundCount ? backgroundScale : 1f);
             vertex.color = tint;
             vh.SetUIVertex(vertex, i);
         }
@@ -500,20 +542,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             Vector2 direction = BattleUiStyleMeshEffect.ComicDirection(this);
-            float perspectiveScale = 1f;
-            if (comicInventoryRoot != null)
-            {
-                Canvas rootCanvas = canvas != null ? canvas.rootCanvas : null;
-                Camera camera = rootCanvas != null && rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                    ? rootCanvas.worldCamera : null;
-                Vector2 screenCenter = camera != null ? camera.pixelRect.center : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
-                if (RectTransformUtility.ScreenPointToLocalPointInRectangle(rectTransform, screenCenter, camera, out Vector2 origin))
-                    direction = (rectTransform.rect.center - origin).normalized;
-                perspectiveScale = comicInventoryHeight <= 0.5f
-                    ? Mathf.Lerp(style.comicInventoryBottomPerspective, style.comicInventoryMiddlePerspective, comicInventoryHeight * 2f)
-                    : Mathf.Lerp(style.comicInventoryMiddlePerspective, style.comicInventoryTopPerspective, (comicInventoryHeight - 0.5f) * 2f);
-                if (direction.sqrMagnitude < 0.001f) perspectiveScale = 0f;
-            }
+            float perspectiveScale = comicInventoryRoot != null ? 0f : 1f;
             BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f,
                 selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
                 styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false, direction: direction,
@@ -536,8 +565,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                 BattleUiStyleMeshEffect.Slant(vh,
                     new Rect(face.xMax - 23f, face.yMin + 7f, 16f, 12f), style.comicWhite);
             if (comicInventoryRoot != null)
-                BattleUiStyleMeshEffect.FitComicDecoration(vh, backgroundVertexCount, face, style, paperSeed, direction, perspectiveScale);
-            BattleUiStyleMeshEffect.RotateComicFrame(vh, 0, face, style, paperSeed);
+                FitComicInventory(vh, style);
+            else BattleUiStyleMeshEffect.RotateComicFrame(vh, 0, face, style, paperSeed);
             return;
         }
 
