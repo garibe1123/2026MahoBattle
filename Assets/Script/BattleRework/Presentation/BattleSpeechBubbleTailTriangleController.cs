@@ -35,6 +35,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private RectTransform registeredStyleRoot;
     private BattleSpeechBubbleFrameFillController frameController;
     private readonly Vector3[] frameCorners = new Vector3[4];
+    private readonly Vector2[] comicFrameCorners = new Vector2[4];
     private float rootJoinHalfHeight;
 
     public void Configure(
@@ -51,6 +52,13 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         targetPivot = target;
         fillColor = color;
         style = tailStyle ?? new BattleSpeechBubbleTailStyle();
+        if (BattleUiStyleController.IsComic)
+        {
+            style = style.CreateRuntimeVariant(null, 0);
+            style.ApplyTrianglePreset();
+            style.outlineColor = BattleUiStyleController.Settings.comicWhite;
+            fillColor = BattleUiStyleController.Settings.comicInk;
+        }
         strokeMaterial = outlineMaterial;
 
         EnsureTail();
@@ -652,6 +660,18 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     {
         RectTransform frame = frameController != null ? frameController.FrameRect : null;
         if (frame == null) return bubbleRect.rect;
+        if (BattleUiStyleController.IsComic && frameController.TryGetFillCorners(comicFrameCorners))
+        {
+            Vector2 fillMin = bubbleRect.InverseTransformPoint(frame.TransformPoint(comicFrameCorners[0]));
+            Vector2 fillMax = fillMin;
+            for (int i = 1; i < comicFrameCorners.Length; i++)
+            {
+                Vector2 point = bubbleRect.InverseTransformPoint(frame.TransformPoint(comicFrameCorners[i]));
+                fillMin = Vector2.Min(fillMin, point);
+                fillMax = Vector2.Max(fillMax, point);
+            }
+            return Rect.MinMaxRect(fillMin.x, fillMin.y, fillMax.x, fillMax.y);
+        }
         frame.GetWorldCorners(frameCorners);
         Vector2 min = bubbleRect.InverseTransformPoint(frameCorners[0]);
         Vector2 max = min;

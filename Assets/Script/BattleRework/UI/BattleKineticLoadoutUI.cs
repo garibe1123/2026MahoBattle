@@ -69,6 +69,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField, Range(1f, 1.15f)] private float itemTooltipPopupOvershootScale = 1.075f;
     [SerializeField, Range(0.05f, 0.30f)] private float itemTooltipPopupDuration = 0.15f;
     [SerializeField, Min(0f)] private float itemTooltipPopupTravel = 24f;
+    [SerializeField, Range(0f, 5f)] private float comicTooltipAngleRange = 2f;
     [SerializeField, Range(0.04f, 0.14f)] private float itemTooltipCloseDuration = 0.085f;
     [SerializeField, Range(0.90f, 1f)] private float itemTooltipCloseScale = 0.96f;
 
@@ -112,6 +113,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private BattleItemHeroThumbnail detailHeroThumbnail;
     private BattleEquipmentBadgeStrip detailBadgeStrip;
     private Text detailTitle;
+    private BattleUiPanelDecoration detailPanelDecoration;
+    private RectTransform detailNameBadge;
+    private float comicTooltipAngle;
+    private int comicTooltipSeed;
     private Text detailDescription;
     private Text detailTags;
     private Text synergySummary;
@@ -519,6 +524,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             return;
 
         switchHeld = true;
+        if (BattleUiStyleController.IsComic)
+        {
+            comicTooltipSeed = BattleSpeechBubbleVariationRandom.NextSeed();
+            comicTooltipAngle = UnityEngine.Random.Range(-comicTooltipAngleRange, comicTooltipAngleRange);
+            detailPopupContextHash = int.MinValue;
+        }
         boardWasShown = false;
         directionMoved = false;
         switchPressedAt = Time.unscaledTime;
@@ -1012,7 +1023,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         detailBack.raycastTarget = false;
 
         BuildDetailBubbleVisual();
-        BattleUiPanelDecoration.Attach(detailRoot, accentCyan).transform.SetSiblingIndex(1);
+        detailPanelDecoration = BattleUiPanelDecoration.Attach(detailRoot, accentCyan);
+        detailPanelDecoration.transform.SetSiblingIndex(1);
 
         detailVisualViewport =
             CreateRect(
@@ -1066,6 +1078,14 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         detailTitle = CreateText(detailRoot, "EMPTY", 24, FontStyle.Bold, TextAnchor.UpperLeft, paperColor);
         SetAnchors(detailTitle.rectTransform, new Vector2(0.06f, 0.86f), new Vector2(0.94f, 0.97f));
+        detailNameBadge = CreateRect(detailRoot, "ItemNameBadge", Vector2.zero);
+        SetAnchors(detailNameBadge, new Vector2(0.04f, 0.85f), new Vector2(0.96f, 0.99f));
+        Image nameBack = detailNameBadge.gameObject.AddComponent<Image>();
+        nameBack.color = Color.clear;
+        nameBack.raycastTarget = false;
+        BattleUiPanelDecoration.Attach(detailNameBadge, accentCyan, animate: false).SetEmphasis(true);
+        detailNameBadge.SetSiblingIndex(detailTitle.transform.GetSiblingIndex());
+        detailNameBadge.gameObject.SetActive(false);
         SetAnchors(detailVisualViewport, new Vector2(0.06f, 0.52f), new Vector2(0.94f, 0.84f));
 
         detailDescription = CreateText(detailRoot, "NO DESCRIPTION", 14, FontStyle.Normal, TextAnchor.UpperLeft, paperColor);
@@ -2788,6 +2808,30 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 seed ^ 0x291D33);
 
         BattleUiPanelDecoration.Bubble(runtimeDetailFrameStyle, runtimeDetailTailStyle);
+        bool comic = BattleUiStyleController.IsComic;
+        if (detailPanelDecoration != null) detailPanelDecoration.enabled = !comic;
+        if (detailNameBadge != null) detailNameBadge.gameObject.SetActive(comic);
+        if (detailTitle != null && (comic || detailTitle.transform.parent == detailNameBadge))
+        {
+            detailTitle.rectTransform.SetParent(comic ? detailNameBadge : detailRoot, false);
+            SetAnchors(detailTitle.rectTransform, comic ? new Vector2(0.07f, 0.18f) : new Vector2(0.06f, 0.86f),
+                comic ? new Vector2(0.93f, 0.82f) : new Vector2(0.94f, 0.97f));
+            detailTitle.resizeTextForBestFit = comic;
+            detailTitle.resizeTextMinSize = 12;
+            detailTitle.resizeTextMaxSize = 24;
+            detailTitle.horizontalOverflow = comic ? HorizontalWrapMode.Wrap : HorizontalWrapMode.Overflow;
+            detailTitle.verticalOverflow = VerticalWrapMode.Truncate;
+        }
+        if (comic)
+        {
+            runtimeDetailFrameStyle.outlineColor = BattleUiStyleController.Settings.comicInk;
+            runtimeDetailFrameStyle.fillColor = BattleUiStyleController.Settings.comicInk;
+            runtimeDetailFrameStyle.rotation = 0f;
+            runtimeDetailFrameStyle.outlineTopLeft = runtimeDetailFrameStyle.outlineTopRight = Vector2.zero;
+            runtimeDetailFrameStyle.outlineBottomLeft = runtimeDetailFrameStyle.outlineBottomRight = Vector2.zero;
+            runtimeDetailFrameStyle.fillTopLeft = runtimeDetailFrameStyle.fillTopRight = Vector2.zero;
+            runtimeDetailFrameStyle.fillBottomLeft = runtimeDetailFrameStyle.fillBottomRight = Vector2.zero;
+        }
 
         Material strokeMaterial =
             BattleUiHologramMaterialProvider.Resolve(
@@ -2870,7 +2914,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         {
             ConfigureDetailBubble(
                 target,
-                contextHash);
+                BattleUiStyleController.IsComic ? contextHash ^ comicTooltipSeed : contextHash);
 
             detailPopupTime =
                 0f;
@@ -2907,7 +2951,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         }
 
         detailRoot.localRotation =
-            Quaternion.identity;
+            BattleUiStyleController.IsComic ? Quaternion.Euler(0f, 0f, comicTooltipAngle) : Quaternion.identity;
 
         detailGroup.blocksRaycasts =
             false;

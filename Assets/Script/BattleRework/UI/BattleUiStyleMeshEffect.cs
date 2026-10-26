@@ -244,7 +244,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (pixel && next == null)
             next = label != null ? pixelText : panel && !statusFill ? pixelPanel : pixelSprite;
         bool comic = BattleUiStyleController.IsComic;
-        if (comic && next == null && (panel || speechBadge || stylishButton || stylishSurface)) next = pixelPanel;
+        if (comic && next == null && (panel || speechFrame || speechBadge || stylishButton || stylishSurface)) next = pixelPanel;
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
         bool stylish = BattleUiStyleController.IsStylish;
@@ -271,6 +271,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             next = target.defaultMaterial;
         if (HasAssignedMaterial()) next = null;
         if (lockMark) next = !pixel && !cmd && lockMarkMaterial != null ? lockMarkMaterial : target.defaultMaterial;
+        if (comic && (tailFill || (image != null && image.name == "TailShape")))
+            next = target.defaultMaterial;
         if (next != null)
         {
             if (!materialOverridden) originalMaterial = CaptureMaterial();
@@ -642,12 +644,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             else
             {
                 UIVertex vertex = default;
-                Color tint = tailFill ? settings.comicWhite : settings.comicInk;
+                Color tint = tailFill ? settings.comicInk : settings.comicWhite;
                 for (int i = 0; i < vh.currentVertCount; i++)
                 {
                     vh.PopulateUIVertex(ref vertex, i);
                     Color color = tint;
-                    color.a *= vertex.color.a / 255f;
                     vertex.color = color;
                     vh.SetUIVertex(vertex, i);
                 }
