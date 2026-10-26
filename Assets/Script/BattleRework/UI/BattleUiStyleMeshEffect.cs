@@ -29,6 +29,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private RectTransform speechSurface;
     private BattleSpeechBubbleFrameFillController speechGeometry;
     private Vector2[] speechCorners;
+    private Vector2[] speechTailCorners;
     private bool speechBadge;
     private Image image;
     private BattleUiPanelDecoration decoration;
@@ -272,7 +273,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (HasAssignedMaterial()) next = null;
         if (lockMark) next = !pixel && !cmd && lockMarkMaterial != null ? lockMarkMaterial : target.defaultMaterial;
         if (comic && (tailFill || (image != null && image.name == "TailShape")))
-            next = target.defaultMaterial;
+            next = pixelPanel;
         if (next != null)
         {
             if (!materialOverridden) originalMaterial = CaptureMaterial();
@@ -643,15 +644,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             }
             else
             {
-                UIVertex vertex = default;
-                Color tint = tailFill ? settings.comicInk : settings.comicWhite;
-                for (int i = 0; i < vh.currentVertCount; i++)
-                {
-                    vh.PopulateUIVertex(ref vertex, i);
-                    Color color = tint;
-                    vertex.color = color;
-                    vh.SetUIVertex(vertex, i);
-                }
+                vh.Clear();
+                if (!tailFill) DrawComicSpeechTail(vh, target.rectTransform.rect, settings, image.color.a);
             }
             return;
         }
@@ -1062,7 +1056,24 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private static void DrawComicSpeech(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
     {
-        Vector2 center = (corners[0] + corners[1] + corners[2] + corners[3]) * 0.25f;
+        DrawComicSpeechPolygon(vh, corners, settings, alpha);
+    }
+
+    private void DrawComicSpeechTail(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha)
+    {
+        float halfHeight = rect.height / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.46f;
+        if (speechTailCorners == null) speechTailCorners = new Vector2[3];
+        speechTailCorners[0] = new Vector2(rect.xMin, rect.center.y - halfHeight);
+        speechTailCorners[1] = new Vector2(rect.xMin, rect.center.y + halfHeight);
+        speechTailCorners[2] = new Vector2(Mathf.Lerp(rect.xMin, rect.xMax, 0.985f), rect.center.y);
+        DrawComicSpeechPolygon(vh, speechTailCorners, settings, alpha);
+    }
+
+    private static void DrawComicSpeechPolygon(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
+    {
+        Vector2 center = Vector2.zero;
+        for (int i = 0; i < corners.Length; i++) center += corners[i];
+        center /= corners.Length;
         float outer = Mathf.Clamp(settings.comicOuterWidth, 8f, 12f);
         float inner = Mathf.Clamp(settings.comicInnerWidth, 4f, 6f);
         for (int layer = 0; layer < 3; layer++)
@@ -1071,11 +1082,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             tint.a *= alpha;
             float spread = layer == 0 ? outer + inner : layer == 1 ? inner : 0f;
             int first = vh.currentVertCount;
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i < corners.Length; i++)
             {
                 Vector2 point = corners[i];
-                Vector2 previous = (corners[(i + 3) % 4] - point).normalized;
-                Vector2 next = (corners[(i + 1) % 4] - point).normalized;
+                Vector2 previous = (corners[(i + corners.Length - 1) % corners.Length] - point).normalized;
+                Vector2 next = (corners[(i + 1) % corners.Length] - point).normalized;
                 Vector2 previousNormal = new(-previous.y, previous.x);
                 Vector2 nextNormal = new(-next.y, next.x);
                 if (Vector2.Dot(previousNormal, point - center) < 0f) previousNormal = -previousNormal;
@@ -1084,8 +1095,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 float miter = spread / Mathf.Max(0.25f, Vector2.Dot(bisector, previousNormal));
                 vh.AddVert(point + bisector * miter, tint, Vector2.zero);
             }
-            vh.AddTriangle(first, first + 1, first + 2);
-            vh.AddTriangle(first, first + 2, first + 3);
+            for (int i = 1; i + 1 < corners.Length; i++)
+                vh.AddTriangle(first, first + i, first + i + 1);
         }
     }
 
