@@ -602,9 +602,10 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         else
         {
             Rect frame = GetAttachmentRect();
-            float length = Mathf.Min(comicHostTailLength, frame.height * 0.22f);
+            float length = comicHostTailLength;
             float localHeight = Mathf.Min(renderSize.y /
-                BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f, length * 0.9f);
+                BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f,
+                Mathf.Min(length, frame.height * 0.22f) * 0.9f);
             size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up * localHeight)).magnitude;
             Vector2 hostTip = new(frame.xMax + length,
                 Mathf.Lerp(frame.yMin, frame.yMax, comicSideAttachment));
