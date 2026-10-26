@@ -1079,16 +1079,16 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             Vector2 rootA = Vector2.Lerp(start, end, Mathf.Clamp01(along - half));
             Vector2 rootB = Vector2.Lerp(start, end, Mathf.Clamp01(along + half));
             if (Vector2.Dot(normal, rootA - root) < 0f) normal = -normal;
-            BattleSpeechBubbleTailStyle tailStyle = speechGeometry.ComicTail.ComicStyle;
             float width = Vector2.Distance(rootA, rootB) * 0.5f;
+            float bend = Mathf.Min(width * 0.2f, direction.magnitude * 0.08f);
             comicSpeechContour[0] = start;
             comicSpeechContour[1] = rootA;
             for (int i = 0; i < 3; i++)
             {
-                Vector2 pivot = i == 0 ? tailStyle.pivot1 : i == 1 ? tailStyle.pivot2 : tailStyle.pivot3;
-                float halfWidth = i == 0 ? tailStyle.pivot1HalfWidth : i == 1 ? tailStyle.pivot2HalfWidth : tailStyle.pivot3HalfWidth;
-                Vector2 pivotCenter = root + direction * pivot.x + normal * ((pivot.y - tailStyle.rootY) * width * 2f);
-                float radius = width * halfWidth / Mathf.Max(0.01f, tailStyle.rootHalfWidth);
+                float alongTail = i == 0 ? 0.3f : i == 1 ? 0.5f : 0.7f;
+                float offset = i == 0 ? bend : i == 1 ? -bend : 0f;
+                Vector2 pivotCenter = root + direction * alongTail + normal * offset;
+                float radius = width * (1f - alongTail);
                 comicSpeechContour[2 + i] = pivotCenter + normal * radius;
                 comicSpeechContour[8 - i] = pivotCenter - normal * radius;
             }
@@ -1143,7 +1143,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 previousNormal *= winding;
                 nextNormal *= -winding;
                 Vector2 bisector = (previousNormal + nextNormal).normalized;
-                float miter = spread / Mathf.Max(0.25f, Vector2.Dot(bisector, previousNormal));
+                float miter = Mathf.Min(spread * 1.5f,
+                    spread / Mathf.Max(0.25f, Vector2.Dot(bisector, previousNormal)));
                 vh.AddVert(point + bisector * miter, tint, Vector2.zero);
             }
             int remaining = corners.Length;
