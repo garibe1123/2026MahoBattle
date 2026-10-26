@@ -76,8 +76,12 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         SetVerticesDirty();
     }
 
-    private void FitComicInventory(VertexHelper vh, BattleUiStyleSettings style)
+    internal bool HasComicInventory => comicInventoryRoot != null;
+
+    internal void FitComicInventory(VertexHelper vh, BattleUiStyleSettings style, RectTransform source = null)
     {
+        if (comicInventoryRoot == null || comicInventoryBounds.width <= 0f || comicInventoryBounds.height <= 0f) return;
+        if (source == null) source = rectTransform;
         Canvas rootCanvas = canvas != null ? canvas.rootCanvas : null;
         Camera camera = rootCanvas != null && rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay
             ? rootCanvas.worldCamera : null;
@@ -94,7 +98,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         for (int i = 0; i < vh.currentVertCount; i++)
         {
             vh.PopulateUIVertex(ref vertex, i);
-            Vector3 point = comicInventoryRoot.InverseTransformPoint(rectTransform.TransformPoint(vertex.position));
+            Vector3 point = comicInventoryRoot.InverseTransformPoint(source.TransformPoint(vertex.position));
             float x = (point.x - bounds.xMin) / bounds.width;
             float y = (point.y - bounds.yMin) / bounds.height;
             Vector2 mapped = Vector2.LerpUnclamped(Vector2.LerpUnclamped(a, d, x), Vector2.LerpUnclamped(b, c, x), y);
@@ -110,7 +114,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             }
             point.x = mapped.x;
             point.y = mapped.y;
-            vertex.position = rectTransform.InverseTransformPoint(comicInventoryRoot.TransformPoint(point));
+            vertex.position = source.InverseTransformPoint(comicInventoryRoot.TransformPoint(point));
             vh.SetUIVertex(vertex, i);
         }
     }
@@ -155,7 +159,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         {
             vh.PopulateUIVertex(ref vertex, i);
             Color tint = vertex.color;
-            if (!(BattleUiStyleController.IsComic && i < backgroundCount))
+            if (!(BattleUiStyleController.IsComic && comicInventoryRoot == null && i < backgroundCount))
                 tint.a *= lockedAlpha * (i < backgroundCount ? backgroundScale : 1f);
             vertex.color = tint;
             vh.SetUIVertex(vertex, i);
@@ -546,7 +550,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f,
                 selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
                 styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false, direction: direction,
-                perspectiveScale: perspectiveScale);
+                perspectiveScale: perspectiveScale, tiledFrame: comicInventoryRoot != null);
             backgroundBaseAlpha = style.comicInk.a * (softFill ? 0.94f : 1f);
             if (hasHeader)
             {

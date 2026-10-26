@@ -9,6 +9,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 {
     private Graphic target;
     private bool lockMark;
+    private BattleUiPanelDecoration lockDecoration;
     private uint lockSeed;
     private Text label;
     private TMPro.TextMeshProUGUI nativeText;
@@ -69,6 +70,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     {
         target = value;
         lockMark = value is Image && value.name.StartsWith("LockMark_", System.StringComparison.Ordinal);
+        if (lockMark && value.transform.parent != null)
+            lockDecoration = value.transform.parent.GetComponentInChildren<BattleUiPanelDecoration>(true);
         if (lockMark && int.TryParse(value.name.Substring("LockMark_".Length), out int slotIndex))
             lockSeed = unchecked((uint)(slotIndex + 1) * 2654435761u);
         paperSeed = PaperSeed(value.transform);
@@ -586,6 +589,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (lockMark)
         {
             DrawLockMark(vh);
+            if (BattleUiStyleController.IsComic && lockDecoration != null && lockDecoration.HasComicInventory)
+                lockDecoration.FitComicInventory(vh, BattleUiStyleController.Settings, target.rectTransform);
             return;
         }
         ModifyStyledMesh(vh);
@@ -863,7 +868,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha,
         bool selected = false, bool primary = false, bool speech = false, uint seed = 0, bool rotate = true,
-        Vector2 direction = default, float perspectiveScale = 1f)
+        Vector2 direction = default, float perspectiveScale = 1f, bool tiledFrame = false)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
@@ -873,8 +878,32 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         ink.a *= alpha;
         float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
         float inner = Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
-        ComicFill(vh, rect, settings, ink, speech, seed, direction, perspectiveScale: perspectiveScale);
-        ComicFill(vh, rect, settings, paper, speech, seed, direction, outer, perspectiveScale);
+        if (tiledFrame)
+        {
+            // Rings avoid white underpainting when inventory opacity is reduced.
+            for (int layer = 0; layer < 2; layer++)
+            {
+                float start = layer == 0 ? 0f : outer;
+                float end = layer == 0 ? outer : outer + inner;
+                for (int i = 0; i < 4; i++)
+                {
+                    int next = (i + 1) % 4;
+                    int firstRing = vh.currentVertCount;
+                    Color tint = layer == 0 ? ink : paper;
+                    vh.AddVert(ComicInsetPoint(rect, settings, seed, direction, false, i, start, perspectiveScale), tint, Vector2.zero);
+                    vh.AddVert(ComicInsetPoint(rect, settings, seed, direction, false, next, start, perspectiveScale), tint, Vector2.zero);
+                    vh.AddVert(ComicInsetPoint(rect, settings, seed, direction, false, next, end, perspectiveScale), tint, Vector2.zero);
+                    vh.AddVert(ComicInsetPoint(rect, settings, seed, direction, false, i, end, perspectiveScale), tint, Vector2.zero);
+                    vh.AddTriangle(firstRing, firstRing + 1, firstRing + 2);
+                    vh.AddTriangle(firstRing, firstRing + 2, firstRing + 3);
+                }
+            }
+        }
+        else
+        {
+            ComicFill(vh, rect, settings, ink, speech, seed, direction, perspectiveScale: perspectiveScale);
+            ComicFill(vh, rect, settings, paper, speech, seed, direction, outer, perspectiveScale);
+        }
         ComicFill(vh, rect, settings, primary || selected ? red : ink, speech, seed, direction, outer + inner, perspectiveScale);
         if (selected)
         {
@@ -992,11 +1021,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Vector2 point = new(left ? rect.xMin : rect.xMax, top ? rect.yMax : rect.yMin);
         if (expanded)
         {
-            if (!top) point.x += (left ? 1f : -1f) * rect.width * Mathf.Clamp(settings.comicInventoryExpandedInset, 0f, 0.24f);
+            if (!top) point.x += (left ? 1f : -1f) * rect.width * Mathf.Clamp(settings.comicInventoryExpandedInset, 0f, 0.24f) * Mathf.Clamp01(settings.comicInventoryExpandedTaperScale);
             return point;
         }
         float scale = top ? settings.comicInventoryTopPerspective : settings.comicInventoryBottomPerspective;
         float taper = Mathf.Min(rect.width, rect.height) * Mathf.Clamp(settings.comicPerspectiveRatio * scale, 0f, 0.24f);
+        if (!top) taper *= Mathf.Clamp01(settings.comicInventoryCompactBottomAngleScale);
         if (Mathf.Abs(direction.x) >= Mathf.Abs(direction.y))
         {
             bool inner = left ? direction.x > 0f : direction.x < 0f;
@@ -1564,6 +1594,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (settings == null) return;
         Rect rect = target.rectTransform.rect;
         float size = Mathf.Min(rect.width, rect.height) * settings.lockMarkSizeRatio;
+        if (BattleUiStyleController.IsComic && lockDecoration != null && lockDecoration.HasComicInventory)
+        {
+            float padding = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
+            padding += Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), padding * 0.5f) + 4f;
+            size = Mathf.Min(size, Mathf.Max(0f, Mathf.Min(rect.width, rect.height) - padding * 2f));
+        }
         if (size <= 0f) return;
         Color tint = BattleUiStyleController.IsComic ? settings.comicWhite :
             BattleUiStyleController.IsStylish ? settings.inkCyan : settings.innerLine;
