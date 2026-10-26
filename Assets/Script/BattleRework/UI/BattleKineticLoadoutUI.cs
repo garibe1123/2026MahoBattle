@@ -158,6 +158,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     private float tabHoldVisual;
 
     private readonly RectTransform[] slotRects = new RectTransform[SlotCount];
+    private readonly GameObject[] lockMarks = new GameObject[SlotCount];
     private readonly Image[] slotBackgrounds = new Image[SlotCount];
     private readonly BattleUiPanelDecoration[] slotDecorations = new BattleUiPanelDecoration[SlotCount];
     private readonly Text[] slotEquippedBars = new Text[SlotCount];
@@ -1414,6 +1415,15 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             Text state = CreateText(slot, $"{x + 1}-{y + 1}", 10, FontStyle.Bold, TextAnchor.LowerLeft, accentCyan);
             SetAnchors(state.rectTransform, new Vector2(0.08f, 0.07f), new Vector2(0.94f, 0.27f));
             slotStates[i] = state;
+            RectTransform lockRect = CreateRect(slot, $"LockMark_{i}", Vector2.zero);
+            lockRect.anchorMin = Vector2.zero;
+            lockRect.anchorMax = Vector2.one;
+            lockRect.offsetMin = lockRect.offsetMax = Vector2.zero;
+            Image mark = lockRect.gameObject.AddComponent<Image>();
+            mark.color = Color.white;
+            mark.raycastTarget = false;
+            lockMarks[i] = lockRect.gameObject;
+            BattleUiStyleController.RegisterGraphic(mark);
         }
 
         // Tooltip is visual-only and must render above the board without
@@ -1433,6 +1443,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         for (int i = 0; i < SlotCount; i++)
         {
             bool unlocked = equipmentSystem.IsSlotUnlocked(i);
+            if (lockMarks[i] != null) lockMarks[i].SetActive(!unlocked);
             slotDecorations[i]?.SetInventoryBackground(!unlocked);
             BattleEquipmentSlot slot = i < equipmentSystem.Slots.Count ? equipmentSystem.Slots[i] : null;
             BattleEquipmentSO equipment = slot?.equipment;
@@ -1482,9 +1493,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             if (slotNames[i] != null)
             {
-                slotNames[i].text = !unlocked
-                    ? "LOCKED"
-                    : equipment != null
+                slotNames[i].text = unlocked && equipment != null
                         ? equipment.GetDisplayName().ToUpperInvariant()
                         : string.Empty;
                 slotNames[i].color = unlocked ? paperColor : new Color(0.48f, 0.51f, 0.58f, 1f);
@@ -1500,9 +1509,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
             if (slotStates[i] != null)
             {
-                slotStates[i].text = !unlocked
-                    ? "LOCKED"
-                    : isSelected ? "SELECTED" : string.Empty;
+                slotStates[i].text = unlocked && isSelected ? "SELECTED" : string.Empty;
 
                 slotStates[i].color = !unlocked
                     ? new Color(0.42f, 0.45f, 0.52f, 1f)
