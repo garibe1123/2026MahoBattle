@@ -29,6 +29,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private float shear, padding;
     private float titleAngle;
     private readonly float paperAngle;
+    private readonly int posterPatternOffset;
     private Color outline, shadow;
     private float outlineWidth = -1f;
     private float glowWidth = -1f;
@@ -83,6 +84,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
                 { bodySize = tmpBody.fontSize; break; }
             }
         paperAngle = BattleUiStyleMeshEffect.PaperAngle(BattleUiStyleMeshEffect.PaperSeed(source.transform), 1f);
+        posterPatternOffset = (int)(BattleUiStyleMeshEffect.PaperSeed(source.transform) & 3u);
         GameObject child = new("StyleTitleTMP", typeof(RectTransform), typeof(LayoutElement));
         child.layer = source.gameObject.layer;
         child.transform.SetParent(source.transform, false);
@@ -250,7 +252,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         text.overflowMode = decorate ? TextOverflowModes.Overflow : label != null
             ? (label.verticalOverflow == VerticalWrapMode.Overflow ? TextOverflowModes.Overflow : TextOverflowModes.Truncate) : native.overflowMode;
         Color face = decorate ? (birthday ? style.status : style.innerLine) : BattleUiStyleMeshEffect.TextColor(sourceColor, style);
-        if (poster) face = cartoon ? style.comicInk : style.inkLime;
+        if (poster) face = cartoon ? style.comicInk : style.inkText;
         if (cmd)
         {
             face = cmdSelected ? style.highlight : decorate ? style.outerFrame : style.innerLine;
@@ -461,7 +463,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             float width = Mathf.Max(0.001f, line.lineExtents.max.x - line.lineExtents.min.x);
             float along = Mathf.Clamp01((center.x - line.lineExtents.min.x) / width);
             BattleUiTitleCharacterTransform transform = motion.transformCharacters && motion.characters != null && motion.characters.Length > 0
-                ? motion.characters[i % motion.characters.Length] : null;
+                ? motion.characters[(i + (poster && cartoon ? posterPatternOffset : 0)) % motion.characters.Length] : null;
             Vector2 offset = transform != null ? transform.offset * height : Vector2.zero;
             if (motion.curveLines) offset.y += 4f * along * (1f - along) * motion.curveHeight * height;
             float bounceOffset = 0f;

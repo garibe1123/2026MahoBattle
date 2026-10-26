@@ -69,4 +69,7 @@ public static class HarnessTabBackgroundCapture
         EditorUtility.SetDirty(rendererData);
         AssetDatabase.SaveAssetIfDirty(rendererData);
     }
+
+    [MenuItem("Tools/Harness/Install Stylish Panel Blur")]
+    private static void InstallStylish() => Install();
 }

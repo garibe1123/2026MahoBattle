@@ -32,6 +32,7 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
     {
         Camera camera = renderingData.cameraData.camera;
         if (BattleShowBroadcastNoiseController.WantsBackgroundCapture(camera) ||
+            BattleUiStyleController.WantsInkBackground(camera) ||
             BattleShowBroadcastNoiseController.TryGetCameraDistortion(camera, out _))
             renderer.EnqueuePass(capturePass);
         else
@@ -102,11 +103,16 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
             }
             RTHandle output = BattleShowBroadcastNoiseController.PrepareBackgroundCapture(
                 cameraData.camera, cameraData.cameraTargetDescriptor);
-            if (output == null) return;
+            RTHandle ink = BattleUiStyleController.PrepareInkBackground(cameraData.camera, cameraData.cameraTargetDescriptor);
+            if (output == null && ink == null) return;
 
             // Capture before overlay canvases so the material never samples itself or the tab text.
-            renderGraph.AddBlitPass(source, renderGraph.ImportTexture(output),
-                Vector2.one, Vector2.zero, passName: "Battle Tab Background Capture");
+            if (output != null)
+                renderGraph.AddBlitPass(source, renderGraph.ImportTexture(output),
+                    Vector2.one, Vector2.zero, passName: "Battle Tab Background Capture");
+            if (ink != null)
+                renderGraph.AddBlitPass(source, renderGraph.ImportTexture(ink),
+                    Vector2.one, Vector2.zero, passName: "Battle Ink Background Capture");
         }
 
 #pragma warning disable 618, 672
@@ -115,7 +121,9 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
             bool distort = ConfigureDistortion(renderingData.cameraData.camera);
             RTHandle output = BattleShowBroadcastNoiseController.PrepareBackgroundCapture(
                 renderingData.cameraData.camera, renderingData.cameraData.cameraTargetDescriptor);
-            if (output == null && !distort) return;
+            RTHandle ink = BattleUiStyleController.PrepareInkBackground(
+                renderingData.cameraData.camera, renderingData.cameraData.cameraTargetDescriptor);
+            if (output == null && ink == null && !distort) return;
 
             CommandBuffer commands = CommandBufferPool.Get("Battle Tab Background Capture");
             RTHandle source = renderingData.cameraData.renderer.cameraColorTargetHandle;
@@ -132,6 +140,7 @@ public sealed class BattleTabBackgroundCaptureFeature : ScriptableRendererFeatur
                 Blitter.BlitCameraTexture(commands, distortionTarget, source, 0f, true);
             }
             if (output != null) Blitter.BlitCameraTexture(commands, source, output, 0f, true);
+            if (ink != null) Blitter.BlitCameraTexture(commands, source, ink, 0f, true);
             context.ExecuteCommandBuffer(commands);
             CommandBufferPool.Release(commands);
         }

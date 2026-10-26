@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
 public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper, CMD }
@@ -84,6 +86,7 @@ public sealed class BattleUiStyleSettings
     [Range(8f, 12f)] public float comicOuterWidth = 10f;
     [Range(4f, 6f)] public float comicInnerWidth = 5f;
     [Range(-4f, 4f)] public float comicPanelAngle = -2f;
+    [Range(0f, 4f)] public float comicAngleVariation = 3.5f;
     [Range(0f, 0.2f)] public float comicSpikeRatio = 0.12f;
     public TMPro.TMP_FontAsset comicTitleFont;
     public BattleUiTitleMotionSettings comicTitleMotion = new()
@@ -102,6 +105,9 @@ public sealed class BattleUiStyleSettings
     public Color inkLime = new Color32(0xB8, 0xFF, 0x00, 255);
     public Color inkMagenta = new Color32(0xFF, 0x39, 0xC8, 255);
     public Color inkCyan = new Color32(0x22, 0xE8, 0xFF, 255);
+    public Color inkText = Color.white;
+    [Range(0.4f, 0.95f)] public float inkGlassOpacity = 0.72f;
+    [Range(0f, 24f)] public float inkBackdropBlur = 12f;
     [Range(-4f, 4f)] public float inkPanelAngle = 3f;
     [Range(3f, 5f)] public float inkOutlineWidth = 4f;
     [Range(8f, 14f)] public float inkGlowWidth = 10f;
@@ -207,6 +213,11 @@ public sealed class BattleUiStyleController : MonoBehaviour
     private Material panelMaterial, textMaterial, spriteMaterial;
     private Material mahoMaterial;
     private Material paperMaterial, paperMaskMaterial;
+    private Material inkPanelMaterial;
+    private RTHandle inkBackground;
+    private Camera inkCamera;
+    private BattleColorGradingController inkGrading;
+    private bool inkBackgroundVisible;
     private readonly Material[] lockMarkMaterials = new Material[6];
     private Font bitmapFont;
     private Texture2D bitmapTexture;
@@ -244,6 +255,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
 
     private void Start()
     {
+        inkCamera = Camera.main;
+        inkGrading = FindFirstObjectByType<BattleColorGradingController>();
         // Existing UI may have been built before SpriteManager.Awake.
         foreach (Canvas canvas in FindObjectsByType<Canvas>(FindObjectsInactive.Include, FindObjectsSortMode.None))
             if (canvas.name.StartsWith("Battle", System.StringComparison.Ordinal) || canvas.sortingOrder >= 500)
@@ -363,6 +376,15 @@ public sealed class BattleUiStyleController : MonoBehaviour
         }
         if (IsMahoShojo && mahoMaterial == null)
             mahoMaterial = CreateMaterial("BattleMahoUi");
+        if (IsStylish)
+        {
+            if (inkPanelMaterial == null) inkPanelMaterial = CreateMaterial("BattleInkPanel");
+            if (inkPanelMaterial != null)
+            {
+                inkPanelMaterial.SetFloat("_InkOpacity", Mathf.Clamp(settings.inkGlassOpacity, 0.4f, 0.95f));
+                inkPanelMaterial.SetFloat("_InkBlurPixels", Mathf.Clamp(settings.inkBackdropBlur, 0f, 24f));
+            }
+        }
         if (IsPaper)
         {
             if (paperMaterial == null) paperMaterial = CreateMaterial("BattlePaperPanel");
@@ -398,6 +420,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
                 settings.lockMarkVariation, settings.lockMarkInkNoise));
         }
         removed.Clear();
+        bool visibleInk = false;
         foreach (var entry in targets)
         {
             Graphic target = entry.Key;
@@ -409,9 +432,51 @@ public sealed class BattleUiStyleController : MonoBehaviour
                 continue;
             }
             entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial, themeFont,
-                paperMaterial, paperMaskMaterial, lockMarkMaterial);
+                paperMaterial, paperMaskMaterial, lockMarkMaterial, inkPanelMaterial);
+            visibleInk |= IsStylish && settings.inkBackdropBlur > 0f && entry.Value.UsesInkBackground;
         }
         foreach (Graphic target in removed) targets.Remove(target);
+        inkBackgroundVisible = visibleInk;
+        if (!visibleInk) ReleaseInkBackground();
+    }
+
+    internal static bool WantsInkBackground(Camera camera)
+    {
+        if (!Application.isPlaying || !IsStylish || !active.inkBackgroundVisible || camera == null) return false;
+        Camera target = active.inkGrading != null && active.inkGrading.TargetCamera != null
+            ? active.inkGrading.TargetCamera : active.inkCamera;
+        return target == camera;
+    }
+
+    internal static RTHandle PrepareInkBackground(Camera camera, RenderTextureDescriptor descriptor)
+    {
+        if (!WantsInkBackground(camera)) return null;
+        Vector4 screen = new(descriptor.width, descriptor.height, 1f / descriptor.width, 1f / descriptor.height);
+        descriptor.width = Mathf.Max(1, (descriptor.width + 3) / 4);
+        descriptor.height = Mathf.Max(1, (descriptor.height + 3) / 4);
+        descriptor.depthBufferBits = 0;
+        descriptor.depthStencilFormat = UnityEngine.Experimental.Rendering.GraphicsFormat.None;
+        descriptor.msaaSamples = 1;
+        descriptor.bindMS = false;
+        descriptor.useMipMap = false;
+        descriptor.autoGenerateMips = false;
+        descriptor.memoryless = RenderTextureMemoryless.None;
+        RenderingUtils.ReAllocateHandleIfNeeded(ref active.inkBackground, descriptor,
+            FilterMode.Bilinear, TextureWrapMode.Clamp, name: "BattleInkBackground");
+        Shader.SetGlobalTexture("_BattleInkBackground", active.inkBackground.rt);
+        Shader.SetGlobalVector("_BattleInkScreenSize", screen);
+        Shader.SetGlobalFloat("_BattleInkBackgroundReady", 1f);
+        return active.inkBackground;
+    }
+
+    private void ReleaseInkBackground()
+    {
+        bool owned = inkBackground != null;
+        inkBackground?.Release();
+        inkBackground = null;
+        if (!owned || active != this) return;
+        Shader.SetGlobalTexture("_BattleInkBackground", Texture2D.blackTexture);
+        Shader.SetGlobalFloat("_BattleInkBackgroundReady", 0f);
     }
 
     private static Material CreateMaterial(string resource)
@@ -445,6 +510,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
 
     private void OnDisable()
     {
+        inkBackgroundVisible = false;
+        ReleaseInkBackground();
         Canvas.preWillRenderCanvases -= ApplyVisibleTargets;
         foreach (var entry in targets)
             if (entry.Value != null) entry.Value.RestoreAppearance();
@@ -455,6 +522,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
 
     private void OnDestroy()
     {
+        ReleaseInkBackground();
+        Release(inkPanelMaterial);
         Release(panelMaterial);
         Release(textMaterial);
         Release(spriteMaterial);

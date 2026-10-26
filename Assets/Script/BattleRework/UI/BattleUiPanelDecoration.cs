@@ -54,6 +54,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
     private bool materialApplied;
     private float surfaceOpacity = 1f;
     private bool inventoryBackground, lockedSlot;
+    internal bool UsesInkBackground => !stylishCard && !(styleInteraction != null && styleInteraction.Primary) &&
+        Mathf.Min(rectTransform.rect.width, rectTransform.rect.height) >= 96f;
     private int backgroundVertexCount;
     private float backgroundBaseAlpha;
     private bool wasInventoryDimmed;
@@ -490,14 +492,14 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f,
                 selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
-                styleInteraction != null && styleInteraction.Primary);
+                styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false);
             backgroundBaseAlpha = style.comicInk.a * (softFill ? 0.94f : 1f);
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
                 Rect header = new(face.xMin + 6f, face.yMax - HeaderHeight * scale,
                     face.width - 12f, HeaderHeight * scale - 5f);
-                BattleUiStyleMeshEffect.ComicFill(vh, header, style, style.comicRed, false);
+                BattleUiStyleMeshEffect.ComicFill(vh, header, style, style.comicRed, false, paperSeed);
             }
             backgroundVertexCount = vh.currentVertCount;
             if (emphasis)
@@ -511,6 +513,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             if (selected)
                 BattleUiStyleMeshEffect.Slant(vh,
                     new Rect(face.xMax - 23f, face.yMin + 7f, 16f, 12f), style.comicWhite);
+            BattleUiStyleMeshEffect.RotateComicFrame(vh, 0, face, style, paperSeed);
             return;
         }
 

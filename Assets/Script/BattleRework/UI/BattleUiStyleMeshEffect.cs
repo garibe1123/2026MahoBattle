@@ -53,6 +53,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private float entrance = 1f;
     internal bool HasOverflowTitle => TitleMotion(BattleUiStyleController.Settings)?.allowOverflow == true;
     internal bool HasReplacementText => tmpTitle != null && tmpTitle.Visible;
+    internal bool UsesInkBackground => decoration != null && decoration == target ? decoration.UsesInkBackground :
+        (panel || stylishSurface || stylishButton) && !stylishCard && !(interaction != null && interaction.Primary) &&
+        !(image != null && decoratedSurface) && target != null &&
+        Mathf.Min(target.rectTransform.rect.width, target.rectTransform.rect.height) >= 96f;
     internal TMPro.TextMeshProUGUI CmdText => tmpTitle != null && tmpTitle.Visible ? tmpTitle.Text : null;
     private bool projectPixels;
     private readonly List<UIVertex> triangles = new();
@@ -191,7 +195,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont,
-        Material paperMaterial, Material paperMaskMaterial, Material lockMarkMaterial)
+        Material paperMaterial, Material paperMaskMaterial, Material lockMarkMaterial, Material inkPanelMaterial)
     {
         bool cmd = BattleUiStyleController.IsCmd;
         if (cmd && !PreserveBackdrop() && (decoration == target || (image != null && !decoratedSurface &&
@@ -253,7 +257,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
         else enteredAt = -1f;
         if (entrance != previousEntrance || entrance < 1f) target.SetVerticesDirty();
-        if ((stylish || birthday) && next == null && (panel || (stylish && (stylishButton || stylishSurface))) && !statusFill) next = pixelPanel;
+        if ((stylish || birthday) && next == null && (panel || (stylish && (stylishButton || stylishSurface))) && !statusFill)
+            next = stylish && inkPanelMaterial != null ? inkPanelMaterial : pixelPanel;
         if (paper && (panel || paperBadge || speechBadge || (image != null && image.sprite == null && (stylishSurface || stylishButton))) && !statusFill)
             next = paperMaterial != null ? paperMaterial : pixelPanel;
         if (paper && (speechFrame || hiddenFill || tailFill || (image != null && image.name == "TailShape")))
@@ -627,7 +632,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 vh.Clear();
                 if (speechGeometry != null && speechGeometry.TryGetFillCorners(speechCorners))
                     DrawComicSpeech(vh, speechCorners, settings, image.color.a);
-                else DrawComicFrame(vh, target.rectTransform.rect, settings, image.color.a, speech: true);
+                else DrawComicFrame(vh, target.rectTransform.rect, settings, image.color.a, speech: true, seed: paperSeed);
             }
             else
             {
@@ -692,7 +697,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     interaction != null && interaction.Primary, stylishCard);
             else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
             else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a,
-                interaction != null && interaction.Highlighted, interaction != null && interaction.Primary);
+                interaction != null && interaction.Highlighted, interaction != null && interaction.Primary, seed: paperSeed);
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
         else if (label != null || tailFill || statusFill || (maho && image != null) || (paper && paperBadgeIcon))
@@ -817,6 +822,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal static Color TextColor(Color source, BattleUiStyleSettings settings)
     {
         Color tint = BattleUiStyleController.IsComic ? settings.comicWhite :
+            BattleUiStyleController.IsStylish ? settings.inkText :
             BattleUiStyleController.IsMahoShojo || BattleUiStyleController.IsStylish || BattleUiStyleController.IsBirthday || BattleUiStyleController.IsPaper || BattleUiStyleController.IsCmd
                 ? settings.innerLine : BattleUiStyleController.IsPixel ? Palette(source, settings, false) : source;
         if (BattleUiStyleController.IsPixel || BattleUiStyleController.IsComic || BattleUiStyleController.IsMahoShojo ||
@@ -855,32 +861,39 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha,
-        bool selected = false, bool primary = false, bool speech = false)
+        bool selected = false, bool primary = false, bool speech = false, uint seed = 0, bool rotate = true)
     {
+        int first = vh.currentVertCount;
         Color red = settings.comicRed, paper = settings.comicWhite, ink = settings.comicInk;
         red.a *= alpha;
         paper.a *= alpha;
         ink.a *= alpha;
         float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
         float inner = Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
-        ComicFill(vh, rect, settings, ink, speech);
-        ComicFill(vh, Inset(rect, outer), settings, paper, speech);
+        ComicFill(vh, rect, settings, ink, speech, seed);
+        ComicFill(vh, Inset(rect, outer), settings, paper, speech, seed);
         Rect face = Inset(rect, outer + inner);
-        ComicFill(vh, face, settings, primary ? red : ink, speech);
+        ComicFill(vh, face, settings, primary || selected ? red : ink, speech, seed);
         if (selected)
         {
             Color green = settings.comicSelection;
             green.a *= alpha;
-            ComicFill(vh, new Rect(face.xMin, face.yMin, Mathf.Min(face.width * 0.12f, outer * 2f), face.height),
-                settings, green, false);
+            float size = Mathf.Min(outer * 2.2f, Mathf.Min(face.width, face.height) * 0.28f);
+            int corner = vh.currentVertCount;
+            vh.AddVert(new Vector2(face.xMin, face.yMax), green, Vector2.zero);
+            vh.AddVert(new Vector2(face.xMin + size, face.yMax), green, Vector2.zero);
+            vh.AddVert(new Vector2(face.xMin, face.yMax - size), green, Vector2.zero);
+            vh.AddTriangle(corner, corner + 1, corner + 2);
         }
+        if (!speech && rotate) RotateComicFrame(vh, first, rect, settings, seed);
     }
 
-    internal static void ComicFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool spike)
+    internal static void ComicFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool spike, uint seed = 0)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
-        float cut = Mathf.Min(rect.width * 0.08f, rect.height * 0.2f);
+        float cut = Mathf.Min(rect.width * Mathf.Lerp(0.045f, 0.095f, PaperVariation(seed, 2)),
+            rect.height * Mathf.Lerp(0.12f, 0.22f, PaperVariation(seed, 3)));
         float skew = Mathf.Tan(Mathf.Clamp(settings.comicPanelAngle, -4f, 4f) * Mathf.Deg2Rad) * rect.height;
         skew = Mathf.Clamp(skew, -cut * 0.5f, cut * 0.5f);
         const int count = 7;
@@ -901,6 +914,27 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             vh.AddVert(point, tint, Vector2.zero);
         }
         for (int i = 0; i < count; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
+    }
+
+    internal static void RotateComicFrame(VertexHelper vh, int first, Rect rect, BattleUiStyleSettings settings, uint seed)
+    {
+        float angle = Mathf.Clamp(settings.comicPanelAngle * 0.25f +
+            (PaperVariation(seed, 7) * 2f - 1f) * settings.comicAngleVariation, -4f, 4f);
+        float gutter = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f) * 0.65f;
+        float limit = Mathf.Atan2(gutter, Mathf.Max(1f, Mathf.Max(rect.width, rect.height) * 0.5f)) * Mathf.Rad2Deg;
+        angle = Mathf.Clamp(angle, -limit, limit) * Mathf.Deg2Rad;
+        float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
+        float fit = Mathf.Min(rect.width / Mathf.Max(0.001f, rect.width * cos + rect.height * Mathf.Abs(sin)),
+            rect.height / Mathf.Max(0.001f, rect.height * cos + rect.width * Mathf.Abs(sin)));
+        UIVertex vertex = default;
+        for (int i = first; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            Vector2 point = (Vector2)vertex.position - rect.center;
+            point = rect.center + new Vector2(point.x * cos - point.y * sin, point.x * sin + point.y * cos) * fit;
+            vertex.position = new Vector3(point.x, point.y, vertex.position.z);
+            vh.SetUIVertex(vertex, i);
+        }
     }
 
     private static void DrawComicSpeech(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
@@ -1006,11 +1040,15 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         float shadowOffset = Mathf.Min(Mathf.Clamp(settings.stylishShadowOffset, 4f, 8f), rect.height * 0.06f);
         Rect body = Inset(rect, glow);
         body = new Rect(body.x, body.y + shadowOffset, body.width - shadowOffset, body.height - shadowOffset);
-        bool rounded = card || primary || selected;
+        bool glass = !card && !primary && Mathf.Min(rect.width, rect.height) >= 96f;
+        bool featured = (primary || (selected && card)) && rect.width >= 240f && rect.height >= 96f;
         Rect shadow = new(body.x + shadowOffset, body.y - shadowOffset, body.width, body.height);
         Color ink = settings.inkBackground;
         ink.a *= alpha;
-        StylishFill(vh, shadow, settings, ink, rounded);
+        Color shade = ink;
+        shade.a *= glass ? 0.12f : 0.36f;
+        if (glass) StylishRing(vh, shadow, settings, shadowOffset, shade);
+        else StylishFill(vh, shadow, settings, shade, true, featured);
         if (selected)
         {
             for (int i = 3; i > 0; i--)
@@ -1018,45 +1056,35 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 Color light = i == 3 ? settings.inkMagenta : settings.inkCyan;
                 light.a *= alpha * (0.16f / i);
                 float spread = glow * i / 3f;
-                StylishFill(vh, new Rect(body.x - spread, body.y - spread,
-                    body.width + spread * 2f, body.height + spread * 2f), settings, light, rounded);
+                Rect halo = new(body.x - spread, body.y - spread, body.width + spread * 2f, body.height + spread * 2f);
+                if (glass) StylishRing(vh, halo, settings, spread + border, light);
+                else StylishFill(vh, halo, settings, light, true, featured);
             }
         }
-        Color rim = selected ? settings.inkCyan : ink;
-        rim.a = ink.a;
-        StylishFill(vh, body, settings, rim, rounded);
+        Color rim = selected ? settings.inkCyan : Color.Lerp(ink, settings.inkText, card ? 0.18f : 0.05f);
+        rim.a = ink.a * (glass && !selected ? 0.18f : 1f);
+        if (glass) StylishRing(vh, body, settings, selected ? border : Mathf.Min(1.5f, border), rim);
+        else StylishFill(vh, body, settings, rim, true, featured);
         Rect face = Inset(body, selected ? border : Mathf.Min(1.5f, border));
         Color fill = primary ? settings.inkLime : settings.inkBackground;
         fill.a *= alpha;
-        StylishFill(vh, face, settings, fill, rounded);
-        float radius = Mathf.Min(settings.stylishCardRadius, face.height * 0.22f);
-        Rect safe = Inset(face, Mathf.Max(border * 2f, radius));
-        if (safe.width <= 0f || safe.height <= 0f) return;
-        Color tag = primary ? settings.inkBackground : settings.inkMagenta;
-        tag.a *= alpha;
-        AccentSlant(vh, new Rect(safe.xMax - safe.width * 0.16f, safe.yMin,
-            safe.width * 0.16f, Mathf.Min(5f, safe.height * 0.1f)), settings.inkPanelAngle, tag);
-        float step = Mathf.Max(16f, settings.stylishDotSpacing * 2f);
-        Color pattern = primary ? settings.inkBackground : settings.inkCyan;
-        pattern.a *= alpha * settings.surfacePatternAlpha * 0.5f;
-        for (int row = 0; row < 2; row++)
-            for (int column = 0; column < 5; column++)
-            {
-                Vector2 point = new(safe.xMax - step * (column + 1), safe.yMin + step * (row + 1));
-                if (point.x < safe.center.x || point.y + step * 0.3f > safe.center.y) continue;
-                int first = vh.currentVertCount;
-                vh.AddVert(point, pattern, Vector2.zero);
-                vh.AddVert(point + new Vector2(step * 0.55f, step * 0.12f), pattern, Vector2.zero);
-                vh.AddVert(point + new Vector2(step * 0.15f, step * 0.55f), pattern, Vector2.zero);
-                vh.AddTriangle(first, first + 1, first + 2);
-            }
+        int firstFace = vh.currentVertCount;
+        StylishFill(vh, face, settings, fill, true, featured);
+        if (!glass) return;
+        UIVertex vertex = default;
+        for (int i = firstFace; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            vertex.uv0.w = 1f;
+            vh.SetUIVertex(vertex, i);
+        }
     }
 
-    private static void StylishFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool rounded)
+    private static void StylishFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool rounded, bool drips = false)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         const int steps = 6;
-        float depth = rounded && rect.width >= 160f && rect.height >= 72f
+        float depth = drips && rect.width >= 160f && rect.height >= 72f
             ? Mathf.Min(18f, rect.height * Mathf.Clamp(settings.inkLobeRatio, 0f, 0.12f) * 2f) : 0f;
         Rect body = new(rect.x, rect.y + depth, rect.width, rect.height - depth);
         float radius = Mathf.Min(rounded ? settings.stylishCardRadius : 8f, body.height * (rounded ? 0.22f : 0.12f));
@@ -1078,6 +1106,37 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             }
             for (int step = 0; step < steps; step++)
                 vh.AddTriangle(first, first + step + 1, first + step + 2);
+        }
+    }
+
+    private static void StylishRing(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float width, Color tint)
+    {
+        if (rect.width <= 0f || rect.height <= 0f || tint.a <= 0f) return;
+        width = Mathf.Clamp(width, 0f, Mathf.Min(rect.width, rect.height) * 0.5f);
+        Rect inner = Inset(rect, width);
+        float outerRadius = Mathf.Clamp(Mathf.Min(settings.stylishCardRadius, rect.height * 0.22f), 0f, rect.width * 0.25f);
+        float innerRadius = Mathf.Clamp(Mathf.Min(settings.stylishCardRadius, inner.height * 0.22f), 0f, inner.width * 0.25f);
+        const int steps = 8, count = 4 * (steps + 1);
+        int first = vh.currentVertCount;
+        for (int corner = 0; corner < 4; corner++)
+        {
+            Vector2 outerCenter = new(corner < 2 ? rect.xMax - outerRadius : rect.xMin + outerRadius,
+                corner == 0 || corner == 3 ? rect.yMin + outerRadius : rect.yMax - outerRadius);
+            Vector2 innerCenter = new(corner < 2 ? inner.xMax - innerRadius : inner.xMin + innerRadius,
+                corner == 0 || corner == 3 ? inner.yMin + innerRadius : inner.yMax - innerRadius);
+            for (int step = 0; step <= steps; step++)
+            {
+                float angle = (-90f + corner * 90f + step * 90f / steps) * Mathf.Deg2Rad;
+                Vector2 direction = new(Mathf.Cos(angle), Mathf.Sin(angle));
+                vh.AddVert(outerCenter + direction * outerRadius, tint, Vector2.zero);
+                vh.AddVert(innerCenter + direction * innerRadius, tint, Vector2.zero);
+            }
+        }
+        for (int i = 0; i < count; i++)
+        {
+            int a = first + i * 2, b = first + (i + 1) % count * 2;
+            vh.AddTriangle(a, b, b + 1);
+            vh.AddTriangle(a, b + 1, a + 1);
         }
     }
 

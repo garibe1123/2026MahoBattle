@@ -22,7 +22,8 @@ Shader "Hidden/Harness/BattleUiScreenTonePreview"
             #include "UnityCG.cginc"
             #include "Assets/Resources/BattleUiScreenTone.cginc"
 
-            sampler2D _MainTex, _WhiteTex;
+            sampler2D _MainTex, _WhiteTex, _PreviewBackgroundTex;
+            float _UsePreviewBackground;
             float4 _ScreenSize, _PreviewBackgroundColor;
 
             float Coverage(float3 black, float3 white)
@@ -41,7 +42,9 @@ Shader "Hidden/Harness/BattleUiScreenTonePreview"
                 float edge = smoothstep(_ToneVignette.y, _ToneVignette.y + _ToneVignette.z, length(centered));
                 float dots = BattleScreenToneDots(uv, _ScreenSize.xy, edge * _ToneVignette.x);
                 float strength = dots * _TonePattern.z * saturate(_ToneColor.a);
-                float3 background = lerp(_PreviewBackgroundColor.rgb, _ToneColor.rgb, strength);
+                float3 scene = _PreviewBackgroundColor.rgb;
+                if (_UsePreviewBackground > 0.5) scene = tex2D(_PreviewBackgroundTex, uv).rgb;
+                float3 background = lerp(scene, _ToneColor.rgb, strength);
                 return float4(black + background * (1.0 - alpha), 1.0);
             }
             ENDHLSL

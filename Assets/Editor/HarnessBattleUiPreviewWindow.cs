@@ -19,6 +19,8 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
     private Material toneMaterial;
     private readonly RenderTexture[] toneTextures = new RenderTexture[5];
     private Graphic[] previewGraphics;
+    private GameObject inkBackdrop;
+    private RenderTexture inkPreviewTexture;
 
     [MenuItem("Tools/Harness/Battle UI Preview")]
     private static void Open()
@@ -82,20 +84,93 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         EnsurePreview();
         bool poster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish;
         if (content == null || builtScreen != screen || builtPaper != (manager.UiStyle == BattleUiStyle.Paper) || builtPoster != poster) BuildScreen();
-        if (previewScreenTone && manager.EnableScreenTone && manager.ScreenToneSettings != null &&
-            manager.ScreenToneSettings.ToneStrength > 0f)
-        {
-            DrawScreenTonePreview(view);
-            return;
-        }
-        preview.BeginPreview(view, GUIStyle.none);
-        Texture texture = null;
+        bool ink = manager.UiStyle == BattleUiStyle.Stylish;
+        PrepareInkPreview(view, ink);
+        Texture previousBackground = Shader.GetGlobalTexture("_BattleInkBackground");
+        Vector4 previousSize = Shader.GetGlobalVector("_BattleInkScreenSize");
+        float previousReady = Shader.GetGlobalFloat("_BattleInkBackgroundReady");
         try
         {
-            styles.DrawEditorPreview(manager, root.transform, () => preview.Render(true));
+            if (ink && inkPreviewTexture != null)
+            {
+                Shader.SetGlobalTexture("_BattleInkBackground", inkPreviewTexture);
+                Shader.SetGlobalVector("_BattleInkScreenSize", new Vector4(inkPreviewTexture.width, inkPreviewTexture.height,
+                    1f / inkPreviewTexture.width, 1f / inkPreviewTexture.height));
+                Shader.SetGlobalFloat("_BattleInkBackgroundReady", manager.UiStyleSettings.inkBackdropBlur > 0f ? 1f : 0f);
+            }
+            if (previewScreenTone && manager.EnableScreenTone && manager.ScreenToneSettings != null &&
+                manager.ScreenToneSettings.ToneStrength > 0f)
+            {
+                DrawScreenTonePreview(view);
+                return;
+            }
+            preview.BeginPreview(view, GUIStyle.none);
+            Texture texture = null;
+            try
+            {
+                styles.DrawEditorPreview(manager, root.transform, () => preview.Render(true));
+            }
+            finally { texture = preview.EndPreview(); }
+            GUI.DrawTexture(view, texture, ScaleMode.StretchToFill, false);
         }
-        finally { texture = preview.EndPreview(); }
-        GUI.DrawTexture(view, texture, ScaleMode.StretchToFill, false);
+        finally
+        {
+            Shader.SetGlobalTexture("_BattleInkBackground", previousBackground);
+            Shader.SetGlobalVector("_BattleInkScreenSize", previousSize);
+            Shader.SetGlobalFloat("_BattleInkBackgroundReady", previousReady);
+        }
+    }
+
+    private void PrepareInkPreview(Rect view, bool enabled)
+    {
+        if (inkBackdrop == null && enabled)
+        {
+            inkBackdrop = new GameObject("Ink Preview Background", typeof(RectTransform), typeof(Canvas))
+                { hideFlags = HideFlags.HideAndDontSave };
+            preview.AddSingleGO(inkBackdrop);
+            Canvas canvas = inkBackdrop.GetComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.worldCamera = preview.camera;
+            canvas.sortingOrder = -1;
+            RectTransform rect = (RectTransform)inkBackdrop.transform;
+            rect.sizeDelta = new Vector2(1920f, 1080f);
+            rect.position = new Vector3(0f, 0f, 20f);
+            for (int i = 0; i < 7; i++)
+            {
+                Image shape = Rect(rect, "Background_" + i, new Vector2(-900f + i * 300f, (i % 3 - 1) * 180f),
+                    new Vector2(200f, 900f)).gameObject.AddComponent<Image>();
+                shape.color = Color.Lerp(new Color(0.08f, 0.14f, 0.2f), new Color(0.16f, 0.34f, 0.3f), i % 3 * 0.5f);
+                shape.raycastTarget = false;
+            }
+        }
+        if (inkBackdrop != null) inkBackdrop.SetActive(enabled);
+        if (!enabled) return;
+        int width = Mathf.Max(1, Mathf.RoundToInt(view.width * EditorGUIUtility.pixelsPerPoint));
+        int height = Mathf.Max(1, Mathf.RoundToInt(view.height * EditorGUIUtility.pixelsPerPoint));
+        if (inkPreviewTexture != null && inkPreviewTexture.width == width && inkPreviewTexture.height == height) return;
+        if (inkPreviewTexture != null)
+        {
+            inkPreviewTexture.Release();
+            DestroyImmediate(inkPreviewTexture);
+        }
+        inkPreviewTexture = new RenderTexture(width, height, 0, RenderTextureFormat.ARGBHalf)
+            { hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp };
+        inkPreviewTexture.Create();
+        RenderTexture previousActive = RenderTexture.active;
+        content.gameObject.SetActive(false);
+        try
+        {
+            preview.BeginPreview(view, GUIStyle.none);
+            Texture texture;
+            try { preview.Render(true); }
+            finally { texture = preview.EndPreview(); }
+            Graphics.Blit(texture, inkPreviewTexture);
+        }
+        finally
+        {
+            RenderTexture.active = previousActive;
+            content.gameObject.SetActive(true);
+        }
     }
 
     private void EnsurePreview()
@@ -287,6 +362,14 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
 
     private void ClosePreview()
     {
+        if (inkPreviewTexture != null)
+        {
+            inkPreviewTexture.Release();
+            DestroyImmediate(inkPreviewTexture);
+        }
+        inkPreviewTexture = null;
+        if (inkBackdrop != null) DestroyImmediate(inkBackdrop);
+        inkBackdrop = null;
         if (toneMaterial != null) DestroyImmediate(toneMaterial);
         toneMaterial = null;
         ReleaseToneTextures();
@@ -323,10 +406,12 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         if (previewGraphics == null) previewGraphics = root.GetComponentsInChildren<Graphic>(true);
         bool[] culled = new bool[previewGraphics.Length];
         Color background = preview.camera.backgroundColor;
+        bool backdropVisible = inkBackdrop != null && inkBackdrop.activeSelf;
         RenderTexture previousActive = RenderTexture.active;
         for (int i = 0; i < culled.Length; i++) culled[i] = previewGraphics[i].canvasRenderer.cull;
         try
         {
+            if (backdropVisible) inkBackdrop.SetActive(false);
             styles.DrawEditorPreview(manager, root.transform, () =>
             {
                 for (int pass = 0; pass < 2; pass++)
@@ -342,6 +427,8 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
             toneMaterial.SetTexture("_WhiteTex", toneTextures[1]);
             toneMaterial.SetVector("_ScreenSize", new Vector4(width, height, 1f / width, 1f / height));
             toneMaterial.SetColor("_PreviewBackgroundColor", background);
+            toneMaterial.SetFloat("_UsePreviewBackground", backdropVisible ? 1f : 0f);
+            toneMaterial.SetTexture("_PreviewBackgroundTex", inkPreviewTexture);
             manager.ScreenToneSettings.Apply(toneMaterial, width / 1920f);
             Graphics.Blit(toneTextures[0], toneTextures[4], toneMaterial);
             RenderTexture.active = previousActive;
@@ -349,6 +436,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         finally
         {
+            if (backdropVisible) inkBackdrop.SetActive(true);
             RenderTexture.active = previousActive;
             preview.camera.backgroundColor = background;
             for (int i = 0; i < culled.Length; i++) previewGraphics[i].canvasRenderer.cull = culled[i];
