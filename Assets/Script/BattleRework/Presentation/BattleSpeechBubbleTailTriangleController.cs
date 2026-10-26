@@ -356,14 +356,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     private void RefreshPlacement()
     {
-        if (BattleUiStyleController.IsComic && frameController != null &&
-            frameController.TryGetFillCorners(comicFrameCorners) && targetPivot != null)
-        {
-            if (outlineImage != null) outlineImage.enabled = false;
-            if (fillImage != null) fillImage.enabled = false;
-            frameController.RefreshComicOutline();
-            return;
-        }
         if (tailRect == null ||
             outlineImage == null ||
             fillImage == null ||
@@ -588,12 +580,19 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
             Vector3.one;
     }
 
-    internal bool TryGetComicTip(RectTransform space, out Vector2 tip, out float attachment)
+    internal bool TryGetComicTip(RectTransform space, out Vector2 tip, out float attachment, out Vector2 size)
     {
         tip = Vector2.zero;
+        size = Vector2.zero;
         attachment = comicTopAttachment;
-        if (!isActiveAndEnabled || targetPivot == null || space == null) return false;
-        tip = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
+        if (!isActiveAndEnabled || targetPivot == null || space == null || tailRect == null || style == null) return false;
+        Rect rect = tailRect.rect;
+        tip = space.InverseTransformPoint(tailRect.TransformPoint(new Vector2(
+            Mathf.Lerp(rect.xMin, rect.xMax, 0.985f), rect.center.y)));
+        Vector2 renderSize = BattleSpeechBubbleTailTextureBuilder.GetRenderSize(style.uiSize);
+        size.x = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.right * renderSize.x)).magnitude;
+        size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up *
+            (renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f))).magnitude;
         return true;
     }
 
@@ -740,6 +739,13 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         fillRect.localRotation = tailRect.localRotation;
         fillRect.localScale = tailRect.localScale;
         RectTransform frame = frameController != null ? frameController.FrameRect : null;
+        if (BattleUiStyleController.IsComic && frameController != null &&
+            frameController.TryGetFillCorners(comicFrameCorners))
+        {
+            outlineImage.enabled = false;
+            fillImage.enabled = false;
+            frameController.RefreshComicOutline();
+        }
         if (frame != null && frame.parent == fillRect.parent &&
             fillRect.GetSiblingIndex() != frame.GetSiblingIndex() + 1)
             fillRect.SetSiblingIndex(frame.GetSiblingIndex() + 1);

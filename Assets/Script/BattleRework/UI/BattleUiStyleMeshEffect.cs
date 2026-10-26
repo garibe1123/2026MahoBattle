@@ -1061,7 +1061,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private void DrawComicSpeech(VertexHelper vh, Vector2[] corners, BattleUiStyleSettings settings, float alpha)
     {
         if (speechGeometry.ComicTail != null && speechGeometry.ComicTail.TryGetComicTip(
-            target.rectTransform, out Vector2 tip, out float attachment))
+            target.rectTransform, out Vector2 tip, out float attachment, out Vector2 tailSize))
         {
             int edge = 0;
             for (int i = 1; i < 4; i++)
@@ -1069,9 +1069,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     edge = i;
             Vector2 start = corners[edge], end = corners[(edge + 1) % 4];
             float along = start.x < end.x ? attachment : 1f - attachment;
-            float half = 0.08f;
+            float half = Mathf.Min(0.12f, tailSize.y / Mathf.Max(1f, Vector2.Distance(start, end)) * 0.5f);
             float top = Mathf.Max(start.y, end.y);
-            tip.y = Mathf.Max(tip.y, top + Mathf.Abs(end.x - start.x) * 0.15f);
+            Vector2 root = Vector2.Lerp(start, end, along);
+            tip.y = Mathf.Max(tip.y, top + tailSize.y * 0.5f);
+            tip = root + Vector2.ClampMagnitude(tip - root, tailSize.x);
             // Keep the join on the actual frame edge, including its random rotation.
             comicSpeechContour[0] = start;
             comicSpeechContour[1] = Vector2.Lerp(start, end, Mathf.Clamp01(along - half));
