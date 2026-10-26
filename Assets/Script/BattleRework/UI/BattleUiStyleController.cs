@@ -87,6 +87,8 @@ public sealed class BattleUiStyleSettings
     [Range(4f, 6f)] public float comicInnerWidth = 5f;
     [Range(-4f, 4f)] public float comicPanelAngle = -2f;
     [Range(0f, 4f)] public float comicAngleVariation = 3.5f;
+    [Range(0f, 0.2f)] public float comicPerspectiveRatio = 0.14f;
+    [Range(0f, 24f)] public float comicPerspectiveMax = 18f;
     [Range(0f, 0.2f)] public float comicSpikeRatio = 0.12f;
     public TMPro.TMP_FontAsset comicTitleFont;
     public BattleUiTitleMotionSettings comicTitleMotion = new()

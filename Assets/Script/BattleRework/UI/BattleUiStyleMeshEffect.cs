@@ -697,7 +697,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     interaction != null && interaction.Primary, stylishCard);
             else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
             else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings, fill.a,
-                interaction != null && interaction.Highlighted, interaction != null && interaction.Primary, seed: paperSeed);
+                interaction != null && interaction.Highlighted, interaction != null && interaction.Primary,
+                seed: paperSeed, direction: ComicDirection(target));
             else DrawFrame(vh, target.rectTransform.rect, settings, fill, PixelStep(target.canvas, settings));
         }
         else if (label != null || tailFill || statusFill || (maho && image != null) || (paper && paperBadgeIcon))
@@ -861,8 +862,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     }
 
     internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha,
-        bool selected = false, bool primary = false, bool speech = false, uint seed = 0, bool rotate = true)
+        bool selected = false, bool primary = false, bool speech = false, uint seed = 0, bool rotate = true,
+        Vector2 direction = default)
     {
+        if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
         Color red = settings.comicRed, paper = settings.comicWhite, ink = settings.comicInk;
         red.a *= alpha;
@@ -870,59 +873,122 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         ink.a *= alpha;
         float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
         float inner = Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
-        ComicFill(vh, rect, settings, ink, speech, seed);
-        ComicFill(vh, Inset(rect, outer), settings, paper, speech, seed);
-        Rect face = Inset(rect, outer + inner);
-        ComicFill(vh, face, settings, primary || selected ? red : ink, speech, seed);
+        ComicFill(vh, rect, settings, ink, speech, seed, direction);
+        ComicFill(vh, rect, settings, paper, speech, seed, direction, outer);
+        ComicFill(vh, rect, settings, primary || selected ? red : ink, speech, seed, direction, outer + inner);
         if (selected)
         {
             Color green = settings.comicSelection;
             green.a *= alpha;
-            float size = Mathf.Min(outer * 2.2f, Mathf.Min(face.width, face.height) * 0.28f);
+            float size = Mathf.Min(outer * 2.2f, Mathf.Min(rect.width, rect.height) * 0.18f);
+            Vector2 point = ComicInsetPoint(rect, settings, seed, direction, speech, 1, outer + inner);
+            Vector2 previous = ComicInsetPoint(rect, settings, seed, direction, speech, 0, outer + inner);
+            Vector2 next = ComicInsetPoint(rect, settings, seed, direction, speech, 2, outer + inner);
             int corner = vh.currentVertCount;
-            vh.AddVert(new Vector2(face.xMin, face.yMax), green, Vector2.zero);
-            vh.AddVert(new Vector2(face.xMin + size, face.yMax), green, Vector2.zero);
-            vh.AddVert(new Vector2(face.xMin, face.yMax - size), green, Vector2.zero);
+            vh.AddVert(point, green, Vector2.zero);
+            vh.AddVert(point + (next - point).normalized * size, green, Vector2.zero);
+            vh.AddVert(point + (previous - point).normalized * size, green, Vector2.zero);
             vh.AddTriangle(corner, corner + 1, corner + 2);
         }
         if (!speech && rotate) RotateComicFrame(vh, first, rect, settings, seed);
     }
 
-    internal static void ComicFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool spike, uint seed = 0)
+    internal static void ComicFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool spike,
+        uint seed = 0, Vector2 direction = default, float inset = 0f)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
-        float cut = Mathf.Min(rect.width * Mathf.Lerp(0.045f, 0.095f, PaperVariation(seed, 2)),
-            rect.height * Mathf.Lerp(0.12f, 0.22f, PaperVariation(seed, 3)));
-        float skew = Mathf.Tan(Mathf.Clamp(settings.comicPanelAngle, -4f, 4f) * Mathf.Deg2Rad) * rect.height;
-        skew = Mathf.Clamp(skew, -cut * 0.5f, cut * 0.5f);
-        const int count = 7;
+        int count = spike ? 7 : 4;
         vh.AddVert(rect.center, tint, Vector2.zero);
         for (int i = 0; i < count; i++)
-        {
-            Vector2 point = i switch
-            {
-                0 => new Vector2(rect.xMin + cut, rect.yMin),
-                1 => new Vector2(rect.xMin, rect.yMax - cut * 0.5f),
-                2 => new Vector2(rect.xMin + cut + skew, rect.yMax),
-                3 => new Vector2(rect.xMax, rect.yMax - cut * 0.3f),
-                4 => new Vector2(rect.xMax - cut + skew, rect.yMin + cut * 0.2f),
-                5 => new Vector2(rect.xMin + rect.width * 0.7f, rect.yMin + cut * 0.15f),
-                _ => new Vector2(rect.xMin + rect.width * 0.6f,
-                    rect.yMin - (spike ? rect.height * Mathf.Clamp(settings.comicSpikeRatio, 0f, 0.2f) : 0f))
-            };
-            vh.AddVert(point, tint, Vector2.zero);
-        }
+            vh.AddVert(ComicInsetPoint(rect, settings, seed, direction, spike, i, inset), tint, Vector2.zero);
         for (int i = 0; i < count; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
+    }
+
+    internal static Vector2 ComicDirection(Graphic surface)
+    {
+        if (surface.canvas == null || !(surface.canvas.rootCanvas.transform is RectTransform canvasRect)) return Vector2.zero;
+        Vector3 center = surface.rectTransform.TransformPoint(surface.rectTransform.rect.center);
+        Vector3 origin = canvasRect.TransformPoint(canvasRect.rect.center);
+        return surface.rectTransform.InverseTransformVector(center - origin).normalized;
+    }
+
+    private static Vector2 ComicPoint(Rect rect, BattleUiStyleSettings settings, uint seed, Vector2 direction, int index)
+    {
+        if (direction.sqrMagnitude < 0.001f)
+            direction = new Vector2(PaperVariation(seed, 2) < 0.5f ? -1f : 1f, PaperVariation(seed, 3) - 0.5f);
+        float taper = Mathf.Min(Mathf.Clamp(settings.comicPerspectiveMax, 0f, 24f),
+            Mathf.Min(rect.width, rect.height) * Mathf.Clamp(settings.comicPerspectiveRatio, 0f, 0.2f));
+        if (Mathf.Abs(direction.y) > Mathf.Abs(direction.x))
+        {
+            float horizontal = Mathf.Clamp(direction.x, -0.75f, 0.75f);
+            float bottom = direction.y >= 0f ? taper : 0f;
+            float top = direction.y < 0f ? taper : 0f;
+            return index switch
+            {
+                0 => new Vector2(rect.xMin + bottom * (1f + horizontal), rect.yMin),
+                1 => new Vector2(rect.xMin + top * (1f + horizontal), rect.yMax),
+                2 => new Vector2(rect.xMax - top * (1f - horizontal), rect.yMax),
+                3 => new Vector2(rect.xMax - bottom * (1f - horizontal), rect.yMin),
+                4 => new Vector2(Mathf.Lerp(rect.xMin + bottom * (1f + horizontal), rect.xMax - bottom * (1f - horizontal), 0.72f), rect.yMin),
+                5 => new Vector2(rect.xMin + rect.width * 0.58f, rect.yMin - rect.height * Mathf.Clamp(settings.comicSpikeRatio, 0f, 0.2f)),
+                _ => new Vector2(Mathf.Lerp(rect.xMin + bottom * (1f + horizontal), rect.xMax - bottom * (1f - horizontal), 0.54f), rect.yMin)
+            };
+        }
+        float bias = Mathf.Clamp(direction.y, -0.75f, 0.75f);
+        float left = direction.x >= 0f ? taper : 0f;
+        float right = direction.x < 0f ? taper : 0f;
+        return index switch
+        {
+            0 => new Vector2(rect.xMin, rect.yMin + left * (1f + bias)),
+            1 => new Vector2(rect.xMin, rect.yMax - left * (1f - bias)),
+            2 => new Vector2(rect.xMax, rect.yMax - right * (1f - bias)),
+            3 => new Vector2(rect.xMax, rect.yMin + right * (1f + bias)),
+            4 => new Vector2(rect.xMin + rect.width * 0.72f, rect.yMin + Mathf.Lerp(left, right, 0.72f) * (1f + bias)),
+            5 => new Vector2(rect.xMin + rect.width * 0.58f, rect.yMin - rect.height * Mathf.Clamp(settings.comicSpikeRatio, 0f, 0.2f)),
+            _ => new Vector2(rect.xMin + rect.width * 0.54f, rect.yMin + Mathf.Lerp(left, right, 0.54f) * (1f + bias))
+        };
+    }
+
+    private static Vector2 ComicInsetPoint(Rect rect, BattleUiStyleSettings settings, uint seed, Vector2 direction,
+        bool spike, int index, float inset)
+    {
+        Vector2 point = ComicPoint(rect, settings, seed, direction, index);
+        if (inset <= 0f) return point;
+        int count = spike ? 7 : 4;
+        Vector2 previous = (point - ComicPoint(rect, settings, seed, direction, (index + count - 1) % count)).normalized;
+        Vector2 next = (ComicPoint(rect, settings, seed, direction, (index + 1) % count) - point).normalized;
+        Vector2 previousNormal = new(previous.y, -previous.x);
+        Vector2 nextNormal = new(next.y, -next.x);
+        Vector2 bisector = (previousNormal + nextNormal).normalized;
+        return point + bisector * (inset / Mathf.Max(0.35f, Vector2.Dot(bisector, previousNormal)));
+    }
+
+    internal static void DrawComicHeader(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
+        float height, Color tint, uint seed, Vector2 direction)
+    {
+        float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
+        float inset = outer + Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
+        float bottom = rect.yMax - height;
+        int first = vh.currentVertCount;
+        Vector2 previous = ComicInsetPoint(rect, settings, seed, direction, false, 3, inset);
+        for (int i = 0; i < 4; i++)
+        {
+            Vector2 point = ComicInsetPoint(rect, settings, seed, direction, false, i, inset);
+            bool previousInside = previous.y >= bottom, inside = point.y >= bottom;
+            if (previousInside != inside)
+                vh.AddVert(Vector2.Lerp(previous, point, (bottom - previous.y) / (point.y - previous.y)), tint, Vector2.zero);
+            if (inside) vh.AddVert(point, tint, Vector2.zero);
+            previous = point;
+        }
+        for (int i = first + 1; i + 1 < vh.currentVertCount; i++) vh.AddTriangle(first, i, i + 1);
     }
 
     internal static void RotateComicFrame(VertexHelper vh, int first, Rect rect, BattleUiStyleSettings settings, uint seed)
     {
         float angle = Mathf.Clamp(settings.comicPanelAngle * 0.25f +
             (PaperVariation(seed, 7) * 2f - 1f) * settings.comicAngleVariation, -4f, 4f);
-        float gutter = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f) * 0.65f;
-        float limit = Mathf.Atan2(gutter, Mathf.Max(1f, Mathf.Max(rect.width, rect.height) * 0.5f)) * Mathf.Rad2Deg;
-        angle = Mathf.Clamp(angle, -limit, limit) * Mathf.Deg2Rad;
+        angle *= Mathf.Deg2Rad;
         float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
         float fit = Mathf.Min(rect.width / Mathf.Max(0.001f, rect.width * cos + rect.height * Mathf.Abs(sin)),
             rect.height / Mathf.Max(0.001f, rect.height * cos + rect.width * Mathf.Abs(sin)));

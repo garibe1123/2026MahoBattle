@@ -490,23 +490,21 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (BattleUiStyleController.IsComic)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
+            Vector2 direction = BattleUiStyleMeshEffect.ComicDirection(this);
             BattleUiStyleMeshEffect.DrawComicFrame(vh, face, style, softFill ? 0.94f : 1f,
                 selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted),
-                styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false);
+                styleInteraction != null && styleInteraction.Primary, seed: paperSeed, rotate: false, direction: direction);
             backgroundBaseAlpha = style.comicInk.a * (softFill ? 0.94f : 1f);
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
-                Rect header = new(face.xMin + 6f, face.yMax - HeaderHeight * scale,
-                    face.width - 12f, HeaderHeight * scale - 5f);
-                BattleUiStyleMeshEffect.ComicFill(vh, header, style, style.comicRed, false, paperSeed);
+                Color tint = style.comicRed;
+                tint.a *= softFill ? 0.94f : 1f;
+                BattleUiStyleMeshEffect.DrawComicHeader(vh, face, style, HeaderHeight * scale, tint, paperSeed, direction);
             }
             backgroundVertexCount = vh.currentVertCount;
             if (emphasis)
             {
-                Color tint = style.comicRed;
-                tint.a = 0.12f + pulse * 0.12f;
-                BattleUiStyleMeshEffect.Slant(vh, BattleUiStyleMeshEffect.Inset(face, 4f), tint);
                 BattleUiStyleMeshEffect.Slant(vh,
                     new Rect(face.xMin + 4f, face.center.y - 18f, 8f, 36f), style.comicSelection);
             }
