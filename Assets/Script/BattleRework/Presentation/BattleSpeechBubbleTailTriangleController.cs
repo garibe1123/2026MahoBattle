@@ -15,7 +15,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     [SerializeField] private RectTransform bubbleRect;
     [SerializeField] private RectTransform targetPivot;
     [SerializeField] private bool exactTargetMode;
-    [SerializeField, Range(0.15f, 0.85f)] private float comicTopAttachment = 0.3f;
+    [SerializeField, Range(0.15f, 0.85f)] private float comicSideAttachment = 0.5f;
+    [SerializeField, Range(16f, 120f)] private float comicHostTailLength = 48f;
 
     private BattleSpeechBubbleTailStyle style;
     private Color fillColor =
@@ -417,7 +418,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         Rect rect = attachmentRect;
 
         bool placeRight =
-            localDelta.x >= 0f;
+            BattleUiStyleController.IsComic || localDelta.x >= 0f;
 
         PlaceHorizontal(
             placeRight,
@@ -586,7 +587,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     {
         tip = Vector2.zero;
         size = Vector2.zero;
-        attachment = comicTopAttachment;
+        attachment = comicSideAttachment;
         if (!isActiveAndEnabled || targetPivot == null || space == null || tailRect == null || style == null) return false;
         Rect rect = tailRect.rect;
         tip = space.InverseTransformPoint(tailRect.TransformPoint(new Vector2(
@@ -595,7 +596,15 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         size.x = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.right * renderSize.x)).magnitude;
         size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up *
             (renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f))).magnitude;
-        tip = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
+        if (exactTargetMode)
+            tip = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
+        else
+        {
+            Rect frame = GetAttachmentRect();
+            Vector2 hostTip = new(frame.xMax + comicHostTailLength,
+                Mathf.Lerp(frame.yMin, frame.yMax, comicSideAttachment));
+            tip = space.InverseTransformPoint(bubbleRect.TransformPoint(hostTip));
+        }
         return true;
     }
 
@@ -605,7 +614,8 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         float contentHeight = renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale;
         float halfWidth = contentHeight * activeStyle.rootHalfWidth;
         float inset = Mathf.Min(halfWidth, bubble.height * 0.35f);
-        Vector2 root = new(Mathf.Lerp(bubble.xMin, bubble.xMax, comicTopAttachment), bubble.yMax - inset);
+        Vector2 root = new(target.x >= bubble.center.x ? bubble.xMax - inset : bubble.xMin + inset,
+            Mathf.Lerp(bubble.yMin, bubble.yMax, comicSideAttachment));
         Vector2 delta = target - root;
         tailRect.anchorMin = tailRect.anchorMax = bubbleRect.pivot;
         tailRect.pivot = new Vector2(0f, 0.5f);

@@ -1064,11 +1064,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             target.rectTransform, out Vector2 tip, out float attachment, out Vector2 tailSize))
         {
             int edge = 0;
+            Vector2 center = (corners[0] + corners[1] + corners[2] + corners[3]) * 0.25f;
+            bool right = tip.x >= center.x;
             for (int i = 1; i < 4; i++)
-                if (corners[i].y + corners[(i + 1) % 4].y > corners[edge].y + corners[(edge + 1) % 4].y)
+                if (right ? corners[i].x + corners[(i + 1) % 4].x > corners[edge].x + corners[(edge + 1) % 4].x
+                    : corners[i].x + corners[(i + 1) % 4].x < corners[edge].x + corners[(edge + 1) % 4].x)
                     edge = i;
             Vector2 start = corners[edge], end = corners[(edge + 1) % 4];
-            float along = start.x < end.x ? attachment : 1f - attachment;
+            float along = start.y < end.y ? attachment : 1f - attachment;
             float half = Mathf.Min(0.24f, tailSize.y / Mathf.Max(1f, Vector2.Distance(start, end)) * 0.5f);
             Vector2 root = Vector2.Lerp(start, end, along);
             Vector2 direction = tip - root;
@@ -1084,10 +1087,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             {
                 Vector2 pivot = i == 0 ? tailStyle.pivot1 : i == 1 ? tailStyle.pivot2 : tailStyle.pivot3;
                 float halfWidth = i == 0 ? tailStyle.pivot1HalfWidth : i == 1 ? tailStyle.pivot2HalfWidth : tailStyle.pivot3HalfWidth;
-                Vector2 center = root + direction * pivot.x + normal * ((pivot.y - tailStyle.rootY) * width * 2f);
+                Vector2 pivotCenter = root + direction * pivot.x + normal * ((pivot.y - tailStyle.rootY) * width * 2f);
                 float radius = width * halfWidth / Mathf.Max(0.01f, tailStyle.rootHalfWidth);
-                comicSpeechContour[2 + i] = center + normal * radius;
-                comicSpeechContour[8 - i] = center - normal * radius;
+                comicSpeechContour[2 + i] = pivotCenter + normal * radius;
+                comicSpeechContour[8 - i] = pivotCenter - normal * radius;
             }
             comicSpeechContour[5] = tip;
             comicSpeechContour[9] = rootB;
