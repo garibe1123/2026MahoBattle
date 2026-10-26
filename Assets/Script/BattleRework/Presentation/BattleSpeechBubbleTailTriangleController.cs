@@ -16,7 +16,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     [SerializeField] private RectTransform targetPivot;
     [SerializeField] private bool exactTargetMode;
     [SerializeField, Range(0.15f, 0.85f)] private float comicSideAttachment = 0.5f;
-    [SerializeField, Range(16f, 120f)] private float comicHostTailLength = 48f;
+    [SerializeField, Range(16f, 160f)] private float comicHostTailLength = 96f;
 
     private BattleSpeechBubbleTailStyle style;
     private Color fillColor =
