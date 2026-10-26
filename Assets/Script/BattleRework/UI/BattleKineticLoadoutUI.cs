@@ -2767,9 +2767,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         detailTailController.SetExactTargetMode(
             true);
-        detailTailController.SetCursorTargetMode(BattleUiStyleController.IsComic);
+
 
         frameObject.transform.SetAsFirstSibling();
+    }
+
+    private RectTransform ResolveDetailTailTarget(RectTransform target)
+    {
+        if (BattleUiStyleController.IsComic)
+            for (int i = 0; i < SlotCount; i++)
+                if (slotRects[i] == target && slotIcons[i] != null) return slotIcons[i].rectTransform;
+        return target;
     }
 
     private void ConfigureDetailBubble(
@@ -2854,7 +2862,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         detailTailController.Configure(
             detailRoot,
-            target,
+            ResolveDetailTailTarget(target),
             runtimeDetailFrameStyle.fillColor,
             runtimeDetailTailStyle,
             strokeMaterial);
@@ -2936,7 +2944,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         else
         {
             detailTailController?.SetTarget(
-                target);
+                ResolveDetailTailTarget(target));
 
             if (!detailPopupAnimating)
             {
@@ -3035,7 +3043,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     detailTailTarget);
 
             detailTailController?.SetTarget(
-                detailTailTarget);
+                ResolveDetailTailTarget(detailTailTarget));
         }
 
         detailPopupTime +=

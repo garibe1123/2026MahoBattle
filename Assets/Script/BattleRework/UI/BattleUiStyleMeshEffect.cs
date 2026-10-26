@@ -30,8 +30,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private BattleSpeechBubbleFrameFillController speechGeometry;
     private Vector2[] speechCorners;
     private Vector2[] speechTailCorners;
-    private readonly Vector2[] comicSpeechContour = new Vector2[7];
-    private readonly int[] comicSpeechIndices = new int[7];
+    private readonly Vector2[] comicSpeechContour = new Vector2[13];
+    private readonly int[] comicSpeechIndices = new int[13];
     private bool speechBadge;
     private Image image;
     private BattleUiPanelDecoration decoration;
@@ -1069,21 +1069,29 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     edge = i;
             Vector2 start = corners[edge], end = corners[(edge + 1) % 4];
             float along = start.x < end.x ? attachment : 1f - attachment;
-            float half = Mathf.Min(0.12f, tailSize.y / Mathf.Max(1f, Vector2.Distance(start, end)) * 0.5f);
+            float half = Mathf.Min(0.24f, tailSize.y / Mathf.Max(1f, Vector2.Distance(start, end)) * 0.5f);
             Vector2 root = Vector2.Lerp(start, end, along);
-            float length = Mathf.Max(tailSize.x, tailSize.y);
-            float rise = Mathf.Clamp(tip.y - root.y,
-                Mathf.Min(length * 0.75f, Mathf.Max(tailSize.y * 0.75f, length * 0.4f)),
-                length * 0.75f);
-            float reach = Mathf.Sqrt(Mathf.Max(0f, length * length - rise * rise));
-            if (!speechGeometry.ComicTail.CursorTargetMode)
-                tip = root + new Vector2(Mathf.Clamp(tip.x - root.x, -reach, reach), rise);
-            // Keep the join on the actual frame edge, including its random rotation.
+            Vector2 direction = tip - root;
+            Vector2 normal = new Vector2(-direction.y, direction.x).normalized;
+            Vector2 rootA = Vector2.Lerp(start, end, Mathf.Clamp01(along - half));
+            Vector2 rootB = Vector2.Lerp(start, end, Mathf.Clamp01(along + half));
+            if (Vector2.Dot(normal, rootA - root) < 0f) normal = -normal;
+            BattleSpeechBubbleTailStyle tailStyle = speechGeometry.ComicTail.ComicStyle;
+            float width = Vector2.Distance(rootA, rootB) * 0.5f;
             comicSpeechContour[0] = start;
-            comicSpeechContour[1] = Vector2.Lerp(start, end, Mathf.Clamp01(along - half));
-            comicSpeechContour[2] = tip;
-            comicSpeechContour[3] = Vector2.Lerp(start, end, Mathf.Clamp01(along + half));
-            for (int i = 1; i < 4; i++) comicSpeechContour[i + 3] = corners[(edge + i) % 4];
+            comicSpeechContour[1] = rootA;
+            for (int i = 0; i < 3; i++)
+            {
+                Vector2 pivot = i == 0 ? tailStyle.pivot1 : i == 1 ? tailStyle.pivot2 : tailStyle.pivot3;
+                float halfWidth = i == 0 ? tailStyle.pivot1HalfWidth : i == 1 ? tailStyle.pivot2HalfWidth : tailStyle.pivot3HalfWidth;
+                Vector2 center = root + direction * pivot.x + normal * ((pivot.y - tailStyle.rootY) * width * 2f);
+                float radius = width * halfWidth / Mathf.Max(0.01f, tailStyle.rootHalfWidth);
+                comicSpeechContour[2 + i] = center + normal * radius;
+                comicSpeechContour[8 - i] = center - normal * radius;
+            }
+            comicSpeechContour[5] = tip;
+            comicSpeechContour[9] = rootB;
+            for (int i = 1; i < 4; i++) comicSpeechContour[i + 9] = corners[(edge + i) % 4];
             DrawComicSpeechPolygon(vh, comicSpeechContour, settings, alpha);
             return;
         }

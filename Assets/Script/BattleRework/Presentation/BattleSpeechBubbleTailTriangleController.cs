@@ -38,24 +38,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private readonly Vector3[] frameCorners = new Vector3[4];
     private readonly Vector2[] comicFrameCorners = new Vector2[4];
     private float rootJoinHalfHeight;
-    private bool cursorTargetMode;
-    private Canvas targetCanvas;
-
-    internal bool CursorTargetMode => cursorTargetMode && UnityEngine.InputSystem.Pointer.current != null;
-
-    public void SetCursorTargetMode(bool enabled)
-    {
-        cursorTargetMode = enabled;
-    }
-
-    private bool TryGetCursorPoint(RectTransform space, out Vector2 point)
-    {
-        point = Vector2.zero;
-        if (!CursorTargetMode || targetCanvas == null) return false;
-        Camera camera = targetCanvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : targetCanvas.worldCamera;
-        return RectTransformUtility.ScreenPointToLocalPointInRectangle(space,
-            UnityEngine.InputSystem.Pointer.current.position.ReadValue(), camera, out point);
-    }
+    internal BattleSpeechBubbleTailStyle ComicStyle => style;
 
     public void Configure(
         RectTransform bubble,
@@ -65,8 +48,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         Material outlineMaterial = null)
     {
         bubbleRect = bubble;
-        targetCanvas = bubble != null ? bubble.GetComponentInParent<Canvas>() : null;
-        if (targetCanvas != null) targetCanvas = targetCanvas.rootCanvas;
         frameController = bubble != null
             ? bubble.GetComponentInChildren<BattleSpeechBubbleFrameFillController>(true)
             : null;
@@ -77,7 +58,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         if (BattleUiStyleController.IsComic)
         {
             style = style.CreateRuntimeVariant(null, 0);
-            style.ApplyTrianglePreset();
+            style.ApplyLightningPreset();
             style.outlineColor = BattleUiStyleController.Settings.comicWhite;
             fillColor = BattleUiStyleController.Settings.comicInk;
         }
@@ -135,8 +116,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     {
         RefreshSpriteIfNeeded(force: false);
         RefreshPlacement();
-        if (BattleUiStyleController.IsComic && CursorTargetMode)
-            frameController?.RefreshComicOutline();
     }
 
     private void OnDestroy()
@@ -461,7 +440,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
         if (BattleUiStyleController.IsComic)
         {
-            if (TryGetCursorPoint(bubbleRect, out Vector2 cursorPoint)) targetLocal = cursorPoint;
+
             PlaceComicTopTarget(activeStyle, bubble, targetLocal);
             return;
         }
@@ -616,7 +595,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         size.x = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.right * renderSize.x)).magnitude;
         size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up *
             (renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f))).magnitude;
-        if (TryGetCursorPoint(space, out Vector2 cursorPoint)) tip = cursorPoint;
+        tip = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
         return true;
     }
 
@@ -627,7 +606,6 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         float halfWidth = contentHeight * activeStyle.rootHalfWidth;
         float inset = Mathf.Min(halfWidth, bubble.height * 0.35f);
         Vector2 root = new(Mathf.Lerp(bubble.xMin, bubble.xMax, comicTopAttachment), bubble.yMax - inset);
-        if (!CursorTargetMode) target.y = Mathf.Max(target.y, bubble.yMax + contentHeight * 0.5f);
         Vector2 delta = target - root;
         tailRect.anchorMin = tailRect.anchorMax = bubbleRect.pivot;
         tailRect.pivot = new Vector2(0f, 0.5f);
