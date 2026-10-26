@@ -881,8 +881,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
         float cut = Mathf.Min(rect.width * 0.08f, rect.height * 0.2f);
-        float angle = Mathf.Clamp(settings.comicPanelAngle, -4f, 4f) * Mathf.Deg2Rad;
-        float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
+        float skew = Mathf.Tan(Mathf.Clamp(settings.comicPanelAngle, -4f, 4f) * Mathf.Deg2Rad) * rect.height;
+        skew = Mathf.Clamp(skew, -cut * 0.5f, cut * 0.5f);
         const int count = 7;
         vh.AddVert(rect.center, tint, Vector2.zero);
         for (int i = 0; i < count; i++)
@@ -890,19 +890,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             Vector2 point = i switch
             {
                 0 => new Vector2(rect.xMin + cut, rect.yMin),
-                1 => new Vector2(rect.xMin, rect.yMax - cut),
-                2 => new Vector2(rect.xMin + cut * 0.5f, rect.yMax),
+                1 => new Vector2(rect.xMin, rect.yMax - cut * 0.5f),
+                2 => new Vector2(rect.xMin + cut + skew, rect.yMax),
                 3 => new Vector2(rect.xMax, rect.yMax - cut * 0.3f),
-                4 => new Vector2(rect.xMax - cut * 0.7f, rect.yMin + cut),
+                4 => new Vector2(rect.xMax - cut + skew, rect.yMin + cut * 0.2f),
                 5 => new Vector2(rect.xMin + rect.width * 0.7f, rect.yMin + cut * 0.15f),
                 _ => new Vector2(rect.xMin + rect.width * 0.6f,
-                    rect.yMin - (spike ? rect.height * settings.comicSpikeRatio : 0f))
+                    rect.yMin - (spike ? rect.height * Mathf.Clamp(settings.comicSpikeRatio, 0f, 0.2f) : 0f))
             };
-            Vector2 local = point - rect.center;
-            // Keep the frame inside its input rectangle; only the speech connector extends below it.
-            float fit = Mathf.Min(rect.width / Mathf.Max(0.001f, rect.width * cos + rect.height * Mathf.Abs(sin)),
-                rect.height / Mathf.Max(0.001f, rect.height * cos + rect.width * Mathf.Abs(sin)));
-            point = rect.center + new Vector2(local.x * cos - local.y * sin, local.x * sin + local.y * cos) * fit;
             vh.AddVert(point, tint, Vector2.zero);
         }
         for (int i = 0; i < count; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
@@ -1005,85 +1000,85 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private static void DrawStylishFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings,
         float alpha, bool selected, bool primary, bool card)
     {
+        if (rect.width <= 0f || rect.height <= 0f) return;
         float border = Mathf.Min(Mathf.Clamp(settings.inkOutlineWidth, 3f, 5f), Mathf.Min(rect.width, rect.height) * 0.12f);
-        float shadowOffset = Mathf.Clamp(settings.stylishShadowOffset, 4f, 8f);
-        Rect shadow = new(rect.x + shadowOffset, rect.y - shadowOffset, rect.width, rect.height);
+        float glow = selected ? Mathf.Min(Mathf.Clamp(settings.inkGlowWidth, 8f, 14f), rect.height * 0.12f) : 0f;
+        float shadowOffset = Mathf.Min(Mathf.Clamp(settings.stylishShadowOffset, 4f, 8f), rect.height * 0.06f);
+        Rect body = Inset(rect, glow);
+        body = new Rect(body.x, body.y + shadowOffset, body.width - shadowOffset, body.height - shadowOffset);
+        bool rounded = card || primary || selected;
+        Rect shadow = new(body.x + shadowOffset, body.y - shadowOffset, body.width, body.height);
         Color ink = settings.inkBackground;
         ink.a *= alpha;
-        StylishFill(vh, shadow, settings, ink, card || primary);
+        StylishFill(vh, shadow, settings, ink, rounded);
         if (selected)
         {
-            float glow = Mathf.Clamp(settings.inkGlowWidth, 8f, 14f);
-            for (int i = 2; i > 0; i--)
+            for (int i = 3; i > 0; i--)
             {
-                Color light = settings.inkCyan;
-                light.a *= alpha * (i == 2 ? 0.08f : 0.18f);
-                float spread = glow * i * 0.5f;
-                StylishFill(vh, new Rect(rect.x - spread, rect.y - spread,
-                    rect.width + spread * 2f, rect.height + spread * 2f), settings, light, card || primary);
+                Color light = i == 3 ? settings.inkMagenta : settings.inkCyan;
+                light.a *= alpha * (0.16f / i);
+                float spread = glow * i / 3f;
+                StylishFill(vh, new Rect(body.x - spread, body.y - spread,
+                    body.width + spread * 2f, body.height + spread * 2f), settings, light, rounded);
             }
         }
-        StylishFill(vh, rect, settings, ink, card || primary);
-        Rect rim = Inset(rect, border);
-        Color neon = selected ? settings.inkCyan : primary ? settings.inkLime : settings.inkMagenta;
-        neon.a *= alpha;
-        StylishFill(vh, rim, settings, neon, card || primary);
-        Rect face = Inset(rim, Mathf.Max(1f, border * 0.4f));
+        Color rim = selected ? settings.inkCyan : ink;
+        rim.a = ink.a;
+        StylishFill(vh, body, settings, rim, rounded);
+        Rect face = Inset(body, selected ? border : Mathf.Min(1.5f, border));
         Color fill = primary ? settings.inkLime : settings.inkBackground;
         fill.a *= alpha;
-        StylishFill(vh, face, settings, fill, card || primary);
-        if (!primary && face.width > 240f && face.height > 120f)
-        {
-            Color mint = settings.inkCyan;
-            mint.a *= alpha * settings.stylishColorBandAlpha;
-            DrawColorWave(vh, Inset(face, border * 2f), settings.stylishColorBandHeight, mint);
-            Color yellow = settings.inkLime;
-            yellow.a *= alpha * 0.8f;
-            Rect ribbon = new(face.xMax - face.width * 0.24f, face.yMax - border * 4f,
-                face.width * 0.18f, border * 1.5f);
-            AccentSlant(vh, ribbon, Mathf.Clamp(settings.inkPanelAngle, -4f, 4f), yellow);
-            Color pinkBand = settings.inkMagenta;
-            pinkBand.a *= alpha * settings.stylishColorBandAlpha;
-            AccentSlant(vh, new Rect(face.xMax - face.width * 0.2f, face.yMin + border,
-                face.width * 0.16f, face.height * 0.42f), Mathf.Clamp(settings.inkPanelAngle, -4f, 4f), pinkBand);
-        }
-        Color pink = settings.inkMagenta;
-        pink.a *= alpha;
-        AccentSlant(vh, new Rect(face.xMax - face.width * 0.18f, face.yMin,
-            face.width * 0.18f, Mathf.Min(8f, face.height * 0.12f)), Mathf.Clamp(settings.inkPanelAngle, -4f, 4f), pink);
-        float step = Mathf.Max(4f, settings.stylishDotSpacing);
-        Color dot = settings.innerLine;
-        dot.a *= alpha * settings.surfacePatternAlpha;
-        for (int row = 0; row < 3; row++)
-            for (int column = 0; column < 8; column++)
+        StylishFill(vh, face, settings, fill, rounded);
+        float radius = Mathf.Min(settings.stylishCardRadius, face.height * 0.22f);
+        Rect safe = Inset(face, Mathf.Max(border * 2f, radius));
+        if (safe.width <= 0f || safe.height <= 0f) return;
+        Color tag = primary ? settings.inkBackground : settings.inkMagenta;
+        tag.a *= alpha;
+        AccentSlant(vh, new Rect(safe.xMax - safe.width * 0.16f, safe.yMin,
+            safe.width * 0.16f, Mathf.Min(5f, safe.height * 0.1f)), settings.inkPanelAngle, tag);
+        float step = Mathf.Max(16f, settings.stylishDotSpacing * 2f);
+        Color pattern = primary ? settings.inkBackground : settings.inkCyan;
+        pattern.a *= alpha * settings.surfacePatternAlpha * 0.5f;
+        for (int row = 0; row < 2; row++)
+            for (int column = 0; column < 5; column++)
             {
-                Vector2 point = new(face.xMax - step * (column + 1), face.yMin + step * (row + 1));
-                if (point.x < face.center.x || point.y > face.center.y) continue;
-                DrawDot(vh, point, settings.stylishDotRadius, dot);
+                Vector2 point = new(safe.xMax - step * (column + 1), safe.yMin + step * (row + 1));
+                if (point.x < safe.center.x || point.y + step * 0.3f > safe.center.y) continue;
+                int first = vh.currentVertCount;
+                vh.AddVert(point, pattern, Vector2.zero);
+                vh.AddVert(point + new Vector2(step * 0.55f, step * 0.12f), pattern, Vector2.zero);
+                vh.AddVert(point + new Vector2(step * 0.15f, step * 0.55f), pattern, Vector2.zero);
+                vh.AddTriangle(first, first + 1, first + 2);
             }
     }
 
     private static void StylishFill(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, Color tint, bool rounded)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
-        const int segments = 32;
-        int first = vh.currentVertCount;
-        float angle = Mathf.Clamp(settings.inkPanelAngle, -4f, 4f) * Mathf.Deg2Rad;
-        float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
-        vh.AddVert(rect.center, tint, Vector2.zero);
-        for (int i = 0; i < segments; i++)
+        const int steps = 6;
+        float depth = rounded && rect.width >= 160f && rect.height >= 72f
+            ? Mathf.Min(18f, rect.height * Mathf.Clamp(settings.inkLobeRatio, 0f, 0.12f) * 2f) : 0f;
+        Rect body = new(rect.x, rect.y + depth, rect.width, rect.height - depth);
+        float radius = Mathf.Min(rounded ? settings.stylishCardRadius : 8f, body.height * (rounded ? 0.22f : 0.12f));
+        radius = Mathf.Clamp(radius, 0f, body.width * 0.25f);
+        RoundedFill(vh, body, radius, tint);
+        for (int drip = 0; drip < 2 && depth > 0f; drip++)
         {
-            float t = i * Mathf.PI * 2f / segments;
-            float x = Mathf.Cos(t), y = Mathf.Sin(t);
-            float radius = 1f - settings.inkLobeRatio * (0.5f + 0.5f * Mathf.Sin(t * 7f + 0.8f));
-            Vector2 point = new(Mathf.Sign(x) * Mathf.Pow(Mathf.Abs(x), rounded ? 0.4f : 0.22f) * rect.width * 0.5f,
-                Mathf.Sign(y) * Mathf.Pow(Mathf.Abs(y), rounded ? 0.4f : 0.22f) * rect.height * 0.5f);
-            float fit = Mathf.Min(rect.width / Mathf.Max(0.001f, rect.width * cos + rect.height * Mathf.Abs(sin)),
-                rect.height / Mathf.Max(0.001f, rect.height * cos + rect.width * Mathf.Abs(sin)));
-            point = rect.center + new Vector2(point.x * cos - point.y * sin, point.x * sin + point.y * cos) * (radius * fit);
-            vh.AddVert(point, tint, Vector2.zero);
+            float length = depth * (drip == 0 ? 1f : 0.65f);
+            float half = length * 0.42f;
+            float x = body.xMin + body.width * (drip == 0 ? 0.63f : 0.74f);
+            Quad(vh, new Rect(x - half, body.yMin - length + half, half * 2f, length - half), tint);
+            int first = vh.currentVertCount;
+            vh.AddVert(new Vector2(x, body.yMin - length + half), tint, Vector2.zero);
+            for (int step = 0; step <= steps; step++)
+            {
+                float angle = (180f + step * 180f / steps) * Mathf.Deg2Rad;
+                vh.AddVert(new Vector2(x + Mathf.Cos(angle) * half,
+                    body.yMin - length + half + Mathf.Sin(angle) * half), tint, Vector2.zero);
+            }
+            for (int step = 0; step < steps; step++)
+                vh.AddTriangle(first, first + step + 1, first + step + 2);
         }
-        for (int i = 0; i < segments; i++) vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % segments);
     }
 
     private static void DrawColorWave(VertexHelper vh, Rect rect, float height, Color tint)
@@ -1108,12 +1103,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal static void AccentSlant(VertexHelper vh, Rect rect, float angle, Color tint)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
-        float cut = Mathf.Min(rect.width * 0.12f, rect.height * Mathf.Tan(angle * Mathf.Deg2Rad));
+        float cut = Mathf.Min(rect.width * 0.12f, rect.height * Mathf.Abs(Mathf.Tan(Mathf.Clamp(angle, -4f, 4f) * Mathf.Deg2Rad)));
         int first = vh.currentVertCount;
-        vh.AddVert(new Vector3(rect.xMin, rect.yMin, 0f), tint, Vector2.zero);
-        vh.AddVert(new Vector3(rect.xMin + cut, rect.yMax, 0f), tint, Vector2.zero);
-        vh.AddVert(new Vector3(rect.xMax, rect.yMax, 0f), tint, Vector2.zero);
-        vh.AddVert(new Vector3(rect.xMax - cut, rect.yMin, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMin + (angle < 0f ? cut : 0f), rect.yMin, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMin + (angle < 0f ? 0f : cut), rect.yMax, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax - (angle < 0f ? cut : 0f), rect.yMax, 0f), tint, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax - (angle < 0f ? 0f : cut), rect.yMin, 0f), tint, Vector2.zero);
         vh.AddTriangle(first, first + 1, first + 2);
         vh.AddTriangle(first, first + 2, first + 3);
     }

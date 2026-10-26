@@ -392,8 +392,14 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
                 }
                 else
                 {
-                    BattleUiStyleMeshEffect.AccentSlant(vh, header, Mathf.Clamp(style.inkPanelAngle, -4f, 4f), rim);
-                    BattleUiStyleMeshEffect.AccentSlant(vh, BattleUiStyleMeshEffect.Inset(header, 2f * scale), Mathf.Clamp(style.inkPanelAngle, -4f, 4f), paper);
+                    Color ink = style.inkBackground;
+                    ink.a *= opacity;
+                    BattleUiStyleMeshEffect.RoundedFill(vh, header, 4f * scale, ink);
+                    BattleUiStyleMeshEffect.AccentSlant(vh,
+                        new Rect(header.xMin, header.yMin + 3f * scale, 4f * scale, header.height - 6f * scale),
+                        Mathf.Clamp(style.inkPanelAngle, -4f, 4f), rim);
+                    BattleUiStyleMeshEffect.Quad(vh,
+                        new Rect(header.xMin + 8f * scale, header.yMin, header.width - 16f * scale, 2f * scale), paper);
                 }
             }
             backgroundVertexCount = vh.currentVertCount;
@@ -406,7 +412,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             if (selected)
                 BattleUiStyleMeshEffect.Quad(vh,
                     new Rect(face.xMin + border, face.yMin + border,
-                        face.width - border * 2f, Mathf.Min(3f, face.height - border * 2f)), style.highlight);
+                        face.width - border * 2f, Mathf.Min(3f, face.height - border * 2f)), birthday ? style.highlight : style.inkLime);
             if (birthday && hasHeader) DrawBirthdayStars(vh, face, style, border, scale, opacity);
             return;
         }

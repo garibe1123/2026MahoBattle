@@ -31,6 +31,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private readonly float paperAngle;
     private Color outline, shadow;
     private float outlineWidth = -1f;
+    private float glowWidth = -1f;
     private Vector2 shadowOffset;
     private bool subMeshesPending;
     private bool decoratedTitle = true;
@@ -153,23 +154,39 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.fontSharedMaterial = material;
             outlineWidth = -1f;
         }
-        Color nextOutline = poster ? (cartoon ? style.comicWhite : style.inkBackground) : style.outerFrame;
-        Color nextShadow = poster ? (cartoon ? style.comicInk : style.inkCyan) : birthday ? style.energy : style.status;
+        Color nextOutline = poster ? (cartoon ? style.comicWhite : style.inkCyan) : style.outerFrame;
+        Color nextShadow = poster ? (cartoon ? style.comicInk : style.inkBackground) : birthday ? style.energy : style.status;
         bool paper = BattleUiStyleController.IsPaper;
-        float nextWidth = poster ? Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) :
+        float nextWidth = poster ? Mathf.Clamp01(Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) *
+            font.faceInfo.pointSize / Mathf.Max(1f, material.GetFloat("_GradientScale"))) :
             decorate && !paper && !cmd ? style.titleOutlineWidth : 0f;
+        float nextGlow = poster && !cartoon ? Mathf.Clamp(style.inkGlowWidth, 8f, 14f) : 0f;
         if (outline != nextOutline || shadow != nextShadow || outlineWidth != nextWidth ||
-            shadowOffset != style.titleShadowOffset)
+            shadowOffset != style.titleShadowOffset || glowWidth != nextGlow)
         {
             outline = nextOutline;
             shadow = nextShadow;
             outlineWidth = nextWidth;
+            glowWidth = nextGlow;
             shadowOffset = style.titleShadowOffset;
             material.SetColor("_OutlineColor", outline);
             material.SetFloat("_OutlineWidth", outlineWidth);
             material.SetColor("_UnderlayColor", shadow);
             material.SetFloat("_UnderlayOffsetX", shadowOffset.x);
             material.SetFloat("_UnderlayOffsetY", shadowOffset.y);
+            material.SetFloat("_UnderlayDilate", poster ? Mathf.Clamp01(nextWidth + 0.15f) : font.material.GetFloat("_UnderlayDilate"));
+            if (material.HasProperty("_GlowColor"))
+            {
+                if (nextGlow > 0f)
+                {
+                    material.EnableKeyword("GLOW_ON");
+                    Color halo = style.inkCyan;
+                    halo.a *= 0.45f;
+                    material.SetColor("_GlowColor", halo);
+                    material.SetFloat("_GlowOuter", Mathf.Clamp01(nextGlow / Mathf.Max(1f, SourceSize)));
+                }
+                else material.DisableKeyword("GLOW_ON");
+            }
             text.UpdateMeshPadding();
             text.SetMaterialDirty();
             text.SetVerticesDirty();
@@ -326,11 +343,6 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         Rect rect = text.rectTransform.rect;
         float inset = Mathf.Min(padding, Mathf.Min(rect.width, rect.height) * 0.25f);
         rect = BattleUiStyleMeshEffect.Inset(rect, inset);
-        if (poster)
-        {
-            float extent = BackingMargin(backingExtent);
-            rect = BattleUiStyleMeshEffect.Inset(rect, extent);
-        }
         if (rect.width <= 0f || rect.height <= 0f) return;
         Vector2 min = new(float.MaxValue, float.MaxValue), max = new(float.MinValue, float.MinValue);
         for (int i = 0; i < info.characterCount; i++)
@@ -348,11 +360,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         if (min.x == float.MaxValue) return;
         Vector2 size = max - min, center = (min + max) * 0.5f;
-        float scale = Mathf.Min(1f, Mathf.Min(rect.width / Mathf.Max(0.001f, size.x),
-            rect.height / Mathf.Max(0.001f, size.y)));
+        float extent = poster ? BackingMargin(backingExtent) : 0f;
+        float scale = Mathf.Min(1f, Mathf.Min(rect.width / Mathf.Max(0.001f, size.x + extent * 2f),
+            rect.height / Mathf.Max(0.001f, size.y + extent * 2f)));
         if (poster) fittedTitleScale = scale;
-        Vector2 fitted = new(Mathf.Clamp(center.x, rect.xMin + size.x * scale * 0.5f, rect.xMax - size.x * scale * 0.5f),
-            Mathf.Clamp(center.y, rect.yMin + size.y * scale * 0.5f, rect.yMax - size.y * scale * 0.5f));
+        Vector2 half = (size * 0.5f + Vector2.one * extent) * scale;
+        Vector2 fitted = new(Mathf.Clamp(center.x, rect.xMin + half.x, rect.xMax - half.x),
+            Mathf.Clamp(center.y, rect.yMin + half.y, rect.yMax - half.y));
         for (int i = 0; i < info.characterCount; i++)
         {
             TMP_CharacterInfo character = info.characterInfo[i];
@@ -451,7 +465,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Vector2 offset = transform != null ? transform.offset * height : Vector2.zero;
             if (motion.curveLines) offset.y += 4f * along * (1f - along) * motion.curveHeight * height;
             float bounceOffset = 0f;
-            float bounceExtent = motion.bounce ? Mathf.Max(0f, motion.bounceAmplitude) * height * Mathf.Abs(motion.scale.y) : 0f;
+            float motionY = poster ? 1f : motion.scale.y;
+            float bounceExtent = motion.bounce ? Mathf.Max(0f, motion.bounceAmplitude) * height * Mathf.Abs(motionY) : 0f;
             if (motion.bounce && motion.bounceAmplitude > 0f)
             {
                 float progress = (Time.unscaledTime - characterStarts[i]) / Mathf.Max(0.01f, motion.bounceDuration);
@@ -468,12 +483,18 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Vector2 glyphScale = transform != null ? transform.scale : Vector2.one;
             if (poster && cartoon)
             {
-                glyphScale.x = Mathf.Clamp(glyphScale.x, 0.85f, 1.25f);
-                glyphScale.y = Mathf.Clamp(glyphScale.y, 0.85f, 1.25f);
+                glyphScale = Vector2.one * Mathf.Clamp(glyphScale.y, 0.85f, 1.25f);
                 angle = Mathf.Clamp(transform != null ? transform.rotation : 0f, -10f, 10f) * Mathf.Deg2Rad;
                 sin = Mathf.Sin(angle); cos = Mathf.Cos(angle);
             }
-            float glyphShear = shear + (transform != null ? transform.shear : 0f);
+            else if (poster)
+            {
+                glyphScale = Vector2.one * Mathf.Clamp(glyphScale.y, 0.96f, 1.04f);
+                angle = Mathf.Clamp(transform != null ? transform.rotation : 0f, -3f, 3f) * Mathf.Deg2Rad;
+                sin = Mathf.Sin(angle); cos = Mathf.Cos(angle);
+            }
+            float glyphShear = poster ? 0f : shear + (transform != null ? transform.shear : 0f);
+            Vector2 lineScale = poster ? Vector2.one : motion.scale;
             Color accent = i % 3 == 0 ? motion.cyan : i % 3 == 1 ? motion.magenta : motion.yellow;
             for (int j = 0; j < 4; j++)
             {
@@ -484,9 +505,9 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
                 local.x += glyphShear * local.y;
                 Vector2 rotated = new(local.x * cos - local.y * sin, local.x * sin + local.y * cos);
                 Vector2 position = (Vector2)center + rotated + offset;
-                position = lineCenter + Vector2.Scale(position - lineCenter, motion.scale);
+                position = lineCenter + Vector2.Scale(position - lineCenter, lineScale);
                 vertices[index] = new Vector3(position.x, position.y, original.z);
-                float restY = position.y - bounceOffset * motion.scale.y;
+                float restY = position.y - bounceOffset * motionY;
                 boundsMin = Vector3.Min(boundsMin, new Vector3(position.x, restY - bounceExtent, original.z));
                 boundsMax = Vector3.Max(boundsMax, new Vector3(position.x, restY + bounceExtent, original.z));
                 if (motion.accentCharacters && (!poster || !cartoon))
@@ -509,7 +530,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private void FinishPoster(TMP_TextInfo info)
     {
         if (!poster) return;
-        backing.SetGeometry(info, posterSettings, backingExtent * fittedTitleScale, !cartoon, new Color(1f, 1f, 1f, text.color.a));
+        backing.SetGeometry(info, posterSettings, backingExtent * fittedTitleScale, !cartoon,
+            new Color(1f, 1f, 1f, text.color.a), fittedTitleScale);
         backing.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
         Vector3 min = new(float.MaxValue, float.MaxValue, 0f), max = new(float.MinValue, float.MinValue, 0f);
         for (int i = 0; i < info.characterCount; i++)
@@ -524,7 +546,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             }
         }
         if (min.x == float.MaxValue) { text.ClearMotionBounds(); return; }
-        float extent = BackingMargin(backingExtent * fittedTitleScale);
+        float extent = BackingMargin(backingExtent) * fittedTitleScale;
         Bounds bounds = new((min + max) * 0.5f, max - min);
         bounds.Expand(extent * 2f);
         text.SetMotionBounds(bounds);

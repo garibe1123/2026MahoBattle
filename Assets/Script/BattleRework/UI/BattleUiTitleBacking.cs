@@ -18,13 +18,13 @@ public sealed class BattleUiTitleBacking : MaskableGraphic
     private float stroke, glow, line;
     private bool neon;
 
-    internal void SetGeometry(TMP_TextInfo info, BattleUiStyleSettings settings, float extent, bool stylish, Color tint)
+    internal void SetGeometry(TMP_TextInfo info, BattleUiStyleSettings settings, float extent, bool stylish, Color tint, float scale)
     {
         pieces.Clear();
         stroke = extent;
         neon = stylish;
-        glow = stylish ? Mathf.Clamp(settings.inkGlowWidth, 8f, 14f) : 0f;
-        line = stylish ? Mathf.Clamp(settings.inkOutlineWidth, 3f, 5f) : extent;
+        glow = stylish ? Mathf.Clamp(settings.inkGlowWidth, 8f, 14f) * scale : 0f;
+        line = stylish ? Mathf.Clamp(settings.inkOutlineWidth, 3f, 5f) * scale : extent;
         ink = stylish ? settings.inkBackground : settings.comicInk;
         rim = stylish ? settings.inkBackground : settings.comicWhite;
         light = settings.inkCyan;
@@ -43,8 +43,16 @@ public sealed class BattleUiTitleBacking : MaskableGraphic
             int index = character.vertexIndex;
             Piece piece = new() { a = v[index], b = v[index + 1], c = v[index + 2], d = v[index + 3] };
             if (previousLine == character.lineNumber)
-                pieces.Add(new Piece { a = previous.d, b = previous.c, c = piece.b, d = piece.a });
-            pieces.Add(piece);
+            {
+                Vector2 from = (previous.a + previous.c) * 0.5f;
+                Vector2 to = (piece.a + piece.c) * 0.5f;
+                float height = Mathf.Min(Vector2.Distance(previous.a, previous.b), Vector2.Distance(piece.a, piece.b));
+                if (to.x > from.x && Vector2.Distance(from, to) <= height * 1.25f)
+                {
+                    Vector2 up = new Vector2(from.y - to.y, to.x - from.x).normalized * stroke * 0.15f;
+                    pieces.Add(new Piece { a = from - up, b = from + up, c = to + up, d = to - up });
+                }
+            }
             previous = piece;
             previousLine = character.lineNumber;
         }
