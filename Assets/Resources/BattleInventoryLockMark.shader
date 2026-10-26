@@ -79,14 +79,14 @@ Shader "UI/BattleInventoryLockMark"
                 for (int segment = 1; segment <= 6; segment++)
                 {
                     float t = segment / 6.0;
-                    float2 point = lerp(start, end, t) + normal * (4 * t * (1 - t) * bend);
-                    float2 edge = point - previous;
+                    float2 curvePoint = lerp(start, end, t) + normal * (4 * t * (1 - t) * bend);
+                    float2 edge = curvePoint - previous;
                     float along = saturate(dot(q - previous, edge) / dot(edge, edge));
                     float pressure = (segment - 1 + along) / 6.0;
                     float thickness = paper ? lerp(0.55, 1.1, sin(pressure * 2.2 + 0.35)) * (1 + character * 0.12) :
                         comic ? lerp(0.65, 1.2, sin(pressure * 3.14159265)) : 1;
-                    distanceToInk = min(distanceToInk, length(q - lerp(previous, point, along)) - radius * thickness);
-                    previous = point;
+                    distanceToInk = min(distanceToInk, length(q - lerp(previous, curvePoint, along)) - radius * thickness);
+                    previous = curvePoint;
                 }
                 if (!paper && !maho && !birthday)
                     distanceToInk = max(distanceToInk, max(dot(start - q, direction), dot(q - end, direction)));
