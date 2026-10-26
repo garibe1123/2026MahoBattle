@@ -60,19 +60,19 @@ Shader "UI/BattleInventoryLockMark"
                 bool paper = _LockStyle.x == 5;
                 float character = Hash(seed * 171 + stroke * 31) * 2 - 1;
                 float variation = _LockStyle.z;
-                float angle = character * variation * (paper ? 0.13 : 0.035);
-                if (stylish) angle += stroke == 0 ? 0.17 : -0.17;
+                float angle = paper ? character * variation * 0.035 : 0;
                 float2 q = float2(p.x * cos(angle) + p.y * sin(angle), -p.x * sin(angle) + p.y * cos(angle));
-                float halfExtent = paper ? 0.42 : 0.40;
+                float halfExtent = 0.44;
                 float2 start = float2(-halfExtent, stroke == 0 ? -halfExtent : halfExtent);
                 float2 end = -start;
-                start *= 1 - (character + 1) * variation * (paper ? 0.09 : 0.035);
-                end *= 1 - (1 - character) * variation * (paper ? 0.09 : 0.035);
+                start *= 1 - (character + 1) * variation * (paper ? 0.025 : 0);
+                end *= 1 - (1 - character) * variation * (paper ? 0.025 : 0);
                 float2 direction = normalize(end - start);
                 float2 normal = float2(-direction.y, direction.x);
                 float weight = comic ? 2 : stylish ? 0.5 : birthday ? 1.8 : paper ? 0.72 : 1;
                 float radius = _LockStyle.y * weight * 0.5;
-                float bend = paper ? character * variation * 0.012 : maho ? 0.025 : birthday ? 0.016 : 0;
+                radius = min(radius, 0.055);
+                float bend = paper ? character * variation * 0.008 : 0;
                 float distanceToInk = 10;
                 float2 previous = start;
                 [unroll]

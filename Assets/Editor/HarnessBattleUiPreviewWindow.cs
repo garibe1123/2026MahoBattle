@@ -214,8 +214,21 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         for (int i = 0; i < 9; i++)
         {
             RectTransform slot = Panel(parent, "GridSlot_" + i, start + new Vector2(i % 3 * (size + 18f), -i / 3 * (size + 18f)), new Vector2(size, size));
-            Label(slot, "Name", i < 3 ? "ITEM " + (i + 1) : "EMPTY", Vector2.zero, new Vector2(size - 12f, 50f), 21);
-            slot.GetComponentInChildren<BattleUiPanelDecoration>().SetEmphasis(i == 0, i == 0);
+            bool locked = i >= 3;
+            if (locked)
+            {
+                RectTransform lockRect = Rect(slot, "LockMark_" + i, Vector2.zero, Vector2.zero);
+                lockRect.anchorMin = Vector2.zero;
+                lockRect.anchorMax = Vector2.one;
+                lockRect.offsetMin = lockRect.offsetMax = Vector2.zero;
+                Image mark = lockRect.gameObject.AddComponent<Image>();
+                mark.color = Color.white;
+                mark.raycastTarget = false;
+            }
+            else Label(slot, "Name", "ITEM " + (i + 1), Vector2.zero, new Vector2(size - 12f, 50f), 21);
+            BattleUiPanelDecoration decoration = slot.GetComponentInChildren<BattleUiPanelDecoration>();
+            decoration.SetEmphasis(i == 0, i == 0);
+            decoration.SetInventoryBackground(locked);
         }
     }
 

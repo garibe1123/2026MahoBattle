@@ -1283,9 +1283,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             {
                 float x = center.x - size * 0.5f + i * step;
                 float y = center.y - size * 0.5f + i * step;
-                Quad(vh, new Rect(x, y, step, step), tint);
+                bool serif = cmd && (i == 0 || i == steps - 1);
+                float width = serif ? step * 2f : step;
+                float inset = serif && i == steps - 1 ? step : 0f;
+                Quad(vh, new Rect(x - inset, y, width, step), tint);
                 if (i != steps / 2)
-                    Quad(vh, new Rect(center.x + size * 0.5f - (i + 1) * step, y, step, step), tint);
+                    Quad(vh, new Rect(center.x + size * 0.5f - (i + 1) * step - (serif ? step - inset : 0f),
+                        y, width, step), tint);
             }
             return;
         }
