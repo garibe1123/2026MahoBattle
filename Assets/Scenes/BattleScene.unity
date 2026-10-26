@@ -1513,6 +1513,11 @@ MonoBehaviour:
   screenGridEnabled: 0
   screenGridContrast: 0.08
   pixelStyleUi:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
     combatBackgroundAlpha: 0.5
     lockedSlotAlpha: 0.4
     logicalPixelSize: 2
@@ -1613,7 +1618,21 @@ MonoBehaviour:
     paperPunchRadius: 3.5
     paperPunchSpacing: 32
     paperPunchInset: 12
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
   comicStyleUi:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
     combatBackgroundAlpha: 0.5
     lockedSlotAlpha: 0.4
     logicalPixelSize: 2
@@ -1714,7 +1733,21 @@ MonoBehaviour:
     paperPunchRadius: 3.5
     paperPunchSpacing: 32
     paperPunchInset: 12
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
   vectorStyleUi:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
     combatBackgroundAlpha: 0.5
     lockedSlotAlpha: 0.4
     logicalPixelSize: 2
@@ -1815,7 +1848,21 @@ MonoBehaviour:
     paperPunchRadius: 3.5
     paperPunchSpacing: 32
     paperPunchInset: 12
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
   mahoShojo:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
     combatBackgroundAlpha: 0.5
     lockedSlotAlpha: 0.4
     logicalPixelSize: 2
@@ -1916,7 +1963,21 @@ MonoBehaviour:
     paperPunchRadius: 3.5
     paperPunchSpacing: 32
     paperPunchInset: 12
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
   stylish:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
     combatBackgroundAlpha: 0.5
     lockedSlotAlpha: 0.4
     logicalPixelSize: 2
@@ -2017,7 +2078,21 @@ MonoBehaviour:
     paperPunchRadius: 3.5
     paperPunchSpacing: 32
     paperPunchInset: 12
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
   birthday:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
     combatBackgroundAlpha: 0.5
     lockedSlotAlpha: 0.4
     logicalPixelSize: 2
@@ -2118,7 +2193,21 @@ MonoBehaviour:
     paperPunchRadius: 3.5
     paperPunchSpacing: 32
     paperPunchInset: 12
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
   paper:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
     combatBackgroundAlpha: 0.5
     lockedSlotAlpha: 0.4
     logicalPixelSize: 2
@@ -2219,6 +2308,130 @@ MonoBehaviour:
     paperPunchRadius: 3.5
     paperPunchSpacing: 32
     paperPunchInset: 12
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
+  cmd:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
+    combatBackgroundAlpha: 0.5
+    lockedSlotAlpha: 0.4
+    logicalPixelSize: 2
+    textPixelSize: 1
+    surfaceShade: 0.55
+    frameShade: 0.6
+    framePixels: 1
+    background: {r: 0.03137255, g: 0.06666667, b: 0.043137256, a: 1}
+    innerLine: {r: 0.39607844, g: 0.8509804, b: 0.52156866, a: 1}
+    outerFrame: {r: 0.20784314, g: 0.972549, b: 0.4745098, a: 1}
+    status: {r: 0.20784314, g: 0.972549, b: 0.4745098, a: 1}
+    font: {fileID: 0}
+    fontAsset: {fileID: 0}
+    panelMaterial: {fileID: 0}
+    textMaterial: {fileID: 0}
+    danger: {r: 0.60784316, g: 0.8901961, b: 0.2901961, a: 1}
+    energy: {r: 0.20784314, g: 0.972549, b: 0.4745098, a: 1}
+    highlight: {r: 0.60784316, g: 0.8901961, b: 0.2901961, a: 1}
+    comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
+    comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
+    comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    mahoCornerRadius: 14
+    mahoBorderWidth: 1
+    mahoShadowOffset: {x: 3, y: -4}
+    mahoShadow: {r: 0, g: 0, b: 0, a: 0.08}
+    stylishBorderWidth: 4
+    stylishTitleShear: 0
+    birthdayBorderWidth: 2
+    birthdayStarCount: 2
+    birthdayStarSizeRatio: 0.12
+    birthdayStarMaxSize: 24
+    birthdayStarMinPanelSize: 120
+    titleFont: {fileID: 0}
+    titleOutlineWidth: 0
+    titleShadowOffset: {x: 0, y: 0}
+    titlePadding: 2
+    titleSizeMultiplier: 1
+    stylishTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 1
+      overflowMargin: 0.15
+      scale: {x: 0.85, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 1
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    stylishDotSpacing: 10
+    stylishDotRadius: 0.8
+    surfacePatternAlpha: 0.12
+    stylishMagenta: {r: 0.64705884, g: 0.10980392, b: 0.4117647, a: 1}
+    stylishNeon: {r: 0.14509805, g: 0.8980392, b: 0.95686275, a: 1}
+    stylishCta: {r: 0.1254902, g: 0.87058824, b: 0.8352941, a: 1}
+    stylishPanelAngle: 8
+    stylishGlowWidth: 8
+    stylishShadowOffset: 6
+    stylishTitleAngle: 0
+    stylishHoverDuration: 0.12
+    stylishPressDuration: 0.08
+    stylishEnterDuration: 0.25
+    stylishCloseDuration: 0.12
+    stylishHoverScale: 1.04
+    stylishPressScale: 0.96
+    stylishConfirmDuration: 0.35
+    stylishCardRadius: 24
+    stylishColorBandAlpha: 0.32
+    stylishColorBandHeight: 0.24
+    paperBorderWidth: 6
+    paperShadowOffset: {x: 2, y: -3}
+    paperShadow: {r: 0, g: 0, b: 0, a: 0.1}
+    paperDecorationAngle: 2
+    paperLabelAngle: 1
+    paperCornerMin: 0.02
+    paperCornerMax: 0.05
+    paperGrainStrength: 0.035
+    paperStainStrength: 0.025
+    paperCreaseStrength: 0.22
+    paperFoldSize: 0.18
+    paperFiberScale: 0.7
+    paperSheetBorderScale: 0.22
+    paperPunchRadius: 2.5
+    paperPunchSpacing: 28
+    paperPunchInset: 9
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
   enableScreenTone: 1
   screenTone:
     DotSize: 13
@@ -2514,6 +2727,8 @@ MonoBehaviour:
   rightSlideDistance: 260
   inactivePanelCornerOffset: {x: 210, y: -26}
   focusLatchPadding: 18
+  tabFocusBlurRadius: 4
+  tabFocusBlurDuration: 0.15
   compactMetricSize: {x: 300, y: 42}
   expandedMetricSize: {x: 470, y: 64}
   standbyMissionSize: {x: 320, y: 72}
