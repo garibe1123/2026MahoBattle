@@ -2767,6 +2767,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         detailTailController.SetExactTargetMode(
             true);
+        detailTailController.SetCursorTargetMode(BattleUiStyleController.IsComic);
 
         frameObject.transform.SetAsFirstSibling();
     }

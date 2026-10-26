@@ -1076,7 +1076,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 Mathf.Min(length * 0.75f, Mathf.Max(tailSize.y * 0.75f, length * 0.4f)),
                 length * 0.75f);
             float reach = Mathf.Sqrt(Mathf.Max(0f, length * length - rise * rise));
-            tip = root + new Vector2(Mathf.Clamp(tip.x - root.x, -reach, reach), rise);
+            if (!speechGeometry.ComicTail.CursorTargetMode)
+                tip = root + new Vector2(Mathf.Clamp(tip.x - root.x, -reach, reach), rise);
             // Keep the join on the actual frame edge, including its random rotation.
             comicSpeechContour[0] = start;
             comicSpeechContour[1] = Vector2.Lerp(start, end, Mathf.Clamp01(along - half));
