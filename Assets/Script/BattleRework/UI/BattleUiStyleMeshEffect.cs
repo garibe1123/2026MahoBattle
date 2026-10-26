@@ -188,7 +188,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal void ApplyAppearance(bool pixel, BattleUiStyleSettings settings,
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont,
-        Material paperMaterial, Material paperMaskMaterial)
+        Material paperMaterial, Material paperMaskMaterial, Material lockMarkMaterial)
     {
         bool cmd = BattleUiStyleController.IsCmd;
         if (cmd && !PreserveBackdrop() && (decoration == target || (image != null && !decoratedSurface &&
@@ -259,7 +259,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             (image != null && (image.name == "TailShape" || (image.sprite == null && (stylishSurface || stylishButton))))))
             next = target.defaultMaterial;
         if (HasAssignedMaterial()) next = null;
-        if (lockMark) next = target.defaultMaterial;
+        if (lockMark) next = !pixel && !cmd && lockMarkMaterial != null ? lockMarkMaterial : target.defaultMaterial;
         if (next != null)
         {
             if (!materialOverridden) originalMaterial = CaptureMaterial();
@@ -1263,10 +1263,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private void DrawLockMark(VertexHelper vh)
     {
-        const int PixelSteps = 9, CmdRows = 7, CmdColumns = 5, PaperSegments = 8;
-        const float ComicWeight = 2f, StylishWeight = 0.55f, BirthdayWeight = 1.8f;
-        const float PaperWave = 0.035f, PaperWidthVariation = 0.32f;
-        const float PaperAngleVariation = 12f, StrokeAngleVariation = 5f, LengthVariation = 0.18f;
+        const int PixelSteps = 9, CmdRows = 7, CmdColumns = 5;
+        const float LengthVariation = 0.18f;
         vh.Clear();
         BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         if (settings == null) return;
@@ -1296,85 +1294,28 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             }
             return;
         }
-        bool paper = BattleUiStyleController.IsPaper;
-        bool maho = BattleUiStyleController.IsMahoShojo;
-        bool birthday = BattleUiStyleController.IsBirthday;
-        bool comic = BattleUiStyleController.IsComic;
-        bool stylish = BattleUiStyleController.IsStylish;
-        bool round = paper || maho || birthday;
-        float weight = BattleUiStyleController.IsComic ? ComicWeight :
-            BattleUiStyleController.IsStylish ? StylishWeight :
-            BattleUiStyleController.IsBirthday ? BirthdayWeight : 1f;
-        float width = size * settings.lockMarkStrokeRatio * weight;
-        float half = Mathf.Max(0f, (size - width) * 0.5f) * 0.88f;
-        for (int stroke = 0; stroke < 2; stroke++)
+        if (target.material == target.defaultMaterial)
         {
-            float character = PaperVariation(lockSeed, stroke + 2) * 2f - 1f;
-            float phase = PaperVariation(lockSeed, stroke + 4) * Mathf.PI * 2f;
-            Vector2 start = new(-half, stroke == 0 ? -half : half);
-            Vector2 end = -start;
-            if (paper)
-            {
-                start = Vector2.Scale(start, stroke == 0 ? new Vector2(0.92f, 1f) : new Vector2(1f, 0.85f));
-                end = Vector2.Scale(end, stroke == 0 ? new Vector2(1f, 0.89f) : new Vector2(0.86f, 0.96f));
-            }
-            float angle = ((paper ? PaperAngleVariation : StrokeAngleVariation) * character * variation +
-                (stylish ? (stroke == 0 ? 12f : -12f) : 0f)) * Mathf.Deg2Rad;
-            float cosine = Mathf.Cos(angle), sine = Mathf.Sin(angle);
-            start = new Vector2(start.x * cosine - start.y * sine, start.x * sine + start.y * cosine);
-            end = new Vector2(end.x * cosine - end.y * sine, end.x * sine + end.y * cosine);
-            start *= 1f - (character + 1f) * 0.5f * variation * LengthVariation;
-            end *= 1f - (1f - character) * 0.5f * variation * LengthVariation;
-            int segments = round || comic ? PaperSegments : 1;
-            Vector2 previous = center + start;
-            Vector2 normal = new Vector2(-(end - start).y, (end - start).x).normalized;
-            float strokeWidth = width * (1f + character * variation * (paper || comic ? 0.3f : 0.12f));
-            float previousWidth = strokeWidth;
-            for (int segment = 1; segment <= segments; segment++)
-            {
-                float t = (float)segment / segments;
-                Vector2 point = center + Vector2.Lerp(start, end, t);
-                if (paper)
-                    point += normal * (Mathf.Sin(t * Mathf.PI) * Mathf.Sin(t * Mathf.PI * 2f + phase) * size * PaperWave * (0.5f + variation));
-                else if (maho || birthday)
-                    point += normal * (Mathf.Sin(t * Mathf.PI) * size * (maho ? 0.035f : 0.02f) * (stroke == 0 ? 1f : -1f));
-                float thickness = strokeWidth * (paper ? 1f + PaperWidthVariation * Mathf.Sin(t * Mathf.PI * 2f + phase) :
-                    comic ? Mathf.Lerp(0.7f, 1.2f, Mathf.Sin(t * Mathf.PI)) : 1f);
-                LockStroke(vh, previous, point, normal, previousWidth, thickness, tint);
-                if (round)
-                {
-                    Vector2 direction = new(normal.y, -normal.x);
-                    if (segment == 1) LockCap(vh, previous, -direction, previousWidth * 0.5f, tint);
-                    if (segment == segments) LockCap(vh, point, direction, thickness * 0.5f, tint);
-                }
-                previous = point;
-                previousWidth = thickness;
-            }
+            float half = size * 0.45f, width = size * settings.lockMarkStrokeRatio;
+            LockStroke(vh, center - new Vector2(half, half), center + new Vector2(half, half),
+                new Vector2(-1f, 1f).normalized, width, width, tint);
+            LockStroke(vh, center - new Vector2(half, -half), center + new Vector2(half, -half),
+                new Vector2(1f, 1f).normalized, width, width, tint);
+            return;
         }
-        if (paper && vh.currentVertCount > 0)
+        int first = vh.currentVertCount;
+        Vector2 seed = new(PaperVariation(lockSeed, 0), PaperVariation(lockSeed, 1));
+        for (int i = 0; i < 4; i++)
         {
-            UIVertex vertex = default;
-            vh.PopulateUIVertex(ref vertex, 0);
-            Vector2 minimum = vertex.position, maximum = vertex.position;
-            for (int i = 1; i < vh.currentVertCount; i++)
-            {
-                vh.PopulateUIVertex(ref vertex, i);
-                minimum = Vector2.Min(minimum, vertex.position);
-                maximum = Vector2.Max(maximum, vertex.position);
-            }
-            Vector2 boundsSize = maximum - minimum;
-            float extent = Mathf.Max(boundsSize.x, boundsSize.y);
-            if (extent <= 0f) return;
-            float scale = size / extent;
-            Vector2 boundsCenter = (minimum + maximum) * 0.5f;
-            for (int i = 0; i < vh.currentVertCount; i++)
-            {
-                vh.PopulateUIVertex(ref vertex, i);
-                Vector2 position = center + ((Vector2)vertex.position - boundsCenter) * scale;
-                vertex.position = new Vector3(position.x, position.y, vertex.position.z);
-                vh.SetUIVertex(vertex, i);
-            }
+            Vector2 uv = new(i >= 2 ? 1f : 0f, i == 1 || i == 2 ? 1f : 0f);
+            UIVertex vertex = UIVertex.simpleVert;
+            vertex.position = center + (uv - Vector2.one * 0.5f) * size;
+            vertex.color = tint;
+            vertex.uv0 = new Vector4(uv.x, uv.y, seed.x, seed.y);
+            vh.AddVert(vertex);
         }
+        vh.AddTriangle(first, first + 1, first + 2);
+        vh.AddTriangle(first, first + 2, first + 3);
     }
 
     private static void LockStroke(VertexHelper vh, Vector2 start, Vector2 end, Vector2 normal,
@@ -1388,21 +1329,6 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         vh.AddVert(end - endNormal, tint, Vector2.zero);
         vh.AddTriangle(first, first + 1, first + 2);
         vh.AddTriangle(first, first + 2, first + 3);
-    }
-
-    private static void LockCap(VertexHelper vh, Vector2 center, Vector2 outward, float radius, Color tint)
-    {
-        const int Sides = 12;
-        int first = vh.currentVertCount;
-        vh.AddVert(center, tint, Vector2.zero);
-        float startAngle = Mathf.Atan2(outward.y, outward.x) - Mathf.PI * 0.5f;
-        for (int i = 0; i <= Sides; i++)
-        {
-            float angle = startAngle + i * Mathf.PI / Sides;
-            vh.AddVert(center + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * radius, tint, Vector2.zero);
-        }
-        for (int i = 0; i < Sides; i++)
-            vh.AddTriangle(first, first + 2 + i, first + 1 + i);
     }
 
     internal static void Quad(VertexHelper vh, Rect rect, Color tint)

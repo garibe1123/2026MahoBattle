@@ -52,6 +52,7 @@ public sealed class BattleUiStyleSettings
     [Range(0.02f, 0.2f)] public float lockMarkStrokeRatio = 0.075f;
     [Range(0f, 1f)] public float lockMarkAlpha = 0.75f;
     [Range(0f, 1f)] public float lockMarkVariation = 0.65f;
+    [Range(0f, 1f)] public float lockMarkInkNoise = 0.35f;
     [Range(0f, 1f)] public float combatBackgroundAlpha = DefaultCombatBackgroundAlpha;
     [Range(0f, 1f)] public float lockedSlotAlpha = DefaultLockedSlotAlpha;
     [Tooltip("기준 픽셀 크기입니다. UI의 회전·확대·변형을 따라 격자도 함께 변형됩니다.")]
@@ -167,6 +168,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
     private Material panelMaterial, textMaterial, spriteMaterial;
     private Material mahoMaterial;
     private Material paperMaterial, paperMaskMaterial;
+    private readonly Material[] lockMarkMaterials = new Material[6];
     private Font bitmapFont;
     private Texture2D bitmapTexture;
     private Material bitmapMaterial;
@@ -347,6 +349,15 @@ public sealed class BattleUiStyleController : MonoBehaviour
                     Mathf.Max(12f, settings.paperPunchSpacing), settings.paperPunchInset, settings.paperPunchEdgeInset));
             }
         }
+        int lockStyle = IsComic ? 1 : IsMahoShojo ? 2 : IsStylish ? 3 : IsBirthday ? 4 : IsPaper ? 5 : 0;
+        if (lockMarkMaterials[lockStyle] == null)
+            lockMarkMaterials[lockStyle] = CreateMaterial("BattleInventoryLockMark");
+        Material lockMarkMaterial = lockMarkMaterials[lockStyle];
+        if (lockMarkMaterial != null)
+        {
+            lockMarkMaterial.SetVector("_LockStyle", new Vector4(lockStyle, settings.lockMarkStrokeRatio,
+                settings.lockMarkVariation, settings.lockMarkInkNoise));
+        }
         removed.Clear();
         foreach (var entry in targets)
         {
@@ -359,7 +370,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
                 continue;
             }
             entry.Value.ApplyAppearance(pixel, settings, panelMaterial, textMaterial, spriteMaterial, bitmapFont, mahoMaterial, themeFont,
-                paperMaterial, paperMaskMaterial);
+                paperMaterial, paperMaskMaterial, lockMarkMaterial);
         }
         foreach (Graphic target in removed) targets.Remove(target);
     }
@@ -410,6 +421,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
         Release(spriteMaterial);
         Release(mahoMaterial);
         Release(paperMaterial);
+        foreach (Material material in lockMarkMaterials) Release(material);
         Release(paperMaskMaterial);
         Release(bitmapFont);
         Release(bitmapTexture);
