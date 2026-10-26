@@ -503,9 +503,12 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             float perspectiveScale = 1f;
             if (comicInventoryRoot != null)
             {
-                Vector3 center = rectTransform.TransformPoint(rectTransform.rect.center);
-                Vector3 origin = comicInventoryRoot.TransformPoint(comicInventoryRoot.rect.center);
-                direction = ((Vector2)rectTransform.InverseTransformVector(center - origin)).normalized;
+                Canvas rootCanvas = canvas != null ? canvas.rootCanvas : null;
+                Camera camera = rootCanvas != null && rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+                    ? rootCanvas.worldCamera : null;
+                Vector2 screenCenter = camera != null ? camera.pixelRect.center : new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+                if (RectTransformUtility.ScreenPointToLocalPointInRectangle(rectTransform, screenCenter, camera, out Vector2 origin))
+                    direction = (rectTransform.rect.center - origin).normalized;
                 perspectiveScale = comicInventoryHeight <= 0.5f
                     ? Mathf.Lerp(style.comicInventoryBottomPerspective, style.comicInventoryMiddlePerspective, comicInventoryHeight * 2f)
                     : Mathf.Lerp(style.comicInventoryMiddlePerspective, style.comicInventoryTopPerspective, (comicInventoryHeight - 0.5f) * 2f);
