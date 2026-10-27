@@ -606,7 +606,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         bool button = source.name == "Label" || source.name == "Text";
         if (!button && japanTvPlate == null)
         {
-            GameObject plate = new("JapanTvUiTitlePlate", typeof(RectTransform), typeof(LayoutElement));
+            GameObject plate = new("JapanTvUiTitlePlate", typeof(RectTransform), typeof(CanvasRenderer), typeof(LayoutElement));
             plate.layer = source.gameObject.layer;
             plate.transform.SetParent(source.transform, false);
             plate.transform.SetAsFirstSibling();

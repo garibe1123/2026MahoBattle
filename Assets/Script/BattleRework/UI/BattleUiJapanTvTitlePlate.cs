@@ -99,6 +99,7 @@ internal static class BattleUiJapanTvDrawing
 }
 
 [AddComponentMenu("")]
+[RequireComponent(typeof(CanvasRenderer))]
 public sealed class BattleUiJapanTvTitlePlate : MaskableGraphic
 {
     private BattleUiStyleSettings style;
