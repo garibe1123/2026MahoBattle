@@ -140,6 +140,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private int hoveredSlot = -1;
     private int draggingSlot = -1;
     private BattleInventorySlotPointer dragSource;
+    private RectTransform dragGhostParentRect;
+    private bool dragMoveLogged;
     private int dragPointerId;
     private BattleRunState dragRunState;
     private BattleRewardPhase dragRewardPhase;
@@ -250,11 +252,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         }
 
         if (IsDraggingItem && !DragSessionValid)
+        {
+            LogInventoryInput("드래그 유지 거부", draggingSlot);
             EndSlotDrag();
+        }
 
         if (discardModalOpen && (!pendingRequest.IsValid(runManager, equipmentSystem, rewardFlow) ||
                                  BattlePauseController.IsPaused))
+        {
+            LogInventoryInput("확인 대기 무효화", pendingRequest.SourceIndex);
             HideDiscardConfirm();
+        }
 
         if (discardModalOpen && !BattlePauseController.IsPaused &&
             inputRouter != null && inputRouter.IsTopModal(this))
@@ -466,7 +474,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             eventData.button != PointerEventData.InputButton.Left || source == null ||
             !source.InputAllowed || equipmentSystem == null ||
             (!(IsRewardPackEditing && rewardFlow.HasHand) && !HasItem(slotIndex)))
+        {
+            LogInventoryInput("드래그 시작 거부", slotIndex);
             return false;
+        }
 
         ActivateMouseMode();
 
@@ -490,6 +501,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         draggingHand = IsRewardPackEditing && rewardFlow.HasHand;
         dragInventoryVersion = equipmentSystem.InventoryVersion;
         dragRewardVersion = rewardFlow != null ? rewardFlow.StateVersion : 0;
+        dragMoveLogged = false;
         InspectSelectionVersion++;
         flashedSlot = -1;
 
@@ -549,13 +561,21 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     {
         if (!DragSessionValid)
         {
+            LogInventoryInput("드래그 갱신 거부", draggingSlot);
             EndSlotDrag();
             return;
         }
         if (eventData == null || eventData.pointerId != dragPointerId ||
             eventData.pointerDrag != dragSource.gameObject)
         {
+            LogInventoryInput("드래그 포인터 불일치", draggingSlot);
             return;
+        }
+
+        if (!dragMoveLogged)
+        {
+            dragMoveLogged = true;
+            LogInventoryInput("드래그 이동 수신", draggingSlot);
         }
 
         dragGhostTargetScreenPosition =
@@ -567,6 +587,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void EndSlotDrag()
     {
+        if (IsDraggingItem)
+            LogInventoryInput("드래그 표시 정리", draggingSlot);
         BattleInventorySlotPointer source = dragSource;
         dragSource = null;
         draggingSlot = -1;
@@ -588,14 +610,19 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleSlotDrop(int targetIndex, PointerEventData eventData)
     {
+        LogInventoryInput("슬롯 드롭 수신", targetIndex);
         if (!DragSessionValid)
         {
+            LogInventoryInput("슬롯 드롭 거부", targetIndex);
             EndSlotDrag();
             return;
         }
         if (equipmentSystem == null || eventData == null || eventData.pointerId != dragPointerId ||
             eventData.pointerDrag != dragSource.gameObject)
+        {
+            LogInventoryInput("슬롯 드롭 포인터 불일치", targetIndex);
             return;
+        }
 
         ActivateMouseMode();
 
@@ -603,6 +630,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         {
             if (!equipmentSystem.IsSlotUnlocked(targetIndex))
             {
+                LogInventoryInput("사용 불가 슬롯 드롭 거부", targetIndex);
                 if (IsRewardPackEditing)
                     ShowDenied("LOCKED SLOT", targetIndex);
                 return;
@@ -692,14 +720,19 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleTrashDrop(PointerEventData eventData)
     {
+        LogInventoryInput("쓰레기통 드롭 수신", draggingSlot);
         if (!DragSessionValid)
         {
+            LogInventoryInput("쓰레기통 드롭 거부", draggingSlot);
             EndSlotDrag();
             return;
         }
         if (eventData == null || eventData.pointerId != dragPointerId ||
             eventData.pointerDrag != dragSource.gameObject)
+        {
+            LogInventoryInput("쓰레기통 드롭 포인터 불일치", draggingSlot);
             return;
+        }
 
         ActivateMouseMode();
 
@@ -709,7 +742,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         {
             inputHandledFrame = Time.frameCount;
             if (IsRewardPackEditing)
-                rewardFlow.DiscardHand();
+            {
+                bool discarded = rewardFlow.DiscardHand();
+                LogInventoryInput(discarded ? "손 아이템 폐기 완료" : "손 아이템 폐기 거부");
+            }
             selectedRewardSlot = -1;
             InspectSelectionVersion++;
             UpdateRewardHandVisual();
@@ -771,6 +807,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         inputHandledFrame = Time.frameCount;
         pendingRequest = new InventoryRequest(InventoryRequestKind.Discard, slotIndex, -1,
             runManager, equipmentSystem, rewardFlow);
+        LogInventoryInput("폐기 확인 대기", slotIndex);
         confirmYesSelected = false;
         discardModalOpen = true;
         padPickedSlot = -1;
@@ -799,7 +836,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         HideDiscardConfirm();
 
         if (!yes || !InventoryInputAllowed || !request.IsValid(runManager, equipmentSystem, rewardFlow))
+        {
+            LogInventoryInput(yes ? "확정 재검증 거부" : "확인 취소", request.SourceIndex);
             return;
+        }
 
         if (request.Kind != InventoryRequestKind.Discard)
         {
@@ -810,12 +850,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         int target = request.SourceIndex;
         if (equipmentSystem.DiscardSlot(target))
         {
+            LogInventoryInput("슬롯 폐기 완료", target);
             if (selectedRewardSlot == target)
                 selectedRewardSlot = -1;
             if (padPickedSlot == target)
                 padPickedSlot = -1;
             rewardFlow?.SyncChosenRewardLocation();
             FlashSlot(target);
+        }
+        else
+        {
+            LogInventoryInput("슬롯 폐기 거부", target);
         }
     }
 
@@ -847,7 +892,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             !equipmentSystem.TryGetSlot(targetIndex, out BattleEquipmentSlot target) ||
             (sourceIndex < 0 ? !IsRewardPackEditing || !rewardFlow.HasHand :
                 !HasItem(sourceIndex) || (rewardFlow != null && rewardFlow.HasHand)))
+        {
+            LogInventoryInput("이동 또는 교환 요청 거부", targetIndex);
             return;
+        }
 
         InventoryRequest request = new(sourceIndex < 0 ? InventoryRequestKind.Hand : InventoryRequestKind.Swap,
             sourceIndex, targetIndex, runManager, equipmentSystem, rewardFlow);
@@ -856,11 +904,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         padPickedSlot = -1;
         if (target.equipment == null)
         {
+            LogInventoryInput("빈 슬롯 이동 요청", targetIndex);
             CommitExchange(request);
             return;
         }
 
         pendingRequest = request;
+        LogInventoryInput("교환 확인 대기", targetIndex);
         confirmYesSelected = false;
         discardModalOpen = true;
         inputRouter.PushModal(this);
@@ -879,11 +929,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private void CommitExchange(InventoryRequest request)
     {
         if (!InventoryInputAllowed || !request.IsValid(runManager, equipmentSystem, rewardFlow))
+        {
+            LogInventoryInput("이동 또는 교환 재검증 거부", request.TargetIndex);
             return;
+        }
 
         bool changed = request.Kind == InventoryRequestKind.Hand
             ? rewardFlow.ExchangeHandWithSlot(request.TargetIndex)
             : equipmentSystem.SwapSlots(request.SourceIndex, request.TargetIndex);
+        LogInventoryInput(changed ? "이동 또는 교환 완료" : "이동 또는 교환 거부", request.TargetIndex);
         if (!changed)
             return;
 
@@ -895,6 +949,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         InspectSelectionVersion++;
         UpdateRewardHandVisual();
         UpdateRewardDoneState();
+    }
+
+    internal void LogInventoryInput(string action, int slotIndex = -1)
+    {
+        Debug.Log($"[Harness] {action}: 슬롯={slotIndex}, 입력허용={InventoryInputAllowed}, " +
+                  $"일시정지={BattlePauseController.IsPaused}, 보상편집={IsRewardPackEditing}, " +
+                  $"손아이템={rewardFlow != null && rewardFlow.HasHand}, 동일프레임차단={inputHandledFrame == Time.frameCount}, " +
+                  $"모달={inputRouter != null && inputRouter.HasModal}, " +
+                  $"화면입력={inputRouter != null && inputRouter.UiEnabled}, " +
+                  $"전투입력={inputRouter != null && inputRouter.CombatEnabled}, " +
+                  $"출처활성={dragSource != null && dragSource.InputAllowed}, " +
+                  $"출처드래그={dragSource != null && dragSource.IsDragging}, " +
+                  $"장비변경={dragInventoryVersion}/{(equipmentSystem != null ? equipmentSystem.InventoryVersion : 0)}, " +
+                  $"보상변경={dragRewardVersion}/{(rewardFlow != null ? rewardFlow.StateVersion : 0)}", this);
     }
 
     private enum InventoryRequestKind { None, Swap, Hand, Discard }
@@ -1338,6 +1406,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private void BuildDragGhost()
     {
         dragGhostRoot = CreateRect(interactionRoot, "InventoryDragGhost", new Vector2(122f, 122f));
+        dragGhostParentRect = interactionRoot;
         dragGhostRoot.pivot =
             new Vector2(
                 0.5f,
@@ -1389,23 +1458,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
                 dragGhostMouseOffset;
         }
 
-        Canvas parentCanvas =
-            dragGhostRoot.GetComponentInParent<Canvas>();
-
-        Camera eventCamera =
-            parentCanvas != null &&
-            parentCanvas.renderMode != RenderMode.ScreenSpaceOverlay
-                ? parentCanvas.worldCamera
-                : null;
-
-        RectTransform parentRect =
-            dragGhostRoot.parent as RectTransform;
+        RectTransform parentRect = dragGhostParentRect;
 
         if (parentRect != null &&
             RectTransformUtility.ScreenPointToLocalPointInRectangle(
                 parentRect,
                 dragGhostTargetScreenPosition,
-                eventCamera,
+                null,
                 out Vector2 localPoint))
         {
             if (immediate ||
@@ -2367,6 +2426,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 }
 
 internal sealed class BattleInventorySlotPointer : MonoBehaviour,
+    IPointerDownHandler,
     IBeginDragHandler,
     IDragHandler,
     IEndDragHandler,
@@ -2379,34 +2439,15 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     private int slotIndex;
     private BattleInventorySurface surface;
     private bool dragging;
-    private CanvasGroup[] inputGroups;
 
     public int SlotIndex => slotIndex;
     public bool IsDragging => dragging;
 
-    internal bool InputAllowed
-    {
-        get
-        {
-            if (!isActiveAndEnabled)
-                return false;
-            for (int i = 0; inputGroups != null && i < inputGroups.Length; i++)
-            {
-                CanvasGroup group = inputGroups[i];
-                if (group == null || !group.isActiveAndEnabled)
-                    continue;
-                if (!group.interactable || !group.blocksRaycasts)
-                    return false;
-                if (group.ignoreParentGroups)
-                    break;
-            }
-            return true;
-        }
-    }
+    // 레이캐스트 차단은 이벤트 시스템에 맡기고 선택용 상호작용 속성으로 드래그를 막지 않습니다.
+    internal bool InputAllowed => isActiveAndEnabled;
 
     private void Awake()
     {
-        inputGroups = GetComponentsInParent<CanvasGroup>(true);
         // 장식용 배경 메시가 비워져도 슬롯의 입력 영역은 유지합니다.
         GameObject input = new("InventorySlotInput", typeof(RectTransform), typeof(CanvasRenderer));
         input.layer = gameObject.layer;
@@ -2421,14 +2462,24 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
 
     public void Configure(BattleInventoryInteractionController controller, int index, BattleInventorySurface slotSurface)
     {
+        if (owner != controller)
+            controller.LogInventoryInput("슬롯 입력 연결", index);
         owner = controller;
         slotIndex = index;
         surface = slotSurface;
     }
 
+    public void OnPointerDown(PointerEventData eventData)
+    {
+        if (eventData.button == PointerEventData.InputButton.Left)
+            owner?.LogInventoryInput("슬롯 누름 수신", slotIndex);
+    }
+
     public void OnBeginDrag(PointerEventData eventData)
     {
         dragging = owner != null && owner.BeginSlotDrag(slotIndex, surface, eventData, this);
+        if (dragging)
+            owner.LogInventoryInput("드래그 시작 완료", slotIndex);
     }
 
     public void OnDrag(PointerEventData eventData)
