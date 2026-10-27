@@ -2554,6 +2554,12 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                     ? 1f
                     : packSuppressed ? 0.74f : 0.94f;
                 boardGroup.alpha = fullReveal * focusAlpha;
+                bool boardInputAllowed = fullGroup.blocksRaycasts && !BattlePauseController.IsPaused;
+                if (boardGroup.blocksRaycasts != boardInputAllowed || boardGroup.interactable != boardInputAllowed)
+                    Debug.Log($"[Harness] 전투 슬롯 레이캐스트 변경: 입력허용={boardInputAllowed}, " +
+                              $"확장열림={wantFull}, 펼침={fullReveal:0.00}, 일시정지={BattlePauseController.IsPaused}", this);
+                boardGroup.blocksRaycasts = boardInputAllowed;
+                boardGroup.interactable = boardInputAllowed;
             }
         }
 
