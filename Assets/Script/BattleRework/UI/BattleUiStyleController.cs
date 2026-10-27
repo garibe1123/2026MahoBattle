@@ -86,7 +86,9 @@ public sealed class BattleUiStyleSettings
     [Range(6f, 10f)] public float comicShadowOffset = 8f;
     [Range(6f, 20f)] public float comicDotSpacing = 10f;
     [Range(0.5f, 2f)] public float comicDotRadius = 1.2f;
-    public Color comicSelection = new Color32(0x80, 0xFF, 0x00, 255);
+    public Color comicSelection = new Color32(0xE6, 0x23, 0x32, 255);
+    internal Color ComicSelectionColor => ((Color32)comicSelection).Equals(new Color32(0x80, 0xFF, 0x00, 255))
+        ? new Color32(0xE6, 0x23, 0x32, 255) : comicSelection;
     [Range(8f, 12f)] public float comicOuterWidth = 10f;
     [Range(4f, 6f)] public float comicInnerWidth = 5f;
     [Range(-7f, 7f)] public float comicPanelAngle = -5f;

@@ -248,6 +248,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             next = label != null ? pixelText : panel && !statusFill ? pixelPanel : pixelSprite;
         bool comic = BattleUiStyleController.IsComic;
         if (comic && next == null && (panel || speechFrame || speechBadge || stylishButton || stylishSurface)) next = pixelPanel;
+        if (comic && label != null && interaction != null && interaction.name == "StartBattleButton")
+            next = target.defaultMaterial;
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
         bool stylish = BattleUiStyleController.IsStylish;
@@ -313,10 +315,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasBirthday = birthday;
         wasPaper = paper;
         wasCmd = cmd;
-        bool decoratedTitle = (title || ((comic || stylish) && interaction != null && interaction.Primary)) &&
-            (comic || stylish || birthday || paper || cmd);
         bool comicStartLabel = comic && label != null && interaction != null && interaction.name == "StartBattleButton";
-        if (isActiveAndEnabled && label != null && !comicStartLabel && settings.textMaterial == null &&
+        bool decoratedTitle = !comicStartLabel && (title || ((comic || stylish) && interaction != null && interaction.Primary)) &&
+            (comic || stylish || birthday || paper || cmd);
+        if (isActiveAndEnabled && label != null && settings.textMaterial == null &&
             (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
             TMPro.TMP_FontAsset posterFont = decoratedTitle && (comic || stylish)
@@ -329,7 +331,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
-                BattleUiTitleMotionSettings motion = TitleMotion(settings);
+                BattleUiTitleMotionSettings motion = comicStartLabel ? null : TitleMotion(settings);
                 tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow,
                     stylish ? interaction?.Scale ?? 1f : 1f, entrance, stylish && interaction != null && interaction.Primary,
                     interaction != null || (cmdSelection != null && title),
@@ -914,17 +916,25 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         ComicFill(vh, rect, settings, primary || selected ? red : ink, speech, seed, direction, outer + inner, perspectiveScale);
         if (selected)
         {
-            Color green = settings.comicSelection;
-            if (opaquePalette) green.a = 1f;
-            green.a *= alpha;
+            Color selection = settings.ComicSelectionColor;
+            if (opaquePalette) selection.a = 1f;
+            selection.a *= alpha;
             float size = Mathf.Min(outer * 2.2f, Mathf.Min(rect.width, rect.height) * 0.18f);
             Vector2 point = ComicInsetPoint(rect, settings, seed, direction, speech, 1, outer + inner, perspectiveScale);
             Vector2 previous = ComicInsetPoint(rect, settings, seed, direction, speech, 0, outer + inner, perspectiveScale);
             Vector2 next = ComicInsetPoint(rect, settings, seed, direction, speech, 2, outer + inner, perspectiveScale);
             int corner = vh.currentVertCount;
-            vh.AddVert(point, green, Vector2.zero);
-            vh.AddVert(point + (next - point).normalized * size, green, Vector2.zero);
-            vh.AddVert(point + (previous - point).normalized * size, green, Vector2.zero);
+            vh.AddVert(point, paper, Vector2.zero);
+            vh.AddVert(point + (next - point).normalized * size, paper, Vector2.zero);
+            vh.AddVert(point + (previous - point).normalized * size, paper, Vector2.zero);
+            vh.AddTriangle(corner, corner + 1, corner + 2);
+            Vector2 alongNext = (next - point).normalized;
+            Vector2 alongPrevious = (previous - point).normalized;
+            Vector2 insetPoint = point + (alongNext + alongPrevious) * (size * 0.12f);
+            corner = vh.currentVertCount;
+            vh.AddVert(insetPoint, selection, Vector2.zero);
+            vh.AddVert(insetPoint + alongNext * (size * 0.55f), selection, Vector2.zero);
+            vh.AddVert(insetPoint + alongPrevious * (size * 0.55f), selection, Vector2.zero);
             vh.AddTriangle(corner, corner + 1, corner + 2);
         }
         if (!speech && rotate) RotateComicFrame(vh, first, rect, settings, seed);

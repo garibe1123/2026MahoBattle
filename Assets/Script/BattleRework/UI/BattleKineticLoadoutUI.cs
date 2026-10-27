@@ -51,6 +51,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     [SerializeField] private Color accentCyan = new(0.15f, 0.88f, 0.92f, 1f);
     [SerializeField] private Color accentPink = new(1f, 0.18f, 0.52f, 1f);
     [SerializeField] private Color lockedColor = new(0.070f, 0.075f, 0.085f, 0.92f);
+    [SerializeField, Min(0f)] private float comicLinkClearance = 4f;
     [SerializeField, Min(1f)] private float uiSharpness = 16f;
     [SerializeField, Range(0.18f, 0.55f)] private float packMorphDuration = 0.34f;
     [SerializeField] private Vector2 packRestOffset = new(-248f, -62f);
@@ -2139,6 +2140,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             Vector2 from = slotRects[link.slotA].anchoredPosition;
             Vector2 to = slotRects[link.slotB].anchoredPosition;
             Vector2 delta = to - from;
+            if (BattleUiStyleController.IsComic)
+            {
+                float axisLength = Mathf.Max(Mathf.Abs(delta.x), Mathf.Abs(delta.y));
+                if (axisLength <= Mathf.Epsilon) continue;
+                float trim = (BattleUiPanelDecoration.FullCellSize * 0.5f + comicLinkClearance) / axisLength;
+                if (trim >= 0.5f) continue;
+                from += delta * trim;
+                to -= delta * trim;
+                delta = to - from;
+            }
 
             GameObject lineObject = new($"Link_{link.slotA}_{link.slotB}_{link.kind}");
             lineObject.transform.SetParent(linkRoot, false);

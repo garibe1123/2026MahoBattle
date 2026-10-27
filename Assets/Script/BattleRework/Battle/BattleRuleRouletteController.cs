@@ -413,9 +413,6 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
         // 상세 설명은 룰 아이콘 Hover 중에만 노출합니다.
         progressText.text = "THIS BATTLE";
         EnterFinalReviewMode();
-        SetSpinButtonLabel("START BATTLE");
-        SetSpinButtonInteractable(true);
-        finalReviewFrame = Time.frameCount;
         UnityEngine.EventSystems.EventSystem.current?.SetSelectedGameObject(spinButton.gameObject);
 
         while (!startBattleConfirmed)
@@ -1413,6 +1410,14 @@ public sealed class BattleRuleRouletteController : MonoBehaviour
     private void EnterFinalReviewMode()
     {
         finalReviewMode = true;
+        finalReviewFrame = Time.frameCount;
+        if (controlTab != null)
+        {
+            controlTab.gameObject.SetActive(true);
+            controlTab.localScale = Vector3.one;
+        }
+        SetSpinButtonLabel("START BATTLE");
+        SetSpinButtonInteractable(true);
         ApplyRuleDetailVisualMode(false);
         ResetControlTabPositionImmediate();
         HideRuleDetailImmediate();

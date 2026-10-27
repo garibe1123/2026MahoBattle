@@ -567,7 +567,9 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             if (emphasis)
             {
                 BattleUiStyleMeshEffect.Slant(vh,
-                    new Rect(face.xMin + 4f, face.center.y - 18f, 8f, 36f), style.comicSelection);
+                    new Rect(face.xMin + 2f, face.center.y - 20f, 12f, 40f), style.comicWhite);
+                BattleUiStyleMeshEffect.Slant(vh,
+                    new Rect(face.xMin + 4f, face.center.y - 18f, 8f, 36f), style.ComicSelectionColor);
             }
             if (selected)
                 BattleUiStyleMeshEffect.Slant(vh,
