@@ -554,7 +554,11 @@ public sealed class BattleUiStyleController : MonoBehaviour
             Canvas.ForceUpdateCanvases();
             render();
         }
-        finally { active = previous; }
+        finally
+        {
+            BattleUiThemeFonts.ProtectGeneratedAtlases();
+            active = previous;
+        }
     }
 #endif
 

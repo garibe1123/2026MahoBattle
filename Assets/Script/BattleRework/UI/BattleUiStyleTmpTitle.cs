@@ -139,7 +139,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         string content = (label != null ? label.text : native.text) ?? string.Empty;
         if (cmd && content.Length > 0)
             content = cmdOption ? (cmdSelected ? "[ " + content + " ]" : "[ ] " + content) : decorate ? "> " + content : content;
-        if (checkedFont != font || checkedText != content || checkedCmd != cmd || checkedJapanTvUi != japanTvUi)
+        if (checkedFont != font || checkedText != content || checkedCmd != cmd || checkedJapanTvUi != japanTvUi ||
+            ((cmd || japanTvUi) && !BattleUiThemeFonts.IsValid(resolvedFont)))
         {
             checkedFont = font;
             checkedText = content;
@@ -163,7 +164,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Refresh();
         }
         if (content.Length == 0) ResetMotion();
-        if (text.font != font || material == null)
+        if (text.font != font || material == null || material.mainTexture == null || text.fontSharedMaterial != material)
         {
             if (material != null) Release(material);
             text.font = font;
