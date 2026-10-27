@@ -38,6 +38,16 @@ internal static class BattleUiThemeFonts
     internal static TMP_FontAsset LoadTmp(BattleUiStyle style)
     {
         if (tmpFonts.TryGetValue(style, out TMP_FontAsset font)) return font;
+        if (style == BattleUiStyle.JapanTvUi)
+        {
+            font = LoadJapanTvTmp("HarnessFonts/BlackHanSans/BlackHanSans-Regular");
+            TMP_FontAsset korean = LoadJapanTvTmp("HarnessFonts/IBMPlexSansKR/IBMPlexSansKR-Regular");
+            if (font == null) font = korean;
+            if (font != null && korean != null && font != korean && !font.fallbackFontAssetTable.Contains(korean))
+                font.fallbackFontAssetTable.Add(korean);
+            tmpFonts[style] = font;
+            return font;
+        }
         if (style == BattleUiStyle.CMD)
         {
             font = CreateCmdTmp(Load(BattleUiStyle.CMD));
@@ -85,6 +95,46 @@ internal static class BattleUiThemeFonts
             : "HarnessFonts/Jua/Jua-Regular SDF");
         AddPosterFallbacks(font);
         return font != null ? font : LoadTmp(style);
+    }
+
+    internal static TMP_FontAsset LoadJapanTvDecoration() => LoadJapanTvTmp("HarnessFonts/NotoSansJP/NotoSansJP-Variable");
+
+    private static TMP_FontAsset LoadJapanTvTmp(string path)
+    {
+        string key = "JapanTvUi:" + path;
+        if (posterFonts.TryGetValue(key, out TMP_FontAsset font)) return font;
+        Font source = Resources.Load<Font>(path);
+        TMP_FontAsset asset = Resources.Load<TMP_FontAsset>(path + " SDF");
+        if (source == null && asset != null) source = asset.sourceFontFile;
+        return CreateJapanTvTmp(key, source);
+    }
+
+    private static TMP_FontAsset CreateJapanTvTmp(string key, Font source)
+    {
+        if (posterFonts.TryGetValue(key, out TMP_FontAsset font)) return font;
+        if (source != null)
+        {
+            font = TMP_FontAsset.CreateFontAsset(source, 90, 18, GlyphRenderMode.SDFAA,
+                1024, 1024, AtlasPopulationMode.Dynamic, true);
+            if (font != null)
+            {
+                font.name = source.name + " JapanTvUi Runtime SDF";
+                font.hideFlags = HideFlags.HideAndDontSave;
+                font.material.hideFlags = HideFlags.HideAndDontSave;
+                font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+            }
+        }
+        posterFonts[key] = font;
+        return font;
+    }
+
+    internal static TMP_FontAsset ResolveJapanTvTmp(TMP_FontAsset preferred, string content)
+    {
+        if (preferred != null && preferred.sourceFontFile != null && !preferred.name.EndsWith(" JapanTvUi Runtime SDF"))
+            preferred = CreateJapanTvTmp("JapanTvUi:" + preferred.sourceFontFile.GetInstanceID(), preferred.sourceFontFile);
+        if (SupportsCmdTmp(preferred, content)) return preferred;
+        TMP_FontAsset fallback = LoadTmp(BattleUiStyle.JapanTvUi);
+        return SupportsCmdTmp(fallback, content) ? fallback : preferred != null ? preferred : fallback;
     }
 
     private static TMP_FontAsset LoadPosterTmp(string path)

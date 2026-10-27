@@ -32,7 +32,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private Material material;
     private string checkedText;
     private TMP_FontAsset checkedFont, resolvedFont;
-    private bool supported, checkedCmd;
+    private bool supported, checkedCmd, checkedJapanTvUi;
     private float shear, padding;
     private float titleAngle;
     private readonly float paperAngle;
@@ -139,13 +139,15 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         string content = (label != null ? label.text : native.text) ?? string.Empty;
         if (cmd && content.Length > 0)
             content = cmdOption ? (cmdSelected ? "[ " + content + " ]" : "[ ] " + content) : decorate ? "> " + content : content;
-        if (checkedFont != font || checkedText != content || checkedCmd != cmd)
+        if (checkedFont != font || checkedText != content || checkedCmd != cmd || checkedJapanTvUi != japanTvUi)
         {
             checkedFont = font;
             checkedText = content;
             checkedCmd = cmd;
-            resolvedFont = cmd ? BattleUiThemeFonts.ResolveCmdTmp(font, content) : font;
-            supported = cmd ? BattleUiThemeFonts.SupportsCmdTmp(resolvedFont, content) :
+            checkedJapanTvUi = japanTvUi;
+            resolvedFont = cmd ? BattleUiThemeFonts.ResolveCmdTmp(font, content) :
+                japanTvUi ? BattleUiThemeFonts.ResolveJapanTvTmp(font, content) : font;
+            supported = cmd || japanTvUi ? BattleUiThemeFonts.SupportsCmdTmp(resolvedFont, content) :
                 resolvedFont != null && resolvedFont.HasCharacters(content, out uint[] _, true, true);
         }
         font = resolvedFont;
@@ -247,11 +249,14 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             plateRect.localScale = text.rectTransform.localScale;
             backing.maskable = source.maskable;
         }
-        if (shear != nextShear || padding != nextPadding)
+        float ribbonSpace = japanTvUi && decorate && (japanTvLarge || BattleUiJapanTvDrawing.IsAlert(source.name))
+            ? source.rectTransform.rect.height * style.japanTvRibbonRatio : 0f;
+        Vector4 nextMargin = new(nextPadding, nextPadding + ribbonSpace, nextPadding, nextPadding);
+        if (shear != nextShear || padding != nextPadding || text.margin != nextMargin)
         {
             shear = nextShear;
             padding = nextPadding;
-            text.margin = new Vector4(padding, padding, padding, padding);
+            text.margin = nextMargin;
             text.SetVerticesDirty();
         }
         text.text = content;
@@ -380,6 +385,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     {
         Quaternion rotation = Quaternion.Euler(0f, 0f, titleAngle);
         Rect rect = text.rectTransform.rect;
+        if (japanTvUi) rect.yMax -= Mathf.Max(0f, text.margin.y - padding);
         float inset = Mathf.Min(padding, Mathf.Min(rect.width, rect.height) * 0.25f);
         rect = BattleUiStyleMeshEffect.Inset(rect, inset);
         if (rect.width <= 0f || rect.height <= 0f) return;

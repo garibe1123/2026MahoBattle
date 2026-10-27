@@ -1,0 +1,5 @@
+font: Noto Sans JP
+license: OFL
+file: NotoSansJP[wght].ttf (weight 400)
+source: https://github.com/google/fonts/tree/main/ofl/notosansjp
+fetched: 2026-10-27 22:20 by sinhodeung harness

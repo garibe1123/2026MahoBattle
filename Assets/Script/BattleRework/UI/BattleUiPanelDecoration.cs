@@ -390,7 +390,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             {
                 float height = Mathf.Min(HeaderHeight, face.height * 0.2f);
                 Rect header = new(face.xMin + 8f, face.yMax - height - 4f, Mathf.Max(0f, face.width - 16f), height);
-                BattleUiStyleMeshEffect.Quad(vh, header, BattleUiJapanTvDrawing.Tint(style.japanTvPink, opacity));
+                BattleUiJapanTvDrawing.Sign(vh, header, BattleUiJapanTvDrawing.Tint(style.japanTvPink, opacity), style.japanTvCutRatio);
             }
             backgroundBaseAlpha = style.background.a * opacity;
             backgroundVertexCount = vh.currentVertCount;

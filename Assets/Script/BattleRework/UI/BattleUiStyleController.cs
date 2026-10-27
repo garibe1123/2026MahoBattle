@@ -228,6 +228,11 @@ public sealed class BattleUiStyleSettings
     [Min(1f)] public float japanTvBorder = 4f;
     [Min(12f)] public float japanTvBulbSpacing = 26f;
     [Min(1f)] public float japanTvBulbRadius = 4f;
+    [Range(0.05f, 0.3f)] public float japanTvCutRatio = 0.18f;
+    [Range(0f, 0.2f)] public float japanTvMatteGrain = 0.07f;
+    public Color japanTvPaper = new Color32(0xF4, 0xE7, 0xCC, 255);
+    [Min(8f)] public float japanTvDecorationFontSize = 14f;
+    [Range(0.15f, 0.3f)] public float japanTvRibbonRatio = 0.22f;
 }
 
 [DisallowMultipleComponent]
