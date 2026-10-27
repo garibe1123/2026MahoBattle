@@ -1055,6 +1055,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             distance = hover ? 4.2f : 4.8f;
         }
 
+        if (BattleUiStyleController.IsComic)
+            color = BattleUiStyleController.Settings.ComicSelectionColor;
         outline.useGraphicAlpha = false;
         outline.effectColor = color;
         outline.effectDistance = new Vector2(distance, -distance);
@@ -1119,7 +1121,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             int index = Mathf.Clamp(padSelectedSlot, 0, SlotCount - 1);
             RectTransform slot = FindRect($"GridSlot_{index}") ?? FindRect($"BackpackCell_{index}");
             if (slot != null)
-                handGhostRoot.position = slot.position + (Vector3)handPadOffset;
+                handGhostRoot.position = RectToScreenPoint(slot) + handPadOffset;
         }
         else if (inputRouter != null && inputRouter.PointerPresent)
         {

@@ -64,6 +64,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private RectTransform fullRoot;
     private CanvasGroup fullGroup;
     private RectTransform boardRoot;
+    private Canvas boardCanvas;
     private CanvasGroup boardGroup;
     private RectTransform builtInDetailRoot;
 
@@ -338,6 +339,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             fullRoot ??= kineticLoadout.FullRoot;
             fullGroup ??= kineticLoadout.FullGroup;
             boardRoot ??= kineticLoadout.GridBoard;
+            if (boardRoot != null && boardCanvas == null)
+                boardCanvas = boardRoot.GetComponentInParent<Canvas>();
             if (boardRoot != null && boardGroup == null)
                 boardGroup = boardRoot.GetComponent<CanvasGroup>();
         }
@@ -661,7 +664,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             AttachControl(trashRoot, miniPackRoot, trashAttachOffset);
     }
 
-    private static void AttachRewardControlBelowBoard(
+    private void AttachRewardControlBelowBoard(
         RectTransform control,
         RectTransform board,
         Vector2 offset)
@@ -670,8 +673,12 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             return;
 
         control.pivot = new Vector2(0.5f, 1f);
-        control.position = board.TransformPoint(new Vector3(board.rect.center.x + offset.x, board.rect.yMin + offset.y, 0f));
-        control.rotation = board.rotation;
+        Canvas rootCanvas = boardCanvas != null ? boardCanvas.rootCanvas : null;
+        Camera camera = rootCanvas != null && rootCanvas.renderMode != RenderMode.ScreenSpaceOverlay
+            ? rootCanvas.worldCamera : null;
+        control.position = RectTransformUtility.WorldToScreenPoint(camera,
+            board.TransformPoint(new Vector3(board.rect.center.x + offset.x, board.rect.yMin + offset.y, 0f)));
+        control.rotation = BattleUiStyleController.IsComic ? Quaternion.identity : board.rotation;
         control.localScale = Vector3.one;
         control.SetAsLastSibling();
     }

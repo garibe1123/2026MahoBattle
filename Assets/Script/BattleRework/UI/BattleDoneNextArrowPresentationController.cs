@@ -31,7 +31,6 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
     [SerializeField] private Color disabledColor = new(0.22f, 0.23f, 0.26f, 0.96f);
     [SerializeField] private Color inkColor = new(0.018f, 0.020f, 0.024f, 1f);
     [SerializeField] private Color disabledTextColor = new(0.72f, 0.73f, 0.76f, 1f);
-    [SerializeField] private Color comicReadyColor = new Color32(0xE6, 0x23, 0x32, 255);
     [SerializeField] private Color comicTextColor = Color.white;
 
     [Header("Squish")]
@@ -293,7 +292,6 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
     private void ApplyVisual()
     {
-        Resolve();
         if (doneRoot == null || visualRoot == null)
             return;
 
@@ -310,7 +308,7 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
 
         bool ready = button != null && button.IsInteractable();
         bool comic = BattleUiStyleController.IsComic;
-        Color activeColor = comic ? comicReadyColor : readyColor;
+        Color activeColor = comic ? BattleUiStyleController.Settings.ComicSelectionColor : readyColor;
         Color fill = ready ? activeColor : disabledColor;
         if (hovered && ready)
             fill = Color.Lerp(activeColor, Color.white, 0.14f);
@@ -333,10 +331,13 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         if (label != null)
         {
             label.gameObject.SetActive(true);
+            label.enabled = true;
+            label.raycastTarget = false;
             label.fontStyle = FontStyle.Bold;
             label.fontSize = 15;
             label.alignment = TextAnchor.MiddleCenter;
             label.color = comic ? comicTextColor : ready ? inkColor : disabledTextColor;
+            label.canvasRenderer.SetAlpha(1f);
             label.resizeTextForBestFit = true;
             label.resizeTextMinSize = 9;
             label.resizeTextMaxSize = 15;

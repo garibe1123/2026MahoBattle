@@ -320,7 +320,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone");
         bool decoratedTitle = !comicStartLabel && (title || ((comic || stylish) && interaction != null && interaction.Primary)) &&
             (comic || stylish || birthday || paper || cmd);
-        if (isActiveAndEnabled && label != null && settings.textMaterial == null &&
+        if (isActiveAndEnabled && label != null && !comicStartLabel && settings.textMaterial == null &&
             (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
             TMPro.TMP_FontAsset posterFont = decoratedTitle && (comic || stylish)
