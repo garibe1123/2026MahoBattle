@@ -2540,7 +2540,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 float focusAlpha = packFocused
                     ? 1f
                     : packSuppressed ? 0.74f : 0.94f;
-                boardGroup.alpha = focusAlpha;
+                boardGroup.alpha = fullReveal * focusAlpha;
             }
         }
 
