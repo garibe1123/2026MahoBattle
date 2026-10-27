@@ -54,6 +54,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool titleMotionCandidate;
     private BattleUiStyleInteraction interaction;
     private bool stylishButton, stylishSurface, stylishCard, stylishSpotlight;
+    private bool IsDiscardConfirmButton => interaction != null &&
+        (interaction.name == "ConfirmYes" || interaction.name == "ConfirmNo");
     private float enteredAt = -1f;
     private float entrance = 1f;
     internal bool HasOverflowTitle => TitleMotion(BattleUiStyleController.Settings)?.allowOverflow == true;
@@ -260,7 +262,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         bool comic = BattleUiStyleController.IsComic;
         if (comic && next == null && (panel || speechFrame || speechBadge || stylishButton || stylishSurface)) next = pixelPanel;
         if (comic && label != null && interaction != null &&
-            (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone"))
+            (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone" || IsDiscardConfirmButton))
             next = target.defaultMaterial;
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
@@ -332,7 +334,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasCmd = cmd;
         wasJapanTvUi = japanTvUi;
         bool comicStartLabel = comic && label != null && interaction != null &&
-            (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone");
+            (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone" || IsDiscardConfirmButton);
         bool decoratedTitle = !comicStartLabel && (title || ((comic || stylish || japanTvUi) && interaction != null && interaction.Primary) ||
             (japanTvUi && (BattleUiJapanTvDrawing.IsAlert(target.name) || target.name == "PresenterName"))) &&
             (comic || stylish || birthday || paper || cmd || japanTvUi);
@@ -738,6 +740,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     interaction != null && interaction.Highlighted,
                     interaction != null && interaction.Primary, stylishCard);
             else if (maho) DrawMahoFrame(vh, target.rectTransform.rect, settings, fill.a);
+            else if (comic && IsDiscardConfirmButton) DrawComicFrame(vh, target.rectTransform.rect, settings,
+                image.color.a, interaction.Highlighted, seed: paperSeed, rotate: false, opaquePalette: true,
+                fillColor: interaction.name == "ConfirmNo" ? settings.comicRed : settings.comicInk);
             else if (comic) DrawComicFrame(vh, target.rectTransform.rect, settings,
                 interaction != null && interaction.name == "StartBattleButton" ? image.color.a : fill.a,
                 interaction != null && interaction.Highlighted, interaction != null && interaction.Primary,
@@ -955,7 +960,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal static void DrawComicFrame(VertexHelper vh, Rect rect, BattleUiStyleSettings settings, float alpha,
         bool selected = false, bool primary = false, bool speech = false, uint seed = 0, bool rotate = true,
-        Vector2 direction = default, float perspectiveScale = 1f, bool tiledFrame = false, bool opaquePalette = false)
+        Vector2 direction = default, float perspectiveScale = 1f, bool tiledFrame = false, bool opaquePalette = false,
+        Color? fillColor = null)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         int first = vh.currentVertCount;
@@ -998,7 +1004,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             ComicFill(vh, rect, settings, ink, speech, seed, direction, perspectiveScale: perspectiveScale);
             ComicFill(vh, rect, settings, paper, speech, seed, direction, outer, perspectiveScale);
         }
-        ComicFill(vh, rect, settings, primary || selected ? red : ink, speech, seed, direction, outer + inner, perspectiveScale);
+        Color fill = fillColor ?? (primary || selected ? red : ink);
+        if (fillColor.HasValue) fill.a = opaquePalette ? alpha : fill.a * alpha;
+        ComicFill(vh, rect, settings, fill, speech, seed, direction, outer + inner, perspectiveScale);
         if (selected)
         {
             Color selection = settings.ComicSelectionColor;

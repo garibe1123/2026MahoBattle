@@ -36,6 +36,7 @@ internal enum BattleInventorySurface
 public sealed class BattleInventoryInteractionController : MonoBehaviour, IInputModal
 {
     private const int SlotCount = BattleEquipmentSystem.MaxSlotCount;
+    private const float InactiveConfirmAlpha = 0.65f;
 
     [Header("References")]
     [SerializeField] private BattleRunManager runManager;
@@ -1553,6 +1554,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         panelOutline.effectDistance = new Vector2(8f, -8f);
 
         discardConfirmText = CreateText(panel, "이 아이템을 삭제할까요?\n정말 삭제하시겠습니까?", 24, FontStyle.Bold, TextAnchor.MiddleCenter, paperColor);
+        discardConfirmText.font = BattleFeedbackFont.Resolve();
         SetAnchors(discardConfirmText.rectTransform, new Vector2(0.08f, 0.38f), new Vector2(0.92f, 0.90f));
 
         RectTransform yes = CreateRect(panel, "ConfirmYes", new Vector2(190f, 66f));
@@ -1560,9 +1562,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         confirmYesBack = yes.gameObject.AddComponent<Image>();
         confirmYesBack.raycastTarget = true;
         confirmYesText = CreateText(yes, "예", 22, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        confirmYesText.font = BattleFeedbackFont.Resolve();
         Stretch(confirmYesText.rectTransform);
         Button yesButton = yes.gameObject.AddComponent<Button>();
         yesButton.targetGraphic = confirmYesBack;
+        yesButton.transition = Selectable.Transition.None;
         yesButton.onClick.AddListener(() => ResolveDiscard(true));
 
         RectTransform no = CreateRect(panel, "ConfirmNo", new Vector2(190f, 66f));
@@ -1570,9 +1574,11 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         confirmNoBack = no.gameObject.AddComponent<Image>();
         confirmNoBack.raycastTarget = true;
         confirmNoText = CreateText(no, "아니요", 22, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        confirmNoText.font = BattleFeedbackFont.Resolve();
         Stretch(confirmNoText.rectTransform);
         Button noButton = no.gameObject.AddComponent<Button>();
         noButton.targetGraphic = confirmNoBack;
+        noButton.transition = Selectable.Transition.None;
         noButton.onClick.AddListener(() => ResolveDiscard(false));
 
         discardConfirmRoot.gameObject.SetActive(false);
@@ -1581,14 +1587,31 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private void RefreshConfirmSelection()
     {
+        bool comic = BattleUiStyleController.IsComic;
+        BattleUiStyleSettings settings = BattleUiStyleController.Settings;
         if (confirmYesBack != null)
-            confirmYesBack.color = confirmYesSelected ? accentYellow : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
+            confirmYesBack.color = comic ? settings.comicInk : confirmYesSelected ? accentYellow : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
         if (confirmNoBack != null)
-            confirmNoBack.color = !confirmYesSelected ? accentCyan : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
+            confirmNoBack.color = comic ? settings.comicRed : !confirmYesSelected ? accentCyan : new Color(paperColor.r, paperColor.g, paperColor.b, 0.48f);
+        if (comic)
+        {
+            if (confirmYesBack != null)
+            {
+                Color color = confirmYesBack.color;
+                color.a = confirmYesSelected ? 1f : InactiveConfirmAlpha;
+                confirmYesBack.color = color;
+            }
+            if (confirmNoBack != null)
+            {
+                Color color = confirmNoBack.color;
+                color.a = !confirmYesSelected ? 1f : InactiveConfirmAlpha;
+                confirmNoBack.color = color;
+            }
+        }
         if (confirmYesText != null)
-            confirmYesText.color = inkColor;
+            confirmYesText.color = comic ? settings.comicWhite : inkColor;
         if (confirmNoText != null)
-            confirmNoText.color = inkColor;
+            confirmNoText.color = comic ? settings.comicWhite : inkColor;
     }
 
     public void PlayRewardSelectFeedback()
@@ -2259,8 +2282,16 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     private void Awake()
     {
         inputGroups = GetComponentsInParent<CanvasGroup>(true);
-        if (TryGetComponent(out Image inputSurface))
-            inputSurface.canvasRenderer.cullTransparentMesh = false;
+        // 장식용 배경 메시가 비워져도 슬롯의 입력 영역은 유지합니다.
+        GameObject input = new("InventorySlotInput", typeof(RectTransform), typeof(CanvasRenderer));
+        input.layer = gameObject.layer;
+        input.transform.SetParent(transform, false);
+        RectTransform rect = (RectTransform)input.transform;
+        rect.anchorMin = Vector2.zero;
+        rect.anchorMax = Vector2.one;
+        rect.offsetMin = rect.offsetMax = Vector2.zero;
+        rect.SetAsFirstSibling();
+        input.AddComponent<BattleInventorySlotInputGraphic>();
     }
 
     public void Configure(BattleInventoryInteractionController controller, int index, BattleInventorySurface slotSurface)
@@ -2321,6 +2352,28 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     {
         CancelDrag();
         owner?.HandleSlotHover(slotIndex, false, surface);
+    }
+}
+
+internal sealed class BattleInventorySlotInputGraphic : MaskableGraphic
+{
+    protected override void Awake()
+    {
+        base.Awake();
+        raycastTarget = true;
+        canvasRenderer.cullTransparentMesh = false;
+    }
+
+    protected override void OnPopulateMesh(VertexHelper vh)
+    {
+        vh.Clear();
+        Rect rect = rectTransform.rect;
+        vh.AddVert(new Vector3(rect.xMin, rect.yMin, 0f), Color.clear, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMin, rect.yMax, 0f), Color.clear, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax, rect.yMax, 0f), Color.clear, Vector2.zero);
+        vh.AddVert(new Vector3(rect.xMax, rect.yMin, 0f), Color.clear, Vector2.zero);
+        vh.AddTriangle(0, 1, 2);
+        vh.AddTriangle(2, 3, 0);
     }
 }
 
