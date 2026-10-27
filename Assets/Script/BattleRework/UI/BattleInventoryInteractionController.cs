@@ -321,6 +321,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private void HandleRunStateChanged(BattleRunState state)
     {
+        inputRouter?.Configure(null, runManager);
+        LogInventoryInput("진행 상태 입력 맵 동기화");
         ClearInspectSelection();
         EndSlotDrag();
         flashedSlot = -1;
