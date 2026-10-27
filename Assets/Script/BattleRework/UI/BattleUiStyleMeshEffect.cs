@@ -34,6 +34,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private readonly int[] comicSpeechIndices = new int[13];
     private bool speechBadge;
     private Image image;
+    private bool inventoryInputSurface;
     private BattleUiPanelDecoration decoration;
     private bool panel, speechFrame, hiddenFill, tailFill, decoratedSurface;
     private Material originalMaterial, appliedMaterial;
@@ -99,6 +100,10 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 if (node.TryGetComponent<Canvas>(out _)) break;
             }
         image = value as Image;
+        inventoryInputSurface = image != null &&
+            (image.name.StartsWith("GridSlot_", System.StringComparison.Ordinal) ||
+             image.name.StartsWith("BackpackCell_", System.StringComparison.Ordinal) ||
+             image.name.StartsWith("RewardLoadoutSlot_", System.StringComparison.Ordinal));
         speechBadge = image != null && (image.name == "PresenterNameBadge" || image.name == "ReactionTagBadge");
         if (image != null)
         {
@@ -710,7 +715,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
         // 접합 계산에 쓰는 프레임 마스크와 표시되는 외곽을 일치시킵니다.
         if (hiddenFill || tailFill || (image != null && image.name == "TailShape") || (speechFrame && !stylish)) return;
-        if (decoratedSurface) { vh.Clear(); return; }
+        if (decoratedSurface)
+        {
+            vh.Clear();
+            // 슬롯 배경의 렌더 깊이가 사라지면 GraphicRaycaster가 입력 대상에서 제외합니다.
+            if (inventoryInputSurface && image.raycastTarget)
+                Quad(vh, image.rectTransform.rect, Color.clear);
+            return;
+        }
         bool statusFill = image != null && image.type == Image.Type.Filled;
         if ((panel || (comic && speechBadge) || (paper && (paperBadge || speechBadge)) || ((comic || stylish || paper) && (stylishButton || stylishSurface))) && image != null && !statusFill &&
             (!paper || image.sprite == null || panel || paperBadge))

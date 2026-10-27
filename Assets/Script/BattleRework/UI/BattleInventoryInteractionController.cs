@@ -2259,10 +2259,8 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     private void Awake()
     {
         inputGroups = GetComponentsInParent<CanvasGroup>(true);
-        // 테마가 비운 배경 대신 슬롯 장식에서 부모의 포인터 처리기로 전달합니다.
-        Transform decoration = transform.Find("PanelDecoration");
-        if (decoration != null && decoration.TryGetComponent(out BattleUiPanelDecoration surfaceGraphic))
-            surfaceGraphic.raycastTarget = true;
+        if (TryGetComponent(out Image inputSurface))
+            inputSurface.canvasRenderer.cullTransparentMesh = false;
     }
 
     public void Configure(BattleInventoryInteractionController controller, int index, BattleInventorySurface slotSurface)
