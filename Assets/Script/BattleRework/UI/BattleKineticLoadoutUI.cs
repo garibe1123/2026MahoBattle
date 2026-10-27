@@ -194,6 +194,8 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     public bool SwitchHeld => switchHeld;
     public bool BoardWasShown => boardWasShown;
     public bool IsSwitchBoardOpen => combatActive && switchHeld && boardWasShown;
+    private bool RewardOwnsFullInventory => runManager != null && runManager.RunActive &&
+        runManager.State == BattleRunState.Reward;
     public RectTransform FullRoot => fullRoot;
     public CanvasGroup FullGroup => fullGroup;
     public RectTransform GridBoard => boardRoot;
@@ -245,7 +247,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         if (switchHeld)
             CancelSwitchMode();
-        if (fullGroup != null)
+        if (fullGroup != null && !RewardOwnsFullInventory)
             fullGroup.blocksRaycasts = fullGroup.interactable = false;
         BattleUiOpticsCanvas.ResetTabFocus();
         BattleHUD.SetInventoryInteraction(false);
@@ -475,7 +477,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         if (!switchHeld && index >= 0)
             selectedIndex = index;
-        RefreshAll();
+        RefreshSlotPresentation();
     }
 
     public bool SetSelectedIndexFromExternal(int index, bool markMoved = true)
@@ -487,7 +489,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         selectedIndex = index;
         if (markMoved)
             directionMoved = true;
-        RefreshAll();
+        RefreshSlotPresentation();
         return true;
     }
 
@@ -495,7 +497,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     {
         selectedIndex = -1;
         directionMoved = false;
-        RefreshAll();
+        RefreshSlotPresentation();
     }
 
     public void RefreshPresentation()
@@ -513,7 +515,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         {
             boardWasShown = true;
             NotifySwitchBoardVisibility();
-            RefreshAll();
+            RefreshSlotPresentation();
         }
 
         if (boardWasShown && inputRouter.TabHeld)
@@ -547,7 +549,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             selectedIndex = 0;
 
         BeginTabTimeStop();
-        RefreshAll();
+        RefreshSlotPresentation();
     }
 
     private void CompleteSwitchMode(float heldDuration)
@@ -574,7 +576,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         NotifySwitchBoardVisibility();
         stickAxisLatched = false;
         BeginTabTimeResume();
-        RefreshAll();
+        RefreshSlotPresentation();
     }
 
     private void CancelSwitchMode()
@@ -586,7 +588,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         ClearSwitchSession();
         NotifySwitchBoardVisibility();
         BeginTabTimeResume();
-        RefreshAll();
+        RefreshSlotPresentation();
     }
 
     private void ClearSwitchSession()
@@ -786,7 +788,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             {
                 selectedIndex = candidate;
                 directionMoved = true;
-                RefreshAll();
+                RefreshSlotPresentation();
                 return;
             }
         }
@@ -1471,6 +1473,13 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void RefreshAll()
     {
+        RefreshSlotPresentation();
+        if (canvas != null && equipmentSystem != null)
+            RebuildSynergyLinks();
+    }
+
+    private void RefreshSlotPresentation()
+    {
         if (canvas == null || equipmentSystem == null)
             return;
 
@@ -1559,7 +1568,6 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         RefreshCompact(equipped);
         RefreshDetail();
-        RebuildSynergyLinks();
     }
 
     private void RefreshCompact(int equipped)
@@ -2266,7 +2274,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void UpdateGridRaycastState()
     {
-        if (fullGroup == null)
+        if (fullGroup == null || RewardOwnsFullInventory)
             return;
 
         bool active = IsSwitchBoardOpen && fullGroup.alpha > 0.05f;
@@ -2470,12 +2478,16 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
         UpdateTabHoldVisuals(t, wantFull);
 
-        fullGroup.alpha = fullReveal;
         compactGroup.alpha = Mathf.Lerp(compactGroup.alpha, combat && !wantFull ? 1f : 0f, t);
-        fullGroup.blocksRaycasts = wantFull && fullReveal >= 0.90f;
-        fullGroup.interactable = fullGroup.blocksRaycasts;
+        bool rewardOwnsFullInventory = RewardOwnsFullInventory;
+        if (!rewardOwnsFullInventory)
+        {
+            fullGroup.alpha = fullReveal;
+            fullGroup.blocksRaycasts = wantFull && fullReveal >= 0.90f;
+            fullGroup.interactable = fullGroup.blocksRaycasts;
+        }
 
-        if (fullRoot != null)
+        if (fullRoot != null && !rewardOwnsFullInventory)
         {
             fullRoot.localScale = Vector3.Lerp(
                 fullRoot.localScale,
@@ -2491,7 +2503,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
             fullRoot.localRotation = Quaternion.Slerp(fullRoot.localRotation, targetRotation, t);
         }
 
-        if (boardRoot != null)
+        if (boardRoot != null && !rewardOwnsFullInventory)
         {
             // Reward PACK editing temporarily re-anchors this shared GridBoard.
             // Combat must restore its own geometry every time the TAB board is active,

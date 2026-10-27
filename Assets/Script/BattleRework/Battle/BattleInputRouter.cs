@@ -59,6 +59,7 @@ public sealed class BattleInputRouter : MonoBehaviour
     private bool debugActive;
     private bool debugPointerHeld;
     private int debugPointerFrame = -1;
+    private int cancelHandledFrame = -1;
 
     private bool DebugPointerBlocked => debugPointerHeld || debugPointerFrame == Time.frameCount ||
         (debugUI != null && debugUI.ContainsScreenPoint(PointerPosition));
@@ -79,7 +80,7 @@ public sealed class BattleInputRouter : MonoBehaviour
     public bool ReloadPressedThisFrame => CombatEnabled && !DebugPointerBlocked && reloadAction != null && reloadAction.WasPressedThisFrame();
     public bool TabHeld => CombatEnabled && !DebugPointerBlocked && openTabAction != null && openTabAction.IsPressed();
     public bool SubmitPressedThisFrame => UiEnabled && submitAction != null && submitAction.WasPressedThisFrame();
-    public bool CancelPressedThisFrame => UiEnabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame();
+    public bool CancelPressedThisFrame => cancelHandledFrame != Time.frameCount && UiEnabled && uiCancelAction != null && uiCancelAction.WasPressedThisFrame();
 
     public bool PointerPresent => Pointer.current != null;
     public Vector2 PointerPosition => Pointer.current != null ? Pointer.current.position.ReadValue() : Vector2.zero;
@@ -105,9 +106,9 @@ public sealed class BattleInputRouter : MonoBehaviour
     public bool GamepadSubmitPressedThisFrame =>
         UiEnabled && Gamepad.current != null && Gamepad.current.buttonSouth.wasPressedThisFrame;
     public bool GamepadCancelPressedThisFrame =>
-        UiEnabled && Gamepad.current != null && Gamepad.current.buttonEast.wasPressedThisFrame;
+        cancelHandledFrame != Time.frameCount && UiEnabled && Gamepad.current != null && Gamepad.current.buttonEast.wasPressedThisFrame;
     public bool KeyboardCancelPressedThisFrame =>
-        UiEnabled && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
+        cancelHandledFrame != Time.frameCount && UiEnabled && Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame;
 
     /// <summary>Reward PACK 전용 보조 액션. Gamepad Y / North.</summary>
     public bool DiscardPressedThisFrame => UiEnabled && Gamepad.current != null && Gamepad.current.buttonNorth.wasPressedThisFrame;
@@ -131,6 +132,7 @@ public sealed class BattleInputRouter : MonoBehaviour
     public event Action TabClosed;
     public event Action<int> SlotPressed;
     public event Action PauseRequested;
+    public event Func<bool> CancelRequested;
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
     private static void ResetStatics()
@@ -249,7 +251,10 @@ public sealed class BattleInputRouter : MonoBehaviour
             if (DebugTogglePressedThisFrame ||
                 (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame) ||
                 (Gamepad.current != null && Gamepad.current.buttonEast.wasPressedThisFrame))
+            {
+                cancelHandledFrame = Time.frameCount;
                 debugUI.RequestClose();
+            }
             return;
         }
 
@@ -392,12 +397,28 @@ public sealed class BattleInputRouter : MonoBehaviour
 
     private void HandleCancel()
     {
+        if (cancelHandledFrame == Time.frameCount)
+            return;
+
         if (modals.Count > 0)
         {
+            cancelHandledFrame = Time.frameCount;
             modals.Peek().RequestClose();
             return;
         }
 
+        if (CancelRequested != null)
+        {
+            foreach (Func<bool> handler in CancelRequested.GetInvocationList())
+            {
+                if (!handler())
+                    continue;
+                cancelHandledFrame = Time.frameCount;
+                return;
+            }
+        }
+
+        cancelHandledFrame = Time.frameCount;
         PauseRequested?.Invoke();
     }
 

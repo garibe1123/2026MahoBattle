@@ -90,7 +90,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private Text selectionCancelLabel;
 
     private bool selectionSuppressed;
-    private int suppressedSourceSlot = -1;
+    private uint suppressedSelectionVersion;
+    private BattleInputRouter inputRouter;
     private int activeInspectSlot = -1;
     private bool inspectContextWasActive;
     private bool combatTabOpen;
@@ -118,6 +119,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private void OnEnable()
     {
         ResolveReferences();
+        inputRouter = BattleInputRouter.ResolveOrCreate(this);
+        inputRouter.CancelRequested += HandleCancelInput;
         SubscribeRunState();
         SubscribeCombatLoadout();
         combatActive = ResolveCombatState();
@@ -129,6 +132,8 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void OnDisable()
     {
+        if (inputRouter != null)
+            inputRouter.CancelRequested -= HandleCancelInput;
         UnsubscribeRunState();
         UnsubscribeCombatLoadout();
         combatActive = false;
@@ -136,7 +141,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         DimInventoryBackgrounds = false;
         inspectContextWasActive = false;
         selectionSuppressed = false;
-        suppressedSourceSlot = -1;
+        inventoryInteraction?.EndSlotDrag();
         SetActiveInspectSlot(-1);
         RestoreBulletTime(true);
     }
@@ -170,7 +175,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         // Combat selection/detail is owned by BattleKineticLoadoutUI.
         SyncSelection(rewardEdit, false);
-        HandleCancelInput(inspectContext);
         HandleMouseOutsideCancel(inspectContext);
 
         // 바깥 클릭 취소는 HandleMouseOutsideCancel()의 Screen Rect 판정만 사용합니다.
@@ -265,6 +269,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void HandleRunStateChanged(BattleRunState _)
     {
+        inventoryInteraction?.EndSlotDrag();
         combatActive = ResolveCombatState();
         if (!combatActive)
             combatTabOpen = false;
@@ -329,16 +334,18 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void HandleCombatBoardVisibilityChanged(bool visible)
     {
+        if (combatTabOpen != visible)
+            inventoryInteraction?.EndSlotDrag();
         combatTabOpen = visible;
     }
 
     private void HandleCombatSwitchSessionEnded()
     {
         combatTabOpen = false;
+        inventoryInteraction?.EndSlotDrag();
         inventoryInteraction?.ClearInspectSelection();
         activeInspectSlot = -1;
         selectionSuppressed = false;
-        suppressedSourceSlot = -1;
         detailController?.Hide();
     }
 
@@ -644,6 +651,16 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
                 fullGroup.interactable = !BattlePauseController.IsPaused;
             }
         }
+        else if (runManager != null && runManager.RunActive && runManager.State == BattleRunState.Reward)
+        {
+            if (fullGroup != null)
+            {
+                fullGroup.alpha = 0f;
+                fullGroup.blocksRaycasts = fullGroup.interactable = false;
+            }
+            if (boardGroup != null)
+                boardGroup.alpha = 0f;
+        }
 
         if (fullTitle != null)
             fullTitle.text = string.Empty;
@@ -723,7 +740,6 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         // 이전 세션에서 명시적으로 걸린 suppression을 다음 세션까지
         // 유지하면 KineticLoadout이 같은 SelectedIndex를 복원해도 상세가 영구히 막힙니다.
         selectionSuppressed = false;
-        suppressedSourceSlot = -1;
 
         rewardUiValidationPending =
             inspectContext;
@@ -845,10 +861,10 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
         if (selectionSuppressed)
         {
-            if (source >= 0 && source != suppressedSourceSlot)
+            if (source >= 0 && inventoryInteraction != null &&
+                inventoryInteraction.InspectSelectionVersion != suppressedSelectionVersion)
             {
                 selectionSuppressed = false;
-                suppressedSourceSlot = -1;
             }
             else
             {
@@ -883,16 +899,13 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     public void CancelSelection()
     {
-        int current = activeInspectSlot;
-        if (current < 0 && kineticLoadout != null)
-            current = kineticLoadout.SelectedIndex;
-        if (current < 0 && inventoryInteraction != null)
-            current = inventoryInteraction.SelectedRewardSlot;
-
         selectionSuppressed = true;
-        suppressedSourceSlot = current;
+        suppressedSelectionVersion = inventoryInteraction != null
+            ? inventoryInteraction.InspectSelectionVersion
+            : 0;
         activeInspectSlot = -1;
 
+        inventoryInteraction?.EndSlotDrag();
         inventoryInteraction?.ClearInspectSelection();
         kineticLoadout?.ClearExternalSelection();
         kineticLoadout?.HideRewardInspectTooltip();
@@ -902,13 +915,14 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             detailGroup.alpha = 0f;
     }
 
-    private void HandleCancelInput(bool inspectContext)
+    private bool HandleCancelInput()
     {
-        if (!inspectContext || BattlePauseController.IsPaused)
-            return;
+        if (!IsRewardEdit() || BattlePauseController.IsPaused || inputRouter == null ||
+            !inputRouter.GamepadCancelPressedThisFrame)
+            return false;
 
-        if (Input.GetKeyDown(KeyCode.JoystickButton1))
-            CancelSelection();
+        CancelSelection();
+        return true;
     }
 
     private void HandleMouseOutsideCancel(bool inspectContext)

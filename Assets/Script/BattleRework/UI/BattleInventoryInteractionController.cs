@@ -138,6 +138,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private int selectedRewardSlot = -1;
     private int hoveredSlot = -1;
     private int draggingSlot = -1;
+    private BattleInventorySlotPointer dragSource;
+    private int dragPointerId;
+    private BattleRunState dragRunState;
+    private BattleRewardPhase dragRewardPhase;
     private int padSelectedSlot;
     private int padPickedSlot = -1;
     private bool padAxisLatched;
@@ -162,6 +166,19 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     public int PadSelectedSlot => padSelectedSlot;
     public int PadPickedSlot => padPickedSlot;
     public bool PadModeActive => padModeActive;
+    public uint InspectSelectionVersion { get; private set; }
+
+    private bool InventoryInputAllowed => isActiveAndEnabled &&
+        !BattlePauseController.IsPaused && !discardModalOpen && inputRouter != null &&
+        inputRouter.isActiveAndEnabled && !inputRouter.HasModal &&
+        (IsCombat() ? inputRouter.CombatEnabled :
+            IsRewardPackEditing && inputRouter.UiEnabled && !rewardFlow.HasHand);
+
+    private bool DragSessionValid => InventoryInputAllowed && dragSource != null &&
+        dragSource.InputAllowed && dragSource.IsDragging && dragSource.SlotIndex == draggingSlot &&
+        runManager.State == dragRunState &&
+        (rewardFlow != null ? rewardFlow.Phase : BattleRewardPhase.Inactive) == dragRewardPhase &&
+        HasItem(draggingSlot);
 
     private void Awake()
     {
@@ -224,6 +241,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             lastRewardPhase = phase;
         }
 
+        if (draggingSlot >= 0 && !DragSessionValid)
+            EndSlotDrag();
+
         if (IsRewardPackEditing)
         {
             if (rewardFlow != null && rewardFlow.HasHand)
@@ -277,7 +297,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private void HandleRunStateChanged(BattleRunState state)
     {
         ClearInspectSelection();
-        draggingSlot = -1;
+        EndSlotDrag();
         flashedSlot = -1;
         HideDiscardConfirm();
 
@@ -290,6 +310,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private void HandleRewardPhaseChanged(BattleRewardPhase phase)
     {
         ClearInspectSelection();
+        EndSlotDrag();
         HideDiscardConfirm();
 
         if (phase != BattleRewardPhase.PackEditing || rewardFlow == null)
@@ -419,9 +440,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         frame.gameObject.SetActive(false);
     }
 
-    internal bool BeginSlotDrag(int slotIndex, BattleInventorySurface surface, PointerEventData eventData)
+    internal bool BeginSlotDrag(int slotIndex, BattleInventorySurface surface, PointerEventData eventData,
+        BattleInventorySlotPointer source)
     {
-        if (eventData == null || discardModalOpen || equipmentSystem == null || !HasItem(slotIndex))
+        if (!InventoryInputAllowed || eventData == null ||
+            eventData.button != PointerEventData.InputButton.Left || source == null ||
+            !source.InputAllowed || equipmentSystem == null || !HasItem(slotIndex))
             return false;
 
         ActivateMouseMode();
@@ -437,7 +461,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             return false;
         }
 
+        EndSlotDrag();
+        dragSource = source;
+        dragPointerId = eventData.pointerId;
+        dragRunState = runManager.State;
+        dragRewardPhase = rewardFlow != null ? rewardFlow.Phase : BattleRewardPhase.Inactive;
         draggingSlot = slotIndex;
+        InspectSelectionVersion++;
         flashedSlot = -1;
 
         BattleEquipmentSO equipment = equipmentSystem.Slots[slotIndex].equipment;
@@ -491,8 +521,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void UpdateSlotDrag(PointerEventData eventData)
     {
-        if (draggingSlot < 0 ||
-            eventData == null)
+        if (!DragSessionValid)
+        {
+            EndSlotDrag();
+            return;
+        }
+        if (eventData == null || eventData.pointerId != dragPointerId ||
+            eventData.pointerDrag != dragSource.gameObject)
         {
             return;
         }
@@ -506,7 +541,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void EndSlotDrag()
     {
+        BattleInventorySlotPointer source = dragSource;
+        dragSource = null;
         draggingSlot = -1;
+        source?.ClearDragState();
         dragGhostPositionInitialized = false;
 
         if (dragGhostRoot != null)
@@ -523,7 +561,13 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleSlotDrop(int targetIndex, PointerEventData eventData)
     {
-        if (discardModalOpen || equipmentSystem == null || eventData == null)
+        if (!DragSessionValid)
+        {
+            EndSlotDrag();
+            return;
+        }
+        if (equipmentSystem == null || eventData == null || eventData.pointerId != dragPointerId ||
+            eventData.pointerDrag != dragSource.gameObject)
             return;
 
         ActivateMouseMode();
@@ -535,16 +579,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             return;
         }
 
-        BattleInventorySlotPointer source = eventData.pointerDrag != null
-            ? eventData.pointerDrag.GetComponent<BattleInventorySlotPointer>()
-            : null;
-        if (source == null || !source.IsDragging)
-            return;
-
         if (IsReward() && (!IsRewardPackEditing || rewardFlow == null || rewardFlow.HasHand))
             return;
 
-        int sourceIndex = source.SlotIndex;
+        int sourceIndex = draggingSlot;
         if (!equipmentSystem.IsSlotUnlocked(sourceIndex) || sourceIndex == targetIndex)
             return;
 
@@ -560,6 +598,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         padPickedSlot = -1;
         rewardFlow?.SyncChosenRewardLocation();
         FlashSlot(targetIndex);
+        InspectSelectionVersion++;
+        EndSlotDrag();
     }
 
     // Legacy Reward card drag target. 클릭 -> 결정 흐름에서는 사용하지 않습니다.
@@ -569,7 +609,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleSlotClick(int slotIndex, BattleInventorySurface surface, PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left || discardModalOpen || equipmentSystem == null)
+        if (button != PointerEventData.InputButton.Left || !isActiveAndEnabled ||
+            BattlePauseController.IsPaused || (inputRouter != null && inputRouter.HasModal) ||
+            discardModalOpen || equipmentSystem == null)
             return;
 
         ActivateMouseMode();
@@ -592,6 +634,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
                 if (rewardFlow.ExchangeHandWithSlot(slotIndex))
                 {
                     selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
+                    InspectSelectionVersion++;
                     FlashSlot(slotIndex);
                 }
                 else
@@ -604,6 +647,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             // Mouse/Keyboard 모드에서는 클릭이 위치 변경을 일으키지 않습니다.
             // 클릭은 Inspect/Selection만 하고, 이동/교환은 Drag & Drop으로만 수행합니다.
             selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
+            InspectSelectionVersion++;
             return;
         }
 
@@ -637,19 +681,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleTrashDrop(PointerEventData eventData)
     {
-        if (BattlePauseController.IsPaused || discardModalOpen || equipmentSystem == null || eventData == null ||
-            (!IsCombat() && !IsRewardPackEditing))
+        if (!DragSessionValid)
+        {
+            EndSlotDrag();
+            return;
+        }
+        if (eventData == null || eventData.pointerId != dragPointerId ||
+            eventData.pointerDrag != dragSource.gameObject)
             return;
 
         ActivateMouseMode();
 
-        BattleInventorySlotPointer source = eventData.pointerDrag != null
-            ? eventData.pointerDrag.GetComponent<BattleInventorySlotPointer>()
-            : null;
-        if (source == null || !source.IsDragging || !HasItem(source.SlotIndex))
-            return;
-
-        RequestDiscard(source.SlotIndex);
+        int sourceIndex = draggingSlot;
+        EndSlotDrag();
+        RequestDiscard(sourceIndex);
     }
 
     internal void HandleTrashClick(PointerEventData.InputButton button)
@@ -695,6 +740,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
         ResolveReferences();
 
+        EndSlotDrag();
         pendingDiscardSlot = slotIndex;
         confirmYesSelected = false;
         discardModalOpen = true;
@@ -796,13 +842,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             HandlePadSubmit();
         }
 
-        if (inputRouter != null && inputRouter.GamepadCancelPressedThisFrame)
-        {
-            ActivatePadMode();
-            selectedRewardSlot = -1;
-            padPickedSlot = -1;
-        }
-
         if (inputRouter != null && inputRouter.DiscardPressedThisFrame)
         {
             ActivatePadMode();
@@ -842,6 +881,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         if (equipmentSystem.IsSlotUnlocked(next))
         {
             padSelectedSlot = next;
+            InspectSelectionVersion++;
             return;
         }
 
@@ -853,6 +893,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         if (rewardFlow == null || equipmentSystem == null)
             return;
 
+        InspectSelectionVersion++;
         if (rewardFlow.HasHand)
         {
             if (rewardFlow.ExchangeHandWithSlot(padSelectedSlot))
@@ -923,17 +964,6 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         {
             ActivatePadMode();
             ResolveDiscard(confirmYesSelected);
-        }
-        else if (inputRouter != null && inputRouter.GamepadCancelPressedThisFrame)
-        {
-            ActivatePadMode();
-            ResolveDiscard(false);
-        }
-        else if (inputRouter != null && inputRouter.KeyboardCancelPressedThisFrame)
-        {
-            // KBM에서는 방향 선택 없이 Escape만 취소 shortcut으로 허용합니다.
-            ActivateMouseMode();
-            ResolveDiscard(false);
         }
     }
 
@@ -2088,9 +2118,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private void HideTransientVisuals()
     {
-        draggingSlot = -1;
-        if (dragGhostRoot != null)
-            dragGhostRoot.gameObject.SetActive(false);
+        EndSlotDrag();
         if (handGhostRoot != null)
             handGhostRoot.gameObject.SetActive(false);
         if (transferGhostRoot != null)
@@ -2197,9 +2225,35 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     private int slotIndex;
     private BattleInventorySurface surface;
     private bool dragging;
+    private CanvasGroup[] inputGroups;
 
     public int SlotIndex => slotIndex;
     public bool IsDragging => dragging;
+
+    internal bool InputAllowed
+    {
+        get
+        {
+            if (!isActiveAndEnabled)
+                return false;
+            for (int i = 0; inputGroups != null && i < inputGroups.Length; i++)
+            {
+                CanvasGroup group = inputGroups[i];
+                if (group == null || !group.isActiveAndEnabled)
+                    continue;
+                if (!group.interactable || !group.blocksRaycasts)
+                    return false;
+                if (group.ignoreParentGroups)
+                    break;
+            }
+            return true;
+        }
+    }
+
+    private void Awake()
+    {
+        inputGroups = GetComponentsInParent<CanvasGroup>(true);
+    }
 
     public void Configure(BattleInventoryInteractionController controller, int index, BattleInventorySurface slotSurface)
     {
@@ -2210,7 +2264,7 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
 
     public void OnBeginDrag(PointerEventData eventData)
     {
-        dragging = owner != null && owner.BeginSlotDrag(slotIndex, surface, eventData);
+        dragging = owner != null && owner.BeginSlotDrag(slotIndex, surface, eventData, this);
     }
 
     public void OnDrag(PointerEventData eventData)
@@ -2221,6 +2275,13 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
 
     public void OnEndDrag(PointerEventData eventData)
     {
+        CancelDrag();
+    }
+
+    internal void ClearDragState() => dragging = false;
+
+    private void CancelDrag()
+    {
         if (dragging)
             owner?.EndSlotDrag();
         dragging = false;
@@ -2228,12 +2289,14 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
 
     public void OnDrop(PointerEventData eventData)
     {
-        owner?.HandleSlotDrop(slotIndex, eventData);
+        if (InputAllowed)
+            owner?.HandleSlotDrop(slotIndex, eventData);
     }
 
     public void OnPointerClick(PointerEventData eventData)
     {
-        owner?.HandleSlotClick(slotIndex, surface, eventData.button);
+        if (InputAllowed)
+            owner?.HandleSlotClick(slotIndex, surface, eventData.button);
     }
 
     public void OnPointerEnter(PointerEventData eventData)
@@ -2246,7 +2309,11 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
         owner?.HandleSlotHover(slotIndex, false, surface);
     }
 
-    private void OnDisable() => owner?.HandleSlotHover(slotIndex, false, surface);
+    private void OnDisable()
+    {
+        CancelDrag();
+        owner?.HandleSlotHover(slotIndex, false, surface);
+    }
 }
 
 internal sealed class BattleInventoryPackDropTarget : MonoBehaviour, IDropHandler
