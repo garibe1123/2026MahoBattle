@@ -452,20 +452,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     private void PlaceExactTarget(
         BattleSpeechBubbleTailStyle activeStyle, Rect bubble)
     {
-        Vector3 targetCenterWorld =
-            targetPivot.TransformPoint(
-                targetPivot.rect.center);
-
-        Vector2 targetLocal =
-            bubbleRect.InverseTransformPoint(
-                targetCenterWorld);
-
-        if (BattleUiStyleController.IsComic)
-        {
-
-            PlaceComicTopTarget(activeStyle, bubble, targetLocal);
-            return;
-        }
+        Vector2 targetLocal = GetTargetPoint(bubbleRect);
 
         if (bubble.Contains(targetLocal))
         {
@@ -618,7 +605,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up *
             (renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f * comicWidthScale))).magnitude;
         if (exactTargetMode)
-            tip = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
+            tip = GetTargetPoint(space);
         else
         {
             Rect frame = GetAttachmentRect();
@@ -634,21 +621,25 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         return true;
     }
 
-    private void PlaceComicTopTarget(BattleSpeechBubbleTailStyle activeStyle, Rect bubble, Vector2 target)
+    private Vector2 GetTargetPoint(RectTransform space)
     {
-        Vector2 renderSize = BattleSpeechBubbleTailTextureBuilder.GetRenderSize(activeStyle.uiSize);
-        float contentHeight = renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale;
-        float halfWidth = contentHeight * activeStyle.rootHalfWidth;
-        float inset = Mathf.Min(halfWidth, bubble.height * 0.35f);
-        Vector2 root = new(target.x >= bubble.center.x ? bubble.xMax - inset : bubble.xMin + inset,
-            Mathf.Lerp(bubble.yMin, bubble.yMax, Mathf.Clamp01(comicSideAttachment + comicAttachmentOffset)));
-        Vector2 delta = target - root;
-        tailRect.anchorMin = tailRect.anchorMax = bubbleRect.pivot;
-        tailRect.pivot = new Vector2(0f, 0.5f);
-        tailRect.anchoredPosition = root;
-        tailRect.sizeDelta = new Vector2(delta.magnitude / activeStyle.tip.x, renderSize.y);
-        tailRect.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
-        tailRect.localScale = Vector3.one;
+        Vector2 center = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
+        if (!BattleUiStyleController.IsComic) return center;
+        Vector2 towardBubble = space.rect.center - center;
+        targetPivot.GetWorldCorners(frameCorners);
+        for (int i = 0; i < frameCorners.Length; i++)
+        {
+            Vector2 start = space.InverseTransformPoint(frameCorners[i]);
+            Vector2 edge = (Vector2)space.InverseTransformPoint(frameCorners[(i + 1) % 4]) - start;
+            float cross = towardBubble.x * edge.y - towardBubble.y * edge.x;
+            if (Mathf.Abs(cross) <= 0.0001f) continue;
+            Vector2 offset = start - center;
+            float distance = (offset.x * edge.y - offset.y * edge.x) / cross;
+            float along = (offset.x * towardBubble.y - offset.y * towardBubble.x) / cross;
+            if (distance >= 0f && distance <= 1f && along >= 0f && along <= 1f)
+                return center + towardBubble * distance;
+        }
+        return center;
     }
 
     private void PlaceHorizontal(

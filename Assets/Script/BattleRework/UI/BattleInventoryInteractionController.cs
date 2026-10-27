@@ -572,34 +572,40 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
         ActivateMouseMode();
 
-        if (!equipmentSystem.IsSlotUnlocked(targetIndex))
+        try
         {
-            if (IsRewardPackEditing)
-                ShowDenied("LOCKED SLOT", targetIndex);
-            return;
+            if (!equipmentSystem.IsSlotUnlocked(targetIndex))
+            {
+                if (IsRewardPackEditing)
+                    ShowDenied("LOCKED SLOT", targetIndex);
+                return;
+            }
+
+            if (IsReward() && (!IsRewardPackEditing || rewardFlow == null || rewardFlow.HasHand))
+                return;
+
+            int sourceIndex = draggingSlot;
+            if (!equipmentSystem.IsSlotUnlocked(sourceIndex) || sourceIndex == targetIndex)
+                return;
+
+            if (!equipmentSystem.SwapSlots(sourceIndex, targetIndex))
+            {
+                if (IsRewardPackEditing)
+                    ShowDenied("CANNOT SWAP", targetIndex);
+                return;
+            }
+
+            selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
+            padSelectedSlot = targetIndex;
+            padPickedSlot = -1;
+            rewardFlow?.SyncChosenRewardLocation();
+            FlashSlot(targetIndex);
+            InspectSelectionVersion++;
         }
-
-        if (IsReward() && (!IsRewardPackEditing || rewardFlow == null || rewardFlow.HasHand))
-            return;
-
-        int sourceIndex = draggingSlot;
-        if (!equipmentSystem.IsSlotUnlocked(sourceIndex) || sourceIndex == targetIndex)
-            return;
-
-        if (!equipmentSystem.SwapSlots(sourceIndex, targetIndex))
+        finally
         {
-            if (IsRewardPackEditing)
-                ShowDenied("CANNOT SWAP", targetIndex);
-            return;
+            EndSlotDrag();
         }
-
-        selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
-        padSelectedSlot = targetIndex;
-        padPickedSlot = -1;
-        rewardFlow?.SyncChosenRewardLocation();
-        FlashSlot(targetIndex);
-        InspectSelectionVersion++;
-        EndSlotDrag();
     }
 
     // Legacy Reward card drag target. 클릭 -> 결정 흐름에서는 사용하지 않습니다.
@@ -2253,6 +2259,10 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
     private void Awake()
     {
         inputGroups = GetComponentsInParent<CanvasGroup>(true);
+        // 테마가 비운 배경 대신 슬롯 장식에서 부모의 포인터 처리기로 전달합니다.
+        Transform decoration = transform.Find("PanelDecoration");
+        if (decoration != null && decoration.TryGetComponent(out BattleUiPanelDecoration surfaceGraphic))
+            surfaceGraphic.raycastTarget = true;
     }
 
     public void Configure(BattleInventoryInteractionController controller, int index, BattleInventorySurface slotSurface)

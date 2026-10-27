@@ -1187,14 +1187,42 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         {
             int edge = 0;
             Vector2 center = (corners[0] + corners[1] + corners[2] + corners[3]) * 0.25f;
+            bool hostTail = speechGeometry.ComicTail.IsComicHostTail;
             bool right = tip.x >= center.x;
             for (int i = 1; i < 4; i++)
                 if (right ? corners[i].x + corners[(i + 1) % 4].x > corners[edge].x + corners[(edge + 1) % 4].x
                     : corners[i].x + corners[(i + 1) % 4].x < corners[edge].x + corners[(edge + 1) % 4].x)
                     edge = i;
+            float along;
+            if (!hostTail)
+            {
+                Vector2 ray = tip - center;
+                float nearest = 1f;
+                edge = -1;
+                along = 0.5f;
+                for (int i = 0; i < 4; i++)
+                {
+                    Vector2 segment = corners[(i + 1) % 4] - corners[i];
+                    float cross = Cross(ray, segment);
+                    if (Mathf.Abs(cross) <= 0.0001f) continue;
+                    Vector2 offset = corners[i] - center;
+                    float distance = Cross(offset, segment) / cross;
+                    float position = Cross(offset, ray) / cross;
+                    if (distance < 0f || distance >= nearest || position < 0f || position > 1f) continue;
+                    nearest = distance;
+                    edge = i;
+                    along = position;
+                }
+                if (edge < 0)
+                {
+                    DrawComicSpeechPolygon(vh, corners, settings, alpha);
+                    return;
+                }
+            }
+            else along = corners[edge].y < corners[(edge + 1) % 4].y ? attachment : 1f - attachment;
             Vector2 start = corners[edge], end = corners[(edge + 1) % 4];
-            float along = start.y < end.y ? attachment : 1f - attachment;
             float half = Mathf.Min(0.24f, tailSize.y / Mathf.Max(1f, Vector2.Distance(start, end)) * 0.5f);
+            if (!hostTail) along = Mathf.Clamp(along, half, 1f - half);
             Vector2 root = Vector2.Lerp(start, end, along);
             Vector2 direction = tip - root;
             Vector2 normal = new Vector2(-direction.y, direction.x).normalized;
@@ -1202,8 +1230,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             Vector2 rootB = Vector2.Lerp(start, end, Mathf.Clamp01(along + half));
             if (Vector2.Dot(normal, rootA - root) < 0f) normal = -normal;
             float width = Vector2.Distance(rootA, rootB) * 0.5f;
-            bool hostTail = speechGeometry.ComicTail.IsComicHostTail;
             float bend = hostTail ? width * 0.65f : Mathf.Min(width * 0.2f, direction.magnitude * 0.08f);
+            Vector2 bendNormal = hostTail ? normal : (rootA - rootB).normalized;
             comicSpeechContour[0] = start;
             comicSpeechContour[1] = rootA;
             for (int i = 0; i < 3; i++)
@@ -1212,10 +1240,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 float alongTail = i == 0 ? bendPosition * 0.6f : i == 1 ? bendPosition :
                     Mathf.Lerp(bendPosition, 1f, 0.4f);
                 float offset = i == 0 ? bend : i == 1 ? -bend : 0f;
-                Vector2 pivotCenter = root + direction * alongTail + normal * offset;
-                float radius = width * (hostTail ? (i == 0 ? 0.7f : i == 1 ? 0.5f : 0.3f) : 1f - alongTail);
-                comicSpeechContour[2 + i] = pivotCenter + normal * radius;
-                comicSpeechContour[8 - i] = pivotCenter - normal * radius;
+                Vector2 pivotCenter = root + direction * alongTail + bendNormal * offset;
+                Vector2 radius = hostTail ? normal * width * (i == 0 ? 0.7f : i == 1 ? 0.5f : 0.3f)
+                    : (rootA - root) * (1f - alongTail);
+                comicSpeechContour[2 + i] = pivotCenter + radius;
+                comicSpeechContour[8 - i] = pivotCenter - radius;
             }
             comicSpeechContour[5] = tip;
             comicSpeechContour[9] = rootB;
