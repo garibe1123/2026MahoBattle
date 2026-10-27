@@ -205,6 +205,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     public int HoveredSlot => hoveredSlot;
 
     public event Action<bool> SwitchBoardVisibilityChanged;
+    public event Action SwitchSessionEnded;
 
     private void Awake()
     {
@@ -242,6 +243,10 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void OnDisable()
     {
+        if (switchHeld)
+            CancelSwitchMode();
+        if (fullGroup != null)
+            fullGroup.blocksRaycasts = fullGroup.interactable = false;
         BattleUiOpticsCanvas.ResetTabFocus();
         BattleHUD.SetInventoryInteraction(false);
         ClearStaminaWarning();
@@ -565,6 +570,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         switchHeld = false;
         boardWasShown = false;
         directionMoved = false;
+        ClearSwitchSession();
         NotifySwitchBoardVisibility();
         stickAxisLatched = false;
         BeginTabTimeResume();
@@ -577,9 +583,17 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
         boardWasShown = false;
         directionMoved = false;
         stickAxisLatched = false;
+        ClearSwitchSession();
         NotifySwitchBoardVisibility();
         BeginTabTimeResume();
         RefreshAll();
+    }
+
+    private void ClearSwitchSession()
+    {
+        selectedIndex = -1;
+        ClearPackHoverImmediate();
+        SwitchSessionEnded?.Invoke();
     }
 
     private void BeginTabTimeStop()
@@ -2578,7 +2592,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                         detailGroup.alpha = 1f;
                 }
             }
-            else if (combat && (inputRouter != null && inputRouter.PointerPresent))
+            else if (combat)
             {
                 HideRewardInspectTooltip();
             }
@@ -2596,7 +2610,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
                 detailGroup.interactable = false;
 
                 if (!tooltipVisible &&
-                    combat)
+                    combat && !detailPopupClosing)
                 {
                     detailGroup.alpha = 0f;
                 }
@@ -3341,5 +3355,6 @@ internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour,
 
     public void OnPointerEnter(PointerEventData eventData) => owner?.HandleSlotHover(slotIndex, true);
     public void OnPointerExit(PointerEventData eventData) => owner?.HandleSlotHover(slotIndex, false);
+    private void OnDisable() => owner?.HandleSlotHover(slotIndex, false);
     public void OnPointerClick(PointerEventData eventData) => owner?.HandleSlotClick(slotIndex, eventData.button);
 }

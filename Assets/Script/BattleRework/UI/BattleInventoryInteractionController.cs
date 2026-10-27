@@ -179,6 +179,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private void OnDisable()
     {
+        ClearInspectSelection();
         HideTransientVisuals();
         HideDiscardConfirm();
     }
@@ -615,14 +616,23 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         }
     }
 
-    internal void HandleSlotHover(int slotIndex, bool entered)
+    internal void HandleSlotHover(int slotIndex, bool entered, BattleInventorySurface surface)
     {
-        if ((!IsRewardPackEditing && !IsCombat()) || (entered && BattlePauseController.IsPaused))
+        if (!entered)
+        {
+            if (hoveredSlot == slotIndex)
+                hoveredSlot = -1;
+            return;
+        }
+
+        if ((!IsRewardPackEditing && !IsCombat()) || BattlePauseController.IsPaused)
+            return;
+        // Combat 확장 슬롯의 호버는 BattleKineticLoadoutUI가 소유합니다.
+        if (IsCombat() && surface == BattleInventorySurface.ExpandedGrid)
             return;
 
-        if (entered)
-            ActivateMouseMode();
-        hoveredSlot = entered ? slotIndex : (hoveredSlot == slotIndex ? -1 : hoveredSlot);
+        ActivateMouseMode();
+        hoveredSlot = slotIndex;
     }
 
     internal void HandleTrashDrop(PointerEventData eventData)
@@ -2228,13 +2238,15 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
 
     public void OnPointerEnter(PointerEventData eventData)
     {
-        owner?.HandleSlotHover(slotIndex, true);
+        owner?.HandleSlotHover(slotIndex, true, surface);
     }
 
     public void OnPointerExit(PointerEventData eventData)
     {
-        owner?.HandleSlotHover(slotIndex, false);
+        owner?.HandleSlotHover(slotIndex, false, surface);
     }
+
+    private void OnDisable() => owner?.HandleSlotHover(slotIndex, false, surface);
 }
 
 internal sealed class BattleInventoryPackDropTarget : MonoBehaviour, IDropHandler

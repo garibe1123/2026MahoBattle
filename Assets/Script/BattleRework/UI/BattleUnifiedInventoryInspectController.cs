@@ -302,12 +302,16 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             return;
 
         if (subscribedCombatLoadout != null)
+        {
             subscribedCombatLoadout.SwitchBoardVisibilityChanged -= HandleCombatBoardVisibilityChanged;
+            subscribedCombatLoadout.SwitchSessionEnded -= HandleCombatSwitchSessionEnded;
+        }
 
         subscribedCombatLoadout = kineticLoadout;
         if (subscribedCombatLoadout != null)
         {
             subscribedCombatLoadout.SwitchBoardVisibilityChanged += HandleCombatBoardVisibilityChanged;
+            subscribedCombatLoadout.SwitchSessionEnded += HandleCombatSwitchSessionEnded;
             combatTabOpen = subscribedCombatLoadout.IsSwitchBoardOpen;
         }
     }
@@ -315,7 +319,10 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private void UnsubscribeCombatLoadout()
     {
         if (subscribedCombatLoadout != null)
+        {
             subscribedCombatLoadout.SwitchBoardVisibilityChanged -= HandleCombatBoardVisibilityChanged;
+            subscribedCombatLoadout.SwitchSessionEnded -= HandleCombatSwitchSessionEnded;
+        }
 
         subscribedCombatLoadout = null;
     }
@@ -323,6 +330,16 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private void HandleCombatBoardVisibilityChanged(bool visible)
     {
         combatTabOpen = visible;
+    }
+
+    private void HandleCombatSwitchSessionEnded()
+    {
+        combatTabOpen = false;
+        inventoryInteraction?.ClearInspectSelection();
+        activeInspectSlot = -1;
+        selectionSuppressed = false;
+        suppressedSourceSlot = -1;
+        detailController?.Hide();
     }
 
     private void ResolveUi()
