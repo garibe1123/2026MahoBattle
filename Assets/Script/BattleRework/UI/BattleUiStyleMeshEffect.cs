@@ -248,7 +248,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             next = label != null ? pixelText : panel && !statusFill ? pixelPanel : pixelSprite;
         bool comic = BattleUiStyleController.IsComic;
         if (comic && next == null && (panel || speechFrame || speechBadge || stylishButton || stylishSurface)) next = pixelPanel;
-        if (comic && label != null && interaction != null && interaction.name == "StartBattleButton")
+        if (comic && label != null && interaction != null &&
+            (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone"))
             next = target.defaultMaterial;
         bool maho = BattleUiStyleController.IsMahoShojo;
         if (maho && next == null) next = panel && !statusFill ? pixelPanel : mahoMaterial;
@@ -315,7 +316,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasBirthday = birthday;
         wasPaper = paper;
         wasCmd = cmd;
-        bool comicStartLabel = comic && label != null && interaction != null && interaction.name == "StartBattleButton";
+        bool comicStartLabel = comic && label != null && interaction != null &&
+            (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone");
         bool decoratedTitle = !comicStartLabel && (title || ((comic || stylish) && interaction != null && interaction.Primary)) &&
             (comic || stylish || birthday || paper || cmd);
         if (isActiveAndEnabled && label != null && settings.textMaterial == null &&

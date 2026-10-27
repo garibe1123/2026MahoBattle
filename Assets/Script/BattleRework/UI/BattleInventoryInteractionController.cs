@@ -1084,7 +1084,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         if (doneButton != null)
             doneButton.interactable = canAdvance;
         if (doneLabel != null && show)
-            doneLabel.text = rewardFlow != null && rewardFlow.HasHand ? "손의 아이템을 배치 / 폐기" : "DONE  /  START";
+            doneLabel.text = rewardFlow != null && rewardFlow.HasHand ? "손의 아이템을 배치 / 폐기" : "NEXT STAGE";
     }
 
     private void UpdateRewardHandVisual()
@@ -1451,7 +1451,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         outline.effectColor = inkColor;
         outline.effectDistance = new Vector2(5f, -5f);
 
-        Text label = CreateText(doneRoot, "DONE  /  START", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
+        Text label = CreateText(doneRoot, "NEXT STAGE", 15, FontStyle.Bold, TextAnchor.MiddleCenter, inkColor);
         doneLabel = label;
         Stretch(label.rectTransform);
         doneButton = doneRoot.gameObject.AddComponent<Button>();

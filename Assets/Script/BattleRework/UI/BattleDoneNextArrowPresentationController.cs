@@ -31,6 +31,8 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
     [SerializeField] private Color disabledColor = new(0.22f, 0.23f, 0.26f, 0.96f);
     [SerializeField] private Color inkColor = new(0.018f, 0.020f, 0.024f, 1f);
     [SerializeField] private Color disabledTextColor = new(0.72f, 0.73f, 0.76f, 1f);
+    [SerializeField] private Color comicReadyColor = new Color32(0xE6, 0x23, 0x32, 255);
+    [SerializeField] private Color comicTextColor = Color.white;
 
     [Header("Squish")]
     [SerializeField, Min(0.1f)] private float wobbleSpeed = 3.9f;
@@ -306,10 +308,12 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         if (baseOutline != null)
             baseOutline.enabled = false;
 
-        bool ready = button == null || button.interactable;
-        Color fill = ready ? readyColor : disabledColor;
+        bool ready = button != null && button.IsInteractable();
+        bool comic = BattleUiStyleController.IsComic;
+        Color activeColor = comic ? comicReadyColor : readyColor;
+        Color fill = ready ? activeColor : disabledColor;
         if (hovered && ready)
-            fill = Color.Lerp(readyColor, Color.white, 0.14f);
+            fill = Color.Lerp(activeColor, Color.white, 0.14f);
 
         Color shadow = new(inkColor.r, inkColor.g, inkColor.b, ready ? 1f : 0.74f);
         SetImageColor(shadowBody, shadow);
@@ -329,11 +333,15 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         if (label != null)
         {
             label.gameObject.SetActive(true);
-            label.text = "DONE / NEXT";
             label.fontStyle = FontStyle.Bold;
             label.fontSize = 15;
             label.alignment = TextAnchor.MiddleCenter;
-            label.color = ready ? inkColor : disabledTextColor;
+            label.color = comic ? comicTextColor : ready ? inkColor : disabledTextColor;
+            label.resizeTextForBestFit = true;
+            label.resizeTextMinSize = 9;
+            label.resizeTextMaxSize = 15;
+            label.horizontalOverflow = HorizontalWrapMode.Wrap;
+            label.verticalOverflow = VerticalWrapMode.Overflow;
 
             RectTransform labelRect = label.rectTransform;
             labelRect.anchorMin = new Vector2(0.08f, 0.12f);
