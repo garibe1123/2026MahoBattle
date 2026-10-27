@@ -56,7 +56,11 @@ public sealed class BattleRewardFlow : MonoBehaviour
     public int TransferTargetSlot => transferTargetSlot;
     public bool TransferToHand => phase == BattleRewardPhase.Transferring && transferToHand;
     public bool CanConfirmChoice => phase == BattleRewardPhase.Choosing && SelectedChoice != null;
-    public bool CanComplete => phase == BattleRewardPhase.PackEditing && !HasHand;
+    public uint StateVersion { get; private set; }
+    public bool CanComplete => phase == BattleRewardPhase.PackEditing && !HasHand &&
+                               runManager != null && runManager.CanResolveReward;
+    public bool CanLeaveReward => !HasHand &&
+                                  (phase == BattleRewardPhase.Choosing || phase == BattleRewardPhase.PackEditing);
 
     public BattleEquipmentSO SelectedChoice
     {
@@ -106,6 +110,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
             runManager = FindFirstObjectByType<BattleRunManager>();
         if (equipmentSystem == null)
             equipmentSystem = FindFirstObjectByType<BattleEquipmentSystem>();
+        runManager?.RegisterRewardFlow(this);
     }
 
     private void EnsureSubscriptions()
@@ -306,7 +311,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
 
     /// <summary>
     /// Reward Hand와 PACK 슬롯을 교환합니다.
-    /// 같은 Reward를 합칠 수 있는 슬롯에 놓는 경우에는 교환 대신 합성을 수행합니다.
+    /// 같은 장비도 합성하지 않고 기존 묶음을 새 손 아이템으로 유지합니다.
     /// </summary>
     public bool ExchangeHandWithSlot(int slotIndex)
     {
@@ -314,20 +319,6 @@ public sealed class BattleRewardFlow : MonoBehaviour
         if (phase != BattleRewardPhase.PackEditing || !HasHand || equipmentSystem == null ||
             !equipmentSystem.TryGetSlot(slotIndex, out BattleEquipmentSlot target))
             return false;
-
-        if (handIsChosenReward && target.equipment == chosenReward)
-        {
-            if (target.grade >= 3 || !equipmentSystem.PlaceIntoSlot(slotIndex, chosenReward))
-                return false;
-
-            hand.Clear();
-            handIsChosenReward = false;
-            chosenRewardCommitted = true;
-            chosenRewardSlot = slotIndex;
-            chosenRewardSlotRef = target;
-            RaiseChanged();
-            return true;
-        }
 
         bool incomingWasChosenReward = handIsChosenReward;
         bool outgoingWasChosenReward = chosenRewardCommitted &&
@@ -361,6 +352,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
 
     public bool DiscardHand()
     {
+        RefreshFromRunState();
         if (phase != BattleRewardPhase.PackEditing || !HasHand)
             return false;
 
@@ -464,6 +456,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
 
     private void ResetState(bool notify)
     {
+        StateVersion++;
         phase = BattleRewardPhase.Inactive;
         selectedChoiceIndex = -1;
         chosenReward = null;
@@ -482,6 +475,7 @@ public sealed class BattleRewardFlow : MonoBehaviour
 
     private void RaiseChanged()
     {
+        StateVersion++;
         Changed?.Invoke();
     }
 }

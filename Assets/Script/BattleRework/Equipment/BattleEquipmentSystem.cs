@@ -59,8 +59,15 @@ public class BattleEquipmentSystem : MonoBehaviour
     }
 
     public event Action InventoryChanged;
+    public uint InventoryVersion { get; private set; }
     public event Action<int> SlotCapacityChanged;
     public event Action<int> EquippedSlotChanged;
+
+    private void NotifyInventoryChanged()
+    {
+        InventoryVersion++;
+        InventoryChanged?.Invoke();
+    }
 
     private void Awake()
     {
@@ -262,7 +269,7 @@ public class BattleEquipmentSystem : MonoBehaviour
         else if (equippedSlotIndex == secondIndex)
             equippedSlotIndex = firstIndex;
 
-        InventoryChanged?.Invoke();
+        NotifyInventoryChanged();
         EquippedSlotChanged?.Invoke(EquippedSlotIndex);
         return true;
     }
@@ -301,7 +308,7 @@ public class BattleEquipmentSystem : MonoBehaviour
                 EquipFirstAvailableWeapon();
         }
 
-        InventoryChanged?.Invoke();
+        NotifyInventoryChanged();
         return true;
     }
 
@@ -329,7 +336,7 @@ public class BattleEquipmentSystem : MonoBehaviour
         }
 
         EquipFirstAvailableWeapon();
-        InventoryChanged?.Invoke();
+        NotifyInventoryChanged();
     }
 
     public bool TryAcquire(BattleEquipmentSO equipment)
@@ -346,7 +353,7 @@ public class BattleEquipmentSystem : MonoBehaviour
 
         if (TryMerge(equipment))
         {
-            if (notify) InventoryChanged?.Invoke();
+            if (notify) NotifyInventoryChanged();
             return true;
         }
 
@@ -356,7 +363,7 @@ public class BattleEquipmentSystem : MonoBehaviour
 
         slots[empty].Set(equipment, 1, 1);
 
-        if (notify) InventoryChanged?.Invoke();
+        if (notify) NotifyInventoryChanged();
         return true;
     }
 
@@ -396,7 +403,7 @@ public class BattleEquipmentSystem : MonoBehaviour
                 return false;
 
             MergeCopyIntoSlot(target);
-            InventoryChanged?.Invoke();
+            NotifyInventoryChanged();
             return true;
         }
 
@@ -453,7 +460,7 @@ public class BattleEquipmentSystem : MonoBehaviour
                 EquipFirstAvailableWeapon();
         }
 
-        InventoryChanged?.Invoke();
+        NotifyInventoryChanged();
         return true;
     }
 
@@ -477,7 +484,7 @@ public class BattleEquipmentSystem : MonoBehaviour
         if (oldWasEquipped)
             EquipFirstAvailableWeapon();
 
-        InventoryChanged?.Invoke();
+        NotifyInventoryChanged();
         return true;
     }
 
@@ -559,7 +566,7 @@ public class BattleEquipmentSystem : MonoBehaviour
             EquipFirstAvailableWeapon();
 
         SlotCapacityChanged?.Invoke(unlockedSlotCount);
-        InventoryChanged?.Invoke();
+        NotifyInventoryChanged();
     }
 
     public void UnlockSlots(int amount = 1)

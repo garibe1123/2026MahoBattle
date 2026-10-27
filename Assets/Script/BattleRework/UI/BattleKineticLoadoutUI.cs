@@ -462,7 +462,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void HandleTabClosed()
     {
-        if (!switchHeld)
+        if (!switchHeld || (inputRouter != null && inputRouter.HasModal))
             return;
 
         CompleteSwitchMode(Time.unscaledTime - switchPressedAt);
@@ -507,7 +507,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
 
     private void UpdateSwitchInput()
     {
-        if (!switchHeld || inputRouter == null)
+        if (!switchHeld || inputRouter == null || inputRouter.HasModal)
             return;
 
         float heldDuration = Time.unscaledTime - switchPressedAt;
@@ -2230,6 +2230,7 @@ public sealed class BattleKineticLoadoutUI : MonoBehaviour
     internal void HandleSlotClick(int index, PointerEventData.InputButton button)
     {
         if (button != PointerEventData.InputButton.Left ||
+            BattlePauseController.IsPaused || (inputRouter != null && inputRouter.HasModal) ||
             equipmentSystem == null ||
             !IsSwitchBoardOpen ||
             !equipmentSystem.IsSlotUnlocked(index))
@@ -3368,5 +3369,9 @@ internal sealed class BattleLoadoutGridPointerTarget : MonoBehaviour,
     public void OnPointerEnter(PointerEventData eventData) => owner?.HandleSlotHover(slotIndex, true);
     public void OnPointerExit(PointerEventData eventData) => owner?.HandleSlotHover(slotIndex, false);
     private void OnDisable() => owner?.HandleSlotHover(slotIndex, false);
-    public void OnPointerClick(PointerEventData eventData) => owner?.HandleSlotClick(slotIndex, eventData.button);
+    public void OnPointerClick(PointerEventData eventData)
+    {
+        if (!eventData.dragging)
+            owner?.HandleSlotClick(slotIndex, eventData.button);
+    }
 }

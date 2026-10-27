@@ -141,7 +141,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
         DimInventoryBackgrounds = false;
         inspectContextWasActive = false;
         selectionSuppressed = false;
-        inventoryInteraction?.EndSlotDrag();
+        inventoryInteraction?.RequestClose();
         SetActiveInspectSlot(-1);
         RestoreBulletTime(true);
     }
@@ -269,7 +269,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
 
     private void HandleRunStateChanged(BattleRunState _)
     {
-        inventoryInteraction?.EndSlotDrag();
+        inventoryInteraction?.RequestClose();
         combatActive = ResolveCombatState();
         if (!combatActive)
             combatTabOpen = false;
@@ -335,7 +335,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
     private void HandleCombatBoardVisibilityChanged(bool visible)
     {
         if (combatTabOpen != visible)
-            inventoryInteraction?.EndSlotDrag();
+            inventoryInteraction?.RequestClose();
         combatTabOpen = visible;
     }
 

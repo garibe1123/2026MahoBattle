@@ -74,6 +74,7 @@ public class BattleRunManager : MonoBehaviour
     private BattleRuleSet currentBattleRules;
     private Coroutine nodeEntryRoutine;
     private BattleContext currentContext;
+    private BattleRewardFlow rewardFlow;
     private BattleRunState state = BattleRunState.None;
     private bool runActive;
     private bool roomStartedWithMonsters;
@@ -91,6 +92,14 @@ public class BattleRunManager : MonoBehaviour
     public BattleRuleSet CurrentBattleRules => currentBattleRules;
     public BattleRunState State => state;
     public bool RunActive => runActive;
+    public bool CanResolveReward => runActive && state == BattleRunState.Reward &&
+                                    !BattlePauseController.IsPaused &&
+                                    (rewardFlow == null || rewardFlow.CanLeaveReward);
+
+    internal void RegisterRewardFlow(BattleRewardFlow flow)
+    {
+        rewardFlow = flow;
+    }
     public bool WaitingForNodeSelection => state == BattleRunState.SelectingNode;
     public IReadOnlyList<BattleNodeData> NextNodeChoices => nextNodeChoices;
     public IReadOnlyList<BattleEquipmentSO> CurrentRewardChoices => currentRewardChoices;
@@ -518,7 +527,7 @@ public class BattleRunManager : MonoBehaviour
     private bool TryGetReward(int rewardIndex, out BattleEquipmentSO selected)
     {
         selected = null;
-        if (!runActive || state != BattleRunState.Reward)
+        if (!CanResolveReward || (rewardFlow != null && rewardFlow.Phase != BattleRewardPhase.Choosing))
             return false;
         if (rewardIndex < 0 || rewardIndex >= currentRewardChoices.Count)
             return false;
@@ -529,6 +538,8 @@ public class BattleRunManager : MonoBehaviour
 
     public void CompleteRewardSelection(BattleEquipmentSO selected)
     {
+        if (!CanResolveReward || selected == null)
+            return;
         currentRewardChoices.Clear();
         RewardSelected?.Invoke(selected);
         CompleteCurrentNode();
@@ -536,7 +547,7 @@ public class BattleRunManager : MonoBehaviour
 
     public void SkipReward()
     {
-        if (!runActive || state != BattleRunState.Reward)
+        if (!CanResolveReward)
             return;
         currentRewardChoices.Clear();
         CompleteCurrentNode();

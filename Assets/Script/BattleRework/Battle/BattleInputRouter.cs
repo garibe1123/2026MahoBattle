@@ -380,12 +380,28 @@ public sealed class BattleInputRouter : MonoBehaviour
         ApplyMaps();
     }
 
+    public bool IsTopModal(IInputModal modal)
+    {
+        return modals.Count > 0 && ReferenceEquals(modals.Peek(), modal);
+    }
+
     public void PopModal(IInputModal modal)
     {
-        if (modal == null || modals.Count == 0 || !ReferenceEquals(modals.Peek(), modal))
+        if (modal == null || !modals.Contains(modal))
             return;
 
-        modals.Pop();
+        if (ReferenceEquals(modals.Peek(), modal))
+        {
+            modals.Pop();
+        }
+        else
+        {
+            IInputModal[] remaining = modals.ToArray();
+            modals.Clear();
+            for (int i = remaining.Length - 1; i >= 0; i--)
+                if (!ReferenceEquals(remaining[i], modal))
+                    modals.Push(remaining[i]);
+        }
         ApplyMaps();
     }
 

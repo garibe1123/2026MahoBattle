@@ -143,15 +143,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private int dragPointerId;
     private BattleRunState dragRunState;
     private BattleRewardPhase dragRewardPhase;
+    private bool draggingHand;
+    private uint dragInventoryVersion;
+    private uint dragRewardVersion;
     private int padSelectedSlot;
     private int padPickedSlot = -1;
+    private uint padPickVersion;
     private bool padAxisLatched;
     private bool padModeActive;
 
     private BattleRunState lastState = (BattleRunState)(-1);
     private BattleRewardPhase lastRewardPhase = (BattleRewardPhase)(-1);
 
-    private int pendingDiscardSlot = -1;
+    private InventoryRequest pendingRequest;
+    private int inputHandledFrame = -1;
     private bool confirmYesSelected;
     private bool discardModalOpen;
 
@@ -159,7 +164,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     private float flashUntil;
     private float nextResolveTime;
 
-    public bool IsDraggingItem => draggingSlot >= 0;
+    public bool IsDraggingItem => draggingSlot >= 0 || draggingHand;
     public int DraggingSlot => draggingSlot;
     public bool IsRewardPackEditing => IsReward() && rewardFlow != null && rewardFlow.Phase == BattleRewardPhase.PackEditing;
     public int SelectedRewardSlot => selectedRewardSlot;
@@ -173,13 +178,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         !BattlePauseController.IsPaused && !discardModalOpen && inputRouter != null &&
         inputRouter.isActiveAndEnabled && !inputRouter.HasModal &&
         (IsCombat() ? inputRouter.CombatEnabled :
-            IsRewardPackEditing && inputRouter.UiEnabled && !rewardFlow.HasHand);
+            IsRewardPackEditing && inputRouter.UiEnabled);
 
     private bool DragSessionValid => InventoryInputAllowed && dragSource != null &&
         dragSource.InputAllowed && dragSource.IsDragging && dragSource.SlotIndex == draggingSlot &&
         runManager.State == dragRunState &&
         (rewardFlow != null ? rewardFlow.Phase : BattleRewardPhase.Inactive) == dragRewardPhase &&
-        HasItem(draggingSlot);
+        equipmentSystem != null && equipmentSystem.InventoryVersion == dragInventoryVersion &&
+        (rewardFlow != null ? rewardFlow.StateVersion : 0) == dragRewardVersion &&
+        (draggingHand ? IsRewardPackEditing && rewardFlow.HasHand : HasItem(draggingSlot));
 
     private void Awake()
     {
@@ -242,8 +249,16 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             lastRewardPhase = phase;
         }
 
-        if (draggingSlot >= 0 && !DragSessionValid)
+        if (IsDraggingItem && !DragSessionValid)
             EndSlotDrag();
+
+        if (discardModalOpen && (!pendingRequest.IsValid(runManager, equipmentSystem, rewardFlow) ||
+                                 BattlePauseController.IsPaused))
+            HideDiscardConfirm();
+
+        if (discardModalOpen && !BattlePauseController.IsPaused &&
+            inputRouter != null && inputRouter.IsTopModal(this))
+            HandlePadConfirmInput();
 
         if (IsRewardPackEditing)
         {
@@ -252,7 +267,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
                 selectedRewardSlot = -1;
                 padPickedSlot = -1;
             }
-            HandlePadPackInput();
+            if (!discardModalOpen)
+                HandlePadPackInput();
         }
         else
         {
@@ -336,6 +352,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     /// </summary>
     public void ClearInspectSelection()
     {
+        EndSlotDrag();
+        HideDiscardConfirm();
         selectedRewardSlot = -1;
         hoveredSlot = -1;
         padPickedSlot = -1;
@@ -444,16 +462,17 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     internal bool BeginSlotDrag(int slotIndex, BattleInventorySurface surface, PointerEventData eventData,
         BattleInventorySlotPointer source)
     {
-        if (!InventoryInputAllowed || eventData == null ||
+        if (!InventoryInputAllowed || inputHandledFrame == Time.frameCount || eventData == null ||
             eventData.button != PointerEventData.InputButton.Left || source == null ||
-            !source.InputAllowed || equipmentSystem == null || !HasItem(slotIndex))
+            !source.InputAllowed || equipmentSystem == null ||
+            (!(IsRewardPackEditing && rewardFlow.HasHand) && !HasItem(slotIndex)))
             return false;
 
         ActivateMouseMode();
 
         if (IsReward())
         {
-            if (!IsRewardPackEditing || rewardFlow == null || rewardFlow.HasHand)
+            if (!IsRewardPackEditing || rewardFlow == null)
                 return false;
             selectedRewardSlot = slotIndex;
         }
@@ -468,8 +487,14 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         dragRunState = runManager.State;
         dragRewardPhase = rewardFlow != null ? rewardFlow.Phase : BattleRewardPhase.Inactive;
         draggingSlot = slotIndex;
+        draggingHand = IsRewardPackEditing && rewardFlow.HasHand;
+        dragInventoryVersion = equipmentSystem.InventoryVersion;
+        dragRewardVersion = rewardFlow != null ? rewardFlow.StateVersion : 0;
         InspectSelectionVersion++;
         flashedSlot = -1;
+
+        if (draggingHand)
+            return true;
 
         BattleEquipmentSO equipment = equipmentSystem.Slots[slotIndex].equipment;
 
@@ -545,6 +570,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         BattleInventorySlotPointer source = dragSource;
         dragSource = null;
         draggingSlot = -1;
+        draggingHand = false;
         source?.ClearDragState();
         dragGhostPositionInitialized = false;
 
@@ -582,26 +608,12 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
                 return;
             }
 
-            if (IsReward() && (!IsRewardPackEditing || rewardFlow == null || rewardFlow.HasHand))
+            if (IsReward() && (!IsRewardPackEditing || rewardFlow == null))
                 return;
 
-            int sourceIndex = draggingSlot;
-            if (!equipmentSystem.IsSlotUnlocked(sourceIndex) || sourceIndex == targetIndex)
-                return;
-
-            if (!equipmentSystem.SwapSlots(sourceIndex, targetIndex))
-            {
-                if (IsRewardPackEditing)
-                    ShowDenied("CANNOT SWAP", targetIndex);
-                return;
-            }
-
-            selectedRewardSlot = IsRewardPackEditing ? targetIndex : -1;
-            padSelectedSlot = targetIndex;
-            padPickedSlot = -1;
-            rewardFlow?.SyncChosenRewardLocation();
-            FlashSlot(targetIndex);
-            InspectSelectionVersion++;
+            int sourceIndex = draggingHand ? -1 : draggingSlot;
+            EndSlotDrag();
+            RequestExchange(sourceIndex, targetIndex);
         }
         finally
         {
@@ -616,9 +628,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     internal void HandleSlotClick(int slotIndex, BattleInventorySurface surface, PointerEventData.InputButton button)
     {
-        if (button != PointerEventData.InputButton.Left || !isActiveAndEnabled ||
-            BattlePauseController.IsPaused || (inputRouter != null && inputRouter.HasModal) ||
-            discardModalOpen || equipmentSystem == null)
+        if (button != PointerEventData.InputButton.Left || inputHandledFrame == Time.frameCount ||
+            !InventoryInputAllowed || equipmentSystem == null)
             return;
 
         ActivateMouseMode();
@@ -635,19 +646,10 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             if (!IsRewardPackEditing || rewardFlow == null)
                 return;
 
-            // Hand가 있으면 클릭한 슬롯에 바로 배치/교환합니다.
+            // 손 아이템은 빈 슬롯에 배치하고 점유 슬롯에서는 확인을 기다립니다.
             if (rewardFlow.HasHand)
             {
-                if (rewardFlow.ExchangeHandWithSlot(slotIndex))
-                {
-                    selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
-                    InspectSelectionVersion++;
-                    FlashSlot(slotIndex);
-                }
-                else
-                {
-                    ShowDenied("CANNOT PLACE HERE", slotIndex);
-                }
+                RequestExchange(-1, slotIndex);
                 return;
             }
 
@@ -661,6 +663,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         // Expanded Combat Grid는 BattleKineticLoadoutUI가 단독 처리합니다.
         if (IsCombat() && surface != BattleInventorySurface.ExpandedGrid)
         {
+            selectedRewardSlot = HasItem(slotIndex) ? slotIndex : -1;
+            InspectSelectionVersion++;
             BattleEquipmentSlot slot = slotIndex < equipmentSystem.Slots.Count ? equipmentSystem.Slots[slotIndex] : null;
             if (slot != null && slot.equipment != null && slot.equipment.shootingData != null)
                 equipmentSystem.EquipSlot(slotIndex);
@@ -699,20 +703,36 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
         ActivateMouseMode();
 
-        int sourceIndex = draggingSlot;
+        int sourceIndex = draggingHand ? -1 : draggingSlot;
         EndSlotDrag();
-        RequestDiscard(sourceIndex);
+        if (sourceIndex < 0)
+        {
+            inputHandledFrame = Time.frameCount;
+            if (IsRewardPackEditing)
+                rewardFlow.DiscardHand();
+            selectedRewardSlot = -1;
+            InspectSelectionVersion++;
+            UpdateRewardHandVisual();
+            UpdateRewardDoneState();
+        }
+        else
+        {
+            RequestDiscard(sourceIndex);
+        }
     }
 
     internal void HandleTrashClick(PointerEventData.InputButton button)
     {
-        if (BattlePauseController.IsPaused || button != PointerEventData.InputButton.Left || discardModalOpen || !IsRewardPackEditing || rewardFlow == null)
+        if (BattlePauseController.IsPaused || button != PointerEventData.InputButton.Left || discardModalOpen ||
+            inputHandledFrame == Time.frameCount || (inputRouter != null && inputRouter.HasModal) ||
+            !IsRewardPackEditing || rewardFlow == null)
             return;
 
         ActivateMouseMode();
 
         if (rewardFlow.HasHand)
         {
+            inputHandledFrame = Time.frameCount;
             if (rewardFlow.DiscardHand())
                 selectedRewardSlot = -1;
             UpdateRewardDoneState();
@@ -742,13 +762,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private void RequestDiscard(int slotIndex)
     {
-        if (!HasItem(slotIndex))
+        if (!InventoryInputAllowed || inputHandledFrame == Time.frameCount || !HasItem(slotIndex))
             return;
 
         ResolveReferences();
 
         EndSlotDrag();
-        pendingDiscardSlot = slotIndex;
+        inputHandledFrame = Time.frameCount;
+        pendingRequest = new InventoryRequest(InventoryRequestKind.Discard, slotIndex, -1,
+            runManager, equipmentSystem, rewardFlow);
         confirmYesSelected = false;
         discardModalOpen = true;
         padPickedSlot = -1;
@@ -772,12 +794,20 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         if (!discardModalOpen)
             return;
 
-        int target = pendingDiscardSlot;
+        inputHandledFrame = Time.frameCount;
+        InventoryRequest request = pendingRequest;
         HideDiscardConfirm();
 
-        if (!yes || !HasItem(target))
+        if (!yes || !InventoryInputAllowed || !request.IsValid(runManager, equipmentSystem, rewardFlow))
             return;
 
+        if (request.Kind != InventoryRequestKind.Discard)
+        {
+            CommitExchange(request);
+            return;
+        }
+
+        int target = request.SourceIndex;
         if (equipmentSystem.DiscardSlot(target))
         {
             if (selectedRewardSlot == target)
@@ -793,7 +823,9 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
     {
         bool wasOpen = discardModalOpen;
         discardModalOpen = false;
-        pendingDiscardSlot = -1;
+        if (wasOpen)
+            inputHandledFrame = Time.frameCount;
+        pendingRequest = default;
         confirmYesSelected = false;
         if (discardConfirmRoot != null)
             discardConfirmRoot.gameObject.SetActive(false);
@@ -804,20 +836,126 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     public void RequestClose()
     {
+        EndSlotDrag();
         if (discardModalOpen)
             ResolveDiscard(false);
     }
 
-    private void HandlePadPackInput()
+    private void RequestExchange(int sourceIndex, int targetIndex)
     {
-        if (!IsRewardPackEditing || rewardFlow == null || BattlePauseController.IsPaused)
+        if (!InventoryInputAllowed || inputHandledFrame == Time.frameCount || sourceIndex == targetIndex || equipmentSystem == null ||
+            !equipmentSystem.TryGetSlot(targetIndex, out BattleEquipmentSlot target) ||
+            (sourceIndex < 0 ? !IsRewardPackEditing || !rewardFlow.HasHand :
+                !HasItem(sourceIndex) || (rewardFlow != null && rewardFlow.HasHand)))
             return;
 
-        if (discardModalOpen)
+        InventoryRequest request = new(sourceIndex < 0 ? InventoryRequestKind.Hand : InventoryRequestKind.Swap,
+            sourceIndex, targetIndex, runManager, equipmentSystem, rewardFlow);
+        inputHandledFrame = Time.frameCount;
+        EndSlotDrag();
+        padPickedSlot = -1;
+        if (target.equipment == null)
         {
-            HandlePadConfirmInput();
+            CommitExchange(request);
             return;
         }
+
+        pendingRequest = request;
+        confirmYesSelected = false;
+        discardModalOpen = true;
+        inputRouter.PushModal(this);
+        BattleEquipmentSO source = sourceIndex < 0 ? rewardFlow.Hand.equipment :
+            equipmentSystem.Slots[sourceIndex].equipment;
+        if (discardConfirmText != null)
+            discardConfirmText.text = $"{source.GetDisplayName()} ↔ {target.equipment.GetDisplayName()}\n\n두 아이템을 교환할까요?";
+        if (discardConfirmRoot != null)
+        {
+            discardConfirmRoot.gameObject.SetActive(true);
+            discardConfirmRoot.SetAsLastSibling();
+        }
+        RefreshConfirmSelection();
+    }
+
+    private void CommitExchange(InventoryRequest request)
+    {
+        if (!InventoryInputAllowed || !request.IsValid(runManager, equipmentSystem, rewardFlow))
+            return;
+
+        bool changed = request.Kind == InventoryRequestKind.Hand
+            ? rewardFlow.ExchangeHandWithSlot(request.TargetIndex)
+            : equipmentSystem.SwapSlots(request.SourceIndex, request.TargetIndex);
+        if (!changed)
+            return;
+
+        selectedRewardSlot = IsRewardPackEditing ? request.TargetIndex : -1;
+        padSelectedSlot = request.TargetIndex;
+        padPickedSlot = -1;
+        rewardFlow?.SyncChosenRewardLocation();
+        FlashSlot(request.TargetIndex);
+        InspectSelectionVersion++;
+        UpdateRewardHandVisual();
+        UpdateRewardDoneState();
+    }
+
+    private enum InventoryRequestKind { None, Swap, Hand, Discard }
+
+    private readonly struct InventoryRequest
+    {
+        public readonly InventoryRequestKind Kind;
+        public readonly int SourceIndex;
+        public readonly int TargetIndex;
+        private readonly BattleEquipmentSlot sourceSlot;
+        private readonly BattleEquipmentSlot targetSlot;
+        private readonly BattleEquipmentSO sourceEquipment;
+        private readonly BattleEquipmentSO targetEquipment;
+        private readonly uint inventoryVersion;
+        private readonly uint rewardVersion;
+        private readonly BattleRunState state;
+        private readonly BattleRewardPhase phase;
+
+        public InventoryRequest(InventoryRequestKind kind, int source, int target, BattleRunManager run,
+            BattleEquipmentSystem equipment, BattleRewardFlow reward)
+        {
+            Kind = kind;
+            SourceIndex = source;
+            TargetIndex = target;
+            sourceSlot = source >= 0 ? equipment.Slots[source] : null;
+            targetSlot = target >= 0 ? equipment.Slots[target] : null;
+            sourceEquipment = source >= 0 ? sourceSlot.equipment : reward.Hand.equipment;
+            targetEquipment = targetSlot != null ? targetSlot.equipment : null;
+            inventoryVersion = equipment.InventoryVersion;
+            rewardVersion = reward != null ? reward.StateVersion : 0;
+            state = run.State;
+            phase = reward != null ? reward.Phase : BattleRewardPhase.Inactive;
+        }
+
+        public bool IsValid(BattleRunManager run, BattleEquipmentSystem equipment, BattleRewardFlow reward)
+        {
+            if (Kind == InventoryRequestKind.None || run == null || !run.RunActive || run.State != state ||
+                equipment == null || equipment.InventoryVersion != inventoryVersion ||
+                (reward != null ? reward.StateVersion : 0) != rewardVersion ||
+                (reward != null ? reward.Phase : BattleRewardPhase.Inactive) != phase ||
+                (state != BattleRunState.Combat &&
+                 (state != BattleRunState.Reward || phase != BattleRewardPhase.PackEditing)))
+                return false;
+            if (SourceIndex >= 0 && (!equipment.TryGetSlot(SourceIndex, out BattleEquipmentSlot source) ||
+                                    !ReferenceEquals(source, sourceSlot) || source.equipment == null ||
+                                    source.equipment != sourceEquipment))
+                return false;
+            if (TargetIndex >= 0 && (!equipment.TryGetSlot(TargetIndex, out BattleEquipmentSlot target) ||
+                                    !ReferenceEquals(target, targetSlot) || target.equipment != targetEquipment))
+                return false;
+            return Kind == InventoryRequestKind.Hand
+                ? reward != null && reward.HasHand && reward.Hand.equipment == sourceEquipment :
+                reward == null || !reward.HasHand;
+        }
+    }
+
+    private void HandlePadPackInput()
+    {
+        if (!IsRewardPackEditing || rewardFlow == null || BattlePauseController.IsPaused ||
+            inputHandledFrame == Time.frameCount || (inputRouter != null && inputRouter.HasModal) || IsDraggingItem)
+            return;
 
         Vector2 padNavigate = inputRouter != null ? inputRouter.GamepadNavigate : Vector2.zero;
         float axisX = padNavigate.x;
@@ -849,11 +987,15 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             HandlePadSubmit();
         }
 
+        if (inputHandledFrame == Time.frameCount)
+            return;
+
         if (inputRouter != null && inputRouter.DiscardPressedThisFrame)
         {
             ActivatePadMode();
             if (rewardFlow.HasHand)
             {
+                inputHandledFrame = Time.frameCount;
                 rewardFlow.DiscardHand();
             }
             else if (HasItem(padSelectedSlot))
@@ -866,7 +1008,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             }
         }
 
-        if (inputRouter != null && inputRouter.DonePressedThisFrame)
+        if (inputHandledFrame != Time.frameCount && inputRouter != null && inputRouter.DonePressedThisFrame)
         {
             ActivatePadMode();
             RequestRewardCompletion();
@@ -903,34 +1045,24 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         InspectSelectionVersion++;
         if (rewardFlow.HasHand)
         {
-            if (rewardFlow.ExchangeHandWithSlot(padSelectedSlot))
-            {
-                selectedRewardSlot = -1;
-                padPickedSlot = -1;
-                FlashSlot(padSelectedSlot);
-            }
-            else
-            {
-                ShowDenied("CANNOT PLACE HERE", padSelectedSlot);
-            }
+            RequestExchange(-1, padSelectedSlot);
             return;
         }
 
+        if (padPickedSlot >= 0 && padPickVersion != equipmentSystem.InventoryVersion)
+            padPickedSlot = -1;
+
         if (!HasItem(padSelectedSlot))
         {
-            if (padPickedSlot >= 0 && equipmentSystem.IsSlotUnlocked(padSelectedSlot) &&
-                equipmentSystem.SwapSlots(padPickedSlot, padSelectedSlot))
-            {
-                rewardFlow.SyncChosenRewardLocation();
-                FlashSlot(padSelectedSlot);
-                padPickedSlot = -1;
-            }
+            if (padPickedSlot >= 0)
+                RequestExchange(padPickedSlot, padSelectedSlot);
             return;
         }
 
         if (padPickedSlot < 0)
         {
             padPickedSlot = padSelectedSlot;
+            padPickVersion = equipmentSystem.InventoryVersion;
             return;
         }
 
@@ -940,16 +1072,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
             return;
         }
 
-        if (equipmentSystem.SwapSlots(padPickedSlot, padSelectedSlot))
-        {
-            rewardFlow.SyncChosenRewardLocation();
-            FlashSlot(padSelectedSlot);
-            padPickedSlot = -1;
-        }
-        else
-        {
-            ShowDenied("CANNOT SWAP", padSelectedSlot);
-        }
+        RequestExchange(padPickedSlot, padSelectedSlot);
     }
 
     private void HandlePadConfirmInput()
@@ -976,7 +1099,8 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private void RequestRewardCompletion()
     {
-        if (BattlePauseController.IsPaused || !IsRewardPackEditing || rewardFlow == null)
+        if (BattlePauseController.IsPaused || discardModalOpen || IsDraggingItem ||
+            !IsRewardPackEditing || rewardFlow == null || (inputRouter != null && inputRouter.HasModal))
             return;
 
         if (!rewardFlow.CanComplete)
@@ -1114,7 +1238,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         if (trashRoot == null)
             return;
 
-        bool visible = !discardModalOpen && (IsRewardPackEditing || draggingSlot >= 0);
+        bool visible = !discardModalOpen && (IsRewardPackEditing || IsDraggingItem);
         if (trashRoot.gameObject.activeSelf != visible)
             trashRoot.gameObject.SetActive(visible);
     }
@@ -1124,6 +1248,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         bool show = IsRewardPackEditing && !discardModalOpen;
         bool canAdvance =
             show &&
+            !IsDraggingItem && (inputRouter == null || !inputRouter.HasModal) &&
             !BattlePauseController.IsPaused &&
             rewardFlow != null &&
             rewardFlow.CanComplete;
@@ -1249,7 +1374,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
 
     private void UpdateDragGhostVisual(bool immediate = false)
     {
-        if (draggingSlot < 0 ||
+        if (draggingSlot < 0 || draggingHand ||
             dragGhostRoot == null ||
             !dragGhostRoot.gameObject.activeSelf)
         {
@@ -2334,7 +2459,7 @@ internal sealed class BattleInventorySlotPointer : MonoBehaviour,
 
     public void OnPointerClick(PointerEventData eventData)
     {
-        if (InputAllowed)
+        if (InputAllowed && !eventData.dragging)
             owner?.HandleSlotClick(slotIndex, surface, eventData.button);
     }
 
