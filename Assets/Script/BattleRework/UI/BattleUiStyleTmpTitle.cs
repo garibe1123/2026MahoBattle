@@ -126,7 +126,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         posterSettings = style;
         if (poster && backing == null)
         {
-            GameObject plate = new("StyleTitleBacking", typeof(RectTransform), typeof(LayoutElement));
+            GameObject plate = new("StyleTitleBacking", typeof(RectTransform), typeof(CanvasRenderer), typeof(LayoutElement));
             plate.layer = source.gameObject.layer;
             plate.transform.SetParent(source.transform, false);
             plate.transform.SetSiblingIndex(text.transform.GetSiblingIndex());

@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.UI;
 
 [AddComponentMenu("")]
+[RequireComponent(typeof(CanvasRenderer))]
 public sealed class BattleUiTitleBacking : MaskableGraphic
 {
     private struct Piece
