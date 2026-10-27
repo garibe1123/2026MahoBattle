@@ -879,6 +879,12 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         ink.a *= alpha;
         float outer = Mathf.Min(Mathf.Clamp(settings.comicOuterWidth, 8f, 12f), Mathf.Min(rect.width, rect.height) * 0.12f);
         float inner = Mathf.Min(Mathf.Clamp(settings.comicInnerWidth, 4f, 6f), outer * 0.5f);
+        if (!tiledFrame && !speech)
+        {
+            float offset = Mathf.Clamp(settings.comicShadowOffset, 6f, 10f);
+            Rect shadow = new Rect(rect.position + new Vector2(offset, -offset), rect.size);
+            ComicFill(vh, shadow, settings, ink, false, seed, direction, perspectiveScale: perspectiveScale);
+        }
         if (tiledFrame)
         {
             // Rings avoid white underpainting when inventory opacity is reduced.
@@ -1013,7 +1019,36 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             if (inside) vh.AddVert(point, tint, Vector2.zero);
             previous = point;
         }
-        for (int i = first + 1; i + 1 < vh.currentVertCount; i++) vh.AddTriangle(first, i, i + 1);
+        int headerEnd = vh.currentVertCount;
+        for (int i = first + 1; i + 1 < headerEnd; i++) vh.AddTriangle(first, i, i + 1);
+        if (headerEnd - first < 3) return;
+        float spacing = Mathf.Max(Mathf.Clamp(settings.comicDotSpacing, 6f, 20f),
+            Mathf.Max(rect.width, height) / 64f);
+        float radius = Mathf.Clamp(settings.comicDotRadius, 0.5f, 2f);
+        Color dot = settings.comicInk;
+        dot.a *= tint.a;
+        UIVertex a = default, b = default;
+        for (float y = Mathf.Max(bottom, rect.yMin) + spacing; y < rect.yMax; y += spacing)
+        for (float x = rect.xMin + spacing; x < rect.xMax; x += spacing)
+        {
+            bool inside = true;
+            for (int i = first; i < headerEnd; i++)
+            {
+                vh.PopulateUIVertex(ref a, i);
+                vh.PopulateUIVertex(ref b, i + 1 < headerEnd ? i + 1 : first);
+                Vector2 edge = (Vector2)b.position - (Vector2)a.position;
+                if (Cross(edge, new Vector2(x, y) - (Vector2)a.position) > -radius * edge.magnitude)
+                { inside = false; break; }
+            }
+            if (!inside) continue;
+            int index = vh.currentVertCount;
+            vh.AddVert(new Vector2(x - radius, y), dot, Vector2.zero);
+            vh.AddVert(new Vector2(x, y + radius), dot, Vector2.zero);
+            vh.AddVert(new Vector2(x + radius, y), dot, Vector2.zero);
+            vh.AddVert(new Vector2(x, y - radius), dot, Vector2.zero);
+            vh.AddTriangle(index, index + 1, index + 2);
+            vh.AddTriangle(index, index + 2, index + 3);
+        }
     }
 
     internal static Vector2 ComicInventoryCorner(Rect rect, BattleUiStyleSettings settings, Vector2 direction, int index, bool expanded)
@@ -1044,8 +1079,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal static void RotateComicFrame(VertexHelper vh, int first, Rect rect, BattleUiStyleSettings settings, uint seed)
     {
-        float angle = Mathf.Clamp(settings.comicPanelAngle * 0.25f +
-            (PaperVariation(seed, 7) * 2f - 1f) * settings.comicAngleVariation, -4f, 4f);
+        float rawAngle = settings.comicPanelAngle +
+            (PaperVariation(seed, 7) * 2f - 1f) * settings.comicAngleVariation;
+        float angle = (rawAngle < 0f ? -1f : 1f) * Mathf.Clamp(Mathf.Abs(rawAngle), 3f, 7f);
         angle *= Mathf.Deg2Rad;
         float sin = Mathf.Sin(angle), cos = Mathf.Cos(angle);
         float fit = Mathf.Min(rect.width / Mathf.Max(0.001f, rect.width * cos + rect.height * Mathf.Abs(sin)),
@@ -1089,7 +1125,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             comicSpeechContour[1] = rootA;
             for (int i = 0; i < 3; i++)
             {
-                float alongTail = i == 0 ? 0.3f : i == 1 ? 0.5f : 0.7f;
+                float bendPosition = speechGeometry.ComicTail.ComicBendPosition;
+                float alongTail = i == 0 ? bendPosition * 0.6f : i == 1 ? bendPosition :
+                    Mathf.Lerp(bendPosition, 1f, 0.4f);
                 float offset = i == 0 ? bend : i == 1 ? -bend : 0f;
                 Vector2 pivotCenter = root + direction * alongTail + normal * offset;
                 float radius = width * (hostTail ? (i == 0 ? 0.7f : i == 1 ? 0.5f : 0.3f) : 1f - alongTail);

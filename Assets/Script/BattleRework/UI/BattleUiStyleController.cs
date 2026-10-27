@@ -79,14 +79,18 @@ public sealed class BattleUiStyleSettings
     public Color comicPaper = new Color32(0xFA, 0xF5, 0xE9, 255);
     public Color comicAccent = new Color32(0xE6, 0x23, 0x32, 255);
     [Header("Cartoon Poster")]
-    public Color comicInk = new Color32(0x08, 0x08, 0x08, 255);
-    public Color comicWhite = Color.white;
-    public Color comicRed = new Color32(0xD6, 0x00, 0x00, 255);
+    public Color comicInk = new Color32(0x10, 0x10, 0x10, 255);
+    public Color comicWhite = new Color32(0xFF, 0xF8, 0xE8, 255);
+    public Color comicRed = new Color32(0xE5, 0x25, 0x20, 255);
+    public Color comicYellow = new Color32(0xFF, 0xC4, 0x00, 255);
+    [Range(6f, 10f)] public float comicShadowOffset = 8f;
+    [Range(6f, 20f)] public float comicDotSpacing = 10f;
+    [Range(0.5f, 2f)] public float comicDotRadius = 1.2f;
     public Color comicSelection = new Color32(0x80, 0xFF, 0x00, 255);
     [Range(8f, 12f)] public float comicOuterWidth = 10f;
     [Range(4f, 6f)] public float comicInnerWidth = 5f;
-    [Range(-4f, 4f)] public float comicPanelAngle = -2f;
-    [Range(0f, 4f)] public float comicAngleVariation = 3.5f;
+    [Range(-7f, 7f)] public float comicPanelAngle = -5f;
+    [Range(0f, 4f)] public float comicAngleVariation = 2f;
     [Range(0f, 0.2f)] public float comicPerspectiveRatio = 0.14f;
     [Range(0f, 24f)] public float comicPerspectiveMax = 18f;
     [Range(0f, 2f)] public float comicInventoryTopPerspective = 0.6f;

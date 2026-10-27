@@ -559,7 +559,7 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             if (hasHeader)
             {
                 float scale = Mathf.Clamp(face.width / ExpandedPackSize.x, 0.5f, 1f);
-                Color tint = style.comicRed;
+                Color tint = emphasis ? style.comicRed : style.comicYellow;
                 tint.a *= softFill ? 0.94f : 1f;
                 BattleUiStyleMeshEffect.DrawComicHeader(vh, face, style, HeaderHeight * scale, tint, paperSeed, direction, perspectiveScale);
             }

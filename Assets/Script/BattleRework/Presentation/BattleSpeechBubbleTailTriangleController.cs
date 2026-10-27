@@ -18,6 +18,24 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     [SerializeField, Range(0.15f, 0.85f)] private float comicSideAttachment = 0.5f;
     [SerializeField, Range(16f, 160f)] private float comicHostTailLength = 96f;
 
+    private bool comicVariationCached;
+    private float comicLengthScale = 1f, comicWidthScale = 1f, comicAttachmentOffset;
+    internal float ComicBendPosition { get; private set; } = 0.5f;
+    private const float ComicLengthVariation = 0.15f, ComicWidthVariation = 0.1f;
+    private const float ComicAttachmentVariation = 0.1f, ComicBendMin = 0.35f, ComicBendMax = 0.65f;
+
+    private void CacheComicVariation()
+    {
+        if (!BattleUiStyleController.IsComic || comicVariationCached) return;
+        comicVariationCached = true;
+        comicLengthScale = Random.Range(1f - ComicLengthVariation, 1f + ComicLengthVariation);
+        comicWidthScale = Random.Range(1f - ComicWidthVariation, 1f + ComicWidthVariation);
+        comicAttachmentOffset = Random.Range(-ComicAttachmentVariation, ComicAttachmentVariation);
+        ComicBendPosition = Random.Range(ComicBendMin, ComicBendMax);
+    }
+
+    private void OnDisable() => comicVariationCached = false;
+
     private BattleSpeechBubbleTailStyle style;
     private Color fillColor =
         new(0.97f, 0.97f, 0.94f, 1f);
@@ -49,6 +67,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         BattleSpeechBubbleTailStyle tailStyle,
         Material outlineMaterial = null)
     {
+        CacheComicVariation();
         bubbleRect = bubble;
         frameController = bubble != null
             ? bubble.GetComponentInChildren<BattleSpeechBubbleFrameFillController>(true)
@@ -106,6 +125,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     private void OnEnable()
     {
+        CacheComicVariation();
         if (style == null)
             style = new BattleSpeechBubbleTailStyle();
 
@@ -116,7 +136,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
 
     private void LateUpdate()
     {
-        RefreshSpriteIfNeeded(force: false);
+        if (!BattleUiStyleController.IsComic) RefreshSpriteIfNeeded(force: false);
         RefreshPlacement();
     }
 
@@ -588,7 +608,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
     {
         tip = Vector2.zero;
         size = Vector2.zero;
-        attachment = comicSideAttachment;
+        attachment = Mathf.Clamp01(comicSideAttachment + comicAttachmentOffset);
         if (!isActiveAndEnabled || targetPivot == null || space == null || tailRect == null || style == null) return false;
         Rect rect = tailRect.rect;
         tip = space.InverseTransformPoint(tailRect.TransformPoint(new Vector2(
@@ -596,19 +616,19 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         Vector2 renderSize = BattleSpeechBubbleTailTextureBuilder.GetRenderSize(style.uiSize);
         size.x = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.right * renderSize.x)).magnitude;
         size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up *
-            (renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f))).magnitude;
+            (renderSize.y / BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f * comicWidthScale))).magnitude;
         if (exactTargetMode)
             tip = space.InverseTransformPoint(targetPivot.TransformPoint(targetPivot.rect.center));
         else
         {
             Rect frame = GetAttachmentRect();
-            float length = comicHostTailLength;
+            float length = comicHostTailLength * comicLengthScale;
             float localHeight = Mathf.Min(renderSize.y /
                 BattleSpeechBubbleTailTextureBuilder.VerticalDisplayScale * 0.92f,
                 Mathf.Min(length, frame.height * 0.22f) * 0.9f);
-            size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up * localHeight)).magnitude;
+            size.y = space.InverseTransformVector(bubbleRect.TransformVector(Vector3.up * (localHeight * comicWidthScale))).magnitude;
             Vector2 hostTip = new(frame.xMax + length,
-                Mathf.Lerp(frame.yMin, frame.yMax, comicSideAttachment));
+                Mathf.Lerp(frame.yMin, frame.yMax, attachment));
             tip = space.InverseTransformPoint(bubbleRect.TransformPoint(hostTip));
         }
         return true;
@@ -621,7 +641,7 @@ public sealed class BattleSpeechBubbleTailTriangleController : MonoBehaviour
         float halfWidth = contentHeight * activeStyle.rootHalfWidth;
         float inset = Mathf.Min(halfWidth, bubble.height * 0.35f);
         Vector2 root = new(target.x >= bubble.center.x ? bubble.xMax - inset : bubble.xMin + inset,
-            Mathf.Lerp(bubble.yMin, bubble.yMax, comicSideAttachment));
+            Mathf.Lerp(bubble.yMin, bubble.yMax, Mathf.Clamp01(comicSideAttachment + comicAttachmentOffset)));
         Vector2 delta = target - root;
         tailRect.anchorMin = tailRect.anchorMax = bubbleRect.pivot;
         tailRect.pivot = new Vector2(0f, 0.5f);
