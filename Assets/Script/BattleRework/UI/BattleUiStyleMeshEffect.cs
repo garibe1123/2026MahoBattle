@@ -203,6 +203,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont,
         Material paperMaterial, Material paperMaskMaterial, Material lockMarkMaterial, Material inkPanelMaterial)
     {
+        if (interaction != null && interaction.name == "RewardPackDone")
+        {
+            RestoreAppearance();
+            return;
+        }
         bool cmd = BattleUiStyleController.IsCmd;
         if (cmd && !PreserveBackdrop() && (decoration == target || (image != null && !decoratedSurface &&
             (panel || speechBadge || (image.sprite == null && (stylishSurface || stylishButton))))))
@@ -596,6 +601,11 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     public override void ModifyMesh(VertexHelper vh)
     {
         if (!IsActive() || target == null) return;
+        if (interaction != null && interaction.name == "RewardPackDone")
+        {
+            if (target is BattleUiPanelDecoration) vh.Clear();
+            return;
+        }
         if (lockMark)
         {
             DrawLockMark(vh);

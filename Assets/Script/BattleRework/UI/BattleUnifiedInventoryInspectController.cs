@@ -678,7 +678,7 @@ public sealed class BattleUnifiedInventoryInspectController : MonoBehaviour
             ? rootCanvas.worldCamera : null;
         control.position = RectTransformUtility.WorldToScreenPoint(camera,
             board.TransformPoint(new Vector3(board.rect.center.x + offset.x, board.rect.yMin + offset.y, 0f)));
-        control.rotation = BattleUiStyleController.IsComic ? Quaternion.identity : board.rotation;
+        control.rotation = control == doneRoot || BattleUiStyleController.IsComic ? Quaternion.identity : board.rotation;
         control.localScale = Vector3.one;
         control.SetAsLastSibling();
     }

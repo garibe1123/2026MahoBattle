@@ -1458,6 +1458,7 @@ public sealed class BattleInventoryInteractionController : MonoBehaviour, IInput
         Stretch(label.rectTransform);
         doneButton = doneRoot.gameObject.AddComponent<Button>();
         doneButton.targetGraphic = back;
+        doneButton.transition = Selectable.Transition.None;
         doneButton.onClick.AddListener(RequestRewardCompletion);
 
         BattleInventoryDoneDeniedRelay deniedRelay =

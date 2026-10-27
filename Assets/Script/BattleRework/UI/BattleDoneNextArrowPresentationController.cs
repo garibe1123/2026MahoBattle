@@ -301,6 +301,8 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
         if (baseImage != null)
         {
             baseImage.color = Color.clear;
+            baseImage.canvasRenderer.SetAlpha(1f);
+            baseImage.material = baseImage.defaultMaterial;
             baseImage.raycastTarget = true;
         }
         if (baseOutline != null)
@@ -336,7 +338,8 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             label.fontStyle = FontStyle.Bold;
             label.fontSize = 15;
             label.alignment = TextAnchor.MiddleCenter;
-            label.color = comic ? comicTextColor : ready ? inkColor : disabledTextColor;
+            label.color = ready ? comicTextColor : disabledTextColor;
+            label.material = label.defaultMaterial;
             label.canvasRenderer.SetAlpha(1f);
             label.resizeTextForBestFit = true;
             label.resizeTextMinSize = 9;
@@ -383,6 +386,8 @@ public sealed class BattleDoneNextArrowPresentationController : MonoBehaviour
             return;
 
         image.enabled = true;
+        image.material = image.defaultMaterial;
+        image.canvasRenderer.SetAlpha(1f);
         image.color = color;
         image.raycastTarget = false;
     }
