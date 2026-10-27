@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
-public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper, CMD }
+public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper, CMD, JapanTvUi }
 
 [Serializable]
 public sealed class BattleUiTitleCharacterTransform
@@ -200,6 +200,34 @@ public sealed class BattleUiStyleSettings
     [Header("CMD")]
     [Min(8f)] public float cmdFrameFontSize = 14f;
     [Min(0.05f)] public float cmdCursorBlinkSeconds = 0.5f;
+    [Header("JapanTvUi")]
+    public Color japanTvBurstOuter = new Color32(0xEF, 0x26, 0x38, 255);
+    public Color japanTvYellow = new Color32(0xFF, 0xF1, 0x2B, 255);
+    public Color japanTvOrange = new Color32(0xFF, 0x96, 0x00, 255);
+    public Color japanTvRed = new Color32(0xE5, 0x1B, 0x2B, 255);
+    public Color japanTvShadow = new Color32(0x54, 0x10, 0x19, 255);
+    public Color japanTvInk = new Color32(0x16, 0x12, 0x18, 255);
+    public Color japanTvCyan = new Color32(0x00, 0xBF, 0xCB, 255);
+    public Color japanTvPink = new Color32(0xF3, 0x29, 0x8B, 255);
+    public Color japanTvPurple = new Color32(0x8C, 0x35, 0xB6, 255);
+    public Color japanTvGreen = new Color32(0x20, 0xA6, 0x4B, 255);
+    public Color japanTvRayPink = new Color32(0xF0, 0x00, 0x87, 255);
+    public Color japanTvRayCyan = new Color32(0x19, 0x7F, 0xA8, 255);
+    public Color japanTvCheckDark = new Color32(0x24, 0x15, 0x27, 255);
+    public Color japanTvCheckPink = new Color32(0xBD, 0x17, 0x6B, 255);
+    public Color japanTvBulb = new Color32(0xFF, 0xF2, 0xB0, 255);
+    [Range(-15f, 0f)] public float japanTvTitleAngle = -8f;
+    [Range(1.6f, 2f)] public float japanTvTitleBodyRatio = 1.8f;
+    [Range(0.04f, 0.12f)] public float japanTvStrokeRatio = 0.08f;
+    [Min(1f)] public float japanTvOuterStrokeScale = 1.8f;
+    public Vector2 japanTvDepthOffset = new(0.3f, -0.7f);
+    [Min(0.01f)] public float japanTvEnterSeconds = 0.28f;
+    public float japanTvEnterScale = 0.85f;
+    public float japanTvOvershootScale = 1.08f;
+    [Min(0.1f)] public float japanTvBulbPeriod = 1.2f;
+    [Min(1f)] public float japanTvBorder = 4f;
+    [Min(12f)] public float japanTvBulbSpacing = 26f;
+    [Min(1f)] public float japanTvBulbRadius = 4f;
 }
 
 [DisallowMultipleComponent]
@@ -251,6 +279,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.Paper;
     internal static bool IsCmd => active != null && active.isActiveAndEnabled &&
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.CMD;
+    internal static bool IsJapanTvUi => active != null && active.isActiveAndEnabled &&
+        active.presentation != null && active.presentation.UiStyle == BattleUiStyle.JapanTvUi;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
     internal static TMPro.TMP_FontAsset ThemeTmpFont => active != null && active.isActiveAndEnabled && active.presentation != null
@@ -298,7 +328,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
     public static void RegisterGraphic(Graphic target)
     {
         if (active == null || target == null || target.name.StartsWith("Cmd", StringComparison.Ordinal) ||
-            target.name == "StyleTitleTMP" || target is BattleUiTitleBacking || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
+            target.name == "StyleTitleTMP" || target.name.StartsWith("JapanTvUi", StringComparison.Ordinal) ||
+            target is BattleUiTitleBacking || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
         BattleUiOpticsCanvas.Register(target);
         // Unframed rule captions need their own contrast against the world.
         if (target is Text && target.name == "FallbackLabel" && target.transform.parent != null &&

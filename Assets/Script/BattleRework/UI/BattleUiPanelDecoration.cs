@@ -380,6 +380,25 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (face.width < 8f || face.height < 8f)
             return;
 
+        if (BattleUiStyleController.IsJapanTvUi)
+        {
+            BattleUiStyleSettings style = BattleUiStyleController.Settings;
+            float opacity = softFill ? 0.94f : 1f;
+            BattleUiJapanTvDrawing.Frame(vh, face, style, BattleUiJapanTvDrawing.Role(transform.parent, style), opacity,
+                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted));
+            if (hasHeader)
+            {
+                float height = Mathf.Min(HeaderHeight, face.height * 0.2f);
+                Rect header = new(face.xMin + 8f, face.yMax - height - 4f, Mathf.Max(0f, face.width - 16f), height);
+                BattleUiStyleMeshEffect.Quad(vh, header, BattleUiJapanTvDrawing.Tint(style.japanTvPink, opacity));
+            }
+            backgroundBaseAlpha = style.background.a * opacity;
+            backgroundVertexCount = vh.currentVertCount;
+            if (selected)
+                BattleUiStyleMeshEffect.Quad(vh, new Rect(face.xMin + 8f, face.yMin + 8f, Mathf.Max(0f, face.width - 16f), 4f), style.japanTvYellow);
+            return;
+        }
+
         if (BattleUiStyleController.IsCmd)
         {
             Color fill = BattleUiStyleController.Settings.background;

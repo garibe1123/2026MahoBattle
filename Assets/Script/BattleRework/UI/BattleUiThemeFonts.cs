@@ -57,6 +57,7 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.Stylish => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular SDF",
             BattleUiStyle.Paper => "HarnessFonts/NanumPenScript/NanumPenScript-Regular SDF",
+            BattleUiStyle.JapanTvUi => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             _ => null
         };
         bool poster = style == BattleUiStyle.comicStyleUi || style == BattleUiStyle.Stylish;
@@ -162,6 +163,7 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular",
             BattleUiStyle.Paper => "HarnessFonts/BlackHanSans/BlackHanSans-Regular",
             BattleUiStyle.CMD => "BattleUiFonts/galmuri/Galmuri9",
+            BattleUiStyle.JapanTvUi => "HarnessFonts/BlackHanSans/BlackHanSans-Regular",
             _ => null
         };
         font = path != null ? Resources.Load<Font>(path) : null;

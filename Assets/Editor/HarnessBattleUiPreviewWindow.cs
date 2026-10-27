@@ -4,7 +4,7 @@ using UnityEngine.UI;
 
 public sealed class HarnessBattleUiPreviewWindow : EditorWindow
 {
-    private enum Screen { Hud, Inventory, Reward, Roulette, Pause, Result, Settings }
+    private enum Screen { Hud, Inventory, Reward, Roulette, Pause, Result, Settings, Dialogue }
     private BattleShowPresentationManager manager;
     private bool builtPaper;
     private bool builtPoster;
@@ -57,7 +57,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         manager = (BattleShowPresentationManager)EditorGUILayout.ObjectField(
             "Presentation Manager", manager, typeof(BattleShowPresentationManager), true);
         screen = (Screen)GUILayout.Toolbar((int)screen, new[]
-            { "HUD", "Inventory", "Reward", "Roulette", "Pause", "Result", "Settings" });
+            { "HUD", "Inventory", "Reward", "Roulette", "Pause", "Result", "Settings", "Dialogue" });
         EditorGUILayout.HelpBox("공통 UI 생성·스타일 경로로 그린 레이아웃 샘플입니다. Inspector에서 테마와 색상을 바꾸면 반영됩니다. 게임 데이터와 입력·전환 동작은 Play Mode에서 확인하세요.", MessageType.Info);
         if (manager == null || EditorApplication.isPlayingOrWillChangePlaymode)
         {
@@ -82,7 +82,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         if (view.width < 1f || view.height < 1f || Event.current.type != EventType.Repaint) return;
         EnsurePreview();
-        bool poster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish;
+        bool poster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish || manager.UiStyle == BattleUiStyle.JapanTvUi;
         if (content == null || builtScreen != screen || builtPaper != (manager.UiStyle == BattleUiStyle.Paper) || builtPoster != poster) BuildScreen();
         bool ink = manager.UiStyle == BattleUiStyle.Stylish;
         PrepareInkPreview(view, ink);
@@ -205,7 +205,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         builtScreen = screen;
         builtPaper = manager.UiStyle == BattleUiStyle.Paper;
-        builtPoster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish;
+        builtPoster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish || manager.UiStyle == BattleUiStyle.JapanTvUi;
         content = Rect(root.transform, "Sample", Vector2.zero, new Vector2(1920f, 1080f));
         Label(content, "ScreenTitle", screen == Screen.Result ? "STAGE 2 CLEAR" : "MAHO BATTLE / " + screen.ToString().ToUpperInvariant(),
             new Vector2(-350f, 430f), new Vector2(1000f, 100f), 52);
@@ -256,6 +256,16 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
                 Label(result, "Results", "375 DESTROYED    /    1397 COLLECTED\nTIME SURVIVED  20:29", new Vector2(0f, -35f), new Vector2(1200f, 170f), 36);
                 Button(content, "ReplayButton", "REPLAY", new Vector2(410f, -370f), true);
                 Button(content, "ReturnButton", "RETURN", new Vector2(-410f, -370f), false);
+                break;
+            case Screen.Dialogue:
+                RectTransform dialogue = Panel(content, "PresenterDialogue", new Vector2(0f, -150f), new Vector2(1450f, 400f));
+                Label(dialogue, "PresenterName", "마법 방송 사회자", new Vector2(-400f, 135f), new Vector2(540f, 60f), 26);
+                Label(dialogue, "ReactionTag", "초특급 찬스!", new Vector2(440f, 120f), new Vector2(420f, 120f), 40);
+                TMPro.TextMeshProUGUI speech = Rect(dialogue, "DialogueBody", new Vector2(0f, -25f), new Vector2(1250f, 160f)).gameObject.AddComponent<TMPro.TextMeshProUGUI>();
+                speech.text = "다음 배틀의 룰을 확인하세요!\nHP 100 / 100    보상 x1.20";
+                speech.fontSize = 28f;
+                speech.color = Color.white;
+                speech.raycastTarget = false;
                 break;
         }
     }

@@ -15,6 +15,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private float SourceSize => label != null ? label.fontSize : native.fontSize;
     private readonly BattleUiStyleTitleText text;
     private BattleUiTitleBacking backing;
+    private BattleUiJapanTvTitlePlate japanTvPlate;
+    private TextMeshProUGUI japanTvOutline;
+    private Material japanTvOutlineMaterial;
+    private bool japanTvUi;
+    private bool japanTvLargeTitle;
+    private float japanTvStartedAt = -1f;
+    private readonly List<TMP_SubMeshUI> japanTvSubMeshes = new();
     private readonly float bodySize;
     private BattleUiStyleSettings posterSettings;
     private bool poster, cartoon;
@@ -105,6 +112,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         bool primary = false, bool cmdOption = false, bool cmdSelected = false, Color? sourceTint = null, bool topOverflow = true)
     {
         sourceColor = sourceTint ?? source.color;
+        bool nextJapanTvUi = BattleUiStyleController.IsJapanTvUi;
+        if (japanTvUi != nextJapanTvUi)
+        {
+            ReleaseJapanTvUi();
+            japanTvUi = nextJapanTvUi;
+            text.SetVerticesDirty();
+        }
         decoratedTitle = decorate;
         cartoon = BattleUiStyleController.IsComic;
         bool nextPoster = decorate && (cartoon || BattleUiStyleController.IsStylish);
@@ -156,10 +170,11 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.fontSharedMaterial = material;
             outlineWidth = -1f;
         }
-        Color nextOutline = poster ? (cartoon ? style.comicWhite : style.inkCyan) : style.outerFrame;
-        Color nextShadow = poster ? (cartoon ? style.comicInk : style.inkBackground) : birthday ? style.energy : style.status;
+        Color nextOutline = japanTvUi ? style.japanTvInk : poster ? (cartoon ? style.comicWhite : style.inkCyan) : style.outerFrame;
+        Color nextShadow = japanTvUi ? style.japanTvShadow : poster ? (cartoon ? style.comicInk : style.inkBackground) : birthday ? style.energy : style.status;
         bool paper = BattleUiStyleController.IsPaper;
-        float nextWidth = poster ? Mathf.Clamp01(Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) *
+        float nextWidth = japanTvUi ? decorate ? Mathf.Clamp01(style.japanTvStrokeRatio * font.faceInfo.pointSize /
+            Mathf.Max(1f, material.GetFloat("_GradientScale"))) : 0f : poster ? Mathf.Clamp01(Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) *
             font.faceInfo.pointSize / Mathf.Max(1f, material.GetFloat("_GradientScale"))) :
             decorate && !paper && !cmd ? style.titleOutlineWidth : 0f;
         float nextGlow = poster && !cartoon ? Mathf.Clamp(style.inkGlowWidth, 8f, 14f) : 0f;
@@ -193,13 +208,24 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.SetMaterialDirty();
             text.SetVerticesDirty();
         }
-        if (decorate && !paper && !cmd) material.EnableKeyword("UNDERLAY_ON");
+        if (decorate && !paper && !cmd && !japanTvUi) material.EnableKeyword("UNDERLAY_ON");
         else material.DisableKeyword("UNDERLAY_ON");
-        float nextShear = poster ? 0f : decorate && !birthday && !paper && !cmd ? style.stylishTitleShear : 0f;
-        float nextAngle = poster ? 0f : decorate && !cmd ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
+        float nextShear = poster || japanTvUi ? 0f : decorate && !birthday && !paper && !cmd ? style.stylishTitleShear : 0f;
+        float nextAngle = japanTvUi ? decorate && source.name != "PresenterName" ? style.japanTvTitleAngle : 0f : poster ? 0f : decorate && !cmd ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
             !birthday ? style.stylishTitleAngle : 0f) : 0f;
         if (titleAngle != nextAngle) { titleAngle = nextAngle; text.SetVerticesDirty(); }
         Vector3 nextScale = Vector3.one * feedbackScale;
+        bool japanTvLarge = japanTvUi && decorate && SourceSize >= BattleUiJapanTvDrawing.LargeTitleMinSize &&
+            source.name != "PresenterName" && source.name != "ItemTitle" && source.name != "AppHeader";
+        japanTvLargeTitle = japanTvLarge;
+        if (japanTvLarge && Application.isPlaying)
+        {
+            if (japanTvStartedAt < 0f) japanTvStartedAt = Time.unscaledTime;
+            float t = Mathf.Clamp01((Time.unscaledTime - japanTvStartedAt) / Mathf.Max(0.01f, style.japanTvEnterSeconds));
+            float scale = t < 0.6f ? Mathf.Lerp(style.japanTvEnterScale, style.japanTvOvershootScale, Mathf.SmoothStep(0f, 1f, t / 0.6f)) :
+                Mathf.Lerp(style.japanTvOvershootScale, 1f, Mathf.SmoothStep(0f, 1f, (t - 0.6f) / 0.4f));
+            nextScale *= scale;
+        }
         if (text.rectTransform.localScale != nextScale) text.rectTransform.localScale = nextScale;
         float nextPadding = decorate ? Mathf.Max(0f, style.titlePadding) : 0f;
         float margin = nextOverflow ? SourceSize * style.titleSizeMultiplier * Mathf.Max(0f, motion.overflowMargin) : 0f;
@@ -230,7 +256,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         text.text = content;
         text.richText = label != null ? label.supportRichText : native.richText;
-        text.fontSize = poster ? bodySize * Mathf.Clamp(style.posterTitleBodyRatio, 1.8f, 2.4f) :
+        text.fontSize = japanTvUi ? japanTvLarge ? bodySize * Mathf.Clamp(style.japanTvTitleBodyRatio, 1.6f, 2f) : SourceSize :
+            poster ? bodySize * Mathf.Clamp(style.posterTitleBodyRatio, 1.8f, 2.4f) :
             SourceSize * (decorate ? style.titleSizeMultiplier : 1f);
         backingExtent = poster ? text.fontSize * Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) : 0f;
         text.enableAutoSizing = !decorate && (label != null ? label.resizeTextForBestFit : native.enableAutoSizing);
@@ -263,6 +290,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         if (decorate) face.a *= sourceColor.a;
         face.a *= entrance;
         text.color = face;
+        if (japanTvUi)
+        {
+            Color tvFace = decorate ? Color.white : BattleUiStyleMeshEffect.TextColor(sourceColor, style);
+            if (decorate) tvFace.a = sourceColor.a;
+            text.color = tvFace;
+            ConfigureJapanTvUi(style, decorate, japanTvLarge);
+        }
         if (backing != null) backing.gameObject.SetActive(poster && content.Length > 0 && sourceColor.a > 0f);
         text.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
         foreach (TMP_SubMeshUI subMesh in subMeshes)
@@ -298,6 +332,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     internal void Hide(bool preserveAnimation = false)
     {
         if (text == null) return;
+        ReleaseJapanTvUi();
+        text.rectTransform.localScale = Vector3.one;
         bool wasVisible = Visible;
         if (backing != null) backing.gameObject.SetActive(false);
         if (wasVisible) text.gameObject.SetActive(false);
@@ -336,6 +372,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             if (allowOverflow) return;
         }
         FitToRect(info, motion == null ? shear : 0f);
+        if (japanTvUi) FinishJapanTvUi(info);
         FinishPoster(info);
     }
 
@@ -362,7 +399,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         if (min.x == float.MaxValue) return;
         Vector2 size = max - min, center = (min + max) * 0.5f;
-        float extent = poster ? BackingMargin(backingExtent) : 0f;
+        float extent = japanTvUi && decoratedTitle ? text.fontSize * posterSettings.japanTvStrokeRatio * 2.5f :
+            poster ? BackingMargin(backingExtent) : 0f;
         float scale = Mathf.Min(1f, Mathf.Min(rect.width / Mathf.Max(0.001f, size.x + extent * 2f),
             rect.height / Mathf.Max(0.001f, size.y + extent * 2f)));
         if (poster) fittedTitleScale = scale;
@@ -554,6 +592,143 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         text.SetMotionBounds(bounds);
     }
 
+    private void ConfigureJapanTvUi(BattleUiStyleSettings style, bool decorate, bool large)
+    {
+        if (!decorate) { ReleaseJapanTvUi(); return; }
+        bool alert = BattleUiJapanTvDrawing.IsAlert(source.name);
+        bool caption = source.name == "PresenterName" || alert;
+        bool button = source.name == "Label" || source.name == "Text";
+        if (!button && japanTvPlate == null)
+        {
+            GameObject plate = new("JapanTvUiTitlePlate", typeof(RectTransform), typeof(LayoutElement));
+            plate.layer = source.gameObject.layer;
+            plate.transform.SetParent(source.transform, false);
+            plate.transform.SetAsFirstSibling();
+            plate.GetComponent<LayoutElement>().ignoreLayout = true;
+            japanTvPlate = plate.AddComponent<BattleUiJapanTvTitlePlate>();
+            japanTvPlate.raycastTarget = false;
+            japanTvPlate.rectTransform.anchorMin = Vector2.zero;
+            japanTvPlate.rectTransform.anchorMax = Vector2.one;
+            japanTvPlate.rectTransform.offsetMin = japanTvPlate.rectTransform.offsetMax = Vector2.zero;
+            BattleUiOpticsCanvas.Register(japanTvPlate);
+        }
+        if (japanTvPlate != null)
+            japanTvPlate.Configure(source, style, alert, large && !alert, caption, BattleUiJapanTvDrawing.Role(source.transform, style), sourceColor.a);
+        if (japanTvOutline == null)
+        {
+            GameObject outer = new("JapanTvUiTitleOutline", typeof(RectTransform), typeof(LayoutElement));
+            outer.layer = source.gameObject.layer;
+            outer.transform.SetParent(source.transform, false);
+            outer.transform.SetSiblingIndex(text.transform.GetSiblingIndex());
+            outer.GetComponent<LayoutElement>().ignoreLayout = true;
+            japanTvOutline = outer.AddComponent<TextMeshProUGUI>();
+            japanTvOutline.raycastTarget = false;
+            japanTvOutline.OnPreRenderText += FitJapanTvOutline;
+            BattleUiOpticsCanvas.Register(japanTvOutline);
+        }
+        if (japanTvOutline.font != text.font || japanTvOutlineMaterial == null)
+        {
+            if (japanTvOutlineMaterial != null) Release(japanTvOutlineMaterial);
+            japanTvOutline.font = text.font;
+            japanTvOutlineMaterial = new Material(text.font.material) { hideFlags = HideFlags.HideAndDontSave };
+            japanTvOutline.fontSharedMaterial = japanTvOutlineMaterial;
+        }
+        float outerWidth = Mathf.Clamp01(outlineWidth * style.japanTvOuterStrokeScale);
+        if (japanTvOutlineMaterial.GetColor("_OutlineColor") != style.japanTvRed ||
+            japanTvOutlineMaterial.GetFloat("_OutlineWidth") != outerWidth ||
+            japanTvOutlineMaterial.GetColor("_UnderlayColor") != style.japanTvShadow ||
+            japanTvOutlineMaterial.GetFloat("_UnderlayOffsetX") != style.japanTvDepthOffset.x ||
+            japanTvOutlineMaterial.GetFloat("_UnderlayOffsetY") != style.japanTvDepthOffset.y)
+        {
+            japanTvOutlineMaterial.SetColor("_OutlineColor", style.japanTvRed);
+            japanTvOutlineMaterial.SetFloat("_OutlineWidth", outerWidth);
+            japanTvOutlineMaterial.SetColor("_UnderlayColor", style.japanTvShadow);
+            japanTvOutlineMaterial.SetFloat("_UnderlayOffsetX", style.japanTvDepthOffset.x);
+            japanTvOutlineMaterial.SetFloat("_UnderlayOffsetY", style.japanTvDepthOffset.y);
+            japanTvOutlineMaterial.EnableKeyword("UNDERLAY_ON");
+            japanTvOutline.UpdateMeshPadding();
+            japanTvOutline.SetMaterialDirty();
+            japanTvOutline.SetVerticesDirty();
+        }
+        japanTvOutline.rectTransform.anchorMin = text.rectTransform.anchorMin;
+        japanTvOutline.rectTransform.anchorMax = text.rectTransform.anchorMax;
+        japanTvOutline.rectTransform.offsetMin = text.rectTransform.offsetMin;
+        japanTvOutline.rectTransform.offsetMax = text.rectTransform.offsetMax;
+        japanTvOutline.rectTransform.localScale = text.rectTransform.localScale;
+        japanTvOutline.fontSize = text.fontSize;
+        japanTvOutline.fontStyle = text.fontStyle;
+        japanTvOutline.alignment = text.alignment;
+        japanTvOutline.textWrappingMode = text.textWrappingMode;
+        japanTvOutline.overflowMode = text.overflowMode;
+        japanTvOutline.margin = text.margin;
+        japanTvOutline.richText = text.richText;
+        japanTvOutline.maskable = source.maskable;
+        japanTvOutline.color = new Color(style.japanTvRed.r, style.japanTvRed.g, style.japanTvRed.b, sourceColor.a);
+        japanTvOutline.text = text.text;
+        japanTvOutline.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
+    }
+
+    private void FitJapanTvOutline(TMP_TextInfo info)
+    {
+        FitToRect(info, 0f);
+        japanTvOutline.GetComponentsInChildren(true, japanTvSubMeshes);
+        foreach (TMP_SubMeshUI subMesh in japanTvSubMeshes)
+        {
+            subMesh.raycastTarget = false;
+            subMesh.maskable = source.maskable;
+        }
+    }
+
+    private void FinishJapanTvUi(TMP_TextInfo info)
+    {
+        if (!decoratedTitle) return;
+        BattleUiStyleSettings style = posterSettings;
+        bool caption = source.name == "PresenterName";
+        bool accent = BattleUiJapanTvDrawing.IsAlert(source.name);
+        bool large = japanTvLargeTitle;
+        Color role = BattleUiJapanTvDrawing.Role(source.transform, style);
+        for (int i = 0; i < info.characterCount; i++)
+        {
+            TMP_CharacterInfo character = info.characterInfo[i];
+            if (!character.isVisible) continue;
+            Color top = large ? style.japanTvYellow : role;
+            Color bottom = large ? style.japanTvOrange : role;
+            if (caption) top = bottom = Color.white;
+            else if (accent && source.name == "ReactionTag") top = bottom = i % 4 == 0 ? style.japanTvCyan : i % 4 == 1 ? style.japanTvPink :
+                i % 4 == 2 ? style.japanTvPurple : style.japanTvGreen;
+            else if (accent) top = bottom = style.japanTvYellow;
+            Color32[] colors = info.meshInfo[character.materialReferenceIndex].colors32;
+            for (int j = 0; j < 4; j++)
+            {
+                int index = character.vertexIndex + j;
+                Color tint = j == 1 || j == 2 ? top : bottom;
+                tint.a *= colors[index].a / 255f;
+                colors[index] = tint;
+            }
+        }
+        japanTvPlate?.SetCharacters(info);
+    }
+
+    private void ReleaseJapanTvUi()
+    {
+        japanTvStartedAt = -1f;
+        if (japanTvOutline != null)
+        {
+            japanTvOutline.OnPreRenderText -= FitJapanTvOutline;
+            japanTvOutline.gameObject.SetActive(false);
+            Release(japanTvOutline.gameObject);
+            japanTvOutline = null;
+        }
+        if (japanTvOutlineMaterial != null) { Release(japanTvOutlineMaterial); japanTvOutlineMaterial = null; }
+        japanTvSubMeshes.Clear();
+        if (japanTvPlate != null)
+        {
+            japanTvPlate.gameObject.SetActive(false);
+            Release(japanTvPlate.gameObject);
+            japanTvPlate = null;
+        }
+    }
+
     private static TextAlignmentOptions Alignment(TextAnchor alignment) => alignment switch
     {
         TextAnchor.UpperLeft => TextAlignmentOptions.TopLeft,
@@ -569,6 +744,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
 
     public void Dispose()
     {
+        ReleaseJapanTvUi();
         if (text != null)
         {
             text.OnPreRenderText -= FitTitle;

@@ -202,6 +202,16 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         stylishTitleShear = 0f,
         stylishTitleAngle = 0f
     };
+    [SerializeField] private BattleUiStyleSettings japanTvUi = new()
+    {
+        background = new Color32(0x24, 0x15, 0x27, 255),
+        innerLine = new Color32(0xFF, 0xF8, 0xE6, 255),
+        outerFrame = new Color32(0x00, 0xBF, 0xCB, 255),
+        status = new Color32(0x20, 0xA6, 0x4B, 255),
+        danger = new Color32(0xEF, 0x26, 0x38, 255),
+        energy = new Color32(0x00, 0xBF, 0xCB, 255),
+        highlight = new Color32(0xFF, 0xF1, 0x2B, 255)
+    };
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
     [SerializeField] private bool enableScreenTone = true;
@@ -232,6 +242,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         BattleUiStyle.Birthday => birthday,
         BattleUiStyle.Paper => paper,
         BattleUiStyle.CMD => cmd,
+        BattleUiStyle.JapanTvUi => japanTvUi,
         _ => vectorStyleUi
     };
 
