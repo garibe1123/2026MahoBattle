@@ -212,6 +212,19 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         energy = new Color32(0x00, 0xBF, 0xCB, 255),
         highlight = new Color32(0xFF, 0xF1, 0x2B, 255)
     };
+    [SerializeField] private BattleUiStyleSettings retroJapanShop = new()
+    {
+        background = Color.white,
+        innerLine = new Color32(0x12, 0x12, 0x12, 255),
+        outerFrame = new Color32(0xE6, 0x00, 0x12, 255),
+        status = new Color32(0xE6, 0x00, 0x12, 255),
+        danger = new Color32(0xE6, 0x00, 0x12, 255),
+        energy = new Color32(0xFF, 0xF0, 0x00, 255),
+        highlight = new Color32(0xFF, 0xF0, 0x00, 255),
+        titleSizeMultiplier = 1f,
+        titlePadding = 2f,
+        titleShadowOffset = Vector2.zero
+    };
     private BattleUiStyleController uiStyleController;
     private bool uiStyleRefreshRequested;
     [SerializeField] private bool enableScreenTone = true;
@@ -243,6 +256,7 @@ public sealed class BattleShowPresentationManager : MonoBehaviour
         BattleUiStyle.Paper => paper,
         BattleUiStyle.CMD => cmd,
         BattleUiStyle.JapanTvUi => japanTvUi,
+        BattleUiStyle.RetroJapanShop => retroJapanShop,
         _ => vectorStyleUi
     };
 

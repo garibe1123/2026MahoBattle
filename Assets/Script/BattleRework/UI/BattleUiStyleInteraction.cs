@@ -63,7 +63,7 @@ public sealed class BattleUiStyleInteraction : MonoBehaviour, IPointerEnterHandl
 
     private void Update()
     {
-        if (BattleUiStyleController.IsCmd && button != null && button.IsInteractable())
+        if ((BattleUiStyleController.IsCmd || BattleUiStyleController.IsRetroJapanShop) && button != null && button.IsInteractable())
         {
             if (scale != 1f) { scale = 1f; Dirty(); }
             return;

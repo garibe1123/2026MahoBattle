@@ -380,6 +380,17 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
         if (face.width < 8f || face.height < 8f)
             return;
 
+        if (BattleUiStyleController.IsRetroJapanShop)
+        {
+            BattleUiStyleSettings style = BattleUiStyleController.Settings;
+            float opacity = softFill ? 0.94f : 1f;
+            BattleUiRetroJapanShopDrawing.Frame(vh, face, style, opacity, styleInteraction != null,
+                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted), hasHeader);
+            backgroundBaseAlpha = style.retroShopWhite.a * opacity;
+            backgroundVertexCount = vh.currentVertCount;
+            return;
+        }
+
         if (BattleUiStyleController.IsJapanTvUi)
         {
             BattleUiStyleSettings style = BattleUiStyleController.Settings;

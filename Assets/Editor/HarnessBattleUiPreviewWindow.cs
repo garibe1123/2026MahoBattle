@@ -82,7 +82,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         if (view.width < 1f || view.height < 1f || Event.current.type != EventType.Repaint) return;
         EnsurePreview();
-        bool poster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish || manager.UiStyle == BattleUiStyle.JapanTvUi;
+        bool poster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish || manager.UiStyle == BattleUiStyle.JapanTvUi || manager.UiStyle == BattleUiStyle.RetroJapanShop;
         if (content == null || builtScreen != screen || builtPaper != (manager.UiStyle == BattleUiStyle.Paper) || builtPoster != poster) BuildScreen();
         bool ink = manager.UiStyle == BattleUiStyle.Stylish;
         PrepareInkPreview(view, ink);
@@ -205,7 +205,7 @@ public sealed class HarnessBattleUiPreviewWindow : EditorWindow
         }
         builtScreen = screen;
         builtPaper = manager.UiStyle == BattleUiStyle.Paper;
-        builtPoster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish || manager.UiStyle == BattleUiStyle.JapanTvUi;
+        builtPoster = manager.UiStyle == BattleUiStyle.comicStyleUi || manager.UiStyle == BattleUiStyle.Stylish || manager.UiStyle == BattleUiStyle.JapanTvUi || manager.UiStyle == BattleUiStyle.RetroJapanShop;
         content = Rect(root.transform, "Sample", Vector2.zero, new Vector2(1920f, 1080f));
         Label(content, "ScreenTitle", screen == Screen.Result ? "STAGE 2 CLEAR" : "MAHO BATTLE / " + screen.ToString().ToUpperInvariant(),
             new Vector2(-350f, 430f), new Vector2(1000f, 100f), 52);

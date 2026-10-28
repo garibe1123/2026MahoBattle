@@ -45,7 +45,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool fontStyleOverridden;
     private bool wasComic;
     private bool wasMaho;
-    private bool wasStylish, wasBirthday, wasPaper, wasJapanTvUi, title;
+    private bool wasStylish, wasBirthday, wasPaper, wasJapanTvUi, wasRetroShop, title;
     private uint paperSeed;
     private bool paperBadge, paperBadgeInner, paperBadgeIcon;
     private BattlePaperRole paperRole;
@@ -210,13 +210,14 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         Material pixelPanel, Material pixelText, Material pixelSprite, Font bitmap, Material mahoMaterial, Font themeFont,
         Material paperMaterial, Material paperMaskMaterial, Material lockMarkMaterial, Material inkPanelMaterial)
     {
-        if (!BattleUiStyleController.IsJapanTvUi && interaction != null && interaction.name == "RewardPackDone")
+        if (!BattleUiStyleController.IsJapanTvUi && !BattleUiStyleController.IsRetroJapanShop && interaction != null && interaction.name == "RewardPackDone")
         {
             RestoreAppearance();
             return;
         }
         bool cmd = BattleUiStyleController.IsCmd;
         bool japanTvUi = BattleUiStyleController.IsJapanTvUi;
+        bool retroShop = BattleUiStyleController.IsRetroJapanShop;
         if (cmd && !PreserveBackdrop() && (decoration == target || (image != null && !decoratedSurface &&
             (panel || speechBadge || (image.sprite == null && (stylishSurface || stylishButton))))))
         {
@@ -291,6 +292,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (japanTvUi && (label != null || panel || speechBadge || hiddenFill || tailFill ||
             (image != null && (image.name == "TailShape" || stylishSurface || stylishButton))))
             next = target.defaultMaterial;
+        if (retroShop && (label != null || panel || speechBadge || hiddenFill || tailFill ||
+            (image != null && (image.name == "TailShape" || stylishSurface || stylishButton))))
+            next = target.defaultMaterial;
         if (HasAssignedMaterial()) next = null;
         if (lockMark) next = !pixel && !cmd && lockMarkMaterial != null ? lockMarkMaterial : target.defaultMaterial;
         if (comic && (tailFill || (image != null && image.name == "TailShape")))
@@ -324,7 +328,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         }
         else RestoreFont();
         if (wasPixel != pixel || wasComic != comic || wasMaho != maho ||
-            wasStylish != stylish || wasBirthday != birthday || wasPaper != paper || wasCmd != cmd || wasJapanTvUi != japanTvUi) target.SetVerticesDirty();
+            wasStylish != stylish || wasBirthday != birthday || wasPaper != paper || wasCmd != cmd || wasJapanTvUi != japanTvUi || wasRetroShop != retroShop) target.SetVerticesDirty();
         wasPixel = pixel;
         wasComic = comic;
         wasMaho = maho;
@@ -333,11 +337,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         wasPaper = paper;
         wasCmd = cmd;
         wasJapanTvUi = japanTvUi;
+        wasRetroShop = retroShop;
         bool comicStartLabel = comic && label != null && interaction != null &&
             (interaction.name == "StartBattleButton" || interaction.name == "RewardPackDone" || IsDiscardConfirmButton);
-        bool decoratedTitle = !comicStartLabel && (title || ((comic || stylish || japanTvUi) && interaction != null && interaction.Primary) ||
+        bool decoratedTitle = !comicStartLabel && (title || ((comic || stylish || japanTvUi || retroShop) && interaction != null && interaction.Primary) ||
+            (retroShop && BattleUiRetroJapanShopDrawing.IsBadge(target.name)) ||
             (japanTvUi && (BattleUiJapanTvDrawing.IsAlert(target.name) || target.name == "PresenterName"))) &&
-            (comic || stylish || birthday || paper || cmd || japanTvUi);
+            (comic || stylish || birthday || paper || cmd || japanTvUi || retroShop);
         if (isActiveAndEnabled && label != null && !comicStartLabel && settings.textMaterial == null &&
             (settings.font == null || settings.fontAsset != null || (decoratedTitle && settings.titleFont != null)) && !HasAssignedMaterial())
         {
@@ -347,13 +353,13 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 posterFont = BattleUiThemeFonts.LoadTitle(comic ? BattleUiStyle.comicStyleUi : BattleUiStyle.Stylish);
             TMPro.TMP_FontAsset font = posterFont != null ? posterFont : decoratedTitle && settings.titleFont != null ? settings.titleFont :
                 settings.fontAsset != null ? settings.fontAsset : BattleUiStyleController.ThemeTmpFont;
-            if (font != null && (comic || cmd || stylish || paper || japanTvUi || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
+            if (font != null && (comic || cmd || stylish || paper || japanTvUi || retroShop || BattleUiOpticsCanvas.ActiveCapture != null || label.canvas == null ||
                 label.canvas.rootCanvas.renderMode == RenderMode.ScreenSpaceOverlay))
             {
                 if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(label);
                 BattleUiTitleMotionSettings motion = comicStartLabel ? null : TitleMotion(settings);
                 tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow,
-                    stylish ? interaction?.Scale ?? 1f : 1f, entrance, stylish && interaction != null && interaction.Primary,
+                    stylish ? interaction?.Scale ?? 1f : 1f, entrance, (stylish || retroShop) && interaction != null && interaction.Primary,
                     interaction != null || (cmdSelection != null && title),
                     (interaction != null && interaction.Highlighted) || (cmdSelection != null && cmdSelection.CmdSelected), topOverflow: title);
             }
@@ -414,19 +420,22 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private void ApplyNativeText(BattleUiStyleSettings settings)
     {
-        if ((BattleUiStyleController.IsComic || BattleUiStyleController.IsStylish || BattleUiStyleController.IsJapanTvUi) && settings.textMaterial == null)
+        if ((BattleUiStyleController.IsComic || BattleUiStyleController.IsStylish || BattleUiStyleController.IsJapanTvUi || BattleUiStyleController.IsRetroJapanShop) && settings.textMaterial == null)
         {
             RestoreCmdNative();
             if (!tmpOverridden || nativeText.color != appliedTmpColor) originalTmpColor = nativeText.color;
             bool comic = BattleUiStyleController.IsComic;
             bool japanTvUi = BattleUiStyleController.IsJapanTvUi;
+            bool retroShop = BattleUiStyleController.IsRetroJapanShop;
             bool decoratedTitle = title || (interaction != null && interaction.Primary) ||
+                (retroShop && BattleUiRetroJapanShopDrawing.IsBadge(target.name)) ||
                 (japanTvUi && (BattleUiJapanTvDrawing.IsAlert(target.name) || target.name == "PresenterName"));
-            TMPro.TMP_FontAsset posterFont = japanTvUi ? (decoratedTitle && settings.titleFont != null ? settings.titleFont : settings.fontAsset) :
+            TMPro.TMP_FontAsset posterFont = japanTvUi || retroShop ? (decoratedTitle && settings.titleFont != null ? settings.titleFont : settings.fontAsset) :
                 decoratedTitle ? (comic ? settings.comicTitleFont : settings.inkTitleFont) : settings.fontAsset;
             if (posterFont == null) posterFont = decoratedTitle
-                ? japanTvUi ? BattleUiStyleController.ThemeTmpFont : BattleUiThemeFonts.LoadTitle(comic ? BattleUiStyle.comicStyleUi : BattleUiStyle.Stylish)
+                ? japanTvUi || retroShop ? BattleUiStyleController.ThemeTmpFont : BattleUiThemeFonts.LoadTitle(comic ? BattleUiStyle.comicStyleUi : BattleUiStyle.Stylish)
                 : BattleUiStyleController.ThemeTmpFont;
+            if (posterFont == null && retroShop) posterFont = nativeText.font;
             if (posterFont == null) { HideTmpTitle(); RestoreNativeText(); return; }
             if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(nativeText);
             tmpTitle.Apply(posterFont, settings, false, decoratedTitle, TitleMotion(settings),
@@ -511,6 +520,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     private bool HasAssignedMaterial()
     {
+        if (BattleUiStyleController.IsRetroJapanShop && (label != null || nativeText != null || panel || speechBadge || hiddenFill || tailFill ||
+            (image != null && (image.name == "TailShape" || stylishSurface || stylishButton)))) return false;
         if (BattleUiStyleController.IsJapanTvUi && (label != null || nativeText != null || panel || speechBadge || hiddenFill || tailFill ||
             (image != null && (image.name == "TailShape" || stylishSurface || stylishButton)))) return false;
         if (BattleUiStyleController.IsComic && (panel || speechBadge || hiddenFill || tailFill || label != null ||
@@ -620,7 +631,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     public override void ModifyMesh(VertexHelper vh)
     {
         if (!IsActive() || target == null) return;
-        if (!BattleUiStyleController.IsJapanTvUi && interaction != null && interaction.name == "RewardPackDone")
+        if (!BattleUiStyleController.IsJapanTvUi && !BattleUiStyleController.IsRetroJapanShop && interaction != null && interaction.name == "RewardPackDone")
         {
             if (target is BattleUiPanelDecoration) vh.Clear();
             return;
@@ -659,6 +670,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     {
         if (!IsActive() || target == null || nativeText != null || PreserveBackdrop() || HasAssignedMaterial()) return;
         if (tmpTitle != null && tmpTitle.Visible) { vh.Clear(); return; }
+        if (BattleUiStyleController.IsRetroJapanShop) { ModifyRetroShopMesh(vh); return; }
         if (BattleUiStyleController.IsJapanTvUi) { ModifyJapanTvUiMesh(vh); return; }
         if (BattleUiStyleController.IsCmd) { ModifyCmdMesh(vh); return; }
         bool pixel = BattleUiStyleController.IsPixel;
@@ -776,6 +788,35 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             BattleUiPixelProjection.Project(vh, triangles, target.rectTransform, renderCamera, viewport,
                 Mathf.Max(1f, Mathf.Round(label != null ? settings.textPixelSize : settings.logicalPixelSize * BattleUiStyleController.PixelScale)) /
                 Mathf.Max(0.001f, target.canvas.scaleFactor));
+    }
+
+    private void ModifyRetroShopMesh(VertexHelper vh)
+    {
+        if (target is BattleUiPanelDecoration) return;
+        BattleUiStyleSettings style = BattleUiStyleController.Settings;
+        bool tailOutline = image != null && image.name == "TailShape";
+        bool speech = speechFrame || hiddenFill || tailFill || tailOutline;
+        if (!speech && decoratedSurface) { vh.Clear(); return; }
+        if (!speech && image != null && image.type != Image.Type.Filled && (panel || speechBadge || stylishSurface || stylishButton))
+        {
+            vh.Clear();
+            if (BattleUiRetroJapanShopDrawing.IsBadge(image.name))
+                BattleUiRetroJapanShopDrawing.Badge(vh, target.rectTransform.rect, style, image.color.a);
+            else BattleUiRetroJapanShopDrawing.Frame(vh, target.rectTransform.rect, style, image.color.a,
+                stylishButton || speechBadge, interaction != null && interaction.Highlighted);
+            return;
+        }
+        if (!speech && label == null && (image == null || image.type != Image.Type.Filled)) return;
+        UIVertex vertex = default;
+        for (int i = 0; i < vh.currentVertCount; i++)
+        {
+            vh.PopulateUIVertex(ref vertex, i);
+            Color tint = speech ? (speechFrame || tailOutline ? style.retroShopRed : style.retroShopWhite) :
+                label != null ? style.retroShopInk : Palette(vertex.color, style, true);
+            tint.a *= vertex.color.a / 255f;
+            vertex.color = tint;
+            vh.SetUIVertex(vertex, i);
+        }
     }
 
     private void ModifyJapanTvUiMesh(VertexHelper vh)
@@ -913,6 +954,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
 
     internal static Color TextColor(Color source, BattleUiStyleSettings settings)
     {
+        if (BattleUiStyleController.IsRetroJapanShop)
+            return BattleUiRetroJapanShopDrawing.Tint(settings.retroShopInk, source.a);
         if (BattleUiStyleController.IsJapanTvUi)
         {
             Color color = Palette(source, settings, false);

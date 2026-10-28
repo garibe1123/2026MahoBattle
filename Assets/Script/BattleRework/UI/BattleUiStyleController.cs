@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 using UnityEngine.Rendering.Universal;
 using UnityEngine.UI;
 
-public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper, CMD, JapanTvUi }
+public enum BattleUiStyle { pixelStyleUi, comicStyleUi, VectorStyleUi, MahoShojo, Stylish, Birthday, Paper, CMD, JapanTvUi, RetroJapanShop }
 
 [Serializable]
 public sealed class BattleUiTitleCharacterTransform
@@ -233,6 +233,19 @@ public sealed class BattleUiStyleSettings
     public Color japanTvPaper = new Color32(0xF4, 0xE7, 0xCC, 255);
     [Min(8f)] public float japanTvDecorationFontSize = 14f;
     [Range(0.15f, 0.3f)] public float japanTvRibbonRatio = 0.22f;
+    [Header("복고 상점")]
+    public Color retroShopRed = new Color32(0xE6, 0x00, 0x12, 255);
+    public Color retroShopYellow = new Color32(0xFF, 0xF0, 0x00, 255);
+    public Color retroShopWhite = Color.white;
+    public Color retroShopInk = new Color32(0x12, 0x12, 0x12, 255);
+    [Range(0.06f, 0.1f)] public float retroShopTitleStrokeRatio = 0.08f;
+    [Range(1.2f, 2f)] public float retroShopOuterStrokeScale = 1.7f;
+    [Range(5f, 10f)] public float retroShopBannerAngle = 7f;
+    [Min(0f)] public float retroShopBorderWidth = 3f;
+    [Range(0.7f, 1f)] public float retroShopBadgeSizeRatio = 0.9f;
+    [Range(8, 24)] public int retroShopBadgeTeeth = 16;
+    [Range(0.65f, 1f)] public float retroShopBadgeInnerRatio = 0.8f;
+    [Range(0.1f, 0.3f)] public float retroShopHeaderRatio = 0.2f;
 }
 
 [DisallowMultipleComponent]
@@ -286,6 +299,8 @@ public sealed class BattleUiStyleController : MonoBehaviour
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.CMD;
     internal static bool IsJapanTvUi => active != null && active.isActiveAndEnabled &&
         active.presentation != null && active.presentation.UiStyle == BattleUiStyle.JapanTvUi;
+    internal static bool IsRetroJapanShop => active != null && active.isActiveAndEnabled &&
+        active.presentation != null && active.presentation.UiStyle == BattleUiStyle.RetroJapanShop;
     internal static BattleUiStyleSettings Settings => active != null && active.presentation != null
         ? active.presentation.UiStyleSettings : null;
     internal static TMPro.TMP_FontAsset ThemeTmpFont => active != null && active.isActiveAndEnabled && active.presentation != null
@@ -334,6 +349,7 @@ public sealed class BattleUiStyleController : MonoBehaviour
     {
         if (active == null || target == null || target.name.StartsWith("Cmd", StringComparison.Ordinal) ||
             target.name == "StyleTitleTMP" || target.name.StartsWith("JapanTvUi", StringComparison.Ordinal) ||
+            target.name.StartsWith("RetroJapanShop", StringComparison.Ordinal) ||
             target is BattleUiTitleBacking || target.GetComponentInParent<BattleDebugUI>(true) != null) return;
         BattleUiOpticsCanvas.Register(target);
         // Unframed rule captions need their own contrast against the world.

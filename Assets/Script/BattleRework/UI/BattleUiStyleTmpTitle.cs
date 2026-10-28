@@ -15,6 +15,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private float SourceSize => label != null ? label.fontSize : native.fontSize;
     private readonly BattleUiStyleTitleText text;
     private BattleUiTitleBacking backing;
+    private BattleUiRetroJapanShopTitle retroShopTitle;
+    private bool retroShop;
     private BattleUiJapanTvTitlePlate japanTvPlate;
     private TextMeshProUGUI japanTvOutline;
     private Material japanTvOutlineMaterial;
@@ -112,6 +114,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         bool primary = false, bool cmdOption = false, bool cmdSelected = false, Color? sourceTint = null, bool topOverflow = true)
     {
         sourceColor = sourceTint ?? source.color;
+        bool nextRetroShop = BattleUiStyleController.IsRetroJapanShop;
+        if (retroShop != nextRetroShop)
+        {
+            retroShop = nextRetroShop;
+            retroShopTitle?.Hide();
+            text.SetVerticesDirty();
+        }
         bool nextJapanTvUi = BattleUiStyleController.IsJapanTvUi;
         if (japanTvUi != nextJapanTvUi)
         {
@@ -173,10 +182,11 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.fontSharedMaterial = material;
             outlineWidth = -1f;
         }
-        Color nextOutline = japanTvUi ? style.japanTvInk : poster ? (cartoon ? style.comicWhite : style.inkCyan) : style.outerFrame;
+        Color nextOutline = retroShop ? style.retroShopWhite : japanTvUi ? style.japanTvInk : poster ? (cartoon ? style.comicWhite : style.inkCyan) : style.outerFrame;
         Color nextShadow = japanTvUi ? style.japanTvShadow : poster ? (cartoon ? style.comicInk : style.inkBackground) : birthday ? style.energy : style.status;
         bool paper = BattleUiStyleController.IsPaper;
-        float nextWidth = japanTvUi ? decorate ? Mathf.Clamp01(style.japanTvStrokeRatio * font.faceInfo.pointSize /
+        float nextWidth = retroShop ? decorate ? Mathf.Clamp01(Mathf.Clamp(style.retroShopTitleStrokeRatio, 0.06f, 0.1f) * font.faceInfo.pointSize /
+            Mathf.Max(1f, material.GetFloat("_GradientScale"))) : 0f : japanTvUi ? decorate ? Mathf.Clamp01(style.japanTvStrokeRatio * font.faceInfo.pointSize /
             Mathf.Max(1f, material.GetFloat("_GradientScale"))) : 0f : poster ? Mathf.Clamp01(Mathf.Clamp(style.posterTitleStrokeRatio, 0.06f, 0.1f) *
             font.faceInfo.pointSize / Mathf.Max(1f, material.GetFloat("_GradientScale"))) :
             decorate && !paper && !cmd ? style.titleOutlineWidth : 0f;
@@ -211,10 +221,10 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.SetMaterialDirty();
             text.SetVerticesDirty();
         }
-        if (decorate && !paper && !cmd && !japanTvUi) material.EnableKeyword("UNDERLAY_ON");
+        if (decorate && !paper && !cmd && !japanTvUi && !retroShop) material.EnableKeyword("UNDERLAY_ON");
         else material.DisableKeyword("UNDERLAY_ON");
-        float nextShear = poster || japanTvUi ? 0f : decorate && !birthday && !paper && !cmd ? style.stylishTitleShear : 0f;
-        float nextAngle = japanTvUi ? decorate && source.name != "PresenterName" ? style.japanTvTitleAngle : 0f : poster ? 0f : decorate && !cmd ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
+        float nextShear = poster || japanTvUi || retroShop ? 0f : decorate && !birthday && !paper && !cmd ? style.stylishTitleShear : 0f;
+        float nextAngle = retroShop ? decorate && !BattleUiRetroJapanShopDrawing.IsBadge(source.name) ? Mathf.Clamp(style.retroShopBannerAngle, 5f, 10f) : 0f : japanTvUi ? decorate && source.name != "PresenterName" ? style.japanTvTitleAngle : 0f : poster ? 0f : decorate && !cmd ? (paper ? paperAngle * Mathf.Clamp01(style.paperLabelAngle) :
             !birthday ? style.stylishTitleAngle : 0f) : 0f;
         if (titleAngle != nextAngle) { titleAngle = nextAngle; text.SetVerticesDirty(); }
         Vector3 nextScale = Vector3.one * feedbackScale;
@@ -279,6 +289,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         };
         text.alignment = label != null ? Alignment(cmd && (decorate || cmdOption)
             ? (TextAnchor)((int)label.alignment / 3 * 3) : label.alignment) : native.alignment;
+        if (retroShop && BattleUiRetroJapanShopDrawing.IsBadge(source.name)) text.alignment = TextAlignmentOptions.Center;
         text.textWrappingMode = label != null ? (label.horizontalOverflow == HorizontalWrapMode.Wrap
             ? TextWrappingModes.Normal : TextWrappingModes.NoWrap) : native.textWrappingMode;
         text.maskable = source.maskable;
@@ -293,6 +304,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         if (primary) face = BattleUiStyleController.IsStylish ? style.inkBackground :
             new Color(style.outerFrame.r, style.outerFrame.g, style.outerFrame.b, sourceColor.a);
+        if (retroShop) face = decorate ? style.retroShopRed : BattleUiRetroJapanShopDrawing.Tint(style.retroShopInk, sourceColor.a);
         if (decorate) face.a *= sourceColor.a;
         face.a *= entrance;
         text.color = face;
@@ -303,6 +315,13 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             text.color = tvFace;
             ConfigureJapanTvUi(style, decorate, japanTvLarge);
         }
+        if (retroShop && decorate)
+        {
+            if (retroShopTitle == null) retroShopTitle = new BattleUiRetroJapanShopTitle(source, text, FitRetroShopOutline);
+            retroShopTitle.Apply(text, style, outlineWidth, sourceColor.a,
+                !primary && !BattleUiRetroJapanShopDrawing.IsBadge(source.name) && source.name != "PresenterName");
+        }
+        else retroShopTitle?.Hide();
         if (backing != null) backing.gameObject.SetActive(poster && content.Length > 0 && sourceColor.a > 0f);
         text.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
         foreach (TMP_SubMeshUI subMesh in subMeshes)
@@ -330,6 +349,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     internal void Refresh()
     {
         if (text == null) return;
+        retroShopTitle?.Refresh();
         checkedFont = null;
         text.havePropertiesChanged = true;
         text.SetVerticesDirty();
@@ -339,6 +359,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     {
         if (text == null) return;
         ReleaseJapanTvUi();
+        retroShopTitle?.Hide();
         text.rectTransform.localScale = Vector3.one;
         bool wasVisible = Visible;
         if (backing != null) backing.gameObject.SetActive(false);
@@ -386,6 +407,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     {
         Quaternion rotation = Quaternion.Euler(0f, 0f, titleAngle);
         Rect rect = text.rectTransform.rect;
+        if (retroShop && BattleUiRetroJapanShopDrawing.IsBadge(source.name))
+            rect = BattleUiRetroJapanShopDrawing.BadgeRect(rect, posterSettings);
         if (japanTvUi) rect.yMax -= Mathf.Max(0f, text.margin.y - padding);
         float inset = Mathf.Min(padding, Mathf.Min(rect.width, rect.height) * 0.25f);
         rect = BattleUiStyleMeshEffect.Inset(rect, inset);
@@ -399,6 +422,12 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             for (int j = 0; j < 4; j++)
             {
                 Vector3 vertex = rotation * vertices[character.vertexIndex + j];
+                if (retroShop)
+                {
+                    float x = j < 2 ? character.origin : character.xAdvance;
+                    float y = j == 1 || j == 2 ? character.ascender : character.descender;
+                    vertex = rotation * new Vector3(x, y, 0f);
+                }
                 vertex.x += titleShear * vertex.y;
                 min = Vector2.Min(min, vertex);
                 max = Vector2.Max(max, vertex);
@@ -406,7 +435,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         if (min.x == float.MaxValue) return;
         Vector2 size = max - min, center = (min + max) * 0.5f;
-        float extent = japanTvUi && decoratedTitle ? text.fontSize * posterSettings.japanTvStrokeRatio * 2.5f :
+        float extent = retroShop && decoratedTitle ? text.fontSize * Mathf.Clamp(posterSettings.retroShopTitleStrokeRatio, 0.06f, 0.1f) *
+            Mathf.Clamp(posterSettings.retroShopOuterStrokeScale, 1.2f, 2f) : japanTvUi && decoratedTitle ? text.fontSize * posterSettings.japanTvStrokeRatio * 2.5f :
             poster ? BackingMargin(backingExtent) : 0f;
         float scale = Mathf.Min(1f, Mathf.Min(rect.width / Mathf.Max(0.001f, size.x + extent * 2f),
             rect.height / Mathf.Max(0.001f, size.y + extent * 2f)));
@@ -428,6 +458,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             }
         }
     }
+
+    private void FitRetroShopOutline(TMP_TextInfo info) => FitToRect(info, 0f);
 
     private void ResetMotion(bool preserveAnimation = false)
     {
@@ -752,6 +784,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     public void Dispose()
     {
         ReleaseJapanTvUi();
+        retroShopTitle?.Dispose();
         if (text != null)
         {
             text.OnPreRenderText -= FitTitle;
