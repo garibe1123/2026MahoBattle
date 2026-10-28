@@ -385,7 +385,8 @@ public sealed class BattleUiPanelDecoration : MaskableGraphic
             BattleUiStyleSettings style = BattleUiStyleController.Settings;
             float opacity = softFill ? 0.94f : 1f;
             BattleUiRetroJapanShopDrawing.Frame(vh, face, style, opacity, styleInteraction != null,
-                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted), hasHeader);
+                selected || emphasis || (styleInteraction != null && styleInteraction.Highlighted), hasHeader,
+                styleInteraction != null ? BattleUiStyleMeshEffect.PaperSeed(styleInteraction.transform) : paperSeed);
             backgroundBaseAlpha = style.retroShopWhite.a * opacity;
             backgroundVertexCount = vh.currentVertCount;
             return;

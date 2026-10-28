@@ -9,6 +9,7 @@ internal static class BattleUiThemeFonts
     private static readonly Dictionary<BattleUiStyle, TMP_FontAsset> tmpFonts = new();
     private static readonly Dictionary<Font, TMP_FontAsset> cmdFonts = new();
     private static readonly Dictionary<string, TMP_FontAsset> posterFonts = new();
+    private static bool retroShopFontLogged;
 
     static BattleUiThemeFonts()
     {
@@ -28,6 +29,7 @@ internal static class BattleUiThemeFonts
         posterFonts.Clear();
         fonts.Clear();
         tmpFonts.Clear();
+        retroShopFontLogged = false;
         // TMP_FontAsset.OnDestroy owns its atlas textures and material.
         foreach (TMP_FontAsset font in generated) BattleUiCmdFrame.Release(font);
     }
@@ -93,7 +95,30 @@ internal static class BattleUiThemeFonts
     internal static TMP_FontAsset LoadTmp(BattleUiStyle style)
     {
         if (tmpFonts.TryGetValue(style, out TMP_FontAsset font) && IsValid(font) &&
-            style != BattleUiStyle.CMD && style != BattleUiStyle.JapanTvUi) return font;
+            style != BattleUiStyle.CMD && style != BattleUiStyle.JapanTvUi && style != BattleUiStyle.RetroJapanShop) return font;
+        if (style == BattleUiStyle.RetroJapanShop)
+        {
+            font = CreateRetroShopTmp(Resources.Load<TMP_FontAsset>("HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF"));
+            TMP_FontAsset kanji = CreateRetroShopTmp(Resources.Load<TMP_FontAsset>("HarnessFonts/NotoSansJP/NotoSansJP-Variable SDF"));
+            TMP_FontAsset korean = CreateRetroShopTmp(Resources.Load<TMP_FontAsset>("HarnessFonts/IBMPlexSansKR/IBMPlexSansKR-Regular SDF"));
+            if (font == null) font = korean != null ? korean : kanji;
+            if (font != null)
+            {
+                if (kanji != null && kanji != font && !font.fallbackFontAssetTable.Contains(kanji))
+                    font.fallbackFontAssetTable.Add(kanji);
+                if (korean != null && korean != font && !font.fallbackFontAssetTable.Contains(korean))
+                    font.fallbackFontAssetTable.Add(korean);
+            }
+            tmpFonts[style] = font;
+            if (!retroShopFontLogged)
+            {
+                retroShopFontLogged = true;
+                Debug.Log("[Harness] 판촉 글꼴 연결: 기본=" + (font != null ? font.name : "없음") +
+                    ", 한자=" + (kanji != null ? "연결됨" : "없음") +
+                    ", 한글·한자 검사=" + (SupportsCmdTmp(font, "한글漢字") ? "통과" : "실패"));
+            }
+            return font;
+        }
         if (style == BattleUiStyle.JapanTvUi)
         {
             font = LoadJapanTvTmp("HarnessFonts/BlackHanSans/BlackHanSans-Regular");
@@ -124,7 +149,6 @@ internal static class BattleUiThemeFonts
             BattleUiStyle.Birthday => "HarnessFonts/Jua/Jua-Regular SDF",
             BattleUiStyle.Paper => "HarnessFonts/NanumPenScript/NanumPenScript-Regular SDF",
             BattleUiStyle.JapanTvUi => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
-            BattleUiStyle.RetroJapanShop => "HarnessFonts/BlackHanSans/BlackHanSans-Regular SDF",
             _ => null
         };
         bool poster = style == BattleUiStyle.comicStyleUi || style == BattleUiStyle.Stylish;
@@ -155,6 +179,39 @@ internal static class BattleUiThemeFonts
     }
 
     internal static TMP_FontAsset LoadJapanTvDecoration() => LoadJapanTvTmp("HarnessFonts/NotoSansJP/NotoSansJP-Variable");
+
+    private static TMP_FontAsset CreateRetroShopTmp(TMP_FontAsset source)
+    {
+        if (source == null || source.sourceFontFile == null) return null;
+        string key = "RetroJapanShop:" + source.sourceFontFile.GetInstanceID();
+        if (posterFonts.TryGetValue(key, out TMP_FontAsset font) && IsValid(font)) return font;
+        TMP_FontAsset previous = font;
+        font = TMP_FontAsset.CreateFontAsset(source.sourceFontFile, 90, 18, GlyphRenderMode.SDFAA,
+            1024, 1024, AtlasPopulationMode.Dynamic, true);
+        if (font != null)
+        {
+            font.name = source.sourceFontFile.name + " 판촉 임시 글꼴";
+            font.hideFlags = HideFlags.HideAndDontSave;
+            font.material.hideFlags = HideFlags.HideAndDontSave;
+            font.fallbackFontAssetTable = new List<TMP_FontAsset>();
+        }
+        posterFonts[key] = font;
+        ReplaceGenerated(previous, font);
+        return font;
+    }
+
+    internal static TMP_FontAsset ResolveRetroShopTmp(TMP_FontAsset preferred, string content)
+    {
+        TMP_FontAsset fallback = LoadTmp(BattleUiStyle.RetroJapanShop);
+        TMP_FontAsset rebuilt = CreateRetroShopTmp(preferred);
+        if (rebuilt != null) preferred = rebuilt;
+        if (!IsValid(preferred)) preferred = null;
+        if (preferred != null && fallback != null && preferred != fallback &&
+            !fallback.fallbackFontAssetTable.Contains(preferred) &&
+            !preferred.fallbackFontAssetTable.Contains(fallback)) preferred.fallbackFontAssetTable.Add(fallback);
+        if (SupportsCmdTmp(preferred, content)) return preferred;
+        return SupportsCmdTmp(fallback, content) ? fallback : preferred != null ? preferred : fallback;
+    }
 
     private static TMP_FontAsset LoadJapanTvTmp(string path)
     {

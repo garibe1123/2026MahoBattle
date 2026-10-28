@@ -32,6 +32,9 @@ internal static class BattleUiRetroJapanShopDrawing
 {
     internal static bool IsBadge(string name) => name == "ReactionTag" || name == "ReactionTagBadge";
 
+    internal static int Variant(BattleUiStyleSettings style, uint seed) =>
+        (int)(seed % (uint)Mathf.Clamp(style.retroShopShapeVariants, 1, 4));
+
     internal static Color Tint(Color color, float alpha)
     {
         color.a *= alpha;
@@ -44,24 +47,33 @@ internal static class BattleUiRetroJapanShopDrawing
         return new Rect(rect.center - Vector2.one * size * 0.5f, Vector2.one * size);
     }
 
-    internal static void Badge(VertexHelper vh, Rect rect, BattleUiStyleSettings style, float alpha)
+    internal static void Badge(VertexHelper vh, Rect rect, BattleUiStyleSettings style, float alpha, uint seed = 0u)
     {
         rect = BadgeRect(rect, style);
-        Star(vh, rect, style, Tint(style.retroShopRed, alpha));
+        int variant = Variant(style, seed);
+        bool swapped = style.retroShopSwapPalette && variant >= 2;
+        Star(vh, rect, style, Tint(swapped ? style.retroShopInk : style.retroShopRed, alpha), variant);
         float border = Mathf.Min(Mathf.Max(0f, style.retroShopBorderWidth), rect.height * 0.15f);
-        Star(vh, BattleUiStyleMeshEffect.Inset(rect, border), style, Tint(style.retroShopYellow, alpha));
+        Star(vh, BattleUiStyleMeshEffect.Inset(rect, border), style,
+            Tint(style.retroShopSwapPalette && (variant & 1) != 0 ? style.retroShopWhite : style.retroShopYellow, alpha), variant);
+        if (variant == 2)
+        {
+            Star(vh, BattleUiStyleMeshEffect.Inset(rect, border * 2f), style, Tint(style.retroShopRed, alpha), variant);
+            Star(vh, BattleUiStyleMeshEffect.Inset(rect, border * 3f), style, Tint(style.retroShopYellow, alpha), variant);
+        }
     }
 
-    private static void Star(VertexHelper vh, Rect rect, BattleUiStyleSettings style, Color tint)
+    private static void Star(VertexHelper vh, Rect rect, BattleUiStyleSettings style, Color tint, int variant)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
-        int count = Mathf.Clamp(style.retroShopBadgeTeeth, 8, 24) * 2;
+        bool circle = variant == 0 || variant == 2;
+        int count = circle ? 48 : variant == 3 ? 16 : Mathf.Clamp(style.retroShopBadgeTeeth, 8, 24) * 2;
         int first = vh.currentVertCount;
         vh.AddVert(rect.center, tint, Vector2.zero);
         for (int i = 0; i < count; i++)
         {
             float angle = i * Mathf.PI * 2f / count;
-            float radius = (i & 1) == 0 ? 1f : Mathf.Clamp(style.retroShopBadgeInnerRatio, 0.65f, 1f);
+            float radius = circle || (i & 1) == 0 ? 1f : Mathf.Clamp(style.retroShopBadgeInnerRatio, 0.65f, 1f);
             vh.AddVert(rect.center + new Vector2(Mathf.Cos(angle) * rect.width, Mathf.Sin(angle) * rect.height) * (radius * 0.5f), tint, Vector2.zero);
         }
         for (int i = 0; i < count; i++)
@@ -69,18 +81,66 @@ internal static class BattleUiRetroJapanShopDrawing
     }
 
     internal static void Frame(VertexHelper vh, Rect rect, BattleUiStyleSettings style, float alpha,
-        bool button = false, bool highlighted = false, bool header = false)
+        bool button = false, bool highlighted = false, bool header = false, uint seed = 0u)
     {
         if (rect.width <= 0f || rect.height <= 0f) return;
         float width = Mathf.Min(Mathf.Max(0f, style.retroShopBorderWidth), Mathf.Min(rect.width, rect.height) * 0.12f);
-        BattleUiStyleMeshEffect.Quad(vh, rect, Tint(style.retroShopInk, alpha));
-        BattleUiStyleMeshEffect.Quad(vh, BattleUiStyleMeshEffect.Inset(rect, width), Tint(highlighted ? style.retroShopYellow : style.retroShopRed, alpha));
+        int variant = button ? Variant(style, seed) : 0;
+        Face(vh, rect, style, variant, Tint(style.retroShopInk, alpha));
+        Face(vh, BattleUiStyleMeshEffect.Inset(rect, width), style, variant, Tint(highlighted ? style.retroShopYellow : style.retroShopRed, alpha));
         Rect inner = BattleUiStyleMeshEffect.Inset(rect, width * 2f);
-        BattleUiStyleMeshEffect.Quad(vh, inner, Tint(button ? style.retroShopYellow : style.retroShopWhite, alpha));
+        Color fill = !button ? style.retroShopWhite : style.retroShopSwapPalette && (variant & 1) != 0
+            ? variant == 1 ? style.retroShopRed : style.retroShopInk : style.retroShopYellow;
+        Face(vh, inner, style, variant, Tint(fill, alpha));
         if (!header || button || inner.height <= 0f) return;
         float height = inner.height * Mathf.Clamp(style.retroShopHeaderRatio, 0.1f, 0.3f);
         Rect strip = new(inner.xMin, inner.yMax - height, inner.width, height);
         Banner(vh, strip, style, alpha);
+    }
+
+    private static void Face(VertexHelper vh, Rect rect, BattleUiStyleSettings style, int variant, Color tint)
+    {
+        if (rect.width <= 0f || rect.height <= 0f) return;
+        if (variant == 0) { BattleUiStyleMeshEffect.Quad(vh, rect, tint); return; }
+        float cut = Mathf.Min(rect.width, rect.height) * Mathf.Clamp(style.retroShopCornerRatio, 0.05f, 0.3f);
+        int count = variant == 1 ? 8 : variant == 2 ? 10 : 4;
+        int first = vh.currentVertCount;
+        vh.AddVert(rect.center, tint, Vector2.zero);
+        for (int i = 0; i < count; i++)
+        {
+            Vector2 point = variant == 1 ? i switch
+            {
+                0 => new(rect.xMin + cut, rect.yMin),
+                1 => new(rect.xMin, rect.yMin + cut),
+                2 => new(rect.xMin, rect.yMax - cut),
+                3 => new(rect.xMin + cut, rect.yMax),
+                4 => new(rect.xMax - cut, rect.yMax),
+                5 => new(rect.xMax, rect.yMax - cut),
+                6 => new(rect.xMax, rect.yMin + cut),
+                _ => new(rect.xMax - cut, rect.yMin)
+            } : variant == 2 ? i switch
+            {
+                0 => new(rect.xMin, rect.yMin),
+                1 => new(rect.xMin, rect.center.y - cut),
+                2 => new(rect.xMin + cut, rect.center.y),
+                3 => new(rect.xMin, rect.center.y + cut),
+                4 => new(rect.xMin, rect.yMax),
+                5 => new(rect.xMax, rect.yMax),
+                6 => new(rect.xMax, rect.center.y + cut),
+                7 => new(rect.xMax - cut, rect.center.y),
+                8 => new(rect.xMax, rect.center.y - cut),
+                _ => new(rect.xMax, rect.yMin)
+            } : i switch
+            {
+                0 => new(rect.xMin, rect.yMin),
+                1 => new(rect.xMin + cut, rect.yMax),
+                2 => new(rect.xMax, rect.yMax),
+                _ => new(rect.xMax - cut, rect.yMin)
+            };
+            vh.AddVert(point, tint, Vector2.zero);
+        }
+        for (int i = 0; i < count; i++)
+            vh.AddTriangle(first, first + 1 + i, first + 1 + (i + 1) % count);
     }
 
     internal static void Banner(VertexHelper vh, Rect rect, BattleUiStyleSettings style, float alpha)

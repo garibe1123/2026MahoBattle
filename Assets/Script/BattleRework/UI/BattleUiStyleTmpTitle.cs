@@ -35,6 +35,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private string checkedText;
     private TMP_FontAsset checkedFont, resolvedFont;
     private bool supported, checkedCmd, checkedJapanTvUi;
+    private bool checkedRetroShop, retroShopFontIssueLogged;
     private float shear, padding;
     private float titleAngle;
     private readonly float paperAngle;
@@ -111,7 +112,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
 
     internal void Apply(TMP_FontAsset font, BattleUiStyleSettings style, bool birthday, bool decorate = true,
         BattleUiTitleMotionSettings titleMotion = null, bool overflow = false, float feedbackScale = 1f, float entrance = 1f,
-        bool primary = false, bool cmdOption = false, bool cmdSelected = false, Color? sourceTint = null, bool topOverflow = true)
+        bool primary = false, bool cmdOption = false, bool cmdSelected = false, Color? sourceTint = null, bool topOverflow = true,
+        int retroShopPalette = 0)
     {
         sourceColor = sourceTint ?? source.color;
         bool nextRetroShop = BattleUiStyleController.IsRetroJapanShop;
@@ -148,17 +150,25 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         string content = (label != null ? label.text : native.text) ?? string.Empty;
         if (cmd && content.Length > 0)
             content = cmdOption ? (cmdSelected ? "[ " + content + " ]" : "[ ] " + content) : decorate ? "> " + content : content;
-        if (checkedFont != font || checkedText != content || checkedCmd != cmd || checkedJapanTvUi != japanTvUi ||
-            ((cmd || japanTvUi) && !BattleUiThemeFonts.IsValid(resolvedFont)))
+        if (checkedFont != font || checkedText != content || checkedCmd != cmd || checkedJapanTvUi != japanTvUi || checkedRetroShop != retroShop ||
+            ((cmd || japanTvUi || retroShop) && !BattleUiThemeFonts.IsValid(resolvedFont)))
         {
             checkedFont = font;
             checkedText = content;
             checkedCmd = cmd;
             checkedJapanTvUi = japanTvUi;
+            checkedRetroShop = retroShop;
             resolvedFont = cmd ? BattleUiThemeFonts.ResolveCmdTmp(font, content) :
-                japanTvUi ? BattleUiThemeFonts.ResolveJapanTvTmp(font, content) : font;
-            supported = cmd || japanTvUi ? BattleUiThemeFonts.SupportsCmdTmp(resolvedFont, content) :
+                japanTvUi ? BattleUiThemeFonts.ResolveJapanTvTmp(font, content) :
+                retroShop ? BattleUiThemeFonts.ResolveRetroShopTmp(font, content) : font;
+            supported = cmd || japanTvUi || retroShop ? BattleUiThemeFonts.SupportsCmdTmp(resolvedFont, content) :
                 resolvedFont != null && resolvedFont.HasCharacters(content, out uint[] _, true, true);
+            if (retroShop && !supported && !retroShopFontIssueLogged)
+            {
+                retroShopFontIssueLogged = true;
+                Debug.Log("[Harness] 판촉 글리프 검사 실패: 대상=" + source.name + ", 글꼴=" +
+                    (resolvedFont != null ? resolvedFont.name : "없음") + ", 기존 글자 표시로 복귀");
+            }
         }
         font = resolvedFont;
         if (!source.isActiveAndEnabled || (titleMotion != null &&
@@ -287,6 +297,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             FontStyle.BoldAndItalic => FontStyles.Bold | FontStyles.Italic,
             _ => FontStyles.Normal
         };
+        if (retroShop && decorate) text.fontStyle = FontStyles.Bold;
         text.alignment = label != null ? Alignment(cmd && (decorate || cmdOption)
             ? (TextAnchor)((int)label.alignment / 3 * 3) : label.alignment) : native.alignment;
         if (retroShop && BattleUiRetroJapanShopDrawing.IsBadge(source.name)) text.alignment = TextAlignmentOptions.Center;
@@ -305,6 +316,9 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         if (primary) face = BattleUiStyleController.IsStylish ? style.inkBackground :
             new Color(style.outerFrame.r, style.outerFrame.g, style.outerFrame.b, sourceColor.a);
         if (retroShop) face = decorate ? style.retroShopRed : BattleUiRetroJapanShopDrawing.Tint(style.retroShopInk, sourceColor.a);
+        if (retroShop && style.retroShopSwapPalette && (retroShopPalette & 1) != 0)
+            face = BattleUiRetroJapanShopDrawing.Tint(retroShopPalette == 1 ? style.retroShopWhite : style.retroShopYellow,
+                decorate ? 1f : sourceColor.a);
         if (decorate) face.a *= sourceColor.a;
         face.a *= entrance;
         text.color = face;

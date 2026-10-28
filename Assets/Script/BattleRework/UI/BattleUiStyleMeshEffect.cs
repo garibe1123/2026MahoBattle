@@ -47,6 +47,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     private bool wasMaho;
     private bool wasStylish, wasBirthday, wasPaper, wasJapanTvUi, wasRetroShop, title;
     private uint paperSeed;
+    private uint retroShopSeed;
     private bool paperBadge, paperBadgeInner, paperBadgeIcon;
     private BattlePaperRole paperRole;
     private bool paperSheet;
@@ -169,6 +170,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     {
         if (target == null) return;
         interaction = BattleUiStyleInteraction.Bind(target);
+        retroShopSeed = interaction != null ? PaperSeed(interaction.transform) : paperSeed;
         if (image != null && interaction != null && image.transform == interaction.transform)
         {
             stylishButton = true;
@@ -361,7 +363,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                 tmpTitle.Apply(font, settings, birthday, decoratedTitle, motion, motion != null && motion.allowOverflow,
                     stylish ? interaction?.Scale ?? 1f : 1f, entrance, (stylish || retroShop) && interaction != null && interaction.Primary,
                     interaction != null || (cmdSelection != null && title),
-                    (interaction != null && interaction.Highlighted) || (cmdSelection != null && cmdSelection.CmdSelected), topOverflow: title);
+                    (interaction != null && interaction.Highlighted) || (cmdSelection != null && cmdSelection.CmdSelected), topOverflow: title,
+                    retroShopPalette: retroShop && interaction != null ? BattleUiRetroJapanShopDrawing.Variant(settings, retroShopSeed) : 0);
             }
             else HideTmpTitle();
         }
@@ -440,7 +443,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             if (tmpTitle == null) tmpTitle = new BattleUiStyleTmpTitle(nativeText);
             tmpTitle.Apply(posterFont, settings, false, decoratedTitle, TitleMotion(settings),
                 feedbackScale: !comic && !japanTvUi ? interaction?.Scale ?? 1f : 1f,
-                primary: !comic && interaction != null && interaction.Primary, sourceTint: originalTmpColor, topOverflow: title);
+                primary: !comic && interaction != null && interaction.Primary, sourceTint: originalTmpColor, topOverflow: title,
+                retroShopPalette: retroShop && interaction != null ? BattleUiRetroJapanShopDrawing.Variant(settings, retroShopSeed) : 0);
             if (!tmpTitle.Visible) { RestoreNativeText(); return; }
             appliedTmpColor = new Color(originalTmpColor.r, originalTmpColor.g, originalTmpColor.b, 0f);
             if (nativeText.color != appliedTmpColor) nativeText.color = appliedTmpColor;
@@ -801,9 +805,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         {
             vh.Clear();
             if (BattleUiRetroJapanShopDrawing.IsBadge(image.name))
-                BattleUiRetroJapanShopDrawing.Badge(vh, target.rectTransform.rect, style, image.color.a);
+                BattleUiRetroJapanShopDrawing.Badge(vh, target.rectTransform.rect, style, image.color.a, paperSeed);
             else BattleUiRetroJapanShopDrawing.Frame(vh, target.rectTransform.rect, style, image.color.a,
-                stylishButton || speechBadge, interaction != null && interaction.Highlighted);
+                stylishButton || speechBadge, interaction != null && interaction.Highlighted, seed: retroShopSeed);
             return;
         }
         if (!speech && label == null && (image == null || image.type != Image.Type.Filled)) return;

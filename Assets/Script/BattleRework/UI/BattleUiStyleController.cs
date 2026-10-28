@@ -246,6 +246,9 @@ public sealed class BattleUiStyleSettings
     [Range(8, 24)] public int retroShopBadgeTeeth = 16;
     [Range(0.65f, 1f)] public float retroShopBadgeInnerRatio = 0.8f;
     [Range(0.1f, 0.3f)] public float retroShopHeaderRatio = 0.2f;
+    [Range(1, 4)] public int retroShopShapeVariants = 4;
+    [Range(0.05f, 0.3f)] public float retroShopCornerRatio = 0.18f;
+    public bool retroShopSwapPalette = true;
 }
 
 [DisallowMultipleComponent]
