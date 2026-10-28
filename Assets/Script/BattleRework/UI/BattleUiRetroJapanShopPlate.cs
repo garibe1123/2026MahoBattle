@@ -35,6 +35,12 @@ internal static class BattleUiRetroJapanShopDrawing
     internal static int Variant(BattleUiStyleSettings style, uint seed) =>
         (int)(seed % (uint)Mathf.Clamp(style.retroShopShapeVariants, 1, 4));
 
+    internal static Color FillColor(BattleUiStyleSettings style, int variant) =>
+        style.retroShopSwapPalette && (variant & 1) != 0 ? style.retroShopRed : style.retroShopYellow;
+
+    internal static Color TextColor(BattleUiStyleSettings style, int variant) =>
+        style.retroShopSwapPalette && (variant & 1) != 0 ? style.retroShopYellow : style.retroShopRed;
+
     internal static Color Tint(Color color, float alpha)
     {
         color.a *= alpha;
@@ -51,16 +57,18 @@ internal static class BattleUiRetroJapanShopDrawing
     {
         rect = BadgeRect(rect, style);
         int variant = Variant(style, seed);
-        bool swapped = style.retroShopSwapPalette && variant >= 2;
-        Star(vh, rect, style, Tint(swapped ? style.retroShopInk : style.retroShopRed, alpha), variant);
+        Color fill = Tint(FillColor(style, variant), alpha);
+        Color borderColor = Tint(TextColor(style, variant), alpha);
+        if (variant == 0) { Star(vh, rect, style, fill, variant); return; }
+        Star(vh, rect, style, borderColor, variant);
         float border = Mathf.Min(Mathf.Max(0f, style.retroShopBorderWidth), rect.height * 0.15f);
-        Star(vh, BattleUiStyleMeshEffect.Inset(rect, border), style,
-            Tint(style.retroShopSwapPalette && (variant & 1) != 0 ? style.retroShopWhite : style.retroShopYellow, alpha), variant);
-        if (variant == 2)
+        if (variant == 2 && style.retroShopBadgeOuterRing)
         {
-            Star(vh, BattleUiStyleMeshEffect.Inset(rect, border * 2f), style, Tint(style.retroShopRed, alpha), variant);
-            Star(vh, BattleUiStyleMeshEffect.Inset(rect, border * 3f), style, Tint(style.retroShopYellow, alpha), variant);
+            Star(vh, BattleUiStyleMeshEffect.Inset(rect, border), style, Tint(style.retroShopWhite, alpha), variant);
+            Star(vh, BattleUiStyleMeshEffect.Inset(rect, border * 2f), style, borderColor, variant);
+            Star(vh, BattleUiStyleMeshEffect.Inset(rect, border * 3f), style, fill, variant);
         }
+        else Star(vh, BattleUiStyleMeshEffect.Inset(rect, border), style, fill, variant);
     }
 
     private static void Star(VertexHelper vh, Rect rect, BattleUiStyleSettings style, Color tint, int variant)
@@ -86,11 +94,11 @@ internal static class BattleUiRetroJapanShopDrawing
         if (rect.width <= 0f || rect.height <= 0f) return;
         float width = Mathf.Min(Mathf.Max(0f, style.retroShopBorderWidth), Mathf.Min(rect.width, rect.height) * 0.12f);
         int variant = button ? Variant(style, seed) : 0;
-        Face(vh, rect, style, variant, Tint(style.retroShopInk, alpha));
-        Face(vh, BattleUiStyleMeshEffect.Inset(rect, width), style, variant, Tint(highlighted ? style.retroShopYellow : style.retroShopRed, alpha));
+        Face(vh, rect, style, variant, Tint(TextColor(style, variant), alpha));
+        Face(vh, BattleUiStyleMeshEffect.Inset(rect, width), style, variant,
+            Tint(button && highlighted ? TextColor(style, variant) : style.retroShopWhite, alpha));
         Rect inner = BattleUiStyleMeshEffect.Inset(rect, width * 2f);
-        Color fill = !button ? style.retroShopWhite : style.retroShopSwapPalette && (variant & 1) != 0
-            ? variant == 1 ? style.retroShopRed : style.retroShopInk : style.retroShopYellow;
+        Color fill = FillColor(style, variant);
         Face(vh, inner, style, variant, Tint(fill, alpha));
         if (!header || button || inner.height <= 0f) return;
         float height = inner.height * Mathf.Clamp(style.retroShopHeaderRatio, 0.1f, 0.3f);
@@ -203,21 +211,22 @@ internal sealed class BattleUiRetroJapanShopTitle : IDisposable
         BattleUiOpticsCanvas.Register(outline);
     }
 
-    internal void Apply(TextMeshProUGUI text, BattleUiStyleSettings style, float stroke, float alpha, bool banner)
+    internal void Apply(TextMeshProUGUI text, BattleUiStyleSettings style, float stroke, float alpha, bool banner, Color strokeColor)
     {
-        if (outline.font != text.font || material == null || material.mainTexture == null)
+        if (outline.font != text.font || material == null || material.mainTexture != text.font.material.mainTexture)
         {
             if (material != null) Release(material);
             outline.font = text.font;
             material = new Material(text.font.material) { hideFlags = HideFlags.HideAndDontSave };
+            material.SetColor("_FaceColor", Color.white);
             material.DisableKeyword("UNDERLAY_ON");
             material.DisableKeyword("GLOW_ON");
             outline.fontSharedMaterial = material;
         }
         float width = Mathf.Clamp01(stroke * Mathf.Clamp(style.retroShopOuterStrokeScale, 1.2f, 2f));
-        if (material.GetColor("_OutlineColor") != style.retroShopInk || material.GetFloat("_OutlineWidth") != width)
+        if (material.GetColor("_OutlineColor") != strokeColor || material.GetFloat("_OutlineWidth") != width)
         {
-            material.SetColor("_OutlineColor", style.retroShopInk);
+            material.SetColor("_OutlineColor", strokeColor);
             material.SetFloat("_OutlineWidth", width);
             outline.UpdateMeshPadding();
             outline.SetMaterialDirty();
@@ -237,7 +246,7 @@ internal sealed class BattleUiRetroJapanShopTitle : IDisposable
         outline.margin = text.margin;
         outline.richText = text.richText;
         outline.maskable = source.maskable;
-        outline.color = BattleUiRetroJapanShopDrawing.Tint(style.retroShopInk, alpha);
+        outline.color = BattleUiRetroJapanShopDrawing.Tint(strokeColor, alpha);
         outline.text = text.text;
         outline.canvasRenderer.SetColor(source.canvasRenderer.GetColor());
         outline.gameObject.SetActive(true);

@@ -249,6 +249,7 @@ public sealed class BattleUiStyleSettings
     [Range(1, 4)] public int retroShopShapeVariants = 4;
     [Range(0.05f, 0.3f)] public float retroShopCornerRatio = 0.18f;
     public bool retroShopSwapPalette = true;
+    public bool retroShopBadgeOuterRing = true;
 }
 
 [DisallowMultipleComponent]

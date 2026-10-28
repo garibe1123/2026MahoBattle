@@ -171,6 +171,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         if (target == null) return;
         interaction = BattleUiStyleInteraction.Bind(target);
         retroShopSeed = interaction != null ? PaperSeed(interaction.transform) : paperSeed;
+        if (BattleUiRetroJapanShopDrawing.IsBadge(target.name))
+            retroShopSeed = PaperSeed(target.name == "ReactionTag" && target.transform.parent != null
+                ? target.transform.parent : target.transform);
         if (image != null && interaction != null && image.transform == interaction.transform)
         {
             stylishButton = true;
@@ -364,7 +367,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
                     stylish ? interaction?.Scale ?? 1f : 1f, entrance, (stylish || retroShop) && interaction != null && interaction.Primary,
                     interaction != null || (cmdSelection != null && title),
                     (interaction != null && interaction.Highlighted) || (cmdSelection != null && cmdSelection.CmdSelected), topOverflow: title,
-                    retroShopPalette: retroShop && interaction != null ? BattleUiRetroJapanShopDrawing.Variant(settings, retroShopSeed) : 0);
+                    retroShopPalette: retroShop && (interaction != null || BattleUiRetroJapanShopDrawing.IsBadge(target.name))
+                        ? BattleUiRetroJapanShopDrawing.Variant(settings, retroShopSeed) : 0);
             }
             else HideTmpTitle();
         }
@@ -444,7 +448,8 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
             tmpTitle.Apply(posterFont, settings, false, decoratedTitle, TitleMotion(settings),
                 feedbackScale: !comic && !japanTvUi ? interaction?.Scale ?? 1f : 1f,
                 primary: !comic && interaction != null && interaction.Primary, sourceTint: originalTmpColor, topOverflow: title,
-                retroShopPalette: retroShop && interaction != null ? BattleUiRetroJapanShopDrawing.Variant(settings, retroShopSeed) : 0);
+                retroShopPalette: retroShop && (interaction != null || BattleUiRetroJapanShopDrawing.IsBadge(target.name))
+                    ? BattleUiRetroJapanShopDrawing.Variant(settings, retroShopSeed) : 0);
             if (!tmpTitle.Visible) { RestoreNativeText(); return; }
             appliedTmpColor = new Color(originalTmpColor.r, originalTmpColor.g, originalTmpColor.b, 0f);
             if (nativeText.color != appliedTmpColor) nativeText.color = appliedTmpColor;
@@ -805,7 +810,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         {
             vh.Clear();
             if (BattleUiRetroJapanShopDrawing.IsBadge(image.name))
-                BattleUiRetroJapanShopDrawing.Badge(vh, target.rectTransform.rect, style, image.color.a, paperSeed);
+                BattleUiRetroJapanShopDrawing.Badge(vh, target.rectTransform.rect, style, image.color.a, retroShopSeed);
             else BattleUiRetroJapanShopDrawing.Frame(vh, target.rectTransform.rect, style, image.color.a,
                 stylishButton || speechBadge, interaction != null && interaction.Highlighted, seed: retroShopSeed);
             return;
@@ -816,7 +821,9 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
         {
             vh.PopulateUIVertex(ref vertex, i);
             Color tint = speech ? (speechFrame || tailOutline ? style.retroShopRed : style.retroShopWhite) :
-                label != null ? style.retroShopInk : Palette(vertex.color, style, true);
+                label != null ? BattleUiRetroJapanShopDrawing.TextColor(style,
+                    interaction != null || BattleUiRetroJapanShopDrawing.IsBadge(target.name)
+                        ? BattleUiRetroJapanShopDrawing.Variant(style, retroShopSeed) : 0) : Palette(vertex.color, style, true);
             tint.a *= vertex.color.a / 255f;
             vertex.color = tint;
             vh.SetUIVertex(vertex, i);
@@ -959,7 +966,7 @@ public sealed class BattleUiStyleMeshEffect : BaseMeshEffect
     internal static Color TextColor(Color source, BattleUiStyleSettings settings)
     {
         if (BattleUiStyleController.IsRetroJapanShop)
-            return BattleUiRetroJapanShopDrawing.Tint(settings.retroShopInk, source.a);
+            return BattleUiRetroJapanShopDrawing.Tint(settings.retroShopRed, source.a);
         if (BattleUiStyleController.IsJapanTvUi)
         {
             Color color = Palette(source, settings, false);

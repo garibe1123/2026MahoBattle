@@ -35,7 +35,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
     private string checkedText;
     private TMP_FontAsset checkedFont, resolvedFont;
     private bool supported, checkedCmd, checkedJapanTvUi;
-    private bool checkedRetroShop, retroShopFontIssueLogged;
+    private bool checkedRetroShop, retroShopFontIssueLogged, retroShopAtlasIssueLogged;
     private float shear, padding;
     private float titleAngle;
     private readonly float paperAngle;
@@ -161,7 +161,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             resolvedFont = cmd ? BattleUiThemeFonts.ResolveCmdTmp(font, content) :
                 japanTvUi ? BattleUiThemeFonts.ResolveJapanTvTmp(font, content) :
                 retroShop ? BattleUiThemeFonts.ResolveRetroShopTmp(font, content) : font;
-            supported = cmd || japanTvUi || retroShop ? BattleUiThemeFonts.SupportsCmdTmp(resolvedFont, content) :
+            supported = retroShop ? BattleUiThemeFonts.SupportsRetroShopTmp(resolvedFont, content) :
+                cmd || japanTvUi ? BattleUiThemeFonts.SupportsCmdTmp(resolvedFont, content) :
                 resolvedFont != null && resolvedFont.HasCharacters(content, out uint[] _, true, true);
             if (retroShop && !supported && !retroShopFontIssueLogged)
             {
@@ -183,11 +184,18 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             Refresh();
         }
         if (content.Length == 0) ResetMotion();
-        if (text.font != font || material == null || material.mainTexture == null || text.fontSharedMaterial != material)
+        if (retroShop && material != null && material.mainTexture != font.material.mainTexture && !retroShopAtlasIssueLogged)
+        {
+            retroShopAtlasIssueLogged = true;
+            Debug.Log("[Harness] 판촉 아틀라스 재연결: 대상=" + source.name + ", 글꼴=" + font.name);
+        }
+        if (text.font != font || material == null || material.mainTexture == null ||
+            (retroShop && material.mainTexture != font.material.mainTexture) || text.fontSharedMaterial != material)
         {
             if (material != null) Release(material);
             text.font = font;
             material = new Material(font.material) { hideFlags = HideFlags.HideAndDontSave };
+            if (retroShop) material.SetColor("_FaceColor", Color.white);
             material.EnableKeyword("UNDERLAY_ON");
             text.fontSharedMaterial = material;
             outlineWidth = -1f;
@@ -297,7 +305,7 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
             FontStyle.BoldAndItalic => FontStyles.Bold | FontStyles.Italic,
             _ => FontStyles.Normal
         };
-        if (retroShop && decorate) text.fontStyle = FontStyles.Bold;
+        if (retroShop) text.fontStyle = FontStyles.Normal;
         text.alignment = label != null ? Alignment(cmd && (decorate || cmdOption)
             ? (TextAnchor)((int)label.alignment / 3 * 3) : label.alignment) : native.alignment;
         if (retroShop && BattleUiRetroJapanShopDrawing.IsBadge(source.name)) text.alignment = TextAlignmentOptions.Center;
@@ -315,9 +323,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         }
         if (primary) face = BattleUiStyleController.IsStylish ? style.inkBackground :
             new Color(style.outerFrame.r, style.outerFrame.g, style.outerFrame.b, sourceColor.a);
-        if (retroShop) face = decorate ? style.retroShopRed : BattleUiRetroJapanShopDrawing.Tint(style.retroShopInk, sourceColor.a);
-        if (retroShop && style.retroShopSwapPalette && (retroShopPalette & 1) != 0)
-            face = BattleUiRetroJapanShopDrawing.Tint(retroShopPalette == 1 ? style.retroShopWhite : style.retroShopYellow,
+        if (retroShop)
+            face = BattleUiRetroJapanShopDrawing.Tint(BattleUiRetroJapanShopDrawing.TextColor(style, retroShopPalette),
                 decorate ? 1f : sourceColor.a);
         if (decorate) face.a *= sourceColor.a;
         face.a *= entrance;
@@ -333,7 +340,8 @@ internal sealed class BattleUiStyleTmpTitle : IDisposable
         {
             if (retroShopTitle == null) retroShopTitle = new BattleUiRetroJapanShopTitle(source, text, FitRetroShopOutline);
             retroShopTitle.Apply(text, style, outlineWidth, sourceColor.a,
-                !primary && !BattleUiRetroJapanShopDrawing.IsBadge(source.name) && source.name != "PresenterName");
+                !primary && !BattleUiRetroJapanShopDrawing.IsBadge(source.name) && source.name != "PresenterName",
+                BattleUiRetroJapanShopDrawing.FillColor(style, retroShopPalette));
         }
         else retroShopTitle?.Hide();
         if (backing != null) backing.gameObject.SetActive(poster && content.Length > 0 && sourceColor.a > 0f);
