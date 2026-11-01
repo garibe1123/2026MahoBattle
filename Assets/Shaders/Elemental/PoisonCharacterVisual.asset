@@ -1324,7 +1324,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c975b0b5849cdff45a825502748620c6, type: 3}
   m_Name: PoisonCharacterVisual
   m_EditorClassIdentifier: 
-  visualScale: 0.12
+  visualScale: 0.47
+  countValue: 1.03
   element: {fileID: 0}
   family: 0
   usage: 0

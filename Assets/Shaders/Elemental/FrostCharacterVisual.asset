@@ -223,7 +223,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: c975b0b5849cdff45a825502748620c6, type: 3}
   m_Name: FrostCharacterVisual
   m_EditorClassIdentifier: 
-  visualScale: 1
+  visualScale: 0.2
+  countValue: 0.56
   element: {fileID: 0}
   family: 0
   usage: 0
@@ -249,7 +250,7 @@ MonoBehaviour:
     frameCount: 4
     fps: 16
     sprites: []
-  duration: 0.6
+  duration: 2
   idleEnd: 1
   shortLife: 0
   introStop: 0
@@ -790,7 +791,7 @@ MonoBehaviour:
   sortingMode: 4
   character:
     shape: 2
-    shapeAspect: {x: 1, y: 1.4}
+    shapeAspect: {x: 1.5, y: 1.5}
     shapeCore: {r: 1, g: 1, b: 1, a: 1}
     shapeEdge: {r: 0.5137255, g: 0.8745098, b: 1, a: 1}
     shapeHighlight: {r: 1, g: 1, b: 1, a: 1}

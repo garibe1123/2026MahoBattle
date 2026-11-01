@@ -489,6 +489,7 @@ MonoBehaviour:
   accentCyan: {r: 0.15, g: 0.88, b: 0.92, a: 1}
   accentPink: {r: 1, g: 0.18, b: 0.52, a: 1}
   lockedColor: {r: 0.07, g: 0.075, b: 0.085, a: 0.92}
+  comicLinkClearance: 4
   uiSharpness: 16
   packMorphDuration: 0.34
   packRestOffset: {x: -248, y: -62}
@@ -502,6 +503,7 @@ MonoBehaviour:
   itemTooltipPopupOvershootScale: 1.075
   itemTooltipPopupDuration: 0.15
   itemTooltipPopupTravel: 24
+  comicTooltipAngleRange: 2
   itemTooltipCloseDuration: 0.085
   itemTooltipCloseScale: 0.96
   hpColor: {r: 0.95, g: 0.18, b: 0.3, a: 1}
@@ -867,6 +869,7 @@ MonoBehaviour:
   disabledColor: {r: 0.22, g: 0.23, b: 0.26, a: 0.96}
   inkColor: {r: 0.018, g: 0.02, b: 0.024, a: 1}
   disabledTextColor: {r: 0.72, g: 0.73, b: 0.76, a: 1}
+  comicTextColor: {r: 1, g: 1, b: 1, a: 1}
   wobbleSpeed: 3.9
   squashX: 0.04
   squashY: 0.026
@@ -1539,6 +1542,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -1627,6 +1729,54 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   comicStyleUi:
     lockMarkSizeRatio: 0.55
     lockMarkStrokeRatio: 0.075
@@ -1654,6 +1804,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -1742,6 +1991,54 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   vectorStyleUi:
     lockMarkSizeRatio: 0.55
     lockMarkStrokeRatio: 0.075
@@ -1769,6 +2066,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -1857,6 +2253,54 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   mahoShojo:
     lockMarkSizeRatio: 0.55
     lockMarkStrokeRatio: 0.075
@@ -1884,6 +2328,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -1972,6 +2515,54 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   stylish:
     lockMarkSizeRatio: 0.55
     lockMarkStrokeRatio: 0.075
@@ -1999,6 +2590,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -2087,6 +2777,54 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   birthday:
     lockMarkSizeRatio: 0.55
     lockMarkStrokeRatio: 0.075
@@ -2114,6 +2852,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -2202,6 +3039,54 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   paper:
     lockMarkSizeRatio: 0.55
     lockMarkStrokeRatio: 0.075
@@ -2229,6 +3114,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -2317,6 +3301,54 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   cmd:
     lockMarkSizeRatio: 0.55
     lockMarkStrokeRatio: 0.075
@@ -2344,6 +3376,105 @@ MonoBehaviour:
     comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
     comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
     comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
     mahoCornerRadius: 14
     mahoBorderWidth: 1
     mahoShadowOffset: {x: 3, y: -4}
@@ -2432,6 +3563,578 @@ MonoBehaviour:
     paperDotRadius: 0.8
     cmdFrameFontSize: 14
     cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
+  japanTvUi:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
+    combatBackgroundAlpha: 0.5
+    lockedSlotAlpha: 0.4
+    logicalPixelSize: 2
+    textPixelSize: 1
+    surfaceShade: 0.55
+    frameShade: 0.6
+    framePixels: 1
+    background: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    innerLine: {r: 1, g: 0.972549, b: 0.9019608, a: 1}
+    outerFrame: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    status: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    font: {fileID: 0}
+    fontAsset: {fileID: 0}
+    panelMaterial: {fileID: 0}
+    textMaterial: {fileID: 0}
+    danger: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    energy: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    highlight: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
+    comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
+    comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
+    mahoCornerRadius: 14
+    mahoBorderWidth: 1
+    mahoShadowOffset: {x: 3, y: -4}
+    mahoShadow: {r: 0, g: 0, b: 0, a: 0.08}
+    stylishBorderWidth: 4
+    stylishTitleShear: 0.18
+    birthdayBorderWidth: 2
+    birthdayStarCount: 2
+    birthdayStarSizeRatio: 0.12
+    birthdayStarMaxSize: 24
+    birthdayStarMinPanelSize: 120
+    titleFont: {fileID: 0}
+    titleOutlineWidth: 0.16
+    titleShadowOffset: {x: 1, y: -1}
+    titlePadding: 2
+    titleSizeMultiplier: 1.4
+    stylishTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 1
+      overflowMargin: 0.15
+      scale: {x: 0.85, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 1
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    stylishDotSpacing: 10
+    stylishDotRadius: 0.8
+    surfacePatternAlpha: 0.12
+    stylishMagenta: {r: 0.64705884, g: 0.10980392, b: 0.4117647, a: 1}
+    stylishNeon: {r: 0.14509805, g: 0.8980392, b: 0.95686275, a: 1}
+    stylishCta: {r: 0.1254902, g: 0.87058824, b: 0.8352941, a: 1}
+    stylishPanelAngle: 8
+    stylishGlowWidth: 8
+    stylishShadowOffset: 6
+    stylishTitleAngle: -10
+    stylishHoverDuration: 0.12
+    stylishPressDuration: 0.08
+    stylishEnterDuration: 0.25
+    stylishCloseDuration: 0.12
+    stylishHoverScale: 1.04
+    stylishPressScale: 0.96
+    stylishConfirmDuration: 0.35
+    stylishCardRadius: 24
+    stylishColorBandAlpha: 0.32
+    stylishColorBandHeight: 0.24
+    paperBorderWidth: 6
+    paperShadowOffset: {x: 2, y: -3}
+    paperShadow: {r: 0, g: 0, b: 0, a: 0.1}
+    paperDecorationAngle: 2
+    paperLabelAngle: 1
+    paperCornerMin: 0.02
+    paperCornerMax: 0.05
+    paperGrainStrength: 0.035
+    paperStainStrength: 0.025
+    paperCreaseStrength: 0.22
+    paperFoldSize: 0.18
+    paperFiberScale: 0.7
+    paperSheetBorderScale: 0.22
+    paperPunchRadius: 2.5
+    paperPunchSpacing: 28
+    paperPunchInset: 9
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
+  retroJapanShop:
+    lockMarkSizeRatio: 0.55
+    lockMarkStrokeRatio: 0.075
+    lockMarkAlpha: 0.75
+    lockMarkVariation: 0.65
+    lockMarkInkNoise: 0.35
+    combatBackgroundAlpha: 0.5
+    lockedSlotAlpha: 0.4
+    logicalPixelSize: 2
+    textPixelSize: 1
+    surfaceShade: 0.55
+    frameShade: 0.6
+    framePixels: 1
+    background: {r: 1, g: 1, b: 1, a: 1}
+    innerLine: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    outerFrame: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    status: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    font: {fileID: 0}
+    fontAsset: {fileID: 0}
+    panelMaterial: {fileID: 0}
+    textMaterial: {fileID: 0}
+    danger: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    energy: {r: 1, g: 0.9411765, b: 0, a: 1}
+    highlight: {r: 1, g: 0.9411765, b: 0, a: 1}
+    comicBackground: {r: 0.07058824, g: 0.0627451, b: 0.08627451, a: 1}
+    comicPaper: {r: 0.98039216, g: 0.9607843, b: 0.9137255, a: 1}
+    comicAccent: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicInk: {r: 0.0627451, g: 0.0627451, b: 0.0627451, a: 1}
+    comicWhite: {r: 1, g: 0.972549, b: 0.9098039, a: 1}
+    comicRed: {r: 0.8980392, g: 0.14509805, b: 0.1254902, a: 1}
+    comicYellow: {r: 1, g: 0.76862746, b: 0, a: 1}
+    comicShadowOffset: 8
+    comicDotSpacing: 10
+    comicDotRadius: 1.2
+    comicSelection: {r: 0.9019608, g: 0.13725491, b: 0.19607843, a: 1}
+    comicOuterWidth: 10
+    comicInnerWidth: 5
+    comicPanelAngle: -5
+    comicAngleVariation: 2
+    comicPerspectiveRatio: 0.14
+    comicPerspectiveMax: 18
+    comicInventoryTopPerspective: 0.6
+    comicInventoryMiddlePerspective: 1
+    comicInventoryBottomPerspective: 1.6
+    comicInventoryExpandedInset: 0.18
+    comicInventoryExpandedTaperScale: 0.5
+    comicInventoryCompactBottomAngleScale: 0.5
+    comicSpikeRatio: 0.12
+    comicTitleFont: {fileID: 0}
+    comicTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.25, y: 1.25}
+        rotation: -10
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 0.85, y: 0.85}
+        rotation: 7
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1.1, y: 1.1}
+        rotation: -4
+        shear: 0
+      - offset: {x: 0, y: 0}
+        scale: {x: 1, y: 1}
+        rotation: 10
+        shear: 0
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 0
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    inkBackground: {r: 0.0627451, g: 0.0627451, b: 0.09411765, a: 1}
+    inkLime: {r: 0.72156864, g: 1, b: 0, a: 1}
+    inkMagenta: {r: 1, g: 0.22352941, b: 0.78431374, a: 1}
+    inkCyan: {r: 0.13333334, g: 0.9098039, b: 1, a: 1}
+    inkText: {r: 1, g: 1, b: 1, a: 1}
+    inkGlassOpacity: 0.72
+    inkBackdropBlur: 12
+    inkPanelAngle: 3
+    inkOutlineWidth: 4
+    inkGlowWidth: 10
+    inkLobeRatio: 0.055
+    inkTitleFont: {fileID: 0}
+    inkTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 0
+      overflowMargin: 0.15
+      scale: {x: 1, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 0
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    posterTitleBodyRatio: 2.1
+    posterTitleStrokeRatio: 0.08
+    posterTitleTopOverflow: 0.15
+    mahoCornerRadius: 14
+    mahoBorderWidth: 1
+    mahoShadowOffset: {x: 3, y: -4}
+    mahoShadow: {r: 0, g: 0, b: 0, a: 0.08}
+    stylishBorderWidth: 4
+    stylishTitleShear: 0.18
+    birthdayBorderWidth: 2
+    birthdayStarCount: 2
+    birthdayStarSizeRatio: 0.12
+    birthdayStarMaxSize: 24
+    birthdayStarMinPanelSize: 120
+    titleFont: {fileID: 0}
+    titleOutlineWidth: 0.16
+    titleShadowOffset: {x: 0, y: 0}
+    titlePadding: 2
+    titleSizeMultiplier: 1
+    stylishTitleMotion:
+      enabled: 1
+      targetParent: MissionDetail
+      targetName: Title
+      allowOverflow: 1
+      overflowMargin: 0.15
+      scale: {x: 0.85, y: 1}
+      transformCharacters: 1
+      characters:
+      - offset: {x: 0, y: 0.025}
+        scale: {x: 1.04, y: 1.04}
+        rotation: -5
+        shear: 0.03
+      - offset: {x: 0, y: -0.025}
+        scale: {x: 0.96, y: 0.96}
+        rotation: 5
+        shear: -0.03
+      curveLines: 0
+      curveHeight: 0.08
+      bounce: 1
+      bounceAmplitude: 0.08
+      characterDelay: 0.04
+      bounceDuration: 0.35
+      accentCharacters: 1
+      cyan: {r: 0, g: 0.90588236, b: 0.8745098, a: 1}
+      magenta: {r: 0.9372549, g: 0.08627451, b: 0.92156863, a: 1}
+      yellow: {r: 1, g: 0.9411765, b: 0.16862746, a: 1}
+    stylishDotSpacing: 10
+    stylishDotRadius: 0.8
+    surfacePatternAlpha: 0.12
+    stylishMagenta: {r: 0.64705884, g: 0.10980392, b: 0.4117647, a: 1}
+    stylishNeon: {r: 0.14509805, g: 0.8980392, b: 0.95686275, a: 1}
+    stylishCta: {r: 0.1254902, g: 0.87058824, b: 0.8352941, a: 1}
+    stylishPanelAngle: 8
+    stylishGlowWidth: 8
+    stylishShadowOffset: 6
+    stylishTitleAngle: -10
+    stylishHoverDuration: 0.12
+    stylishPressDuration: 0.08
+    stylishEnterDuration: 0.25
+    stylishCloseDuration: 0.12
+    stylishHoverScale: 1.04
+    stylishPressScale: 0.96
+    stylishConfirmDuration: 0.35
+    stylishCardRadius: 24
+    stylishColorBandAlpha: 0.32
+    stylishColorBandHeight: 0.24
+    paperBorderWidth: 6
+    paperShadowOffset: {x: 2, y: -3}
+    paperShadow: {r: 0, g: 0, b: 0, a: 0.1}
+    paperDecorationAngle: 2
+    paperLabelAngle: 1
+    paperCornerMin: 0.02
+    paperCornerMax: 0.05
+    paperGrainStrength: 0.035
+    paperStainStrength: 0.025
+    paperCreaseStrength: 0.22
+    paperFoldSize: 0.18
+    paperFiberScale: 0.7
+    paperSheetBorderScale: 0.22
+    paperPunchRadius: 2.5
+    paperPunchSpacing: 28
+    paperPunchInset: 9
+    paperPunchEdgeInset: 14
+    paperInventoryColor: {r: 0.8980392, g: 0.92156863, b: 0.8509804, a: 1}
+    paperDetailColor: {r: 0.9098039, g: 0.8862745, b: 0.9372549, a: 1}
+    paperPatternSpacing: 16
+    paperPatternAlpha: 0.055
+    paperLineWidth: 0.6
+    paperDotRadius: 0.8
+    cmdFrameFontSize: 14
+    cmdCursorBlinkSeconds: 0.5
+    japanTvBurstOuter: {r: 0.9372549, g: 0.14901961, b: 0.21960784, a: 1}
+    japanTvYellow: {r: 1, g: 0.94509804, b: 0.16862746, a: 1}
+    japanTvOrange: {r: 1, g: 0.5882353, b: 0, a: 1}
+    japanTvRed: {r: 0.8980392, g: 0.105882354, b: 0.16862746, a: 1}
+    japanTvShadow: {r: 0.32941177, g: 0.0627451, b: 0.09803922, a: 1}
+    japanTvInk: {r: 0.08627451, g: 0.07058824, b: 0.09411765, a: 1}
+    japanTvCyan: {r: 0, g: 0.7490196, b: 0.79607844, a: 1}
+    japanTvPink: {r: 0.9529412, g: 0.16078432, b: 0.54509807, a: 1}
+    japanTvPurple: {r: 0.54901963, g: 0.20784314, b: 0.7137255, a: 1}
+    japanTvGreen: {r: 0.1254902, g: 0.6509804, b: 0.29411766, a: 1}
+    japanTvRayPink: {r: 0.9411765, g: 0, b: 0.5294118, a: 1}
+    japanTvRayCyan: {r: 0.09803922, g: 0.49803922, b: 0.65882355, a: 1}
+    japanTvCheckDark: {r: 0.14117648, g: 0.08235294, b: 0.15294118, a: 1}
+    japanTvCheckPink: {r: 0.7411765, g: 0.09019608, b: 0.41960785, a: 1}
+    japanTvBulb: {r: 1, g: 0.9490196, b: 0.6901961, a: 1}
+    japanTvTitleAngle: -8
+    japanTvTitleBodyRatio: 1.8
+    japanTvStrokeRatio: 0.08
+    japanTvOuterStrokeScale: 1.8
+    japanTvDepthOffset: {x: 0.3, y: -0.7}
+    japanTvEnterSeconds: 0.28
+    japanTvEnterScale: 0.85
+    japanTvOvershootScale: 1.08
+    japanTvBulbPeriod: 1.2
+    japanTvBorder: 4
+    japanTvBulbSpacing: 26
+    japanTvBulbRadius: 4
+    japanTvCutRatio: 0.18
+    japanTvMatteGrain: 0.07
+    japanTvPaper: {r: 0.95686275, g: 0.90588236, b: 0.8, a: 1}
+    japanTvDecorationFontSize: 14
+    japanTvRibbonRatio: 0.22
+    retroShopRed: {r: 0.9019608, g: 0, b: 0.07058824, a: 1}
+    retroShopYellow: {r: 1, g: 0.9411765, b: 0, a: 1}
+    retroShopWhite: {r: 1, g: 1, b: 1, a: 1}
+    retroShopInk: {r: 0.07058824, g: 0.07058824, b: 0.07058824, a: 1}
+    retroShopTitleStrokeRatio: 0.08
+    retroShopOuterStrokeScale: 1.7
+    retroShopBannerAngle: 7
+    retroShopBorderWidth: 3
+    retroShopBadgeSizeRatio: 0.9
+    retroShopBadgeTeeth: 16
+    retroShopBadgeInnerRatio: 0.8
+    retroShopHeaderRatio: 0.2
+    retroShopShapeVariants: 4
+    retroShopCornerRatio: 0.18
+    retroShopSwapPalette: 1
+    retroShopBadgeOuterRing: 1
   enableScreenTone: 1
   screenTone:
     DotSize: 13
